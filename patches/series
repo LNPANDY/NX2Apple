@@ -48,3 +48,10 @@
 0078-document-the-fork-touch-controls-so-environment.patch
 0079-ios-carry-cpu-bc-compatibility-through-game-pack.patch
 0080-keep-the-selected-python-when-generating-the-mac.patch
+0081-shader-split-scimitar-forge-archives-and-raw-con.patch
+0082-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0083-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0084-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0085-nvn-nvneventgetmemorypool-and-nvneventgetmemoryo.patch
+0086-audren-merge-updates-closer-than-a-frame-for-a-r.patch
+0087-nsp-script-a-program-s-dlc-counts-from-the-appli.patch

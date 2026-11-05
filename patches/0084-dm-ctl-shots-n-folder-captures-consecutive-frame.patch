@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Faris Benhaddou <farisbenhaddou@gmail.com>
+Date: Mon, 2 Nov 2026 09:01:20 +0300
+Subject: [PATCH] DM_CTL: "shots <n> <folder>" captures consecutive frames;
+ DM_NVN_VIS_ALL toggles at run time
+
+A flicker of one frame is invisible to DM_CTL's single shots (polled every
+100 ms). "shots" queues the next n presented frames (up to 64, SHOTQ_MAX 72)
+as <folder>/<k>.png. DM_NVN_VIS_ALL (occlusion query reports answered
+"visible") is now read each time a report is written, so "env
+DM_NVN_VIS_ALL=1" can turn it on and off mid-scene to tell a game's occlusion
+culling from other causes of objects that come and go.
+
+Upstream-Status: forwarded seedds/nxnative#1400
+Reason: Diagnostics used to find the Ezio Collection's one-frame flicker: consecutive-frame capture and a run-time DM_NVN_VIS_ALL
+Issue: LNPANDY/NX2Apple#483
+---
+ dm/gfx/nvn/nvn_mtl.m | 6 +++++-
+ dm/host/hle_hid.c    | 8 +++++++-
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index f1918b58..21fe99ce 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -1694,11 +1694,15 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+     // MTLBuffer.contents may autorelease its receiver; keep that lifetime inside the completed copy.
+     @autoreleasepool {
+     int n = r->n; post_op *ops = r->ops; seg_clk *sc = r->sc; uint32_t seg_last = r->seg_last;
++    // DM_NVN_VIS_ALL=1 (diagnostic, read here each time: DM_CTL "env DM_NVN_VIS_ALL=1" turns it on and off while the game runs): every samples-passed report says visible, to tell
++    // a game's occlusion culling from other causes of objects that come and go (Assassin's Creed II's background flicker)
++    const char *va = getenv("DM_NVN_VIS_ALL"); int vis_all = va && atoi(va);
+     for (int i = 0; i < n; i++) {
+         if (ops[i].kind == 1) { if (ops[i].mode == 1) *ops[i].val += ops[i].v; else *ops[i].val = ops[i].v; }
+         else if (ops[i].kind == 3) {   // Samples passed: the sum of all slots since the reset
+             vis_list *l = ops[i].vis; uint64_t sum = 0;
+             for (int k = 0; k < l->n; k++) { sum += ((const uint64_t *)((__bridge id<MTLBuffer>)l->s[k].buf).contents)[l->s[k].slot]; CFRelease(l->s[k].buf); }
++            if (vis_all && sum < 0x100000) sum = 0x100000;
+             free(l); uint64_t rec[2] = {sum, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec);
+         }
+         else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
+@@ -12563,7 +12567,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
+         c.pools, (unsigned long long)c.pool_adds, c.sview_nonnull, dl, (unsigned long long)da, c.c1_bufs, (unsigned long long)c.c1_alloc, (unsigned long long)c.c1_data);
+ }
+ // Screenshot on request (used by DM_NVN_SHOT_UI): dm_gfx_shot_at(k, path) = take a screenshot at the kth frame after the current present frame; due requests are checked at every frame's present
+-#define SHOTQ_MAX 8
++#define SHOTQ_MAX 72   // DM_CTL "shots" queues up to 64 frames in a row
+ static struct { uint64_t frame; char path[1024]; } g_shotq[SHOTQ_MAX]; static int g_nshotq;
+ static pthread_mutex_t g_shotq_mu = PTHREAD_MUTEX_INITIALIZER;
+ static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4]);
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index 18a72cce..53cfc446 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -213,7 +213,8 @@ void hid_keys_init(void) {
+ }
+ 
+ // DM_CTL=<file> (Mac, for driving a game step by step from a shell): the host reads the lines appended to the file (polled every 100 ms) and acts on each at once:
+-//   "key[+key][~hold]" presses as a DM_KEYS step does (hold 0.15 s by default), "shot <path>" saves the next presented frame as a PNG (dm_gfx_shot_at), "passdump <n>" dumps the
++//   "key[+key][~hold]" presses as a DM_KEYS step does (hold 0.15 s by default), "shot <path>" saves the next presented frame as a PNG (dm_gfx_shot_at), "shots <n> <folder>" the next n
++//   frames one after another (<folder>/1.png …, n up to 64: a flicker of a frame), "passdump <n>" dumps the
+ //   render passes of the next n frames as DM_NVN_PASSDUMP does (to stderr, the run's log), "texdump <path with %d>" saves the colour targets of the next frame as DM_NVN_TEXDUMP does,
+ //   "env KEY=VALUE" sets a switch read at the time of use (DM_NVN_SNAPRAW for the next texdump), "cvarf <main offset> <value>" sets an Unreal float console variable
+ //   (hle_fpslock.c dm_ctl_cvar_f32; "cvari" an int one), "peek <address> <count>" logs that many floats of guest memory, "memdump <address> <bytes> <path>" saves guest memory
+@@ -239,6 +240,11 @@ static void *ctl_main(void *arg) {
+                 if (!strncmp(line, "program ", 8)) { void dm_oe_execute(int index, const void *param, size_t n); LOG("DM_CTL: oe::ExecuteProgram(%d)", atoi(line + 8)); dm_oe_execute(atoi(line + 8), NULL, 0); continue; }
+                 if (!strncmp(line, "webshot ", 8)) { void front_web_shot(const char *path); front_web_shot(line + 8); continue; }
+                 if (!strncmp(line, "shot ", 5)) { dm_gfx_shot_at(1, line + 5); LOG("DM_CTL: screenshot of the next frame → %s", line + 5); continue; }
++                if (!strncmp(line, "shots ", 6)) {   // "shots <n> <folder>": the next n presented frames, one after another, as <folder>/<k>.png (a flicker of one frame)
++                    char *e2; long n = strtol(line + 6, &e2, 10); while (*e2 == ' ') e2++;
++                    if (n < 1 || n > 64 || !*e2) { LOG("[RED] DM_CTL: shots takes a count from 1 to 64 and a folder"); continue; }
++                    for (long k = 1; k <= n; k++) { char p[1100]; snprintf(p, sizeof p, "%s/%ld.png", e2, k); dm_gfx_shot_at(k, p); }
++                    LOG("DM_CTL: screenshots of the next %ld frames → %s", n, e2); continue; }
+                 if (!strncmp(line, "texlist ", 8)) { void dm_gfx_texlist(int target); dm_gfx_texlist(atoi(line + 8)); continue; }
+                 if (!strcmp(line, "restop")) { void dm_gfx_restop(void); dm_gfx_restop(); continue; }   // what the residency set holds (nvn_mtl.m res_top)
+                 if (!strncmp(line, "texraw ", 7)) { void dm_gfx_texraw(uint64_t serial, const char *path); char *e2; uint64_t s = strtoull(line + 7, &e2, 10); while (*e2 == ' ') e2++; dm_gfx_texraw(s, e2); continue; }

@@ -1,0 +1,463 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Faris Benhaddou <farisbenhaddou@gmail.com>
+Date: Mon, 2 Nov 2026 09:00:52 +0300
+Subject: [PATCH] Shader split: Scimitar .forge archives and raw control
+ sections off 4-byte boundaries
+
+Assassin's Creed: The Ezio Collection keeps its shaders in Ubisoft's Scimitar
+.forge files (Oodle Leviathan / Mermaid entries), which the split did not read,
+so AC II's title screen and menus drew nothing. dm/gfx/tools/forge.py reads the
+archive tables and the control sections in a decoded block; shader_split.py
+scans every entry with the game's own Oodle decoder (forge_jobs,
+forge_shaders), profile_guess.py detects the files, and the NSP build passes
+oodle_forge. raw_shaders now also takes a main's control sections that start
+off a 4-byte boundary when their length is a control section's (164 of AC's
+232), and forge material templates get the single-stage pixel-input cover.
+
+Upstream-Status: forwarded seedds/nxnative#1397
+Reason: Assassin's Creed: The Ezio Collection's shaders live in Scimitar .forge archives the shader split did not read (its title screen and menus drew nothing)
+Issue: LNPANDY/NX2Apple#483
+---
+ dm/games/profile_guess.py     | 20 +++++---
+ dm/gfx/tests/test_forge.py    | 84 +++++++++++++++++++++++++++++++
+ dm/gfx/tools/forge.py         | 94 +++++++++++++++++++++++++++++++++++
+ dm/gfx/tools/shader_split.py  | 68 +++++++++++++++++++++----
+ docs/reference/shaders.md     |  8 +++
+ scripts/build_ipa_from_nsp.py |  3 +-
+ 6 files changed, 261 insertions(+), 16 deletions(-)
+ create mode 100644 dm/gfx/tests/test_forge.py
+ create mode 100644 dm/gfx/tools/forge.py
+
+diff --git a/dm/games/profile_guess.py b/dm/games/profile_guess.py
+index 8ee3b9d6..a301a0ef 100644
+--- a/dm/games/profile_guess.py
++++ b/dm/games/profile_guess.py
+@@ -18,8 +18,9 @@ from romfs import Path, os, open, is_image, source
+ MAGICS = [(b'UnityFS\0', 'UnityFS'), (b'UnityWeb', 'UnityWeb'), (b'UnityRaw', 'UnityRaw'), (b'BNSH', 'BNSH'), (b'BAHS', 'BAHS'), (b'SARC', 'SARC'), (b'Yaz0', 'Yaz0'),
+           (bytes.fromhex('28b52ffd'), 'zstd'), (b'FRES', 'bfres'), (b'BNTX', 'BNTX'), (b'BWAV', 'BWAV'), (b'FSAR', 'BFSAR'), (b'CPK ', 'CRI CPK'), (b'CRID', 'CRI USM'),
+           (b'@UTF', 'CRI UTF'), (b'AKPK', 'Wwise pck'), (b'BKHD', 'Wwise bnk'), (b'FSB5', 'FMOD'), (b'\x89PNG', 'PNG'), (b'RIFF', 'RIFF'), (b'OggS', 'Ogg'), (b'PK\x03\x04', 'zip'), (b'NSO0', 'NSO'),
+-          (bytes.fromhex('03022307'), 'SPIR-V'), (b'ONEPACK\0', 'Trinity pack'), (b'ARC\0', 'MT Framework ARC'), (b'SCNE', 'Bezel Engine archive'), (b'XNB', 'XNB'), (b'pkzl', 'PlatinumGames PKZ')]
+-PACKED = {'UnityFS', 'UnityWeb', 'Yaz0', 'zstd', 'BWAV', 'CRI CPK', 'CRI USM', 'Wwise pck', 'FMOD', 'PNG', 'Ogg', 'zip', 'Trinity pack', 'MT Framework ARC', 'Bezel Engine archive', 'PlatinumGames PKZ'}   # file headers of compressed / media formats (zip_store)
++          (bytes.fromhex('03022307'), 'SPIR-V'), (b'ONEPACK\0', 'Trinity pack'), (b'ARC\0', 'MT Framework ARC'), (b'SCNE', 'Bezel Engine archive'), (b'XNB', 'XNB'), (b'pkzl', 'PlatinumGames PKZ'),
++          (b'scimitar\0', 'Scimitar forge')]
++PACKED = {'UnityFS', 'UnityWeb', 'Yaz0', 'zstd', 'BWAV', 'CRI CPK', 'CRI USM', 'Wwise pck', 'FMOD', 'PNG', 'Ogg', 'zip', 'Trinity pack', 'MT Framework ARC', 'Bezel Engine archive', 'PlatinumGames PKZ', 'Scimitar forge'}   # file headers of compressed / media formats (zip_store)
+ # IL2CPP by the metadata file every IL2CPP player opens: Unity 2022's main (Ace Attorney Investigations Collection) has no il2cpp_ API names, Engage's 2020.3 has both
+ MARKERS = [(b'nvnBootstrapLoader', 'NVN'), (b'vkCreateInstance', 'Vulkan'), (b'eglGetProcAddress', 'EGL / OpenGL'), (b'global-metadata.dat', 'Unity IL2CPP'), (b'UnityEngine', 'Unity'),
+            (b'sead::', 'Nintendo sead'), (b'agl::', 'Nintendo agl'), (b'gsys::', 'Nintendo gsys'), (b'Unreal', 'Unreal'), (b'UE4', 'Unreal 4'), (b'Havok', 'Havok'), (b'CRIWARE', 'CRIWARE'), (b'Wwise', 'Wwise'),
+@@ -242,13 +243,13 @@ def modules_supplying(exefs, want, modules, hooks=None):   # the modules left ou
+ 
+ 
+ # ---- Shader sources: decided from the game files at every build, not kept in the profile (scripts/build_ipa_from_nsp.py; shader_split.py reads what those steps write) ----
+-def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_packs=0, legacy_paks=0, gl_names=0, gl_src=0, gl_files=0, oodle_pkz=0, nro_imports=frozenset(), oodle_gfpak=0, oodle_ue3=0, frostbite=False, romfs_glsl=0):
++def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_packs=0, legacy_paks=0, gl_names=0, gl_src=0, gl_files=0, oodle_pkz=0, nro_imports=frozenset(), oodle_gfpak=0, oodle_ue3=0, frostbite=False, romfs_glsl=0, oodle_forge=0):
+     """{name: (value, reason)}: graphics (vulkan when main imports Vulkan functions and not nvnBootstrapLoader; gl when it imports eglCreateWindowSurface and names glShaderSource, so it compiles
+     GLSL through OpenGL (gl_names: how often main has that name; Absolum imports the same EGL functions for SDL3 but renders with NVN and names no GL function); else nvn; vkGetInstanceProcAddr
+     alone is SDL's Vulkan loader, which Balatro's LÖVE links and never uses), vk_capture (a Vulkan game without SPIR-V files generates its shaders at run time), gl_capture (an OpenGL game with no
+     GLSL source where gl_shaders.py looks, gl_src strings in main and gl_files files in the RomFS: it puts its shaders together at run time, LÖVE from its Lua), glslc_capture (main holds GLSL sources and calls glslcCompile in a module the game loads: it compiles some shaders at run time), ue_decode (Unreal paks keep the shaders Oodle-compressed
+     in their shader code archives, which only the game's own Oodle decodes), oodle_packs (Trinity packs, oodle_pkz PlatinumGames PKZ archives, oodle_gfpak Game Freak GFPAK archives with Oodle Kraken entries, oodle_ue3 Unreal Engine 3 packages with Oodle chunks
+-    or frostbite Frostbite superbundles, whose cas files are Oodle Leviathan:
++    or frostbite Frostbite superbundles, whose cas files are Oodle Leviathan, or oodle_forge Ubisoft's Scimitar .forge files, Oodle Leviathan or Mermaid blocks:
+     Oodle-compressed file by file, which the shader split decodes with the game's own decoder in the Mac host's tool mode), ue_legacy (Unreal paks whose shaders are inline in the cooked packages:
+     legacy paks, version 4, which the shader split reads through the game's own decoder the same way, and version 11 paks without shader code archives, Zlib, read by uepak.py itself).
+     unreal_paks counts the paks with shader code archives, legacy_paks those with inline shaders (uepak.inline_shaders). Checked against every profile: Hades and Super Mario Galaxy Vulkan, Galaxy alone with no SPIR-V file, Three Houses alone compiling
+@@ -277,8 +278,9 @@ def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_pa
+                               f'the RomFS holds {romfs_glsl} GLSL source files and main calls glslcCompile in {", ".join(glslc_mods) or "no module it loads"}: shaders compiled at run time (Turrican Anthology Vol. I), captured by booting it on the Mac' if romfs_glsl and not glsl_src else
+                               f'main holds {glsl_src} GLSL sources and calls glslcCompile in {", ".join(glslc_mods) or "no module it loads"}: shaders compiled at run time (Fire Emblem: Three Houses), captured by booting it on the Mac'),
+             'ue_decode': (not vulkan and not gl and bool(unreal_paks), f'{unreal_paks} Unreal pak(s): the shaders are Oodle-compressed in their shader code archives (Octopath Traveler 0), decoded by booting the game on the Mac'),
+-            'oodle_packs': (not vulkan and not gl and bool(trinity_packs or oodle_pkz or oodle_gfpak or oodle_ue3 or frostbite), (f'{trinity_packs} Trinity pack file(s) (ONEPACK, arc/data.trpfs: Pokémon Legends: Z-A)' if trinity_packs else
++            'oodle_packs': (not vulkan and not gl and bool(trinity_packs or oodle_pkz or oodle_gfpak or oodle_ue3 or frostbite or oodle_forge), (f'{trinity_packs} Trinity pack file(s) (ONEPACK, arc/data.trpfs: Pokémon Legends: Z-A)' if trinity_packs else
+                             'Frostbite superbundles (Data/layout.toc, cas files: EA SPORTS FC 27), the shaders in their CompiledBytecode resources' if frostbite else
++                            f'{oodle_forge} Scimitar .forge file(s) (Ubisoft\'s Anvil: Assassin\'s Creed: The Ezio Collection), the shaders in their material templates' if oodle_forge else
+                             f'{oodle_pkz} PlatinumGames PKZ archive(s) with Oodle Kraken entries (Bayonetta 3)' if oodle_pkz else
+                             f'{oodle_gfpak} Game Freak GFPAK archive(s) with Oodle Kraken entries (Pokémon Legends: Arceus)' if oodle_gfpak else
+                             f'{oodle_ue3} Unreal Engine 3 package(s) with Oodle-compressed chunks (Batman: Arkham Knight, its combined shader cache among them)') + ', Oodle-compressed: the shader split decodes them with the game\'s own decoder in the Mac host (dm/host/hle_oodle.c DM_OODLE_SERVE)'),
+@@ -357,8 +359,14 @@ def build_sources(exefs, romfs, modules):
+                 nb = (struct.unpack_from('<I', h, i + 12)[0] + max(struct.unpack_from('<I', h, i + 4)[0], 1) - 1) // max(struct.unpack_from('<I', h, i + 4)[0], 1)
+                 oodle_ue3 += h[i + 16 + 8 * nb:i + 17 + 8 * nb] == b'\x8c'
+     import frostbite   # Frostbite's superbundles (EA SPORTS FC 27): every item of the cas files is Oodle Leviathan, decoded with the game's own decoder
++    import forge   # Scimitar .forge files (The Ezio Collection): their entries' blocks are Oodle Leviathan or Mermaid, decoded with the game's own decoder
++    oodle_forge = 0
++    for d, _, names in os.walk(romfs):
++        for n in names:
++            if n.endswith('.forge'):
++                with open(os.path.join(d, n), 'rb') as f: oodle_forge += forge.is_forge(f.read(len(forge.MAGIC)))
+     return shader_sources(imports, glsl_src, glslc_mods, spirv, len(uepak.unreal_paks(str(romfs), inline=False)), trinity, len(uepak.unreal_paks(str(romfs), inline=True)), gl_names, gl_src, gl_files, oodle_pkz, nro_imp,
+-                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl)
++                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl, oodle_forge=oodle_forge)
+ 
+ 
+ def va_heap(sysres, imports):   # virtual address memory (an NPDM system resource) and a heap: the alias / heap split is a starting point the heap check corrects (Wonder, Tears of the Kingdom; Engage's pool is its own measurement)
+diff --git a/dm/gfx/tests/test_forge.py b/dm/gfx/tests/test_forge.py
+new file mode 100644
+index 00000000..893843a0
+--- /dev/null
++++ b/dm/gfx/tests/test_forge.py
+@@ -0,0 +1,84 @@
++"""forge.py on a synthetic Scimitar .forge file: the header, a table with two entries and their name records, an entry's blocks (a stored chunk and one through a decoder), the control
++sections each followed by its code area in a decoded block, and damaged files."""
++from pathlib import Path
++import struct
++import sys
++import unittest
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
++import forge
++
++
++def block(chunks, typ=6):   # a compressed block: chunks [(raw size, stored bytes)], each after its u32 checksum
++    head = forge.BLOCK + struct.pack('<HBHHH', 1, typ, 0x8000, 0x8000, len(chunks)) + b''.join(struct.pack('<HH', raw, len(s)) for raw, s in chunks)
++    return head + b''.join(b'\xcc' * 4 + s for _, s in chunks)
++
++
++def entry(name, blocks):   # a FILEDATA entry: its 0x1b8-byte header (its name, padding), one 8-byte item, then its blocks
++    return b'FILEDATA' + name.encode() + bytes(forge.ENTRY_HEAD - 8 - len(name)) + struct.pack('<II', 1, 0) + b''.join(blocks)
++
++
++def forge_file(ents, version=31):   # ents: [(name, entry bytes)]; header, file data header and one table, then the entries
++    n = len(ents); hdr = 0x20; tab = hdr + 0x28; idx = tab + 0x30; names = idx + 16 * n; data = names + forge.NAME_REC * n
++    out = bytearray(forge.MAGIC + struct.pack('<Iq', version, hdr))
++    out += bytes(hdr - len(out)) + struct.pack('<IIqqIIq', n, 1, 0, -1, 5000, 1, tab)
++    out += struct.pack('<IIqqIIqq', n, 1, idx, -1, 0, 4999, names, data)
++    offs = []; p = data
++    for _, e in ents: offs.append(p); p += len(e)
++    for (nm, e), o in zip(ents, offs): out += struct.pack('<qII', o, 0x1000 + len(offs), len(e) - forge.ENTRY_HEAD)   # the index's size leaves the header out
++    for nm, e in ents:
++        rec = struct.pack('<IQ', len(e), 0x1234) + bytes(forge.NAME_AT - 12) + nm.encode()
++        out += rec + bytes(forge.NAME_REC - len(rec))
++    for _, e in ents: out += e
++    return bytes(out)
++
++
++def shader(code_len=0x60):   # a control section (0x880 bytes, its code length at +0x704) and its code area
++    code = struct.pack('<I', 0x12345678) + bytes(code_len - 4)
++    ctl = bytearray(forge.CTL_MAGIC + bytes(0x87c)); struct.pack_into('<I', ctl, 0x20, 0x880); struct.pack_into('<I', ctl, 0x704, len(code))
++    return bytes(ctl), code
++
++
++class ForgeTests(unittest.TestCase):
++    def test_entries(self):
++        title = entry('TitleScreen', [block([(3, b'abc')])])
++        d = forge_file([('GlobalMetaFile', entry('GlobalMetaFile', [])), ('TitleScreen', title)])
++        self.assertTrue(forge.is_forge(d))
++        es = forge.entries(d)
++        self.assertEqual([n for _, _, n in es], ['GlobalMetaFile', 'TitleScreen'])
++        self.assertEqual(d[es[1][0]:es[1][0] + es[1][1]], title)   # the size read includes the header
++        self.assertEqual(forge.read(d, *es[1][:2], None), [b'abc'])
++
++    def test_blocks_stored_and_decoded(self):   # a chunk whose stored size is its raw size is taken as it is; the others go to the decoder with their raw size
++        e = entry('a', [block([(2, b'hi')]), block([(5, b'\x8c\x0aXY'), (3, b'end')], typ=4)])
++        seen = []
++        def decode(comp, n): seen.append((comp, n)); return b'hello'[:n]
++        self.assertEqual(forge.read(e, 0, len(e), decode), [b'hi', b'helloend'])
++        self.assertEqual(seen, [(b'\x8c\x0aXY', 5)])
++        self.assertEqual(forge.read(entry('tiny', []), 0, forge.ENTRY_HEAD + 8, decode), [])
++
++    def test_nvn_shaders(self):
++        ctl, code = shader(); ctl2, code2 = shader(0x80)
++        b = b'material' + ctl + code + b'\0' * 7 + ctl2 + code2 + b'tail'
++        found, bad = forge.nvn_shaders(b)
++        self.assertEqual([(c, x, y) for c, x, y in found], [(8, ctl, code), (8 + len(ctl) + len(code) + 7, ctl2, code2)])
++        self.assertEqual(bad, [])
++        self.assertEqual(forge.nvn_shaders(forge.CTL_MAGIC + bytes(0x800)), ([], []))   # the magic in other data: no control section's length
++        found, bad = forge.nvn_shaders(ctl + b'no code here' + bytes(0x60))
++        self.assertEqual(found, []); self.assertEqual(len(bad), 1)
++
++    def test_damaged(self):
++        e = entry('t', [block([(3, b'abc')])])
++        d = forge_file([('t', e)])
++        with self.assertRaises(ValueError): forge.entries(b'scimitaR\0' + d[9:])   # not a forge
++        with self.assertRaises(ValueError): forge.entries(d[:len(d) - len(e) - 1])   # the entry runs past the end
++        bad = bytearray(d); struct.pack_into('<I', bad, 0x20, 2)   # the header counts two entries
++        with self.assertRaises(ValueError): forge.entries(bytes(bad))
++        with self.assertRaises(ValueError): forge.read(entry('t', [block([(3, b'abc')], typ=9)]), 0, 0x200, None)   # an unknown block type
++        cut = entry('t', [block([(3, b'abc')])])[:-2]
++        with self.assertRaises(ValueError): forge.read(cut, 0, len(cut), None)   # a chunk runs past the entry
++        with self.assertRaises(ValueError): forge.read(entry('t', [block([(5, b'abc')])]), 0, 0x200, lambda c, n: b'ab')   # decodes to 2 bytes, not 5
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/gfx/tools/forge.py b/dm/gfx/tools/forge.py
+new file mode 100644
+index 00000000..f70e1160
+--- /dev/null
++++ b/dm/gfx/tools/forge.py
+@@ -0,0 +1,94 @@
++#!/usr/bin/env python3
++"""Ubisoft's Scimitar (Anvil) archives on the Switch (Assassin's Creed: The Ezio Collection: Assassin's Creed II in the RomFS's AC2/, Brotherhood in its first DLC's ACB/): the .forge files,
++their entries' compressed blocks, and the NVN shaders of the material templates inside. Used by shader_split.py (forge_jobs, forge_shaders) and dm/games/profile_guess.py (is_forge).
++
++· A .forge file is 'scimitar\\0', u32 version (31 for AC2's, 25 for Brotherhood's), i64 offset of the file data header {u32 entry count, u32, i64, i64 -1, u32 most entries (4999 or 5000), u32,
++  i64 offset of the first table}. A table is {u32 entry count, u32, i64 index offset, i64 next table (-1: none), u32 first, u32 last, i64 name table offset, i64 raw data offset}: an index entry
++  is 16 bytes {i64 offset, u32 an id, u32 size: what follows the entry's 0x1b8-byte header}, a name record 0xbc bytes {u32 a size (mostly the index's; 0x1c8 for an entry of 0x1c6 in
++  AC2's DataNX_Common.forge, so the index's is the one read), u64 id, …, u32 time at +0x28, the NUL-terminated name at +0x2c}. The index is not in offset order. Most of the file is zero
++  padding: AC2's DataNX_TitleScreen.forge holds 160 KB of data in its 1.9 MB.
++· An entry is a 0x1b8-byte header ('FILEDATA', its name, padding), then the index's size of bytes: a table of 8-byte items (most often one u32), then compressed blocks: magic
++  33 AA FB 57 99 FA 04 10 (0x1004FA9957FBAA33), u16 version 1, u8 type, u16 0x8000, u16 0x8000, u16 chunk count, {u16 raw size, u16 stored size} per chunk, then per chunk a u32 checksum
++  and its stored bytes. A chunk whose stored size is its raw size is stored as it is; the others are Oodle, which only the game's own decoder reads (shader_split.py oodle): type 6 Leviathan
++  (8C 0C, AC2), type 4 Mermaid (8C 0A, Brotherhood). Two blocks to an entry, a table of its resources and their data; the blocks of all 57,834 entries that have any end exactly at
++  +0x1b8 + the index's size (58 have none). Read up to the index's size alone, the blocks of 17,029 small entries begin past it.
++· The material templates' data hold NVN shaders compiled offline: a control section (+0x20 its length, 0x880) and right after it the code area (header 0x12345678, its length at control
++  +0x704). AC2 1.3's 27 forge files hold 224,124 (20,417 different: 1,514 vertex, 18,903 pixel), Brotherhood's 29 hold 299,174 (26,123 different)."""
++import struct
++
++MAGIC, BLOCK = b'scimitar\0', bytes.fromhex('33aafb5799fa0410')
++OODLE = {4: 'Mermaid', 6: 'Leviathan'}   # block types: Oodle compressors (stored chunks in either)
++NAME_REC, NAME_AT = 0xbc, 0x2c
++ENTRY_HEAD = 0x1b8   # an entry's header, which the index's size leaves out
++CTL_MAGIC, GFX_MAGIC, CS_MAGIC = bytes.fromhex('34127698'), bytes.fromhex('78563412'), bytes.fromhex('79563412')
++
++
++def is_forge(head): return head[:len(MAGIC)] == MAGIC
++
++
++def entries(d, what='forge'):
++    """[(offset, size with the header, name)] of a .forge file's entries, in index order"""
++    if not is_forge(d[:len(MAGIC)]): raise ValueError(f'{what}: not a Scimitar forge (magic {bytes(d[:9]).hex()})')
++    if len(d) < 0x15: raise ValueError(f'{what}: the header runs past the end')
++    hdr = struct.unpack_from('<q', d, 13)[0]
++    if not 0x15 <= hdr <= len(d) - 0x28: raise ValueError(f'{what}: the file data header at {hdr:#x} is outside the file')
++    count, tab = struct.unpack_from('<I', d, hdr)[0], struct.unpack_from('<q', d, hdr + 0x20)[0]
++    out, seen = [], set()
++    while tab != -1:
++        if tab in seen or not 0 <= tab <= len(d) - 0x30: raise ValueError(f'{what}: a table at {tab:#x} is outside the file or read twice')
++        seen.add(tab)
++        n, _, idx, nxt, _, _, names, _ = struct.unpack_from('<IIqqIIqq', d, tab)
++        if not (0 <= idx and idx + 16 * n <= len(d) and 0 <= names and names + NAME_REC * n <= len(d)): raise ValueError(f'{what}: the {n} entries of the table at {tab:#x} run past the end')
++        for i in range(n):
++            off, _, size = struct.unpack_from('<qII', d, idx + 16 * i); size += ENTRY_HEAD
++            if not 0 <= off <= len(d) - size: raise ValueError(f'{what}: entry {len(out)} ({off:#x}, {size:#x} bytes) is outside the file')
++            rec = d[names + NAME_REC * i:names + NAME_REC * (i + 1)]
++            out.append((off, size, bytes(rec[NAME_AT:]).split(b'\0')[0].decode('latin1')))
++        tab = nxt
++    if len(out) != count: raise ValueError(f'{what}: {len(out)} entries in the tables, the header counts {count}')
++    return out
++
++
++def blocks(d, off, size, what='entry'):
++    """The compressed blocks of the entry at off: [(type, [(raw size, stored size, offset of the stored bytes)])]"""
++    p, end, out = off, off + size, []
++    while (p := d.find(BLOCK, p, end)) >= 0:
++        if p + 17 > end: raise ValueError(f'{what}: a block header at {p - off:#x} runs past the entry')
++        ver, typ, _, _, n = struct.unpack_from('<HBHHH', d, p + 8)
++        if ver != 1 or typ not in OODLE: raise ValueError(f'{what}: a block at {p - off:#x} of version {ver}, type {typ} (known: version 1, types {sorted(OODLE)})')
++        q = p + 17 + 4 * n
++        if q > end: raise ValueError(f'{what}: the chunk table of the block at {p - off:#x} runs past the entry')
++        chunks = []
++        for i in range(n):
++            raw, stored = struct.unpack_from('<HH', d, p + 17 + 4 * i)
++            if q + 4 + stored > end: raise ValueError(f'{what}: chunk {i} of the block at {p - off:#x} runs past the entry')
++            chunks.append((raw, stored, q + 4)); q += 4 + stored
++        out.append((typ, chunks)); p = q
++    return out
++
++
++def read(d, off, size, decode, what='entry'):
++    """The entry's blocks decoded, one bytes each; decode(compressed, size) is the game's Oodle"""
++    out = []
++    for typ, chunks in blocks(d, off, size, what):
++        b = bytearray()
++        for raw, stored, at in chunks:
++            c = bytes(d[at:at + stored])
++            got = c if raw == stored else decode(c, raw)
++            if len(got) != raw: raise ValueError(f'{what}: an Oodle {OODLE[typ]} chunk decoded to {len(got):#x} bytes, not {raw:#x}')
++            b += got
++        out.append(bytes(b))
++    return out
++
++
++def nvn_shaders(b):
++    """The NVN shaders in a decoded block: [(offset, control section, code area)] and [(offset, why)] for control sections without their code area. A control magic whose length
++    (+0x20) is no control section's (0x760..0x880, shader_split.py ctl_len) is other data and passed over"""
++    out, bad, c = [], [], b.find(CTL_MAGIC)
++    while c >= 0:
++        if c + 0x708 <= len(b) and 0x760 <= (nctl := struct.unpack_from('<I', b, c + 0x20)[0]) <= 0x880:
++            n, k = struct.unpack_from('<I', b, c + 0x704)[0], c + nctl
++            if b[k:k + 4] in (GFX_MAGIC, CS_MAGIC) and k + n <= len(b): out.append((c, b[c:k], b[k:k + n])); c = b.find(CTL_MAGIC, k + n); continue
++            bad.append((c, f'no code area of {n:#x} bytes right after its {nctl:#x}-byte control section'))
++        c = b.find(CTL_MAGIC, c + 4)
++    return out, bad
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index 0210db1a..9bca6e5e 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -44,6 +44,8 @@
+ #   · Frostbite (EA SPORTS FC 27): the CompiledBytecode resources of the bundles its superbundle tables (.toc) list, in its cas files (Oodle Leviathan, decoded by the game's own decoder in the
+ #       Mac host), each a VNVN record with one code area and control section (frostbite.py), see frostbite_jobs and frostbite_shaders
+ #   · Unreal Engine 3 (Batman: Arkham Knight): shader records in its global shader cache (BMSG) and in the packages (the combined shader cache), whose compressed chunks are Oodle blocks decoded by the game's own decoder in the Mac host, see ue3_body and ue3_shaders
++#   · Scimitar forge (Ubisoft's Anvil, Assassin's Creed: The Ezio Collection): control sections each followed by its code area in the material templates of the .forge entries (Oodle Leviathan
++#       or Mermaid blocks, decoded by the game's own decoder in the Mac host; forge.py), see forge_jobs and forge_shaders
+ # Code area: 0x30 header + (graphics) 0x50 SPH + instructions; header magic 0x12345678 for graphics, 0x12345679 for compute. The control section starts with 0x98761234, +0x704 = code area length,
+ #   +0x700 = start of the c1 constant segment within the code area; for compute +0x748 thread group xyz (u32 ×3), +0x754 shared memory bytes (checked one by one against PC reflection on D2R's 22 compute shaders).
+ # Stage: BNSH uses the stage slot; BAHS uses bits 10..13 of SPH word 0 (1 vertex 2 hull 3 domain 4 geometry 5 pixel), and a compute header means compute.
+@@ -1744,13 +1746,16 @@ def raw_shaders(d, label, known=()):
+     main+0x1548014 / +0x1548034); after it lies another vertex shader's code area, whose first 0x100 bytes pass the header and length checks, and that area is the vertex shader main+0x4a2d290 takes from
+     before itself (main+0x1548358 / +0x1548374, 0x324 bytes from the first). Compute code areas have no header (SDK 10), so the stage is glslc_stage's, and a headerless one is checked by its length only, never
+     across a control section. known: the control sections the other readers took from this main (Celeste's MonoGame effect in main holds some outside any GLSLC output or BNSH file), left out.
+-    Of 25 mains on hand only that one has such control sections, so the tables of every other game stay as they were"""
++    Of 25 mains on hand only that one has such control sections, so the tables of every other game stay as they were.
++    Assassin's Creed: The Ezio Collection's main holds 232 with no record and no address built to them: each control section followed at once by its code area (8 compute ones headerless), packed
++    byte by byte, so 164 of them start off a 4-byte boundary (main+0x2620073). A control section that no record or built address gives a code area takes the one right after its own length, and one off a
++    4-byte boundary is taken when its length (control +0x20) is a control section's (0x760..0x880); without them its title screen and menus drew nothing (17 shaders not in the shader map)"""
+     skip = []
+     for m in re.finditer(b'\x91\x68\x86\x19', d):
+         size, _, first, _ = glslc_layout(d, m.start())
+         if (0 if first == 0xa8 else 0x760) < size <= len(d) - m.start(): skip.append((m.start(), m.start() + size))
+     for m in re.finditer(b'BNSH\0\0\0\0', d): skip.append((m.start(), m.start() + struct.unpack_from('<I', d, m.start() + 0x1c)[0]))
+-    ctls = [c for m in re.finditer(re.escape(CTL_MAGIC), d) if not (c := m.start()) & 3 and not any(a <= c < b for a, b in skip) and d[c:c + struct.unpack_from('<I', d, c + 0x20)[0]] not in known]
++    ctls = [c for m in re.finditer(re.escape(CTL_MAGIC), d) if (not (c := m.start()) & 3 or c + 0x24 <= len(d) and 0x760 <= struct.unpack_from('<I', d, c + 0x20)[0] <= 0x880) and not any(a <= c < b for a, b in skip) and d[c:c + struct.unpack_from('<I', d, c + 0x20)[0]] not in known]
+     if not ctls: return []
+     rel, code_of, cset = rel_targets(d), {}, set(ctls)
+     for s, c in rel.items():
+@@ -1759,9 +1764,9 @@ def raw_shaders(d, label, known=()):
+     out = []
+     for c in ctls:
+         nctl, n = struct.unpack_from('<I', d, c + 0x20)[0], struct.unpack_from('<I', d, c + 0x704)[0]
+-        ctl, why = d[c:c + nctl], 'no code area: no data record points at one, and the code builds the address of none right after or right before it'
++        ctl, why = d[c:c + nctl], 'no code area: no data record points at one, the code builds the address of none right after or right before it, and none passes right after it'
+         near = lambda k: min(abs(a - b) for a in built[k] for b in built[c])   # how close the code builds this code area's address to the control section's
+-        for k in ([code_of[c]] if c in code_of else sorted((k for k in ((c + nctl + 15) & ~15, c - n) if k in built and c in built and near(k) < 0x400), key=near)):
++        for k in ([code_of[c]] if c in code_of else sorted((k for k in ((c + nctl + 15) & ~15, c - n) if k in built and c in built and near(k) < 0x400), key=near) or [c + nctl]):   # nothing points at it: right after it (Ezio)
+             code = d[k:k + n]; st = glslc_stage(ctl, code) if k >= 0 and CTL_MAGIC not in code else None
+             if st and not check(label, st, ctl, code): out.append((f'{label}#RAW@{c:#x}', st, ctl, code)); why = None; break
+         if why: print(f'[RED] {label} control section @{c:#x}: {why}; left out', flush=True)
+@@ -1856,6 +1861,46 @@ def frostbite_shaders(path, rel, ents, out):
+             if why: print(f'[RED] {label}: {why}; left out', flush=True); continue
+             out.append((label, st, ctl, code))
+ 
++FORGE = 'Scimitar forge'
++def forge_jobs(files, parts=64):
++    """Ubisoft's Scimitar archives (Assassin's Creed: The Ezio Collection, forge.py): every entry of every .forge file, in ranges of about equal size. → ([(path, rel, (FORGE, ((offset, size,
++    name), …))), …], the paths taken: the .forge files, whose entries are compressed and hold nothing a loose scan reads (AC2's 27 and Brotherhood's 29, 13.6 GB)"""
++    import forge
++    from romfs import mmap
++    fs = []
++    for p, r in files:
++        if not p.endswith('.forge'): continue
++        with open(p, 'rb') as f:
++            if not forge.is_forge(f.read(len(forge.MAGIC))): continue
++            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as d:
++                try: fs.append((p, r, forge.entries(d, '/' + r)))
++                except ValueError as e: print(f'[RED] {e} (its shaders are left out)', flush=True)
++    jobs, step = [], sum(e[1] for _, _, es in fs for e in es) / parts
++    for p, r, es in fs:
++        cur, size = [], 0
++        for e in es:
++            cur.append(e); size += e[1]
++            if size >= step: jobs.append((p, r, (FORGE, tuple(cur)))); cur, size = [], 0
++        if cur: jobs.append((p, r, (FORGE, tuple(cur))))
++    return jobs, {p for p, _, _ in fs}
++
++def forge_shaders(path, rel, ents, out):
++    """A range of a .forge file's entries (forge_jobs), each decoded with the game's Oodle; the shaders are control sections each followed by its code area (forge.nvn_shaders).
++    Labels: /<forge>#<entry name>@<offset in its block>"""
++    import forge
++    from romfs import mmap
++    with open(path, 'rb') as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as d:
++        for off, size, name in ents:
++            label = f'/{rel}#{name}'
++            for b in forge.read(d, off, size, oodle, label):
++                found, bad = forge.nvn_shaders(b)
++                for c, why in bad: print(f'[RED] {label}@{c:#x}: {why}; left out', flush=True)
++                for c, ctl, code in found:
++                    st = glslc_stage(ctl, code)
++                    why = check(label, st, ctl, code) if st else 'no stage in the code area header'
++                    if why: print(f'[RED] {label}@{c:#x}: {why}; left out', flush=True); continue
++                    out.append((f'{label}@{c:#x}', st, ctl, code))
++
+ def smash_arc_jobs(files, parts=128):
+     """Super Smash Bros. Ultimate's data.arc (17.6 GB, smash_arc.py): the game's current files, in ranges of about equal stored size. → ([(path, rel, entries), …], the paths taken)"""
+     import smash_arc
+@@ -1890,7 +1935,7 @@ _OODLE = None
+ def oodle(comp, n):
+     """The game's own decoder: OodleLZ_Decompress (Trinity's packs are Oodle Mermaid, Pokémon Legends: Arceus's GFPAK entries Oodle Kraken, and Oodle is linked into main), or LZ5_decompress_safe (DRAGON QUEST XI S's legacy Unreal paks):
+     one Mac host per worker process in its tool mode (dm/host/hle_oodle.c, DM_OODLE_SERVE), fed over a pipe. DM_OODLE_HOST = the host, DM_OODLE_MODULES = the rewritten modules it loads
+-    (the NSP script sets both for a game with Trinity packs, Oodle PKZ or GFPAK entries, or legacy Unreal paks, profile_guess.py shader_sources)"""
++    (the NSP script sets both for a game with Trinity packs, Oodle PKZ or GFPAK entries, Scimitar .forge files, or legacy Unreal paks, profile_guess.py shader_sources)"""
+     global _OODLE
+     if _OODLE is None:
+         import tempfile
+@@ -2555,11 +2600,12 @@ def pixel_input_cover(shaders):
+         k = min(ins, key=lambda k: (-len(ins[k] & left), k)); cover.append(k); left -= ins[k]
+     return cover
+ 
+-SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
++SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@', '.forge#')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
+ # Unreal Engine 3's shader caches (ue3_shaders, '#UE3@'); MonoGame's effects, whose passes may name no vertex shader and keep the one bound (Celeste: 10 of its 13 effects draw through SpriteBatch's vertex shader, which is in main); Next Level Games'
+ # archives (Luigi's Mansion 3 makes 5,317 programs of one stage each at boot); PlatinumGames' shader objects (Bayonetta 3: one stage each, pg_shader); control sections loose in main
+ # (Advance Wars 1+2: Re-Boot Camp's Bink shaders, raw_shaders), which no file pairs; YEBIS's effect file (tfxo_shaders); and Sumo's Ninty_NX descriptors and NVNsh records, one stage
+-# each (Team Sonic Racing: 2,116 vertex and 2,399 pixel programs, sumo_shaders)
++# each (Team Sonic Racing: 2,116 vertex and 2,399 pixel programs, sumo_shaders); and Scimitar's material templates (forge_shaders): Assassin's Creed II binds its vertex and pixel
++# programs apart (BindProgram stage bits) and pairs them at draw time, so without the cover 8 pairs failed to link, the Ubisoft logo movie's among them (a black screen with its sound)
+ def separable_pairs(keys):
+     """Single-stage programs (13 Sentinels: each GLSLC output becomes a program with one stage, and BindProgram's stage bits combine vertex and pixel programs per draw; Unreal combines its shaders per draw
+     from the pipeline state) have their real pairs only at draw time. vs_pad uses only the union of the locations the paired pixel shaders read, so every single-stage vertex shader is paired with
+@@ -2727,6 +2773,9 @@ def scan_file_in(args):
+     if len(args) > 2 and args[2][0] == FB_CAS:   # CompiledBytecode resources of a Frostbite cas file (frostbite_jobs)
+         frostbite_shaders(path, rel, args[2][1], found)
+         return rel, uniq_keys(found), var_pairs(found), trees
++    if len(args) > 2 and args[2][0] == FORGE:   # entries of a Scimitar .forge file (forge_jobs)
++        forge_shaders(path, rel, args[2][1], found)
++        return rel, uniq_keys(found), var_pairs(found), trees
+     if len(args) > 2 and head[:4] == PKZL:   # entries of a PlatinumGames PKZ (pkz_jobs)
+         pkz_shaders(path, rel, args[2], found)
+         return rel, uniq_keys(found), var_pairs(found), trees
+@@ -2915,8 +2964,9 @@ def main():
+     zp_jobs, zips = zip_jobs(files)   # Portal's game.zip (Deflate members)
+     ah_jobs, arhs = arh_jobs(files)   # Monolith's ARH1/ARD archives and embedded XBC1/HCPS programs
+     fb_jobs, fbs = frostbite_jobs(files)   # EA SPORTS FC 27's Frostbite bundles, Oodle Leviathan decoded by the game's own decoder in the Mac host
+-    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + cr_jobs + zp_jobs + ah_jobs + fb_jobs
+-    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts and p not in arcs and p not in pkzs and p not in cpks and p not in cras and p not in zips and p not in arhs and p not in fbs]
++    fg_jobs, fgs = forge_jobs(files)   # The Ezio Collection's Scimitar .forge files, Oodle Leviathan / Mermaid decoded by the game's own decoder in the Mac host
++    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + cr_jobs + zp_jobs + ah_jobs + fb_jobs + fg_jobs
++    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts and p not in arcs and p not in pkzs and p not in cpks and p not in cras and p not in zips and p not in arhs and p not in fbs and p not in fgs]
+     with cf.ProcessPoolExecutor(J, initializer=_pool_init, initargs=(common, {}, zdicts)) as ex:
+         n = len(big) + len(files)
+         results += pooled(ex, big, n) + pooled(ex, files, n, len(big), chunk=16)
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index 26f53d2d..7b121d02 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -242,6 +242,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **Fix:** `dm/gfx/tools/frostbite.py` reads `layout.toc`'s install chunks (a DbObject), every toc's bundle entries, the manifests and the blocks; `shader_split.py` (`frostbite_jobs`, `frostbite_shaders`) decodes each `CompiledBytecode` resource with the game's own Oodle in the Mac host's tool mode, as for Trinity packs, and leaves the `.toc` and `.cas` files out of the loose scan. `profile_guess.py` turns the Oodle decoder on for a RomFS with `Data/layout.toc`. Data and Patch are read alike: keys are content hashes, so a base copy the update replaced only adds an unused shader. The resources name no vertex / pixel pairs (Frostbite pairs them in its pipeline data), so the tables have none.
+ - **Found on:** [EA SPORTS FC 27](../../dm/games/0100C49025D3E000/README.md) (Frostbite 2025.1.2): 83,325 bundles, 10,401 resources, 10,342 shaders (3,738 vertex, 3,306 pixel, 3,298 compute), 35 MB stored; the split takes about 6 s.
+ 
++### Control sections and code areas in Scimitar forge archives
++
++- **Symptom:** `the shader split found no shaders in main or the RomFS` on a RomFS of `.forge` files (`AC2/DataNX*.forge`, `scimitar` at +0), `.pck` Wwise banks and `.bk2` movies; the split's log reports about 60 control sections in `main` with no code area.
++- **Cause:** Ubisoft's Anvil engine keeps its data in Scimitar `.forge` files: a header, chained tables of 16-byte index entries {offset, id, size} and 0xbc-byte name records, then the entries, each a 0x1b8-byte `FILEDATA` header (which the index's size leaves out) and compressed blocks (magic `33 AA FB 57 99 FA 04 10`, a table of {raw, stored} u16 sizes, then a u32 checksum and the stored bytes per chunk). The chunks are Oodle Leviathan (`8C 0C`, block type 6, version 31 files) or Mermaid (`8C 0A`, type 4, version 25), stored as they are when the sizes match. The loose scan reads them compressed and finds nothing. In the decoded material templates each NVN shader is a 0x880-byte control section with its code area right after it.
++- **Fix:** `dm/gfx/tools/forge.py` reads the tables, the entries' blocks and the shaders in a decoded block; `shader_split.py` (`forge_jobs`, `forge_shaders`) decodes every entry with the game's own `OodleLZ_Decompress` in the Mac host's tool mode, as for Trinity packs, and leaves the `.forge` files out of the loose scan. `profile_guess.py` turns the Oodle decoder on for a RomFS with `.forge` files (`oodle_forge`; the survey counts the `Scimitar forge` magic). The templates name no vertex / pixel pairs, so the tables have none. `main`'s control sections stay left out, as before. `test_forge.py` covers the tables, stored and decoded chunks, the header the index leaves out, the shader pairs and damaged files.
++- **Found on:** Assassin's Creed: The Ezio Collection 1.3 (no profile yet): AC II's 27 forge files (in the RomFS) hold 224,124 shaders, 20,417 different (1,514 vertex, 18,903 pixel); Brotherhood's 29 (the first DLC, `ACB/`) hold 26,123 different; 57,834 entries with blocks across both; 46,540 shaders in the split, which takes about 40 s with 8 workers. The AC II audio DLC holds only sound banks.
++
+ ### SPK shader package in an MT Framework ARC
+ 
+ - **How it is stored:** The Great Ace Attorney Chronicles keeps its one shader package, `sc\NX_64\root` (`SPK\0`, type hash `0x02358e1a`) in `nativeNXx64/sa/NX_64/root.arc` ([01](../agents/01-extract.md)). After the package's tables every shader is a code area followed directly by its control section, back to back to the end of the file: 230 vertex shaders, then 230 pixel shaders.
+@@ -595,6 +602,7 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **Cause:** a game that builds one NVN program per GLSLC output and combines vertex and pixel programs per draw with `BindProgram` stage bits has its real pairs only at draw time, so the offline build cannot know which pixel shaders a vertex shader must feed.
+ - **Fix:** the composite-program path ([Programs bound per stage](rendering.md#programs-bound-per-stage)) does all the pairing at replay. When every pixel shader input is a plain `float4` at fixed locations, `shader_split.py` pairs every vertex shader with a *cover*: the fewest pixel shaders whose inputs together are every input any pixel shader reads. `vs_pad` then gives each vertex shader all of them, and any vertex / pixel combination links.
+ - **Found on:** [13 Sentinels: Aegis Rim](../../dm/games/01003FC01670C000/README.md): 838 `ProgramSetShaders` at startup; every pixel shader input is a plain `float4` at locations 1–9 (the SPH input map, words 6–13, matches the translated MSL inputs for all 375 pixel shaders), so the cover is one shader.
++- **Also found on:** Assassin's Creed: The Ezio Collection's AC2: its Scimitar material templates (`.forge`) bind vertex and pixel programs apart, so `.forge#` sources are single-stage too. Before, 8 pairs failed to link (`Fragment input(s) user(locn2),user(locn3) … not written by vertex shader`), among them the Ubisoft logo movie's draw (`7136662acd210955` with main's `fb9bddefd9b309ba`): a black screen with the logo's sound.
+ 
+ ### Unwritten components of a written output start as (0, 0, 0, 1)
+ 
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index ed02d0d2..3355a930 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1038,7 +1038,7 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
+     S = pg.shader_sources(mods['main']['imports'], F['glsl_src'], [m for m in sorted({*keep, *nro_add}, key=pg.load_order) if 'glslcCompile' in mods[m]['exports']], rom['mags']['SPIR-V'],
+                           rom['exts'].get('.pak', 0) if F.get('main_markers', set()) & {'Unreal', 'Unreal 4'} else 0, rom['mags']['Trinity pack'], gl_names=F.get('gl_names', 0),
+                           gl_src=F.get('gl_src', 0), gl_files=sum(rom['exts'].get(e, 0) for e in pg.GL_FILES), oodle_pkz=rom['mags']['PlatinumGames PKZ'],   # the manifest has no name tables: every PKZ counts
+-                          nro_imports=frozenset(pg.romfs_nro_imports(ex / 'romfs_nro')))
++                          nro_imports=frozenset(pg.romfs_nro_imports(ex / 'romfs_nro')), oodle_forge=rom['mags']['Scimitar forge'])
+     vulkan, gl = S['graphics'][0] == 'vulkan', S['graphics'][0] == 'gl'
+     notes = []
+     if not vulkan and not gl and 'nvnBootstrapLoader' not in mods['main']['imports']: notes.append('main imports neither nvnBootstrapLoader nor Vulkan functions nor OpenGL through EGL: the host implements only NVN, Vulkan and OpenGL')
+@@ -1054,6 +1054,7 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
+     if rom['mags']['UnityFS'] or 'Unity IL2CPP' in F['markers']: notes.append('Unity: the shaders are Shader objects in UnityFS bundles and data.unity3d, which shader_split.py reads through unityfs.py (written for Unity 2020.3\'s Switch format, also read for 2017.4, 2018.3, 2019.4, 2021.2, 2021.3, 2022.3, 6000.0 and 6000.3; check other Unity versions first)')
+     if F['glslc']: notes.append(f'main has {F["glslc"]} GLSLC compiler output magics (0x19866891): shader_split.py takes those that are whole outputs (13 Sentinels and the KTGL games compile their shaders into main; Unity\'s player has 11 of its own)')
+     if rom['mags']['Trinity pack']: notes.append('Trinity packs (Game Freak, arc/data.trpfs with its index data.trpfd): the shaders are BNSH inside Oodle Mermaid streams; shader_split.py decodes them with the game\'s own OodleLZ_Decompress in the Mac host, which dm/host/hle_oodle.c finds by the library\'s name string')
++    elif rom['mags']['Scimitar forge']: notes.append('Scimitar .forge files (Ubisoft\'s Anvil, Assassin\'s Creed: The Ezio Collection): entries of Oodle Leviathan or Mermaid blocks; the shaders are control sections each followed by its code area in the material templates, which shader_split.py reads (dm/gfx/tools/forge.py, forge_shaders), decoded with the game\'s own OodleLZ_Decompress in the Mac host (dm/host/hle_oodle.c)')
+     elif rom['mags']['PlatinumGames PKZ']: notes.append('PlatinumGames PKZ archives (pkzl; Bayonetta 3): DAT archives inside, compressed per entry (OodleKraken, ZStandard or None); the shaders are shader objects (VSO / PSO / CSO …) in DATs, which shader_split.py reads (pkz_entries, pg_shader), Oodle Kraken through the game\'s own streaming decoder in the Mac host (dm/host/hle_oodle.c)')
+     elif rom['mags']['MT Framework ARC']: notes.append('MT Framework ARC archives (Capcom, The Great Ace Attorney Chronicles): the shaders are in a shader package (SPK) inside one of them, which shader_split.py reads (mtarc_members, mtspk_shaders)')
+     elif rom['mags']['Bezel Engine archive']: notes.append('NintendoWare Bezel Engine archives (.bea, magic SCNE; Big Brain Academy: Brain vs. Brain): every entry is a zstd frame, and the shaders are BNSH in their .bfsha entries, which shader_split.py reads (bea_members)')
