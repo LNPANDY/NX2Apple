@@ -139,6 +139,43 @@ import Testing
         #expect(row.accepts("zh-Hans") && !row.accepts("pt-BR"), "a saved choice the game does not have reads as the default")
     }
 
+    #if os(macOS)
+    /// Generate the row from the pinned engine, rather than trusting the copied JSON fixture (#698).
+    @Test func thePinnedEnginesFallbackRowIsRecognizedAndNarrowed() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { root.deleteLastPathComponent() }
+        let dir = try folder(with: Self.image(mask("JPja USen CNzh TWzh EUfr\n01111\n")))
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try Data().write(to: dir.appendingPathComponent("main.fixups.tsv"))
+        let output = dir.appendingPathComponent("launcher.json")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["python3", root.appendingPathComponent("engine/dm/games/settings.py").path,
+                             "040074A01BF12000", dir.path, dir.appendingPathComponent("missing-control.nacp").path, output.path]
+        process.environment = ["PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+                               "SETTINGS_PLATFORM": "ios", "GFXAPI": "nvn", "DM_LANG": "en-US",
+                               "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        let diagnostic = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        try #require(process.terminationStatus == 0, "Run python3 tools/engine.py sync before testing: \(diagnostic)")
+
+        let profile = try LauncherProfile.parse(Data(contentsOf: output))
+        let emitted = try #require(langRow(profile))
+        #expect(emitted.kind == "choice")
+        #expect(RomfsLanguages.isFallbackRow(emitted))
+        let narrowed = RomfsLanguages.applying(to: profile, options: RomfsLanguages.options(in: dir))
+        let language = try #require(langRow(narrowed))
+        #expect(language.options?.map { $0[0] } == ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+        #expect(language.def == "en-US")
+        #expect(language.note == "")
+        #expect(language.accepts("zh-Hans") && !language.accepts("pt-BR"))
+    }
+    #endif
+
     @Test func theRowStaysWhenTheRomFSCannotNarrowIt() throws {
         let p = try profile(row: Self.fallbackRowJSON)
         for text in ["Hello\n", "USen\n", "JPja EUfr\n"] {   // no tag, one language, no American English (the packed default)
