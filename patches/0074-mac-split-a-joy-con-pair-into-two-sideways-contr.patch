@@ -1,0 +1,752 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 5 Nov 2026 18:43:24 +0800
+Subject: [PATCH] Mac: split a Joy-Con pair into two sideways controllers
+ (#740)
+
+When DM_JOYCON_SPLIT=1 is set on macOS, front_mac.m skips GameController's combined Joy-Con input and reads Joy-Con (L) (0x057e:0x2006) and Joy-Con (R) (0x057e:0x2007) directly over IOHIDManager 0x30 reports so each half gets its own player slot with a 90-degree sideways stick and 6-axis IMU rotation, SL/SR mapped to L/R, and per-handle Core Haptics rumble (GCHapticsLocalityLeftHandle and GCHapticsLocalityRightHandle).
+
+Upstream-Status: forwarded seedds/nxnative#1322
+Reason: Mac: split a Joy-Con pair into two sideways controllers over HID 0x30 with motion and rumble
+Issue: LNPANDY/NX2Apple#740
+---
+ dm/host/Makefile                           |   2 +-
+ dm/host/front_mac.m                        |  85 +++++++++++--
+ dm/host/haptics_apple.h                    |   1 +
+ dm/host/haptics_apple.m                    |  33 +++--
+ dm/host/pad_joycon.h                       | 139 +++++++++++++++++++++
+ dm/host/pad_joycon_mac.h                   | 115 +++++++++++++++++
+ dm/host/tests/Makefile                     |   2 +-
+ dm/host/tests/t_haptics_apple.m            |  14 +++
+ dm/host/tests/t_pad_hid.c                  |  88 +++++++++++++
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   1 +
+ docs/env_switches.tsv                      |   1 +
+ 11 files changed, 464 insertions(+), 17 deletions(-)
+ create mode 100644 dm/host/pad_joycon.h
+ create mode 100644 dm/host/pad_joycon_mac.h
+
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index 8b66f0b..2100b89 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -76,7 +76,7 @@ endif
+ endif
+ .PHONY: FORCE
+ FORCE:
+-dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
++dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h pad_joycon.h pad_joycon_mac.h home_quit.h home_quit_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
+ 	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
+ clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
+ 	rm -rf gen dmhost dmhost_* *.dSYM
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 892df56..1d5f680 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -25,6 +25,7 @@
+ #include "motion_pro_mac.h"
+ #include "pad_apple.h"
+ #include "pad_hid_mac.h"
++#include "pad_joycon_mac.h"
+ #include "home_quit.h"
+ #include "home_quit_mac.h"
+ #include <signal.h>
+@@ -200,28 +201,43 @@ static void pro_players_changed(GCController *gone) {
+     dm_motion_pro_players(count, player);
+ }
+ static void pro_devices_changed(void) { pro_players_changed(nil); }
+-// DM_PAD_MERGE: whether a controller still plays player 1 (gone: one just removed, not counted), a GameController one or a raw HID pad (pad_hid_mac.h)
++static int gc_pad_used(GCController *c) {
++    return c && c.extendedGamepad && !(g_joycon_split && joycon_is_gc_controller(c));
++}
++static void joycon_haptics_sync(GCController *gone) {
++    if (!g_joycon_split) return;
++    GCController *jc = nil;
++    for (GCController *c in GCController.controllers) if (c != gone && joycon_is_gc_controller(c) && c.haptics) { jc = c; break; }
++    if (g_merge) { if (g_joycons && jc) dm_haptics_apple_controller(0, jc); return; }
++    for (joycon_pad *d = g_joycons; d; d = d->next) {
++        int p = pad_slot_of(&g_slots, d); if (p < 0) continue;
++        GCHapticsLocality loc = d->st.pid == JOYCON_PID_L ? GCHapticsLocalityLeftHandle : GCHapticsLocalityRightHandle;
++        dm_haptics_apple_controller_locality(p, jc, loc);
++    }
++}
++// DM_PAD_MERGE: whether a controller still plays player 1 (gone: one just removed, not counted), a GameController one or a raw HID pad (pad_hid_mac.h, pad_joycon_mac.h)
+ static int merge_pads_left(GCController *gone) {
+-    if (g_hidpads) return 1;
+-    for (GCController *c in GCController.controllers) if (c.extendedGamepad && c != gone) return 1;
++    if (g_hidpads || g_joycons) return 1;
++    for (GCController *c in GCController.controllers) if (gc_pad_used(c) && c != gone) return 1;
+     return 0;
+ }
+ // Called at start and on every connect / disconnect (gone: the controller that was just removed, nil on a connect)
+ static void pads_changed(GCController *gone) {
+     if (g_merge) {
+         int any = 0;
+-        for (GCController *c in GCController.controllers) if (c.extendedGamepad && c != gone) {
++        for (GCController *c in GCController.controllers) if (gc_pad_used(c) && c != gone) {
+             any = 1; pad_keep_system_buttons(c); c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; pad_read(g); };
+             dm_motion_attach(c, 0);   // every controller is player 1: the last one moved drives its six-axis sensor
+             pad_read(c.extendedGamepad);
+         }
+         if (gone) dm_motion_detach(gone, 0);
+-        if (!any) { if (!g_hidpads) dm_pad_set(0, 0, 0, 0, 0); dm_haptics_apple_controller(0, nil); }   // a raw HID pad still plays player 1 (pad_hid_mac.h)
++        if (!any) { if (!g_hidpads && !g_joycons) dm_pad_set(0, 0, 0, 0, 0); if (!g_joycons) dm_haptics_apple_controller(0, nil); }   // a raw HID pad still plays player 1 (pad_hid_mac.h)
++        joycon_haptics_sync(gone);
+         pro_players_changed(gone);
+         return;
+     }
+     NSArray<GCController *> *now = GCController.controllers; char nb[16];
+-    for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p] && (g_held[p] == gone || ![now containsObject:g_held[p]])) {
++    for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p] && (g_held[p] == gone || ![now containsObject:g_held[p]] || !gc_pad_used(g_held[p]))) {
+         npad_name(p, nb, sizeof nb); LOG("controller '%s' disconnected: player %d (npad %s) is free", pad_name(g_held[p]), p + 1, nb);
+         g_held[p].extendedGamepad.valueChangedHandler = nil;
+         dm_motion_detach(g_held[p], p);
+@@ -229,7 +245,7 @@ static void pads_changed(GCController *gone) {
+         pad_slot_free(&g_slots, (__bridge const void *)g_held[p]); g_held[p] = nil;
+         dm_pad_set_player(p, 0, 0, 0, 0, 0);   // nothing stays pressed
+     }
+-    for (GCController *c in now) if (c.extendedGamepad && c != gone && pad_slot_of(&g_slots, (__bridge const void *)c) < 0) {
++    for (GCController *c in now) if (gc_pad_used(c) && c != gone && pad_slot_of(&g_slots, (__bridge const void *)c) < 0) {
+         int p = pad_slot_take(&g_slots, (__bridge const void *)c, pad_name(c));
+         if (p < 0) { LOG("controller '%s' connected: all %d players are taken, not used", pad_name(c), DM_PLAYERS); continue; }
+         g_held[p] = c; pad_keep_system_buttons(c);
+@@ -239,6 +255,7 @@ static void pads_changed(GCController *gone) {
+         pad_read(c.extendedGamepad);
+     }
+     dm_pad_players(pad_slot_mask(&g_slots));
++    joycon_haptics_sync(gone);
+     pro_players_changed(gone);
+ }
+ // Display sleep: macOS counts keyboard and mouse input as user activity, not a controller's, so in controller-only play the display dims and locks; the latency
+@@ -259,12 +276,14 @@ static void pads_release(void) {
+     if (g_merge) { if (merge_pads_left(nil)) dm_pad_set(0, 0, 0, 0, 0); return; }
+     for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
+     for (hid_pad *d = g_hidpads; d; d = d->next) { int p = pad_slot_of(&g_slots, d); if (p >= 0) dm_pad_set_player(p, 0, 0, 0, 0, 0); }
++    for (joycon_pad *d = g_joycons; d; d = d->next) { int p = pad_slot_of(&g_slots, d); if (p >= 0) dm_pad_set_player(p, 0, 0, 0, 0, 0); }
+ }
+ // Each controller read as it is now (focus back, the Home quit prompt closed)
+ static void pads_reread(void) {
+-    if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) pad_read(c.extendedGamepad); }
++    if (g_merge) { for (GCController *c in GCController.controllers) if (gc_pad_used(c)) pad_read(c.extendedGamepad); }
+     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) pad_read(g_held[p].extendedGamepad);
+     for (hid_pad *d = g_hidpads; d; d = d->next) hidpad_read(d);
++    for (joycon_pad *d = g_joycons; d; d = d->next) joycon_read(d);
+ }
+ static void hq_close(void);
+ static void input_release(void) {
+@@ -273,6 +292,11 @@ static void input_release(void) {
+     display_awake(0);
+     g_input_on = 0;
+     dm_motion_pro_active(0);
++    for (joycon_pad *d = g_joycons; d; d = d->next) {
++        d->motion = (pro_motion){0};
++        int p = g_merge ? 0 : pad_slot_of(&g_slots, d);
++        if (p >= 0) dm_motion_clear_hid(p);
++    }
+     g_btn = 0; g_held_fn = 0; memset(g_shift_fn, 0, sizeof g_shift_fn); push();
+     if (g_mouse_down) { g_mouse_down = 0; dm_touch_set(NULL, 0); }
+     pads_release();
+@@ -308,6 +332,43 @@ static void hidpad_detach(hid_pad *d) {   // d is already off g_hidpads
+     dm_pad_set_player(p, 0, 0, 0, 0, 0);   // nothing stays pressed
+     dm_pad_players(pad_slot_mask(&g_slots));
+ }
++// Split Joy-Con sideways controllers (pad_joycon_mac.h, DM_JOYCON_SPLIT=1): each half takes a player slot of its own
++static void joycon_read(joycon_pad *d) {
++    if (!g_input_on || hq_blocks_input(g_hq.phase)) return;
++    int p = g_merge ? 0 : pad_slot_of(&g_slots, d); if (p < 0) return;
++    pad_set(p, d->st.buttons, pad_axis(d->st.sx), pad_axis(d->st.sy), 0, 0);
++}
++static void joycon_read_motion(joycon_pad *d, const uint8_t *rep, size_t len) {
++    if (!g_input_on || hq_blocks_input(g_hq.phase)) return;
++    const char *e = getenv("DM_MOTION"); if (e && !atoi(e)) return;
++    int p = g_merge ? 0 : pad_slot_of(&g_slots, d); if (p < 0) return;
++    pro_motion_sample samples[3];
++    int n = joycon_motion_decode(&d->motion, d->st.pid, rep, len, now_ns(), samples);
++    for (int i = 0; i < n; i++) dm_motion_set_hid(p, samples[i].acc, samples[i].rot, samples[i].ns);
++}
++static void joycon_attach(joycon_pad *d) {
++    int p = g_merge ? 0 : pad_slot_take(&g_slots, d, d->name); char nb[16];
++    if (p < 0) { LOG("controller '%s' (split Joy-Con) connected: all %d players are taken, not used", d->name, DM_PLAYERS); return; }
++    npad_name(p, nb, sizeof nb); LOG("controller '%s' (split Joy-Con) connected: player %d (npad %s), with motion (gyro) and rumble", d->name, p + 1, nb);
++    if (!g_merge) dm_pad_players(pad_slot_mask(&g_slots));
++    joycon_haptics_sync(nil);
++    joycon_read(d);
++}
++static void joycon_detach(joycon_pad *d) {
++    if (g_merge) {
++        LOG("controller '%s' (split Joy-Con) disconnected", d->name);
++        if (!g_joycons) { dm_motion_clear_hid(0); dm_haptics_apple_controller(0, nil); }
++        if (!merge_pads_left(nil)) dm_pad_set(0, 0, 0, 0, 0);
++        return;
++    }
++    int p = pad_slot_free(&g_slots, d); char nb[16]; if (p < 0) return;
++    npad_name(p, nb, sizeof nb); LOG("controller '%s' (split Joy-Con) disconnected: player %d (npad %s) is free", d->name, p + 1, nb);
++    dm_motion_clear_hid(p);
++    dm_haptics_apple_controller(p, nil);
++    dm_pad_set_player(p, 0, 0, 0, 0, 0);
++    dm_pad_players(pad_slot_mask(&g_slots));
++}
++static void joycon_home_changed(void) { if (g_input_on) hq_poll(); }
+ // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
+ // (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
+ // Switch's HOME menu does, and gets no controller input or touch; the keyboard and ⌘Q work as always. DM_HOME_QUIT=0 turns it off
+@@ -342,10 +403,16 @@ static void hq_log_setting(void) {
+ static void hq_buttons(int *home, int *a, int *b, GCController **holder) {
+     *home = *a = *b = 0;
+     for (GCController *c in GCController.controllers) {
++        if (!gc_pad_used(c)) continue;
+         GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
+         if (g.buttonHome.isPressed) { *home = 1; if (!*holder) *holder = c; }
+         *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
+     }
++    for (joycon_pad *d = g_joycons; d; d = d->next) {
++        if (d->st.home) *home = 1;
++        if (d->st.buttons & DM_BTN_A) *a = 1;
++        if (d->st.buttons & DM_BTN_B) *b = 1;
++    }
+ }
+ static void hq_fade(NSView *v, int in) {
+     if (!v) return;
+@@ -417,6 +484,7 @@ static void pads_start(void) {
+     LOG("front end: %s", g_merge ? "every controller is player 1 (DM_PAD_MERGE)" : g_kbd_own ? "the keyboard is player 1, each controller a player of its own from player 2 on (DM_KBD_PLAYER=own)"
+                                                                            : "each controller is a player of its own, the keyboard plays with player 1");
+     hq_start();
++    joycon_start();
+     pads_changed(nil);
+     hq_log_setting();
+     dm_motion_pro_start(pro_devices_changed);
+@@ -1432,6 +1500,7 @@ void front_run(void (*guest)(void)) {
+         for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
+             [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+                 GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
++                if (g_joycon_split && joycon_is_gc_controller(c)) return;
+                 if (!c.extendedGamepad || g_merge) LOG("controller %s: %s%s", conn ? "connected" : "disconnected", pad_name(c), c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
+                 pads_changed(conn ? nil : c);
+                 if (conn) hq_log_setting(); }];
+diff --git a/dm/host/haptics_apple.h b/dm/host/haptics_apple.h
+index 2fd1b0f..d8ce98f 100644
+--- a/dm/host/haptics_apple.h
++++ b/dm/host/haptics_apple.h
+@@ -4,4 +4,5 @@
+ #include "hle_haptics.h"
+ void dm_haptics_apple_init(void);
+ void dm_haptics_apple_controller(int player, GCController *controller);
++void dm_haptics_apple_controller_locality(int player, GCController *controller, GCHapticsLocality locality);
+ void dm_haptics_apple_shutdown(void);
+diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
+index ba849d0..ca0414f 100644
+--- a/dm/host/haptics_apple.m
++++ b/dm/host/haptics_apple.m
+@@ -39,6 +39,7 @@ - (void)stop;
+ static dispatch_queue_t queue;
+ static NSMutableArray<DmRumbleChannel *> *channels[DM_PLAYERS];
+ static GCController *controllers[DM_PLAYERS];
++static GCHapticsLocality controllerLocalities[DM_PLAYERS];
+ #if TARGET_OS_IPHONE
+ static BOOL phoneSupported;
+ #endif
+@@ -330,17 +331,30 @@ static void default_controller(int p, GCDeviceHaptics *h, NSTimeInterval retryAf
+     add_engine(p, -1, @"controller default", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:GCHapticsLocalityDefault]; });
+     channels[p].lastObject.retryAfter = retryAfter;
+ }
+-static void configure(int p, GCController *controller) {
++static void configure(int p, GCController *controller, GCHapticsLocality locality) {
+     for (DmRumbleChannel *c in channels[p]) [c stop];
+     channels[p] = [NSMutableArray new];
+ #if !TARGET_OS_IPHONE
+     ds4_release(p);
+-    if (controller && ds4_route(p, controller)) { dm_haptics_route(p, 1); return; }   // the report first, as SDL drives it
++    if (controller && !locality && ds4_route(p, controller)) { dm_haptics_route(p, 1); return; }   // the report first, as SDL drives it
+ #endif
+     if (controller) {
+         GCDeviceHaptics *h = controller.haptics;
+         NSSet *localities = h.supportedLocalities;
+-        if ([localities containsObject:GCHapticsLocalityLeftHandle] && [localities containsObject:GCHapticsLocalityRightHandle]) {
++        if (locality && [localities containsObject:locality]) {
++            NSString *label = [locality isEqualToString:GCHapticsLocalityLeftHandle] ? @"controller left handle" :
++                              ([locality isEqualToString:GCHapticsLocalityRightHandle] ? @"controller right handle" : @"controller handle");
++            add_engine(p, -1, label, ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:locality]; });
++            __weak NSArray *route = channels[p];
++            for (DmRumbleChannel *c in channels[p]) c.fallback = ^(NSTimeInterval retryAfter) {
++                if (!route || channels[p] != route) return;
++                for (DmRumbleChannel *old in channels[p]) [old stop];
++                channels[p] = [NSMutableArray new];
++                default_controller(p, h, retryAfter);
++                dm_haptics_route(p, 1);
++                fprintf(stderr, "haptics: player %d retrying with the default controller locality\n", p + 1);
++            };
++        } else if ([localities containsObject:GCHapticsLocalityLeftHandle] && [localities containsObject:GCHapticsLocalityRightHandle]) {
+             add_engine(p, 0, @"controller left handle", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:GCHapticsLocalityLeftHandle]; });
+             add_engine(p, 1, @"controller right handle", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:GCHapticsLocalityRightHandle]; });
+             // Advertised handle localities can still fail to start. Fall back to the standard
+@@ -378,16 +392,21 @@ static void configure(int p, GCController *controller) {
+ #endif
+     dm_haptics_route(p, channels[p].count != 0);
+ }
+-void dm_haptics_apple_controller(int p, GCController *controller) {
++void dm_haptics_apple_controller_locality(int p, GCController *controller, GCHapticsLocality locality) {
+     if (!queue || p < 0 || p >= DM_PLAYERS) return;
+     pthread_mutex_lock(&routeLock);
+-    if (controllers[p] != controller) {
++    BOOL sameLoc = (controllerLocalities[p] == locality) || (locality && [controllerLocalities[p] isEqualToString:locality]);
++    if (controllers[p] != controller || !sameLoc) {
+         controllers[p] = controller;
++        controllerLocalities[p] = locality;
+         dm_haptics_route(p, 0);   // invalidate queued work before changing hardware
+-        dispatch_sync(queue, ^{ configure(p, controller); });
++        dispatch_sync(queue, ^{ configure(p, controller, locality); });
+     }
+     pthread_mutex_unlock(&routeLock);
+ }
++void dm_haptics_apple_controller(int p, GCController *controller) {
++    dm_haptics_apple_controller_locality(p, controller, nil);
++}
+ static void suspend(unsigned reason, BOOL on) {
+     dm_haptics_suspend(reason, on);
+     void (^stop)(void) = ^{
+@@ -412,7 +431,7 @@ void dm_haptics_apple_init(void) {
+ #if TARGET_OS_IPHONE
+         phoneSupported = CHHapticEngine.capabilitiesForHardware.supportsHaptics;
+ #endif
+-        dispatch_sync(queue, ^{ configure(0, nil); });
++        dispatch_sync(queue, ^{ configure(0, nil, nil); });
+         NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+ #if TARGET_OS_IPHONE
+         [nc addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { (void)n; suspend(DM_HAPTICS_INACTIVE, YES); }];
+diff --git a/dm/host/pad_joycon.h b/dm/host/pad_joycon.h
+new file mode 100644
+index 0000000..18a2f0d
+--- /dev/null
++++ b/dm/host/pad_joycon.h
+@@ -0,0 +1,139 @@
++#pragma once
++#include <math.h>
++#include <stddef.h>
++#include <stdint.h>
++#include <string.h>
++#include "dm_input.h"
++#include "motion_pro.h"
++
++// Nintendo Switch Joy-Con sideways decoder (DM_JOYCON_SPLIT=1, LNPANDY/NX2Apple#740):
++// macOS switches Bluetooth Joy-Con (L) (0x057e:0x2006) and Joy-Con (R) (0x057e:0x2007) to standard
++// 0x30 49-byte input reports at 60 Hz, while GCController merges the pair into one controller and
++// drops the rail SL and SR buttons. Each half here becomes one horizontal sideways controller with
++// its stick rotated 90 degrees and its rail SL and SR mapped to L and R.
++
++#define JOYCON_VID             0x057e
++#define JOYCON_PID_L           0x2006
++#define JOYCON_PID_R           0x2007
++#define JOYCON_REPORT_0x30     0x30
++#define JOYCON_REPORT_MIN_LEN  12
++#define JOYCON_STICK_CENTER    2048
++#define JOYCON_STICK_RADIUS    1400.0f
++#define JOYCON_STICK_DZ        0.12f
++
++typedef struct {
++    uint16_t pid;
++    int calibrated;
++    int cx, cy;
++    uint64_t buttons;
++    float sx, sy;
++    int home;
++    int battery;   // 0..4 from the upper nibble of byte 2 (4=full, 3=75%, 2=50%, 1=25%, 0=empty)
++    int charging;  // 1 when bit 4 of byte 2 is set
++} joycon_state;
++
++static inline int joycon_is_pid(long vid, long pid) {
++    return vid == JOYCON_VID && (pid == JOYCON_PID_L || pid == JOYCON_PID_R);
++}
++
++static inline void joycon_init(joycon_state *s, uint16_t pid) {
++    if (!s) return;
++    memset(s, 0, sizeof *s);
++    s->pid = pid;
++    s->cx = JOYCON_STICK_CENTER;
++    s->cy = JOYCON_STICK_CENTER;
++}
++
++static inline void joycon_stick_scale(float x, float y, float *ox, float *oy) {
++    float m = sqrtf(x * x + y * y);
++    if (m <= JOYCON_STICK_DZ) { *ox = 0.0f; *oy = 0.0f; return; }
++    float k = (m - JOYCON_STICK_DZ) / ((1.0f - JOYCON_STICK_DZ) * m);
++    float sx = x * k, sy = y * k;
++    *ox = sx < -1.0f ? -1.0f : (sx > 1.0f ? 1.0f : sx);
++    *oy = sy < -1.0f ? -1.0f : (sy > 1.0f ? 1.0f : sy);
++}
++
++static inline int joycon_decode_0x30(joycon_state *s, const uint8_t *r, size_t n) {
++    if (!s || !r || n < JOYCON_REPORT_MIN_LEN || r[0] != JOYCON_REPORT_0x30) return 0;
++    if (s->pid != JOYCON_PID_L && s->pid != JOYCON_PID_R) return 0;
++
++    s->charging = (r[2] >> 4) & 1;
++    s->battery = (r[2] >> 5) & 7;
++
++    uint64_t b = 0;
++    int rx = 0, ry = 0;
++    if (s->pid == JOYCON_PID_L) {
++        // Left Joy-Con held sideways (rotated 90 degrees counter-clockwise, rail on top):
++        // Down->A (right), Left->B (bottom), Right->X (top), Up->Y (left), SL->L, SR->R
++        uint8_t lb = r[5], sh = r[4];
++        if (lb & 0x01) b |= DM_BTN_A;
++        if (lb & 0x08) b |= DM_BTN_B;
++        if (lb & 0x04) b |= DM_BTN_X;
++        if (lb & 0x02) b |= DM_BTN_Y;
++        if (lb & 0x20) b |= DM_BTN_L;
++        if (lb & 0x10) b |= DM_BTN_R;
++        if (lb & 0x40) b |= DM_BTN_ZL;
++        if (lb & 0x80) b |= DM_BTN_ZR;
++        if (sh & 0x01) b |= DM_BTN_PLUS;
++        if (sh & 0x20) b |= DM_BTN_MINUS;
++        if (sh & 0x08) b |= DM_BTN_LS;
++        s->home = 0;
++        rx = (int)r[6] | (((int)(r[7] & 0x0f)) << 8);
++        ry = ((int)(r[7] >> 4)) | (((int)r[8]) << 4);
++    } else {
++        // Right Joy-Con held sideways (rotated 90 degrees clockwise, rail on top):
++        // X->A (right), A->B (bottom), Y->X (top), B->Y (left), SL->L, SR->R
++        uint8_t rb = r[3], sh = r[4];
++        if (rb & 0x02) b |= DM_BTN_A;
++        if (rb & 0x08) b |= DM_BTN_B;
++        if (rb & 0x01) b |= DM_BTN_X;
++        if (rb & 0x04) b |= DM_BTN_Y;
++        if (rb & 0x20) b |= DM_BTN_L;
++        if (rb & 0x10) b |= DM_BTN_R;
++        if (rb & 0x40) b |= DM_BTN_ZL;
++        if (rb & 0x80) b |= DM_BTN_ZR;
++        if (sh & 0x02) b |= DM_BTN_PLUS;
++        if (sh & 0x04) b |= DM_BTN_LS;
++        s->home = (sh & 0x10) != 0;
++        rx = (int)r[9] | (((int)(r[10] & 0x0f)) << 8);
++        ry = ((int)(r[10] >> 4)) | (((int)r[11]) << 4);
++    }
++    s->buttons = b;
++
++    if (rx == 0 && ry == 0) {
++        s->sx = 0.0f;
++        s->sy = 0.0f;
++        return 1;
++    }
++    if (!s->calibrated && rx >= 1650 && rx <= 2450 && ry >= 1650 && ry <= 2450) {
++        s->cx = rx;
++        s->cy = ry;
++        s->calibrated = 1;
++    }
++    float dx = (float)(rx - s->cx) / JOYCON_STICK_RADIUS;
++    float dy = (float)(ry - s->cy) / JOYCON_STICK_RADIUS;
++    float rot_x = (s->pid == JOYCON_PID_L) ? -dy : dy;
++    float rot_y = (s->pid == JOYCON_PID_L) ? dx : -dx;
++    joycon_stick_scale(rot_x, rot_y, &s->sx, &s->sy);
++    return 1;
++}
++
++static inline int joycon_motion_decode(pro_motion *s, uint16_t pid, const uint8_t *r, size_t len, uint64_t now, pro_motion_sample out[3]) {
++    if (pid != JOYCON_PID_L && pid != JOYCON_PID_R) return 0;
++    int n = pro_motion_decode(s, r, len, now, out);
++    for (int i = 0; i < n; i++) {
++        float ax = out[i].acc[0], ay = out[i].acc[1], az = out[i].acc[2];
++        float gx = out[i].rot[0], gy = out[i].rot[1], gz = out[i].rot[2];
++        if (pid == JOYCON_PID_L) {
++            // Left Joy-Con rotated 90 degrees counter-clockwise (rail on top)
++            out[i].acc[0] = -ay; out[i].acc[1] = ax; out[i].acc[2] = az;
++            out[i].rot[0] = -gy; out[i].rot[1] = gx; out[i].rot[2] = gz;
++        } else {
++            // Right Joy-Con IMU sensor is mounted flipped 180 degrees around X (raw Y and Z inverted
++            // relative to Left/Pro, see Linux hid-nintendo.c), then rotated 90 degrees clockwise
++            out[i].acc[0] = ay; out[i].acc[1] = ax; out[i].acc[2] = -az;
++            out[i].rot[0] = gy; out[i].rot[1] = gx; out[i].rot[2] = -gz;
++        }
++    }
++    return n;
++}
+diff --git a/dm/host/pad_joycon_mac.h b/dm/host/pad_joycon_mac.h
+new file mode 100644
+index 0000000..a995be7
+--- /dev/null
++++ b/dm/host/pad_joycon_mac.h
+@@ -0,0 +1,115 @@
++// Mac: split a Bluetooth Joy-Con pair into two sideways controllers (pad_joycon.h, LNPANDY/NX2Apple#740).
++// When DM_JOYCON_SPLIT=1 is set, front_mac.m skips GameController's combined Joy-Con entry and reads Joy-Con (L) (0x057e:0x2006)
++// and Joy-Con (R) (0x057e:0x2007) directly with IOHIDManager so each half gets its own player slot.
++#pragma once
++#import <IOKit/hid/IOHIDManager.h>
++#import <GameController/GameController.h>
++#import <GameController/GCSyntheticDeviceKeys.h>
++#include "pad_joycon.h"
++#include <stdio.h>
++#include <stdlib.h>
++
++typedef struct joycon_pad {
++    IOHIDDeviceRef hid;
++    joycon_state st;
++    pro_motion motion;
++    char name[64];
++    uint8_t rep[128];
++    struct joycon_pad *next;
++} joycon_pad;
++
++static IOHIDManagerRef g_joycon_manager;
++static joycon_pad *g_joycons;
++static int g_joycon_split;
++static void joycon_attach(joycon_pad *d);
++static void joycon_detach(joycon_pad *d);
++static void joycon_read(joycon_pad *d);
++static void joycon_read_motion(joycon_pad *d, const uint8_t *rep, size_t len);
++static void joycon_home_changed(void);
++
++static int joycon_is_gc_controller(GCController *c) {
++    if (!c) return 0;
++    NSString *cat = c.productCategory ?: @"";
++    NSString *ven = c.vendorName ?: @"";
++    return [cat rangeOfString:@"Joy-Con" options:NSCaseInsensitiveSearch].location != NSNotFound
++        || [cat rangeOfString:@"JoyCon" options:NSCaseInsensitiveSearch].location != NSNotFound
++        || [ven rangeOfString:@"Joy-Con" options:NSCaseInsensitiveSearch].location != NSNotFound
++        || [ven rangeOfString:@"JoyCon" options:NSCaseInsensitiveSearch].location != NSNotFound;
++}
++
++static void joycon_report(void *ctx, IOReturn result, void *sender, IOHIDReportType type, uint32_t id, uint8_t *rep, CFIndex len) {
++    (void)sender; (void)type; (void)id;
++    joycon_pad *d = ctx;
++    if (result != kIOReturnSuccess || !d || len <= 0) return;
++    int was_home = d->st.home;
++    if (!joycon_decode_0x30(&d->st, rep, (size_t)len)) return;
++    joycon_read(d);
++    joycon_read_motion(d, rep, (size_t)len);
++    if (d->st.home != was_home) joycon_home_changed();
++}
++
++static void joycon_found(void *ctx, IOReturn result, void *sender, IOHIDDeviceRef hid) {
++    (void)ctx; (void)sender;
++    if (!g_joycon_split || result != kIOReturnSuccess || IOHIDDeviceGetProperty(hid, CFSTR(kIOHIDGCSyntheticDeviceKey)) == kCFBooleanTrue) return;
++    for (joycon_pad *d = g_joycons; d; d = d->next) if (d->hid == hid) return;
++    NSNumber *vendor = (__bridge NSNumber *)IOHIDDeviceGetProperty(hid, CFSTR(kIOHIDVendorIDKey));
++    NSNumber *product = (__bridge NSNumber *)IOHIDDeviceGetProperty(hid, CFSTR(kIOHIDProductIDKey));
++    long vid = vendor.longValue, pid = product.longValue;
++    if (!joycon_is_pid(vid, pid)) return;
++    joycon_pad *d = calloc(1, sizeof *d);
++    if (!d) { LOG("[RED] Split Joy-Con: cannot allocate device state"); return; }
++    joycon_init(&d->st, (uint16_t)pid);
++    snprintf(d->name, sizeof d->name, "%s", pid == JOYCON_PID_L ? "Joy-Con (L)" : "Joy-Con (R)");
++    d->hid = (IOHIDDeviceRef)CFRetain(hid);
++    joycon_pad **link = &g_joycons;
++    while (*link) link = &(*link)->next;
++    *link = d;
++    IOHIDDeviceRegisterInputReportCallback(hid, d->rep, sizeof d->rep, joycon_report, d);
++    joycon_attach(d);
++}
++
++static void joycon_removed(void *ctx, IOReturn result, void *sender, IOHIDDeviceRef hid) {
++    (void)ctx; (void)result; (void)sender;
++    joycon_pad **link = &g_joycons;
++    while (*link && (*link)->hid != hid) link = &(*link)->next;
++    if (!*link) return;
++    joycon_pad *d = *link;
++    *link = d->next;
++    IOHIDDeviceRegisterInputReportCallback(hid, d->rep, 0, NULL, NULL);
++    joycon_detach(d);
++    CFRelease(d->hid);
++    free(d);
++}
++
++static void joycon_start(void) {
++    const char *e = getenv("DM_JOYCON_SPLIT");
++    g_joycon_split = e && atoi(e);
++    if (!g_joycon_split || g_joycon_manager) return;
++    g_joycon_manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
++    if (!g_joycon_manager) return;
++    IOHIDManagerSetDeviceMatchingMultiple(g_joycon_manager, (__bridge CFArrayRef)@[
++        @{@kIOHIDVendorIDKey: @(JOYCON_VID), @kIOHIDProductIDKey: @(JOYCON_PID_L)},
++        @{@kIOHIDVendorIDKey: @(JOYCON_VID), @kIOHIDProductIDKey: @(JOYCON_PID_R)}]);
++    IOHIDManagerRegisterDeviceMatchingCallback(g_joycon_manager, joycon_found, NULL);
++    IOHIDManagerRegisterDeviceRemovalCallback(g_joycon_manager, joycon_removed, NULL);
++    IOHIDManagerScheduleWithRunLoop(g_joycon_manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
++    IOReturn r = IOHIDManagerOpen(g_joycon_manager, kIOHIDOptionsTypeNone);
++    if (r != kIOReturnSuccess) {
++        LOG("[RED] Split Joy-Con: cannot open HID (0x%x), keeping GameController's combined pair", r);
++        IOHIDManagerUnscheduleFromRunLoop(g_joycon_manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
++        CFRelease(g_joycon_manager);
++        g_joycon_manager = NULL;
++        g_joycon_split = 0;
++        return;
++    }
++    // Attach Joy-Con (L) before Joy-Con (R) when both are already connected at launch so (L) gets Player 1 and (R) gets Player 2.
++    NSSet *devs = CFBridgingRelease(IOHIDManagerCopyDevices(g_joycon_manager));
++    const int order[2] = {JOYCON_PID_L, JOYCON_PID_R};
++    for (int i = 0; i < 2; i++) {
++        for (id obj in devs) {
++            IOHIDDeviceRef hid = (__bridge IOHIDDeviceRef)obj;
++            NSNumber *pid = (__bridge NSNumber *)IOHIDDeviceGetProperty(hid, CFSTR(kIOHIDProductIDKey));
++            if (pid.intValue == order[i]) joycon_found(NULL, kIOReturnSuccess, NULL, hid);
++        }
++    }
++}
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index aee5576..0941fff 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -350,7 +350,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
+ 	$(B)/t_altstack
+ 	DM_QOS_MAP=1 $(B)/t_notify_sched
+ 	DM_QOS_MAP=1 $(B)/t_notify_sched --all-peers
+-$(B)/t_pad_hid: t_pad_hid.c ../pad_hid.h ../dm_input.h | $(B)
++$(B)/t_pad_hid: t_pad_hid.c ../pad_hid.h ../pad_joycon.h ../motion_pro.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_pad_hid.c
+ 
+ # Line coverage (../../sanitizers/coverage.mk): make coverage builds every test of run into $(B)/cov with COV_FLAGS, runs them and writes $(B)/cov/coverage.lcov.
+diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
+index 27adba0..f7a5dfb 100644
+--- a/dm/host/tests/t_haptics_apple.m
++++ b/dm/host/tests/t_haptics_apple.m
+@@ -440,6 +440,20 @@ int main(void) { @autoreleasepool {
+     send_pair(0, 0); drain();
+     dm_haptics_apple_controller(0, nil); dm_haptics_apple_controller(1, nil); drain();
+     assert(back.closes == 1 && second.closes == 1 && objects == 0);   // every iterator and service released
++    // Split Joy-Con single-locality routing: Player 1 takes LeftHandle, Player 2 takes RightHandle on the same GCController
++    TestController *jc = [TestController new]; jc.haptics = [TestHaptics new];
++    jc.haptics.supportedLocalities = [NSSet setWithObjects:GCHapticsLocalityDefault, GCHapticsLocalityLeftHandle, GCHapticsLocalityRightHandle, nil];
++    dm_haptics_apple_controller_locality(0, (id)jc, GCHapticsLocalityLeftHandle);
++    dm_haptics_apple_controller_locality(1, (id)jc, GCHapticsLocalityRightHandle);
++    drain();
++    assert(channels[0].count == 1 && channels[1].count == 1);
++    dm_vibration_update ujc[] = {{0, 0, {0.6f, 160, 0.6f, 320}}, {0, 1, {0.6f, 160, 0.6f, 320}},
++                                 {1, 0, {0.4f, 160, 0.4f, 320}}, {1, 1, {0.4f, 160, 0.4f, 320}}};
++    dm_haptics_send(ujc, 4); drain();
++    assert(jc.haptics.attempts == 2);
++    assert([jc.haptics.requestedLocalities[0] isEqual:GCHapticsLocalityLeftHandle]);
++    assert([jc.haptics.requestedLocalities[1] isEqual:GCHapticsLocalityRightHandle]);
++    dm_haptics_apple_controller(0, nil); dm_haptics_apple_controller(1, nil); drain();
+     assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
+     dm_haptics_apple_shutdown();
+     puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, level cutoff and the DualShock 4 route passed");
+diff --git a/dm/host/tests/t_pad_hid.c b/dm/host/tests/t_pad_hid.c
+index 48341c7..898ad8f 100644
+--- a/dm/host/tests/t_pad_hid.c
++++ b/dm/host/tests/t_pad_hid.c
+@@ -1,10 +1,97 @@
+ // Raw HID gamepads (pad_hid.h, GitHub issue #637): the default map and DM_HID_MAP, hat directions, axis scaling, the stick dead zone and analog triggers
+ #include <stdio.h>
+ #include "../pad_hid.h"
++#include "../pad_joycon.h"
+ 
+ static int checks, fails;
+ #define CHECK(c) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); } } while (0)
+ 
++static void pack_stick(uint8_t *p, int x, int y) {
++    p[0] = (uint8_t)(x & 0xff);
++    p[1] = (uint8_t)(((x >> 8) & 0x0f) | ((y & 0x0f) << 4));
++    p[2] = (uint8_t)((y >> 4) & 0xff);
++}
++
++static void test_joycon_split(void) {
++    CHECK(joycon_is_pid(0x057e, 0x2006) && joycon_is_pid(0x057e, 0x2007));
++    CHECK(!joycon_is_pid(0x057e, 0x2009) && !joycon_is_pid(0x045e, 0x2006));
++
++    joycon_state jl, jr;
++    joycon_init(&jl, JOYCON_PID_L);
++    joycon_init(&jr, JOYCON_PID_R);
++    uint8_t rep[49];
++    memset(rep, 0, sizeof rep);
++    CHECK(!joycon_decode_0x30(&jl, rep, sizeof rep));   // report id 0x00 rejected
++    rep[0] = 0x30;
++    CHECK(!joycon_decode_0x30(&jl, rep, 11));           // truncated report rejected
++
++    // Real Joy-Con (L) 0x30 sample captured on macOS (center 1958, 2117, battery 0x4e = not charging, level 2; 0x5e = charging, level 2)
++    rep[2] = 0x4e;
++    pack_stick(rep + 6, 1958, 2117);
++    CHECK(joycon_decode_0x30(&jl, rep, sizeof rep));
++    CHECK(jl.calibrated && jl.cx == 1958 && jl.cy == 2117);
++    CHECK(jl.charging == 0 && jl.battery == 2);
++    rep[2] = 0x5e;
++    CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.charging == 1 && jl.battery == 2);
++    CHECK(jl.buttons == 0 && jl.sx == 0.0f && jl.sy == 0.0f);
++
++    // Sideways Left Joy-Con buttons: Down->A, Left->B, Right->X, Up->Y, SL->L, SR->R, L->ZL, ZL->ZR, Minus->PLUS, Capture->MINUS, LS->LS
++    rep[5] = 0x01; CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.buttons == DM_BTN_A);
++    rep[5] = 0x08; CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.buttons == DM_BTN_B);
++    rep[5] = 0x04; CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.buttons == DM_BTN_X);
++    rep[5] = 0x02; CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.buttons == DM_BTN_Y);
++    rep[5] = 0x20 | 0x10; CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.buttons == (DM_BTN_L | DM_BTN_R));
++    rep[5] = 0x40 | 0x80; CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.buttons == (DM_BTN_ZL | DM_BTN_ZR));
++    rep[5] = 0; rep[4] = 0x01 | 0x20 | 0x08;
++    CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.buttons == (DM_BTN_PLUS | DM_BTN_MINUS | DM_BTN_LS));
++    rep[4] = 0;
++
++    // Sideways Left Joy-Con stick rotation (90 deg CCW): physical right (+X) is sideways up (+Y), physical down (-Y) is sideways right (+X)
++    pack_stick(rep + 6, 1958 + 1400, 2117);
++    CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.sx == 0.0f && jl.sy > 0.99f);
++    pack_stick(rep + 6, 1958, 2117 - 1400);
++    CHECK(joycon_decode_0x30(&jl, rep, sizeof rep) && jl.sx > 0.99f && jl.sy == 0.0f);
++
++    // Real Joy-Con (R) 0x30 sample captured on macOS (center 2067, 2415, battery 0x80 = full, not charging)
++    memset(rep, 0, sizeof rep);
++    rep[0] = 0x30; rep[2] = 0x80;
++    pack_stick(rep + 9, 2067, 2415);
++    CHECK(joycon_decode_0x30(&jr, rep, sizeof rep));
++    CHECK(jr.calibrated && jr.cx == 2067 && jr.cy == 2415);
++    CHECK(jr.charging == 0 && jr.battery == 4);
++
++    // Sideways Right Joy-Con buttons: X->A, A->B, Y->X, B->Y, SL->L, SR->R, R->ZL, ZR->ZR, Plus->PLUS, RS->LS, Home->home
++    rep[3] = 0x02; CHECK(joycon_decode_0x30(&jr, rep, sizeof rep) && jr.buttons == DM_BTN_A);
++    rep[3] = 0x08; CHECK(joycon_decode_0x30(&jr, rep, sizeof rep) && jr.buttons == DM_BTN_B);
++    rep[3] = 0x01; CHECK(joycon_decode_0x30(&jr, rep, sizeof rep) && jr.buttons == DM_BTN_X);
++    rep[3] = 0x04; CHECK(joycon_decode_0x30(&jr, rep, sizeof rep) && jr.buttons == DM_BTN_Y);
++    rep[3] = 0x20 | 0x10; CHECK(joycon_decode_0x30(&jr, rep, sizeof rep) && jr.buttons == (DM_BTN_L | DM_BTN_R));
++    rep[3] = 0; rep[4] = 0x02 | 0x04 | 0x10;
++    CHECK(joycon_decode_0x30(&jr, rep, sizeof rep) && jr.buttons == (DM_BTN_PLUS | DM_BTN_LS) && jr.home == 1);
++    rep[4] = 0;
++
++    // Sideways Right Joy-Con stick rotation (90 deg CW): physical left (-X) is sideways up (+Y), physical up (+Y) is sideways right (+X)
++    pack_stick(rep + 9, 2067 - 1400, 2415);
++    CHECK(joycon_decode_0x30(&jr, rep, sizeof rep) && jr.sx == 0.0f && jr.sy > 0.99f);
++    pack_stick(rep + 9, 2067, 2415 + 1400);
++    CHECK(joycon_decode_0x30(&jr, rep, sizeof rep) && jr.sx > 0.99f && jr.sy == 0.0f);
++
++    // Sideways 6-axis IMU motion rotation for Left (90 deg CCW) and Right (raw Y/Z inverted + 90 deg CW)
++    memset(rep + 13, 0, 36);
++    rep[1] = 7;
++    // Sample 0: raw_ax = 4096 (1g toward upright top), raw_az = 4096 (1g face-up support on Left, inverted on Right)
++    int16_t raw_ax = 4096, raw_az_l = 4096, raw_az_r = -4096;
++    memcpy(rep + 13, &raw_ax, 2); memcpy(rep + 17, &raw_az_l, 2);
++    pro_motion ml = {0}, mr = {0}; pro_motion_sample msl[3], msr[3];
++    CHECK(joycon_motion_decode(&ml, JOYCON_PID_L, rep, sizeof rep, 50000000ULL, msl) == 3);
++    // Upright (+raw_ax) gives sy = -1; rotated 90 deg CCW gives sideways acc_x = -sy = +1, acc_z = -1
++    CHECK(fabsf(msl[0].acc[0] - 1.0f) < 1e-4f && fabsf(msl[0].acc[1]) < 1e-4f && fabsf(msl[0].acc[2] + 1.0f) < 1e-4f);
++    memcpy(rep + 17, &raw_az_r, 2);
++    CHECK(joycon_motion_decode(&mr, JOYCON_PID_R, rep, sizeof rep, 50000000ULL, msr) == 3);
++    // Right Joy-Con rotated 90 deg CW with inverted raw Z: sideways acc_x = +sy = -1, acc_z = -1
++    CHECK(fabsf(msr[0].acc[0] + 1.0f) < 1e-4f && fabsf(msr[0].acc[1]) < 1e-4f && fabsf(msr[0].acc[2] + 1.0f) < 1e-4f);
++}
++
+ int main(void) {
+     pad_hid h; int32_t s[4];
+     pad_hid_init(&h, NULL);
+@@ -34,6 +121,7 @@ int main(void) {
+     h.has[PH_Z] = 0; h.has[PH_RX] = 1; h.axis[PH_RX] = -1; pad_hid_sticks(&h, s); CHECK(s[2] == -DM_STICK_MAX && s[3] == 0);   // Rx / Ry without Z
+     h.has[PH_ACCEL] = 1; h.axis[PH_ACCEL] = -1; CHECK(!(pad_hid_buttons(&h) & DM_BTN_ZR));
+     h.axis[PH_ACCEL] = pad_hid_norm(200, 0, 255); CHECK(pad_hid_buttons(&h) & DM_BTN_ZR);
++    test_joycon_split();
+     printf("t_pad_hid: %d checks, %d failed\n", checks, fails);
+     return fails != 0;
+ }
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 2b64998..500e86f 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -103,6 +103,7 @@ void dm_motion_clear(int player) {
+ int duo_harness_rumble(void) { return g_rumble; }
+ void dm_haptics_apple_init(void) {}
+ void dm_haptics_apple_controller(int player, GCController *controller) { (void)player; (void)controller; }
++void dm_haptics_apple_controller_locality(int player, GCController *controller, GCHapticsLocality locality) { (void)player; (void)controller; (void)locality; }
+ 
+ int front_ios_boot_ok(void) { return 1; }
+ void front_ios_boot(void) {}
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 772479e..8404674 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -85,6 +85,7 @@ DM_JIT_CAPTURE	path	Folder the Mac host writes what a game's `nn::jit` plugin ma
+ DM_JIT_LOG	diagnostic	`1` logs every `nn::jit` `GenerateCode` request
+ DM_JIT_MISS_DUMP	diagnostic	Folder for the input of each `nn::jit` request a served image lacks
+ DM_JIT_SERVE	path	Folder of a `nn::jit` image (`jit.img`, `jit.tsv`, `jit.out`): the Mac serves requests from it as the iOS app does, and the plugin does not run
++DM_JOYCON_SPLIT	switch	`1` splits a Bluetooth Nintendo Switch Joy-Con pair on macOS (`0x057e:0x2006` and `0x057e:0x2007`) into two sideways controllers over `IOHIDManager` (`pad_joycon_mac.h`, requires Input Monitoring permission) with per-half 6-axis motion and `LeftHandle` / `RightHandle` Core Haptics rumble
+ DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
+ DM_KBD_PLAYER	switch	`own` makes the Mac keyboard player 1 on its own, with controllers from player 2 on (by default the first controller shares player 1 with the keyboard)
+ DM_KEYMAP	player	Mac keyboard: `<name>=<key code>,…` puts a button (`A` … `Down`), a stick direction (`LUp` … `RRight`) or `Shake` on another key (macOS virtual key code, or `none`); one key holds one function (`input_map.h`)
