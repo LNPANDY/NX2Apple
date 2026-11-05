@@ -1,0 +1,353 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Thu, 5 Nov 2026 13:03:51 +0100
+Subject: [PATCH] NSP script: hand the extraction and the shader split to
+ nxbuild when asked
+
+nxbuild (a build tool in Rust) reproduces the extraction and the shader split
+byte for byte and much faster: about 15 s for both versions of Wonder against
+2:27 for nx_extract and 0:43 for shader_split.py.
+
+With DM_EXPERIMENTAL_BUILDER=1 and NXB_BIN (the nxb binary or its folder) the
+script runs nxb-extract and nxb-split for these stages. It stays the driver:
+stage names, events, work folder and reuse keys do not change. A case nxbuild
+is not given (XCI, NSZ, merged packages, --program, --allow-damaged, DLC,
+captures, NROs, a decoder, a provisional or derived profile), an nxbuild exit
+code other than 0 (4 is "not supported yet") and an output that fails the
+checks (the title, ExeFS/main, RomFS.img and the marker for an extraction,
+the profile's table rows for the split) run the standard step, with a note.
+nxbuild's own red lines stay in its log, since the build did not fail.
+Without the variable nothing changes.
+
+Upstream-Status: forwarded seedds/nxnative#1325
+Reason: the launcher's opt-in experimental builder (nxbuild) runs the extraction and the shader split
+Issue: LNPANDY/NX2Apple#749
+---
+ .../tests/test_nsp_experimental_builder.py    | 156 ++++++++++++++++++
+ docs/env_switches.tsv                         |   1 +
+ scripts/build_ipa_from_nsp.py                 | 116 ++++++++++++-
+ 3 files changed, 269 insertions(+), 4 deletions(-)
+ create mode 100644 dm/tools/tests/test_nsp_experimental_builder.py
+
+diff --git a/dm/tools/tests/test_nsp_experimental_builder.py b/dm/tools/tests/test_nsp_experimental_builder.py
+new file mode 100644
+index 0000000..9005508
+--- /dev/null
++++ b/dm/tools/tests/test_nsp_experimental_builder.py
+@@ -0,0 +1,156 @@
++"""NSP script, the experimental builder (scripts/build_ipa_from_nsp.py, DM_EXPERIMENTAL_BUILDER and NXB_BIN): which nxbuild binary a stage takes, and that a stage it does not
++support, fails or gets wrong runs the standard way. The nxbuild binaries are stand-in scripts in a temporary folder: no game files, keys or nxbuild needed."""
++import importlib.util
++import os
++from pathlib import Path
++import struct
++import sys
++import tempfile
++import unittest
++from unittest import mock
++
++REPO = Path(__file__).resolve().parents[3]
++spec = importlib.util.spec_from_file_location('build_ipa_from_nsp', REPO / 'scripts/build_ipa_from_nsp.py')
++assert spec is not None and spec.loader is not None
++nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)
++spec = importlib.util.spec_from_file_location('romfs_image', REPO / 'dm/tools/romfs_image.py')
++assert spec is not None and spec.loader is not None
++romfs_image = importlib.util.module_from_spec(spec); spec.loader.exec_module(romfs_image)
++
++APP = 0x010015100B514000
++
++
++def pfs0(path, names):   # a PFS0 (NSP) with empty files of these names
++    strs = b''.join(n.encode() + b'\0' for n in names)
++    ent, off = b'', 0
++    for n in names: ent += struct.pack('<QQII', 0, 0, off, 0); off += len(n) + 1
++    path.write_bytes(b'PFS0' + struct.pack('<III', len(names), len(strs), 0) + ent + strs)
++    return path
++
++
++def tool(folder, name, body):   # an executable stand-in for an nxbuild binary: Python, run with this interpreter
++    p = folder / name
++    p.write_text(f'#!{sys.executable}\nimport os, shutil, sys\nfrom pathlib import Path\n{body}\n')
++    p.chmod(0o755)
++    return p
++
++
++class Builder(unittest.TestCase):
++    def setUp(self):
++        self.t = Path(tempfile.mkdtemp()); self.addCleanup(lambda: nsp.rmtree(self.t))
++        self.bin = self.t / 'bin'; self.bin.mkdir()
++        self.nxb = tool(self.bin, 'nxb', 'sys.exit(0)')
++        self.logs = self.t / 'logs'
++        self.said = []
++        for cm in (mock.patch.object(nsp.PROG, 'say', side_effect=self.said.append), mock.patch.object(nsp, '_nxb_noted', set()),
++                   mock.patch.dict(os.environ, {'DM_EXPERIMENTAL_BUILDER': '1', 'NXB_BIN': str(self.nxb)})):
++            cm.__enter__(); self.addCleanup(cm.__exit__, None, None, None)
++
++    def text(self): return '\n'.join(self.said)
++
++    def test_off_by_default_and_with_another_value(self):
++        for value in (None, '0', 'yes'):
++            env = {k: v for k, v in os.environ.items() if k != 'DM_EXPERIMENTAL_BUILDER'} | ({'DM_EXPERIMENTAL_BUILDER': value} if value else {})
++            with self.subTest(value=value): self.assertIsNone(nsp.nxb_tool('extract', env))
++        self.assertEqual(self.said, [], 'off says nothing')
++
++    def test_a_stage_binary_beside_nxb_else_its_subcommand(self):
++        self.assertEqual(nsp.nxb_tool('split'), [self.nxb, 'split'], 'one binary: the stage is its subcommand')
++        split = tool(self.bin, 'nxb-split', 'sys.exit(0)')
++        self.assertEqual(nsp.nxb_tool('split'), [split], 'a stage binary of its own goes first')
++        self.assertEqual(nsp.nxb_tool('split', dict(os.environ, NXB_BIN=str(self.bin))), [split], 'NXB_BIN may name the folder')
++        self.assertEqual(self.said, [])
++        self.assertIsNone(nsp.nxb_tool('split', dict(os.environ, NXB_BIN=str(self.t / 'gone'))))
++        self.assertIn('NXB_BIN does not name the nxb binary', self.text())
++        empty = self.t / 'empty'; empty.mkdir()
++        self.assertIsNone(nsp.nxb_tool('split', dict(os.environ, NXB_BIN=str(empty))))
++        self.assertIn('the standard builder runs every stage', self.text())
++        self.said.clear(); nsp.nxb_tool('split', dict(os.environ, NXB_BIN=str(empty))); self.assertEqual(self.said, [], 'a note once per build')
++
++    def test_a_subcommand_nxb_does_not_have_falls_back(self):   # the one-binary nxb of a release without the stage: its usage error, exit 2
++        tool(self.bin, 'nxb', "print('nxb: extract: not implemented yet', file=sys.stderr); sys.exit(2)")
++        tmp = self.t / 'v0.partial'
++        self.assertFalse(nsp.nxb_extract(self.t / 'k', pfs0(self.t / 'g.nsp', ['a.cnmt.nca']), None, tmp, self.logs, 'v0', APP, None))
++        self.assertIn('exit code 2', self.text())
++        self.assertIn('the standard builder runs it', self.text())
++
++    def extraction(self, body, marker='marker.txt'):
++        src = self.t / 'src'; src.mkdir(exist_ok=True); (src / 'marker.txt').write_text('x')
++        romfs_image.pack(src, self.t / 'image.img')
++        tool(self.bin, 'nxb-extract', body.replace('IMAGE', repr(str(self.t / 'image.img'))))
++        base = pfs0(self.t / 'Game [010015100B514000].nsp', ['a.nca', 'a.cnmt.nca'])
++        tmp = self.t / 'extract' / 'v0.partial'; tmp.parent.mkdir(exist_ok=True)
++        return nsp.nxb_extract(self.t / 'prod.keys', base, None, tmp, self.logs, 'v0', APP, marker), tmp
++
++    WRITES = ("out = Path(sys.argv[sys.argv.index('--out') + 1]); (out / 'ExeFS').mkdir(parents=True); (out / 'ExeFS/main').write_bytes(b'NSO0')\n"
++              "shutil.copyfile(IMAGE, out / 'RomFS.img'); print('title {title}'); print('ExeFS: 4 files 1.0 MB, 0 identical to the compare dir (cloned), 1.0 MB newly written')")
++
++    def test_extract_takes_a_whole_output_of_the_game(self):
++        ok, tmp = self.extraction(self.WRITES.format(title=f'{APP:016x}'))
++        self.assertTrue(ok, self.text())
++        self.assertTrue((tmp / 'RomFS.img').is_file())
++        self.assertEqual(nsp.extracted(self.logs / 'extract_v0.log'), (4, 2**20), 'the summary nx_extract writes, for the next estimate')
++        self.assertIn('extracted v0 with nxb-extract', self.text())
++
++    def test_extract_falls_back_on_unsupported_failure_or_a_bad_output(self):
++        for body, why in (('sys.exit(4)', 'not supported yet'), ("print('[RED] not supported yet: sparse NCA'); sys.exit(1)", 'not supported yet'),
++                          ('sys.exit(3)', 'exit code 3'), (self.WRITES.format(title='0100000000001000'), 'failed the checks'),
++                          (self.WRITES.format(title=f'{APP:016x}').replace("print('title", "Path(out / 'RomFS.img').unlink(); print('title"), 'failed the checks')):
++            with self.subTest(why=why, body=body[:30]):
++                self.said.clear(); nsp._nxb_noted.clear()
++                ok, tmp = self.extraction(body)
++                self.assertFalse(ok)
++                self.assertFalse(tmp.exists(), 'nx_extract starts from an empty folder')
++                self.assertIn(why, self.text())
++                self.assertIn('the standard builder runs it', self.text())
++                self.assertNotIn('[RED]', self.text(), 'nxbuild\'s red lines stay in its log: the build did not fail')
++
++    def test_extract_leaves_packages_it_does_not_read_to_nx_extract(self):
++        tool(self.bin, 'nxb-extract', f"Path({str(self.t / 'ran')!r}).write_text('x')")
++        tmp = self.t / 'v0.partial'
++        for names in (['a.cnmt.nca', 'b.cnmt.nca'], ['a.ncz', 'a.cnmt.nca']):   # merged, NSZ
++            with self.subTest(names=names):
++                base = pfs0(self.t / 'g.nsp', names)
++                self.assertFalse(nsp.nxb_extract(self.t / 'k', base, None, tmp, self.logs, 'v0', APP, None))
++        xci = self.t / 'g.xci'; xci.write_bytes(b'\0' * 0x100 + b'HEAD')
++        self.assertFalse(nsp.nxb_extract(self.t / 'k', xci, None, tmp, self.logs, 'v0', APP, None))
++        with mock.patch.object(nsp, 'PROGRAM_INDEX', 1):
++            self.assertFalse(nsp.nxb_extract(self.t / 'k', pfs0(self.t / 'g.nsp', ['a.cnmt.nca']), None, tmp, self.logs, 'v0', APP + 1, None))
++        self.assertIn('not supported yet', self.text())
++        self.assertFalse((self.t / 'ran').exists(), 'nxb-extract is not run for them')
++
++    def test_an_update_is_extracted_alone(self):
++        tool(self.bin, 'nxb-extract', f"Path({str(self.t / 'args')!r}).write_text(' '.join(sys.argv[1:])); sys.exit(4)")
++        base, upd = pfs0(self.t / 'b.nsp', ['a.cnmt.nca']), pfs0(self.t / 'u.nsp', ['u.cnmt.nca'])
++        tmp = self.t / 'v1.partial'
++        self.assertFalse(nsp.nxb_extract(self.t / 'k', base, upd, tmp, self.logs, 'v1', APP, None))
++        args = (self.t / 'args').read_text()
++        self.assertIn(f'--update {upd} {tmp} --updates-only', args)
++        self.assertFalse(tmp.with_name('v1.partial.nxb-base').exists(), 'the base\'s scratch folder goes')
++
++    def split(self, rows):
++        tool(self.bin, 'nxb-split', "a = sys.argv; o = lambda k: Path(a[a.index(k) + 1])\n"
++             "o('--pkg').mkdir(parents=True)\n"
++             f"for k in ('--map', '--facts', '--pairs', '--pso-pairs'): o(k).write_text({rows!r})")
++        game = self.t / 'game'; game.mkdir(exist_ok=True); (game / 'game.tsv').write_text('name\tx\n')
++        for n in ('shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv'): (game / n).write_text('# header of the profile\nrow\t1\n')
++        g = mock.Mock(dir=game, table=lambda n: game / n)
++        d = self.t / 'extract' / 'v0'
++        tmp = self.t / 'pkg.partial'; (tmp / 'tables').mkdir(parents=True, exist_ok=True)
++        return nsp.nxb_split([d / 'RomFS.img'], [d / 'ExeFS' / 'main'], tmp, ('shader_map.tsv', 'shader_facts.tsv', 'shader_pairs.tsv'), self.logs, g), tmp
++
++    def test_split_is_taken_when_its_tables_are_the_profiles(self):
++        text, tmp = self.split('# another header\nrow\t1\n')
++        self.assertEqual(text, 'shaders: 1 (nxb-split)\n')
++        self.assertTrue((tmp / 'pkg').is_dir())
++
++    def test_split_with_other_tables_runs_the_standard_way(self):
++        text, tmp = self.split('row\t2\n')
++        self.assertIsNone(text)
++        self.assertEqual(sorted(p.name for p in tmp.iterdir()), ['tables'], 'shader_split.py starts from an empty folder')
++        self.assertEqual(list((tmp / 'tables').iterdir()), [])
++        self.assertIn('differs from the profile\'s tables', self.text())
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 772479e..aceb18e 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -36,6 +36,7 @@ DM_ENV_FILE	path	`=<file>` makes `build_ipa.sh` bake its `KEY=VALUE` lines into
+ DM_ENV_FILE_KEYS	switch	Set by the iOS app and the Mac launcher at launch to the space-separated names an env file set; the settings screen keeps those values and shows them greyed out
+ DM_ENV_LAUNCH_KEYS	switch	Set at launch by the Mac launcher (the launcher settings already in the environment) and the iOS app (every DM_* variable already in it) to the space-separated names; the settings screen keeps those values and shows them greyed out
+ DM_EXEC_OUT	path	File `oe::ExecuteProgram` records the next program and its parameters in, then the app ends (the iOS app of a game of several programs sets it to `Documents/program.bin`)
++DM_EXPERIMENTAL_BUILDER	switch	`1` makes the NSP script run the extraction and the shader split through nxbuild's binaries beside `NXB_BIN` (the path of its `nxb` binary) where nxbuild supports the case, with the same outputs; any other case, an unsupported stage or an output that fails the checks runs the standard way (the Mac launcher's Use experimental builder setting)
+ DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and kinds of file descriptors the process has open
+ DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
+ DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index d7ebdb5..0b1768b 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -33,6 +33,7 @@
+ # unless ALLOW_OTHER_METAL / --allow-other-metal. Issue #242 reported corruption with another compiler; the cause is still unconfirmed.
+ # Python 3.12+ is required for bounded archive mappings inside images. The Python running this file needs lz4, capstone 5.x and fonttools (and backports.zstd before Python 3.14); also needed: Xcode, xcodegen, .NET SDK 10, zstd. SPIRV-Cross is the in-repo build. A first run takes 2 (Metroid Dread) to 10 minutes (Breath of the Wild: 5 of them the shader split), longer when shader libraries must be compiled; a repeat run with unchanged inputs takes about 20 s (Metroid Dread), mostly packing the IPA. Key values are never printed.
+ # The console shows one line per stage ([k/n] stage, with a bar, done/total, percent, elapsed time and ETA where the work can be counted); the tools' own output goes only to logs/ (PROGRESS / --progress). --progress json writes newline-delimited JSON events to stdout.
++# DM_EXPERIMENTAL_BUILDER=1 with NXB_BIN=<path of nxbuild's nxb binary>: the extraction and the shader split run through nxbuild's binaries where it supports the case, with the same outputs and events; anything else runs as always (nxb_tool).
+ import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types
+ from pathlib import Path
+ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
+@@ -422,6 +423,104 @@ def free_gb(p):
+     return shutil.disk_usage(p).free / 2**30
+ 
+ 
++# ---- The experimental builder (nxbuild) ----
++# DM_EXPERIMENTAL_BUILDER=1 with NXB_BIN=<the nxb binary, or its folder>: the stages nxbuild reproduces byte for byte run through its binaries beside nxb (the extraction:
++# nxb-extract, or nxb extract; the shader split: nxb-split, or nxb split). This script stays the driver: the stage names, the events, the work folder and the reuse keys are the same. A stage nxbuild does
++# not support (exit code NXB_UNSUPPORTED, or any other failure), a case it is not given (XCI, NSZ, merged packages, DLC, captures, a provisional or derived profile) and an
++# output that fails the checks below run the standard way, with a note in the log. Without the variable nothing changes.
++NXB_UNSUPPORTED = 4   # nxbuild's exit code for "not supported yet": nothing it wrote is an output (nxbuild's docs/integration-requests.md)
++_nxb_noted = set()
++
++
++def nxb_note(msg):   # one note per message and build: a missing binary is named once, not per version
++    if msg not in _nxb_noted: _nxb_noted.add(msg); say(f'experimental builder: {msg}')
++
++
++def nxb_tool(sub, env=None):
++    """The command of nxbuild's stage sub (extract, split) when the experimental builder is on, else None: its own binary nxb-<sub> beside NXB_BIN when there is one
++    (nxbuild's first releases), else the nxb binary's subcommand ([nxb, sub], one binary for every stage)"""
++    env = os.environ if env is None else env
++    if env.get('DM_EXPERIMENTAL_BUILDER') != '1': return None
++    where = Path(os.path.expanduser(env.get('NXB_BIN', '')))
++    if not env.get('NXB_BIN') or not where.exists(): nxb_note(f'NXB_BIN does not name the nxb binary ({env.get("NXB_BIN", "")!r}): the standard builder runs every stage'); return None
++    folder = where if where.is_dir() else where.parent
++    for cmd in ([folder / f'nxb-{sub}'], [folder / 'nxb', sub]):
++        if cmd[0].is_file() and os.access(cmd[0], os.X_OK): return cmd
++    nxb_note(f'no nxb in {folder}: the standard builder runs every stage'); return None
++
++
++def nxb_run(cmd, log, what):
++    """Run an nxbuild binary with its output in log only (its [RED] lines are not the build's: a stage it cannot do runs the standard way). True when it exited 0"""
++    log.parent.mkdir(parents=True, exist_ok=True)
++    err = ''
++    try:
++        with open(log, 'w') as f: p = subprocess.Popen([str(c) for c in cmd], stdout=f, stderr=subprocess.STDOUT)
++        try: code = p.wait()
++        except KeyboardInterrupt: p.terminate(); p.wait(); raise
++    except OSError as e: code, err = None, str(e)
++    if code == 0: return True
++    try: unsupported = code == NXB_UNSUPPORTED or 'not supported yet' in log.read_text(errors='replace')
++    except OSError: unsupported = False
++    why = f'could not start ({err})' if code is None else 'not supported yet' if unsupported else f'exit code {code}'
++    nxb_note(f'{what}: {why} (see {log}), the standard builder runs it')
++    return False
++
++
++def nxb_extract(keys, base, upd, tmp, logs, name, app, marker):
++    """The extraction of one version through nxb-extract into tmp (the layout nx_extract writes: ExeFS/, RomFS.img, control.nacp, icon.jpg). True when its output passed the checks;
++    False leaves no tmp, for nx_extract. Only plain NSPs of one title: an XCI, NSZ or merged package, another program or a damaged NSP go the standard way"""
++    tool = nxb_tool('extract')
++    if not tool: return False
++    def plain(p):
++        try: return p.suffix.lower() == '.nsp' and is_package(p) and not is_merged(p) and not any(n.lower().endswith('.ncz') for n in package_names(p))
++        except (OSError, ValueError, struct.error, BuildError): return False
++    if PROGRAM_INDEX or ALLOW_DAMAGED or not all(plain(p) for p in (base, upd) if p):
++        nxb_note(f'extract {name}: an XCI, NSZ or merged package, --program or --allow-damaged is not supported yet, the standard builder runs it'); return False
++    log, scratch = logs / f'nxb_extract_{name}.log', tmp.with_name(tmp.name + '.nxb-base')
++    rmtree(tmp); rmtree(scratch)
++    cmd = [*tool, '--keys', keys, '--base', base] + (['--out', scratch, '--update', upd, tmp, '--updates-only'] if upd and upd != base else ['--out', tmp])
++    ok = nxb_run(cmd, log, f'extract {name}')
++    rmtree(scratch)
++    if ok:
++        text = log.read_text(errors='replace')
++        title = re.search(r'^title ([0-9a-f]{16})', text, re.M)
++        try: whole = (tmp / 'ExeFS' / 'main').is_file() and (tmp / 'RomFS.img').is_file() and (not marker or (rfs.source(tmp) / marker).exists())
++        except (OSError, ValueError, struct.error): whole = False
++        if whole and title and int(title[1], 16) == app - PROGRAM_INDEX:
++            shutil.copyfile(log, logs / f'extract_{name}.log')   # the next build's size estimate reads the summary lines there, as nx_extract writes them
++            say(f'experimental builder: extracted {name} with nxb-extract')
++            return True
++        nxb_note(f'extract {name}: the output of nxb-extract failed the checks (see {log}), the standard builder runs it')
++    rmtree(tmp)
++    return False
++
++
++def nxb_split(roms, mains, tmp, names, logs, g):
++    """The shader split through nxb-split into tmp/pkg and tmp/tables (shader_split.py's outputs). Returns the text the caller reads from shader_split.py's log (its 'shaders: N' line),
++    or None for shader_split.py, with tmp emptied again. Taken only when the tables it wrote have the data rows of the profile's (pso_pairs.tsv too where the profile has one): a reader
++    nxbuild lacks shows there. The caller passes only builds with a registered profile and no DLC, captures, NROs or decoder"""
++    tool = nxb_tool('split')
++    if not tool: return None
++    dirs = [Path(m).parent.parent for m in mains]
++    if any(Path(r) != d / 'RomFS.img' or Path(m) != d / 'ExeFS' / 'main' for r, m, d in zip(roms, mains, dirs)) or not (g.dir / 'game.tsv').is_file():
++        nxb_note('shader split: the inputs are not RomFS images of extractions, the standard builder runs it'); return None
++    log, t = logs / 'nxb_split.log', tmp / 'tables'
++    ok = nxb_run([*tool, '--game', g.dir / 'game.tsv', '--pkg', tmp / 'pkg', '--map', t / names[0], '--facts', t / names[1], '--pairs', t / names[2], '--pso-pairs', t / 'pso_pairs.tsv', *dirs],
++                 log, 'shader split')
++    if ok:
++        bad = [ln for ln in log.read_text(errors='replace').splitlines() if ln.startswith('[RED]')]
++        check = names + (('pso_pairs.tsv',) if g.table('pso_pairs.tsv').is_file() else ())
++        try: same = (tmp / 'pkg').is_dir() and (t / 'pso_pairs.tsv').is_file() and all(data_rows((t / n).read_bytes()) == data_rows(g.table(n).read_bytes()) for n in check)
++        except OSError: same = False
++        if not bad and same:
++            rows = [ln for ln in (t / names[0]).read_text(errors='replace').splitlines() if ln.strip() and not ln.startswith(('#', 'package\t'))]
++            say('experimental builder: split the shaders with nxb-split')
++            return f'shaders: {len(rows)} (nxb-split)\n'
++        nxb_note('shader split: the output of nxb-split ' + ('could not read every file' if bad else 'differs from the profile\'s tables') + f' (see {log}), the standard builder runs it')
++    rmtree(tmp); t.mkdir(parents=True)
++    return None
++
++
+ def configure_dotnet(env):
+     """Let standalone .NET apphosts find the runtime used by dotnet (Homebrew installs it outside the registered locations)."""
+     if env.get('DOTNET_ROOT'): return
+@@ -1183,7 +1282,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
+     def poll():
+         n, b = tree_size(tmp); return {'done': b, 'note': f'{n:,} files'}
+     PROG.stage(f'extract {name}', poll=poll, unit='B', total=last[1] if last else base.stat().st_size + (upd.stat().st_size if upd and upd != base else 0), est=not last)
+-    run([nx, keys, base, upd or '-', tmp, '--romfs-image'] + extract_flags(app), log)
++    if not nxb_extract(keys, base, upd, tmp, logs, name, app, marker):   # the experimental builder, when it is on and can (else nothing happens there)
++        run([nx, keys, base, upd or '-', tmp, '--romfs-image'] + extract_flags(app), log)
+     swap_in(tmp, dst)
+     n, b = extracted(log) or (0, 0)
+     PROG.end(f'{n:,} files, {amount(b, "B")}')
+@@ -2107,9 +2207,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
+     tmp = pkg.with_name(pkg.name + '.partial'); rmtree(tmp); (tmp / 'tables').mkdir(parents=True)
+     def counted(ln):   # shader_split.py's 'progress: <done>/<total>'
+         if m := re.fullmatch(r'progress: (\d+)/(\d+)', ln): PROG.set(done=int(m[1]), total=int(m[2]), unit='files')
+-    run([py, repo / 'dm/gfx/tools/shader_split.py', ','.join(map(str, roms)), ','.join(map(str, mains)), tmp / 'pkg'] + [tmp / 'tables' / n for n in names + ('pso_pairs.tsv',)] + ([','.join(map(str, dlc_roms))] if dlc_roms else []),
+-        logs / 'shader_split.log', env=env, on_line=counted)
+-    text = (logs / 'shader_split.log').read_text(errors='replace')
++    # the experimental builder takes a registered profile's split of the game files alone; DLC, run-time captures, NROs and a game decoder stay with shader_split.py
++    captured = env.get('DM_NRO_DIR') or any(env.get(s) or next((Path(r).parent / f).glob(p), None) for r in roms for s, f, p in
++                                             (('DM_GLSLC_CAPTURE', 'glslc_capture', '*.glslc'), ('DM_UE_SHADERS', 'ue_shaders', '*.ushaderbytecode')))
++    plain = not (provisional or oodle or dlc_roms or captured)
++    if not plain and os.environ.get('DM_EXPERIMENTAL_BUILDER') == '1':
++        nxb_note('shader split: a provisional or derived profile, DLC, run-time captures or a game decoder is not supported yet, the standard builder runs it')
++    text = nxb_split(roms, mains, tmp, names, logs, g) if plain else None
++    if text is None:
++        run([py, repo / 'dm/gfx/tools/shader_split.py', ','.join(map(str, roms)), ','.join(map(str, mains)), tmp / 'pkg'] + [tmp / 'tables' / n for n in names + ('pso_pairs.tsv',)] + ([','.join(map(str, dlc_roms))] if dlc_roms else []),
++            logs / 'shader_split.log', env=env, on_line=counted)
++        text = (logs / 'shader_split.log').read_text(errors='replace')
+     m = re.search(r'shaders: (\d+) \(', text)
+     bad = re.search(r'^\[RED\] (\d+) file\(s\) could not be read.*$', text, re.M)   # the split leaves out a file no reader reads (its own red line per file in the log) and goes on
+     if bad and not provisional:   # the profile's tables were split from every file: one that does not read now is a reader change
