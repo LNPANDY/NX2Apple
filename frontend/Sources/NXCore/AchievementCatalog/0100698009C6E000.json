@@ -53,7 +53,7 @@
     {
       "id": "child-of-moonlight",
       "name": "Child of Moonlight",
-      "detail": "Destroy a Child of the Moonlight and take the reward it leaves behind.",
+      "detail": "Break a cage and free a Child of Moonlight.",
       "hidden": false
     },
     {
@@ -75,9 +75,9 @@
       "hidden": false
     },
     {
-      "id": "unfinished-rites",
-      "name": "Unfinished Rites",
-      "detail": "Reach the ending that remains closed until every extra rite beyond the usual pilgrimage is finished.",
+      "id": "wounds-of-eventide",
+      "name": "Wounds of Eventide",
+      "detail": "Reach the ending that stays closed until you carry the Cvstodia of Sin and the Holy Wound of Abnegation.",
       "hidden": true
     }
   ]
