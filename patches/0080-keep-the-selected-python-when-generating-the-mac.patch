@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: thehobbit85 <thehobbit85@gmail.com>
+Date: Wed, 4 Nov 2026 21:09:10 -0800
+Subject: [PATCH] Keep the selected Python when generating the Mac host
+
+The NSP pipeline can run under the launcher's bundled Python while the
+host Makefile finds an older python3 on PATH. Pass the pipeline's exact
+interpreter to both Make invocations and quote it for the host shader
+and profile generators. Direct Make builds keep python3 as their default.
+
+Cover the actual host shader-header target with an unusable PATH Python
+and a versioned interpreter in a directory with spaces. Verify both the
+generation command and its dry run carry the exact interpreter.
+
+Front-ends: No launcher change is required. The NSP pipeline keeps its
+selected Python for host generation. Direct Make callers may set PYTHON.
+
+Upstream-Status: pending
+Reason: The Mac host Makefile can start an older PATH Python despite the launcher selecting a supported interpreter
+Issue: LNPANDY/NX2Apple#711
+
+---
+ dm/games/01006F8002326000/README.md |  2 ++
+ dm/host/Makefile                    | 11 +++++++----
+ dm/tools/tests/test_host_msl.py     | 27 ++++++++++++++++++++++++++-
+ docs/reference/packing.md           |  7 +++++++
+ scripts/build_ipa_from_nsp.py       |  4 ++--
+ 5 files changed, 44 insertions(+), 7 deletions(-)
+
+diff --git a/dm/games/01006F8002326000/README.md b/dm/games/01006F8002326000/README.md
+index 33ba8bf..1365fd5 100644
+--- a/dm/games/01006F8002326000/README.md
++++ b/dm/games/01006F8002326000/README.md
+@@ -64,6 +64,8 @@ Checked on a Mac (M1, macOS 27, headless, an island save) against 16:9: the 3D v
+ 
+ ## Found on this game
+ 
++- [The Mac host build starts an older Python than the pipeline](../../../docs/reference/packing.md#the-mac-host-build-starts-an-older-python-than-the-pipeline): NX2Apple issue #711 reported the host shader generator starting Python 3.6 despite the bundled Python 3.13 driver. Reproduced with synthetic tools, no gameplay check.
++
+ General host changes first needed here; each applies to every game:
+ 
+ - **The host's shaders compiled when the host is built** (`dm/gfx/msl`, `host_msl_lib`): the HUD's `Compiled 2 shaders … 102.70ms` in play on an iPhone 17 Pro Max came from clear-triangle libraries compiled from source when a new room first issued a scissored clear; [The host's own shaders compiled from source at run time](../../../docs/reference/shaders.md#the-hosts-own-shaders-compiled-from-source-at-run-time).
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index 8b66f0b..45be7bb 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -1,14 +1,17 @@
++# The NSP pipeline passes its selected interpreter explicitly. Direct make uses PATH by default.
++PYTHON ?= python3
++
+ # Game profile (dm/games/<id>/): the host is built for it (make GAME=base game title ID, required: there is no default game). game_profile.h is generated from game.tsv into gen/<id>/; the chain version header dmsh_chain.h (one for every game) lives in dm/gfx/nvn
+ # without GAME only clean passes; anything else (a bare make too, whose default goal is the host) stops and lists the profiles
+ ifeq ($(strip $(GAME)),)
+ ifneq ($(filter-out clean,$(or $(MAKECMDGOALS),dmhost)),)
+-$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}'))
++$(error GAME is not set: make GAME=<base game title ID>: $(shell "$(PYTHON)" ../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}'))
+ endif
+ endif
+ # A profile outside the repository (DM_GAMES_DIR, e.g. the NSP script's provisional profile) is reached through the symlink gen/<id>/profile: make cannot take paths with spaces.
+ # DM_GAMES_FIRST=1 (the NSP script's --provisional) takes it even when dm/games has the game
+ ifneq ($(strip $(GAME)),)
+-GAME_DIR := $(if $(and $(wildcard ../games/$(GAME)/game.tsv),$(if $(DM_GAMES_FIRST),,1)),../games/$(GAME),$(shell python3 ../games/game.py link $(GAME) gen/$(GAME)/profile >&2 && echo gen/$(GAME)/profile))
++GAME_DIR := $(if $(and $(wildcard ../games/$(GAME)/game.tsv),$(if $(DM_GAMES_FIRST),,1)),../games/$(GAME),$(shell "$(PYTHON)" ../games/game.py link $(GAME) gen/$(GAME)/profile >&2 && echo gen/$(GAME)/profile))
+ ifeq ($(GAME_DIR),)
+ $(error no game profile $(GAME) (neither in dm/games nor in DM_GAMES_DIR))
+ endif
+@@ -54,7 +57,7 @@ MSL_SRC = $(sort $(wildcard ../gfx/msl/*.metal))
+ MSL_H = gen/msl-$(MSL_SDK)/host_msl_gen.h
+ # Recheck the toolchain and target on every build; the generator keeps the header unchanged when its inputs match.
+ $(MSL_H): $(MSL_SRC) ../gfx/tools/host_msl.py FORCE
+-	python3 ../gfx/tools/host_msl.py --sdk $(MSL_SDK) $(if $(MSL_MIN_$(MSL_SDK)),--min $(MSL_MIN_$(MSL_SDK))) $@ $(MSL_SRC)
++	"$(PYTHON)" ../gfx/tools/host_msl.py --sdk $(MSL_SDK) $(if $(MSL_MIN_$(MSL_SDK)),--min $(MSL_MIN_$(MSL_SDK))) $@ $(MSL_SRC)
+ .PHONY: host_msl
+ host_msl: $(MSL_H)
+ .DEFAULT_GOAL := dmhost   # The header generation rules are written first below, so the default goal must be stated explicitly (otherwise make only generates the headers and does not build the host)
+@@ -62,7 +65,7 @@ host_msl: $(MSL_H)
+ game_profile: $(GAME_H)
+ # Regenerated on every make (FORCE): the same GAME can come from another profile folder (DM_GAMES_FIRST), whose game.tsv may be older than the header; game.py writes it only when it changes
+ $(GAME_H): $(GAME_DIR)/game.tsv ../games/game.py FORCE
+-	@python3 ../games/game.py header $(GAME) $@
++	@"$(PYTHON)" ../games/game.py header $(GAME) $@
+ # Records which game the host was built for: changing GAME changes the stamp's content and rebuilds the host (otherwise make sees dmhost as newer than both headers and keeps the other game's host).
+ # The game of the last build is also read when the Makefile is parsed, and a different one forces the link: make compares whole seconds, and a stamp written in the same second as
+ # another game's dmhost (two builds in a row) did not count as newer, so that game's host was kept
+diff --git a/dm/tools/tests/test_host_msl.py b/dm/tools/tests/test_host_msl.py
+index 6175a81..6ce3573 100644
+--- a/dm/tools/tests/test_host_msl.py
++++ b/dm/tools/tests/test_host_msl.py
+@@ -3,6 +3,7 @@ import importlib.util
+ import json
+ import os
+ from pathlib import Path
++import shlex
+ import shutil
+ import subprocess
+ import sys
+@@ -73,6 +74,22 @@ class HostMSL(unittest.TestCase):
+         for d in dirs: (self.root / d).mkdir(parents=True, exist_ok=True)
+         (self.root / 'dm/games/game.py').touch()
+ 
++    def test_host_make_uses_the_explicit_versioned_python_with_spaces(self):
++        # The app's driver can use a new Python while PATH still names an older installation.
++        old = self.root / 'bin/python3'
++        old.write_text('#!/bin/sh\necho unexpected-PATH-python >&2\nexit 71\n')
++        old.chmod(0o755)
++        selected = self.root / 'Bundled Python/bin/python3.13'
++        selected.parent.mkdir(parents=True)
++        marker = self.root / 'selected-python'
++        selected.write_text('#!/bin/sh\necho selected > ' + shlex.quote(str(marker)) + '\nexec '
++                            + shlex.quote(sys.executable) + ' "$@"\n')
++        selected.chmod(0o755)
++        self.make('PYTHON=' + str(selected))
++        self.assertEqual(marker.read_text().strip(), 'selected')
++        self.assertTrue(self.header.is_file())
++        self.assertEqual(len(self.compiles()), 1)
++
+     def test_mac_and_ios_use_their_deployment_targets(self):
+         self.make()
+         minimum = (self.root / 'dm/mac/min_os.mk').read_text().split('MACOS_MIN := ')[1].split()[0]
+@@ -163,11 +180,13 @@ class HostMSL(unittest.TestCase):
+         logs = self.root / 'logs'
+         logs.mkdir()
+         builds = []
++        makes = []
+ 
+         def run(cmd, log, env=None, cwd=None):
+             if cmd[0] == 'make':
++                makes.append(cmd)
+                 self.assertIn('host_msl', cmd)
+-                p = real_run(['make', '-s', f'GAME={GAME}', 'host_msl'], cwd=cwd, env=env, capture_output=True, text=True)
++                p = real_run(['make', '-s', f'GAME={GAME}', 'host_msl', *[a for a in cmd if a.startswith('PYTHON=')]], cwd=cwd, env=env, capture_output=True, text=True)
+                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+             else:
+                 self.assertTrue(self.header.is_file(), 'direct clang needs the header before its first compile')
+@@ -175,6 +194,7 @@ class HostMSL(unittest.TestCase):
+                 out.write_bytes(b'host executable')
+ 
+         def command(cmd, **kw):
++            if cmd[0] == 'make': makes.append(cmd)
+             return NS(returncode=0, stdout='clang -o dmhost main.c\n' if cmd[0] == 'make' else 'test toolchain', stderr='')
+ 
+         with patch.object(nsp, 'apple_silicon', return_value=True), patch.object(nsp, 'run', side_effect=run), patch.object(nsp.subprocess, 'run', side_effect=command):
+@@ -189,6 +209,11 @@ class HostMSL(unittest.TestCase):
+             nsp.build_mac_host(self.root, out, self.env, logs, NS(id=GAME))
+             self.assertEqual(len(builds), 3)
+ 
++        self.assertTrue(any('-n' in cmd for cmd in makes), 'the dry run must use the same interpreter')
++        self.assertTrue(any('host_msl' in cmd for cmd in makes), 'the generation run must use the same interpreter')
++        for cmd in makes:
++            self.assertIn('PYTHON=' + sys.executable, cmd)
++
+     def test_decoder_identity_normalizes_only_chain_and_verifies_executable(self):
+         nsp = script('build_ipa_from_nsp')
+         self.host_dirs(nsp.HOST_DIRS)
+diff --git a/docs/reference/packing.md b/docs/reference/packing.md
+index 7f49e62..4432b04 100644
+--- a/docs/reference/packing.md
++++ b/docs/reference/packing.md
+@@ -19,6 +19,13 @@
+ 
+ ## Build tools
+ 
++### The Mac host build starts an older Python than the pipeline
++
++- **Symptom:** the Mac host step fails in `host_msl.py` with `TypeError: __init__() got an unexpected keyword argument 'capture_output'`, although the launcher reports a recent bundled Python.
++- **Cause:** the pipeline runs under the selected interpreter, but the host Makefile started `python3` by name. The pipeline's tool folders could put an older installation before the bundled interpreter on `PATH`.
++- **Fix:** `build_mac_host` passes its exact `sys.executable` to both Make invocations as `PYTHON`. The host Makefile quotes that setting for its shader and profile generators, including parse-time profile lookup. Direct Make builds default to `python3` and can set `PYTHON` explicitly. `PATH` and .NET SDK selection are unchanged. Synthetic tests execute the real shader-header target with an unusable `python3` on `PATH` and an explicitly selected versioned interpreter in a path with spaces.
++- **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md), version 3.0.0, reported with bundled Python 3.13 and a child Python 3.6 in [NX2Apple issue #711](https://github.com/LNPANDY/NX2Apple/issues/711). The interpreter failure was reproduced synthetically, without game files or a gameplay check.
++
+ ### Homebrew .NET is on PATH but apphosts cannot find the runtime
+ 
+ - **Symptom:** the first extraction stops with `nx_extract exit code 131` and `.NET location: Not found`, even though `dotnet` is on `PATH`. The shader translator can fail the same way.
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index d7ebdb5..30587e1 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1488,8 +1488,8 @@ def build_mac_host(repo, out, env, logs, g):
+     and the macOS SDK) are as at the last build into out. The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
+     if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
+     host = repo / 'dm/host'
+-    run(['make', '-s', f'GAME={g.id}', f'gen/{g.id}/game_profile.h', 'gen/vpx/libvpx.a', 'gen/dav1d/libdav1d.a', 'host_msl'], logs / 'mac_host_make.log', env=env, cwd=host)
+-    dry = subprocess.run(['make', '-n', '-B', f'GAME={g.id}', 'dmhost'], env=env, cwd=host, capture_output=True, text=True)
++    run(['make', '-s', f'PYTHON={sys.executable}', f'GAME={g.id}', f'gen/{g.id}/game_profile.h', 'gen/vpx/libvpx.a', 'gen/dav1d/libdav1d.a', 'host_msl'], logs / 'mac_host_make.log', env=env, cwd=host)
++    dry = subprocess.run(['make', '-n', '-B', f'PYTHON={sys.executable}', f'GAME={g.id}', 'dmhost'], env=env, cwd=host, capture_output=True, text=True)
+     line = next((l for l in dry.stdout.splitlines() if ' -o dmhost ' in l), None)
+     if not line: raise BuildError(f'make -n gave no compile line for the Mac host: {dry.stderr.strip()[-500:]}')
+     cmd = shlex.split(line); cmd[cmd.index('-o') + 1] = out

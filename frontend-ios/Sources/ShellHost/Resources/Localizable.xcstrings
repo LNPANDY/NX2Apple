@@ -624,7 +624,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gioco illeggibile"
+            "value": "Impossibile leggere questo gioco"
           }
         },
         "sv": {
@@ -1984,7 +1984,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il codice del gioco manca in questa app. Compilalo e installalo di nuovo."
+            "value": "In questa app manca il codice del gioco. Ricompilalo e installalo di nuovo."
           }
         },
         "sv": {
@@ -2224,7 +2224,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La cartella di questa app non ha ancora dati per questo gioco. Copiali in games/%@ nella cartella di questa app, in File."
+            "value": "La cartella di questa app non contiene ancora i dati del gioco. Puoi copiarli con l’app File in games/%@, all’interno della cartella di questa app."
           }
         },
         "sv": {
@@ -2504,7 +2504,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Il manifest di questo gioco manca. Ricompila il gioco nel launcher sul Mac."
+            "value": "Manca il manifest di questo gioco. Ricompila il gioco nel launcher sul Mac."
           }
         },
         "sv": {
@@ -2584,7 +2584,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "L’elenco delle impostazioni di questo gioco manca. Ricompila il gioco nel launcher sul Mac."
+            "value": "Manca l’elenco delle impostazioni di questo gioco. Ricompila il gioco nel launcher sul Mac."
           }
         },
         "sv": {

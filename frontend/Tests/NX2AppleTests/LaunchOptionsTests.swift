@@ -134,4 +134,29 @@ final class LaunchOptionsTests: IsolatedDefaultsTestCase {
         XCTAssertFalse(segmented("DM_X", ["One", "Two", "Seven tens"]), "three segments are narrower than two")
         XCTAssertFalse(segmented("DM_X", ["A", "B", "C", "D"]), "four or more are a menu")
     }
+
+    /// #574: a list without a render scale row says so above the settings, and names the rows that come closest, by the sheet's labels.
+    func testAListWithoutARenderScaleSaysWhyAndNamesTheClosestRows() throws {
+        let upscale = #"{"env": "DM_PRESENT_UPSCALE", "kind": "choice", "label": "Upscaling", "note": "", "default": "off", "section": "Game", "options": [["off", "Standard"], ["metalfx", "MetalFX"]]}"#
+        func note(_ rows: [String], _ lang: Lang = .en) throws -> ResolutionNote.Text? {
+            let (app, repo) = try self.app(rows.joined(separator: ","))
+            let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: "01007EF00011E000", repo: repo, labels: { L10n.string($0, lang) }))
+            return ResolutionNote.text(list, t: { L10n.string($0, lang) })
+        }
+        XCTAssertEqual(try note([opmode, upscale, hud]),
+                       ResolutionNote.Text(title: "This game has no resolution setting yet.",
+                                           detail: "The closest settings are Console mode and Upscaling (under Advanced settings)."),
+                       "Xenoblade Chronicles 2's list: Console mode is basic, Upscaling sits under Advanced settings")
+        XCTAssertEqual(try note([opmode, upscale], .zh)?.detail, "最接近的设置是主机模式和超分（在高级设置中）。")
+        XCTAssertEqual(try note([upscale])?.detail, "The closest setting is Upscaling (under Advanced settings).")
+        XCTAssertEqual(try note([hud]), ResolutionNote.Text(title: "This game has no resolution setting yet.", detail: nil))
+        XCTAssertNil(try note([scale, opmode, upscale]), "a game with a render scale row has its resolution setting")
+        XCTAssertEqual(try note([]), ResolutionNote.Text(title: "This game has no resolution setting yet.", detail: nil),
+                       "a build with no rows of its own still has Display mode, and no render scale")
+        XCTAssertNil(ResolutionNote.text([], t: { L10n.string($0, .en) }), "no rows at all: the sheet says launch.none instead")
+        let (app, repo) = try self.app([opmode, upscale].joined(separator: ","))
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: "01007EF00011E000", repo: repo, labels: { L10n.string($0, .en) }))
+        XCTAssertEqual(ResolutionNote.text(list, shown: { $0.env != "DM_PRESENT_UPSCALE" }, t: { L10n.string($0, .en) })?.detail,
+                       "The closest setting is Console mode.", "a row the sheet hides (a sub-setting whose parent is off) is not named")
+    }
 }
