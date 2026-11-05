@@ -14,6 +14,8 @@ struct TouchLayoutEditorView: View {
     var columnAnchor: UnitPoint = .top
     @Environment(\.shellFocus) private var focus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The system's echo of a controller button: the editor's buttons do nothing for it (the shell's focus took it).
+    @Environment(\.shellIgnoresPress) private var ignoresPress
     /// The drag in progress: the control, where its offset started, and the spot drawn under the finger when the engine refuses it.
     @State private var drag: DragState?
     @State private var bounce: CGSize = .zero
@@ -83,7 +85,7 @@ struct TouchLayoutEditorView: View {
             Text(ShellStrings.text("Arrange controls")).shellType(ShellType.pageTitle)
                 .lineLimit(1).minimumScaleFactor(0.7).accessibilityAddTraits(.isHeader)
             Spacer(minLength: 8)
-            Button(action: close) { Text(ShellStrings.text("Done")) }
+            Button { if !ignoresPress() { close() } } label: { Text(ShellStrings.text("Done")) }
                 .buttonStyle(ChipButtonStyle())
                 .accessibilityIdentifier("touchLayout.done")
                 .shellTarget("lay.done", radius: 22, action: close)
@@ -348,7 +350,7 @@ struct TouchLayoutEditorView: View {
     private var resets: some View {
         VStack(alignment: .leading, spacing: 8) {
             let canPutBack = model.selected.map { model.editing.isMoved($0) } ?? false
-            Button { model.putBack() } label: { resetLabel("Reset this control", "arrow.uturn.backward") }
+            Button { if !ignoresPress() { model.putBack() } } label: { resetLabel("Reset this control", "arrow.uturn.backward") }
                 .buttonStyle(ShellButtonStyle(fills: true))
                 .disabled(!canPutBack)
                 .accessibilityIdentifier("touchLayout.putBack")
@@ -358,11 +360,11 @@ struct TouchLayoutEditorView: View {
                     Text(ShellStrings.text("Put every control of the \(model.kind.full ? "3D" : "2D") layout back in its built-in place?"))
                         .shellType(ShellType.note).foregroundStyle(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("touchLayout.resetQuestion")
-                    Button { model.reset() } label: { resetLabel("Reset all controls", "arrow.counterclockwise") }
+                    Button { if !ignoresPress() { model.reset() } } label: { resetLabel("Reset all controls", "arrow.counterclockwise") }
                         .buttonStyle(ShellButtonStyle(fills: true, destructive: true))
                         .accessibilityIdentifier("touchLayout.resetConfirm")
                         .shellTarget("lay.resetConfirm") { model.reset() }
-                    Button { model.cancelReset() } label: { Text(ShellStrings.text("Cancel")).lineLimit(1).minimumScaleFactor(0.8) }
+                    Button { if !ignoresPress() { model.cancelReset() } } label: { Text(ShellStrings.text("Cancel")).lineLimit(1).minimumScaleFactor(0.8) }
                         .buttonStyle(ShellButtonStyle(fills: true))
                         .accessibilityIdentifier("touchLayout.resetCancel")
                         .shellTarget("lay.reset") { model.cancelReset() }
@@ -371,7 +373,7 @@ struct TouchLayoutEditorView: View {
                 .background(DeleteStyle.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(DeleteStyle.red.opacity(0.35)))
             } else {
-                Button { model.askReset() } label: { resetLabel("Reset all controls", "arrow.counterclockwise") }
+                Button { if !ignoresPress() { model.askReset() } } label: { resetLabel("Reset all controls", "arrow.counterclockwise") }
                     .buttonStyle(ShellButtonStyle(fills: true, destructive: true))
                     .disabled(model.layoutIsBuiltIn)
                     .accessibilityIdentifier("touchLayout.reset")
@@ -439,7 +441,7 @@ struct TouchLayoutEditorView: View {
     }
 
     private func arrow(_ symbol: String, _ label: String.LocalizationValue, _ id: String, _ dx: Int, _ dy: Int) -> some View {
-        Button { model.nudge(dx: dx, dy: dy) } label: {
+        Button { if !ignoresPress() { model.nudge(dx: dx, dy: dy) } } label: {
             Image(systemName: symbol).font(.system(size: 18, weight: .semibold)).frame(width: Self.arrowSize, height: Self.arrowSize)
         }
         .buttonStyle(RoundIconButtonStyle(size: Self.arrowSize))

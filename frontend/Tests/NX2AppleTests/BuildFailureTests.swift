@@ -286,7 +286,7 @@ import NXModel
         }
         for (name, kind, lang) in [("hint-other-metal", BuildFailureKind.otherMetal, Lang.en), ("hint-ios-sdk", .iosSDK, .en), ("hint-damaged-nsp", .damagedNSP, .en),
                                    ("hint-other-metal-zh", .otherMetal, .zh)]
-                                  + [BuildFailureKind.keys, .keysOld, .severalGames, .noTitleID, .noProfile, .driveMissing, .diskFull, .volumeFormat, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
+                                  + [BuildFailureKind.keys, .keysOld, .severalGames, .noTitleID, .driveMissing, .diskFull, .volumeFormat, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
                                       [("row-\(k.rawValue)", k, Lang.en), ("row-\(k.rawValue)-zh", k, Lang.zh)] } {
             let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
             m.lang = CaptureLanguage.current(lang)

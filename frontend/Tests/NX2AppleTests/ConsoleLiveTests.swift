@@ -100,6 +100,14 @@ import SwiftUI
         XCTAssertNil(launches.last?.environment["DM_CURSOR_HIDDEN"], "a visible pointer stays the game's default")
     }
 
+    func testAGameStartedWithThePointerHiddenGetsTheFrontYielded() throws {
+        let app = try makeApp().path
+        XCTAssertEqual(LiveConsoleDriver.yieldTarget(environment: ["DM_CURSOR_HIDDEN": "1"], appPath: app), bundleID,
+                       "LaunchServices activating the game shows the pointer for a moment")
+        XCTAssertNil(LiveConsoleDriver.yieldTarget(environment: [:], appPath: app), "with the pointer visible LaunchServices activates the game as before")
+        XCTAssertNil(LiveConsoleDriver.yieldTarget(environment: ["DM_CURSOR_HIDDEN": "1"], appPath: temporary.appendingPathComponent("Missing.app").path))
+    }
+
     func testConsoleLaunchesFullscreenOverTheSavedDisplayChoice() throws {
         var launches: [Launch] = []
         let (driver, library, _) = try makeDriver { launches.append($0) }

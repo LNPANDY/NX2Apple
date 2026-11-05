@@ -24,7 +24,7 @@ struct DemoScreen: View {
     @State private var padSnapshot: PadSnapshot?
     @State private var games = SampleData.games
     @State private var notice: String?
-    @State private var input: ShellInput?
+    @State private var input = ShellInputLog()
     @State private var unfolded = ProcessInfo.processInfo.arguments.contains("--unfolded")
     /// Real controllers, through the reusable adapter in ShellControllers.
     @State private var gamepads = GamepadAdapter()
@@ -72,6 +72,7 @@ struct DemoScreen: View {
         } message: { Text(notice ?? "") }
         .onAppear {
             gamepads.onInput = { action, device in send(action, from: device) }
+            gamepads.onRelease = { action, device in input.append(action, device: device, released: true) }
             gamepads.onControllersChange = { connected = $0 }
             gamepads.start()
         }
@@ -129,7 +130,7 @@ struct DemoScreen: View {
         }
     }
     private func send(_ action: ShellInput.Action, from device: InputDevice = .controller(.neutral)) {
-        input = ShellInput(sequence: (input?.sequence ?? 0) + 1, action: action, device: device)
+        input.append(action, device: device)
     }
     /// The real controllers when any are connected, the sample ones otherwise.
     private var controllers: [ControllerInfo] {

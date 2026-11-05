@@ -20,6 +20,9 @@ public struct ConnectedController: Equatable, Sendable {
 /// hints draw that controller's own glyphs. Not part of the views: the host owns it and passes the actions on.
 @MainActor public final class GamepadAdapter {
     public var onInput: (ShellInput.Action, InputDevice) -> Void = { _, _ in }
+    /// A button or direction let go. The shell restarts its window for the system's echo of a controller button here,
+    /// since iPadOS sends that echo as the button comes up.
+    public var onRelease: (ShellInput.Action, InputDevice) -> Void = { _, _ in }
     public var onControllersChange: ([ConnectedController]) -> Void = { _ in }
     /// Every state of any controller, for the button test. Nil (the default) reports none. Set, it reports the state of
     /// the first controller at once, then each change of whichever controller moved, and again the first controller's
@@ -141,7 +144,10 @@ public struct ConnectedController: Equatable, Sendable {
 
     private func read(_ state: PadState, controller: String, family: ControllerFamily) {
         let (pressed, released) = mapper.changes(controller: controller, state: state)
-        for action in released where repeating?.action == action && repeating?.controller == controller { stopRepeat() }
+        for action in released {
+            if repeating?.action == action && repeating?.controller == controller { stopRepeat() }
+            onRelease(action, .controller(family))
+        }
         for action in pressed {
             onInput(action, .controller(family))
             if PadMapper.isDirection(action) { startRepeat(action, controller: controller, family: family) }
