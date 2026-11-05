@@ -72,6 +72,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let outputKey = "buildOutputDirectory"
     nonisolated package static let targetKey = "buildTarget"
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
+    nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
+    nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -125,6 +127,15 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// which the host reads at start-up — no rebuild of the host needed.
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
+    }
+    /// Settings, "Use experimental builder" (#749): the NSP script hands the stages nxbuild supports to it, and runs the rest the standard way.
+    /// Off by default. BuildStore+Builder.swift passes it to the build.
+    @Published package var experimentalBuilder: Bool {
+        didSet { defaults.set(experimentalBuilder, forKey: Self.experimentalBuilderKey) }
+    }
+    /// The `nxb` binary the player chose (or its folder), empty for the downloaded release (ExperimentalBuilder.resolve).
+    @Published package var experimentalBuilderPath: String {
+        didSet { defaults.set(experimentalBuilderPath, forKey: Self.experimentalBuilderPathKey) }
     }
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
@@ -207,6 +218,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         outDir = defaults.string(forKey: Self.outputKey) ?? ""
         target = BuildTarget.saved(defaults)
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
+        experimentalBuilder = defaults.bool(forKey: Self.experimentalBuilderKey)
+        experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.

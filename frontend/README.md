@@ -266,6 +266,37 @@ bundle), a bundle under `.build/` or `DerivedData/`, a bundle beside
 `Package.swift` (the `NX2Apple.app` made here), or one whose Info.plist version
 is not this binary's release number. `AppUpdate.swift` holds these rules.
 
+## Experimental builder
+
+Settings, Build tools, **Use experimental builder** (off by default, LNPANDY/NX2Apple#749). nxbuild is a build tool in Rust that reproduces stages of the NSP script byte for byte, and faster. With the switch on, the build gets `DM_EXPERIMENTAL_BUILDER=1` and `NXB_BIN` (the path of the `nxb` binary). The script stays the driver. It runs the extraction (`nxb-extract`) and the shader split (`nxb-split`) through nxbuild where nxbuild supports the case, with the same outputs, stages and events. Everything else runs the standard way:
+
+- an XCI, an NSZ, a merged package, `--program`, `--allow-damaged`, DLC, run-time captures, NROs, a game decoder, a provisional or derived profile
+- an nxbuild exit code other than 0 (4 means "not supported yet")
+- an output that fails the checks: for an extraction the title, `ExeFS/main`, `RomFS.img` and the profile's marker, for the split the data rows of the profile's shader tables
+
+The build log says which stage nxbuild ran and why a stage fell back. nxbuild's own log is `logs/nxb_extract_<version>.log` or `logs/nxb_split.log` in the build folder. The shader step, the pipeline archive and the Mac app are not handed over yet. The NSP script needs the engine patch that reads the two variables. An engine without it ignores them.
+
+Where `nxb` comes from (`ExperimentalBuilder` in `NXCore`):
+
+1. The path chosen in the row under the switch, the `nxb` binary or the folder that holds it. A chosen path that does not work is reported, never replaced by another binary.
+2. Otherwise a downloaded release in `~/Library/Application Support/NS Port Builder/nxbuild/<version>/`. No nxbuild release is published yet, so `ExperimentalBuilder.releaseURL` and `releaseSHA256` are nil and nothing is downloaded. Once a release exists (a macOS arm64 zip of the binaries, signed ad hoc), both are pinned together in that file. The download goes to a temporary file, its SHA-256 is checked against `releaseSHA256` before anything is unpacked, and a zip whose digest differs is deleted and never run.
+
+With neither, the switch only writes a note in the build log and the standard builder runs.
+
+To try it with a local nxbuild:
+
+```bash
+cd <nxbuild checkout> && cargo build --release      # the binaries land in its target folder, release/
+```
+
+Then turn the switch on and choose `release/nxb` (or the folder). From a terminal, the same works without the launcher:
+
+```bash
+DM_EXPERIMENTAL_BUILDER=1 NXB_BIN=<target>/release/nxb python3 engine/scripts/build_ipa_from_nsp.py <NSP folder> -k <prod.keys> --platform mac-app
+```
+
+The Qt front end has no switch for it: nxbuild is built for macOS on Apple silicon only, and on a Mac the launcher above is the one to use.
+
 ## Run
 
 ```bash

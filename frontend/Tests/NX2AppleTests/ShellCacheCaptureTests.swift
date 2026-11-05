@@ -26,7 +26,7 @@ final class ShellCacheCaptureTests: IsolatedDefaultsTestCase {
 
         func shot(_ name: String) throws {
             let card = ToolsCard(repo: stores.repo, engine: stores.engineSync, dependencies: stores.dependencies, buildRunning: model.running,
-                                 shellCache: { ShellCacheRow(build: model) }) { DiagnosticsButton(report: { _, _ in }) }
+                                 shellCache: { ShellCacheRow(build: model) }, builder: { ExperimentalBuilderRow(build: model) }) { DiagnosticsButton(report: { _, _ in }) }
             let framed = card.environmentObject(stores.localizer).environmentObject(PadFocus()).padding(24).frame(width: 860).background(Color(white: 0.09)).environment(\.colorScheme, .dark)
             NSApplication.shared.setActivationPolicy(.accessory)
             let host = NSHostingView(rootView: framed)
