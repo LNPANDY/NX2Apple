@@ -231,7 +231,7 @@ Switch 2 games today, falls back to the screenshot, the app icon or the placehol
 
 ## Achievements
 
-**Manage > Achievements** opens the goals for that game, and the hero shows how many are marked.
+**Manage > Achievements** opens the goals for that game. Search and **Still to do** narrow the list. The hero shows how many are marked. A saved list that cannot be read is left as it is.
 Every supported game has a list.
 Mark a goal when you have done it. A hidden goal shows its name only after you mark it.
 The launcher does not read the game to decide this. Your marks are kept in

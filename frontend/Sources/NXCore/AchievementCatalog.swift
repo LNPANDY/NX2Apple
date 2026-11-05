@@ -30,27 +30,41 @@ package enum AchievementCatalog {
     }
 
     /// The catalog compiled into NXCore. Empty when the resources were not copied.
+    /// The files are read once. A later call returns that copy.
     package static func bundled(bundle: Bundle = .module) -> [String: AchievementList] {
+        if bundle === Bundle.module, let memory { return memory }
         let directory = bundle.url(forResource: "AchievementCatalog", withExtension: nil)
             ?? bundle.resourceURL?.appendingPathComponent("AchievementCatalog")
         guard let directory else { return [:] }
-        return (try? load(from: directory)) ?? [:]
+        guard let loaded = try? load(from: directory) else { return [:] }
+        if bundle === Bundle.module { memory = loaded }
+        return loaded
     }
+
+    private static var memory: [String: AchievementList]?
 }
 
 /// Which goals the player has marked done. Stored by title ID. The game itself is not read.
 package struct AchievementProgress: Equatable {
     package var done: [String: [String]]
+    /// The file is there but could not be read. A later save must not replace it.
+    package var unreadable: Bool
 
-    package init(done: [String: [String]] = [:]) { self.done = done }
+    package init(done: [String: [String]] = [:], unreadable: Bool = false) {
+        self.done = done
+        self.unreadable = unreadable
+    }
 
     package static func file(in support: URL) -> URL {
         support.appendingPathComponent("achievements.json")
     }
 
     package static func load(file: URL) -> AchievementProgress {
+        guard FileManager.default.fileExists(atPath: file.path) else { return AchievementProgress() }
         guard let data = try? Data(contentsOf: file),
-              let raw = try? JSONDecoder().decode([String: [String]].self, from: data) else { return AchievementProgress() }
+              let raw = try? JSONDecoder().decode([String: [String]].self, from: data) else {
+            return AchievementProgress(unreadable: true)
+        }
         var done: [String: [String]] = [:]
         for (id, names) in raw { done[id.uppercased()] = names }
         return AchievementProgress(done: done)
@@ -66,6 +80,7 @@ package struct AchievementProgress: Equatable {
     }
 
     package mutating func toggle(titleID: String, id: String) {
+        if unreadable { return }
         let key = titleID.uppercased()
         var ids = unlocked(titleID: key)
         if ids.contains(id) { ids.remove(id) } else { ids.insert(id) }
@@ -73,7 +88,10 @@ package struct AchievementProgress: Equatable {
     }
 
     package func write(file: URL) throws {
-        let data = try JSONEncoder().encode(done)
+        if unreadable { throw CocoaError(.fileReadCorruptFile) }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(done)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: file, options: .atomic)
     }

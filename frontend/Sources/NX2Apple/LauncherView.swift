@@ -34,6 +34,7 @@ struct LauncherView: View {
     @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
     @State private var cheatsFor: UUID?  // the game whose Cheats sheet is open (CheatsView.swift)
     @State private var achievementsFor: UUID?
+    @State private var achievementMarks = AchievementProgress()
     @State var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
     @StateObject private var controls: ControlLayout
     @StateObject private var gamepad: LauncherGamepad
@@ -179,6 +180,7 @@ struct LauncherView: View {
             }
             refreshArtwork()
             readSignatures()
+            reloadAchievementMarks()
             if performStartupChecks { library.discover(); fetchArtwork(); _ = stores.deviceStore.refresh(); checkTools() }
             if performStartupChecks {
                 _ = stores.dependencies.check()
@@ -269,8 +271,13 @@ struct LauncherView: View {
         .cheatsSheet(for: $cheatsFor, m: m, library: library, pad: padFocus) { currentPadScope }
         .sheet(isPresented: Binding(get: { achievementsFor != nil }, set: { if !$0 { achievementsFor = nil } })) {
             if let id = achievementsFor, let game = library.games.first(where: { $0.id == id }) {
-                AchievementsView(game: game).environmentObject(loc)
+                AchievementsView(game: game).environmentObject(loc).environmentObject(padFocus)
             }
+        }
+        .onChange(of: achievementsFor) { id in
+            padFocus.scope = id != nil ? "achievements" : currentPadScope
+            if id == nil { reloadAchievementMarks() }
+            if id != nil, padFocus.visible { padFocus.show(default: "achievements.done") }
         }
         .onChange(of: optionsFor) { id in padFocus.scope = id != nil ? "launch" : (controlsOpen ? "controls" : "main") }
         .onChange(of: controlsOpen) { open in padFocus.scope = open ? "controls" : (optionsFor != nil ? "launch" : "main") }
@@ -586,6 +593,13 @@ struct LauncherView: View {
     }
 
     private func manageItems(for game: LibraryGame?) -> [ManageItem] { game.map(manageItems) ?? [] }
+
+    /// Reads the marks file again. The hero count uses this, so it does not open the file on every redraw.
+    private func reloadAchievementMarks() {
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("NS Port Builder")
+        achievementMarks = AchievementProgress.load(file: AchievementProgress.file(in: support))
+    }
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {

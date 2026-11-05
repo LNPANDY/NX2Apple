@@ -7,8 +7,12 @@ struct AchievementsView: View {
     let game: LibraryGame
     var support: URL? = nil
     @EnvironmentObject private var loc: Localizer
+    @EnvironmentObject private var focus: PadFocus
     @Environment(\.dismiss) private var dismiss
     @State private var progress = AchievementProgress()
+    @State private var query = ""
+    @State private var onlyOpen = false
+    @State private var saveFailed = false
 
     private var file: URL {
         AchievementProgress.file(in: support ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -17,41 +21,88 @@ struct AchievementsView: View {
 
     private var list: AchievementList? { AchievementCatalog.bundled()[game.titleID.uppercased()] }
 
+    private var shown: [Achievement] {
+        guard let list else { return [] }
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let done = progress.unlocked(titleID: game.titleID)
+        return list.achievements.filter { item in
+            let on = done.contains(item.id)
+            if onlyOpen && on { return false }
+            if needle.isEmpty { return true }
+            let title = (item.hidden && !on ? loc.t("achievements.hidden") : item.name).lowercased()
+            let detail = item.hidden && !on ? "" : item.detail.lowercased()
+            return title.contains(needle) || detail.contains(needle)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(loc.t("achievements.title")).font(.manrope(22, .bold))
-                    Text(game.name).font(.manrope(14)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if let list {
-                    Text(String(format: loc.t("achievements.progress"), progress.marked(titleID: game.titleID, ids: list.achievements.map(\.id)), list.achievements.count))
-                        .font(.manrope(13, .semibold)).monospacedDigit()
-                }
-                Button(loc.t("achievements.reset")) { clear() }
-                    .font(.manrope(13)).buttonStyle(.plain).foregroundStyle(.secondary)
-                    .disabled(progress.unlocked(titleID: game.titleID).isEmpty)
-                Button(action: { dismiss() }) { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).foregroundStyle(.secondary)
-            }
-            .padding(22)
+            header
             Text(loc.t("achievements.note")).font(.manrope(13)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 22)
+            search
+            if saveFailed {
+                Text(loc.t("achievements.saveFailed")).font(.manrope(12)).foregroundStyle(.red)
+                    .padding(.horizontal, 22).padding(.top, 8)
+            }
             Divider().padding(.top, 14)
             ScrollView {
-                if let list, !list.achievements.isEmpty {
-                    VStack(spacing: 0) {
-                        ForEach(list.achievements, id: \.id) { item in row(item) }
-                    }
+                if shown.isEmpty {
+                    Text(loc.t(list == nil || list?.achievements.isEmpty == true ? "achievements.empty" : "achievements.noMatch"))
+                        .font(.manrope(14)).foregroundStyle(.secondary).padding(22)
                 } else {
-                    Text(loc.t("achievements.empty")).font(.manrope(14)).foregroundStyle(.secondary).padding(22)
+                    VStack(spacing: 0) {
+                        ForEach(shown, id: \.id) { item in row(item) }
+                    }
                 }
             }
         }
         .frame(minWidth: 520, minHeight: 420)
         .background(LauncherPalette.background)
-        .onAppear { progress = AchievementProgress.load(file: file) }
+        .padScope("achievements", focus)
+        .onAppear {
+            progress = AchievementProgress.load(file: file)
+            saveFailed = progress.unreadable
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(loc.t("achievements.title")).font(.manrope(22, .bold))
+                Text(game.name).font(.manrope(14)).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let list, !list.achievements.isEmpty {
+                let done = progress.marked(titleID: game.titleID, ids: list.achievements.map(\.id))
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(String(format: loc.t("achievements.progress"), done, list.achievements.count))
+                        .font(.manrope(13, .semibold)).monospacedDigit()
+                    ProgressView(value: Double(done), total: Double(list.achievements.count))
+                        .progressViewStyle(.linear).tint(LauncherPalette.ready).frame(width: 120)
+                }
+            }
+            Button(loc.t("achievements.reset")) { clear() }
+                .font(.manrope(13)).buttonStyle(.plain).foregroundStyle(.secondary)
+                .disabled(progress.unlocked(titleID: game.titleID).isEmpty || progress.unreadable)
+                .padTarget("achievements.reset", scope: "achievements") { clear() }
+            Button(action: { dismiss() }) { Image(systemName: "xmark") }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+                .accessibilityLabel(loc.t("achievements.close"))
+                .padTarget("achievements.done", scope: "achievements", radius: 16) { dismiss() }
+        }
+        .padding(22)
+    }
+
+    private var search: some View {
+        HStack(spacing: 10) {
+            TextField(loc.t("achievements.search"), text: $query)
+                .textFieldStyle(.roundedBorder).font(.manrope(13))
+            Button(loc.t(onlyOpen ? "achievements.all" : "achievements.open")) { onlyOpen.toggle() }
+                .font(.manrope(13)).buttonStyle(.plain).foregroundStyle(LauncherPalette.cream)
+                .padTarget("achievements.filter", scope: "achievements") { onlyOpen.toggle() }
+        }
+        .padding(.horizontal, 22).padding(.top, 12)
     }
 
     private func row(_ item: Achievement) -> some View {
@@ -77,15 +128,29 @@ struct AchievementsView: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title)
         .accessibilityValue(loc.t(on ? "achievements.unlocked" : "achievements.locked"))
+        .padTarget("achievements." + item.id, scope: "achievements") { toggle(item.id) }
     }
 
     private func toggle(_ id: String) {
-        progress.toggle(titleID: game.titleID, id: id)
-        try? progress.write(file: file)
+        var next = progress
+        next.toggle(titleID: game.titleID, id: id)
+        store(next)
     }
 
     private func clear() {
-        progress.done[game.titleID.uppercased()] = []
-        try? progress.write(file: file)
+        if progress.unreadable || progress.unlocked(titleID: game.titleID).isEmpty { return }
+        var next = progress
+        next.done[game.titleID.uppercased()] = []
+        store(next)
+    }
+
+    private func store(_ next: AchievementProgress) {
+        do {
+            try next.write(file: file)
+            progress = next
+            saveFailed = false
+        } catch {
+            saveFailed = true
+        }
     }
 }

@@ -53,6 +53,20 @@ final class AchievementCatalogTests: XCTestCase {
         try? FileManager.default.removeItem(at: file)
     }
 
+    func testABrokenFileIsLeftAlone() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("ach-\(UUID().uuidString).json")
+        try Data("not json".utf8).write(to: file)
+        let loaded = AchievementProgress.load(file: file)
+        XCTAssertTrue(loaded.unreadable)
+        var book = loaded
+        book.toggle(titleID: "01007EF00011E000", id: "leave-the-plateau")
+        XCTAssertTrue(book.unreadable)
+        XCTAssertTrue(book.unlocked(titleID: "01007EF00011E000").isEmpty)
+        XCTAssertThrowsError(try book.write(file: file))
+        XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), "not json")
+        try? FileManager.default.removeItem(at: file)
+    }
+
     func testTheBundledCatalogLoads() {
         XCTAssertFalse(AchievementCatalog.bundled().isEmpty)
     }

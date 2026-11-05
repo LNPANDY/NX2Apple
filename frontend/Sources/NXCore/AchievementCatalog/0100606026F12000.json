@@ -17,13 +17,13 @@
     {
       "id": "enemy-staggered",
       "name": "Enemy Staggered",
-      "detail": "Hit an enemy weakness until that foe staggers and your party gains extra turns.",
+      "detail": "Hit an enemy weakness until that foe staggers. The character who did it gains a bonus action.",
       "hidden": false
     },
     {
       "id": "resonance-attack",
       "name": "Resonance Attack",
-      "detail": "Once a foe is staggered, spend a Resonance attack to press the opening.",
+      "detail": "Stagger every enemy in one turn, then spend the Vision Resonance that follows.",
       "hidden": false
     },
     {
@@ -39,9 +39,9 @@
       "hidden": false
     },
     {
-      "id": "moogle-found",
-      "name": "Moogle",
-      "detail": "Find a moogle somewhere in the world.",
+      "id": "sanctum-of-light",
+      "name": "Sanctum of Light",
+      "detail": "Visit a Sanctum of Light and obtain a vision crystal.",
       "hidden": false
     },
     {
@@ -51,27 +51,27 @@
       "hidden": false
     },
     {
-      "id": "gilgamesh",
-      "name": "Gilgamesh",
-      "detail": "Encounter the wandering swordmaster Gilgamesh.",
+      "id": "limit-burst",
+      "name": "Limit Burst",
+      "detail": "Fill a limit gauge by staggering a foe or taking damage, then unleash that character's Limit Burst.",
       "hidden": false
     },
     {
-      "id": "colosseum",
-      "name": "Colosseum",
-      "detail": "Win a Colosseum fight against its deadly monsters and take the reward.",
+      "id": "vision-awakened",
+      "name": "Vision Awakened",
+      "detail": "Spend magicite to awaken a Vision and unlock a stronger ability.",
       "hidden": false
     },
     {
-      "id": "chamber-of-arms",
-      "name": "Chamber of Arms",
-      "detail": "Defeat a foe sealed inside a legendary weapon in the Chamber of Arms.",
+      "id": "mighty-foe",
+      "name": "Mighty Foe",
+      "detail": "Defeat a powerful monster that watches over a cavern and collect its magicite.",
       "hidden": false
     },
     {
-      "id": "ultima-weapon",
-      "name": "Ultima Weapon",
-      "detail": "Win the showdown against Ultima Weapon.",
+      "id": "secret-dungeon",
+      "name": "Secret Dungeon",
+      "detail": "Clear an optional high-difficulty dungeon that is not part of the main story.",
       "hidden": true
     }
   ]

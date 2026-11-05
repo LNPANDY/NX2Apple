@@ -242,9 +242,7 @@ extension LauncherView {
     /// The hero's goal count. Opens the same sheet as Manage > Achievements. Hidden when this title has no list.
     @ViewBuilder func achievementChip(_ game: LibraryGame) -> some View {
         if let list = AchievementCatalog.bundled()[game.titleID.uppercased()], !list.achievements.isEmpty {
-            let file = AchievementProgress.file(in: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("NS Port Builder"))
-            let done = AchievementProgress.load(file: file).marked(titleID: game.titleID, ids: list.achievements.map(\.id))
+            let done = achievementMarks.marked(titleID: game.titleID, ids: list.achievements.map(\.id))
             Button { achievementsFor = game.id } label: {
                 Label(String(format: loc.t("achievements.progress"), done, list.achievements.count), systemImage: "trophy")
                     .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
