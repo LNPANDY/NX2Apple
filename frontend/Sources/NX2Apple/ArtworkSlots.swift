@@ -70,8 +70,6 @@ struct GameArtwork: Codable, Equatable, Hashable {
     var hero: ArtworkChoice?
     var thumbnail: ArtworkChoice?
 
-    var isCustomized: Bool { hero != nil || thumbnail != nil }
-
     init(hero: ArtworkChoice? = nil, thumbnail: ArtworkChoice? = nil) {
         self.hero = hero; self.thumbnail = thumbnail
     }

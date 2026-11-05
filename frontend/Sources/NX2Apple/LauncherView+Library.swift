@@ -14,15 +14,31 @@ extension LauncherView {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
                         if let game = heroGame {
-                            hero(game, width: geometry.size.width, height: max(240, geometry.size.height - collectionHeight))
+                            // While the panel is open the hero is laid out at its size with the panel closed (the panel's
+                            // width given back, the height it had) and scaled down to fit: same crop, same title, only smaller
+                            let editing = artworkEditor != nil
+                            let full = CGSize(width: geometry.size.width + (editing ? ArtworkPanel.width + 1 : 0),
+                                              height: editing ? closedHeroHeight : max(240, geometry.size.height - collectionHeight))
+                            let scale = min(1, geometry.size.width / full.width)
+                            hero(game, width: full.width, height: full.height)
+                                .scaleEffect(scale, anchor: .topLeading)
+                                .frame(width: geometry.size.width, height: full.height * scale, alignment: .topLeading)
+                                .opacity(dimmed(.hero))
+                                .onAppear { closedHeroHeight = full.height; artworkHeroAspect = full.width / full.height }
+                                .onChange(of: full) { size in
+                                    if !editing { closedHeroHeight = size.height }
+                                    artworkHeroAspect = size.width / size.height
+                                }
                         }
                         // The hero takes what the collection leaves: the row's height grows with the window's width (its cards
                         // do, up to 300 pt), so a fixed share left a fullscreen window's cards cut off at the bottom
                         collection(width: geometry.size.width)
                             .background(GeometryReader { g in Color.clear.preference(key: CollectionHeightKey.self, value: g.size.height) })
+                            .opacity(dimmed(.thumbnail))
                     }
                 }
                 .onPreferenceChange(CollectionHeightKey.self) { h in if h > 0, abs(h - collectionHeight) > 0.5 { collectionHeight = h } }
+                .animation(.easeOut(duration: 0.18), value: artworkSlot)
             }
         }
     }
@@ -55,7 +71,7 @@ extension LauncherView {
     func hero(_ game: LibraryGame, width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             if let image = heroArtwork?.id == game.id ? heroArtwork?.image : artwork[game.id] {
-                ArtworkFill(image: image, focus: game.artwork.focus(for: .hero))
+                ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .hero))
                     .frame(width: width, height: height).clipped()
             } else {
                 LauncherPalette.surface
@@ -94,7 +110,7 @@ extension LauncherView {
                                    : loc.t("library.newBuild")),
                             symbol: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
                     }
-                    .buttonStyle(.plain).disabled(launching || (m.running && !game.isReady))
+                    .buttonStyle(.plain).disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
                     .keyboardShortcut(.return, modifiers: [])
                     .padTarget("hero.play", scope: "main", radius: 30) { if !launching { primaryAction(game) } }
                     if game.isReady {
@@ -174,7 +190,7 @@ extension LauncherView {
                                     VStack(alignment: .leading, spacing: 8) {
                                         ZStack {
                                             if let image = artwork[game.id] {
-                                                ArtworkFill(image: image, focus: game.artwork.focus(for: .thumbnail))
+                                                ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .thumbnail))
                                             } else {
                                                 LauncherPalette.surface
                                                 Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)

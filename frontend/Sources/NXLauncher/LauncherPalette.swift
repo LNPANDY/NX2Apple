@@ -7,4 +7,5 @@ package enum LauncherPalette {
     package static let ready = Color(red: 0.25, green: 0.84, blue: 0.47)
     package static let building = Color(red: 1, green: 0.78, blue: 0.24)
     package static let unbuilt = Color(red: 0.57, green: 0.58, blue: 0.61)
+    package static let danger = Color(red: 1, green: 0.42, blue: 0.40)
 }
