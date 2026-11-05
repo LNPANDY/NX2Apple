@@ -16,6 +16,9 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -184,6 +187,7 @@ jobs:
           # <exe_dir>/engine (and also at <exe_dir>/../engine) and skips the repo/sync route entirely.
           cp -r ../../engine-tree "NS Port Builder/engine"
           powershell -Command "Compress-Archive -Path 'NS Port Builder' -DestinationPath '../NS-Port-Builder-qt-windows-x64.zip'"
+          cp ../NS-Port-Builder-qt-windows-x64.zip ../NX2Apple-windows-x64.zip
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -191,10 +195,33 @@ jobs:
           path: frontend-qt/NS-Port-Builder-qt-windows-x64.zip
           if-no-files-found: error
 
-      # Deliberately NOT attached to the release. Two reasons, both from real reports:
-      #  - the Windows build is still in testing. Shipping it on every tag put a 84 MB download
-      #    in front of users who could not use it, and it contradicted the release notes that
-      #    said the Windows front end was not ready;
-      #  - the Qt macOS build has no advantage over the native SwiftUI app on the same machine,
-      #    so a second macOS download only creates a way to pick the worse one.
-      # The artifacts above stay available under Actions for anyone testing the Windows path.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          v="${TAG#v}"
+          if [[ "$v" =~ ^(.+)-rc([1-9][0-9]*)$ ]]; then
+            ver="${BASH_REMATCH[1]}"
+            rc="${BASH_REMATCH[2]}"
+            if ! gh release view "$TAG" >/dev/null 2>&1; then
+              gh release create "$TAG" --prerelease --latest=false --verify-tag \
+                --title "NX2Apple $ver release candidate $rc" \
+                --notes "Release candidate $rc of NX2Apple $ver."
+            fi
+          else
+            # On a final tag, wait briefly for build-mac-app.yml to create the release with its full notes if both run in parallel
+            for _ in $(seq 1 30); do
+              gh release view "$TAG" >/dev/null 2>&1 && break
+              sleep 10
+            done
+            if ! gh release view "$TAG" >/dev/null 2>&1; then
+              gh release create "$TAG" --verify-tag --title "$TAG" --notes "NX2Apple $TAG"
+            fi
+          fi
+          gh release upload "$TAG" \
+            frontend-qt/NX2Apple-windows-x64.zip \
+            frontend-qt/NS-Port-Builder-qt-windows-x64.zip --clobber
