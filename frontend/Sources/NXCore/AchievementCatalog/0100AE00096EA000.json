@@ -17,7 +17,7 @@
     {
       "id": "linkle-joins",
       "name": "Linkle Joins",
-      "detail": "Finish the third Legend Mode scenario and recruit Linkle.",
+      "detail": "Clear The Armies of Ruin and unlock Linkle.",
       "hidden": false
     },
     {
@@ -65,7 +65,7 @@
     {
       "id": "legend-complete",
       "name": "Legend Complete",
-      "detail": "Defeat Ganondorf in Liberation of the Triforce and finish Legend Mode.",
+      "detail": "Clear Watchers of the Triforce, the last scenario of Legend Mode.",
       "hidden": false
     },
     {
