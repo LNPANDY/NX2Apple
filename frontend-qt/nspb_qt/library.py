@@ -819,6 +819,11 @@ class GameLibrary:
                 slots['update'] = [sorted(slots['update'])[-1]]
             gname = names.get(tid) or GameFolder.profile_name(tid, repo_path) or tid
             base_dir = os.path.dirname(slots['base'][0])
+            other_files = slots.get('update', []) + slots.get('dlc', [])
+            if other_files and any(not os.path.abspath(p).startswith(os.path.abspath(base_dir) + os.sep) for p in other_files):
+                parent_dir = os.path.dirname(base_dir)
+                if parent_dir and os.path.abspath(parent_dir).startswith(os.path.abspath(folder)):
+                    base_dir = parent_dir
             ipa = ipas.get(tid, '')
             if not ipa:
                 cand = os.path.join(base_dir, f'{gname}.ipa')

@@ -36,7 +36,7 @@ index e5b32ca..ecbf20c 100644
          screen_refresh(win.screen ?: NSScreen.mainScreen);
          g_win = win;
 diff --git a/docs/development.md b/docs/development.md
-index 54953ea..2725f9e 100644
+index b1ccc86..4d70499 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -49,7 +49,7 @@ index 54953ea..2725f9e 100644
  | Known gaps | Conditional render is always drawn; [indirect-count multi-draws](reference/rendering.md#indirect-count-multi-draws) can wait for a GPU-written count when the records need conversion, cannot be GPU-masked, or exceed the mask table capacity; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 98a7b52..733dd54 100644
+index 9da039d..d54f213 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -305,6 +305,7 @@ DM_SAVE	path	This run's save folder (must be set); the device save is `<DM_SAVE>

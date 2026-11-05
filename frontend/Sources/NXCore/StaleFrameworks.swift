@@ -1,9 +1,9 @@
 import Foundation
 
-/// LNPANDY/NX2Apple#449: the shared iPhone and iPad app takes frameworks of one shader chain only. After an engine update that
-/// changes the chain, the frameworks already in the shell folder are stale, and build_shell.sh refuses them at the last step.
-/// This finds them before the long steps. The chain of the engine is the `DMSH_CHAIN` of `dm/gfx/nvn/dmsh_chain.h` (the
-/// `b-<chain>` folder name), the chain of a framework is the `chain` of its `game.manifest.json`, the two values the script compares.
+/// LNPANDY/NX2Apple#449, #451: each game framework built for the shared app now carries its own host (`loader == "FH"` in
+/// `game.manifest.json`), so an engine update that changes the shader chain leaves every installed game working. Only a
+/// framework built before #451 (`loader != "FH"`, no host in the framework) is refused by `build_shell.sh` and found here
+/// before the long build steps.
 package enum StaleFrameworks {
     package struct Entry: Equatable {
         package var titleID: String
@@ -23,20 +23,22 @@ package enum StaleFrameworks {
         return nil
     }
 
-    /// The manifest of a framework folder: its `chain`, `title_id` and `name`. nil when it has none or it cannot be read.
-    private static func manifest(of framework: String) -> (chain: String, titleID: String, name: String)? {
+    /// The manifest of a framework folder: its `chain`, `title_id`, `name` and `loader`. nil when it has none or it cannot be read.
+    private static func manifest(of framework: String) -> (chain: String, titleID: String, name: String, loader: String)? {
         guard let data = FileManager.default.contents(atPath: framework + "/game.manifest.json"),
               let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let chain = json["chain"] as? String else { return nil }
-        return (chain, json["title_id"] as? String ?? "", json["name"] as? String ?? "")
+        return (chain, json["title_id"] as? String ?? "", json["name"] as? String ?? "", json["loader"] as? String ?? "FR")
     }
 
-    /// The frameworks of another chain than `chain`: those in the shell folder's mirror (`<root>/frameworks`) and those the
-    /// library names (`known`: title ID, name and framework folder of each game in shell.json). One entry per title ID, with every
-    /// folder that holds it. A framework whose manifest cannot be read is not decided here: build_shell.sh's own check stays
-    /// for it. `except` is the game being built now, whose framework this build replaces.
+    /// The frameworks built without a host of their own (`loader != "FH"`): those in the shell folder's mirror
+    /// (`<root>/frameworks`) and those the library names (`known`: title ID, name and framework folder of each game in
+    /// `shell.json`). Frameworks with `loader == "FH"` carry their own host and stay valid across shader chain updates (#451).
+    /// One entry per title ID, with every folder that holds it. A framework whose manifest cannot be read is not decided here:
+    /// `build_shell.sh`'s own check stays for it. `except` is the game being built now, whose framework this build replaces.
     package static func find(root: String, chain: String, known: [(titleID: String, name: String, framework: String)],
                              except: String? = nil) -> [Entry] {
+        _ = chain
         let fm = FileManager.default
         let mirror = root + "/frameworks"
         var folders = known.map(\.framework)
@@ -46,7 +48,7 @@ package enum StaleFrameworks {
         var entries: [Entry] = []
         var seen = Set<String>()
         for folder in folders where seen.insert(folder).inserted && fm.fileExists(atPath: folder) {
-            guard let m = manifest(of: folder), m.chain != chain else { continue }
+            guard let m = manifest(of: folder), m.loader != "FH" else { continue }
             let id = m.titleID.isEmpty ? titleID(ofFolder: folder) : m.titleID
             if let except, except.caseInsensitiveCompare(id) == .orderedSame { continue }
             if let i = entries.firstIndex(where: { $0.titleID.caseInsensitiveCompare(id) == .orderedSame }) {

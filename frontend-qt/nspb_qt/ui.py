@@ -33,8 +33,9 @@ from . import inputs
 from . import library as lib
 from . import platform_util as pu
 from . import style
+from .build_notes import TEXT, TITLE, stale_reason
 
-APP_VERSION = '1.1.0'
+APP_VERSION = '1.1.1'
 from .i18n import Lang
 from .model import Dep, DepState, Model
 from .sheets import CheatsDialog, DeleteGameDialog, FreeSpaceDialog, OnboardingDialog
@@ -2175,6 +2176,12 @@ class MainWindow(QMainWindow):
         c.insertText(s)
         self.log.setTextCursor(c)
         self.log.ensureCursorVisible()
+        reason = stale_reason(s)
+        if reason and not getattr(self, '_stale_shaders_shown', False):
+            self._stale_shaders_shown = True
+            box = QMessageBox(QMessageBox.Icon.Information, 'NX2Apple', self.m.t(TITLE), parent=self)
+            box.setInformativeText(self.m.t(TEXT[reason]))
+            box.exec()
 
     def _on_finished(self, ok: bool, note: str) -> None:
         t = self.m.t
@@ -2365,6 +2372,7 @@ class MainWindow(QMainWindow):
             self.m.cancel_build()
             return
         self._failed = False
+        self._stale_shaders_shown = False
         self.reveal_ipa_btn.hide()
         self.reveal_arc_btn.hide()
         self.reveal_app_btn.hide()

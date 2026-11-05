@@ -33,7 +33,7 @@ struct SettingsPage: View {
                      startInConsole: $startInConsole, onOpenControls: onOpenControls, onOpenControllers: onOpenControllers,
                      onOpenHomeSettings: HomeButtonSettings.available ? { HomeButtonSettings.open() } : nil)   // HomeButtonSettings.swift (#336)
         ToolsCard(repo: repo, engine: engine, dependencies: dependencies, buildRunning: build.running,
-                  shellCache: { ShellCacheRow(build: build) }) {
+                  shellCache: { ShellCacheRow(build: build) }, builder: { ExperimentalBuilderRow(build: build) }) {
             DiagnosticsButton(report: diagnostics, game: library.selected)
         }
         AppCard(updates: updates, buildRunning: build.running, notify: $notifyBuilds, notifyAvailable: BuildNotice.hasBundleID,

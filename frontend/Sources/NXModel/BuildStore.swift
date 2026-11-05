@@ -72,6 +72,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let outputKey = "buildOutputDirectory"
     nonisolated package static let targetKey = "buildTarget"
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
+    nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
+    nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -88,7 +90,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet { defaults.set(outDir, forKey: Self.outputKey) }
     }
     @Published package var stages: [Stage] = []
-    var chainNoteShown = false   // the shader-chain notice shows once per build
+    var staleShadersShown = false   // the stale-shaders notice shows once per build
     @Published package var running = false
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
@@ -126,6 +128,17 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
     }
+    /// Settings, "Use experimental builder" (#749): the NSP script hands the stages nxbuild supports to it, and runs the rest the standard way.
+    /// Off by default. BuildStore+Builder.swift passes it to the build.
+    @Published package var experimentalBuilder: Bool {
+        didSet { defaults.set(experimentalBuilder, forKey: Self.experimentalBuilderKey) }
+    }
+    /// The `nxb` binary the player chose (or its folder), empty for the app's own copy (ExperimentalBuilder.resolve).
+    @Published package var experimentalBuilderPath: String {
+        didSet { defaults.set(experimentalBuilderPath, forKey: Self.experimentalBuilderPathKey) }
+    }
+    /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
+    package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
@@ -162,8 +175,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var chooseFolder: () -> String? = { nil }
     /// The save panel of "Save IPA" (title, the name offered): where to write, nil when they cancelled.
     package var chooseSaveLocation: (String, String) -> URL? = { _, _ in nil }
-    /// A notice the player must see (the shader chain changed): an alert.
-    package var showNotice: (String) -> Void = { _ in }
+    /// A notice the player must see (the shaders are rebuilt): an alert with a title and a text.
+    package var showNotice: (_ title: String, _ text: String) -> Void = { _, _ in }
     package var revealFolder: (URL) -> Void = { _ in }
     /// A Finder window with this file or folder selected (`activateFileViewerSelecting`).
     package var revealItem: (URL) -> Void = { _ in }
@@ -207,6 +220,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         outDir = defaults.string(forKey: Self.outputKey) ?? ""
         target = BuildTarget.saved(defaults)
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
+        experimentalBuilder = defaults.bool(forKey: Self.experimentalBuilderKey)
+        experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -285,7 +300,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             return handleEvent(kind, event)
         }
         append(line + "\n")
-        noteChainChange(line)
         guard let s = BuildProgress.parseStage(line) else { return }
         if let i = stages.firstIndex(where: { $0.id == s.k }) {
             if !s.name.isEmpty { stages[i].name = Stage.localizedName(s.name, t) }
@@ -298,15 +312,14 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         }
     }
 
-    /// The script marks a shader-chain bump with this tag: the cached libraries cannot be
-    /// reused and this build recompiles them. An alert, not a log line — the report's question
-    /// ("why is it building shaders again, the artifacts are on the drive") came from exactly
-    /// this moment passing unnoticed. Once per build: the pipe delivers arbitrary chunks.
-    /// (A plain line, or the message of a `say` event in `--progress json`.)
-    package func noteChainChange(_ text: String) {
-        guard text.contains("[NOTE] chain-changed"), !chainNoteShown else { return }
-        chainNoteShown = true
-        showNotice(t("msg.chainChanged"))
+    /// The `shaders_stale` event: the cached shader libraries cannot be reused and this build rebuilds them, because the
+    /// shader translator changed (`reason` "chain") or the game profile's shader inputs did ("inputs").
+    /// An alert, not a log line: a report asked why the shaders were building again, because the log line went unnoticed.
+    /// Once per build: the script sends the event once per shader step. A reason a newer script adds shows nothing: no text explains it.
+    package func noteStaleShaders(reason: String) {
+        guard let text = ["chain": "msg.shadersStale.chain", "inputs": "msg.shadersStale.inputs"][reason], !staleShadersShown else { return }
+        staleShadersShown = true
+        showNotice(t("msg.shadersStale.title"), t(text))
     }
 
     /// One event of `--progress json`: the stage list follows it, and the log gets a readable line (no count updates).
@@ -339,7 +352,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         case "say":
             let msg = e["msg"] as? String ?? ""
             append(msg + "\n")
-            noteChainChange(msg)
+        case "shaders_stale":
+            noteStaleShaders(reason: e["reason"] as? String ?? "")
         default: break
         }
     }

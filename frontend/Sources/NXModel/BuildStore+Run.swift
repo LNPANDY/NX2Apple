@@ -16,7 +16,7 @@ extension BuildStore {
         shellDeviceChecked = false
         if target != BuildTarget.mac, !exportsOneGame, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         stopping = false
-        running = true; done = false; doneNote = ""; stages = []; log.clear(); chainNoteShown = false
+        running = true; done = false; doneNote = ""; stages = []; log.clear(); staleShadersShown = false
         failure = nil; confirmingOverride = nil
         let override = takeOverrideFlag()   // for this build only: the next one asks again
         installedOn = ""; installedAppPath = ""; exportedIPAPath = ""; send = .idle
@@ -78,18 +78,6 @@ extension BuildStore {
         }
         let tidHex = buildKey
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
-        // A Mac app over an old one needs a volume that can swap folders (APFS): on any other the build fails at its last step with error 45 (#595).
-        if target == BuildTarget.mac {
-            let outFolder = outDir.isEmpty ? baseDir : outDir
-            if appReplaceCheck(outFolder) == false {
-                if FileManager.default.fileExists(atPath: outFolder + "/" + tidHex + ".app") {
-                    failure = BuildFailure(kind: .volumeFormat, gameName: nil, detail: outFolder)
-                    fail(failureWhat(failure!))
-                    return
-                }
-                say(t("msg.volumeNotAPFS"))
-            }
-        }
         // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)
@@ -199,6 +187,7 @@ extension BuildStore {
         // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
         denv.merge(BundledTools.environment(for: py)) { $1 }
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
+        denv.merge(builderEnvironment()) { $1 }   // the experimental builder, when it is on (BuildStore+Builder.swift, #749)
         let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             hop {
