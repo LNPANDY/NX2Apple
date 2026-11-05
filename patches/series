@@ -45,4 +45,5 @@
 0075-front-mac-hide-the-pointer-before-the-game-takes.patch
 0076-host-read-embedded-sections-from-the-image-that.patch
 0077-ios-shell-link-the-host-into-each-game-s-framewo.patch
-0078-keep-the-selected-python-when-generating-the-mac.patch
+0078-document-the-fork-touch-controls-so-environment.patch
+0080-keep-the-selected-python-when-generating-the-mac.patch

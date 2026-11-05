@@ -1981,24 +1981,7 @@ class MainWindow(QMainWindow):
         return f
 
     def _format_dep_detail(self, d: Dep) -> str:
-        if d.detail == 'dep.xcode.noSDK':
-            return self.m.t('dep.xcode.noSDK')
-        if d.detail.startswith('dep.python.old:'):
-            ver = d.detail.split(':', 1)[1]
-            return self.m.t('dep.python.old', ver, f'{pu.MIN_PYTHON[0]}.{pu.MIN_PYTHON[1]}')
-        if d.detail.startswith('dep.python.missing:'):
-            py = d.detail.split(':', 1)[1]
-            return self.m.t('dep.python.missing', py)
-        if d.detail.startswith('dep.python.notFound:'):
-            need = d.detail.split(':', 1)[1]
-            return self.m.t('dep.python.notFound', need, need)
-        if d.detail.startswith('dep.python.none:'):
-            found = d.detail.split(':', 1)[1]
-            return self.m.t('dep.python.none', found)
-        if d.detail.startswith('dep.metal.other:'):
-            _, got, tested = d.detail.split(':', 2)
-            return self.m.t('dep.metal.other', got, tested)
-        return d.detail
+        return self.m.format_dep_detail(d.detail)
 
     def _refresh_inputs(self) -> None:
         t = self.m.t

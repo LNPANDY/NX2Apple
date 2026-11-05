@@ -186,13 +186,12 @@ jobs:
           # The engine tree goes inside the app folder: the launcher finds it at
           # <exe_dir>/engine (and also at <exe_dir>/../engine) and skips the repo/sync route entirely.
           cp -r ../../engine-tree "NS Port Builder/engine"
-          powershell -Command "Compress-Archive -Path 'NS Port Builder' -DestinationPath '../NS-Port-Builder-qt-windows-x64.zip'"
-          cp ../NS-Port-Builder-qt-windows-x64.zip ../NX2Apple-windows-x64.zip
+          powershell -Command "Compress-Archive -Path 'NS Port Builder' -DestinationPath '../NX2Apple-windows-x64.zip'"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: NS-Port-Builder-qt-windows-x64
-          path: frontend-qt/NS-Port-Builder-qt-windows-x64.zip
+          name: NX2Apple-windows-x64
+          path: frontend-qt/NX2Apple-windows-x64.zip
           if-no-files-found: error
 
       - name: Attach to the release
@@ -222,6 +221,4 @@ jobs:
               gh release create "$TAG" --verify-tag --title "$TAG" --notes "NX2Apple $TAG"
             fi
           fi
-          gh release upload "$TAG" \
-            frontend-qt/NX2Apple-windows-x64.zip \
-            frontend-qt/NS-Port-Builder-qt-windows-x64.zip --clobber
+          gh release upload "$TAG" frontend-qt/NX2Apple-windows-x64.zip --clobber
