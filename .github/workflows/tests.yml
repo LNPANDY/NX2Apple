@@ -151,11 +151,22 @@ jobs:
         env:
           HOMEBREW_NO_AUTO_UPDATE: 1
         run: brew install spirv-tools
+      - name: Metal compiler for the synthetic shader tests (no GPU needed)
+        run: |
+          if ! xcrun -sdk macosx metal --version; then
+            xcodebuild -downloadComponent MetalToolchain
+          fi
+          xcrun -sdk macosx metal --version
+          xcrun -sdk iphoneos metal --version
       - name: Run the test files
         env:
           DM_GAME: ${{ env.GAME }}   # test_tbdr_budget runs a tool that needs a profile
           DMSH_TEST_XLATE: ${{ github.workspace }}/engine/dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate
+          DM_SHELL_PACKAGE: ${{ github.workspace }}/frontend-ios
         run: |
+          # Job-level run defaults can leave this step on bash -e, without pipefail.
+          # Keep every file's status through tee and still run the rest for diagnostics.
+          set -o pipefail
           mkdir -p logs
           failed=0
           for f in dm/tools/tests/test_*.py dm/ios/tests/test_*.py dm/gfx/tests/test_*.py; do
@@ -434,6 +445,8 @@ jobs:
       # Route C M2: build_shell.sh generates and builds the shell (host, frontend-ios package, a synthetic framework embedded and not
       # linked). make_ext_font.py needs fontTools, which only this step installs
       - name: The shell app embeds a game framework and builds (route C M2)
+        env:
+          DM_SHELL_PACKAGE: ${{ github.workspace }}/frontend-ios
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
           python3 -m pip install --user --break-system-packages fonttools > /dev/null
