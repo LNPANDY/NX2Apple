@@ -59,10 +59,10 @@ index 028d506..4208688 100644
      def test_slim_ipa_of_a_folder_has_no_identity(self):
          self.assertNotIn('Payload/DmIOS.app/romfs.id', self.pack(DM_COPY_ROMFS='NO'))
 diff --git a/dm/ios/tests/test_profile_pack.py b/dm/ios/tests/test_profile_pack.py
-index 40db2b7..0407560 100644
+index b113a28..56a178d 100644
 --- a/dm/ios/tests/test_profile_pack.py
 +++ b/dm/ios/tests/test_profile_pack.py
-@@ -53,7 +53,8 @@ class ProfilePackTests(unittest.TestCase):
+@@ -71,7 +71,8 @@ class ProfilePackTests(unittest.TestCase):
                      self.assertEqual(prefix + 'fixture_bp.metallib' in names, included)
                      for name in ('fixture_b.metallib', 'fixture_bv.metallib', 'fixture_b.json'):
                          self.assertIn(prefix + name, names)
@@ -73,10 +73,10 @@ index 40db2b7..0407560 100644
  
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index e6cfbff..9bcfc5f 100755
+index 9b49ab3..ad5b881 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -242,6 +242,9 @@ if [ -n "${PROGRAMS_TSV:-}" ]; then   # each program's shader libraries, RomFS,
+@@ -247,6 +247,9 @@ if [ -n "${PROGRAMS_TSV:-}" ]; then   # each program's shader libraries, RomFS,
    done < <(prog_rows); prog_back
  else
  MAPS=()
@@ -86,7 +86,7 @@ index e6cfbff..9bcfc5f 100755
  if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
    t "no game files in the IPA (DM_COPY_ROMFS=NO): the app takes Documents/romfs.img (scripts/push_romfs.sh)"
    # The image's identity (dm/host/romfs_identity.h) goes into the app as romfs.id: main.m then uses only a Documents/romfs.img with the same size and index hash, and says so when it is another version or missing.
-@@ -251,7 +254,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
+@@ -256,7 +259,11 @@ if [ "${DM_COPY_ROMFS:-YES}" = NO ]; then
      MAPS=("$P/romfs.id=$O/romfs.id"); t "game files identity: $(cat "$O/romfs.id")"
    fi
  elif [ -f "$ROMFS" ]; then MAPS=("$P/romfs.img=$ROMFS"); else MAPS=("$P/romfs=$ROMFS"); fi
@@ -148,7 +148,7 @@ index a832ad5..0f5485d 100644
              raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index aa18089..213fa62 100644
+index 8beb610..0995d98 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -47,6 +47,7 @@ DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since bo

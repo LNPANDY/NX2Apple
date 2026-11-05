@@ -21,7 +21,6 @@ package enum BuildFailureClassifier {
         ("keys.old", .keysOld, "the keys are older than the game"),
         ("games.several", .severalGames, "more than one game in the folder"),
         ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
-        ("games.noProfile", .noProfile, "packs only a game with a profile"),
         ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
         ("disk.full", .diskFull, "No space left on device"),
         ("icloud.detritus", .cloudFolder, "resource fork, Finder information, or similar detritus not allowed"),

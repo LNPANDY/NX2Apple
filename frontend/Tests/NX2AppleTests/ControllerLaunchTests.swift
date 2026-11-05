@@ -34,6 +34,7 @@ import AppKit
         layout.assign(ControlLayout.functions.first { $0.id == "A" }!, key: 40)
         layout.setSends("A", "B")
         layout.padMerge = true
+        layout.joyconSplit = true
         let storage = SystemControllerPreferences(domain: domain)
         storage.write("launcher.DM_PAD_MAP", value: "A=Shake")
         storage.write("launcher.DM_FPS_TARGET", value: "60")
@@ -42,6 +43,7 @@ import AppKit
         XCTAssertNil(env["DM_KEYMAP"])
         XCTAssertNil(env["DM_PAD_MAP"])
         XCTAssertEqual(env["DM_PAD_MERGE"], "1")
+        XCTAssertEqual(env["DM_JOYCON_SPLIT"], "1")
         XCTAssertEqual(storage.read("launcher.DM_KEYMAP") as? String, "A=40,B=none")
         XCTAssertEqual(storage.read("launcher.DM_PAD_MAP") as? String, "A=Shake")
         XCTAssertEqual(storage.read("launcher.DM_FPS_TARGET") as? String, "60")

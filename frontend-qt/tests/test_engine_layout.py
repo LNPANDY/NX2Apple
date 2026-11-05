@@ -176,6 +176,21 @@ class BundledEngine(unittest.TestCase):
         self.assertTrue(engine.is_stale(str(repo)))
         self.assertEqual(engine.engine_root(str(repo)), str(repo / 'engine'))
 
+    def test_external_venv_python_finds_bundled_engine_via_internal_layout(self):
+        """A child venv python has sys.frozen=False, but __file__ is inside _internal/nspb_qt/."""
+        self.set_frozen(False)
+        eng = self.tree(self.r)
+        fake_file = self.app / '_internal' / 'nspb_qt' / 'engine.py'
+        fake_file.parent.mkdir(parents=True, exist_ok=True)
+        fake_file.write_text('x')
+        orig_file = engine.__file__
+        try:
+            engine.__file__ = str(fake_file)
+            self.assertEqual(engine.bundled_engine(), str(eng))
+            self.assertEqual(engine.engine_root(''), str(eng))
+        finally:
+            engine.__file__ = orig_file
+
 
 class OnlineSync(unittest.TestCase):
     """A release carries no engine: the first start downloads it, and a failed fetch is a failure row (no Qt needed)."""

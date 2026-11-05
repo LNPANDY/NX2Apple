@@ -100,13 +100,6 @@
   "text": "[RED] Game [0100000000010000][v0].nsp: prod.keys has no master_key_13 (master key 13, which came with firmware 19.0.0): the keys are older than the game; dump prod.keys again from a console on firmware 19.0.0 or later"
  },
  {
-  "id": "games.noProfile",
-  "kind": "noProfile",
-  "source": "scripts/build_ipa_from_nsp.py",
-  "fragment": "packs only a game with a profile",
-  "text": "[RED] a dump folder packs only a game with a profile, and 0400000000010000 has none: the survey that makes a provisional profile reads NSPs"
- },
- {
   "id": "disk.low",
   "kind": "diskFull",
   "source": "scripts/build_ipa_from_nsp.py",

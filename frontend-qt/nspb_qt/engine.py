@@ -89,11 +89,20 @@ def is_stale(repo: str) -> bool:
 
 def bundled_engine() -> str:
     """The engine tree the Actions zip puts beside the app folder (`<exe_dir>/../engine/`).
-    None when it is not there or does not look like an engine tree."""
-    if not getattr(sys, 'frozen', False):
-        return ''   # a PyInstaller bundle sets sys.frozen; a python -m run never does
-    exe = Path(sys.executable).resolve()
-    for base in (exe.parent, exe.parent.parent):
+    Empty string when it is not there or does not look like an engine tree.
+
+    Also resolves when imported from an external Python (the build's venv) inside a PyInstaller
+    on-dir layout (`<root>/NS Port Builder/_internal/nspb_qt/engine.py`), where `sys.frozen` is
+    False in the child interpreter.
+    """
+    bases: list[Path] = []
+    if getattr(sys, 'frozen', False):
+        exe = Path(sys.executable).resolve()
+        bases.extend((exe.parent, exe.parent.parent))
+    here = Path(__file__).resolve()
+    if len(here.parents) >= 4 and here.parents[1].name == '_internal':
+        bases.extend((here.parents[2], here.parents[3]))
+    for base in bases:
         cand = base / 'engine'
         if cand.joinpath('dm', 'games').is_dir() and cand.joinpath('scripts', 'build_ipa_from_nsp.py').is_file():
             return str(cand)
@@ -142,7 +151,7 @@ def run_sync(cmd: list[str], cwd: str, line: Callable[[str], None], **popen) -> 
     """Run the sync command, pass its lines on, and return (ok, failure kind or None). Blocking: call it off the UI thread."""
     tail = ''
     try:
-        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors='replace', **popen)
+        p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', **popen)
         assert p.stdout is not None
         for out in p.stdout:
             line(out)

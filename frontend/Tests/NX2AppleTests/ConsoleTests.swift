@@ -240,10 +240,13 @@ import NXModel
         let sizes: [(String, CGFloat, CGFloat)] = [("tv", 1920, 1080), ("mac", 1280, 800), ("compact", 390, 844)]
         for lang in CaptureLanguage.all([.en, .zh]) {
             for (name, width, height) in sizes {
-                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint"] {
-                    let driver = MockConsoleDriver(scenario: MockConsoleDriver.Scenario(rawValue: screen) ?? (screen == "mixedHome" || screen == "controllerDesktop" || screen == "connectedToast" ? .controllersMixed : .full), lang: lang, animated: false)
+                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "controllerDesktopSplit", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint"] {
+                    let driver = MockConsoleDriver(scenario: MockConsoleDriver.Scenario(rawValue: screen) ?? (screen == "mixedHome" || screen == "controllerDesktop" || screen == "controllerDesktopSplit" || screen == "connectedToast" ? .controllersMixed : .full), lang: lang, animated: false)
                     switch screen {
                     case "mixedHome": driver.back()
+                    case "controllerDesktopSplit":
+                        driver.state.controllers = [.init(id: "pad.4", name: L10n.string("console.demoPaired", lang), player: 1, kind: .paired, battery: 0.75, charging: true)]
+                        driver.setJoyconSplit(true)
                     case "connectedToast": driver.back(); driver.disconnect(controllerID: "pad.2"); driver.connect(.init(id: "pad.2", name: L10n.string("console.demoController", lang), player: 2))
                     case "options": driver.openOptions("demo.0")
                     case "needsBuild": driver.focus("demo.3"); driver.play("demo.3")
@@ -254,7 +257,7 @@ import NXModel
                     default: break
                     }
                     let view: AnyView
-                    if screen == "controllerDesktop" {
+                    if screen == "controllerDesktop" || screen == "controllerDesktopSplit" {
                         view = AnyView(ConsoleControllersSheet(driver: driver, lang: lang, close: {}).environmentObject(PadFocus()))
                     } else if screen == "prompt" {
                         view = AnyView(ConsoleConnectionPrompt(lang: lang, enterConsole: {}, dismissPrompt: {}).environmentObject(PadFocus()).preferredColorScheme(.dark))

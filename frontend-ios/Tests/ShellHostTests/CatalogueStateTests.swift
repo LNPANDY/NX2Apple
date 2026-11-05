@@ -71,6 +71,10 @@ import ShellUI
         #expect(GameStateResolver.state(for: entry(Fixtures.chain), data: .missing, environment: env) == .needsAppUpdate)
         // A host without an engine (the demo) skips the chain check.
         #expect(GameStateResolver.state(for: entry(Fixtures.chain), data: found, environment: HostEnvironment(chain: nil, osVersion: env.osVersion)) == .playable)
+        // A framework that carries its own host (loader FH, #451) runs on any shell chain.
+        var fh = entry(Fixtures.chain); fh.manifest?.loader = "FH"
+        #expect(GameStateResolver.state(for: fh, data: found, environment: env) == .playable)
+        #expect(GameStateResolver.state(for: fh, data: .missing, environment: env) == .needsGameData)
     }
 
     @Test func brokenBundlesAreBrokenWhateverElseIsPresent() {

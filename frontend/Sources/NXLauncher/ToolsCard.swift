@@ -5,23 +5,26 @@ import NXModel
 
 /// Settings, "Tools": the repository or the release app's engine, the dependency rows and the diagnostics row.
 /// Observes the repository, engine sync and dependency stores. What it needs from the build store comes as values:
-/// whether a build runs. The cache row (ShellCacheRow, which observes the build store) and the diagnostics button come as views.
-package struct ToolsCard<Diagnostics: View, ShellCache: View>: View {
+/// whether a build runs. The cache row (ShellCacheRow, which observes the build store), the experimental builder's rows (ExperimentalBuilderRow, the same)
+/// and the diagnostics button come as views.
+package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: View {
     @ObservedObject var repo: RepoStore
     @ObservedObject var engine: EngineSyncStore
     @ObservedObject var dependencies: DependencyStore
     let buildRunning: Bool
     let shellCache: ShellCache
+    let builder: Builder
     let diagnostics: Diagnostics
     @EnvironmentObject var loc: Localizer
 
     package init(repo: RepoStore, engine: EngineSyncStore, dependencies: DependencyStore, buildRunning: Bool,
-                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder diagnostics: () -> Diagnostics) {
+                 @ViewBuilder shellCache: () -> ShellCache, @ViewBuilder builder: () -> Builder, @ViewBuilder diagnostics: () -> Diagnostics) {
         self.repo = repo
         self.engine = engine
         self.dependencies = dependencies
         self.buildRunning = buildRunning
         self.shellCache = shellCache()
+        self.builder = builder()
         self.diagnostics = diagnostics()
     }
 
@@ -127,6 +130,8 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View>: View {
                     }
                 }
             }
+            CardDivider()
+            builder
             CardDivider()
             CardRow(loc.t("diag.title"), detail: loc.t("diag.note")) { diagnostics }
         }
