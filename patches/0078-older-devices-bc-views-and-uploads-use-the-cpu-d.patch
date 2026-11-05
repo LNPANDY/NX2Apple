@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bmle69 <128874520+bmle69@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 14:20:50 -0700
+Subject: [PATCH] Older devices: BC views and uploads use the CPU-decoded
+ texture
+
+With tex_bc_cpu on a GPU without BC support (A15/A16), tex_desc makes a BC texture in the
+format the decoder produces (RGBA8, R8, RG8, RGBA16F), but two paths still treated it as BC:
+
+- Texture views (tex_by_id, clear_tex) asked Metal for the BC format of the view, which the
+  device cannot make: MTLPixelFormatInvalid, and Metal's validation aborted ("texture view
+  pixelFormat (MTLPixelFormatInvalid) not castable", source R8Unorm, a BC4 view). A BC view of a
+  decoded texture now takes the decoded format (bc_cpu_view_pf).
+- pkg_upload_ took its GPU routes (direct, deswizzle + blit, the big-source buffer) first, and
+  they copy compressed blocks as they are, so raw BC blocks landed in the decoded texture as
+  pixels: block noise over most textures. Only the CPU route decodes; a decoded BC texture now
+  always takes it.
+
+Found on Super Mario Bros. Wonder (010015100B514000) on an iPhone 13 Pro (A15, iOS 27.0.1): it
+aborted at frame 3, then with the view fix played with garbled backgrounds and menu cards; with
+both it plays with correct textures at 60 fps. GPUs with BC support are unchanged: bc_cpu_view_pf
+returns 0 when g_bc_cpu is off.
+
+Upstream-Status: fork-only (declined seedds/nxnative#488)
+Reason: completes bc-cpu-decode, which upstream declined; acts only with tex_bc_cpu on a GPU without BC support, so supported hardware is unchanged
+Issue: LNPANDY/NX2Apple#123
+---
+ dm/gfx/nvn/nvn_mtl.m | 17 +++++++++++++----
+ 1 file changed, 13 insertions(+), 4 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 5d7f618..ccb8ecd 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -93,6 +93,10 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
+ static id<MTLLibrary> host_lib(const char *name, NSError **e) { return host_msl_lib(g_dev, nil, name, e); }
+ static int g_bc_gpu = 1;   // the device advertises BC texture compression (set where the device is made)
+ static int g_bc_cpu;       // decode BC on the CPU: no GPU support and the profile allows it
++// The Metal format a view in NVN format f takes when BC is decoded on the CPU: a BC texture is made in the format the decoder produces (tex_desc), so a view in a BC
++// format is a view in that decoded format. Without this the view asked Metal for the BC format the device cannot make (MTLPixelFormatInvalid) and Metal's validation
++// aborted (Super Mario Bros. Wonder on an A15: an R8Unorm texture, BC4 decoded, viewed as BC4_RUnorm at frame 3). 0 = f is no BC format or BC is not decoded on the CPU
++static uint32_t bc_cpu_view_pf(uint32_t f) { uint32_t pf = 0; int bpp = 0; return g_bc_cpu && nvn_bc_unpacked(f, &pf, &bpp) ? pf : 0; }
+ static NSMutableArray *g_l3_gpu_leaks;
+ static int g_nvn_deswz_gpu;
+ static id<MTLCommandQueue> g_q;
+@@ -2532,7 +2536,10 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
+     if (!d) return nil;
+     d.usage |= keep & (MTLTextureUsageRenderTarget | MTLTextureUsagePixelFormatView);
+     int rb_shift = rb_packed_shift(t->d.format);   // the RGB565 family is repacked into Metal's order on the CPU (rb_packed_shift)
+-    int direct = !rb_shift && stamp && direct_upload_on() && g_nvn_deswz_gpu && !(t->pool && nvn_sparse_pool(t->pool)) && nvn_deswz_gpu_direct_supported(&t->d);
++    // BC decoded on the CPU: tex_desc made the texture in the decoded format, and only the CPU route below decodes. The GPU routes (direct and deswizzle + blit) copy the
++    // compressed blocks as they are, so they wrote raw BC blocks into the RGBA8 / R8 texture as pixels (block noise over Super Mario Bros. Wonder's backgrounds on an A15)
++    int bc_dec = bc_cpu_view_pf(t->d.format) != 0;
++    int direct = !rb_shift && !bc_dec && stamp && direct_upload_on() && g_nvn_deswz_gpu && !(t->pool && nvn_sparse_pool(t->pool)) && nvn_deswz_gpu_direct_supported(&t->d);
+     if (direct) d.usage |= MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView;
+     id<MTLTexture> mt = reuse && reuse.pixelFormat == d.pixelFormat && reuse.width == d.width && reuse.height == d.height && reuse.mipmapLevelCount == d.mipmapLevelCount && reuse.textureType == d.textureType
+                         && (reuse.usage & d.usage) == d.usage
+@@ -2558,9 +2565,9 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
+     void *mb; uint64_t mo;
+     // A texture in a large pool (BIG_MIN) is read through a buffer of its own, held by the upload batch: a one-time read must not leave its chunk wired for good
+     id<MTLBuffer> upsrc = nil;
+-    if (!rb_shift && !sparse && g_nvn_deswz_gpu && g_nbig) { up_begin(); upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo); if (upsrc) mb = (__bridge void *)upsrc; }
+-    int use_gpu = !rb_shift && !sparse && g_nvn_deswz_gpu && (upsrc || mtl_addr((uint64_t)t->mem, t->L.size, &mb, &mo));   // a sparse pool's texture is gathered through its page table on the CPU
+-    if (g_nvn_deswz_gpu && !use_gpu && !sparse && !rb_shift) RED_ONCE(40, "swizzled texture storage is not in a memory pool; falling back to the CPU");
++    if (!rb_shift && !bc_dec && !sparse && g_nvn_deswz_gpu && g_nbig) { up_begin(); upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo); if (upsrc) mb = (__bridge void *)upsrc; }
++    int use_gpu = !rb_shift && !bc_dec && !sparse && g_nvn_deswz_gpu && (upsrc || mtl_addr((uint64_t)t->mem, t->L.size, &mb, &mo));   // a sparse pool's texture is gathered through its page table on the CPU
++    if (g_nvn_deswz_gpu && !use_gpu && !sparse && !rb_shift && !bc_dec) RED_ONCE(40, "swizzled texture storage is not in a memory pool; falling back to the CPU");
+     if (use_gpu) {
+         // The GPU reads the memory pool at execution time, which is closer to a real Switch than a snapshot at CPU upload time; the dirty-page stamp is still taken before encoding, and later writes still trigger a re-upload.
+         up_begin();
+@@ -5282,6 +5289,7 @@ static void treg_pkg_stamp(treg_t *rp, id<MTLTexture> base) {
+     // included (rb_packed_shift): for them only the format's alpha 1 remains
+     uint8_t sw[4] = {MTLTextureSwizzleRed, MTLTextureSwizzleGreen, MTLTextureSwizzleBlue, MTLTextureSwizzleAlpha}, fsw[4]; int need_sw = 0; uint32_t view_pf = 0;
+     if (!(r.has_v && r.v.set_format && nvn_fmt_to_mtl(r.v.format, &view_pf, fsw) && view_pf)) nvn_fmt_to_mtl(r.t.d.format, NULL, fsw);
++    if (view_pf) { uint32_t up = bc_cpu_view_pf(r.v.format); if (up) view_pf = up; }   // a BC view of a texture decoded on the CPU: its decoded format (bc_cpu_view_pf)
+     if (!base.buffer) for (int c = 0; c < 4; c++) if (fsw[c] >= MTLTextureSwizzleRed) fsw[c] = (uint8_t)(MTLTextureSwizzleRed + c);
+     // Metal cannot cast a depth texture to its single-channel colour equivalent. Use the same depth storage,
+     // but present (R, 0, 0, 1) to the NVN swizzle: a float shader reading Metal depth can see depth in G and B too.
+@@ -12025,6 +12033,7 @@ static void clear_tex(const p_clear_tex *c) {
+     if (c->has_view && c->view.set_format) {   // View with changed format: the clear value is interpreted in the view format (all 5 of the game's calls are the ui version with an integer view), and the clear is done on a view of the same format
+         uint32_t vpf = 0; uint8_t swz[4];
+         if (!nvn_fmt_to_mtl(c->view.format, &vpf, swz) || !vpf) { RED_ONCE(42, "texture clear view format %#x has no equivalent", c->view.format); return; }
++        { uint32_t up = bc_cpu_view_pf(c->view.format); if (up) vpf = up; }   // BC decoded on the CPU: the view's decoded format (bc_cpu_view_pf)
+         if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf) && !(t.usage & MTLTextureUsagePixelFormatView)) t = tex_upgrade_pfv(c->tex, t, (MTLPixelFormat)vpf);
+         if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf)) {
+             id<MTLTexture> v = [t newTextureViewWithPixelFormat:(MTLPixelFormat)vpf];
