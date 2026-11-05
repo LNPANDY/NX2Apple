@@ -125,6 +125,7 @@
   "console.homeHint.later": "Inte nu",
   "console.homeHint.open": "Öppna Inställningar",
   "console.homeHint.title": "Avsluta med hemknappen",
+  "console.joyconSplit": "Dela Joy-Con i två handkontroller",
   "console.startInConsole": "Starta i konsolläge",
   "console.startInConsoleNote": "Öppnar konsolläget varje gång launchern startar, med eller utan handkontroll. Lämna det från menyn Visa.",
   "controls.applied": "Tillämpas nästa gång du väljer Spela här. Äldre byggen ignorerar det.",
