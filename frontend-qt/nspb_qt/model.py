@@ -1600,6 +1600,8 @@ class Model(QObject):
             return self.t('fail.a32Program.whatNamed', f.game)
         if f.kind == bf.DISK_FULL and f.detail:
             return self.t('fail.diskFull.whatNeeds', f.detail)
+        if f.kind == bf.PSO_DISK_FULL and f.detail:
+            return self.t('fail.psoDiskFull.whatNeeds', f.detail)
         return self.t(f.what_key)
 
     def _keys_readable(self) -> bool | None:
