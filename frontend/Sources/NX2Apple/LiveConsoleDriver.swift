@@ -27,6 +27,7 @@ struct ConsolePadSnapshot: Equatable {
     var battery: Double?
     var charging = false
     var canIdentify = true
+    var kindOverride: ConsoleController.Kind? = nil
 
     /// The level to show, or nil when the controller has not really reported one. GameController gives 0 with an unknown state for a
     /// DualShock 4 over Bluetooth and before the first report, and some pads over USB report no battery or an unknown one: those are
@@ -44,7 +45,8 @@ struct ConsolePadSnapshot: Equatable {
         let family = ConsoleGlyphs.Family(category: category)
         let c = (category ?? "").lowercased().replacingOccurrences(of: "-", with: "")
         let kind: ConsoleController.Kind
-        if c.contains("joycon") { kind = .paired }
+        if let kindOverride { kind = kindOverride }
+        else if c.contains("joycon") { kind = .paired }
         else if family == .nintendo { kind = .fullSize }
         else if family == .xbox { kind = .xbox }
         else { kind = .gamepad }
@@ -91,8 +93,14 @@ struct ConsolePadSnapshot: Equatable {
         self.artwork = artwork ?? { game, repo in GameLibrary.artwork(for: game, repo: repo) }
         if pads == nil { self.devicePads = true }
         state.padMerge = controls.padMerge
+        state.joyconSplit = controls.joyconSplit
         library.objectWillChange.sink { [weak self] _ in self?.queueRefresh() }.store(in: &cancellables)
         controls.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }.store(in: &cancellables)
+        controls.$joyconSplit.dropFirst().sink { [weak self] split in
+            guard let self, self.state.joyconSplit != split else { return }
+            self.state.joyconSplit = split
+            self.refreshControllers(announce: false)
+        }.store(in: &cancellables)
         refresh()
         refreshControllers(announce: false)
         announced = Set(state.controllers.map(\.id))   // controllers there at launch are not announced again by a repeated notification
@@ -391,6 +399,28 @@ struct ConsolePadSnapshot: Equatable {
         showToast(String(format: t("console.assignedTo"), pad.name, player))
     }
     func setPadMerge(_ enabled: Bool) { controls.padMerge = enabled }
+    func setJoyconSplit(_ enabled: Bool) {
+        controls.joyconSplit = enabled
+        state.joyconSplit = enabled
+        refreshControllers(announce: false)
+    }
+
+    /// Expands each paired Joy-Con snapshot into separate `Joy-Con (L)` and `Joy-Con (R)` sideways controller snapshots when `enabled` is true (#740).
+    static func splitJoyConSnapshots(_ pads: [ConsolePadSnapshot], enabled: Bool) -> [ConsolePadSnapshot] {
+        guard enabled else { return pads }
+        var out: [ConsolePadSnapshot] = []
+        for pad in pads {
+            if pad.controller.kind == .paired {
+                out.append(ConsolePadSnapshot(id: pad.id + ".L", name: "Joy-Con (L)", category: "Nintendo Switch Joy-Con (L)",
+                                              playerIndex: pad.playerIndex, battery: pad.battery, charging: pad.charging, canIdentify: pad.canIdentify, kindOverride: .gamepad))
+                out.append(ConsolePadSnapshot(id: pad.id + ".R", name: "Joy-Con (R)", category: "Nintendo Switch Joy-Con (R)",
+                                              playerIndex: nil, battery: pad.battery, charging: pad.charging, canIdentify: pad.canIdentify, kindOverride: .gamepad))
+            } else {
+                out.append(pad)
+            }
+        }
+        return out
+    }
 
     /// What this controller can do for Identify. The player lights have no capability flag in GameController, so any gamepad counts.
     static func identifyActions(_ c: GCController) -> [IdentifyPlan.Action] {
@@ -599,6 +629,13 @@ struct ConsolePadSnapshot: Equatable {
                 return ConsolePadSnapshot(id: id, name: c.vendorName ?? c.productCategory, category: c.productCategory,
                                           playerIndex: (0...3).contains(index) ? index + 1 : nil, battery: reading?.level,
                                           charging: reading?.charging ?? false, canIdentify: !Self.identifyActions(c).isEmpty)
+            }
+        }
+        snapshots = Self.splitJoyConSnapshots(snapshots, enabled: controls.joyconSplit)
+        if devicePads, controls.joyconSplit {
+            for snap in snapshots where snap.id.hasSuffix(".L") || snap.id.hasSuffix(".R") {
+                let base = String(snap.id.dropLast(2))
+                if let dev = devices[base] { devices[snap.id] = dev }
             }
         }
         let live = Set(snapshots.map(\.id))
