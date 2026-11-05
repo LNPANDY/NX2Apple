@@ -16,13 +16,11 @@ struct SystemEchoWindow: Equatable {
     static let heldLimit: TimeInterval = 30
     /// When a controller button last went down or came up.
     private(set) var controllerAt: TimeInterval?
-    /// How many controller buttons are down. Directions are not counted: held, they repeat.
+    /// How many controller buttons are down.
     private(set) var held = 0
     /// When a finger last came down anywhere on the screen.
     private(set) var touchAt: TimeInterval?
 
-    /// A controller direction moved, or a direction repeated.
-    mutating func controller(at time: TimeInterval) { controllerAt = time }
     /// A controller button went down.
     mutating func buttonDown(at time: TimeInterval) { controllerAt = time; held += 1 }
     /// A controller button came up. The echo comes after this, so the window starts again here.
@@ -41,20 +39,33 @@ struct SystemEchoWindow: Equatable {
 /// Marks the actions a controller or key press causes, so they are not taken for touch, and keeps the window for the
 /// system's echo of a controller button. Not observed.
 @MainActor final class InputGate {
+    /// The echo is iPadOS's: a Mac sends none, and a click there has no probe to end the window.
+    static let platformEchoes: Bool = {
+        #if os(iOS)
+        true
+        #else
+        false
+        #endif
+    }()
     /// True while `handle` acts on a controller or key press.
     var handling = false
     private var window = SystemEchoWindow()
     private let clock: () -> TimeInterval
+    private let echoes: Bool
 
-    init(clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) { self.clock = clock }
+    init(clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }, echoes: Bool = InputGate.platformEchoes) {
+        self.clock = clock
+        self.echoes = echoes
+    }
 
-    /// A controller action came in: a button going down, or a direction (which repeats while held).
+    /// A controller action came in. Only buttons count: the system's press follows a button (A), and a direction
+    /// repeats while held, which would end a finger's tap that began before it.
     func controller(_ action: ShellInput.Action) {
-        if Self.isDirection(action) { window.controller(at: clock()) } else { window.buttonDown(at: clock()) }
+        if !Self.isDirection(action) { window.buttonDown(at: clock()) }
     }
     /// A controller button or direction came up.
     func controllerUp(_ action: ShellInput.Action) {
-        if Self.isDirection(action) { window.controller(at: clock()) } else { window.buttonUp(at: clock()) }
+        if !Self.isDirection(action) { window.buttonUp(at: clock()) }
     }
     private static func isDirection(_ action: ShellInput.Action) -> Bool {
         switch action {
@@ -64,7 +75,7 @@ struct SystemEchoWindow: Equatable {
     }
     func touch() { window.touch(at: clock()) }
     /// A press acted on now, outside `handle`, is the system's echo of a controller button.
-    var isSystemEcho: Bool { !handling && window.isEcho(at: clock()) }
+    var isSystemEcho: Bool { echoes && !handling && window.isEcho(at: clock()) }
 }
 
 /// What sits on top of the library and owns the D-pad, the topmost first. Each one's focus targets start with its

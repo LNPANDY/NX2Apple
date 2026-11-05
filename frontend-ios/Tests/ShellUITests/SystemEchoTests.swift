@@ -12,20 +12,23 @@ final class SystemEchoWindowTests: XCTestCase {
     }
     func testInsideTheWindowIsTheEcho() {
         var w = SystemEchoWindow()
-        w.controller(at: 100)
+        w.buttonDown(at: 99.9)
+        w.buttonUp(at: 100)  // a quick press, up at 100
         XCTAssertTrue(w.isEcho(at: 100))
         XCTAssertTrue(w.isEcho(at: 100.025), "the echo comes about 25 ms after A comes up")
         XCTAssertTrue(w.isEcho(at: 100.999))
     }
     func testAfterTheWindowIsNot() {
         var w = SystemEchoWindow()
-        w.controller(at: 100)
+        w.buttonDown(at: 99.9)
+        w.buttonUp(at: 100)  // a quick press, up at 100
         XCTAssertFalse(w.isEcho(at: 101))
         XCTAssertFalse(w.isEcho(at: 160))
     }
     func testATouchAfterTheButtonEndsTheWindow() {
         var w = SystemEchoWindow()
-        w.controller(at: 100)
+        w.buttonDown(at: 99.9)
+        w.buttonUp(at: 100)  // a quick press, up at 100
         w.touch(at: 100.2)
         XCTAssertFalse(w.isEcho(at: 100.3), "a tap right after a controller button acts at once")
         w.touch(at: 100)
@@ -34,14 +37,21 @@ final class SystemEchoWindowTests: XCTestCase {
     func testATouchBeforeTheButtonDoesNot() {
         var w = SystemEchoWindow()
         w.touch(at: 99.5)
-        w.controller(at: 100)
+        w.buttonDown(at: 99.9)
+        w.buttonUp(at: 100)  // a quick press, up at 100
         XCTAssertTrue(w.isEcho(at: 100.1))
     }
     func testAClockThatWentBackIsNeverTheEcho() {
         var w = SystemEchoWindow()
-        w.controller(at: 100)
+        w.buttonDown(at: 99.9)
+        w.buttonUp(at: 100)  // a quick press, up at 100
         XCTAssertFalse(w.isEcho(at: 99.9))
         XCTAssertFalse(w.isEcho(at: 0))
+    }
+    @MainActor func testNoEchoWhereThePlatformSendsNone() {
+        let gate = InputGate(clock: { 10 }, echoes: false)
+        gate.controller(.activate)
+        XCTAssertFalse(gate.isSystemEcho, "a Mac click right after a controller button acts")
     }
     func testAButtonHeldLongerThanTheWindow() {
         var w = SystemEchoWindow()
@@ -85,7 +95,7 @@ final class SystemEchoWindowTests: XCTestCase {
 
     @MainActor func testTheGateUsesItsClockAndNeverMarksItsOwnInput() {
         var now: TimeInterval = 10
-        let gate = InputGate(clock: { now })
+        let gate = InputGate(clock: { now }, echoes: true)
         XCTAssertFalse(gate.isSystemEcho)
         gate.controller(.activate)
         now = 12
@@ -98,9 +108,12 @@ final class SystemEchoWindowTests: XCTestCase {
         gate.handling = false
         gate.touch()
         XCTAssertFalse(gate.isSystemEcho)
+        now = 13
         gate.controller(.right)
-        now = 13.6
-        XCTAssertFalse(gate.isSystemEcho, "a held direction repeats and is not counted as held")
+        gate.controller(.right)
+        XCTAssertFalse(gate.isSystemEcho, "a direction, held and repeating, does not end a tap that began before it")
+        gate.controllerUp(.right)
+        XCTAssertFalse(gate.isSystemEcho)
     }
 }
 

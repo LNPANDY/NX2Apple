@@ -52,7 +52,7 @@ public struct ShellHostConfig: Sendable {
     public private(set) var details: [GameDetail] = []
     public private(set) var entries: [CatalogueEntry] = []
     public private(set) var controllers: [ControllerInfo] = []
-    public private(set) var input: ShellInput?
+    public private(set) var input = ShellInputLog()
     /// A short message the host view shows as an alert.
     public var notice: String?
     /// The log the host view shows in a read-only sheet.
@@ -505,12 +505,9 @@ public struct ShellHostConfig: Sendable {
     public func startControllers() {
         adapter.onInput = { [weak self] action, device in
             guard let self else { return }
-            self.input = ShellInput(sequence: (self.input?.sequence ?? 0) + 1, action: action, device: device)
+            self.input.append(action, device: device)
         }
-        adapter.onRelease = { [weak self] action, device in
-            guard let self else { return }
-            self.input = ShellInput(sequence: (self.input?.sequence ?? 0) + 1, action: action, device: device, released: true)
-        }
+        adapter.onRelease = { [weak self] action, device in self?.input.append(action, device: device, released: true) }
         adapter.onControllersChange = { [weak self] connected in
             self?.controllers = connected.map(Self.info(for:))
         }

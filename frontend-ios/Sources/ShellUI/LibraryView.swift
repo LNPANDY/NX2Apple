@@ -35,11 +35,15 @@ public struct LibraryView: View {
     /// The controller's state while the button test is open, from the host.
     public let padSnapshot: PadSnapshot?
     public var actions: ShellActions
-    public var input: ShellInput?
+    public var input: ShellInputLog
+    /// The sequence of the last input event acted on.
+    @State private var inputSeen: Int
     @State private var selectedID: String?
     @State private var settingsOpen: Bool
     /// The settings pane has finished sliding in: its focus ring shows only then, not ahead of it where it will stop.
     @State private var settingsArrived: Bool
+    /// Counts the opening and closing of the settings pane, so a wait for one opening does not act on a later one.
+    @State private var settingsOpenings = 0
     @State private var shellSettingsOpen: Bool
     @State private var controllersOpen: Bool
     /// The game whose How to fix or How to update explanation is open.
@@ -75,7 +79,7 @@ public struct LibraryView: View {
     @State private var probedSideBar = SideBar(edge: nil)
 
     public init(games: [GameDetail], controllers: [ControllerInfo] = [], actions: ShellActions = ShellActions(),
-                input: ShellInput? = nil, initialSelection: String? = nil, initialDetailOpen: Bool = false,
+                input: ShellInputLog = ShellInputLog(), initialSelection: String? = nil, initialDetailOpen: Bool = false,
                 initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false,
                 globalPadMap: PadMap = PadMap(), padSnapshot: PadSnapshot? = nil,
                 initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false) {
@@ -87,6 +91,7 @@ public struct LibraryView: View {
         _buttonTestOpen = State(initialValue: initialButtonTestOpen)
         self.actions = actions
         self.input = input
+        _inputSeen = State(initialValue: input.last)
         let first = initialSelection ?? games.first?.id
         _selectedID = State(initialValue: first)
         _settingsOpen = State(initialValue: initialDetailOpen)
@@ -316,11 +321,14 @@ public struct LibraryView: View {
         .environment(\.shellInputDevice, device)
         .foregroundStyle(.white)
         .font(ShellFonts.font(15)).tint(ShellPalette.cream).preferredColorScheme(.dark)
-        .onChange(of: input) { _, event in
-            guard let event else { return }
-            // A button let go only restarts the window for the system's echo, which comes as the button comes up.
-            if event.released { if case .controller = event.device { gate.controllerUp(event.action) }; return }
-            handle(event.action, from: event.device)
+        .onChange(of: input) { _, log in
+            // Every event since the last update, in order: several can come between two updates.
+            for event in log.since(inputSeen) {
+                // A button let go only restarts the window for the system's echo, which comes as the button comes up.
+                if event.released { if case .controller = event.device { gate.controllerUp(event.action) }; continue }
+                handle(event.action, from: event.device)
+            }
+            inputSeen = log.last
         }
         // A hardware keyboard, as on the Mac: arrows move, Return activates, Escape goes back, O opens game settings,
         // Y opens controllers.
@@ -338,9 +346,14 @@ public struct LibraryView: View {
         .onDisappear { targets.values.removeAll() }
         .onChange(of: settingsOpen) { _, open in
             settingsArrived = false
+            settingsOpenings += 1
             guard open else { return }
-            // The pane slides in over 0.3 s (the animation on settingsOpen).
-            DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 0.3)) { if settingsOpen { settingsArrived = true } }
+            // The pane slides in over 0.3 s (the animation on settingsOpen). Only for this opening: closed and opened
+            // again within the 0.3 s, the first opening's wait would show the ring while the pane still slides.
+            let opening = settingsOpenings
+            DispatchQueue.main.asyncAfter(deadline: .now() + (reduceMotion ? 0 : 0.3)) {
+                if settingsOpen && settingsOpenings == opening { settingsArrived = true }
+            }
         }
         .onChange(of: games.map(\.id)) { _, ids in
             if !ids.contains(selectedID ?? "") { selectedID = ids.first; settingsOpen = false }
