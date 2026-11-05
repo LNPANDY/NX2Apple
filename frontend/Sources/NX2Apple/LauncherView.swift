@@ -47,13 +47,15 @@ struct LauncherView: View {
     private var performStartupChecks: Bool
     private let onRunSetup: (() -> Void)?   // Settings' "Run setup again"; the root view supplies it
     private let qaManage: (open: Bool, ring: Bool)   // visual QA: the Manage menu open at launch, with the controller's focus ring or without
+    /// Visual QA writes marks here. Nil uses Application Support, which is what a running launcher uses.
+    private let achievementFolder: URL?
     @Environment(\.scenePhase) private var scenePhase
 
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false,
-         gamepad: LauncherGamepad? = nil) {
+         gamepad: LauncherGamepad? = nil, achievementFolder: URL? = nil) {
         _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
         self.onRunSetup = onRunSetup
         let layout = sharedControls ?? ControlLayout()
@@ -62,6 +64,7 @@ struct LauncherView: View {
         injectedDriver = controllerDriver != nil
         self.enterConsole = enterConsole
         qaManage = (manageOpen, padRing)
+        self.achievementFolder = achievementFolder
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
         _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())   // LauncherPerformanceTests presses its buttons
@@ -595,7 +598,7 @@ struct LauncherView: View {
 
     /// Reads the marks file again. The hero count uses this, so it does not open the file on every redraw.
     private func reloadAchievementMarks() {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let support = achievementFolder ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NS Port Builder")
         achievementMarks = AchievementProgress.load(file: AchievementProgress.file(in: support))
     }
