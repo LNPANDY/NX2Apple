@@ -2048,12 +2048,32 @@ class VenvWheelsTest(unittest.TestCase):
                 self.assertEqual(bundled_wheels(), wheels)
 
     def test_win_python_install_chains_make_venv_immediately(self) -> None:
-        """Installing Python on a fresh PC must immediately build the venv and install packages in the same pass."""
+        """Installing Python on a fresh PC must pass `python.exe` (not the install folder) to _make_venv / venv_base."""
+        from nspb_qt import platform_util as pu
         src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
         branch = src[src.index("elif what == 'python':"):src.index("elif what == 'llvm':")]
         self.assertIn('install_python(', branch)
-        self.assertIn('self._make_venv(str(path))', branch,
-                      'the Python installer must chain _make_venv immediately so packages are not skipped')
+        self.assertIn("Path(path) / 'python.exe'", branch)
+        self.assertIn('self._make_venv(str(py_exe))', branch)
+
+        # End-to-end check: install_python() returns a directory (`.../tools/python-3.12.10`),
+        # and on a fresh PC with no system Python in python_candidates(), venv_base must resolve
+        # `python.exe` inside that directory and python_candidates() must discover tools/python-*/python.exe.
+        with tempfile.TemporaryDirectory() as td:
+            tools_dir = Path(td) / 'NS Port Builder' / 'tools'
+            py_dir = tools_dir / 'python-3.12.10'
+            py_dir.mkdir(parents=True)
+            py_exe = py_dir / 'python.exe'
+            py_exe.write_bytes(b'MZ')
+            py_exe.chmod(0o755)
+            with mock.patch.object(pu, 'IS_WIN', True), \
+                 mock.patch.object(pu, '_python_version', return_value='3.12.10'), \
+                 mock.patch.object(pu, 'python_candidates', return_value=[]):
+                # Even when a caller passes the folder returned by install_python(), venv_base resolves python.exe
+                self.assertEqual(pu.venv_base(str(py_dir)), str(py_exe))
+            with mock.patch.object(pu, 'IS_WIN', True), \
+                 mock.patch.dict(os.environ, {'LOCALAPPDATA': td}, clear=False):
+                self.assertIn(str(py_exe), pu.python_candidates())
 
 
 class MetalPickFlowShapeTest(unittest.TestCase):
