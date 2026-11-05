@@ -14,7 +14,7 @@ oodle_forge. raw_shaders now also takes a main's control sections that start
 off a 4-byte boundary when their length is a control section's (164 of AC's
 232), and forge material templates get the single-stage pixel-input cover.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1397
 Reason: Assassin's Creed: The Ezio Collection's shaders live in Scimitar .forge archives the shader split did not read (its title screen and menus drew nothing)
 Issue: LNPANDY/NX2Apple#483
 ---

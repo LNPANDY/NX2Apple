@@ -3,12 +3,12 @@ From: Faris Benhaddou <farisbenhaddou@gmail.com>
 Date: Wed, 4 Nov 2026 23:46:24 +0300
 Subject: [PATCH] nvn: nvnEventGetMemoryPool and nvnEventGetMemoryOffset
 
-Assassin's Creed Revelations (The Ezio Collection, program 2) asks an event
+Assassin's Creed Revelations (The Ezio Collection) asks an event
 for its storage pool and maps that pool at start-up. Both getters were
 missing, so it got a null pool and crashed in MemoryPoolMap. The event now
 keeps its builder's pool and offset and the getters return them.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1401
 Reason: Assassin's Creed Revelations (The Ezio Collection) maps an event's storage pool at start-up: without nvnEventGetMemoryPool / Offset it crashed in MemoryPoolMap
 Issue: LNPANDY/NX2Apple#483
 ---

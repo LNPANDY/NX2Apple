@@ -17,7 +17,7 @@ It changes when an update renders, so it is a profile key, audren_merge
 (on / off, off by default): every game without the key keeps a catch-up
 frame per update as before. The Ezio Collection's profile sets it.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1402
 Reason: with audren_merge on, Brotherhood's opening video (Bink, a renderer with no effects) ran at about 10 fps with silent sound: its updates waited for catch-up frames it does not need
 Issue: LNPANDY/NX2Apple#483
 ---

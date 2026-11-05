@@ -11,7 +11,7 @@ as <folder>/<k>.png. DM_NVN_VIS_ALL (occlusion query reports answered
 DM_NVN_VIS_ALL=1" can turn it on and off mid-scene to tell a game's occlusion
 culling from other causes of objects that come and go.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1400
 Reason: Diagnostics used to find the Ezio Collection's one-frame flicker: consecutive-frame capture and a run-time DM_NVN_VIS_ALL
 Issue: LNPANDY/NX2Apple#483
 ---

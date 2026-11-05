@@ -22,7 +22,7 @@ of a program a stage of the active queue or of a saved one still holds
 (bring_held): at most 5 per queue, so a stage keeps its shaders however
 many binds come before it is bound again.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1398
 Reason: Assassin's Creed II crashed in keys_hash after finalizing a program another stage still held
 Issue: LNPANDY/NX2Apple#483
 ---

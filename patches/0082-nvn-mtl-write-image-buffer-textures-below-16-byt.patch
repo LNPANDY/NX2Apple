@@ -17,7 +17,7 @@ into an aligned private shadow on the GPU, the image binding uses the
 shadow's view (ibs_view), and ibs_flush copies them back after the render
 pass (rp_end) or the dispatch. Checked in the game: the flicker is gone.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1399
 Reason: Shader writes to image buffer textures below Metal's 16-byte alignment landed early (Assassin's Creed II's occlusion culling hid visible geometry)
 Issue: LNPANDY/NX2Apple#483
 ---
