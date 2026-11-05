@@ -19,7 +19,7 @@ the profile's table rows for the split) run the standard step, with a note.
 nxbuild's own red lines stay in its log, since the build did not fail.
 Without the variable nothing changes.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1325
 Reason: the launcher's opt-in experimental builder (nxbuild) runs the extraction and the shader split
 Issue: LNPANDY/NX2Apple#749
 
