@@ -57,9 +57,9 @@
       "hidden": false
     },
     {
-      "id": "front-three",
-      "name": "Front Three",
-      "detail": "Collect the three Smiley Flowers set along the front of a single course.",
+      "id": "front-five",
+      "name": "Front Five",
+      "detail": "Collect the five Smiley Flowers hidden on the front of a single course.",
       "hidden": false
     },
     {

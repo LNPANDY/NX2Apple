@@ -17,7 +17,7 @@
     {
       "id": "extra-nozzle",
       "name": "Extra Nozzle",
-      "detail": "Unlock a FLUDD nozzle beyond the starter spray, such as hover, rocket, or turbo.",
+      "detail": "Unlock a FLUDD nozzle beyond the starter spray and hover, either rocket or turbo.",
       "hidden": false
     },
     {

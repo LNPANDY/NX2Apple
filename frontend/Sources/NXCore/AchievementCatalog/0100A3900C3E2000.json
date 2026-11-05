@@ -5,7 +5,7 @@
     {
       "id": "castle-escape",
       "name": "Castle Escape",
-      "detail": "Get out of Peach's Castle after the origami attack and reach the road beyond.",
+      "detail": "Get out of Peach's Castle after the origami attack and land in Whispering Woods.",
       "hidden": false
     },
     {
@@ -35,13 +35,13 @@
     {
       "id": "green-streamer",
       "name": "Green Streamer",
-      "detail": "Cross the Great Sea and clear the green streamer.",
+      "detail": "Defeat Scissors and clear the green streamer in Bowser's Castle.",
       "hidden": false
     },
     {
-      "id": "thousand-toads",
-      "name": "Thousand Toads",
-      "detail": "Find and rescue all one thousand folded Toads.",
+      "id": "all-toads",
+      "name": "All Toads",
+      "detail": "Find and rescue all 416 Toads.",
       "hidden": false
     },
     {
@@ -53,7 +53,7 @@
     {
       "id": "museum-complete",
       "name": "Museum Complete",
-      "detail": "Turn in every collectible treasure the Musée Champignon asks for.",
+      "detail": "Find all 120 Collectible Treasures so they appear in the Musée Champignon.",
       "hidden": false
     },
     {

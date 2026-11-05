@@ -59,7 +59,7 @@
     {
       "id": "secondary-job",
       "name": "Secondary Job",
-      "detail": "Have a traveler learn a secondary job at a shrine.",
+      "detail": "Have a traveler learn a secondary job at a guild.",
       "hidden": false
     },
     {

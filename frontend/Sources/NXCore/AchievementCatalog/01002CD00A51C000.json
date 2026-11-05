@@ -57,9 +57,9 @@
       "hidden": false
     },
     {
-      "id": "first-flower",
-      "name": "First Flower",
-      "detail": "Collect a flower inside a level.",
+      "id": "first-orb",
+      "name": "First Orb",
+      "detail": "Collect an orb inside a level.",
       "hidden": false
     },
     {

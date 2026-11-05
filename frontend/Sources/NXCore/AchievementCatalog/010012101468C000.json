@@ -23,7 +23,7 @@
     {
       "id": "wave-beam",
       "name": "Wave Beam",
-      "detail": "Recover the Wave Beam, which fires through walls and other solid cover.",
+      "detail": "Recover the Wave Beam. Its electric bolts home in while you lock on, and it opens purple doors.",
       "hidden": false
     },
     {

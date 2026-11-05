@@ -11,7 +11,7 @@
     {
       "id": "copy-ability",
       "name": "Copied Power",
-      "detail": "Inhale an enemy and keep the copy ability it leaves behind.",
+      "detail": "Inhale an enemy and swallow it to gain its copy ability.",
       "hidden": false
     },
     {

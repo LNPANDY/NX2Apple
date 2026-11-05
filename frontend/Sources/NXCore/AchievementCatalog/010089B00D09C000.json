@@ -35,7 +35,7 @@
     {
       "id": "aiba-scan",
       "name": "Aiba's Scan",
-      "detail": "Follow a mark Aiba places during an investigation and examine what she found.",
+      "detail": "Use Aiba's Zoom, Thermo, or X-ray vision on an object during an investigation.",
       "hidden": false
     },
     {

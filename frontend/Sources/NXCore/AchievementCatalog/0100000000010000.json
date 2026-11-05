@@ -57,9 +57,9 @@
       "hidden": false
     },
     {
-      "id": "purple-trade",
-      "name": "Purple Trade",
-      "detail": "Spend purple coins at a kingdom shop to take home a Power Moon.",
+      "id": "coin-moon",
+      "name": "Coin Moon",
+      "detail": "Buy a kingdom's Power Moon at Crazy Cap for a hundred regular coins.",
       "hidden": false
     },
     {
