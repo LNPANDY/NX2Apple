@@ -619,27 +619,68 @@ def main(argv: list[str] | None = None) -> int:
 
     base = w / 'build/ios/win'
     gen, app = base / 'Gen', base / 'Payload/DmIOS.app'
-    shutil.rmtree(gen, ignore_errors=True)
     shutil.rmtree(app, ignore_errors=True)
-    (gen / 'profile').mkdir(parents=True)
+    (gen / 'profile').mkdir(parents=True, exist_ok=True)
     app.mkdir(parents=True)
 
-    # --- generate Gen/ (the same generators build_ipa.sh calls)
+    def _replace_if_changed(tmp_p: Path, dst_p: Path) -> None:
+        if dst_p.is_file():
+            try:
+                if dst_p.read_bytes() == tmp_p.read_bytes():
+                    tmp_p.unlink(missing_ok=True)
+                    return
+            except OSError:
+                pass
+        os.replace(tmp_p, dst_p)
+
+    # --- generate Gen/ (the same generators build_ipa.sh calls, preserving mtime when unchanged)
     t('generate Gen/ (profile header, embedded modules, tables)')
-    py(repo / 'dm/games/game.py', 'header', game, gen / 'profile/game_profile.h')
+    gp_h = gen / 'profile/game_profile.h'
+    gp_h_tmp = gen / 'profile/game_profile.h.tmp'
+    py(repo / 'dm/games/game.py', 'header', game, gp_h_tmp)
+    _replace_if_changed(gp_h_tmp, gp_h)
+
     msl_srcs = sorted((repo / 'dm/gfx/msl').glob('*.metal'))
     if msl_srcs:
-        py(repo / 'dm/gfx/tools/host_msl.py', '--sdk', 'iphoneos',
-           '--min', tc.setting('metal_ios_target', '18.0'),
-           gen / 'profile/host_msl_gen.h', *msl_srcs)
+        msl_min = tc.setting('metal_ios_target', '18.0')
+        msl_h = gen / 'profile/host_msl_gen.h'
+        msl_key_file = gen / 'profile/host_msl.sha256'
+        h_msl = hashlib.sha256(msl_min.encode())
+        for ms in msl_srcs + [repo / 'dm/gfx/tools/host_msl.py']:
+            try:
+                h_msl.update(ms.name.encode() + b'\0' + ms.read_bytes())
+            except OSError:
+                pass
+        msl_digest = h_msl.hexdigest()
+        if not (msl_h.is_file() and msl_key_file.is_file()
+                and msl_key_file.read_text(encoding='utf-8', errors='replace').strip() == msl_digest):
+            msl_h_tmp = gen / 'profile/host_msl_gen.h.tmp'
+            py(repo / 'dm/gfx/tools/host_msl.py', '--sdk', 'iphoneos',
+               '--min', msl_min, msl_h_tmp, *msl_srcs)
+            _replace_if_changed(msl_h_tmp, msl_h)
+            msl_key_file.write_text(msl_digest + '\n', encoding='utf-8')
+
     es = gen / 'embed.S'
+    es_tmp = gen / 'embed.S.tmp'
     jit_img = romfs.parent / 'jit' / 'jit.img'
     embed_extra = [jit_img] if jit_img.is_file() else []
-    flags = py(repo / 'dm/ios/tools/gen_embed.py', patched, es, *mods, *embed_extra)
+    flags = py(repo / 'dm/ios/tools/gen_embed.py', patched, es_tmp, *mods, *embed_extra)
+    bin_meta = []
+    for m_name in mods:
+        bp = patched / f'{m_name}.patched.bin'
+        if bp.is_file():
+            st = bp.stat()
+            bin_meta.append(f'{m_name}:{st.st_size}:{st.st_mtime_ns}')
+    for ep in embed_extra:
+        if ep.is_file():
+            st = ep.stat()
+            bin_meta.append(f'{ep.name}:{st.st_size}:{st.st_mtime_ns}')
     # the assembler treats '\' as an escape in .incbin paths
-    es.write_text(re.sub(r'\.incbin "([^"]*)"',
-                         lambda mm: '.incbin "' + mm.group(1).replace('\\', '/') + '"',
-                         es.read_text(encoding='utf-8')), encoding='utf-8')
+    es_body = re.sub(r'\.incbin "([^"]*)"',
+                     lambda mm: '.incbin "' + mm.group(1).replace('\\', '/') + '"',
+                     es_tmp.read_text(encoding='utf-8'))
+    es_tmp.write_text(es_body + f'\n// inputs: {" ".join(bin_meta)}\n', encoding='utf-8')
+    _replace_if_changed(es_tmp, es)
 
     dmres = app / 'dm'
     dmres.mkdir()

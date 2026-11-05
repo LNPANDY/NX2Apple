@@ -331,7 +331,8 @@ class ParityWindowTests(unittest.TestCase):
             r0, r1 = rects[0][2], rects[1][2]
             self.assertGreaterEqual(r1.left() - r0.right(), 5.0)
 
-            # 6. Step 1 & Step 3 reveal buttons + Copy game data button enabled when archive exists
+            # 6. Step 1 & Step 3 reveal buttons + Copy game data button enabled when archive exists,
+            # while redundant buttons on the Start Build row stay hidden
             fake_ipa = td_path / '0100E65002BB8000.ipa'
             fake_ipa.write_bytes(b'PK\x03\x04')
             fake_romfs = td_path / 'romfs'
@@ -345,8 +346,31 @@ class ParityWindowTests(unittest.TestCase):
             self.assertFalse(w.step1_reveal_btn.isHidden())
             self.assertFalse(w.step3_open_romfs_btn.isHidden())
             self.assertTrue(w.drive_copy_btn.isEnabled())
-            self.assertIn('在文件夹中显示', w.reveal_ipa_btn.text())
-            self.assertIn('在文件夹中显示', w.reveal_arc_btn.text())
+            self.assertTrue(w.reveal_ipa_btn.isHidden())
+            self.assertTrue(w.reveal_arc_btn.isHidden())
+
+            # 6b. pu.reveal exists and opens file/folder without raising AttributeError
+            from nspb_qt import platform_util as pu
+            from unittest.mock import patch
+            self.assertTrue(hasattr(pu, 'reveal') and callable(pu.reveal))
+            with patch('subprocess.Popen') as mock_popen:
+                self.assertTrue(pu.reveal(str(fake_ipa)))
+                self.assertTrue(pu.reveal(str(fake_romfs)))
+                self.assertFalse(pu.reveal(''))
+
+            # 6c. Thin 6px activity progress bar hides percentage text so digits are not clipped
+            self.assertFalse(w.act_progress.isTextVisible())
+
+            # 6d. sdk_fetch._win_path and mp_worker multi-process helpers work
+            from nspb_qt.win import sdk_fetch, mp_worker
+            self.assertTrue(callable(sdk_fetch._win_path))
+            img_tmp = td_path / 'test_x18.bin'
+            img_tmp.write_bytes(b'\xe0\x03\x12\xaa' * 16)
+            mp_worker.init_x18(str(img_tmp))
+            try:
+                self.assertEqual(len(mp_worker.run_x18_job((0, 64))), 16)
+            finally:
+                mp_worker._close_mmap()
 
             # 8. Stage completion marks running stage 'done' (green) instead of staying 'running' (orange)
             m.stages.clear()

@@ -36,6 +36,16 @@ class SdkError(Exception):
     """A user-facing failure: the message says what to do next, not just what broke."""
 
 
+def _win_path(p: Path | str) -> str:
+    """Return an extended-length path (`\\\\?\\...`) on Windows so paths past MAX_PATH (260) work."""
+    s = os.path.abspath(os.fspath(p))
+    if os.name == 'nt' and not s.startswith('\\\\?\\'):
+        if s.startswith('\\\\'):
+            return '\\\\?\\UNC\\' + s[2:]
+        return '\\\\?\\' + s
+    return s
+
+
 def rmtree(path: Path) -> None:
     """Remove a tree, clearing the read-only bits git leaves on Windows.
 
@@ -45,19 +55,20 @@ def rmtree(path: Path) -> None:
     survivors, and only then given up on.
     """
     import stat
-    if not path.exists():
+    wp = Path(_win_path(path))
+    if not wp.exists() and not path.exists():
         return
 
     def clear(func, p, _exc):                  # onerror: drop the read-only bit and retry
         try:
-            os.chmod(p, stat.S_IWRITE | stat.S_IREAD)
-            func(p)
+            os.chmod(_win_path(p), stat.S_IWRITE | stat.S_IREAD)
+            func(_win_path(p))
         except OSError:
             pass
 
-    shutil.rmtree(path, onerror=clear)
-    if path.exists():                          # a file locked by another process (an indexer)
-        shutil.rmtree(path, ignore_errors=True)
+    shutil.rmtree(str(wp), onerror=clear)
+    if wp.exists() or path.exists():           # a file locked by another process (an indexer)
+        shutil.rmtree(str(wp), ignore_errors=True)
 
 
 # ---------------------------------------------------------------- git route
@@ -107,30 +118,43 @@ def materialize_symlinks(repo: Path, sub: str, log: Callable[[str], None]) -> in
         for p in list(symlinks):
             if p not in pending:
                 continue
-            if not p.is_file() or p.is_symlink():
+            wp = Path(_win_path(p))
+            if not wp.is_file() or wp.is_symlink():
                 pending.discard(p)
                 continue
-            target = p.read_text(encoding='utf-8', errors='replace').strip()
-            cand = p.parent / target
+            try:
+                target = wp.read_text(encoding='utf-8', errors='replace').strip()
+            except OSError:
+                pending.discard(p)
+                continue
+            cand = (p.parent / target)
             if cand in pending:
                 continue  # target is itself a symlink stub; resolve it first
-            real = cand.resolve()
-            if real.is_dir():
-                p.unlink()
-                shutil.copytree(real, p, dirs_exist_ok=True)
+            wreal = Path(_win_path(cand.resolve()))
+            try:
+                if wreal.is_dir():
+                    wp.unlink()
+                    shutil.copytree(str(wreal), str(wp), dirs_exist_ok=True)
+                    pending.discard(p)
+                    round_fixed += 1
+                    fixed += 1
+                elif wreal.is_file():
+                    wp.write_bytes(wreal.read_bytes())
+                    pending.discard(p)
+                    round_fixed += 1
+                    fixed += 1
+            except (OSError, shutil.Error) as e:
+                log(f'    {p.relative_to(repo).as_posix()}: copy warning ({e}), skipped')
                 pending.discard(p)
-                round_fixed += 1
-                fixed += 1
-            elif real.is_file():
-                p.write_bytes(real.read_bytes())
-                pending.discard(p)
-                round_fixed += 1
-                fixed += 1
         if not round_fixed:
             break
     for p in sorted(pending):
-        if p.is_file() and not p.is_symlink():
-            target = p.read_text(encoding='utf-8', errors='replace').strip()
+        wp = Path(_win_path(p))
+        if wp.is_file() and not wp.is_symlink():
+            try:
+                target = wp.read_text(encoding='utf-8', errors='replace').strip()
+            except OSError:
+                target = ''
             log(f'    {p.relative_to(repo).as_posix()}: its target {target!r} is missing, left as it is')
     if fixed:
         log(f'    materialized {fixed} symlink stubs into real files (Windows checkout of git symlinks)')
@@ -164,7 +188,10 @@ def clone_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
         repair_tbd_stubs(target, log=log)
         log(f'SDK already present: {target}')
         return target
-    work = dest / f'.clone-{version}'
+    # Clean up any legacy `.clone-<version>` folder from an earlier interrupted run, then use a
+    # short `.tmp` directory name to keep deep SDK paths well under MAX_PATH.
+    rmtree(dest / f'.clone-{version}')
+    work = dest / '.tmp'
     rmtree(work)
 
     def run(args: list[str], what: str, repo: str = tc.SDK_REPO) -> None:
@@ -231,8 +258,8 @@ def clone_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
     # the index can still tell symlinks from the text files a Windows checkout left behind.
     materialize_symlinks(work, version, log=log)
     if target.exists():
-        shutil.rmtree(target, ignore_errors=True)
-    shutil.move(str(src), str(target))
+        rmtree(target)
+    shutil.move(_win_path(src), _win_path(target))
     rmtree(work)
     repair_tbd_stubs(target, log=log)
     log(f'SDK ready: {target} ({tc.sdk_version(target)[0]})')
@@ -574,16 +601,21 @@ def _materialize(out: Path, links: list[tuple[str, str]], log: Callable[[str], N
             if src is None:
                 log(f'  link {rel} → {target}: absolute, skipped')
                 continue
-            if dst.exists():
+            wdst = Path(_win_path(dst))
+            wsrc = Path(_win_path(src))
+            if wdst.exists():
                 continue
-            if not src.exists():
+            if not wsrc.exists():
                 left.append((rel, target))
                 continue
-            if src.is_dir():
-                shutil.copytree(src, dst)
-            else:
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(src, dst)
+            try:
+                if wsrc.is_dir():
+                    shutil.copytree(str(wsrc), str(wdst), dirs_exist_ok=True)
+                else:
+                    wdst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(str(wsrc), str(wdst))
+            except (OSError, shutil.Error) as e:
+                log(f'  link {rel} → {target}: copy warning ({e}), skipped')
         if len(left) == len(todo):
             for rel, target in left:
                 log(f'  link {rel} → {target}: target not in the SDK, skipped')

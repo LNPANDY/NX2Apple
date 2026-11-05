@@ -1066,7 +1066,7 @@ class MainWindow(QMainWindow):
         rs1_lay.addLayout(s1_col, 1)
 
         self.step1_reveal_btn = QPushButton(self.m.t('shell.showInFinder'))
-        self.step1_reveal_btn.clicked.connect(lambda: pu.reveal(self.m.ipa_path))
+        self.step1_reveal_btn.clicked.connect(lambda: pu.reveal(self._effective_ipa_path()))
         self.step1_reveal_btn.hide()
         rs1_lay.addWidget(self.step1_reveal_btn)
         grp.add_row(r_s1)
@@ -1114,7 +1114,7 @@ class MainWindow(QMainWindow):
         rs3_lay.addLayout(s3_col, 1)
 
         self.step3_open_romfs_btn = QPushButton(self.m.t('shell.showInFinder'))
-        self.step3_open_romfs_btn.clicked.connect(lambda: pu.reveal(self.m.archive_path))
+        self.step3_open_romfs_btn.clicked.connect(lambda: pu.reveal(self._effective_archive_path()))
         self.step3_open_romfs_btn.hide()
         rs3_lay.addWidget(self.step3_open_romfs_btn)
 
@@ -1130,6 +1130,31 @@ class MainWindow(QMainWindow):
         grp.add_row(self.step3_container)
 
         return grp
+
+    def _effective_ipa_path(self) -> str:
+        if self.m.ipa_path and os.path.exists(self.m.ipa_path):
+            return self.m.ipa_path
+        tid = self.m.build_key
+        if tid and self.m.out_dir:
+            cand = os.path.join(self.m.out_dir, f'{tid}.ipa')
+            if os.path.isfile(cand):
+                return cand
+        sel = self.m.library.selected
+        if sel and sel.has_ipa:
+            return sel.ipa_path
+        return self.m.ipa_path
+
+    def _effective_archive_path(self) -> str:
+        if self.m.archive_path and os.path.isdir(self.m.archive_path):
+            return self.m.archive_path
+        if self.m.out_dir:
+            cand = os.path.join(self.m.out_dir, 'romfs')
+            if os.path.isdir(cand):
+                return cand
+        sel = self.m.library.selected
+        if sel and sel.has_archive:
+            return sel.archive_path
+        return self.m.archive_path
 
     def _on_ipa_kind_changed(self, kind: str) -> None:
         self.m.ipa_kind = kind
@@ -1149,8 +1174,10 @@ class MainWindow(QMainWindow):
         self.ipa_kind_note.setText(self.m.t('shell.ipaOneGameNote' if one else 'shell.ipaSharedNote'))
         self.step1_title.setText('①  ' + self.m.t('shell.step1Title'))
         self.step1_sub.setText(self.m.t('shell.oneGameSub' if one else 'shell.step1Sub'))
-        has_ipa = bool(self.m.ipa_path and os.path.exists(self.m.ipa_path))
+        ipa_p = self._effective_ipa_path()
+        has_ipa = bool(ipa_p and os.path.exists(ipa_p))
         self.step1_reveal_btn.setText(self.m.t('shell.showInFinder'))
+        self.step1_reveal_btn.setToolTip(self.m.t('msg.ipaAt', ipa_p) if has_ipa else '')
         self.step1_reveal_btn.setVisible(has_ipa)
         self.step2_title.setText('②  ' + self.m.t('shell.step2Title'))
         self.step2_sub.setText(self.m.t('shell.oneGameStep2Sub' if one else 'shell.step2Sub'))
@@ -1160,7 +1187,9 @@ class MainWindow(QMainWindow):
         self.drive_choose_btn.setText(self.m.t('shell.driveChoose'))
         self.drive_copy_btn.setText(self.m.t('shell.driveCopy'))
         self.step3_container.setVisible(not one)
-        has_arch = bool(self.m.archive_path and os.path.isdir(self.m.archive_path))
+        arch_p = self._effective_archive_path()
+        has_arch = bool(arch_p and os.path.isdir(arch_p))
+        self.step3_open_romfs_btn.setToolTip(self.m.t('msg.archiveAt', arch_p) if has_arch else '')
         self.step3_open_romfs_btn.setVisible(has_arch)
         self.drive_copy_btn.setEnabled(has_arch)
 
@@ -1172,7 +1201,8 @@ class MainWindow(QMainWindow):
             self._refresh_install_card()
 
     def _copy_archive_to_drive(self) -> None:
-        if not self.m.archive_path or not os.path.isdir(self.m.archive_path):
+        arch_p = self._effective_archive_path()
+        if not arch_p or not os.path.isdir(arch_p):
             return
         if not self._drive_folder:
             d = QFileDialog.getExistingDirectory(self, self.m.t('shell.driveChoose'), str(Path.home()))
@@ -1181,7 +1211,7 @@ class MainWindow(QMainWindow):
             self._drive_folder = d
             self.drive_path_lbl.setText(d)
         tid = self.m.build_key
-        ok, info = lib.DriveCopy.copy_to_folder(self.m.archive_path, self._drive_folder, tid)
+        ok, info = lib.DriveCopy.copy_to_folder(arch_p, self._drive_folder, tid)
         if ok:
             self.step3_sub.setText(self.m.t('shell.driveDone', info, self.m.t('ios.ui.gameData')))
         else:
@@ -1680,6 +1710,7 @@ class MainWindow(QMainWindow):
 
         self.act_progress = QProgressBar()
         self.act_progress.setRange(0, 100)
+        self.act_progress.setTextVisible(False)
         self.act_progress.setFixedWidth(160)
         self.act_progress.hide()
         row.addWidget(self.act_progress)
@@ -2055,6 +2086,7 @@ class MainWindow(QMainWindow):
 
         self.out_label.setText(self.m.out_dir or t('build.saveDefault'))
         self.out_clear_btn.setVisible(bool(self.m.out_dir))
+        self._refresh_install_card()
         self._refresh_running()
 
     def _refresh_target(self) -> None:
@@ -2156,10 +2188,8 @@ class MainWindow(QMainWindow):
                 self._switch_page('builds')
             self.scroll.ensureWidgetVisible(self.log, 0, 0)
         self._show_failure()
-        self.reveal_ipa_btn.setToolTip(t('msg.ipaAt', self.m.ipa_path) if self.m.ipa_path else '')
-        self.reveal_arc_btn.setToolTip(t('msg.archiveAt', self.m.archive_path) if self.m.archive_path else '')
-        self.reveal_ipa_btn.setVisible(bool(self.m.ipa_path) and Path(self.m.ipa_path).exists())
-        self.reveal_arc_btn.setVisible(bool(self.m.archive_path) and Path(self.m.archive_path).exists())
+        self.reveal_ipa_btn.hide()
+        self.reveal_arc_btn.hide()
         self.reveal_app_btn.setVisible(bool(self.m.mac_app_path) and Path(self.m.mac_app_path).exists())
         self._refresh_install_card()
         self._refresh_library()

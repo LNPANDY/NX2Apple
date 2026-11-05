@@ -77,8 +77,20 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
     os.execve = _win_execve
 
-    import concurrent.futures as _cf, multiprocessing as _mp, threading as _mp_threading, types as _mp_types
+    import concurrent.futures as _cf, marshal as _marshal, multiprocessing as _mp, multiprocessing.spawn as _mp_spawn, pickle as _pickle, tempfile as _tempfile, threading as _mp_threading, types as _mp_types
     _mp_tls = _mp_threading.local()
+    _orig_get_context = _mp.get_context
+    _orig_get_prep_data = _mp_spawn.get_preparation_data
+    _in_fork_pool_spawn = False
+
+    def _safe_get_prep_data(name):
+        d = _orig_get_prep_data(name)
+        if _in_fork_pool_spawn:
+            d.pop('init_main_from_path', None)
+            d.pop('init_main_from_name', None)
+        return d
+
+    _mp_spawn.get_preparation_data = _safe_get_prep_data
 
     class _WinForkPool:
         def __init__(self, processes=None, initializer=None, initargs=(), *a, **k):
@@ -108,11 +120,49 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return self._ex.map(fn, iterable)
 
         def starmap(self, fn, jobs, chunksize=1):
+            global _in_fork_pool_spawn
+            jobs = list(jobs)
             g = getattr(fn, '__globals__', None)
             fname = getattr(fn, '__name__', '')
             if fname == 'x18_words' and isinstance(g, dict) and 'Cs' in g:
+                IMG = g['IMG']
+                if len(jobs) >= 2 and len(IMG) >= 0x20000:
+                    img_path = None
+                    try:
+                        import mp_worker as _mpw
+                        with _tempfile.NamedTemporaryFile(prefix='nspb_x18_', delete=False) as tf:
+                            tf.write(IMG)
+                            img_path = tf.name
+                        n_procs = min(len(jobs), max(self._workers, os.cpu_count() or 4))
+                        _in_fork_pool_spawn = True
+                        try:
+                            pool = _orig_get_context('spawn').Pool(
+                                processes=n_procs,
+                                initializer=_mpw.init_x18,
+                                initargs=(img_path,),
+                            )
+                        finally:
+                            _in_fork_pool_spawn = False
+                        try:
+                            res = pool.map(_mpw.run_x18_job, jobs)
+                            pool.close()
+                            pool.join()
+                            return res
+                        finally:
+                            try:
+                                pool.terminate()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    finally:
+                        if img_path:
+                            try:
+                                os.unlink(img_path)
+                            except OSError:
+                                pass
                 Cs, ARCH, MODE = g['Cs'], g['CS_ARCH_ARM64'], g['CS_MODE_ARM']
-                IMG, R18 = g['IMG'], g['R18']
+                R18 = g['R18']
 
                 def _x18_job(job):
                     lo, hi = job
@@ -131,8 +181,60 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
                 return list(self._ex.map(_x18_job, jobs))
             if fname == 'spin_heads_with_region' and isinstance(g, dict) and 'Cs' in g:
-                Cs, ARCH, MODE = g['Cs'], g['CS_ARCH_ARM64'], g['CS_MODE_ARM']
                 IMG = g['IMG']
+                if len(jobs) >= 2 and len(g.get('spin_heads', ())) >= 8:
+                    img_path = st_path = None
+                    try:
+                        import mp_worker as _mpw
+                        fnames = (
+                            'spin_norm', 'spin_rw', 'spin_kind', 'spin_rmw', 'spin_lock',
+                            'spin_store', 'spin_quick', 'spin_region1', 'spin_region',
+                            'spin_heads_with_region',
+                        )
+                        codes_blob = _marshal.dumps(
+                            {k: (g[k].__code__, g[k].__defaults__) for k in fnames if k in g and isinstance(g[k], _mp_types.FunctionType)}
+                        )
+                        state_keys = (
+                            'SPIN_PATHS', 'SPIN_STEPS', 'SPIN_STORES', 'SPIN_LSE', 'SPIN_BAD',
+                            'SPIN_STOP', 'DATA_BLOCKS', 'spin_touched', 'spin_cand', 'spin_heads',
+                        )
+                        state = {k: g[k] for k in state_keys if k in g}
+                        with _tempfile.NamedTemporaryFile(prefix='nspb_spin_img_', delete=False) as tf_i, \
+                                _tempfile.NamedTemporaryFile(prefix='nspb_spin_st_', delete=False) as tf_s:
+                            tf_i.write(IMG)
+                            img_path = tf_i.name
+                            _pickle.dump((codes_blob, state), tf_s, protocol=_pickle.HIGHEST_PROTOCOL)
+                            st_path = tf_s.name
+                        n_procs = min(len(jobs), max(self._workers, os.cpu_count() or 4))
+                        _in_fork_pool_spawn = True
+                        try:
+                            pool = _orig_get_context('spawn').Pool(
+                                processes=n_procs,
+                                initializer=_mpw.init_spin,
+                                initargs=(img_path, st_path),
+                            )
+                        finally:
+                            _in_fork_pool_spawn = False
+                        try:
+                            res = pool.map(_mpw.run_spin_job, jobs)
+                            pool.close()
+                            pool.join()
+                            return res
+                        finally:
+                            try:
+                                pool.terminate()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    finally:
+                        for _p in (img_path, st_path):
+                            if _p:
+                                try:
+                                    os.unlink(_p)
+                                except OSError:
+                                    pass
+                Cs, ARCH, MODE = g['Cs'], g['CS_ARCH_ARM64'], g['CS_MODE_ARM']
 
                 def _spin_job(job):
                     t_fn = getattr(_mp_tls, 'spin_fn', None)
@@ -164,8 +266,6 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
     class _WinForkContext:
         Pool = staticmethod(_WinForkPool)
-
-    _orig_get_context = _mp.get_context
 
     def _win_get_context(method=None):
         if method == 'fork':
