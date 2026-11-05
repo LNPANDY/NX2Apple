@@ -240,10 +240,14 @@ def compat_rt_needed(clang: Path) -> bool:
     return ok
 
 
+SDK_COMPAT = HERE / 'ios' / 'sdk_compat'
+
+
 def common_flags(sdk: Path, incs: list[Path], deployment: str) -> list[str]:
+    compat = [f'-I{SDK_COMPAT}'] if SDK_COMPAT.is_dir() else []
     return ['-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
             '-Os', f'-mcpu={IOS_CPU}', '-w', '-fno-common', '-DNS_BLOCK_ASSERTIONS=1',
-            *[f'-I{i}' for i in incs]]
+            *compat, *[f'-I{i}' for i in incs]]
 
 
 def flags_for(path: Path, common: list[str], host_main: Path) -> list[str]:

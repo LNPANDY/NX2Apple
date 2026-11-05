@@ -261,8 +261,16 @@ class ParityWindowTests(unittest.TestCase):
         w._on_ipa_kind_changed('shared')
         self.assertEqual(m.ipa_kind, 'shared')
         self.assertFalse(w.step3_container.isHidden())
+        self.assertTrue(w.lang_btn.isHidden())
 
         w.close()
+
+    def test_ios26_sdk_compat_headers_in_common_flags(self) -> None:
+        from nspb_qt.win import build_app
+        flags = build_app.common_flags(Path('/fake/sdk'), [Path('/fake/inc')], '26.0')
+        self.assertIn(f'-I{build_app.SDK_COMPAT}', flags)
+        self.assertTrue((build_app.SDK_COMPAT / 'MetalFX' / 'MetalFX.h').is_file())
+        self.assertTrue((build_app.SDK_COMPAT / 'CoreMotion' / 'CoreMotion.h').is_file())
 
 
 if __name__ == '__main__':

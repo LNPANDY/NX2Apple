@@ -213,7 +213,7 @@ class MainWindow(QMainWindow):
         self.lang_btn = QPushButton(self.m.lang.toggle_label)
         self.lang_btn.setFixedWidth(92)
         self.lang_btn.clicked.connect(self.m.toggle_lang)
-        row.addWidget(self.lang_btn)
+        self.lang_btn.hide()   # Language selection lives in Settings -> App -> Language, matching the Mac SwiftUI top bar
 
         return bar
 
