@@ -8,6 +8,7 @@
     ]
   },
   "achievements.all": "Tous",
+  "achievements.allDone": "Tous les objectifs de cette liste sont marqués.",
   "achievements.close": "Fermer",
   "achievements.empty": "Ce jeu n’a pas encore d’objectifs dans la liste.",
   "achievements.hidden": "Masqué",

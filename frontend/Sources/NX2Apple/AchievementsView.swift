@@ -13,6 +13,8 @@ struct AchievementsView: View {
     @State private var query = ""
     @State private var onlyOpen = false
     @State private var saveFailed = false
+    /// A hidden goal that was just marked, so its name stays on screen for this filter.
+    @State private var revealed: String?
 
     private var file: URL {
         AchievementProgress.file(in: support ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -23,16 +25,25 @@ struct AchievementsView: View {
 
     private var shown: [Achievement] {
         guard let list else { return [] }
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let done = progress.unlocked(titleID: game.titleID)
         return list.achievements.filter { item in
             let on = done.contains(item.id)
+            if item.id == revealed { return true }
             if onlyOpen && on { return false }
             if needle.isEmpty { return true }
-            let title = (item.hidden && !on ? loc.t("achievements.hidden") : item.name).lowercased()
-            let detail = item.hidden && !on ? "" : item.detail.lowercased()
-            return title.contains(needle) || detail.contains(needle)
+            let title = item.hidden && !on ? loc.t("achievements.hidden") : item.name
+            let detail = item.hidden && !on ? "" : item.detail
+            return title.localizedStandardContains(needle) || detail.localizedStandardContains(needle)
         }
+    }
+
+    /// The empty line. A finished list is not a failed search.
+    private var emptyKey: String {
+        if list == nil || list?.achievements.isEmpty == true { return "achievements.empty" }
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if onlyOpen && needle.isEmpty { return "achievements.allDone" }
+        return "achievements.noMatch"
     }
 
     var body: some View {
@@ -46,14 +57,20 @@ struct AchievementsView: View {
                     .padding(.horizontal, 22).padding(.top, 8)
             }
             Divider().padding(.top, 14)
-            ScrollView {
-                if shown.isEmpty {
-                    Text(loc.t(list == nil || list?.achievements.isEmpty == true ? "achievements.empty" : "achievements.noMatch"))
-                        .font(.manrope(14)).foregroundStyle(.secondary).padding(22)
-                } else {
-                    VStack(spacing: 0) {
-                        ForEach(shown, id: \.id) { item in row(item) }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    if shown.isEmpty {
+                        Text(loc.t(emptyKey))
+                            .font(.manrope(14)).foregroundStyle(.secondary).padding(22)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(shown, id: \.id) { item in row(item).id("achievements." + item.id) }
+                        }
                     }
+                }
+                .onChange(of: focus.focused) { id in
+                    guard let id, id.hasPrefix("achievements.") else { return }
+                    proxy.scrollTo(id, anchor: .center)
                 }
             }
         }
@@ -63,7 +80,10 @@ struct AchievementsView: View {
         .onAppear {
             progress = AchievementProgress.load(file: file)
             saveFailed = progress.unreadable
+            DispatchQueue.main.async { if focus.visible { focus.show(default: "achievements.done") } }
         }
+        .onChange(of: query) { _ in revealed = nil }
+        .onChange(of: onlyOpen) { _ in revealed = nil }
     }
 
     private var header: some View {
@@ -73,7 +93,7 @@ struct AchievementsView: View {
                 Text(game.name).font(.manrope(14)).foregroundStyle(.secondary)
             }
             Spacer()
-            if let list, !list.achievements.isEmpty {
+            if let list, !list.achievements.isEmpty, !progress.unreadable {
                 let done = progress.marked(titleID: game.titleID, ids: list.achievements.map(\.id))
                 VStack(alignment: .trailing, spacing: 6) {
                     Text(String(format: loc.t("achievements.progress"), done, list.achievements.count))
@@ -85,7 +105,6 @@ struct AchievementsView: View {
             Button(loc.t("achievements.reset")) { clear() }
                 .font(.manrope(13)).buttonStyle(.plain).foregroundStyle(.secondary)
                 .disabled(progress.unlocked(titleID: game.titleID).isEmpty || progress.unreadable)
-                .padTarget("achievements.reset", scope: "achievements") { clear() }
             Button(action: { dismiss() }) { Image(systemName: "xmark") }
                 .buttonStyle(.plain).foregroundStyle(.secondary)
                 .accessibilityLabel(loc.t("achievements.close"))
@@ -132,8 +151,11 @@ struct AchievementsView: View {
     }
 
     private func toggle(_ id: String) {
+        let wasHidden = list?.achievements.first { $0.id == id }?.hidden == true
+        let wasOn = progress.unlocked(titleID: game.titleID).contains(id)
         var next = progress
         next.toggle(titleID: game.titleID, id: id)
+        if wasHidden && !wasOn { revealed = id }
         store(next)
     }
 

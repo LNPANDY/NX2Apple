@@ -243,8 +243,11 @@ extension LauncherView {
     @ViewBuilder func achievementChip(_ game: LibraryGame) -> some View {
         if let list = AchievementCatalog.bundled()[game.titleID.uppercased()], !list.achievements.isEmpty {
             let done = achievementMarks.marked(titleID: game.titleID, ids: list.achievements.map(\.id))
+            let label = achievementMarks.unreadable
+                ? loc.t("achievements.title")
+                : String(format: loc.t("achievements.progress"), done, list.achievements.count)
             Button { achievementsFor = game.id } label: {
-                Label(String(format: loc.t("achievements.progress"), done, list.achievements.count), systemImage: "trophy")
+                Label(label, systemImage: "trophy")
                     .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
                     .padding(.horizontal, 10).padding(.vertical, 4)
                     .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))

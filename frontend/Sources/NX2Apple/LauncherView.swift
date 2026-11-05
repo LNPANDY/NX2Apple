@@ -33,8 +33,8 @@ struct LauncherView: View {
     @State private var controlsOpen = false
     @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
     @State private var cheatsFor: UUID?  // the game whose Cheats sheet is open (CheatsView.swift)
-    @State private var achievementsFor: UUID?
-    @State private var achievementMarks = AchievementProgress()
+    @State var achievementsFor: UUID?
+    @State var achievementMarks = AchievementProgress()
     @State var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
     @StateObject private var controls: ControlLayout
     @StateObject private var gamepad: LauncherGamepad
@@ -277,7 +277,6 @@ struct LauncherView: View {
         .onChange(of: achievementsFor) { id in
             padFocus.scope = id != nil ? "achievements" : currentPadScope
             if id == nil { reloadAchievementMarks() }
-            if id != nil, padFocus.visible { padFocus.show(default: "achievements.done") }
         }
         .onChange(of: optionsFor) { id in padFocus.scope = id != nil ? "launch" : (controlsOpen ? "controls" : "main") }
         .onChange(of: controlsOpen) { open in padFocus.scope = open ? "controls" : (optionsFor != nil ? "launch" : "main") }

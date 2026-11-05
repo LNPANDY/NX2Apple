@@ -7,6 +7,7 @@
     ]
   },
   "achievements.all": "All",
+  "achievements.allDone": "Every goal on this list is marked.",
   "achievements.close": "Close",
   "achievements.empty": "This game has no goals in the list yet.",
   "achievements.hidden": "Hidden",
