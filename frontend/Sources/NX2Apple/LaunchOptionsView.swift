@@ -246,7 +246,7 @@ struct LaunchOptionsView: View {
                         }
                         .buttonStyle(.plain)
                         .help(loc.t("launch.rowReset"))
-                        .accessibilityLabel(loc.t("launch.rowReset") + ": " + label(s))
+                        .accessibilityLabel(Self.resetLabel(loc, label(s)))
                     }
                 }
                 .frame(width: 16)
@@ -256,6 +256,11 @@ struct LaunchOptionsView: View {
                     .labelsHidden().toggleStyle(LauncherSwitchStyle())
             }
         }
+    }
+
+    /// What VoiceOver says for a row's reset button: the action and the setting it resets.
+    @MainActor static func resetLabel(_ loc: Localizer, _ setting: String) -> String {
+        loc.t("launch.rowReset") + ": " + setting
     }
 
     // ---- mods ----
