@@ -19,6 +19,7 @@ from . import build_failure as bf
 from . import engine
 from . import input_staging
 from . import inputs
+from . import library as lib
 from . import platform_util as pu
 from .i18n import Lang
 from .l10n import t
@@ -79,6 +80,7 @@ class Model(QObject):
     runningChanged = Signal(bool)
     finished = Signal(bool, str)          # ok, note
     appUpdateFound = Signal(str, str)     # tag, url
+    libraryChanged = Signal()
 
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
@@ -116,6 +118,10 @@ class Model(QObject):
         self.archive_path = ''
         self.mac_app_path = ''
         self.target = 'ios'   # 'ios' (an IPA) or 'mac-app' (a double-clickable Mac app; macOS only)
+        self.bc_on_cpu = False
+        self.ipa_kind = 'shared'   # 'shared' (shell.ipaShared) or 'oneGame' (shell.ipaOneGame)
+        self.library = lib.GameLibrary()
+        self.artwork = lib.ArtworkStore(on_updated=lambda _tid: self._emit_library_changed())
         self.repo_busy = False
         self.repo_behind: int | None = None
         self.repo_status = ''
@@ -156,6 +162,40 @@ class Model(QObject):
         self.lang = self.lang.other
         self.repoChanged.emit()
         self.depsChanged.emit()
+
+    def set_lang(self, lang: Lang) -> None:
+        self.lang = lang
+        self.repoChanged.emit()
+        self.depsChanged.emit()
+
+    @Slot()
+    def _emit_library_changed(self) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.libraryChanged.emit()
+            else:
+                QMetaObject.invokeMethod(self, '_emit_library_changed', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
+    def load_game_from_library(self, game: lib.LibraryGame) -> None:
+        base = (game.inputs.get('base') or [''])[0]
+        if base and inputs.is_game_folder_candidate(base):
+            self.take_game_folder(base)
+        else:
+            self.leave_game_folder()
+            self.base_path = base
+            self.update_path = (game.inputs.get('update') or [''])[0]
+            self.dlc_paths = list(game.inputs.get('dlc') or [])
+            keys = (game.inputs.get('keys') or [''])[0]
+            if keys:
+                self.keys_path = keys
+        if game.output_dir:
+            self.out_dir = game.output_dir
+        self.ipa_path = game.ipa_path if game.has_ipa else ''
+        self.archive_path = game.archive_path if game.has_archive else ''
+        self.library.select(game.title_id)
+        self.repoChanged.emit()
 
     # ---- repository
 
@@ -273,13 +313,18 @@ class Model(QObject):
         """
         try:
             self._check_deps()
+        except RuntimeError:
+            return
         except Exception as e:                     # noqa: BLE001 - a check must never be fatal
             import traceback
             self.log(f'dependency check failed: {type(e).__name__}: {e}\n')
             self.log(traceback.format_exc() + '\n')
             self.deps = []
             self.deps_checked = True
-            self.depsChanged.emit()
+            try:
+                self.depsChanged.emit()
+            except RuntimeError:
+                pass
 
     def _python_row(self, py: str, py_ok: bool, py_ver: str) -> Dep:
         """The interpreter row: fine, missing packages, missing interpreter, or too old.
@@ -387,7 +432,10 @@ class Model(QObject):
             self.python_path, self.python_ok, self.python_ver = py, py_ok, py_ver
             self.dotnet_path, self.dotnet_ok = dn, dn_ok
         self.deps_checked = True
-        self.depsChanged.emit()
+        try:
+            self.depsChanged.emit()
+        except RuntimeError:
+            pass
 
     @property
     def all_deps_ok(self) -> bool:
@@ -1163,11 +1211,14 @@ class Model(QObject):
         log file received everything. QMetaObject.invokeMethod with QueuedConnection hands the
         call to the main thread explicitly, which works regardless of how the slot is connected.
         """
-        if QThread.currentThread() is self.thread():
-            self.logAppended.emit(s)
-        else:
-            QMetaObject.invokeMethod(self, '_emit_log', Qt.QueuedConnection,
-                                     Q_ARG(str, s))
+        try:
+            if QThread.currentThread() is self.thread():
+                self.logAppended.emit(s)
+            else:
+                QMetaObject.invokeMethod(self, '_emit_log', Qt.QueuedConnection,
+                                         Q_ARG(str, s))
+        except RuntimeError:
+            return
         if getattr(self, 'log_path', None):
             try:
                 with open(self.log_path, 'a', encoding='utf-8', errors='replace') as f:
@@ -1357,8 +1408,28 @@ class Model(QObject):
             self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
             args += ['-o', self.ipa_path]
         self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
+        if self.bc_on_cpu and not mac_app:
+            try:
+                Path(self.effective_work_dir).mkdir(parents=True, exist_ok=True)
+                env_file = Path(self.effective_work_dir, '_env.txt')
+                env_file.write_text('DM_TEX_BC_CPU=1\n', encoding='utf-8')
+                args += ['--env-file', str(env_file)]
+                self.log(self.t('msg.bcOn') + '\n')
+            except OSError as e:
+                self.log(self.t('msg.bcEnvFailed', str(e)) + '\n')
         flag = self.override.take()   # for this build only: the next one asks again
         args = bf.arguments(args, flag)
+
+        if self.base_path:
+            self.library.remember_inputs(
+                base_path=self.base_path,
+                update_path=self.update_path,
+                dlc_paths=self.dlc_paths,
+                keys_path=self.keys_path,
+                output_dir=self.out_dir,
+                repo_path=self.engine_path,
+            )
+            self._emit_library_changed()
 
         self.running = True
         self.runningChanged.emit(True)
@@ -1373,6 +1444,8 @@ class Model(QObject):
         self.log(self.t('msg.running', py + ' ' + ' '.join(args)) + '\n')
 
         env = pu.child_env()
+        if self.ipa_kind == 'oneGame' and not mac_app:
+            env['DM_FULL_ROMFS'] = '1'
         droot = pu.dotnet_root(self.dotnet_path) if self.dotnet_ok else None
         if droot:
             env['DOTNET_ROOT'] = droot
@@ -1416,7 +1489,11 @@ class Model(QObject):
                 exists = bool(self.mac_app_path) and Path(self.mac_app_path).exists()
                 self.finished.emit(exists, self.t('target.macDone' if exists else 'target.missingApp'))
             elif ok:
-                self.pack_archive()
+                if self.ipa_kind == 'oneGame':
+                    self._record_library_ios_completion()
+                    self.finished.emit(True, self.t('shell.oneGameDone', self.ipa_path))
+                else:
+                    self.pack_archive()
             else:
                 if self.stages:
                     self.stages[-1].state = 'failed'
@@ -1582,10 +1659,34 @@ class Model(QObject):
             if self.stages:
                 self.stages[-1].state = 'done' if ok else 'failed'
             self.archive_path = dest if ok else ''
+            if ok:
+                self._record_library_ios_completion()
             self.stagesChanged.emit()
             self.finished.emit(ok, '' if ok else self.t('msg.archiveFailed'))
 
         threading.Thread(target=work_, daemon=True).start()
+
+    def _record_library_ios_completion(self) -> None:
+        inputs_map: dict[str, list[str]] = {}
+        if self.base_path:
+            inputs_map['base'] = [self.base_path]
+        if self.update_path:
+            inputs_map['update'] = [self.update_path]
+        if self.dlc_paths:
+            inputs_map['dlc'] = list(self.dlc_paths)
+        if self.keys_path:
+            inputs_map['keys'] = [self.keys_path]
+        g = self.library.record_completed_ios(
+            ipa_path=self.ipa_path,
+            archive_path=self.archive_path,
+            base_path=self.base_path,
+            output_dir=self.out_dir,
+            inputs=inputs_map,
+            repo_path=self.engine_path,
+        )
+        if g:
+            self.artwork.request_banner_async(g.title_id)
+        self._emit_library_changed()
 
     @staticmethod
     def _title_id(nsp: str) -> int | None:
