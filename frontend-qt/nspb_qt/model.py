@@ -19,6 +19,7 @@ from . import build_failure as bf
 from . import engine
 from . import input_staging
 from . import inputs
+from . import library as lib
 from . import platform_util as pu
 from .i18n import Lang
 from .l10n import t
@@ -79,6 +80,7 @@ class Model(QObject):
     runningChanged = Signal(bool)
     finished = Signal(bool, str)          # ok, note
     appUpdateFound = Signal(str, str)     # tag, url
+    libraryChanged = Signal()
 
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
@@ -116,6 +118,10 @@ class Model(QObject):
         self.archive_path = ''
         self.mac_app_path = ''
         self.target = 'ios'   # 'ios' (an IPA) or 'mac-app' (a double-clickable Mac app; macOS only)
+        self.bc_on_cpu = False
+        self.ipa_kind = 'shared'   # 'shared' (shell.ipaShared) or 'oneGame' (shell.ipaOneGame)
+        self.library = lib.GameLibrary()
+        self.artwork = lib.ArtworkStore(on_updated=lambda _tid: self._emit_library_changed())
         self.repo_busy = False
         self.repo_behind: int | None = None
         self.repo_status = ''
@@ -143,7 +149,85 @@ class Model(QObject):
     # ---- strings
 
     def t(self, key: str, *args: object) -> str:
-        return t(key, self.lang, *args)
+        res = t(key, self.lang, *args)
+        if pu.IS_WIN or getattr(self, 'target_platform', 'ios') == 'ios':
+            if key not in ('build.mac', 'build.macNote', 'target.macDone', 'msg.macAppDone', 'target.tip'):
+                res = (
+                    res.replace('在访达中显示', '在文件夹中显示')
+                    .replace('在访达里', '在文件夹中')
+                    .replace('在访达中', '在文件夹中')
+                    .replace('用访达复制', '用文件资源管理器复制')
+                    .replace('在访达边栏', '在文件资源管理器')
+                    .replace('访达', '文件夹')
+                    .replace('此 Mac', '此电脑')
+                    .replace('Reveal in Finder', 'Show in folder')
+                    .replace('Show in Finder', 'Show in folder')
+                    .replace('in the Finder', 'in the folder')
+                    .replace('in Finder', 'in folder')
+                    .replace('with Finder', 'with File Explorer')
+                    .replace('this Mac', 'this PC')
+                    .replace('This Mac', 'This PC')
+                )
+        return res
+
+    # ---- shell cache folder (mirrors BuildStore+ShellRoot.swift)
+
+    @staticmethod
+    def default_shell_cache_path() -> str:
+        return str(lib.default_state_dir() / 'shell')
+
+    @property
+    def shell_cache_path(self) -> str:
+        saved = self.settings.value('shellRoot', defaultValue='', type=str)
+        if saved and saved.strip():
+            return saved.strip()
+        return self.default_shell_cache_path()
+
+    @property
+    def shell_cache_is_default(self) -> bool:
+        try:
+            return Path(self.shell_cache_path).resolve() == Path(self.default_shell_cache_path()).resolve()
+        except OSError:
+            return self.shell_cache_path == self.default_shell_cache_path()
+
+    def move_shell_cache(self, target_dir: str, *, exact_dest: bool = False) -> tuple[bool, str]:
+        if self.running:
+            return False, self.t('shellCache.busy')
+        if not target_dir or not target_dir.strip():
+            return False, self.t('shellCache.problem.readOnly')
+        src = Path(self.shell_cache_path)
+        raw_target = Path(target_dir.strip())
+        dst = raw_target if (exact_dest or raw_target.name.lower() == 'shell') else (raw_target / 'shell')
+        try:
+            src_res = src.resolve()
+            dst_res = dst.resolve()
+        except OSError:
+            src_res, dst_res = src, dst
+        if src_res == dst_res:
+            return False, self.t('shellCache.problem.same')
+        if src_res in dst_res.parents:
+            return False, self.t('shellCache.problem.inside')
+        try:
+            if src.exists():
+                if dst.exists() and any(dst.iterdir()):
+                    return False, self.t('shellCache.problem.taken')
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+                shutil.rmtree(src, ignore_errors=True)
+            else:
+                dst.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return False, self.t('shellCache.failed', str(e), str(src))
+        default_res = Path(self.default_shell_cache_path()).resolve()
+        if dst_res == default_res:
+            self.settings.setValue('shellRoot', '')
+        else:
+            self.settings.setValue('shellRoot', str(dst))
+        self.repoChanged.emit()
+        return True, self.t('shellCache.moved', str(dst))
+
+    def reset_shell_cache_default(self) -> tuple[bool, str]:
+        return self.move_shell_cache(self.default_shell_cache_path(), exact_dest=True)
 
     def settings_value(self, key: str, default: bool | None = None) -> bool | None:
         v = self.settings.value(key, defaultValue='', type=str)
@@ -156,6 +240,40 @@ class Model(QObject):
         self.lang = self.lang.other
         self.repoChanged.emit()
         self.depsChanged.emit()
+
+    def set_lang(self, lang: Lang) -> None:
+        self.lang = lang
+        self.repoChanged.emit()
+        self.depsChanged.emit()
+
+    @Slot()
+    def _emit_library_changed(self) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.libraryChanged.emit()
+            else:
+                QMetaObject.invokeMethod(self, '_emit_library_changed', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
+    def load_game_from_library(self, game: lib.LibraryGame) -> None:
+        base = (game.inputs.get('base') or [''])[0]
+        if base and inputs.is_game_folder_candidate(base):
+            self.take_game_folder(base)
+        else:
+            self.leave_game_folder()
+            self.base_path = base
+            self.update_path = (game.inputs.get('update') or [''])[0]
+            self.dlc_paths = list(game.inputs.get('dlc') or [])
+            keys = (game.inputs.get('keys') or [''])[0]
+            if keys:
+                self.keys_path = keys
+        if game.output_dir:
+            self.out_dir = game.output_dir
+        self.ipa_path = game.ipa_path if game.has_ipa else ''
+        self.archive_path = game.archive_path if game.has_archive else ''
+        self.library.select(game.title_id)
+        self.repoChanged.emit()
 
     # ---- repository
 
@@ -273,13 +391,18 @@ class Model(QObject):
         """
         try:
             self._check_deps()
+        except RuntimeError:
+            return
         except Exception as e:                     # noqa: BLE001 - a check must never be fatal
             import traceback
             self.log(f'dependency check failed: {type(e).__name__}: {e}\n')
             self.log(traceback.format_exc() + '\n')
             self.deps = []
             self.deps_checked = True
-            self.depsChanged.emit()
+            try:
+                self.depsChanged.emit()
+            except RuntimeError:
+                pass
 
     def _python_row(self, py: str, py_ok: bool, py_ver: str) -> Dep:
         """The interpreter row: fine, missing packages, missing interpreter, or too old.
@@ -387,7 +510,10 @@ class Model(QObject):
             self.python_path, self.python_ok, self.python_ver = py, py_ok, py_ver
             self.dotnet_path, self.dotnet_ok = dn, dn_ok
         self.deps_checked = True
-        self.depsChanged.emit()
+        try:
+            self.depsChanged.emit()
+        except RuntimeError:
+            pass
 
     @property
     def all_deps_ok(self) -> bool:
@@ -401,7 +527,10 @@ class Model(QObject):
         """
         if not self.deps_checked or not self.deps:
             return False
-        return all(d.ok for d in self.deps)
+        # Required rows only. An optional one (spirv-cross and glslangValidator, which only an OpenGL game
+        # uses) never stops a build: counting it kept the button grey on a machine whose panel said
+        # "everything required is installed", with nothing on screen to say why.
+        return all(d.ok for d in self.deps if d.required)
 
     # ---- Windows toolchain rows
 
@@ -476,7 +605,8 @@ class Model(QObject):
                 detail = p.path
             elif p.state == 'wrong':
                 detail = p.detail
-            install = [] if p.ok else ['__win__:ios_sdk']
+            can_upgrade = p.ok and wtc.sdk_major(p.version) < wtc.sdk_major(wtc.SDK_PINNED[8:-4])
+            install = ['__win__:ios_sdk'] if (not p.ok or can_upgrade) else []
             out.append(Dep('ios_sdk', 'dep.iossdk', 'dep.iossdk.hint', state(p), detail,
                            install=install, pick_key='' if p.ok else 'ios_sdk'))
 
@@ -612,7 +742,8 @@ class Model(QObject):
                 p = subprocess.Popen([git, 'clone', '--depth', '1', '--single-branch', '--progress',
                                       self.REPO_URL, target],
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                                     errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
+                                     encoding='utf-8', errors='replace', env=pu.child_env(),
+                                     **pu.no_window_kwargs())
                 assert p.stdout is not None
                 for line in p.stdout:
                     self.log(line.replace('\r', '\n'))
@@ -761,7 +892,7 @@ class Model(QObject):
                 try:
                     p = subprocess.Popen(dep.install, stdout=subprocess.PIPE,
                                          stderr=subprocess.STDOUT, text=True,
-                                         errors='replace', env=pu.child_env(),
+                                         encoding='utf-8', errors='replace', env=pu.child_env(),
                                          **pu.no_window_kwargs())
                     assert p.stdout is not None
                     for line in p.stdout:
@@ -1058,8 +1189,8 @@ class Model(QObject):
                  + ('' if wheels else '  (from PyPI)') + '\n')
         try:
             p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
-                                 stderr=subprocess.STDOUT, text=True, errors='replace',
-                                 env=pu.child_env(), **pu.no_window_kwargs())
+                                 stderr=subprocess.STDOUT, text=True, encoding='utf-8',
+                                 errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
             assert p.stdout is not None
             for line in p.stdout:
                 self.log(line)
@@ -1159,11 +1290,14 @@ class Model(QObject):
         log file received everything. QMetaObject.invokeMethod with QueuedConnection hands the
         call to the main thread explicitly, which works regardless of how the slot is connected.
         """
-        if QThread.currentThread() is self.thread():
-            self.logAppended.emit(s)
-        else:
-            QMetaObject.invokeMethod(self, '_emit_log', Qt.QueuedConnection,
-                                     Q_ARG(str, s))
+        try:
+            if QThread.currentThread() is self.thread():
+                self.logAppended.emit(s)
+            else:
+                QMetaObject.invokeMethod(self, '_emit_log', Qt.QueuedConnection,
+                                         Q_ARG(str, s))
+        except RuntimeError:
+            return
         if getattr(self, 'log_path', None):
             try:
                 with open(self.log_path, 'a', encoding='utf-8', errors='replace') as f:
@@ -1343,6 +1477,7 @@ class Model(QObject):
         # A Mac app is a different output, not a different pipeline: --platform mac-app runs the
         # same steps and then packs dm/mac/pack_app.py's result. Its -o names the .app, and the
         # RomFS is inside it, so the archive step is skipped below.
+        self.ipa_path = self.archive_path = self.mac_app_path = ''
         mac_app = self.target == 'mac-app'
         if mac_app:
             args += ['--platform', 'mac-app']
@@ -1352,13 +1487,32 @@ class Model(QObject):
             self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
             args += ['-o', self.ipa_path]
         self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
+        if self.bc_on_cpu and not mac_app:
+            try:
+                Path(self.effective_work_dir).mkdir(parents=True, exist_ok=True)
+                env_file = Path(self.effective_work_dir, '_env.txt')
+                env_file.write_text('DM_TEX_BC_CPU=1\n', encoding='utf-8')
+                args += ['--env-file', str(env_file)]
+                self.log(self.t('msg.bcOn') + '\n')
+            except OSError as e:
+                self.log(self.t('msg.bcEnvFailed', str(e)) + '\n')
         flag = self.override.take()   # for this build only: the next one asks again
         args = bf.arguments(args, flag)
+
+        if self.base_path:
+            self.library.remember_inputs(
+                base_path=self.base_path,
+                update_path=self.update_path,
+                dlc_paths=self.dlc_paths,
+                keys_path=self.keys_path,
+                output_dir=self.out_dir,
+                repo_path=self.engine_path,
+            )
+            self._emit_library_changed()
 
         self.running = True
         self.runningChanged.emit(True)
         self.stages = []
-        self.ipa_path = self.archive_path = self.mac_app_path = ''
         self.log_tail = ''
         self._last_error = ''
         self.failure = None
@@ -1369,6 +1523,8 @@ class Model(QObject):
         self.log(self.t('msg.running', py + ' ' + ' '.join(args)) + '\n')
 
         env = pu.child_env()
+        if self.ipa_kind == 'oneGame' and not mac_app:
+            env['DM_FULL_ROMFS'] = '1'
         droot = pu.dotnet_root(self.dotnet_path) if self.dotnet_ok else None
         if droot:
             env['DOTNET_ROOT'] = droot
@@ -1393,7 +1549,8 @@ class Model(QObject):
             try:
                 self._proc = subprocess.Popen([py] + args, cwd=cwd,
                                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                              text=True, errors='replace', bufsize=1, env=env,
+                                              text=True, encoding='utf-8', errors='replace',
+                                              bufsize=1, env=env,
                                               **pu.no_window_kwargs())
                 assert self._proc.stdout is not None
                 for line in self._proc.stdout:
@@ -1411,7 +1568,15 @@ class Model(QObject):
                 exists = bool(self.mac_app_path) and Path(self.mac_app_path).exists()
                 self.finished.emit(exists, self.t('target.macDone' if exists else 'target.missingApp'))
             elif ok:
-                self.pack_archive()
+                for st in self.stages:
+                    if st.state == 'running':
+                        st.state = 'done'
+                self.stagesChanged.emit()
+                if self.ipa_kind == 'oneGame':
+                    self._record_library_ios_completion()
+                    self.finished.emit(True, self.t('shell.oneGameDone', self.ipa_path))
+                else:
+                    self.pack_archive()
             else:
                 if self.stages:
                     self.stages[-1].state = 'failed'
@@ -1486,28 +1651,32 @@ class Model(QObject):
         else goes to the log (which is what the window shows)."""
         self.log(line + '\n')
         self.log_tail = (self.log_tail + line + '\n')[-12000:]   # what the classifier reads on a failure
+        body = re.sub(r'^\[\d\d:\d\d:\d\d\]\s*', '', line)
         # The last line that was not stage bookkeeping: a failed build's summary used to be the
         # bare exit code ("Build failed (exit code 1)"), which told the reporter nothing and sent
         # them looking for a log that a short window had below the fold (issue #52)
-        if line.strip() and not (line.startswith('[') and ']' in line and line.find(']') + 1 < len(line)):
-            self._last_error = line.strip()[:200]
-        if line.startswith('output IPA:'):
-            self.ipa_path = line.split(':', 1)[1].strip()
-        low = line.lower()
+        is_stage = (body.startswith('[') and ']' in body
+                    and '/' in body[:body.find(']') + 1]
+                    and body.find(']') + 1 < len(body))
+        if body.strip() and not is_stage:
+            self._last_error = body.strip()[:200]
+        if body.startswith('output IPA:'):
+            self.ipa_path = body.split(':', 1)[1].strip()
         for st in self.stages:
             if st.state == 'running':
-                st.detail = line[:120]
+                st.detail = body[:120]
                 break
-        if '[' in line and ']' in line:
-            head = line[:line.find(']') + 1]
-            if '/' in head:
-                name = line[line.find(']') + 1:].strip()
-                if name:
-                    if self.stages and self.stages[-1].state == 'running':
-                        self.stages[-1].state = 'done'
-                    self.stages.append(Stage(name=name, state='running'))
+        if is_stage:
+            name = body[body.find(']') + 1:].strip()
+            if name and '✓' not in name:
+                if self.stages and self.stages[-1].state == 'running':
+                    self.stages[-1].state = 'done'
+                self.stages.append(Stage(name=name, state='running'))
+                self.stagesChanged.emit()
+            elif name and '✓' in name:
+                if self.stages and self.stages[-1].state == 'running':
+                    self.stages[-1].state = 'done'
                     self.stagesChanged.emit()
-        del low
 
     def _flush_lines(self) -> None:
         self._line_buf = ''
@@ -1520,7 +1689,8 @@ class Model(QObject):
         versions = []
         if extract.is_dir():
             for d in sorted(extract.iterdir()):
-                if d.is_dir() and d.name.startswith('v') and (d / 'RomFS').is_dir():
+                if d.is_dir() and d.name.startswith('v') and (
+                        (d / 'RomFS').is_dir() or (d / 'RomFS.img').is_file()):
                     try:
                         versions.append((int(d.name[1:]), d))
                     except ValueError:
@@ -1528,7 +1698,9 @@ class Model(QObject):
         if not versions:
             self.finished.emit(True, self.t('msg.archiveSkipped', str(extract)))
             return
-        romfs = str(versions[-1][1] / 'RomFS')
+        ver_dir = versions[-1][1]
+        romfs_img = ver_dir / 'RomFS.img'
+        romfs = str(ver_dir / 'RomFS')
         # games/<id>/ is the per-game layout main.m looks in first, and the file inside it is
         # romfs.img — one file, which copies to a phone at full speed where 300,000 did not
         dest = str(Path(self.out_dir or Path(self.base_path).parent, 'romfs'))
@@ -1536,29 +1708,72 @@ class Model(QObject):
         self.stagesChanged.emit()
 
         def work_() -> None:
-            args = [self.python_path, str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
-                    '--reuse', romfs, str(Path(dest, 'romfs.img'))]
-            env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
             ok = True
+            out_img = Path(dest, 'romfs.img')
             try:
-                p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                     text=True, errors='replace', env=env,
-                                     **pu.no_window_kwargs())
-                assert p.stdout is not None
-                for line in p.stdout:
-                    self.log(line)
-                p.wait()
-                ok = p.returncode == 0
+                Path(dest).mkdir(parents=True, exist_ok=True)
+                if romfs_img.is_file():
+                    reused = (out_img.is_file()
+                              and out_img.stat().st_size == romfs_img.stat().st_size
+                              and abs(out_img.stat().st_mtime - romfs_img.stat().st_mtime) < 1)
+                    if not reused:
+                        out_img.unlink(missing_ok=True)
+                        try:
+                            os.link(romfs_img, out_img)
+                        except OSError:
+                            shutil.copy2(romfs_img, out_img)
+                else:
+                    args = [self.python_path,
+                            str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
+                            '--reuse', romfs, str(out_img)]
+                    env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
+                    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                         text=True, encoding='utf-8', errors='replace', env=env,
+                                         **pu.no_window_kwargs())
+                    assert p.stdout is not None
+                    for line in p.stdout:
+                        self.log(line)
+                    p.wait()
+                    ok = p.returncode == 0
+                aoc_src = Path(work, 'aoc')
+                if ok and aoc_src.is_dir() and any(aoc_src.iterdir()):
+                    aoc_dst = Path(dest, 'aoc')
+                    shutil.rmtree(aoc_dst, ignore_errors=True)
+                    shutil.copytree(aoc_src, aoc_dst)
             except OSError as e:
                 self.log(f'{e}\n')
                 ok = False
             if self.stages:
                 self.stages[-1].state = 'done' if ok else 'failed'
             self.archive_path = dest if ok else ''
+            if ok:
+                self._record_library_ios_completion()
             self.stagesChanged.emit()
             self.finished.emit(ok, '' if ok else self.t('msg.archiveFailed'))
 
         threading.Thread(target=work_, daemon=True).start()
+
+    def _record_library_ios_completion(self) -> None:
+        inputs_map: dict[str, list[str]] = {}
+        if self.base_path:
+            inputs_map['base'] = [self.base_path]
+        if self.update_path:
+            inputs_map['update'] = [self.update_path]
+        if self.dlc_paths:
+            inputs_map['dlc'] = list(self.dlc_paths)
+        if self.keys_path:
+            inputs_map['keys'] = [self.keys_path]
+        g = self.library.record_completed_ios(
+            ipa_path=self.ipa_path,
+            archive_path=self.archive_path,
+            base_path=self.base_path,
+            output_dir=self.out_dir,
+            inputs=inputs_map,
+            repo_path=self.engine_path,
+        )
+        if g:
+            self.artwork.request_banner_async(g.title_id)
+        self._emit_library_changed()
 
     @staticmethod
     def _title_id(nsp: str) -> int | None:

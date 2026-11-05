@@ -54,6 +54,36 @@ jobs:
           python tools/engine.py tree --out engine-tree
           du -sh engine-tree
 
+      - name: Build Windows shader tools for the bundled engine
+        shell: bash
+        run: |
+          # The engine tree ships a macOS Mach-O spirv-cross binary in dm/gfx/tools/spirv_cross_bin/.
+          # Build the Windows executable from the exact commit build.sh pins, and bundle Khronos's
+          # standalone glslangValidator.exe alongside it so NVN, Vulkan and OpenGL shader builds
+          # all work out of the box without a manual Vulkan SDK install.
+          TAG=$(sed -n 's/^TAG=\([^ ]*\).*/\1/p' engine-tree/dm/gfx/tools/spirv_cross_bin/build.sh)
+          COMMIT=$(sed -n 's/^COMMIT=\([^ ]*\).*/\1/p' engine-tree/dm/gfx/tools/spirv_cross_bin/build.sh)
+          git clone --quiet --depth 1 --branch "$TAG" https://github.com/KhronosGroup/SPIRV-Cross.git spirv-cross-src
+          got=$(git -C spirv-cross-src rev-parse HEAD)
+          [ "$got" = "$COMMIT" ] || { echo "SPIRV-Cross $TAG is $got, expected $COMMIT" >&2; exit 1; }
+          cmake -S spirv-cross-src -B spirv-cross-build -DSPIRV_CROSS_ENABLE_TESTS=OFF -DSPIRV_CROSS_SKIP_INSTALL=ON
+          cmake --build spirv-cross-build --config Release --target spirv-cross --parallel
+          SPV_EXE=$(find spirv-cross-build -name "spirv-cross.exe" | head -1)
+          [ -n "$SPV_EXE" ] && [ -f "$SPV_EXE" ]
+          cp "$SPV_EXE" engine-tree/dm/gfx/tools/spirv_cross_bin/spirv-cross.exe
+          engine-tree/dm/gfx/tools/spirv_cross_bin/spirv-cross.exe --revision
+          rm -rf spirv-cross-src spirv-cross-build
+
+          GLSLANG_URL="https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip"
+          GLSLANG_SHA="82bf434e69b9bb4829de7e2b4bc2c5e7a7861e53d66cf75e5cc70f5f694a8d9b"
+          curl -fsSL "$GLSLANG_URL" -o glslang.zip
+          got_sha=$(sha256sum glslang.zip | awk '{print $1}')
+          [ "$got_sha" = "$GLSLANG_SHA" ] || { echo "glslang.zip sha256 is $got_sha, expected $GLSLANG_SHA" >&2; exit 1; }
+          unzip -q glslang.zip bin/glslang.exe
+          cp bin/glslang.exe engine-tree/dm/gfx/tools/spirv_cross_bin/glslangValidator.exe
+          engine-tree/dm/gfx/tools/spirv_cross_bin/glslangValidator.exe --version
+          rm -rf glslang.zip bin
+
       - name: Build
         working-directory: frontend-qt
         shell: bash
@@ -69,6 +99,7 @@ jobs:
           # directory a windowed build would otherwise miss.
           pyinstaller --noconfirm --clean --windowed \
             --name "NS Port Builder" \
+            --icon "nspb_qt/assets/app_icon.ico" \
             --collect-submodules PySide6.QtCore \
             --collect-submodules PySide6.QtGui \
             --collect-submodules PySide6.QtWidgets \
@@ -78,6 +109,7 @@ jobs:
             --hidden-import nspb_qt.win.sdk_fetch \
             --hidden-import nspb_qt.win.driver \
             --hidden-import nspb_qt.win.shim \
+            --hidden-import nspb_qt.win.mp_worker \
             --hidden-import nspb_qt.win.build_app \
             --hidden-import nspb_qt.win.fix_ipa_modes \
             --hidden-import nspb_qt.win.doctor \
@@ -126,6 +158,7 @@ jobs:
             --add-data "../frontend/fonts/Manrope.ttf${PATHSEP}fonts" \
             --add-data "../frontend/fonts/Manrope-OFL.txt${PATHSEP}fonts" \
             --add-data "../frontend/l10n${PATHSEP}l10n" \
+            --add-data "nspb_qt${PATHSEP}nspb_qt" \
             --paths . \
             run_gui.py
 

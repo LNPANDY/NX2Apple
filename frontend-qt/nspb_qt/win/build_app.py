@@ -36,20 +36,27 @@ from pathlib import Path
 if __package__:
     from . import toolchain as tc
     from . import fix_ipa_modes
+    from . import macho_sign
     from . import IOS_CPU, IOS_DEPLOYMENT
 else:                                       # pragma: no cover - script mode
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from nspb_qt.win import toolchain as tc
     from nspb_qt.win import fix_ipa_modes
+    from nspb_qt.win import macho_sign
     from nspb_qt.win import IOS_CPU, IOS_DEPLOYMENT
 
 HERE = Path(__file__).resolve().parent
 
 
 def _engine_root() -> str:
-    """The engine's folder when NSPB_REPO is unset: the checkout's engine/ (LNPANDY/NX2Apple#214, made by tools/engine.py sync)."""
+    """The engine's folder when NSPB_REPO is unset: the checkout's or bundled engine/."""
     from nspb_qt import engine
-    return engine.engine_root(str(Path(__file__).resolve().parents[3]))
+    for depth in (3, 4):
+        if len(HERE.parents) > depth:
+            cand = engine.engine_root(str(HERE.parents[depth]))
+            if (Path(cand) / 'scripts' / 'build_ipa_from_nsp.py').is_file():
+                return cand
+    return engine.engine_root(str(HERE.parents[2]))
 
 #: Frameworks the app links. `Cocoa` is a macOS framework and is dropped; the rest is
 #: `dm/host/Makefile`'s link line minus Cocoa, plus what the UIKit side and the launcher use
@@ -150,13 +157,27 @@ def host_sources(repo: Path, game_h_dir: Path) -> tuple[list[Path], list[Path]]:
     vpx = repo / 'dm' / 'third_party' / 'libvpx'
     vpx_src = sorted(vpx.rglob('*.c'), key=lambda p: p.as_posix())
 
+    dav1d = repo / 'dm' / 'third_party' / 'dav1d'
+    dav1d_src: list[Path] = []
+    if dav1d.is_dir():
+        dav1d_src = sorted(
+            [p for p in (dav1d / 'src').glob('*.c') if not p.name.endswith('_tmpl.c')]
+            + ([dav1d / 'src' / 'arm' / 'cpu.c'] if (dav1d / 'src' / 'arm' / 'cpu.c').is_file() else [])
+            + list((dav1d / 'config' / 'tmpl').glob('*.c'))
+            + [p for p in (dav1d / 'src' / 'arm' / '64').glob('*.S')
+               if not p.name.endswith('_tmpl.S') and p.name != 'util.S'],
+            key=lambda p: p.as_posix(),
+        )
+
     incs = [repo / 'dm' / 'gfx' / 'nvn' / 'include',
             repo / 'dm' / 'third_party' / 'vulkan-headers' / 'include',
             game_h_dir, vpx, repo / 'dm' / 'third_party' / 'stb_vorbis', vpx / 'config']
+    if dav1d.is_dir():
+        incs += [dav1d / 'include', dav1d, dav1d / 'config']
 
     ios_sources = (repo / 'dm' / 'ios' / 'Sources').resolve()
     files: list[Path] = []
-    for s in src + gfx + vpx_src:
+    for s in src + gfx + vpx_src + dav1d_src:
         s = s.resolve()
         if not s.is_file():
             die(f'a source from dm/host/Makefile does not exist: {s}')
@@ -219,10 +240,14 @@ def compat_rt_needed(clang: Path) -> bool:
     return ok
 
 
+SDK_COMPAT = HERE / 'ios' / 'sdk_compat'
+
+
 def common_flags(sdk: Path, incs: list[Path], deployment: str) -> list[str]:
+    compat = [f'-I{SDK_COMPAT}'] if SDK_COMPAT.is_dir() else []
     return ['-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
             '-Os', f'-mcpu={IOS_CPU}', '-w', '-fno-common', '-DNS_BLOCK_ASSERTIONS=1',
-            *[f'-I{i}' for i in incs]]
+            *compat, *[f'-I{i}' for i in incs]]
 
 
 def flags_for(path: Path, common: list[str], host_main: Path) -> list[str]:
@@ -327,11 +352,13 @@ _HOST_MAIN: Path | None = None
 
 def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: Path,
          deployment: str, embed_flags: list[str], rt_obj: Path | None,
-         lld_dir: Path | None) -> None:
-    """Link the app, then prove the result is an unsigned iOS executable."""
+         lld_dir: Path | None, bundle_id: str = 'org.nxnative.app') -> None:
+    """Link the app, then prove the result is an arm64 iOS executable and sign its entitlements."""
+    entitle = os.environ.get('NSPB_ENTITLEMENTS', '1') != '0'
     args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
             '-fuse-ld=lld', '-fobjc-arc', '-o', str(out), *map(str, objs),
             '-Wl,-rpath,@executable_path/Frameworks', '-lobjc', '-lSystem',
+            *(('-Wl,-adhoc_codesign',) if entitle else ()),
             *[x for fw in frameworks for x in ('-framework', fw)], *embed_flags]
     if rt_obj:
         args.append(str(rt_obj))
@@ -344,6 +371,10 @@ def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: P
         print((r.stderr or r.stdout)[-6000:], file=sys.stderr)
         die('link failed (see the linker output above)')
     check_executable(out)
+    if entitle:
+        ents = {'com.apple.developer.kernel.increased-memory-limit': True}
+        sig_n = macho_sign.sign(out, bundle_id, ents)
+        t(f'sign: ad-hoc with Increased Memory Limit entitlement ({sig_n} B)')
 
 
 def check_executable(path: Path) -> None:
@@ -488,13 +519,17 @@ def main(argv: list[str] | None = None) -> int:
 
     pkg = gp('package')
     patched = Path(env.get('PATCHED') or w / f'build/patched_{pkg}')
-    romfs = Path(env.get('ROMFS') or w / f'data/{pkg}/RomFS')
+    default_romfs = (w / f'data/{pkg}/RomFS.img'
+                     if (w / f'data/{pkg}/RomFS.img').is_file() else w / f'data/{pkg}/RomFS')
+    romfs = Path(env.get('ROMFS') or default_romfs)
     msl_ios = Path(env.get('MSL_IOS') or w / 'build/ios/dmsh_b')
     aoc = Path(env['AOC']) if env.get('AOC') else (None if 'AOC' in env else w / 'data/aoc')
     out_ipa = Path(args[0]) if args and not args[0].startswith('-') else \
         w.parent / gp('ipa')
 
-    mods = gp('modules').split()
+    mods = (prof.modules_in(patched)
+            if hasattr(prof, 'modules_in') and prof.modules_in(patched)
+            else gp('modules').split())
     marker = gp('romfs_marker')
 
     # --- inputs, checked with the same wording as build_ipa.sh
@@ -504,11 +539,11 @@ def main(argv: list[str] | None = None) -> int:
     if not romfs_has(repo, romfs, marker):
         die(f'no RomFS at {romfs} (missing {marker})')
 
+    nacp = Path(env['CONTROL']) if env.get('CONTROL') else (w / 'data/v0/control.nacp')
+    if not nacp.exists():
+        nacp = romfs.parent / 'control.nacp'
     name = env.get('DM_DISPLAY_NAME') or ''
     if not name:
-        nacp = w / 'data/v0/control.nacp'
-        if not nacp.exists():
-            nacp = romfs.parent / 'control.nacp'
         try:
             name = py(repo / 'dm/tools/nacp.py', nacp)
         except SystemExit:
@@ -584,20 +619,68 @@ def main(argv: list[str] | None = None) -> int:
 
     base = w / 'build/ios/win'
     gen, app = base / 'Gen', base / 'Payload/DmIOS.app'
-    shutil.rmtree(gen, ignore_errors=True)
     shutil.rmtree(app, ignore_errors=True)
-    (gen / 'profile').mkdir(parents=True)
+    (gen / 'profile').mkdir(parents=True, exist_ok=True)
     app.mkdir(parents=True)
 
-    # --- generate Gen/ (the same generators build_ipa.sh calls)
+    def _replace_if_changed(tmp_p: Path, dst_p: Path) -> None:
+        if dst_p.is_file():
+            try:
+                if dst_p.read_bytes() == tmp_p.read_bytes():
+                    tmp_p.unlink(missing_ok=True)
+                    return
+            except OSError:
+                pass
+        os.replace(tmp_p, dst_p)
+
+    # --- generate Gen/ (the same generators build_ipa.sh calls, preserving mtime when unchanged)
     t('generate Gen/ (profile header, embedded modules, tables)')
-    py(repo / 'dm/games/game.py', 'header', game, gen / 'profile/game_profile.h')
+    gp_h = gen / 'profile/game_profile.h'
+    gp_h_tmp = gen / 'profile/game_profile.h.tmp'
+    py(repo / 'dm/games/game.py', 'header', game, gp_h_tmp)
+    _replace_if_changed(gp_h_tmp, gp_h)
+
+    msl_srcs = sorted((repo / 'dm/gfx/msl').glob('*.metal'))
+    if msl_srcs:
+        msl_min = tc.setting('metal_ios_target', '18.0')
+        msl_h = gen / 'profile/host_msl_gen.h'
+        msl_key_file = gen / 'profile/host_msl.sha256'
+        h_msl = hashlib.sha256(msl_min.encode())
+        for ms in msl_srcs + [repo / 'dm/gfx/tools/host_msl.py']:
+            try:
+                h_msl.update(ms.name.encode() + b'\0' + ms.read_bytes())
+            except OSError:
+                pass
+        msl_digest = h_msl.hexdigest()
+        if not (msl_h.is_file() and msl_key_file.is_file()
+                and msl_key_file.read_text(encoding='utf-8', errors='replace').strip() == msl_digest):
+            msl_h_tmp = gen / 'profile/host_msl_gen.h.tmp'
+            py(repo / 'dm/gfx/tools/host_msl.py', '--sdk', 'iphoneos',
+               '--min', msl_min, msl_h_tmp, *msl_srcs)
+            _replace_if_changed(msl_h_tmp, msl_h)
+            msl_key_file.write_text(msl_digest + '\n', encoding='utf-8')
+
     es = gen / 'embed.S'
-    flags = py(repo / 'dm/ios/tools/gen_embed.py', patched, es, *mods)
+    es_tmp = gen / 'embed.S.tmp'
+    jit_img = romfs.parent / 'jit' / 'jit.img'
+    embed_extra = [jit_img] if jit_img.is_file() else []
+    flags = py(repo / 'dm/ios/tools/gen_embed.py', patched, es_tmp, *mods, *embed_extra)
+    bin_meta = []
+    for m_name in mods:
+        bp = patched / f'{m_name}.patched.bin'
+        if bp.is_file():
+            st = bp.stat()
+            bin_meta.append(f'{m_name}:{st.st_size}:{st.st_mtime_ns}')
+    for ep in embed_extra:
+        if ep.is_file():
+            st = ep.stat()
+            bin_meta.append(f'{ep.name}:{st.st_size}:{st.st_mtime_ns}')
     # the assembler treats '\' as an escape in .incbin paths
-    es.write_text(re.sub(r'\.incbin "([^"]*)"',
-                         lambda mm: '.incbin "' + mm.group(1).replace('\\', '/') + '"',
-                         es.read_text(encoding='utf-8')), encoding='utf-8')
+    es_body = re.sub(r'\.incbin "([^"]*)"',
+                     lambda mm: '.incbin "' + mm.group(1).replace('\\', '/') + '"',
+                     es_tmp.read_text(encoding='utf-8'))
+    es_tmp.write_text(es_body + f'\n// inputs: {" ".join(bin_meta)}\n', encoding='utf-8')
+    _replace_if_changed(es_tmp, es)
 
     dmres = app / 'dm'
     dmres.mkdir()
@@ -623,11 +706,15 @@ def main(argv: list[str] | None = None) -> int:
         if (gd / f).exists():
             shutil.copy2(gd / f, dmres)
 
-    launcher = py(repo / 'dm/games/settings.py', game, patched,
-                  (romfs.parent / 'control.nacp') if (romfs.parent / 'control.nacp').exists()
-                  else (w / 'data/v0/control.nacp'),
+    launcher = py(repo / 'dm/games/settings.py', game, patched, nacp,
                   gen / 'launcher.json', env=dict(env, GFXAPI=gfx))
     shutil.copy2(gen / 'launcher.json', dmres / 'launcher.json')
+    if not env.get('DM_LANG'):
+        try:
+            import json
+            lang = json.loads((gen / 'launcher.json').read_text(encoding='utf-8')).get('language') or lang
+        except Exception:
+            pass
     t(f'launcher: {launcher}')
     if env.get('DM_ENV_FILE'):
         shutil.copy2(env['DM_ENV_FILE'], dmres / 'env.txt')
@@ -668,7 +755,7 @@ def main(argv: list[str] | None = None) -> int:
 
     objs = compile_all(clang, sdk, files, incs, base / 'obj', deployment)
     link(clang, sdk, objs, frameworks, app / 'DmIOS', deployment,
-         flags.split() if flags else [], rt_obj, lld_dir)
+         flags.split() if flags else [], rt_obj, lld_dir, bundle_id=bundle_id)
 
     # --- icon + Info.plist
     icon = Path(env.get('DM_ICON') or '')
@@ -696,6 +783,14 @@ def main(argv: list[str] | None = None) -> int:
         maps.append(f'Payload/DmIOS.app/{resource}={romfs}')
         t('packing the full IPA with the RomFS (only sensible for small games)')
     else:
+        if romfs.is_file():
+            rid_file = base / 'romfs.id'
+            r_id = subprocess.run([sys.executable, str(repo / 'dm/tools/romfs_image.py'),
+                                   '--identity', str(romfs), str(game), str(version),
+                                   str(pkg or '')], capture_output=True)
+            if r_id.returncode == 0 and r_id.stdout:
+                rid_file.write_bytes(r_id.stdout)
+                maps.append(f'Payload/DmIOS.app/romfs.id={rid_file}')
         t('packing a slim IPA without the RomFS (the game files come from Documents/romfs)')
     store = gp('zip_store') or ''
     t('pack IPA')
@@ -704,6 +799,9 @@ def main(argv: list[str] | None = None) -> int:
         pack += ['--store', ':'.join(store.split(':'))]
     for skip in PACK_SKIPS:
         pack += ['--skip', skip]
+    prof_h = (gen / 'profile/game_profile.h').read_text(encoding='utf-8', errors='replace')
+    if '#define DM_GAME_PSO_MTL4 1' not in prof_h:
+        pack += ['--skip-suffix', '_bp.metallib']
     pack += maps
     r = subprocess.run(pack, capture_output=True, text=True, errors='replace')
     if r.returncode:

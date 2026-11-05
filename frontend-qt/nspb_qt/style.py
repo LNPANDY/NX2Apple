@@ -1,47 +1,54 @@
-"""Visual language: the Mac launcher's near-black look with a cream accent, in Qt style sheets.
-
-The palette, the Manrope typeface and the control shapes follow the SwiftUI launcher
-(`frontend/Sources/NXLauncher/LauncherPalette.swift` and `frontend/Sources/NXLauncher/LauncherStyles.swift`),
-so the two front ends stay recognisable as the same product. The translucent white fills of the
-Mac controls are pre-mixed here into opaque colours, since a Qt style sheet has no cheap overlay.
-"""
+"""Palette and stylesheet mirroring the Mac SwiftUI launcher (LauncherStyles.swift & LauncherCard.swift)."""
 from __future__ import annotations
 
 import os
 import sys
 
-# The palette: LauncherPalette's values as hex.
-BG = '#0e0e0f'          # window background, rgb(0.055, 0.055, 0.06)
-CARD = '#1a1a1c'        # a card's fill (the launcher's "surface"), rgb(0.10, 0.10, 0.11)
-CARD_EDGE = '#2c2c2e'   # a card's hairline: white at 8% over the surface
-TEXT = '#ebebeb'        # white at 92%, as the launcher's button labels
-MUTED = '#91949c'       # the launcher's "unbuilt" grey
-PATH = '#6f7178'    # a filesystem path in a dependency row: dimmer than prose, so the eye
-                    # reads the hint beside it first (the report asked for exactly this)
-HINT = '#a8aab0'    # a hint or explanation: a step brighter than the path it sits next to
-CREAM = '#fff0d6'       # the accent: primary buttons, switches, the chosen choice
-GREEN = '#40d678'       # ok / done: the launcher's "ready"
-ORANGE = '#ffc73d'      # attention: the launcher's "building"
-RED = '#ff6b66'         # missing / failed: the launcher's destructive red
+BG = '#000000'
+SURFACE = '#141416'
+CARD = '#1a1a1c'
+CARD_HOVER = '#222225'
+BORDER = '#2c2c2e'
+CARD_EDGE = BORDER
+DIVIDER = '#232326'
 
-# Controls, as white over the background at the launcher's opacities.
-BTN = '#1b1b1c'         # white 5.5%
-BTN_HOVER = '#242425'   # white 9%
-BTN_PRESSED = '#2d2d2e' # white 13%
-BTN_EDGE = '#262627'    # white 10%
-FIELD = '#161617'       # an input: a touch above the background
-TRACK = '#262627'       # a slider or progress track: white 10%
+TEXT = '#f5f5f7'
+MUTED = '#9e9ea6'
+FAINT = '#73737a'
+PATH = '#6f7178'
+HINT = '#a8aab0'
 
-MONO = 'Menlo, Consolas, monospace'
+ACCENT = '#fff0d6'          # LauncherAccent.cream: rgb(1.0, 0.94, 0.84)
+CREAM = ACCENT
+ACCENT_HOVER = '#fff6e6'
+ACCENT_PRESSED = '#e8d7ba'
+ACCENT_DISABLED = '#3a3834'
+ACCENT_INK = '#0d0d0f'      # LauncherAccent.ink
+
+GREEN = '#52d97a'           # LauncherTone.ready
+AMBER = '#ffbd38'           # LauncherTone.caution
+ORANGE = AMBER
+RED = '#ff6161'             # LauncherTone.danger
+NEUTRAL_DOT = '#73737a'     # LauncherTone.muted
+
+BTN = '#1b1b1c'
+BTN_HOVER = '#242425'
+BTN_PRESSED = '#2d2d2e'
+BTN_EDGE = '#262627'
+FIELD = '#161617'
+TRACK = '#262627'
+MONO = '"Cascadia Mono", "Consolas", "SF Mono", "Menlo", monospace'
 
 
-def _font_file():
+def _font_file() -> str | None:
     """Manrope.ttf: in the bundle's `fonts` folder in a frozen build (build-qt.yml adds it), in
-    the repository's frontend/fonts, the copy the Mac app embeds, in a source run."""
+    the repository's frontend/fonts in a source run."""
     if getattr(sys, 'frozen', False):
         base = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
-        candidates = [os.path.join(base, 'fonts', 'Manrope.ttf'),
-                      os.path.join(os.path.dirname(sys.executable), 'fonts', 'Manrope.ttf')]
+        candidates = [
+            os.path.join(base, 'fonts', 'Manrope.ttf'),
+            os.path.join(os.path.dirname(sys.executable), 'fonts', 'Manrope.ttf'),
+        ]
     else:
         here = os.path.dirname(os.path.abspath(__file__))
         candidates = [os.path.join(here, '..', '..', 'frontend', 'fonts', 'Manrope.ttf')]
@@ -52,175 +59,368 @@ def _font_file():
 
 
 def load_font() -> str:
-    """Registers Manrope with Qt and returns its family name, or '' (keep the system font)
-    when the file is missing or Qt rejects it."""
+    """Registers Manrope with Qt and returns its family name, or '' when unavailable."""
     path = _font_file()
     if path is None:
         return ''
     from PySide6.QtGui import QFontDatabase
     fid = QFontDatabase.addApplicationFont(path)
     families = QFontDatabase.applicationFontFamilies(fid) if fid >= 0 else []
-    # The TTF's legacy family name is "Manrope ExtraLight" (a variable font), so prefer the
-    # "Manrope" family the stylesheet and Qt's matching use, and fall back to what Qt reports.
     if 'Manrope' in families:
         return 'Manrope'
     return families[0] if families else ''
 
 
-STYLE = f"""
-QMainWindow, QDialog, QScrollArea, QWidget#body {{
+STYLESHEET = f"""
+QMainWindow, QWidget#root {{
     background: {BG};
-}}
-QWidget {{
     color: {TEXT};
-    font-size: 9pt;   /* pt, not px: a handheld at 150% scaling keeps readable text and a window that fits */
+    font-family: "Manrope", "Segoe UI", "Inter", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+}}
+QDialog {{
+    background: #141416;
+    color: {TEXT};
+    font-family: "Manrope", "Segoe UI", "Inter", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 13px;
+}}
+QScrollArea {{
+    background: transparent;
+    border: none;
+}}
+QScrollArea > QWidget > QWidget {{
+    background: transparent;
+}}
+QScrollBar:vertical {{
+    background: transparent;
+    width: 8px;
+    margin: 4px 2px 4px 0px;
+}}
+QScrollBar::handle:vertical {{
+    background: rgba(255, 255, 255, 0.18);
+    min-height: 28px;
+    border-radius: 3px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: rgba(255, 255, 255, 0.30);
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: none;
+    height: 0px;
+}}
+QScrollBar:horizontal {{
+    background: transparent;
+    height: 8px;
+    margin: 0px 4px 2px 4px;
+}}
+QScrollBar::handle:horizontal {{
+    background: rgba(255, 255, 255, 0.18);
+    min-width: 28px;
+    border-radius: 3px;
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background: none;
+    width: 0px;
+}}
+QFrame#card {{
+    background: {CARD};
+    border: 1px solid {BORDER};
+    border-radius: 14px;
+}}
+QFrame#subcard {{
+    background: #141416;
+    border: 1px solid #262629;
+    border-radius: 10px;
+}}
+QFrame#failureCard {{
+    background: #221618;
+    border: 1px solid #5c2b2f;
+    border-radius: 14px;
+}}
+QFrame#bannerCard {{
+    background: #1c1b18;
+    border: 1px solid #3d3526;
+    border-radius: 12px;
+}}
+QFrame#divider {{
+    background: {DIVIDER};
+    border: none;
+    max-height: 1px;
+    min-height: 1px;
+}}
+QFrame#topBar {{
+    background: {BG};
+    border-bottom: 1px solid #161618;
+}}
+QFrame#activityBar {{
+    background: #0d0d0f;
+    border-top: 1px solid #1f1f22;
 }}
 QLabel {{
     background: transparent;
-}}
-
-QScrollArea > QWidget > QWidget {{
-    background: {BG};
-}}
-
-/* ---- cards: a plain frame, the title is a label inside it ---- */
-QFrame#card {{
-    background: {CARD};
-    border: 1px solid {CARD_EDGE};
-    border-radius: 10px;
-}}
-
-/* ---- buttons: white 5.5% on the background, a 10% hairline, radius 9 ---- */
-QPushButton {{
-    background: {BTN};
-    border: 1px solid {BTN_EDGE};
-    border-radius: 9px;
-    padding: 4px 7px;   /* compact: a 7-inch panel must fit the whole form */
     color: {TEXT};
-    font-weight: 600;
 }}
-QPushButton:hover {{ background: {BTN_HOVER}; }}
-QPushButton:pressed {{ background: {BTN_PRESSED}; }}
-QPushButton:disabled {{ color: #5a5b60; background: {BTN}; border-color: #1e1e1f; }}
-
-/* the primary action: cream fill, dark text */
-QPushButton#primary {{
-    background: {CREAM};
-    border: 1px solid {CREAM};
-    color: {BG};
-    font-size: 10pt;
+QLabel#pageTitle {{
+    font-size: 36px;
+    font-weight: 800;
+    color: {TEXT};
+}}
+QLabel#pageNote {{
+    font-size: 14px;
+    color: {MUTED};
+}}
+QLabel#sectionTitle {{
+    font-size: 14px;
+    font-weight: 600;
+    color: {MUTED};
+}}
+QLabel#sectionFoot {{
+    font-size: 12px;
+    color: {FAINT};
+}}
+QLabel#rowTitle {{
+    font-size: 13px;
+    font-weight: 600;
+    color: {TEXT};
+}}
+QLabel#muted {{
+    color: {MUTED};
+    font-size: 12px;
+}}
+QLabel#faint {{
+    color: {FAINT};
+    font-size: 11px;
+}}
+QLabel#mono {{
+    color: {MUTED};
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Menlo", monospace;
+    font-size: 11.5px;
+}}
+QPushButton {{
+    background: rgba(255, 255, 255, 0.08);
+    color: {TEXT};
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 12px;
+    padding: 6px 16px;
+    min-height: 18px;
+    font-weight: 600;
+    font-size: 12.5px;
+}}
+QPushButton:hover {{
+    background: rgba(255, 255, 255, 0.13);
+    border-color: rgba(255, 255, 255, 0.22);
+}}
+QPushButton:pressed {{
+    background: rgba(255, 255, 255, 0.06);
+}}
+QPushButton:disabled {{
+    background: rgba(255, 255, 255, 0.03);
+    color: #55555a;
+    border-color: rgba(255, 255, 255, 0.05);
+}}
+QPushButton#creamPill {{
+    background: {ACCENT};
+    color: {ACCENT_INK};
+    border: 1px solid transparent;
+    border-radius: 14px;
+    padding: 6px 18px;
+    min-height: 20px;
+    font-size: 13px;
     font-weight: 700;
-    padding: 6px 16px;
 }}
-QPushButton#primary:hover {{ background: #fff6e6; border-color: #fff6e6; }}
-QPushButton#primary:pressed {{ background: #e8d9bf; border-color: #e8d9bf; }}
-QPushButton#primary:disabled {{ background: #2a2822; border-color: #2a2822; color: #6d6a62; }}
-
-/* a stop or destructive action: the secondary button in red, as the build bar's Stop */
-QPushButton#danger {{
-    background: {BTN};
-    border: 1px solid #a14a48;
-    color: {RED};
-    font-size: 10pt;
+QPushButton#creamPill:hover {{
+    background: {ACCENT_HOVER};
+}}
+QPushButton#creamPill:pressed {{
+    background: {ACCENT_PRESSED};
+}}
+QPushButton#creamPill:disabled {{
+    background: {ACCENT_DISABLED};
+    color: #7c7972;
+}}
+QPushButton#primary {{
+    background: {ACCENT};
+    color: {ACCENT_INK};
+    border: 1px solid transparent;
+    border-radius: 18px;
+    padding: 10px 26px;
+    min-height: 22px;
+    font-size: 14px;
+    font-weight: 700;
+}}
+QPushButton#primary:hover {{
+    background: {ACCENT_HOVER};
+}}
+QPushButton#primary:pressed {{
+    background: {ACCENT_PRESSED};
+}}
+QPushButton#primary:disabled {{
+    background: #252422;
+    color: #6b6862;
+}}
+QPushButton#heroPlay {{
+    background: {ACCENT};
+    color: {ACCENT_INK};
+    border: 1px solid transparent;
+    border-radius: 22px;
+    padding: 10px 28px;
+    min-height: 24px;
+    font-size: 15px;
+    font-weight: 800;
+}}
+QPushButton#heroPlay:hover {{
+    background: {ACCENT_HOVER};
+}}
+QPushButton#heroPlay:disabled {{
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.40);
+}}
+QPushButton#heroSecondary {{
+    background: rgba(20, 20, 22, 0.72);
+    color: {TEXT};
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    border-radius: 16px;
+    padding: 7px 18px;
+    min-height: 20px;
+    font-size: 13px;
     font-weight: 600;
-    padding: 6px 16px;
 }}
-QPushButton#danger:hover {{ background: {BTN_HOVER}; }}
-
-/* ---- labels ---- */
-QLabel#title {{ font-size: 17pt; font-weight: 800; background: transparent; }}
-QLabel#subtitle {{ color: {MUTED}; font-size: 9pt; background: transparent; }}
-QLabel#note {{ color: {HINT}; font-size: 8pt; background: transparent; }}
-QLabel#mono {{ color: {PATH}; font-family: {MONO}; font-size: 8pt; background: transparent; }}
-QLabel#ok {{ color: {GREEN}; font-weight: 600; background: transparent; }}
-QLabel#warn {{ color: {ORANGE}; font-weight: 600; }}
-QLabel#bad {{ color: {RED}; font-weight: 600; background: transparent; }}
-QLabel#rowname {{ font-size: 10pt; background: transparent; }}
-QLabel#footer {{ color: {MUTED}; font-size: 8pt; padding: 4px 2px; background: transparent; }}
-
-/* ---- the log ---- */
-QTextEdit {{
-    background: {FIELD};
-    border: 1px solid {CARD_EDGE};
-    border-radius: 10px;
-    padding: 8px;
-    color: #b9bbc1;
-    font-family: {MONO};
-    font-size: 8pt;
-    selection-background-color: #5a5445;
-    selection-color: {TEXT};
+QPushButton#heroSecondary:hover {{
+    background: rgba(38, 38, 42, 0.88);
+    border-color: rgba(255, 255, 255, 0.32);
 }}
-
-/* ---- progress ---- */
-QProgressBar {{
-    background: {TRACK};
+QPushButton#winCtrlBtn {{
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
     border: none;
-    border-radius: 4px;
-    height: 7px;
-    text-align: center;
-    color: transparent;
+    border-radius: 6px;
+    padding: 0px;
+    min-height: 0px;
+    font-size: 13px;
+    font-weight: 500;
+}}
+QPushButton#winCtrlBtn:hover {{
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}}
+QPushButton#winCloseBtn {{
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    border: none;
+    border-radius: 6px;
+    padding: 0px;
+    min-height: 0px;
+    font-size: 13px;
+    font-weight: 500;
+}}
+QPushButton#winCloseBtn:hover {{
+    background: #e81123;
+    color: #ffffff;
+}}
+QPushButton#danger {{
+    background: rgba(255, 97, 97, 0.15);
+    color: {RED};
+    border: 1px solid rgba(255, 97, 97, 0.35);
+    border-radius: 9px;
+    padding: 6px 14px;
+    font-weight: 600;
+}}
+QPushButton#danger:hover {{
+    background: rgba(255, 97, 97, 0.25);
+}}
+QPushButton#ghost {{
+    background: transparent;
+    color: {MUTED};
+    border: none;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-weight: 600;
+}}
+QPushButton#ghost:hover {{
+    background: rgba(255, 255, 255, 0.07);
+    color: {TEXT};
+}}
+QPushButton#navTab {{
+    background: transparent;
+    color: rgba(255, 255, 255, 0.62);
+    border: none;
+    border-radius: 9px;
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 500;
+}}
+QPushButton#navTab:hover {{
+    color: rgba(255, 255, 255, 0.88);
+    background: rgba(255, 255, 255, 0.05);
+}}
+QPushButton#navTabActive {{
+    background: rgba(255, 255, 255, 0.10);
+    color: #ffffff;
+    border: none;
+    border-radius: 9px;
+    padding: 7px 16px;
+    font-size: 13px;
+    font-weight: 700;
+}}
+QLineEdit#searchField {{
+    background: rgba(255, 255, 255, 0.07);
+    color: {TEXT};
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    padding: 5px 14px;
+    font-size: 12.5px;
+}}
+QLineEdit#searchField:focus {{
+    border-color: {ACCENT};
+    background: rgba(255, 255, 255, 0.10);
+}}
+QComboBox#launcherDropdown {{
+    background: rgba(255, 255, 255, 0.06);
+    color: {TEXT};
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 9px;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 160px;
+}}
+QComboBox#launcherDropdown:hover {{
+    background: rgba(255, 255, 255, 0.10);
+}}
+QComboBox#launcherDropdown::drop-down {{
+    border: none;
+    width: 24px;
+}}
+QComboBox QAbstractItemView {{
+    background: #1f1f23;
+    color: {TEXT};
+    border: 1px solid {BORDER};
+    selection-background-color: {ACCENT};
+    selection-color: {ACCENT_INK};
+    padding: 4px;
+}}
+QPlainTextEdit {{
+    background: #0d0d0f;
+    color: #c7c7cc;
+    border: 1px solid #242428;
+    border-radius: 10px;
+    padding: 10px;
+    font-family: "Cascadia Mono", "Consolas", "SF Mono", "Menlo", monospace;
+    font-size: 11.5px;
+}}
+QProgressBar {{
+    background: rgba(255, 255, 255, 0.10);
+    border: none;
+    border-radius: 3px;
+    max-height: 6px;
+    min-height: 6px;
 }}
 QProgressBar::chunk {{
-    background: {GREEN};
-    border-radius: 4px;
-}}
-
-/* ---- scrollbars ---- */
-QScrollBar:vertical {{
-    background: transparent;
-    width: 10px;
-    margin: 0;
-}}
-QScrollBar::handle:vertical {{
-    background: #34343a;
-    border-radius: 5px;
-    min-height: 30px;
-}}
-QScrollBar::handle:vertical:hover {{ background: #46464d; }}
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
-QScrollBar:horizontal {{
-    background: transparent;
-    height: 10px;
-    margin: 0;
-}}
-QScrollBar::handle:horizontal {{
-    background: #34343a;
-    border-radius: 5px;
-    min-width: 30px;
-}}
-QScrollBar::handle:horizontal:hover {{ background: #46464d; }}
-QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
-QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: transparent; }}
-
-/* ---- dialogs inherit the dark look ---- */
-QFileDialog, QMessageBox, QInputDialog {{ background: {BG}; }}
-QLineEdit {{
-    background: {FIELD};
-    border: 1px solid {BTN_EDGE};
-    border-radius: 9px;
-    padding: 5px 9px;
-    color: {TEXT};
-    selection-background-color: #5a5445;
-    selection-color: {TEXT};
-}}
-QLineEdit:focus {{ border-color: {CREAM}; }}
-
-/* ---- menus and tooltips ---- */
-QMenu {{
-    background: {CARD};
-    border: 1px solid {CARD_EDGE};
-    border-radius: 9px;
-    padding: 6px;
-}}
-QMenu::item {{ padding: 6px 14px; border-radius: 7px; }}
-QMenu::item:selected {{ background: {BTN_PRESSED}; }}
-QMenu::item:disabled {{ color: #5a5b60; }}
-QMenu::separator {{ height: 1px; background: {CARD_EDGE}; margin: 4px 6px; }}
-QToolTip {{
-    background: {CARD};
-    color: {TEXT};
-    border: 1px solid {CARD_EDGE};
-    padding: 4px 6px;
+    background: {ACCENT};
+    border-radius: 3px;
 }}
 """
+
+STYLE = STYLESHEET
