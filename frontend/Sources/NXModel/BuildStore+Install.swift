@@ -102,8 +102,8 @@ extension BuildStore {
            !devices.signingTeam.isEmpty,
            FileManager.default.fileExists(atPath: shell.project) {
             let covers = artworkPaths()
-            let changed = ShellInstall.refreshCovers(root: shell.root, app: app, artwork: { covers[$0.lowercased()] })
-            if !changed.isEmpty {
+            let artwork = { covers[$0.lowercased()] }
+            if ShellInstall.coversDiffer(root: shell.root, app: app, artwork: artwork) {
                 resignOnDevice(app: app, device: device, then: then)
                 return
             }
@@ -147,7 +147,7 @@ extension BuildStore {
         let covers = artworkPaths()
         let artwork: (String) -> String? = { covers[$0.lowercased()] }
         let root = shell.root
-        _ = ShellInstall.refreshCovers(root: root, app: app, artwork: artwork)
+        _ = ShellInstall.refreshCovers(root: root, app: app, artwork: artwork, embed: false)
         let xcrun = devices.xcrun, team = devices.signingTeam, name = devices.deviceName(device)
         let bundle = ShellLibrary.load(root: root).bundleID
         running = true

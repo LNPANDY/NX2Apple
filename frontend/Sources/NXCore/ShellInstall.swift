@@ -256,6 +256,28 @@ package enum ShellInstall {
         output.contains("doesn't include the Increased Memory Limit capability") || output.contains("doesn't include the com.apple.developer.kernel.increased-memory-limit entitlement")
     }
 
+    /// What `placeBanner` would leave in the framework. Nil means the directory must not be touched.
+    /// An empty map means every banner goes. One entry is the file that would remain.
+    package struct BannerPlan {
+        package var source: String?
+        package var files: [String: Data]
+    }
+
+    package static func bannerPlan(titleID: String, banners: URL, picked: String?, fm: FileManager = .default) -> BannerPlan? {
+        if let picked, !picked.isEmpty {
+            if !fm.fileExists(atPath: picked) || !CoverFile.withinLimit(picked, fm: fm) { return nil }
+        }
+        let source = [picked, BannerCache.cached(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
+        guard let source else { return BannerPlan(source: nil, files: [:]) }
+        let ext = CoverFile.ext(source)
+        if CoverFile.shellExtensions.contains(ext) {
+            guard let data = fm.contents(atPath: source) else { return nil }
+            return BannerPlan(source: source, files: [ext: data])
+        }
+        guard let jpeg = jpegData(at: source) else { return nil }
+        return BannerPlan(source: source, files: ["jpg": jpeg])
+    }
+
     /// Copies the game's banner into its framework as banner.<ext>, the picture the shell's library shows: the player's own pick,
     /// else the eShop banner the launcher caches per title ID (ArtworkStore). The cache is only read. PNG, JPEG, HEIC, WebP, GIF
     /// and a silent MP4, MOV or M4V are copied as they are. Anything else the Mac opened, such as a TIFF, is written as a JPEG.
@@ -264,36 +286,28 @@ package enum ShellInstall {
     @discardableResult static func placeBanner(titleID: String, framework: String, banners: URL, picked: String?,
                                                fm: FileManager = .default) -> String? {
         let known = CoverFile.shellExtensions
-        // A chosen file that is not on disk, or that is too large for a tile, is left alone.
-        if let picked, !picked.isEmpty {
-            if !fm.fileExists(atPath: picked) || !CoverFile.withinLimit(picked, fm: fm) { return nil }
-        }
-        let source = [picked, BannerCache.cached(titleID, in: banners)?.path].compactMap { $0 }.first { !$0.isEmpty && fm.fileExists(atPath: $0) }
-        guard let source else {
-            for ext in known { try? fm.removeItem(atPath: framework + "/banner." + ext) }
+        guard let plan = bannerPlan(titleID: titleID, banners: banners, picked: picked, fm: fm) else { return nil }
+        if plan.files.isEmpty {
+            for old in known { try? fm.removeItem(atPath: framework + "/banner." + old) }
             return nil
         }
-        let ext = CoverFile.ext(source)
-        let payload: Data
-        let destExt: String
-        if known.contains(ext) {
-            guard let data = fm.contents(atPath: source) else { return nil }
-            payload = data
-            destExt = ext
-        } else if let jpeg = jpegData(at: source) {
-            payload = jpeg
-            destExt = "jpg"
-        } else { return nil }
-        let dest = URL(fileURLWithPath: framework + "/banner." + destExt)
-        do { try payload.write(to: dest, options: .atomic) } catch { return nil }
+        let destExt = plan.files.keys.sorted()[0]
+        guard let payload = plan.files[destExt] else { return nil }
+        do { try payload.write(to: URL(fileURLWithPath: framework + "/banner." + destExt), options: .atomic) } catch { return nil }
         for old in known where old != destExt { try? fm.removeItem(atPath: framework + "/banner." + old) }
-        return source
+        return plan.source
     }
 
     /// A JPEG of the picture at `path`. Nil when ImageIO cannot read it.
     private static func jpegData(at path: String) -> Data? {
-        guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
-              let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
+        guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1920,
+            kCGImageSourceShouldCache: false
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary) else { return nil }
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, "public.jpeg" as CFString, 1, nil) else { return nil }
         CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary)

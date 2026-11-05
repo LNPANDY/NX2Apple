@@ -163,8 +163,10 @@ struct AnimatedImageFill: NSViewRepresentable {
                 let pictures = decoded.map(\.image)
                 let delays = decoded.map(\.seconds)
                 DispatchQueue.main.async {
-                    guard let self, self.generation == generation, self.active, self.wantsFrames, self.path == path else { return }
+                    guard let self, self.path == path else { return }
                     self.loading = false
+                    if pictures.isEmpty { self.failed = true; return }
+                    guard self.generation == generation, self.active, self.wantsFrames else { return }
                     self.frames = pictures.map { NSImage(cgImage: $0, size: NSSize(width: CGFloat($0.width), height: CGFloat($0.height))) }
                     self.delays = delays
                     if self.frames.isEmpty { self.failed = true; return }
@@ -261,6 +263,8 @@ struct LoopingMovieFill: NSViewRepresentable {
         private var failed = false
         private var parked = CMTime.zero
         private var generation = 0
+        /// True from the moment a player is created until its first frame is ready. The visibility timer must not call play() in that gap.
+        private var arming = false
         var url: URL?
         weak var playerView: AVPlayerView?
         weak var posterView: AspectImageView?
@@ -288,13 +292,16 @@ struct LoopingMovieFill: NSViewRepresentable {
             guard active, let url, let playerView else { return }
             if hostVisible {
                 guard !failed else { return }
-                if player == nil { startPlayer(url, in: playerView) }
-                else if !playing {
+                if player == nil {
+                    arming = true
+                    startPlayer(url, in: playerView)
+                } else if !playing, !arming {
                     playing = true
                     player?.play()
                 }
             } else if player != nil {
-                parked = player?.currentTime() ?? parked
+                if playing, let time = player?.currentTime(), time.isValid, time.seconds > 0 { parked = time }
+                arming = false
                 releasePlayer()
             }
         }
@@ -327,8 +334,9 @@ struct LoopingMovieFill: NSViewRepresentable {
                     if state == .failed { self.noteFailure(); return }
                     guard state == .readyToPlay, view.isHidden else { return }
                     let go = {
-                        guard self.generation == token else { return }
+                        guard self.generation == token, self.active, self.player === player else { return }
                         view.isHidden = false
+                        self.arming = false
                         self.playing = true
                         player.play()
                     }
@@ -363,6 +371,8 @@ struct LoopingMovieFill: NSViewRepresentable {
 
         /// Drops the decoder. The poster is one frame, drawn under the player view once the player is gone.
         private func releasePlayer(poster show: Bool = true) {
+            generation += 1
+            arming = false
             status = nil
             if let loop { NotificationCenter.default.removeObserver(loop) }
             loop = nil

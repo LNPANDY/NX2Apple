@@ -22,10 +22,10 @@ package enum CoverFile {
     /// A cover copied into the phone app. A larger file is a film, not a tile.
     package static let maxBytes: Int64 = 64 * 1024 * 1024
 
-    /// False when the file is missing or larger than `max`.
+    /// False when the file is missing, empty, or larger than `max`.
     package static func withinLimit(_ path: String, max: Int64 = maxBytes, fm: FileManager = .default) -> Bool {
         guard let size = (try? fm.attributesOfItem(atPath: path))?[.size] as? NSNumber else { return false }
-        return size.int64Value >= 0 && size.int64Value <= max
+        return size.int64Value > 0 && size.int64Value <= max
     }
 
     /// Empty when the path is a movie or ImageIO cannot read it.
@@ -67,7 +67,8 @@ package enum CoverFile {
         guard !path.isEmpty, !isMovie(path),
               let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
         if ext(path) == "gif" {
-            return CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCache: false] as CFDictionary)
+            guard let image = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+            return fitted(image, maxPixel: 1280)
         }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

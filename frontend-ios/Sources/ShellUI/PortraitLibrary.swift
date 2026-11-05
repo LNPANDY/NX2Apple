@@ -145,7 +145,7 @@ struct PortraitLibrary: View, Equatable {
         let chosen = detail.id == selected.id
         return Button { rowSelecting = !chosen; select(detail.id) } label: {
             VStack(alignment: .leading, spacing: 0) {
-                CoverView(game: detail.game, showsState: true)
+                CoverView(game: detail.game, showsState: true, motion: !chosen)
                     .shellTarget("lib.tile.\(detail.id)") { primary(detail) }
                 Text(detail.game.title).shellType(ShellType.cardTitle).lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     .foregroundStyle(.white.opacity(chosen ? 1 : 0.86))

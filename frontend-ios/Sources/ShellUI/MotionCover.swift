@@ -45,7 +45,33 @@ struct MotionCover: View {
     /// The first picture of a still cover. Nil when the file is missing, too large, or not a picture.
     static func still(_ url: URL) -> CGImage? {
         guard fits(url), !isMovie(url), let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(src, 0, nil)
+        if url.pathExtension.lowercased() == "gif" {
+            guard let image = CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+            return fitted(image, maxPixel: 1280)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1280,
+            kCGImageSourceShouldCache: false
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary)
+    }
+
+    /// The longer side is at most `maxPixel`.
+    static func fitted(_ image: CGImage, maxPixel: Int) -> CGImage {
+        let width = image.width, height = image.height
+        let longest = max(width, height)
+        if longest <= maxPixel || longest == 0 { return image }
+        let scale = Double(maxPixel) / Double(longest)
+        let wide = max(1, Int((Double(width) * scale).rounded()))
+        let high = max(1, Int((Double(height) * scale).rounded()))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(data: nil, width: wide, height: high, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return image }
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: wide, height: high))
+        return context.makeImage() ?? image
     }
 
     /// The first picture of a movie, so the blurred backdrop has something to draw. Nil when the file has none or is too large.

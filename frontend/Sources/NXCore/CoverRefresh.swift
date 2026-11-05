@@ -9,7 +9,7 @@ extension ShellInstall {
     /// A game with no chosen file and no cached eShop banner is left alone: a missing cache must not strip the picture the phone already has.
     @discardableResult
     package static func refreshCovers(root: String, app: String, artwork: (String) -> String?, banners: URL = BannerCache.directory,
-                                      fm: FileManager = .default) -> [String] {
+                                      fm: FileManager = .default, embed: Bool = true) -> [String] {
         var changed: [String] = []
         for game in ShellLibrary.load(root: root).games {
             let picked = artwork(game.titleID)
@@ -22,6 +22,7 @@ extension ShellInstall {
             if fm.fileExists(atPath: game.framework) {
                 _ = placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: pick, fm: fm)
             }
+            guard embed else { continue }
             let embedded = (app as NSString).appendingPathComponent("Frameworks")
                 .appendingPathComponent((game.framework as NSString).lastPathComponent)
             guard fm.fileExists(atPath: embedded) else { continue }
@@ -30,6 +31,20 @@ extension ShellInstall {
             if bannerFiles(embedded, fm) != before { changed.append(game.titleID) }
         }
         return changed
+    }
+
+    /// True when the picture inside the built app is not the one a re-sign would write. Does not write.
+    package static func coversDiffer(root: String, app: String, artwork: (String) -> String?, banners: URL = BannerCache.directory,
+                                     fm: FileManager = .default) -> Bool {
+        for game in ShellLibrary.load(root: root).games {
+            let picked = artwork(game.titleID)
+            let embedded = (app as NSString).appendingPathComponent("Frameworks")
+                .appendingPathComponent((game.framework as NSString).lastPathComponent)
+            guard fm.fileExists(atPath: embedded) else { continue }
+            guard let plan = bannerPlan(titleID: game.titleID, banners: banners, picked: picked, fm: fm) else { continue }
+            if bannerFiles(embedded, fm) != plan.files { return true }
+        }
+        return false
     }
 
     private static func bannerFiles(_ framework: String, _ fm: FileManager) -> [String: Data] {
