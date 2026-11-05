@@ -55,7 +55,8 @@ final class ControllerPreferencesTests: XCTestCase {
             let english = L10n.string(key, .en)
             XCTAssertNotEqual(english, key)
             XCTAssertNotEqual(L10n.string(key, .zh), english)
-            for code in ["de", "fr", "it", "sv"] { XCTAssertEqual(L10n.string(key, Lang(code)), english) }
+            XCTAssertNotEqual(L10n.string(key, Lang("de")), english)
+            for code in ["fr", "it", "sv"] { XCTAssertEqual(L10n.string(key, Lang(code)), english) }
         }
     }
 

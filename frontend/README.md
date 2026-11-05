@@ -214,6 +214,12 @@ saved choices are disabled.
 Direct raw Steam input belongs to built games. Library and console navigation in
 NX2Apple continue to depend on Apple's GameController support.
 
+macOS may require **System Settings → Privacy & Security → Input Monitoring**
+permission for the game app's direct Steam input. Bluetooth pairing alone does not
+grant it. If direct input, motion or rumble is unavailable, enable the game app
+you launch there, quit and reopen it, then reconnect the controller. Replacing or
+rebuilding an ad-hoc signed app can require renewing that permission.
+
 The controller has four layouts, each only a `DM_PAD_MAP` value. **Standard layout**
 (the default) passes nothing: the host reads the face buttons by position, in the
 Nintendo layout (right A, bottom B, top X, left Y), for PlayStation and other
