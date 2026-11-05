@@ -24,7 +24,8 @@ public struct EngineLaunchPlan: Equatable, Sendable {
     /// (#557), read from `game.appFolder` when it is nil. A key in the game's file wins over the shared file, and the launch
     /// environment (the player's settings, the paths above) wins over both. The game's own `mods/` folder sets
     /// `DM_ROMFS_OVERLAY` (`GameMods`) when the game's env file does not, and it wins over the shared file. The order is: launch
-    /// environment, game env.txt, game mods folder, shared env.txt.
+    /// environment, game env.txt, game mods folder, shared env.txt. Automatic `DM_PSO_BUNDLE` discovery is a fallback
+    /// after both env files, so an explicit archive path or `off` can override it.
     public static func make(game: LaunchableGame, appResources: URL, documents: URL, envFileText: String?, gameEnvFileText: String? = nil,
                             fileManager fm: FileManager = .default) -> EngineLaunchPlan {
         let manifest = game.manifest, fw = game.frameworkURL, gdir = game.appFolder
@@ -45,7 +46,6 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         let bundledMSL = game.shaderResourcesURL ?? fw.appendingPathComponent("msl", isDirectory: true)
         env["DM_MSL_DIR"] = (isDirectory(ownMSL) ? ownMSL : bundledMSL).path
         let ownPSO = gdir.appendingPathComponent("pso", isDirectory: true), fwPSO = fw.appendingPathComponent("pso", isDirectory: true)
-        if isDirectory(ownPSO) { env["DM_PSO_BUNDLE"] = ownPSO.path } else if isDirectory(fwPSO) { env["DM_PSO_BUNDLE"] = fwPSO.path }
         let dataAOC = game.dataURL.appendingPathComponent("aoc", isDirectory: true), ownAOC = gdir.appendingPathComponent("aoc", isDirectory: true)
         if isDirectory(dataAOC) { env["DM_AOC_DIR"] = dataAOC.path } else if isDirectory(ownAOC) { env["DM_AOC_DIR"] = ownAOC.path }
         env["DM_CHEATS"] = gdir.appendingPathComponent("cheats", isDirectory: true).path
@@ -70,6 +70,9 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         }
         apply(envFileText)
         env["DM_ENV_FILE_KEYS"] = fromFile.joined(separator: " ")
+        if env["DM_PSO_BUNDLE"] == nil {
+            if isDirectory(ownPSO) { env["DM_PSO_BUNDLE"] = ownPSO.path } else if isDirectory(fwPSO) { env["DM_PSO_BUNDLE"] = fwPSO.path }
+        }
 
         return EngineLaunchPlan(
             environment: env,
