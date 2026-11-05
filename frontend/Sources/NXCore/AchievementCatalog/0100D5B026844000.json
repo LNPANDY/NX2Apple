@@ -47,7 +47,7 @@
     {
       "id": "coffee-break",
       "name": "Coffee Break",
-      "detail": "Drink from a coffee jug to bring your stamina back during a long search.",
+      "detail": "Make a cup at a coffee machine and drink it to raise your maximum stamina.",
       "hidden": false
     },
     {

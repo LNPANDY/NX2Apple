@@ -84,7 +84,7 @@
       "id": "survivalist",
       "name": "Survivalist",
       "detail": "Finish a raid with the combat difficulty set to Survivalist.",
-      "hidden": true
+      "hidden": false
     }
   ]
 }
