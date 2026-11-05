@@ -299,6 +299,7 @@ jobs:
         if: ${{ github.event_name != 'pull_request' }}
         working-directory: frontend
         run: |
+          set -o pipefail
           mkdir -p ../logs
           swift build -c release 2>&1 | tee ../logs/launcher-build.log
       # The opt-in tests (a real games folder, the README screenshots, the visual QA capture) skip without their variables; the process
@@ -306,6 +307,7 @@ jobs:
       - name: Tests
         working-directory: frontend
         run: |
+          set -o pipefail
           mkdir -p ../logs
           swift test 2>&1 | tee ../logs/launcher-tests.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
