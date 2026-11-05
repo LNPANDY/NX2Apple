@@ -26,6 +26,18 @@ import Testing
         }
     }
 
+    @Test func frameworkBuildEnvironmentReachesTheHostAndDocumentsCanOverrideIt() throws {
+        let rig = try Rig()
+        try rig.box.write("DM_PROF_TEX_BC_CPU=1\n", to: rig.fw.appendingPathComponent("dm/env.txt"))
+        #expect(rig.plan().environment["DM_PROF_TEX_BC_CPU"] == "1")
+        #expect(rig.plan().environment["DM_ENV_FILE_KEYS"] == "DM_PROF_TEX_BC_CPU")
+        #expect(rig.plan(envFile: "DM_PROF_TEX_BC_CPU=0\n").environment["DM_PROF_TEX_BC_CPU"] == "0")
+        try rig.box.write("DM_PROF_TEX_BC_CPU=0\n", to: rig.gdir.appendingPathComponent("env.txt"))
+        #expect(rig.plan().environment["DM_PROF_TEX_BC_CPU"] == "0")
+        let another = try Rig()
+        #expect(another.plan().environment["DM_PROF_TEX_BC_CPU"] == nil)
+    }
+
     @Test func defaultsPointIntoTheFramework() throws {
         let rig = try Rig()
         let env = rig.plan().environment

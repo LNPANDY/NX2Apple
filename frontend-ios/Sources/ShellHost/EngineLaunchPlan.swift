@@ -24,8 +24,9 @@ public struct EngineLaunchPlan: Equatable, Sendable {
     /// (#557), read from `game.appFolder` when it is nil. A key in the game's file wins over the shared file, and the launch
     /// environment (the player's settings, the paths above) wins over both. The game's own `mods/` folder sets
     /// `DM_ROMFS_OVERLAY` (`GameMods`) when the game's env file does not, and it wins over the shared file. The order is: launch
-    /// environment, game env.txt, game mods folder, shared env.txt. Automatic `DM_PSO_BUNDLE` discovery is a fallback
-    /// after both env files, so an explicit archive path or `off` can override it.
+    /// environment, game env.txt, game mods folder, shared env.txt, framework dm/env.txt.
+    /// The framework file carries build-time defaults such as CPU BC decoding for older GPUs (#719). Automatic `DM_PSO_BUNDLE`
+    /// discovery is a fallback after all env files, so an explicit archive path or `off` can override it.
     public static func make(game: LaunchableGame, appResources: URL, documents: URL, envFileText: String?, gameEnvFileText: String? = nil,
                             fileManager fm: FileManager = .default) -> EngineLaunchPlan {
         let manifest = game.manifest, fw = game.frameworkURL, gdir = game.appFolder
@@ -69,6 +70,7 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             env["DM_ROMFS_OVERLAY"] = overlay
         }
         apply(envFileText)
+        apply(fm.contents(atPath: fw.appendingPathComponent("dm/env.txt").path).flatMap { String(data: $0, encoding: .utf8) })
         env["DM_ENV_FILE_KEYS"] = fromFile.joined(separator: " ")
         if env["DM_PSO_BUNDLE"] == nil {
             if isDirectory(ownPSO) { env["DM_PSO_BUNDLE"] = ownPSO.path } else if isDirectory(fwPSO) { env["DM_PSO_BUNDLE"] = fwPSO.path }

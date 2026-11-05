@@ -913,6 +913,7 @@ import NXModel
         let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = stores.build
         stores.repo.path = f.repo
         model.target = "ios"
+        model.bcOnCPU = true
         model.outDir = path("out")
         stores.dependencies.pythonPath = "/usr/bin/python3"
         stores.dependencies.dotnetPath = "/usr/bin/true"
@@ -928,6 +929,7 @@ import NXModel
         try write(f.repo + "/dm/tools/romfs_image.py", "import sys\nopen(sys.argv[3], 'wb').write(b'image')\n")
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
         import sys, json, pathlib
+        pathlib.Path('\(state)/build-env.txt').write_text(pathlib.Path(sys.argv[sys.argv.index('--env-file') + 1]).read_text())
         open('\(state)/script.txt', 'w').write(' '.join(sys.argv[1:]))
         work = pathlib.Path(sys.argv[sys.argv.index('--work-dir') + 1])
         fw = pathlib.Path(sys.argv[sys.argv.index('--shell-framework') + 1]) / 'DmGame\(titleID).framework'
@@ -947,6 +949,7 @@ import NXModel
         withExtendedLifetime(token) {}
 
         let script = try String(contentsOfFile: state + "/script.txt")
+        XCTAssertEqual(try String(contentsOfFile: state + "/build-env.txt"), "DM_PROF_TEX_BC_CPU=1\n")
         XCTAssertTrue(script.contains("--shell-framework \(temporary.path)/out/\(titleID)_build/shell-framework"), script)
         XCTAssertFalse(script.contains("--team-id"), script)
         XCTAssertEqual(model.exportedIPAPath, ShellInstall.ipaPath(root: f.root))
