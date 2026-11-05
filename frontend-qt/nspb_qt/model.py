@@ -527,7 +527,8 @@ class Model(QObject):
                 detail = p.path
             elif p.state == 'wrong':
                 detail = p.detail
-            install = [] if p.ok else ['__win__:ios_sdk']
+            can_upgrade = p.ok and wtc.sdk_major(p.version) < wtc.sdk_major(wtc.SDK_PINNED[8:-4])
+            install = ['__win__:ios_sdk'] if (not p.ok or can_upgrade) else []
             out.append(Dep('ios_sdk', 'dep.iossdk', 'dep.iossdk.hint', state(p), detail,
                            install=install, pick_key='' if p.ok else 'ios_sdk'))
 

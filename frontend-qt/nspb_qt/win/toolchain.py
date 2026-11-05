@@ -122,15 +122,18 @@ def git_exe() -> Path | None:
     return Path(found) if found else None
 
 #: The iPhoneOS SDK we pin. `xybp888/iOS-SDKs` is a plain git repository of SDK trees, so a
-#: shallow clone is enough and the commit SHA pins the content. 26.0 is what `dm/ios/project.yml`
-#: targets; 26.5 is accepted too, since a newer SDK still compiles against 26.0.
+#: shallow clone is enough and the commit SHA pins the content. 27.2 matches the upstream
+#: Xcode 27.2 engine headers while targeting the 26.0 deployment floor; 26.x SDKs remain
+#: accepted with the `win/ios/sdk_compat` fallback headers.
 SDK_REPO = 'https://github.com/xybp888/iOS-SDKs'
-SDK_PINNED = 'iPhoneOS26.0.sdk'
-SDK_ACCEPTED = ('iPhoneOS26.0.sdk', 'iPhoneOS26.1.sdk', 'iPhoneOS26.2.sdk', 'iPhoneOS26.3.sdk',
-                'iPhoneOS26.4.sdk', 'iPhoneOS26.4.1.sdk', 'iPhoneOS26.5.sdk')
+SDK_PINNED = 'iPhoneOS27.2.sdk'
+SDK_ACCEPTED = ('iPhoneOS27.2.sdk', 'iPhoneOS27.1.sdk', 'iPhoneOS27.0.sdk',
+                'iPhoneOS26.5.sdk', 'iPhoneOS26.4.1.sdk', 'iPhoneOS26.4.sdk',
+                'iPhoneOS26.3.sdk', 'iPhoneOS26.2.sdk', 'iPhoneOS26.1.sdk',
+                'iPhoneOS26.0.sdk')
 #: Commit of `xybp888/iOS-SDKs` the pinned SDK was read from. Informational: the SDK tree is
 #: verified by its own layout and a caller-supplied hash, not by trusting this number.
-SDK_PINNED_COMMIT = '17eb9152ba9779b27427016472758824a8fcd6a7'
+SDK_PINNED_COMMIT = '4a48e5409f8ea6ac422c44d91b86fa0f8ae010ff'
 
 #: .NET SDK. `dm/tools/nx_extract` targets net10.0 and the shader translator's runtimeconfig is
 #: net10.0, so 10 is the floor; a newer major (11) can still build a net10.0 project as long as
@@ -1018,7 +1021,9 @@ def probe_metal(sdk: Path) -> tuple[bool, str]:
         a = Path(td) / 'probe.air'
         lib = Path(td) / 'probe.metallib'
         m.write_text(src, encoding='utf-8')
-        tgt = f'air64-apple-ios{sdk_major(sdk_version(sdk)[0]) or IOS_DEPLOYMENT.split(".")[0]}.0'
+        dep_maj = int(IOS_DEPLOYMENT.split('.')[0])
+        maj = min(sdk_major(sdk_version(sdk)[0]) or dep_maj, dep_maj)
+        tgt = f'air64-apple-ios{maj}.0'
         for cmd, what in (([str(metal), '-target', tgt, '-c', str(m), '-o', str(a)], 'metal'),
                           ([str(metallib), str(a), '-o', str(lib)], 'metallib')):
             try:

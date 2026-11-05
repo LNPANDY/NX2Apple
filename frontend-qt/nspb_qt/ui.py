@@ -1676,7 +1676,7 @@ class MainWindow(QMainWindow):
         col.addWidget(sub)
         r.addLayout(col, 1)
 
-        if not d.ok and d.install:
+        if d.install and (not d.ok or d.id == 'ios_sdk'):
             b = QPushButton(t('dep.installing') if d.installing else t('dep.install'))
             b.setEnabled(not d.installing)
             b.clicked.connect(lambda _=False, dep=d: self.m.install_dep(dep))

@@ -213,6 +213,34 @@ class SdkTest(unittest.TestCase):
         self.assertEqual(tc.sdk_tree_digest(a), tc.sdk_tree_digest(a))
         self.assertNotEqual(tc.sdk_tree_digest(a), tc.sdk_tree_digest(b))
 
+    def test_sdk_pinned_is_27_2_and_preferred_over_cached_26(self) -> None:
+        self.assertEqual(tc.SDK_PINNED, 'iPhoneOS27.2.sdk')
+        self.assertEqual(tc.SDK_ACCEPTED[0], 'iPhoneOS27.2.sdk')
+        cache = tc.sdk_cache_dir()
+        sdk26 = make_fake_sdk(cache, '26.0')
+        with mock.patch.object(tc, 'setting', return_value=None):
+            self.assertEqual(tc.ios_sdk(), sdk26)
+            sdk27 = make_fake_sdk(cache, '27.2')
+            self.assertEqual(tc.ios_sdk(), sdk27)
+
+    def test_probe_metal_caps_target_at_deployment_for_27_sdk(self) -> None:
+        sdk27 = make_fake_sdk(self.root, '27.2')
+        seen_cmds: list[list[str]] = []
+
+        def fake_run(cmd, *a, **kw):
+            seen_cmds.append([str(c) for c in cmd])
+            if '-o' in cmd:
+                out_p = Path(cmd[cmd.index('-o') + 1])
+                out_p.write_bytes(b'MTLB')
+            return subprocess.CompletedProcess(cmd, 0, '', '')
+
+        with mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'C:/metal/{name}.exe')), \
+             mock.patch.object(tc.subprocess, 'run', side_effect=fake_run):
+            ok, detail = tc.probe_metal(sdk27)
+        self.assertTrue(ok, detail)
+        self.assertIn('air64-apple-ios26.0', seen_cmds[0])
+        self.assertNotIn('air64-apple-ios27.0', seen_cmds[0])
+
 
 class CheckAllTest(unittest.TestCase):
     """The panel's rows, on a machine with nothing installed and with a fake toolchain."""
