@@ -18,27 +18,42 @@ package struct AchievementList: Codable, Equatable {
 
 /// The achievement files shipped with the launcher, one JSON file per supported game.
 package enum AchievementCatalog {
-    package static func load(from directory: URL, fm: FileManager = .default) throws -> [String: AchievementList] {
-        let urls = (try? fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+    /// Reads every JSON file in the folder. A title ID is matched without regard to case.
+    /// A second file for the same title adds any goals the first file did not already have.
+    /// `skipBroken` keeps the files that did decode. The strict read throws on the first bad file.
+    package static func load(from directory: URL, fm: FileManager = .default, skipBroken: Bool = false) throws -> [String: AchievementList] {
+        let urls = try fm.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
         var out: [String: AchievementList] = [:]
         let decoder = JSONDecoder()
         for url in urls where url.pathExtension.lowercased() == "json" {
-            let list = try decoder.decode(AchievementList.self, from: Data(contentsOf: url))
-            out[list.titleID.uppercased()] = list
+            do {
+                let list = try decoder.decode(AchievementList.self, from: Data(contentsOf: url))
+                store(list, into: &out)
+            } catch {
+                if !skipBroken { throw error }
+            }
         }
         return out
     }
 
     /// The catalog compiled into NXCore. Empty when the resources were not copied.
-    /// The files are read once. A later call returns that copy.
+    /// A full read is kept. A missing folder or a read with no usable file is tried again next time.
     package static func bundled(bundle: Bundle = .module) -> [String: AchievementList] {
         if bundle === Bundle.module, let memory { return memory }
         let directory = bundle.url(forResource: "AchievementCatalog", withExtension: nil)
             ?? bundle.resourceURL?.appendingPathComponent("AchievementCatalog")
-        guard let directory else { return [:] }
-        guard let loaded = try? load(from: directory) else { return [:] }
+        guard let directory, let loaded = try? load(from: directory, skipBroken: true), !loaded.isEmpty else { return [:] }
         if bundle === Bundle.module { memory = loaded }
         return loaded
+    }
+
+    /// Keeps both lists when two files name the same title in different case.
+    private static func store(_ list: AchievementList, into out: inout [String: AchievementList]) {
+        let key = list.titleID.uppercased()
+        guard var kept = out[key] else { out[key] = list; return }
+        var seen = Set(kept.achievements.map(\.id))
+        for item in list.achievements where seen.insert(item.id).inserted { kept.achievements.append(item) }
+        out[key] = kept
     }
 
     private static var memory: [String: AchievementList]?
@@ -66,7 +81,10 @@ package struct AchievementProgress: Equatable {
             return AchievementProgress(unreadable: true)
         }
         var done: [String: [String]] = [:]
-        for (id, names) in raw { done[id.uppercased()] = names }
+        for (id, names) in raw {
+            let key = id.uppercased()
+            done[key] = Array(Set(done[key] ?? []).union(names)).sorted()
+        }
         return AchievementProgress(done: done)
     }
 
