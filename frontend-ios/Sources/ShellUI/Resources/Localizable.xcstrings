@@ -1424,7 +1424,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scegli i dati…"
+            "value": "Scegli i dati del gioco…"
           }
         },
         "sv": {
@@ -2704,7 +2704,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Trascina un comando per spostarlo. Toccane uno per sceglierlo, poi spostalo passo per passo con le frecce. Se un comando ne coprisse un altro o uscisse dallo schermo, torna indietro. Per tutti i giochi."
+            "value": "Trascina un comando per spostarlo. Toccane uno per selezionarlo, poi spostalo passo per passo con le frecce. Se un comando ne copre un altro o esce dallo schermo, torna al posto precedente. Vale per tutti i giochi."
           }
         },
         "sv": {
@@ -2904,7 +2904,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ogni tasto torna a fare ciò che fa in tutti i giochi."
+            "value": "Ogni tasto funziona come in tutti gli altri giochi."
           }
         },
         "sv": {
@@ -3224,7 +3224,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Solo per questo gioco. Un tasto non modificato fa ciò che fa in tutti i giochi."
+            "value": "Solo per questo gioco. Un tasto non modificato funziona come in tutti gli altri giochi."
           }
         },
         "sv": {
@@ -3944,7 +3944,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "In alto"
+            "value": "Più in alto"
           }
         },
         "sv": {
@@ -4224,7 +4224,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installa una versione più recente di questa app per giocare a questo gioco."
+            "value": "Per giocare a questo titolo, installa una versione più recente di questa app."
           }
         },
         "sv": {
@@ -4304,7 +4304,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Al centro"
+            "value": "Verso il centro"
           }
         },
         "sv": {
@@ -5384,7 +5384,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sposta i singoli comandi dove li vogliono i pollici."
+            "value": "Sposta i singoli comandi dove ti sono più comodi."
           }
         },
         "sv": {
@@ -5624,7 +5624,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Livello batteria sconosciuto"
+            "value": "Livello batteria non disponibile"
           }
         },
         "sv": {
@@ -5744,7 +5744,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessun dato scelto"
+            "value": "Nessun dato selezionato"
           }
         },
         "sv": {
@@ -7784,7 +7784,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Invia nei giochi"
+            "value": "Comando nei giochi"
           }
         },
         "sv": {
@@ -8224,7 +8224,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tocca un tasto per cambiare cosa invia."
+            "value": "Tocca un tasto per cambiare il suo comando."
           }
         },
         "sv": {
@@ -8344,7 +8344,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I dati del gioco su questo dispositivo vengono eliminati e il gioco esce dall’elenco. Una cartella scelta da te non viene toccata. Invia di nuovo i dati del gioco dal Mac per riaverlo."
+            "value": "I dati del gioco su questo dispositivo vengono eliminati e il gioco viene rimosso dall’elenco. La cartella che hai scelto non viene toccata. Invia nuovamente i dati del gioco dal tuo Mac per ripristinarlo."
           }
         },
         "sv": {
@@ -8384,7 +8384,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questo gioco richiede una versione più recente di questa app. Aggiornala con l’app per Mac sul Mac, poi installala di nuovo su questo dispositivo."
+            "value": "Questo gioco richiede una versione più recente dell’app. Aggiornala con l’app sul tuo Mac, poi installala nuovamente su questo dispositivo."
           }
         },
         "sv": {
@@ -9144,7 +9144,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cosa invia ogni tasto nei giochi."
+            "value": "Cosa fa ogni tasto all’interno dei giochi."
           }
         },
         "sv": {
