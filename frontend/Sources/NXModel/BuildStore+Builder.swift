@@ -5,12 +5,9 @@ import NXCore
 // The rules (where nxb comes from, the variables) are ExperimentalBuilder in NXCore.
 
 extension BuildStore {
-    /// The launcher's data folder, where a downloaded nxbuild release goes (`home` is a temporary folder in tests).
-    package var builderSupportFolder: String { home + "/Library/Application Support/NS Port Builder" }
-
     /// The `nxb` the next build takes, nil when there is none (the switch is then only a note in the log).
     package var experimentalBuilderBinary: String? {
-        ExperimentalBuilder.resolve(customPath: experimentalBuilderPath, support: builderSupportFolder)
+        ExperimentalBuilder.resolve(customPath: experimentalBuilderPath, bundled: bundledBuilder)
     }
 
     /// The variables the build gets for the experimental builder, empty when it is off or no nxb is found. Says in the log which it is.

@@ -162,7 +162,7 @@ import XCTest
 
     func testTheBuildGetsTheChosenNxbOrANoteThatTheStandardBuilderRuns() throws {
         let store = makeStore()
-        store.home = temporary.path
+        store.bundledBuilder = nil
         store.experimentalBuilder = true
         store.experimentalBuilderPath = temporary.path + "/gone/nxb"
         XCTAssertNil(store.experimentalBuilderBinary)

@@ -133,10 +133,12 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var experimentalBuilder: Bool {
         didSet { defaults.set(experimentalBuilder, forKey: Self.experimentalBuilderKey) }
     }
-    /// The `nxb` binary the player chose (or its folder), empty for the downloaded release (ExperimentalBuilder.resolve).
+    /// The `nxb` binary the player chose (or its folder), empty for the app's own copy (ExperimentalBuilder.resolve).
     @Published package var experimentalBuilderPath: String {
         didSet { defaults.set(experimentalBuilderPath, forKey: Self.experimentalBuilderPathKey) }
     }
+    /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
+    package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).

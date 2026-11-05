@@ -279,14 +279,15 @@ The build log says which stage nxbuild ran and why a stage fell back. nxbuild's 
 Where `nxb` comes from (`ExperimentalBuilder` in `NXCore`):
 
 1. The path chosen in the row under the switch, the `nxb` binary or the folder that holds it. A chosen path that does not work is reported, never replaced by another binary.
-2. Otherwise a downloaded release in `~/Library/Application Support/NS Port Builder/nxbuild/<version>/`. No nxbuild release is published yet, so `ExperimentalBuilder.releaseURL` and `releaseSHA256` are nil and nothing is downloaded. Once a release exists (a macOS arm64 zip of the binaries, signed ad hoc), both are pinned together in that file. The download goes to a temporary file, its SHA-256 is checked against `releaseSHA256` before anything is unpacked, and a zip whose digest differs is deleted and never run.
+2. Otherwise the app's own copy, `Contents/Resources/nxbuild/nxb`. `frontend/nxbuild.pin` names the nxbuild release (version, SHA-256, URL pattern). `build-mac-app.yml` and `tools/try-local` run `frontend/tools/nxbuild.py fetch`: it downloads the zip, checks its SHA-256 against the pin before anything is unpacked, puts `nxb` into Resources and signs it ad hoc. A zip whose digest differs fails the app build. A pin with `PLACEHOLDER` as its digest bundles nothing. `frontend/tools/nxbuild.py bump <version>` pins a new release with the digest from its `SHA256SUMS`. Players download nothing at run time.
 
 With neither, the switch only writes a note in the build log and the standard builder runs.
 
-To try it with a local nxbuild:
+To try a local nxbuild:
 
 ```bash
 cd <nxbuild checkout> && cargo build --release      # the binaries land in its target folder, release/
+codesign --force --sign - <target>/release/nxb*     # ad hoc, as the app's copy
 ```
 
 Then turn the switch on and choose `release/nxb` (or the folder). From a terminal, the same works without the launcher:
@@ -294,6 +295,8 @@ Then turn the switch on and choose `release/nxb` (or the folder). From a termina
 ```bash
 DM_EXPERIMENTAL_BUILDER=1 NXB_BIN=<target>/release/nxb python3 engine/scripts/build_ipa_from_nsp.py <NSP folder> -k <prod.keys> --platform mac-app
 ```
+
+The script takes a stage binary beside `nxb` (`nxb-extract`, `nxb-split`) when there is one, else the subcommand of `nxb` (`nxb extract`, `nxb split`).
 
 The Qt front end has no switch for it: nxbuild is built for macOS on Apple silicon only, and on a Mac the launcher above is the one to use.
 
