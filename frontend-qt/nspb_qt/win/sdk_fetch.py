@@ -62,35 +62,10 @@ def rmtree(path: Path) -> None:
 
 # ---------------------------------------------------------------- git route
 
-def repair_tbd_stubs(sdk: Path, log: Callable[[str], None]) -> int:
-    """Fix `.tbd` files that a Windows git checkout left as text stubs, without git.
+def repair_tbd_stubs(sdk: Path, log: Callable[[str], None] | None = None) -> int:
+    """The toolchain's repair, re-exported for the clone route: fix `.tbd` text stubs in place."""
+    return tc.repair_tbd_stubs(sdk, log=log)
 
-    The cached SDK of an earlier broken clone has every symlink file as a small text file
-    naming its target (`libSystem.tbd` → `libSystem.B.tbd`), which ld64.lld refuses ("unhandled
-    file type"). The clone route materializes its symlinks now, but a SDK downloaded before
-    that fix is still cached and broken: walk the tree and copy each target over its stub,
-    keyed on content (a `.tbd` that does not start with the format's `--- !tapi-tbd` and names
-    an existing sibling file is a stub). Real TBD files are never touched.
-    """
-    fixed = 0
-    for p in sorted(sdk.rglob('*.tbd')):
-        if not p.is_file() or p.is_symlink():
-            continue
-        if p.read_bytes()[:13] == b'--- !tapi-tbd':
-            continue
-        target = p.read_text(encoding='utf-8', errors='replace').strip()
-        if not target or '/' in target or '\\' in target or target.startswith('.'):
-            continue
-        real = (p.parent / target).resolve()
-        if not real.is_file() or real == p.resolve():
-            continue
-        if real.read_bytes()[:13] != b'--- !tapi-tbd':
-            continue
-        p.write_bytes(real.read_bytes())
-        fixed += 1
-    if fixed:
-        log(f'repaired {fixed} .tbd text stubs in the cached SDK (symlinks a Windows clone left as text files)')
-    return fixed
 
 
 

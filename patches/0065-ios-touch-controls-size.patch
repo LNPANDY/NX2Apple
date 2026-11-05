@@ -19,7 +19,7 @@ split windows in portrait, and iPhone Duo's inner display in portrait,
 landscape and tabletop, in 2D and 3D and every size. It also pins the
 built-in layout on iPhone Pro Max to the points it has always used.
 
-Upstream-Status: pending (on seedds/nxnative#683)
+Upstream-Status: pending (builds on seedds/nxnative#683, which landed as e2fadf22)
 Reason: Players ask for smaller or larger touch controls (#347), and the placement needs tests without a device
 Issue: LNPANDY/NX2Apple#347
 ---
@@ -35,7 +35,7 @@ Issue: LNPANDY/NX2Apple#347
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 8a9f009..6396f99 100644
+index 9de7201..d4f6e57 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -10,6 +10,7 @@
@@ -103,7 +103,7 @@ index 8a9f009..6396f99 100644
 @@ -183,6 +179,9 @@ @implementation DmGamepad {
  - (instancetype)initWithFrame:(CGRect)f {
      if ((self = [super initWithFrame:f])) {
-         _layout = dm_layout(self.bounds, UIEdgeInsetsZero, NO, CGRectNull);
+         _layout = dm_layout(self.bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);   // until the front end arranges it
 +        const char *size = getenv("DM_TOUCH_SIZE");
 +        _opts.scale = dm_pad_size_scale(size);
 +        if (size && *size) LOG("front end: touch controls size %s (DM_TOUCH_SIZE)", _opts.scale < 1 ? "small" : _opts.scale > 1 ? "large" : "medium");
@@ -213,7 +213,7 @@ index 8a9f009..6396f99 100644
  - (BOOL)menuTakes:(CGPoint)p {   // the menu button takes a touch in its hit circle unless a locked key's target is nearer (the drawn keys are hidden in Tap and with a controller)
      CGFloat d = [self menuDistance:p]; if (d > 1) return NO;
      if (_tap || _padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return YES;
-@@ -466,7 +440,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
+@@ -482,7 +456,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
  // ---- Shapes ----
  static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
  static CGPathRef dropPath(CGPoint c, CGFloat r, CGFloat tipAngle, CGFloat round) {   // teardrop: circle + two tangents meeting at the tip, tip slightly rounded
@@ -222,7 +222,7 @@ index 8a9f009..6396f99 100644
      CGPoint tip = CGPointMake(c.x + d * cos(tipAngle), c.y + d * sin(tipAngle));
      CGPoint p1 = CGPointMake(c.x + r * cos(tipAngle + th), c.y + r * sin(tipAngle + th)), p2 = CGPointMake(c.x + r * cos(tipAngle - th), c.y + r * sin(tipAngle - th));
      CGMutablePathRef p = CGPathCreateMutable();
-@@ -509,20 +483,20 @@ - (void)layoutSubviews {
+@@ -525,20 +499,20 @@ - (void)layoutSubviews {
              BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
              setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
          } else if (isClick(b)) {
@@ -448,7 +448,7 @@ index 0000000..6643574
 +@class UIView;
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 new file mode 100644
-index 0000000..f02eccc
+index 0000000..2a6cab4
 --- /dev/null
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -0,0 +1,102 @@
@@ -467,7 +467,7 @@ index 0000000..f02eccc
 +static const char *k_sizes[] = {"small", "medium", "large"};
 +
 +static DmPadGeo geo(const Screen *s, BOOL full, DmPadOptions o) {
-+    return dm_pad_geo(s->bounds, s->insets, dm_layout(s->bounds, s->insets, s->partiallyOpen, s->division), full, o);
++    return dm_pad_geo(s->bounds, s->insets, dm_layout(s->bounds, s->insets, s->partiallyOpen, s->division, DM_PICTURE_16_9), full, o);
 +}
 +
 +static void check_fits(const Screen *s, BOOL full, const char *size, DmPadOptions o) {
@@ -524,7 +524,7 @@ index 0000000..f02eccc
 +        if (!NEAR(g.click[1].x, 932 - 59 - 102) || !NEAR(g.pill[DM_PAD_PLUS].origin.x, 466 + 52 - 25) || !NEAR(g.swap.x, 466) || !NEAR(g.swap.y, 22)) FAIL("Pro Max: top row moved");
 +        if (!NEAR(g.stickR, 77) || !NEAR(g.faceR, 27) || !NEAR(g.dpadR, 48)) FAIL("Pro Max: sizes changed");
 +        // Portrait split (the Duo harness's numbers): the thumbs' centres at 28 % and 72 % of the controls, 58 % down.
-+        DmLayout l = dm_layout(screens[9].bounds, screens[9].insets, NO, CGRectNull);
++        DmLayout l = dm_layout(screens[9].bounds, screens[9].insets, NO, CGRectNull, DM_PICTURE_16_9);
 +        DmPadGeo p = dm_pad_geo(screens[9].bounds, screens[9].insets, l, NO, (DmPadOptions){1});
 +        CGRect s = p.safe;
 +        if (!p.portrait || !NEAR(p.face.x, CGRectGetMinX(s) + 0.72 * s.size.width) || !NEAR(p.stick.x, CGRectGetMinX(s) + 0.28 * s.size.width)) FAIL("portrait: thumbs moved");
@@ -537,8 +537,8 @@ index 0000000..f02eccc
 +
 +    // Picture Fill (DM_PICTURE_FIT) only makes the game rectangle larger: the controls keep the full view and their places.
 +    for (int i = 0; i < nscreens; i++) {
-+        DmLayout fit = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division);
-+        DmLayout fill = dm_layout_picture(fit, screens[i].bounds, YES);
++        DmLayout fit = dm_layout(screens[i].bounds, screens[i].insets, screens[i].partiallyOpen, screens[i].division, DM_PICTURE_16_9);
++        DmLayout fill = dm_layout_picture(fit, screens[i].bounds, YES, DM_PICTURE_16_9);
 +        DmPadGeo a = dm_pad_geo(screens[i].bounds, screens[i].insets, fit, YES, (DmPadOptions){1.2}), b = dm_pad_geo(screens[i].bounds, screens[i].insets, fill, YES, (DmPadOptions){1.2});
 +        if (!CGPointEqualToPoint(a.face, b.face) || !CGPointEqualToPoint(a.stick, b.stick) || a.u != b.u) FAIL("%s: the picture fill moved the controls", screens[i].name);
 +    }

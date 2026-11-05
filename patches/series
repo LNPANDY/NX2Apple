@@ -3,7 +3,6 @@
 0003-ios-game-data-folder.patch
 0004-ios-slim-ipa.patch
 0005-nsp-dotnet-home.patch
-0006-nsp-chain-changed-note.patch
 0008-bc-cpu-decode.patch
 0009-mac-keymap.patch
 0010-mac-library-folder.patch
@@ -20,7 +19,6 @@
 0033-lint-c-test-without-workflow.patch
 0034-metal-a-newer-compiler-of-the-recorded-generatio.patch
 0037-totk-1.4.2-frame-step-sites.patch
-0041-shared-fonts-a-compact-stand-in-for-a-font-engin.patch
 0042-ios-launcher-present-the-document-picker-once-pe.patch
 0046-route-c-game-framework.patch
 0047-route-c-framework-build.patch
@@ -32,9 +30,6 @@
 0054-front-mac-start-with-the-pointer-hidden-when-the.patch
 0055-ios-shell-declare-en-and-zh-hans-in-cfbundleloca.patch
 0056-ios-shell-declare-every-language-of-frontend-l10.patch
-0057-mac-app-keep-the-finder-files-of-an-exfat-volume.patch
-0058-read-pfs0-packages-missing-the-final-filename-te.patch
-0059-recognize-unframed-pointer-tail-calls-before-zer.patch
 0060-ios-shell-declare-italian-in-cfbundlelocalizatio.patch
 0062-ios-apply-controller-button-mappings-to-physical.patch
 0065-ios-touch-controls-size.patch
@@ -43,4 +38,6 @@
 0068-ios-quit-a-game-from-the-in-game-menu-or-by-hold.patch
 0069-ios-shell-compile-the-in-game-menu-so-the-gear-o.patch
 0070-ios-touch-layout.patch
-0071-patch-nso-keep-the-split-where-the-back-patch-ar.patch
+0071-ios-shell-restore-native-duo-orientation.patch
+0072-nsp-script-the-first-dotnet-with-an-sdk-10-goes.patch
+0073-nso-asm-b-names-the-branch-it-cannot-encode.patch

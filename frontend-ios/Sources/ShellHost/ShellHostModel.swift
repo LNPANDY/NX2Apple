@@ -57,6 +57,8 @@ public struct ShellHostConfig: Sendable {
     public var notice: String?
     /// The log the host view shows in a read-only sheet.
     public var log: LogPresentation?
+    /// Play is preparing the game's resources or handing over to the engine.
+    public private(set) var launchingGame = false
 
     public private(set) var globalPadMap = PadMap()
     /// The last controller state, sent only while the button test is open.
@@ -90,6 +92,9 @@ public struct ShellHostConfig: Sendable {
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
+        // Game files stay out of the iCloud backup (#618), also what an earlier version put there. Off the main actor, it lists folders.
+        let dataRoot = config.appDataRoot
+        Task.detached(priority: .utility) { BackupExclusion.apply(appDataRoot: dataRoot) }
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
@@ -209,6 +214,15 @@ public struct ShellHostConfig: Sendable {
                                   global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID])
     }
 
+    private func profile(for entry: CatalogueEntry, data: DataResolution? = nil) -> LauncherProfile? {
+        guard let base = entry.profile, entry.problem == nil else { return nil }
+        // A DM_LANG row of the game's own list stays, except the all-languages row of a game with no language list (the engine's
+        // fallback): the RomFS names the languages it really has (#668)
+        if let row = base.settings.first(where: { $0.env == "DM_LANG" }), !RomfsLanguages.isFallbackRow(row) { return base }
+        guard let url = (data ?? self.data(for: entry)).url else { return base }
+        return RomfsLanguages.applying(to: base, options: RomfsLanguages.options(in: url))   // read once per image: RomfsLanguages caches by size and date
+    }
+
     private func image(_ url: URL?) -> Artwork? {
         guard let url else { return nil }
         if let a = artwork[url] { return a }
@@ -224,7 +238,7 @@ public struct ShellHostConfig: Sendable {
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) })
-        guard let profile = entry.profile, entry.problem == nil else {
+        guard let profile = profile(for: entry, data: data) else {
             return GameDetail(game: tile, dataNote: dataNote(data, found: false))
         }
         let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
@@ -307,7 +321,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func change(_ id: String, setting: String, value: String) {
-        guard let profile = entry(id)?.profile else { return }
+        guard let entry = entry(id), let profile = profile(for: entry) else { return }
         if setting.hasPrefix("pad.") {
             GamePadMapStore(defaults: config.defaults(id)).change(setting, value: value)
         } else {
@@ -317,7 +331,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func resetDefaults(_ id: String) {
-        guard let profile = entry(id)?.profile else { return }
+        guard let entry = entry(id), let profile = profile(for: entry) else { return }
         GameSettingsStore(profile: profile, defaults: config.defaults(id)).reset()
         GamePadMapStore(defaults: config.defaults(id)).reset()
         refresh(id)
@@ -445,8 +459,12 @@ public struct ShellHostConfig: Sendable {
     }
 
     func playNow(_ id: String) async {
-        guard let entry = entry(id), let manifest = entry.manifest, let profile = entry.profile, let framework = entry.frameworkURL,
-              details.first(where: { $0.id == id })?.game.state == .playable, let dataURL = data(for: entry).url else { return }
+        guard !launchingGame, let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
+              details.first(where: { $0.id == id })?.game.state == .playable,
+              case let resolved = data(for: entry), let dataURL = resolved.url,
+              let profile = profile(for: entry, data: resolved) else { return }
+        launchingGame = true
+        defer { launchingGame = false }
         var cloud: URL?
         switch cloudSaves(id) {
         case .own(let url), .shell(let url): cloud = url
@@ -455,11 +473,13 @@ public struct ShellHostConfig: Sendable {
         // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
         LastPlayedStore(defaults: config.defaults(id)).record(config.now())
         refresh(id)
-        let game = LaunchableGame(
+        var game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
             appFolder: appFolder(for: id), environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
-        do { try await launcher.launch(game) }
-        catch { notice = error.localizedDescription }
+        do {
+            game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
+            try await launcher.launch(game)
+        } catch { notice = error.localizedDescription }
     }
 
     /// The right-stick hint's words: a few, no semicolon, short enough for the right third of a small phone.
@@ -470,7 +490,7 @@ public struct ShellHostConfig: Sendable {
     /// or Home is held. The menu item reads the title without its question mark.
     static func quitPromptText(gameName: String) -> String {
         [hostText("Keep holding to quit"), hostText("Quit \(gameName)?"),
-         hostText("Unsaved progress will be lost. The app closes and opens on your games next time."), hostText("Quit"), hostText("Cancel")]
+         hostText("Unsaved progress will be lost. The app closes. Open it again to get back to your games."), hostText("Quit"), hostText("Cancel")]
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 
@@ -496,7 +516,7 @@ public struct ShellHostConfig: Sendable {
     /// Starts reading GameController: the connected controllers become `controllers`, their buttons `input`.
     public func startControllers() {
         adapter.onInput = { [weak self] action, device in
-            guard let self else { return }
+            guard let self, !self.launchingGame else { return }
             self.input = ShellInput(sequence: (self.input?.sequence ?? 0) + 1, action: action, device: device)
         }
         adapter.onControllersChange = { [weak self] connected in

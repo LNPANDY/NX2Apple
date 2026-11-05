@@ -1,3 +1,4 @@
+16:9 (Switch)
 30 fps
 60 fps
 Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode.
@@ -38,9 +39,11 @@ MetalFX
 Performance
 Performance HUD
 Picture
+Picture shape
 Pipeline prebuild
 Portuguese
 Render scale
+Renders about a quarter more pixels: a little slower and warmer.
 Rumble cutoff
 Rumble strength
 Russian
@@ -54,3 +57,4 @@ Up to one frame more display latency.
 Upscaling
 Uses more GPU time and can increase heat.
 Window
+iPhone Duo screen (1.43:1)
