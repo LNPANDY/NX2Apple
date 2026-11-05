@@ -18,7 +18,7 @@ Reason: the route C shell runs several games on one host binary, so no host site
 Issue: LNPANDY/NX2Apple#144
 ---
  dm/games/game.py                            |   7 +-
- dm/gfx/nvn/hle_nvn.c                        |  37 ++++----
+ dm/gfx/nvn/hle_nvn.c                        |  39 ++++----
  dm/gfx/nvn/nvn_capture.h                    |   2 +-
  dm/gfx/nvn/nvn_capture.inc                  |   2 +-
  dm/gfx/nvn/nvn_mtl.m                        |  25 ++---
@@ -39,15 +39,15 @@ Issue: LNPANDY/NX2Apple#144
  dm/host/tests/Makefile                      |  13 ++-
  dm/host/tests/t_profile_runtime.c           | 100 ++++++++++++++++++++
  dm/tools/tests/test_game_profile_runtime.py |  54 +++++++++++
- 22 files changed, 291 insertions(+), 79 deletions(-)
+ 22 files changed, 292 insertions(+), 80 deletions(-)
  create mode 100644 dm/host/tests/t_profile_runtime.c
  create mode 100644 dm/tools/tests/test_game_profile_runtime.py
 
 diff --git a/dm/games/game.py b/dm/games/game.py
-index c954822..c31749a 100644
+index a8f472a..b6e546a 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
-@@ -290,7 +290,8 @@ if __name__ == '__main__':
+@@ -293,7 +293,8 @@ if __name__ == '__main__':
                  ('shared_font', 'SHARED_FONT_TTF'), ('pad_layout', 'PAD_LAYOUT'), ('op_mode', 'OPMODE'), ('perf_mode', 'PERF_BOOST'),
                  ('feedback_snap', 'FEEDBACK_SNAP'), ('tex_flush_upload', 'TEX_FLUSH_UPLOAD'), ('render_cond', 'RENDER_COND'),
                  ('tex_dirty_upload', 'TEX_DIRTY_UPLOAD'), ('tex_dyn_slots', 'TEX_DYN_SLOTS'), ('gpu_timestamps', 'GPU_TS_SEGMENT'),
@@ -57,7 +57,7 @@ index c954822..c31749a 100644
          def val(macro):   # the header's C spelling → the file's plain spelling
              v = M.get('DM_GAME_' + macro)
              if v is None: return None
-@@ -306,7 +307,9 @@ if __name__ == '__main__':
+@@ -309,7 +310,9 @@ if __name__ == '__main__':
              v = val(macro)
              if v is not None: L.append(f'{key}\t{v}')
          api = [val('NVN_API_MAJOR'), val('NVN_API_MINOR')]
@@ -69,7 +69,7 @@ index c954822..c31749a 100644
              L.append(f'display_version\t{b}\t{d}')
          text = '\n'.join(L) + '\n'
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 9f6a722..381c3c8 100644
+index 904fbec..35441ea 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -192,16 +192,14 @@ __attribute__((weak)) int dm_sdk_ounce(void) { return 0; }
@@ -162,25 +162,34 @@ index 9f6a722..381c3c8 100644
          CC_SHA256_Update(&hc, ctl, nctl);
      } else CC_SHA256_Update(&hc, sd->control, nctl);
      if (code) CC_SHA256_Update(&hc, (const void *)(uintptr_t)sd->data, ncode);
-@@ -1769,7 +1768,7 @@ static int g_present_cap = -1;
+@@ -1763,7 +1762,7 @@ static _Atomic int g_high_cap = 60;
+ static int fps_high(void) {
+     int v = __atomic_load_n(&g_fps_high, __ATOMIC_RELAXED);
+     if (v < 0) {
+-        const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : DM_GAME_FPS_TARGET;
++        const char *e = getenv("DM_FPS_TARGET"); int t = e ? atoi(e) : dm_prof()->fps_target;
+         v = t == 120 && DM_GAME_FPS_MAX >= 120 && !dm_fps_state && dm_fps_lock_engine();
+         if (t == 120 && DM_GAME_FPS_MAX >= 120 && !v) LOG("[RED] [nvn] 120 fps: this main has %s, so it runs at 60", dm_fps_state ? "a frame step in whole vsyncs" : "no engine frame limit the host writes");
+         __atomic_store_n(&g_fps_high, v, __ATOMIC_RELAXED);
+@@ -1799,7 +1798,7 @@ static int g_present_cap = -1;
  static int fps_present_cap(void) {
-     if (dm_fps_state) return fps_step_cap();
+     if (dm_fps_state || fps_high()) return fps_step_cap();
      if (g_present_cap < 0) {
 -        const char *e=getenv("DM_FPS_TARGET");int t=e?atoi(e):DM_GAME_FPS_TARGET;
 +        const char *e=getenv("DM_FPS_TARGET");int t=e?atoi(e):dm_prof()->fps_target;
-         g_present_cap=t==30||t==60?t:0;
+         g_present_cap=t==30||t==60?t:t==120?60:0;   // 120 here: not this game's (fps_high), so it runs at 60
          if (g_present_cap && !dm_fps_lock_engine()) {
              LOG("[nvn] present cap %d fps (%s) not applied: this main has neither a frame step nor an engine frame limit the host writes, so the game's own present interval stays", g_present_cap, e ? "DM_FPS_TARGET" : "game profile fps_target");
-@@ -1793,7 +1792,7 @@ static void present_cfg(const win_t *o) {
+@@ -1824,7 +1823,7 @@ static void present_cfg(const win_t *o) {
      // with a fixed hard floor of 60 fps; the logic stays at 25 ticks, and the client's frame-counted UI logic is unaffected -
      // with the same save and the same input, the UI message streams of the two modes match message by message. Proof (before character select): r9 game / display 60 ×3 / display 120 ×2, 6 groups in total, uicmp consistent
      // (the save indicator is exempted as a timing race), and the timing differences of key messages are within game mode's own noise band; proof after entering a run is still missing, pending action script coverage
 -    const char *m = getenv("DM_PRESENT_INTERVAL"); g_display_mode = m ? !strcmp(m, "display") : DM_GAME_PRESENT_DISPLAY;
 +    const char *m = getenv("DM_PRESENT_INTERVAL"); g_display_mode = m ? !strcmp(m, "display") : dm_prof()->present_display;
      LOG("[nvn] present tick %d Hz, interval mode %s (%s; present interval set by the game %d; %s)", g_hz, g_display_mode ? "display (one frame per tick, a cut)" : "game (original semantics)",
-         m ? "DM_PRESENT_INTERVAL" : "game profile present_interval", o->interval, scr > 0 ? "window, fixed 60 Hz" : "no window, fixed 60 Hz");
+         m ? "DM_PRESENT_INTERVAL" : "game profile present_interval", o->interval, scr > 0 ? "window" : "no window");
  }
-@@ -1857,7 +1856,7 @@ static int fstep_cpu_slowed(uint64_t presents) {
+@@ -1889,7 +1888,7 @@ static int fstep_cpu_slowed(uint64_t presents) {
  static int fstep_hold(void) {
      static int h = -1;
      if (h < 0) {
@@ -189,7 +198,7 @@ index 9f6a722..381c3c8 100644
          if (!h) LOG("[nvn] frame step: frames are not held longer than the cap's vsyncs (%s)", e ? "DM_FPS_HOLD" : "game profile fps_hold");
      }
      return h;
-@@ -2172,7 +2171,7 @@ static uint8_t *vpool_reserve(pool_t *o) {   // → the reserved range, or NULL
+@@ -2211,7 +2210,7 @@ static uint8_t *vpool_reserve(pool_t *o) {   // → the reserved range, or NULL
      pthread_mutex_lock(&g_vp_mu);
      if (g_nvp == g_cvp && !(g_vp = realloc(g_vp, (g_cvp = g_cvp ? 2 * g_cvp : 64) * sizeof *g_vp))) die("sparse pool table allocation failed");
      g_vp[g_nvp++] = v; o->vp = v;
@@ -198,7 +207,7 @@ index 9f6a722..381c3c8 100644
      pthread_mutex_unlock(&g_vp_mu);
      if (o->vmode == 2) LOG("[nvn] virtual pool %p (%#llx bytes, flags %#x): sparse, own address range %p+%#llx, physical pages are remapped into it", (const void *)o, (unsigned long long)o->size, o->flags, a, (unsigned long long)len);
      return a;
-@@ -2794,11 +2793,11 @@ NVN(nvnCommandBufferClearBuffer, void, NVNcommandBuffer *c, NVNbufferAddress a,
+@@ -2838,11 +2837,11 @@ NVN(nvnCommandBufferClearBuffer, void, NVNcommandBuffer *c, NVNbufferAddress a,
  // State the replay layer does not have yet: logged once (conditional rendering is treated as "always draw")
  // Render enable (profile render_cond, see OP_RENDER_COND in nvn_mtl.m): recorded and evaluated at replay; without the key everything draws, as before
  NVN(nvnCommandBufferSetRenderEnable, void, NVNcommandBuffer *c, uint32_t en) {
@@ -226,7 +235,7 @@ index bec00f5..b1c688a 100644
  typedef struct { tex_t t; uint32_t kind, pad; } cap_tknd;   // t: relocated
  typedef struct { tex_t t; uint32_t pixfmt, type, width, height, depth, levels, slices, samples, nsub, pad; } cap_tpix;   // t: relocated, the texture to create and fill
 diff --git a/dm/gfx/nvn/nvn_capture.inc b/dm/gfx/nvn/nvn_capture.inc
-index 3d64318..04f308a 100644
+index be405db..bb0b536 100644
 --- a/dm/gfx/nvn/nvn_capture.inc
 +++ b/dm/gfx/nvn/nvn_capture.inc
 @@ -329,7 +329,7 @@ static void cap_head(void) {
@@ -239,10 +248,10 @@ index 3d64318..04f308a 100644
      for (char **e = *_NSGetEnviron(); *e; e++) if (!strncmp(*e, "DM_", 3) && strncmp(*e, "DM_NVN_CAPTURE=", 15)) KV("env\t%s\n", *e);
  #undef KV
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index ae8547c..7bbd2cd 100644
+index 3a28360..5d7f618 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -429,7 +429,7 @@ void mtl_init(void) {
+@@ -430,7 +430,7 @@ void mtl_init(void) {
      if (!g_dev) MDIE("no Metal device");
      if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
      g_bc_gpu = [g_dev supportsBCTextureCompression];
@@ -251,7 +260,7 @@ index ae8547c..7bbd2cd 100644
      if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
      g_q = [g_dev newCommandQueue];
      // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
-@@ -1512,7 +1512,7 @@ static void post(post_op o) {
+@@ -1513,7 +1513,7 @@ static void post(post_op o) {
  // so a game that waits for the fence reads one submission's reports together; a segment whose feedback has not arrived by then takes the last segment's times
  #define SEG_CLK_N 1024
  struct seg_clk { _Atomic int refs; _Atomic uint64_t t[SEG_CLK_N][2]; };   // per submission (g_sclk, allocated at its first cut): guest ns of each cut segment's GPU start / end (0 = no feedback yet)
@@ -260,7 +269,7 @@ index ae8547c..7bbd2cd 100644
  static void seg_clk_put(seg_clk *c) { if (c && atomic_fetch_sub(&c->refs, 1) == 1) free(c); }
  static uint64_t gpu_s_guest_ns(double s) {   // a feedback GPU time (seconds on the mach absolute time base) on the guest clock; 0 when unknown
      static mach_timebase_info_data_t tb; if (!tb.denom) mach_timebase_info(&tb);
-@@ -1700,7 +1700,7 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+@@ -1701,7 +1701,7 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
              free(l); uint64_t rec[2] = {sum, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec);
          }
          else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
@@ -269,7 +278,7 @@ index ae8547c..7bbd2cd 100644
      }
      free(ops); seg_clk_put(sc); r->ops = NULL; r->sc = NULL;
      atomic_store(&r->claimed, 1);
-@@ -3337,7 +3337,7 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
+@@ -3338,7 +3338,7 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
          }
      }
      id have = tex_get(t->serial);
@@ -278,7 +287,7 @@ index ae8547c..7bbd2cd 100644
      if (!packaged && !have && on_sub_thread() && tex_cpu_content(t)) { mtl_tex_cpu_written(t); packaged = 1; }   // storage the CPU wrote before its first use (tex_cpu_content)
      if (packaged) {
          NvPkg *pk = [have isKindOfClass:[NvPkg class]] ? have : nil;   // resolved as GPU-only before the CPU wrote it: dropped and rebuilt as packaged
-@@ -4403,7 +4403,7 @@ static int clear_rect_zero(int i) {
+@@ -4431,7 +4431,7 @@ static int clear_rect_zero(int i) {
  static void shmap_read(void) {
      if (g_shmap) return;
      const char *e = getenv("DM_NVN_SHMAP");
@@ -287,7 +296,7 @@ index ae8547c..7bbd2cd 100644
      NSString *txt = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
      if (!txt) MDIE("cannot read the shader map %s (DM_NVN_SHMAP can name another)", path.UTF8String);
      g_shmap = [NSMutableDictionary dictionary];
-@@ -4425,7 +4425,7 @@ static void shmap_read(void) {
+@@ -4458,7 +4458,7 @@ static void shmap_read(void) {
          if (c.count == 2 && [c[0] isEqual:@"game"]) st_game = c[1]; else if (c.count == 2 && [c[0] isEqual:@"inputs"]) st_inputs = c[1];
      }
      if (!st_inputs) MLOG("[RED] shader library %s has no stamp (inputs.tsv): no full dmsh_build.py run made it as it is, so c1_full.tsv and cb_extent.tsv are not taken", g_msl_dir.UTF8String);
@@ -296,7 +305,7 @@ index ae8547c..7bbd2cd 100644
      else MLOG("shader library stamp: game %s, inputs %s", st_game.UTF8String, st_inputs.UTF8String);
      NSString *cp = [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"c1_full.tsv"];   // Same directory as the mapping table (Mac: dm/games/<id>; iOS: dm/ inside the App, copied along by build_ipa.sh)
      NSString *ct = cp ? [NSString stringWithContentsOfFile:cp encoding:NSUTF8StringEncoding error:nil] : nil;
-@@ -4679,7 +4679,7 @@ @implementation FnDev @end
+@@ -4722,7 +4722,7 @@ @implementation FnDev @end
      if (stage == 0 && [j[@"layer_from"] isKindOfClass:[NSDictionary class]]) { o->lay_loc = [j[@"layer_from"][@"loc"] intValue]; o->lay_comp = [[j[@"layer_from"][@"comp"] description] UTF8String][0]; }
      char err[160];
      if (nvn_refl_from_json(j, &o->rf, err, sizeof err)) { MLOG("[RED] shader %s reflection conversion failed: %s", pc.UTF8String, err); return nil; }
@@ -305,7 +314,7 @@ index ae8547c..7bbd2cd 100644
          // (rf.c1 is freed by dealloc when o goes: freeing it here too was a double free, which aborted FINAL FANTASY RESONANCE at its first such shader)
          MLOG("[RED] shader %s reflection conversion failed: a texture handle the translator could not trace to one slot (profile key tex_dyn_slots off)", pc.UTF8String); return nil; }
      if (rt_range_on()) o->range_ro=rt_range_bindings_ro(j);
-@@ -6065,7 +6065,7 @@ static void vconv_fill(int f, uint64_t src, uint32_t stride, uint64_t nv, float
+@@ -6145,7 +6145,7 @@ static void vconv_fill(int f, uint64_t src, uint32_t stride, uint64_t nv, float
  typedef struct { uint32_t mn, mx; uint64_t stamp, seen, lo, n; const void *span; int gpuw; } ir_ent;   // gpuw: a GPU write was queued on the indices: never trusted again
  static nvn_hmap g_ir = {.klen = sizeof(ir_key)};
  static uint64_t g_vc_rgn[VC_RGN / 64], g_vc_stat, g_vc_conv, g_vc_whole, g_vc_checks, g_vc_bad;   // g_vc_rgn: 1 MB regions holding a kept index range (hashed); g_vc_conv / g_vc_whole: vertices converted / in the bound ranges
@@ -314,7 +323,7 @@ index ae8547c..7bbd2cd 100644
  static int vc_check(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_VCONV_CHECK"); v = e && *e && atoi(e); } return v; }
  static inline uint32_t vc_rgn(uint64_t r) { return (uint32_t)((r * 0x9E3779B97F4A7C15ull) >> 48) & (VC_RGN - 1); }
  static void vc_rgn_mark(uint64_t lo, uint64_t n) { for (uint64_t r = lo >> 20; r <= (lo + n - 1) >> 20; r++) { uint32_t b = vc_rgn(r); g_vc_rgn[b >> 6] |= 1ull << (b & 63); } }
-@@ -6537,7 +6537,7 @@ static int pso4_on(void) {
+@@ -6618,7 +6618,7 @@ static int pso4_on(void) {
      if (v < 0) {
          const char *e = getenv("DM_PSO_MTL4");
  #if TARGET_OS_IPHONE
@@ -323,7 +332,7 @@ index ae8547c..7bbd2cd 100644
          if (!v) MLOG("render pipelines through the MTLDevice (iOS: DM_PSO_MTL4=1 or the profile key pso_mtl4 on turns on the Metal 4 bases, the pipeline archive and the hybrid pipelines)");
  #else
          v = !(e && !strcmp(e, "0"));
-@@ -11390,7 +11390,7 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+@@ -11487,7 +11487,7 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
      // textures from the CPU, reads them back with ReadTexels on its own thread before any draw uses them, and copies the blocks into its 5120x5120 roughness atlas. Read from the
      // never-uploaded host texture they were zeros, the atlas stayed empty, and the opening cave's stone blocks got roughness 0 and no torch light
      int nvn_ft_written(const tex_t *);
@@ -332,7 +341,7 @@ index ae8547c..7bbd2cd 100644
          // A sparse pool's texture is read through a copy gathered from its page table, unmapped pages as 0, as pkg_upload_ uploads it: where nothing is mapped its address range is
          // inaccessible (reading the storage directly stopped the host with SIGBUS)
          const uint8_t *mem = t->mem; uint8_t *part = NULL;
-@@ -12198,7 +12198,7 @@ void mtl_exec(const uint8_t *p) {
+@@ -12295,7 +12295,7 @@ void mtl_exec(const uint8_t *p) {
                  PD("Y signal_event cmd=%p dst=%p mode=%u value=%u", p, val, m, v); mtl_sub_event(val, m, v); break; }
              case OP_REPORT_COUNTER: { uint64_t t, ad; memcpy(&t, a, 8); memcpy(&ad, (const uint8_t *)a + 8, 8); g_cnt_report[t & 31]++;
                  PD("Q report type=%llu cmd=%p dst=%#llx", (unsigned long long)t, p, (unsigned long long)ad);
@@ -341,7 +350,7 @@ index ae8547c..7bbd2cd 100644
                  if (t == NVN_COUNTER_TYPE_SAMPLES_PASSED) { post((post_op){3, NULL, 0, 0, ad, (uint32_t)t, vis_snapshot()}); g_vis_cur = -1; }
                  else mtl_sub_counter(ad, (uint32_t)t);
                  break; }
-@@ -13431,9 +13431,10 @@ uint64_t mtl_present_ext(uint64_t serial, double period, void *ev, uint64_t ev_v
+@@ -13528,9 +13528,10 @@ uint64_t mtl_present_ext(uint64_t serial, double period, void *ev, uint64_t ev_v
  int mtl_snap_on(void) {
      static int v = -1; if (v >= 0) return v;
      const char *e = getenv("DM_PRESENT_SNAP");
@@ -367,7 +376,7 @@ index 3a3f5e0..10032d6 100644
      if (g_rec) MLOG("Metal encoding runs on its own thread (DM_NVN_ENC_THREAD=0 turns it off)");
      return g_rec;
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 02aa8ad..3b1a72a 100644
+index 5288b37..91a49ea 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
 @@ -47,10 +47,10 @@ t_transform_feedback: t_transform_feedback.m $(MTL_T_DEP)
@@ -494,7 +503,7 @@ index 426dcab..9c6f50d 100644
      return mount_ex(name, dd, 0, 1);
  }
 diff --git a/dm/host/hle_oe.c b/dm/host/hle_oe.c
-index 593d975..0ecef9f 100644
+index a079a02..14d284c 100644
 --- a/dm/host/hle_oe.c
 +++ b/dm/host/hle_oe.c
 @@ -12,7 +12,7 @@
@@ -506,7 +515,7 @@ index 593d975..0ecef9f 100644
      return m;
  }
  // ---------- System notification queue (AppletMessage): front end state changes → fetched by the game every frame with TryPopNotificationMessage ----------
-@@ -270,7 +270,7 @@ HLE_FORCE("_ZN2nn2oe16GetOperationModeEv", "operation mode query; a fixed value
+@@ -278,7 +278,7 @@ HLE_FORCE("_ZN2nn2oe16GetOperationModeEv", "operation mode query; a fixed value
  // Profile perf_mode boost: Boost whatever the operation mode, a combination a Switch 1 never reports, so a profile choice and not a default. Rhythm Heaven Groove keeps one flag per mode
  //   (main+0xa764 / main+0xa784): console means a TV, which gets a latency calibration (main+0x20d0, scene script main+0x4c0820), and Boost alone picks its 1920x1080 draw size
  //   (table main+0xada6d0, else 1280x720). Handheld with Boost: no TV calibration on a phone, full-size drawing
@@ -758,19 +767,19 @@ index 6617759..af89a94 100644
      dm_cheats_init();   // the Atmosphère cheat files for this build (hle_cheats.c): picked by first 16 hex digits of main's build ID, which the loader knows now
      dm_sdk_major();   // logs the SDK version, which SDK-dependent behaviour follows (loader.c)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 42e8101..aee5576 100644
+index d1fa46b..f61c812 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
  GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
  $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
  GAME_H = ../gen/$(GAME)/game_profile.h
--run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_input_map $(B)/t_launcher_contract
-+run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_profile_runtime $(B)/t_input_map $(B)/t_launcher_contract
+-run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_input_map $(B)/t_launcher_contract
++run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
  	$(B)/t_language
  	$(B)/t_heap_size
  	$(B)/t_touch
-@@ -44,6 +44,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+@@ -45,6 +45,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
  	$(B)/t_sf
  	$(B)/t_time
  	$(B)/t_shared_font
@@ -778,7 +787,7 @@ index 42e8101..aee5576 100644
  	$(B)/t_system_event
  	$(B)/t_vorbis
  	$(B)/t_vorbis_divides
-@@ -100,7 +101,7 @@ nro: $(B)/t_nro
+@@ -101,7 +102,7 @@ nro: $(B)/t_nro
  	$(B)/t_nro
  # the cheat engine (hle_cheats.c, compiled into the test with stubs for the loader, the heap and the keys)
  $(B)/t_cheats: t_cheats.c ../hle_cheats.c ../dm.h ../dm_input.h $(GAME_H) | $(B)
@@ -787,7 +796,7 @@ index 42e8101..aee5576 100644
  .PHONY: cheats
  cheats: $(B)/t_cheats
  	TMPDIR="$(abspath $(B))" $(B)/t_cheats
-@@ -168,7 +169,7 @@ $(B)/t_ue_heap_span: t_ue_heap_span.c ../hle_uemalloc.c ../hle.h ../dm.h $(GAME_
+@@ -171,7 +172,7 @@ $(B)/t_ue_heap_span: t_ue_heap_span.c ../hle_uemalloc.c ../hle.h ../dm.h $(GAME_
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function $(GINC) -o $@ t_ue_heap_span.c
  run: $(B)/t_uecvar
  $(B)/t_uecvar: t_uecvar.c ../hle_uecvar.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -796,7 +805,7 @@ index 42e8101..aee5576 100644
  $(B)/t_swkbd: t_swkbd.c ../hle_swkbd.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_swkbd.c ../hle_swkbd.c
  run: $(B)/t_bigstack
-@@ -361,3 +362,9 @@ coverage:
+@@ -364,3 +365,9 @@ coverage:
  	rm -rf $(B)/cov/prof
  	LLVM_PROFILE_FILE="$(call cov_profile,$(B)/cov)" $(MAKE) -i B=$(B)/cov SAN="$(COV_FLAGS)" run
  	@$(call cov_export,$(B)/cov)

@@ -115,12 +115,12 @@ met en cache pour vos propres jeux.
 Les **Options de lancement** (par jeu, conservées d’une compilation à l’autre) règlent la fréquence d’images, le
 mode de la console (TV ou portable), l’échelle de rendu et la mise à l’échelle, la langue du jeu, les commandes et
 plus encore. Ce que fait chaque option est décrit dans
-[docs/settings.md](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/settings.md). Une manette pilote le lanceur aussi bien que les jeux.
+[docs/settings.md](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/settings.md). Une manette pilote le lanceur aussi bien que les jeux.
 
 **Sur l’iPhone**, l’app montre les mêmes réglages avant le démarrage du jeu. Touchez **Jouer**. Les commandes
 tactiles existent en disposition 2D et 3D (touchez le bouton en haut au centre), et une manette connectée
 (Xbox, PlayStation, Switch Pro, MFi) les remplace.
-[docs/playing.md](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/playing.md) traite du tactile, des vibrations et du mouvement. De courtes saccades la première fois
+[docs/playing.md](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/playing.md) traite du tactile, des vibrations et du mouvement. De courtes saccades la première fois
 qu’une scène apparaît sont normales : l’app compile les graphismes pour elle une fois et s’en souvient. Les
 données du jeu (`romfs.img`) peuvent se trouver sur un disque externe choisi dans l’app Fichiers.
 
@@ -157,12 +157,12 @@ profil qui n’a pas encore été essayé sur un téléphone. En voici quelques-
 
 | | Jeu | Où il tourne | Statut |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac et iPhone | **Vérifié ici** : 304 243 fichiers, vérifiés octet par octet, environ 17 Go |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac et iPhone | **Vérifié ici** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Vérifié ici** : tourne de façon fluide |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Signalé jouable en amont |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Signalé jouable en amont, 60 fps avec 1.9.0 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Signalé jouable en amont |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac et iPhone | **Vérifié ici** : 304 243 fichiers, vérifiés octet par octet, environ 17 Go |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac et iPhone | **Vérifié ici** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Vérifié ici** : tourne de façon fluide |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Signalé jouable en amont |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Signalé jouable en amont, 60 fps avec 1.9.0 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Signalé jouable en amont |
 
 **[GAMES.md](GAMES.md)** contient la galerie de captures avec la taille d’installation de chaque jeu, et le
 tableau complet avec la version de mise à jour dont chaque jeu a besoin : la version affichée du NSP de mise à
@@ -171,7 +171,7 @@ jour doit correspondre à celle du profil, sinon la compilation le signale.
 ## Limites
 
 - **Seulement les jeux qui ont un profil.** Un titre hors de la liste demande son propre travail de mise en route.
-  Le point de départ est [docs/agents](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/agents/README.md), le guide du projet en amont pour un autre titre Switch.
+  Le point de départ est [docs/agents](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/agents/README.md), le guide du projet en amont pour un autre titre Switch.
 - **Les gros jeux atteignent une limite de mémoire sur iPhone.** Sans l’entitlement Increased Memory Limit, iOS
   donne à l’app environ 3,4 Go, ce qui ne suffit pas pour Tears of the Kingdom. L’app le demande, et
   AltStore Classic 2.2+, Impactor et Xcode avec une Personal Team le conservent. SideStore avec un identifiant
@@ -195,7 +195,7 @@ jour doit correspondre à celle du profil, sinon la compilation le signale.
   l’explique, et `python3 tools/engine.py status` liste ce qui est porté. Une tâche quotidienne déplace l’épingle
   et ouvre une pull request, ou un ticket qui nomme le correctif qui ne s’applique plus. Les liens vers les
   documents du moteur dans ce README pointent vers nxnative au commit épinglé.
-- **Un autre jeu Switch :** [docs/agents](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/agents/README.md) (extraction, analyse du binaire, mise en route).
+- **Un autre jeu Switch :** [docs/agents](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/agents/README.md) (extraction, analyse du binaire, mise en route).
 - **Historique des versions :** [CHANGELOG.md](CHANGELOG.md).
 
 ## Remerciements
@@ -223,7 +223,7 @@ Tout le travail sur le moteur est celui d’autres personnes. Ce dépôt ajoute 
 - **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)** : de SPIR-V vers Metal Shading Language.
 - **yuzu**, **deko3d**, **libvpx**, **stb_vorbis**, **libdeflate** : la liste de remerciements du projet en amont dit ce que chacun apporte.
 
-`dm/third_party` contient d’autres projets avec leurs licences ([liste](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/dm/third_party/README.md)).
+`dm/third_party` contient d’autres projets avec leurs licences ([liste](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/dm/third_party/README.md)).
 
 ## Mentions légales
 

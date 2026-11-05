@@ -13,7 +13,6 @@ none has one, so nothing else changes order.
 Upstream-Status: forwarded seedds/nxnative#1233
 Reason: An older .NET in /usr/local/share/dotnet comes before the .NET 10 in ~/.dotnet in TOOL_PATHS, and the build stops with NETSDK1045
 Issue: LNPANDY/NX2Apple#342
-
 ---
  dm/tools/tests/test_nsp_dotnet.py | 42 +++++++++++++++++++++++++++++++
  scripts/build_ipa_from_nsp.py     | 18 +++++++++++++
@@ -78,10 +77,10 @@ index f81a641..80cda9e 100644
 +
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 881590d..d24f98d 100755
+index 59f3df7..486a464 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -439,6 +439,23 @@ def configure_dotnet(env):
+@@ -442,6 +442,23 @@ def configure_dotnet(env):
              return
  
  
@@ -105,7 +104,7 @@ index 881590d..d24f98d 100755
  # ---- NSP identification ----
  def pfs0_names(path):   # NSP = PFS0: list the file names inside
      with open(path, 'rb') as f:
-@@ -2878,6 +2895,7 @@ def main(args=None):
+@@ -2979,6 +2996,7 @@ def main(args=None):
      # who wants telemetry on keeps it.
      env.setdefault('DOTNET_CLI_TELEMETRY_OPTOUT', '1')
      env.setdefault('DOTNET_NOLOGO', '1')
