@@ -99,6 +99,7 @@ jobs:
           # directory a windowed build would otherwise miss.
           pyinstaller --noconfirm --clean --windowed \
             --name "NS Port Builder" \
+            --icon "nspb_qt/assets/app_icon.ico" \
             --collect-submodules PySide6.QtCore \
             --collect-submodules PySide6.QtGui \
             --collect-submodules PySide6.QtWidgets \

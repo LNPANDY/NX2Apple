@@ -202,8 +202,9 @@ QPushButton {{
     background: rgba(255, 255, 255, 0.08);
     color: {TEXT};
     border: 1px solid rgba(255, 255, 255, 0.13);
-    border-radius: 9px;
-    padding: 6px 14px;
+    border-radius: 12px;
+    padding: 6px 16px;
+    min-height: 18px;
     font-weight: 600;
     font-size: 12.5px;
 }}
@@ -222,9 +223,10 @@ QPushButton:disabled {{
 QPushButton#creamPill {{
     background: {ACCENT};
     color: {ACCENT_INK};
-    border: none;
-    border-radius: 18px;
-    padding: 7px 18px;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    padding: 6px 18px;
+    min-height: 20px;
     font-size: 13px;
     font-weight: 700;
 }}
@@ -241,9 +243,10 @@ QPushButton#creamPill:disabled {{
 QPushButton#primary {{
     background: {ACCENT};
     color: {ACCENT_INK};
-    border: none;
-    border-radius: 22px;
-    padding: 11px 26px;
+    border: 1px solid transparent;
+    border-radius: 18px;
+    padding: 10px 26px;
+    min-height: 22px;
     font-size: 14px;
     font-weight: 700;
 }}
@@ -260,9 +263,10 @@ QPushButton#primary:disabled {{
 QPushButton#heroPlay {{
     background: {ACCENT};
     color: {ACCENT_INK};
-    border: none;
-    border-radius: 25px;
-    padding: 12px 28px;
+    border: 1px solid transparent;
+    border-radius: 22px;
+    padding: 10px 28px;
+    min-height: 24px;
     font-size: 15px;
     font-weight: 800;
 }}
@@ -277,14 +281,43 @@ QPushButton#heroSecondary {{
     background: rgba(20, 20, 22, 0.72);
     color: {TEXT};
     border: 1px solid rgba(255, 255, 255, 0.20);
-    border-radius: 21px;
-    padding: 9px 18px;
+    border-radius: 16px;
+    padding: 7px 18px;
+    min-height: 20px;
     font-size: 13px;
     font-weight: 600;
 }}
 QPushButton#heroSecondary:hover {{
     background: rgba(38, 38, 42, 0.88);
     border-color: rgba(255, 255, 255, 0.32);
+}}
+QPushButton#winCtrlBtn {{
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    border: none;
+    border-radius: 6px;
+    padding: 0px;
+    min-height: 0px;
+    font-size: 13px;
+    font-weight: 500;
+}}
+QPushButton#winCtrlBtn:hover {{
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}}
+QPushButton#winCloseBtn {{
+    background: transparent;
+    color: rgba(255, 255, 255, 0.72);
+    border: none;
+    border-radius: 6px;
+    padding: 0px;
+    min-height: 0px;
+    font-size: 13px;
+    font-weight: 500;
+}}
+QPushButton#winCloseBtn:hover {{
+    background: #e81123;
+    color: #ffffff;
 }}
 QPushButton#danger {{
     background: rgba(255, 97, 97, 0.15);

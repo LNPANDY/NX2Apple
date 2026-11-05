@@ -149,7 +149,85 @@ class Model(QObject):
     # ---- strings
 
     def t(self, key: str, *args: object) -> str:
-        return t(key, self.lang, *args)
+        res = t(key, self.lang, *args)
+        if pu.IS_WIN or getattr(self, 'target_platform', 'ios') == 'ios':
+            if key not in ('build.mac', 'build.macNote', 'target.macDone', 'msg.macAppDone', 'target.tip'):
+                res = (
+                    res.replace('在访达中显示', '在文件夹中显示')
+                    .replace('在访达里', '在文件夹中')
+                    .replace('在访达中', '在文件夹中')
+                    .replace('用访达复制', '用文件资源管理器复制')
+                    .replace('在访达边栏', '在文件资源管理器')
+                    .replace('访达', '文件夹')
+                    .replace('此 Mac', '此电脑')
+                    .replace('Reveal in Finder', 'Show in folder')
+                    .replace('Show in Finder', 'Show in folder')
+                    .replace('in the Finder', 'in the folder')
+                    .replace('in Finder', 'in folder')
+                    .replace('with Finder', 'with File Explorer')
+                    .replace('this Mac', 'this PC')
+                    .replace('This Mac', 'This PC')
+                )
+        return res
+
+    # ---- shell cache folder (mirrors BuildStore+ShellRoot.swift)
+
+    @staticmethod
+    def default_shell_cache_path() -> str:
+        return str(lib.default_state_dir() / 'shell')
+
+    @property
+    def shell_cache_path(self) -> str:
+        saved = self.settings.value('shellRoot', defaultValue='', type=str)
+        if saved and saved.strip():
+            return saved.strip()
+        return self.default_shell_cache_path()
+
+    @property
+    def shell_cache_is_default(self) -> bool:
+        try:
+            return Path(self.shell_cache_path).resolve() == Path(self.default_shell_cache_path()).resolve()
+        except OSError:
+            return self.shell_cache_path == self.default_shell_cache_path()
+
+    def move_shell_cache(self, target_dir: str, *, exact_dest: bool = False) -> tuple[bool, str]:
+        if self.running:
+            return False, self.t('shellCache.busy')
+        if not target_dir or not target_dir.strip():
+            return False, self.t('shellCache.problem.readOnly')
+        src = Path(self.shell_cache_path)
+        raw_target = Path(target_dir.strip())
+        dst = raw_target if (exact_dest or raw_target.name.lower() == 'shell') else (raw_target / 'shell')
+        try:
+            src_res = src.resolve()
+            dst_res = dst.resolve()
+        except OSError:
+            src_res, dst_res = src, dst
+        if src_res == dst_res:
+            return False, self.t('shellCache.problem.same')
+        if src_res in dst_res.parents:
+            return False, self.t('shellCache.problem.inside')
+        try:
+            if src.exists():
+                if dst.exists() and any(dst.iterdir()):
+                    return False, self.t('shellCache.problem.taken')
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+                shutil.rmtree(src, ignore_errors=True)
+            else:
+                dst.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            return False, self.t('shellCache.failed', str(e), str(src))
+        default_res = Path(self.default_shell_cache_path()).resolve()
+        if dst_res == default_res:
+            self.settings.setValue('shellRoot', '')
+        else:
+            self.settings.setValue('shellRoot', str(dst))
+        self.repoChanged.emit()
+        return True, self.t('shellCache.moved', str(dst))
+
+    def reset_shell_cache_default(self) -> tuple[bool, str]:
+        return self.move_shell_cache(self.default_shell_cache_path(), exact_dest=True)
 
     def settings_value(self, key: str, default: bool | None = None) -> bool | None:
         v = self.settings.value(key, defaultValue='', type=str)
@@ -1490,6 +1568,10 @@ class Model(QObject):
                 exists = bool(self.mac_app_path) and Path(self.mac_app_path).exists()
                 self.finished.emit(exists, self.t('target.macDone' if exists else 'target.missingApp'))
             elif ok:
+                for st in self.stages:
+                    if st.state == 'running':
+                        st.state = 'done'
+                self.stagesChanged.emit()
                 if self.ipa_kind == 'oneGame':
                     self._record_library_ios_completion()
                     self.finished.emit(True, self.t('shell.oneGameDone', self.ipa_path))
@@ -1591,6 +1673,10 @@ class Model(QObject):
                     self.stages[-1].state = 'done'
                 self.stages.append(Stage(name=name, state='running'))
                 self.stagesChanged.emit()
+            elif name and '✓' in name:
+                if self.stages and self.stages[-1].state == 'running':
+                    self.stages[-1].state = 'done'
+                    self.stagesChanged.emit()
 
     def _flush_lines(self) -> None:
         self._line_buf = ''

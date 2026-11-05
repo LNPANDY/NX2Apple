@@ -4,8 +4,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl, Qt
-from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QFont
+from PySide6.QtCore import QPoint, QTimer, QUrl, Qt
+from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QFont, QIcon, QMouseEvent, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -62,6 +62,71 @@ def _set_dot(d: QLabel, color: str) -> None:
     d.setStyleSheet(f'background: {color}; border-radius: 4px;')
 
 
+class TopBarFrame(QFrame):
+    """Custom frameless top bar that keeps the center navigation tabs pinned at the exact horizontal center
+    and supports dragging / double-clicking to move or maximize the window."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.nav_container: QWidget | None = None
+        self.search_box: QLineEdit | None = None
+        self._drag_offset: QPoint | None = None
+
+    def recenter_nav(self) -> None:
+        if self.search_box is not None:
+            sw = max(108, min(172, self.width() - 845))
+            self.search_box.setFixedWidth(sw)
+        if self.nav_container is None:
+            return
+        self.nav_container.adjustSize()
+        nw = self.nav_container.width()
+        nh = self.nav_container.height()
+        x = max(0, (self.width() - nw) // 2)
+        y = max(0, (self.height() - nh) // 2)
+        self.nav_container.setGeometry(x, y, nw, nh)
+        self.nav_container.raise_()
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.recenter_nav()
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton:
+            win = self.window()
+            wh = win.windowHandle() if win else None
+            if wh is not None and hasattr(wh, 'startSystemMove'):
+                if wh.startSystemMove():
+                    event.accept()
+                    return
+            if win is not None and not win.isMaximized():
+                self._drag_offset = event.globalPosition().toPoint() - win.frameGeometry().topLeft()
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._drag_offset is not None and (event.buttons() & Qt.LeftButton):
+            win = self.window()
+            if win is not None and not win.isMaximized():
+                win.move(event.globalPosition().toPoint() - self._drag_offset)
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self._drag_offset = None
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton:
+            win = self.window()
+            if hasattr(win, '_toggle_maximize_window'):
+                win._toggle_maximize_window()
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, model: Model) -> None:
         super().__init__()
@@ -71,6 +136,15 @@ class MainWindow(QMainWindow):
         )
         self.m.ask_file = self._ask_metal_archive
         self.setWindowTitle(f'NX2Apple v{APP_VERSION}')
+        self.setWindowFlags(
+            Qt.Window
+            | Qt.FramelessWindowHint
+            | Qt.WindowSystemMenuHint
+            | Qt.WindowMinMaxButtonsHint
+        )
+        icon_file = Path(__file__).resolve().parent / 'assets' / 'app_icon.png'
+        if icon_file.is_file():
+            self.setWindowIcon(QIcon(str(icon_file)))
         self.resize(1080, 800)
         self.setMinimumSize(820, 440)
         self.setAcceptDrops(True)
@@ -91,7 +165,7 @@ class MainWindow(QMainWindow):
         root_col.setContentsMargins(0, 0, 0, 0)
         root_col.setSpacing(0)
 
-        # 1. Top Navigation Bar (64px)
+        # 1. Top Navigation Bar (64px, frameless with built-in Min/Max/Close & centered nav)
         self.top_bar = self._build_top_bar()
         root_col.addWidget(self.top_bar)
 
@@ -99,9 +173,9 @@ class MainWindow(QMainWindow):
         self.engine_banner = self._build_engine_banner()
         root_col.addWidget(self.engine_banner)
 
-        # 3. Main Stacked Pages
-        # `self.scroll` is the ONLY QScrollArea in MainWindow (hosting both Builds and Settings
-        # containers), so `w.findChild(QScrollArea)` always returns `self.scroll`.
+        # 3. Main Scrollable Workspace
+        # `self.scroll` is the ONLY QScrollArea in MainWindow (hosting Library, Builds and Settings),
+        # so `w.findChild(QScrollArea)` always returns `self.scroll`, and Library scrolls cleanly at high DPI.
         self.stack = QStackedWidget()
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
@@ -111,16 +185,15 @@ class MainWindow(QMainWindow):
         self.scroll_col.setContentsMargins(0, 0, 0, 0)
         self.scroll_col.setSpacing(0)
 
+        self.library_page = self._build_library_page()
         self.builds_page = self._build_builds_page()
         self.settings_page = self._build_settings_page()
+        self.scroll_col.addWidget(self.library_page, 1)
         self.scroll_col.addWidget(self.builds_page)
         self.scroll_col.addWidget(self.settings_page)
         self.scroll.setWidget(scroll_body)
 
-        self.library_page = self._build_library_page()
-
-        self.stack.addWidget(self.scroll)         # index 0: Scrollable workspace (Builds / Settings)
-        self.stack.addWidget(self.library_page)   # index 1: Full-bleed Library showcase
+        self.stack.addWidget(self.scroll)
         root_col.addWidget(self.stack, 1)
 
         # 4. Bottom Global Activity Bar
@@ -154,21 +227,39 @@ class MainWindow(QMainWindow):
         self._init_timer.timeout.connect(self.m.check_deps)
         self._init_timer.start(50)
 
-    # ================================================================ Top Bar
+    # ================================================================ Top Bar & Window Controls
 
-    def _build_top_bar(self) -> QFrame:
-        bar = QFrame()
+    def _toggle_maximize_window(self) -> None:
+        if self.isMaximized():
+            self.showNormal()
+            self.max_win_btn.setText('□')
+        else:
+            self.showMaximized()
+            self.max_win_btn.setText('❐')
+
+    def _build_top_bar(self) -> TopBarFrame:
+        bar = TopBarFrame()
         bar.setObjectName('topBar')
         bar.setFixedHeight(64)
         row = QHBoxLayout(bar)
-        row.setContentsMargins(28, 0, 28, 0)
-        row.setSpacing(12)
+        row.setContentsMargins(24, 0, 16, 0)
+        row.setSpacing(10)
 
-        # Brand
+        # Brand (App Icon + NX2Apple — by nxnative)
         brand_row = QHBoxLayout()
-        brand_row.setSpacing(8)
+        brand_row.setSpacing(10)
+        self.app_icon_lbl = QLabel()
+        self.app_icon_lbl.setFixedSize(26, 26)
+        icon_file = Path(__file__).resolve().parent / 'assets' / 'app_icon.png'
+        if icon_file.is_file():
+            pm = QPixmap(str(icon_file))
+            if not pm.isNull():
+                self.app_icon_lbl.setPixmap(
+                    pm.scaled(26, 26, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                )
+        brand_row.addWidget(self.app_icon_lbl)
         self.title_label = QLabel('NX2Apple')
-        self.title_label.setStyleSheet('font-size: 24px; font-weight: 800; color: #ffffff;')
+        self.title_label.setStyleSheet('font-size: 23px; font-weight: 800; color: #ffffff;')
         self.sub_label = QLabel('— by nxnative')
         self.sub_label.setObjectName('faint')
         brand_row.addWidget(self.title_label)
@@ -177,8 +268,10 @@ class MainWindow(QMainWindow):
 
         row.addStretch(1)
 
-        # Navigation tabs: Library / Builds / Settings
-        nav_wrap = QHBoxLayout()
+        # Pinned-center Navigation tabs: Library / Builds / Settings
+        nav_host = QWidget(bar)
+        nav_wrap = QHBoxLayout(nav_host)
+        nav_wrap.setContentsMargins(0, 0, 0, 0)
         nav_wrap.setSpacing(4)
         self.nav_btns: dict[str, QPushButton] = {}
         for page_id in ('library', 'builds', 'settings'):
@@ -187,17 +280,17 @@ class MainWindow(QMainWindow):
             btn.clicked.connect(lambda _=False, p=page_id: self._switch_page(p))
             self.nav_btns[page_id] = btn
             nav_wrap.addWidget(btn)
-        row.addLayout(nav_wrap)
+        bar.nav_container = nav_host
+        bar.recenter_nav()
 
-        row.addStretch(1)
-
-        # Trailing controls: Search input + New Build + Update pill + Language toggle
+        # Trailing controls: Search input + New Build + Update pill + Window controls (Min/Max/Close)
         self.search_input = QLineEdit()
         self.search_input.setObjectName('searchField')
         self.search_input.setPlaceholderText(self.m.t('library.search'))
-        self.search_input.setFixedWidth(180)
+        self.search_input.setFixedWidth(172)
         self.search_input.setClearButtonEnabled(True)
         self.search_input.textChanged.connect(self._on_search_changed)
+        bar.search_box = self.search_input
         row.addWidget(self.search_input)
 
         self.new_build_btn = QPushButton('+ ' + self.m.t('library.newBuild'))
@@ -215,23 +308,50 @@ class MainWindow(QMainWindow):
         self.lang_btn.clicked.connect(self.m.toggle_lang)
         self.lang_btn.hide()   # Language selection lives in Settings -> App -> Language, matching the Mac SwiftUI top bar
 
+        # Built-in Frameless Window Controls (Minimize / Maximize / Close)
+        win_ctrl_wrap = QHBoxLayout()
+        win_ctrl_wrap.setContentsMargins(6, 0, 0, 0)
+        win_ctrl_wrap.setSpacing(2)
+
+        self.min_win_btn = QPushButton('—')
+        self.min_win_btn.setObjectName('winCtrlBtn')
+        self.min_win_btn.setFixedSize(36, 28)
+        self.min_win_btn.setCursor(Qt.PointingHandCursor)
+        self.min_win_btn.clicked.connect(self.showMinimized)
+        win_ctrl_wrap.addWidget(self.min_win_btn)
+
+        self.max_win_btn = QPushButton('□')
+        self.max_win_btn.setObjectName('winCtrlBtn')
+        self.max_win_btn.setFixedSize(36, 28)
+        self.max_win_btn.setCursor(Qt.PointingHandCursor)
+        self.max_win_btn.clicked.connect(self._toggle_maximize_window)
+        win_ctrl_wrap.addWidget(self.max_win_btn)
+
+        self.close_win_btn = QPushButton('✕')
+        self.close_win_btn.setObjectName('winCloseBtn')
+        self.close_win_btn.setFixedSize(36, 28)
+        self.close_win_btn.setCursor(Qt.PointingHandCursor)
+        self.close_win_btn.clicked.connect(self.close)
+        win_ctrl_wrap.addWidget(self.close_win_btn)
+
+        row.addLayout(win_ctrl_wrap)
+
         return bar
 
     def _switch_page(self, page_id: str) -> None:
         self._current_page = page_id
-        if page_id == 'library':
-            self.stack.setCurrentIndex(1)
-        else:
-            self.builds_page.setVisible(page_id == 'builds')
-            self.settings_page.setVisible(page_id == 'settings')
-            self.stack.setCurrentIndex(0)
-            self.scroll.verticalScrollBar().setValue(0)
+        self.library_page.setVisible(page_id == 'library')
+        self.builds_page.setVisible(page_id == 'builds')
+        self.settings_page.setVisible(page_id == 'settings')
+        self.stack.setCurrentIndex(0)
+        self.scroll.verticalScrollBar().setValue(0)
         for pid, btn in self.nav_btns.items():
             btn.setObjectName('navTabActive' if pid == page_id else 'navTab')
             btn.style().unpolish(btn)
             btn.style().polish(btn)
         self.search_input.setVisible(page_id == 'library')
         self.new_build_btn.setVisible(page_id != 'builds')
+        self.top_bar.recenter_nav()
         if page_id == 'library':
             self._refresh_library()
 
@@ -477,8 +597,11 @@ class MainWindow(QMainWindow):
         # Rebuild horizontal strip
         while self.coll_strip_layout.count():
             it = self.coll_strip_layout.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
+            w_old = it.widget()
+            if w_old:
+                w_old.hide()
+                w_old.setParent(None)
+                w_old.deleteLater()
 
         if not filtered:
             no_lbl = QLabel(self.m.t('library.noResults'))
@@ -931,6 +1054,7 @@ class MainWindow(QMainWindow):
         r_s1 = QWidget()
         rs1_lay = QHBoxLayout(r_s1)
         rs1_lay.setContentsMargins(18, 11, 18, 11)
+        rs1_lay.setSpacing(10)
         s1_col = QVBoxLayout()
         self.step1_title = QLabel('①  ' + self.m.t('shell.step1Title'))
         self.step1_title.setObjectName('rowTitle')
@@ -940,6 +1064,11 @@ class MainWindow(QMainWindow):
         s1_col.addWidget(self.step1_title)
         s1_col.addWidget(self.step1_sub)
         rs1_lay.addLayout(s1_col, 1)
+
+        self.step1_reveal_btn = QPushButton(self.m.t('shell.showInFinder'))
+        self.step1_reveal_btn.clicked.connect(lambda: pu.reveal(self.m.ipa_path))
+        self.step1_reveal_btn.hide()
+        rs1_lay.addWidget(self.step1_reveal_btn)
         grp.add_row(r_s1)
         grp.add_divider()
 
@@ -970,14 +1099,24 @@ class MainWindow(QMainWindow):
         rs3_lay.setContentsMargins(18, 11, 18, 11)
         rs3_lay.setSpacing(10)
         s3_col = QVBoxLayout()
+        s3_col.setSpacing(3)
         self.step3_title = QLabel('③  ' + self.m.t('shell.step3Title') + ' · ' + self.m.t('shell.whereDrive'))
         self.step3_title.setObjectName('rowTitle')
+        self.drive_path_lbl = QLabel(self.m.t('shell.driveNone'))
+        self.drive_path_lbl.setObjectName('mono')
+        self.drive_path_lbl.setWordWrap(True)
         self.step3_sub = QLabel(self.m.t('shell.copyExternalNote'))
         self.step3_sub.setObjectName('muted')
         self.step3_sub.setWordWrap(True)
         s3_col.addWidget(self.step3_title)
+        s3_col.addWidget(self.drive_path_lbl)
         s3_col.addWidget(self.step3_sub)
         rs3_lay.addLayout(s3_col, 1)
+
+        self.step3_open_romfs_btn = QPushButton(self.m.t('shell.showInFinder'))
+        self.step3_open_romfs_btn.clicked.connect(lambda: pu.reveal(self.m.archive_path))
+        self.step3_open_romfs_btn.hide()
+        rs3_lay.addWidget(self.step3_open_romfs_btn)
 
         self.drive_choose_btn = QPushButton(self.m.t('shell.driveChoose'))
         self.drive_choose_btn.clicked.connect(self._pick_drive_folder)
@@ -1010,25 +1149,37 @@ class MainWindow(QMainWindow):
         self.ipa_kind_note.setText(self.m.t('shell.ipaOneGameNote' if one else 'shell.ipaSharedNote'))
         self.step1_title.setText('①  ' + self.m.t('shell.step1Title'))
         self.step1_sub.setText(self.m.t('shell.oneGameSub' if one else 'shell.step1Sub'))
+        has_ipa = bool(self.m.ipa_path and os.path.exists(self.m.ipa_path))
+        self.step1_reveal_btn.setText(self.m.t('shell.showInFinder'))
+        self.step1_reveal_btn.setVisible(has_ipa)
         self.step2_title.setText('②  ' + self.m.t('shell.step2Title'))
         self.step2_sub.setText(self.m.t('shell.oneGameStep2Sub' if one else 'shell.step2Sub'))
         self.step3_title.setText('③  ' + self.m.t('shell.step3Title') + ' · ' + self.m.t('shell.whereDrive'))
+        self.drive_path_lbl.setText(self._drive_folder or self.m.t('shell.driveNone'))
+        self.step3_open_romfs_btn.setText(self.m.t('shell.showInFinder'))
         self.drive_choose_btn.setText(self.m.t('shell.driveChoose'))
         self.drive_copy_btn.setText(self.m.t('shell.driveCopy'))
         self.step3_container.setVisible(not one)
         has_arch = bool(self.m.archive_path and os.path.isdir(self.m.archive_path))
-        self.drive_copy_btn.setEnabled(has_arch and bool(self._drive_folder))
+        self.step3_open_romfs_btn.setVisible(has_arch)
+        self.drive_copy_btn.setEnabled(has_arch)
 
     def _pick_drive_folder(self) -> None:
         d = QFileDialog.getExistingDirectory(self, self.m.t('shell.driveChoose'), self._drive_folder or str(Path.home()))
         if d:
             self._drive_folder = d
-            self.step3_sub.setText(d)
+            self.drive_path_lbl.setText(d)
             self._refresh_install_card()
 
     def _copy_archive_to_drive(self) -> None:
-        if not self.m.archive_path or not self._drive_folder:
+        if not self.m.archive_path or not os.path.isdir(self.m.archive_path):
             return
+        if not self._drive_folder:
+            d = QFileDialog.getExistingDirectory(self, self.m.t('shell.driveChoose'), str(Path.home()))
+            if not d:
+                return
+            self._drive_folder = d
+            self.drive_path_lbl.setText(d)
         tid = self.m.build_key
         ok, info = lib.DriveCopy.copy_to_folder(self.m.archive_path, self._drive_folder, tid)
         if ok:
@@ -1055,12 +1206,12 @@ class MainWindow(QMainWindow):
         self.footer.setTextInteractionFlags(Qt.TextSelectableByMouse)
         act.addWidget(self.footer, 1)
 
-        self.reveal_ipa_btn = QPushButton('IPA')
+        self.reveal_ipa_btn = QPushButton(f"{self.m.t('shell.showInFinder')} (IPA)")
         self.reveal_ipa_btn.clicked.connect(lambda: pu.reveal(self.m.ipa_path))
         self.reveal_ipa_btn.hide()
         act.addWidget(self.reveal_ipa_btn)
 
-        self.reveal_arc_btn = QPushButton('romfs.img')
+        self.reveal_arc_btn = QPushButton(f"{self.m.t('shell.showInFinder')} (romfs)")
         self.reveal_arc_btn.clicked.connect(lambda: pu.reveal(self.m.archive_path))
         self.reveal_arc_btn.hide()
         act.addWidget(self.reveal_arc_btn)
@@ -1297,6 +1448,48 @@ class MainWindow(QMainWindow):
         grp.add_row(r_deps)
         grp.add_divider()
 
+        # Row 2.5: Shell Cache Folder (mirrors ShellCacheRow.swift)
+        r_cache = QWidget()
+        rc_lay = QHBoxLayout(r_cache)
+        rc_lay.setContentsMargins(18, 12, 18, 12)
+        rc_lay.setSpacing(12)
+        self.cache_dot = _dot(style.GREEN)
+        rc_lay.addWidget(self.cache_dot)
+        ccol = QVBoxLayout()
+        ccol.setSpacing(2)
+        self.cache_title_lbl = QLabel(self.m.t('shellCache.row'))
+        self.cache_title_lbl.setObjectName('rowTitle')
+        self.cache_path_lbl = QLabel(self.m.shell_cache_path)
+        self.cache_path_lbl.setObjectName('mono')
+        self.cache_path_lbl.setWordWrap(True)
+        self.cache_note_lbl = QLabel(self.m.t('shellCache.note'))
+        self.cache_note_lbl.setObjectName('muted')
+        self.cache_note_lbl.setWordWrap(True)
+        self.cache_status_lbl = QLabel('')
+        self.cache_status_lbl.setObjectName('muted')
+        self.cache_status_lbl.setWordWrap(True)
+        self.cache_status_lbl.hide()
+        ccol.addWidget(self.cache_title_lbl)
+        ccol.addWidget(self.cache_path_lbl)
+        ccol.addWidget(self.cache_note_lbl)
+        ccol.addWidget(self.cache_status_lbl)
+        rc_lay.addLayout(ccol, 1)
+
+        self.cache_open_btn = QPushButton(self.m.t('shellCache.open'))
+        self.cache_open_btn.clicked.connect(self._open_shell_cache)
+        rc_lay.addWidget(self.cache_open_btn)
+
+        self.cache_move_btn = QPushButton(self.m.t('shellCache.move'))
+        self.cache_move_btn.clicked.connect(self._move_shell_cache)
+        rc_lay.addWidget(self.cache_move_btn)
+
+        self.cache_default_btn = QPushButton(self.m.t('shellCache.useDefault'))
+        self.cache_default_btn.clicked.connect(self._reset_shell_cache)
+        self.cache_default_btn.setVisible(not self.m.shell_cache_is_default)
+        rc_lay.addWidget(self.cache_default_btn)
+        grp.add_row(r_cache)
+        grp.add_divider()
+
         # Row 3: Copy Diagnostics (diag.title / diag.copy)
         r_diag = QWidget()
         rd_lay = QHBoxLayout(r_diag)
@@ -1320,6 +1513,39 @@ class MainWindow(QMainWindow):
         grp.add_row(r_diag)
 
         return grp
+
+    def _open_shell_cache(self) -> None:
+        p = Path(self.m.shell_cache_path)
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            pass
+        pu.reveal(str(p))
+
+    def _move_shell_cache(self) -> None:
+        d = QFileDialog.getExistingDirectory(
+            self,
+            self.m.t('shellCache.pickMessage'),
+            str(Path(self.m.shell_cache_path).parent),
+        )
+        if not d:
+            return
+        ok, msg = self.m.move_shell_cache(d)
+        self.cache_status_lbl.setText(msg)
+        self.cache_status_lbl.setStyleSheet(
+            f'color: {style.GREEN if ok else style.AMBER}; font-size: 12px;'
+        )
+        self.cache_status_lbl.show()
+        self._refresh_all()
+
+    def _reset_shell_cache(self) -> None:
+        ok, msg = self.m.reset_shell_cache_default()
+        self.cache_status_lbl.setText(msg)
+        self.cache_status_lbl.setStyleSheet(
+            f'color: {style.GREEN if ok else style.AMBER}; font-size: 12px;'
+        )
+        self.cache_status_lbl.show()
+        self._refresh_all()
 
     def _copy_diagnostics(self) -> None:
         report = feat.Diagnostics.format_report(
@@ -1556,9 +1782,19 @@ class MainWindow(QMainWindow):
         self.recheck_btn.setText(t('dep.recheck'))
         self.deps_toggle_btn.setText(t('dep.hide' if self._deps_expanded else 'dep.show'))
         self.install_all_btn.setText(t('dep.installAll'))
+        self.cache_title_lbl.setText(t('shellCache.row'))
+        self.cache_path_lbl.setText(self.m.shell_cache_path)
+        self.cache_note_lbl.setText(t('shellCache.note'))
+        self.cache_open_btn.setText(t('shellCache.open'))
+        self.cache_move_btn.setText(t('shellCache.move'))
+        self.cache_default_btn.setText(t('shellCache.useDefault'))
+        self.cache_default_btn.setVisible(not self.m.shell_cache_is_default)
         self.diag_title_lbl.setText(t('diag.title'))
         self.diag_note_lbl.setText(t('diag.note'))
         self.diag_btn.setText(t('diag.copy'))
+        self.reveal_ipa_btn.setText(f"{t('shell.showInFinder')} (IPA)")
+        self.reveal_arc_btn.setText(f"{t('shell.showInFinder')} (romfs)")
+        self.top_bar.recenter_nav()
 
         self.app_group.set_title(t('section.app'))
         self.app_lang_lbl.setText(t('settings.language'))
@@ -2109,8 +2345,31 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
+        if hasattr(self, 'top_bar'):
+            self.top_bar.recenter_nav()
         if hasattr(self, 'drop_overlay') and self.centralWidget():
             self.drop_overlay.setGeometry(self.centralWidget().rect())
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.LeftButton and not self.isMaximized():
+            pos = event.position().toPoint()
+            margin = 6
+            edges = Qt.Edges()
+            if pos.x() <= margin:
+                edges |= Qt.LeftEdge
+            elif pos.x() >= self.width() - margin:
+                edges |= Qt.RightEdge
+            if pos.y() <= margin:
+                edges |= Qt.TopEdge
+            elif pos.y() >= self.height() - margin:
+                edges |= Qt.BottomEdge
+            if edges:
+                wh = self.windowHandle()
+                if wh is not None and hasattr(wh, 'startSystemResize'):
+                    if wh.startSystemResize(edges):
+                        event.accept()
+                        return
+        super().mousePressEvent(event)
 
     def dragEnterEvent(self, event: QDragEnterEvent) -> None:
         if event.mimeData().hasUrls():

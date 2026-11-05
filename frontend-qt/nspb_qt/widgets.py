@@ -109,12 +109,14 @@ class LauncherSegmented(QWidget):
     """Capsule segmented control matching SwiftUI's LauncherSegmented (cream active pill)."""
 
     changed = Signal(str)
+    _PAD = 4.0
+    _GAP = 6.0
 
     def __init__(self, items: list[tuple[str, str]] | None = None, selected: str = '', parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._items: list[tuple[str, str]] = list(items or [])
         self._selected = selected or (self._items[0][0] if self._items else '')
-        self.setFixedHeight(34)
+        self.setFixedHeight(36)
         self.setCursor(Qt.PointingHandCursor)
         self._recalc_width()
 
@@ -135,27 +137,59 @@ class LauncherSegmented(QWidget):
             self._selected = key
             self.update()
 
-    def _recalc_width(self) -> None:
-        fm = QFontMetrics(self.font())
-        total = 8
+    def _measure_segments(self) -> tuple[list[float], float]:
+        f = QFont(self.font())
+        if f.pointSize() <= 0 and f.pixelSize() <= 0:
+            f.setPixelSize(13)
+        f.setBold(True)
+        fm = QFontMetrics(f)
+        widths: list[float] = []
         for _, label in self._items:
-            total += max(68, fm.horizontalAdvance(label) + 28)
-        self.setFixedWidth(max(120, total))
+            widths.append(max(68.0, float(fm.horizontalAdvance(label) + 34)))
+        if not widths:
+            return [], 120.0
+        total = self._PAD * 2.0 + sum(widths) + self._GAP * max(0, len(widths) - 1)
+        return widths, max(120.0, total)
+
+    def _recalc_width(self) -> None:
+        _, total = self._measure_segments()
+        self.setFixedWidth(int(total + 0.5))
+
+    def _segment_rects(self) -> list[tuple[str, str, QRectF]]:
+        widths, total = self._measure_segments()
+        if not widths:
+            return []
+        extra = max(0.0, float(self.width()) - total) / len(widths)
+        x = self._PAD
+        h = float(self.height()) - self._PAD * 2.0
+        out: list[tuple[str, str, QRectF]] = []
+        for (key, label), w in zip(self._items, widths):
+            seg_w = w + extra
+            out.append((key, label, QRectF(x, self._PAD, seg_w, h)))
+            x += seg_w + self._GAP
+        return out
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.LeftButton or not self.isEnabled() or not self._items:
             return
-        n = len(self._items)
-        seg_w = (self.width() - 6.0) / n
-        idx = int((event.position().x() - 3.0) // seg_w)
-        idx = max(0, min(n - 1, idx))
-        key = self._items[idx][0]
-        if key != self._selected:
-            self._selected = key
+        px = float(event.position().x())
+        rects = self._segment_rects()
+        chosen_key = None
+        for key, _label, r in rects:
+            if r.left() - self._GAP / 2.0 <= px <= r.right() + self._GAP / 2.0:
+                chosen_key = key
+                break
+        if chosen_key is None and rects:
+            chosen_key = rects[0][0] if px < rects[0][2].left() else rects[-1][0]
+        if chosen_key and chosen_key != self._selected:
+            self._selected = chosen_key
             self.update()
-            self.changed.emit(key)
+            self.changed.emit(chosen_key)
 
     def paintEvent(self, _event) -> None:
+        _, needed = self._measure_segments()
+        if abs(self.width() - int(needed + 0.5)) > 2:
+            self.setFixedWidth(int(needed + 0.5))
         p = QPainter(self)
         p.setRenderHint(QPainter.Antialiasing)
         outer = QRectF(0.5, 0.5, self.width() - 1.0, self.height() - 1.0)
@@ -163,12 +197,7 @@ class LauncherSegmented(QWidget):
         p.setBrush(QColor(255, 255, 255, 13))
         p.drawRoundedRect(outer, outer.height() / 2.0, outer.height() / 2.0)
 
-        if not self._items:
-            return
-        n = len(self._items)
-        seg_w = (self.width() - 6.0) / n
-        for i, (key, label) in enumerate(self._items):
-            r = QRectF(3.0 + i * seg_w, 3.0, seg_w, self.height() - 6.0)
+        for key, label, r in self._segment_rects():
             active = key == self._selected
             if active:
                 p.setPen(Qt.NoPen)
@@ -292,8 +321,8 @@ class HeroBannerWidget(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumHeight(330)
-        self.setMaximumHeight(410)
+        self.setMinimumHeight(250)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._pixmap: QPixmap | None = None
         self._image_path: str = ''
         self._title_id: str = ''

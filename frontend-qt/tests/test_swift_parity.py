@@ -272,6 +272,102 @@ class ParityWindowTests(unittest.TestCase):
         self.assertTrue((build_app.SDK_COMPAT / 'MetalFX' / 'MetalFX.h').is_file())
         self.assertTrue((build_app.SDK_COMPAT / 'CoreMotion' / 'CoreMotion.h').is_file())
 
+    def test_ten_point_ui_and_ux_refinements(self) -> None:
+        from unittest import mock
+        from PySide6.QtCore import Qt
+        from nspb_qt.model import Model
+        from nspb_qt.ui import MainWindow
+
+        p = mock.patch.object(Model, 'check_deps', lambda self: None)
+        p.start()
+        self.addCleanup(p.stop)
+
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            m = Model()
+            m.lang = Lang('zh')
+            w = MainWindow(m)
+            self.addCleanup(self._delete, m, w)
+            w.resize(1120, 780)
+            w.show()
+            self.app.processEvents()
+
+            # 1. Center navigation stays pinned at horizontal center across page switches
+            centers = []
+            for page_id in ('library', 'builds', 'settings'):
+                w._switch_page(page_id)
+                self.app.processEvents()
+                nav_center = w.top_bar.nav_container.geometry().center().x()
+                bar_center = w.top_bar.width() // 2
+                self.assertLessEqual(abs(nav_center - bar_center), 2)
+                centers.append(nav_center)
+            self.assertEqual(len(set(centers)), 1, f'nav center jumped across pages: {centers}')
+
+            # 2 & 3. Frameless window + built-in Min/Max/Close + synced AppIcon
+            self.assertTrue(bool(w.windowFlags() & Qt.FramelessWindowHint))
+            self.assertFalse(w.min_win_btn.isHidden())
+            self.assertFalse(w.max_win_btn.isHidden())
+            self.assertFalse(w.close_win_btn.isHidden())
+            assets_dir = Path(ROOT / 'frontend-qt' / 'nspb_qt' / 'assets')
+            self.assertTrue((assets_dir / 'app_icon.png').is_file())
+            self.assertTrue((assets_dir / 'app_icon.ico').is_file())
+            self.assertFalse(w.windowIcon().isNull())
+
+            # 4. Shell cache setting row in Settings -> Build Tools
+            self.assertEqual(w.cache_title_lbl.text(), '缓存文件')
+            new_cache_parent = td_path / 'custom_cache_parent'
+            new_cache_parent.mkdir()
+            ok_move, _ = m.move_shell_cache(str(new_cache_parent))
+            self.assertTrue(ok_move)
+            self.assertFalse(m.shell_cache_is_default)
+            self.assertEqual(Path(m.shell_cache_path).resolve(), (new_cache_parent / 'shell').resolve())
+            ok_reset, _ = m.reset_shell_cache_default()
+            self.assertTrue(ok_reset)
+            self.assertTrue(m.shell_cache_is_default)
+
+            # 5 & 7. Segmented control non-overlapping segments with gap >= 5px
+            rects = w.ipa_kind_seg._segment_rects()
+            self.assertEqual(len(rects), 2)
+            r0, r1 = rects[0][2], rects[1][2]
+            self.assertGreaterEqual(r1.left() - r0.right(), 5.0)
+
+            # 6. Step 1 & Step 3 reveal buttons + Copy game data button enabled when archive exists
+            fake_ipa = td_path / '0100E65002BB8000.ipa'
+            fake_ipa.write_bytes(b'PK\x03\x04')
+            fake_romfs = td_path / 'romfs'
+            fake_romfs.mkdir()
+            (fake_romfs / 'romfs.img').write_bytes(b'DMROMFS1')
+            m.ipa_path = str(fake_ipa)
+            m.archive_path = str(fake_romfs)
+            w._switch_page('builds')
+            w._refresh_install_card()
+            w._on_finished(True, '')
+            self.assertFalse(w.step1_reveal_btn.isHidden())
+            self.assertFalse(w.step3_open_romfs_btn.isHidden())
+            self.assertTrue(w.drive_copy_btn.isEnabled())
+            self.assertIn('在文件夹中显示', w.reveal_ipa_btn.text())
+            self.assertIn('在文件夹中显示', w.reveal_arc_btn.text())
+
+            # 8. Stage completion marks running stage 'done' (green) instead of staying 'running' (orange)
+            m.stages.clear()
+            m._on_line('[17:20:01] [6/7] app build')
+            self.assertEqual(m.stages[-1].state, 'running')
+            m._on_line('[17:20:15] [6/7] app build ✓ (14.0s)')
+            self.assertEqual(m.stages[-1].state, 'done')
+
+            # 9. HeroBannerWidget has no 410px max-height cap, and library_page is hosted inside scroll
+            self.assertGreater(w.hero.maximumHeight(), 2000)
+            self.assertTrue(w.scroll.widget().isAncestorOf(w.library_page))
+
+            # 10. Windows terminology replaces "访达" and "此 Mac"
+            self.assertEqual(m.t('install.reveal'), '在文件夹中显示')
+            self.assertEqual(m.t('shell.showInFinder'), '在文件夹中显示')
+            self.assertIn('此电脑', m.t('shell.copyExternalNote'))
+            self.assertNotIn('访达', m.t('shell.showInFinder'))
+            m.lang = Lang('en')
+            self.assertEqual(m.t('install.reveal'), 'Show in folder')
+            self.assertIn('this PC', m.t('shell.copyExternalNote'))
+
 
 if __name__ == '__main__':
     unittest.main()
