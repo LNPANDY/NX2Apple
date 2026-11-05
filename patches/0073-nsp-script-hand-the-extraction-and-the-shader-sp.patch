@@ -192,7 +192,7 @@ index 0000000..9005508
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 772479e..aceb18e 100644
+index 83e5942..732fea6 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -36,6 +36,7 @@ DM_ENV_FILE	path	`=<file>` makes `build_ipa.sh` bake its `KEY=VALUE` lines into
@@ -204,7 +204,7 @@ index 772479e..aceb18e 100644
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
  DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index d7ebdb5..0b1768b 100755
+index 486a464..21da48b 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@
@@ -215,7 +215,7 @@ index d7ebdb5..0b1768b 100755
  import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types
  from pathlib import Path
  sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
-@@ -422,6 +423,104 @@ def free_gb(p):
+@@ -425,6 +426,104 @@ def free_gb(p):
      return shutil.disk_usage(p).free / 2**30
  
  
@@ -320,7 +320,7 @@ index d7ebdb5..0b1768b 100755
  def configure_dotnet(env):
      """Let standalone .NET apphosts find the runtime used by dotnet (Homebrew installs it outside the registered locations)."""
      if env.get('DOTNET_ROOT'): return
-@@ -1183,7 +1282,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
+@@ -1255,7 +1354,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
      def poll():
          n, b = tree_size(tmp); return {'done': b, 'note': f'{n:,} files'}
      PROG.stage(f'extract {name}', poll=poll, unit='B', total=last[1] if last else base.stat().st_size + (upd.stat().st_size if upd and upd != base else 0), est=not last)
@@ -330,7 +330,7 @@ index d7ebdb5..0b1768b 100755
      swap_in(tmp, dst)
      n, b = extracted(log) or (0, 0)
      PROG.end(f'{n:,} files, {amount(b, "B")}')
-@@ -2107,9 +2207,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
+@@ -2189,9 +2289,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
      tmp = pkg.with_name(pkg.name + '.partial'); rmtree(tmp); (tmp / 'tables').mkdir(parents=True)
      def counted(ln):   # shader_split.py's 'progress: <done>/<total>'
          if m := re.fullmatch(r'progress: (\d+)/(\d+)', ln): PROG.set(done=int(m[1]), total=int(m[2]), unit='files')

@@ -33,7 +33,7 @@ def engine_texts() -> set[str]:
         cols = line.split('\t')
         texts.update(c for c in cols[5:8] if c)
         if cols[1] == 'choice' and cols[2] != 'languages':
-            texts.update(pair.split('=', 1)[1] for pair in cols[2].split(','))
+            texts.update(pair.split('?', 1)[0].split('=', 1)[1] for pair in cols[2].split(','))
     sys.path.insert(0, str(ENGINE / 'dm' / 'tools'))
     try:
         nacp = importlib.import_module('nacp')
