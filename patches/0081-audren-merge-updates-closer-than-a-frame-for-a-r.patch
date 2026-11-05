@@ -13,18 +13,68 @@ not silent). With no effects there is nothing to initialize between updates,
 so while one catch-up frame of that renderer is still queued the update
 merges, as on hardware. Renderers with effects keep the catch-up behavior.
 
+It changes when an update renders, so it is a profile key, audren_merge
+(on / off, off by default): every game without the key keeps a catch-up
+frame per update as before. The Ezio Collection's profile sets it.
+
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
 Upstream-Status: pending
-Reason: Brotherhood's opening video (Bink, a renderer with no effects) ran at about 10 fps with silent sound: its updates waited for catch-up frames it does not need
+Reason: with audren_merge on, Brotherhood's opening video (Bink, a renderer with no effects) ran at about 10 fps with silent sound: its updates waited for catch-up frames it does not need
 Issue: LNPANDY/NX2Apple#483
-
 ---
- dm/host/hle_audren.c | 13 ++++++++++---
- 1 file changed, 10 insertions(+), 3 deletions(-)
+ dm/games/README.md            |  1 +
+ dm/games/game.py              |  5 ++++-
+ dm/host/hle_audren.c          | 14 +++++++++++---
+ dm/host/hle_profile.c         | 12 ++++++++----
+ dm/host/hle_profile.h         |  1 +
+ dm/host/tests/t_audren_work.c |  2 ++
+ 6 files changed, 27 insertions(+), 8 deletions(-)
 
+diff --git a/dm/games/README.md b/dm/games/README.md
+index 2468461..9d4a322 100644
+--- a/dm/games/README.md
++++ b/dm/games/README.md
+@@ -231,6 +231,7 @@ One row per profile; the notes are each profile's `README.md`.
+ | `tex_flush_upload` | `on` / `off` (the default): a texture the game fills from the CPU in place (no packaged layout, no `WriteTexels`) and publishes with `nvnMemoryPoolFlushMappedRange` is uploaded from guest memory like a packaged one, and re-uploaded when its pages change (`ft_add` in `hle_nvn.c`). Tears of the Kingdom streams all its textures this way; without it the 3D scene is black. Off by default because a flushed range in another game could cover an image a shader writes, whose GPU content the upload would replace. Without the key, every game still gets a texture's storage once when the game flushed it before the texture's first use (`nvn_flushed` in `hle_nvn.c`: Breath of the Wild's sky tables); the key is for textures the CPU writes again after that |
+ | `render_cond` | `on` / `off` (the default): `SetRenderEnableConditional` / `SetRenderEnable` are recorded and evaluated at replay, and a timestamp report's counter field is 0 as on the GPU (`OP_RENDER_COND` in `nvn_mtl.m`). Tears of the Kingdom wraps its clears in conditions that skip clearing a target nothing has drawn into since its last clear; without the key every clear runs and its 3D scene is black. Animal Crossing: New Horizons too: four clear-only passes wiped its composite before the window copy, and every frame was black. Off by default: other games draw everything, as before |
+ | `tex_dirty_upload` | `on` / `off` (the default), needs `tex_flush_upload`: a registered texture whose pages the CPU writes after `nvnTextureInitialize` without any NVN flush is uploaded as well (its pages are write-protected at registration, checked on first use; `nvn_ft_written` in `hle_nvn.c`). Tears of the Kingdom fills its ASTC terrain material arrays this way; without it the cave is magenta. FINAL FANTASY TACTICS - The Ivalice Chronicles loads its UI textures straight into CPU-uncached pools, which need no flush, after creating them; without both keys its screen stays black. The Great Ace Attorney Chronicles copies every texture into a CPU-cached pool after creating it and never flushes (its `main` has no cache maintenance at all): black too |
++| `audren_merge` | `on` / `off` (the default): for an audio renderer with no effects, an update that comes before the render thread played the last catch-up frame merges with it, as on hardware, instead of rendering another one first (`hle_audren.c` `h_ars_Update`). For Bink videos that update many times per frame under their own lock (Assassin's Creed Brotherhood's opening, The Ezio Collection): without it each update waited about 5 ms for the render thread, and the video ran at about 10 fps with silent sound |
+ | `tex_dyn_slots` | `on` / `off` (the default): a shader whose buffer-texture handle the translator could not trace to one slot gets Ryujinx's fallback arrays (`<stage>_<tb|s>_cb0_40000000`: 32 buffer textures and samplers indexed by the handle's texture / sampler ID; any other sampled texture indexes the whole pool without a key, [Texture handles from game memory index the pools](../../docs/reference/shaders.md#texture-handles-from-game-memory-index-the-pools)). With the key the replay puts slot indices in that shader's c2 texture and sampler tables (texture slot r → r, sampler slot r → r << 20) and binds slot k at element k, so the shader's own arithmetic picks the binding (`NVN_RB_TEXD` / `NVN_RB_SAMPD` in `nvn_mtl.m`). Right only where the handle comes from c2's tables: Octopath Traveler 0's 61 such vertex shaders read separate texture slots 0-10 and samplers 0-4 there and nothing else (FINAL FANTASY RESONANCE's 2,077 the texture table words 0x168-0x1c0 and sampler table words 0x568-0x590). Off, such shaders do not load. Not part of the shader chain version |
+ | `gpu_timestamps` | What a timestamp report (`nvnCommandBufferReportCounter`) records: `submission` (the default) = the time the whole submission completed, the same for every report in it; `segment` = the GPU start (`TIMESTAMP_TOP`) or end (the other types) of the segment the report was encoded in (the host commits a submission in segments of 64 draws, `sub_cut` in `nvn_mtl.m`), so two reports of one submission bracket the GPU time between them, as on hardware. Breath of the Wild needs `segment`: its frame-interval controller and its dynamic resolution read the GPU time between the frame's first and last report, and with one time for both they read 0 (the game kept 60 fps in slow motion when the GPU could not keep up). `DM_NVN_GPU_TS=segment` / `submission` overrides it, also from `Documents/env.txt` |
+ | `vconv_range` | `on` / `off` (the default): vertex attributes the replay converts on the CPU (integer shader inputs fed float-type formats and the like, `vconv_bind` in `nvn_mtl.m`) are converted only over the vertices each draw reads (first / count, or the smallest and largest index of a direct indexed draw, kept while the index pages stay unwritten) instead of the whole bound range. Age of Calamity binds whole mesh pools: in a battle that was millions of vertices a frame. Indirect draws, per-instance streams and indices with a GPU write queued on them keep the whole range. `DM_NVN_VCONV_CHECK=1` scans the indices again at every reuse and reports differences; `DM_NVN_VCONV_RANGE=0` / `1` overrides it |
+diff --git a/dm/games/game.py b/dm/games/game.py
+index c31749a..68f7f63 100644
+--- a/dm/games/game.py
++++ b/dm/games/game.py
+@@ -193,6 +193,8 @@ def header_one(g):
+     if rcd not in ('on', 'off'): sys.exit(f'{g.id}: render_cond must be on or off: {rcd}')
+     tfu = g.get('tex_flush_upload', 'off')   # textures written by the CPU into a pool and published with nvnMemoryPoolFlushMappedRange are uploaded like packaged ones (hle_nvn.c): on / off
+     if tfu not in ('on', 'off'): sys.exit(f'{g.id}: tex_flush_upload must be on or off: {tfu}')
++    arm = g.get('audren_merge', 'off')   # audren: updates closer than a frame merge for a renderer with no effects (hle_audren.c h_ars_Update): on / off
++    if arm not in ('on', 'off'): sys.exit(f'{g.id}: audren_merge must be on or off: {arm}')
+     tdu = g.get('tex_dirty_upload', 'off')   # with tex_flush_upload: a registered texture the CPU writes after init without any flush is uploaded too (dirty pages, hle_nvn.c nvn_ft_written): on / off
+     if tdu not in ('on', 'off') or (tdu == 'on' and tfu != 'on'): sys.exit(f'{g.id}: tex_dirty_upload must be on or off, and needs tex_flush_upload on: {tdu}')
+     tbc = g.get('tex_bc_cpu', 'off')   # decode BC-compressed textures on the CPU when the GPU has no BC support (A15/A16 and older; nvn_mtl.m uses nvn_bcdec.c): on / off
+@@ -257,6 +259,7 @@ def header_one(g):
+          f'#define DM_GAME_SHADER_KEY_SKIP_OFF {sko:#x}', f'#define DM_GAME_SHADER_KEY_SKIP_LEN {skl:#x}',
+          f'#define DM_GAME_RENDER_COND {int(rcd == "on")}',
+          f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',
++         f'#define DM_GAME_AUDREN_MERGE {int(arm == "on")}',
+          f'#define DM_GAME_TEX_BC_CPU {int(tbc == "on")}',
+          f'#define DM_GAME_TEX_DYN_SLOTS {int(tds == "on")}',
+          f'#define DM_GAME_GPU_TS_SEGMENT {int(gts == "segment")}',
+@@ -289,7 +292,7 @@ if __name__ == '__main__':
+                 ('fps_target', 'FPS_TARGET'), ('fps_hold', 'FPS_HOLD'), ('present_snap', 'PRESENT_SNAP'), ('pso_mtl4', 'PSO_MTL4'),
+                 ('shared_font', 'SHARED_FONT_TTF'), ('pad_layout', 'PAD_LAYOUT'), ('op_mode', 'OPMODE'), ('perf_mode', 'PERF_BOOST'),
+                 ('feedback_snap', 'FEEDBACK_SNAP'), ('tex_flush_upload', 'TEX_FLUSH_UPLOAD'), ('render_cond', 'RENDER_COND'),
+-                ('tex_dirty_upload', 'TEX_DIRTY_UPLOAD'), ('tex_dyn_slots', 'TEX_DYN_SLOTS'), ('gpu_timestamps', 'GPU_TS_SEGMENT'),
++                ('tex_dirty_upload', 'TEX_DIRTY_UPLOAD'), ('audren_merge', 'AUDREN_MERGE'), ('tex_dyn_slots', 'TEX_DYN_SLOTS'), ('gpu_timestamps', 'GPU_TS_SEGMENT'),
+                 ('vconv_range', 'VCONV_RANGE'), ('stdalloc_cap', 'STDALLOC_CAP'), ('tex_bc_cpu', 'TEX_BC_CPU'), ('ue_texture_pool', 'UE_TEXTURE_POOL'),
+                 ('enc_thread', 'ENC_THREAD'), ('game_args', 'ARGS'), ('game_env', 'ENV')]
+         def val(macro):   # the header's C spelling → the file's plain spelling
 diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
-index 3b074d7..2983417 100644
+index 3b074d7..3491de9 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
 @@ -95,6 +95,8 @@ typedef struct {
@@ -54,17 +104,92 @@ index 3b074d7..2983417 100644
      pthread_mutex_unlock(&g_render_mu);
      return RES_OK;
  }
-@@ -548,7 +550,12 @@ HLE_FORCE("_ZN2nn5audio6server17AudioRenderSystem6UpdateEPvmS3_mPKvm", "renderer
+@@ -548,7 +550,13 @@ HLE_FORCE("_ZN2nn5audio6server17AudioRenderSystem6UpdateEPvmS3_mPKvm", "renderer
      ar_t *a = ar_of_sys(sys);
      if (!a) return orig(sys, o, on, p, pn, in, inn);   // two renderers just opened, neither has rendered: at most one catch-up frame less
      uint64_t u = atomic_fetch_add(&a->updates, 1) + 1, r = atomic_load(&a->renders);
 -    if (a->updated && r == a->last_r) {
 +    // A renderer without effects needs no frame between two updates (that is only for an effect's initialization, above), and on hardware updates closer than 5 ms simply merge.
 +    // Bink's sound (Assassin's Creed Brotherhood's Previously_On.bk2, 0 effects) updates many times per 5 ms from two threads while holding its own lock: each update past a full
-+    // queue waited ~5 ms for the render thread, the game's task thread waited on Bink's lock, and the video ran at ~10 fps with silent sound. One unplayed catch-up frame queued is enough there
-+    int merge = !a->effects && atomic_load(&a->cq_tail) != atomic_load(&a->cq_head);
++    // queue waited ~5 ms for the render thread, the game's task thread waited on Bink's lock, and the video ran at ~10 fps with silent sound. One unplayed catch-up frame queued is enough there.
++    // Only where the profile asks (audren_merge on): every other game keeps a catch-up frame per update
++    int merge = dm_profile()->audren_merge && !a->effects && atomic_load(&a->cq_tail) != atomic_load(&a->cq_head);
 +    if (a->updated && r == a->last_r && merge) atomic_fetch_add(&a->merged, 1);
 +    else if (a->updated && r == a->last_r) {
          uint64_t c = atomic_fetch_add(&a->catchups, 1) + 1;
          if (c <= 3) LOG("audren: renderer %d: no frame rendered before update %llu, rendering a catch-up frame first (%llu so far)", ar_index(a), (unsigned long long)u, (unsigned long long)c);
          uint32_t t = atomic_load(&a->cq_tail);
+diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
+index ba22ff7..d5cb49c 100644
+--- a/dm/host/hle_profile.c
++++ b/dm/host/hle_profile.c
+@@ -85,6 +85,9 @@ static uint64_t num(const char *v, uint64_t dflt) {
+ #ifndef DM_GAME_FEEDBACK_SNAP
+ #define DM_GAME_FEEDBACK_SNAP ""
+ #endif
++#ifndef DM_GAME_AUDREN_MERGE
++#define DM_GAME_AUDREN_MERGE 0
++#endif
+ #ifndef DM_GAME_TEX_FLUSH_UPLOAD
+ #define DM_GAME_TEX_FLUSH_UPLOAD 0
+ #endif
+@@ -151,7 +154,7 @@ static void defaults(void) {
+ #endif
+     P.pad_layout = DM_GAME_PAD_LAYOUT; P.opmode = DM_GAME_OPMODE; P.perf_boost = DM_GAME_PERF_BOOST;
+     copy_str(P.feedback_snap, sizeof P.feedback_snap, DM_GAME_FEEDBACK_SNAP);
+-    P.tex_flush_upload = DM_GAME_TEX_FLUSH_UPLOAD; P.render_cond = DM_GAME_RENDER_COND; P.tex_dirty_upload = DM_GAME_TEX_DIRTY_UPLOAD;
++    P.tex_flush_upload = DM_GAME_TEX_FLUSH_UPLOAD; P.render_cond = DM_GAME_RENDER_COND; P.tex_dirty_upload = DM_GAME_TEX_DIRTY_UPLOAD; P.audren_merge = DM_GAME_AUDREN_MERGE;
+     P.tex_dyn_slots = DM_GAME_TEX_DYN_SLOTS; P.gpu_ts_segment = DM_GAME_GPU_TS_SEGMENT; P.vconv_range = DM_GAME_VCONV_RANGE;
+ #ifdef DM_GAME_NVN_API_MAJOR
+     P.nvn_api_major = DM_GAME_NVN_API_MAJOR; P.nvn_api_minor = DM_GAME_NVN_API_MINOR;
+@@ -216,6 +219,7 @@ static void set_kv(const char *k, const char *v) {
+     else if (!strcmp(k, "tex_flush_upload")) P.tex_flush_upload = truthy(v);
+     else if (!strcmp(k, "render_cond")) P.render_cond = truthy(v);
+     else if (!strcmp(k, "tex_dirty_upload")) P.tex_dirty_upload = truthy(v);
++    else if (!strcmp(k, "audren_merge")) P.audren_merge = truthy(v);
+     else if (!strcmp(k, "tex_dyn_slots")) P.tex_dyn_slots = truthy(v);
+     else if (!strcmp(k, "gpu_timestamps")) P.gpu_ts_segment = !strcmp(v, "segment") || !strcmp(v, "1");
+     else if (!strcmp(k, "vconv_range")) P.vconv_range = truthy(v);
+@@ -264,7 +268,7 @@ static void read_file(const char *path) {
+ static void read_env(void) {
+     static const char *keys[] = {"TITLE_ID","NAME","ROMFS_MARKER","PROGRAM_ID","MODULES","MEM_RESERVE","MEM_ALIAS","MEM_STACK","APP_POOL",
+         "MEM_USED","SYS_RESOURCE","MEM_MAP_LIMIT","PRESENT_INTERVAL","CORE_PREEMPT","ALLOC_BIG_ALIGN","FPS_TARGET","FPS_HOLD","PRESENT_SNAP",
+-        "PSO_MTL4","SHARED_FONT","PAD_LAYOUT","OP_MODE","PERF_MODE","FEEDBACK_SNAP","TEX_FLUSH_UPLOAD","RENDER_COND","TEX_DIRTY_UPLOAD",
++        "PSO_MTL4","SHARED_FONT","PAD_LAYOUT","OP_MODE","PERF_MODE","FEEDBACK_SNAP","TEX_FLUSH_UPLOAD","RENDER_COND","TEX_DIRTY_UPLOAD","AUDREN_MERGE",
+         "TEX_DYN_SLOTS","GPU_TIMESTAMPS","VCONV_RANGE","DEVICE_API","STDALLOC_CAP","SHADER_KEY_SKIP","TEX_BC_CPU","UE_TEXTURE_POOL","ENC_THREAD","GAME_ARGS","GAME_ENV", NULL};
+     char k[64], name[96];
+     for (int i = 0; keys[i]; i++) {
+@@ -307,6 +311,6 @@ void dm_profile_log(void) {
+     LOG("  graphics flush %d dirty %d rcond %d dynslots %d gputs %d vconv %d nvn_api %d.%d  versions %d",
+         p->tex_flush_upload, p->tex_dirty_upload, p->render_cond, p->tex_dyn_slots, p->gpu_ts_segment, p->vconv_range,
+         p->nvn_api_major, p->nvn_api_minor, p->nver);
+-    LOG("  more stdalloc_cap %#llx key_skip %#x+%#x bc_cpu %d ue_pool %d enc_thread %d",
+-        (unsigned long long)p->stdalloc_cap, p->shader_skip_off, p->shader_skip_len, p->tex_bc_cpu, p->ue_texture_pool, p->enc_thread);
++    LOG("  more stdalloc_cap %#llx key_skip %#x+%#x bc_cpu %d ue_pool %d enc_thread %d audren_merge %d",
++        (unsigned long long)p->stdalloc_cap, p->shader_skip_off, p->shader_skip_len, p->tex_bc_cpu, p->ue_texture_pool, p->enc_thread, p->audren_merge);
+ }
+diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
+index 5afd846..2a3c89a 100644
+--- a/dm/host/hle_profile.h
++++ b/dm/host/hle_profile.h
+@@ -33,6 +33,7 @@ struct dm_profile {
+     uint64_t stdalloc_cap;       // StandardAllocator's address space (hle_svc.c); 0 = what the alias region has room for
+     uint32_t shader_skip_off, shader_skip_len;   // shader_key_skip <offset>+<length>: control bytes the shader keys hash as zeros (len 0 = none)
+     int tex_bc_cpu, ue_texture_pool, enc_thread;   // ue_texture_pool in MB (0 = the game's own pool)
++    int audren_merge;            // audren: updates closer than a frame merge for a renderer with no effects (hle_audren.c)
+     char args[512], genv[1024];  // game_args / game_env
+     char source[512];            // DM_PROFILE, or "compiled defaults"
+ };
+diff --git a/dm/host/tests/t_audren_work.c b/dm/host/tests/t_audren_work.c
+index e6f80f4..1517c42 100644
+--- a/dm/host/tests/t_audren_work.c
++++ b/dm/host/tests/t_audren_work.c
+@@ -22,6 +22,8 @@ static void work_free(void *p) {
+ #include "../hle_audren.c"
+ #undef posix_memalign
+ #undef free
++static struct dm_profile test_profile;   // compiled defaults (audren_merge off); this test opens and closes renderers only
++const struct dm_profile *dm_profile(void) { return &test_profile; }
+ 
+ enum { SDK_WORK = 0x760000, SERVICE_WORK = 0x61d000 };
+ static int opens, starts, joins, closes, fail_open, nested;
