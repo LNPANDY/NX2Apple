@@ -20,6 +20,7 @@ enum Entry {
 struct NX2AppleApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @StateObject private var console = ConsoleCoordinator()
+    @StateObject private var session = LauncherSession()
 
     var body: some Scene {
         WindowGroup("NX2Apple") {
@@ -28,7 +29,7 @@ struct NX2AppleApp: App {
                 OnboardingDemoHost(scenario: scenario)
             } else if let scenario = ProcessInfo.processInfo.environment["NSPB_CONSOLE_DEMO"].flatMap(MockConsoleDriver.Scenario.init(rawValue:)) {
                 ConsoleDemoView(scenario: scenario)
-            } else { RootView(console: console) }
+            } else { RootView(shared: session, console: console) }
         }
             .windowStyle(.hiddenTitleBar)
             .defaultSize(width: 1280, height: 900)
