@@ -9,10 +9,11 @@ package enum BuildFailureKind: String, CaseIterable {
     /// The inputs: the keys file, the game folder, a drive that is gone.
     case keys, severalGames, noTitleID, driveMissing
     /// A game folder or NUP (a Switch 2 game, GameFolder.swift) of a game the engine has no profile for: the script packs one only with a profile.
-    case noProfile
     /// prod.keys lacks the master key the game needs: the keys are older than the game (nx_extract's exit code 6, seedds/nxnative 3104c0a).
     case keysOld
     /// The build's and the install's own steps.
+    /// The offline Metal archive ran out of space or stopped at its own space estimate.
+    case psoDiskFull
     case diskFull, teamTaken, noSigningAccount, deviceTransfer
     /// The build folder is in iCloud Drive or another cloud folder (CloudFolder.swift): the launcher stops before the build, and the
     /// codesign line of xcodebuild is the same stop for a build that got past that check.
@@ -45,7 +46,7 @@ package enum BuildFailureKind: String, CaseIterable {
 package struct BuildFailure: Equatable {
     package var kind: BuildFailureKind
     package var gameName: String?   // a32Program: the game, when the message names it
-    /// What the message adds to its row: the GB a full disk needs (diskFull), the drive's name (driveMissing), the folder
+    /// What the message adds to its row: the GB a full disk needs (diskFull, psoDiskFull), the drive's name (driveMissing), the folder
     /// of "no NSP with a readable title ID" (noTitleID).
     package var detail: String? = nil
 

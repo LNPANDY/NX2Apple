@@ -31,10 +31,10 @@ Issue: LNPANDY/NX2Apple#483
  2 files changed, 47 insertions(+), 3 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 7bbd2cd..4692172 100644
+index 5d7f6180..3902cfa9 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -4862,6 +4862,12 @@ static void draw_gs_check(NvProg *pr) {
+@@ -4905,6 +4905,12 @@ static void draw_gs_check(NvProg *pr) {
      static const prog_t *lp; static uint64_t lser, lgen; static NvProg *lpr;   // Last result: same object, same serial and unchanged serial table means it is used directly
      uint64_t gen = g_ser_gen;
      if (p == lp && p->serial == lser && gen == lgen && lpr) return lpr;
@@ -47,15 +47,15 @@ index 7bbd2cd..4692172 100644
      __unsafe_unretained NvProg *have = p->serial ? serial_get(p->serial) : nil;
      if (have) { lp = p; lser = p->serial; lgen = gen; lpr = have; return have; }
      shmap_load();
-@@ -5514,6 +5520,7 @@ static size_t arena_alloc(size_t n, __strong id<MTLBuffer> *buf) {
+@@ -5594,6 +5600,7 @@ static size_t arena_alloc(size_t n, __strong id<MTLBuffer> *buf) {
      const prog_t *cprog;       // compute program: NVN binds it apart from the graphics stages (see OP_BIND_PROGRAM in state_op)
      p_prim_restart restart;
      const prog_t *bst[5];      // program bound per stage (NVN stage bits 1 vertex 2 fragment 4 geometry 8 / 16 tessellation, indices as in NvProg.sh), see bind_stages
 +    uint64_t bser[5];          // the serial each of those programs had when it was bound: a program the game finalizes (or sets again) while a stage still holds it is not read again (see stage_prog)
      blend_st blend[8]; color_st color; chmask_st chmask; ms_st ms; poly_st poly; ds_st ds;
-     va_st attr[16]; int nattr; vs_st stream[16]; int nstream;
+     va_st attr[32]; int nattr; vs_st stream[16]; int nstream;
      NVNbufferRange vbuf[16];
-@@ -5758,8 +5765,33 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
+@@ -5838,8 +5845,33 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
  // When every stage comes from the same program, that program is the effective one (all of Mario's and Engage's binds are like this, so nothing changes for them); otherwise a composite is made: a host-made prog_t carrying only a serial, whose NvProg in the serial table takes each stage from its source program (a null fragment = a vertex-only pipeline)
  // NVN2's task and mesh bits (0x40, 0x80) of a program bind: stages 3 and 4, where those shaders are kept (hle_nvn.c st_host)
  static inline int gfx_stage_bits(int stages) { return (stages & 0x1f) | (stages & 0x40 ? 8 : 0) | (stages & 0x80 ? 16 : 0); }
@@ -90,7 +90,7 @@ index 7bbd2cd..4692172 100644
      const prog_t *v = S.bst[0] ? S.bst[0] : S.bst[4];   // a mesh program has no vertex stage
      if (!v) return NULL;
      int same = 1; for (int st = 1; st < 5; st++) if (S.bst[st] && S.bst[st] != v) same = 0;
-@@ -5767,13 +5799,13 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
+@@ -5847,13 +5879,13 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
      enum { NCMP = 64 };
      static prog_t cp[NCMP]; static const prog_t *ck[NCMP][5]; static uint64_t cs[NCMP][5]; static int ncp, next;
      for (int i = 0; i < ncp; i++) {
@@ -106,7 +106,7 @@ index 7bbd2cd..4692172 100644
      prog_fold_gs(o);   // the geometry stage came from another program (see prog_fold_gs)
      memset(&cp[i], 0, sizeof cp[i]); cp[i].magic = MAGIC('P', 'R', 'O', 'G'); cp[i].serial = nvn_new_serial(); serial_put(cp[i].serial, o);
      { static int once; if (!once++) MLOG("per-stage program binding: first combined program (vertex %s fragment %s)", o->sh[0] ? o->sh[0]->key : "-", o->sh[1] ? o->sh[1]->key : "-"); }
-@@ -5804,6 +5836,11 @@ static void state_reset(void) {
+@@ -5884,6 +5916,11 @@ static void state_reset(void) {
  // and X-2's first fragment-only bind dereferenced that stale vertex program in keys_hash. Separate queues also retain their own bindings when submissions alternate (Three Houses).
  typedef struct queue_state { uint64_t serial; typeof(S) s; typeof(R) r; struct queue_state *next; } queue_state;
  static queue_state *g_queue_states, *g_active_queue;
@@ -119,7 +119,7 @@ index 7bbd2cd..4692172 100644
      if (g_active_queue && g_active_queue->serial == serial) return;
      if (g_active_queue) { g_active_queue->s = S; g_active_queue->r = R; }
 diff --git a/docs/reference/nvn-objects.md b/docs/reference/nvn-objects.md
-index bb24a8c..a8b3c46 100644
+index bb24a8c5..a8b3c46b 100644
 --- a/docs/reference/nvn-objects.md
 +++ b/docs/reference/nvn-objects.md
 @@ -169,6 +169,13 @@ The game may also write into an NVN object directly, without an NVN call, throug

@@ -595,6 +595,114 @@ static UIImage *nspb_app_icon(void) {
 - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 @end
 
+#pragma mark - in-game menu (GameMenu.swift port)
+
+extern int dm_pad_layout(void);
+extern bool dm_pad_layout_offered(int layout);
+extern void dm_pad_layout_set(int layout);
+extern bool dm_setting_live(const char *env, const char *value);
+extern void *dm_quit_menu(void);
+
+static NspbModel *g_game_menu_model;
+
+static UIMenuElement *nspb_game_menu_row(NspbModel *m, NspbSetting *s) {
+    NSString *now = [m value:s];
+    BOOL fixed = [m locked:s];
+    UIMenuElementAttributes attrs = fixed ? UIMenuElementAttributesDisabled : 0;
+    void (^pick)(NSString *) = ^(NSString *v) {
+        if (fixed || ![s accepts:v]) return;
+        m.values[s.env] = v;
+        NSString *key = [@"launcher." stringByAppendingString:s.env];
+        if ([s isDefault:v]) [m.defaults removeObjectForKey:key];
+        else [m.defaults setObject:v forKey:key];
+        setenv(s.env.UTF8String, v.UTF8String, 1);
+        fprintf(stderr, "launcher: %s=%s (in-game menu)\n", s.env.UTF8String, v.UTF8String);
+        dm_setting_live(s.env.UTF8String, v.UTF8String);
+    };
+    if ([s.kind isEqualToString:@"toggle"]) {
+        NSString *next = [now isEqualToString:s.onValue] ? s.offValue : s.onValue;
+        UIAction *a = [UIAction actionWithTitle:s.label image:nil identifier:nil handler:^(__kindof UIAction *__unused act) {
+            pick(next);
+        }];
+        a.attributes = attrs;
+        a.state = [now isEqualToString:s.onValue] ? UIMenuElementStateOn : UIMenuElementStateOff;
+        if (fixed) a.subtitle = @"Set in env.txt";
+        return a;
+    }
+    NSArray<NSArray<NSString *> *> *options = s.options ?: @[];
+    NSString *current = now;
+    NSMutableArray<UIAction *> *actions = [NSMutableArray arrayWithCapacity:options.count];
+    for (NSArray<NSString *> *o in options) {
+        if ([o[0] isEqualToString:now]) current = o[1];
+        NSString *val = o[0];
+        UIAction *a = [UIAction actionWithTitle:o[1] image:nil identifier:nil handler:^(__kindof UIAction *__unused act) {
+            pick(val);
+        }];
+        a.attributes = attrs;
+        a.state = [val isEqualToString:now] ? UIMenuElementStateOn : UIMenuElementStateOff;
+        [actions addObject:a];
+    }
+    UIMenu *sub = [UIMenu menuWithTitle:s.label image:nil identifier:nil options:UIMenuOptionsSingleSelection children:actions];
+    if (fixed && [sub respondsToSelector:@selector(setSubtitle:)]) {
+        sub.subtitle = [NSString stringWithFormat:@"%@, set in env.txt", current];
+    }
+    return sub;
+}
+
+static NSArray<UIMenuElement *> *nspb_game_menu_items(void) {
+    NSArray<NSString *> *names = @[@"2D", @"3D", @"Tap"];
+    NSMutableArray<UIAction *> *layouts = [NSMutableArray array];
+    for (int l = 0; l < 3; l++) {
+        if (!dm_pad_layout_offered(l)) continue;
+        UIAction *a = [UIAction actionWithTitle:names[l] image:nil identifier:nil handler:^(__kindof UIAction *__unused act) {
+            dm_pad_layout_set(l);
+        }];
+        a.state = (dm_pad_layout() == l) ? UIMenuElementStateOn : UIMenuElementStateOff;
+        [layouts addObject:a];
+    }
+    UIMenu *layout = [UIMenu menuWithTitle:@"Controller layout" image:nil identifier:nil options:UIMenuOptionsSingleSelection children:layouts];
+    NSMutableArray<UIMenuElement *> *items = [NSMutableArray array];
+    BOOL placed = NO;
+    NspbModel *m = g_game_menu_model;
+    if (m) {
+        for (NSString *section in m.sections) {
+            NSMutableArray<UIMenuElement *> *rows = [NSMutableArray array];
+            if ([section isEqualToString:@"Controls"]) {
+                [rows addObject:layout];
+                placed = YES;
+            }
+            for (NspbSetting *s in m.settings) {
+                if (![s.sectionTitle isEqualToString:section]) continue;
+                if (([s.kind isEqualToString:@"choice"] || [s.kind isEqualToString:@"toggle"]) &&
+                    dm_setting_live(s.env.UTF8String, NULL)) {
+                    [rows addObject:nspb_game_menu_row(m, s)];
+                }
+            }
+            if (rows.count) {
+                [items addObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:rows]];
+            }
+        }
+    }
+    if (!placed) {
+        [items insertObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:@[layout]] atIndex:0];
+    }
+    void *quit = dm_quit_menu();
+    if (quit) {
+        UIMenu *qm = CFBridgingRelease(quit);
+        if (qm) [items addObject:qm];
+    }
+    return items;
+}
+
+void *dm_game_menu(void) {
+    NSString *title = g_game_menu_model ? @"More settings on the start screen" : @"";
+    UIDeferredMenuElement *def = [UIDeferredMenuElement elementWithUncachedProvider:^(void (^done)(NSArray<UIMenuElement *> *)) {
+        done(nspb_game_menu_items());
+    }];
+    UIMenu *menu = [UIMenu menuWithTitle:title children:@[def]];
+    return (void *)CFBridgingRetain(menu);
+}
+
 #pragma mark - entry point
 
 // A capture IPA (the run-time shader capture done on the device instead of a Mac) sets
@@ -633,6 +741,7 @@ bool dm_show_launcher(void *view_controller, void (*done)(void)) {
     }
     UIViewController *parent = (__bridge UIViewController *)view_controller;
     NspbModel *model = [[NspbModel alloc] initWith:settings];
+    g_game_menu_model = model;
     NspbLauncherVC *vc = [NspbLauncherVC new];
     vc.m = model;
     vc.modalPresentationStyle = UIModalPresentationFullScreen;

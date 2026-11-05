@@ -20,10 +20,10 @@ Issue: LNPANDY/NX2Apple#483
  2 files changed, 12 insertions(+), 2 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 025ab45..52355e1 100644
+index f1918b58..21fe99ce 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -1693,11 +1693,15 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+@@ -1694,11 +1694,15 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
      // MTLBuffer.contents may autorelease its receiver; keep that lifetime inside the completed copy.
      @autoreleasepool {
      int n = r->n; post_op *ops = r->ops; seg_clk *sc = r->sc; uint32_t seg_last = r->seg_last;
@@ -39,7 +39,7 @@ index 025ab45..52355e1 100644
              free(l); uint64_t rec[2] = {sum, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec);
          }
          else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
-@@ -12457,7 +12461,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
+@@ -12563,7 +12567,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
          c.pools, (unsigned long long)c.pool_adds, c.sview_nonnull, dl, (unsigned long long)da, c.c1_bufs, (unsigned long long)c.c1_alloc, (unsigned long long)c.c1_data);
  }
  // Screenshot on request (used by DM_NVN_SHOT_UI): dm_gfx_shot_at(k, path) = take a screenshot at the kth frame after the current present frame; due requests are checked at every frame's present
@@ -49,7 +49,7 @@ index 025ab45..52355e1 100644
  static pthread_mutex_t g_shotq_mu = PTHREAD_MUTEX_INITIALIZER;
  static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4]);
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 18a72cc..53cfc44 100644
+index 18a72cce..53cfc446 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -213,7 +213,8 @@ void hid_keys_init(void) {

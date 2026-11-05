@@ -19,22 +19,30 @@ the profile's table rows for the split) run the standard step, with a note.
 nxbuild's own red lines stay in its log, since the build did not fail.
 Without the variable nothing changes.
 
+A Switch 2 package (.nup) goes to nxb-extract --nup (no keys) the same way: the
+version's image, ExeFS and control data land in extract/<version>, the DLC
+images in aoc/, in the layout pack_nup.py writes. The script keeps its own
+reuse key for them (the NUP's size and time, the version, the tool), since
+nxb-extract writes no RomFS.img.inputs.json. The checks are ExeFS/main,
+RomFS.img, the marker and the '<program ID> version <v>:' line of its log. A
+failed or unsupported run, or a failed check, runs pack_nup.py instead.
+
 Upstream-Status: forwarded seedds/nxnative#1325
-Reason: the launcher's opt-in experimental builder (nxbuild) runs the extraction and the shader split
+Reason: the launcher's opt-in experimental builder (nxbuild) runs the extraction (NSP and NUP) and the shader split
 Issue: LNPANDY/NX2Apple#749
 ---
- .../tests/test_nsp_experimental_builder.py    | 156 ++++++++++++++++++
+ .../tests/test_nsp_experimental_builder.py    | 211 ++++++++++++++++++
  docs/env_switches.tsv                         |   1 +
- scripts/build_ipa_from_nsp.py                 | 116 ++++++++++++-
- 3 files changed, 269 insertions(+), 4 deletions(-)
+ scripts/build_ipa_from_nsp.py                 | 164 +++++++++++++-
+ 3 files changed, 370 insertions(+), 6 deletions(-)
  create mode 100644 dm/tools/tests/test_nsp_experimental_builder.py
 
 diff --git a/dm/tools/tests/test_nsp_experimental_builder.py b/dm/tools/tests/test_nsp_experimental_builder.py
 new file mode 100644
-index 0000000..9005508
+index 0000000..444e186
 --- /dev/null
 +++ b/dm/tools/tests/test_nsp_experimental_builder.py
-@@ -0,0 +1,156 @@
+@@ -0,0 +1,211 @@
 +"""NSP script, the experimental builder (scripts/build_ipa_from_nsp.py, DM_EXPERIMENTAL_BUILDER and NXB_BIN): which nxbuild binary a stage takes, and that a stage it does not
 +support, fails or gets wrong runs the standard way. The nxbuild binaries are stand-in scripts in a temporary folder: no game files, keys or nxbuild needed."""
 +import importlib.util
@@ -44,6 +52,7 @@ index 0000000..9005508
 +import sys
 +import tempfile
 +import unittest
++from types import SimpleNamespace
 +from unittest import mock
 +
 +REPO = Path(__file__).resolve().parents[3]
@@ -165,6 +174,60 @@ index 0000000..9005508
 +        self.assertIn(f'--update {upd} {tmp} --updates-only', args)
 +        self.assertFalse(tmp.with_name('v1.partial.nxb-base').exists(), 'the base\'s scratch folder goes')
 +
++    def nup(self, body, kind=None, version=0, marker='marker.txt'):   # a NUP (stand-in: the path and the version's package) through nxb-extract --nup
++        src = self.t / 'src'; src.mkdir(exist_ok=True); (src / 'marker.txt').write_text('x')
++        romfs_image.pack(src, self.t / 'image.img')
++        if body: tool(self.bin, 'nxb-extract', body.replace('IMAGE', repr(str(self.t / 'image.img'))))   # None: the stand-in stays as it is
++        path = self.t / 'game.nup'
++        if not path.exists(): path.write_bytes(b'NUP\1')
++        ex = self.t / 'work' / 'extract'; ex.mkdir(parents=True, exist_ok=True)
++        k = SimpleNamespace(kind=nsp.pack_nup.UPDATE if version else nsp.pack_nup.BASE, version=version)
++        return nsp.nxb_extract_nup(ex, f'v{version}', k, None, APP, SimpleNamespace(path=path), marker), ex / f'v{version}'
++
++    NUP_WRITES = ("a = sys.argv; ver = a[a.index('--version') + 1]; out = Path(a[a.index('--work') + 1]) / 'extract' / ('v' + ver); (out / 'ExeFS').mkdir(parents=True); (out / 'ExeFS/main').write_bytes(b'NSO0')\n"
++                  "shutil.copyfile(IMAGE, out / 'RomFS.img'); aoc = Path(a[a.index('--work') + 1]) / 'aoc'; aoc.mkdir(); (aoc / '1.img').write_bytes(b'dlc')\n"
++                  "print('{app} version ' + ver + ': game.nup (update ' + ver + ')')")
++
++    def test_a_nup_is_handed_over_with_its_version_and_no_discarded_image(self):
++        ok, dst = self.nup(self.NUP_WRITES.format(app=f'{APP:016X}') + f"\nPath({str(self.t / 'args')!r}).write_text(' '.join(sys.argv[1:]))", version=131072)
++        self.assertTrue(ok, self.text())
++        args = (self.t / 'args').read_text()
++        self.assertIn(f'--nup {self.t / "game.nup"} --work {self.t / "work" / "nxb_nup_v131072.partial"} --version 131072', args)
++        self.assertNotIn('--discard-images', args)
++        self.assertTrue((dst / 'RomFS.img').is_file() and (dst / 'ExeFS' / 'main').is_file())
++        self.assertTrue((self.t / 'work' / 'aoc' / '1.img').is_file(), 'the DLC images come from the same run')
++        self.assertFalse((self.t / 'work' / 'nxb_nup_v131072.partial').exists())
++        self.assertIn('extracted v131072 with nxb-extract', self.text())
++
++    def test_a_nup_base_is_version_zero_and_an_unchanged_nup_is_reused(self):
++        body = self.NUP_WRITES.format(app=f'{APP:016X}') + f"\nPath({str(self.t / 'runs')!r}).open('a').write('x')"
++        ok, dst = self.nup(body)
++        self.assertTrue(ok, self.text())
++        self.assertTrue(ok and (dst / 'RomFS.img').is_file())
++        self.said.clear()
++        ok, _ = self.nup(None)
++        self.assertTrue(ok)
++        self.assertEqual((self.t / 'runs').read_text(), 'x', 'the second call did not run nxb-extract again')
++        self.assertIn('reusing it', self.text())
++
++    def test_a_nup_falls_back_on_unsupported_failure_or_a_bad_output(self):
++        for body, why in (('sys.exit(4)', 'not supported yet'), ('sys.exit(3)', 'exit code 3'), (self.NUP_WRITES.format(app='0100000000001000'), 'failed the checks'),
++                          (self.NUP_WRITES.format(app=f'{APP:016X}').replace("(out / 'ExeFS/main').write_bytes(b'NSO0')", 'pass'), 'failed the checks')):
++            with self.subTest(why=why, body=body[:30]):
++                self.said.clear(); nsp._nxb_noted.clear()
++                ok, dst = self.nup(body)
++                self.assertFalse(ok)
++                self.assertFalse(dst.exists(), 'pack_nup starts from what it finds: nothing of nxb-extract stays')
++                self.assertFalse((self.t / 'work' / 'nxb_nup_v0.partial').exists())
++                self.assertIn(why, self.text())
++                self.assertIn('the standard builder runs it', self.text())
++
++    def test_a_nup_without_the_builder_runs_the_standard_way(self):
++        with mock.patch.dict(os.environ, {'DM_EXPERIMENTAL_BUILDER': '0'}):
++            ok, dst = self.nup(self.NUP_WRITES.format(app=f'{APP:016X}'))
++        self.assertFalse(ok)
++        self.assertFalse(dst.exists())
++
 +    def split(self, rows):
 +        tool(self.bin, 'nxb-split', "a = sys.argv; o = lambda k: Path(a[a.index(k) + 1])\n"
 +             "o('--pkg').mkdir(parents=True)\n"
@@ -192,7 +255,7 @@ index 0000000..9005508
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 772479e..aceb18e 100644
+index 83e5942..732fea6 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -36,6 +36,7 @@ DM_ENV_FILE	path	`=<file>` makes `build_ipa.sh` bake its `KEY=VALUE` lines into
@@ -204,7 +267,7 @@ index 772479e..aceb18e 100644
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
  DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index d7ebdb5..0b1768b 100755
+index 486a464..ed02d0d 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@
@@ -215,7 +278,7 @@ index d7ebdb5..0b1768b 100755
  import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types
  from pathlib import Path
  sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
-@@ -422,6 +423,104 @@ def free_gb(p):
+@@ -425,6 +426,141 @@ def free_gb(p):
      return shutil.disk_usage(p).free / 2**30
  
  
@@ -226,6 +289,7 @@ index d7ebdb5..0b1768b 100755
 +# output that fails the checks below run the standard way, with a note in the log. Without the variable nothing changes.
 +NXB_UNSUPPORTED = 4   # nxbuild's exit code for "not supported yet": nothing it wrote is an output (nxbuild's docs/integration-requests.md)
 +_nxb_noted = set()
++_nxb_nups = set()   # NUPs whose versions nxb-extract wrote (its aoc/ images are the DLC's: extract_aoc does not pack them again)
 +
 +
 +def nxb_note(msg):   # one note per message and build: a missing binary is named once, not per version
@@ -259,6 +323,42 @@ index d7ebdb5..0b1768b 100755
 +    except OSError: unsupported = False
 +    why = f'could not start ({err})' if code is None else 'not supported yet' if unsupported else f'exit code {code}'
 +    nxb_note(f'{what}: {why} (see {log}), the standard builder runs it')
++    return False
++
++
++def nxb_extract_nup(ex, name, k, base, app, n, marker):
++    """One version of a NUP through nxb-extract (no keys: `--nup`) into ex/name, the layout pack_version writes, and the DLC images into <work>/aoc. True when its output passed the checks (ExeFS/main,
++    RomFS.img, the marker, the log's '<program ID> version <v>:' line); False leaves nothing of it, for pack_nup. nxb-extract writes no reuse stamp: this keeps its own (the NUP's size and time, the version, the tool)"""
++    tool = nxb_tool('extract')
++    if not tool: return False
++    work, dst = ex.parent, ex / name
++    ver = k.version if k.kind == pack_nup.UPDATE else 0
++    try: st, tst = n.path.stat(), Path(tool[0]).stat()
++    except OSError: return False
++    keyfile = dst / 'RomFS.img.nxb-nup.key'
++    key = fingerprint(('nxb-nup', str(n.path), st.st_size, st.st_mtime_ns, ver, [str(c) for c in tool], tst.st_size, tst.st_mtime_ns))
++    if reused(keyfile, key) is not None and (dst / 'ExeFS' / 'main').is_file() and (dst / 'RomFS.img').is_file():
++        _nxb_nups.add(n.path); say(f'experimental builder: {name} was extracted with nxb-extract and the NUP is unchanged: reusing it'); return True
++    rmtree(keyfile)
++    log, scratch = work / 'logs' / f'nxb_extract_{name}.log', work / f'nxb_nup_{name}.partial'
++    rmtree(scratch)
++    ok = nxb_run([*tool, '--nup', n.path, '--work', scratch, '--version', ver], log, f'extract {name}')   # never --discard-images: the image is the output
++    out = scratch / 'extract' / f'v{ver}'
++    if ok:
++        try:
++            whole = (out / 'ExeFS' / 'main').is_file() and (out / 'RomFS.img').is_file() and (not marker or (rfs.source(out) / marker).exists())
++            said = re.search(rf'^{app:016X} version {ver}: ', log.read_text(errors='replace'), re.M) is not None
++        except (OSError, ValueError, struct.error): whole = said = False
++        if whole and said:
++            swap_in(out, dst)
++            if (scratch / 'aoc').is_dir() and n.path not in _nxb_nups: swap_in(scratch / 'aoc', work / 'aoc')   # the images are the same in every version's run
++            _nxb_nups.add(n.path)
++            keyfile.write_text(key + '\n')
++            rmtree(scratch)
++            say(f'experimental builder: extracted {name} with nxb-extract')
++            return True
++        nxb_note(f'extract {name}: the output of nxb-extract failed the checks (see {log}), the standard builder runs it')
++    rmtree(scratch)
 +    return False
 +
 +
@@ -320,7 +420,7 @@ index d7ebdb5..0b1768b 100755
  def configure_dotnet(env):
      """Let standalone .NET apphosts find the runtime used by dotnet (Homebrew installs it outside the registered locations)."""
      if env.get('DOTNET_ROOT'): return
-@@ -1183,7 +1282,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
+@@ -1255,7 +1391,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
      def poll():
          n, b = tree_size(tmp); return {'done': b, 'note': f'{n:,} files'}
      PROG.stage(f'extract {name}', poll=poll, unit='B', total=last[1] if last else base.stat().st_size + (upd.stat().st_size if upd and upd != base else 0), est=not last)
@@ -330,7 +430,36 @@ index d7ebdb5..0b1768b 100755
      swap_in(tmp, dst)
      n, b = extracted(log) or (0, 0)
      PROG.end(f'{n:,} files, {amount(b, "B")}')
-@@ -2107,9 +2207,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
+@@ -1295,13 +1432,15 @@ def scan_nup(path, want=None):   # a NUP as scan_nsps gives a folder of NSPs, wi
+     return app, {'base': base, 'updates': sorted(vers.items()), 'dlc': [(tid, None, k) for tid, k in sorted(dlc.items())], 'nup': n}
+ 
+ 
+-def extract_nup(ex, name, k, base, app, n):   # one version of a NUP (k: its base or an update package) into the layout extract makes; the code modules and the image are kept while unchanged
++def extract_nup(ex, name, k, base, app, n, marker=None):   # one version of a NUP (k: its base or an update package) into the layout extract makes; the code modules and the image are kept while unchanged
+     dst = ex / name; part = dst / 'RomFS.img.part'
+     def poll():
+         try: return {'done': part.stat().st_size}
+         except OSError: return None
+     try:
+         PROG.stage(f'unpack {name}', poll=poll, unit='B', total=n.tree_bytes(pack_nup.romfs_of(k, base)), est=True)
++        if nxb_extract_nup(ex, name, k, base, app, n, marker):   # the experimental builder, when it is on and can (else nothing happens there)
++            PROG.end(amount((dst / 'RomFS.img').stat().st_size, 'B')); return dst
+         pack_nup.pack_version(n, k, base, app, dst, say=lambda s: None)
+     except pack_nup.Error as e: raise BuildError(str(e)) from e
+     PROG.end(amount((dst / 'RomFS.img').stat().st_size, 'B'))
+@@ -1334,6 +1473,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
+     if not fam['dlc']: return None
+     if fam.get('nup'):
+         PROG.stage('unpack DLC', step='unpacking')
++        if fam['nup'].path in _nxb_nups and all((work / 'aoc' / f'{tid - app - 0x1000}.img').is_file() for tid, _, _ in fam['dlc']):   # nxb-extract wrote them with the versions
++            want = {f'{tid - app - 0x1000}.img' for tid, _, _ in fam['dlc']}
++            for f in (work / 'aoc').iterdir():
++                if f.name not in want: rmtree(f)   # DLC no longer in the container
++            PROG.end(f'{len(fam["dlc"])} DLC'); return work / 'aoc'
+         try: pack_nup.pack_dlc(fam['nup'], app, {tid: k for tid, _, k in fam['dlc']}, work / 'aoc', say=lambda s: None)
+         except pack_nup.Error as e: raise BuildError(str(e)) from e
+         PROG.end(f'{len(fam["dlc"])} DLC')
+@@ -2189,9 +2333,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
      tmp = pkg.with_name(pkg.name + '.partial'); rmtree(tmp); (tmp / 'tables').mkdir(parents=True)
      def counted(ln):   # shader_split.py's 'progress: <done>/<total>'
          if m := re.fullmatch(r'progress: (\d+)/(\d+)', ln): PROG.set(done=int(m[1]), total=int(m[2]), unit='files')
@@ -351,3 +480,12 @@ index d7ebdb5..0b1768b 100755
      m = re.search(r'shaders: (\d+) \(', text)
      bad = re.search(r'^\[RED\] (\d+) file\(s\) could not be read.*$', text, re.M)   # the split leaves out a file no reader reads (its own red line per file in the log) and goes on
      if bad and not provisional:   # the profile's tables were split from every file: one that does not read now is a reader change
+@@ -3122,7 +3274,7 @@ def main(args=None):
+     dirs = {}
+     for ver in versions:   # each merged version streams directly into its own image
+         b, u = picks[ver]
+-        dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup']) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
++        dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup'], g.get('romfs_marker')) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
+         if not nup and not dump: extract_html(nx, keys, dirs[ver], b, u, logs, app)
+     check_versions_aarch64(dirs, logs, g, nacp.name(dirs[versions[0]] / 'control.nacp') or f'{app:016X}')   # before build_mismatch, derive_profile and build_sources read the modules
+     bad = [] if derived else [f'{v}: {x}' for v in versions for x in build_mismatch(dirs[v], v, g)]   # every module's build ID must be the one the profile registers for its version

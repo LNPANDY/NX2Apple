@@ -20,10 +20,10 @@ import NXModel
 
     override func tearDownWithError() throws { try? FileManager.default.removeItem(atPath: tmp) }
 
-    private func framework(_ titleID: String, name: String, chain: String) throws -> String {
+    private func framework(_ titleID: String, name: String, chain: String, loader: String = "FH") throws -> String {
         let fw = tmp + "/shell/frameworks/DmGame\(titleID).framework"
         try FileManager.default.createDirectory(atPath: fw, withIntermediateDirectories: true)
-        let manifest = ["title_id": titleID, "name": name, "chain": chain, "framework": "DmGame\(titleID).framework"]
+        let manifest = ["title_id": titleID, "name": name, "chain": chain, "loader": loader, "framework": "DmGame\(titleID).framework"]
         try JSONSerialization.data(withJSONObject: manifest).write(to: URL(fileURLWithPath: fw + "/game.manifest.json"))
         try "binary".write(toFile: fw + "/DmGame\(titleID)", atomically: true, encoding: .utf8)
         return fw
@@ -32,8 +32,8 @@ import NXModel
     private func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: path) }
 
     private func shell() throws -> (stale: String, fresh: String) {
-        let stale = try framework(oldID, name: "Old Game", chain: old)
-        let fresh = try framework(newID, name: "Fresh Game", chain: current)
+        let stale = try framework(oldID, name: "Old Game", chain: old, loader: "FR")
+        let fresh = try framework(newID, name: "Fresh Game", chain: current, loader: "FH")
         var library = ShellLibrary()
         library.add(ShellLibrary.Game(titleID: oldID, name: "Old Game", framework: stale))
         library.add(ShellLibrary.Game(titleID: newID, name: "Fresh Game", framework: fresh))
@@ -60,8 +60,9 @@ import NXModel
         XCTAssertEqual(entries.first?.chain, old)
     }
 
-    func testNothingIsAskedWhenEveryFrameworkIsCurrent() throws {
-        _ = try framework(newID, name: "Fresh Game", chain: current)
+    func testNothingIsAskedWhenEveryFrameworkCarriesItsOwnHostEvenAcrossChains() throws {
+        _ = try framework(oldID, name: "Old Chain Game", chain: old, loader: "FH")
+        _ = try framework(newID, name: "Fresh Game", chain: current, loader: "FH")
         XCTAssertEqual(found(), [])
         XCTAssertEqual(StaleFrameworks.find(root: tmp + "/empty", chain: current, known: []), [])
     }

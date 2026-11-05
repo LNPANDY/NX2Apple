@@ -286,7 +286,7 @@ import NXModel
         }
         for (name, kind, lang) in [("hint-other-metal", BuildFailureKind.otherMetal, Lang.en), ("hint-ios-sdk", .iosSDK, .en), ("hint-damaged-nsp", .damagedNSP, .en),
                                    ("hint-other-metal-zh", .otherMetal, .zh)]
-                                  + [BuildFailureKind.keys, .keysOld, .severalGames, .noTitleID, .noProfile, .driveMissing, .diskFull, .volumeFormat, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
+                                  + [BuildFailureKind.keys, .keysOld, .severalGames, .noTitleID, .driveMissing, .diskFull, .volumeFormat, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
                                       [("row-\(k.rawValue)", k, Lang.en), ("row-\(k.rawValue)-zh", k, Lang.zh)] } {
             let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
             m.lang = CaptureLanguage.current(lang)
@@ -295,6 +295,22 @@ import NXModel
             try capture(name, width: 760, height: kind == .noTitleID ? 380 : 250, ZStack(alignment: .top) {
                 LauncherPalette.background
                 BuildFailureCard(m: m).environmentObject(mStores.localizer).padding(24)
+            })
+        }
+        // Replay the real low-space stop through the classifier, including the raw-note fallback before a hint exists.
+        for lang in Lang.all {
+            let stores = LauncherStores(defaults: testDefaults)
+            let build = stores.build
+            build.lang = lang
+            build.doneNote = try XCTUnwrap(fixtures().first { $0.id == "pso.low" }).text
+            build.logTail = build.doneNote
+            build.noteFailure()
+            try capture("pso-low-\(lang.code)", width: 760, height: 360, ZStack(alignment: .top) {
+                LauncherPalette.background
+                VStack(alignment: .leading, spacing: 20) {
+                    ActionCard(build: build, dependencies: stores.dependencies, repo: stores.repo)
+                    BuildFailureCard(m: build)
+                }.environmentObject(stores.localizer).padding(24)
             })
         }
         let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build

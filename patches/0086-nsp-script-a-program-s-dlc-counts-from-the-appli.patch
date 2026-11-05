@@ -20,24 +20,23 @@ them:
 Upstream-Status: pending
 Reason: The Ezio Collection's Brotherhood and Revelations keep their game files in DLC: a program numbered its DLC from its own title ID and split none of the DLC's .forge files
 Issue: LNPANDY/NX2Apple#483
-
 ---
  scripts/build_ipa_from_nsp.py | 7 +++++--
  1 file changed, 5 insertions(+), 2 deletions(-)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index ef37754..30d94f7 100755
+index 3355a930..83df9435 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -37,6 +37,7 @@ import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, impor
+@@ -38,6 +38,7 @@ import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, impor
  from pathlib import Path
  sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
  import romfs as rfs
 +import romfs_image   # the file lists of the DLC's RomFS images (dlc_forge)
  import nso   # the code module loader: nso.Error is a damaged module (its file cut short or not what its header says)
- sys.path.insert(0, str(Path(__file__).resolve().parent))
- import pack_dump   # a folder of a game's files instead of NSPs
-@@ -3051,7 +3052,7 @@ def main(args=None):
+ import tree_tar   # one file in place of a build's folders of many small files
+ import shader_lib   # the shader libraries as one file, read in place
+@@ -3308,7 +3309,7 @@ def main(args=None):
      for on, k in ((glslc, 'glslc_capture'), (vkcap, 'vk_capture'), (glcap, 'gl_capture'), (uedec, 'ue_decode'), (gfx == 'nvn' and src['oodle_packs'][0], 'oodle_packs'), (gfx == 'nvn' and src['ue_legacy'][0], 'ue_legacy')):
          if on: say(src[k][1])
      PROG.add(glslc + vkcap + glcap + uedec + (gfx == 'nvn'))
@@ -46,7 +45,7 @@ index ef37754..30d94f7 100755
      dlc_roms = sorted(p for p in aoc.iterdir() if p.is_dir() or p.suffix == '.img') if aoc else []
      base = next((dirs[v] for v in versions if picks[v][1] is None), dirs[versions[0]])   # the folder the base game was extracted to alone
      # the app name and bundle ID both come from the base NSP: the game name in its control data, and a bundle ID from its title ID; a setting / the command line overrides them
-@@ -3096,7 +3097,9 @@ def main(args=None):
+@@ -3353,7 +3354,9 @@ def main(args=None):
          ios = build_gl_shaders(py, repo, [rfs.source(game), game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else []), sh, env, logs, g, reuse=not ALLOW_DAMAGED, mac=mac, provisional=bool(provisional or derived))
      else:
          # Trinity packs and legacy Unreal paks: the split decodes them with the packed version's own decoder (Oodle, LZ5), in the Mac host built for the profile

@@ -123,7 +123,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     /// Decode BC-compressed textures on the CPU. Only relevant for GPUs without BC support
     /// (A15/A16 and older): on a device that has it the GPU path is always better, so the switch
-    /// is a compatibility option and defaults off. Passed as DM_TEX_BC_CPU through --env-file,
+    /// is a compatibility option and defaults off. Passed as DM_PROF_TEX_BC_CPU through --env-file,
     /// which the host reads at start-up — no rebuild of the host needed.
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
