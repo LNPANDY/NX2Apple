@@ -13,7 +13,7 @@ split kept to the back area's reach (BACK_MIN).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1271
 Reason: A branch out of reach in the rewriter was a bare AssertionError that did not say which site or how far
 Issue: none yet (Starlink: Battle for Atlas main rewrite)
 
