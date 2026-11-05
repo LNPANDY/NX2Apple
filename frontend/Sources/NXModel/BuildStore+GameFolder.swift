@@ -37,16 +37,18 @@ extension BuildStore {
         updateSlot("base") { $0.problem = why }
     }
 
-    /// What the engine lacks for this folder: the packer (an older engine), or a profile for the game. nil without an engine yet:
-    /// the build asks again before it starts.
+    /// What the engine lacks for this folder: the packer, or a profile for the game. Only an engine without the survey needs the
+    /// profile, a newer one builds a game with no profile from a provisional one. nil without an engine yet: the build asks again
+    /// before it starts.
     package func gameFolderEngineProblem(_ contents: GameFolder.Contents) -> String? {
         let engine = EngineLayout.root(repo.path)
         guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/dm") else { return nil }
         if contents.nup != nil ? !GameFolder.engineBuildsNUPs(engine) : !GameFolder.engineBuildsFolders(engine) {
             return t(contents.nup != nil ? "folder.engineOldNUP" : "folder.engineOld")
         }
-        // A NUP whose package table names no title ID: the script reads it from the code, and checks the profile itself
-        if contents.hasTitleID, !GameFolder.engineHasProfile(contents.titleID, engineRoot: engine) { return String(format: t("folder.noProfile"), contents.titleIDHex) }
+        // A NUP whose package table names no title ID: the script reads it from the code, and checks the profile itself.
+        // An engine with the survey builds a game with no profile from a provisional one.
+        if contents.hasTitleID, !GameFolder.engineSurveysWithoutProfile(engine), !GameFolder.engineHasProfile(contents.titleID, engineRoot: engine) { return String(format: t("folder.noProfile"), contents.titleIDHex) }
         return nil
     }
 

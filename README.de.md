@@ -60,7 +60,8 @@ Fork ergänzt den Launcher und eine kurze Liste von Patches und folgt nxnative j
   `sudo xcode-select -s /Applications/Xcode-27.2.app`.
 - **Deine eigenen Spiele-Dumps** (NSP oder XCI) und **deine eigene `prod.keys`** von deiner eigenen
   Konsole. Nichts davon liegt bei, wird heruntergeladen oder für dich nachgeschlagen. Dieselbe `prod.keys`
-  öffnet alle deine Spiele, ein aktueller Dump deckt alle Retail-Titel ab.
+  öffnet alle deine Switch-Spiele. Ein aktueller Dump deckt alle Retail-Titel ab. Switch-2-Spiele (ein
+  Spielordner oder eine `.nup`-Datei) brauchen keine `prod.keys`.
 - Für ein iPhone oder iPad: iOS oder iPadOS 26 oder neuer und ein aktuelles Gerät. Ältere Geräte sind ungetestet.
 
 Die App bringt ihre eigenen Build-Werkzeuge und ihr eigenes Python mit, also brauchst du weder Homebrew

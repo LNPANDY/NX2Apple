@@ -58,8 +58,9 @@ launcher and a short list of patches, and follows nxnative every day.
   Xcode. With a newer Xcode installed too, rename 27.2 to `Xcode-27.2.app` and select it:
   `sudo xcode-select -s /Applications/Xcode-27.2.app`.
 - **Your own game dumps** (NSP or XCI) and **your own `prod.keys`** from your own console. Nothing is
-  bundled, downloaded or looked up for you. The same `prod.keys` opens every one of your games; a
-  current dump covers all retail titles.
+  bundled, downloaded or looked up for you. The same `prod.keys` opens every one of your Switch
+  games. A current dump covers all retail titles. Switch 2 games (a game folder or `.nup` file) do not need
+  `prod.keys`.
 - For an iPhone or iPad: iOS or iPadOS 26 or later and a recent device. Older devices are untested.
 
 The app carries its own build tools and Python, so no Homebrew and no Python install; the .NET SDK 10
