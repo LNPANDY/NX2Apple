@@ -378,6 +378,7 @@ jobs:
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         working-directory: frontend-ios
         run: |
+          set -o pipefail
           mkdir -p ../logs
           swift test 2>&1 | tee ../logs/shell-package-tests.log
       - name: Host unit tests (dm/host/tests)
