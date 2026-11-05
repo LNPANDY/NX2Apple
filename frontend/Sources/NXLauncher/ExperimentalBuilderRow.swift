@@ -13,7 +13,7 @@ package struct ExperimentalBuilderRow: View {
 
     package var body: some View {
         CardRow(loc.t("builder.title"), detail: loc.t("builder.note")) {
-            Toggle("", isOn: $build.experimentalBuilder).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(build.running)
+            Toggle(loc.t("builder.title"), isOn: $build.experimentalBuilder).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(build.running)
         }
         if build.experimentalBuilder {
             CardDivider()

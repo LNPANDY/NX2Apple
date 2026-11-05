@@ -55,7 +55,7 @@ package struct AppCard: View {
             CardDivider()
             // Build notifications (BuildNotifications.swift): none without an app bundle, e.g. under swift run
             CardRow(loc.t("settings.notify"), detail: loc.t(notifyAvailable ? "settings.notifyNote" : "settings.notifyUnbundled")) {
-                Toggle("", isOn: notify).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(!notifyAvailable)
+                Toggle(loc.t("settings.notify"), isOn: notify).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(!notifyAvailable)
                     .padTarget("set.notify", scope: "main") { notify.wrappedValue.toggle() }
             }
             CardDivider()
@@ -68,7 +68,7 @@ package struct AppCard: View {
             }
             // The launcher back in front when a game it started quits (ReturnAfterPlay.swift)
             CardRow(loc.t("settings.returnAfterPlay"), detail: loc.t("settings.returnAfterPlayNote")) {
-                Toggle("", isOn: returnAfterPlay).toggleStyle(LauncherSwitchStyle()).labelsHidden()
+                Toggle(loc.t("settings.returnAfterPlay"), isOn: returnAfterPlay).toggleStyle(LauncherSwitchStyle()).labelsHidden()
                     .padTarget("set.returnAfterPlay", scope: "main") { returnAfterPlay.wrappedValue.toggle() }
             }
             CardDivider()
@@ -100,7 +100,7 @@ package struct AppCard: View {
             }
             // A launcher built from the repository never replaces itself (AppUpdate.installability): the switch says so and stays off
             CardRow(loc.t("app.auto"), detail: loc.t(updates.installability == .ok ? "app.autoNote" : updates.installability == .developer ? "app.autoDev" : "app.autoReadOnly")) {
-                Toggle("", isOn: Binding(get: { updates.automatic && updates.installability == .ok }, set: { updates.automatic = $0 }))
+                Toggle(loc.t("app.auto"), isOn: Binding(get: { updates.automatic && updates.installability == .ok }, set: { updates.automatic = $0 }))
                     .labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(updates.installability != .ok)
                     .padTarget("set.appAuto", scope: "main") { if updates.installability == .ok { updates.automatic.toggle() } }
             }

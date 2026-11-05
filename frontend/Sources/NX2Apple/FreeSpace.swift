@@ -322,7 +322,7 @@ struct FreeSpaceView: View {
             }
             Spacer(minLength: 12)
             sizeText(bytes)
-            Toggle("", isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(working)
+            Toggle(loc.t("free.part." + part.rawValue), isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(working)
         }
         .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
         .padTarget("free." + part.rawValue, scope: "free", radius: 10,
