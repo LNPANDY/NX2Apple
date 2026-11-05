@@ -626,7 +626,7 @@ index 0000000..042513f
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index b1bcbfe..97d22d1 100755
+index d244526..eec7ee4 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -10,6 +10,9 @@
@@ -652,7 +652,7 @@ index b1bcbfe..97d22d1 100755
  OUT_IPA=${1:-$(dirname "$W")/$(gp ipa)}; O=$W/build/ios/pkg; DD=$O/dd
  XCODE_DD=${DM_XCODE_DERIVED_DATA:-$W/build/ios/xcode-dd}
  MARKER=$(gp romfs_marker)
-@@ -188,7 +197,9 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
+@@ -193,7 +202,9 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
  if [ "$FRAMEWORK" = 1 ]; then
    rm -rf Gen/framework && mkdir -p Gen/framework/dm || die "mkdir Gen/framework"
    cp -R Gen/dm/. Gen/framework/dm/ || die "copy the framework tables"
@@ -663,7 +663,7 @@ index b1bcbfe..97d22d1 100755
    python3 "$DM/games/game.py" profile "$GAME" Gen/framework/profile.tsv > /dev/null || die "game profile"
    # The manifest names the game data this framework was built for: the RomFS image's identity (dm/host/romfs_identity.h), as the
    # pack step's romfs.id does. That step's default is repeated here because the manifest is a build resource and has to exist now.
-@@ -200,7 +211,7 @@ if [ "$FRAMEWORK" = 1 ]; then
+@@ -205,7 +216,7 @@ if [ "$FRAMEWORK" = 1 ]; then
    NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
    python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
      --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
@@ -672,7 +672,7 @@ index b1bcbfe..97d22d1 100755
    printf 'OTHER_LDFLAGS = $(inherited) %s\n' "$F" > Gen/framework.xcconfig || die "framework link flags"
    t "framework: Gen/framework (modules $MODS, profile.tsv, game.manifest.json)"
  fi
-@@ -237,6 +248,30 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -242,6 +253,30 @@ if [ "$PREPARE_XCODE" = YES ]; then
    exit 0
  fi
  

@@ -49,7 +49,7 @@ index e542cf1..8964dbb 100644
          GCSupportsControllerUserInteraction: true   # Physical controllers (GameController)
          GCSupportedGameControllers:
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 9bcfc5f..a60b32e 100755
+index ad5b881..3448d38 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -44,6 +44,7 @@ VNACP=${CONTROL:-$VNACP}   # from here on, the file that lists the game's langua
@@ -74,7 +74,7 @@ index aa5732a..2e94b2e 100644
      def run(*command, capture=False):
          return subprocess.run([str(c) for c in command], cwd=project, env=env,
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 7da8576..7c00421 100644
+index 42e8ba7..a80f656 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -207,6 +207,7 @@ int main(int argc, char **argv) {
@@ -94,10 +94,10 @@ index 7da8576..7c00421 100644
      CFArrayRef rules = setting_rules();   // the settings the launch environment already set: the window shows them, fixed
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 530deb1..8f4801e 100755
+index 56f82c5..d25c446 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
-@@ -117,12 +117,19 @@ def settings_rules(listed):   # DMSettings: what the launcher accepts as each se
+@@ -118,12 +118,19 @@ def settings_rules(listed):   # DMSettings: what the launcher accepts as each se
      return rules
  
  

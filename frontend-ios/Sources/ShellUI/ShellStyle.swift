@@ -202,9 +202,12 @@ private struct CreamSwitch: View {
     let isOn: Bool
     @State private var shown: Bool?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.shellIgnoresPress) private var ignoresPress
     var body: some View {
         let on = shown ?? isOn
         Button {
+            // The system's echo of a controller button: no value goes out, so the knob must not move either.
+            if ignoresPress() { return }
             withAnimation(reduceMotion ? nil : .snappy(duration: 0.2)) { shown = !on }
             var transaction = Transaction(animation: nil)
             transaction.disablesAnimations = true
@@ -216,6 +219,8 @@ private struct CreamSwitch: View {
                     Capsule().fill(on ? ShellPalette.cream : .white.opacity(0.14))
                     Circle().fill(on ? ShellPalette.background : .white.opacity(0.85)).padding(3)
                 }.frame(width: 46, height: 28)
+                // A value from elsewhere (a controller's A) moves the knob as a tap does. A tap has moved it already.
+                .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: on)
             }.frame(minHeight: 44).contentShape(Rectangle())
         }.buttonStyle(.plain)
             .onChange(of: isOn) { _, _ in shown = nil }

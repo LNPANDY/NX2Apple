@@ -118,12 +118,12 @@ deine eigenen Spiele zwischenspeichert.
 Die **Startoptionen** (pro Spiel, bleiben bei Neubauten erhalten) legen die Bildrate, den Konsolenmodus (angedockt
 oder Handheld), die Render-Skalierung und das Upscaling, die Spielsprache, die Steuerung und mehr fest. Was
 jede Option bewirkt, steht in
-[docs/settings.md](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/settings.md). Ein Controller steuert den Launcher ebenso wie die Spiele.
+[docs/settings.md](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/settings.md). Ein Controller steuert den Launcher ebenso wie die Spiele.
 
 **Auf dem iPhone** zeigt die App dieselben Einstellungen, bevor das Spiel startet. Tippe auf **Spielen**.
 Die Touch-Steuerung gibt es in einem 2D- und einem 3D-Layout (tippe auf den Button oben in der Mitte), und ein
 verbundener Controller (Xbox, PlayStation, Switch Pro, MFi) ersetzt sie.
-[docs/playing.md](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/playing.md) behandelt Touch,
+[docs/playing.md](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/playing.md) behandelt Touch,
 Vibration und Bewegung. Kurze Ruckler, wenn eine Szene zum ersten Mal erscheint, sind normal: Die App
 kompiliert die Grafik dafür einmal und merkt sie sich. Die Daten des Spiels (`romfs.img`) können auf einer
 externen Festplatte liegen, die die Dateien-App auswählt.
@@ -161,12 +161,12 @@ ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
 
 | | Spiel | Wo es läuft | Status |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac und iPhone | **Hier verifiziert**: 304.243 Dateien, Byte für Byte geprüft, ca. 17 GB |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac und iPhone | **Hier verifiziert** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Hier verifiziert**: läuft flüssig |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Upstream als spielbar gemeldet |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Upstream als spielbar gemeldet, 60 fps mit 1.9.0 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/777a5f6c618a38cd2d7f795f465466fb56920534/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Upstream als spielbar gemeldet |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac und iPhone | **Hier verifiziert**: 304.243 Dateien, Byte für Byte geprüft, ca. 17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac und iPhone | **Hier verifiziert** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Hier verifiziert**: läuft flüssig |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Upstream als spielbar gemeldet |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Upstream als spielbar gemeldet, 60 fps mit 1.9.0 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Upstream als spielbar gemeldet |
 
 **[GAMES.md](GAMES.md)** enthält die Screenshot-Galerie mit der Installationsgröße jedes Spiels und die
 vollständige Tabelle mit der Update-Version, die jedes Spiel braucht: Die angezeigte Version der Update-NSP
@@ -175,7 +175,7 @@ muss zu der des Profils passen, sonst sagt dir das der Build.
 ## Einschränkungen
 
 - **Nur die Spiele mit einem Profil.** Ein Titel außerhalb der Liste braucht eigene Bring-up-Arbeit. Der
-  Einstieg ist [docs/agents](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/agents/README.md), der Leitfaden von upstream für einen weiteren Switch-Titel.
+  Einstieg ist [docs/agents](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/agents/README.md), der Leitfaden von upstream für einen weiteren Switch-Titel.
 - **Große Spiele stoßen auf dem iPhone an ein Speicherlimit.** Ohne das Entitlement Increased Memory Limit
   gibt iOS der App etwa 3,4 GB, was für Tears of the Kingdom nicht reicht. Die App fordert es an, und
   AltStore Classic 2.2+, Impactor und Xcode mit einem Personal Team behalten es. SideStore mit einer
@@ -198,7 +198,7 @@ muss zu der des Profils passen, sonst sagt dir das der Build.
   [patches/README.md](patches/README.md) erklärt das, und `python3 tools/engine.py status` listet auf, was
   mitgetragen wird. Ein täglicher Job verschiebt den Pin und öffnet einen Pull Request, oder ein Issue, das den Patch
   nennt, der nicht mehr passt. Die Links zu den Dokumenten der Engine in dieser README zeigen auf nxnative am festgelegten Commit.
-- **Ein anderes Switch-Spiel:** [docs/agents](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/agents/README.md) (Extraktion, Binärübersicht, Bring-up).
+- **Ein anderes Switch-Spiel:** [docs/agents](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/agents/README.md) (Extraktion, Binärübersicht, Bring-up).
 - **Versionsverlauf:** [CHANGELOG.md](CHANGELOG.md).
 
 ## Danksagung
@@ -226,7 +226,7 @@ Die gesamte Arbeit an der Engine stammt von anderen. Dieses Repository ergänzt 
 - **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)**: SPIR-V zu Metal Shading Language.
 - **yuzu**, **deko3d**, **libvpx**, **stb_vorbis**, **libdeflate**: in der Danksagungsliste von upstream steht, was jedes beiträgt.
 
-`dm/third_party` enthält andere Projekte mit ihren Lizenzen ([Liste](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/dm/third_party/README.md)).
+`dm/third_party` enthält andere Projekte mit ihren Lizenzen ([Liste](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/dm/third_party/README.md)).
 
 ## Rechtliches
 

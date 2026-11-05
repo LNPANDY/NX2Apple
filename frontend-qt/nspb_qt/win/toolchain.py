@@ -122,15 +122,18 @@ def git_exe() -> Path | None:
     return Path(found) if found else None
 
 #: The iPhoneOS SDK we pin. `xybp888/iOS-SDKs` is a plain git repository of SDK trees, so a
-#: shallow clone is enough and the commit SHA pins the content. 26.0 is what `dm/ios/project.yml`
-#: targets; 26.5 is accepted too, since a newer SDK still compiles against 26.0.
+#: shallow clone is enough and the commit SHA pins the content. 27.2 matches the upstream
+#: Xcode 27.2 engine headers while targeting the 26.0 deployment floor; 26.x SDKs remain
+#: accepted with the `win/ios/sdk_compat` fallback headers.
 SDK_REPO = 'https://github.com/xybp888/iOS-SDKs'
-SDK_PINNED = 'iPhoneOS26.0.sdk'
-SDK_ACCEPTED = ('iPhoneOS26.0.sdk', 'iPhoneOS26.1.sdk', 'iPhoneOS26.2.sdk', 'iPhoneOS26.3.sdk',
-                'iPhoneOS26.4.sdk', 'iPhoneOS26.4.1.sdk', 'iPhoneOS26.5.sdk')
+SDK_PINNED = 'iPhoneOS27.2.sdk'
+SDK_ACCEPTED = ('iPhoneOS27.2.sdk', 'iPhoneOS27.1.sdk', 'iPhoneOS27.0.sdk',
+                'iPhoneOS26.5.sdk', 'iPhoneOS26.4.1.sdk', 'iPhoneOS26.4.sdk',
+                'iPhoneOS26.3.sdk', 'iPhoneOS26.2.sdk', 'iPhoneOS26.1.sdk',
+                'iPhoneOS26.0.sdk')
 #: Commit of `xybp888/iOS-SDKs` the pinned SDK was read from. Informational: the SDK tree is
 #: verified by its own layout and a caller-supplied hash, not by trusting this number.
-SDK_PINNED_COMMIT = '17eb9152ba9779b27427016472758824a8fcd6a7'
+SDK_PINNED_COMMIT = '4a48e5409f8ea6ac422c44d91b86fa0f8ae010ff'
 
 #: .NET SDK. `dm/tools/nx_extract` targets net10.0 and the shader translator's runtimeconfig is
 #: net10.0, so 10 is the floor; a newer major (11) can still build a net10.0 project as long as
@@ -610,36 +613,71 @@ def sdk_cache_dir() -> Path:
     return base / 'NS Port Builder' / 'sdks'
 
 
-def repair_tbd_stubs(sdk: Path | str, log=None) -> int:
-    """Fix `.tbd` files that a Windows git checkout left as text stubs, without git.
+def _is_symlink_stub_bytes(raw: bytes) -> str | None:
+    """Return the relative target string if `raw` looks like a git symlink stub, else None."""
+    if not (1 <= len(raw) <= 256) or raw.startswith(b'--- !tapi-tbd'):
+        return None
+    if any(b in raw for b in (b'\n', b'\r', b'\x00', b' ', b'\t', b';', b'{', b'}', b'#')):
+        return None
+    try:
+        target = raw.decode('utf-8')
+    except UnicodeDecodeError:
+        return None
+    if not target or target in ('.', '..') or target.startswith(('/', '\\')):
+        return None
+    return target
 
-    An SDK downloaded through a git route before the symlink materialization (or copied from a
-    broken checkout) keeps every symlink `.tbd` as a small text file naming its target
-    (`libSystem.tbd` → `libSystem.B.tbd`). `ld64.lld` opens it, finds no `--- !tapi-tbd`, and
-    refuses: "unhandled file type" (LNPANDY/NX2Apple PR #596 fixed the clone route; cached SDKs
-    from before it still carry the stubs). Content-keyed repair: a `.tbd` that does not start
-    with the format's `--- !tapi-tbd` marker and names an existing sibling file gets that
-    sibling's bytes copied over it. Real TBD files and dangling stubs are never touched.
-    Returns how many were repaired.
+
+def repair_tbd_stubs(sdk: Path | str, log=None) -> int:
+    """Fix git symlink text stubs (`.tbd`, `.h`, framework dirs) in a Windows SDK checkout.
+
+    An SDK checked out on Windows without `core.symlinks=true` (or before `materialize_symlinks`
+    used `toolchain.git_exe()`) leaves every symlink as a small one-line text file naming its
+    relative target (`libSystem.tbd` → `libSystem.B.tbd`, `usr/include/pthread.h` →
+    `pthread/pthread.h`, `IOKit.framework/Versions/Current` → `A`). Running up to 4 passes
+    resolves chained symlinks (`libm.tbd` → `libSystem.tbd` → `libSystem.B.tbd` and
+    `Headers` → `Versions/Current/Headers`) without needing git or `.git`.
     """
+    sdk_root = Path(sdk).resolve()
     fixed = 0
-    for p in sorted(Path(sdk).rglob('*.tbd')):
-        if not p.is_file() or p.is_symlink():
-            continue
-        if p.read_bytes()[:13] == b'--- !tapi-tbd':
-            continue
-        target = p.read_text(encoding='utf-8', errors='replace').strip()
-        if not target or '/' in target or '\\' in target or target.startswith('.'):
-            continue
-        real = (p.parent / target).resolve()
-        if not real.is_file() or real.resolve() == p.resolve():
-            continue
-        if real.read_bytes()[:13] != b'--- !tapi-tbd':
-            continue
-        p.write_bytes(real.read_bytes())
-        fixed += 1
-        if log:
-            log(f'repaired {p.name} ← {target}')
+    for _pass in range(4):
+        round_fixed = 0
+        for p in sorted(sdk_root.rglob('*')):
+            try:
+                if p.is_symlink() or not p.is_file():
+                    continue
+                st = p.stat()
+                if not (1 <= st.st_size <= 256):
+                    continue
+                target = _is_symlink_stub_bytes(p.read_bytes())
+                if not target:
+                    continue
+                cand = p.parent / target
+                real = cand.resolve()
+                if real == p.resolve() or not str(real).startswith(str(sdk_root)):
+                    continue
+                if real.is_dir():
+                    p.unlink()
+                    shutil.copytree(real, p, dirs_exist_ok=True)
+                    round_fixed += 1
+                    fixed += 1
+                    if log:
+                        log(f'repaired dir {p.relative_to(sdk_root)} ← {target}')
+                elif real.is_file():
+                    real_bytes = real.read_bytes()
+                    if _is_symlink_stub_bytes(real_bytes) is not None:
+                        continue  # target is itself an unexpanded stub; next pass will resolve it
+                    if p.suffix == '.tbd' and real_bytes[:13] != b'--- !tapi-tbd':
+                        continue
+                    p.write_bytes(real_bytes)
+                    round_fixed += 1
+                    fixed += 1
+                    if log:
+                        log(f'repaired {p.name} ← {target}')
+            except OSError:
+                continue
+        if not round_fixed:
+            break
     return fixed
 
 
@@ -815,6 +853,26 @@ def find_exe(name: str) -> Path | None:
     own = tools_dir() / f'zstd-{ZSTD_VERSION}' / f'{name}.exe'
     if name == 'zstd' and own.is_file():
         return own
+    if name in ('spirv-cross', 'glslangValidator'):
+        env_key = 'NSPB_SPIRV_CROSS' if name == 'spirv-cross' else 'NSPB_GLSLANG_VALIDATOR'
+        if env_bin := os.environ.get(env_key):
+            p = Path(env_bin)
+            if p.is_file():
+                return p
+        here = Path(__file__).resolve()
+        roots = [os.environ.get('NSPB_REPO')]
+        for anc in here.parents:
+            roots.append(str(anc / 'engine'))
+        try:
+            from .. import engine as _eng
+            roots.extend((_eng.bundled_engine(), _eng.engine_root(str(here.parents[3]))))
+        except Exception:
+            pass
+        for r in roots:
+            if r:
+                p = Path(r) / 'dm' / 'gfx' / 'tools' / 'spirv_cross_bin' / f'{name}.exe'
+                if p.is_file():
+                    return p
     for cand in (f'{name}.exe', name):
         if w := shutil.which(cand):
             return Path(w)
@@ -963,7 +1021,9 @@ def probe_metal(sdk: Path) -> tuple[bool, str]:
         a = Path(td) / 'probe.air'
         lib = Path(td) / 'probe.metallib'
         m.write_text(src, encoding='utf-8')
-        tgt = f'air64-apple-ios{sdk_major(sdk_version(sdk)[0]) or IOS_DEPLOYMENT.split(".")[0]}.0'
+        dep_maj = int(IOS_DEPLOYMENT.split('.')[0])
+        maj = min(sdk_major(sdk_version(sdk)[0]) or dep_maj, dep_maj)
+        tgt = f'air64-apple-ios{maj}.0'
         for cmd, what in (([str(metal), '-target', tgt, '-c', str(m), '-o', str(a)], 'metal'),
                           ([str(metallib), str(a), '-o', str(lib)], 'metallib')):
             try:
