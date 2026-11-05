@@ -29,13 +29,13 @@
     {
       "id": "course-stamp",
       "name": "Course Stamp",
-      "detail": "Find the stamp set in a course and add it to your stamp collection.",
+      "detail": "Find the stamp in a course and add it to your stamp collection.",
       "hidden": false
     },
     {
       "id": "sprixie-rescue",
       "name": "Sprixie Rescue",
-      "detail": "Clear a castle or airship course and free the Sprixie Princess held there.",
+      "detail": "Clear a castle, tank, or train course and free the Sprixie Princess held there.",
       "hidden": false
     },
     {

@@ -23,7 +23,7 @@
     {
       "id": "flower-coins",
       "name": "Flower Coins",
-      "detail": "Collect all ten Flower Coins in one course.",
+      "detail": "Collect all three 10-flower coins in one course.",
       "hidden": false
     },
     {
@@ -71,7 +71,7 @@
     {
       "id": "special-world",
       "name": "Special World",
-      "detail": "Finish the Special World that opens after the main adventure.",
+      "detail": "Finish the secret Special World.",
       "hidden": true
     }
   ]
