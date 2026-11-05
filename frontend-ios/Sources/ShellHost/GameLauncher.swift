@@ -14,6 +14,8 @@ public struct LaunchableGame: Equatable, Sendable {
     public var dataURL: URL
     /// The app's `Documents/games/<title ID>/`: save, temp, log.txt.
     public var appFolder: URL
+    /// The exported framework's shaders, unpacked for this launch when the player has no override.
+    public var shaderResourcesURL: URL? = nil
     /// Every `DM_*` switch with the player's value or the tested default, as `launcher.<VAR>` would set it.
     public var environment: [String: String]
     /// The picked cloud-save folder, when cloud saves are on.

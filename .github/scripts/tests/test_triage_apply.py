@@ -145,6 +145,8 @@ class Comment(unittest.TestCase):
 
     def test_file_names_and_versions_are_not_hosts(self):
         self.good('services.md, hle_svc.c:447, build_ipa.sh, v0.4.9, macOS 26.1, Node.js, nvn_dirty.c')
+        self.good('applegpu_g18p.mtl4a, 1234_b.metallib, RomFS.img, DmShell-2026-11-04.ips, main.npdm, save.dmsync, '
+                  'DmGame010013C00E930000.framework, DmShell.xcodeproj, DmShell.entitlements, game.xcz')
 
     def test_issue_references_must_be_known(self):
         for t in ('Possibly the same problem as #9999', 'see https://github.com/LNPANDY/NX2Apple/issues/9999', 'https://github.com/LNPANDY/NX2Apple/pull/12',

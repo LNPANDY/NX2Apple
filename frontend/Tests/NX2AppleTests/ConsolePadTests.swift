@@ -49,6 +49,14 @@ import NXModel
         XCTAssertEqual(layout.environment["DM_PAD_MERGE"], "1")
         layout.padMerge = false
         XCTAssertFalse(driver.state.padMerge)
+        XCTAssertFalse(driver.state.joyconSplit)
+        driver.setJoyconSplit(true)
+        XCTAssertTrue(layout.joyconSplit)
+        XCTAssertTrue(driver.state.joyconSplit)
+        XCTAssertEqual(layout.environment["DM_JOYCON_SPLIT"], "1")
+        layout.joyconSplit = false
+        XCTAssertFalse(driver.state.joyconSplit)
+        XCTAssertNil(layout.environment["DM_JOYCON_SPLIT"])
     }
 
     func testGamepadActionsMapToConsoleInputs() {

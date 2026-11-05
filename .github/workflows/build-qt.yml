@@ -44,6 +44,16 @@ jobs:
       - name: Download the venv wheels
         run: "python -m pip download --only-binary=:all: lz4==4.4.5 capstone==5.0.9 fonttools==4.68.0 zbic==1.0.1.post1 backports.zstd==1.8.0 nsz==5.0.0 -d frontend-qt/wheels"
 
+      - name: Build the engine tree
+        shell: bash
+        run: |
+          # The engine tree (upstream at the pin plus the patch series) goes into the zip beside
+          # the app, so a Windows player needs no git, no repository download and no sync. The
+          # Mac release does the same (build-mac-app.yml, the engine tree step).
+          python tools/engine.py -q sync
+          python tools/engine.py tree --out engine-tree
+          du -sh engine-tree
+
       - name: Build
         working-directory: frontend-qt
         shell: bash
@@ -137,6 +147,9 @@ jobs:
         run: |
           cd frontend-qt/dist
           cp -r ../wheels "NS Port Builder/wheels"
+          # The engine tree goes inside the app folder: the launcher finds it at
+          # <exe_dir>/engine (and also at <exe_dir>/../engine) and skips the repo/sync route entirely.
+          cp -r ../../engine-tree "NS Port Builder/engine"
           powershell -Command "Compress-Archive -Path 'NS Port Builder' -DestinationPath '../NS-Port-Builder-qt-windows-x64.zip'"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
