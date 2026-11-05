@@ -27,6 +27,7 @@ SEVERAL_GAMES = 'severalGames'
 NO_TITLE_ID = 'noTitleID'
 KEYS_OLD = 'keysOld'
 DISK_FULL = 'diskFull'
+PSO_DISK_FULL = 'psoDiskFull'
 CLOUD_FOLDER = 'cloudFolder'
 VOLUME_FORMAT = 'volumeFormat'
 UNKNOWN = 'unknown'
@@ -48,6 +49,9 @@ TABLE: list[tuple[str, str, str]] = [
     ('games.several', SEVERAL_GAMES, r'more than one game in the folder'),
     ('games.noTitleID', NO_TITLE_ID, r'no NSP with a readable title ID in '),
     ('disk.low', DISK_FULL, r'less than [0-9]+ GB free on the volume of '),
+    ('pso.low', PSO_DISK_FULL, r'pso_offline: [0-9.]+ GB free on the volume of [^\n]+, metal-tt needs about [0-9.]+ GB for [0-9]+ bases:'),
+    ('pso.merge', PSO_DISK_FULL, r'pso_offline: [0-9.]+ GB free before merging; need at least [0-9.]+ GB'),
+    ('pso.failed', PSO_DISK_FULL, r'pso_offline: metal-tt failed[^\n]+when it failed: likely out of disk space'),
     ('disk.full', DISK_FULL, r'No space left on device'),
     ('icloud.detritus', CLOUD_FOLDER, r'resource fork, Finder information, or similar detritus not allowed'),
     ('volume.swap', VOLUME_FORMAT, r"\[Errno 45\] Operation not supported: '[^']*\.app'"),
@@ -61,7 +65,7 @@ OVERRIDE_FLAGS = {
 }
 
 KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
-         KEYS, SEVERAL_GAMES, NO_TITLE_ID, KEYS_OLD, DISK_FULL, CLOUD_FOLDER, VOLUME_FORMAT]
+         KEYS, SEVERAL_GAMES, NO_TITLE_ID, KEYS_OLD, DISK_FULL, PSO_DISK_FULL, CLOUD_FOLDER, VOLUME_FORMAT]
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
 # they belong to the Mac launcher's install on a device and to /Volumes, which this front end does not have.
 # cloudFolder is a row of the table, so it is here, but the check that stops a build before it starts is the Mac launcher's.
@@ -75,7 +79,7 @@ _A32_NAME = re.compile(r'^(?:\[RED\] )?(.+?) \([0-9A-Fa-f]{16}\) is a 32-bit ARM
 class Failure:
     kind: str
     game: str | None = None   # a32Program: the game, when the message names it
-    detail: str | None = None   # diskFull: the GB the script says it needs. noTitleID: the folder it names
+    detail: str | None = None   # diskFull, psoDiskFull: the GB the script says it needs. noTitleID: the folder it names
 
     @property
     def what_key(self) -> str:
@@ -93,6 +97,9 @@ class Failure:
 def _detail(kind: str, log: str) -> str | None:
     if kind == DISK_FULL:   # "less than 40 GB free on the volume of /Volumes/X/..."
         m = re.search(r'less than ([0-9]+) GB free', log)
+        return m.group(1) if m else None
+    if kind == PSO_DISK_FULL:
+        m = re.search(r'pso_offline: [^\n]+(?:metal-tt needs about|before merging; need at least) ([0-9.]+) GB', log)
         return m.group(1) if m else None
     if kind == NO_TITLE_ID:   # "no NSP with a readable title ID in /path"
         m = re.search(r'(?m)no NSP with a readable title ID in (.+)$', log)

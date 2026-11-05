@@ -58,6 +58,38 @@ import Testing
         #expect(rig.plan().environment["DM_PSO_BUNDLE"] == rig.fw.path + "/pso")
     }
 
+    @Test(arguments: [false, true]) func sharedEnvCanDisableADiscoveredPipelineArchive(perGameArchive: Bool) throws {
+        let rig = try Rig()
+        try rig.box.makeFolder(rig.fw.appendingPathComponent("pso"))
+        if perGameArchive { try rig.box.makeFolder(rig.gdir.appendingPathComponent("pso")) }
+        let env = rig.plan(envFile: "DM_PSO_BUNDLE=off\n").environment
+        #expect(env["DM_PSO_BUNDLE"] == "off")
+        #expect(env["DM_ENV_FILE_KEYS"] == "DM_PSO_BUNDLE")
+    }
+
+    @Test func gameArchiveOverrideWinsOverSharedFileAndStaysWithItsGame() throws {
+        let rig = try Rig()
+        try rig.box.makeFolder(rig.fw.appendingPathComponent("pso"))
+        try rig.box.write("DM_PSO_BUNDLE=off\n", to: rig.gdir.appendingPathComponent("env.txt"))
+        let env = rig.plan(envFile: "DM_PSO_BUNDLE=/shared/archive\n").environment
+        #expect(env["DM_PSO_BUNDLE"] == "off")
+        #expect(env["DM_ENV_FILE_KEYS"] == "DM_PSO_BUNDLE")
+        var other = rig.game
+        other.appFolder = rig.box.documents.appendingPathComponent("games/0100000000000000")
+        let otherPlan = EngineLaunchPlan.make(game: other, appResources: rig.box.resources, documents: rig.box.documents, envFileText: nil)
+        #expect(otherPlan.environment["DM_PSO_BUNDLE"] == rig.fw.path + "/pso")
+        #expect(otherPlan.environment["DM_ENV_FILE_KEYS"] == "")
+    }
+
+    @Test func explicitLaunchArchiveWinsOverEnvFilesAndDiscoveredArchives() throws {
+        let rig = try Rig(environment: ["DM_PSO_BUNDLE": "/launch/archive"])
+        try rig.box.makeFolder(rig.fw.appendingPathComponent("pso"))
+        try rig.box.write("DM_PSO_BUNDLE=off\n", to: rig.gdir.appendingPathComponent("env.txt"))
+        let env = rig.plan(envFile: "DM_PSO_BUNDLE=/shared/archive\n").environment
+        #expect(env["DM_PSO_BUNDLE"] == "/launch/archive")
+        #expect(env["DM_ENV_FILE_KEYS"] == "")
+    }
+
     @Test func romfsImageIsMatchedCaseInsensitively() throws {
         let rig = try Rig()
         try rig.box.write("x", to: rig.data.appendingPathComponent("Romfs.IMG"))
