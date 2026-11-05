@@ -45,3 +45,4 @@
 0075-front-mac-hide-the-pointer-before-the-game-takes.patch
 0076-host-read-embedded-sections-from-the-image-that.patch
 0077-ios-shell-link-the-host-into-each-game-s-framewo.patch
+0078-ios-carry-cpu-bc-compatibility-through-game-pack.patch

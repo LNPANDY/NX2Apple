@@ -1,0 +1,150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: thehobbit85 <thehobbit85@gmail.com>
+Date: Wed, 4 Nov 2026 20:45:35 -0800
+Subject: [PATCH] ios: carry CPU BC compatibility through game packaging
+
+Keep the build environment in each game framework for the shell to apply. Check the runtime profile before refusing a GPU without native BC formats so a single-game IPA also honors the compatibility override.
+
+Front-ends: the shell must read each framework dm/env.txt after the player environment files.
+
+Upstream-Status: fork-only (declined seedds/nxnative#488, seedds/nxnative#492)
+Reason: Repair the fork-only older-device BC decoder and runtime-profile packaging so the launcher compatibility switch reaches the selected game.
+Issue: LNPANDY/NX2Apple#719
+
+---
+ dm/ios/Sources/main.m                |  3 +-
+ dm/ios/tests/test_bc_device_check.py | 56 ++++++++++++++++++++++++++++
+ dm/ios/tests/test_framework_build.py | 21 +++++++++++
+ dm/ios/tools/build_ipa.sh            |  3 +-
+ 4 files changed, 80 insertions(+), 3 deletions(-)
+ create mode 100644 dm/ios/tests/test_bc_device_check.py
+
+diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
+index 69cf022..9824a00 100644
+--- a/dm/ios/Sources/main.m
++++ b/dm/ios/Sources/main.m
+@@ -9,7 +9,6 @@
+ #include <sys/stat.h>
+ #include <unistd.h>
+ #include "hle_profile.h"   // the runtime game profile (DM_PROFILE): the RomFS marker path comes from it
+-#include "game_profile.h"   // DM_GAME_TEX_BC_CPU: a game whose BC textures are decoded on the CPU runs on a GPU without BC
+ #include "front.h"
+ #include "romfs_image.h"
+ #include "DataBookmark.h"
+@@ -212,7 +211,7 @@ const char *front_ios_device_check(void) {
+     static char msg[320]; static int done;
+     if (done++) return msg[0] ? msg : NULL;
+     id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();   // the system default device, the one the graphics layers take (mtl_init repeats this check for the other routes)
+-    if (gpu.supportsBCTextureCompression || DM_GAME_TEX_BC_CPU) return NULL;   // tex_bc_cpu: nvn_mtl.m decodes BC on the CPU (nvn_bcdec.c)
++    if (gpu.supportsBCTextureCompression || dm_profile()->tex_bc_cpu) return NULL;   // tex_bc_cpu: nvn_mtl.m decodes BC on the CPU (nvn_bcdec.c)
+     snprintf(msg, sizeof msg, "This device's GPU (%s) cannot read BC-compressed textures, which the games use. It needs an iPhone 15 Pro or newer (A17 Pro chip or later) or an iPad with an M1 chip or later.",
+              gpu ? gpu.name.UTF8String : "no Metal device");
+     fprintf(stderr, "[RED] boot: %s\n", msg);
+diff --git a/dm/ios/tests/test_bc_device_check.py b/dm/ios/tests/test_bc_device_check.py
+new file mode 100644
+index 0000000..6c443e5
+--- /dev/null
++++ b/dm/ios/tests/test_bc_device_check.py
+@@ -0,0 +1,56 @@
++"""Exercise the one-game iOS device check with synthetic GPU capabilities and a runtime profile."""
++from pathlib import Path
++import subprocess
++import sys
++import tempfile
++import unittest
++
++REPO = Path(__file__).resolve().parents[3]
++
++
++@unittest.skipUnless(sys.platform == 'darwin', 'needs Foundation and Metal')
++class BCDeviceCheckTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.temporary = tempfile.TemporaryDirectory()
++        cls.addClassCleanup(cls.temporary.cleanup)
++        root = Path(cls.temporary.name)
++        main = (REPO / 'dm/ios/Sources/main.m').read_text()
++        check = main[main.index('const char *front_ios_device_check(void)'):main.index('static void romfs_identity_report')]
++        source = root / 'check.m'
++        source.write_text('''#import <Foundation/Foundation.h>
++#import <Metal/Metal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#define DM_GAME_TEX_BC_CPU 0
++static int supports_bc, cpu_decode;
++typedef struct { int tex_bc_cpu; } dm_game_profile;
++static const dm_game_profile *dm_profile(void) { static dm_game_profile p; p.tex_bc_cpu = cpu_decode; return &p; }
++@interface FixtureGPU : NSObject
++@property(readonly) BOOL supportsBCTextureCompression;
++@property(readonly) NSString *name;
++@end
++@implementation FixtureGPU
++- (BOOL)supportsBCTextureCompression { return supports_bc; }
++- (NSString *)name { return @"Fixture GPU"; }
++@end
++static id<MTLDevice> fixture_device(void) { return (id<MTLDevice>)[FixtureGPU new]; }
++#define MTLCreateSystemDefaultDevice fixture_device
++''' + check + '''
++int main(int argc, char **argv) { @autoreleasepool {
++    supports_bc = atoi(argv[1]); cpu_decode = atoi(argv[2]);
++    return front_ios_device_check() ? 1 : 0;
++} }
++''')
++        cls.executable = root / 'check'
++        subprocess.run(['clang', '-fobjc-arc', '-framework', 'Foundation', '-framework', 'Metal', str(source), '-o', str(cls.executable)], check=True)
++
++    def test_effective_runtime_profile_allows_cpu_decoding_on_older_gpu(self):
++        for supports_bc, cpu_decode, expected in [(0, 0, 1), (0, 1, 0), (1, 0, 0)]:
++            with self.subTest(supports_bc=supports_bc, cpu_decode=cpu_decode):
++                result = subprocess.run([str(self.executable), str(supports_bc), str(cpu_decode)], capture_output=True, text=True)
++                self.assertEqual(result.returncode, expected, result.stderr)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
+index fee9e53..0d20b82 100644
+--- a/dm/ios/tests/test_framework_build.py
++++ b/dm/ios/tests/test_framework_build.py
+@@ -120,6 +120,27 @@ class ProjectTemplateTests(unittest.TestCase):
+         self.assertEqual(self.prepare(0), ('name: default\n', False))
+ 
+ 
++class FrameworkEnvironmentTests(unittest.TestCase):
++    def test_build_environment_stays_with_its_framework(self):
++        block = SCRIPT[SCRIPT.index('if [ "$FRAMEWORK" = 1 ]; then\n  rm -rf Gen/framework'):SCRIPT.index('# A prepared Xcode project is signed')]
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary)
++            (root / 'Gen/dm/font').mkdir(parents=True)
++            (root / 'patched').mkdir()
++            (root / 'dm').symlink_to(REPO / 'dm', target_is_directory=True)
++            (root / 'Gen/dm/env.txt').write_text('DM_PROF_TEX_BC_CPU=1\n')
++            (root / 'Gen/dm/font/font.ttf').write_text('font')
++            (root / 'Gen/dm/launcher.json').write_text('{}')
++            (root / 'tools').symlink_to(REPO / 'dm/ios/tools', target_is_directory=True)
++            result = run_step(block, root, FRAMEWORK='1', FRAMEWORK_ONLY='out', FW_NAME='DmGame' + GAME,
++                              PATCHED=str(root / 'patched'), ROMFS=str(root / 'none'), PREPARE_XCODE='NO', DM_COPY_ROMFS='NO',
++                              DM_DISPLAY_NAME='Fixture', DM_APP_VERSION='1.0', MODS='main', V='fixture', MARKER='marker', F='')
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++            self.assertTrue((root / 'Gen/framework/dm/env.txt').is_file(), 'the built framework must carry its environment')
++            self.assertEqual((root / 'Gen/framework/dm/env.txt').read_text(), 'DM_PROF_TEX_BC_CPU=1\n')
++            self.assertFalse((root / 'Gen/framework/dm/font').exists())
++
++
+ class FrameworkPackagingTests(unittest.TestCase):
+     """The signing and pack steps on a stand-in app; no Xcode, no game files."""
+ 
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index 97d22d1..e40ed8e 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -197,7 +197,8 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
+ if [ "$FRAMEWORK" = 1 ]; then
+   rm -rf Gen/framework && mkdir -p Gen/framework/dm || die "mkdir Gen/framework"
+   cp -R Gen/dm/. Gen/framework/dm/ || die "copy the framework tables"
+-  rm -rf Gen/framework/dm/font Gen/framework/dm/env.txt
++  rm -rf Gen/framework/dm/font
++  # Keep dm/env.txt with this game: the shell applies its build-time defaults after the player's environment files.
+   # The one-game app reads its launcher.json from the app's dm/; the shell reads each game's from its framework (manifest key launcher)
+   [ -n "$FRAMEWORK_ONLY" ] || rm -f Gen/framework/dm/launcher.json
+   python3 "$DM/games/game.py" profile "$GAME" Gen/framework/profile.tsv > /dev/null || die "game profile"
