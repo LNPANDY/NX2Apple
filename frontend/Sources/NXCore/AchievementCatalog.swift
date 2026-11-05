@@ -60,6 +60,11 @@ package struct AchievementProgress: Equatable {
         Set(done[titleID.uppercased()] ?? [])
     }
 
+    /// How many of this list the player has marked. An id that is not on the list does not count.
+    package func marked(titleID: String, ids: [String]) -> Int {
+        unlocked(titleID: titleID).intersection(Set(ids)).count
+    }
+
     package mutating func toggle(titleID: String, id: String) {
         let key = titleID.uppercased()
         var ids = unlocked(titleID: key)

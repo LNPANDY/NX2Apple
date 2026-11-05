@@ -49,6 +49,7 @@ final class AchievementCatalogTests: XCTestCase {
         var again = loaded
         again.toggle(titleID: "01007EF00011E000", id: "leave-the-plateau")
         XCTAssertEqual(again.unlocked(titleID: "01007EF00011E000"), ["the-master-sword"])
+        XCTAssertEqual(again.marked(titleID: "01007EF00011E000", ids: ["the-master-sword", "leave-the-plateau", "missing"]), 1)
         try? FileManager.default.removeItem(at: file)
     }
 

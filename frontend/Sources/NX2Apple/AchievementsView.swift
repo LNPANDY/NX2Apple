@@ -26,7 +26,7 @@ struct AchievementsView: View {
                 }
                 Spacer()
                 if let list {
-                    Text(String(format: loc.t("achievements.progress"), progress.unlocked(titleID: game.titleID).intersection(Set(list.achievements.map(\.id))).count, list.achievements.count))
+                    Text(String(format: loc.t("achievements.progress"), progress.marked(titleID: game.titleID, ids: list.achievements.map(\.id)), list.achievements.count))
                         .font(.manrope(13, .semibold)).monospacedDigit()
                 }
                 Button(loc.t("achievements.reset")) { clear() }

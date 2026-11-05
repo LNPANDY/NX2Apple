@@ -71,6 +71,7 @@ extension LauncherView {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(spacing: 14) {
                     status(game, prominent: true)
+                    achievementChip(game)
                     if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
                         Button { configureBuild(game) } label: {
                             Label(loc.t("library.rebuildShort"), systemImage: "arrow.clockwise")
@@ -236,6 +237,25 @@ extension LauncherView {
         .frame(height: height)
         .accessibilityLabel(loc.t(symbol == "chevron.left" ? "library.scrollBack" : "library.scrollForward"))
         .transition(.opacity)
+    }
+
+    /// The hero's goal count. Opens the same sheet as Manage > Achievements. Hidden when this title has no list.
+    @ViewBuilder func achievementChip(_ game: LibraryGame) -> some View {
+        if let list = AchievementCatalog.bundled()[game.titleID.uppercased()], !list.achievements.isEmpty {
+            let file = AchievementProgress.file(in: FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("NS Port Builder"))
+            let done = AchievementProgress.load(file: file).marked(titleID: game.titleID, ids: list.achievements.map(\.id))
+            Button { achievementsFor = game.id } label: {
+                Label(String(format: loc.t("achievements.progress"), done, list.achievements.count), systemImage: "trophy")
+                    .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(loc.t("achievements.title"))
+            .padTarget("hero.achievements", scope: "main", radius: 12) { achievementsFor = game.id }
+        }
     }
 
     func status(_ game: LibraryGame, prominent: Bool = false) -> some View {

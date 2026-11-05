@@ -231,7 +231,8 @@ Switch 2 games today, falls back to the screenshot, the app icon or the placehol
 
 ## Achievements
 
-**Manage > Achievements** opens the goals for that game. Every supported game has a list.
+**Manage > Achievements** opens the goals for that game, and the hero shows how many are marked.
+Every supported game has a list.
 Mark a goal when you have done it. A hidden goal shows its name only after you mark it.
 The launcher does not read the game to decide this. Your marks are kept in
 `~/Library/Application Support/NS Port Builder/achievements.json`.
