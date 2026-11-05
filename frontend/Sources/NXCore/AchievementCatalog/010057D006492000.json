@@ -29,7 +29,7 @@
     {
       "id": "path-actions",
       "name": "Path Actions",
-      "detail": "Use all four path actions belonging to one traveler.",
+      "detail": "Use the path actions of four different travelers.",
       "hidden": false
     },
     {

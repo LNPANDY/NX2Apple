@@ -11,13 +11,13 @@
     {
       "id": "wing-cap",
       "name": "Wing Cap",
-      "detail": "Press the red cap switch in the tower outside the castle to unlock the Wing Cap.",
+      "detail": "With 10 Power Stars, look up into the castle lobby sunbeam and press the red cap switch to unlock the Wing Cap.",
       "hidden": false
     },
     {
       "id": "big-boos-haunt",
       "name": "Big Boo's Haunt",
-      "detail": "Catch the Boos on the castle balcony until the way into Big Boo's Haunt opens.",
+      "detail": "With 12 Power Stars, defeat the Big Boo in the castle courtyard and enter the cage it was holding.",
       "hidden": false
     },
     {

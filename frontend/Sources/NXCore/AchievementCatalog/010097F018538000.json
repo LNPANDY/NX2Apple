@@ -53,7 +53,7 @@
     {
       "id": "fish-farm",
       "name": "Fish Farm",
-      "detail": "Place a caught fish in one of Otto's farm pools.",
+      "detail": "Catch a fish whose roe is sent to one of Otto's farm pools.",
       "hidden": false
     },
     {
