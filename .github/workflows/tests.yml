@@ -367,18 +367,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # The views, the host layer (catalogue from embedded frameworks, the engine launch plan, settings, bookmarks) and the
-      # controller mapping, on the Mac (the package also builds for macOS); the UI tests need a Simulator and stay local
-      - name: iOS shell package (frontend-ios, swift test)
-        working-directory: frontend-ios
-        run: |
-          mkdir -p ../logs
-          swift test 2>&1 | tee ../logs/shell-package-tests.log
       - name: Engine (tools/engine.py sync, issue #214)
         id: sync
         if: ${{ !cancelled() }}
         working-directory: .
         run: python3 tools/engine.py sync
+      # The views, the host layer (catalogue from embedded frameworks, the engine launch plan, settings, bookmarks) and the
+      # controller mapping, on the Mac. The language-row contract test reads the synced engine. The UI tests need a Simulator and stay local.
+      - name: iOS shell package (frontend-ios, swift test)
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        working-directory: frontend-ios
+        run: |
+          mkdir -p ../logs
+          swift test 2>&1 | tee ../logs/shell-package-tests.log
       - name: Host unit tests (dm/host/tests)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
