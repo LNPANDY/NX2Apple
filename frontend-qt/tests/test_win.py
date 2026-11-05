@@ -2023,6 +2023,38 @@ class VenvWheelsTest(unittest.TestCase):
         self.assertEqual(out, 'dependency python: [missing] C:/x | found', 'the report log showed raw %@ placeholders')
         self.assertTrue(t('dep.row.log', Lang('zh'), 'python', 'missing', 'd'), 'Chinese side is filled too')
 
+    def test_bundled_wheels_finds_wheels_beside_exe_when_meipass_is_internal(self) -> None:
+        """PyInstaller 6 onedir sets sys._MEIPASS to `<app>/_internal` while `wheels/` sits at `<app>/wheels`."""
+        import ast
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                  and n.name == 'bundled_wheels')
+        for n in ast.walk(fn):
+            ast.fix_missing_locations(n)
+        ns: dict = {'sys': sys, 'Path': Path}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                     '<model>', 'exec'), ns)
+        bundled_wheels = ns['bundled_wheels']
+        with tempfile.TemporaryDirectory() as td:
+            app_dir = Path(td) / 'NS Port Builder'
+            internal = app_dir / '_internal'
+            wheels = app_dir / 'wheels'
+            internal.mkdir(parents=True)
+            wheels.mkdir(parents=True)
+            (wheels / 'lz4-4.0.0-cp312-win_amd64.whl').write_bytes(b'PK')
+            with mock.patch.object(sys, '_MEIPASS', str(internal), create=True), \
+                 mock.patch.object(sys, 'executable', str(app_dir / 'NS Port Builder.exe')):
+                self.assertEqual(bundled_wheels(), wheels)
+
+    def test_win_python_install_chains_make_venv_immediately(self) -> None:
+        """Installing Python on a fresh PC must immediately build the venv and install packages in the same pass."""
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        branch = src[src.index("elif what == 'python':"):src.index("elif what == 'llvm':")]
+        self.assertIn('install_python(', branch)
+        self.assertIn('self._make_venv(str(path))', branch,
+                      'the Python installer must chain _make_venv immediately so packages are not skipped')
+
 
 class MetalPickFlowShapeTest(unittest.TestCase):
     """The model wiring (source-shape, since model.py needs PySide6): the metal row asks for a
@@ -2523,6 +2555,72 @@ class WindowsBuildFixesTest(unittest.TestCase):
             for ext in ('patched.bin', 'fixups.tsv', 'gates.tsv', 'sites.tsv'):
                 self.assertEqual((out1 / f'main.{ext}').read_bytes(),
                                  (out2 / f'main.{ext}').read_bytes())
+
+    def test_fcntl_and_tree_tar_shim_work_without_posix_fcntl(self) -> None:
+        """Engine 1.2's tree_tar.py imports fcntl at top level and opens parent directories."""
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'dm/tools/tree_tar.py').is_file():
+            self.skipTest('engine/ is missing')
+        with tempfile.TemporaryDirectory() as td:
+            sd = Path(td) / 'shim'
+            sd.mkdir()
+            sc = shim._SITECUSTOMIZE_SRC.replace("if os.name == 'nt'", "if True")
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            code = (
+                "import builtins, os, sys\n"
+                "real_import = builtins.__import__\n"
+                "def block_fcntl(name, *a, **k):\n"
+                "    if name == 'fcntl' and 'fcntl' not in sys.modules:\n"
+                "        raise ModuleNotFoundError(\"No module named 'fcntl'\")\n"
+                "    return real_import(name, *a, **k)\n"
+                "builtins.__import__ = block_fcntl\n"
+                "sys.modules.pop('fcntl', None)\n"
+                "import sitecustomize\n"
+                f"sys.path.insert(0, {str(repo / 'dm/tools')!r})\n"
+                "import tree_tar\n"
+                f"assert tree_tar._lock({str(Path(td) / 'dd')!r}) is True\n"
+                f"tree_tar._unlock({str(Path(td) / 'dd')!r})\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+        # Also verify driver.load_upstream installs the fcntl stub when missing
+        saved_fcntl = sys.modules.pop('fcntl', None)
+        try:
+            mod = driver.load_upstream(repo)
+            self.assertIn('fcntl', sys.modules)
+            self.assertTrue(hasattr(mod, 'tree_tar'))
+            with tempfile.TemporaryDirectory() as td2:
+                self.assertTrue(mod.tree_tar._lock(Path(td2) / 'dd'))
+        finally:
+            if saved_fcntl is not None:
+                sys.modules['fcntl'] = saved_fcntl
+
+    def test_build_app_reads_packed_shader_lib_img(self) -> None:
+        """Engine 1.2 packs `b-<chain>/` into `b-<chain>.img` and deletes the folder; build_app must read `.img`."""
+        from nspb_qt.win import build_app
+        repo = QT.parent / 'engine'
+        slib_path = repo / 'dm/tools/shader_lib.py'
+        if not slib_path.is_file():
+            self.skipTest('engine/ is missing')
+        with tempfile.TemporaryDirectory() as td:
+            msl_ios = Path(td) / 'ios'
+            lib_dir = msl_ios / 'b-123456789abc'
+            lib_dir.mkdir(parents=True)
+            (lib_dir / '0001_b.metallib').write_bytes(b'MTLB_TEST')
+            (lib_dir / 'inputs.tsv').write_text('game\t0100E65002BB8000\ninputs\tabcdef01\n', encoding='utf-8')
+            r = subprocess.run([sys.executable, str(slib_path), 'pack', str(lib_dir)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(lib_dir.exists(), 'shader_lib.pack removes the folder')
+            self.assertTrue((msl_ios / 'b-123456789abc.img').is_file())
+            self.assertTrue(build_app.shader_lib_has(repo, lib_dir))
+            lines = build_app.shader_lib_stamp_lines(repo, lib_dir)
+            self.assertIn('game\t0100E65002BB8000', lines)
+            self.assertIn('inputs\tabcdef01', lines)
 
 
 if __name__ == '__main__':

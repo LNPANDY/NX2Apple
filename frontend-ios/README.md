@@ -80,6 +80,8 @@ ShellHostView(model: model)
 public protocol GameLauncher: Sendable { @MainActor func launch(_ game: LaunchableGame) async throws }
 ```
 
+To disable an offline pipeline archive for one game, set `DM_PSO_BUNDLE=off` in `Documents/games/<title ID>/env.txt`. The shared `Documents/env.txt` can set it for every game. An explicit launch setting wins over both files, then the game's file wins over the shared file. When none sets `DM_PSO_BUNDLE`, the shell uses the game's `pso/` folder, then the framework's `pso/` folder. This override does not diagnose or repair an incompatible archive.
+
 Play on a playable game builds a `LaunchableGame` (title ID, name, manifest, bundle folder, framework URL, data folder, the app's `Documents/games/<title ID>/`, every `DM_*` value as a dictionary, the picked cloud-save folder) and calls `launch`. A thrown error is shown as the notice. `StubGameLauncher` only logs and throws `GameLaunchError.notAvailable` ("Launching is not available yet."). Route C's M2 (#144) plugs in the real launcher: it sets the environment from `environment` and the folders (`DM_PROFILE`, `DM_ROMFS`, `DM_SAVE`, `DM_TEMP`, `DM_SAVE_SYNC` from `cloudSavesURL`), `dlopen`s `frameworkURL` and starts the host with the manifest's modules. Nothing else in the host changes: pass it as `launcher:`. The engine and `dm/` are not part of this package.
 
 ### Host mode of the demo

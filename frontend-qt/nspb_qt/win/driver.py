@@ -82,6 +82,10 @@ def load_upstream(repo: Path) -> ModuleType:
     """
     if 'pwd' not in sys.modules:
         _install_pwd_stub()
+    if 'fcntl' not in sys.modules:
+        _install_fcntl_stub()
+    if not hasattr(os, 'getuid'):
+        os.getuid = lambda: 0  # type: ignore[attr-defined]
     path = repo / 'scripts' / 'build_ipa_from_nsp.py'
     if not path.is_file():
         raise SystemExit(f'no engine: {path} is missing. Run `python3 tools/engine.py sync` in the checkout first.')
@@ -93,6 +97,9 @@ def load_upstream(repo: Path) -> ModuleType:
     started = time.time()
     spec.loader.exec_module(mod)
     del started
+    if hasattr(mod, 'tree_tar'):
+        mod.tree_tar._lock = lambda folder, say=None: True
+        mod.tree_tar._unlock = lambda folder: None
     return mod
 
 
@@ -117,6 +124,26 @@ def _install_pwd_stub() -> None:
     pwd.getpwuid = getpwuid
     pwd.getpwnam = lambda name: getpwuid(0)
     sys.modules['pwd'] = pwd
+
+
+def _install_fcntl_stub() -> None:
+    import types
+
+    fcntl = types.ModuleType('fcntl')
+    fcntl.LOCK_SH = 1
+    fcntl.LOCK_EX = 2
+    fcntl.LOCK_NB = 4
+    fcntl.LOCK_UN = 8
+    fcntl.F_GETFD = 1
+    fcntl.F_SETFD = 2
+    fcntl.F_GETFL = 3
+    fcntl.F_SETFL = 4
+    fcntl.FD_CLOEXEC = 1
+    fcntl.flock = lambda fd, op: None
+    fcntl.lockf = lambda fd, cmd, len=0, start=0, whence=0: None
+    fcntl.fcntl = lambda fd, cmd, arg=0: 0
+    fcntl.ioctl = lambda fd, req, arg=0, mutate_flag=True: 0
+    sys.modules['fcntl'] = fcntl
 
 
 def _option_value(argv: list[str], name: str) -> str | None:

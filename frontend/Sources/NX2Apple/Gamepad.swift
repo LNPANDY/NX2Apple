@@ -20,6 +20,54 @@ final class LauncherGamepad: ObservableObject {
     /// Sees every press with the controller it came from before it navigates. Returning true consumes it (the Controllers sheet uses
     /// this to give the next press to the player being assigned).
     var capture: ((String, Action) -> Bool)?
+    /// Whether "Split Joy-Con pair into two controllers" is enabled (#740).
+    var joyconSplit: () -> Bool = { UserDefaults.standard.bool(forKey: ControlLayout.joyconSplitKey) }
+
+    struct RawPadInput {
+        var dpadX: Float = 0, dpadY: Float = 0
+        var leftStickX: Float = 0, leftStickY: Float = 0
+        var rightStickX: Float = 0, rightStickY: Float = 0
+        var a = false, b = false, x = false, y = false
+        var l = false, r = false, plus = false, select = false
+    }
+
+    static func isJoyCon(category: String?, vendorName: String? = nil) -> Bool {
+        let s = ((category ?? "") + " " + (vendorName ?? "")).lowercased().replacingOccurrences(of: "-", with: "")
+        return s.contains("joycon")
+    }
+
+    /// Per-controller button and direction states. When `splitJoyCon` is true on a Joy-Con, Left Joy-Con (`.L`) is rotated 90°
+    /// counter-clockwise and Right Joy-Con (`.R`) is rotated 90° clockwise so launcher and console mode match sideways play (#740).
+    static func states(controller: String, input: RawPadInput, splitJoyCon: Bool) -> [(controller: String, state: [(String, Bool, Action)])] {
+        guard splitJoyCon else {
+            let x = input.dpadX != 0 ? input.dpadX : input.leftStickX
+            let y = input.dpadY != 0 ? input.dpadY : input.leftStickY
+            return [(controller, [
+                ("left", x < -0.5, .left), ("right", x > 0.5, .right), ("up", y > 0.5, .up), ("down", y < -0.5, .down),
+                ("a", input.a, .a), ("b", input.b, .b),   // by label, see `face`
+                ("x", input.x, .x), ("y", input.y, .y),
+                ("l", input.l, .l), ("r", input.r, .r),
+                ("plus", input.plus, .plus), ("select", input.select, .select),
+            ])]
+        }
+        // Left Joy-Con held sideways (90° CCW, rail on top): left stick rotated 90° CCW, D-pad rotated 90° CCW as face buttons (Down->A, Left->B, Right->X, Up->Y)
+        let lx = -input.leftStickY, ly = input.leftStickX
+        let leftState: [(String, Bool, Action)] = [
+            ("left", lx < -0.5, .left), ("right", lx > 0.5, .right), ("up", ly > 0.5, .up), ("down", ly < -0.5, .down),
+            ("a", input.dpadY < -0.5, .a), ("b", input.dpadX < -0.5, .b),
+            ("x", input.dpadX > 0.5, .x), ("y", input.dpadY > 0.5, .y),
+            ("l", input.l, .l), ("select", input.select, .select),
+        ]
+        // Right Joy-Con held sideways (90° CW, rail on top): right stick rotated 90° CW, ABXY rotated 90° CW (X->A, A->B, Y->X, B->Y)
+        let rx = input.rightStickY, ry = -input.rightStickX
+        let rightState: [(String, Bool, Action)] = [
+            ("left", rx < -0.5, .left), ("right", rx > 0.5, .right), ("up", ry > 0.5, .up), ("down", ry < -0.5, .down),
+            ("a", input.x, .a), ("b", input.a, .b),
+            ("x", input.y, .x), ("y", input.b, .y),
+            ("r", input.r, .r), ("plus", input.plus, .plus),
+        ]
+        return [(controller + ".L", leftState), (controller + ".R", rightState)]
+    }
     /// The GameController button an action reads, in one place (the glyphs of the console mode follow it). GameController names
     /// the face buttons by label: buttonA is the bottom of Apple's diamond (GCExtendedGamepad.h), which is A on an Xbox
     /// controller and the cross on a DualSense, and a Nintendo-layout controller reports the button printed A (on the right) as
@@ -37,7 +85,23 @@ final class LauncherGamepad: ObservableObject {
     /// One press, one action, per controller: a button held on one controller never hides the same button on another.
     struct Edges {
         private var held: Set<String> = []
-        mutating func reset(controller: String) { held = held.filter { !$0.hasPrefix(controller + "/") } }
+        private var splitMode: [String: Bool] = [:]
+        mutating func reset(controller: String) {
+            held = held.filter { !$0.hasPrefix(controller + "/") && !$0.hasPrefix(controller + ".L/") && !$0.hasPrefix(controller + ".R/") }
+            splitMode.removeValue(forKey: controller)
+        }
+        /// Synchronizes held state without firing actions when `split` mode changes for `baseController` so a button held across the toggle does not re-fire under its new mapping.
+        mutating func syncSplitMode(baseController: String, split: Bool, groups: [(controller: String, state: [(String, Bool, Action)])]) -> Bool {
+            defer { splitMode[baseController] = split }
+            guard let previous = splitMode[baseController], previous != split else { return false }
+            held = held.filter { !$0.hasPrefix(baseController + "/") && !$0.hasPrefix(baseController + ".L/") && !$0.hasPrefix(baseController + ".R/") }
+            for group in groups {
+                for (key, down, _) in group.state where down {
+                    held.insert(group.controller + "/" + key)
+                }
+            }
+            return true
+        }
         /// What changed for `controller` given the state of its buttons: pressed and released actions.
         mutating func changes(controller: String, state: [(String, Bool, Action)]) -> (pressed: [Action], released: [Action]) {
             var pressed: [Action] = [], released: [Action] = []
@@ -81,31 +145,41 @@ final class LauncherGamepad: ObservableObject {
         connected = !pads.isEmpty
         for pad in pads {
             let id = String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16)
-            pad.physicalInputProfile.valueDidChangeHandler = { [weak self] profile, _ in self?.read(profile, controller: id) }
+            let isJC = Self.isJoyCon(category: pad.productCategory, vendorName: pad.vendorName)
+            pad.physicalInputProfile.valueDidChangeHandler = { [weak self] profile, _ in self?.read(profile, controller: id, isJoyCon: isJC) }
         }
     }
 
-    private func read(_ pad: GCPhysicalInputProfile, controller: String) {
+    private func read(_ pad: GCPhysicalInputProfile, controller: String, isJoyCon: Bool) {
         func button(_ name: String) -> Bool { pad.buttons[name]?.isPressed ?? false }
-        let dpad = pad.dpads[GCInputDirectionPad], stick = pad.dpads[GCInputLeftThumbstick]
-        let x = (dpad?.xAxis.value ?? 0) != 0 ? dpad!.xAxis.value : (stick?.xAxis.value ?? 0)
-        let y = (dpad?.yAxis.value ?? 0) != 0 ? dpad!.yAxis.value : (stick?.yAxis.value ?? 0)
-        let state: [(String, Bool, Action)] = [
-            ("left", x < -0.5, .left), ("right", x > 0.5, .right), ("up", y > 0.5, .up), ("down", y < -0.5, .down),
-            ("a", button(GCInputButtonA), .a), ("b", button(GCInputButtonB), .b),   // by label, see `face`
-            ("x", button(GCInputButtonX), .x), ("y", button(GCInputButtonY), .y),
-            ("l", button(GCInputLeftShoulder), .l), ("r", button(GCInputRightShoulder), .r),
-            ("plus", button(GCInputButtonMenu), .plus), ("select", button(GCInputButtonOptions), .select),
-        ]
-        let (pressed, released) = edges.changes(controller: controller, state: state)
-        for action in pressed {
-            DispatchQueue.main.async {
-                if NSApp.isActive, let capture = self.capture, capture(controller, action) { return }
-                self.fire(action)
-                if [.left, .right, .up, .down].contains(action) { self.startRepeat(action) }
-            }
+        let dpad = pad.dpads[GCInputDirectionPad], lStick = pad.dpads[GCInputLeftThumbstick], rStick = pad.dpads[GCInputRightThumbstick]
+        let raw = RawPadInput(
+            dpadX: dpad?.xAxis.value ?? 0, dpadY: dpad?.yAxis.value ?? 0,
+            leftStickX: lStick?.xAxis.value ?? 0, leftStickY: lStick?.yAxis.value ?? 0,
+            rightStickX: rStick?.xAxis.value ?? 0, rightStickY: rStick?.yAxis.value ?? 0,
+            a: button(GCInputButtonA), b: button(GCInputButtonB),
+            x: button(GCInputButtonX), y: button(GCInputButtonY),
+            l: button(GCInputLeftShoulder), r: button(GCInputRightShoulder),
+            plus: button(GCInputButtonMenu), select: button(GCInputButtonOptions)
+        )
+        let split = isJoyCon && joyconSplit()
+        let groups = Self.states(controller: controller, input: raw, splitJoyCon: split)
+        if edges.syncSplitMode(baseController: controller, split: split, groups: groups) {
+            DispatchQueue.main.async { self.stopRepeat() }
+            return
         }
-        for action in released { DispatchQueue.main.async { if self.repeating == action { self.stopRepeat() } } }
+        for group in groups {
+            let (pressed, released) = edges.changes(controller: group.controller, state: group.state)
+            for action in pressed {
+                let subID = group.controller
+                DispatchQueue.main.async {
+                    if NSApp.isActive, let capture = self.capture, capture(subID, action) { return }
+                    self.fire(action)
+                    if [.left, .right, .up, .down].contains(action) { self.startRepeat(action) }
+                }
+            }
+            for action in released { DispatchQueue.main.async { if self.repeating == action { self.stopRepeat() } } }
+        }
     }
 
     private func fire(_ action: Action) { if NSApp.isActive { perform(action) } }

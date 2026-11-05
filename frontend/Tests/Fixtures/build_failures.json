@@ -115,6 +115,29 @@
   "text": "[RED] OSError: [Errno 28] No space left on device"
  },
  {
+  "id": "pso.low",
+  "kind": "psoDiskFull",
+  "source": "dm/gfx/tools/pso_offline.py",
+  "fragment": "metal-tt needs about {need / 2**30:.0f} GB",
+  "text": "[RED] pso_offline: 0.4 GB free on the volume of /Volumes/Games/0100F2C0115B6000_build/pso/work, metal-tt needs about 3 GB for 33858 bases: free some space and run again",
+  "gb": "3"
+ },
+ {
+  "id": "pso.merge",
+  "kind": "psoDiskFull",
+  "source": "dm/gfx/tools/pso_offline.py",
+  "fragment": "GB free before merging; need at least",
+  "text": "[RED] pso_offline: 0.7 GB free before merging; need at least 2.5 GB",
+  "gb": "2.5"
+ },
+ {
+  "id": "pso.failed",
+  "kind": "psoDiskFull",
+  "source": "dm/gfx/tools/pso_offline.py",
+  "fragment": "when it failed: likely out of disk space",
+  "text": "[RED] pso_offline: metal-tt failed for applegpu_g18p (exit 1) (0.3 GB free on the volume of /Volumes/Games/0100F2C0115B6000_build/pso/work when it failed: likely out of disk space): compiler output\n[RED] pso_offline exit code 1"
+ },
+ {
   "id": "icloud.detritus",
   "kind": "cloudFolder",
   "source": "codesign",
