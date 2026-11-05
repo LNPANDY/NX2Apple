@@ -110,6 +110,10 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var confirmingOverride: BuildFailureKind?
     /// The one-off `--allow-*` of a confirmed "Build anyway": taken by the next build and never stored.
     package var armedOverride: BuildFailureKind?
+    @Published package var offlineSaveFolder = ""
+    @Published package var offlineCacheFolder = ""
+    @Published package var preparingOffline = false
+    let offlineCancelled = LockedFlag()
     @Published package var macAppPath = ""   // --platform mac-app: the .app this build produced
     package var oneGameIPAPath = ""   // the IPA a one-game export writes (#540), empty for any other build
     /// BuildTarget.ios = the game's framework in the one shared app on an iPhone or iPad; BuildTarget.mac = a double-clickable
@@ -261,6 +265,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     package func stop() {
         if case .moving = shellMove { stopShellMove(); return }
+        if preparingOffline { offlineCancelled.set(true); stopping = true; return }
         guard running, !stopping, let proc, proc.isRunning else { return }
         stopping = true
         ProcessGroups.endGroup(proc.processIdentifier)   // the script and every tool it started

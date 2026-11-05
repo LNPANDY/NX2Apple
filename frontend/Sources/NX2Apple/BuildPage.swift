@@ -22,6 +22,7 @@ struct BuildPage: View {
         CardPageHeading(loc.t("build.heading"), note: loc.t("build.intro"))
         SetupHintCard(repo: repo, dependencies: dependencies, onOpenSettings: onOpenSettings)
         FilesCard(build: build, extrasOpen: $extrasOpen)
+        OfflineBuildCard(build: build)
         TargetCard(build: build)
         InstallCard(devices: devices, build: build)
         LogCard(log: build.log, devices: devices, isOpen: $logOpen,
