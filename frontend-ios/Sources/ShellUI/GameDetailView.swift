@@ -182,6 +182,7 @@ struct SettingControl: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.gameID == rhs.gameID && lhs.row == rhs.row }
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.shellPickChoice) private var pickChoice
+    @Environment(\.shellIgnoresPress) private var ignoresPress
     /// The row's width, once measured, for the segmented-or-list rule.
     @State private var width: CGFloat?
     var body: some View {
@@ -249,7 +250,7 @@ struct SettingControl: View, Equatable {
     }
     private func rangeButton(_ symbol: String, min: Double, max: Double, delta: Double) -> some View {
         let action = { change(String(Swift.min(max, Swift.max(min, (Double(row.value) ?? min) + delta)))) }
-        return Button(action: action) {
+        return Button { if !ignoresPress() { action() } } label: {
             Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).frame(width: 44, height: 44)
         }
         .buttonStyle(.plain).background(.white.opacity(0.055), in: Circle())
@@ -268,13 +269,15 @@ struct SegmentedChoice: View {
     let targetPrefix: String
     var enabled = true
     let change: (String) -> Void
+    @Environment(\.shellIgnoresPress) private var ignoresPress
     var body: some View {
         VStack(spacing: 2) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, options in
                 EqualRow(spacing: 2) {
                     ForEach(options) { option in
                         let chosen = value == option.id
-                        Button { change(option.id) } label: {
+                        // The system's echo of a controller button picks nothing (the shell's focus took the button).
+                        Button { if !ignoresPress() { change(option.id) } } label: {
                             Text(option.label).shellText(13.5, chosen ? .bold : .medium).lineLimit(1)
                                 .padding(.horizontal, 14).frame(maxWidth: .infinity, minHeight: 40)
                                 .foregroundStyle(chosen ? .black : .white.opacity(0.75))

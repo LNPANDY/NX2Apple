@@ -86,6 +86,36 @@ class Fixture(unittest.TestCase):
         return git(self.up, 'rev-parse', 'HEAD')
 
 
+class EnsureRepo(Fixture):
+    """The engine folder a failed first sync leaves behind: empty trees are the Windows case
+    (git missing, the failure hit right after mkdir), and a retry must start over instead of
+    stopping on the same line forever. A folder with real content still refuses."""
+
+    def test_an_empty_leftover_folder_is_removed_and_the_repo_inited(self):
+        (self.eng / 'sub').mkdir(parents=True)          # dirs only: no file anywhere
+        E.ensure_repo(self.eng)
+        self.assertTrue(E.is_repo(self.eng))
+        self.assertTrue((self.eng / '.git').is_dir())
+
+    def test_a_folder_with_a_real_file_still_refuses(self):
+        (self.eng / 'sub').mkdir(parents=True)
+        (self.eng / 'sub' / 'keep.txt').write_text('data')
+        with self.assertRaises(E.Fail):
+            E.ensure_repo(self.eng)
+        self.assertFalse(E.is_repo(self.eng))
+        self.assertTrue((self.eng / 'sub' / 'keep.txt').is_file())   # nothing deleted
+
+    def test_a_real_symlink_is_left_alone(self):
+        # macOS/Linux check symlinks out as symlinks; the walk must not treat one as junk
+        (self.eng / 'usr/lib').mkdir(parents=True)
+        (self.eng / 'usr/lib/libSystem.B.tbd').write_text('--- !tapi-tbd-v3\n')
+        (self.eng / 'usr/lib/libSystem.tbd').symlink_to('libSystem.B.tbd')
+        with self.assertRaises(E.Fail):
+            E.ensure_repo(self.eng)
+        self.assertTrue((self.eng / 'usr/lib/libSystem.tbd').is_symlink())
+
+
+
 class Sync(Fixture):
     def test_sync_builds_the_pin_plus_one_commit_per_patch_and_the_generated_files(self):
         out = self.tool('sync')
@@ -96,6 +126,14 @@ class Sync(Fixture):
         self.assertEqual((self.eng / 'dm/fork_patches.txt').read_text(), 'line-2\n')
         self.assertEqual(git(self.eng, 'rev-parse', '--abbrev-ref', 'HEAD'), 'nx2apple')
         self.assertEqual(git(self.eng, 'status', '--porcelain'), '')
+
+    def test_sync_succeeds_when_global_autocrlf_is_true(self):
+        # Windows sets core.autocrlf=true globally; checkout must not write CRLF and make `git am -3` fail on local changes
+        env = dict(self.env, GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='core.autocrlf', GIT_CONFIG_VALUE_0='true')
+        out = self.tool('sync', env=env)
+        self.assertIn('ready, 1 patches', out)
+        self.assertEqual(git(self.eng, 'config', '--local', '--get', 'core.autocrlf'), 'false')
+        self.assertNotIn(b'\r\n', (self.eng / 'dm/a.c').read_bytes())
 
     def test_a_second_sync_is_a_no_op_and_quiet_prints_nothing(self):
         self.tool('sync')

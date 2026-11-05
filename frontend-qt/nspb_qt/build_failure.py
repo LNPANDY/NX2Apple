@@ -25,10 +25,10 @@ A32_PROGRAM = 'a32Program'
 KEYS = 'keys'
 SEVERAL_GAMES = 'severalGames'
 NO_TITLE_ID = 'noTitleID'
-NO_PROFILE = 'noProfile'
 KEYS_OLD = 'keysOld'
 DISK_FULL = 'diskFull'
 CLOUD_FOLDER = 'cloudFolder'
+VOLUME_FORMAT = 'volumeFormat'
 UNKNOWN = 'unknown'
 
 # (id, kind, regular expression searched in the log)
@@ -47,10 +47,10 @@ TABLE: list[tuple[str, str, str]] = [
     ('keys.old', KEYS_OLD, r'the keys are older than the game'),
     ('games.several', SEVERAL_GAMES, r'more than one game in the folder'),
     ('games.noTitleID', NO_TITLE_ID, r'no NSP with a readable title ID in '),
-    ('games.noProfile', NO_PROFILE, r'packs only a game with a profile'),
     ('disk.low', DISK_FULL, r'less than [0-9]+ GB free on the volume of '),
     ('disk.full', DISK_FULL, r'No space left on device'),
     ('icloud.detritus', CLOUD_FOLDER, r'resource fork, Finder information, or similar detritus not allowed'),
+    ('volume.swap', VOLUME_FORMAT, r"\[Errno 45\] Operation not supported: '[^']*\.app'"),
 ]
 
 # The script's override for a stop, offered as "Build anyway". The others cannot be built around.
@@ -61,10 +61,11 @@ OVERRIDE_FLAGS = {
 }
 
 KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
-         KEYS, SEVERAL_GAMES, NO_TITLE_ID, NO_PROFILE, KEYS_OLD, DISK_FULL, CLOUD_FOLDER]
+         KEYS, SEVERAL_GAMES, NO_TITLE_ID, KEYS_OLD, DISK_FULL, CLOUD_FOLDER, VOLUME_FORMAT]
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
 # they belong to the Mac launcher's install on a device and to /Volumes, which this front end does not have.
 # cloudFolder is a row of the table, so it is here, but the check that stops a build before it starts is the Mac launcher's.
+# volumeFormat is a row of the table too: the Mac app step is the Mac launcher's, and so is the check before the build.
 # The engine's online sync has two more (engine.py's ENGINE_OFFLINE and ENGINE_SYNC): no log line of the script sets them either.
 
 _A32_NAME = re.compile(r'^(?:\[RED\] )?(.+?) \([0-9A-Fa-f]{16}\) is a 32-bit ARM program', re.M)
