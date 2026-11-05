@@ -8384,7 +8384,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I dati del gioco su questo dispositivo vengono eliminati e il gioco viene rimosso dall’elenco. La cartella che hai scelto non viene toccata. Invia nuovamente i dati del gioco dal tuo Mac per ripristinarlo."
+            "value": "I dati del gioco su questo dispositivo vengono eliminati e il gioco viene rimosso dall’elenco. Un’eventuale cartella scelta da te non viene toccata. Invia nuovamente i dati del gioco dal tuo Mac per ripristinarlo."
           }
         },
         "sv": {
@@ -8424,7 +8424,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Questo gioco richiede una versione più recente dell’app. Aggiornala con l’app sul tuo Mac, poi installala nuovamente su questo dispositivo."
+            "value": "Questo gioco richiede una versione più recente dell’app. Aggiornala dal launcher sul tuo Mac, poi installala nuovamente su questo dispositivo."
           }
         },
         "sv": {
