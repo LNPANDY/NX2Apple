@@ -75,6 +75,8 @@ The [milestones](https://github.com/LNPANDY/NX2Apple/milestones) are the plan, a
 - Start from the problem, not the solution. Say what you want to do and what is in the way, which is what the form asks. The maintainers may point to a planned way to do it.
 - If a maintainer cannot take an idea, they say so early and explain why, see [What happens to your PR](#what-happens-to-your-pr).
 
+We are looking for one or two more developers to work with the maintainers. There is no interview. Take an open issue from a milestone, build it well and send a pull request with tests and a clear description. People who deliver good work again and again are asked to help with reviews and triage. We need the most help with the launcher in SwiftUI, engine patches and game bring-up, Metal and GPU debugging, tests on real iPhones and iPads, and translations.
+
 ### What happens to your PR
 
 A pull request from outside never merges automatically. One maintainer tries the app that CI built for the PR, which is the `NX2Apple-macOS-arm64` artifact of the Build Mac app run. The same maintainer reviews the code. Whoever looks first decides.
