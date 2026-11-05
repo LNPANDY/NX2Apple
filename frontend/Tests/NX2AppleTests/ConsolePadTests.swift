@@ -185,6 +185,49 @@ import NXModel
         XCTAssertEqual(ConsoleGlyphs(family: .nintendo).glyph(for: .back), .symbol("b.circle"))
     }
 
+    func testSplitJoyConSidewaysMenuMappingAndToggleSuppression() {
+        XCTAssertTrue(LauncherGamepad.isJoyCon(category: "Switch Joy-Con (L/R)"))
+        XCTAssertTrue(LauncherGamepad.isJoyCon(category: "Gamepad", vendorName: "Joy-Con (L)"))
+        XCTAssertFalse(LauncherGamepad.isJoyCon(category: "Nintendo Switch Pro Controller"))
+
+        var edges = LauncherGamepad.Edges()
+        func fire(_ raw: LauncherGamepad.RawPadInput, split: Bool) -> [(String, [LauncherGamepad.Action])] {
+            let groups = LauncherGamepad.states(controller: "jc", input: raw, splitJoyCon: split)
+            if edges.syncSplitMode(baseController: "jc", split: split, groups: groups) { return [] }
+            return groups.compactMap { g in
+                let (p, _) = edges.changes(controller: g.controller, state: g.state)
+                return p.isEmpty ? nil : (g.controller, p)
+            }
+        }
+
+        // Left Joy-Con sideways (90° CCW): physical right (+X) -> .up, physical down (-Y) -> .right; D-pad Down -> .a, Left -> .b
+        XCTAssertEqual(fire(.init(leftStickX: 0.9), split: true).first?.1, [.up])
+        _ = fire(.init(), split: true)
+        XCTAssertEqual(fire(.init(leftStickY: -0.9), split: true).first?.1, [.right])
+        _ = fire(.init(), split: true)
+        let leftFace = fire(.init(dpadX: -0.9, dpadY: -0.9), split: true)
+        XCTAssertEqual(leftFace.first?.0, "jc.L")
+        XCTAssertEqual(leftFace.first?.1, [.a, .b])
+        _ = fire(.init(), split: true)
+
+        // Right Joy-Con sideways (90° CW): physical left (-X) -> .up, physical up (+Y) -> .right; X -> .a, A -> .b
+        XCTAssertEqual(fire(.init(rightStickX: -0.9), split: true).first?.1, [.up])
+        _ = fire(.init(), split: true)
+        XCTAssertEqual(fire(.init(rightStickY: 0.9), split: true).first?.1, [.right])
+        _ = fire(.init(), split: true)
+        let rightFace = fire(.init(a: true, x: true), split: true)
+        XCTAssertEqual(rightFace.first?.0, "jc.R")
+        XCTAssertEqual(rightFace.first?.1, [.a, .b])
+        _ = fire(.init(), split: true)
+
+        // Holding A while toggling split off->on must not re-fire as .b on the next frame before release
+        _ = fire(.init(), split: false)
+        XCTAssertEqual(fire(.init(a: true), split: false).first?.1, [.a])
+        XCTAssertTrue(fire(.init(a: true), split: true).isEmpty, "button held across split toggle must not re-fire under its rotated role")
+        _ = fire(.init(), split: true)
+        XCTAssertEqual(fire(.init(a: true), split: true).first?.1, [.b], "fires normally once released and pressed again")
+    }
+
     /// Opt-in: the desktop top bar with the entry button and the controller strip, and the connect prompt.
     @MainActor func testCaptureDesktopEntry() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_CONSOLE_SHOTS_DIR"] else { throw XCTSkip("Set NX_CONSOLE_SHOTS_DIR") }
