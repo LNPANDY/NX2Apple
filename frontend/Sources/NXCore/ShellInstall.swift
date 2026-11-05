@@ -273,21 +273,21 @@ package enum ShellInstall {
             for ext in known { try? fm.removeItem(atPath: framework + "/banner." + ext) }
             return nil
         }
-        let ext = (source as NSString).pathExtension.lowercased()
+        let ext = CoverFile.ext(source)
         let payload: Data
         let destExt: String
-        if known.contains(ext), let data = fm.contents(atPath: source) {
+        if known.contains(ext) {
+            guard let data = fm.contents(atPath: source) else { return nil }
             payload = data
             destExt = ext
         } else if let jpeg = jpegData(at: source) {
             payload = jpeg
             destExt = "jpg"
         } else { return nil }
-        for old in known { try? fm.removeItem(atPath: framework + "/banner." + old) }
-        do {
-            try payload.write(to: URL(fileURLWithPath: framework + "/banner." + destExt))
-            return source
-        } catch { return nil }
+        let dest = URL(fileURLWithPath: framework + "/banner." + destExt)
+        do { try payload.write(to: dest, options: .atomic) } catch { return nil }
+        for old in known where old != destExt { try? fm.removeItem(atPath: framework + "/banner." + old) }
+        return source
     }
 
     /// A JPEG of the picture at `path`. Nil when ImageIO cannot read it.

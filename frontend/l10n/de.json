@@ -994,7 +994,7 @@
   "launch.title": "Startoptionen",
   "library.appReady": "NX2Apple %@ ist bereit",
   "library.artworkHint": "Wähle ein breites Bild oder ein kurzes stummes Video (PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 oder MOV). Es bleibt an seinem ursprünglichen Ort. Ein GIF oder ein Video läuft in der Kachel in einer Schleife.",
-  "library.artworkTooBig": "Dieses Video ist zu groß für ein Cover. Wähle eines unter 64 MB.",
+  "library.artworkTooBig": "Diese Datei ist zu groß für ein Cover. Wähle eine unter 64 MB.",
   "library.artworkUnreadable": "Diese Datei konnte nicht als Bild oder Video gelesen werden.",
   "library.buildAgain": "Erneut bauen …",
   "library.building": "Wird gebaut",

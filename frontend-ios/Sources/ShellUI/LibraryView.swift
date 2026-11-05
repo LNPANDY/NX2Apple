@@ -669,7 +669,7 @@ private struct PaneBanner: View {
                 Group {
                     if hasBanner {
                         // The banner fills the header edge to edge, cropped as needed, darker under the words.
-                        ArtView(game: game, lettering: false)
+                        ArtView(game: game, lettering: false, motion: false)
                             .overlay {
                                 LinearGradient(stops: [.init(color: .clear, location: 0.3), .init(color: .black.opacity(0.4), location: 0.6),
                                                        .init(color: .black.opacity(0.55), location: 1)], startPoint: .top, endPoint: .bottom)

@@ -194,6 +194,7 @@ struct CoverFlowView: View, Equatable {
 
     private func coverButton(_ detail: GameDetail, cover: CGFloat) -> some View {
         let chosen = detail.id == selected.id
+        let playing = detail.id == (centredID ?? selected.id)
         return Button {
             // The centred card acts like the game's primary action, once the carousel has settled. A side card only
             // comes to the middle and never starts anything.
@@ -205,7 +206,7 @@ struct CoverFlowView: View, Equatable {
             withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { centredID = detail.id }
             select(detail.id)
         } label: {
-            CoverView(game: detail.game, radius: cover * 0.03, showsState: true, motion: chosen)
+            CoverView(game: detail.game, radius: cover * 0.03, showsState: true, motion: playing)
                 .frame(width: cover, height: cover * 9 / 16)
                 .shadow(color: .black.opacity(0.5), radius: cover * 0.05, y: cover * 0.03)
         }

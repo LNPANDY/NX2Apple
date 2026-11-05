@@ -993,7 +993,7 @@
   "launch.title": "Options de lancement",
   "library.appReady": "NX2Apple %@ est prête",
   "library.artworkHint": "Choisissez une image large ou une courte vidéo silencieuse (PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 ou MOV). Elle reste à son emplacement d’origine. Un GIF ou une vidéo tourne en boucle dans la tuile.",
-  "library.artworkTooBig": "Cette vidéo est trop lourde pour une jaquette. Choisissez-en une de moins de 64 Mo.",
+  "library.artworkTooBig": "Ce fichier est trop lourd pour une jaquette. Choisissez-en un de moins de 64 Mo.",
   "library.artworkUnreadable": "Ce fichier n’a pas pu être lu comme une image ou une vidéo.",
   "library.buildAgain": "Compiler à nouveau…",
   "library.building": "Compilation",

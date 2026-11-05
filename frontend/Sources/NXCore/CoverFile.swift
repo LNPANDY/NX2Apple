@@ -9,7 +9,9 @@ package enum CoverFile {
     package static let shellExtensions = ["png", "jpg", "jpeg", "heic", "webp", "gif", "mp4", "mov", "m4v"]
     package static let movieExtensions: Set<String> = ["mp4", "mov", "m4v"]
 
-    package static func ext(_ path: String) -> String { (path as NSString).pathExtension.lowercased() }
+    package static func ext(_ path: String) -> String {
+        (path as NSString).pathExtension.lowercased(with: Locale(identifier: "en_US_POSIX"))
+    }
     package static func isMovie(_ path: String) -> Bool { movieExtensions.contains(ext(path)) }
 
     package struct Frame {
@@ -36,7 +38,7 @@ package enum CoverFile {
         let maxPixel = count > 24 ? 960 : 1280
         var out: [Frame] = []
         for i in 0..<count {
-            guard let image = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+            guard let image = CGImageSourceCreateImageAtIndex(src, i, [kCGImageSourceShouldCache: false] as CFDictionary) else { continue }
             out.append(Frame(image: fitted(image, maxPixel: maxPixel), seconds: delay(src, i)))
         }
         return out
@@ -59,10 +61,21 @@ package enum CoverFile {
     }
 
     /// The first picture only. A still tile uses this, so opening a GIF does not decode every frame.
+    /// A GIF stays on the full frame. A thumbnail of a GIF is only the part that changed.
+    /// A still uses a thumbnail so an orientation tag is applied and a huge picture is scaled down.
     package static func poster(at path: String) -> CGImage? {
         guard !path.isEmpty, !isMovie(path),
               let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(src, 0, nil)
+        if ext(path) == "gif" {
+            return CGImageSourceCreateImageAtIndex(src, 0, [kCGImageSourceShouldCache: false] as CFDictionary)
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1280,
+            kCGImageSourceShouldCache: false
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary)
     }
 
     /// A GIF, an animated WebP or APNG, or a silent movie that is on disk and small enough to be a cover.
@@ -71,7 +84,8 @@ package enum CoverFile {
     package static func animates(_ path: String) -> Bool {
         if path.isEmpty || !withinLimit(path) { return false }
         if isMovie(path) { return true }
-        if ["jpg", "jpeg", "heic", "tif", "tiff"].contains(ext(path)) { return false }
+        let kind = ext(path)
+        guard kind == "gif" || kind == "webp" || kind == "png" else { return false }
         guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return false }
         return CGImageSourceGetCount(src) > 1
     }
@@ -79,11 +93,15 @@ package enum CoverFile {
     /// GIF, WebP and APNG delays of 0 mean "as fast as you like". 0.1s is the usual stand-in, and the floor for a missing delay.
     private static func delay(_ src: CGImageSource, _ index: Int) -> Double {
         guard let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [CFString: Any] else { return 0.1 }
-        let raw = frameDelay(props, kCGImagePropertyGIFDictionary, kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime)
-            ?? frameDelay(props, kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime)
+        if let gif = frameDelay(props, kCGImagePropertyGIFDictionary, kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime) {
+            // Two centiseconds is the fastest a GIF is meant to run. One, or zero, is stored as "as fast as you like".
+            let centiseconds = Int((gif * 100).rounded())
+            return centiseconds < 2 ? 0.1 : Double(centiseconds) / 100
+        }
+        let raw = frameDelay(props, kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime)
             ?? frameDelay(props, kCGImagePropertyPNGDictionary, kCGImagePropertyAPNGUnclampedDelayTime, kCGImagePropertyAPNGDelayTime)
             ?? 0.1
-        return raw < 0.02 ? 0.1 : raw
+        return raw > 0 ? raw : 0.1
     }
 
     /// Nil when this format does not give a delay. The unclamped value wins, then the clamped one.

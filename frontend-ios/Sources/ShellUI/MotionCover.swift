@@ -74,6 +74,8 @@ private final class MotionBox: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        for subview in subviews { subview.frame = bounds }
+        layer.sublayers?.forEach { if $0 is AVPlayerLayer { $0.frame = bounds } }
         report()
     }
 
@@ -135,6 +137,7 @@ private struct MotionHost: UIViewRepresentable {
         return box
     }
     func updateUIView(_ box: UIView, context: Context) {
+        context.coordinator.mountIfNeeded(url, in: box)
         context.coordinator.layout(in: box)
         context.coordinator.setVisible(MotionBox.onScreen(box))
     }
@@ -163,6 +166,12 @@ private struct MotionHost: UIViewRepresentable {
         private var generation = 0
         private var url: URL?
         private let playing = MotionPlayGate()
+
+        /// A new banner on the same view. The first mount already ran from makeUIView.
+        func mountIfNeeded(_ url: URL, in box: UIView) {
+            guard self.url != url else { return }
+            mount(url, in: box)
+        }
 
         /// Remembers the file. Frames and the player are created only while the tile is on screen.
         func mount(_ url: URL, in box: UIView) {
@@ -252,8 +261,10 @@ private struct MotionHost: UIViewRepresentable {
                 let pictures = decoded.map(\.image)
                 let delays = decoded.map(\.seconds)
                 DispatchQueue.main.async {
-                    guard let self, self.generation == generation, self.active, self.onScreen, self.url == url else { return }
+                    guard let self, self.url == url else { return }
                     self.loading = false
+                    if pictures.isEmpty { self.failed = true; return }
+                    guard self.generation == generation, self.active, self.onScreen else { return }
                     self.frames = pictures.map { UIImage(cgImage: $0) }
                     self.delays = delays
                     if self.frames.isEmpty { self.failed = true; return }
@@ -296,15 +307,14 @@ private struct MotionHost: UIViewRepresentable {
             images?.image = current
         }
 
+        private var started = false
+
         private func startMovie() {
             guard player == nil, let url, let box else { return }
+            let token = generation
             let item = AVPlayerItem(url: url)
             item.preferredForwardBufferDuration = 1
             keepOtherAudio()
-            status = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-                guard item.status == .failed else { return }
-                DispatchQueue.main.async { self?.noteFailure() }
-            }
             let player = AVPlayer(playerItem: item)
             player.isMuted = true
             player.volume = 0
@@ -315,22 +325,44 @@ private struct MotionHost: UIViewRepresentable {
             layer.frame = box.bounds
             box.layer.addSublayer(layer)
             playerLayer = layer
-            if parked.isValid, parked.seconds > 0.05 { player.seek(to: parked) }
-            let gate = playing
-            loop = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-                self?.parked = .zero
-                player.seek(to: .zero)
-                guard gate.allow else { return }
-                player.play()
+            let resume = parked
+            status = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+                let state = item.status
+                DispatchQueue.main.async {
+                    guard let self, self.generation == token, self.player === player else { return }
+                    if state == .failed { self.noteFailure(); return }
+                    guard state == .readyToPlay, !self.started else { return }
+                    self.started = true
+                    let go = {
+                        guard self.generation == token, self.playing.allow else { return }
+                        player.play()
+                    }
+                    if resume.isValid, resume.seconds > 0.05 {
+                        player.seek(to: resume, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+                            DispatchQueue.main.async { go() }
+                        }
+                    } else {
+                        go()
+                    }
+                }
             }
-            player.play()
+            loop = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+                guard let self, self.generation == token else { return }
+                self.parked = .zero
+                player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+                    DispatchQueue.main.async {
+                        guard self.generation == token, self.playing.allow else { return }
+                        player.play()
+                    }
+                }
+            }
         }
 
         /// A muted cover must not take the audio session. Leave a session the game has already claimed.
         private static func keepOtherAudio() {
             let session = AVAudioSession.sharedInstance()
-            guard session.category == .soloAmbient || session.category == .ambient else { return }
-            try? session.setCategory(.ambient, options: [.mixWithOthers])
+            guard session.category == .soloAmbient else { return }
+            try? session.setCategory(.ambient)
         }
 
         /// A file that will not play stays a still. Opening it again on every scroll would keep failing.
@@ -341,7 +373,8 @@ private struct MotionHost: UIViewRepresentable {
         }
 
         private func releaseMovie(saving time: Bool = true) {
-            if time { parked = player?.currentTime() ?? parked }
+            if time, (player?.rate ?? 0) > 0 { parked = player?.currentTime() ?? parked }
+            started = false
             status = nil
             if let loop { NotificationCenter.default.removeObserver(loop) }
             loop = nil
@@ -357,7 +390,7 @@ private struct MotionHost: UIViewRepresentable {
             let maxPixel = count > 24 ? 960 : 1280
             var out: [(image: CGImage, seconds: Double)] = []
             for i in 0..<count {
-                guard let image = CGImageSourceCreateImageAtIndex(src, i, nil) else { continue }
+                guard let image = CGImageSourceCreateImageAtIndex(src, i, [kCGImageSourceShouldCache: false] as CFDictionary) else { continue }
                 out.append((image: fitted(image, maxPixel: maxPixel), delay(src, i)))
             }
             return out
@@ -382,11 +415,14 @@ private struct MotionHost: UIViewRepresentable {
         /// GIF, WebP and APNG delays of 0 mean "as fast as you like". 0.1s is the usual stand-in, and the floor for a missing delay.
         private static func delay(_ src: CGImageSource, _ index: Int) -> Double {
             guard let props = CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [CFString: Any] else { return 0.1 }
-            let raw = frameDelay(props, kCGImagePropertyGIFDictionary, kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime)
-                ?? frameDelay(props, kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime)
+            if let gif = frameDelay(props, kCGImagePropertyGIFDictionary, kCGImagePropertyGIFUnclampedDelayTime, kCGImagePropertyGIFDelayTime) {
+                let centiseconds = Int((gif * 100).rounded())
+                return centiseconds < 2 ? 0.1 : Double(centiseconds) / 100
+            }
+            let raw = frameDelay(props, kCGImagePropertyWebPDictionary, kCGImagePropertyWebPUnclampedDelayTime, kCGImagePropertyWebPDelayTime)
                 ?? frameDelay(props, kCGImagePropertyPNGDictionary, kCGImagePropertyAPNGUnclampedDelayTime, kCGImagePropertyAPNGDelayTime)
                 ?? 0.1
-            return raw < 0.02 ? 0.1 : raw
+            return raw > 0 ? raw : 0.1
         }
 
         /// Nil when this format does not give a delay. The unclamped value wins, then the clamped one.

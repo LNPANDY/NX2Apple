@@ -260,6 +260,7 @@ struct LoopingMovieFill: NSViewRepresentable {
         private var active = false
         private var failed = false
         private var parked = CMTime.zero
+        private var generation = 0
         var url: URL?
         weak var playerView: AVPlayerView?
         weak var posterView: AspectImageView?
@@ -267,19 +268,25 @@ struct LoopingMovieFill: NSViewRepresentable {
         /// Remembers the file. The player is created only while the tile is on screen.
         func bind(_ url: URL, poster: AspectImageView, playerView: AVPlayerView) {
             let changed = self.url != url
-            if changed { releasePlayer(); parked = .zero; failed = false; poster.image = nil }
+            if changed {
+                generation += 1
+                releasePlayer(poster: false)
+                parked = .zero
+                failed = false
+                poster.image = nil
+            }
             active = true
             self.url = url
             posterView = poster
             self.playerView = playerView
-            setVisible(ClickThroughView.onScreen(playerView))
+            let host = playerView.superview ?? playerView
+            setVisible(ClickThroughView.onScreen(host))
         }
 
-        /// Off screen the player is released and one still frame stays. Coming back plays from where it waited.
+        /// The host view is the one in the scroll view. The player view is hidden until a frame exists, and a hidden view has an empty visible rect, so it cannot be the test.
         func setVisible(_ hostVisible: Bool) {
             guard active, let url, let playerView else { return }
-            let visible = hostVisible && ClickThroughView.onScreen(playerView)
-            if visible {
+            if hostVisible {
                 guard !failed else { return }
                 if player == nil { startPlayer(url, in: playerView) }
                 else if !playing {
@@ -299,33 +306,53 @@ struct LoopingMovieFill: NSViewRepresentable {
         }
 
         private func startPlayer(_ url: URL, in view: AVPlayerView) {
+            generation += 1
+            let token = generation
             let item = AVPlayerItem(url: url)
             item.preferredForwardBufferDuration = 1
-            status = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-                guard item.status == .failed else { return }
-                DispatchQueue.main.async { self?.noteFailure() }
-            }
             let player = AVPlayer(playerItem: item)
             player.isMuted = true
             player.volume = 0
             player.preventsDisplaySleepDuringVideoPlayback = false
             self.player = player
             view.player = player
-            view.isHidden = false
-            if parked.isValid, parked.seconds > 0.05 { player.seek(to: parked) }
-            loop = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
-                guard let self else { return }
-                self.parked = .zero
-                player.seek(to: .zero)
-                guard self.active, let view = self.playerView, ClickThroughView.onScreen(view) else {
-                    self.playing = false
-                    return
+            view.updatesNowPlayingInfoCenter = false
+            view.isHidden = true
+            if posterView?.image == nil { posterView?.image = MoviePoster.image(at: url.path) }
+            let resume = parked
+            status = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
+                let state = item.status
+                DispatchQueue.main.async {
+                    guard let self, self.generation == token, self.player === player else { return }
+                    if state == .failed { self.noteFailure(); return }
+                    guard state == .readyToPlay, view.isHidden else { return }
+                    let go = {
+                        guard self.generation == token else { return }
+                        view.isHidden = false
+                        self.playing = true
+                        player.play()
+                    }
+                    if resume.isValid, resume.seconds > 0.05 {
+                        player.seek(to: resume, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+                            DispatchQueue.main.async { go() }
+                        }
+                    } else {
+                        go()
+                    }
                 }
-                self.playing = true
-                player.play()
             }
-            playing = true
-            player.play()
+            loop = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
+                guard let self, self.generation == token else { return }
+                self.parked = .zero
+                player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero) { _ in
+                    DispatchQueue.main.async {
+                        guard self.generation == token else { return }
+                        guard self.active else { self.playing = false; return }
+                        self.playing = true
+                        player.play()
+                    }
+                }
+            }
         }
 
         /// A file that will not play stays a still. Opening it again on every scroll would keep failing.
@@ -335,7 +362,7 @@ struct LoopingMovieFill: NSViewRepresentable {
         }
 
         /// Drops the decoder. The poster is one frame, drawn under the player view once the player is gone.
-        private func releasePlayer() {
+        private func releasePlayer(poster show: Bool = true) {
             status = nil
             if let loop { NotificationCenter.default.removeObserver(loop) }
             loop = nil
@@ -344,7 +371,7 @@ struct LoopingMovieFill: NSViewRepresentable {
             playerView?.player = nil
             player = nil
             playerView?.isHidden = true
-            if posterView?.image == nil, let url { posterView?.image = MoviePoster.image(at: url.path) }
+            if show, posterView?.image == nil, let url { posterView?.image = MoviePoster.image(at: url.path) }
         }
     }
 }

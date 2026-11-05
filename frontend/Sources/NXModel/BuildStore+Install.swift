@@ -96,7 +96,11 @@ extension BuildStore {
         }
         // A new cover has to be inside the signed app. When the picture changed, sign again so the phone receives it.
         // An unchanged app is installed as it is.
-        if let shell = ShellInstall.paths(ofApp: app) {
+        // Do not write into the signed app until a re-sign can finish. A write with no team or no project
+        // would leave a picture the signature does not cover, and the next reinstall would ship it as it is.
+        if let shell = ShellInstall.paths(ofApp: app),
+           !devices.signingTeam.isEmpty,
+           FileManager.default.fileExists(atPath: shell.project) {
             let covers = artworkPaths()
             let changed = ShellInstall.refreshCovers(root: shell.root, app: app, artwork: { covers[$0.lowercased()] })
             if !changed.isEmpty {

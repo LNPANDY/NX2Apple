@@ -835,7 +835,7 @@
   "launch.title": "Startalternativ",
   "library.appReady": "NX2Apple %@ är klart",
   "library.artworkHint": "Välj en bred bild eller en kort tyst video (PNG, JPEG, TIFF, HEIC, GIF, WebP, MP4 eller MOV). Den ligger kvar på sin ursprungliga plats. En GIF eller en video loopar i rutan.",
-  "library.artworkTooBig": "Den videon är för stor för ett omslag. Välj en under 64 MB.",
+  "library.artworkTooBig": "Den filen är för stor för ett omslag. Välj en under 64 MB.",
   "library.artworkUnreadable": "Den filen kunde inte läsas som en bild eller en video.",
   "library.buildAgain": "Bygg igen …",
   "library.building": "Bygger",
