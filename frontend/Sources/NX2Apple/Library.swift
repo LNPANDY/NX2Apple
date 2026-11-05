@@ -142,6 +142,26 @@ struct LaunchSetting: Decodable, Identifiable {
                                         min: nil, max: nil, step: nil, on: nil, off: nil, unsetValue: "")
             list.insert(display, at: (list.firstIndex { $0.env == "DM_RENDER_SCALE" }).map { $0 + 1 } ?? 0)
         }
+        if let i = list.firstIndex(where: { $0.env == "DM_LANG" }) {
+            // A game with no language list gets every language and a note from the engine (seedds/nxnative aafe01d, #668): the
+            // RomFS names the ones it really has
+            if RomFSLanguages.isFallbackRow(options: list[i].options, note: list[i].note),
+               let kept = RomFSLanguages.narrowed(list[i].options ?? [], default: list[i].def, to: RomFSLanguages.options(in: app)) {
+                list[i].options = kept
+                list[i].note = ""
+            }
+        } else {
+            let langs = RomFSLanguages.options(in: app)
+            if langs.count > 1 {
+                let def = RomFSLanguages.defaultLanguage(forApp: app, options: langs)
+                let row = LaunchSetting(env: "DM_LANG", kind: "choice", label: "Game language", note: "", def: def,
+                                        section: "Game", options: langs, min: nil, max: nil, step: nil, on: nil, off: nil,
+                                        level: "basic", unsetValue: def).localized(labels)
+                let idx = list.firstIndex { $0.env == "DM_FULLSCREEN" }
+                    ?? list.lastIndex { $0.sectionTitle == "Game" }.map { $0 + 1 } ?? 0
+                list.insert(row, at: idx)
+            }
+        }
         if let i = list.firstIndex(where: { $0.env == "DM_RENDER_SCALE" && $0.base == nil }), let base = renderBase(titleID: titleID, repo: repo) {
             list[i].base = base
         }
