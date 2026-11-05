@@ -129,6 +129,16 @@ final class GameFolderTests: XCTestCase {
         write("engine/dm/games/040074A01BF12000/game.tsv")
         XCTAssertTrue(GameFolder.engineHasProfile(0x040074A01BF12000, engineRoot: engine))
     }
+
+    func testTheSurveyWithoutAProfileIsFoundInTheBuildScript() {
+        let engine = root + "/engine"
+        XCTAssertFalse(GameFolder.engineSurveysWithoutProfile(engine))
+        XCTAssertFalse(GameFolder.engineSurveysWithoutProfile(""))
+        write("engine/scripts/build_ipa_from_nsp.py", Data("def survey_dump(src, out):\n    pass\n".utf8))
+        XCTAssertFalse(GameFolder.engineSurveysWithoutProfile(engine), "the NUP survey is the mark")
+        write("engine/scripts/build_ipa_from_nsp.py", Data("def survey_dump(src, out):\n    pass\ndef survey_nup(n, k, base, out):\n    pass\n".utf8))
+        XCTAssertTrue(GameFolder.engineSurveysWithoutProfile(engine))
+    }
 }
 
 extension GameFolderTests {

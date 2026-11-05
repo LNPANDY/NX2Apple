@@ -110,6 +110,11 @@ def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
     """
     cands: list[str] = [venv_python()] + [c for c in (extra_candidates or []) if c]
     if IS_WIN:
+        local_app = Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local')))
+        tools_root = local_app / 'NS Port Builder' / 'tools'
+        if tools_root.is_dir():
+            for d in sorted(tools_root.glob('python-*'), reverse=True):
+                cands.append(str(d / 'python.exe'))
         cands += [
             os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python312\python.exe'),
             os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python311\python.exe'),
@@ -178,7 +183,13 @@ def venv_base(preferred: str) -> str | None:
     `-m venv`, and the Python row never recovered from it. So a base that does not run at the
     required version falls back to the newest candidate that does.
     """
-    if Path(preferred).is_file() and os.access(preferred, os.X_OK):
+    p = Path(preferred) if preferred else Path()
+    if preferred and p.is_dir():
+        sub = p / ('python.exe' if IS_WIN else 'bin/python3')
+        if sub.is_file():
+            p = sub
+            preferred = str(sub)
+    if preferred and p.is_file() and os.access(preferred, os.X_OK):
         v = _python_version(preferred)
         if v and _ver_tuple(v) >= MIN_PYTHON:
             return preferred

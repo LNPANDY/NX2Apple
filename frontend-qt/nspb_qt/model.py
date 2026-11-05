@@ -977,8 +977,9 @@ class Model(QObject):
                         log=lambda s: self.log(str(s) + '\n'),
                         progress=progress_logger(self.t('dep.phase.download')))
                     self.log(self.t('dep.python.done', str(path)) + '\n')
-                    self.python_path = str(path)
-                    ok = self._make_venv(str(path))
+                    py_exe = Path(path) / 'python.exe' if Path(path).is_dir() else Path(path)
+                    self.python_path = str(py_exe)
+                    ok = self._make_venv(str(py_exe))
                     if not ok:
                         detail = 'venv / package install failed'
                         self.log(self.t('dep.install.fail', detail) + '\n')
