@@ -934,6 +934,7 @@
   "launch.none": "Dieser Build bringt keine Liste mit Startoptionen mit.",
   "launch.opt.DM_FPS_TARGET.30": "30 fps",
   "launch.opt.DM_FPS_TARGET.60": "60 fps",
+  "launch.opt.DM_FPS_TARGET.120": "120 fps",
   "launch.opt.DM_FULLSCREEN.0": "Fenster",
   "launch.opt.DM_FULLSCREEN.1": "Vollbild",
   "launch.opt.DM_LANG.de": "Deutsch",

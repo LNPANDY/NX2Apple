@@ -933,6 +933,7 @@
   "launch.none": "这个版本没有附带启动选项列表。",
   "launch.opt.DM_FPS_TARGET.30": "30 fps",
   "launch.opt.DM_FPS_TARGET.60": "60 fps",
+  "launch.opt.DM_FPS_TARGET.120": "120 fps",
   "launch.opt.DM_FULLSCREEN.0": "窗口",
   "launch.opt.DM_FULLSCREEN.1": "全屏",
   "launch.opt.DM_LANG.de": "德语",

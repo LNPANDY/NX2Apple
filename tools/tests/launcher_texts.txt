@@ -1,3 +1,4 @@
+120 fps
 16:9 (Switch)
 30 fps
 60 fps

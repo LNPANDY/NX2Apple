@@ -933,6 +933,7 @@
   "launch.none": "Questa build non contiene un elenco di opzioni di avvio.",
   "launch.opt.DM_FPS_TARGET.30": "30 fps",
   "launch.opt.DM_FPS_TARGET.60": "60 fps",
+  "launch.opt.DM_FPS_TARGET.120": "120 fps",
   "launch.opt.DM_FULLSCREEN.0": "Finestra",
   "launch.opt.DM_FULLSCREEN.1": "Schermo intero",
   "launch.opt.DM_LANG.de": "Tedesco",
