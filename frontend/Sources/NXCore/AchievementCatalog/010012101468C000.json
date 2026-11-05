@@ -1,0 +1,90 @@
+{
+  "titleID": "010012101468C000",
+  "name": "Metroid Prime Remastered",
+  "achievements": [
+    {
+      "id": "orpheon-escape",
+      "name": "Orpheon Escape",
+      "detail": "Escape the frigate Orpheon before its self-destruct countdown ends.",
+      "hidden": false
+    },
+    {
+      "id": "varia-suit",
+      "name": "Varia Suit",
+      "detail": "Recover the Varia Suit and cross rooms hot enough to drain the Power Suit.",
+      "hidden": false
+    },
+    {
+      "id": "ice-beam",
+      "name": "Ice Beam",
+      "detail": "Recover the Ice Beam and freeze enemies where they stand.",
+      "hidden": false
+    },
+    {
+      "id": "wave-beam",
+      "name": "Wave Beam",
+      "detail": "Recover the Wave Beam, which fires through walls and other solid cover.",
+      "hidden": false
+    },
+    {
+      "id": "boost-ball",
+      "name": "Boost Ball",
+      "detail": "Find the Boost Ball and accelerate while rolled into Morph Ball form.",
+      "hidden": false
+    },
+    {
+      "id": "space-jump",
+      "name": "Space Jump",
+      "detail": "Recover the Space Jump Boots and jump a second time in the air.",
+      "hidden": false
+    },
+    {
+      "id": "spider-ball",
+      "name": "Spider Ball",
+      "detail": "Obtain the Spider Ball and roll along magnetic rails.",
+      "hidden": false
+    },
+    {
+      "id": "gravity-suit",
+      "name": "Gravity Suit",
+      "detail": "Recover the Gravity Suit and move at full speed underwater.",
+      "hidden": false
+    },
+    {
+      "id": "flaahgra-defeated",
+      "name": "Flaahgra",
+      "detail": "Defeat Flaahgra by aiming the Sunchamber's reflected sunlight at it.",
+      "hidden": false
+    },
+    {
+      "id": "thardus-defeated",
+      "name": "Thardus",
+      "detail": "Defeat Thardus, the rock beast in Phendrana Drifts.",
+      "hidden": false
+    },
+    {
+      "id": "chozo-artifacts",
+      "name": "Chozo Artifacts",
+      "detail": "Collect all twelve Chozo Artifacts and break the seal on the Impact Crater.",
+      "hidden": false
+    },
+    {
+      "id": "metroid-prime",
+      "name": "Metroid Prime",
+      "detail": "Defeat the Metroid Prime at the core of the Impact Crater.",
+      "hidden": false
+    },
+    {
+      "id": "logbook-full",
+      "name": "Logbook Full",
+      "detail": "Scan every entry until the Log Book has nothing left to record.",
+      "hidden": false
+    },
+    {
+      "id": "every-upgrade",
+      "name": "Every Upgrade",
+      "detail": "Win the final fight after every expansion and upgrade on Tallon IV has been collected.",
+      "hidden": true
+    }
+  ]
+}

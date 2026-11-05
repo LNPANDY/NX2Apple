@@ -1,0 +1,78 @@
+{
+  "titleID": "01009D901BC56000",
+  "name": "Donkey Kong Country Returns HD",
+  "achievements": [
+    {
+      "id": "jungle-hijinxs",
+      "name": "Jungle Hijinxs",
+      "detail": "Clear the first stage and jump into its exit barrel.",
+      "hidden": false
+    },
+    {
+      "id": "kong-letters",
+      "name": "KONG Letters",
+      "detail": "Collect the K, O, N, and G letters in a single stage.",
+      "hidden": false
+    },
+    {
+      "id": "puzzle-set",
+      "name": "Puzzle Set",
+      "detail": "Find every puzzle piece hidden in one stage.",
+      "hidden": false
+    },
+    {
+      "id": "secret-temple",
+      "name": "Secret Temple",
+      "detail": "Collect every KONG letter in a world to unlock its temple stage.",
+      "hidden": false
+    },
+    {
+      "id": "rare-orb",
+      "name": "Rare Orb",
+      "detail": "Finish a temple stage and take the Rare Orb waiting at the end.",
+      "hidden": false
+    },
+    {
+      "id": "rambi-ride",
+      "name": "Rambi Ride",
+      "detail": "Free Rambi from his crate and ride the rhino through a stage.",
+      "hidden": false
+    },
+    {
+      "id": "mine-cart",
+      "name": "Mine Cart",
+      "detail": "Ride a mine cart from the start of a cart stage to its goal.",
+      "hidden": false
+    },
+    {
+      "id": "rocket-barrel",
+      "name": "Rocket Barrel",
+      "detail": "Ride a rocket barrel along its flight through a stage.",
+      "hidden": false
+    },
+    {
+      "id": "two-kongs",
+      "name": "Two Kongs",
+      "detail": "Clear a stage in local co-op with Diddy Kong or Dixie Kong as the partner.",
+      "hidden": false
+    },
+    {
+      "id": "hoard-restored",
+      "name": "Hoard Restored",
+      "detail": "Defeat the volcano world's boss and reclaim the stolen bananas.",
+      "hidden": false
+    },
+    {
+      "id": "gold-time",
+      "name": "Gold Time",
+      "detail": "Earn a gold medal on a stage's Time Attack.",
+      "hidden": false
+    },
+    {
+      "id": "two-hundred-percent",
+      "name": "Two Hundred Percent",
+      "detail": "Finish every stage in Mirror Mode and collect every puzzle piece on both the normal and mirrored passes.",
+      "hidden": true
+    }
+  ]
+}

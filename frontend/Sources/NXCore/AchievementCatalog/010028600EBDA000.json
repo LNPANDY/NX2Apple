@@ -1,0 +1,78 @@
+{
+  "titleID": "010028600EBDA000",
+  "name": "Super Mario 3D World + Bowser's Fury",
+  "achievements": [
+    {
+      "id": "clear-a-course",
+      "name": "Course Clear",
+      "detail": "Reach a goal pole and finish any course in Super Mario 3D World.",
+      "hidden": false
+    },
+    {
+      "id": "cat-mario",
+      "name": "Cat Mario",
+      "detail": "Touch a Super Bell and wear the cat suit while you clear a course.",
+      "hidden": false
+    },
+    {
+      "id": "green-star",
+      "name": "Green Star",
+      "detail": "Pick up a Green Star hidden somewhere in a course.",
+      "hidden": false
+    },
+    {
+      "id": "golden-flag",
+      "name": "Golden Flag",
+      "detail": "Touch the very top of a goal pole so that course's flag turns gold.",
+      "hidden": false
+    },
+    {
+      "id": "course-stamp",
+      "name": "Course Stamp",
+      "detail": "Find the stamp set in a course and add it to your stamp collection.",
+      "hidden": false
+    },
+    {
+      "id": "sprixie-rescue",
+      "name": "Sprixie Rescue",
+      "detail": "Clear a castle or airship course and free the Sprixie Princess held there.",
+      "hidden": false
+    },
+    {
+      "id": "captain-toad",
+      "name": "Captain Toad",
+      "detail": "Lead Captain Toad to the Green Star in one of his puzzle courses.",
+      "hidden": false
+    },
+    {
+      "id": "meowser",
+      "name": "Meowser",
+      "detail": "Defeat Meowser and clear the final course of the main 3D World story.",
+      "hidden": false
+    },
+    {
+      "id": "cat-shine",
+      "name": "Cat Shine",
+      "detail": "Collect a Cat Shine while exploring Lake Lapcat in Bowser's Fury.",
+      "hidden": false
+    },
+    {
+      "id": "giga-cat-mario",
+      "name": "Giga Cat Mario",
+      "detail": "Strike a Giga Bell on Lake Lapcat and fight as giant Giga Cat Mario.",
+      "hidden": false
+    },
+    {
+      "id": "fury-bowser",
+      "name": "Fury Bowser",
+      "detail": "Gather Cat Shines and defeat Fury Bowser so the storm leaves Lake Lapcat.",
+      "hidden": false
+    },
+    {
+      "id": "champions-road",
+      "name": "Champion's Road",
+      "detail": "Clear Champion's Road after that final course opens.",
+      "hidden": true
+    }
+  ]
+}

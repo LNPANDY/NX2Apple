@@ -1,0 +1,84 @@
+{
+  "titleID": "0100B8E016F76000",
+  "name": "NieR:Automata The End of YoRHa Edition",
+  "achievements": [
+    {
+      "id": "opening-descent",
+      "name": "Opening Descent",
+      "detail": "Finish the opening factory mission and reach the city ruins.",
+      "hidden": false
+    },
+    {
+      "id": "resistance-camp",
+      "name": "Resistance Camp",
+      "detail": "Reach the Resistance camp in the city ruins.",
+      "hidden": false
+    },
+    {
+      "id": "ending-a",
+      "name": "Ending A",
+      "detail": "Clear the first campaign as 2B through to its ending.",
+      "hidden": false
+    },
+    {
+      "id": "ending-b",
+      "name": "Ending B",
+      "detail": "Clear the second campaign as 9S through to its ending.",
+      "hidden": false
+    },
+    {
+      "id": "first-hack",
+      "name": "First Hack",
+      "detail": "Hack an enemy while controlling 9S.",
+      "hidden": false
+    },
+    {
+      "id": "field-quest",
+      "name": "Field Quest",
+      "detail": "Complete a side quest.",
+      "hidden": false
+    },
+    {
+      "id": "level-four-weapon",
+      "name": "Level 4 Weapon",
+      "detail": "Upgrade a weapon to level 4.",
+      "hidden": false
+    },
+    {
+      "id": "chip-fusion",
+      "name": "Chip Fusion",
+      "detail": "Fuse two plug-in chips into one stronger chip.",
+      "hidden": false
+    },
+    {
+      "id": "amusement-park",
+      "name": "Amusement Park",
+      "detail": "Clear the amusement park and its ruling machine.",
+      "hidden": false
+    },
+    {
+      "id": "pascals-village",
+      "name": "Pascal's Village",
+      "detail": "Reach the machine village led by Pascal.",
+      "hidden": false
+    },
+    {
+      "id": "mackerel",
+      "name": "Mackerel",
+      "detail": "Eat a mackerel and take the joke ending that follows.",
+      "hidden": false
+    },
+    {
+      "id": "colosseum-trial",
+      "name": "Colosseum Trial",
+      "detail": "Clear a ranked trial at the Flooded City colosseum.",
+      "hidden": false
+    },
+    {
+      "id": "ending-e",
+      "name": "Ending E",
+      "detail": "Reach the last ending after both outcomes of the final choice are recorded on the same save.",
+      "hidden": true
+    }
+  ]
+}

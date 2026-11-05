@@ -1,0 +1,78 @@
+{
+  "titleID": "0100ECD018EBE000",
+  "name": "Paper Mario: The Thousand-Year Door",
+  "achievements": [
+    {
+      "id": "rogueport-bound",
+      "name": "Rogueport Bound",
+      "detail": "Read Princess Peach's letter at home and sail the ship that carries Mario to Rogueport.",
+      "hidden": false
+    },
+    {
+      "id": "goombella-joins",
+      "name": "Goombella Joins",
+      "detail": "Help Goombella out of a scrape in Rogueport and take her into the party.",
+      "hidden": false
+    },
+    {
+      "id": "hooktail-down",
+      "name": "Hooktail Down",
+      "detail": "Defeat the dragon Hooktail and leave her castle with that chapter's Crystal Star.",
+      "hidden": false
+    },
+    {
+      "id": "glitz-champion",
+      "name": "Glitz Champion",
+      "detail": "Fight up the ranks and win the championship of Glitzville's Glitz Pit.",
+      "hidden": false
+    },
+    {
+      "id": "excess-express",
+      "name": "Excess Express",
+      "detail": "Stay aboard the Excess Express until its journey reaches the last stop.",
+      "hidden": false
+    },
+    {
+      "id": "seven-crystal-stars",
+      "name": "Seven Crystal Stars",
+      "detail": "Collect all seven Crystal Stars marked on the magical map.",
+      "hidden": false
+    },
+    {
+      "id": "open-the-door",
+      "name": "Open the Door",
+      "detail": "Place all seven Crystal Stars in the pedestal and open the Thousand-Year Door.",
+      "hidden": false
+    },
+    {
+      "id": "pit-of-100-trials",
+      "name": "Pit of 100 Trials",
+      "detail": "Clear every floor of the Pit of 100 Trials beneath Rogueport.",
+      "hidden": false
+    },
+    {
+      "id": "full-party",
+      "name": "Full Party",
+      "detail": "Recruit every partner, including Ms. Mowz from her Trouble Center request.",
+      "hidden": false
+    },
+    {
+      "id": "partner-rank",
+      "name": "Partner Rank Up",
+      "detail": "Give Merlon three Shine Sprites and raise one partner to a higher rank.",
+      "hidden": false
+    },
+    {
+      "id": "trouble-center",
+      "name": "Trouble Center",
+      "detail": "Complete a request posted at Rogueport's Trouble Center.",
+      "hidden": false
+    },
+    {
+      "id": "beyond-the-door",
+      "name": "Beyond the Door",
+      "detail": "See the final chapter through on the other side of the Thousand-Year Door.",
+      "hidden": true
+    }
+  ]
+}

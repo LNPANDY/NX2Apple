@@ -1,0 +1,90 @@
+{
+  "titleID": "0400380020056000",
+  "name": "Splatoon Raiders",
+  "achievements": [
+    {
+      "id": "new-look",
+      "name": "New Look",
+      "detail": "Choose the Mechanic's appearance before heading out.",
+      "hidden": false
+    },
+    {
+      "id": "first-raid",
+      "name": "First Raid",
+      "detail": "Pick an island, splat the Salmonids in the way, and bring salvage back.",
+      "hidden": false
+    },
+    {
+      "id": "spirhalite",
+      "name": "Spirhalite",
+      "detail": "Scoop up Spirhalite Crystals while exploring a raid.",
+      "hidden": false
+    },
+    {
+      "id": "crystal-drill",
+      "name": "Crystal Drill",
+      "detail": "Drill open a crystal cache and take the treasure it was holding.",
+      "hidden": false
+    },
+    {
+      "id": "ink-swim",
+      "name": "Ink Swim",
+      "detail": "Change to Swim Form and travel through a path of your own ink.",
+      "hidden": false
+    },
+    {
+      "id": "bot-buddy",
+      "name": "Bot Buddy",
+      "detail": "Call a Deep Cut Bot Buddy into battle and jump from it to cross a gap.",
+      "hidden": false
+    },
+    {
+      "id": "showstopper",
+      "name": "Showstopper",
+      "detail": "Gather six Power Eggs and fire a Showstopper.",
+      "hidden": false
+    },
+    {
+      "id": "hideout-craft",
+      "name": "Hideout Craft",
+      "detail": "Spend salvage on the Hideout Ship to craft an enhancement.",
+      "hidden": false
+    },
+    {
+      "id": "tank-gadget",
+      "name": "Tank Gadget",
+      "detail": "Take a Speed, Power, or Tactical tank on a mission and use one of its gadgets.",
+      "hidden": false
+    },
+    {
+      "id": "salmonid-den",
+      "name": "Salmonid Den",
+      "detail": "Collect a Salmonid Den's Power Eggs before the timer runs out.",
+      "hidden": false
+    },
+    {
+      "id": "buried-ruins",
+      "name": "Buried Ruins",
+      "detail": "Clear the stacked underground floors of a Buried Ruins raid.",
+      "hidden": false
+    },
+    {
+      "id": "sampler-dungeon",
+      "name": "Sampler Dungeon",
+      "detail": "Reach the end of a Sampler Dungeon built around one weapon or gadget.",
+      "hidden": false
+    },
+    {
+      "id": "co-op-raid",
+      "name": "Co-op Raid",
+      "detail": "Clear a stage with other players online or over local wireless.",
+      "hidden": false
+    },
+    {
+      "id": "survivalist",
+      "name": "Survivalist",
+      "detail": "Finish a raid with the combat difficulty set to Survivalist.",
+      "hidden": true
+    }
+  ]
+}

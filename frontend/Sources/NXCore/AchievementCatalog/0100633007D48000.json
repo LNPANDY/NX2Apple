@@ -1,0 +1,84 @@
+{
+  "titleID": "0100633007D48000",
+  "name": "Hollow Knight",
+  "achievements": [
+    {
+      "id": "false-knight",
+      "name": "False Knight",
+      "detail": "Defeat the False Knight in the Forgotten Crossroads.",
+      "hidden": false
+    },
+    {
+      "id": "hornet-protector",
+      "name": "Hornet Protector",
+      "detail": "Defeat Hornet in Greenpath and claim the Mothwing Cloak.",
+      "hidden": false
+    },
+    {
+      "id": "mantis-claw",
+      "name": "Mantis Claw",
+      "detail": "Pick up the Mantis Claw in the Mantis Village.",
+      "hidden": false
+    },
+    {
+      "id": "mantis-lords",
+      "name": "Mantis Lords",
+      "detail": "Defeat the Mantis Lords beneath the Mantis Village.",
+      "hidden": false
+    },
+    {
+      "id": "soul-master",
+      "name": "Soul Master",
+      "detail": "Defeat the Soul Master in the Soul Sanctum.",
+      "hidden": false
+    },
+    {
+      "id": "crystal-heart",
+      "name": "Crystal Heart",
+      "detail": "Reach the far side of Crystal Peak and take the Crystal Heart.",
+      "hidden": false
+    },
+    {
+      "id": "dream-nail",
+      "name": "Dream Nail",
+      "detail": "Meet the Seer in the Resting Grounds and receive the Dream Nail.",
+      "hidden": false
+    },
+    {
+      "id": "monarch-wings",
+      "name": "Monarch Wings",
+      "detail": "Defeat the Broken Vessel in the Ancient Basin and take the Monarch Wings.",
+      "hidden": false
+    },
+    {
+      "id": "watcher-knights",
+      "name": "Watcher Knights",
+      "detail": "Defeat the Watcher Knights in the City of Tears.",
+      "hidden": false
+    },
+    {
+      "id": "shade-cloak",
+      "name": "Shade Cloak",
+      "detail": "Wait in the void basin at the bottom of the Abyss until the Shade Cloak forms.",
+      "hidden": false
+    },
+    {
+      "id": "trial-of-the-fool",
+      "name": "Trial of the Fool",
+      "detail": "Clear the Trial of the Fool in the Colosseum of Fools.",
+      "hidden": false
+    },
+    {
+      "id": "the-hollow-knight",
+      "name": "The Hollow Knight",
+      "detail": "Defeat the Hollow Knight inside the Black Egg Temple.",
+      "hidden": false
+    },
+    {
+      "id": "dream-no-more",
+      "name": "Dream No More",
+      "detail": "Win the final dream battle reached through the Black Egg Temple.",
+      "hidden": true
+    }
+  ]
+}

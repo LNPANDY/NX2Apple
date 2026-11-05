@@ -106,6 +106,8 @@ at the top. On its side it is a Cover Flow. An iPad shows a grid.
   example on an external drive, or from the app's own folder.
 - **Cloud saves.** Pick an iCloud Drive folder for a game's saves to keep them in step with the Mac.
 - **Language.** The app follows the system language, English or Simplified Chinese.
+- **Achievements.** **Manage > Achievements** lists goals for every supported game. Mark one
+  when you have done it. The game itself is not read.
 
 The app needs iOS or iPadOS 26 or later. The covers are the eShop banners the Mac launcher caches
 for your own games.

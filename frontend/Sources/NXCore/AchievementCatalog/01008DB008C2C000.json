@@ -1,0 +1,78 @@
+{
+  "titleID": "01008DB008C2C000",
+  "name": "Pokémon Shield",
+  "achievements": [
+    {
+      "id": "galar-starter",
+      "name": "Galar Starter",
+      "detail": "Choose Grookey, Scorbunny, or Sobble when Leon offers you a partner in Postwick.",
+      "hidden": false
+    },
+    {
+      "id": "first-catch",
+      "name": "First Catch",
+      "detail": "Catch a wild Pokémon in a Poké Ball.",
+      "hidden": false
+    },
+    {
+      "id": "pokedex",
+      "name": "Pokédex",
+      "detail": "Receive the Pokédex that Sonia gives you.",
+      "hidden": false
+    },
+    {
+      "id": "grass-badge",
+      "name": "Grass Badge",
+      "detail": "Beat Milo at Turffield Stadium and take the Grass Badge.",
+      "hidden": false
+    },
+    {
+      "id": "dynamax",
+      "name": "Dynamax",
+      "detail": "Dynamax one of your Pokémon in a battle.",
+      "hidden": false
+    },
+    {
+      "id": "wild-area",
+      "name": "Wild Area",
+      "detail": "Catch a Pokémon while exploring the Wild Area.",
+      "hidden": false
+    },
+    {
+      "id": "max-raid",
+      "name": "Max Raid",
+      "detail": "Win a Max Raid Battle at a den in the Wild Area.",
+      "hidden": false
+    },
+    {
+      "id": "ghost-badge",
+      "name": "Ghost Badge",
+      "detail": "Defeat Allister in Stow-on-Side and earn the Ghost Badge.",
+      "hidden": false
+    },
+    {
+      "id": "ice-badge",
+      "name": "Ice Badge",
+      "detail": "Defeat Melony in Circhester and earn the Ice Badge.",
+      "hidden": false
+    },
+    {
+      "id": "eight-badges",
+      "name": "Eight Badges",
+      "detail": "Collect all eight Badges of the Galar Gym Challenge.",
+      "hidden": false
+    },
+    {
+      "id": "zamazenta",
+      "name": "Zamazenta",
+      "detail": "Catch Zamazenta, Shield's legendary Pokémon, in the post-game.",
+      "hidden": false
+    },
+    {
+      "id": "galar-champion",
+      "name": "Galar Champion",
+      "detail": "Defeat Leon and become Champion of the Galar region.",
+      "hidden": true
+    }
+  ]
+}

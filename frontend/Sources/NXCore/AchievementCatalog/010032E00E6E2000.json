@@ -1,0 +1,72 @@
+{
+  "titleID": "010032E00E6E2000",
+  "name": "Return of the Obra Dinn",
+  "achievements": [
+    {
+      "id": "moment-of-death",
+      "name": "Moment of Death",
+      "detail": "Use the pocket watch on a corpse and witness the instant that person died.",
+      "hidden": false
+    },
+    {
+      "id": "line-in-the-ledger",
+      "name": "A Line in the Ledger",
+      "detail": "Enter a name and a fate in the book for someone who sailed on the Obra Dinn.",
+      "hidden": false
+    },
+    {
+      "id": "three-confirmed",
+      "name": "Three Confirmed",
+      "detail": "Get three fates right so the book accepts them and completes their portraits.",
+      "hidden": false
+    },
+    {
+      "id": "chapter-closed",
+      "name": "Chapter Closed",
+      "detail": "Correctly settle every fate that belongs to a single chapter of the voyage.",
+      "hidden": false
+    },
+    {
+      "id": "the-captain",
+      "name": "The Captain",
+      "detail": "Name the master of the Obra Dinn and record the fate that ended his command.",
+      "hidden": false
+    },
+    {
+      "id": "no-body-aboard",
+      "name": "No Body Aboard",
+      "detail": "Correctly record someone who died away from the wreck and left no corpse to examine.",
+      "hidden": false
+    },
+    {
+      "id": "the-mates",
+      "name": "The Mates",
+      "detail": "Identify the mates who served under the captain and record each of their fates.",
+      "hidden": false
+    },
+    {
+      "id": "the-passengers",
+      "name": "The Passengers",
+      "detail": "Record a fate for every traveler who came aboard as a passenger rather than as crew.",
+      "hidden": false
+    },
+    {
+      "id": "every-scene",
+      "name": "Every Scene",
+      "detail": "Open each death scene the watch can still reach from the remains on the ship.",
+      "hidden": false
+    },
+    {
+      "id": "the-report",
+      "name": "The Report",
+      "detail": "Leave the wreck and turn the book over to the office that ordered the inspection.",
+      "hidden": false
+    },
+    {
+      "id": "every-soul",
+      "name": "Every Soul",
+      "detail": "Give a name and a fate the book will accept for every person who left port on the Obra Dinn.",
+      "hidden": true
+    }
+  ]
+}

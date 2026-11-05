@@ -1,0 +1,84 @@
+{
+  "titleID": "0100D5B026844000",
+  "name": "Silver Pines",
+  "achievements": [
+    {
+      "id": "the-call",
+      "name": "The Call",
+      "detail": "Begin in Silver Pines after the phone call that sends Red Walker to find Eddie Velvet.",
+      "hidden": false
+    },
+    {
+      "id": "map-photo",
+      "name": "Map Photo",
+      "detail": "Photograph a blocked door or odd object so that spot stays marked on your map.",
+      "hidden": false
+    },
+    {
+      "id": "box-cutter",
+      "name": "Box Cutter",
+      "detail": "Cut open a tied tarp with the box cutter and walk into the space behind it.",
+      "hidden": false
+    },
+    {
+      "id": "motel-gate",
+      "name": "Motel Gate",
+      "detail": "Read Eddie's code from the Crimson Bear guest ledger, then enter it at the motel gate.",
+      "hidden": false
+    },
+    {
+      "id": "snub-revolver",
+      "name": "Snub Revolver",
+      "detail": "Take the revolver from the Grizzly Suite and fire it in a fight.",
+      "hidden": false
+    },
+    {
+      "id": "motel-shotgun",
+      "name": "Motel Shotgun",
+      "detail": "Open the weapon locker in the motel gift shop and leave with the shotgun.",
+      "hidden": false
+    },
+    {
+      "id": "hip-bag",
+      "name": "Hip Bag",
+      "detail": "Pick up a hip bag and gain the extra inventory slots it adds.",
+      "hidden": false
+    },
+    {
+      "id": "coffee-break",
+      "name": "Coffee Break",
+      "detail": "Drink from a coffee jug to bring your stamina back during a long search.",
+      "hidden": false
+    },
+    {
+      "id": "mixed-tonic",
+      "name": "Mixed Tonic",
+      "detail": "Combine herbs with an empty bottle to mix a tonic for your inventory.",
+      "hidden": false
+    },
+    {
+      "id": "quick-repair",
+      "name": "Quick Repair",
+      "detail": "Patch a worn melee weapon with duct tape or a repair kit so it can be swung again.",
+      "hidden": false
+    },
+    {
+      "id": "payphone-save",
+      "name": "Payphone",
+      "detail": "Spend a coin at a payphone and save your progress from that call.",
+      "hidden": false
+    },
+    {
+      "id": "sledgehammer",
+      "name": "Sledgehammer",
+      "detail": "Smash through a cracked wall with the sledgehammer and take the path beyond it.",
+      "hidden": false
+    },
+    {
+      "id": "cable-car",
+      "name": "Cable Car",
+      "detail": "Hang the station bells, ring the marked sequence, and ride the cable car up the line.",
+      "hidden": true
+    }
+  ]
+}

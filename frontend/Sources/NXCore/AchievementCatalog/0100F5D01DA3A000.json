@@ -1,0 +1,72 @@
+{
+  "titleID": "0100F5D01DA3A000",
+  "name": "Brain Memory Training Academy",
+  "achievements": [
+    {
+      "id": "first-pair",
+      "name": "First pair",
+      "detail": "Flip two cards that show the same picture and clear that pair.",
+      "hidden": false
+    },
+    {
+      "id": "level-one",
+      "name": "Level one",
+      "detail": "Clear the first training board and land on the level complete screen.",
+      "hidden": false
+    },
+    {
+      "id": "beat-the-clock",
+      "name": "Beat the clock",
+      "detail": "Finish a board while time is still left on the timer.",
+      "hidden": false
+    },
+    {
+      "id": "low-flips",
+      "name": "Low flips",
+      "detail": "Clear a board after turning over only a small number of extra cards.",
+      "hidden": false
+    },
+    {
+      "id": "animal-cards",
+      "name": "Animal cards",
+      "detail": "Clear a board whose pairs use the animal card designs.",
+      "hidden": false
+    },
+    {
+      "id": "shape-cards",
+      "name": "Shape cards",
+      "detail": "Clear a board whose pairs use the geometric shape designs.",
+      "hidden": false
+    },
+    {
+      "id": "bigger-grid",
+      "name": "Bigger grid",
+      "detail": "Clear a later board that lays out more cards than the opening grid.",
+      "hidden": false
+    },
+    {
+      "id": "no-fail",
+      "name": "No fail",
+      "detail": "Finish a timed board and get the level complete result.",
+      "hidden": false
+    },
+    {
+      "id": "higher-score",
+      "name": "Higher score",
+      "detail": "Beat a score the progress tracker already saved for that board.",
+      "hidden": false
+    },
+    {
+      "id": "several-boards",
+      "name": "Several boards",
+      "detail": "Clear a run of training boards in one sitting as the layouts grow harder.",
+      "hidden": false
+    },
+    {
+      "id": "hardest-grid",
+      "name": "Hardest grid",
+      "detail": "Clear the most crowded board in the training list.",
+      "hidden": false
+    }
+  ]
+}

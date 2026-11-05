@@ -1,0 +1,78 @@
+{
+  "titleID": "010076F0049A2000",
+  "name": "Bayonetta",
+  "achievements": [
+    {
+      "id": "the-vestibule",
+      "name": "The Vestibule",
+      "detail": "Complete the graveyard prologue.",
+      "hidden": false
+    },
+    {
+      "id": "fortitudo",
+      "name": "Fortitudo",
+      "detail": "Defeat Fortitudo, the Cardinal Virtue of Fortitude.",
+      "hidden": false
+    },
+    {
+      "id": "route-666",
+      "name": "Route 666",
+      "detail": "Complete Route 666, the chapter ridden on a motorcycle.",
+      "hidden": false
+    },
+    {
+      "id": "temperantia",
+      "name": "Temperantia",
+      "detail": "Defeat Temperantia, the Cardinal Virtue of Temperance.",
+      "hidden": false
+    },
+    {
+      "id": "iustitia",
+      "name": "Iustitia",
+      "detail": "Defeat Iustitia, the Cardinal Virtue of Justice.",
+      "hidden": false
+    },
+    {
+      "id": "sapientia",
+      "name": "Sapientia",
+      "detail": "Defeat Sapientia, the Cardinal Virtue of Prudence.",
+      "hidden": false
+    },
+    {
+      "id": "isla-del-sol",
+      "name": "Isla Del Sol",
+      "detail": "Complete the Isla Del Sol chapter fought in the sky.",
+      "hidden": false
+    },
+    {
+      "id": "pure-platinum",
+      "name": "Pure Platinum",
+      "detail": "Earn a Pure Platinum medal on a verse with a fast time, a high combo, and no damage taken.",
+      "hidden": false
+    },
+    {
+      "id": "witch-heart",
+      "name": "Witch Heart",
+      "detail": "Collect a broken witch heart and add that heart to the health gauge.",
+      "hidden": false
+    },
+    {
+      "id": "gates-of-hell",
+      "name": "Gates of Hell",
+      "detail": "Spend halos at the Gates of Hell and buy a weapon from Rodin.",
+      "hidden": false
+    },
+    {
+      "id": "jeanne-duel",
+      "name": "Jeanne Duel",
+      "detail": "Defeat Jeanne in a story fight.",
+      "hidden": false
+    },
+    {
+      "id": "final-chapter",
+      "name": "Final Chapter",
+      "detail": "Finish the last chapter of the story.",
+      "hidden": true
+    }
+  ]
+}

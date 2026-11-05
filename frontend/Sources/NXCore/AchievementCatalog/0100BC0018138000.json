@@ -1,0 +1,78 @@
+{
+  "titleID": "0100BC0018138000",
+  "name": "Super Mario RPG",
+  "achievements": [
+    {
+      "id": "keep-clash",
+      "name": "Keep Clash",
+      "detail": "Win the opening battle against Bowser in his castle.",
+      "hidden": false
+    },
+    {
+      "id": "mallow-joins",
+      "name": "Mallow Joins",
+      "detail": "Have Mallow join the party after helping him on Mushroom Way.",
+      "hidden": false
+    },
+    {
+      "id": "geno-joins",
+      "name": "Geno Joins",
+      "detail": "Have Geno join the party in the forest beyond Rose Town.",
+      "hidden": false
+    },
+    {
+      "id": "bowser-joins",
+      "name": "Bowser Joins",
+      "detail": "Have Bowser join the party during the events at Booster Tower.",
+      "hidden": false
+    },
+    {
+      "id": "peach-joins",
+      "name": "Peach Joins",
+      "detail": "Have Princess Peach join the party after the wedding at Marrymore.",
+      "hidden": false
+    },
+    {
+      "id": "star-piece",
+      "name": "Star Piece",
+      "detail": "Recover one of the seven Star Pieces.",
+      "hidden": false
+    },
+    {
+      "id": "timed-hit",
+      "name": "Timed Hit",
+      "detail": "Land an action command by pressing the button with the right timing in battle.",
+      "hidden": false
+    },
+    {
+      "id": "triple-move",
+      "name": "Triple Move",
+      "detail": "Perform a Triple Move after the action gauge fills in battle.",
+      "hidden": false
+    },
+    {
+      "id": "seven-stars",
+      "name": "Seven Stars",
+      "detail": "Collect all seven Star Pieces.",
+      "hidden": false
+    },
+    {
+      "id": "defeat-culex",
+      "name": "Defeat Culex",
+      "detail": "Defeat the optional boss Culex in Monstro Town.",
+      "hidden": false
+    },
+    {
+      "id": "culex-rematch",
+      "name": "Culex 3D",
+      "detail": "Defeat Culex 3D in the postgame rematch at Monstro Town.",
+      "hidden": false
+    },
+    {
+      "id": "journeys-end",
+      "name": "Journey's End",
+      "detail": "Win the last battle of the story.",
+      "hidden": true
+    }
+  ]
+}

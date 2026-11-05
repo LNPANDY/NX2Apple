@@ -1,0 +1,78 @@
+{
+  "titleID": "010029B0118E8000",
+  "name": "Need For Speed™ Hot Pursuit Remastered",
+  "achievements": [
+    {
+      "id": "gold-medal",
+      "name": "Gold Medal",
+      "detail": "Earn a gold medal on a Seacrest County career event.",
+      "hidden": false
+    },
+    {
+      "id": "ocean-road",
+      "name": "Ocean Road",
+      "detail": "Win a race that runs along Grand Ocean Road.",
+      "hidden": false
+    },
+    {
+      "id": "hot-pursuit",
+      "name": "Hot Pursuit",
+      "detail": "Finish a Hot Pursuit event by winning as a racer or busting the field as a cop.",
+      "hidden": false
+    },
+    {
+      "id": "clean-escape",
+      "name": "Clean Escape",
+      "detail": "Escape the police as a racer and finish that pursuit event.",
+      "hidden": false
+    },
+    {
+      "id": "first-bust",
+      "name": "First Bust",
+      "detail": "Shut down a racer during a cop career event.",
+      "hidden": false
+    },
+    {
+      "id": "spike-strip",
+      "name": "Spike Strip",
+      "detail": "Stop a car by deploying a spike strip in a pursuit.",
+      "hidden": false
+    },
+    {
+      "id": "emp-strike",
+      "name": "EMP Strike",
+      "detail": "Disable another driver with the EMP during a pursuit event.",
+      "hidden": false
+    },
+    {
+      "id": "air-support",
+      "name": "Air Support",
+      "detail": "Call in helicopter support during a cop pursuit.",
+      "hidden": false
+    },
+    {
+      "id": "rapid-response",
+      "name": "Rapid Response",
+      "detail": "Complete a Rapid Response event before the timer expires.",
+      "hidden": false
+    },
+    {
+      "id": "interceptor",
+      "name": "Interceptor",
+      "detail": "Win a one-on-one Interceptor event.",
+      "hidden": false
+    },
+    {
+      "id": "both-careers",
+      "name": "Both Careers",
+      "detail": "Win one event in the racer career and one event in the cop career.",
+      "hidden": false
+    },
+    {
+      "id": "full-tour",
+      "name": "Full Tour",
+      "detail": "Clear every event in one career on the Seacrest County map.",
+      "hidden": true
+    }
+  ]
+}

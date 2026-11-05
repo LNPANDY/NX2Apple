@@ -1,0 +1,78 @@
+{
+  "titleID": "0100C49025D3E000",
+  "name": "EA SPORTS FC 27",
+  "achievements": [
+    {
+      "id": "kickoff-win",
+      "name": "Kick Off Win",
+      "detail": "Win a Kick Off match.",
+      "hidden": false
+    },
+    {
+      "id": "classic-goal",
+      "name": "Classic Goal",
+      "detail": "Score a goal in a Classic Match.",
+      "hidden": false
+    },
+    {
+      "id": "clean-sheet",
+      "name": "Clean Sheet",
+      "detail": "Win a match without conceding a goal.",
+      "hidden": false
+    },
+    {
+      "id": "hat-trick",
+      "name": "Hat-trick",
+      "detail": "Score three goals with the same player in one match.",
+      "hidden": false
+    },
+    {
+      "id": "career-debut",
+      "name": "Career Debut",
+      "detail": "Finish your first match in Career.",
+      "hidden": false
+    },
+    {
+      "id": "manager-signing",
+      "name": "Manager Signing",
+      "detail": "Complete a player signing in manager Career.",
+      "hidden": false
+    },
+    {
+      "id": "player-goal",
+      "name": "Player Goal",
+      "detail": "Score a goal in a player Career match.",
+      "hidden": false
+    },
+    {
+      "id": "full-season",
+      "name": "Full Season",
+      "detail": "Finish a league season in manager Career.",
+      "hidden": false
+    },
+    {
+      "id": "clubs-debut",
+      "name": "Clubs Debut",
+      "detail": "Finish a Clubs match with your created pro on the pitch.",
+      "hidden": false
+    },
+    {
+      "id": "clubs-win",
+      "name": "Clubs Win",
+      "detail": "Win a Clubs match.",
+      "hidden": false
+    },
+    {
+      "id": "clubs-contribution",
+      "name": "Clubs Contribution",
+      "detail": "Score or assist with your pro in a Clubs match.",
+      "hidden": false
+    },
+    {
+      "id": "league-title",
+      "name": "League Title",
+      "detail": "Win a league championship in manager Career.",
+      "hidden": true
+    }
+  ]
+}

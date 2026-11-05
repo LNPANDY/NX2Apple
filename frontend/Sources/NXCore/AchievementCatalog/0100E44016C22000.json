@@ -1,0 +1,84 @@
+{
+  "titleID": "0100E44016C22000",
+  "name": "Patrick's Parabox",
+  "achievements": [
+    {
+      "id": "intro-clear",
+      "name": "Intro Clear",
+      "detail": "Solve every puzzle in the Intro world.",
+      "hidden": false
+    },
+    {
+      "id": "enter-a-box",
+      "name": "Enter a Box",
+      "detail": "Solve a puzzle that requires stepping inside a box.",
+      "hidden": false
+    },
+    {
+      "id": "red-challenge",
+      "name": "Red Challenge",
+      "detail": "Clear a challenge puzzle outlined in red.",
+      "hidden": false
+    },
+    {
+      "id": "blue-side",
+      "name": "Blue Side",
+      "detail": "Clear an optional side puzzle outlined in blue.",
+      "hidden": false
+    },
+    {
+      "id": "clone-world",
+      "name": "Clone World",
+      "detail": "Solve a puzzle in the Clone world.",
+      "hidden": false
+    },
+    {
+      "id": "self-reference",
+      "name": "Reference",
+      "detail": "Solve a puzzle in the Reference world, where boxes contain one another.",
+      "hidden": false
+    },
+    {
+      "id": "infinite-exit",
+      "name": "Infinite Exit",
+      "detail": "Clear enough of Infinite Exit for the path to continue.",
+      "hidden": false
+    },
+    {
+      "id": "mainline-end",
+      "name": "Mainline End",
+      "detail": "Clear enough of Multi Infinite to finish the main path.",
+      "hidden": false
+    },
+    {
+      "id": "reception",
+      "name": "Reception",
+      "detail": "Enter Reception after the mainline worlds are finished.",
+      "hidden": false
+    },
+    {
+      "id": "challenge-set",
+      "name": "Challenge Set",
+      "detail": "Clear a puzzle in the postgame Challenge world.",
+      "hidden": false
+    },
+    {
+      "id": "gallery-prototype",
+      "name": "Gallery",
+      "detail": "Clear a Gallery puzzle shown in the game's early prototype graphics.",
+      "hidden": false
+    },
+    {
+      "id": "appendix-rule",
+      "name": "Appendix",
+      "detail": "Clear a puzzle in an Appendix world, where a movement rule is changed.",
+      "hidden": false
+    },
+    {
+      "id": "every-puzzle",
+      "name": "Every Puzzle",
+      "detail": "Solve every puzzle, including the postgame sets.",
+      "hidden": true
+    }
+  ]
+}

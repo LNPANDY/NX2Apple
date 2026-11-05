@@ -1,0 +1,78 @@
+{
+  "titleID": "010054B01AD92000",
+  "name": "Unicorn Overlord (Asia)",
+  "achievements": [
+    {
+      "id": "liberation-begins",
+      "name": "Liberation Begins",
+      "detail": "Finish the opening march and set out with the Liberation.",
+      "hidden": false
+    },
+    {
+      "id": "cornia-freed",
+      "name": "Cornia Freed",
+      "detail": "Complete Cornia's main campaign and free the first nation.",
+      "hidden": false
+    },
+    {
+      "id": "drakenhold-freed",
+      "name": "Drakenhold Freed",
+      "detail": "Finish Drakenhold's main quests and bring that kingdom into the alliance.",
+      "hidden": false
+    },
+    {
+      "id": "elheim-freed",
+      "name": "Elheim Freed",
+      "detail": "Clear Elheim's main story and win that nation to your side.",
+      "hidden": false
+    },
+    {
+      "id": "bastorias-freed",
+      "name": "Bastorias Freed",
+      "detail": "Complete Bastorias's main campaign and add its fighters to the Liberation.",
+      "hidden": false
+    },
+    {
+      "id": "albion-freed",
+      "name": "Albion Freed",
+      "detail": "Finish Albion's main storyline and free that nation.",
+      "hidden": false
+    },
+    {
+      "id": "town-restored",
+      "name": "Town Restored",
+      "detail": "Liberate a town and rebuild it so its shops and services return.",
+      "hidden": false
+    },
+    {
+      "id": "class-promoted",
+      "name": "Class Promoted",
+      "detail": "Spend Honors to promote an ally into a higher class.",
+      "hidden": false
+    },
+    {
+      "id": "rapport-raised",
+      "name": "Rapport Raised",
+      "detail": "Raise an ally's rapport until a new support conversation unlocks.",
+      "hidden": false
+    },
+    {
+      "id": "coliseum-win",
+      "name": "Coliseum Win",
+      "detail": "Win a match in a city's coliseum.",
+      "hidden": false
+    },
+    {
+      "id": "valor-skill",
+      "name": "Valor Skill",
+      "detail": "Spend Valor on the field map to use a character's Valor skill.",
+      "hidden": false
+    },
+    {
+      "id": "final-battle",
+      "name": "Final Battle",
+      "detail": "Win the war's last battle after the five nations stand together.",
+      "hidden": true
+    }
+  ]
+}

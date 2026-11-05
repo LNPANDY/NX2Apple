@@ -1,0 +1,78 @@
+{
+  "titleID": "01009BF0072D4000",
+  "name": "Captain Toad: Treasure Tracker",
+  "achievements": [
+    {
+      "id": "first-star",
+      "name": "First Star",
+      "detail": "Reach the Power Star at the end of a course.",
+      "hidden": false
+    },
+    {
+      "id": "gem-trio",
+      "name": "Gem Trio",
+      "detail": "Collect all three gems hidden in a single course.",
+      "hidden": false
+    },
+    {
+      "id": "bonus-goal",
+      "name": "Bonus Goal",
+      "detail": "Complete a course's optional bonus objective.",
+      "hidden": false
+    },
+    {
+      "id": "pixel-toad",
+      "name": "Pixel Toad",
+      "detail": "Find the tiny hidden Toad tucked into a course.",
+      "hidden": false
+    },
+    {
+      "id": "toadette-clear",
+      "name": "Toadette's Turn",
+      "detail": "Clear a course while playing as Toadette.",
+      "hidden": false
+    },
+    {
+      "id": "mine-cart",
+      "name": "Mine Cart",
+      "detail": "Ride a mine cart through a course and collect the star.",
+      "hidden": false
+    },
+    {
+      "id": "episode-one",
+      "name": "Episode 1",
+      "detail": "Clear every course in the first episode.",
+      "hidden": false
+    },
+    {
+      "id": "episode-two",
+      "name": "Episode 2",
+      "detail": "Clear every course in the second episode.",
+      "hidden": false
+    },
+    {
+      "id": "episode-three",
+      "name": "Episode 3",
+      "detail": "Clear every course in the third episode.",
+      "hidden": false
+    },
+    {
+      "id": "special-episode",
+      "name": "Special Episode",
+      "detail": "Clear a course from the Special Episode.",
+      "hidden": false
+    },
+    {
+      "id": "main-book",
+      "name": "Main Book",
+      "detail": "Clear every course in the three main episodes.",
+      "hidden": false
+    },
+    {
+      "id": "full-clear",
+      "name": "Full Clear",
+      "detail": "On every main-episode course, also collect the gems, the bonus objective, and the hidden Toad.",
+      "hidden": true
+    }
+  ]
+}

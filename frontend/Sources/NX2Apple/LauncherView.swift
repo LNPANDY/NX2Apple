@@ -33,6 +33,7 @@ struct LauncherView: View {
     @State private var controlsOpen = false
     @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
     @State private var cheatsFor: UUID?  // the game whose Cheats sheet is open (CheatsView.swift)
+    @State private var achievementsFor: UUID?
     @State var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
     @StateObject private var controls: ControlLayout
     @StateObject private var gamepad: LauncherGamepad
@@ -266,6 +267,11 @@ struct LauncherView: View {
         }
         .onChange(of: savesFor) { id in padFocus.scope = id != nil ? "saves" : currentPadScope }
         .cheatsSheet(for: $cheatsFor, m: m, library: library, pad: padFocus) { currentPadScope }
+        .sheet(isPresented: Binding(get: { achievementsFor != nil }, set: { if !$0 { achievementsFor = nil } })) {
+            if let id = achievementsFor, let game = library.games.first(where: { $0.id == id }) {
+                AchievementsView(game: game).environmentObject(loc)
+            }
+        }
         .onChange(of: optionsFor) { id in padFocus.scope = id != nil ? "launch" : (controlsOpen ? "controls" : "main") }
         .onChange(of: controlsOpen) { open in padFocus.scope = open ? "controls" : (optionsFor != nil ? "launch" : "main") }
         .onChange(of: page) { _ in padFocus.focused = nil }
@@ -517,7 +523,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil
+        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || achievementsFor != nil || freeSpaceFor != nil || deleting != nil
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -531,6 +537,7 @@ struct LauncherView: View {
         if action == .b, controllerSheet { controllerSheet = false; return }
         if action == .b, savesFor != nil { savesFor = nil; return }
         if action == .b, cheatsFor != nil { cheatsFor = nil; return }
+        if action == .b, achievementsFor != nil { achievementsFor = nil; return }
         // The Free space sheet: B closes it, the D-pad and A work in it, X, L and R do nothing behind it
         if freeSpaceFor != nil && [.b, .x, .l, .r].contains(action) { if action == .b { freeSpaceFor = nil }; return }
         if deleting != nil && [.b, .x, .l, .r].contains(action) { if action == .b { deleting = nil }; return }
@@ -571,6 +578,7 @@ struct LauncherView: View {
                         hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
+                            achievements: { achievementsFor = game.id },
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
@@ -581,7 +589,7 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        controllerSheet ? "console.controllers" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        controllerSheet ? "console.controllers" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : achievementsFor != nil ? "achievements" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).

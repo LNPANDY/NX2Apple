@@ -1,0 +1,84 @@
+{
+  "titleID": "0400D4201C6EA000",
+  "name": "Mario Tennis Fever",
+  "achievements": [
+    {
+      "id": "singles-win",
+      "name": "Singles Win",
+      "detail": "Win a singles match.",
+      "hidden": false
+    },
+    {
+      "id": "doubles-win",
+      "name": "Doubles Win",
+      "detail": "Win a doubles match with a partner.",
+      "hidden": false
+    },
+    {
+      "id": "fever-racket",
+      "name": "Fever Racket",
+      "detail": "Score a point with a Fever Racket's special shot.",
+      "hidden": false
+    },
+    {
+      "id": "mushroom-cup",
+      "name": "Mushroom Cup",
+      "detail": "Win the singles Mushroom Cup.",
+      "hidden": false
+    },
+    {
+      "id": "flower-cup",
+      "name": "Flower Cup",
+      "detail": "Win the singles Flower Cup.",
+      "hidden": false
+    },
+    {
+      "id": "star-cup",
+      "name": "Star Cup",
+      "detail": "Win the singles Star Cup.",
+      "hidden": false
+    },
+    {
+      "id": "doubles-cup",
+      "name": "Doubles Cup",
+      "detail": "Win a doubles tournament cup.",
+      "hidden": false
+    },
+    {
+      "id": "trial-tower",
+      "name": "Trial Tower",
+      "detail": "Finish a Trial Tower.",
+      "hidden": false
+    },
+    {
+      "id": "mix-it-up",
+      "name": "Mix It Up",
+      "detail": "Win a Mix It Up match played under unusual rules.",
+      "hidden": false
+    },
+    {
+      "id": "three-surfaces",
+      "name": "Three Surfaces",
+      "detail": "Win a match on grass, a match on clay, and a match on a hard court.",
+      "hidden": false
+    },
+    {
+      "id": "ranked-win",
+      "name": "Ranked Win",
+      "detail": "Win a ranked online match.",
+      "hidden": false
+    },
+    {
+      "id": "swing-mode",
+      "name": "Swing Mode",
+      "detail": "Win a Swing Mode match by swinging the controller like a racket.",
+      "hidden": false
+    },
+    {
+      "id": "doubles-star",
+      "name": "Doubles Star",
+      "detail": "Win the Star Cup in a doubles tournament.",
+      "hidden": true
+    }
+  ]
+}

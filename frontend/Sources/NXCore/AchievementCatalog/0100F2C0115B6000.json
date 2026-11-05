@@ -1,0 +1,84 @@
+{
+  "titleID": "0100F2C0115B6000",
+  "name": "The Legend of Zelda: Tears of the Kingdom",
+  "achievements": [
+    {
+      "id": "ultrahand",
+      "name": "Ultrahand",
+      "detail": "Build a contraption with Ultrahand and ride it.",
+      "hidden": false
+    },
+    {
+      "id": "fuse",
+      "name": "Fuse",
+      "detail": "Fuse a material to a weapon, shield, or arrow.",
+      "hidden": false
+    },
+    {
+      "id": "ascend",
+      "name": "Ascend",
+      "detail": "Climb through a ceiling with Ascend.",
+      "hidden": false
+    },
+    {
+      "id": "recall",
+      "name": "Recall",
+      "detail": "Rewind an object with Recall and use that motion.",
+      "hidden": false
+    },
+    {
+      "id": "shrine-of-light",
+      "name": "Shrine of Light",
+      "detail": "Clear a Shrine of Light and take its Light of Blessing.",
+      "hidden": false
+    },
+    {
+      "id": "leap-from-the-sky",
+      "name": "Leap from the Sky",
+      "detail": "Dive from the Great Sky Island and land on Hyrule's surface.",
+      "hidden": false
+    },
+    {
+      "id": "paraglider",
+      "name": "Paraglider",
+      "detail": "Receive the paraglider from Purah at Lookout Landing.",
+      "hidden": false
+    },
+    {
+      "id": "skyview-tower",
+      "name": "Skyview Tower",
+      "detail": "Activate a Skyview Tower and map the region from the launch.",
+      "hidden": false
+    },
+    {
+      "id": "lightroot",
+      "name": "Lightroot",
+      "detail": "Light a Lightroot in the Depths.",
+      "hidden": false
+    },
+    {
+      "id": "regional-phenomenon",
+      "name": "Regional Phenomenon",
+      "detail": "Finish one Regional Phenomenon and earn that sage's vow.",
+      "hidden": false
+    },
+    {
+      "id": "autobuild",
+      "name": "Autobuild",
+      "detail": "Unlock Autobuild and place a saved schematic.",
+      "hidden": false
+    },
+    {
+      "id": "master-sword",
+      "name": "Master Sword",
+      "detail": "Find the Master Sword and draw it once your stamina is high enough.",
+      "hidden": false
+    },
+    {
+      "id": "upheaval-ends",
+      "name": "Upheaval Ends",
+      "detail": "Win the final battle and end the Upheaval.",
+      "hidden": true
+    }
+  ]
+}

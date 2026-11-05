@@ -1,0 +1,78 @@
+{
+  "titleID": "010089C01E9CA000",
+  "name": "SteamWorld Heist II",
+  "achievements": [
+    {
+      "id": "first-voyage",
+      "name": "First Voyage",
+      "detail": "Complete Captain Leeway's first story mission and take the submarine out onto the Great Sea.",
+      "hidden": false
+    },
+    {
+      "id": "bank-shot",
+      "name": "Bank Shot",
+      "detail": "Defeat an enemy with a bullet that bounces off a surface before it hits.",
+      "hidden": false
+    },
+    {
+      "id": "fancy-hat",
+      "name": "Fancy Hat",
+      "detail": "Shoot an enemy's hat off, pick it up, and finish the mission so the hat stays collected.",
+      "hidden": false
+    },
+    {
+      "id": "new-hand",
+      "name": "New Hand",
+      "detail": "Recruit a crew member at an ocean bar and bring that bot on a later mission.",
+      "hidden": false
+    },
+    {
+      "id": "new-job",
+      "name": "New Job",
+      "detail": "Change a crew member's job by equipping a different kind of weapon, then field them in that role.",
+      "hidden": false
+    },
+    {
+      "id": "deeper-waters",
+      "name": "Deeper Waters",
+      "detail": "Install a submarine upgrade and use it to enter a region of the Great Sea that was out of reach.",
+      "hidden": false
+    },
+    {
+      "id": "ship-to-ship",
+      "name": "Ship to Ship",
+      "detail": "Win a real-time battle against an enemy vessel while sailing the sea map.",
+      "hidden": false
+    },
+    {
+      "id": "clean-sweep",
+      "name": "Clean Sweep",
+      "detail": "Finish a heist after picking up all of the loot waiting inside it.",
+      "hidden": false
+    },
+    {
+      "id": "full-crew",
+      "name": "Full Crew",
+      "detail": "Finish a mission with every crew member you deployed still standing.",
+      "hidden": false
+    },
+    {
+      "id": "mixed-squad",
+      "name": "Mixed Squad",
+      "detail": "Start a mission with crew members assigned to three different jobs.",
+      "hidden": false
+    },
+    {
+      "id": "seasoned-bot",
+      "name": "Seasoned Bot",
+      "detail": "Raise any crew member's level with experience earned on missions.",
+      "hidden": false
+    },
+    {
+      "id": "last-heading",
+      "name": "Last Heading",
+      "detail": "Finish the campaign's last story mission.",
+      "hidden": true
+    }
+  ]
+}

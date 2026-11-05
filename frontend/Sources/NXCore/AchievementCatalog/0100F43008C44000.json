@@ -1,0 +1,78 @@
+{
+  "titleID": "0100F43008C44000",
+  "name": "Pokémon Legends: Z-A",
+  "achievements": [
+    {
+      "id": "hotel-z",
+      "name": "Hotel Z",
+      "detail": "Join Team MZ and make Hotel Z your base in Lumiose City.",
+      "hidden": false
+    },
+    {
+      "id": "wild-catch",
+      "name": "Wild Catch",
+      "detail": "Catch a Pokémon living in one of Lumiose City's wild zones.",
+      "hidden": false
+    },
+    {
+      "id": "realtime-win",
+      "name": "Real-Time Win",
+      "detail": "Win a battle by moving with your Pokémon and calling moves in real time.",
+      "hidden": false
+    },
+    {
+      "id": "battle-zone",
+      "name": "Battle Zone",
+      "detail": "After dark, enter a battle zone and defeat another trainer.",
+      "hidden": false
+    },
+    {
+      "id": "bonus-card",
+      "name": "Bonus Card",
+      "detail": "Complete the task on a bonus card during a night in a battle zone.",
+      "hidden": false
+    },
+    {
+      "id": "rank-climbed",
+      "name": "Rank Climbed",
+      "detail": "Earn a Challenger's Ticket and win a promotion match in the Z-A Royale.",
+      "hidden": false
+    },
+    {
+      "id": "mega-evolve",
+      "name": "Mega Evolve",
+      "detail": "Mega Evolve a Pokémon in battle while it holds a Mega Stone.",
+      "hidden": false
+    },
+    {
+      "id": "rogue-calmed",
+      "name": "Rogue Calmed",
+      "detail": "Calm a Rogue Mega-Evolved Pokémon rampaging in Lumiose City.",
+      "hidden": false
+    },
+    {
+      "id": "mega-shards",
+      "name": "Mega Shards",
+      "detail": "Break Mega Crystals around the city and collect the Mega Shards.",
+      "hidden": false
+    },
+    {
+      "id": "town-favor",
+      "name": "Town Favor",
+      "detail": "Complete a side quest for someone in Lumiose City.",
+      "hidden": false
+    },
+    {
+      "id": "club-win",
+      "name": "Club Win",
+      "detail": "Win a Link Battle in the Z-A Battle Club.",
+      "hidden": false
+    },
+    {
+      "id": "rank-a",
+      "name": "Rank A",
+      "detail": "Win through the Z-A Royale until you reach Rank A.",
+      "hidden": true
+    }
+  ]
+}

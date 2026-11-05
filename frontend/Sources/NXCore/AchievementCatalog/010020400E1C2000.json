@@ -1,0 +1,78 @@
+{
+  "titleID": "010020400E1C2000",
+  "name": "Raging Loop",
+  "achievements": [
+    {
+      "id": "yasumizu",
+      "name": "Yasumizu",
+      "detail": "Reach the mountain village of Yasumizu after your bike ride goes wrong.",
+      "hidden": false
+    },
+    {
+      "id": "the-mist",
+      "name": "The Mist",
+      "detail": "Be in Yasumizu when the mist closes in and the Feast is announced.",
+      "hidden": false
+    },
+    {
+      "id": "the-feast",
+      "name": "The Feast",
+      "detail": "Take part in the Feast of the Yomi-Purge, where wolves kill at night and humans vote by day.",
+      "hidden": false
+    },
+    {
+      "id": "cast-a-vote",
+      "name": "Cast a Vote",
+      "detail": "Join a daytime council and vote on who the village will hang.",
+      "hidden": false
+    },
+    {
+      "id": "survive-a-night",
+      "name": "Survive a Night",
+      "detail": "Live through a night of the Feast and see the village the next morning.",
+      "hidden": false
+    },
+    {
+      "id": "the-loop",
+      "name": "The Loop",
+      "detail": "Die in Yasumizu and return to an earlier day with what you learned still in mind.",
+      "hidden": false
+    },
+    {
+      "id": "first-key",
+      "name": "First Key",
+      "detail": "Obtain a Key, information from one point in the story that you can use at another.",
+      "hidden": false
+    },
+    {
+      "id": "hidden-choice",
+      "name": "Hidden Choice",
+      "detail": "Spend a Key to take a choice that stayed locked on an earlier pass.",
+      "hidden": false
+    },
+    {
+      "id": "an-ending",
+      "name": "An Ending",
+      "detail": "Follow a branch of the story through to an ending.",
+      "hidden": false
+    },
+    {
+      "id": "humans-prevail",
+      "name": "Humans Prevail",
+      "detail": "See a Feast end with the humans victorious over the wolves.",
+      "hidden": false
+    },
+    {
+      "id": "wolves-prevail",
+      "name": "Wolves Prevail",
+      "detail": "See a Feast end with the wolves victorious.",
+      "hidden": false
+    },
+    {
+      "id": "revelation-mode",
+      "name": "Revelation Mode",
+      "detail": "Clear the main endings and unlock Revelation Mode.",
+      "hidden": true
+    }
+  ]
+}

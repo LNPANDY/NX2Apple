@@ -1,0 +1,78 @@
+{
+  "titleID": "0100B99019412000",
+  "name": "Mario vs. Donkey Kong",
+  "achievements": [
+    {
+      "id": "first-floor",
+      "name": "First Floor",
+      "detail": "Clear level 1-1 inside the Mario Toy Company.",
+      "hidden": false
+    },
+    {
+      "id": "key-and-door",
+      "name": "Key and Door",
+      "detail": "Pick up a key and carry it to the locked door.",
+      "hidden": false
+    },
+    {
+      "id": "toy-box",
+      "name": "Toy Box",
+      "detail": "Guide the Mini-Marios into an open toy box.",
+      "hidden": false
+    },
+    {
+      "id": "present-hunter",
+      "name": "Present Hunter",
+      "detail": "Collect every present in a regular level.",
+      "hidden": false
+    },
+    {
+      "id": "world-boss",
+      "name": "World Boss",
+      "detail": "Defeat Donkey Kong at the end of a world.",
+      "hidden": false
+    },
+    {
+      "id": "donkey-kong-jungle",
+      "name": "Donkey Kong Jungle",
+      "detail": "Clear every course in Donkey Kong Jungle.",
+      "hidden": false
+    },
+    {
+      "id": "eight-worlds",
+      "name": "Eight Worlds",
+      "detail": "Finish all eight main worlds, from the Mario Toy Company through Twilight City.",
+      "hidden": false
+    },
+    {
+      "id": "perfect-rating",
+      "name": "Perfect Rating",
+      "detail": "Earn a Perfect rating, shown as a gold star, by fully clearing a level.",
+      "hidden": false
+    },
+    {
+      "id": "two-player",
+      "name": "Two-Player",
+      "detail": "Clear a level in local two-player mode with the second player controlling Toad.",
+      "hidden": false
+    },
+    {
+      "id": "bonus-chest",
+      "name": "Bonus Chest",
+      "detail": "Catch the flying key in a bonus level and open the chest before time runs out.",
+      "hidden": false
+    },
+    {
+      "id": "expert-level",
+      "name": "Expert Level",
+      "detail": "Unlock an Expert level with gold stars and clear it.",
+      "hidden": false
+    },
+    {
+      "id": "storys-end",
+      "name": "Story's End",
+      "detail": "Win the final battle against Donkey Kong and stay for the ending.",
+      "hidden": true
+    }
+  ]
+}

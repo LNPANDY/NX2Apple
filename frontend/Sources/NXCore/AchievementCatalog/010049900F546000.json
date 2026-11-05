@@ -1,0 +1,84 @@
+{
+  "titleID": "010049900F546000",
+  "name": "Super Mario 3D All-Stars",
+  "achievements": [
+    {
+      "id": "power-star",
+      "name": "Power Star",
+      "detail": "Collect a Power Star from a course in Super Mario 64.",
+      "hidden": false
+    },
+    {
+      "id": "coin-star",
+      "name": "Coin Star",
+      "detail": "Gather 100 coins inside one Super Mario 64 course so its extra Power Star appears.",
+      "hidden": false
+    },
+    {
+      "id": "bowser-key",
+      "name": "Bowser's Key",
+      "detail": "Defeat Bowser in Super Mario 64 and use the key from that fight on a locked door in Peach's castle.",
+      "hidden": false
+    },
+    {
+      "id": "cap-switch",
+      "name": "Cap Switch",
+      "detail": "Press a red, green, or blue switch in Super Mario 64 to unlock that cap for later courses.",
+      "hidden": false
+    },
+    {
+      "id": "shine-sprite",
+      "name": "Shine Sprite",
+      "detail": "Complete an episode in Super Mario Sunshine and take the Shine Sprite it awards.",
+      "hidden": false
+    },
+    {
+      "id": "fludd-nozzle",
+      "name": "FLUDD Nozzle",
+      "detail": "Beat a boss in Super Mario Sunshine that awards a new FLUDD nozzle and equip it.",
+      "hidden": false
+    },
+    {
+      "id": "yoshi-hatch",
+      "name": "Yoshi",
+      "detail": "Spray a Yoshi egg with the matching fruit juice in Super Mario Sunshine so Yoshi hatches.",
+      "hidden": false
+    },
+    {
+      "id": "blue-coin-trade",
+      "name": "Blue Coin Trade",
+      "detail": "Exchange ten blue coins at Delfino Plaza in Super Mario Sunshine for a Shine Sprite.",
+      "hidden": false
+    },
+    {
+      "id": "launch-star",
+      "name": "Launch Star",
+      "detail": "Spin into a Launch Star in Super Mario Galaxy and travel along the path it opens.",
+      "hidden": false
+    },
+    {
+      "id": "hungry-luma",
+      "name": "Hungry Luma",
+      "detail": "Feed Star Bits to a Hungry Luma in Super Mario Galaxy until it transforms into a new destination.",
+      "hidden": false
+    },
+    {
+      "id": "grand-star",
+      "name": "Grand Star",
+      "detail": "Beat a boss galaxy in Super Mario Galaxy and collect the Grand Star at its end.",
+      "hidden": false
+    },
+    {
+      "id": "prankster-comet",
+      "name": "Prankster Comet",
+      "detail": "Clear a Prankster Comet challenge in Super Mario Galaxy and collect the Power Star it offers.",
+      "hidden": false
+    },
+    {
+      "id": "full-star-set",
+      "name": "Full Star Set",
+      "detail": "Collect all 120 Power Stars in Super Mario 64, all 120 Shine Sprites in Super Mario Sunshine, and all 120 Power Stars in Super Mario Galaxy.",
+      "hidden": true
+    }
+  ]
+}

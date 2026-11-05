@@ -1,0 +1,78 @@
+{
+  "titleID": "01007A3009184000",
+  "name": "Princess Peach: Showtime!",
+  "achievements": [
+    {
+      "id": "sparkle-call",
+      "name": "Sparkle Call",
+      "detail": "Meet Stella in the Sparkle Theater and step into a play to help.",
+      "hidden": false
+    },
+    {
+      "id": "swordfighter-debut",
+      "name": "Swordfighter Debut",
+      "detail": "Clear the Castle of Thorns as Swordfighter Peach.",
+      "hidden": false
+    },
+    {
+      "id": "sweet-festival",
+      "name": "Sweet Festival",
+      "detail": "Finish a patissiere play by baking and decorating the treats on time.",
+      "hidden": false
+    },
+    {
+      "id": "range-roundup",
+      "name": "Range Roundup",
+      "detail": "Complete a cowgirl play and use the lasso to handle the troublemakers.",
+      "hidden": false
+    },
+    {
+      "id": "ninja-scroll",
+      "name": "Ninja Scroll",
+      "detail": "Clear a ninja play by hiding, climbing, and striking through the guards.",
+      "hidden": false
+    },
+    {
+      "id": "case-closed",
+      "name": "Case Closed",
+      "detail": "Uncover the clues and solve the mystery in a detective play.",
+      "hidden": false
+    },
+    {
+      "id": "ice-ovation",
+      "name": "Ice Ovation",
+      "detail": "Finish a figure-skating play and complete the routine on the ice.",
+      "hidden": false
+    },
+    {
+      "id": "grand-heist",
+      "name": "Grand Heist",
+      "detail": "Clear a dashing-thief play by crossing the stage with the hookshot.",
+      "hidden": false
+    },
+    {
+      "id": "sea-melody",
+      "name": "Sea Melody",
+      "detail": "Complete a mermaid play by guiding sea creatures with song.",
+      "hidden": false
+    },
+    {
+      "id": "mighty-mission",
+      "name": "Mighty Mission",
+      "detail": "Finish a superhero play as Mighty Peach and protect the people on stage.",
+      "hidden": false
+    },
+    {
+      "id": "kung-fu-tale",
+      "name": "Kung Fu Tale",
+      "detail": "Clear a kung fu play by overcoming the foes with strikes and kicks.",
+      "hidden": false
+    },
+    {
+      "id": "final-curtain",
+      "name": "Final Curtain",
+      "detail": "Win the Sparkle Theater's last play and light the stage again.",
+      "hidden": true
+    }
+  ]
+}

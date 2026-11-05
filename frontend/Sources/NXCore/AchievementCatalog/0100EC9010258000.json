@@ -1,0 +1,78 @@
+{
+  "titleID": "0100EC9010258000",
+  "name": "Streets of Rage 4",
+  "achievements": [
+    {
+      "id": "the-streets",
+      "name": "The Streets",
+      "detail": "Clear the opening stage, The Streets.",
+      "hidden": false
+    },
+    {
+      "id": "the-commissioner",
+      "name": "The Commissioner",
+      "detail": "Fight through the Police Precinct and defeat the Commissioner.",
+      "hidden": false
+    },
+    {
+      "id": "second-wind",
+      "name": "Second Wind",
+      "detail": "Spend health on a special move, then earn that recoverable life back by landing hits.",
+      "hidden": false
+    },
+    {
+      "id": "star-special",
+      "name": "Star Special",
+      "detail": "Spend a collected star to unleash a character's star special in a fight.",
+      "hidden": false
+    },
+    {
+      "id": "s-rank",
+      "name": "S Rank",
+      "detail": "Finish any stage with a score that earns an S rank.",
+      "hidden": false
+    },
+    {
+      "id": "chinatown",
+      "name": "Chinatown",
+      "detail": "Clear the Chinatown stage.",
+      "hidden": false
+    },
+    {
+      "id": "skytrain",
+      "name": "Skytrain",
+      "detail": "Clear the Skytrain stage.",
+      "hidden": false
+    },
+    {
+      "id": "story-clear",
+      "name": "Story Clear",
+      "detail": "Beat Story mode from the first stage through the last on any difficulty.",
+      "hidden": false
+    },
+    {
+      "id": "arcade-clear",
+      "name": "Arcade Clear",
+      "detail": "Clear Arcade mode in a single run before your lives run out.",
+      "hidden": false
+    },
+    {
+      "id": "boss-rush",
+      "name": "Boss Rush",
+      "detail": "Defeat the full line of bosses in Boss Rush without losing your only life.",
+      "hidden": false
+    },
+    {
+      "id": "battle-winner",
+      "name": "Battle Winner",
+      "detail": "Win a match in Battle mode.",
+      "hidden": false
+    },
+    {
+      "id": "mania-plus",
+      "name": "Mania Plus",
+      "detail": "Finish a complete Story mode run on Mania+.",
+      "hidden": true
+    }
+  ]
+}

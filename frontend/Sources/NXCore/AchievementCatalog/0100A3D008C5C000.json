@@ -1,0 +1,78 @@
+{
+  "titleID": "0100A3D008C5C000",
+  "name": "Pokémon Scarlet",
+  "achievements": [
+    {
+      "id": "first-partner",
+      "name": "First Partner",
+      "detail": "Choose Sprigatito, Fuecoco, or Quaxly and begin the term at Naranja Academy.",
+      "hidden": false
+    },
+    {
+      "id": "first-catch",
+      "name": "First Catch",
+      "detail": "Catch a wild Pokémon and add its entry to the Pokédex.",
+      "hidden": false
+    },
+    {
+      "id": "first-badge",
+      "name": "First Badge",
+      "detail": "Defeat a gym leader and earn your first Paldea Gym Badge.",
+      "hidden": false
+    },
+    {
+      "id": "eight-badges",
+      "name": "Eight Badges",
+      "detail": "Beat all eight gym leaders and collect every Paldea Gym Badge.",
+      "hidden": false
+    },
+    {
+      "id": "titan-toppled",
+      "name": "Titan Toppled",
+      "detail": "Win a battle against one of the Titan Pokémon on the Path of Legends.",
+      "hidden": false
+    },
+    {
+      "id": "path-of-legends",
+      "name": "Path of Legends",
+      "detail": "Defeat every Titan Pokémon and finish that storyline.",
+      "hidden": false
+    },
+    {
+      "id": "star-base",
+      "name": "Star Base",
+      "detail": "Clear a Team Star base by beating its crew and the boss's team.",
+      "hidden": false
+    },
+    {
+      "id": "starfall-street",
+      "name": "Starfall Street",
+      "detail": "Shut down every Team Star base and finish that storyline.",
+      "hidden": false
+    },
+    {
+      "id": "terastallize",
+      "name": "Terastallize",
+      "detail": "Use the Tera Orb in battle so a Pokémon crowns itself and changes type.",
+      "hidden": false
+    },
+    {
+      "id": "new-ride",
+      "name": "New Ride",
+      "detail": "Unlock another way for Koraidon to travel, such as dashing, swimming, or gliding.",
+      "hidden": false
+    },
+    {
+      "id": "paldea-champion",
+      "name": "Paldea Champion",
+      "detail": "Win the Champion Assessment and take the title of Paldea champion.",
+      "hidden": false
+    },
+    {
+      "id": "final-chapter",
+      "name": "Final Chapter",
+      "detail": "Clear the last story battle after the league, the titans, and Team Star are all done.",
+      "hidden": true
+    }
+  ]
+}

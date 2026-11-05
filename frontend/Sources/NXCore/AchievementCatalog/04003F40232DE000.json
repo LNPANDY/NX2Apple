@@ -1,0 +1,78 @@
+{
+  "titleID": "04003F40232DE000",
+  "name": "Hyrule Warriors: Age of Imprisonment",
+  "achievements": [
+    {
+      "id": "story-battle",
+      "name": "Story Battle",
+      "detail": "Complete every mission required to win a story battle.",
+      "hidden": false
+    },
+    {
+      "id": "powerful-foe",
+      "name": "Powerful Foe",
+      "detail": "Defeat a Powerful Foe that is leading monsters on the battlefield.",
+      "hidden": false
+    },
+    {
+      "id": "sync-strike",
+      "name": "Sync Strike",
+      "detail": "Fill the sync gauge, stand beside a ready ally, and launch a Sync Strike.",
+      "hidden": false
+    },
+    {
+      "id": "zonai-device",
+      "name": "Zonai Device",
+      "detail": "Fire a Zonai device in battle, such as a fan, rocket, time bomb, or elemental emitter.",
+      "hidden": false
+    },
+    {
+      "id": "outpost-seized",
+      "name": "Outpost",
+      "detail": "Capture an enemy outpost during a battle so allied forces hold it.",
+      "hidden": false
+    },
+    {
+      "id": "korok-seed",
+      "name": "Korok Seed",
+      "detail": "Search a battlefield and pick up a Korok seed hidden there.",
+      "hidden": false
+    },
+    {
+      "id": "field-chest",
+      "name": "Field Chest",
+      "detail": "Open a treasure chest found during a battle.",
+      "hidden": false
+    },
+    {
+      "id": "giant-monster",
+      "name": "Giant Monster",
+      "detail": "Defeat a giant monster in battle, such as a Hinox, a Lynel, or a Molduga.",
+      "hidden": false
+    },
+    {
+      "id": "sage-battle",
+      "name": "Sage",
+      "detail": "Clear a battle while playing as one of the sages who has joined the roster.",
+      "hidden": false
+    },
+    {
+      "id": "sky-battle",
+      "name": "Sky Battle",
+      "detail": "Win a battle that is fought in the air.",
+      "hidden": false
+    },
+    {
+      "id": "zelda-battle",
+      "name": "Zelda",
+      "detail": "Clear a battle while controlling Zelda.",
+      "hidden": false
+    },
+    {
+      "id": "last-battle",
+      "name": "Last Battle",
+      "detail": "Finish the final story battle.",
+      "hidden": true
+    }
+  ]
+}

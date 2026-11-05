@@ -1,0 +1,78 @@
+{
+  "titleID": "0100346017304000",
+  "name": "Taiko Risshiden V DX",
+  "achievements": [
+    {
+      "id": "enter-service",
+      "name": "Enter Service",
+      "detail": "Join a daimyo's household and take a retainer's rank.",
+      "hidden": false
+    },
+    {
+      "id": "council-order",
+      "name": "Council Order",
+      "detail": "Accept an order at the council and report it finished later.",
+      "hidden": false
+    },
+    {
+      "id": "skill-training",
+      "name": "Skill Training",
+      "detail": "Raise a combat or command skill through practice the clan assigns.",
+      "hidden": false
+    },
+    {
+      "id": "field-victory",
+      "name": "Field Victory",
+      "detail": "Win a field battle against another clan's army.",
+      "hidden": false
+    },
+    {
+      "id": "siege-victory",
+      "name": "Siege Victory",
+      "detail": "Win a siege and capture the castle that was holding out.",
+      "hidden": false
+    },
+    {
+      "id": "personal-duel",
+      "name": "Personal Duel",
+      "detail": "Win a personal combat, whether a duel or a clash with bandits.",
+      "hidden": false
+    },
+    {
+      "id": "recruit-officer",
+      "name": "Recruit an Officer",
+      "detail": "Complete a recruitment and add an officer to the clan.",
+      "hidden": false
+    },
+    {
+      "id": "alliance-made",
+      "name": "Alliance Made",
+      "detail": "Carry out a diplomatic order that seals an alliance with another clan.",
+      "hidden": false
+    },
+    {
+      "id": "develop-domain",
+      "name": "Develop the Domain",
+      "detail": "Finish a domestic order that improves fields, a mine, or a castle's defenses.",
+      "hidden": false
+    },
+    {
+      "id": "castle-lord",
+      "name": "Castle Lord",
+      "detail": "Rise by merit until the clan names you lord of a castle.",
+      "hidden": false
+    },
+    {
+      "id": "province-lord",
+      "name": "Province Lord",
+      "detail": "Advance further and take charge of more than one castle.",
+      "hidden": false
+    },
+    {
+      "id": "realm-united",
+      "name": "Realm United",
+      "detail": "Expand a clan's domain until the scenario counts the realm as unified.",
+      "hidden": true
+    }
+  ]
+}

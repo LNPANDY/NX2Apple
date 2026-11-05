@@ -1,0 +1,78 @@
+{
+  "titleID": "01007960049A0000",
+  "name": "Bayonetta 2",
+  "achievements": [
+    {
+      "id": "jet-fighter",
+      "name": "Fighter Jet",
+      "detail": "Fight off the angels swarming the fighter jet in the opening battle over the city.",
+      "hidden": false
+    },
+    {
+      "id": "witch-time",
+      "name": "Witch Time",
+      "detail": "Dodge an attack at the last instant and strike back while Witch Time holds.",
+      "hidden": false
+    },
+    {
+      "id": "wicked-weave",
+      "name": "Wicked Weave",
+      "detail": "Finish a punch-and-kick string so a giant demonic limb crashes into the verse.",
+      "hidden": false
+    },
+    {
+      "id": "torture-attack",
+      "name": "Torture Attack",
+      "detail": "Fill the magic gauge on a huge enemy and end that fight with a Torture Attack.",
+      "hidden": false
+    },
+    {
+      "id": "umbran-climax",
+      "name": "Umbran Climax",
+      "detail": "Spend a full magic gauge on Umbran Climax and extend a combo into a demonic barrage.",
+      "hidden": false
+    },
+    {
+      "id": "gates-of-hell",
+      "name": "Gates of Hell",
+      "detail": "Trade halos with Rodin at the Gates of Hell for a technique, item, or weapon.",
+      "hidden": false
+    },
+    {
+      "id": "new-weapon",
+      "name": "New Weapon",
+      "detail": "Equip a weapon other than the guns you start with and clear a verse with it.",
+      "hidden": false
+    },
+    {
+      "id": "infernal-demon",
+      "name": "Infernal Demon",
+      "detail": "Summon an Infernal Demon fully into battle and let it wipe out the remaining foes.",
+      "hidden": false
+    },
+    {
+      "id": "muspelheim",
+      "name": "Muspelheim",
+      "detail": "Enter a Muspelheim portal and clear one of the combat trials inside.",
+      "hidden": false
+    },
+    {
+      "id": "pure-platinum",
+      "name": "Pure Platinum",
+      "detail": "Finish a story chapter with a Pure Platinum medal on the results screen.",
+      "hidden": false
+    },
+    {
+      "id": "cutie-j",
+      "name": "Cutie J",
+      "detail": "Clear a verse while playing as Jeanne in her episode or in Tag Climax.",
+      "hidden": false
+    },
+    {
+      "id": "last-verse",
+      "name": "Last Verse",
+      "detail": "Clear the final chapter and watch the credits through to the end.",
+      "hidden": true
+    }
+  ]
+}

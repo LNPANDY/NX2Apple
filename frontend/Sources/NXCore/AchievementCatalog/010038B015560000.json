@@ -1,0 +1,78 @@
+{
+  "titleID": "010038B015560000",
+  "name": "FINAL FANTASY TACTICS - The Ivalice Chronicles",
+  "achievements": [
+    {
+      "id": "mandalia-plains",
+      "name": "Mandalia Plains",
+      "detail": "Win the cadets' battle on Mandalia Plains.",
+      "hidden": false
+    },
+    {
+      "id": "change-jobs",
+      "name": "Change Jobs",
+      "detail": "Give a fighter a new job in town and take that class into battle.",
+      "hidden": false
+    },
+    {
+      "id": "chapter-one",
+      "name": "Chapter One",
+      "detail": "Clear the fortress battle that ends Ramza's first chapter.",
+      "hidden": false
+    },
+    {
+      "id": "agrias-joins",
+      "name": "Agrias Joins",
+      "detail": "Fight beside Agrias Oaks and recruit the holy knight.",
+      "hidden": false
+    },
+    {
+      "id": "mustadio-joins",
+      "name": "Mustadio Joins",
+      "detail": "Help Mustadio Bunansa in Goug and add the engineer to your roster.",
+      "hidden": false
+    },
+    {
+      "id": "master-a-job",
+      "name": "Master a Job",
+      "detail": "Raise one job to its highest rank so its skills can move to other classes.",
+      "hidden": false
+    },
+    {
+      "id": "riovanes-duel",
+      "name": "Riovanes Duel",
+      "detail": "Win the solo duel against Wiegraf on the roof of Riovanes Castle.",
+      "hidden": false
+    },
+    {
+      "id": "arithmetician",
+      "name": "Arithmetician",
+      "detail": "Unlock the Arithmetician job and cast one of its spells in battle.",
+      "hidden": false
+    },
+    {
+      "id": "cloud-joins",
+      "name": "Cloud Joins",
+      "detail": "Finish the side quest that lets Cloud fight in your battles.",
+      "hidden": false
+    },
+    {
+      "id": "thunder-god",
+      "name": "Thunder God",
+      "detail": "Free Cidolfus Orlandeau and recruit the Thunder God.",
+      "hidden": false
+    },
+    {
+      "id": "genji-gear",
+      "name": "Genji Gear",
+      "detail": "Take a piece of Genji equipment from a late battle and equip it.",
+      "hidden": false
+    },
+    {
+      "id": "war-concluded",
+      "name": "War Concluded",
+      "detail": "Win the final battle and carry the chronicle through to its end.",
+      "hidden": true
+    }
+  ]
+}

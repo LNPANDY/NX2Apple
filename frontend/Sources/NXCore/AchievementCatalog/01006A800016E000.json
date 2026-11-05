@@ -1,0 +1,78 @@
+{
+  "titleID": "01006A800016E000",
+  "name": "Super Smash Bros. Ultimate",
+  "achievements": [
+    {
+      "id": "first-battle",
+      "name": "First Battle",
+      "detail": "Finish a Smash match on any stage.",
+      "hidden": false
+    },
+    {
+      "id": "classic-clear",
+      "name": "Classic Clear",
+      "detail": "Clear Classic Mode with any fighter.",
+      "hidden": false
+    },
+    {
+      "id": "challenger-approaching",
+      "name": "Challenger Approaching",
+      "detail": "Unlock a fighter by winning the battle when a new challenger appears.",
+      "hidden": false
+    },
+    {
+      "id": "spirit-board",
+      "name": "Spirit Board",
+      "detail": "Win a battle on the Spirit Board.",
+      "hidden": false
+    },
+    {
+      "id": "century-smash",
+      "name": "Century Smash",
+      "detail": "Clear Century Smash by defeating 100 opponents without getting KO'd.",
+      "hidden": false
+    },
+    {
+      "id": "mii-fighter",
+      "name": "Mii Fighter",
+      "detail": "Create a Mii Fighter of any fighting style.",
+      "hidden": false
+    },
+    {
+      "id": "max-intensity",
+      "name": "Max Intensity",
+      "detail": "Finish a Classic Mode run while its intensity reads 9.9.",
+      "hidden": false
+    },
+    {
+      "id": "base-roster",
+      "name": "Base Roster",
+      "detail": "Unlock every fighter included with the base game.",
+      "hidden": false
+    },
+    {
+      "id": "base-stages",
+      "name": "Base Stages",
+      "detail": "Unlock every stage included with the base game.",
+      "hidden": false
+    },
+    {
+      "id": "world-of-light",
+      "name": "World of Light",
+      "detail": "Rescue a fighter during World of Light.",
+      "hidden": false
+    },
+    {
+      "id": "all-rescued",
+      "name": "All Rescued",
+      "detail": "Rescue every fighter captured in World of Light.",
+      "hidden": false
+    },
+    {
+      "id": "worlds-end",
+      "name": "World's End",
+      "detail": "Win the last battle of World of Light.",
+      "hidden": true
+    }
+  ]
+}

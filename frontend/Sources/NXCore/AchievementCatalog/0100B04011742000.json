@@ -1,0 +1,84 @@
+{
+  "titleID": "0100B04011742000",
+  "name": "Monster Hunter Rise",
+  "achievements": [
+    {
+      "id": "great-izuchi",
+      "name": "Great Izuchi",
+      "detail": "Hunt a Great Izuchi on a Kamura village quest.",
+      "hidden": false
+    },
+    {
+      "id": "palamute-ride",
+      "name": "Palamute Ride",
+      "detail": "Ride a Palamute during a quest.",
+      "hidden": false
+    },
+    {
+      "id": "wirebug-dash",
+      "name": "Wirebug Dash",
+      "detail": "Use a Wirebug wiredash to cross a gap in a hunting locale.",
+      "hidden": false
+    },
+    {
+      "id": "magnamalo",
+      "name": "Magnamalo",
+      "detail": "Defeat Magnamalo on the village urgent quest.",
+      "hidden": false
+    },
+    {
+      "id": "rampage-clear",
+      "name": "Rampage Clear",
+      "detail": "Hold the last gate and finish a Rampage.",
+      "hidden": false
+    },
+    {
+      "id": "apex-down",
+      "name": "Apex Down",
+      "detail": "Slay an Apex monster during a Rampage.",
+      "hidden": false
+    },
+    {
+      "id": "wyvern-ride",
+      "name": "Wyvern Ride",
+      "detail": "Mount a large monster with the Wirebug and attack while riding it.",
+      "hidden": false
+    },
+    {
+      "id": "first-capture",
+      "name": "First Capture",
+      "detail": "Capture a large monster with a trap to complete a hunt.",
+      "hidden": false
+    },
+    {
+      "id": "high-rank",
+      "name": "High Rank",
+      "detail": "Post and clear a high-rank quest from the Gathering Hub.",
+      "hidden": false
+    },
+    {
+      "id": "wind-serpent",
+      "name": "Wind Serpent",
+      "detail": "Drive off Wind Serpent Ibushi in the hub story.",
+      "hidden": false
+    },
+    {
+      "id": "thunder-serpent",
+      "name": "Thunder Serpent",
+      "detail": "Defeat Thunder Serpent Narwa in the Kamura story's last hunt.",
+      "hidden": false
+    },
+    {
+      "id": "crimson-glow",
+      "name": "Crimson Glow",
+      "detail": "Hunt Crimson Glow Valstrax.",
+      "hidden": false
+    },
+    {
+      "id": "elgado-finale",
+      "name": "Elgado Finale",
+      "detail": "Clear the last urgent quest of the Elgado story.",
+      "hidden": true
+    }
+  ]
+}

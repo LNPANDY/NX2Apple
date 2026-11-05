@@ -7,6 +7,15 @@
       "italiano"
     ]
   },
+  "achievements.empty": "Questo gioco non ha ancora obiettivi nell’elenco.",
+  "achievements.hidden": "Nascosto",
+  "achievements.locked": "Non ancora",
+  "achievements.menu": "Obiettivi…",
+  "achievements.note": "Sono obiettivi del gioco. Segnane uno quando lo hai fatto. Dal gioco stesso non viene letto nulla.",
+  "achievements.progress": "%d di %d",
+  "achievements.reset": "Cancella tutto",
+  "achievements.title": "Obiettivi",
+  "achievements.unlocked": "Fatto",
   "activity.ios": "Build per iPhone in corso",
   "activity.mac": "Build per Mac in corso",
   "activity.transfer": "Trasferimento dei file di gioco su iPhone",

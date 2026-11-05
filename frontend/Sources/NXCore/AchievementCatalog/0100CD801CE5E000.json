@@ -1,0 +1,78 @@
+{
+  "titleID": "0100CD801CE5E000",
+  "name": "Balatro",
+  "achievements": [
+    {
+      "id": "small-blind",
+      "name": "Small Blind",
+      "detail": "Score the chips a small blind asks for and cash out the round.",
+      "hidden": false
+    },
+    {
+      "id": "boss-blind",
+      "name": "Boss Blind",
+      "detail": "Clear an ante's boss blind while its special rule is active.",
+      "hidden": false
+    },
+    {
+      "id": "shop-purchase",
+      "name": "Shop Purchase",
+      "detail": "Buy a joker, playing card, or voucher from the shop between blinds.",
+      "hidden": false
+    },
+    {
+      "id": "flush",
+      "name": "Flush",
+      "detail": "Play five cards of the same suit so the hand scores as a flush.",
+      "hidden": false
+    },
+    {
+      "id": "ante-eight",
+      "name": "Ante Eight",
+      "detail": "Defeat the boss of ante eight and complete a standard run.",
+      "hidden": false
+    },
+    {
+      "id": "new-deck",
+      "name": "New Deck",
+      "detail": "Unlock another deck and begin a run on something other than the red deck.",
+      "hidden": false
+    },
+    {
+      "id": "red-stake",
+      "name": "Red Stake",
+      "detail": "Win a run while the stake is set to red.",
+      "hidden": false
+    },
+    {
+      "id": "million-chips",
+      "name": "Million Chips",
+      "detail": "Score one million chips or more with a single hand.",
+      "hidden": false
+    },
+    {
+      "id": "five-of-a-kind",
+      "name": "Five of a Kind",
+      "detail": "Alter the deck until five cards share a rank, then play them as one hand.",
+      "hidden": false
+    },
+    {
+      "id": "challenge-run",
+      "name": "Challenge",
+      "detail": "Clear any challenge from the challenge list under its fixed rules.",
+      "hidden": false
+    },
+    {
+      "id": "gold-stake",
+      "name": "Gold Stake",
+      "detail": "Win a run with the stake set all the way to gold.",
+      "hidden": false
+    },
+    {
+      "id": "legendary-joker",
+      "name": "Legendary Joker",
+      "detail": "Take a legendary joker when the Soul card offers one in a pack.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "0100606026F12000",
+  "name": "FINAL FANTASY RESONANCE",
+  "achievements": [
+    {
+      "id": "companions",
+      "name": "Companions",
+      "detail": "Set out across the world with the companions who join your party.",
+      "hidden": false
+    },
+    {
+      "id": "vision-called",
+      "name": "Vision Called",
+      "detail": "Call a Vision, an echo of a classic hero, into battle alongside your party.",
+      "hidden": false
+    },
+    {
+      "id": "enemy-staggered",
+      "name": "Enemy Staggered",
+      "detail": "Hit an enemy weakness until that foe staggers and your party gains extra turns.",
+      "hidden": false
+    },
+    {
+      "id": "resonance-attack",
+      "name": "Resonance Attack",
+      "detail": "Once a foe is staggered, spend a Resonance attack to press the opening.",
+      "hidden": false
+    },
+    {
+      "id": "vision-party",
+      "name": "Vision Party",
+      "detail": "Field a party that mixes your companions with more than one Vision.",
+      "hidden": false
+    },
+    {
+      "id": "esper-met",
+      "name": "Esper",
+      "detail": "Meet an esper and have it take part in your travels.",
+      "hidden": false
+    },
+    {
+      "id": "moogle-found",
+      "name": "Moogle",
+      "detail": "Find a moogle somewhere in the world.",
+      "hidden": false
+    },
+    {
+      "id": "airship",
+      "name": "Airship",
+      "detail": "Board an airship and fly to another reach of the map.",
+      "hidden": false
+    },
+    {
+      "id": "gilgamesh",
+      "name": "Gilgamesh",
+      "detail": "Encounter the wandering swordmaster Gilgamesh.",
+      "hidden": false
+    },
+    {
+      "id": "colosseum",
+      "name": "Colosseum",
+      "detail": "Win a Colosseum fight against its deadly monsters and take the reward.",
+      "hidden": false
+    },
+    {
+      "id": "chamber-of-arms",
+      "name": "Chamber of Arms",
+      "detail": "Defeat a foe sealed inside a legendary weapon in the Chamber of Arms.",
+      "hidden": false
+    },
+    {
+      "id": "ultima-weapon",
+      "name": "Ultima Weapon",
+      "detail": "Win the showdown against Ultima Weapon.",
+      "hidden": true
+    }
+  ]
+}

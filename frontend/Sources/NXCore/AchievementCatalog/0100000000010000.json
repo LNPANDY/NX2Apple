@@ -1,0 +1,84 @@
+{
+  "titleID": "0100000000010000",
+  "name": "Super Mario Odyssey",
+  "achievements": [
+    {
+      "id": "first-capture",
+      "name": "First Capture",
+      "detail": "Throw Cappy onto a creature or object and move around as that form.",
+      "hidden": false
+    },
+    {
+      "id": "power-moon",
+      "name": "Power Moon",
+      "detail": "Collect a Power Moon and send it back to the Odyssey.",
+      "hidden": false
+    },
+    {
+      "id": "kingdom-cleared",
+      "name": "Kingdom Cleared",
+      "detail": "Finish a kingdom's story moons and fly the Odyssey on to the next land.",
+      "hidden": false
+    },
+    {
+      "id": "madame-broode",
+      "name": "Madame Broode",
+      "detail": "Defeat Madame Broode and Chain Chompikins on the Cascade cliffs.",
+      "hidden": false
+    },
+    {
+      "id": "crazy-cap",
+      "name": "Crazy Cap",
+      "detail": "Buy a new outfit for Mario from a Crazy Cap shop.",
+      "hidden": false
+    },
+    {
+      "id": "regional-coins",
+      "name": "Regional Coins",
+      "detail": "Collect a kingdom's local coins and spend them where only that currency works.",
+      "hidden": false
+    },
+    {
+      "id": "city-festival",
+      "name": "City Festival",
+      "detail": "Help New Donk City put on its festival and celebrate on the rooftop stage.",
+      "hidden": false
+    },
+    {
+      "id": "jump-rope",
+      "name": "Jump-Rope Streak",
+      "detail": "Jump rope in New Donk City long enough to earn the Power Moon for a long streak.",
+      "hidden": false
+    },
+    {
+      "id": "hint-art",
+      "name": "Hint Art",
+      "detail": "Read a Hint Art painting, then find the Power Moon it points to in another kingdom.",
+      "hidden": false
+    },
+    {
+      "id": "purple-trade",
+      "name": "Purple Trade",
+      "detail": "Spend purple coins at a kingdom shop to take home a Power Moon.",
+      "hidden": false
+    },
+    {
+      "id": "moon-ceremony",
+      "name": "Moon Ceremony",
+      "detail": "Break into the Moon Kingdom ceremony and rescue Peach from Bowser.",
+      "hidden": false
+    },
+    {
+      "id": "castle-grounds",
+      "name": "Castle Grounds",
+      "detail": "Visit the Mushroom Kingdom and collect a Power Moon on the grounds of Peach's Castle.",
+      "hidden": false
+    },
+    {
+      "id": "darker-side",
+      "name": "Darker Side",
+      "detail": "Clear the final extra kingdom, which opens only after a huge Power Moon haul.",
+      "hidden": true
+    }
+  ]
+}

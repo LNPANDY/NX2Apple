@@ -1,0 +1,78 @@
+{
+  "titleID": "010093801237C000",
+  "name": "Metroid Dread",
+  "achievements": [
+    {
+      "id": "wake-in-artaria",
+      "name": "Wake in Artaria",
+      "detail": "Get through the opening on ZDR and start exploring Artaria.",
+      "hidden": false
+    },
+    {
+      "id": "emmi-down",
+      "name": "E.M.M.I. Down",
+      "detail": "Destroy an E.M.M.I. with the Omega Cannon.",
+      "hidden": false
+    },
+    {
+      "id": "defeat-corpius",
+      "name": "Defeat Corpius",
+      "detail": "Defeat Corpius and claim the Phantom Cloak.",
+      "hidden": false
+    },
+    {
+      "id": "morph-ball",
+      "name": "Morph Ball",
+      "detail": "Reclaim the Morph Ball in Cataris and roll through a tunnel too narrow to walk.",
+      "hidden": false
+    },
+    {
+      "id": "varia-suit",
+      "name": "Varia Suit",
+      "detail": "Take the Varia Suit and cross a superheated room without the heat draining you.",
+      "hidden": false
+    },
+    {
+      "id": "defeat-kraid",
+      "name": "Defeat Kraid",
+      "detail": "Defeat Kraid in Cataris.",
+      "hidden": false
+    },
+    {
+      "id": "shinespark",
+      "name": "Shinespark",
+      "detail": "Charge the Speed Booster, store it, and release a Shinespark.",
+      "hidden": false
+    },
+    {
+      "id": "gravity-suit",
+      "name": "Gravity Suit",
+      "detail": "Find the Gravity Suit in Burenia and move freely underwater.",
+      "hidden": false
+    },
+    {
+      "id": "screw-attack",
+      "name": "Screw Attack",
+      "detail": "Obtain the Screw Attack and smash blocks that break only under that jump.",
+      "hidden": false
+    },
+    {
+      "id": "every-emmi",
+      "name": "Every E.M.M.I.",
+      "detail": "Destroy all seven E.M.M.I. units on ZDR.",
+      "hidden": false
+    },
+    {
+      "id": "full-items",
+      "name": "Full Items",
+      "detail": "Collect every pickup tracked on the map until the item percentage reads 100.",
+      "hidden": false
+    },
+    {
+      "id": "mission-complete",
+      "name": "Mission Complete",
+      "detail": "See Samus's mission on ZDR through to its end.",
+      "hidden": true
+    }
+  ]
+}

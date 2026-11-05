@@ -1,0 +1,78 @@
+{
+  "titleID": "010099C022B96000",
+  "name": "Super Mario Galaxy",
+  "achievements": [
+    {
+      "id": "first-power-star",
+      "name": "First Power Star",
+      "detail": "Collect the Power Star on the opening planet and reach the Comet Observatory.",
+      "hidden": false
+    },
+    {
+      "id": "grand-star",
+      "name": "Grand Star",
+      "detail": "Defeat Bowser in a reactor galaxy and return the Grand Star to the observatory.",
+      "hidden": false
+    },
+    {
+      "id": "hungry-luma",
+      "name": "Hungry Luma",
+      "detail": "Feed Star Bits to a Hungry Luma until it turns into a new galaxy.",
+      "hidden": false
+    },
+    {
+      "id": "bee-mario",
+      "name": "Bee Mario",
+      "detail": "Clear a Power Star while flying in the bee suit.",
+      "hidden": false
+    },
+    {
+      "id": "boo-mario",
+      "name": "Boo Mario",
+      "detail": "Clear a Power Star while Mario is a Boo.",
+      "hidden": false
+    },
+    {
+      "id": "purple-coins",
+      "name": "Purple Coins",
+      "detail": "Collect every Purple Coin on a Purple Coin comet.",
+      "hidden": false
+    },
+    {
+      "id": "daredevil-comet",
+      "name": "Daredevil Comet",
+      "detail": "Finish a Daredevil comet, where one hit ends the attempt.",
+      "hidden": false
+    },
+    {
+      "id": "bowser-jr",
+      "name": "Bowser Jr.",
+      "detail": "Win a Bowser Jr boss fight and take the Power Star.",
+      "hidden": false
+    },
+    {
+      "id": "sixty-stars",
+      "name": "Sixty Stars",
+      "detail": "Collect 60 Power Stars so the last Bowser galaxy can be entered.",
+      "hidden": false
+    },
+    {
+      "id": "galaxy-reactor",
+      "name": "Galaxy Reactor",
+      "detail": "Defeat Bowser in the Galaxy Reactor and finish the main rescue.",
+      "hidden": false
+    },
+    {
+      "id": "luigi-star",
+      "name": "Luigi Star",
+      "detail": "Clear a Power Star while playing as Luigi.",
+      "hidden": false
+    },
+    {
+      "id": "all-power-stars",
+      "name": "All Power Stars",
+      "detail": "Collect all 120 Power Stars listed at the observatory.",
+      "hidden": true
+    }
+  ]
+}

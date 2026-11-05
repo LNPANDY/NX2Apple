@@ -1,0 +1,78 @@
+{
+  "titleID": "01004A4010FEA000",
+  "name": "Bayonetta 3",
+  "achievements": [
+    {
+      "id": "opening-assault",
+      "name": "Opening Assault",
+      "detail": "Clear the prologue battle against the Homunculi in the city.",
+      "hidden": false
+    },
+    {
+      "id": "witch-time",
+      "name": "Witch Time",
+      "detail": "Dodge an attack at the last instant so Witch Time slows the fight.",
+      "hidden": false
+    },
+    {
+      "id": "demon-slave",
+      "name": "Demon Slave",
+      "detail": "Summon an Infernal Demon and control it yourself during a fight.",
+      "hidden": false
+    },
+    {
+      "id": "demon-masquerade",
+      "name": "Demon Masquerade",
+      "detail": "Activate Demon Masquerade and fight in the form tied to your equipped weapon.",
+      "hidden": false
+    },
+    {
+      "id": "viola-verse",
+      "name": "Viola's Verse",
+      "detail": "Clear a verse as Viola with her katana and the demon Cheshire.",
+      "hidden": false
+    },
+    {
+      "id": "jeanne-side",
+      "name": "Jeanne's Side",
+      "detail": "Finish one of the side chapters played as Jeanne.",
+      "hidden": false
+    },
+    {
+      "id": "tear-of-blood",
+      "name": "Tear of Blood",
+      "detail": "Catch a crow, cat, or toad and take the Umbran Tear of Blood it carries.",
+      "hidden": false
+    },
+    {
+      "id": "phenomenal-remnant",
+      "name": "Phenomenal Remnant",
+      "detail": "Collect a chapter's three Tears of Blood and clear the Phenomenal Remnant they open.",
+      "hidden": false
+    },
+    {
+      "id": "pure-platinum",
+      "name": "Pure Platinum",
+      "detail": "Earn a Pure Platinum medal for a story chapter.",
+      "hidden": false
+    },
+    {
+      "id": "new-weapon",
+      "name": "New Weapon",
+      "detail": "Equip a weapon other than the starting guns and clear a verse with it.",
+      "hidden": false
+    },
+    {
+      "id": "gates-of-hell",
+      "name": "Gates of Hell",
+      "detail": "Spend seeds at the Gates of Hell on a technique, item, or weapon from Rodin.",
+      "hidden": false
+    },
+    {
+      "id": "final-chapter",
+      "name": "Final Chapter",
+      "detail": "Clear the last chapter of the story.",
+      "hidden": true
+    }
+  ]
+}

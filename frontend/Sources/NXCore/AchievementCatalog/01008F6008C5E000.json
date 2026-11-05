@@ -1,0 +1,78 @@
+{
+  "titleID": "01008F6008C5E000",
+  "name": "Pokémon Violet",
+  "achievements": [
+    {
+      "id": "first-partner",
+      "name": "First Partner",
+      "detail": "Choose Sprigatito, Fuecoco, or Quaxly as your starter.",
+      "hidden": false
+    },
+    {
+      "id": "terastal-debut",
+      "name": "Terastallize",
+      "detail": "Terastallize a Pokémon during a battle.",
+      "hidden": false
+    },
+    {
+      "id": "ride-miraidon",
+      "name": "Ride Miraidon",
+      "detail": "Ride Miraidon across the Paldea region.",
+      "hidden": false
+    },
+    {
+      "id": "first-badge",
+      "name": "First Badge",
+      "detail": "Defeat a Gym Leader and earn a Paldea Gym Badge.",
+      "hidden": false
+    },
+    {
+      "id": "eight-badges",
+      "name": "Eight Badges",
+      "detail": "Collect all eight Paldea Gym Badges.",
+      "hidden": false
+    },
+    {
+      "id": "paldea-champion",
+      "name": "Paldea Champion",
+      "detail": "Defeat the Elite Four and Top Champion Geeta.",
+      "hidden": false
+    },
+    {
+      "id": "titan-toppled",
+      "name": "Titan Pokémon",
+      "detail": "Defeat a Titan Pokémon on the Path of Legends.",
+      "hidden": false
+    },
+    {
+      "id": "path-of-legends",
+      "name": "Path of Legends",
+      "detail": "Defeat all five Titan Pokémon and finish the Path of Legends.",
+      "hidden": false
+    },
+    {
+      "id": "star-base",
+      "name": "Team Star Base",
+      "detail": "Clear a Team Star base by winning its Star Barrage and boss fight.",
+      "hidden": false
+    },
+    {
+      "id": "starfall-street",
+      "name": "Starfall Street",
+      "detail": "Defeat every Team Star boss and complete Starfall Street.",
+      "hidden": false
+    },
+    {
+      "id": "dex-hundred",
+      "name": "Pokédex 100",
+      "detail": "Register 100 Pokémon in the Paldea Pokédex.",
+      "hidden": false
+    },
+    {
+      "id": "area-zero",
+      "name": "Area Zero",
+      "detail": "Enter Area Zero and reach the laboratory at the bottom of the crater.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "01006000040C2000",
+  "name": "Yoshi's Crafted World",
+  "achievements": [
+    {
+      "id": "egg-toss",
+      "name": "Egg Toss",
+      "detail": "Swallow something and throw the egg it becomes to hit a target.",
+      "hidden": false
+    },
+    {
+      "id": "smiley-flower",
+      "name": "Smiley Flower",
+      "detail": "Pick up a Smiley Flower while exploring a crafted course.",
+      "hidden": false
+    },
+    {
+      "id": "next-area",
+      "name": "Next Area",
+      "detail": "Pay Smiley Flowers to a Blockafeller to open the path into another part of the island.",
+      "hidden": false
+    },
+    {
+      "id": "flip-side",
+      "name": "Flip Side",
+      "detail": "Turn a course card over and play through the cardboard back of that stage.",
+      "hidden": false
+    },
+    {
+      "id": "poochy-pups",
+      "name": "Poochy Pups",
+      "detail": "Find all three Poochy Pups hiding on a course's flip side.",
+      "hidden": false
+    },
+    {
+      "id": "bonus-flower",
+      "name": "Bonus Flower",
+      "detail": "Round up the Poochy Pups and reach the flip-side goal quickly enough for an extra Smiley Flower.",
+      "hidden": false
+    },
+    {
+      "id": "capsule-spin",
+      "name": "Capsule Spin",
+      "detail": "Spend coins in a capsule machine and take the costume that pops out.",
+      "hidden": false
+    },
+    {
+      "id": "scrap-boss",
+      "name": "Scrap Boss",
+      "detail": "Beat a world boss built out of craft materials and clear that stretch of the island.",
+      "hidden": false
+    },
+    {
+      "id": "co-op-clear",
+      "name": "Co-op Clear",
+      "detail": "Reach a course goal with a second Yoshi helping out.",
+      "hidden": false
+    },
+    {
+      "id": "front-three",
+      "name": "Front Three",
+      "detail": "Collect the three Smiley Flowers set along the front of a single course.",
+      "hidden": false
+    },
+    {
+      "id": "gem-return",
+      "name": "Gem Return",
+      "detail": "Win a boss fight and bring back a gem belonging to the Sundream Stone.",
+      "hidden": false
+    },
+    {
+      "id": "full-bouquet",
+      "name": "Full Bouquet",
+      "detail": "Collect every Smiley Flower hidden across the fronts and backs of the courses.",
+      "hidden": true
+    }
+  ]
+}

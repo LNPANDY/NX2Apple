@@ -1,0 +1,78 @@
+{
+  "titleID": "0100C1F0051B6000",
+  "name": "Donkey Kong Country: Tropical Freeze",
+  "achievements": [
+    {
+      "id": "barrel-buddy",
+      "name": "Barrel Buddy",
+      "detail": "Free Diddy, Dixie, or Cranky from a barrel and carry on together.",
+      "hidden": false
+    },
+    {
+      "id": "spell-kong",
+      "name": "Spell KONG",
+      "detail": "Collect the K, O, N, and G in one level and reach the goal so they count.",
+      "hidden": false
+    },
+    {
+      "id": "puzzle-piece",
+      "name": "Puzzle Piece",
+      "detail": "Pick up a puzzle piece hidden along a stage.",
+      "hidden": false
+    },
+    {
+      "id": "secret-exit",
+      "name": "Secret Exit",
+      "detail": "Leave a level through its secret exit and open the extra stage beyond it.",
+      "hidden": false
+    },
+    {
+      "id": "mangrove-boss",
+      "name": "Mangrove Boss",
+      "detail": "Defeat the boss of Lost Mangroves and take back the first island.",
+      "hidden": false
+    },
+    {
+      "id": "six-islands",
+      "name": "Six Islands",
+      "detail": "Defeat the boss of every main island, from Lost Mangroves through Donkey Kong Island.",
+      "hidden": false
+    },
+    {
+      "id": "temple-level",
+      "name": "Temple Level",
+      "detail": "Collect every KONG letter on an island and clear the temple level that unlocks.",
+      "hidden": false
+    },
+    {
+      "id": "home-island",
+      "name": "Home Island",
+      "detail": "Fight through Donkey Kong Island and defeat the Snowmads' leader.",
+      "hidden": false
+    },
+    {
+      "id": "funky-clear",
+      "name": "Funky Clear",
+      "detail": "Clear a level in Funky Mode while playing as Funky Kong.",
+      "hidden": false
+    },
+    {
+      "id": "extra-art",
+      "name": "Extra Art",
+      "detail": "Gather puzzle pieces until another image unlocks in the Extras gallery.",
+      "hidden": false
+    },
+    {
+      "id": "secret-seclusion",
+      "name": "Secret Seclusion",
+      "detail": "After the temple levels and the last boss, clear the three stages in Secret Seclusion.",
+      "hidden": false
+    },
+    {
+      "id": "two-hundred",
+      "name": "Two Hundred",
+      "detail": "Finish every level in Hard Mode, with one heart and no checkpoints, for 200 percent.",
+      "hidden": true
+    }
+  ]
+}

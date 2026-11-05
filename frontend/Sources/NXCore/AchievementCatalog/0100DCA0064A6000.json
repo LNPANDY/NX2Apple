@@ -1,0 +1,78 @@
+{
+  "titleID": "0100DCA0064A6000",
+  "name": "Luigi's Mansion 3",
+  "achievements": [
+    {
+      "id": "poltergust-g00",
+      "name": "Poltergust G-00",
+      "detail": "Take the Poltergust G-00 from Professor E. Gadd and catch a ghost with it.",
+      "hidden": false
+    },
+    {
+      "id": "gooigi-ready",
+      "name": "Gooigi",
+      "detail": "Unlock Gooigi and send him through a spot Luigi cannot enter.",
+      "hidden": false
+    },
+    {
+      "id": "dark-light",
+      "name": "Dark Light",
+      "detail": "Use the Dark-Light Device to reveal a hidden object or path.",
+      "hidden": false
+    },
+    {
+      "id": "elevator-button",
+      "name": "Elevator Button",
+      "detail": "Recover a stolen elevator button and open the way to another floor.",
+      "hidden": false
+    },
+    {
+      "id": "boo-caught",
+      "name": "Boo Caught",
+      "detail": "Find a hiding Boo and pull it into the Poltergust.",
+      "hidden": false
+    },
+    {
+      "id": "toad-saved",
+      "name": "Toad Saved",
+      "detail": "Pull a Toad free from a painting.",
+      "hidden": false
+    },
+    {
+      "id": "chambrea",
+      "name": "Chambrea",
+      "detail": "Defeat Chambrea in the RIP Suites.",
+      "hidden": false
+    },
+    {
+      "id": "king-macfrights",
+      "name": "King MacFrights",
+      "detail": "Defeat King MacFrights in Castle MacFrights.",
+      "hidden": false
+    },
+    {
+      "id": "polterkitty",
+      "name": "Polterkitty",
+      "detail": "Capture Polterkitty for good after her chases through the hotel.",
+      "hidden": false
+    },
+    {
+      "id": "hellen-gravely",
+      "name": "Hellen Gravely",
+      "detail": "Defeat Hellen Gravely in the Master Suite.",
+      "hidden": false
+    },
+    {
+      "id": "scarescraper",
+      "name": "ScareScraper",
+      "detail": "Finish a climb through the ScareScraper.",
+      "hidden": false
+    },
+    {
+      "id": "hotel-roof",
+      "name": "Hotel Roof",
+      "detail": "Win the final battle on the roof of the hotel.",
+      "hidden": true
+    }
+  ]
+}

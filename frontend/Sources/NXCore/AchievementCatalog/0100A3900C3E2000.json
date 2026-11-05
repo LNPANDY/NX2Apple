@@ -1,0 +1,78 @@
+{
+  "titleID": "0100A3900C3E2000",
+  "name": "Paper Mario: The Origami King",
+  "achievements": [
+    {
+      "id": "castle-escape",
+      "name": "Castle Escape",
+      "detail": "Get out of Peach's Castle after the origami attack and reach the road beyond.",
+      "hidden": false
+    },
+    {
+      "id": "earth-vellumental",
+      "name": "Earth Vellumental",
+      "detail": "Clear the Earth Vellumental while following the red streamer.",
+      "hidden": false
+    },
+    {
+      "id": "water-vellumental",
+      "name": "Water Vellumental",
+      "detail": "Clear the Water Vellumental on the blue streamer's path.",
+      "hidden": false
+    },
+    {
+      "id": "fire-vellumental",
+      "name": "Fire Vellumental",
+      "detail": "Clear the Fire Vellumental along the yellow streamer.",
+      "hidden": false
+    },
+    {
+      "id": "ice-vellumental",
+      "name": "Ice Vellumental",
+      "detail": "Clear the Ice Vellumental on the purple streamer's path.",
+      "hidden": false
+    },
+    {
+      "id": "green-streamer",
+      "name": "Green Streamer",
+      "detail": "Cross the Great Sea and clear the green streamer.",
+      "hidden": false
+    },
+    {
+      "id": "thousand-toads",
+      "name": "Thousand Toads",
+      "detail": "Find and rescue all one thousand folded Toads.",
+      "hidden": false
+    },
+    {
+      "id": "holes-filled",
+      "name": "Holes Filled",
+      "detail": "Fill every Not-Bottomless Hole by spending confetti.",
+      "hidden": false
+    },
+    {
+      "id": "museum-complete",
+      "name": "Museum Complete",
+      "detail": "Turn in every collectible treasure the Musée Champignon asks for.",
+      "hidden": false
+    },
+    {
+      "id": "paper-macho",
+      "name": "Paper Macho",
+      "detail": "Win a fight against a giant Paper Macho enemy.",
+      "hidden": false
+    },
+    {
+      "id": "luigi-found",
+      "name": "Luigi Found",
+      "detail": "Find Luigi somewhere in the kingdom after he goes missing.",
+      "hidden": false
+    },
+    {
+      "id": "last-fold",
+      "name": "Last Fold",
+      "detail": "Finish the game's final battle.",
+      "hidden": true
+    }
+  ]
+}

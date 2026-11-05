@@ -1,0 +1,78 @@
+{
+  "titleID": "010062B01525C000",
+  "name": "Persona 4 Golden",
+  "achievements": [
+    {
+      "id": "persona-awakened",
+      "name": "First Persona",
+      "detail": "Awaken a Persona during the first trip into the TV world.",
+      "hidden": false
+    },
+    {
+      "id": "yukiko-rescued",
+      "name": "Yukiko Rescued",
+      "detail": "Clear Yukiko's Castle and rescue Yukiko from the Midnight Channel.",
+      "hidden": false
+    },
+    {
+      "id": "kanji-rescued",
+      "name": "Kanji Rescued",
+      "detail": "Clear the Steamy Bathhouse and rescue Kanji.",
+      "hidden": false
+    },
+    {
+      "id": "rise-rescued",
+      "name": "Rise Rescued",
+      "detail": "Clear Marukyu Striptease and rescue Rise.",
+      "hidden": false
+    },
+    {
+      "id": "naoto-rescued",
+      "name": "Naoto Rescued",
+      "detail": "Clear the Secret Laboratory and rescue Naoto.",
+      "hidden": false
+    },
+    {
+      "id": "social-stats",
+      "name": "Social Stats",
+      "detail": "Raise Knowledge, Courage, Expression, Understanding, and Diligence to their caps.",
+      "hidden": false
+    },
+    {
+      "id": "all-social-links",
+      "name": "All Social Links",
+      "detail": "Reach rank 10 with every Social Link.",
+      "hidden": false
+    },
+    {
+      "id": "compendium-complete",
+      "name": "Compendium",
+      "detail": "Register every Persona in the compendium.",
+      "hidden": false
+    },
+    {
+      "id": "reaper-defeated",
+      "name": "Reaper",
+      "detail": "Defeat the Reaper inside a TV dungeon.",
+      "hidden": false
+    },
+    {
+      "id": "risette-lines",
+      "name": "Rise's Lines",
+      "detail": "Hear 250 different lines of Rise's battle navigation.",
+      "hidden": false
+    },
+    {
+      "id": "margaret-defeated",
+      "name": "Margaret",
+      "detail": "Defeat Margaret in her optional Velvet Room battle.",
+      "hidden": false
+    },
+    {
+      "id": "true-ending",
+      "name": "True Ending",
+      "detail": "Stay on the case through the last day of school and unlock the true ending.",
+      "hidden": true
+    }
+  ]
+}

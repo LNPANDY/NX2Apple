@@ -1,0 +1,90 @@
+{
+  "titleID": "0100BC300CB48000",
+  "name": "FINAL FANTASY X/X-2 HD Remaster",
+  "achievements": [
+    {
+      "id": "yunas-guardian",
+      "name": "Yuna's Guardian",
+      "detail": "Join Yuna as a guardian on her pilgrimage.",
+      "hidden": false
+    },
+    {
+      "id": "valefor",
+      "name": "Valefor",
+      "detail": "Clear the Cloister of Trials in Besaid Temple and obtain the aeon Valefor.",
+      "hidden": false
+    },
+    {
+      "id": "jecht-shot",
+      "name": "Jecht Shot",
+      "detail": "Learn the Jecht Shot on the voyage to Luca.",
+      "hidden": false
+    },
+    {
+      "id": "luca-goers",
+      "name": "Luca Goers",
+      "detail": "Win the blitzball match against the Luca Goers.",
+      "hidden": false
+    },
+    {
+      "id": "anima",
+      "name": "Anima",
+      "detail": "Gather the hidden Cloister treasures and obtain the aeon Anima at Baaj Temple.",
+      "hidden": false
+    },
+    {
+      "id": "celestial-weapon",
+      "name": "Celestial Weapon",
+      "detail": "Upgrade a Celestial Weapon with its crest and sigil.",
+      "hidden": false
+    },
+    {
+      "id": "penance",
+      "name": "Penance",
+      "detail": "Defeat Penance after it appears over the Calm Lands.",
+      "hidden": false
+    },
+    {
+      "id": "pilgrimage-end",
+      "name": "Pilgrimage's End",
+      "detail": "Finish Yuna's pilgrimage and complete Final Fantasy X.",
+      "hidden": false
+    },
+    {
+      "id": "gullwings",
+      "name": "Gullwings",
+      "detail": "Clear the opening mission in Luca with the Gullwings in Final Fantasy X-2.",
+      "hidden": false
+    },
+    {
+      "id": "dressphere",
+      "name": "Dressphere",
+      "detail": "Switch dresspheres during a battle and win it.",
+      "hidden": false
+    },
+    {
+      "id": "episode-complete",
+      "name": "Episode Complete",
+      "detail": "In Chapter 5 of Final Fantasy X-2, settle an area so the result reads Episode Complete.",
+      "hidden": false
+    },
+    {
+      "id": "all-dresspheres",
+      "name": "All Dresspheres",
+      "detail": "Collect every dressphere in Final Fantasy X-2.",
+      "hidden": false
+    },
+    {
+      "id": "last-mission",
+      "name": "Last Mission",
+      "detail": "Clear Last Mission, the bonus episode included with the remaster.",
+      "hidden": false
+    },
+    {
+      "id": "full-completion",
+      "name": "Full Completion",
+      "detail": "See the Final Fantasy X-2 ending that requires one hundred percent completion.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "0100ABD01785C000",
+  "name": "Portal 2",
+  "achievements": [
+    {
+      "id": "first-chamber",
+      "name": "First Chamber",
+      "detail": "Wake in Aperture and finish an opening test chamber with the portal gun.",
+      "hidden": false
+    },
+    {
+      "id": "companion-cube",
+      "name": "Companion Cube",
+      "detail": "Carry a Weighted Companion Cube onto a button so the chamber can continue.",
+      "hidden": false
+    },
+    {
+      "id": "thermal-beam",
+      "name": "Thermal Beam",
+      "detail": "Aim a Thermal Discouragement Beam through portals until it opens the exit.",
+      "hidden": false
+    },
+    {
+      "id": "light-bridge",
+      "name": "Light Bridge",
+      "detail": "Cross a gap by walking a hard-light bridge you placed with portals.",
+      "hidden": false
+    },
+    {
+      "id": "repulsion-gel",
+      "name": "Repulsion Gel",
+      "detail": "Bounce on blue repulsion gel to reach a ledge the floor alone cannot.",
+      "hidden": false
+    },
+    {
+      "id": "propulsion-gel",
+      "name": "Propulsion Gel",
+      "detail": "Build a full run on orange propulsion gel and use that speed to clear a gap.",
+      "hidden": false
+    },
+    {
+      "id": "conversion-gel",
+      "name": "Conversion Gel",
+      "detail": "Paint a bare surface with white conversion gel and place a portal on it.",
+      "hidden": false
+    },
+    {
+      "id": "excursion-funnel",
+      "name": "Excursion Funnel",
+      "detail": "Ride an excursion funnel and bend its path with portals to reach the exit.",
+      "hidden": false
+    },
+    {
+      "id": "turret-down",
+      "name": "Turret Down",
+      "detail": "Tip a turret over so it powers down instead of firing.",
+      "hidden": false
+    },
+    {
+      "id": "coop-calibration",
+      "name": "Co-op Calibration",
+      "detail": "Finish the cooperative calibration course with a partner.",
+      "hidden": false
+    },
+    {
+      "id": "coop-courses",
+      "name": "Co-op Courses",
+      "detail": "Clear every cooperative test course with another player.",
+      "hidden": false
+    },
+    {
+      "id": "story-clear",
+      "name": "Story Clear",
+      "detail": "Finish every chapter of the single-player campaign.",
+      "hidden": true
+    }
+  ]
+}

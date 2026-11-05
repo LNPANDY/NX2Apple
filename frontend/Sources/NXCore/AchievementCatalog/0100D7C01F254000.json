@@ -1,0 +1,78 @@
+{
+  "titleID": "0100D7C01F254000",
+  "name": "DRAGON QUEST I & II HD-2D Remake",
+  "achievements": [
+    {
+      "id": "tantegel-audience",
+      "name": "Tantegel Audience",
+      "detail": "Speak with the king in Tantegel Castle and accept the quest to stop the Dragonlord.",
+      "hidden": false
+    },
+    {
+      "id": "gwaelin-rescued",
+      "name": "Gwaelin Rescued",
+      "detail": "Free Princess Gwaelin from captivity and see her returned to safety.",
+      "hidden": false
+    },
+    {
+      "id": "rainbow-drop",
+      "name": "Rainbow Drop",
+      "detail": "Obtain the Rainbow Drop and open the path to the Dragonlord's castle.",
+      "hidden": false
+    },
+    {
+      "id": "erdricks-sword",
+      "name": "Erdrick's Sword",
+      "detail": "Take Erdrick's sword from the Dragonlord's castle and equip it.",
+      "hidden": false
+    },
+    {
+      "id": "dragonlord-felled",
+      "name": "Dragonlord Felled",
+      "detail": "Defeat the Dragonlord and free Alefgard from his army.",
+      "hidden": false
+    },
+    {
+      "id": "midenhall-embarks",
+      "name": "Midenhall Embarks",
+      "detail": "Leave Midenhall after the attack on Moonbrooke and begin the second quest.",
+      "hidden": false
+    },
+    {
+      "id": "cannock-prince",
+      "name": "Cannock Prince",
+      "detail": "Find the Prince of Cannock and have him join the party.",
+      "hidden": false
+    },
+    {
+      "id": "moonbrooke-princess",
+      "name": "Moonbrooke Princess",
+      "detail": "Find the Princess of Moonbrooke and welcome her magic into the party.",
+      "hidden": false
+    },
+    {
+      "id": "cannock-princess",
+      "name": "Cannock Princess",
+      "detail": "Recruit the Princess of Cannock so the four Scions travel together.",
+      "hidden": false
+    },
+    {
+      "id": "open-waters",
+      "name": "Open Waters",
+      "detail": "Gain a ship and sail to a land beyond the starting shores.",
+      "hidden": false
+    },
+    {
+      "id": "hargon-halted",
+      "name": "Hargon Halted",
+      "detail": "Defeat Hargon and stop the sorcerer who brought ruin to Moonbrooke.",
+      "hidden": false
+    },
+    {
+      "id": "final-calamity",
+      "name": "Final Calamity",
+      "detail": "Win the last battle of the second quest.",
+      "hidden": true
+    }
+  ]
+}

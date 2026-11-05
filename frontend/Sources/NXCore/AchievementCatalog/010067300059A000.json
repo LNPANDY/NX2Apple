@@ -1,0 +1,78 @@
+{
+  "titleID": "010067300059A000",
+  "name": "Mario + Rabbids Kingdom Battle",
+  "achievements": [
+    {
+      "id": "opening-fight",
+      "name": "Opening Fight",
+      "detail": "Win the first battle in the Ancient Gardens.",
+      "hidden": false
+    },
+    {
+      "id": "team-jump",
+      "name": "Team Jump",
+      "detail": "Team-jump off an ally to cross more ground or line up a better shot.",
+      "hidden": false
+    },
+    {
+      "id": "dash-hit",
+      "name": "Dash Hit",
+      "detail": "Dash into an enemy on your turn and damage it with the charge.",
+      "hidden": false
+    },
+    {
+      "id": "new-weapon",
+      "name": "New Weapon",
+      "detail": "Unlock a weapon on a hero's skill tree.",
+      "hidden": false
+    },
+    {
+      "id": "super-effect",
+      "name": "Super Effect",
+      "detail": "Defeat an enemy with a super effect such as burn, freeze, or bounce.",
+      "hidden": false
+    },
+    {
+      "id": "no-knockouts",
+      "name": "No Knockouts",
+      "detail": "Finish a battle without any hero falling.",
+      "hidden": false
+    },
+    {
+      "id": "battle-challenge",
+      "name": "Battle Challenge",
+      "detail": "Clear an optional challenge attached to a battle.",
+      "hidden": false
+    },
+    {
+      "id": "ancient-gardens",
+      "name": "Ancient Gardens",
+      "detail": "Finish Ancient Gardens, the first world.",
+      "hidden": false
+    },
+    {
+      "id": "sherbet-desert",
+      "name": "Sherbet Desert",
+      "detail": "Clear Sherbet Desert from its first fight through its boss.",
+      "hidden": false
+    },
+    {
+      "id": "spooky-trails",
+      "name": "Spooky Trails",
+      "detail": "Clear Spooky Trails and defeat the Phantom.",
+      "hidden": false
+    },
+    {
+      "id": "full-roster",
+      "name": "Full Roster",
+      "detail": "Unlock every hero who joins the squad over the course of the story.",
+      "hidden": false
+    },
+    {
+      "id": "lava-pit",
+      "name": "Lava Pit",
+      "detail": "Win the final battle of the Lava Pit and complete the adventure.",
+      "hidden": true
+    }
+  ]
+}

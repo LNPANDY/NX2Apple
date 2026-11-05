@@ -1,0 +1,78 @@
+{
+  "titleID": "01008C0016544000",
+  "name": "Sea of Stars",
+  "achievements": [
+    {
+      "id": "solstice-warriors",
+      "name": "Solstice Warriors",
+      "detail": "Finish training and leave home as the two Solstice Warriors.",
+      "hidden": false
+    },
+    {
+      "id": "camp-meal",
+      "name": "Camp Meal",
+      "detail": "Cook a meal at a campfire and give the party its benefit.",
+      "hidden": false
+    },
+    {
+      "id": "break-a-lock",
+      "name": "Break a Lock",
+      "detail": "Break an enemy lock by landing the timed hit the battle calls for.",
+      "hidden": false
+    },
+    {
+      "id": "serai-joins",
+      "name": "Seraï Joins",
+      "detail": "Recruit Seraï, the blade fighter, into the traveling party.",
+      "hidden": false
+    },
+    {
+      "id": "set-sail",
+      "name": "Set Sail",
+      "detail": "Sail the Vespertine from one island to another.",
+      "hidden": false
+    },
+    {
+      "id": "wheels-winner",
+      "name": "Wheels Winner",
+      "detail": "Win a match of Wheels at a game table.",
+      "hidden": false
+    },
+    {
+      "id": "rainbow-conch",
+      "name": "Rainbow Conch",
+      "detail": "Find a Rainbow Conch off the beaten path.",
+      "hidden": false
+    },
+    {
+      "id": "combo-skill",
+      "name": "Combo Skill",
+      "detail": "Perform a combo skill in battle with the allies it requires.",
+      "hidden": false
+    },
+    {
+      "id": "dweller-down",
+      "name": "Dweller Down",
+      "detail": "Defeat one of the giant Dweller bosses.",
+      "hidden": false
+    },
+    {
+      "id": "reshan-joins",
+      "name": "Resh'an Joins",
+      "detail": "Welcome Resh'an into the traveling party.",
+      "hidden": false
+    },
+    {
+      "id": "clockwork-castle",
+      "name": "Clockwork Castle",
+      "detail": "Clear the Clockwork Castle through its final encounter.",
+      "hidden": false
+    },
+    {
+      "id": "secret-ending",
+      "name": "Secret Ending",
+      "detail": "Do the optional work that opens the secret ending, then see it through.",
+      "hidden": true
+    }
+  ]
+}

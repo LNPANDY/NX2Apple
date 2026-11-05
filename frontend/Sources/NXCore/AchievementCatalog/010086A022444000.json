@@ -1,0 +1,78 @@
+{
+  "titleID": "010086A022444000",
+  "name": "BALL x PIT",
+  "achievements": [
+    {
+      "id": "into-the-pit",
+      "name": "Into the Pit",
+      "detail": "Drop into the pit, fire bouncing balls at the enemy rows, and finish the opening dive.",
+      "hidden": false
+    },
+    {
+      "id": "region-boss",
+      "name": "Region Boss",
+      "detail": "Defeat the boss that closes out a region before the horde overruns you.",
+      "hidden": false
+    },
+    {
+      "id": "fused-shot",
+      "name": "Fused Shot",
+      "detail": "Combine two fully leveled balls during a dive so one shot carries both of their effects.",
+      "hidden": false
+    },
+    {
+      "id": "evolved-ball",
+      "name": "Evolved Ball",
+      "detail": "Satisfy an evolution recipe during a dive and fire the new ball it creates.",
+      "hidden": false
+    },
+    {
+      "id": "harvest-run",
+      "name": "Harvest Run",
+      "detail": "Send a hero across New Ballbylon and collect wheat, wood, or stone from the tiles they hit.",
+      "hidden": false
+    },
+    {
+      "id": "fields-and-trees",
+      "name": "Fields and Trees",
+      "detail": "Place a wheat field and a forest in town and harvest both.",
+      "hidden": false
+    },
+    {
+      "id": "new-hero",
+      "name": "New Hero",
+      "detail": "Raise the building that recruits another treasure hunter and take that hero into the pit.",
+      "hidden": false
+    },
+    {
+      "id": "blueprint-built",
+      "name": "Blueprint Built",
+      "detail": "Carry a building blueprint out of a dive and construct that building in New Ballbylon.",
+      "hidden": false
+    },
+    {
+      "id": "deeper-region",
+      "name": "Deeper Region",
+      "detail": "Unlock a region past the first and clear its waves through the boss.",
+      "hidden": false
+    },
+    {
+      "id": "level-up-pick",
+      "name": "Level-Up Pick",
+      "detail": "Collect enough experience in a dive to choose a new ball or a passive upgrade.",
+      "hidden": false
+    },
+    {
+      "id": "endless-dive",
+      "name": "Endless Dive",
+      "detail": "After a region's boss falls, stay in the pit and survive the waves that follow.",
+      "hidden": false
+    },
+    {
+      "id": "final-region",
+      "name": "Final Region",
+      "detail": "Clear the last region the pit can open, boss included.",
+      "hidden": true
+    }
+  ]
+}

@@ -6,6 +6,15 @@
       "en"
     ]
   },
+  "achievements.empty": "This game has no goals in the list yet.",
+  "achievements.hidden": "Hidden",
+  "achievements.locked": "Not yet",
+  "achievements.menu": "Achievements…",
+  "achievements.note": "These are goals from the game. Mark one when you have done it. Nothing is read from the game itself.",
+  "achievements.progress": "%d of %d",
+  "achievements.reset": "Clear all",
+  "achievements.title": "Achievements",
+  "achievements.unlocked": "Unlocked",
   "activity.ios": "iPhone build in progress",
   "activity.mac": "Mac build in progress",
   "activity.transfer": "Transferring game files to the iPhone",

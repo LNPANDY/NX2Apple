@@ -1,0 +1,78 @@
+{
+  "titleID": "0100ACD0163D0000",
+  "name": "Batman: Arkham Knight",
+  "achievements": [
+    {
+      "id": "ace-chemicals",
+      "name": "Ace Chemicals",
+      "detail": "Finish the opening mission at Ace Chemicals.",
+      "hidden": false
+    },
+    {
+      "id": "harley-repelled",
+      "name": "GCPD Defense",
+      "detail": "Repel Harley Quinn's attack on the GCPD.",
+      "hidden": false
+    },
+    {
+      "id": "penguin-caches",
+      "name": "Penguin's Caches",
+      "detail": "Destroy every one of Penguin's weapon caches.",
+      "hidden": false
+    },
+    {
+      "id": "two-face-banks",
+      "name": "Bank Robberies",
+      "detail": "Stop every bank robbery run by Two-Face.",
+      "hidden": false
+    },
+    {
+      "id": "pyg-captured",
+      "name": "Professor Pyg",
+      "detail": "Capture Professor Pyg and end his murders.",
+      "hidden": false
+    },
+    {
+      "id": "firefly-stopped",
+      "name": "Firefly",
+      "detail": "Defeat Firefly and save the fire stations he targets.",
+      "hidden": false
+    },
+    {
+      "id": "deathstroke-duel",
+      "name": "Deathstroke",
+      "detail": "Beat Deathstroke in the Batmobile.",
+      "hidden": false
+    },
+    {
+      "id": "man-bat-cured",
+      "name": "Man-Bat",
+      "detail": "Cure Man-Bat after tracking him across the rooftops.",
+      "hidden": false
+    },
+    {
+      "id": "azrael-trials",
+      "name": "Azrael",
+      "detail": "Finish Azrael's combat trials.",
+      "hidden": false
+    },
+    {
+      "id": "riddler-defeated",
+      "name": "The Riddler",
+      "detail": "Complete every Riddler challenge, then defeat the Riddler.",
+      "hidden": false
+    },
+    {
+      "id": "militia-cleared",
+      "name": "Militia",
+      "detail": "Clear the militia watchtowers, mines, checkpoints, and bombs.",
+      "hidden": false
+    },
+    {
+      "id": "knightfall",
+      "name": "Knightfall",
+      "detail": "Finish every Most Wanted mission, then watch the story's last scene.",
+      "hidden": true
+    }
+  ]
+}

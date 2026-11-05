@@ -1,0 +1,84 @@
+{
+  "titleID": "04007EF01F8AE000",
+  "name": "Fire Emblem Fortune's Weave",
+  "achievements": [
+    {
+      "id": "heroic-match",
+      "name": "Heroic Match",
+      "detail": "Win an arena match in the Heroic Games after placing your team on the field.",
+      "hidden": false
+    },
+    {
+      "id": "combat-art",
+      "name": "Combat Art",
+      "detail": "Spend weapon durability on a Combat Art for a heavier hit in an arena battle.",
+      "hidden": false
+    },
+    {
+      "id": "blaze-art",
+      "name": "Blaze Art",
+      "detail": "Spend a hero's health to unleash their Blaze Art in an arena battle.",
+      "hidden": false
+    },
+    {
+      "id": "rewind",
+      "name": "Rewind",
+      "detail": "Use Fortuna's Blessing to rewind an arena battle and play a turn again.",
+      "hidden": false
+    },
+    {
+      "id": "arena-training",
+      "name": "Arena Training",
+      "detail": "During free time in Dagsion, train a unit in the arena and raise a weapon skill.",
+      "hidden": false
+    },
+    {
+      "id": "temple-service",
+      "name": "Temple Service",
+      "detail": "Volunteer at Temple Row and earn a blessing you can use in battle.",
+      "hidden": false
+    },
+    {
+      "id": "new-recruit",
+      "name": "New Recruit",
+      "detail": "Convince a warrior in Dagsion to join you with a gift or a shared meal.",
+      "hidden": false
+    },
+    {
+      "id": "inn-bond",
+      "name": "Inn Bond",
+      "detail": "Share a meal at a Dagsion inn and raise your bond with that ally.",
+      "hidden": false
+    },
+    {
+      "id": "timed-quest",
+      "name": "Timed Quest",
+      "detail": "Accept a townsfolk quest in Dagsion and finish it before the deadline.",
+      "hidden": false
+    },
+    {
+      "id": "road-skirmish",
+      "name": "Road Skirmish",
+      "detail": "Defeat an enemy group in a skirmish on the world map outside Dagsion.",
+      "hidden": false
+    },
+    {
+      "id": "dungeon-clear",
+      "name": "Dungeon Clear",
+      "detail": "Clear a dungeon on the world map and bring back materials from its battles.",
+      "hidden": false
+    },
+    {
+      "id": "other-hero",
+      "name": "Other Hero",
+      "detail": "At the Pale Raven's Perch, switch heroes and continue that hero's saved progress.",
+      "hidden": false
+    },
+    {
+      "id": "advanced-class",
+      "name": "Advanced Class",
+      "detail": "Pass an Advanced certification exam in Dagsion and field that class in an arena match.",
+      "hidden": true
+    }
+  ]
+}

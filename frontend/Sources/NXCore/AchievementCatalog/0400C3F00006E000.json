@@ -1,0 +1,78 @@
+{
+  "titleID": "0400C3F00006E000",
+  "name": "Mario Kart World",
+  "achievements": [
+    {
+      "id": "first-place",
+      "name": "First Place",
+      "detail": "Finish a race in first place.",
+      "hidden": false
+    },
+    {
+      "id": "mushroom-cup",
+      "name": "Mushroom Cup",
+      "detail": "Win the Mushroom Cup in Grand Prix.",
+      "hidden": false
+    },
+    {
+      "id": "mario-bros-circuit",
+      "name": "Mario Bros. Circuit",
+      "detail": "Take first place on Mario Bros. Circuit.",
+      "hidden": false
+    },
+    {
+      "id": "speed-150",
+      "name": "150cc Cup",
+      "detail": "Win a Grand Prix cup at 150cc.",
+      "hidden": false
+    },
+    {
+      "id": "item-pass",
+      "name": "Item Pass",
+      "detail": "Use an item during a race and still finish in the top three.",
+      "hidden": false
+    },
+    {
+      "id": "new-character",
+      "name": "New Character",
+      "detail": "Win a race with a different character than the one you used before.",
+      "hidden": false
+    },
+    {
+      "id": "new-kart",
+      "name": "New Kart",
+      "detail": "Finish a race in a kart other than your first choice.",
+      "hidden": false
+    },
+    {
+      "id": "three-characters",
+      "name": "Three Characters",
+      "detail": "Win a race with three different characters.",
+      "hidden": false
+    },
+    {
+      "id": "knockout-tour",
+      "name": "Knockout Tour",
+      "detail": "Be the last driver remaining at the end of a Knockout Tour.",
+      "hidden": false
+    },
+    {
+      "id": "rainbow-road",
+      "name": "Rainbow Road",
+      "detail": "Take first place in a race on Rainbow Road.",
+      "hidden": false
+    },
+    {
+      "id": "free-roam-outfit",
+      "name": "Free Roam Outfit",
+      "detail": "Unlock an outfit in Free Roam and finish a race with a character wearing it.",
+      "hidden": false
+    },
+    {
+      "id": "all-cups",
+      "name": "All Cups",
+      "detail": "Win every Grand Prix cup.",
+      "hidden": true
+    }
+  ]
+}

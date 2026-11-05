@@ -1,0 +1,78 @@
+{
+  "titleID": "010074F013262000",
+  "name": "Xenoblade Chronicles 3",
+  "achievements": [
+    {
+      "id": "ouroboros",
+      "name": "Ouroboros",
+      "detail": "Awaken the paired fusion in the early story and transform during a fight.",
+      "hidden": false
+    },
+    {
+      "id": "distant-colony",
+      "name": "Distant Colony",
+      "detail": "Travel to a colony outside the starting regions and meet the people living there.",
+      "hidden": false
+    },
+    {
+      "id": "the-city",
+      "name": "The City",
+      "detail": "Locate the independent settlement and pass through its front gate.",
+      "hidden": false
+    },
+    {
+      "id": "hero-ally",
+      "name": "Hero Ally",
+      "detail": "Finish a hero's quest and add that hero's class to the party.",
+      "hidden": false
+    },
+    {
+      "id": "full-arts",
+      "name": "Full Arts",
+      "detail": "Fight as one class until every art on its palette is learned.",
+      "hidden": false
+    },
+    {
+      "id": "interlink",
+      "name": "Interlink",
+      "detail": "Transform a linked pair mid-battle and strike an enemy before the fusion timer ends.",
+      "hidden": false
+    },
+    {
+      "id": "chain-attack",
+      "name": "Chain Attack",
+      "detail": "Fill the chain gauge and spend it on a chain attack during a fight.",
+      "hidden": false
+    },
+    {
+      "id": "unique-monster",
+      "name": "Unique Monster",
+      "detail": "Track a named monster in the field and defeat it.",
+      "hidden": false
+    },
+    {
+      "id": "freed-colony",
+      "name": "Freed Colony",
+      "detail": "Finish one colony's quest line so its flame clock releases the residents.",
+      "hidden": false
+    },
+    {
+      "id": "ascension-quest",
+      "name": "Ascension Quest",
+      "detail": "Clear a hero ascension quest and raise that class beyond its first rank limit.",
+      "hidden": false
+    },
+    {
+      "id": "erythia-sea",
+      "name": "Erythia Sea",
+      "detail": "Cross the inland sea by boat and step onto a shore in the next region.",
+      "hidden": false
+    },
+    {
+      "id": "last-chapter",
+      "name": "Last Chapter",
+      "detail": "Finish the final story chapter and keep watching until the credits end.",
+      "hidden": true
+    }
+  ]
+}

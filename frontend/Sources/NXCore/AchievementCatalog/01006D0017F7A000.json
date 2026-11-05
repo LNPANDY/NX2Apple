@@ -1,0 +1,84 @@
+{
+  "titleID": "01006D0017F7A000",
+  "name": "Mario & Luigi: Brothership",
+  "achievements": [
+    {
+      "id": "cannon-launch",
+      "name": "Cannon Launch",
+      "detail": "Spot an island with the spyglass, then fire Mario and Luigi onto it from Shipshape's cannon.",
+      "hidden": false
+    },
+    {
+      "id": "lighthouse-link",
+      "name": "Island Linked",
+      "detail": "Reach an island's lighthouse and reconnect that island to Shipshape.",
+      "hidden": false
+    },
+    {
+      "id": "ufo-spin",
+      "name": "UFO Spin",
+      "detail": "Unlock UFO Spin and cross a gap by spinning the brothers into a flying disc.",
+      "hidden": false
+    },
+    {
+      "id": "bro-ball",
+      "name": "Bro Ball",
+      "detail": "Unlock Bro Ball and roll the brothers through a tight pipe.",
+      "hidden": false
+    },
+    {
+      "id": "fire-and-ice",
+      "name": "Fire and Ice",
+      "detail": "Learn the Bros. Move that lets the brothers wield fire and ice.",
+      "hidden": false
+    },
+    {
+      "id": "bros-attack",
+      "name": "Bros. Attack",
+      "detail": "Perform a Bros. Attack and time each brother's button press so the hit lands harder.",
+      "hidden": false
+    },
+    {
+      "id": "luigi-logic",
+      "name": "Luigi Logic",
+      "detail": "Trigger Luigi Logic and let Luigi clear an obstacle on his own.",
+      "hidden": false
+    },
+    {
+      "id": "battle-plug",
+      "name": "Battle Plug",
+      "detail": "Equip a Battle Plug and carry its effect into a fight.",
+      "hidden": false
+    },
+    {
+      "id": "side-quest",
+      "name": "Side Quest",
+      "detail": "Complete a side quest for someone living in Concordia.",
+      "hidden": false
+    },
+    {
+      "id": "great-lighthouse",
+      "name": "Great Lighthouse",
+      "detail": "Reach a sea's Great Lighthouse and reveal more islands to visit.",
+      "hidden": false
+    },
+    {
+      "id": "uni-tree",
+      "name": "New Uni-Tree",
+      "detail": "Help Connie grow the new Uni-Tree by linking islands back to Shipshape.",
+      "hidden": false
+    },
+    {
+      "id": "bowser-bout",
+      "name": "Bowser Bout",
+      "detail": "Win a battle against Bowser after he turns up in Concordia.",
+      "hidden": false
+    },
+    {
+      "id": "concordia-whole",
+      "name": "Concordia Whole",
+      "detail": "Finish the voyage and see Concordia's scattered islands brought back together.",
+      "hidden": true
+    }
+  ]
+}

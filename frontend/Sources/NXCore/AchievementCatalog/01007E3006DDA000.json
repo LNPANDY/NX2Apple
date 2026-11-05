@@ -1,0 +1,78 @@
+{
+  "titleID": "01007E3006DDA000",
+  "name": "Kirby Star Allies",
+  "achievements": [
+    {
+      "id": "friend-heart",
+      "name": "Friend Heart",
+      "detail": "Throw a Friend Heart so an enemy joins Kirby in a stage.",
+      "hidden": false
+    },
+    {
+      "id": "whispy-woods",
+      "name": "Whispy Woods",
+      "detail": "Defeat Whispy Woods at the end of the World of Peace.",
+      "hidden": false
+    },
+    {
+      "id": "dedede-match",
+      "name": "Dedede Match",
+      "detail": "Defeat King Dedede and break the heart that has him attacking.",
+      "hidden": false
+    },
+    {
+      "id": "friend-star",
+      "name": "Friend Star",
+      "detail": "Join your allies into the Friend Star and fly through that part of a stage.",
+      "hidden": false
+    },
+    {
+      "id": "dream-friend",
+      "name": "Dream Friend",
+      "detail": "Call an unlocked Dream Friend from a Dream Palace and bring them into a stage.",
+      "hidden": false
+    },
+    {
+      "id": "mage-sisters",
+      "name": "Mage-Sisters",
+      "detail": "Defeat Francisca, Flamberge, and Zan Partizanne in the fortress.",
+      "hidden": false
+    },
+    {
+      "id": "fortress-shadows",
+      "name": "Fortress of Shadows",
+      "detail": "Clear the Fortress of Shadows and finish that world.",
+      "hidden": false
+    },
+    {
+      "id": "guest-star",
+      "name": "Guest Star",
+      "detail": "Finish one Guest Star route with an ally leading the party.",
+      "hidden": false
+    },
+    {
+      "id": "another-dimension",
+      "name": "Another Dimension",
+      "detail": "Clear Heroes in Another Dimension.",
+      "hidden": false
+    },
+    {
+      "id": "ultimate-choice",
+      "name": "Ultimate Choice",
+      "detail": "Clear The Ultimate Choice on any difficulty.",
+      "hidden": false
+    },
+    {
+      "id": "soul-melter",
+      "name": "Soul Melter",
+      "detail": "Clear The Ultimate Choice on the Soul Melter difficulty.",
+      "hidden": false
+    },
+    {
+      "id": "story-end",
+      "name": "Story's End",
+      "detail": "Win the last battle of Story Mode.",
+      "hidden": true
+    }
+  ]
+}

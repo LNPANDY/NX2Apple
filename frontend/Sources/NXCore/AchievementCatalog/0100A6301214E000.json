@@ -1,0 +1,90 @@
+{
+  "titleID": "0100A6301214E000",
+  "name": "Fire Emblem Engage",
+  "achievements": [
+    {
+      "id": "prologue",
+      "name": "Prologue",
+      "detail": "Finish the prologue and fight with Emblem Marth.",
+      "hidden": false
+    },
+    {
+      "id": "engage-attack",
+      "name": "Engage Attack",
+      "detail": "Engage a unit with an Emblem and use an Engage attack in battle.",
+      "hidden": false
+    },
+    {
+      "id": "twelve-rings",
+      "name": "Twelve Rings",
+      "detail": "Obtain all twelve Emblem Rings over the course of the main story.",
+      "hidden": false
+    },
+    {
+      "id": "emblem-paralogue",
+      "name": "Emblem Paralogue",
+      "detail": "Clear any one Emblem paralogue.",
+      "hidden": false
+    },
+    {
+      "id": "all-paralogues",
+      "name": "All Paralogues",
+      "detail": "Clear every paralogue that belongs to the twelve main Emblems.",
+      "hidden": false
+    },
+    {
+      "id": "master-seal",
+      "name": "Master Seal",
+      "detail": "Promote a unit to an advanced class with a Master Seal.",
+      "hidden": false
+    },
+    {
+      "id": "pact-ring",
+      "name": "Pact Ring",
+      "detail": "Give the Pact Ring to an ally.",
+      "hidden": false
+    },
+    {
+      "id": "highest-bond",
+      "name": "Highest Bond",
+      "detail": "Raise one Emblem's bond rank as high as it can go.",
+      "hidden": false
+    },
+    {
+      "id": "inherited-skill",
+      "name": "Inherited Skill",
+      "detail": "Spend SP to inherit a skill from an Emblem onto a unit.",
+      "hidden": false
+    },
+    {
+      "id": "four-nations",
+      "name": "Four Nations",
+      "detail": "Recruit allies from Firene, Brodia, Elusia, and Solm.",
+      "hidden": false
+    },
+    {
+      "id": "somniel-arena",
+      "name": "Somniel Arena",
+      "detail": "Win a battle in the arena on the Somniel.",
+      "hidden": false
+    },
+    {
+      "id": "main-campaign",
+      "name": "Main Campaign",
+      "detail": "Clear the final chapter of the main story.",
+      "hidden": false
+    },
+    {
+      "id": "maddening-clear",
+      "name": "Maddening Clear",
+      "detail": "Finish the main story on Maddening difficulty.",
+      "hidden": false
+    },
+    {
+      "id": "fell-xenologue",
+      "name": "Fell Xenologue",
+      "detail": "Clear the separate Xenologue campaign through its last chapter.",
+      "hidden": true
+    }
+  ]
+}

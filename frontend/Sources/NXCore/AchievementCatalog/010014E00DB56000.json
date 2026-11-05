@@ -1,0 +1,84 @@
+{
+  "titleID": "010014E00DB56000",
+  "name": "Digimon Story Cyber Sleuth: Complete Edition",
+  "achievements": [
+    {
+      "id": "eden-login",
+      "name": "Logged In",
+      "detail": "Finish character creation and step into EDEN for the first time.",
+      "hidden": false
+    },
+    {
+      "id": "digiconvert",
+      "name": "DigiConvert",
+      "detail": "Raise a wild Digimon's scan rate to 100% and DigiConvert it in the DigiBank.",
+      "hidden": false
+    },
+    {
+      "id": "champion-form",
+      "name": "Champion Form",
+      "detail": "Digivolve one of your Digimon to the Champion stage.",
+      "hidden": false
+    },
+    {
+      "id": "ultimate-form",
+      "name": "Ultimate Form",
+      "detail": "Digivolve one of your Digimon to the Ultimate stage.",
+      "hidden": false
+    },
+    {
+      "id": "mega-form",
+      "name": "Mega Form",
+      "detail": "Digivolve one of your Digimon to the Mega stage.",
+      "hidden": false
+    },
+    {
+      "id": "ultra-form",
+      "name": "Ultra Form",
+      "detail": "Digivolve one of your Digimon to the Ultra stage.",
+      "hidden": false
+    },
+    {
+      "id": "digifarm-duty",
+      "name": "Farm Duty",
+      "detail": "Place a Digimon on a DigiFarm island and start it training.",
+      "hidden": false
+    },
+    {
+      "id": "bronze-cup",
+      "name": "Bronze Cup",
+      "detail": "Win the Bronze Cup in the Offline Colosseum.",
+      "hidden": false
+    },
+    {
+      "id": "royal-knight",
+      "name": "Royal Knight",
+      "detail": "Defeat one of the Royal Knights in battle.",
+      "hidden": false
+    },
+    {
+      "id": "max-level",
+      "name": "Max Level",
+      "detail": "Raise any Digimon to level 99.",
+      "hidden": false
+    },
+    {
+      "id": "sleuth-ending",
+      "name": "Sleuth Ending",
+      "detail": "Clear the final chapter of the Cyber Sleuth story.",
+      "hidden": false
+    },
+    {
+      "id": "memory-ending",
+      "name": "Memory Ending",
+      "detail": "Clear the final chapter of Hacker's Memory.",
+      "hidden": false
+    },
+    {
+      "id": "full-field-guide",
+      "name": "Full Field Guide",
+      "detail": "Register every Digimon in the Field Guide.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "01002E7016C46000",
+  "name": "Cult of the Lamb",
+  "achievements": [
+    {
+      "id": "first-follower",
+      "name": "First Follower",
+      "detail": "Indoctrinate a rescued follower and give them a home in the cult.",
+      "hidden": false
+    },
+    {
+      "id": "first-sermon",
+      "name": "First Sermon",
+      "detail": "Preach at the temple and gather devotion from the flock.",
+      "hidden": false
+    },
+    {
+      "id": "temple-ritual",
+      "name": "Temple Ritual",
+      "detail": "Perform a ritual at the temple to shape life in the cult.",
+      "hidden": false
+    },
+    {
+      "id": "cooked-meal",
+      "name": "Cooked Meal",
+      "detail": "Cook a meal at the fire so a hungry follower can eat.",
+      "hidden": false
+    },
+    {
+      "id": "first-harvest",
+      "name": "First Harvest",
+      "detail": "Plant a crop on the cult farm and harvest it when it is ready.",
+      "hidden": false
+    },
+    {
+      "id": "tarot-card",
+      "name": "Tarot Card",
+      "detail": "Find a tarot card during a crusade and add it to your deck.",
+      "hidden": false
+    },
+    {
+      "id": "doctrine-set",
+      "name": "Doctrine Set",
+      "detail": "Choose a doctrine and make that belief part of the cult.",
+      "hidden": false
+    },
+    {
+      "id": "darkwood-bishop",
+      "name": "Darkwood Bishop",
+      "detail": "Defeat Leshy and finish the crusade through Darkwood.",
+      "hidden": false
+    },
+    {
+      "id": "anura-bishop",
+      "name": "Anura Bishop",
+      "detail": "Defeat Heket and finish the crusade through Anura.",
+      "hidden": false
+    },
+    {
+      "id": "anchordeep-bishop",
+      "name": "Anchordeep Bishop",
+      "detail": "Defeat Kallamar and finish the crusade through Anchordeep.",
+      "hidden": false
+    },
+    {
+      "id": "silk-cradle-bishop",
+      "name": "Silk Cradle Bishop",
+      "detail": "Defeat Shamura and finish the crusade through Silk Cradle.",
+      "hidden": false
+    },
+    {
+      "id": "final-crusade",
+      "name": "Final Crusade",
+      "detail": "Win the crusade's final battle and return to the cult.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "040074A01BF12000",
+  "name": "Donkey Kong Bananza",
+  "achievements": [
+    {
+      "id": "meet-pauline",
+      "name": "Meet Pauline",
+      "detail": "After the fall from Ingot Isle, find Pauline and head deeper underground with her.",
+      "hidden": false
+    },
+    {
+      "id": "smash-a-path",
+      "name": "Smash a Path",
+      "detail": "Smash through a wall or floor to carve a path that was not there before.",
+      "hidden": false
+    },
+    {
+      "id": "banandium-gem",
+      "name": "Banandium Gem",
+      "detail": "Pick up a Banandium Gem, one of the golden bananas hidden in a layer.",
+      "hidden": false
+    },
+    {
+      "id": "skill-point",
+      "name": "Skill Point",
+      "detail": "Spend a Skill Point earned from Banandium Gems on a new skill.",
+      "hidden": false
+    },
+    {
+      "id": "kong-bananza",
+      "name": "Kong Bananza",
+      "detail": "Transform into Kong Bananza and break terrain that normal punches leave standing.",
+      "hidden": false
+    },
+    {
+      "id": "zebra-bananza",
+      "name": "Zebra Bananza",
+      "detail": "Use Zebra Bananza to sprint across water or a path that is crumbling away.",
+      "hidden": false
+    },
+    {
+      "id": "ostrich-bananza",
+      "name": "Ostrich Bananza",
+      "detail": "Fly as Ostrich Bananza and drop an egg bomb on an enemy below.",
+      "hidden": false
+    },
+    {
+      "id": "elephant-bananza",
+      "name": "Elephant Bananza",
+      "detail": "Use Elephant Bananza to inhale terrain and throw it.",
+      "hidden": false
+    },
+    {
+      "id": "fossil-outfit",
+      "name": "Fossil Outfit",
+      "detail": "Trade fossils for a piece of clothing for Donkey Kong or Pauline.",
+      "hidden": false
+    },
+    {
+      "id": "ruins-challenge",
+      "name": "Ruins Challenge",
+      "detail": "Clear a challenge in the ancient ruins and collect the Banandium Gem waiting there.",
+      "hidden": false
+    },
+    {
+      "id": "voidco-route",
+      "name": "VoidCo Route",
+      "detail": "Defeat a Void Company enemy that is blocking the way into a lower layer.",
+      "hidden": false
+    },
+    {
+      "id": "planet-core",
+      "name": "Planet Core",
+      "detail": "Travel down through the underground layers and reach the Planet Core.",
+      "hidden": true
+    }
+  ]
+}

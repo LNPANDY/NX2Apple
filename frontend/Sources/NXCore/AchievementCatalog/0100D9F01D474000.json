@@ -1,0 +1,78 @@
+{
+  "titleID": "0100D9F01D474000",
+  "name": "Rhythm Heaven Groove",
+  "achievements": [
+    {
+      "id": "hoop-trundling",
+      "name": "Hoop Trundling",
+      "detail": "Clear Hoop Trundling by jumping the hoops in time with the call.",
+      "hidden": false
+    },
+    {
+      "id": "good-rank",
+      "name": "Good Enough",
+      "detail": "Finish a rhythm game with a Good rank so the next game in that set opens.",
+      "hidden": false
+    },
+    {
+      "id": "amazing-medal",
+      "name": "Amazing",
+      "detail": "Score an Amazing on a rhythm game and collect the medal that rank awards.",
+      "hidden": false
+    },
+    {
+      "id": "remix-clear",
+      "name": "First Remix",
+      "detail": "Clear the remix that folds one set's four rhythm games into a single song.",
+      "hidden": false
+    },
+    {
+      "id": "full-set",
+      "name": "Set Complete",
+      "detail": "Clear the four rhythm games in a set and then clear that set's remix.",
+      "hidden": false
+    },
+    {
+      "id": "perfect-run",
+      "name": "Perfect",
+      "detail": "Take a Perfect attempt and finish that rhythm game without missing a cue.",
+      "hidden": false
+    },
+    {
+      "id": "amazing-remix",
+      "name": "Remix Medal",
+      "detail": "Score an Amazing on a remix and take the medal for that stage.",
+      "hidden": false
+    },
+    {
+      "id": "multiplayer-ring",
+      "name": "Group Beat",
+      "detail": "Earn an Amazing on a multiplayer rhythm game and receive the ring it pays.",
+      "hidden": false
+    },
+    {
+      "id": "ten-games",
+      "name": "Ten Games",
+      "detail": "Clear ten different rhythm games on the solo list.",
+      "hidden": false
+    },
+    {
+      "id": "all-games",
+      "name": "Full List",
+      "detail": "Clear every rhythm game on the solo list.",
+      "hidden": false
+    },
+    {
+      "id": "closing-remixes",
+      "name": "Closing Remixes",
+      "detail": "Clear the final set, the run of remixes built from games you already played.",
+      "hidden": false
+    },
+    {
+      "id": "night-mode",
+      "name": "Night Mode",
+      "detail": "After a Perfect on one rhythm game, clear three more Perfects in a row on it so the visuals can be turned off.",
+      "hidden": true
+    }
+  ]
+}

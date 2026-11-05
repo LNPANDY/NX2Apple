@@ -1,0 +1,90 @@
+{
+  "titleID": "01007EF00011E000",
+  "name": "The Legend of Zelda: Breath of the Wild",
+  "achievements": [
+    {
+      "id": "leave-the-plateau",
+      "name": "Off the Plateau",
+      "detail": "Claim the paraglider and glide off the Great Plateau into wider Hyrule.",
+      "hidden": false
+    },
+    {
+      "id": "sheikah-tower",
+      "name": "Tower Activated",
+      "detail": "Climb a Sheikah Tower and add its region to the map.",
+      "hidden": false
+    },
+    {
+      "id": "shrine-clear",
+      "name": "Shrine Clear",
+      "detail": "Finish a shrine and take the Spirit Orb at the end.",
+      "hidden": false
+    },
+    {
+      "id": "the-master-sword",
+      "name": "Master Sword",
+      "detail": "Pull the Master Sword from its pedestal in Korok Forest.",
+      "hidden": false
+    },
+    {
+      "id": "divine-beast",
+      "name": "Divine Beast",
+      "detail": "Free one Divine Beast by clearing its interior and the blight inside.",
+      "hidden": false
+    },
+    {
+      "id": "four-beasts",
+      "name": "Four Beasts",
+      "detail": "Free Vah Ruta, Vah Rudania, Vah Medoh, and Vah Naboris.",
+      "hidden": false
+    },
+    {
+      "id": "great-fairy",
+      "name": "Fairy Upgrade",
+      "detail": "Have a Great Fairy upgrade a piece of armor.",
+      "hidden": false
+    },
+    {
+      "id": "stable-horse",
+      "name": "Registered Horse",
+      "detail": "Tame a wild horse and register it at a stable.",
+      "hidden": false
+    },
+    {
+      "id": "korok-seed",
+      "name": "Korok Seed",
+      "detail": "Find a Korok and take the seed it was hiding.",
+      "hidden": false
+    },
+    {
+      "id": "captured-memory",
+      "name": "Captured Memory",
+      "detail": "Go to one pictured place and recover the memory waiting there.",
+      "hidden": false
+    },
+    {
+      "id": "tarrey-town",
+      "name": "Tarrey Town",
+      "detail": "Finish From the Ground Up so Tarrey Town stands complete.",
+      "hidden": false
+    },
+    {
+      "id": "hylian-shield",
+      "name": "Hylian Shield",
+      "detail": "Defeat the Stalnox under Hyrule Castle and take the Hylian Shield.",
+      "hidden": false
+    },
+    {
+      "id": "defeat-ganon",
+      "name": "Calamity Ganon",
+      "detail": "Win the final battle against Calamity Ganon.",
+      "hidden": false
+    },
+    {
+      "id": "remembered-ending",
+      "name": "Remembered Ending",
+      "detail": "Finish the game after every captured memory has been restored.",
+      "hidden": true
+    }
+  ]
+}

@@ -1,0 +1,78 @@
+{
+  "titleID": "01005270232F2000",
+  "name": "OCTOPATH TRAVELER 0",
+  "achievements": [
+    {
+      "id": "your-own-hero",
+      "name": "Your Own Hero",
+      "detail": "Create the protagonist, setting an appearance, a voice, and a favorite dish.",
+      "hidden": false
+    },
+    {
+      "id": "chosen-job",
+      "name": "Chosen Job",
+      "detail": "Pick one of the eight jobs and fight with that job's weapons and skills.",
+      "hidden": false
+    },
+    {
+      "id": "break-and-boost",
+      "name": "Break and Boost",
+      "detail": "Break a foe by clearing every shield point, then spend Boost Points on the follow-up.",
+      "hidden": false
+    },
+    {
+      "id": "eight-together",
+      "name": "Eight Together",
+      "detail": "Win a battle with all eight party members, front row and back row.",
+      "hidden": false
+    },
+    {
+      "id": "ultimate-technique",
+      "name": "Ultimate Technique",
+      "detail": "Fill the Ultimate gauge to its highest level and unleash that technique.",
+      "hidden": false
+    },
+    {
+      "id": "path-action",
+      "name": "Path Action",
+      "detail": "Succeed at a Path Action that depends on wealth, power, or fame.",
+      "hidden": false
+    },
+    {
+      "id": "traveler-recruited",
+      "name": "Traveler Recruited",
+      "detail": "Recruit a companion and add that traveler to the party.",
+      "hidden": false
+    },
+    {
+      "id": "wishvale-rebuilt",
+      "name": "Wishvale Rebuilt",
+      "detail": "Rebuild Wishvale with a hub for cooking, a field or ranch, a shop, and a training ground.",
+      "hidden": false
+    },
+    {
+      "id": "shared-skill",
+      "name": "Shared Skill",
+      "detail": "Master an Action Skill at the training ground and equip it on another companion.",
+      "hidden": false
+    },
+    {
+      "id": "amity-raised",
+      "name": "Amity Raised",
+      "detail": "Raise a companion's Amity in Wishvale until the closer bond pays off.",
+      "hidden": false
+    },
+    {
+      "id": "set-sail",
+      "name": "Set Sail",
+      "detail": "Board a ship and land on an island in the Middlesea or the Outersea.",
+      "hidden": false
+    },
+    {
+      "id": "paths-end",
+      "name": "Path's End",
+      "detail": "Follow the road of revenge or of restoration through the story's last chapter.",
+      "hidden": true
+    }
+  ]
+}

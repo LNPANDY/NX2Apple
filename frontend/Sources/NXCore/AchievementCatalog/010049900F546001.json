@@ -1,0 +1,78 @@
+{
+  "titleID": "010049900F546001",
+  "name": "Super Mario 3D All-Stars: Super Mario 64",
+  "achievements": [
+    {
+      "id": "first-power-star",
+      "name": "First Power Star",
+      "detail": "Collect a Power Star in Bob-omb Battlefield and carry it back to Peach's castle.",
+      "hidden": false
+    },
+    {
+      "id": "wing-cap",
+      "name": "Wing Cap",
+      "detail": "Press the red cap switch in the tower outside the castle to unlock the Wing Cap.",
+      "hidden": false
+    },
+    {
+      "id": "big-boos-haunt",
+      "name": "Big Boo's Haunt",
+      "detail": "Catch the Boos on the castle balcony until the way into Big Boo's Haunt opens.",
+      "hidden": false
+    },
+    {
+      "id": "dark-world-key",
+      "name": "Dark World Key",
+      "detail": "Defeat Bowser in the Dark World and use his key to unlock the basement.",
+      "hidden": false
+    },
+    {
+      "id": "metal-cap",
+      "name": "Metal Cap",
+      "detail": "Press the green cap switch in Hazy Maze Cave to unlock the Metal Cap.",
+      "hidden": false
+    },
+    {
+      "id": "hundred-coin-star",
+      "name": "Hundred-Coin Star",
+      "detail": "Gather 100 coins in one course and take the Power Star that shows up.",
+      "hidden": false
+    },
+    {
+      "id": "timed-slide",
+      "name": "Timed Slide",
+      "detail": "Finish the Princess's Secret Slide in under 21 seconds for its second Power Star.",
+      "hidden": false
+    },
+    {
+      "id": "fire-sea-key",
+      "name": "Fire Sea Key",
+      "detail": "Defeat Bowser in the Fire Sea and use his key to open the upper floors.",
+      "hidden": false
+    },
+    {
+      "id": "fifty-star-door",
+      "name": "Fifty-Star Door",
+      "detail": "Gather 50 Power Stars and open the door to Tick Tock Clock and Rainbow Ride.",
+      "hidden": false
+    },
+    {
+      "id": "endless-stairs",
+      "name": "Endless Stairs",
+      "detail": "Collect 70 Power Stars so the endless stairs finally reach a top.",
+      "hidden": false
+    },
+    {
+      "id": "rescue-peach",
+      "name": "Rescue Peach",
+      "detail": "Defeat Bowser in the Sky and rescue Princess Peach.",
+      "hidden": false
+    },
+    {
+      "id": "castle-roof",
+      "name": "Castle Roof",
+      "detail": "With all 120 Power Stars, launch from the lakeside cannon and talk to Yoshi on the roof.",
+      "hidden": true
+    }
+  ]
+}

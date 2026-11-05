@@ -1,0 +1,84 @@
+{
+  "titleID": "01004AB00A260000",
+  "name": "DARK SOULS: REMASTERED",
+  "achievements": [
+    {
+      "id": "enkindle",
+      "name": "Enkindle",
+      "detail": "Rest at a bonfire for the first time so its flame stays lit.",
+      "hidden": false
+    },
+    {
+      "id": "estus-flask",
+      "name": "Estus Flask",
+      "detail": "Receive the Estus Flask and fill it at a bonfire.",
+      "hidden": false
+    },
+    {
+      "id": "reach-lordran",
+      "name": "Reach Lordran",
+      "detail": "Leave the Undead Asylum with the crow and arrive in Lordran.",
+      "hidden": false
+    },
+    {
+      "id": "upper-bell",
+      "name": "Upper Bell",
+      "detail": "Ring the Bell of Awakening in the Undead Church.",
+      "hidden": false
+    },
+    {
+      "id": "lower-bell",
+      "name": "Lower Bell",
+      "detail": "Ring the Bell of Awakening in Quelaag's Domain.",
+      "hidden": false
+    },
+    {
+      "id": "abysswalking",
+      "name": "Abysswalking",
+      "detail": "Defeat Great Grey Wolf Sif and take the ring that opens the Abyss.",
+      "hidden": false
+    },
+    {
+      "id": "anor-londo",
+      "name": "Anor Londo",
+      "detail": "Pass through Sen's Fortress and arrive in Anor Londo.",
+      "hidden": false
+    },
+    {
+      "id": "lordvessel",
+      "name": "Lordvessel",
+      "detail": "Defeat Ornstein and Smough, then claim the Lordvessel.",
+      "hidden": false
+    },
+    {
+      "id": "gravelord-nito",
+      "name": "Gravelord Nito",
+      "detail": "Defeat Gravelord Nito in the Tomb of the Giants.",
+      "hidden": false
+    },
+    {
+      "id": "bed-of-chaos",
+      "name": "Bed of Chaos",
+      "detail": "Defeat the Bed of Chaos in Lost Izalith.",
+      "hidden": false
+    },
+    {
+      "id": "four-kings",
+      "name": "Four Kings",
+      "detail": "Defeat the Four Kings in the Abyss beneath New Londo.",
+      "hidden": false
+    },
+    {
+      "id": "seath",
+      "name": "Seath",
+      "detail": "Break the crystal that keeps Seath immortal, then defeat him in the Archives.",
+      "hidden": false
+    },
+    {
+      "id": "link-the-fire",
+      "name": "To Link the Fire",
+      "detail": "Win the last battle in the kiln and finish the journey.",
+      "hidden": true
+    }
+  ]
+}

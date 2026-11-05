@@ -1,0 +1,84 @@
+{
+  "titleID": "0400A3A01EE4C000",
+  "name": "Pokémon Pokopia",
+  "achievements": [
+    {
+      "id": "human-form",
+      "name": "Human Form",
+      "detail": "Begin in Pokopia as a Ditto that has taken a human-like form.",
+      "hidden": false
+    },
+    {
+      "id": "first-craft",
+      "name": "First Craft",
+      "detail": "Gather materials and craft a piece of furniture.",
+      "hidden": false
+    },
+    {
+      "id": "learned-move",
+      "name": "Learned Move",
+      "detail": "Learn a move from a Pokémon you meet and use it to grow plants, break a wall, or cross the land.",
+      "hidden": false
+    },
+    {
+      "id": "home-cooking",
+      "name": "Home Cooking",
+      "detail": "Till a field, grow a crop, and cook it into a meal.",
+      "hidden": false
+    },
+    {
+      "id": "new-habitat",
+      "name": "New Habitat",
+      "detail": "Build a habitat so a Pokémon you met has a home.",
+      "hidden": false
+    },
+    {
+      "id": "neighbor-favor",
+      "name": "Neighbor's Favor",
+      "detail": "Finish a request from a Pokémon neighbor.",
+      "hidden": false
+    },
+    {
+      "id": "own-home",
+      "name": "Own Home",
+      "detail": "Build a house of your own and invite a Pokémon to visit it.",
+      "hidden": false
+    },
+    {
+      "id": "days-end",
+      "name": "Day's End",
+      "detail": "Sleep in your bed and let the day pass.",
+      "hidden": false
+    },
+    {
+      "id": "photo-op",
+      "name": "Photo Op",
+      "detail": "Take a photo of your town or of a Pokémon living there.",
+      "hidden": false
+    },
+    {
+      "id": "new-look",
+      "name": "New Look",
+      "detail": "Change your hairstyle or your clothes.",
+      "hidden": false
+    },
+    {
+      "id": "friend-visit",
+      "name": "Friend Visit",
+      "detail": "Invite another player to visit your world.",
+      "hidden": false
+    },
+    {
+      "id": "stamp-rally",
+      "name": "Stamp Rally",
+      "detail": "Collect stamps at a Pokémon Center PC and exchange them for Life Coins.",
+      "hidden": false
+    },
+    {
+      "id": "legendary-guest",
+      "name": "Legendary Guest",
+      "detail": "Encounter a Legendary Pokémon.",
+      "hidden": true
+    }
+  ]
+}

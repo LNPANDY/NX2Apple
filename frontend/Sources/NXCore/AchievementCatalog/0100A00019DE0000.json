@@ -1,0 +1,78 @@
+{
+  "titleID": "0100A00019DE0000",
+  "name": "Hades II",
+  "achievements": [
+    {
+      "id": "through-erebus",
+      "name": "Through Erebus",
+      "detail": "Clear Erebus and defeat Hecate at the end of that region.",
+      "hidden": false
+    },
+    {
+      "id": "sirens-below",
+      "name": "Sirens Below",
+      "detail": "Clear Oceanus and defeat Scylla and the Sirens.",
+      "hidden": false
+    },
+    {
+      "id": "mourning-fields",
+      "name": "Mourning Fields",
+      "detail": "Cross the Fields of Mourning and defeat Cerberus.",
+      "hidden": false
+    },
+    {
+      "id": "chronos-falls",
+      "name": "Chronos Falls",
+      "detail": "Reach the end of Tartarus and defeat Chronos.",
+      "hidden": false
+    },
+    {
+      "id": "city-of-ephyra",
+      "name": "City of Ephyra",
+      "detail": "Take the surface route and defeat Polyphemus in the City of Ephyra.",
+      "hidden": false
+    },
+    {
+      "id": "the-summit",
+      "name": "The Summit",
+      "detail": "Finish the surface climb and defeat Typhon at the Summit.",
+      "hidden": false
+    },
+    {
+      "id": "nocturnal-arms",
+      "name": "Nocturnal Arms",
+      "detail": "Unlock all six Nocturnal Arms at the Silver Pool.",
+      "hidden": false
+    },
+    {
+      "id": "arcana-spread",
+      "name": "Arcana Spread",
+      "detail": "Unlock Arcana cards and equip some at the Altar of Ashes before a night.",
+      "hidden": false
+    },
+    {
+      "id": "cauldron-cast",
+      "name": "Cauldron Cast",
+      "detail": "Cast an incantation at the cauldron in the Crossroads.",
+      "hidden": false
+    },
+    {
+      "id": "familiar-found",
+      "name": "Familiar Found",
+      "detail": "Befriend an animal familiar and take that companion on a night.",
+      "hidden": false
+    },
+    {
+      "id": "keepsake-earned",
+      "name": "Keepsake Earned",
+      "detail": "Give Nectar to an ally until you receive that character's Keepsake.",
+      "hidden": false
+    },
+    {
+      "id": "quests-end",
+      "name": "Quest's End",
+      "detail": "See Melinoë's quest through to the credits.",
+      "hidden": true
+    }
+  ]
+}

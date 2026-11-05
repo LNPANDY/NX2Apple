@@ -1,0 +1,78 @@
+{
+  "titleID": "01007300020FA000",
+  "name": "ASTRAL CHAIN",
+  "achievements": [
+    {
+      "id": "file-01",
+      "name": "File 01",
+      "detail": "Clear the first story file and return to Neuron headquarters.",
+      "hidden": false
+    },
+    {
+      "id": "sword-legion",
+      "name": "Sword Legion",
+      "detail": "Bind the Sword Legion and fight a case with it.",
+      "hidden": false
+    },
+    {
+      "id": "arrow-legion",
+      "name": "Arrow Legion",
+      "detail": "Unlock the Arrow Legion and bring it into a fight.",
+      "hidden": false
+    },
+    {
+      "id": "beast-legion",
+      "name": "Beast Legion",
+      "detail": "Unlock the Beast Legion and bring it into a fight.",
+      "hidden": false
+    },
+    {
+      "id": "arm-legion",
+      "name": "Arm Legion",
+      "detail": "Unlock the Arm Legion and bring it into a fight.",
+      "hidden": false
+    },
+    {
+      "id": "sync-attack",
+      "name": "Sync Attack",
+      "detail": "Finish a combo with a Sync Attack from your Legion.",
+      "hidden": false
+    },
+    {
+      "id": "chain-bind",
+      "name": "Chain Bind",
+      "detail": "Wrap an enemy in the chain so your Legion binds them.",
+      "hidden": false
+    },
+    {
+      "id": "perfect-call",
+      "name": "Perfect Call",
+      "detail": "Unlock Perfect Call on a Legion, then trigger it by calling that Legion just before an attack lands.",
+      "hidden": false
+    },
+    {
+      "id": "s-rank",
+      "name": "S Rank",
+      "detail": "Earn an S rank or higher on a combat case played at Pt Standard or above.",
+      "hidden": false
+    },
+    {
+      "id": "legion-skill",
+      "name": "Legion Skill",
+      "detail": "Learn a skill in a Legion's learning tree and use that skill in battle.",
+      "hidden": false
+    },
+    {
+      "id": "investigation",
+      "name": "Investigation",
+      "detail": "Finish an optional investigation while you are out in the city.",
+      "hidden": false
+    },
+    {
+      "id": "last-file",
+      "name": "Last File",
+      "detail": "Clear the final story file.",
+      "hidden": true
+    }
+  ]
+}

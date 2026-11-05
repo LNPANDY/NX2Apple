@@ -1,0 +1,84 @@
+{
+  "titleID": "010014C011146000",
+  "name": "Subnautica: Below Zero",
+  "achievements": [
+    {
+      "id": "on-the-ice",
+      "name": "On the Ice",
+      "detail": "Finish the opening drop and walk out onto the ice at the landing site.",
+      "hidden": false
+    },
+    {
+      "id": "first-habitat",
+      "name": "First Habitat",
+      "detail": "Build a powered seabase and go inside through its hatch.",
+      "hidden": false
+    },
+    {
+      "id": "seatruck",
+      "name": "Seatruck",
+      "detail": "Fabricate a Seatruck and pilot it under the water.",
+      "hidden": false
+    },
+    {
+      "id": "snowfox",
+      "name": "Snowfox",
+      "detail": "Craft a Snowfox and ride it across the glacier.",
+      "hidden": false
+    },
+    {
+      "id": "prawn-suit",
+      "name": "Prawn Suit",
+      "detail": "Construct a Prawn Suit and walk it along the seafloor.",
+      "hidden": false
+    },
+    {
+      "id": "spy-pengling",
+      "name": "Spy Pengling",
+      "detail": "Control a Spy Pengling with its remote.",
+      "hidden": false
+    },
+    {
+      "id": "marguerit",
+      "name": "Marguerit",
+      "detail": "Find Marguerit Maida in Sector Zero and speak with her.",
+      "hidden": false
+    },
+    {
+      "id": "mercury-ii",
+      "name": "Mercury II",
+      "detail": "Board one of the wrecked sections of the Mercury II.",
+      "hidden": false
+    },
+    {
+      "id": "tower-down",
+      "name": "Tower Down",
+      "detail": "Shut off the satellite tower with a test override module.",
+      "hidden": false
+    },
+    {
+      "id": "phi-robotics",
+      "name": "Phi Robotics",
+      "detail": "Reach the Phi Robotics center in the glacial basin.",
+      "hidden": false
+    },
+    {
+      "id": "alan-body",
+      "name": "Al-An's Body",
+      "detail": "Recover the architect parts and fabricate a body for Al-An.",
+      "hidden": false
+    },
+    {
+      "id": "frozen-leviathan",
+      "name": "Frozen Leviathan",
+      "detail": "Apply the antidote to the frozen leviathan at the dig site.",
+      "hidden": false
+    },
+    {
+      "id": "phase-gate",
+      "name": "Phase Gate",
+      "detail": "Leave Sector Zero with Al-An after his new body is ready.",
+      "hidden": true
+    }
+  ]
+}

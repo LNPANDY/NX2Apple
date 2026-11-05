@@ -7,6 +7,15 @@
       "chinese"
     ]
   },
+  "achievements.empty": "这个游戏的列表里还没有目标。",
+  "achievements.hidden": "隐藏",
+  "achievements.locked": "尚未完成",
+  "achievements.menu": "成就…",
+  "achievements.note": "这些是游戏里的目标。完成后点一下记下。不会从游戏里读取任何内容。",
+  "achievements.progress": "%d / %d",
+  "achievements.reset": "全部清除",
+  "achievements.title": "成就",
+  "achievements.unlocked": "已完成",
   "activity.ios": "正在构建 iPhone 版",
   "activity.mac": "正在构建 Mac 版",
   "activity.transfer": "正在传输游戏文件到 iPhone",

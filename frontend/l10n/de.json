@@ -8,6 +8,15 @@
       "deutsch"
     ]
   },
+  "achievements.empty": "Für dieses Spiel sind noch keine Ziele in der Liste.",
+  "achievements.hidden": "Verborgen",
+  "achievements.locked": "Noch nicht",
+  "achievements.menu": "Erfolge…",
+  "achievements.note": "Das sind Ziele aus dem Spiel. Markiere eines, wenn du es geschafft hast. Aus dem Spiel selbst wird nichts gelesen.",
+  "achievements.progress": "%d von %d",
+  "achievements.reset": "Alle löschen",
+  "achievements.title": "Erfolge",
+  "achievements.unlocked": "Geschafft",
   "activity.ios": "iPhone-Build läuft",
   "activity.mac": "Mac-Build läuft",
   "activity.transfer": "Spieldaten werden zum iPhone übertragen",

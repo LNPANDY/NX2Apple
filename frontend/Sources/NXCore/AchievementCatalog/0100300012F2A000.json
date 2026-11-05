@@ -1,0 +1,84 @@
+{
+  "titleID": "0100300012F2A000",
+  "name": "Advance Wars 1+2: Re-Boot Camp",
+  "achievements": [
+    {
+      "id": "troop-orders",
+      "name": "Troop Orders",
+      "detail": "Clear the opening Field Training mission by moving your units and giving them orders.",
+      "hidden": false
+    },
+    {
+      "id": "capture-hq",
+      "name": "Headquarters",
+      "detail": "Capture an enemy headquarters with a foot soldier and win the battle that way.",
+      "hidden": false
+    },
+    {
+      "id": "co-power",
+      "name": "CO Power",
+      "detail": "Fill a commanding officer's meter and activate that CO Power in a battle.",
+      "hidden": false
+    },
+    {
+      "id": "super-power",
+      "name": "Super CO Power",
+      "detail": "In the second campaign, charge the longer meter and unleash a Super CO Power.",
+      "hidden": false
+    },
+    {
+      "id": "s-rank",
+      "name": "S Rank",
+      "detail": "Finish a mission with Speed, Power, and Technique high enough to earn an S rank.",
+      "hidden": false
+    },
+    {
+      "id": "classic-clear",
+      "name": "Classic Clear",
+      "detail": "Win a campaign mission on Classic difficulty.",
+      "hidden": false
+    },
+    {
+      "id": "first-campaign",
+      "name": "First Campaign",
+      "detail": "Clear every story mission in the Advance Wars campaign.",
+      "hidden": false
+    },
+    {
+      "id": "second-campaign",
+      "name": "Second Campaign",
+      "detail": "Clear every story mission in the Advance Wars 2 campaign.",
+      "hidden": false
+    },
+    {
+      "id": "war-room",
+      "name": "War Room",
+      "detail": "Win a War Room battle and take the score that mode awards at the end.",
+      "hidden": false
+    },
+    {
+      "id": "versus-win",
+      "name": "Versus Win",
+      "detail": "Win a Versus battle against the computer or against someone on the same console.",
+      "hidden": false
+    },
+    {
+      "id": "design-map",
+      "name": "Design Room",
+      "detail": "Build a custom map in the Design Room and save it.",
+      "hidden": false
+    },
+    {
+      "id": "shop-unlock",
+      "name": "Hachi's Shop",
+      "detail": "Spend coins at Hachi's Shop to unlock a commanding officer, a map, or a song.",
+      "hidden": false
+    },
+    {
+      "id": "every-s",
+      "name": "Full S Rank",
+      "detail": "Earn an S rank on every story mission in both campaigns.",
+      "hidden": true
+    }
+  ]
+}

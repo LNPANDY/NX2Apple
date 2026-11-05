@@ -1,0 +1,78 @@
+{
+  "titleID": "0100000011D90000",
+  "name": "Pokémon Brilliant Diamond",
+  "achievements": [
+    {
+      "id": "first-partner",
+      "name": "First Partner",
+      "detail": "Choose Turtwig, Chimchar, or Piplup as your first partner.",
+      "hidden": false
+    },
+    {
+      "id": "first-catch",
+      "name": "First Catch",
+      "detail": "Catch a wild Pokémon so the Sinnoh Pokédex records it.",
+      "hidden": false
+    },
+    {
+      "id": "coal-badge",
+      "name": "Coal Badge",
+      "detail": "Defeat Roark in Oreburgh Gym and earn the Coal Badge.",
+      "hidden": false
+    },
+    {
+      "id": "eight-badges",
+      "name": "Eight Badges",
+      "detail": "Beat all eight Sinnoh Gym Leaders and collect every Gym Badge.",
+      "hidden": false
+    },
+    {
+      "id": "hideaway-catch",
+      "name": "Hideaway Catch",
+      "detail": "Enter the Grand Underground and catch a Pokémon in a Hideaway.",
+      "hidden": false
+    },
+    {
+      "id": "contest-show",
+      "name": "Contest Show",
+      "detail": "Win a Super Contest Show category in Hearthome City.",
+      "hidden": false
+    },
+    {
+      "id": "team-galactic",
+      "name": "Team Galactic",
+      "detail": "Defeat the Team Galactic commanders who confront you across Sinnoh.",
+      "hidden": false
+    },
+    {
+      "id": "dialga",
+      "name": "Dialga",
+      "detail": "Catch Dialga, the legendary Pokémon of this version, at Spear Pillar.",
+      "hidden": false
+    },
+    {
+      "id": "hall-of-fame",
+      "name": "Hall of Fame",
+      "detail": "Defeat the Elite Four and Champion Cynthia, then record your team in the Hall of Fame.",
+      "hidden": false
+    },
+    {
+      "id": "sinnoh-dex",
+      "name": "Sinnoh Pokédex",
+      "detail": "Encounter every Pokémon listed in the Sinnoh Pokédex.",
+      "hidden": false
+    },
+    {
+      "id": "national-dex",
+      "name": "National Pokédex",
+      "detail": "After seeing the Sinnoh Pokédex through, receive the National Pokédex from Professor Rowan.",
+      "hidden": false
+    },
+    {
+      "id": "battle-tower",
+      "name": "Battle Tower",
+      "detail": "Win 100 battles in a row in the Battle Tower.",
+      "hidden": true
+    }
+  ]
+}
