@@ -915,7 +915,6 @@
   "msg.stagingFailed": "Kunde inte skapa en länk i mellanlagringsmappen. Ligger filerna på olika diskar?",
   "msg.stopped": "Stoppad",
   "msg.toolsOld": "Byggverktygen är äldre än appen och saknar %@. Bygget startade inte. Uppdatera först under Inställningar → Byggverktyg.",
-  "msg.volumeNotAPFS": "Utdatadisken är inte formaterad som APFS (till exempel Mac OS Extended). Det här bygget fungerar, men nästa bygge i den här mappen stannar om du inte flyttar den gamla .app till papperskorgen först. En mapp på en APFS-disk undviker det.",
   "msg.workdirHint": "Tips: ”Utdatamapp” är också platsen för byggcachen (utdatamapp/<ID>_build). Välj samma plats som förra bygget för att återanvända befintliga byggresurser, så körs inte uppackning och shaders igen. En ny plats börjar från början. När utdatamappen ligger på en extern disk går den första byggnationen märkbart långsammare (värre på exFAT eller en hårddisk).",
   "nav.builds": "Byggen",
   "nav.library": "Bibliotek",

@@ -78,18 +78,6 @@ extension BuildStore {
         }
         let tidHex = buildKey
         let workDir = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + "_build"
-        // A Mac app over an old one needs a volume that can swap folders (APFS): on any other the build fails at its last step with error 45 (#595).
-        if target == BuildTarget.mac {
-            let outFolder = outDir.isEmpty ? baseDir : outDir
-            if appReplaceCheck(outFolder) == false {
-                if FileManager.default.fileExists(atPath: outFolder + "/" + tidHex + ".app") {
-                    failure = BuildFailure(kind: .volumeFormat, gameName: nil, detail: outFolder)
-                    fail(failureWhat(failure!))
-                    return
-                }
-                say(t("msg.volumeNotAPFS"))
-            }
-        }
         // The build's signing step refuses the attributes a cloud folder adds, after the long steps: stop here instead.
         if cloudFolderCheck(workDir) {
             failure = BuildFailure(kind: .cloudFolder, gameName: nil, detail: workDir)

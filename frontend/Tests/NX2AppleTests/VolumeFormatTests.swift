@@ -45,7 +45,7 @@ import NXModel
     }
 
     func testTheHintIsInAllSixLanguagesWithoutSemicolonsOrDashes() {
-        let keys = [BuildFailureKind.volumeFormat.whatKey, BuildFailureKind.volumeFormat.nextKey, "msg.volumeNotAPFS"]
+        let keys = [BuildFailureKind.volumeFormat.whatKey, BuildFailureKind.volumeFormat.nextKey]
         for key in keys {
             let row = L10n.table[key]
             XCTAssertNotNil(row, key)
@@ -70,27 +70,23 @@ import NXModel
         XCTAssertNil(OutputVolume.supportsAppReplace(at: ""))
     }
 
-    // ---- before the build
+    // ---- before the build (#742: dm/mac/pack_app.py replaces the old .app with swap_by_moves on ENOTSUP, so a non-APFS volume must not be stopped before the build)
 
-    func testASecondBuildOnADiskThatCannotSwapStopsBeforeItStarts() throws {
+    func testASecondBuildOnADiskWithoutSwapGoesAheadSoTheEngineCanReplaceByMoves() throws {
         let m = try store()
-        var asked: [String] = []
-        m.appReplaceCheck = { asked.append($0); return false }
+        m.appReplaceCheck = { _ in false }
         try FileManager.default.createDirectory(atPath: m.outDir + "/0100152000022000.app", withIntermediateDirectories: true)
         m.startBuild()
-        XCTAssertEqual(asked, [m.outDir])
-        XCTAssertFalse(m.running)
-        XCTAssertEqual(m.failure?.kind, .volumeFormat)
-        XCTAssertEqual(m.doneNote, m.t(BuildFailureKind.volumeFormat.whatKey))
-        XCTAssertFalse(m.log.text.contains(m.t("msg.volumeNotAPFS")), "the stop says it in the row, not twice")
+        XCTAssertEqual(m.failure?.kind, .cloudFolder, "the pre-build check no longer stops a non-APFS disk before pack_app.py's swap_by_moves can run")
+        XCTAssertFalse(m.log.text.contains("APFS"))
     }
 
-    func testTheFirstBuildOnSuchADiskGoesAheadAndSaysWhatComesNext() throws {
+    func testTheFirstBuildOnSuchADiskGoesAheadWithoutWarning() throws {
         let m = try store()
         m.appReplaceCheck = { _ in false }
         m.startBuild()
         XCTAssertEqual(m.failure?.kind, .cloudFolder, "it went on to the next check")
-        XCTAssertTrue(m.log.text.contains(m.t("msg.volumeNotAPFS")), "no old app is there, so the first build works and the log says what comes next")
+        XCTAssertFalse(m.log.text.contains("APFS"))
     }
 
     func testAnApfsDiskOrAnUnknownOneIsNotStopped() throws {
@@ -100,7 +96,7 @@ import NXModel
             try FileManager.default.createDirectory(atPath: m.outDir + "/0100152000022000.app", withIntermediateDirectories: true)
             m.startBuild()
             XCTAssertEqual(m.failure?.kind, .cloudFolder, "\(String(describing: answer)) went on to the next check")
-            XCTAssertFalse(m.log.text.contains(m.t("msg.volumeNotAPFS")))
+            XCTAssertFalse(m.log.text.contains("APFS"))
         }
     }
 }
