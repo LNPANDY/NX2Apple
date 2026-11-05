@@ -42,5 +42,5 @@
 0072-nsp-script-the-first-dotnet-with-an-sdk-10-goes.patch
 0073-nsp-script-hand-the-extraction-and-the-shader-sp.patch
 0074-mac-split-a-joy-con-pair-into-two-sideways-contr.patch
-0075-host-read-embedded-sections-from-the-image-that.patch
-0076-ios-shell-link-the-host-into-each-game-s-framewo.patch
+0076-host-read-embedded-sections-from-the-image-that.patch
+0077-ios-shell-link-the-host-into-each-game-s-framewo.patch
