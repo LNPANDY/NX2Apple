@@ -1844,7 +1844,7 @@ class TbdStubRepairTest(unittest.TestCase):
         self.assertTrue((self.sdk / 'libSystem.tbd').read_text().startswith('--- !tapi-tbd'))
         self.assertEqual((self.sdk / 'libz.1.tbd').read_text(), 'libz.tbd')      # dangling: left
         self.assertEqual((self.sdk / 'libreal.tbd').read_text(), self.good)     # real: untouched
-        self.assertTrue(any('repaired 1' in l for l in log))
+        self.assertTrue(any(l.startswith('repaired libSystem.tbd') for l in log), log)
 
     def test_the_call_is_idempotent(self) -> None:
         sdk_fetch.repair_tbd_stubs(self.sdk.parent.parent, lambda l: None)

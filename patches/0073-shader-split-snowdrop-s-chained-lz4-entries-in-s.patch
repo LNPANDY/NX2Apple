@@ -31,9 +31,9 @@ Issue: none yet (Starlink: Battle for Atlas bring-up)
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  dm/gfx/tests/test_sdf_lz4.py |  94 ++++++++++++++++++++++++++++
- dm/gfx/tools/shader_split.py | 118 ++++++++++++++++++++++++++++++++---
+ dm/gfx/tools/shader_split.py | 117 ++++++++++++++++++++++++++++++++---
  docs/reference/shaders.md    |   7 +++
- 3 files changed, 210 insertions(+), 9 deletions(-)
+ 3 files changed, 209 insertions(+), 9 deletions(-)
  create mode 100644 dm/gfx/tests/test_sdf_lz4.py
 
 diff --git a/dm/gfx/tests/test_sdf_lz4.py b/dm/gfx/tests/test_sdf_lz4.py
@@ -137,10 +137,10 @@ index 0000000..6d84c80
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index 6e9b256..e0f3471 100644
+index d48d083..d5ce463 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
-@@ -406,18 +406,114 @@ def snowdrop_shaders(d, label, wrapped=True):
+@@ -408,18 +408,114 @@ def snowdrop_shaders(d, label, wrapped=True):
          stored = d[h + 20:h + 20 + nstored]
          raw = zstd_mod().decompress(stored) if zstd else zlib.decompress(stored)
          if len(raw) != nraw: red(f'{label} Snowdrop record @{h:#x}: expected {nraw} raw bytes, got {len(raw)}')
@@ -263,31 +263,30 @@ index 6e9b256..e0f3471 100644
  NEEDLE = b'HNSHV002'
  def needle_shaders(d, label):
      """Needle shader containers, embedded in main and in GFD's GSC files inside CRI CPKs (Persona 5 Royal). HNSHV002 +8 is the container's whole length, big-endian. Variant and reflection
-@@ -2568,6 +2664,9 @@ def scan_file_in(args):
-     if len(args) > 2 and args[2][0] == UE_LEGACY:   # files of a legacy Unreal pak (ue_legacy_jobs)
-         ue_legacy_shaders(path, rel, args[2][1], found)
+@@ -2663,6 +2759,8 @@ def scan_file_in(args):
          return rel, uniq_keys(found), var_pairs(found), trees
+     if len(args) > 2 and args[2][0] == UE_IO:   # export bundles of an IoStore container beside such a pak (ue_legacy_jobs)
+         ue_io_shaders(path, rel, args[2][1], found)
 +    if len(args) > 2 and args[2][0] == SDF_LZ4:   # shader objects of a Snowdrop slice, by its part list (sdf_list_jobs)
 +        sdf_list_shaders(path, rel, args[2][1], found)
-+        return rel, uniq_keys(found), var_pairs(found), trees
+         return rel, uniq_keys(found), var_pairs(found), trees
      if len(args) > 2 and args[2][0] == FB_CAS:   # CompiledBytecode resources of a Frostbite cas file (frostbite_jobs)
          frostbite_shaders(path, rel, args[2][1], found)
-         return rel, uniq_keys(found), var_pairs(found), trees
-@@ -2751,7 +2850,8 @@ def main():
+@@ -2855,7 +2953,8 @@ def main():
      zp_jobs, zips = zip_jobs(files)   # Portal's game.zip (Deflate members)
      ah_jobs, arhs = arh_jobs(files)   # Monolith's ARH1/ARD archives and embedded XBC1/HCPS programs
      fb_jobs, fbs = frostbite_jobs(files)   # EA SPORTS FC 27's Frostbite bundles, Oodle Leviathan decoded by the game's own decoder in the Mac host
--    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + zp_jobs + ah_jobs + fb_jobs
+-    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + cr_jobs + zp_jobs + ah_jobs + fb_jobs
 +    sd_jobs, _ = sdf_list_jobs(files)   # Starlink's SDF slices: shader objects in chained LZ4 entries, by the part lists (the slices are still scanned loosely for BERG records too)
-+    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + zp_jobs + ah_jobs + fb_jobs + sd_jobs
-     files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts and p not in arcs and p not in pkzs and p not in cpks and p not in zips and p not in arhs and p not in fbs]
++    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + cr_jobs + zp_jobs + ah_jobs + fb_jobs + sd_jobs
+     files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts and p not in arcs and p not in pkzs and p not in cpks and p not in cras and p not in zips and p not in arhs and p not in fbs]
      with cf.ProcessPoolExecutor(J, initializer=_pool_init, initargs=(common, {}, zdicts)) as ex:
          n = len(big) + len(files)
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 83641ab..48c0743 100644
+index 90566c4..7e586b9 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
-@@ -211,6 +211,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+@@ -227,6 +227,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
  - **DLC:** additional shader records ship in the DLC's data slices. The NSP script includes each extracted DLC RomFS as an extra shader root, without an ExeFS module, and fingerprints its index and extraction timestamps for split reuse. Vulkan and OpenGL builds include the DLC roots too. When installing or removing optional DLC changes an NVN shader union, the script uses an external profile with new shader tables only after every non-DLC shader row and fact matches the registered tables; package indices may change. The registered module builds, settings and build-gated cuts are preserved. A cached proof of this comparison permits repeat builds to reuse the split.
  - **Found on:** [Mario + Rabbids Sparks of Hope](../../dm/games/0100317013770000/README.md) (zstd); [Mario + Rabbids Kingdom Battle](../../dm/games/010067300059A000/README.md) (zlib records, some wrapped in zstd chunks; shorter control sections and headerless compute code).
  
