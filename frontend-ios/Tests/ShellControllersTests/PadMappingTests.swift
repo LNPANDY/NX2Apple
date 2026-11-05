@@ -34,6 +34,13 @@ final class PadMappingTests: XCTestCase {
         mapper.reset(controller: "one")
         XCTAssertEqual(mapper.changes(controller: "one", state: PadState(x: 1)).pressed, [.right])
     }
+    func testButtonRelease() {
+        var mapper = PadMapper()
+        XCTAssertEqual(mapper.changes(controller: "one", state: PadState(buttons: [.a])).released, [])
+        XCTAssertEqual(mapper.changes(controller: "one", state: PadState(buttons: [.a])).released, [], "held is not let go")
+        XCTAssertEqual(mapper.changes(controller: "one", state: PadState()).released, [.activate], "A coming up is reported")
+        XCTAssertEqual(mapper.changes(controller: "one", state: PadState()).released, [])
+    }
     func testRepeatTiming() {
         XCTAssertEqual(RepeatTiming.moves(heldFor: 0.2), 1)
         XCTAssertEqual(RepeatTiming.moves(heldFor: 0.4), 2)

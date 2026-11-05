@@ -33,7 +33,16 @@ struct FocusAppearance: Equatable {
 private struct FocusAppearanceKey: EnvironmentKey {
     static var defaultValue: FocusAppearance { FocusAppearance() }
 }
+private struct IgnoresPressKey: EnvironmentKey {
+    static var defaultValue: () -> Bool { { false } }
+}
 extension EnvironmentValues {
+    /// True while a press is the system's echo of a controller button, not a finger (see `LibraryView.noteTouch`). A
+    /// control that moves at once on a press, before its value comes back, asks it first.
+    var shellIgnoresPress: () -> Bool {
+        get { self[IgnoresPressKey.self] }
+        set { self[IgnoresPressKey.self] = newValue }
+    }
     var shellFocus: FocusAppearance {
         get { self[FocusAppearanceKey.self] }
         set { self[FocusAppearanceKey.self] = newValue }
@@ -52,6 +61,9 @@ struct ShellFocusTarget: ViewModifier {
                 if focus.visible && focus.id == id {
                     RoundedRectangle(cornerRadius: radius + 5).strokeBorder(ShellPalette.cream, lineWidth: 3)
                         .padding(-5).allowsHitTesting(false).accessibilityHidden(true)
+                        // On and off at once: a ring fading in or out stays where it was while a panel slides, apart
+                        // from its control.
+                        .transition(.identity)
                 }
             }
             .background {
