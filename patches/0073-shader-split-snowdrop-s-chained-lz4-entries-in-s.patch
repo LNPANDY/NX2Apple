@@ -24,7 +24,7 @@ cut, so a list that does not match its slice is a [RED] line for that
 slice. Starlink v393216: 19,373 unique shaders (16,060 vertex, 2,947
 pixel, 366 compute), all translated for iOS; zero before.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1272
 Reason: Starlink: Battle for Atlas's shaders were not found (the shader split had no reader for SDF version 23's chained LZ4 entries)
 Issue: none yet (Starlink: Battle for Atlas bring-up)
 
