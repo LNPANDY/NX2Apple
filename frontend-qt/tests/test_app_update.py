@@ -235,11 +235,15 @@ class AppUpdateTests(unittest.TestCase):
 
         self.addCleanup(cleanup)
         m.app_update = app_update.Release(tag='v1.2.3', url='https://example.invalid/update.zip')
+        w._refresh_all()
+        initial_width = w.update_btn.sizeHint().width()
+
         m.app_update_busy = True
         m.app_update_progress = 0.62
         w._refresh_all()
-        self.assertIn('62%', w.update_btn.text())
-        self.assertIn('62%', w.ver_action_btn.text())
+        self.assertEqual(w.update_btn.text(), '62%')
+        self.assertEqual(w.ver_action_btn.text(), '62%')
+        self.assertEqual(w.update_btn.minimumWidth(), initial_width)
         self.assertIn('qlineargradient', w.update_btn.styleSheet())
 
         m.app_update_busy = False
@@ -247,6 +251,7 @@ class AppUpdateTests(unittest.TestCase):
         w._refresh_all()
         self.assertIn('v1.2.3', w.update_btn.text())
         self.assertEqual(w.update_btn.styleSheet(), '')
+        self.assertEqual(w.update_btn.minimumWidth(), 0)
 
 
 if __name__ == '__main__':

@@ -81,8 +81,7 @@ package struct AppCard: View {
                         .padTarget("set.appRestart", scope: "main") { if !buildRunning { updates.restartNow() } }
                 } else if let u = updates.update, updates.installability == .ok {
                     let label = updates.downloadProgress.map {
-                        let pct = Int((min(max($0, 0), 1) * 100).rounded())
-                        return String(format: loc.t("app.downloading"), pct > 0 ? "\(pct)%" : u.tag)
+                        "\(Int((min(max($0, 0), 1) * 100).rounded()))%"
                     } ?? String(format: loc.t("app.updateBtn"), u.tag)
                     Button(label) { updates.performUpdate() }.disabled(updates.busy || buildRunning)
                         .padTarget("set.appUpdate", scope: "main") { if !(updates.busy || buildRunning) { updates.performUpdate() } }

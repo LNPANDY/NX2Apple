@@ -171,9 +171,17 @@ import NXCore
             let zip = root.appendingPathComponent("update.zip")
             let result: Result<AppUpdate.Staged, AppUpdate.StageFailure>
             let downloaded = await releases.download(url, to: zip) { [weak store = self] fraction in
-                Task { @MainActor in
-                    guard let store, store.busy, store.downloadProgress != nil else { return }
-                    store.downloadProgress = min(max(fraction, 0), 1)
+                let clamped = min(max(fraction, 0), 1)
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated {
+                        guard let store, store.busy, store.downloadProgress != nil else { return }
+                        store.downloadProgress = clamped
+                    }
+                } else {
+                    Task { @MainActor in
+                        guard let store, store.busy, store.downloadProgress != nil else { return }
+                        store.downloadProgress = clamped
+                    }
                 }
             }
             if downloaded {

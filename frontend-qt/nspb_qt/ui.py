@@ -1898,26 +1898,38 @@ class MainWindow(QMainWindow):
         self.ver_status_lbl.setText(self.m.app_update_status or t('app.upToDate'))
         if self.m.app_update is not None:
             _set_dot(self.ver_dot, style.ORANGE)
+            base_label = t('app.updateBtn', self.m.app_update.tag)
             prog = self.m.app_update_progress
             if prog is not None:
+                for btn in (self.update_btn, self.ver_action_btn):
+                    if btn.minimumWidth() == 0:
+                        btn.setText(base_label)
+                        btn.setStyleSheet('')
+                        btn.setMinimumWidth(btn.sizeHint().width())
                 clamped = min(max(prog, 0.0), 1.0)
                 pct = int(round(clamped * 100))
-                btn_label = t('app.downloading', f'{pct}%' if pct > 0 else self.m.app_update.tag)
+                btn_label = f'{pct}%'
                 stop_a = min(max(clamped, 0.001), 0.998)
                 stop_b = min(stop_a + 0.001, 0.999)
-                fill_qss = (
-                    f'background: qlineargradient(x1:0, y1:0, x2:1, y2:0, '
-                    f'stop:0 rgba(235, 175, 65, 215), stop:{stop_a:.3f} rgba(235, 175, 65, 215), '
-                    f'stop:{stop_b:.3f} rgba(255, 255, 255, 26), stop:1 rgba(255, 255, 255, 26)); '
-                    f'color: #ffffff; border: 1px solid rgba(235, 175, 65, 165); border-radius: 16px; '
-                    f'padding: 6px 16px; font-weight: 700;'
+                grad = (
+                    f'qlineargradient(x1:0, y1:0, x2:1, y2:0, '
+                    f'stop:0 {style.AMBER}, stop:{stop_a:.3f} {style.AMBER}, '
+                    f'stop:{stop_b:.3f} {style.TRACK}, stop:1 {style.TRACK})'
                 )
-                self.update_btn.setStyleSheet(fill_qss)
-                self.ver_action_btn.setStyleSheet(fill_qss)
+                self.update_btn.setStyleSheet(
+                    f'background: {grad}; color: {style.TEXT}; border: 1px solid {style.CARD_EDGE}; '
+                    f'border-radius: 14px; padding: 6px 18px; min-height: 20px; font-size: 13px; font-weight: 700;'
+                )
+                self.ver_action_btn.setStyleSheet(
+                    f'background: {grad}; color: {style.TEXT}; border: 1px solid {style.CARD_EDGE}; '
+                    f'border-radius: 12px; padding: 6px 16px; min-height: 18px; font-size: 12.5px; font-weight: 600;'
+                )
             else:
-                btn_label = t('app.updateBtn', self.m.app_update.tag)
+                btn_label = base_label
                 self.update_btn.setStyleSheet('')
                 self.ver_action_btn.setStyleSheet('')
+                self.update_btn.setMinimumWidth(0)
+                self.ver_action_btn.setMinimumWidth(0)
             self.ver_action_btn.setText(btn_label)
             self.update_btn.setText(btn_label)
             self.update_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
@@ -1925,6 +1937,7 @@ class MainWindow(QMainWindow):
         else:
             _set_dot(self.ver_dot, style.GREEN)
             self.ver_action_btn.setStyleSheet('')
+            self.ver_action_btn.setMinimumWidth(0)
             self.ver_action_btn.setText(t('repo.update'))
         self.ver_action_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
 

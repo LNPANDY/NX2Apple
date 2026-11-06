@@ -206,8 +206,7 @@ import CryptoKit
         let sub = store.$downloadProgress.sink { observed.append($0) }
         await store.stage(release, automatic: false).value
         _ = sub
-        XCTAssertEqual(observed.first ?? nil, nil)
-        XCTAssertTrue(observed.contains(0), "starts at 0 before bytes arrive: \(observed)")
+        XCTAssertEqual(observed, [nil, 0, 0.25, 0.62, 1.0, nil])
         XCTAssertNil(store.downloadProgress, "cleared when staging finishes")
     }
 

@@ -33,11 +33,43 @@ package struct GitHubReleases: ReleaseSource {
     }
 
     package func download(_ url: URL, to file: URL, onProgress: @escaping @Sendable (Double) -> Void) async -> Bool {
-        await withCheckedContinuation { continuation in
-            let delegate = DownloadDelegate(destination: file, onProgress: onProgress, continuation: continuation)
-            let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-            session.downloadTask(with: url).resume()
+        let taskBox = DownloadTaskBox()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                let delegate = DownloadDelegate(destination: file, onProgress: onProgress, continuation: continuation)
+                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+                let task = session.downloadTask(with: url)
+                taskBox.store(task)
+                task.resume()
+            }
+        } onCancel: {
+            taskBox.cancel()
         }
+    }
+}
+
+private final class DownloadTaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: URLSessionDownloadTask?
+    private var cancelled = false
+
+    func store(_ newTask: URLSessionDownloadTask) {
+        let shouldCancel: Bool = lock.withLock {
+            if cancelled { return true }
+            task = newTask
+            return false
+        }
+        if shouldCancel { newTask.cancel() }
+    }
+
+    func cancel() {
+        let current: URLSessionDownloadTask? = lock.withLock {
+            cancelled = true
+            let t = task
+            task = nil
+            return t
+        }
+        current?.cancel()
     }
 }
 
