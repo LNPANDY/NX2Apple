@@ -221,6 +221,7 @@ struct LauncherView: View {
             }
             if !running {
                 DispatchQueue.main.async {
+                    guard !m.running else { return }   // a build may have started since the idle notification
                     if m.done { recordBuild() }
                     activeBuildID = nil
                     engine.applyPendingEngine()   // an engine installed during the build takes over once it is recorded
