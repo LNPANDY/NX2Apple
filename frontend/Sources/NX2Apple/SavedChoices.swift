@@ -1,3 +1,4 @@
+import NXCore
 import Foundation
 
 /// A Mac game's launch options as seedds/nxnative keeps them (docs/frontends.md, "Saved choices"): one string per setting under
@@ -9,7 +10,7 @@ import Foundation
 /// - Every row of the app's launcher.json is a saved choice.
 /// - A setting this launcher adds that launcher.json has no row for (Display mode, DM_FULLSCREEN, today) is not: launcher.c would
 ///   ignore a key it has no rule for. It stays in the library file and goes into the environment at Play, like the mods'
-///   DM_ROMFS_OVERLAY and the Controls page's DM_KEYMAP / DM_PAD_MAP (those become saved choices when seedds/nxnative#386 merges).
+///   DM_ROMFS_OVERLAY. Controller maps use their own capability marker and shared preferences schema.
 /// - A launch override (anything in the environment at Play) is temporary and is never written here.
 struct SavedChoices {
     let domain: String
@@ -138,16 +139,48 @@ extension LibraryGame {
     /// this launcher always did. The rest is the Controls page's layout, what only this launcher has (Display mode), the mods, and
     /// DM_LAUNCHER=0 (this launcher is the settings window, so the app's own is skipped; saved choices still apply).
     func startEnvironment(controls: [String: String], settings: [LaunchSetting], mods: [GameMod],
-                          store: SavedChoices? = nil, appReadsStore: Bool = true) -> [String: String] {
-        var environment = controls
+                          store: SavedChoices? = nil, appReadsStore: Bool = true,
+                          controllerStore: ControllerPreferences? = nil, savingEnabled: Bool = true) -> [String: String] {
+        var environment = controllerStore?.launchControls(controls, savingEnabled: savingEnabled) ?? controls
         if !appReadsStore, let store {
             for s in settings where s.storeBacked {
                 if let v = store.value(s), !s.isDefault(v) { environment[s.env] = v }
             }
         }
         environment.merge(launchEnvironment(settings)) { _, own in own }
+        environment.merge(controllerLaunchOverrides) { _, own in own }
         environment.merge(modEnvironment(mods)) { _, mods in mods }
         environment["DM_LAUNCHER"] = "0"
         return environment
+    }
+}
+
+
+extension SavedChoices {
+    static func appReadsControllerMappings(app: String) -> Bool {
+        let plist = URL(fileURLWithPath: app).appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: plist),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let marker = info["DMControllerMappings"] as? NSNumber else { return false }
+        return marker.doubleValue == 1
+    }
+}
+
+extension LibraryGame {
+    var controllerLaunchOverrides: [String: String] {
+        launchOptions.filter { ["DM_KEYMAP", "DM_PAD_MAP", "DM_PAD_MERGE", "DM_SAVED_CHOICES"].contains($0.key) }
+    }
+    func controllerPreferences() -> ControllerPreferences {
+        ControllerPreferences(storage: SystemControllerPreferences(domain: SavedChoices.domain(app: appPath, titleID: titleID)))
+    }
+    func controllerSavingEnabled(environment: [String: String], support: URL? = nil) -> Bool {
+        let support = support ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let infoURL = URL(fileURLWithPath: appPath).appendingPathComponent("Contents/Info.plist")
+        let info = (try? Data(contentsOf: infoURL)).flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
+        let packedTitleID = (info?["DMTitleID"] as? String).flatMap { $0.isEmpty || $0.contains("/") ? nil : $0 } ?? titleID
+        let player = support.appendingPathComponent("nxnative").appendingPathComponent(packedTitleID).appendingPathComponent("env.txt")
+        let app = URL(fileURLWithPath: appPath).appendingPathComponent("Contents/Resources/dm/env.txt")
+        return ControllerMap.savingEnabled(environment: environment,
+            playerEnv: try? String(contentsOf: player, encoding: .utf8), appEnv: try? String(contentsOf: app, encoding: .utf8))
     }
 }

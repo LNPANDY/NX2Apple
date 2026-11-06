@@ -6,6 +6,8 @@
     {"prefix": "controls.fn.", "suffix": "", "why": "the label of each controller button, Controls.swift"},
     {"prefix": "controls.mode.", "suffix": "", "why": "the name of each control preset, ControlPresets.swift"},
     {"prefix": "controls.modeNote.", "suffix": "", "why": "the note of each control preset, ControlPresets.swift"},
+    {"prefix": "controls.steam.", "suffix": "", "why": "the physical Steam extra-input labels, GameControllerMappingView.swift"},
+    {"prefix": "controls.steam.mode.", "suffix": "", "why": "the host trackpad mode names, GameControllerMappingView.swift"},
     {"prefix": "dep.metal.", "suffix": "", "why": "a dependency detail \"key:value\", Toolchain.swift and DependencyCheck.swift"},
     {"prefix": "dep.pick.", "suffix": "", "why": "the text of a dependency choice, model.py"},
     {"prefix": "dep.probe.", "suffix": ".hint", "why": "the hint of each compiler probe, model.py"},
