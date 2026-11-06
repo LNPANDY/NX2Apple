@@ -77,7 +77,7 @@ index f81a641..80cda9e 100644
 +
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 59f3df7..486a464 100755
+index 71922cd..9cbf9b4 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -442,6 +442,23 @@ def configure_dotnet(env):

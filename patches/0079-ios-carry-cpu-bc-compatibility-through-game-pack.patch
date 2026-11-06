@@ -10,7 +10,6 @@ Front-ends: the shell must read each framework dm/env.txt after the player envir
 Upstream-Status: fork-only (declined seedds/nxnative#488, seedds/nxnative#492)
 Reason: Repair the fork-only older-device BC decoder and runtime-profile packaging so the launcher compatibility switch reaches the selected game.
 Issue: LNPANDY/NX2Apple#719
-
 ---
  dm/ios/Sources/main.m                |  3 +-
  dm/ios/tests/test_bc_device_check.py | 56 ++++++++++++++++++++++++++++
@@ -20,7 +19,7 @@ Issue: LNPANDY/NX2Apple#719
  create mode 100644 dm/ios/tests/test_bc_device_check.py
 
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 69cf022..9824a00 100644
+index 71f5be5..757d875 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -9,7 +9,6 @@
@@ -31,7 +30,7 @@ index 69cf022..9824a00 100644
  #include "front.h"
  #include "romfs_image.h"
  #include "DataBookmark.h"
-@@ -212,7 +211,7 @@ const char *front_ios_device_check(void) {
+@@ -212,7 +211,7 @@ static void aoc_locate(void) {
      static char msg[320]; static int done;
      if (done++) return msg[0] ? msg : NULL;
      id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();   // the system default device, the one the graphics layers take (mtl_init repeats this check for the other routes)
@@ -135,10 +134,10 @@ index fee9e53..0d20b82 100644
      """The signing and pack steps on a stand-in app; no Xcode, no game files."""
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 97d22d1..e40ed8e 100755
+index 9f67e73..f177de7 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -197,7 +197,8 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
+@@ -202,7 +202,8 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
  if [ "$FRAMEWORK" = 1 ]; then
    rm -rf Gen/framework && mkdir -p Gen/framework/dm || die "mkdir Gen/framework"
    cp -R Gen/dm/. Gen/framework/dm/ || die "copy the framework tables"
