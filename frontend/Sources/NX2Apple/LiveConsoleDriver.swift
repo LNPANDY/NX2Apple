@@ -27,6 +27,7 @@ struct ConsolePadSnapshot: Equatable {
     var battery: Double?
     var charging = false
     var canIdentify = true
+    var kindOverride: ConsoleController.Kind? = nil
 
     /// The level to show, or nil when the controller has not really reported one. GameController gives 0 with an unknown state for a
     /// DualShock 4 over Bluetooth and before the first report, and some pads over USB report no battery or an unknown one: those are
@@ -44,7 +45,8 @@ struct ConsolePadSnapshot: Equatable {
         let family = ConsoleGlyphs.Family(category: category)
         let c = (category ?? "").lowercased().replacingOccurrences(of: "-", with: "")
         let kind: ConsoleController.Kind
-        if c.contains("joycon") { kind = .paired }
+        if let kindOverride { kind = kindOverride }
+        else if c.contains("joycon") { kind = .paired }
         else if family == .nintendo { kind = .fullSize }
         else if family == .xbox { kind = .xbox }
         else { kind = .gamepad }
@@ -91,8 +93,15 @@ struct ConsolePadSnapshot: Equatable {
         self.artwork = artwork ?? { game, repo in GameLibrary.artwork(for: game, repo: repo) }
         if pads == nil { self.devicePads = true }
         state.padMerge = controls.padMerge
+        state.joyconSplit = controls.joyconSplit
         library.objectWillChange.sink { [weak self] _ in self?.queueRefresh() }.store(in: &cancellables)
         controls.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }.store(in: &cancellables)
+        controls.$joyconSplit.dropFirst().sink { [weak self] split in
+            guard let self, self.state.joyconSplit != split else { return }
+            self.state.joyconSplit = split
+            self.resetPairedDevicePlayerIndices()
+            self.refreshControllers(announce: false)
+        }.store(in: &cancellables)
         refresh()
         refreshControllers(announce: false)
         announced = Set(state.controllers.map(\.id))   // controllers there at launch are not announced again by a repeated notification
@@ -123,6 +132,8 @@ struct ConsolePadSnapshot: Equatable {
     deinit {
         observers.forEach { NotificationCenter.default.removeObserver($0); NSWorkspace.shared.notificationCenter.removeObserver($0) }
         clock?.invalidate()
+        primeTask?.cancel()
+        batteryRereadTask?.cancel()
     }
 
     // MARK: Games
@@ -256,9 +267,21 @@ struct ConsolePadSnapshot: Equatable {
         }
     }
 
+    /// The app to hand the front to instead of letting LaunchServices activate the game: an app LaunchServices activates shows the pointer for up to
+    /// 150 ms whatever it hid before, one that takes a yielded activation itself keeps it hidden (issue #380). Only with the pointer hidden
+    /// (DM_CURSOR_HIDDEN), as the game hides it before it activates itself then.
+    static func yieldTarget(environment: [String: String], appPath: String) -> String? {
+        guard environment["DM_CURSOR_HIDDEN"] == "1" else { return nil }
+        return Bundle(url: URL(fileURLWithPath: appPath))?.bundleIdentifier
+    }
+
     private static func openApplication(_ game: LibraryGame, _ environment: [String: String], _ done: @escaping (Int32?, Error?) -> Void) {
         let configuration = NSWorkspace.OpenConfiguration()
         if !environment.isEmpty { configuration.environment = environment }
+        if #available(macOS 14, *), let target = yieldTarget(environment: environment, appPath: game.appPath) {
+            configuration.activates = false
+            NSApp.yieldActivation(toApplicationWithBundleIdentifier: target)
+        }
         NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
             done(app?.processIdentifier, error)
         }
@@ -369,9 +392,19 @@ struct ConsolePadSnapshot: Equatable {
     /// hand are taken and ignored.
     func consumePress(controllerID: String, isBack: Bool) -> Bool {
         guard let player = state.assigningPlayer, state.presentedSheet == .controllers else { return false }
-        if let target = state.assigningControllerID, target != controllerID { return true }
+        let resolvedID: String
+        if let target = state.assigningControllerID {
+            guard target == controllerID || Self.baseControllerID(target) == controllerID else { return true }
+            resolvedID = target
+        } else if state.controllers.contains(where: { $0.id == controllerID }) {
+            resolvedID = controllerID
+        } else if let split = state.controllers.first(where: { Self.baseControllerID($0.id) == controllerID }) {
+            resolvedID = split.id
+        } else {
+            resolvedID = controllerID
+        }
         if isBack { cancelCapture(); showToast(t("console.assignCancelled")); return true }
-        assignPlayer(controllerID: controllerID, player: player)
+        assignPlayer(controllerID: resolvedID, player: player)
         return true
     }
 
@@ -384,13 +417,49 @@ struct ConsolePadSnapshot: Equatable {
         overrides[controllerID] = player
         state.assigningPlayer = nil; state.assigningControllerID = nil
         assignTimeout?.cancel()
-        for (id, value) in overrides {
+        for (id, value) in overrides where !id.hasSuffix(".R") {
             devices[id]?.playerIndex = value == 0 ? .indexUnset : (GCControllerPlayerIndex(rawValue: value - 1) ?? .indexUnset)
         }
         refreshControllers(announce: false)
         showToast(String(format: t("console.assignedTo"), pad.name, player))
     }
     func setPadMerge(_ enabled: Bool) { controls.padMerge = enabled }
+    func setJoyconSplit(_ enabled: Bool) {
+        controls.joyconSplit = enabled
+        state.joyconSplit = enabled
+        resetPairedDevicePlayerIndices()
+        refreshControllers(announce: false)
+    }
+
+    /// Clears hardware playerIndex on paired Joy-Con `GCController` instances when toggling split mode so auto-assignment starts cleanly from P1/P2.
+    private func resetPairedDevicePlayerIndices() {
+        guard devicePads else { return }
+        for c in GCController.controllers() {
+            let cat = c.productCategory.lowercased().replacingOccurrences(of: "-", with: "")
+            if cat.contains("joycon") { c.playerIndex = .indexUnset }
+        }
+    }
+
+    static func baseControllerID(_ id: String) -> String {
+        (id.hasSuffix(".L") || id.hasSuffix(".R")) ? String(id.dropLast(2)) : id
+    }
+
+    /// Expands each paired Joy-Con snapshot into separate `Joy-Con (L)` and `Joy-Con (R)` sideways controller snapshots when `enabled` is true (#740).
+    static func splitJoyConSnapshots(_ pads: [ConsolePadSnapshot], enabled: Bool) -> [ConsolePadSnapshot] {
+        guard enabled else { return pads }
+        var out: [ConsolePadSnapshot] = []
+        for pad in pads {
+            if pad.controller.kind == .paired {
+                out.append(ConsolePadSnapshot(id: pad.id + ".L", name: "Joy-Con (L)", category: "Nintendo Switch Joy-Con (L)",
+                                              playerIndex: pad.playerIndex, battery: pad.battery, charging: pad.charging, canIdentify: pad.canIdentify, kindOverride: .gamepad))
+                out.append(ConsolePadSnapshot(id: pad.id + ".R", name: "Joy-Con (R)", category: "Nintendo Switch Joy-Con (R)",
+                                              playerIndex: nil, battery: pad.battery, charging: pad.charging, canIdentify: pad.canIdentify, kindOverride: .gamepad))
+            } else {
+                out.append(pad)
+            }
+        }
+        return out
+    }
 
     /// What this controller can do for Identify. The player lights have no capability flag in GameController, so any gamepad counts.
     static func identifyActions(_ c: GCController) -> [IdentifyPlan.Action] {
@@ -428,7 +497,14 @@ struct ConsolePadSnapshot: Equatable {
 
     private func rumble(_ pad: GCController, id: String) {
         guard let haptics = pad.haptics else { Self.log.debug("identify: no haptics on this controller"); return }
-        let localities: [GCHapticsLocality] = [.default, .all, .handles, .leftHandle, .rightHandle]
+        let localities: [GCHapticsLocality]
+        if id.hasSuffix(".L") {
+            localities = [.leftHandle, .default, .all, .handles]
+        } else if id.hasSuffix(".R") {
+            localities = [.rightHandle, .default, .all, .handles]
+        } else {
+            localities = [.default, .all, .handles, .leftHandle, .rightHandle]
+        }
         guard let engine = localities.lazy.compactMap({ haptics.createEngine(withLocality: $0) }).first else {
             Self.log.debug("identify: haptics exist but no engine could be created (supported localities: \(haptics.supportedLocalities.map(\.rawValue).joined(separator: ","), privacy: .public))")
             return
@@ -465,6 +541,8 @@ struct ConsolePadSnapshot: Equatable {
     private var remembered: [String: Int] = [:]
     /// The player each controller was last told about (player lights and light bar), so the output is sent once per assignment.
     private var primedPlayer: [String: Int] = [:]
+    private var primeTask: Task<Void, Never>?
+    private var batteryRereadTask: Task<Void, Never>?
     /// Writes the player to a controller: its player lights and, when it has one, its light bar. Tests replace it.
     var sendPlayerOutput: ((String, Int) -> Void)?
 
@@ -487,9 +565,14 @@ struct ConsolePadSnapshot: Equatable {
         for pad in pads {
             guard let player = pad.playerIndex, primedPlayer[pad.id] != player else { continue }
             primedPlayer[pad.id] = player
+            if let sendPlayerOutput {
+                if !pad.id.hasSuffix(".R") { sent = true; sendPlayerOutput(pad.id, player) }
+                continue
+            }
+            // A split Joy-Con pair shares one underlying GCController instance between `.L` and `.R`. Writing `.R`'s playerIndex back to
+            // that shared instance overwrites `.L`'s hardware playerIndex and causes P1/P2 to ping-pong on every reread (#740).
+            guard let device = devices[pad.id], !pad.id.hasSuffix(".R") else { continue }
             sent = true
-            if let sendPlayerOutput { sendPlayerOutput(pad.id, player); continue }
-            guard let device = devices[pad.id] else { continue }
             device.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset
             if let light = device.light {
                 let c = Self.playerLightColor(player)
@@ -498,9 +581,11 @@ struct ConsolePadSnapshot: Equatable {
             Self.hidLog.debug("player output to \(pad.name, privacy: .public): player \(player), light bar \(device.light != nil)")
         }
         if sent {
-            Task { [weak self] in
+            primeTask?.cancel()
+            primeTask = Task { [weak self] in
                 for seconds in [0.5, 1.5] {
                     try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                    guard !Task.isCancelled else { return }
                     self?.refreshControllers(announce: false)
                 }
             }
@@ -561,20 +646,24 @@ struct ConsolePadSnapshot: Equatable {
     private func tearDown(_ pad: GCController) {
         let id = String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16)
         pad.physicalInputProfile.valueDidChangeHandler = nil
-        identifyEngines.removeValue(forKey: id)?.stop(completionHandler: nil)
-        if state.identifyingControllerID == id { identifyTask?.cancel(); state.identifyingControllerID = nil }
-        devices[id] = nil
-        overrides[id] = nil
+        for key in [id, id + ".L", id + ".R"] {
+            identifyEngines.removeValue(forKey: key)?.stop(completionHandler: nil)
+            if state.identifyingControllerID == key { identifyTask?.cancel(); state.identifyingControllerID = nil }
+            devices[key] = nil
+            overrides[key] = nil
+            primedPlayer[key] = nil
+        }
         batteryWatchers[id] = nil
-        primedPlayer[id] = nil
         Self.hidLog.debug("torn down \(id, privacy: .public)")
     }
 
     /// Right after a connect GameController may still report 0 or an unknown battery (a Bluetooth reconnect): read it again soon.
     private func scheduleBatteryRereads() {
-        Task { [weak self] in
+        batteryRereadTask?.cancel()
+        batteryRereadTask = Task { [weak self] in
             for seconds in [2.0, 3.0] {   // reads at 2 and 5 seconds after a connect, then the 20 second tick
                 try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                guard !Task.isCancelled else { return }
                 self?.refreshControllers(announce: false)
             }
         }
@@ -601,8 +690,16 @@ struct ConsolePadSnapshot: Equatable {
                                           charging: reading?.charging ?? false, canIdentify: !Self.identifyActions(c).isEmpty)
             }
         }
+        snapshots = Self.splitJoyConSnapshots(snapshots, enabled: controls.joyconSplit)
+        if devicePads, controls.joyconSplit {
+            for snap in snapshots where snap.id.hasSuffix(".L") || snap.id.hasSuffix(".R") {
+                let base = Self.baseControllerID(snap.id)
+                if let dev = devices[base] { devices[snap.id] = dev }
+            }
+        }
         let live = Set(snapshots.map(\.id))
-        batteryWatchers = batteryWatchers.filter { live.contains($0.key) || !devicePads }
+        let liveBase = Set(snapshots.map { Self.baseControllerID($0.id) })
+        batteryWatchers = batteryWatchers.filter { liveBase.contains($0.key) || !devicePads }
         overrides = overrides.filter { live.contains($0.key) }
         snapshots = snapshots.map { snap in
             guard let chosen = overrides[snap.id] else { return snap }
@@ -610,7 +707,7 @@ struct ConsolePadSnapshot: Equatable {
             return s
         }
         let assigned = Self.autoAssigned(snapshots, remembered: remembered)
-        for (old, new) in zip(snapshots, assigned) where old.playerIndex != new.playerIndex {
+        for (old, new) in zip(snapshots, assigned) where old.playerIndex != new.playerIndex && !new.id.hasSuffix(".R") {
             devices[new.id]?.playerIndex = GCControllerPlayerIndex(rawValue: (new.playerIndex ?? 1) - 1) ?? .indexUnset
         }
         for pad in assigned { if let p = pad.playerIndex { remembered[Self.memoryKey(pad)] = p } }

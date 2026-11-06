@@ -54,9 +54,236 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
     # the package root goes on sys.path so `import toolchain` / `import xcrun_shim` resolve, and
     # so `import nspb_qt.win` works from a child that wants the whole package
-    for _p in (_PKG, os.path.dirname(_PKG)):
+    for _p in (_PKG, os.path.dirname(_PKG), os.path.dirname(os.path.dirname(_PKG))):
         if _p and _p not in sys.path:
             sys.path.insert(0, _p)
+
+    # ---- POSIX signal, os.execve & multi-core fork Pool adapter for patch_nso.py / nro_collect.py
+    # patch_nso.py's in_parallel() uses multiprocessing.get_context('fork').Pool(WORKERS) +
+    # signal.pthread_sigmask; nro_collect.py calls multiprocessing.Pool() at top level without
+    # an `if __name__ == '__main__':` guard. On Windows there is no fork(), and Capstone's C
+    # disassembler (`cs_disasm`) releases the GIL, so a thread pool with per-thread Capstone
+    # instances gives full multi-core speedup without fork() or spawn recursion.
+    import signal as _signal
+    for _sig_attr, _sig_val in (('SIG_BLOCK', 1), ('SIG_UNBLOCK', 2), ('SIG_SETMASK', 3)):
+        if not hasattr(_signal, _sig_attr):
+            setattr(_signal, _sig_attr, _sig_val)
+    if not hasattr(_signal, 'pthread_sigmask'):
+        _signal.pthread_sigmask = lambda how, mask: set()
+
+    def _win_execve(path, argv, env):
+        r = subprocess.run([os.fspath(path)] + [os.fspath(a) for a in list(argv)[1:]], env=env)
+        os._exit(r.returncode)
+
+    os.execve = _win_execve
+
+    import concurrent.futures as _cf, marshal as _marshal, multiprocessing as _mp, multiprocessing.spawn as _mp_spawn, pickle as _pickle, tempfile as _tempfile, threading as _mp_threading, types as _mp_types
+    _MAX_WIN_WORKERS = 61
+    _OrigProcessPoolExecutor = _cf.ProcessPoolExecutor
+
+    class _WinProcessPoolExecutor(_OrigProcessPoolExecutor):
+        def __init__(self, max_workers=None, *a, **k):
+            if isinstance(max_workers, int) and max_workers > _MAX_WIN_WORKERS:
+                max_workers = _MAX_WIN_WORKERS
+            super().__init__(max_workers, *a, **k)
+
+    _cf.ProcessPoolExecutor = _WinProcessPoolExecutor
+    _mp_tls = _mp_threading.local()
+    _orig_get_context = _mp.get_context
+    _orig_get_prep_data = _mp_spawn.get_preparation_data
+    _in_fork_pool_spawn = False
+
+    def _safe_get_prep_data(name):
+        d = _orig_get_prep_data(name)
+        if _in_fork_pool_spawn:
+            d.pop('init_main_from_path', None)
+            d.pop('init_main_from_name', None)
+        return d
+
+    _mp_spawn.get_preparation_data = _safe_get_prep_data
+
+    class _WinForkPool:
+        def __init__(self, processes=None, initializer=None, initargs=(), *a, **k):
+            self._workers = max(1, int(processes or os.cpu_count() or 4))
+            self._ex = _cf.ThreadPoolExecutor(max_workers=self._workers)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._ex.shutdown(wait=True)
+            return False
+
+        def close(self):
+            pass
+
+        def join(self):
+            self._ex.shutdown(wait=True)
+
+        def terminate(self):
+            self._ex.shutdown(wait=False, cancel_futures=True)
+
+        def map(self, fn, iterable, chunksize=1):
+            return list(self._ex.map(fn, iterable))
+
+        def imap_unordered(self, fn, iterable, chunksize=1):
+            return self._ex.map(fn, iterable)
+
+        def starmap(self, fn, jobs, chunksize=1):
+            global _in_fork_pool_spawn
+            jobs = list(jobs)
+            g = getattr(fn, '__globals__', None)
+            fname = getattr(fn, '__name__', '')
+            if fname == 'x18_words' and isinstance(g, dict) and 'Cs' in g:
+                IMG = g['IMG']
+                if len(jobs) >= 2 and len(IMG) >= 0x20000:
+                    img_path = None
+                    try:
+                        import mp_worker as _mpw
+                        with _tempfile.NamedTemporaryFile(prefix='nspb_x18_', delete=False) as tf:
+                            tf.write(IMG)
+                            img_path = tf.name
+                        n_procs = min(_MAX_WIN_WORKERS, len(jobs), max(self._workers, os.cpu_count() or 4))
+                        _in_fork_pool_spawn = True
+                        try:
+                            pool = _orig_get_context('spawn').Pool(
+                                processes=n_procs,
+                                initializer=_mpw.init_x18,
+                                initargs=(img_path,),
+                            )
+                        finally:
+                            _in_fork_pool_spawn = False
+                        try:
+                            res = pool.map(_mpw.run_x18_job, jobs)
+                            pool.close()
+                            pool.join()
+                            return res
+                        finally:
+                            try:
+                                pool.terminate()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    finally:
+                        if img_path:
+                            try:
+                                os.unlink(img_path)
+                            except OSError:
+                                pass
+                Cs, ARCH, MODE = g['Cs'], g['CS_ARCH_ARM64'], g['CS_MODE_ARM']
+                R18 = g['R18']
+
+                def _x18_job(job):
+                    lo, hi = job
+                    md = getattr(_mp_tls, 'md_lite', None)
+                    if md is None:
+                        md = _mp_tls.md_lite = Cs(ARCH, MODE)
+                    out, a = set(), lo
+                    while a < hi:
+                        end = min(hi, a + 0x4000); last = a - 4
+                        for addr, _sz, _mn, op in md.disasm_lite(bytes(IMG[a:end]), a):
+                            last = addr
+                            if R18.search(op):
+                                out.add(addr)
+                        a = last + 4 if last + 4 >= end else last + 8
+                    return out
+
+                return list(self._ex.map(_x18_job, jobs))
+            if fname == 'spin_heads_with_region' and isinstance(g, dict) and 'Cs' in g:
+                IMG = g['IMG']
+                if len(jobs) >= 2 and len(g.get('spin_heads', ())) >= 8:
+                    img_path = st_path = None
+                    try:
+                        import mp_worker as _mpw
+                        fnames = (
+                            'spin_norm', 'spin_rw', 'spin_kind', 'spin_rmw', 'spin_lock',
+                            'spin_store', 'spin_quick', 'spin_region1', 'spin_region',
+                            'spin_heads_with_region',
+                        )
+                        codes_blob = _marshal.dumps(
+                            {k: (g[k].__code__, g[k].__defaults__) for k in fnames if k in g and isinstance(g[k], _mp_types.FunctionType)}
+                        )
+                        state_keys = (
+                            'SPIN_PATHS', 'SPIN_STEPS', 'SPIN_STORES', 'SPIN_LSE', 'SPIN_BAD',
+                            'SPIN_STOP', 'DATA_BLOCKS', 'spin_touched', 'spin_cand', 'spin_heads',
+                        )
+                        state = {k: g[k] for k in state_keys if k in g}
+                        with _tempfile.NamedTemporaryFile(prefix='nspb_spin_img_', delete=False) as tf_i, \
+                                _tempfile.NamedTemporaryFile(prefix='nspb_spin_st_', delete=False) as tf_s:
+                            tf_i.write(IMG)
+                            img_path = tf_i.name
+                            _pickle.dump((codes_blob, state), tf_s, protocol=_pickle.HIGHEST_PROTOCOL)
+                            st_path = tf_s.name
+                        n_procs = min(_MAX_WIN_WORKERS, len(jobs), max(self._workers, os.cpu_count() or 4))
+                        _in_fork_pool_spawn = True
+                        try:
+                            pool = _orig_get_context('spawn').Pool(
+                                processes=n_procs,
+                                initializer=_mpw.init_spin,
+                                initargs=(img_path, st_path),
+                            )
+                        finally:
+                            _in_fork_pool_spawn = False
+                        try:
+                            res = pool.map(_mpw.run_spin_job, jobs)
+                            pool.close()
+                            pool.join()
+                            return res
+                        finally:
+                            try:
+                                pool.terminate()
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+                    finally:
+                        for _p in (img_path, st_path):
+                            if _p:
+                                try:
+                                    os.unlink(_p)
+                                except OSError:
+                                    pass
+                Cs, ARCH, MODE = g['Cs'], g['CS_ARCH_ARM64'], g['CS_MODE_ARM']
+
+                def _spin_job(job):
+                    t_fn = getattr(_mp_tls, 'spin_fn', None)
+                    if t_fn is None or getattr(_mp_tls, 'spin_src', None) is not fn:
+                        md_d = Cs(ARCH, MODE)
+                        md_d.detail = True
+                        dec = {}
+
+                        def _tls_spin_ins(a, _dec=dec, _md=md_d, _img=IMG):
+                            if a not in _dec:
+                                _dec[a] = next(_md.disasm(bytes(_img[a:a + 4]), a), None)
+                            return _dec[a]
+
+                        tg = dict(g)
+                        tg['md'] = md_d
+                        tg['spin_dec'] = dec
+                        tg['spin_ins'] = _tls_spin_ins
+                        for _k in ('spin_rw', 'spin_kind', 'spin_rmw', 'spin_lock', 'spin_store',
+                                   'spin_region1', 'spin_region', 'spin_heads_with_region'):
+                            if _k in g and isinstance(g[_k], _mp_types.FunctionType):
+                                tg[_k] = _mp_types.FunctionType(g[_k].__code__, tg, _k,
+                                                                g[_k].__defaults__, g[_k].__closure__)
+                        t_fn = _mp_tls.spin_fn = tg['spin_heads_with_region']
+                        _mp_tls.spin_src = fn
+                    return t_fn(*job)
+
+                return list(self._ex.map(_spin_job, jobs))
+            return list(self._ex.map(lambda j: fn(*j), jobs))
+
+    class _WinForkContext:
+        Pool = staticmethod(_WinForkPool)
+
+    def _win_get_context(method=None):
+        if method == 'fork':
+            return _WinForkContext()
+        return _orig_get_context(method)
+
+    _mp.get_context = _win_get_context
+    _mp.Pool = _WinForkPool
 
     # ---- text files written the way the pipeline expects them
     # The host compares lines of the pipeline's tables byte for byte; an inputs.tsv line ending
@@ -71,6 +298,223 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         return _open(file, mode, buffering, encoding, errors, newline, closefd, opener)
 
     io.open = builtins.open = _lf_open
+
+    # ---- os.open binary mode & os.pread (POSIX-only on CPython for Windows)
+    _os_open = os.open
+
+    def _win_os_open(path, flags, mode=0o777, *, dir_fd=None):
+        if not (flags & getattr(os, 'O_TEXT', 0)):
+            flags |= getattr(os, 'O_BINARY', 0)
+        if dir_fd is not None:
+            return _os_open(path, flags, mode, dir_fd=dir_fd)
+        return _os_open(path, flags, mode)
+
+    os.open = _win_os_open
+
+    if not hasattr(os, 'pread'):
+        import threading as _threading
+        _pread_lock = _threading.Lock()
+
+        def _win_pread(fd, n, offset):
+            with _pread_lock:
+                cur = os.lseek(fd, 0, os.SEEK_CUR)
+                try:
+                    os.lseek(fd, offset, os.SEEK_SET)
+                    out = bytearray()
+                    while len(out) < n:
+                        chunk = os.read(fd, n - len(out))
+                        if not chunk:
+                            break
+                        out.extend(chunk)
+                    return bytes(out)
+                finally:
+                    try:
+                        os.lseek(fd, cur, os.SEEK_SET)
+                    except OSError:
+                        pass
+
+        os.pread = _win_pread
+
+    # ---- os.symlink fallback when Developer Mode is off (WinError 1314)
+    _os_symlink = os.symlink
+
+    def _win_symlink(src, dst, target_is_directory=False, *, dir_fd=None):
+        try:
+            if dir_fd is not None:
+                return _os_symlink(src, dst, target_is_directory=target_is_directory, dir_fd=dir_fd)
+            return _os_symlink(src, dst, target_is_directory=target_is_directory)
+        except OSError:
+            real_src = src
+            if not os.path.isabs(src):
+                real_src = os.path.normpath(os.path.join(os.path.dirname(os.fspath(dst)), src))
+            if os.path.isdir(real_src):
+                shutil.copytree(real_src, dst, dirs_exist_ok=True)
+            else:
+                shutil.copy2(real_src, dst)
+
+    os.symlink = _win_symlink
+
+    # ---- POSIX slashes in os.path.relpath and romfs.py
+    # Upstream's shader_split.py, gl_shaders.py, vk_shaders.py, uepak.py and nro_collect.py
+    # sort and record RomFS-relative paths with '/' (and compare them against shader_map.tsv).
+    _relpath = os.path.relpath
+
+    def _posix_relpath(path, start=None):
+        r = _relpath(path, start) if start is not None else _relpath(path)
+        return r.replace('\\', '/') if isinstance(r, str) else r.replace(b'\\', b'/')
+
+    os.path.relpath = _posix_relpath
+
+    def _patch_romfs_module(mod):
+        if getattr(mod, '_nspb_patched', False):
+            return
+        mod._nspb_patched = True
+        _orig_find = mod.Image.find
+        mod.Image.find = lambda self, rel: _orig_find(self, rel.replace('\\', '/'))
+
+        def _resolve(path):
+            p = os.path.abspath(os.fsdecode(path)).replace('\\', '/')
+            parts = p.split('/')
+            for i, part in enumerate(parts):
+                if not part.endswith('.img'):
+                    continue
+                image = '/'.join(parts[:i + 1])
+                try:
+                    st = os.stat(image)
+                except OSError:
+                    continue
+                if not mod._stat.S_ISREG(st.st_mode):
+                    continue
+                loaded = mod._image(image, (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns))
+                if loaded is not None:
+                    return loaded, '/'.join(parts[i + 1:])
+            return None
+
+        mod._resolve = _resolve
+        _orig_walk = mod.walk
+
+        def _walk(top, *a, **k):
+            for root, dirs, files in _orig_walk(top, *a, **k):
+                yield (root.replace('\\', '/') if isinstance(root, str) else root), dirs, files
+
+        mod.walk = _walk
+        mod.os.walk = _walk
+        mod._OS.sep = '/'
+        mod._PathOps.sep = '/'
+        _orig_join = os.path.join
+        _orig_normpath = os.path.normpath
+
+        def _posix_join(*a):
+            res = _orig_join(*a)
+            return res.replace('\\', '/') if isinstance(res, str) else res
+
+        def _posix_normpath(path):
+            res = _orig_normpath(path)
+            return res.replace('\\', '/') if isinstance(res, str) else res.replace(b'\\', b'/')
+
+        mod._PathOps.join = staticmethod(_posix_join)
+        mod._PathOps.relpath = staticmethod(_posix_relpath)
+        mod._PathOps.normpath = staticmethod(_posix_normpath)
+
+    def _patch_sdk_patches_module(mod):
+        jf = os.environ.get('NSPB_AUTO_SDK_CUTS')
+        if not jf or not hasattr(mod, 'CUTS') or not os.path.isfile(jf):
+            return
+        try:
+            import json
+            with open(jf, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            for bid, cuts in data.items():
+                mod.CUTS.setdefault(bid, [tuple(c) for c in cuts])
+        except Exception:
+            pass
+
+    def _patch_tool_lock_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'check_tools'):
+            return
+        mod._nspb_patched = True
+        _orig_check = mod.check_tools
+
+        def _win_check_tools():
+            bad = _orig_check()
+            if os.environ.get('DM_ALLOW_SYSTEM_SPIRV_CROSS') == '1':
+                bad = [b for b in bad
+                       if not (b.startswith('spirv-cross: ') and not b.endswith(' / actual missing'))]
+            if os.environ.get('DM_ALLOW_OTHER_METAL') == '1':
+                bad = [b for b in bad if not b.startswith('metal_macosx: ')]
+            return bad
+
+        mod.check_tools = _win_check_tools
+
+    def _patch_tree_tar_module(mod):
+        if getattr(mod, '_nspb_patched', False):
+            return
+        mod._nspb_patched = True
+        # Windows cannot os.open(directory, O_RDONLY) for flock(); a single build runs per work dir.
+        mod._lock = lambda folder, say=None: True
+        mod._unlock = lambda folder: None
+
+    def _ascii_temp_base():
+        if _PKG not in sys.path:
+            sys.path.insert(0, _PKG)
+        import toolchain as _tc
+        with _tc.ascii_temp_dir('nspb-probe-') as _p:
+            return os.path.dirname(str(_p))
+
+    def _patch_dmsh_pch_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'tempfile'):
+            return
+        mod._nspb_patched = True
+        _orig_tf = mod.tempfile
+
+        class _PchTempfile:
+            def __getattr__(self, k):
+                return getattr(_orig_tf, k)
+
+            def mkdtemp(self, suffix=None, prefix=None, dir=None):
+                if dir and (' ' in str(dir) or not str(dir).isascii()):
+                    dir = _ascii_temp_base()
+                return _orig_tf.mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+
+        mod.tempfile = _PchTempfile()
+
+    def _patch_dmsh_mtlcache_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'Cache'):
+            return
+        mod._nspb_patched = True
+        _orig_init = mod.Cache.__init__
+
+        def _win_cache_init(self, store, targets, work):
+            if work and (' ' in str(work) or not str(work).isascii()):
+                import tempfile as _tf, atexit as _atexit
+                work = _tf.mkdtemp(prefix='mtlwork_', dir=_ascii_temp_base())
+                _atexit.register(shutil.rmtree, work, ignore_errors=True)
+            _orig_init(self, store, targets, work)
+
+        mod.Cache.__init__ = _win_cache_init
+
+    import importlib.machinery as _machinery
+    _exec_module = _machinery.SourceFileLoader.exec_module
+
+    def _win_exec_module(self, module):
+        _exec_module(self, module)
+        name = getattr(module, '__name__', '')
+        if name == 'romfs' or name.endswith('.romfs'):
+            _patch_romfs_module(module)
+        elif name == 'sdk_patches' or name.endswith('.sdk_patches'):
+            _patch_sdk_patches_module(module)
+        elif name == 'tool_lock' or name.endswith('.tool_lock'):
+            _patch_tool_lock_module(module)
+        elif name == 'tree_tar' or name.endswith('.tree_tar'):
+            _patch_tree_tar_module(module)
+        elif name == 'pack_dump' or name.endswith('.pack_dump'):
+            module.clone = shutil.copy2
+        elif name == 'dmsh_pch' or name.endswith('.dmsh_pch'):
+            _patch_dmsh_pch_module(module)
+        elif name == 'dmsh_mtlcache' or name.endswith('.dmsh_mtlcache'):
+            _patch_dmsh_mtlcache_module(module)
+
+    _machinery.SourceFileLoader.exec_module = _win_exec_module
 
     # ---- os.replace as on a Mac
     # Windows refuses to replace a file another thread has open. The shader caches are
@@ -157,6 +601,10 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         process per call: a shader build makes thousands of them."""
         if len(rest) < 3 or rest[0] not in ('-sdk', '--sdk') or rest[2] not in ('metal', 'metallib'):
             return None
+        if rest[2] == 'metal' and '-c' not in rest[3:] and '-o' in rest[3:]:
+            return None  # compile+link in one call (host_msl.py): handled by xcrun_shim.py
+        if any(' ' in str(a) or not str(a).isascii() for a in rest[3:]):
+            return None  # paths with spaces or non-ASCII chars break metal.exe; xcrun_shim.py stages them via cwd
         if 'modules' not in _CACHE:
             if _PKG not in sys.path:
                 sys.path.insert(0, _PKG)
@@ -188,8 +636,13 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             dn = tc.dotnet_dir()
             dotnet = str(dn / 'dotnet.exe') if dn else (shutil.which('dotnet') or 'dotnet')
             return [dotnet, args[0] + '.dll'] + args[1:]
-        if base in ('python3', 'python3.exe'):
-            return [sys.executable] + args[1:]
+        if base in ('python3', 'python3.exe') or base in ('python', 'python.exe'):
+            py_exe = os.environ.get('NSPB_PYTHON') or sys.executable
+            return [py_exe] + [a for a in args[1:] if a != '-I']
+        if base in ('spirv-cross', 'spirv-cross.exe'):
+            sc = os.environ.get('NSPB_SPIRV_CROSS') or os.environ.get('SPIRV_CROSS')
+            if sc and os.path.isfile(sc):
+                return [sc] + args[1:]
         if base in ('bash', 'bash.exe') and len(args) > 1 and \
                 args[1].replace('\\', '/').endswith('dm/ios/tools/build_ipa.sh'):
             return [sys.executable, _BUILD_APP] + args[2:]
@@ -206,6 +659,12 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
     _run = subprocess.run
 
     def _run_fast(args, *a, **k):
+        if isinstance(args, (list, tuple)) and args and isinstance(args[0], str):
+            _head = args[0].replace('\\', '/').rsplit('/', 1)[-1].lower()
+            if (_head in ('cp', 'cp.exe') and len(args) == 4 and args[1] == '-c') or _head in ('xattr', 'xattr.exe'):
+                return subprocess.CompletedProcess(args, 1,
+                                                   b'' if not k.get('text') else '',
+                                                   b'' if not k.get('text') else '')
         if (not os.environ.get('NSPB_MAC_METAL') and isinstance(args, (list, tuple))
                 and len(args) > 4 and isinstance(args[0], str)
                 and args[0].replace('\\', '/').rsplit('/', 1)[-1].lower() in ('xcrun', 'xcrun.exe')
@@ -254,7 +713,37 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         _pwd.getpwuid = getpwuid
         _pwd.getpwnam = lambda name: getpwuid(0)
         sys.modules['pwd'] = _pwd
+
+    if not hasattr(os, 'getuid'):
+        os.getuid = lambda: 0
+
+    # ---- fcntl
+    # dm/tools/tree_tar.py (imported at top level by scripts/build_ipa_from_nsp.py) imports fcntl
+    # for advisory directory locking. Register a Windows stand-in so the import succeeds.
+    if 'fcntl' not in sys.modules:
+        import types as _types
+        _fcntl = _types.ModuleType('fcntl')
+        _fcntl.LOCK_SH = 1
+        _fcntl.LOCK_EX = 2
+        _fcntl.LOCK_NB = 4
+        _fcntl.LOCK_UN = 8
+        _fcntl.F_GETFD = 1
+        _fcntl.F_SETFD = 2
+        _fcntl.F_GETFL = 3
+        _fcntl.F_SETFL = 4
+        _fcntl.FD_CLOEXEC = 1
+        _fcntl.flock = lambda fd, op: None
+        _fcntl.lockf = lambda fd, cmd, len=0, start=0, whence=0: None
+        _fcntl.fcntl = lambda fd, cmd, arg=0: 0
+        _fcntl.ioctl = lambda fd, req, arg=0, mutate_flag=True: 0
+        sys.modules['fcntl'] = _fcntl
 '''
+
+
+def _write_if_changed(path: Path, text: str) -> None:
+    data = text.encode('utf-8')
+    if not path.is_file() or path.read_bytes() != data:
+        path.write_bytes(data)
 
 
 def install(shim_dir: Path, python_exe: str | None = None) -> None:
@@ -273,9 +762,7 @@ def install(shim_dir: Path, python_exe: str | None = None) -> None:
     body = _SITECUSTOMIZE_SRC.replace(
         "    _PKG = os.environ.get('NSPB_WIN_DIR') or _HERE\n",
         '    _PKG = os.environ.get(\'NSPB_WIN_DIR\') or ' + repr(pkg) + '\n')
-    sc = shim_dir / SITECUSTOMIZE
-    if not sc.is_file() or sc.read_text(encoding='utf-8') != body:
-        sc.write_text(body, encoding='utf-8', newline='\n')
+    _write_if_changed(shim_dir / SITECUSTOMIZE, body)
     py = python_exe or sys.executable
     here = Path(pkg)
     for name, target in (('xcrun', here / 'xcrun_shim.py'),
@@ -283,14 +770,10 @@ def install(shim_dir: Path, python_exe: str | None = None) -> None:
                          ('xcodegen', here / 'xcodegen_shim.py')):
         body_cmd = (f'@echo off\r\n'
                     f'"{py}" "{target}" %*\r\n')
-        p = shim_dir / f'{name}.cmd'
-        if not p.is_file() or p.read_text(encoding='utf-8', errors='replace') != body_cmd:
-            p.write_text(body_cmd, encoding='utf-8', newline='')
+        _write_if_changed(shim_dir / f'{name}.cmd', body_cmd)
     # a `python3.cmd` so the pipeline's `python3` spelling works in a shell too
-    p = shim_dir / 'python3.cmd'
     body_py = f'@echo off\r\n"{py}" %*\r\n'
-    if not p.is_file() or p.read_text(encoding='utf-8', errors='replace') != body_py:
-        p.write_text(body_py, encoding='utf-8', newline='')
+    _write_if_changed(shim_dir / 'python3.cmd', body_py)
 
 
 def shim_dir() -> Path:
@@ -325,6 +808,11 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
             parts.append(str(p.parent))
             if name == 'spirv-cross':
                 env.setdefault('SPIRV_CROSS', str(p))
+                env['NSPB_SPIRV_CROSS'] = str(p)
+    if python_exe:
+        env['NSPB_PYTHON'] = str(python_exe)
+    env.setdefault('DM_ALLOW_SYSTEM_SPIRV_CROSS', '1')
+    env.setdefault('DM_ALLOW_OTHER_METAL', '1')
     # tc.dotnet_dir() first: it knows about the SDK the app installed for itself, which is not on
     # PATH and not in Program Files. `which` alone missed it, so `dotnet build` and the shader
     # translator failed on a machine that had just installed .NET through this app.
@@ -334,9 +822,11 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
     elif dn := shutil.which('dotnet'):
         parts.append(str(Path(dn).parent))
 
+    pkg_root = str(Path(__file__).resolve().parents[2])
     env['PATH'] = os.pathsep.join(dict.fromkeys(parts + [env.get('PATH', '')]))
     env['PYTHONPATH'] = os.pathsep.join(
-        dict.fromkeys([str(sd)] + [p for p in env.get('PYTHONPATH', '').split(os.pathsep) if p]))
+        dict.fromkeys([str(sd), pkg_root]
+                      + [p for p in env.get('PYTHONPATH', '').split(os.pathsep) if p]))
     env.setdefault('PYTHONUTF8', '1')     # the pipeline reads and writes UTF-8 without naming it
     env.setdefault('PYTHONIOENCODING', 'utf-8')
 
@@ -354,8 +844,9 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
         env['METALLIB_EXE'] = str(with_lib)
 
     # the shader build spawns one metal.exe per shader and each start costs ~0.1 s on Windows,
-    # so keep every core busy rather than the upstream default of 8
-    env.setdefault('J', str(max(8, 2 * (os.cpu_count() or 4))))
+    # so keep every core busy rather than the upstream default of 8 (capped at 61, CPython's
+    # ProcessPoolExecutor _MAX_WINDOWS_WORKERS limit for WaitForMultipleObjects)
+    env.setdefault('J', str(min(61, max(8, 2 * (os.cpu_count() or 4)))))
     return env
 
 
@@ -364,7 +855,7 @@ def verify_shim(env: dict[str, str]) -> tuple[bool, str]:
     try:
         r = subprocess.run([env.get('NSPB_PYTHON') or sys.executable, '-c',
                             'import sys; sys.exit(0 if "sitecustomize" in sys.modules else 3)'],
-                           capture_output=True, text=True, env=env, timeout=60)
+                           capture_output=True, text=True, env=env, timeout=60, **tc.no_window())
     except (OSError, subprocess.SubprocessError) as e:
         return False, f'cannot run a probe interpreter: {e}'
     if r.returncode == 0:

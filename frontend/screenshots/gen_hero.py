@@ -30,7 +30,7 @@ TEXT = {
     'en': {
         'out': 'hero-features-en.png',
         'title': ('Switch games,', 'on iPhone and Mac.'),
-        'lead': 'Not an emulator. No terminal.<br>A Mac app does the whole build in a few clicks.',
+        'lead': 'Not an emulator. No terminal.<br>A Mac or Windows app does the whole build in a few clicks.',
         'stats': ['game profiles', 'files → 1 img'],
         'cards': [
             ('One-click build', 'Pick your files, press Build. No terminal.'),
@@ -42,7 +42,7 @@ TEXT = {
     'zh': {
         'out': 'hero-features.png',
         'title': ('Switch 游戏，', '装进 iPhone 和 Mac。'),
-        'lead': '不是模拟器 · 不用命令行<br>一个 macOS App 点几下就完成构建',
+        'lead': '不是模拟器 · 不用命令行<br>一个 macOS 或 Windows App 点几下就完成构建',
         'stats': ['款游戏 profile', '文件 → 1 个镜像'],
         'cards': [
             ('一键构建', '选好文件按构建，全程无命令行'),

@@ -169,7 +169,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/777a5f6c618a38cd2d7f795f465466fb56920534/docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
@@ -180,16 +180,45 @@ shows none. Starting the app from Finder uses its defaults.
 
 ## Controls
 
-**Settings → Controls → Customize…** sets the keys and controller buttons for every game.
+**Settings → Controls → Customize…** sets the global keyboard and controller layout.
 For a key, click its field and press the new key (Esc keeps the old one, × leaves the
 function on no key). One key holds one function, so the function that had the key before
 is left on none, as in the host. For a controller button, choose the button it sends
 (A and B swapped, for example). The right stick has no keys by default and can get some
-here. **Play** passes only the changes, as `DM_KEYMAP` and `DM_PAD_MAP`, which the host
-reads through `dm/host/input_map.h` — upstream's
-[seedds/nxnative#386](https://github.com/seedds/nxnative/pull/386), carried in this fork
-while it is open, and listed in `docs/env_switches.tsv`. A host built before the carrier
-has no `input_map.h` and ignores both, so its games play with the default keys.
+here.
+
+For rebuilt games that support saved controller mappings, **Manage → Launch options →
+Controller mapping…** opens a layout for that game. It shares standard button mappings
+with the game's controller menu, including **Shake**. The first launch or opening of
+this editor copies a changed global keyboard/controller layout only where the game has
+no saved mapping. This happens once, including when the global layout is unchanged,
+so resetting in the game's menu stays reset. **Copy global layout** explicitly replaces
+only the standard keyboard and controller maps. Steam extra inputs remain unchanged.
+The per-game editor refreshes after switching back from the game's menu.
+
+The **Steam Controller (2026)** section configures L4/R4/L5/R5, both pad clicks,
+Guide and Quick Access, the two trackpad modes and motion controls. Extra buttons are
+unbound by default, the left pad is a D-pad, the right pad is a touchscreen, and motion
+is enabled. **Reset Steam controls** resets only this section. Standard maps apply to
+all controllers for the game, while these extra settings apply to the Steam model.
+
+Existing game apps must be rebuilt with the updated engine to receive direct Steam
+Controller input and the per-game editor. The launcher checks the built app's explicit
+`DMControllerMappings=1` capability marker. Older builds continue receiving the global
+layout as `DM_KEYMAP` and `DM_PAD_MAP` at Play. New builds read those maps from the
+game's preferences, allowing the in-game panel to change them. Explicit launch overrides
+and `env.txt` retain their precedence. `DM_SAVED_CHOICES=0` prevents migration and
+preserves the legacy launch environment. No controller preferences are written while
+saved choices are disabled.
+
+Direct raw Steam input belongs to built games. Library and console navigation in
+NX2Apple continue to depend on Apple's GameController support.
+
+macOS may require **System Settings → Privacy & Security → Input Monitoring**
+permission for the game app's direct Steam input. Bluetooth pairing alone does not
+grant it. If direct input, motion or rumble is unavailable, enable the game app
+you launch there, quit and reopen it, then reconnect the controller. Replacing or
+rebuilding an ad-hoc signed app can require renewing that permission.
 
 The controller has four layouts, each only a `DM_PAD_MAP` value. **Standard layout**
 (the default) passes nothing: the host reads the face buttons by position, in the
@@ -265,6 +294,40 @@ A launcher built from this repository never replaces itself: `swift run` (no
 bundle), a bundle under `.build/` or `DerivedData/`, a bundle beside
 `Package.swift` (the `NX2Apple.app` made here), or one whose Info.plist version
 is not this binary's release number. `AppUpdate.swift` holds these rules.
+
+## Experimental builder
+
+Settings, Build tools, **Use experimental builder** (off by default, LNPANDY/NX2Apple#749). nxbuild is a build tool in Rust that reproduces stages of the NSP script byte for byte, and faster. With the switch on, the build gets `DM_EXPERIMENTAL_BUILDER=1` and `NXB_BIN` (the path of the `nxb` binary). The script stays the driver. It runs the extraction (`nxb-extract`) and the shader split (`nxb-split`) through nxbuild where nxbuild supports the case, with the same outputs, stages and events. Everything else runs the standard way:
+
+- an XCI, an NSZ, a merged package, `--program`, `--allow-damaged`, DLC, run-time captures, NROs, a game decoder, a provisional or derived profile
+- an nxbuild exit code other than 0 (4 means "not supported yet")
+- an output that fails the checks: for an extraction the title, `ExeFS/main`, `RomFS.img` and the profile's marker, for the split the data rows of the profile's shader tables
+
+The build log says which stage nxbuild ran and why a stage fell back. nxbuild's own log is `logs/nxb_extract_<version>.log` or `logs/nxb_split.log` in the build folder. The shader step, the pipeline archive and the Mac app are not handed over yet. The NSP script needs the engine patch that reads the two variables. An engine without it ignores them.
+
+Where `nxb` comes from (`ExperimentalBuilder` in `NXCore`):
+
+1. The path chosen in the row under the switch, the `nxb` binary or the folder that holds it. A chosen path that does not work is reported, never replaced by another binary.
+2. Otherwise the app's own copy, `Contents/Resources/nxbuild/nxb`. `frontend/nxbuild.pin` names the nxbuild release (version, SHA-256, URL pattern). `build-mac-app.yml` and `tools/try-local` run `frontend/tools/nxbuild.py fetch`: it downloads the zip, checks its SHA-256 against the pin before anything is unpacked, puts `nxb` into Resources and signs it ad hoc. A zip whose digest differs fails the app build. A pin with `PLACEHOLDER` as its digest bundles nothing. `frontend/tools/nxbuild.py bump <version>` pins a new release with the digest from its `SHA256SUMS`. Players download nothing at run time.
+
+With neither, the switch only writes a note in the build log and the standard builder runs.
+
+To try a local nxbuild:
+
+```bash
+cd <nxbuild checkout> && cargo build --release      # the binaries land in its target folder, release/
+codesign --force --sign - <target>/release/nxb*     # ad hoc, as the app's copy
+```
+
+Then turn the switch on and choose `release/nxb` (or the folder). From a terminal, the same works without the launcher:
+
+```bash
+DM_EXPERIMENTAL_BUILDER=1 NXB_BIN=<target>/release/nxb python3 engine/scripts/build_ipa_from_nsp.py <NSP folder> -k <prod.keys> --platform mac-app
+```
+
+The script takes a stage binary beside `nxb` (`nxb-extract`, `nxb-split`) when there is one, else the subcommand of `nxb` (`nxb extract`, `nxb split`).
+
+The Qt front end has no switch for it: nxbuild is built for macOS on Apple silicon only, and on a Mac the launcher above is the one to use.
 
 ## Run
 

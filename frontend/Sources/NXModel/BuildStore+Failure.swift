@@ -42,7 +42,14 @@ extension BuildStore {
         if f.kind == .a32Program, let name = f.gameName { return String(format: t("fail.a32Program.whatNamed"), name) }
         if f.kind == .driveMissing, let name = f.detail { return String(format: t("fail.driveMissing.whatNamed"), name) }
         if f.kind == .diskFull, let gb = f.detail { return String(format: t("fail.diskFull.whatNeeds"), gb) }
+        if f.kind == .psoDiskFull, let gb = f.detail { return String(format: t("fail.psoDiskFull.whatNeeds"), gb) }
         return t(f.kind.whatKey)
+    }
+
+    package func buildTitle(_ titleID: String) {
+        guard canBuild, !experimentalBuilder, failure?.titleIDs.contains(titleID) == true else { return }
+        selectedTitleID = titleID
+        runBuild()
     }
 
     /// "Build anyway": asks first. Nothing is armed until `confirmBuildAnyway`.
@@ -57,7 +64,7 @@ extension BuildStore {
         guard let kind = confirmingOverride else { return }
         confirmingOverride = nil
         armedOverride = kind
-        startBuild()
+        runBuild()
     }
 
     /// The flag the next build runs with, once: the arm is cleared here, so a later build never inherits it.
@@ -88,7 +95,7 @@ extension BuildStore {
         case .teamTaken, .noSigningAccount:
             openXcode()
         case .deviceTransfer, .devicePairing:
-            startBuild()
+            runBuild()
         case .shellDataIncomplete:
             retryShellData()
         default: break

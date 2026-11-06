@@ -110,6 +110,11 @@ def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
     """
     cands: list[str] = [venv_python()] + [c for c in (extra_candidates or []) if c]
     if IS_WIN:
+        local_app = Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData' / 'Local')))
+        tools_root = local_app / 'NS Port Builder' / 'tools'
+        if tools_root.is_dir():
+            for d in sorted(tools_root.glob('python-*'), reverse=True):
+                cands.append(str(d / 'python.exe'))
         cands += [
             os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python312\python.exe'),
             os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python311\python.exe'),
@@ -178,7 +183,13 @@ def venv_base(preferred: str) -> str | None:
     `-m venv`, and the Python row never recovered from it. So a base that does not run at the
     required version falls back to the newest candidate that does.
     """
-    if Path(preferred).is_file() and os.access(preferred, os.X_OK):
+    p = Path(preferred) if preferred else Path()
+    if preferred and p.is_dir():
+        sub = p / ('python.exe' if IS_WIN else 'bin/python3')
+        if sub.is_file():
+            p = sub
+            preferred = str(sub)
+    if preferred and p.is_file() and os.access(preferred, os.X_OK):
         v = _python_version(preferred)
         if v and _ver_tuple(v) >= MIN_PYTHON:
             return preferred
@@ -357,6 +368,8 @@ def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     # telemetry call can hang the very first run on a network that cannot reach Microsoft.
     env.setdefault('DOTNET_CLI_TELEMETRY_OPTOUT', '1')
     env.setdefault('DOTNET_NOLOGO', '1')
+    env.setdefault('PYTHONUTF8', '1')
+    env.setdefault('PYTHONIOENCODING', 'utf-8')
     if extra:
         env.update(extra)
     return env
@@ -373,6 +386,85 @@ def no_window_kwargs() -> dict:
     if IS_WIN:
         return {'creationflags': subprocess.CREATE_NO_WINDOW}
     return {}
+
+
+_ORIG_POPEN_INIT = subprocess.Popen.__init__
+
+
+def reveal(path: str | Path | None) -> bool:
+    """Show `path` in the system file manager (Explorer on Windows, Finder on macOS).
+
+    If `path` is a file (such as an `.ipa` or `romfs.img`), opens its parent folder with the
+    file selected; if `path` is a folder that contains `romfs.img`, opens that folder with
+    `romfs.img` selected; otherwise opens the folder itself.
+    """
+    if not path:
+        return False
+    p = Path(str(path)).expanduser()
+    if not p.exists():
+        if p.parent.is_dir():
+            p = p.parent
+        else:
+            return False
+    if p.is_dir() and (p / 'romfs.img').is_file():
+        target = (p / 'romfs.img').resolve()
+        is_file = True
+    else:
+        target = p.resolve()
+        is_file = target.is_file()
+
+    if IS_WIN:
+        norm = os.path.normpath(str(target))
+        if is_file:
+            try:
+                import ctypes
+                shell32 = ctypes.windll.shell32
+                shell32.ILCreateFromPathW.argtypes = [ctypes.c_wchar_p]
+                shell32.ILCreateFromPathW.restype = ctypes.c_void_p
+                shell32.SHOpenFolderAndSelectItems.argtypes = [
+                    ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_ulong
+                ]
+                shell32.SHOpenFolderAndSelectItems.restype = ctypes.c_long
+                shell32.ILFree.argtypes = [ctypes.c_void_p]
+                shell32.ILFree.restype = None
+                ctypes.windll.ole32.CoInitialize(None)
+                pidl = shell32.ILCreateFromPathW(norm)
+                if pidl:
+                    try:
+                        hr = shell32.SHOpenFolderAndSelectItems(pidl, 0, None, 0)
+                        if hr == 0:
+                            return True
+                    finally:
+                        shell32.ILFree(pidl)
+            except Exception:
+                pass
+            try:
+                subprocess.Popen(['explorer.exe', f'/select,{norm}'])
+                return True
+            except OSError:
+                pass
+        folder_norm = os.path.normpath(str(target.parent if is_file else target))
+        if hasattr(os, 'startfile'):
+            try:
+                os.startfile(folder_norm)  # type: ignore[attr-defined]
+                return True
+            except OSError:
+                pass
+    elif IS_MAC:
+        try:
+            cmd = ['/usr/bin/open', '-R', str(target)] if is_file else ['/usr/bin/open', str(target)]
+            subprocess.Popen(cmd)
+            return True
+        except OSError:
+            pass
+
+    try:
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        open_dir = target.parent if is_file else target
+        return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(str(open_dir))))
+    except Exception:
+        return False
 
 
 def hide_console_for_children() -> None:
@@ -397,7 +489,12 @@ def hide_console_for_children() -> None:
     original = subprocess.Popen.__init__
 
     def patched(self, args, *a, **k):        # noqa: ANN001 - mirrors Popen.__init__
-        if not k.get('creationflags') and not k.get('startupinfo'):
+        first = ''
+        if isinstance(args, (list, tuple)) and args:
+            first = os.path.basename(str(args[0])).lower()
+        elif isinstance(args, str):
+            first = os.path.basename(args.split()[0] if args.split() else '').lower()
+        if first not in ('explorer', 'explorer.exe') and not k.get('creationflags') and not k.get('startupinfo'):
             k['creationflags'] = subprocess.CREATE_NO_WINDOW
         original(self, args, *a, **k)
 

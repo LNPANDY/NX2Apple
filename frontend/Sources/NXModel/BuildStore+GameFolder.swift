@@ -37,16 +37,18 @@ extension BuildStore {
         updateSlot("base") { $0.problem = why }
     }
 
-    /// What the engine lacks for this folder: the packer (an older engine), or a profile for the game. nil without an engine yet:
-    /// the build asks again before it starts.
+    /// What the engine lacks for this folder: the packer, or a profile for the game. Only an engine without the survey needs the
+    /// profile, a newer one builds a game with no profile from a provisional one. nil without an engine yet: the build asks again
+    /// before it starts.
     package func gameFolderEngineProblem(_ contents: GameFolder.Contents) -> String? {
         let engine = EngineLayout.root(repo.path)
         guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/dm") else { return nil }
         if contents.nup != nil ? !GameFolder.engineBuildsNUPs(engine) : !GameFolder.engineBuildsFolders(engine) {
             return t(contents.nup != nil ? "folder.engineOldNUP" : "folder.engineOld")
         }
-        // A NUP whose package table names no title ID: the script reads it from the code, and checks the profile itself
-        if contents.hasTitleID, !GameFolder.engineHasProfile(contents.titleID, engineRoot: engine) { return String(format: t("folder.noProfile"), contents.titleIDHex) }
+        // A NUP whose package table names no title ID: the script reads it from the code, and checks the profile itself.
+        // An engine with the survey builds a game with no profile from a provisional one.
+        if contents.hasTitleID, !GameFolder.engineSurveysWithoutProfile(engine), !GameFolder.engineHasProfile(contents.titleID, engineRoot: engine) { return String(format: t("folder.noProfile"), contents.titleIDHex) }
         return nil
     }
 
@@ -88,6 +90,7 @@ extension BuildStore {
 
     /// The key of the build folder and the app (`<key>_build`, `<key>.app`): the folder's title ID, else the base package's (TitleID.buildKey).
     package var buildKey: String {
+        if let selectedTitleID { return selectedTitleID }
         guard let f = gameFolder else { return TitleID.buildKey(basePath) }
         return f.hasTitleID ? f.titleIDHex : TitleID.buildKey(f.scriptInput)
     }
@@ -97,6 +100,7 @@ extension BuildStore {
 
     /// The game's title ID as 16 hex digits, when the inputs tell it.
     package var gameTitleID: String? {
+        if let selectedTitleID { return selectedTitleID }
         if let f = gameFolder { return f.hasTitleID ? f.titleIDHex : nil }
         return TitleID.parse(basePath).map { String(format: "%016llX", $0) }
     }
@@ -109,6 +113,9 @@ extension BuildStore {
 
     /// A name for the game in messages and the shared app: the profile's for a game folder (it has no control data), else the base package's file name.
     package var gameName: String {
+        if let selectedTitleID, let tid = UInt64(selectedTitleID, radix: 16) {
+            return GameFolder.profileName(tid, engineRoot: EngineLayout.root(repo.path)) ?? selectedTitleID
+        }
         if let f = gameFolder {
             let fallback = f.nup.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension } ?? (f.folder as NSString).lastPathComponent
             return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: EngineLayout.root(repo.path)) ?? fallback : fallback

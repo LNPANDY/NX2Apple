@@ -213,6 +213,34 @@ class SdkTest(unittest.TestCase):
         self.assertEqual(tc.sdk_tree_digest(a), tc.sdk_tree_digest(a))
         self.assertNotEqual(tc.sdk_tree_digest(a), tc.sdk_tree_digest(b))
 
+    def test_sdk_pinned_is_27_2_and_preferred_over_cached_26(self) -> None:
+        self.assertEqual(tc.SDK_PINNED, 'iPhoneOS27.2.sdk')
+        self.assertEqual(tc.SDK_ACCEPTED[0], 'iPhoneOS27.2.sdk')
+        cache = tc.sdk_cache_dir()
+        sdk26 = make_fake_sdk(cache, '26.0')
+        with mock.patch.object(tc, 'setting', return_value=None):
+            self.assertEqual(tc.ios_sdk(), sdk26)
+            sdk27 = make_fake_sdk(cache, '27.2')
+            self.assertEqual(tc.ios_sdk(), sdk27)
+
+    def test_probe_metal_caps_target_at_deployment_for_27_sdk(self) -> None:
+        sdk27 = make_fake_sdk(self.root, '27.2')
+        seen_cmds: list[list[str]] = []
+
+        def fake_run(cmd, *a, **kw):
+            seen_cmds.append([str(c) for c in cmd])
+            if '-o' in cmd:
+                out_p = Path(cmd[cmd.index('-o') + 1])
+                out_p.write_bytes(b'MTLB')
+            return subprocess.CompletedProcess(cmd, 0, '', '')
+
+        with mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'C:/metal/{name}.exe')), \
+             mock.patch.object(tc.subprocess, 'run', side_effect=fake_run):
+            ok, detail = tc.probe_metal(sdk27)
+        self.assertTrue(ok, detail)
+        self.assertIn('air64-apple-ios26.0', seen_cmds[0])
+        self.assertNotIn('air64-apple-ios27.0', seen_cmds[0])
+
 
 class CheckAllTest(unittest.TestCase):
     """The panel's rows, on a machine with nothing installed and with a fake toolchain."""
@@ -363,6 +391,7 @@ class HostSourcesTest(unittest.TestCase):
             self.assertIn(must, names, f'{must} missing from the host source list')
         # Mac-only sources are dropped
         self.assertNotIn('front_mac.m', names)
+        self.assertNotIn('controllers_mac.m', names)
         # the iOS front end is compiled by the iOS project, not the host walk
         self.assertNotIn('front_ios.m', names)
         self.assertNotIn('main.m', names)
@@ -578,12 +607,17 @@ class ShimTest(unittest.TestCase):
             d = Path(td)
             shim.install(d, python_exe=sys.executable)
             first = {p.name: p.read_bytes() for p in d.iterdir()}
+            for p in d.iterdir():
+                os.utime(p, (1_000_000_000, 1_000_000_000))
+            mtimes = {p.name: p.stat().st_mtime_ns for p in d.iterdir()}
             shim.install(d, python_exe=sys.executable)
             second = {p.name: p.read_bytes() for p in d.iterdir()}
             self.assertEqual(first, second)
-            self.assertIn('sitecustomize.py', first)
+            self.assertEqual(mtimes, {p.name: p.stat().st_mtime_ns for p in d.iterdir()})
+            self.assertNotIn(b'\r', first['sitecustomize.py'])
             for name in ('xcrun.cmd', 'xcodebuild.cmd', 'xcodegen.cmd', 'python3.cmd'):
-                self.assertIn(name, first, f'{name} stand-in not written')
+                lines = first[name].splitlines(keepends=True)
+                self.assertTrue(lines and all(line.endswith(b'\r\n') for line in lines), name)
 
     def test_sitecustomize_is_valid_python(self) -> None:
         import ast
@@ -1178,6 +1212,24 @@ class ToolchainProbeRobustnessTest(unittest.TestCase):
         self.assertTrue(self._all_deps_ok(good, True))
         self.assertFalse(self._all_deps_ok([Dep('a', 'k', 'h', DepState.MISSING, '')], True))
 
+    def test_a_missing_optional_row_does_not_stop_the_build(self) -> None:
+        """spirv-cross and glslangValidator are optional (only an OpenGL game uses them). With them missing and
+        every required row present the panel says "everything required is installed", and the build button
+        must be on: all_deps_ok counted them once, and the button stayed grey with no reason on the screen."""
+        try:
+            from nspb_qt.model import Dep, DepState
+        except ModuleNotFoundError as e:
+            if 'PySide6' in str(e):
+                self.skipTest('PySide6 is not installed')
+            raise
+        good = Dep('python', 'k', 'h', DepState.OK, '')
+        optional = [Dep('spirv-cross', 'k', 'h', DepState.MISSING, '', required=False),
+                    Dep('glslangValidator', 'k', 'h', DepState.MISSING, '', required=False)]
+        self.assertTrue(self._all_deps_ok([good] + optional, True))
+        self.assertFalse(self._all_deps_ok([good, Dep('zstd', 'k', 'h', DepState.MISSING, '')] + optional, True),
+                         'a required row that is missing still stops it')
+        self.assertFalse(self._all_deps_ok([good] + optional, False), 'unchecked is not ready')
+
 
 class SdkCleanupTest(unittest.TestCase):
     """A retry must start from an empty directory, even with git's read-only pack files.
@@ -1710,7 +1762,7 @@ class PlatformIsolationTest(unittest.TestCase):
             code = (
                 'import sys; sys.path.insert(0, %r)\n'
                 'from nspb_qt.win import toolchain, sdk_fetch, shim, fix_ipa_modes, fetch, '
-                'doctor, build_app, driver, xcrun_shim\n'
+                'doctor, build_app, driver, xcrun_shim, macho_sign, sdk_auto_cuts\n'
                 'print("ok")\n'
             ) % str(QT)
             r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
@@ -1961,7 +2013,7 @@ class VenvWheelsTest(unittest.TestCase):
             ns: dict = {}
             exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
                          '<model>', 'exec'), ns)
-            return ns['_pip_args']
+            return ns['_pip_args'].__func__
 
     def test_offline_args_when_wheels_are_bundled(self) -> None:
         args = self._pip_args_fn()(['lz4', 'nsz'], Path('C:/app/wheels'))
@@ -1976,6 +2028,58 @@ class VenvWheelsTest(unittest.TestCase):
         out = t('dep.row.log', Lang('en'), 'python', 'missing', 'C:/x | found')
         self.assertEqual(out, 'dependency python: [missing] C:/x | found', 'the report log showed raw %@ placeholders')
         self.assertTrue(t('dep.row.log', Lang('zh'), 'python', 'missing', 'd'), 'Chinese side is filled too')
+
+    def test_bundled_wheels_finds_wheels_beside_exe_when_meipass_is_internal(self) -> None:
+        """PyInstaller 6 onedir sets sys._MEIPASS to `<app>/_internal` while `wheels/` sits at `<app>/wheels`."""
+        import ast
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        tree = ast.parse(src)
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+                  and n.name == 'bundled_wheels')
+        for n in ast.walk(fn):
+            ast.fix_missing_locations(n)
+        ns: dict = {'sys': sys, 'Path': Path}
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                     '<model>', 'exec'), ns)
+        bundled_wheels = ns['bundled_wheels'].__func__
+        with tempfile.TemporaryDirectory() as td:
+            app_dir = Path(td) / 'NS Port Builder'
+            internal = app_dir / '_internal'
+            wheels = app_dir / 'wheels'
+            internal.mkdir(parents=True)
+            wheels.mkdir(parents=True)
+            (wheels / 'lz4-4.0.0-cp312-win_amd64.whl').write_bytes(b'PK')
+            with mock.patch.object(sys, '_MEIPASS', str(internal), create=True), \
+                 mock.patch.object(sys, 'executable', str(app_dir / 'NS Port Builder.exe')):
+                self.assertEqual(bundled_wheels(), wheels)
+
+    def test_win_python_install_chains_make_venv_immediately(self) -> None:
+        """Installing Python on a fresh PC must pass `python.exe` (not the install folder) to _make_venv / venv_base."""
+        from nspb_qt import platform_util as pu
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        branch = src[src.index("elif what == 'python':"):src.index("elif what == 'llvm':")]
+        self.assertIn('install_python(', branch)
+        self.assertIn("Path(path) / 'python.exe'", branch)
+        self.assertIn('self._make_venv(str(py_exe))', branch)
+
+        # End-to-end check: install_python() returns a directory (`.../tools/python-3.12.10`),
+        # and on a fresh PC with no system Python in python_candidates(), venv_base must resolve
+        # `python.exe` inside that directory and python_candidates() must discover tools/python-*/python.exe.
+        with tempfile.TemporaryDirectory() as td:
+            tools_dir = Path(td) / 'NS Port Builder' / 'tools'
+            py_dir = tools_dir / 'python-3.12.10'
+            py_dir.mkdir(parents=True)
+            py_exe = py_dir / 'python.exe'
+            py_exe.write_bytes(b'MZ')
+            py_exe.chmod(0o755)
+            with mock.patch.object(pu, 'IS_WIN', True), \
+                 mock.patch.object(pu, '_python_version', return_value='3.12.10'), \
+                 mock.patch.object(pu, 'python_candidates', return_value=[]):
+                # Even when a caller passes the folder returned by install_python(), venv_base resolves python.exe
+                self.assertEqual(pu.venv_base(str(py_dir)), str(py_exe))
+            with mock.patch.object(pu, 'IS_WIN', True), \
+                 mock.patch.dict(os.environ, {'LOCALAPPDATA': td}, clear=False):
+                self.assertIn(str(py_exe), pu.python_candidates())
 
 
 class MetalPickFlowShapeTest(unittest.TestCase):
@@ -2070,11 +2174,748 @@ class InstallFailureHintTest(unittest.TestCase):
             ns: dict = {}
             exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
                          '<model>', 'exec'), ns)
-            classify = ns['_classify_install_failure']
+            classify = ns['_classify_install_failure'].__func__
         self.assertEqual(classify('DownloadError: connection reset by peer'), 'dep.fix.network')
         self.assertEqual(classify('URLError: operation timed out'), 'dep.fix.network')
-        self.assertEqual(classify('OSError: [Errno 28] No space left on device'), 'dep.fix.diskspace')
+        self.assertEqual( classify('OSError: [Errno 28] No space left on device'), 'dep.fix.diskspace')
         self.assertEqual(classify('KeyError: x'), 'dep.fix.log')
+
+
+class WindowsBuildFixesTest(unittest.TestCase):
+    """Regression tests for the Windows build pipeline fixes."""
+
+    def test_shim_puts_package_parent_on_sys_path_and_passes_nspb_python(self) -> None:
+        self.assertIn('os.path.dirname(os.path.dirname(_PKG))', shim._SITECUSTOMIZE_SRC)
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(shim, 'shim_dir', return_value=Path(td)):
+                env = shim.build_env({'PATH': '', 'PYTHONPATH': ''}, python_exe='C:\\venv\\python.exe')
+        self.assertEqual(env['NSPB_PYTHON'], 'C:\\venv\\python.exe')
+        self.assertEqual(env['DM_ALLOW_SYSTEM_SPIRV_CROSS'], '1')
+        self.assertEqual(env['DM_ALLOW_OTHER_METAL'], '1')
+        self.assertNotIn('DM_REWRITE_J', env)
+        pkg_root = str(QT)
+        self.assertIn(pkg_root, env['PYTHONPATH'].split(os.pathsep))
+
+    def test_romfs_backslash_paths_and_pread_with_real_image(self) -> None:
+        """Pack a real RomFS.img with romfs_image.py and verify backslash lookups and pread."""
+        tools_dir = str(QT.parent / 'engine' / 'dm' / 'tools')
+        if not Path(tools_dir, 'romfs_image.py').is_file():
+            self.skipTest('engine/ is missing')
+        if tools_dir not in sys.path:
+            sys.path.insert(0, tools_dir)
+        import importlib
+        import romfs
+        import romfs_image
+
+        # Execute the shim's romfs patcher and _win_pread helper from _SITECUSTOMIZE_SRC
+        ns: dict = {'os': os, 'sys': sys}
+        src = shim._SITECUSTOMIZE_SRC
+        start = src.index('    _relpath = os.path.relpath')
+        end = src.index('    def _patch_sdk_patches_module(mod):')
+        exec('\n'.join(ln[4:] for ln in src[start:end].splitlines()), ns)
+        ns['_patch_romfs_module'](romfs)
+
+        pread_start = src.index('        def _win_pread(fd, n, offset):')
+        pread_end = src.index('        os.pread = _win_pread')
+        import threading
+        ns['_threading'] = threading
+        ns['_pread_lock'] = threading.Lock()
+        exec('\n'.join(ln[8:] for ln in src[pread_start:pread_end].splitlines()), ns)
+        win_pread = ns['_win_pread']
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            v0 = root / 'v0'
+            rdir = v0 / 'RomFS'
+            (rdir / 'Shader' / 'sub').mkdir(parents=True)
+            payload = b'binary\x1a\r\ndata\x00end'
+            (rdir / 'Shader' / 'sub' / 'test.bin').write_bytes(payload)
+            img_path = v0 / 'RomFS.img'
+            romfs_image.pack(str(rdir), str(img_path))
+            shutil.rmtree(rdir)
+
+            # Test _win_pread preserves fd offset and reads exact binary bytes
+            fd = os.open(str(img_path), os.O_RDONLY | getattr(os, 'O_BINARY', 0))
+            try:
+                os.lseek(fd, 4, os.SEEK_SET)
+                magic = win_pread(fd, 8, 0)
+                self.assertEqual(magic, b'DMROMFS1')
+                self.assertEqual(os.lseek(fd, 0, os.SEEK_CUR), 4)
+            finally:
+                os.close(fd)
+
+            # Test backslash path resolution against RomFS.img
+            romfs._image.cache_clear()
+            src_path = romfs.source(v0)
+            self.assertTrue(romfs.isfile(str(img_path) + r'\Shader\sub\test.bin'))
+            with romfs.open(str(img_path) + r'\Shader\sub\test.bin', 'rb') as f:
+                self.assertEqual(f.read(), payload)
+            walked = list(romfs.walk(src_path))
+            self.assertTrue(any(r.endswith('Shader/sub') and 'test.bin' in fs for r, _, fs in walked))
+            self.assertFalse(any('\\' in r for r, _, _ in walked))
+            joined = romfs.os.path.join('Shader\\sub', 'test.bin')
+            self.assertEqual(joined, 'Shader/sub/test.bin')
+            self.assertEqual(romfs.os.sep, '/')
+            self.assertEqual(romfs.os.path.sep, '/')
+            self.assertEqual(romfs.os.path.normpath('Shader\\sub\\test.bin'), 'Shader/sub/test.bin')
+            self.assertEqual(romfs.os.path.relpath(str(src_path) + '/Shader/sub/test.bin', str(src_path)),
+                             'Shader/sub/test.bin')
+
+    def test_macho_sign_produces_valid_adhoc_signature_with_entitlements(self) -> None:
+        from nspb_qt.win import macho_sign
+        if sys.platform != 'darwin' or not shutil.which('clang') or not shutil.which('codesign'):
+            self.skipTest('macOS clang and codesign required for end-to-end verification')
+        with tempfile.TemporaryDirectory() as td:
+            c_file = Path(td) / 'main.c'
+            exe = Path(td) / 'DmIOS'
+            c_file.write_text('int main(void) { return 0; }\n', encoding='utf-8')
+            r = subprocess.run(['clang', '-arch', 'arm64', '-Wl,-adhoc_codesign',
+                                str(c_file), '-o', str(exe)], capture_output=True, text=True)
+            if r.returncode != 0:
+                self.skipTest(f'clang could not build arm64 binary: {r.stderr}')
+            ents = {'com.apple.developer.kernel.increased-memory-limit': True}
+            sig_len = macho_sign.sign(exe, 'org.nxnative.test', ents)
+            self.assertGreater(sig_len, 100)
+            v = subprocess.run(['/usr/bin/codesign', '--verify', '-vvv', str(exe)],
+                               capture_output=True, text=True)
+            self.assertEqual(v.returncode, 0, v.stderr + v.stdout)
+            d = subprocess.run(['/usr/bin/codesign', '-d', '--entitlements', ':-', str(exe)],
+                               capture_output=True, text=True)
+            self.assertEqual(d.returncode, 0, d.stderr)
+            self.assertIn('com.apple.developer.kernel.increased-memory-limit', d.stdout)
+
+    def test_bundled_extractor_runs_without_a_nuget_restore(self) -> None:
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        with tempfile.TemporaryDirectory() as td:
+            bundled = Path(td) / 'NX2Apple' / 'engine'
+            exe = bundled / 'dm/tools/nx_extract_bin/nx_extract.exe'
+            exe.parent.mkdir(parents=True)
+            exe.touch()
+            work = Path(td) / 'title_probe'
+            with mock.patch.object(driver, '_UPSTREAM_RUN', None):
+                driver.patch(mod, bundled)
+                with mock.patch.object(mod, 'run', side_effect=AssertionError('attempted a source build')):
+                    self.assertEqual(mod.build_nx_extract(bundled, work, work / 'logs', {}), exe)
+
+    def test_driver_region_skip_stamps_rewrite_id_and_capture_jit_reuses_image(self) -> None:
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        driver.patch(mod, repo)
+        self.assertTrue(mod.ALLOW_OTHER_METAL)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            gdir = root / 'profile'
+            gdir.mkdir()
+            (gdir / 'game.tsv').write_text('id\ttest\npackage\tv0\n', encoding='utf-8')
+            patched = root / 'patched_v0'
+            patched.mkdir()
+            (patched / 'main.patched.bin').write_bytes(b'1234')
+
+            class FakeGame:
+                def __init__(self, d):
+                    self.dir = Path(d)
+
+            g = mod.region_check(repo, root, patched, root, {}, root, FakeGame(gdir))
+            self.assertTrue(mod.region_checked(g, patched))
+
+            # capture_jit raises when jit.img is absent, succeeds when present
+            with self.assertRaises(mod.BuildError):
+                mod.capture_jit('py', repo, root, patched, root, {}, root, g)
+            (root / 'jit').mkdir()
+            (root / 'jit' / 'jit.img').write_bytes(b'jit')
+            mod.capture_jit('py', repo, root, patched, root, {}, root, g)
+
+    def test_pack_archive_handles_romfs_img_and_copies_aoc(self) -> None:
+        import time
+        try:
+            from nspb_qt.model import Model
+        except ImportError:
+            self.skipTest('PySide6 is not installed')
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            work = root / 'work'
+            v0 = work / 'extract' / 'v0'
+            v0.mkdir(parents=True)
+            (v0 / 'RomFS.img').write_bytes(b'DMROMFS1_payload')
+            aoc = work / 'aoc'
+            aoc.mkdir(parents=True)
+            (aoc / '0.img').write_bytes(b'dlc0')
+            out = root / 'out'
+            out.mkdir()
+            with mock.patch.object(Model, 'check_deps', lambda self: None):
+                m = Model()
+            m.effective_work_dir = str(work)
+            m.out_dir = str(out)
+            m.base_path = str(root / 'game.nsp')
+            m.pack_archive()
+            for _ in range(50):
+                if m.archive_path:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(m.archive_path, str(out / 'romfs'))
+            self.assertEqual((out / 'romfs' / 'romfs.img').read_bytes(), b'DMROMFS1_payload')
+            self.assertEqual((out / 'romfs' / 'aoc' / '0.img').read_bytes(), b'dlc0')
+
+    def test_run_ipa_forwards_ok_and_fatal_kwargs(self) -> None:
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        recorded = []
+
+        def fake_run(cmd, log, env=None, cwd=None, on_line=None, ok=(), fatal=True):
+            recorded.append((list(cmd), ok, fatal))
+            return 0
+
+        orig = driver._UPSTREAM_RUN
+        try:
+            driver._UPSTREAM_RUN = fake_run
+            driver.patch(mod, repo)
+            mod.run(['nx_extract', 'keys.txt', '--keys', 'a.nsp'], Path('k.log'),
+                    env={}, ok=(6,), fatal=False)
+        finally:
+            driver._UPSTREAM_RUN = orig
+            driver.patch(mod, repo)
+        self.assertEqual(len(recorded), 1)
+        self.assertEqual(recorded[0][1], (6,))
+        self.assertIs(recorded[0][2], False)
+
+    def test_find_exe_locates_bundled_glslang_validator(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            fake_engine = Path(td) / 'engine'
+            bin_dir = fake_engine / 'dm' / 'gfx' / 'tools' / 'spirv_cross_bin'
+            bin_dir.mkdir(parents=True)
+            spv = bin_dir / 'glslangValidator.exe'
+            spv.write_bytes(b'MZ')
+            with mock.patch.dict(os.environ, {'NSPB_REPO': str(fake_engine)}, clear=False), \
+                 mock.patch.object(tc, 'setting', return_value=None):
+                self.assertEqual(tc.find_exe('glslangValidator'), spv)
+
+    def test_shim_patches_signal_pthread_sigmask_and_tool_lock_spirv_cross(self) -> None:
+        src = shim._SITECUSTOMIZE_SRC
+        self.assertIn("class _WinForkPool:", src)
+        self.assertIn("pthread_sigmask", src)
+        self.assertIn("os.execve = _win_execve", src)
+
+        # Verify _patch_tool_lock_module filters out spirv-cross hash mismatches when allowed,
+        # while still reporting missing spirv-cross or translator mismatches.
+        start = src.index('    def _patch_tool_lock_module(mod):')
+        end = src.index('    import importlib.machinery as _machinery')
+        ns: dict = {'os': os}
+        exec('\n'.join(ln[4:] for ln in src[start:end].splitlines()), ns)
+        patch_tl = ns['_patch_tool_lock_module']
+
+        import types
+        fake_tl = types.ModuleType('tool_lock')
+        fake_tl.check_tools = lambda: [
+            'spirv-cross: lock e37945d8e441d34d / actual 0123456789abcdef',
+            'dmsh_xlate.dll: lock aaaa / actual bbbb',
+        ]
+        patch_tl(fake_tl)
+        with mock.patch.dict(os.environ, {'DM_ALLOW_SYSTEM_SPIRV_CROSS': '1'}, clear=False):
+            self.assertEqual(fake_tl.check_tools(), ['dmsh_xlate.dll: lock aaaa / actual bbbb'])
+        with mock.patch.dict(os.environ, {'DM_ALLOW_SYSTEM_SPIRV_CROSS': '0'}, clear=False):
+            self.assertEqual(len(fake_tl.check_tools()), 2)
+
+        # A missing spirv-cross must still be reported even when DM_ALLOW_SYSTEM_SPIRV_CROSS=1
+        fake_tl2 = types.ModuleType('tool_lock')
+        fake_tl2.check_tools = lambda: ['spirv-cross: lock e37945d8e441d34d / actual missing']
+        patch_tl(fake_tl2)
+        with mock.patch.dict(os.environ, {'DM_ALLOW_SYSTEM_SPIRV_CROSS': '1'}, clear=False):
+            self.assertEqual(fake_tl2.check_tools(),
+                             ['spirv-cross: lock e37945d8e441d34d / actual missing'])
+
+    def test_model_on_line_parses_timestamped_stage_lines(self) -> None:
+        try:
+            from nspb_qt.model import Model
+        except ImportError:
+            self.skipTest('PySide6 is not installed')
+        with mock.patch.object(Model, 'check_deps', lambda self: None):
+            m = Model()
+        m._on_line('[04:35:01] [1/6] build nx_extract')
+        self.assertEqual([s.name for s in m.stages], ['build nx_extract'])
+        self.assertEqual(m.stages[-1].state, 'running')
+        m._on_line('[04:35:01] [1/6] build nx_extract ✓ (0s)')
+        self.assertEqual(len(m.stages), 1)
+        m._on_line('[04:35:04] [3/7] rewrite · main, sdk')
+        self.assertEqual([s.name for s in m.stages], ['build nx_extract', 'rewrite · main, sdk'])
+        self.assertEqual(m.stages[0].state, 'done')
+        self.assertEqual(m.stages[1].state, 'running')
+        m._on_line('[04:35:04] [RED] patch_nso.py failed')
+        self.assertEqual(m._last_error, '[RED] patch_nso.py failed')
+
+    def test_repair_tbd_stubs_fixes_headers_chained_tbds_and_framework_dirs(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            sdk = Path(td) / 'iPhoneOS26.0.sdk'
+            # 1. usr/include/pthread.h -> pthread/pthread.h and arpa/nameser.h -> ../nameser.h
+            (sdk / 'usr/include/pthread').mkdir(parents=True)
+            (sdk / 'usr/include/arpa').mkdir(parents=True)
+            real_pthread = '#ifndef _PTHREAD_H\n#define _PTHREAD_H\ntypedef struct _opaque_pthread_t *pthread_t;\n#endif\n'
+            (sdk / 'usr/include/pthread/pthread.h').write_text(real_pthread, encoding='utf-8')
+            (sdk / 'usr/include/pthread.h').write_text('pthread/pthread.h', encoding='utf-8')
+            (sdk / 'usr/include/nameser.h').write_text('#define _NAMESER_H 1\n', encoding='utf-8')
+            (sdk / 'usr/include/arpa/nameser.h').write_text('../nameser.h', encoding='utf-8')
+
+            # 2. Chained .tbd: libm.tbd -> libSystem.tbd -> libSystem.B.tbd
+            (sdk / 'usr/lib').mkdir(parents=True)
+            tbd_body = '--- !tapi-tbd\ntbd-version: 4\ntargets: [ arm64-ios ]\n...\n'
+            (sdk / 'usr/lib/libSystem.B.tbd').write_text(tbd_body, encoding='utf-8')
+            (sdk / 'usr/lib/libSystem.tbd').write_text('libSystem.B.tbd', encoding='utf-8')
+            (sdk / 'usr/lib/libm.tbd').write_text('libSystem.tbd', encoding='utf-8')
+
+            # 3. Framework dir symlinks: Versions/Current -> A, Headers -> Versions/Current/Headers
+            fw = sdk / 'System/Library/Frameworks/IOKit.framework'
+            (fw / 'Versions/A/Headers').mkdir(parents=True)
+            (fw / 'Versions/A/Headers/IOKitLib.h').write_text('#define IOKIT 1\n', encoding='utf-8')
+            (fw / 'Versions/Current').write_text('A', encoding='utf-8')
+            (fw / 'Headers').write_text('Versions/Current/Headers', encoding='utf-8')
+
+            fixed = tc.repair_tbd_stubs(sdk)
+            self.assertEqual(fixed, 6)
+            self.assertEqual((sdk / 'usr/include/pthread.h').read_text(encoding='utf-8'), real_pthread)
+            self.assertEqual((sdk / 'usr/include/arpa/nameser.h').read_text(encoding='utf-8'), '#define _NAMESER_H 1\n')
+            self.assertEqual((sdk / 'usr/lib/libSystem.tbd').read_text(encoding='utf-8'), tbd_body)
+            self.assertEqual((sdk / 'usr/lib/libm.tbd').read_text(encoding='utf-8'), tbd_body)
+            self.assertTrue((fw / 'Headers/IOKitLib.h').is_file())
+            self.assertEqual((fw / 'Headers/IOKitLib.h').read_text(encoding='utf-8'), '#define IOKIT 1\n')
+            # Second pass is a no-op
+            self.assertEqual(tc.repair_tbd_stubs(sdk), 0)
+
+    def test_host_sources_includes_dav1d_and_launcher_defines_dm_game_menu(self) -> None:
+        from nspb_qt.win import build_app
+        repo = QT.parent / 'engine'
+        if not (repo / 'dm/host/Makefile').is_file():
+            self.skipTest('engine/ is missing')
+        with tempfile.TemporaryDirectory() as td:
+            files, incs = build_app.host_sources(repo, Path(td))
+        names = {f.name for f in files}
+        self.assertIn('lib.c', names, 'dav1d src/lib.c must be in host_sources')
+        self.assertIn('itx.S', names, 'dav1d arm64 assembly must be in host_sources')
+        inc_strs = [p.as_posix() for p in incs]
+        self.assertTrue(any(p.endswith('dm/third_party/dav1d/include') for p in inc_strs))
+        self.assertTrue(any(p.endswith('dm/third_party/dav1d/config') for p in inc_strs))
+
+        launcher_m = (QT / 'nspb_qt/win/ios/Launcher.m').read_text(encoding='utf-8')
+        self.assertIn('void *dm_game_menu(void)', launcher_m)
+        build_app_src = (QT / 'nspb_qt/win/build_app.py').read_text(encoding='utf-8')
+        self.assertIn('host_msl_gen.h', build_app_src)
+
+    def test_xcrun_shim_splits_compile_and_link_and_stages_paths_with_spaces(self) -> None:
+        from nspb_qt.win import xcrun_shim
+        calls: list[tuple[list[str], str | None]] = []
+
+        with tempfile.TemporaryDirectory() as td:
+            src_dir = Path(td) / 'NS Port Builder' / 'engine' / 'dm' / 'gfx' / 'msl'
+            src_dir.mkdir(parents=True)
+            src_metal = src_dir / 'builtin.metal'
+            src_metal.write_text('kernel void k() {}\n', encoding='utf-8')
+            out_dir = Path(td) / 'Out Folder'
+            out_ml = out_dir / 'builtin.metallib'
+
+            def fake_run(cmd, *a, **k):
+                cwd = k.get('cwd')
+                calls.append(([str(c) for c in cmd], cwd))
+                if cwd and 'out.metallib' in cmd:
+                    (Path(cwd) / 'out.metallib').write_bytes(b'MTLB_STAGED')
+                return subprocess.CompletedProcess(cmd, 0)
+
+            with mock.patch.object(xcrun_shim, 'find', side_effect=lambda sdk, tool: Path(f'C:/metal/{tool}.exe')), \
+                 mock.patch.object(subprocess, 'run', side_effect=fake_run):
+                rc = xcrun_shim.main(['-sdk', 'iphoneos', 'metal', '-mios-version-min=18.0',
+                                      '-o', str(out_ml), str(src_metal)])
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(calls), 2)
+            # Every argument after the executable must be free of spaces so metal.exe does not split it
+            for args, cwd in calls:
+                self.assertIsNotNone(cwd)
+                for arg in args[1:]:
+                    self.assertNotIn(' ', arg, f'argument passed to metal/metallib contains space: {arg!r}')
+            self.assertEqual(calls[0][0], ['C:/metal/metal.exe', '-target', 'air64-apple-ios18.0',
+                                           'in_0.metal', '-c', '-o', 'out.air'])
+            self.assertEqual(calls[1][0], ['C:/metal/metallib.exe', 'out.air', '-o', 'out.metallib'])
+            self.assertEqual(out_ml.read_bytes(), b'MTLB_STAGED')
+
+    def test_win_fork_pool_rewrites_nso_byte_identical_to_single_core(self) -> None:
+        import struct
+        try:
+            import lz4.block
+            import capstone  # noqa: F401
+        except ImportError:
+            self.skipTest('lz4 and capstone required')
+        patch_nso = QT.parent / 'engine/dm/tools/patch_nso.py'
+        if not patch_nso.is_file():
+            self.skipTest('engine/ is missing')
+
+        ins_words = [0x910003FD] * (300 * 1024)
+        ins_words[100] = 0xF9400252     # ldr x18, [x18] in chunk 0
+        ins_words[270000] = 0x91000652  # add x18, x18, #1 in chunk 1
+        ins_words[200] = 0xB9400109     # ldr w9, [x8]
+        ins_words[201] = 0x7100053F     # cmp w9, #1
+        ins_words[202] = 0x54FFFFC0     # b.eq -8 (spin wait!)
+        ins_words[203] = 0xD65F03C0     # ret
+        ins_words[0] = 0x14000010
+        ins_words[1] = 8
+        text_bytes = bytearray(struct.pack(f'<{len(ins_words)}I', *ins_words))
+        struct.pack_into('<4siiiiii', text_bytes, 8, b'MOD0', 0, 0, 0, 0x38, 0x44, 0)
+        struct.pack_into('<BBBBII', text_bytes, 0x40, 1, 0x03, 0x03, 0x03, 0, 0)
+        ro_bytes = b'\x00' * 0x1000
+        data_bytes = b'\x00' * 0x1000
+        tc_b = lz4.block.compress(bytes(text_bytes), store_size=False)
+        rc_b = lz4.block.compress(ro_bytes, store_size=False)
+        dc_b = lz4.block.compress(data_bytes, store_size=False)
+        hdr = bytearray(0x100)
+        hdr[:4] = b'NSO0'
+        struct.pack_into('<I', hdr, 0x0C, 7)
+        struct.pack_into('<III', hdr, 0x10, 0x100, 0, len(text_bytes))
+        struct.pack_into('<III', hdr, 0x20, 0x100 + len(tc_b), len(text_bytes), len(ro_bytes))
+        struct.pack_into('<III', hdr, 0x30, 0x100 + len(tc_b) + len(rc_b), len(text_bytes) + len(ro_bytes), len(data_bytes))
+        hdr[0x40:0x50] = bytes.fromhex('0123456789abcdef0123456789abcdef')
+        struct.pack_into('<III', hdr, 0x60, len(tc_b), len(rc_b), len(dc_b))
+
+        with tempfile.TemporaryDirectory() as td:
+            nso_p = Path(td) / 'main'
+            nso_p.write_bytes(bytes(hdr) + tc_b + rc_b + dc_b)
+            out1, out2 = Path(td) / 'out1', Path(td) / 'out2'
+            r1 = subprocess.run([sys.executable, str(patch_nso), str(nso_p), str(out1), 'main'],
+                                env={**os.environ, 'DM_REWRITE_J': '1'}, capture_output=True, text=True)
+            self.assertEqual(r1.returncode, 0, r1.stderr)
+            sd = Path(td) / 'shim'
+            sd.mkdir()
+            sc = shim._SITECUSTOMIZE_SRC.replace("if os.name == 'nt'", "if True")
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            r2 = subprocess.run([sys.executable, str(patch_nso), str(nso_p), str(out2), 'main'],
+                                env={**os.environ, 'DM_REWRITE_J': '4', 'PYTHONPATH': str(sd)},
+                                capture_output=True, text=True)
+            self.assertEqual(r2.returncode, 0, r2.stderr)
+            for ext in ('patched.bin', 'fixups.tsv', 'gates.tsv', 'sites.tsv'):
+                self.assertEqual((out1 / f'main.{ext}').read_bytes(),
+                                 (out2 / f'main.{ext}').read_bytes())
+
+    def test_fcntl_and_tree_tar_shim_work_without_posix_fcntl(self) -> None:
+        """Engine 1.2's tree_tar.py imports fcntl at top level and opens parent directories."""
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'dm/tools/tree_tar.py').is_file():
+            self.skipTest('engine/ is missing')
+        with tempfile.TemporaryDirectory() as td:
+            sd = Path(td) / 'shim'
+            sd.mkdir()
+            sc = shim._SITECUSTOMIZE_SRC.replace("if os.name == 'nt'", "if True")
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            code = (
+                "import builtins, os, sys\n"
+                "real_import = builtins.__import__\n"
+                "def block_fcntl(name, *a, **k):\n"
+                "    if name == 'fcntl' and 'fcntl' not in sys.modules:\n"
+                "        raise ModuleNotFoundError(\"No module named 'fcntl'\")\n"
+                "    return real_import(name, *a, **k)\n"
+                "builtins.__import__ = block_fcntl\n"
+                "sys.modules.pop('fcntl', None)\n"
+                "import sitecustomize\n"
+                f"sys.path.insert(0, {str(repo / 'dm/tools')!r})\n"
+                "import tree_tar\n"
+                f"assert tree_tar._lock({str(Path(td) / 'dd')!r}) is True\n"
+                f"tree_tar._unlock({str(Path(td) / 'dd')!r})\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+        # Also verify driver.load_upstream installs the fcntl stub when missing
+        saved_fcntl = sys.modules.pop('fcntl', None)
+        try:
+            mod = driver.load_upstream(repo)
+            self.assertIn('fcntl', sys.modules)
+            self.assertTrue(hasattr(mod, 'tree_tar'))
+            with tempfile.TemporaryDirectory() as td2:
+                self.assertTrue(mod.tree_tar._lock(Path(td2) / 'dd'))
+        finally:
+            if saved_fcntl is not None:
+                sys.modules['fcntl'] = saved_fcntl
+
+    def test_build_app_reads_packed_shader_lib_img(self) -> None:
+        """Engine 1.2 packs `b-<chain>/` into `b-<chain>.img` and deletes the folder; build_app must read `.img`."""
+        from nspb_qt.win import build_app
+        repo = QT.parent / 'engine'
+        slib_path = repo / 'dm/tools/shader_lib.py'
+        if not slib_path.is_file():
+            self.skipTest('engine/ is missing')
+        with tempfile.TemporaryDirectory() as td:
+            msl_ios = Path(td) / 'ios'
+            lib_dir = msl_ios / 'b-123456789abc'
+            lib_dir.mkdir(parents=True)
+            (lib_dir / '0001_b.metallib').write_bytes(b'MTLB_TEST')
+            (lib_dir / 'inputs.tsv').write_text('game\t0100E65002BB8000\ninputs\tabcdef01\n', encoding='utf-8')
+            r = subprocess.run([sys.executable, str(slib_path), 'pack', str(lib_dir)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(lib_dir.exists(), 'shader_lib.pack removes the folder')
+            self.assertTrue((msl_ios / 'b-123456789abc.img').is_file())
+            self.assertTrue(build_app.shader_lib_has(repo, lib_dir))
+            lines = build_app.shader_lib_stamp_lines(repo, lib_dir)
+            self.assertIn('game\t0100E65002BB8000', lines)
+            self.assertIn('inputs\tabcdef01', lines)
+
+    def test_pack_dump_clone_and_cp_shim_on_windows(self) -> None:
+        """pack_dump.clone and romfs_image.guest must not fail with WinError 2 when cp/xattr are absent on Windows."""
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/pack_dump.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        driver.patch(mod, repo)
+        self.assertIs(mod.pack_dump.clone, shutil.copy2)
+
+        with tempfile.TemporaryDirectory() as td:
+            sd = Path(td) / 'shim'
+            shim.install(sd)
+            sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                "if os.name == 'nt'", "if True", 1)
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            src_exefs = Path(td) / 'src_exefs'
+            src_exefs.mkdir()
+            (src_exefs / 'main').write_bytes(b'NSO0_TEST')
+            (src_exefs / 'main.npdm').write_bytes(b'META_TEST')
+            dst_exefs = Path(td) / 'dst_exefs'
+            code = (
+                "import subprocess, sys\n"
+                "_orig_popen = subprocess.Popen.__init__\n"
+                "def _forbid_posix_tools(self, args, *a, **k):\n"
+                "    head = args[0] if isinstance(args, (list, tuple)) and args else ''\n"
+                "    if head in ('cp', 'xattr'):\n"
+                "        raise FileNotFoundError(2, 'The system cannot find the file specified', head)\n"
+                "    return _orig_popen(self, args, *a, **k)\n"
+                "subprocess.Popen.__init__ = _forbid_posix_tools\n"
+                "import sitecustomize\n"
+                f"sys.path.insert(0, {str(repo / 'scripts')!r})\n"
+                f"sys.path.insert(0, {str(repo / 'dm/tools')!r})\n"
+                "from pathlib import Path\n"
+                "import pack_dump, romfs_image\n"
+                f"pack_dump.exefs(Path({str(src_exefs)!r}), Path({str(dst_exefs)!r}))\n"
+                f"assert (Path({str(dst_exefs)!r}) / 'main').read_bytes() == b'NSO0_TEST'\n"
+                f"assert romfs_image.guest({str(src_exefs)!r}, '.dm-case-0') == '.dm-case-0'\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_high_core_cpu_caps_j_and_process_pool_executor_to_61(self) -> None:
+        """On a 32+ thread CPU, J and ProcessPoolExecutor(max_workers) must cap at 61 (_MAX_WINDOWS_WORKERS)."""
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.dict(os.environ, {'LOCALAPPDATA': td}, clear=False), \
+                    mock.patch('os.cpu_count', return_value=32):
+                env = shim.build_env(base={})
+                self.assertEqual(env['J'], '61')
+
+            sd = Path(td) / 'shim'
+            shim.install(sd)
+            sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                "if os.name == 'nt'", "if True", 1)
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            code = (
+                "import concurrent.futures.process as cfp\n"
+                "_orig_init = cfp.ProcessPoolExecutor.__init__\n"
+                "def _strict_win_init(self, max_workers=None, *a, **k):\n"
+                "    if max_workers is not None and max_workers > 61:\n"
+                "        raise ValueError('max_workers must be <= 61')\n"
+                "    return _orig_init(self, max_workers, *a, **k)\n"
+                "cfp.ProcessPoolExecutor.__init__ = _strict_win_init\n"
+                "import sitecustomize\n"
+                "import concurrent.futures as cf\n"
+                "with cf.ProcessPoolExecutor(64) as ex:\n"
+                "    assert ex._max_workers == 61, ex._max_workers\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_first_launch_shows_onboarding_when_incomplete(self) -> None:
+        """A fresh user opening MainWindow sees the OnboardingDialog once deps are checked; Later marks it complete."""
+        import ast
+        ui_src = (QT / 'nspb_qt' / 'ui.py').read_text(encoding='utf-8')
+        ui_tree = ast.parse(ui_src)
+        mw_cls = next(n for n in ast.walk(ui_tree)
+                      if isinstance(n, ast.ClassDef) and n.name == 'MainWindow')
+        fn_map = {n.name: n for n in mw_cls.body if isinstance(n, ast.FunctionDef)}
+        self.assertIn('should_show_onboarding', fn_map)
+        self.assertIn('_maybe_show_onboarding', fn_map)
+
+        class FakeTimer:
+            @staticmethod
+            def singleShot(_ms, cb):
+                cb()
+
+        ns: dict = {'Path': Path, 'os': os, 'QTimer': FakeTimer}
+        for name in ('should_show_onboarding', '_maybe_show_onboarding'):
+            fn = fn_map[name]
+            for n in ast.walk(fn):
+                ast.fix_missing_locations(n)
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                         '<ui>', 'exec'), ns)
+        should_show = ns['should_show_onboarding']
+        maybe_show = ns['_maybe_show_onboarding']
+
+        sheets_src = (QT / 'nspb_qt' / 'sheets.py').read_text(encoding='utf-8')
+        sheets_tree = ast.parse(sheets_src)
+        ob_cls = next(n for n in ast.walk(sheets_tree)
+                      if isinstance(n, ast.ClassDef) and n.name == 'OnboardingDialog')
+        later_fn = next(n for n in ob_cls.body
+                        if isinstance(n, ast.FunctionDef) and n.name == '_on_later')
+        for n in ast.walk(later_fn):
+            ast.fix_missing_locations(n)
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[later_fn], type_ignores=[])),
+                     '<sheets>', 'exec'), ns)
+        on_later = ns['_on_later']
+
+        with tempfile.TemporaryDirectory() as td:
+            keys_file = Path(td) / 'prod.keys'
+
+            class FakeSettings:
+                def __init__(self):
+                    self.store = {}
+                def setValue(self, k, v):
+                    self.store[k] = v
+
+            class FakeLibrary:
+                games_folder = ''
+                games: list = []
+
+            class FakeModel:
+                def __init__(self):
+                    self.settings = FakeSettings()
+                    self.deps_checked = False
+                    self.deps: list = []
+                    self.keys_path = str(keys_file)
+                    self.library = FakeLibrary()
+                def settings_value(self, k, default):
+                    v = self.settings.store.get(k, default)
+                    return v == 'true' if isinstance(v, str) else bool(v)
+                def settings_set(self, k, v):
+                    self.settings.setValue(k, 'true' if v else 'false')
+
+            class FakeWindow:
+                should_show_onboarding = staticmethod(should_show)
+                def __init__(self, m):
+                    self.m = m
+                    self._onboarding_checked = False
+                    self.opened = 0
+                def isVisible(self):
+                    return True
+                def _open_onboarding(self):
+                    self.opened += 1
+
+            m = FakeModel()
+            w = FakeWindow(m)
+            self.assertTrue(should_show(m))
+            maybe_show(w)
+            self.assertEqual(w.opened, 0, 'must wait until initial deps check finishes')
+            m.deps_checked = True
+            maybe_show(w)
+            self.assertEqual(w.opened, 1, 'must open once deps check finishes')
+            maybe_show(w)
+            self.assertEqual(w.opened, 1, 'must not re-open automatically in the same session')
+
+            class FakeDialog:
+                def __init__(self, model):
+                    self.m = model
+                    self.rejected = False
+                def reject(self):
+                    self.rejected = True
+
+            dlg = FakeDialog(m)
+            on_later(dlg)
+            self.assertTrue(dlg.rejected)
+            self.assertTrue(m.settings_value('onboardingComplete', False))
+            self.assertFalse(should_show(m))
+
+    def test_non_ascii_paths_stage_metal_and_metallib_via_ascii_temp_dir(self) -> None:
+        """Chinese folder names (e.g. C:\\Games\\星露谷物语\\nsp本体\\...) must be staged via an ASCII temp dir."""
+        from nspb_qt.win import xcrun_shim
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ascii_fallback = root / 'ascii_tmp'
+            ascii_fallback.mkdir()
+            zh_build = root / '星露谷物语' / 'nsp本体' / '0100E65002BB8000_build'
+            zh_ios = zh_build / 'shader' / 'ios' / 'b-223f10d34f97'
+            zh_ios.mkdir(parents=True)
+            zh_msl = zh_build / 'dmsh_123' / '0000000000000001.metal'
+            zh_msl.parent.mkdir(parents=True)
+            zh_msl.write_text('#include <metal_stdlib>\n', encoding='utf-8')
+            zh_air = zh_build / 'dmsh_123' / '0000000000000001.air'
+            zh_lib = zh_ios / '0000000000000001_b.metallib.tmp-999'
+
+            seen_calls: list[tuple[list[str], str]] = []
+
+            def strict_metal_run(cmd, *a, **kw):
+                cwd = str(kw.get('cwd') or '')
+                args = [str(x) for x in cmd]
+                seen_calls.append((args, cwd))
+                for token in args + ([cwd] if cwd else []):
+                    if not token.isascii() or ' ' in token:
+                        return subprocess.CompletedProcess(
+                            cmd, 1, '', f"LLVM ERROR: Error opening '{token}': Invalid argument\n")
+                if '-o' in args:
+                    out_name = args[args.index('-o') + 1]
+                    out_p = (Path(cwd) / out_name) if cwd and not Path(out_name).is_absolute() else Path(out_name)
+                    out_p.write_bytes(b'MTLB_OK')
+                return subprocess.CompletedProcess(cmd, 0, '', '')
+
+            with mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'/opt/metal/{name}.exe')), \
+                 mock.patch.object(tempfile, 'gettempdir', return_value=str(root / '中文用户' / 'Temp')), \
+                 mock.patch.dict(os.environ, {'PUBLIC': str(ascii_fallback), 'LOCALAPPDATA': str(root / 'local')}, clear=False), \
+                 mock.patch.object(xcrun_shim.subprocess, 'run', side_effect=strict_metal_run):
+                rc1 = xcrun_shim.main(['-sdk', 'iphoneos', 'metal', '-c', str(zh_msl), '-o', str(zh_air)])
+                self.assertEqual(rc1, 0)
+                self.assertTrue(zh_air.is_file(), 'staged metal compile must copy .air back to Chinese path')
+                rc2 = xcrun_shim.main(['-sdk', 'iphoneos', 'metallib', str(zh_air), '-o', str(zh_lib)])
+                self.assertEqual(rc2, 0)
+                self.assertTrue(zh_lib.is_file(), 'staged metallib must copy .metallib back to Chinese path')
+                self.assertEqual(zh_lib.read_bytes(), b'MTLB_OK')
+                self.assertEqual(len(seen_calls), 2)
+
+            # Verify sitecustomize._resolve rejects non-ASCII args so they go to xcrun_shim,
+            # and dmsh_pch / dmsh_mtlcache redirect Chinese WORK folders to pure-ASCII temp dirs.
+            sd = root / 'shim'
+            shim.install(sd, python_exe=sys.executable)
+            sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                "if os.name == 'nt'", "if True", 1)
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            code = (
+                "import os, sys, types\n"
+                "import sitecustomize\n"
+                f"zh_lib = {str(zh_lib)!r}\n"
+                "assert sitecustomize._resolve(['-sdk', 'iphoneos', 'metallib', 'a.air', '-o', zh_lib]) is None\n"
+                "import importlib.machinery as mach, tempfile\n"
+                "pch_mod = types.ModuleType('dmsh_pch')\n"
+                "pch_mod.tempfile = tempfile\n"
+                "sitecustomize._patch_dmsh_pch_module(pch_mod)\n"
+                f"d = pch_mod.tempfile.mkdtemp(prefix='pch_', dir={str(zh_build)!r})\n"
+                "assert d.isascii() and ' ' not in d, d\n"
+                "os.rmdir(d)\n"
+                "mtl_mod = types.ModuleType('dmsh_mtlcache')\n"
+                "class Cache:\n"
+                "    def __init__(self, store, targets, work):\n"
+                "        self.work = work\n"
+                "mtl_mod.Cache = Cache\n"
+                "sitecustomize._patch_dmsh_mtlcache_module(mtl_mod)\n"
+                f"c = mtl_mod.Cache(None, {{}}, {str(zh_build)!r})\n"
+                "assert c.work.isascii() and ' ' not in c.work, c.work\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
 
 
 if __name__ == '__main__':

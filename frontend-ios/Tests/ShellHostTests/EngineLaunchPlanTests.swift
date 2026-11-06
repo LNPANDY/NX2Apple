@@ -26,6 +26,18 @@ import Testing
         }
     }
 
+    @Test func frameworkBuildEnvironmentReachesTheHostAndDocumentsCanOverrideIt() throws {
+        let rig = try Rig()
+        try rig.box.write("DM_PROF_TEX_BC_CPU=1\n", to: rig.fw.appendingPathComponent("dm/env.txt"))
+        #expect(rig.plan().environment["DM_PROF_TEX_BC_CPU"] == "1")
+        #expect(rig.plan().environment["DM_ENV_FILE_KEYS"] == "DM_PROF_TEX_BC_CPU")
+        #expect(rig.plan(envFile: "DM_PROF_TEX_BC_CPU=0\n").environment["DM_PROF_TEX_BC_CPU"] == "0")
+        try rig.box.write("DM_PROF_TEX_BC_CPU=0\n", to: rig.gdir.appendingPathComponent("env.txt"))
+        #expect(rig.plan().environment["DM_PROF_TEX_BC_CPU"] == "0")
+        let another = try Rig()
+        #expect(another.plan().environment["DM_PROF_TEX_BC_CPU"] == nil)
+    }
+
     @Test func defaultsPointIntoTheFramework() throws {
         let rig = try Rig()
         let env = rig.plan().environment
@@ -56,6 +68,38 @@ import Testing
         let rig = try Rig()
         try rig.box.makeFolder(rig.fw.appendingPathComponent("pso"))
         #expect(rig.plan().environment["DM_PSO_BUNDLE"] == rig.fw.path + "/pso")
+    }
+
+    @Test(arguments: [false, true]) func sharedEnvCanDisableADiscoveredPipelineArchive(perGameArchive: Bool) throws {
+        let rig = try Rig()
+        try rig.box.makeFolder(rig.fw.appendingPathComponent("pso"))
+        if perGameArchive { try rig.box.makeFolder(rig.gdir.appendingPathComponent("pso")) }
+        let env = rig.plan(envFile: "DM_PSO_BUNDLE=off\n").environment
+        #expect(env["DM_PSO_BUNDLE"] == "off")
+        #expect(env["DM_ENV_FILE_KEYS"] == "DM_PSO_BUNDLE")
+    }
+
+    @Test func gameArchiveOverrideWinsOverSharedFileAndStaysWithItsGame() throws {
+        let rig = try Rig()
+        try rig.box.makeFolder(rig.fw.appendingPathComponent("pso"))
+        try rig.box.write("DM_PSO_BUNDLE=off\n", to: rig.gdir.appendingPathComponent("env.txt"))
+        let env = rig.plan(envFile: "DM_PSO_BUNDLE=/shared/archive\n").environment
+        #expect(env["DM_PSO_BUNDLE"] == "off")
+        #expect(env["DM_ENV_FILE_KEYS"] == "DM_PSO_BUNDLE")
+        var other = rig.game
+        other.appFolder = rig.box.documents.appendingPathComponent("games/0100000000000000")
+        let otherPlan = EngineLaunchPlan.make(game: other, appResources: rig.box.resources, documents: rig.box.documents, envFileText: nil)
+        #expect(otherPlan.environment["DM_PSO_BUNDLE"] == rig.fw.path + "/pso")
+        #expect(otherPlan.environment["DM_ENV_FILE_KEYS"] == "")
+    }
+
+    @Test func explicitLaunchArchiveWinsOverEnvFilesAndDiscoveredArchives() throws {
+        let rig = try Rig(environment: ["DM_PSO_BUNDLE": "/launch/archive"])
+        try rig.box.makeFolder(rig.fw.appendingPathComponent("pso"))
+        try rig.box.write("DM_PSO_BUNDLE=off\n", to: rig.gdir.appendingPathComponent("env.txt"))
+        let env = rig.plan(envFile: "DM_PSO_BUNDLE=/shared/archive\n").environment
+        #expect(env["DM_PSO_BUNDLE"] == "/launch/archive")
+        #expect(env["DM_ENV_FILE_KEYS"] == "")
     }
 
     @Test func romfsImageIsMatchedCaseInsensitively() throws {

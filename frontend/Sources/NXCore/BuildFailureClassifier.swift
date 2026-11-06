@@ -1,7 +1,7 @@
 import Foundation
 
 package enum BuildFailureClassifier {
-    /// One row per message of the script. The pattern is a stable part of the text in scripts/build_ipa_from_nsp.py,
+    /// One row per message of the script. The pattern is a stable part of the text in scripts/build_ipa_from_nsp.py, dm/gfx/tools/pso_offline.py,
     /// dm/gfx/tools/own_compilers.py or dm/tools/nx_extract/Program.cs (regular expressions, searched in the log).
     /// Frontend/Tests/Fixtures/build_failures.json holds the real message for every row, and a test checks that each
     /// fragment is still in the engine's script, so a sync that rewords a message fails there instead of turning a
@@ -21,8 +21,10 @@ package enum BuildFailureClassifier {
         ("keys.old", .keysOld, "the keys are older than the game"),
         ("games.several", .severalGames, "more than one game in the folder"),
         ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
-        ("games.noProfile", .noProfile, "packs only a game with a profile"),
         ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
+        ("pso.low", .psoDiskFull, "pso_offline: [0-9.]+ GB free on the volume of [^\\n]+, metal-tt needs about [0-9.]+ GB for [0-9]+ bases:"),
+        ("pso.merge", .psoDiskFull, "pso_offline: [0-9.]+ GB free before merging; need at least [0-9.]+ GB"),
+        ("pso.failed", .psoDiskFull, "pso_offline: metal-tt failed[^\\n]+when it failed: likely out of disk space"),
         ("disk.full", .diskFull, "No space left on device"),
         ("icloud.detritus", .cloudFolder, "resource fork, Finder information, or similar detritus not allowed"),
         ("volume.swap", .volumeFormat, "\\[Errno 45\\] Operation not supported: '[^']*\\.app'"),
@@ -50,11 +52,25 @@ package enum BuildFailureClassifier {
             return BuildFailure(kind: .driveMissing, gameName: nil, detail: name)
         }
         for row in table where log.range(of: row.pattern, options: .regularExpression) != nil {
-            return BuildFailure(kind: row.kind, gameName: row.kind == .a32Program ? gameName(in: log) : nil, detail: detail(of: row.kind, in: log))
+            var failure = BuildFailure(kind: row.kind, gameName: row.kind == .a32Program ? gameName(in: log) : nil, detail: detail(of: row.kind, in: log))
+            if row.kind == .severalGames { failure.titleIDs = selectableTitles(in: log) }
+            return failure
         }
         // The keys file is gone or cannot be read: nx_extract stops with an exit code and no line of its own for it.
         if !inputs.keysPath.isEmpty, !inputs.isReadable(inputs.keysPath) { return BuildFailure(kind: .keys, gameName: nil) }
         return BuildFailure(kind: .unknown, gameName: nil)
+    }
+
+    /// Only the engine's list of base games on the stop that advertises --title-id. Other log lines can name updates, DLC or unrelated files.
+    private static func selectableTitles(in log: String) -> [String] {
+        let prefix = "[RED] more than one game in the folder: "
+        guard let line = log.split(separator: "\n").last(where: { $0.hasPrefix(prefix) }),
+              let end = line.firstIndex(of: ";"), line[end...].contains("--title-id") else { return [] }
+        let list = line[..<end].dropFirst(prefix.count)
+        let ids = list.components(separatedBy: ", ")
+        guard ids.count > 1, Set(ids).count == ids.count,
+              ids.allSatisfy({ $0.range(of: #"^[0-9A-F]{13}000$"#, options: .regularExpression) != nil }) else { return [] }
+        return ids
     }
 
     private static func detail(of kind: BuildFailureKind, in log: String) -> String? {
@@ -62,6 +78,9 @@ package enum BuildFailureClassifier {
         case .diskFull:   // "less than 40 GB free on the volume of /Volumes/X/..."
             guard let r = log.range(of: #"less than [0-9]+ GB free"#, options: .regularExpression) else { return nil }
             return log[r].split(separator: " ").dropFirst(2).first.map(String.init)
+        case .psoDiskFull:
+            guard let r = log.range(of: #"pso_offline: [^\n]+(?:metal-tt needs about|before merging; need at least) [0-9.]+ GB"#, options: .regularExpression) else { return nil }
+            return log[r].split(separator: " ").dropLast().last.map(String.init)
         case .noTitleID:   // "no NSP with a readable title ID in /path"
             guard let r = log.range(of: #"(?m)no NSP with a readable title ID in (.+)$"#, options: .regularExpression),
                   let at = log[r].range(of: " in ") else { return nil }

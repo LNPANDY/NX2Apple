@@ -5,6 +5,7 @@ package struct Stage: Identifiable {
     package var name: String
     package var state: StepState = .running
     package var detail: String = ""
+    package var isScanningLastShaderFiles = false
     package var percent: Double? = nil
     package var started: Date? = nil   // when the stage began here: its clock runs while the count may stand still
     package var eta: Double? = nil     // the script's estimate of the seconds left, as of etaAt
@@ -23,7 +24,8 @@ package struct Stage: Identifiable {
         func known(_ key: String) -> String? { let s = t(key); return s == key ? nil : s }
         let key = "stage." + name.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-        if let s = known(key) { return s }
+        // a bare "extract" (nxb 0.6.1 and older) has no part for the table's "extract %@"
+        if let s = known(key), !s.contains("%@") { return s }
         if name.hasPrefix("extract "), let f = known("stage.extract") { return String(format: f, String(name.dropFirst("extract ".count))) }
         // A game folder packs each version into an image ("pack v458752", pack_dump.py), a NUP unpacks it ("unpack v196608", pack_nup.py)
         if name.hasPrefix("pack "), let f = known("stage.pack") { return String(format: f, String(name.dropFirst("pack ".count))) }
@@ -73,6 +75,15 @@ package enum BuildProgress {
             return String(s.prefix(200))
         }
         return nil
+    }
+
+    /// shader_split.py reports completed batches of up to 16 files. Its fraction is capped at 99% even when all files are done.
+    package static func isScanningLastShaderFiles(_ event: [String: Any]) -> Bool {
+        guard event["name"] as? String == "shader split", event["step"] as? String == "splitting",
+              event["unit"] as? String == "files", event["est"] as? Bool != true,
+              let done = event["done"] as? Int, let total = event["total"] as? Int,
+              done > 0, total > done else { return false }
+        return total - done <= 16
     }
 
     /// "splitting · 1.2 / 3.4 GB", "1,203 / 19,592 shaders", "2,301 files": the step and the count (the time left is the Stage's clock).

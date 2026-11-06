@@ -49,6 +49,40 @@ import NXModel
         defaults.removePersistentDomain(forName: "nxnative-tests-filter-" + temporary.lastPathComponent)
     }
 
+    func testLibraryTitleOrderUsesNumbersAndKeepsSelection() {
+        let ten = LibraryGame(titleID: "C", name: "Quest 10")
+        let two = LibraryGame(titleID: "B", name: "Quest 2")
+        let anotherTwo = LibraryGame(titleID: "A", name: "Quest 2")
+        let games = [ten, two, anotherTwo]
+        XCTAssertEqual(LibraryFilter.owned.visibleGames(games).map(\.id), [anotherTwo.id, two.id, ten.id])
+        XCTAssertEqual(LibraryFilter.owned.visibleGames(games, matching: "qUeSt 2").map(\.id), [anotherTwo.id, two.id])
+        XCTAssertTrue(LibraryFilter.built.visibleGames(games).isEmpty)
+        XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: nil, focused: nil).selectedID, anotherTwo.id)
+        XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: ten.id, focused: nil).selectedID, ten.id)
+    }
+
+    func testCommandFFromBuildsOpensLibrarySearch() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        let view = LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false)
+        let window = OffscreenWindow(size: NSSize(width: 1100, height: 800))
+        let host = NSHostingView(rootView: view)
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let find = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                                                  timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                  characters: "f", charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3))
+        XCTAssertTrue(window.performKeyEquivalent(with: find))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        func searchField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.placeholderString == stores.localizer.t("library.search") { return field }
+            return view.subviews.lazy.compactMap { searchField(in: $0) }.first
+        }
+        XCTAssertNotNil(searchField(in: host), "the search field is now in the window")
+    }
+
     /// Built hides the games without a build. The selection moves to a game it shows, and a controller's focus on a hidden card
     /// is dropped, so A cannot start a game that is not on screen.
     func testBuiltFilterKeepsSelectionAndFocusOnShownGames() throws {
@@ -531,6 +565,47 @@ import NXModel
         XCTAssertEqual(Self.canon(zelda.sourceFolder), Self.canon(other.path))
         XCTAssertEqual(zelda.inputs["update"], [], "nothing of the other game leaks in")
         XCTAssertEqual(zelda.inputs["dlc"], [])
+    }
+
+    /// The base sits in "<game>/nsz本体/", the update in "<game>/升级档v1.1.3/" and the DLC in "<game>/DLC/" (sibling
+    /// subfolders under the game's folder, with no package directly in "<game>/"): the climb must still reach "<game>/"
+    /// and a rescan must lift a previously recorded subfolder sourceFolder to it.
+    func testAScanFindsTheUpdateAndDLCInSiblingSubfolders() throws {
+        let fm = FileManager.default
+        let game = temporary.appendingPathComponent("小丑牌")
+        let baseDir = game.appendingPathComponent("nsz本体")
+        let updDir = game.appendingPathComponent("升级档v1.1.3")
+        let dlcDir = game.appendingPathComponent("DLC")
+        for d in [baseDir, updDir, dlcDir] { try fm.createDirectory(at: d, withIntermediateDirectories: true) }
+        let baseNSZ = baseDir.appendingPathComponent("小丑牌[0100CD801CE5E000][US][v0].nsz")
+        let updNSZ = updDir.appendingPathComponent("小丑牌[0100CD801CE5E800][US][v393216].nsz")
+        let dlcNSZ = dlcDir.appendingPathComponent("小丑牌[0100CD801CE5F001][v65536].nsz")
+        for f in [baseNSZ, updNSZ, dlcNSZ] { try Data([0]).write(to: f) }
+
+        let games = GameLibrary.sourceGames(in: temporary, repo: "")
+        let balatro = try XCTUnwrap(games.first { $0.titleID == "0100CD801CE5E000" })
+        XCTAssertEqual(Self.canon(balatro.sourceFolder), Self.canon(game.path), "climbs out of nsz本体 when a sibling subfolder holds the update")
+        XCTAssertEqual(balatro.inputs["base"]?.map(Self.canon), [Self.canon(baseNSZ.path)])
+        XCTAssertEqual(balatro.inputs["update"]?.map(Self.canon), [Self.canon(updNSZ.path)])
+        XCTAssertEqual(balatro.inputs["dlc"]?.map(Self.canon), [Self.canon(dlcNSZ.path)])
+
+        // An earlier scan recorded the base subfolder as sourceFolder and missed the sibling update: discover() repairs both.
+        let state = temporary.appendingPathComponent("library.json")
+        var stale = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        stale.inputs = ["base": [baseNSZ.path], "update": [], "dlc": [], "keys": []]
+        stale.sourceFolder = baseDir.path
+        try JSONEncoder().encode([stale]).write(to: state)
+        let library = GameLibrary(file: state)
+        library.applicationFolders = []
+        let finished = expectation(description: "Rescan repairs sibling update and sourceFolder")
+        let token = library.$scanning.dropFirst().filter { !$0 }.sink { _ in finished.fulfill() }
+        library.setFolder(temporary)
+        wait(for: [finished], timeout: 3)
+        withExtendedLifetime(token) {}
+        let repaired = try XCTUnwrap(library.games.first { $0.titleID == "0100CD801CE5E000" })
+        XCTAssertEqual(Self.canon(repaired.sourceFolder), Self.canon(game.path))
+        XCTAssertEqual(repaired.inputs["update"]?.map(Self.canon), [Self.canon(updNSZ.path)])
+        XCTAssertEqual(repaired.inputs["dlc"]?.map(Self.canon), [Self.canon(dlcNSZ.path)])
     }
 
     /// Base, update and DLC in one folder: the folder is its own game folder and the climb goes no further.
