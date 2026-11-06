@@ -117,7 +117,7 @@ import XCTest
         XCTAssertEqual(args.dropFirst(2).first, game, "the folder is the script's input, not a staging folder")
         XCTAssertFalse(args.contains("-k"))
         XCTAssertEqual(args.firstIndex(of: "--work-dir").map { args[$0 + 1] }, game + "/040074A01BF12000_build")
-        XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, game + "/040074A01BF12000.app")
+        XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, game + "/040074A01BF12000_build/040074A01BF12000.app")
         XCTAssertTrue(args.contains("mac-app"))
     }
 
