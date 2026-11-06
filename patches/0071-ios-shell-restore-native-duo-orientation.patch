@@ -29,7 +29,7 @@ diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
 index 0cb8cdd..77d7ca3 100644
 --- a/dm/ios/Shell/ShellMain.m
 +++ b/dm/ios/Shell/ShellMain.m
-@@ -119,7 +119,15 @@ int dm_locate_game_data(void) {
+@@ -119,7 +119,15 @@ bool dm_show_launcher(void *view_controller, void (*done)(void)) { (void)view_co
  
  @interface App : UIResponder <UIApplicationDelegate>
  @end
@@ -45,7 +45,7 @@ index 0cb8cdd..77d7ca3 100644
  - (UISceneConfiguration *)application:(UIApplication *)a configurationForConnectingSceneSession:(UISceneSession *)s options:(UISceneConnectionOptions *)o {
      return [[UISceneConfiguration alloc] initWithName:@"Default" sessionRole:s.role];
  }
-@@ -129,6 +137,9 @@ @interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
+@@ -129,6 +137,9 @@ bool dm_show_launcher(void *view_controller, void (*done)(void)) { (void)view_co
  @property (strong, nonatomic) UIWindow *window;
  @end
  @implementation SceneDelegate
