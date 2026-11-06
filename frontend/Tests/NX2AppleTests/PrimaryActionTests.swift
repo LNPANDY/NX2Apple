@@ -60,7 +60,7 @@ final class PrimaryActionTests: IsolatedDefaultsTestCase {
     func testManageMenuShowsRevealOnlyWithATarget() throws {
         let ipa = try makeIPA()
         func ids(_ game: LibraryGame) -> [String] {
-            ManageItem.list(game: game, labels: { $0 }, running: false, olderTools: false, activeBuildID: nil, hasBuildFolder: false, actions: ManageActions()).map(\.id)
+            ManageItem.list(game: game, labels: { $0 }, running: false, olderTools: false, activeBuildID: nil, hasBuildFolder: false, deviceName: "iPhone", actions: ManageActions()).map(\.id)
         }
         XCTAssertTrue(ids(LibraryGame(titleID: titleID, name: "H", ipaPath: ipa.path)).contains("reveal"))
         XCTAssertFalse(ids(LibraryGame(titleID: titleID, name: "H", appPath: temporary.appendingPathComponent("gone.app").path)).contains("reveal"))

@@ -24,7 +24,8 @@ package struct Stage: Identifiable {
         func known(_ key: String) -> String? { let s = t(key); return s == key ? nil : s }
         let key = "stage." + name.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "_", options: .regularExpression)
             .trimmingCharacters(in: CharacterSet(charactersIn: "_"))
-        if let s = known(key) { return s }
+        // a bare "extract" (nxb 0.6.1 and older) has no part for the table's "extract %@"
+        if let s = known(key), !s.contains("%@") { return s }
         if name.hasPrefix("extract "), let f = known("stage.extract") { return String(format: f, String(name.dropFirst("extract ".count))) }
         // A game folder packs each version into an image ("pack v458752", pack_dump.py), a NUP unpacks it ("unpack v196608", pack_nup.py)
         if name.hasPrefix("pack "), let f = known("stage.pack") { return String(format: f, String(name.dropFirst("pack ".count))) }

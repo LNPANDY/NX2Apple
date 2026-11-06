@@ -81,7 +81,16 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         Slot(id: "update", kind: .update, title: "data.update", optional: true),
         Slot(id: "dlc", kind: .dlc, title: "data.dlc", optional: true),
         Slot(id: "keys", kind: .keys, title: "data.keys", optional: false),
-    ]
+    ] {
+        didSet {
+            if (selectedTitleID != nil || failure?.kind == .severalGames), slots.map(\.paths) != oldValue.map(\.paths) {
+                selectedTitleID = nil
+                if failure?.kind == .severalGames { failure = nil; doneNote = "" }
+            }
+        }
+    }
+    /// The program the player chose for this build, including its device checks and retries.
+    var selectedTitleID: String?
     /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
     @Published package var gameFolder: GameFolder.Contents?
     /// A folder meant as a game folder was refused: the base row says why.

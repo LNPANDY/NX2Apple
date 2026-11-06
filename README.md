@@ -7,7 +7,7 @@
 
 **Your Switch games, running on your iPhone.**
 
-**Not an emulator. No terminal. A macOS app does the whole build in a few clicks.**
+**Not an emulator. No terminal. A macOS or Windows app does the whole build in a few clicks.**
 
 [![Stars](https://img.shields.io/github/stars/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/stargazers)
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
@@ -26,9 +26,10 @@
 
 #### 🆕 Latest highlights
 
+- **Windows launcher (`NX2Apple-windows-x64.zip`)**: Build iPhone and iPad IPAs on Windows with the same 1.2 interface, a bundled engine tree (no git needed), guided first-run setup, multi-core NSO rewriting, and in-app self-update (`NX2Apple.exe`).
 - **Switch 2 games**: Pick a Switch 2 game folder or `.nup` file in the Mac or Windows launcher, with no `prod.keys` needed, and play on Mac, iPhone, or iPad.
-- **Custom touch controls and button mapping**: Resize buttons, move the left stick, or arrange every control in the visual layout editor on iPhone and iPad. Physical controllers support per-game or global button remapping.
-- **One app for iPhone and iPad**: All your games live inside one shell app (or export an unsigned IPA for AltStore and SideStore), with Cover Flow in landscape, per-game settings and mods, safe game deletion that keeps your saves, and 6 languages.
+- **Custom touch controls, split Joy-Con, and Steam Controller (2026)**: Resize buttons, move the left stick, or arrange every control in the visual layout editor on iPhone and iPad. Physical controllers support per-game or global button remapping, split a Bluetooth Joy-Con pair into two sideways controllers on Mac, and support the Steam Controller (2026).
+- **One app for iPhone and iPad**: All your games live inside one shell app (or export an unsigned IPA for AltStore and SideStore), each carrying its own host framework so engine updates never force a rebuild, with Cover Flow in landscape, per-game settings and mods, safe game deletion that keeps your saves, and 6 languages.
 - **Console mode**: Plug in a controller and press Select, or start directly in console mode. The library goes full-screen like a Switch home menu, and holding Home for 2 seconds quits a game.
 
 Every release is in the [changelog](CHANGELOG.md).
@@ -160,7 +161,7 @@ anything extracted from a game.
 
 ## Games
 
-140 games have a profile. Many are reported playable on an iPhone upstream, and most have a
+147 games have a profile. Many are reported playable on an iPhone upstream, and most have a
 profile that has not been tried on a phone yet. A few of them:
 
 | | Game | Where it runs | Status |
@@ -176,9 +177,10 @@ profile that has not been tried on a phone yet. A few of them:
 game's install size, and the full table with the update version each game needs: the update NSP's
 display version must match the profile's, or the build says so.
 
-**Switch 2 games** are new in the engine. Seven have a profile, all marked as playing on the Mac by
+**Switch 2 games** are new in the engine. Eleven have a profile, all marked as playing on the Mac by
 upstream: Donkey Kong Bananza, Splatoon Raiders, Fire Emblem Fortune's Weave, Pokémon Pokopia,
-Hyrule Warriors: Age of Imprisonment, Mario Kart World and Mario Tennis Fever. Choose the game's folder of files (`base/`, `updates/`, `dlc/`)
+Hyrule Warriors: Age of Imprisonment, Mario Kart World, Mario Tennis Fever, Star Fox,
+Yoshi and the Mysterious Book, The Legend of Zelda: Ocarina of Time and Kirby Air Riders. Choose the game's folder of files (`base/`, `updates/`, `dlc/`)
 or its `.nup` file on the Builds page. No `prod.keys` are needed for them. The library marks them
 **Switch 2**. Only Donkey Kong Bananza was tried on this fork. The owner built and played it through the
 launcher on a Mac, an iPhone and an iPad, with no problems on the Mac and the iPhone and almost none on

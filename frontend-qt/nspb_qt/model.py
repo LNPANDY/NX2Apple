@@ -129,6 +129,7 @@ class Model(QObject):
         self.repo_status = ''
         self.app_update: app_update.Release | None = None
         self.app_update_busy = False
+        self.app_update_progress: float | None = None
         self.app_update_status = ''
         self._app_update_checked = False
         self._proc: subprocess.Popen | None = None
@@ -345,6 +346,9 @@ class Model(QObject):
         self.repoChanged.emit()
 
     def _find_repo(self) -> str:
+        bundled = engine.bundled_engine()
+        if bundled:
+            return bundled
         saved = os.environ.get('NSPB_REPO', '')
         if self.is_repo(saved):
             return saved
@@ -366,8 +370,12 @@ class Model(QObject):
         return self.is_repo(self.repo_path)
 
     @property
+    def uses_bundled_engine(self) -> bool:
+        return bool(engine.bundled_engine())
+
+    @property
     def repo_is_git(self) -> bool:
-        return bool(self.repo_path) and Path(self.repo_path, '.git').exists()
+        return not self.uses_bundled_engine and bool(self.repo_path) and Path(self.repo_path, '.git').exists()
 
     def supports_work_dir(self) -> bool:
         """Whether the checkout's build script declares --work-dir (an upstream checkout or an
@@ -700,6 +708,8 @@ class Model(QObject):
         Shallow on purpose: a quarter of the bytes and a third of the time of a full clone, and
         fetch/pull keep working on it. Runs on a thread with its progress in the log.
         """
+        if self.uses_bundled_engine:
+            return
         git = self.git_binary()
         if not git:
             if not pu.IS_WIN:
@@ -786,8 +796,10 @@ class Model(QObject):
         git's own progress is streamed: over a slow link the fetch alone takes tens of seconds and
         the button used to go grey in silence.
         """
+        if not self.repo_ok or not self.repo_is_git:
+            return
         git = self.git_binary()
-        if not git or not self.repo_ok or not self.repo_is_git:
+        if not git:
             return
         self.repo_busy = True
         self.repo_status = self.t('repo.checking')
@@ -933,12 +945,29 @@ class Model(QObject):
             return
 
         self.app_update_busy = True
+        self.app_update_progress = 0.0
         self.app_update_status = self.t('app.downloading', rel.tag)
         self.log(self.app_update_status + '\n')
         try:
             self.repoChanged.emit()
         except RuntimeError:
             pass
+
+        def on_progress(done_bytes: int, total_bytes: int) -> None:
+            if total_bytes > 0 and done_bytes >= 0:
+                frac = min(max(done_bytes / total_bytes, 0.0), 1.0)
+                self.app_update_progress = frac
+                pct = int(round(frac * 100))
+                self.app_update_status = self.t('app.downloading', f'{pct}%' if pct > 0 else rel.tag)
+                try:
+                    self.repoChanged.emit()
+                except RuntimeError:
+                    pass
+            self.log(
+                f'  {done_bytes // 1048576} MB'
+                + (f' / {total_bytes // 1048576} MB ({done_bytes * 100 // total_bytes}%)' if total_bytes else '')
+                + '\n'
+            )
 
         def work() -> None:
             try:
@@ -949,11 +978,7 @@ class Model(QObject):
                     wf.download(
                         rel.url,
                         zip_path,
-                        progress=lambda d, tot: self.log(
-                            f'  {d // 1048576} MB'
-                            + (f' / {tot // 1048576} MB ({d * 100 // tot}%)' if tot else '')
-                            + '\n'
-                        ),
+                        progress=on_progress,
                     )
                 except Exception as exc:
                     self.log(f'{exc}\n')
@@ -986,6 +1011,7 @@ class Model(QObject):
                     self.log(self.app_update_status + '\n')
             finally:
                 self.app_update_busy = False
+                self.app_update_progress = None
                 try:
                     self.repoChanged.emit()
                 except RuntimeError:

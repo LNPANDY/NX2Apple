@@ -92,14 +92,14 @@ struct LauncherView: View {
     }
 
     var filteredGames: [LibraryGame] {
-        library.games.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && libraryFilter.includes($0) }
+        libraryFilter.visibleGames(library.games, matching: search)
     }
 
     /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
     var heroGame: LibraryGame? {
         guard libraryFilter != .owned else { return library.selected }
         if let selected = library.selected, libraryFilter.includes(selected) { return selected }
-        return library.games.first(where: libraryFilter.includes)
+        return libraryFilter.visibleGames(library.games).first
     }
 
     var body: some View {
@@ -368,11 +368,13 @@ struct LauncherView: View {
                     .foregroundStyle(searching ? Color.secondary : Color.primary)
                     .frame(width: searching ? 16 : 40, height: searching ? 16 : 40).contentShape(Rectangle())
             }
+            .keyboardShortcut("f", modifiers: .command)
             .buttonStyle(.plain).help(loc.t("library.search")).accessibilityLabel(loc.t("library.search"))
             if searching {
                 TextField(loc.t("library.search"), text: $search)
                     .textFieldStyle(.plain).font(.manrope(14))
                     .focused($searchFocused)
+                    .onAppear { searchFocused = true }
                     .onSubmit { if search.isEmpty { closeSearch() } }
                     .onExitCommand { closeSearch() }
                     .frame(width: 210)
@@ -581,8 +583,9 @@ struct LauncherView: View {
         ManageItem.list(game: game, labels: loc.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
                         hasBuildFolder: BuildFolder.location(for: game) != nil,
                         hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
+                        deviceName: devices.deviceName(game.installedDevice), launching: launching,
                         actions: ManageActions(
-                            rebuild: { configureBuild(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
+                            rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
@@ -599,15 +602,17 @@ struct LauncherView: View {
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
     static let ringRoom: CGFloat = 6
 
-    func primaryAction(_ game: LibraryGame) {
-        if !game.isReady && game.onDevice {   // installed on a device: start it there
-            launching = true
-            m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath) { error in
-                launching = false
-                if let error { launchError = error }
-            }
-            return
+    private func openOnDevice(_ game: LibraryGame) {
+        guard !launching else { return }
+        launching = true
+        m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath) { error in
+            launching = false
+            if let error { launchError = error }
         }
+    }
+
+    func primaryAction(_ game: LibraryGame) {
+        if game.primary == .openOnDevice { openOnDevice(game); return }
         guard game.isReady else { configureBuild(game); return }
         do {
             _ = try MacGameBundle.read(URL(fileURLWithPath: game.appPath))

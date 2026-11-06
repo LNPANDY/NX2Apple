@@ -46,6 +46,12 @@ extension BuildStore {
         return t(f.kind.whatKey)
     }
 
+    package func buildTitle(_ titleID: String) {
+        guard canBuild, !experimentalBuilder, failure?.titleIDs.contains(titleID) == true else { return }
+        selectedTitleID = titleID
+        runBuild()
+    }
+
     /// "Build anyway": asks first. Nothing is armed until `confirmBuildAnyway`.
     package func requestBuildAnyway() {
         guard !running, let kind = failure?.kind, kind.overrideFlag != nil else { return }
@@ -58,7 +64,7 @@ extension BuildStore {
         guard let kind = confirmingOverride else { return }
         confirmingOverride = nil
         armedOverride = kind
-        startBuild()
+        runBuild()
     }
 
     /// The flag the next build runs with, once: the arm is cleared here, so a later build never inherits it.
@@ -89,7 +95,7 @@ extension BuildStore {
         case .teamTaken, .noSigningAccount:
             openXcode()
         case .deviceTransfer, .devicePairing:
-            startBuild()
+            runBuild()
         case .shellDataIncomplete:
             retryShellData()
         default: break
