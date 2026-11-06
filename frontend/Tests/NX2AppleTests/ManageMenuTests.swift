@@ -32,9 +32,31 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
     }
 
     private func items(_ game: LibraryGame, running: Bool = false, older: Bool = false, active: UUID? = nil, folder: Bool = false, log: Bool = false,
-                       actions: ManageActions = ManageActions()) -> [ManageItem] {
+                       launching: Bool = false, actions: ManageActions = ManageActions()) -> [ManageItem] {
         ManageItem.list(game: game, labels: { L10n.string($0, .en) }, running: running, olderTools: older, activeBuildID: active,
-                        hasBuildFolder: folder, hasLog: log, actions: actions)
+                        hasBuildFolder: folder, hasLog: log, deviceName: "iPad mini", launching: launching, actions: actions)
+    }
+
+    func testGameReadyOnMacAndDeviceOffersBothLaunchDestinations() throws {
+        var game = try readyGame()
+        let app = temporary.appendingPathComponent("Shell.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        try Data().write(to: app.appendingPathComponent("Info.plist"))
+        game.iosAppPath = app.path
+        XCTAssertFalse(items(game).contains { $0.id == "device" }, "an exported app has no installed device")
+        game.installedDevice = "DEVICE"
+        XCTAssertEqual(game.primary, .play)
+        var launches = 0
+        let actions = ManageActions(openOnDevice: { launches += 1 })
+        let item = try XCTUnwrap(items(game, actions: actions).first { $0.id == "device" })
+        XCTAssertEqual(item.title, "Open on iPad mini")
+        XCTAssertTrue(item.enabled)
+        item.run()
+        XCTAssertEqual(launches, 1)
+        XCTAssertEqual(items(game, launching: true).first { $0.id == "device" }?.enabled, false)
+        game.appPath = ""
+        XCTAssertEqual(game.primary, .openOnDevice)
+        XCTAssertFalse(items(game).contains { $0.id == "device" }, "the hero already opens this game on its device")
     }
 
     func testAReadyGameHasEveryRowInTheOldOrderAndRemoveAndDeleteLastInRed() throws {
