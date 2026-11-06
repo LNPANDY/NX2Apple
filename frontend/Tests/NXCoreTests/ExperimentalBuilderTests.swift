@@ -35,10 +35,11 @@ final class ExperimentalBuilderTests: XCTestCase {
     }
 
     func testTheVersionThatHasTheWholeCommandLine() {
-        XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 0.5.1\n"))
-        XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 0.5.10"))
+        XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 0.6.2\n"))
+        XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 0.6.10"))
         XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 1.0.0"))
-        XCTAssertFalse(ExperimentalBuilder.isNewEnough("nxb 0.5.0"))
+        XCTAssertFalse(ExperimentalBuilder.isNewEnough("nxb 0.6.1"), "reads no engine from NXB_ENGINE or refuses the engine's patch_nso.py")
+        XCTAssertFalse(ExperimentalBuilder.isNewEnough("nxb 0.5.1"))
         XCTAssertFalse(ExperimentalBuilder.isNewEnough("nxb 0.4.0"))
         XCTAssertFalse(ExperimentalBuilder.isNewEnough("usage: nxb <command>"), "no version in it")
         XCTAssertFalse(ExperimentalBuilder.isNewEnough(""))

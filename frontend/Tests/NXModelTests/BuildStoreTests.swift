@@ -174,7 +174,7 @@ import XCTest
         XCTAssertEqual(store.experimentalBuilderBinary, nxb)
         runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.4.0\n") }
         XCTAssertEqual(store.experimentalBuilderProblem(), String(format: store.t("nxb.tooOld"), "nxb 0.4.0", ExperimentalBuilder.minimumVersion))
-        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.5.1\n") }
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.2\n") }
         XCTAssertNil(store.experimentalBuilderProblem(), "a game or a step nxb does not take ends with its own exit code 4")
         XCTAssertTrue(runner.commands.contains("nxb version"))
         store.experimentalBuilder = false

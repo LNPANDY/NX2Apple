@@ -80,6 +80,9 @@ final class StageNameTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(Stage.localizedName("Vulkan shader capture", zh), "Vulkan 着色器捕获")
         XCTAssertEqual(Stage.localizedName("a stage added later", zh), "a stage added later", "an unknown name stays as the script wrote it")
         XCTAssertEqual(Stage.localizedName("Mac app", { $0 }), "Mac app")
+        let de = { (k: String) in L10n.string(k, Lang("de")) }
+        XCTAssertEqual(Stage.localizedName("extract", de), "extract", "nxb 0.6.1 names the stage without a version: no \"%@ extrahieren\"")
+        XCTAssertEqual(Stage.localizedName("extract v0 + v327680", de), "v0 + v327680 extrahieren")
     }
 
     /// A Switch 2 game folder packs its versions (pack_dump.py), a NUP unpacks them (pack_nup.py): build_ipa_from_nsp.py's
