@@ -106,9 +106,13 @@ package enum BuildFailureClassifier {
         }
     }
 
-    /// xcodebuild's words when the app's identifier is registered to another team.
+    /// xcodebuild's words when the app's identifier is registered to another team. "No profiles for" counts only for an identifier
+    /// with one part after `org.nxnative.` (`org.nxnative.shell`, or an older per-game `org.nxnative.<title ID>`): for the team's own
+    /// variant (`org.nxnative.shell.<team>`) it has another cause, such as a capability the team cannot add, and the retry under the
+    /// team's identifier has run already.
     package static func signingTeamTaken(_ error: String) -> Bool {
-        error.contains("cannot be registered to your development team") || error.contains("No profiles for 'org.nxnative.")
+        error.contains("cannot be registered to your development team")
+            || error.range(of: #"No profiles for 'org\.nxnative\.[^'.]+'"#, options: .regularExpression) != nil
     }
 
     /// "<name> (<title ID>) is a 32-bit ARM program": the name is "?" when the extraction has none.

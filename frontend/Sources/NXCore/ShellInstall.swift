@@ -537,10 +537,6 @@ package struct ShellInstaller {
             log("signing: \(bundleID) is registered to another team, retrying as \(variant)\n")
             bundleID = variant
             built = sign(bundleID)
-            if built.status == 0 {
-                library.bundleID = variant
-                try? library.save(root: root)
-            }
         }
         // A team whose profiles cannot carry the Increased Memory Limit (a free Apple ID, or a paid one whose holder has not yet
         // accepted the current Program License Agreement, so Xcode cannot add the capability) fails here. The shell is generated
@@ -563,6 +559,12 @@ package struct ShellInstaller {
             return Outcome(ok: false, message: fmt("dev.signFailed", why), step: .sign)
         }
         end(Self.signStageID, signName, ok: true)
+        // The identifier that signed is the one the device's app gets: stored once the signing passed, also when the sign without the
+        // Increased Memory Limit is what passed under the team's variant, so the next install starts with it
+        if bundleID != library.bundleID {
+            library.bundleID = bundleID
+            try? library.save(root: root)
+        }
 
         // 6: install over the existing app, which keeps its Documents
         let app = ShellInstall.appPath(root: root)
