@@ -286,74 +286,80 @@ struct LauncherView: View {
         else { Label(loc.t("nav." + destination.rawValue), systemImage: destination.symbol) }
     }
 
-    private var topBar: some View {
-        GeometryReader { geometry in
-            let compact = false   // the bar holds the tabs, search and Build game only, as before the console mode
-            VStack(spacing: 0) {
-                HStack(spacing: 6) {
-                    // The project is NX2Apple (the user's call: what this fork produces is NX2Apple);
-                    // "by nxnative" credits the engine it stands on, which the sketch kept.
-                    VStack(alignment: .leading, spacing: -2) {
-                        Text("NX2Apple").font(.manrope(27, .bold)).tracking(-0.8)
-                        Text("— by nxnative").font(.manrope(10.5, .medium))
-                            .foregroundStyle(LauncherPalette.unbuilt).tracking(0.2)
+    private func navigationTabs(compact: Bool = false, tabInset: CGFloat, brandGap: CGFloat) -> some View {
+        HStack(spacing: 6) {
+            ForEach(LauncherPage.allCases, id: \.self) { destination in
+                Button { page = destination } label: {
+                    // The selected tab is bold. The bold text also sizes the (hidden) slot, so a tab never changes width as the selection moves.
+                    ZStack {
+                        navLabel(destination, compact: compact).font(.manrope(15, .bold)).hidden()
+                        navLabel(destination, compact: compact).font(.manrope(15, page == destination ? .bold : .medium))
                     }
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(.trailing, compact ? 16 : 34)
-                    ForEach(LauncherPage.allCases, id: \.self) { destination in
-                        Button { page = destination } label: {
-                            // The selected tab is bold. The bold text also sizes the (hidden) slot, so a tab never changes width as the selection moves.
-                            ZStack {
-                                navLabel(destination, compact: compact).font(.manrope(15, .bold)).hidden()
-                                navLabel(destination, compact: compact).font(.manrope(15, page == destination ? .bold : .medium))
-                            }
-                                .padding(.horizontal, compact ? 14 : 18).padding(.vertical, 10)
-                                .background(page == destination ? Color.white.opacity(0.10) : .clear,
-                                            in: RoundedRectangle(cornerRadius: 9))
-                                .contentShape(RoundedRectangle(cornerRadius: 9))   // the whole pill takes the click, not only its text
-                        }
-                        .buttonStyle(.plain).help(loc.t("nav." + destination.rawValue))
-                        .accessibilityAddTraits(page == destination ? .isSelected : [])
-                        .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
-                    }
-                    Spacer(minLength: 8)
-                    searchField
-                    Button { newBuild() } label: {
-                        Group {
-                            if compact { Image(systemName: "plus").accessibilityLabel(loc.t("library.newBuild")) }
-                            else { Label(loc.t("library.newBuild"), systemImage: "plus") }
-                        }
-                            .padding(.horizontal, 12).padding(.vertical, 8)
-                            .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-                            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain).disabled(m.running).help(loc.t("library.newBuild")).accessibilityLabel(loc.t("library.newBuild"))
-                    .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
-                    .padding(.leading, 12)
-                    // A newer release is out: a small icon, last in the bar, opens the update sheet. Without one the bar
-                    // stays as it is.
-                    if let update = updates.update {
-                        let readOnly = updates.installability == .readOnly
-                        Button { updates.showUpdateSheet = true } label: {
-                            Image(systemName: readOnly ? "exclamationmark.arrow.circlepath" : "arrow.down.circle")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(readOnly ? LauncherPalette.building : LauncherPalette.ready)
-                                .frame(width: 34, height: 34).contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .padTarget("top.update", scope: "main", radius: 17) { updates.showUpdateSheet = true }
-                        .padding(.leading, 16.5).padding(.trailing, -7.5)
-                        .help(String(format: loc.t("update.pill"), update.tag) + "\n" + loc.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
-                        .accessibilityLabel(String(format: loc.t("update.pill"), update.tag))
-                    }
+                        .padding(.horizontal, tabInset).padding(.vertical, 10)
+                        .background(page == destination ? Color.white.opacity(0.10) : .clear,
+                                    in: RoundedRectangle(cornerRadius: 9))
+                        .contentShape(RoundedRectangle(cornerRadius: 9))   // the whole pill takes the click, not only its text
                 }
-                .padding(.leading, 90).padding(.trailing, 24)
-                .frame(height: 64)
-                .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
+                .buttonStyle(.plain).help(loc.t("nav." + destination.rawValue))
+                .accessibilityAddTraits(page == destination ? .isSelected : [])
+                .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
             }
         }
+        .fixedSize(horizontal: true, vertical: false)
+        .padding(.leading, brandGap)
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 6) {
+            // The project is NX2Apple (the user's call: what this fork produces is NX2Apple);
+            // "by nxnative" credits the engine it stands on, which the sketch kept.
+            VStack(alignment: .leading, spacing: -2) {
+                Text("NX2Apple").font(.manrope(27, .bold)).tracking(-0.8)
+                Text("— by nxnative").font(.manrope(10.5, .medium))
+                    .foregroundStyle(LauncherPalette.unbuilt).tracking(0.2)
+            }
+            .fixedSize(horizontal: true, vertical: false)
+            ViewThatFits(in: .horizontal) {
+                navigationTabs(tabInset: 18, brandGap: 34)
+                navigationTabs(tabInset: 8, brandGap: 16)
+                navigationTabs(compact: true, tabInset: 14, brandGap: 16)
+            }
+            Spacer(minLength: 8)
+            searchField
+            Button { newBuild() } label: {
+                ViewThatFits(in: .horizontal) {
+                    Label(loc.t("library.newBuild"), systemImage: "plus")
+                        .fixedSize()
+                    Image(systemName: "plus")
+                }
+                    .padding(.horizontal, 12).padding(.vertical, 8)
+                    .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
+            }
+            .buttonStyle(.plain).disabled(m.running).help(loc.t("library.newBuild")).accessibilityLabel(loc.t("library.newBuild"))
+            .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
+            .padding(.leading, 12)
+            // A newer release is out: a small icon, last in the bar, opens the update sheet. Without one the bar
+            // stays as it is.
+            if let update = updates.update {
+                let readOnly = updates.installability == .readOnly
+                Button { updates.showUpdateSheet = true } label: {
+                    Image(systemName: readOnly ? "exclamationmark.arrow.circlepath" : "arrow.down.circle")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(readOnly ? LauncherPalette.building : LauncherPalette.ready)
+                        .frame(width: 34, height: 34).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padTarget("top.update", scope: "main", radius: 17) { updates.showUpdateSheet = true }
+                .padding(.leading, 16.5).padding(.trailing, -7.5)
+                .help(String(format: loc.t("update.pill"), update.tag) + "\n" + loc.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
+                .accessibilityLabel(String(format: loc.t("update.pill"), update.tag))
+            }
+        }
+        .padding(.leading, 90).padding(.trailing, 24)
         .frame(height: 64)
+        .background(TitlebarDoubleClick())   // an empty part of the bar acts as the title bar does
     }
 
 
@@ -377,7 +383,7 @@ struct LauncherView: View {
                     .onAppear { searchFocused = true }
                     .onSubmit { if search.isEmpty { closeSearch() } }
                     .onExitCommand { closeSearch() }
-                    .frame(width: 210)
+                    .frame(minWidth: 140, idealWidth: 210, maxWidth: 210)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
                 Button { closeSearch() } label: {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
