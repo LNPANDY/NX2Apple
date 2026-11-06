@@ -52,11 +52,25 @@ package enum BuildFailureClassifier {
             return BuildFailure(kind: .driveMissing, gameName: nil, detail: name)
         }
         for row in table where log.range(of: row.pattern, options: .regularExpression) != nil {
-            return BuildFailure(kind: row.kind, gameName: row.kind == .a32Program ? gameName(in: log) : nil, detail: detail(of: row.kind, in: log))
+            var failure = BuildFailure(kind: row.kind, gameName: row.kind == .a32Program ? gameName(in: log) : nil, detail: detail(of: row.kind, in: log))
+            if row.kind == .severalGames { failure.titleIDs = selectableTitles(in: log) }
+            return failure
         }
         // The keys file is gone or cannot be read: nx_extract stops with an exit code and no line of its own for it.
         if !inputs.keysPath.isEmpty, !inputs.isReadable(inputs.keysPath) { return BuildFailure(kind: .keys, gameName: nil) }
         return BuildFailure(kind: .unknown, gameName: nil)
+    }
+
+    /// Only the engine's list of base games on the stop that advertises --title-id. Other log lines can name updates, DLC or unrelated files.
+    private static func selectableTitles(in log: String) -> [String] {
+        let prefix = "[RED] more than one game in the folder: "
+        guard let line = log.split(separator: "\n").last(where: { $0.hasPrefix(prefix) }),
+              let end = line.firstIndex(of: ";"), line[end...].contains("--title-id") else { return [] }
+        let list = line[..<end].dropFirst(prefix.count)
+        let ids = list.components(separatedBy: ", ")
+        guard ids.count > 1, Set(ids).count == ids.count,
+              ids.allSatisfy({ $0.range(of: #"^[0-9A-F]{13}000$"#, options: .regularExpression) != nil }) else { return [] }
+        return ids
     }
 
     private static func detail(of kind: BuildFailureKind, in log: String) -> String? {

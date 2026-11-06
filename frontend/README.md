@@ -245,8 +245,12 @@ title ID in the community title database
 from the repository, and last the built app's icon. The title list (about 90 MB) is
 downloaded only while a game in the collection has no key art yet, reduced to title
 ID → image and kept with the images in
-`~/Library/Application Support/NS Port Builder/artwork/`. Custom images stay at
-their chosen path.
+`~/Library/Application Support/NS Port Builder/artwork/`. A custom image is
+downscaled (3840 px wide at most) and copied to `artwork/custom/<game>/` beside them, so
+moving or deleting the original changes nothing. The same list names each title's
+screenshots (6 at most): they are indexed for the games asked about and
+downloaded one by one into `artwork/<title ID>/`, only when asked for. Images chosen with an earlier version are
+copied the same way at the next launch.
 
 The list can hold several shop products under one title ID: the game, its Nintendo
 Switch 2 Edition, or a bundle with a membership or an expansion pass. The launcher

@@ -211,6 +211,48 @@ class AppUpdateTests(unittest.TestCase):
         self.assertLess(w.coll_strip.x(), -1000)
         self.assertLessEqual(w.hero.width(), 1080)
 
+    def test_update_buttons_show_download_progress_and_reset_when_done(self) -> None:
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        try:
+            from PySide6.QtCore import QEvent
+            from PySide6.QtWidgets import QApplication
+        except ImportError:
+            self.skipTest('PySide6 is not installed')
+
+        from nspb_qt.model import Model
+        from nspb_qt.ui import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        m = Model()
+        w = MainWindow(m)
+
+        def cleanup() -> None:
+            w.close()
+            w.deleteLater()
+            m.deleteLater()
+            app.sendPostedEvents(None, QEvent.DeferredDelete)
+            app.processEvents()
+
+        self.addCleanup(cleanup)
+        m.app_update = app_update.Release(tag='v1.2.3', url='https://example.invalid/update.zip')
+        w._refresh_all()
+        initial_width = w.update_btn.sizeHint().width()
+
+        m.app_update_busy = True
+        m.app_update_progress = 0.62
+        w._refresh_all()
+        self.assertEqual(w.update_btn.text(), '62%')
+        self.assertEqual(w.ver_action_btn.text(), '62%')
+        self.assertEqual(w.update_btn.minimumWidth(), initial_width)
+        self.assertIn('qlineargradient', w.update_btn.styleSheet())
+
+        m.app_update_busy = False
+        m.app_update_progress = None
+        w._refresh_all()
+        self.assertIn('v1.2.3', w.update_btn.text())
+        self.assertEqual(w.update_btn.styleSheet(), '')
+        self.assertEqual(w.update_btn.minimumWidth(), 0)
+
 
 if __name__ == '__main__':
     unittest.main()

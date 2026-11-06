@@ -1290,6 +1290,9 @@ class MainWindow(QMainWindow):
         self.failure_next.setObjectName('muted')
         self.failure_next.setWordWrap(True)
         fcol.addWidget(self.failure_next)
+        self.title_buttons = QVBoxLayout()
+        self.title_buttons.setAlignment(Qt.AlignLeft)
+        fcol.addLayout(self.title_buttons)
         frow = QHBoxLayout()
         frow.setSpacing(8)
         self.failure_folder_btn = QPushButton()
@@ -1898,12 +1901,46 @@ class MainWindow(QMainWindow):
         self.ver_status_lbl.setText(self.m.app_update_status or t('app.upToDate'))
         if self.m.app_update is not None:
             _set_dot(self.ver_dot, style.ORANGE)
-            self.ver_action_btn.setText(t('app.updateBtn', self.m.app_update.tag))
-            self.update_btn.setText(t('app.updateBtn', self.m.app_update.tag))
+            base_label = t('app.updateBtn', self.m.app_update.tag)
+            prog = self.m.app_update_progress
+            if prog is not None:
+                for btn in (self.update_btn, self.ver_action_btn):
+                    if btn.minimumWidth() == 0:
+                        btn.setText(base_label)
+                        btn.setStyleSheet('')
+                        btn.setMinimumWidth(btn.sizeHint().width())
+                clamped = min(max(prog, 0.0), 1.0)
+                pct = int(round(clamped * 100))
+                btn_label = f'{pct}%'
+                stop_a = min(max(clamped, 0.001), 0.998)
+                stop_b = min(stop_a + 0.001, 0.999)
+                grad = (
+                    f'qlineargradient(x1:0, y1:0, x2:1, y2:0, '
+                    f'stop:0 {style.AMBER}, stop:{stop_a:.3f} {style.AMBER}, '
+                    f'stop:{stop_b:.3f} {style.TRACK}, stop:1 {style.TRACK})'
+                )
+                self.update_btn.setStyleSheet(
+                    f'background: {grad}; color: {style.TEXT}; border: 1px solid {style.CARD_EDGE}; '
+                    f'border-radius: 14px; padding: 6px 18px; min-height: 20px; font-size: 13px; font-weight: 700;'
+                )
+                self.ver_action_btn.setStyleSheet(
+                    f'background: {grad}; color: {style.TEXT}; border: 1px solid {style.CARD_EDGE}; '
+                    f'border-radius: 12px; padding: 6px 16px; min-height: 18px; font-size: 12.5px; font-weight: 600;'
+                )
+            else:
+                btn_label = base_label
+                self.update_btn.setStyleSheet('')
+                self.ver_action_btn.setStyleSheet('')
+                self.update_btn.setMinimumWidth(0)
+                self.ver_action_btn.setMinimumWidth(0)
+            self.ver_action_btn.setText(btn_label)
+            self.update_btn.setText(btn_label)
             self.update_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
             self.update_btn.show()
         else:
             _set_dot(self.ver_dot, style.GREEN)
+            self.ver_action_btn.setStyleSheet('')
+            self.ver_action_btn.setMinimumWidth(0)
             self.ver_action_btn.setText(t('repo.update'))
         self.ver_action_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
 
@@ -1927,6 +1964,7 @@ class MainWindow(QMainWindow):
         self.repo_path_label.setText(self.m.repo_path if ok else t('repo.notFound'))
         self.clone_btn.setVisible(not ok)
         self.clone_btn.setEnabled(not busy and not self.m.running)
+        self.repo_btn.setVisible(not self.m.uses_bundled_engine)
         self.repo_btn.setEnabled(not busy and not self.m.running)
         if not ok:
             url = 'https://github.com/LNPANDY/NX2Apple'
@@ -2187,6 +2225,7 @@ class MainWindow(QMainWindow):
         self._refresh_activity_bar()
 
     def _refresh_running(self) -> None:
+        self._show_failure()
         t = self.m.t
         if self.m.running:
             self.build_btn.setText(t('build.cancel'))
@@ -2268,11 +2307,26 @@ class MainWindow(QMainWindow):
             return
         self.failure_title.setText(t('fail.section'))
         self.failure_what.setText(self.m.failure_what(f))
-        self.failure_next.setText(t(f.next_key))
+        titles = self.m.selectable_titles
+        if f.title_ids and not titles:   # the selected inputs have changed
+            self.failure_box.hide()
+            return
+        self.failure_next.setText(t('fail.severalGames.choose' if titles else f.next_key))
+        current = [self.title_buttons.itemAt(i).widget().property('titleID') for i in range(self.title_buttons.count())]
+        if tuple(current) != titles:
+            while self.title_buttons.count():
+                button = self.title_buttons.takeAt(0).widget()
+                button.hide()
+                button.deleteLater()
+            for title in titles:
+                button = QPushButton(title)
+                button.setProperty('titleID', title)
+                button.clicked.connect(lambda checked=False, tid=title: self._build_clicked(title_id=tid))
+                self.title_buttons.addWidget(button)
         folder = self.m.failure_folder(f)
         self.failure_folder_btn.setText(t('fail.showFolder'))
         self.failure_folder_btn.setVisible(
-            f.kind in (bf.NO_TITLE_ID, bf.SEVERAL_GAMES, bf.DISK_FULL, bf.CLOUD_FOLDER) and bool(folder))
+            not titles and f.kind in (bf.NO_TITLE_ID, bf.SEVERAL_GAMES, bf.DISK_FULL, bf.CLOUD_FOLDER) and bool(folder))
         fix_key = {
             bf.KEYS: 'fail.keys.button',
             bf.CLOUD_FOLDER: 'fail.cloudFolder.button',
@@ -2435,9 +2489,10 @@ class MainWindow(QMainWindow):
         self.m.out_dir = ''
         self._refresh_inputs()
 
-    def _build_clicked(self) -> None:
+    def _build_clicked(self, *, title_id: str | None = None) -> None:
         if self.m.running:
-            self.m.cancel_build()
+            if title_id is None:
+                self.m.cancel_build()
             return
         self._failed = False
         self._stale_shaders_shown = False
@@ -2445,7 +2500,7 @@ class MainWindow(QMainWindow):
         self.reveal_arc_btn.hide()
         self.reveal_app_btn.hide()
         self.footer.setText('')
-        self.m.start_build()
+        self.m.start_build(title_id=title_id)
 
     # ================================================================ Full-Window Drag & Drop
 

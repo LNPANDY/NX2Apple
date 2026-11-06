@@ -1,4 +1,4 @@
-Follows [README.md](README.md) as of v1.0.2
+Follows [README.md](README.md) as of v1.2.2
 
 <div align="center">
 
@@ -9,7 +9,7 @@ Follows [README.md](README.md) as of v1.0.2
 
 **I tuoi giochi Switch, in esecuzione sul tuo iPhone.**
 
-**Non è un emulatore. Nessun terminale. Un'app per macOS esegue l'intera build in pochi clic.**
+**Non è un emulatore. Nessun terminale. Un'app per macOS o Windows esegue l'intera build in pochi clic.**
 
 [![Stars](https://img.shields.io/github/stars/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/stargazers)
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
@@ -28,9 +28,10 @@ Follows [README.md](README.md) as of v1.0.2
 
 #### 🆕 Ultime novità in evidenza
 
+- **Launcher per Windows (`NX2Apple-windows-x64.zip`)**: compila IPA per iPhone e iPad su Windows con la stessa interfaccia 1.2, un albero del motore già incluso (non serve git), configurazione iniziale guidata, riscrittura NSO multi-core e aggiornamento automatico integrato (`NX2Apple.exe`).
 - **Giochi Switch 2**: scegli una cartella di gioco Switch 2 o un file `.nup` nel launcher per Mac o Windows, senza bisogno di `prod.keys`, e gioca su Mac, iPhone o iPad.
-- **Controlli touch personalizzati e mappatura dei pulsanti**: ridimensiona i pulsanti, sposta la levetta sinistra o disponi ogni comando nell'editor visivo su iPhone e iPad. I controller fisici supportano la rimappatura per singolo gioco o globale.
-- **Un'unica app per iPhone e iPad**: tutti i tuoi giochi vivono in un'unica app contenitore (o in un IPA non firmato per AltStore e SideStore), con Cover Flow in orizzontale, impostazioni e mod per gioco, eliminazione del gioco mantenendo i salvataggi e 6 lingue.
+- **Controlli touch personalizzati, Joy-Con separati e Steam Controller (2026)**: ridimensiona i pulsanti, sposta la levetta sinistra o disponi ogni comando nell'editor visivo su iPhone e iPad. I controller fisici supportano la rimappatura per singolo gioco o globale, la divisione di una coppia di Joy-Con Bluetooth in due controller impugnati in orizzontale su Mac e lo Steam Controller (2026).
+- **Un'unica app per iPhone e iPad**: tutti i tuoi giochi vivono in un'unica app contenitore (o in un IPA non firmato per AltStore e SideStore), ciascuno con il proprio framework host integrato così gli aggiornamenti del motore non obbligano mai a ricompilare, con Cover Flow in orizzontale, impostazioni e mod per gioco, eliminazione del gioco mantenendo i salvataggi e 6 lingue.
 - **Modalità console**: collega un controller e premi Select, oppure avvia direttamente in modalità console. La libreria passa a schermo intero come il menu di una Switch e tenere premuto Home per 2 secondi chiude il gioco.
 
 Ogni versione è elencata nel [changelog](CHANGELOG.it.md).
@@ -147,7 +148,7 @@ qualsiasi elemento estratto da un gioco.
 
 ## Giochi
 
-140 giochi dispongono di un profilo. Diversi sono segnalati come giocabili su iPhone nel progetto upstream e la maggior
+147 giochi dispongono di un profilo. Diversi sono segnalati come giocabili su iPhone nel progetto upstream e la maggior
 parte ha un profilo che non è ancora stato provato su un telefono. Eccone alcuni:
 
 | | Gioco | Dove gira | Stato |

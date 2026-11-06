@@ -73,7 +73,7 @@ struct ConsolePadSnapshot: Equatable {
     private var cancellables = Set<AnyCancellable>()
     private var observers: [NSObjectProtocol] = []
     private var refreshQueued = false
-    private var covers: [UUID: (path: String, image: Image?)] = [:]
+    private var covers: [UUID: (path: String, image: NSImage?)] = [:]
     private var launchedPID: Int32?
     private var timeoutTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
@@ -90,7 +90,9 @@ struct ConsolePadSnapshot: Equatable {
         self.startingTimeout = startingTimeout
         self.pads = pads ?? { [] }
         self.launch = launch ?? Self.openApplication
-        self.artwork = artwork ?? { game, repo in GameLibrary.artwork(for: game, repo: repo) }
+        self.artwork = artwork ?? { [banners = library.artworkDirectory] game, repo in
+            GameLibrary.artwork(for: game, slot: .thumbnail, repo: repo, banners: banners, maxPixel: ArtworkImages.cardPixels)
+        }
         if pads == nil { self.devicePads = true }
         state.padMerge = controls.padMerge
         state.joyconSplit = controls.joyconSplit
@@ -175,7 +177,7 @@ struct ConsolePadSnapshot: Equatable {
         var values: [String: String] = [:]
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : game.launchValue(s) }
         return ConsoleGame(id: game.id.uuidString, title: game.name, version: version(of: game),
-                           platforms: Self.platforms(of: game), artwork: cover(game),
+                           platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),
                            status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values)
     }
 
@@ -219,10 +221,10 @@ struct ConsolePadSnapshot: Equatable {
     }
 
     /// Covers through the launcher's own lookup, decoded once per image path.
-    private func cover(_ game: LibraryGame) -> Image? {
-        let key = game.artworkPath + "|" + game.titleID + "|" + game.name
+    private func cover(_ game: LibraryGame) -> NSImage? {
+        let key = "\(game.artwork)|\(game.artworkPath)|" + game.titleID + "|" + game.name
         if let cached = covers[game.id], cached.path == key { return cached.image }
-        let image = artwork(game, repo()).map { Image(nsImage: $0) }
+        let image = artwork(game, repo())
         covers[game.id] = (key, image)
         return image
     }

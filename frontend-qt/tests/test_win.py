@@ -2284,6 +2284,23 @@ class WindowsBuildFixesTest(unittest.TestCase):
             self.assertEqual(d.returncode, 0, d.stderr)
             self.assertIn('com.apple.developer.kernel.increased-memory-limit', d.stdout)
 
+    def test_bundled_extractor_runs_without_a_nuget_restore(self) -> None:
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        with tempfile.TemporaryDirectory() as td:
+            bundled = Path(td) / 'NX2Apple' / 'engine'
+            exe = bundled / 'dm/tools/nx_extract_bin/nx_extract.exe'
+            exe.parent.mkdir(parents=True)
+            exe.touch()
+            work = Path(td) / 'title_probe'
+            with mock.patch.object(driver, '_UPSTREAM_RUN', None):
+                driver.patch(mod, bundled)
+                with mock.patch.object(mod, 'run', side_effect=AssertionError('attempted a source build')):
+                    self.assertEqual(mod.build_nx_extract(bundled, work, work / 'logs', {}), exe)
+
     def test_driver_region_skip_stamps_rewrite_id_and_capture_jit_reuses_image(self) -> None:
         from nspb_qt.win import driver
         repo = QT.parent / 'engine'
@@ -2316,7 +2333,6 @@ class WindowsBuildFixesTest(unittest.TestCase):
             mod.capture_jit('py', repo, root, patched, root, {}, root, g)
 
     def test_pack_archive_handles_romfs_img_and_copies_aoc(self) -> None:
-        import time
         try:
             from nspb_qt.model import Model
         except ImportError:
@@ -2337,11 +2353,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
             m.effective_work_dir = str(work)
             m.out_dir = str(out)
             m.base_path = str(root / 'game.nsp')
-            m.pack_archive()
-            for _ in range(50):
-                if m.archive_path:
-                    break
-                time.sleep(0.02)
+            self.assertEqual(m.pack_archive(), (True, ''))
             self.assertEqual(m.archive_path, str(out / 'romfs'))
             self.assertEqual((out / 'romfs' / 'romfs.img').read_bytes(), b'DMROMFS1_payload')
             self.assertEqual((out / 'romfs' / 'aoc' / '0.img').read_bytes(), b'dlc0')

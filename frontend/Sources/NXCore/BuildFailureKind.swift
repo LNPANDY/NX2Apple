@@ -49,6 +49,8 @@ package struct BuildFailure: Equatable {
     /// of "no NSP with a readable title ID" (noTitleID).
     package var detail: String? = nil
 
+    package var titleIDs: [String] = []  // severalGames: choices the engine offers with --title-id
+
     package init(kind: BuildFailureKind, gameName: String?, detail: String? = nil) {
         self.kind = kind
         self.gameName = gameName

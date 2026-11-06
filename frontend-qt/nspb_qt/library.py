@@ -511,10 +511,11 @@ class LibraryGame:
 
     @classmethod
     def from_dict(cls, d: dict) -> LibraryGame:
+        app_path = str(d.get('appPath') or '')
         return cls(
             title_id=str(d.get('titleID') or d.get('title_id') or '').upper(),
             name=str(d.get('name') or ''),
-            app_path=str(d.get('appPath') or ''),
+            app_path=app_path if os.path.isdir(app_path) else '',
             ipa_path=str(d.get('ipaPath') or ''),
             archive_path=str(d.get('archivePath') or ''),
             ios_app_path=str(d.get('iosAppPath') or ''),
@@ -594,6 +595,8 @@ class GameLibrary:
             if existing.title_id == tid:
                 if not game.name or game.name == tid:
                     game.name = existing.name
+                if not game.app_path and existing.has_app:
+                    game.app_path = existing.app_path
                 if not game.ipa_path:
                     game.ipa_path = existing.ipa_path
                 if not game.archive_path:
@@ -621,12 +624,13 @@ class GameLibrary:
         keys_path: str,
         output_dir: str,
         repo_path: str = '',
+        title_id: str | None = None,
     ) -> LibraryGame | None:
         if not base_path:
             return None
-        tid = ''
+        tid = title_id or ''
         name = ''
-        if GameFolder.is_candidate(base_path):
+        if not tid and GameFolder.is_candidate(base_path):
             res = GameFolder.scan(base_path if not os.path.basename(base_path) == 'base' else os.path.dirname(base_path))
             if isinstance(res, GameFolderContents) and res.has_title_id:
                 tid = res.title_id_hex
@@ -638,7 +642,7 @@ class GameLibrary:
         if not tid:
             return None
         if not name:
-            name = GameFolder.profile_name(tid, repo_path) or clean_game_name(base_path)
+            name = GameFolder.profile_name(tid, repo_path) or (tid if title_id else clean_game_name(base_path))
 
         inputs: dict[str, list[str]] = {'base': [base_path]}
         if update_path:
@@ -649,7 +653,7 @@ class GameLibrary:
             inputs['keys'] = [keys_path]
 
         out = output_dir or os.path.dirname(base_path)
-        ipa_candidate = os.path.join(out, f'{name}.ipa')
+        ipa_candidate = os.path.join(out, f'{tid if title_id else name}.ipa')
         archive_candidate = os.path.join(out, 'games', tid)
         game = LibraryGame(
             title_id=tid,
@@ -672,9 +676,10 @@ class GameLibrary:
         output_dir: str,
         inputs: dict[str, list[str]],
         repo_path: str = '',
+        title_id: str | None = None,
     ) -> LibraryGame | None:
-        tid = ''
-        if archive_path:
+        tid = title_id or ''
+        if not tid and archive_path:
             bn = os.path.basename(archive_path.rstrip('/\\'))
             if len(bn) == 16:
                 tid = bn.upper()
