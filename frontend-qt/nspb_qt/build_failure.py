@@ -81,6 +81,8 @@ class Failure:
     game: str | None = None   # a32Program: the game, when the message names it
     detail: str | None = None   # diskFull, psoDiskFull: the GB the script says it needs. noTitleID: the folder it names
 
+    title_ids: tuple[str, ...] = ()   # base games on a cartridge, when the engine offers --title-id
+
     @property
     def what_key(self) -> str:
         return f'fail.{self.kind}.what'
@@ -107,6 +109,18 @@ def _detail(kind: str, log: str) -> str | None:
     return None
 
 
+def _selectable_titles(log: str) -> tuple[str, ...]:
+    prefix = '[RED] more than one game in the folder: '
+    line = next((s for s in reversed(log.splitlines()) if s.startswith(prefix)), '')
+    names, _, hint = line.partition(';')
+    if '--title-id' not in hint:
+        return ()
+    ids = tuple(names[len(prefix):].split(', '))
+    if len(ids) < 2 or len(set(ids)) != len(ids) or not all(re.fullmatch(r'[0-9A-F]{13}000', s) for s in ids):
+        return ()
+    return ids
+
+
 def classify(log: str, keys_readable: bool | None = None) -> Failure:
     """UNKNOWN when no row matches: the caller then keeps showing the last line of the log.
 
@@ -114,6 +128,8 @@ def classify(log: str, keys_readable: bool | None = None) -> Failure:
     file is a row of the table, and nx_extract says nothing of its own about a file it cannot read."""
     for _id, kind, pattern in TABLE:
         if re.search(pattern, log):
+            if kind == SEVERAL_GAMES:
+                return Failure(kind, title_ids=_selectable_titles(log))
             m = _A32_NAME.search(log) if kind == A32_PROGRAM else None
             name = m.group(1).strip() if m else None
             return Failure(kind, None if name in (None, '', '?') else name, _detail(kind, log))

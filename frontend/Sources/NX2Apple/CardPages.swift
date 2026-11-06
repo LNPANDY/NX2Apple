@@ -37,7 +37,7 @@ struct CardPages: View {
                              diagnostics: diagnostics, onChooseLibraryFolder: onChooseLibraryFolder, onOpenControls: onOpenControls,
                              onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge)
             } else {
-                BuildPage(build: build, repo: repo, dependencies: dependencies, devices: devices, extrasOpen: $extrasOpen, logOpen: $logOpen,
+                BuildPage(build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, extrasOpen: $extrasOpen, logOpen: $logOpen,
                           onViewGame: onViewGame, onOpenSettings: onOpenSettings)
             }
         }

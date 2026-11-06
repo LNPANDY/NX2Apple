@@ -51,5 +51,6 @@
 0081-support-steam-controller-and-shared-mac-control.patch
 0082-ios-shell-copy-a-game-s-packed-shader-image-into.patch
 0083-test-table-of-uniform-handles-expects-the-pool-m.patch
-0084-ios-duo-outer-custom-control-bounds.patch
-0085-ios-hide-the-settings-gear-during-tv-play-with-a.patch
+0084-three-houses-shader-map.patch
+0085-ios-duo-outer-custom-control-bounds.patch
+0086-ios-hide-the-settings-gear-during-tv-play-with-a.patch

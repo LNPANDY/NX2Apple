@@ -194,7 +194,20 @@ import CryptoKit
         await store.stage(release, automatic: false).value
         XCTAssertEqual(store.status, text("app.stageNetFail", "v0.4.8"))
         XCTAssertEqual(store.blocked, store.status)
+        XCTAssertNil(store.downloadProgress)
         XCTAssertTrue(runner.launches.isEmpty, "nothing to unpack")
+    }
+
+    func testStagingReportsAndClearsDownloadProgress() async {
+        source.progressSteps = [0.25, 0.62, 1.5]
+        let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/NX2Apple-macOS-arm64.zip", digest: nil)
+        let store = makeStore()
+        var observed: [Double?] = []
+        let sub = store.$downloadProgress.sink { observed.append($0) }
+        await store.stage(release, automatic: false).value
+        _ = sub
+        XCTAssertEqual(observed, [nil, 0, 0.25, 0.62, 1.0, nil])
+        XCTAssertNil(store.downloadProgress, "cleared when staging finishes")
     }
 
     func testOnlyAReleasedCopyStages() async {

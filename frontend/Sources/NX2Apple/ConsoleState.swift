@@ -34,7 +34,9 @@ struct ConsoleGame: Identifiable {
     var title: String
     var version: String
     var platforms: [Platform]
-    var artwork: Image?
+    var artwork: NSImage?
+    /// The part of the cover the card keeps when it crops it (the thumbnail's focus point).
+    var artworkFocus = UnitPoint.center
     var status: Status
     /// The exact launcher's model, already decoded and localized by the driver.
     var settings: [LaunchSetting] = []

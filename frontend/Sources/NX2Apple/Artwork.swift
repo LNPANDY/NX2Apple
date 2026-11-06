@@ -4,7 +4,8 @@ import NXCore
 /// Official key art for a game, by title ID: the eShop banner (1920×1080, Nintendo's image CDN) that the
 /// community title database blawar/titledb lists for each title. The region list is large (about 90 MB), so
 /// it is fetched only while a game in the library has no banner yet, reduced to title ID → banner URL and
-/// kept beside the library; each banner is downloaded once into the same folder.
+/// kept beside the library; each banner is downloaded once into the same folder. The list also names a title's screenshots:
+/// those are indexed for the titles asked for and downloaded one by one, on request.
 ///
 /// The list can hold several shop products under one title ID (LNPANDY/NX2Apple#403): the game, its Nintendo Switch 2
 /// Edition, a bundle with a membership or an expansion pass. They share the ID and differ in name, nsuId and banner.
@@ -26,12 +27,37 @@ actor ArtworkStore {
     private var listFailed = false   // one attempt per launch
     private var running = false
 
+    /// What the list knows of a title besides its banner: up to `maxScreenshots` gameplay screenshots (1920×1080).
+    struct Media: Codable, Equatable {
+        var screenshots: [String]
+    }
+    enum MediaLoad: Equatable {
+        case loaded(Media)
+        case offline   // the list could not be fetched and nothing is saved for the title
+        case none
+    }
+    enum ArtworkError: LocalizedError {
+        case refused, unreadable, unavailable
+        var errorDescription: String? {
+            switch self {
+            case .refused: return "the link is not on Nintendo's image CDN"
+            case .unreadable: return "the download is not a readable image"
+            case .unavailable: return "the title has no such image"
+            }
+        }
+    }
+    static let maxScreenshots = 6
+
+    /// Saved as index.json. `media` holds only the titles that were asked for, as the list for all of them would add some 10 MB.
     private struct Index: Codable {
         var version: Int?
         var fetched: Date
         var banners: [String: String]
         var several: Set<String>?   // title IDs the list holds more than one product with a banner for
+        var media: [String: Media]?
     }
+    private var reading: Task<Void, Never>?   // the list being read, about 90 MB: once at a time
+    private var seen: Set<String> = []   // the title IDs asked for since launch: the media to keep when the list is read again
 
     init(directory: URL, titleList: URL = ArtworkStore.titleListURL, allowsFileURLs: Bool = false) {
         self.directory = directory
@@ -44,16 +70,48 @@ actor ArtworkStore {
         BannerCache.cached(titleID, in: directory)
     }
 
+    /// Where a title's downloaded screenshot is kept: `<TITLEID>/screenshot-<n>.jpg` (n from 0, as in `.screenshot(n)`). Nil for any other source.
+    nonisolated private static func candidateFile(_ source: ArtworkChoice.Source, titleID: String, in directory: URL) -> URL? {
+        guard isTitleID(titleID.uppercased()) else { return nil }
+        let name: String
+        switch source {
+        case .screenshot(let n) where (0..<maxScreenshots).contains(n): name = "screenshot-\(n).jpg"
+        default: return nil
+        }
+        return directory.appendingPathComponent(titleID.uppercased(), isDirectory: true).appendingPathComponent(name)
+    }
+
+    nonisolated static func cachedCandidate(_ source: ArtworkChoice.Source, titleID: String, in directory: URL = ArtworkStore.shared.directory) -> URL? {
+        guard let url = candidateFile(source, titleID: titleID, in: directory) else { return nil }
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    nonisolated private static func isTitleID(_ id: String) -> Bool {
+        id.range(of: "^[0-9A-F]{16}$", options: .regularExpression) != nil
+    }
+
+    /// Where a game's own images are kept: the copies of what the user chose. Keyed on the library's UUID, as a title ID is not
+    /// unique to one entry and is not a safe folder name.
+    nonisolated static func customDirectory(for gameID: UUID, in directory: URL = ArtworkStore.shared.directory) -> URL {
+        directory.appendingPathComponent("custom/" + gameID.uuidString, isDirectory: true)
+    }
+
     /// Download the banners the given titles lack, and replace one saved before `BannerPick` when the list holds another
     /// product for its title. Returns the title IDs whose banner is new.
     @discardableResult func fetchMissing(_ titleIDs: [String]) async -> [String] {
+        let asked = Set(titleIDs.map { $0.uppercased() }.filter(Self.isTitleID))
+        seen.formUnion(asked)
         var sources = readSources()
-        let wanted = Set(titleIDs.map { $0.uppercased() }.filter { $0.range(of: "^[0-9A-F]{16}$", options: .regularExpression) != nil })
-            .filter { Self.cachedBanner($0, in: directory) == nil || sources[$0] == nil }
-        guard !wanted.isEmpty, !running else { return [] }
+        let wanted = asked.filter { Self.cachedBanner($0, in: directory) == nil || sources[$0] == nil }
+        // A title added since the list was last read has its banner and no media: read the list now, in the background, rather than
+        // when the panel opens. An index without media is left for `media(for:)`, as it is not rewritten at launch.
+        loadIndex()
+        let lacksMedia = index?.media.map { media in asked.contains { media[$0] == nil } } ?? false
+        guard !wanted.isEmpty || (lacksMedia && !listFailed), !running else { return [] }
         running = true
         defer { running = false }
-        guard let index = await index(for: wanted) else { return [] }
+        if lacksMedia, !listFailed { await refresh() }
+        guard !wanted.isEmpty, let index = await index(for: wanted) else { return [] }
         let current = index.version == Self.indexVersion
         var added: [String] = []
         for id in wanted.sorted() {
@@ -66,13 +124,8 @@ actor ArtworkStore {
                 guard current else { continue }   // an old index: its pick may be the wrong product
                 if !(index.several ?? []).contains(id) { sources[id] = link; continue }   // one product: the saved banner is it
             }
-            guard let url = URL(string: link), allowed(url) else { continue }
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
-                if let http = response as? HTTPURLResponse, http.statusCode != 200 { continue }
-                guard data.count < 20 << 20, NSImage(data: data) != nil else { continue }
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-                try data.write(to: directory.appendingPathComponent(id + ".jpg"), options: .atomic)
+                try await download(link, to: directory.appendingPathComponent(id + ".jpg"))
                 if current { sources[id] = link }
                 added.append(id)
             } catch { fputs("artwork: \(id): \(error.localizedDescription)\n", stderr) }
@@ -81,33 +134,92 @@ actor ArtworkStore {
         return added
     }
 
+    /// The screenshots of a title. They are in the saved index once it has been read again since they were added, so an index
+    /// without them is read again, once, here and never at launch. `retrying` is the player asking again after `.offline`: the
+    /// list gets another attempt, which the one-attempt-per-launch rule would refuse.
+    func media(for titleID: String, retrying: Bool = false) async -> MediaLoad {
+        let id = titleID.uppercased()
+        seen.insert(id)
+        if retrying { listFailed = false }
+        loadIndex()
+        if index?.media?[id] == nil, !listFailed { await refresh() }
+        guard let media = index?.media?[id] else { return .offline }
+        return media.screenshots.isEmpty ? .none : .loaded(media)
+    }
+
+    func candidate(_ source: ArtworkChoice.Source, titleID: String) async throws -> URL {
+        guard let file = Self.candidateFile(source, titleID: titleID, in: directory) else { throw ArtworkError.unavailable }
+        if FileManager.default.fileExists(atPath: file.path) { return file }
+        switch await media(for: titleID) {
+        case .loaded(let media):
+            if case .screenshot(let n) = source { try await download(media.screenshots.indices.contains(n) ? media.screenshots[n] : nil, to: file) }
+            return file
+        case .offline: throw URLError(.notConnectedToInternet)
+        case .none: throw ArtworkError.unavailable
+        }
+    }
+
+    /// Fetch an image into `file`: Nintendo's CDN only, at most 20 MB, and one that decodes.
+    private func download(_ link: String?, to file: URL) async throws {
+        guard let link, let url = URL(string: link), allowed(url) else { throw ArtworkError.refused }
+        let (data, response) = try await URLSession.shared.data(from: url)
+        if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw URLError(.badServerResponse) }
+        guard data.count < 20 << 20, NSImage(data: data) != nil else { throw ArtworkError.unreadable }
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: file, options: .atomic)
+    }
+
+    private func loadIndex() {
+        guard index == nil, let data = try? Data(contentsOf: directory.appendingPathComponent("index.json")) else { return }
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        index = try? decoder.decode(Index.self, from: data)
+    }
+
     /// The title ID → banner URL index: the saved one while it is current and fresh or knows every wanted title, else the list again.
     private func index(for wanted: Set<String>) async -> Index? {
-        let file = directory.appendingPathComponent("index.json")
-        if index == nil, let data = try? Data(contentsOf: file) {
-            let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
-            index = try? decoder.decode(Index.self, from: data)
-        }
+        loadIndex()
         if let index, listFailed || index.version == Self.indexVersion
             && (wanted.isSubset(of: index.banners.keys) || Date().timeIntervalSince(index.fetched) < 7 * 86400) {
             return index
         }
-        guard !listFailed else { return nil }
+        await refresh()
+        return index
+    }
+
+    /// Read the title list again and save the index, with the media of the titles asked for so far and of those it had.
+    private func refresh() async {
+        // The actor runs other calls while this awaits: a second caller (the banners, the panel) waits for the same read
+        if let reading { return await reading.value }
+        let task = Task { await readList() }
+        reading = task
+        await task.value
+        reading = nil
+    }
+
+    private func readList() async {
         do {
             let (data, response) = try await URLSession.shared.data(from: titleList)
             if let http = response as? HTTPURLResponse, http.statusCode != 200 { throw URLError(.badServerResponse) }
-            let entries = try JSONDecoder().decode([String: BannerPick.Product].self, from: data)
-            let picked = BannerPick.banners(Array(entries.values))
-            let fresh = Index(version: Self.indexVersion, fetched: Date(), banners: picked.banners, several: picked.several)
+            let products = Array(try JSONDecoder().decode([String: BannerPick.Product].self, from: data).values)
+            let picked = BannerPick.banners(products)
+            // The screenshots of the product whose banner the game gets, so both come from the game's own listing
+            let kept = seen.union(index?.media?.keys.map { $0 } ?? [])
+            var byID: [String: [BannerPick.Product]] = [:]
+            for product in products { if let id = product.id?.uppercased(), kept.contains(id) { byID[id, default: []].append(product) } }
+            var media: [String: Media] = [:]
+            for id in kept {   // a title not in the list gets no screenshots, and no second look
+                let list = byID[id] ?? []
+                let product = BannerPick.pick(list) ?? list.first
+                media[id] = Media(screenshots: Array((product?.screenshots ?? []).prefix(Self.maxScreenshots)))
+            }
+            let fresh = Index(version: Self.indexVersion, fetched: Date(), banners: picked.banners, several: picked.several, media: media)
             index = fresh
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .iso8601
-            try encoder.encode(fresh).write(to: file, options: .atomic)
-            return fresh
+            try encoder.encode(fresh).write(to: directory.appendingPathComponent("index.json"), options: .atomic)
         } catch {
             listFailed = true
             fputs("artwork: title list \(titleList.absoluteString): \(error.localizedDescription)\n", stderr)
-            return index
         }
     }
 
@@ -173,12 +285,13 @@ enum BannerPick {
         var nsuId: Int64?
         var isDemo: Bool?
         var bannerUrl: String?
+        var screenshots: [String]?
 
-        init(id: String?, name: String?, nsuId: Int64?, isDemo: Bool? = nil, bannerUrl: String?) {
-            self.id = id; self.name = name; self.nsuId = nsuId; self.isDemo = isDemo; self.bannerUrl = bannerUrl
+        init(id: String?, name: String?, nsuId: Int64?, isDemo: Bool? = nil, bannerUrl: String?, screenshots: [String]? = nil) {
+            self.id = id; self.name = name; self.nsuId = nsuId; self.isDemo = isDemo; self.bannerUrl = bannerUrl; self.screenshots = screenshots
         }
 
-        private enum CodingKeys: String, CodingKey { case id, name, nsuId, isDemo, bannerUrl }
+        private enum CodingKeys: String, CodingKey { case id, name, nsuId, isDemo, bannerUrl, screenshots }
 
         /// Third-party data: a field of an unexpected type is left out instead of failing the whole list.
         init(from decoder: Decoder) throws {
@@ -190,6 +303,7 @@ enum BannerPick {
             else { nsuId = nil }
             isDemo = try? c.decodeIfPresent(Bool.self, forKey: .isDemo)
             bannerUrl = try? c.decodeIfPresent(String.self, forKey: .bannerUrl)
+            screenshots = try? c.decodeIfPresent([String].self, forKey: .screenshots)
         }
     }
 
