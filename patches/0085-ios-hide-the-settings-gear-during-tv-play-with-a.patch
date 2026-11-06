@@ -8,15 +8,14 @@ Use the layout selected after the game view moves and the active controller stat
 Upstream-Status: forwarded seedds/nxnative#1485
 Reason: Hide the in-game menu gear only while a controller is in use and the game picture is on the TV.
 Issue: LNPANDY/NX2Apple#809
-
 ---
  dm/ios/Sources/DmGamepad.m                 | 14 +++++++---
- dm/ios/Sources/DmLayout.h                  |  6 ++---
+ dm/ios/Sources/DmLayout.h                  |  6 ++--
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |  7 +++++
- dm/ios/tests/duo/Tests/DuoHarnessTests.m   | 30 ++++++++++++++++++++++
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m   | 32 ++++++++++++++++++++++
  docs/reference/rendering.md                |  2 +-
  docs/settings.md                           |  4 +--
- 6 files changed, 53 insertions(+), 10 deletions(-)
+ 6 files changed, 55 insertions(+), 10 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
 index 167cc49..36e4f8f 100644
@@ -119,10 +118,10 @@ index 500e86f..418d0ec 100644
  void front_ios_boot(void) {}
  bool dm_show_launcher(void *viewController, void (*done)(void)) { (void)viewController; (void)done; return false; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index 641d8f5..1241c54 100644
+index 641d8f5..178e576 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-@@ -1246,6 +1246,36 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
+@@ -1246,6 +1246,38 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
      [self endTouches:@[video, button] onPad:pad cancelled:NO];
  }
  
@@ -135,6 +134,8 @@ index 641d8f5..1241c54 100644
 +    @try {
 +        // The TV scene moves the same game view into its own view hierarchy.
 +        [tv addSubview:game]; [root.view setNeedsLayout]; [root.view layoutIfNeeded];
++        // A simulator can start with a controller. setUp’s disconnect updates the pad on the main queue.
++        [self waitForView:menu hidden:NO];
 +        XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"A touch-only player still has the menu on TV");
 +        [self setHarnessControllers:@[controller] notification:GCControllerDidConnectNotification];
 +        [self waitForView:menu hidden:YES];
