@@ -128,13 +128,13 @@ import NXModel
         defaults.set(true, forKey: OnboardingDefaults.completed)
         defaults.set(true, forKey: OnboardingDefaults.inProgress)
         defaults.set(true, forKey: OnboardingDefaults.keysSkipped)
-        let result = await OnboardingLaunch.decide(defaults: defaults, force: false) { XCTFail("Already complete"); return false }
+        let result = await OnboardingLaunch.decide(defaults: defaults, force: false, keysSlotIsEmpty: true) { XCTFail("Already complete"); return false }
         XCTAssertEqual(result, .launcher)
     }
 
     func testDecideRecognizesSetupFinishedInMainWindowAfterStart() async {
         defaults.set(true, forKey: OnboardingDefaults.inProgress)
-        let result = await OnboardingLaunch.decide(defaults: defaults, force: false) { true }
+        let result = await OnboardingLaunch.decide(defaults: defaults, force: false, keysSlotIsEmpty: true) { true }
         XCTAssertEqual(result, .launcher)
         XCTAssertTrue(defaults.bool(forKey: OnboardingDefaults.completed))
         XCTAssertFalse(defaults.bool(forKey: OnboardingDefaults.inProgress))
@@ -143,12 +143,28 @@ import NXModel
     func testDecideResumesExplicitKeysSkipBeforeInferringCompletion() async {
         defaults.set(true, forKey: OnboardingDefaults.inProgress)
         defaults.set(true, forKey: OnboardingDefaults.keysSkipped)
-        let result = await OnboardingLaunch.decide(defaults: defaults, force: false) { XCTFail("Skipped discovery"); return true }
+        let result = await OnboardingLaunch.decide(defaults: defaults, force: false, keysSlotIsEmpty: true) { XCTFail("Skipped discovery"); return true }
         XCTAssertEqual(result, .onboarding)
     }
 
+    func testDecideRecognizesMainWindowSetupAfterSkippingKeys() async throws {
+        let (driver, model) = make(Fake(), deps: [], step: .keys, platform: .mac)
+        driver.skipKeys()
+        driver.skipForLater()
+        let keys = home.appendingPathComponent("prod.keys")
+        try Data().write(to: keys)
+        model.updateSlot("keys") { $0.paths = [keys.path] }
+        let result = await OnboardingLaunch.decide(defaults: defaults, force: false, keysSlotIsEmpty: model.keysPath.isEmpty) {
+            OnboardingLaunch.setupComplete(depsPresent: true, keysKnown: model.slot("keys").ok, gamesKnown: true)
+        }
+        XCTAssertEqual(result, .launcher)
+        XCTAssertTrue(defaults.bool(forKey: OnboardingDefaults.completed))
+        XCTAssertFalse(defaults.bool(forKey: OnboardingDefaults.keysSkipped))
+        XCTAssertEqual(model.keysPath, keys.path)
+    }
+
     func testDecideShowsSetupOnAnIncompleteMac() async {
-        let result = await OnboardingLaunch.decide(defaults: defaults, force: false) { false }
+        let result = await OnboardingLaunch.decide(defaults: defaults, force: false, keysSlotIsEmpty: true) { false }
         XCTAssertEqual(result, .onboarding)
         XCTAssertFalse(defaults.bool(forKey: OnboardingDefaults.completed))
     }
@@ -162,7 +178,7 @@ import NXModel
 
     func testForceShowsTheSetupWhateverTheState() async {
         defaults.set(true, forKey: OnboardingDefaults.completed)
-        let result = await OnboardingLaunch.decide(defaults: defaults, force: true) { XCTFail("Forced"); return true }
+        let result = await OnboardingLaunch.decide(defaults: defaults, force: true, keysSlotIsEmpty: true) { XCTFail("Forced"); return true }
         XCTAssertEqual(result, .forced)
         XCTAssertTrue(OnboardingLaunch.forced(["NSPB_ONBOARDING_FORCE": "1"]))
         XCTAssertFalse(OnboardingLaunch.forced(["NSPB_ONBOARDING_FORCE": "0"]))
@@ -489,6 +505,26 @@ import NXModel
         XCTAssertFalse(defaults.bool(forKey: OnboardingDefaults.keysSkipped))
     }
 
+    func testResumeKeepsKeysSelectedInTheMainWindowAfterASkip() throws {
+        let keys = home.appendingPathComponent("prod.keys")
+        try Data().write(to: keys)
+        defaults.set(true, forKey: OnboardingDefaults.keysSkipped)
+        let (resumed, model) = make(Fake(), deps: [], step: .games, platform: .mac, keysPath: keys.path)
+        XCTAssertEqual(model.keysPath, keys.path)
+        XCTAssertEqual(resumed.state.keys, .valid)
+        XCTAssertFalse(defaults.bool(forKey: OnboardingDefaults.keysSkipped))
+    }
+
+    func testResumeKeepsTheSelectionWhenItsKeysFileIsUnavailable() {
+        let missing = home.appendingPathComponent("disconnected/prod.keys")
+        defaults.set(true, forKey: OnboardingDefaults.keysSkipped)
+        let (resumed, model) = make(Fake(), deps: [], step: .games, platform: .mac, keysPath: missing.path)
+        XCTAssertEqual(model.keysPath, missing.path)
+        XCTAssertEqual(resumed.state.step, .keys)
+        XCTAssertEqual(resumed.state.keys, .empty)
+        XCTAssertFalse(defaults.bool(forKey: OnboardingDefaults.keysSkipped))
+    }
+
     func testSkippingAnExistingKeyClearsOnlyTheSlot() async throws {
         let keys = home.appendingPathComponent("prod.keys")
         try Data().write(to: keys)
@@ -511,7 +547,7 @@ import NXModel
         XCTAssertEqual(present.state.step, .done)
         XCTAssertEqual(present.state.keys, .valid)
         defaults.set(true, forKey: OnboardingDefaults.keysSkipped)
-        let (skipped, model) = make(Fake(), deps: [], step: .done, platform: .mac, keysPath: keys.path)
+        let (skipped, model) = make(Fake(), deps: [], step: .done, platform: .mac)
         XCTAssertEqual(skipped.state.step, .done)
         XCTAssertEqual(skipped.state.keys, .skipped)
         XCTAssertTrue(model.keysPath.isEmpty)

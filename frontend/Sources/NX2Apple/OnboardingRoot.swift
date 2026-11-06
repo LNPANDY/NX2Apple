@@ -66,7 +66,7 @@ struct RootView: View {
     /// On launch: a setup marked done, or one that is complete already, goes straight to the launcher (and is marked done);
     /// anything else starts or resumes the guided setup.
     private func decide() async {
-        let destination = await OnboardingLaunch.decide(defaults: .standard, force: OnboardingLaunch.forced()) {
+        let destination = await OnboardingLaunch.decide(defaults: .standard, force: OnboardingLaunch.forced(), keysSlotIsEmpty: stores.build.keysPath.isEmpty) {
             await stores.dependencies.refreshDepsAndWait()
             let env = OnboardingEnvironment()
             let keysKnown = stores.build.slot("keys").ok || !env.keyCandidates(gamesFolder: library.folder).isEmpty || library.games.contains(where: \.isReady)

@@ -13,6 +13,14 @@ enum OnboardingDefaults {
     static let platform = "onboarding.platform"
     static let keysSkipped = "onboarding.keysSkipped"
     static let inProgress = "onboarding.inProgress"
+
+    /// A selection made in the main window supersedes an earlier skip, even if its drive is currently disconnected.
+    static func resumeKeysSkip(in defaults: UserDefaults, keysSlotIsEmpty: Bool) -> Bool {
+        guard defaults.bool(forKey: keysSkipped) else { return false }
+        if keysSlotIsEmpty { return true }
+        defaults.removeObject(forKey: keysSkipped)
+        return false
+    }
 }
 
 /// What `xcode-select`, `xcodebuild -license check` and `-checkFirstLaunchStatus` say, without anything of the machine's
@@ -173,11 +181,13 @@ enum OnboardingLaunch {
     static func setupComplete(depsPresent: Bool, keysKnown: Bool, gamesKnown: Bool) -> Bool { depsPresent && keysKnown && gamesKnown }
     enum Destination { case launcher, onboarding, forced }
 
-    @MainActor static func decide(defaults: UserDefaults, force: Bool, setupComplete: () async -> Bool) async -> Destination {
+    @MainActor static func decide(defaults: UserDefaults, force: Bool, keysSlotIsEmpty: Bool, setupComplete: () async -> Bool) async -> Destination {
         if force { return .forced }
         if defaults.bool(forKey: OnboardingDefaults.completed) { return .launcher }
         // A discovered file must not complete an explicitly keyless setup behind the player's back.
-        if defaults.bool(forKey: OnboardingDefaults.inProgress), defaults.bool(forKey: OnboardingDefaults.keysSkipped) { return .onboarding }
+        if defaults.bool(forKey: OnboardingDefaults.inProgress), OnboardingDefaults.resumeKeysSkip(in: defaults, keysSlotIsEmpty: keysSlotIsEmpty) {
+            return .onboarding
+        }
         guard await setupComplete() else { return .onboarding }
         defaults.set(true, forKey: OnboardingDefaults.completed)
         defaults.set(false, forKey: OnboardingDefaults.inProgress)
@@ -259,8 +269,7 @@ enum OnboardingLaunch {
         if d.bool(forKey: OnboardingDefaults.inProgress), let raw = d.string(forKey: OnboardingDefaults.step),
            let step = OnboardingStep(rawValue: raw) {
             state.step = step
-            if d.bool(forKey: OnboardingDefaults.keysSkipped) {
-                model.updateSlot("keys") { $0.paths = []; $0.problem = "" }
+            if OnboardingDefaults.resumeKeysSkip(in: d, keysSlotIsEmpty: model.keysPath.isEmpty) {
                 state.keys = .skipped
             } else if step.index > OnboardingStep.keys.index {
                 if model.slot("keys").ok { state.keys = .valid }
