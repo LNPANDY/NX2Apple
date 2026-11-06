@@ -563,7 +563,7 @@ import NXModel
         XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 3)
     }
 
-    private func fixtureWithRomFSReader() throws -> Fixture {
+    private func fixtureWithRomFSTool() throws -> Fixture {
         let f = try makeFixture()
         let tool = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("engine/" + RepoLayout.romfsImageTool)
@@ -585,7 +585,7 @@ import NXModel
     }
 
     func testSameSizeGameUpdateNeedsAnotherCopyUntilItSucceeds() throws {
-        let f = try fixtureWithRomFSReader()
+        let f = try fixtureWithRomFSTool()
         let image = f.archive + "/romfs.img"
         let deviceImage = container + "/org.nxnative.shell/Documents/games/\(titleID)/romfs.img"
         let first = romfsImage(), update = romfsImage(index: 1)
@@ -611,7 +611,7 @@ import NXModel
     }
 
     func testNewGameVersionWithUnchangedIndexAndReinstalledContainerBothNeedTheImage() throws {
-        let f = try fixtureWithRomFSReader()
+        let f = try fixtureWithRomFSTool()
         let image = URL(fileURLWithPath: f.archive + "/romfs.img")
         let manifest = f.framework + "/game.manifest.json"
         try romfsImage().write(to: image)
@@ -873,7 +873,7 @@ import NXModel
     // ---- through the model: the build with the third target, and the re-sign ----
 
     @MainActor func testBuildWithTheShellTargetInstallsAndResignsTheSharedApp() throws {
-        let f = try makeFixture()
+        let f = try fixtureWithRomFSTool()
         testDefaults.set(f.root, forKey: "shellRoot")
         let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
@@ -886,9 +886,6 @@ import NXModel
         modelStores.deviceStore.installDevice = device
         modelStores.deviceStore.signingTeam = team
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
-        for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
-        // the packer stand-in writes the image from the extracted RomFS
-        try write(f.repo + "/dm/tools/romfs_image.py", "import sys\nopen(sys.argv[3], 'wb').write(b'image')\n")
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
         import sys, json, pathlib
         open('\(state)/script.txt', 'w').write(' '.join(sys.argv[1:]))
