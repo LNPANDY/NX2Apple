@@ -3,11 +3,13 @@ or a folder that is an engine tree itself (an installed release's engine)."""
 from __future__ import annotations
 
 import importlib
+import os
 import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'frontend-qt'))
@@ -175,6 +177,30 @@ class BundledEngine(unittest.TestCase):
         self.set_frozen(False)
         self.assertTrue(engine.is_stale(str(repo)))
         self.assertEqual(engine.engine_root(str(repo)), str(repo / 'engine'))
+
+    def test_release_tools_never_clone_or_update_a_selected_git_checkout(self):
+        try:
+            with mock.patch.object(sys, 'frozen', False):
+                from nspb_qt.model import Model
+        except ModuleNotFoundError as exc:
+            if exc.name == 'PySide6':
+                self.skipTest('PySide6 is not installed')
+            raise
+        bundled = self.tree(self.app)
+        checkout = self.checkout()
+        (checkout / '.git').mkdir()
+        model = Model.__new__(Model)
+        model.repo_path = str(checkout)
+        with mock.patch.dict(os.environ, {'NSPB_REPO': str(checkout)}):
+            self.assertEqual(Path(model._find_repo()).resolve(), bundled.resolve())
+        self.assertFalse(model.repo_is_git)
+        with mock.patch.object(Model, 'git_binary', side_effect=AssertionError('must not start Git')):
+            model.update_repo()
+            model.clone_repo()
+        self.set_frozen(False)
+        self.assertTrue(model.repo_is_git)
+        with mock.patch.dict(os.environ, {'NSPB_REPO': str(checkout)}):
+            self.assertEqual(model._find_repo(), str(checkout))
 
     def test_external_venv_python_finds_bundled_engine_via_internal_layout(self):
         """A child venv python has sys.frozen=False, but __file__ is inside _internal/nspb_qt/."""

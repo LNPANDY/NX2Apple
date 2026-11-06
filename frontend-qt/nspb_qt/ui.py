@@ -1961,6 +1961,7 @@ class MainWindow(QMainWindow):
         self.repo_path_label.setText(self.m.repo_path if ok else t('repo.notFound'))
         self.clone_btn.setVisible(not ok)
         self.clone_btn.setEnabled(not busy and not self.m.running)
+        self.repo_btn.setVisible(not self.m.uses_bundled_engine)
         self.repo_btn.setEnabled(not busy and not self.m.running)
         if not ok:
             url = 'https://github.com/LNPANDY/NX2Apple'
