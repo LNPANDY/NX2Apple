@@ -7,7 +7,7 @@ struct PointerIdle: Equatable {
     enum Step { case none, hide, show }
     /// The timer looks every `ConsolePointer.pollSeconds`, so the pointer is gone 1.25 to 1.5 seconds after the last movement.
     var idleSeconds: TimeInterval = 1.25
-    /// A game is starting from the console: the window leaves full screen and the game takes the front, so a hidden pointer stays
+    /// The console leaves full screen for a game and restores it on return. Across both transitions a hidden pointer stays
     /// hidden although it is no longer over the window. Only movement, a click or a scroll shows it then (issue #380).
     var held = false
     private(set) var hidden = false
@@ -55,7 +55,7 @@ struct PointerIdle: Equatable {
     /// The pointer is hidden right now.
     var isHidden: Bool { idle.hidden }
 
-    /// Keeps a hidden pointer hidden while a game starts from the console (PointerIdle.held).
+    /// Keeps a hidden pointer hidden across the game’s full-screen transitions (PointerIdle.held).
     func hold(_ on: Bool) { idle.held = on }
 
     func start() {
@@ -80,7 +80,11 @@ struct PointerIdle: Equatable {
     private func look() {
         let location = NSEvent.mouseLocation
         let over = (NSApp?.isActive ?? false) && (window()?.frame.contains(location) ?? false)
-        apply(idle.tick(now: ProcessInfo.processInfo.systemUptime, location: location, buttonDown: NSEvent.pressedMouseButtons != 0, over: over))
+        poll(now: ProcessInfo.processInfo.systemUptime, location: location, buttonDown: NSEvent.pressedMouseButtons != 0, over: over)
+    }
+
+    func poll(now: TimeInterval, location: CGPoint, buttonDown: Bool, over: Bool) {
+        apply(idle.tick(now: now, location: location, buttonDown: buttonDown, over: over))
     }
 
     private func apply(_ step: PointerIdle.Step) {
