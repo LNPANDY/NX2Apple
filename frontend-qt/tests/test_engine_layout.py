@@ -85,7 +85,7 @@ class BundledEngine(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.r, True)
         self.app = self.r / 'app'
         self.app.mkdir()
-        self.exe = self.app / 'NS Port Builder.exe'
+        self.exe = self.app / 'NX2Apple.exe'
         self.exe.write_text('x')
         self.set_frozen(True)
 

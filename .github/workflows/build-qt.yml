@@ -8,8 +8,8 @@
 # tag so the artifact is always available under Actions, and it becomes a release download only
 # once the reports from real hardware are clean.
 #
-#   - push a tag vX.Y.Z / workflow_dispatch → build, upload as a workflow artifact
-name: Build NS Port Builder (Qt, Windows testing)
+#   - push a tag vX.Y.Z / workflow_dispatch → build, upload as a workflow artifact and attach to the release
+name: Build NX2Apple (Qt, Windows)
 
 on:
   push:
@@ -87,6 +87,25 @@ jobs:
           engine-tree/dm/gfx/tools/spirv_cross_bin/glslangValidator.exe --version
           rm -rf glslang.zip bin
 
+      - name: Version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          src=$(sed -n "s/^APP_VERSION = '\(.*\)'/\1/p" frontend-qt/nspb_qt/app_update.py)
+          v="${TAG#v}"
+          if [[ "$v" =~ ^(.+)-rc([1-9][0-9]*)$ ]]; then
+            base="${BASH_REMATCH[1]}"
+          else
+            base="$v"
+          fi
+          if [ "$base" != "$src" ]; then
+            echo "::error::tag says $base but APP_VERSION says $src: bump the source first"
+            exit 1
+          fi
+
       - name: Build
         working-directory: frontend-qt
         shell: bash
@@ -101,12 +120,13 @@ jobs:
           # place). Collect only the modules this app imports, plus the platform plugin
           # directory a windowed build would otherwise miss.
           pyinstaller --noconfirm --clean --windowed \
-            --name "NS Port Builder" \
+            --name "NX2Apple" \
             --icon "nspb_qt/assets/app_icon.ico" \
             --collect-submodules PySide6.QtCore \
             --collect-submodules PySide6.QtGui \
             --collect-submodules PySide6.QtWidgets \
             --collect-submodules nspb_qt \
+            --hidden-import nspb_qt.app_update \
             --hidden-import nspb_qt.win.toolchain \
             --hidden-import nspb_qt.win.fetch \
             --hidden-import nspb_qt.win.sdk_fetch \
@@ -174,19 +194,19 @@ jobs:
           # so they go.
           cd frontend-qt/dist
           for drop in Qt6Pdf Qt6Quick Qt6QuickWidgets Qt6Qml Qt6QmlModels Qt6QmlWorkerScript Qt6VirtualKeyboard; do
-            rm -f "NS Port Builder/$drop.dll" 2>/dev/null || true
+            rm -f "NX2Apple/$drop.dll" 2>/dev/null || true
           done
-          du -sh "NS Port Builder" 2>/dev/null || true
+          du -sh "NX2Apple" 2>/dev/null || true
 
       - name: Package
         shell: bash
         run: |
           cd frontend-qt/dist
-          cp -r ../wheels "NS Port Builder/wheels"
+          cp -r ../wheels "NX2Apple/wheels"
           # The engine tree goes inside the app folder: the launcher finds it at
           # <exe_dir>/engine (and also at <exe_dir>/../engine) and skips the repo/sync route entirely.
-          cp -r ../../engine-tree "NS Port Builder/engine"
-          powershell -Command "Compress-Archive -Path 'NS Port Builder' -DestinationPath '../NX2Apple-windows-x64.zip'"
+          cp -r ../../engine-tree "NX2Apple/engine"
+          powershell -Command "Compress-Archive -Path 'NX2Apple' -DestinationPath '../NX2Apple-windows-x64.zip'"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

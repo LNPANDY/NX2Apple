@@ -92,7 +92,7 @@ def bundled_engine() -> str:
     Empty string when it is not there or does not look like an engine tree.
 
     Also resolves when imported from an external Python (the build's venv) inside a PyInstaller
-    on-dir layout (`<root>/NS Port Builder/_internal/nspb_qt/engine.py`), where `sys.frozen` is
+    on-dir layout (`<root>/NX2Apple/_internal/nspb_qt/engine.py`), where `sys.frozen` is
     False in the child interpreter.
     """
     bases: list[Path] = []
