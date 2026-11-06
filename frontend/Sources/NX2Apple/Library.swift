@@ -19,7 +19,9 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     /// level down (a "nsp本体" folder inside the game's folder) still holds the update and DLC, so the scan climbs to
     /// the folder that does. Empty for a library written before it was recorded; the base package's folder is used then.
     var sourceFolder = ""
+    /// The image of an earlier version, a path: migrateArtwork moves it into `artwork` and empties it. Still read, so an old library loads.
     var artworkPath = ""
+    var artwork = GameArtwork()
     var launchOptions: [String: String] = [:]
     var mods: [String] = []   // the mods (folder names in the game's mods folder) switched on
     var iosAppPath = ""
@@ -73,6 +75,7 @@ extension LibraryGame {
         outputDirectory = try c.decodeIfPresent(String.self, forKey: .outputDirectory) ?? ""
         sourceFolder = try c.decodeIfPresent(String.self, forKey: .sourceFolder) ?? ""
         artworkPath = try c.decodeIfPresent(String.self, forKey: .artworkPath) ?? ""
+        artwork = (try? c.decodeIfPresent(GameArtwork.self, forKey: .artwork)) ?? GameArtwork()
         launchOptions = try c.decodeIfPresent([String: String].self, forKey: .launchOptions) ?? [:]
         mods = try c.decodeIfPresent([String].self, forKey: .mods) ?? []
         iosAppPath = try c.decodeIfPresent(String.self, forKey: .iosAppPath) ?? ""
@@ -294,12 +297,16 @@ final class GameLibrary: ObservableObject {
     @Published private(set) var folder = ""
     @Published private(set) var scanning = false
     private let file: URL
+    let artworkDirectory: URL   // where this library's artwork lives: the store's, or a temporary one in tests
     private struct Snapshot: Codable {
         let games: [LibraryGame]
         let folder: String
     }
 
-    init(file: URL? = nil, volumes: String = "/Volumes") {
+    /// `artwork` defaults to the store's folder for the app's own library, and to an `artwork` folder beside any other `file`: a library
+    /// kept elsewhere (a test's) never reads, copies into or deletes from the player's artwork.
+    init(file: URL? = nil, volumes: String = "/Volumes", artwork: URL? = nil) {
+        artworkDirectory = artwork ?? file.map { $0.deletingLastPathComponent().appendingPathComponent("artwork", isDirectory: true) } ?? ArtworkStore.shared.directory
         self.file = file ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NS Port Builder/library.json")
         if FileManager.default.fileExists(atPath: self.file.path) {
@@ -342,11 +349,13 @@ final class GameLibrary: ObservableObject {
 
     var selected: LibraryGame? { games.first { $0.id == selectedID } }
 
-    func save() {
+    /// False when the file could not be written: `error` says why.
+    @discardableResult func save() -> Bool {
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(Snapshot(games: games, folder: folder)).write(to: file, options: .atomic)
-        } catch { self.error = error.localizedDescription }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
 
     func setFolder(_ url: URL) {
@@ -573,6 +582,8 @@ final class GameLibrary: ObservableObject {
         // library already lists that game, this build replaces it: what the user set on the old entry carries over.
         if game.titleID != app.titleID, let old = games.first(where: { $0.id != id && $0.titleID == app.titleID }) {
             game.artworkPath = old.artworkPath
+            game.artwork = old.artwork
+            carryArtwork(of: old.id, to: id)
             game.launchOptions = old.launchOptions
             game.mods = old.mods
             game.iosAppPath = old.iosAppPath
@@ -635,22 +646,100 @@ final class GameLibrary: ObservableObject {
         upsert(game)
     }
 
-    func setArtwork(_ path: String, for id: UUID) {
-        guard var game = games.first(where: { $0.id == id }) else { return }
-        game.artworkPath = path
-        upsert(game)
+    private var migrating: Set<UUID> = []   // the games whose copy is being made in the background: setArtwork leaves their folder alone
+
+    /// Moves a custom image that is not yet a copy of ours into the app's own folder (ArtworkImport), so the original can go. An
+    /// image on a drive that is not connected, or that cannot be copied yet (a cloud file not downloaded, a damaged one), stays
+    /// where it is and is tried again at the next launch. The original is never touched.
+    func migrateArtwork(volumes: String = "/Volumes", completion: (() -> Void)? = nil) {
+        let directory = artworkDirectory
+        let copied = games.indices.filter { Self.isImported(games[$0].artworkPath, for: games[$0].id, in: directory) }   // a copy of the previous version
+        copied.forEach { adoptArtwork(at: $0) }
+        if !copied.isEmpty { save() }
+        let pending = games.filter { game in
+            !game.artworkPath.isEmpty && !Self.isImported(game.artworkPath, for: game.id, in: directory) && !Self.onUnmountedVolume(game.artworkPath, volumes: volumes)
+        }.map { ($0.id, $0.artworkPath) }
+        guard !pending.isEmpty else { completion?(); return }
+        migrating.formUnion(pending.map(\.0))
+        DispatchQueue.global(qos: .utility).async {
+            let copies = pending.map { id, path in
+                let copy = try? ArtworkImport.prepare(URL(fileURLWithPath: path), kind: .hero, into: ArtworkStore.customDirectory(for: id, in: directory))
+                return (id, path, copy?.url.path ?? (FileManager.default.fileExists(atPath: path) ? path : ""))
+            }
+            DispatchQueue.main.async {
+                var changed = false
+                for (id, path, copy) in copies {
+                    guard let index = self.games.firstIndex(where: { $0.id == id }), self.games[index].artworkPath == path else {
+                        // Chosen again meanwhile, or the entry went (removed, or merged into a new build's): a copy nothing uses is not kept
+                        if Self.isImported(copy, for: id, in: directory), !(self.games.first { $0.id == id }?.artwork.importedFiles.contains(URL(fileURLWithPath: copy).lastPathComponent) ?? false) {
+                            try? FileManager.default.removeItem(atPath: copy)
+                        }
+                        continue
+                    }
+                    self.games[index].artworkPath = copy
+                    if Self.isImported(copy, for: id, in: directory) { self.adoptArtwork(at: index) }
+                    changed = true
+                }
+                self.migrating.subtract(pending.map(\.0))
+                if changed { self.save() }
+                completion?()
+            }
+        }
+    }
+
+    private func adoptArtwork(at index: Int) {
+        games[index].artwork.hero = ArtworkChoice(source: .imported(URL(fileURLWithPath: games[index].artworkPath).lastPathComponent))
+        games[index].artworkPath = ""
+    }
+
+    private static func isImported(_ path: String, for id: UUID, in directory: URL) -> Bool {
+        path.hasPrefix(ArtworkStore.customDirectory(for: id, in: directory).path + "/")
+    }
+
+    /// An entry that takes over another's settings (recordCompletedApp) takes its images along: their folder is named for the entry's id.
+    private func carryArtwork(of old: UUID, to id: UUID) {
+        let from = ArtworkStore.customDirectory(for: old, in: artworkDirectory), to = ArtworkStore.customDirectory(for: id, in: artworkDirectory)
+        guard FileManager.default.fileExists(atPath: from.path) else { return }
+        try? FileManager.default.createDirectory(at: to, withIntermediateDirectories: true)
+        for file in (try? FileManager.default.contentsOfDirectory(atPath: from.path)) ?? [] {
+            let target = to.appendingPathComponent(file)
+            if FileManager.default.fileExists(atPath: target.path) { try? FileManager.default.removeItem(at: from.appendingPathComponent(file)); continue }   // the same bytes, by its name
+            try? FileManager.default.moveItem(at: from.appendingPathComponent(file), to: target)
+        }
+        if ((try? FileManager.default.contentsOfDirectory(atPath: from.path)) ?? []).isEmpty { try? FileManager.default.removeItem(at: from) }   // a file that could not move stays
+    }
+
+    /// Saves the game's slots, then removes the copies no slot uses any more. When the library cannot be written, it is left as it
+    /// was, in memory and on disk, every copy is kept and the result is false.
+    @discardableResult func setArtwork(_ artwork: GameArtwork, for id: UUID) -> Bool {
+        guard var game = games.first(where: { $0.id == id }) else { return false }
+        let before = games
+        if artwork.hero != game.artwork.hero { game.artworkPath = "" }   // a hero chosen now replaces the path an earlier version kept
+        game.artwork = artwork
+        guard upsert(game) else { games = before; return false }
+        // The copies no slot uses any more are ours, in this game's folder only. Not while a migration may have just written one there
+        // that it adopts on the main queue next.
+        guard !migrating.contains(id) else { return true }
+        let directory = ArtworkStore.customDirectory(for: id, in: artworkDirectory)
+        let kept = artwork.importedFiles
+        let copies = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        for file in copies where !kept.contains(file) && file.range(of: "^[0-9a-f]{64}\\.jpg$", options: .regularExpression) != nil {   // not a copy still being written
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(file))
+        }
+        return true
     }
 
     func remove(_ id: UUID) {
         games.removeAll { $0.id == id }
+        try? FileManager.default.removeItem(at: ArtworkStore.customDirectory(for: id, in: artworkDirectory))   // our copies, never the game's files
         if selectedID == id { selectedID = games.first?.id }
         save()
     }
 
-    private func upsert(_ game: LibraryGame) {
+    @discardableResult private func upsert(_ game: LibraryGame) -> Bool {
         if let index = games.firstIndex(where: { $0.id == game.id }) { games[index] = game }
         else { games.append(game) }
-        save()
+        return save()
     }
 
     static func title(for path: String, repo: String, titleID: String) -> String {
@@ -662,26 +751,5 @@ final class GameLibrary: ObservableObject {
         let name = filename.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? filename : name
-    }
-
-    /// Prefer a user's own image, then the game's eShop key art (ArtworkStore), then an existing repository
-    /// gameplay screenshot, then the app icon.
-    static func artwork(for game: LibraryGame, repo: String, banners: URL = ArtworkStore.shared.directory) -> NSImage? {
-        if !game.artworkPath.isEmpty, let image = NSImage(contentsOfFile: game.artworkPath) { return image }
-        if let url = ArtworkStore.cachedBanner(game.titleID, in: banners), let image = NSImage(contentsOf: url) { return image }
-        func normalized(_ s: String) -> String {
-            s.folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-                .filter { $0.isLetter || $0.isNumber }
-        }
-        let name = normalized(game.name)
-        let images = URL(fileURLWithPath: EngineLayout.root(repo)).appendingPathComponent("docs/images")
-        let files = (try? FileManager.default.contentsOfDirectory(at: images, includingPropertiesForKeys: nil)) ?? []
-        let matches = files.filter {
-            ["jpg", "jpeg", "png", "webp"].contains($0.pathExtension.lowercased()) && name.hasSuffix(normalized($0.deletingPathExtension().lastPathComponent))
-        }.sorted { $0.lastPathComponent.count > $1.lastPathComponent.count }
-        if let url = matches.first, let image = NSImage(contentsOf: url) { return image }
-        if !game.appPath.isEmpty, let icon = NSImage(contentsOfFile: game.appPath + "/Contents/Resources/AppIcon.icns") { return icon }
-        // Extraction icons are small; they are a fallback, never presented as high-resolution artwork.
-        return nil
     }
 }

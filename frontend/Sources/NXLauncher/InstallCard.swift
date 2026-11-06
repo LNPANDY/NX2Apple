@@ -10,13 +10,16 @@ package struct InstallCard: View {
     @ObservedObject var build: BuildStore
     @EnvironmentObject var loc: Localizer
 
-    package init(devices: DeviceStore, build: BuildStore) {
+    let showLocked: Bool
+
+    package init(devices: DeviceStore, build: BuildStore, showLocked: Bool = true) {
+        self.showLocked = showLocked
         self.devices = devices
         self.build = build
     }
 
     package var body: some View {
-        if build.target != BuildTarget.mac { card.disabled(build.running && !sending) }
+        if build.target != BuildTarget.mac, !build.running || sending || showLocked { card.disabled(build.running && !sending) }
     }
 
     /// The copy of the game data runs on the build store's `running` flag too, and its own buttons must stay usable (Stop).
