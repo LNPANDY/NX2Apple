@@ -47,3 +47,5 @@
 0077-ios-shell-link-the-host-into-each-game-s-framewo.patch
 0078-document-the-fork-touch-controls-so-environment.patch
 0079-ios-carry-cpu-bc-compatibility-through-game-pack.patch
+0080-keep-the-selected-python-when-generating-the-mac.patch
+0081-support-steam-controller-and-shared-mac-control.patch

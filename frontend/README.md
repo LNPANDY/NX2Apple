@@ -180,16 +180,45 @@ shows none. Starting the app from Finder uses its defaults.
 
 ## Controls
 
-**Settings → Controls → Customize…** sets the keys and controller buttons for every game.
+**Settings → Controls → Customize…** sets the global keyboard and controller layout.
 For a key, click its field and press the new key (Esc keeps the old one, × leaves the
 function on no key). One key holds one function, so the function that had the key before
 is left on none, as in the host. For a controller button, choose the button it sends
 (A and B swapped, for example). The right stick has no keys by default and can get some
-here. **Play** passes only the changes, as `DM_KEYMAP` and `DM_PAD_MAP`, which the host
-reads through `dm/host/input_map.h` — upstream's
-[seedds/nxnative#386](https://github.com/seedds/nxnative/pull/386), carried in this fork
-while it is open, and listed in `docs/env_switches.tsv`. A host built before the carrier
-has no `input_map.h` and ignores both, so its games play with the default keys.
+here.
+
+For rebuilt games that support saved controller mappings, **Manage → Launch options →
+Controller mapping…** opens a layout for that game. It shares standard button mappings
+with the game's controller menu, including **Shake**. The first launch or opening of
+this editor copies a changed global keyboard/controller layout only where the game has
+no saved mapping. This happens once, including when the global layout is unchanged,
+so resetting in the game's menu stays reset. **Copy global layout** explicitly replaces
+only the standard keyboard and controller maps. Steam extra inputs remain unchanged.
+The per-game editor refreshes after switching back from the game's menu.
+
+The **Steam Controller (2026)** section configures L4/R4/L5/R5, both pad clicks,
+Guide and Quick Access, the two trackpad modes and motion controls. Extra buttons are
+unbound by default, the left pad is a D-pad, the right pad is a touchscreen, and motion
+is enabled. **Reset Steam controls** resets only this section. Standard maps apply to
+all controllers for the game, while these extra settings apply to the Steam model.
+
+Existing game apps must be rebuilt with the updated engine to receive direct Steam
+Controller input and the per-game editor. The launcher checks the built app's explicit
+`DMControllerMappings=1` capability marker. Older builds continue receiving the global
+layout as `DM_KEYMAP` and `DM_PAD_MAP` at Play. New builds read those maps from the
+game's preferences, allowing the in-game panel to change them. Explicit launch overrides
+and `env.txt` retain their precedence. `DM_SAVED_CHOICES=0` prevents migration and
+preserves the legacy launch environment. No controller preferences are written while
+saved choices are disabled.
+
+Direct raw Steam input belongs to built games. Library and console navigation in
+NX2Apple continue to depend on Apple's GameController support.
+
+macOS may require **System Settings → Privacy & Security → Input Monitoring**
+permission for the game app's direct Steam input. Bluetooth pairing alone does not
+grant it. If direct input, motion or rumble is unavailable, enable the game app
+you launch there, quit and reopen it, then reconnect the controller. Replacing or
+rebuilding an ad-hoc signed app can require renewing that permission.
 
 The controller has four layouts, each only a `DM_PAD_MAP` value. **Standard layout**
 (the default) passes nothing: the host reads the face buttons by position, in the

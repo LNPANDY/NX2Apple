@@ -56,7 +56,8 @@ NX2Apple 用你自己导出的游戏文件，在你的 Mac 和 iPhone 上运行 
   请从 Apple 的下载页面获取 27.2，而不是 App Store 里更新的 Xcode。如果同时装了更新的 Xcode，把 27.2 改名为
   `Xcode-27.2.app` 并选中它：`sudo xcode-select -s /Applications/Xcode-27.2.app`。
 - **你自己的游戏文件**（NSP 或 XCI）和**你自己主机里导出的 `prod.keys`**。本项目不自带、不下载、
-  也不替你查找任何东西。一份 `prod.keys` 能解你所有的游戏；新导出的一份覆盖所有零售游戏。
+  也不替你查找任何东西。一份 `prod.keys` 能解你所有的 Switch 游戏。新导出的一份覆盖所有零售游戏。
+  Switch 2 游戏（游戏文件夹或 `.nup` 文件）不需要 `prod.keys`。
 - 要装到 iPhone 或 iPad：iOS 或 iPadOS 26 或更新，以及较新的设备。更旧的设备未测试。
 
 App 自带构建工具和 Python，不需要装 Homebrew 和 Python；.NET SDK 10 仍由 App 帮你安装。启动器的依赖页会逐项检查，能装的一键安装。

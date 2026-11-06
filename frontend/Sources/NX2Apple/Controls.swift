@@ -4,9 +4,8 @@ import NXCore
 import NXModel
 import NXLauncher
 
-/// The player's keyboard and controller layout for every game, passed at Play as the host's DM_KEYMAP and DM_PAD_MAP
-/// (dm/host/input_map.h). Only what differs from the host's defaults is kept and passed, so a build whose host does not
-/// read the two variables plays as before, and an unchanged layout passes nothing.
+/// The keyboard and controller editor's layout. Global layouts persist in UserDefaults, while per-game layouts use an
+/// injected callback. Only changes from input_map.h defaults are serialized as DM_KEYMAP and DM_PAD_MAP.
 final class ControlLayout: ObservableObject {
     /// A function the keyboard can hold, named as the host names it (DM_KEYS's names).
     struct Function: Identifiable {
@@ -40,17 +39,19 @@ final class ControlLayout: ObservableObject {
     var controllerCategory: () -> String? = ControlLayout.connectedCategory
     /// "All controllers are player 1" (launcher setting, off by default): passed at Play as DM_PAD_MERGE=1. It is not a layout
     /// change, so it stays out of `isDefault`, `changeCount` and the Controls sheet's reset.
-    @Published var padMerge: Bool { didSet { defaults.set(padMerge, forKey: Self.padMergeKey) } }
+    @Published var padMerge: Bool { didSet { defaults?.set(padMerge, forKey: Self.padMergeKey) } }
     static let padMergeKey = "padMerge"
     /// "Split Joy-Con pair into two controllers" (launcher setting, off by default): passed at Play as DM_JOYCON_SPLIT=1 (#740).
-    @Published var joyconSplit: Bool { didSet { defaults.set(joyconSplit, forKey: Self.joyconSplitKey) } }
+    @Published var joyconSplit: Bool { didSet { defaults?.set(joyconSplit, forKey: Self.joyconSplitKey) } }
     static let joyconSplitKey = "joyconSplit"
-    private let defaults: UserDefaults
+    private let defaults: UserDefaults?
+    private let persist: ((String, String?) -> Void)?
     /// A key code, -1 for no key. `mode` is nil in settings saved before the layouts, which had only the custom buttons.
     private struct Saved: Codable { var keys: [String: Int]; var pad: [String: String]; var mode: String? }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.persist = nil
         padMerge = defaults.bool(forKey: Self.padMergeKey)
         joyconSplit = defaults.bool(forKey: Self.joyconSplitKey)
         if let data = defaults.data(forKey: "controlLayout"), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
@@ -58,6 +59,23 @@ final class ControlLayout: ObservableObject {
             pad = saved.pad.filter { b, to in Self.buttons.contains(b) && (to == "none" || Self.buttons.contains(to)) }
             padMode = saved.mode.flatMap(PadMode.init(rawValue:)) ?? (pad.isEmpty ? .standard : .custom)
         }
+    }
+
+    /// A per-game editor never reads or writes the global UserDefaults layout.
+    init(keyMap: String?, padMap: String?, persist: @escaping (String, String?) -> Void) {
+        defaults = nil
+        self.persist = persist
+        padMerge = false
+        joyconSplit = false
+        load(keyMap: keyMap, padMap: padMap)
+    }
+
+    func load(keyMap: String?, padMap: String?) {
+        let effective = ControllerMap.keys(keyMap)
+        keys = [:]
+        for f in Self.functions where effective[f.id] != f.defaultKey { keys[f.id] = .some(effective[f.id]) }
+        pad = ControllerMap.pad(padMap)
+        padMode = pad.isEmpty ? .standard : .custom
     }
 
     var isDefault: Bool { keys.isEmpty && padChanges == 0 }
@@ -82,7 +100,7 @@ final class ControlLayout: ObservableObject {
         next[f.id] = key == f.defaultKey ? nil : .some(key)
         for g in Self.functions where next[g.id] != nil && next[g.id]! == g.defaultKey { next[g.id] = nil }
         keys = next
-        save()
+        save("DM_KEYMAP")
     }
 
     /// What a button sends in the layout chosen (for Auto, the one it picks for the controller connected now).
@@ -92,15 +110,15 @@ final class ControlLayout: ObservableObject {
     func setSends(_ button: String, _ to: String) {
         if padMode != .custom { pad = activePad; padMode = .custom }
         pad[button] = to == button ? nil : to
-        save()
+        save("DM_PAD_MAP")
     }
 
-    func setPadMode(_ mode: PadMode) { padMode = mode; save() }
+    func setPadMode(_ mode: PadMode) { padMode = mode; save("DM_PAD_MAP") }
 
     private var activePad: [String: String] { padMap(for: padMode, category: padMode == .auto ? controllerCategory() : nil) }
 
-    func resetKeyboard() { keys = [:]; save() }
-    func resetController() { pad = [:]; padMode = .standard; save() }
+    func resetKeyboard() { keys = [:]; save("DM_KEYMAP") }
+    func resetController() { pad = [:]; padMode = .standard; save("DM_PAD_MAP") }
 
     /// DM_KEYMAP and DM_PAD_MAP for the changes, in the sheet's order, and DM_PAD_MERGE=1 when merging is on; empty when nothing changed.
     var environment: [String: String] {
@@ -115,8 +133,9 @@ final class ControlLayout: ObservableObject {
         return env
     }
 
-    private func save() {
-        if let data = try? JSONEncoder().encode(Saved(keys: keys.mapValues { $0 ?? -1 }, pad: pad, mode: padMode.rawValue)) { defaults.set(data, forKey: "controlLayout") }
+    private func save(_ env: String) {
+        if let persist { persist(env, environment[env]); return }
+        if let data = try? JSONEncoder().encode(Saved(keys: keys.mapValues { $0 ?? -1 }, pad: pad, mode: padMode.rawValue)) { defaults?.set(data, forKey: "controlLayout") }
     }
 
     /// A key's name on a US keyboard, by virtual key code (the host reads codes, so the name is only for the label), in the
@@ -145,6 +164,9 @@ final class ControlLayout: ObservableObject {
 struct ControlsView: View {
     @EnvironmentObject var loc: Localizer
     @ObservedObject var layout: ControlLayout
+    var gameName: String? = nil
+    var mappingStore: ControllerMappingStore? = nil
+    var copyGlobal: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var listening: String?
     @State private var monitor: Any?
@@ -153,13 +175,18 @@ struct ControlsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(loc.t("controls.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(loc.t("controls.note")).font(.manrope(14)).foregroundStyle(.secondary)
+                Text(gameName ?? loc.t("controls.title")).font(.manrope(26, .heavy)).tracking(-0.6)
+                Text(loc.t(gameName == nil ? "controls.globalNote" : "controls.gameNote")).font(.manrope(14)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
             ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
+                    if let mappingStore { SteamControllerSection(store: mappingStore) }
+                    if let copyGlobal {
+                        Button(loc.t("controls.copyGlobal"), action: copyGlobal).buttonStyle(LauncherSecondaryButtonStyle())
+                            .padTarget("controls.copyGlobal", scope: "controls", activate: copyGlobal)
+                    }
                     section(loc.t("controls.sticks"), ControlLayout.functions.filter(\.isDirection)) { keyRow($0) }
                     section(loc.t("controls.keyButtons"), ControlLayout.functions.filter { !$0.isDirection }) { keyRow($0) }
                     PadModeSection(layout: layout)
@@ -171,7 +198,11 @@ struct ControlsView: View {
             }
             Divider().opacity(0.3)
             HStack(spacing: 14) {
-                Text(loc.t("controls.applied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
+                if let mappingStore {
+                    ControllerMappingStatus(store: mappingStore)
+                } else {
+                    Text(loc.t("controls.globalApplied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
+                }
                 Spacer(minLength: 8)
                 if !layout.isDefault {
                     Button(loc.t("controls.reset")) { stopListening(); layout.resetKeyboard(); layout.resetController() }
@@ -254,13 +285,14 @@ struct ControlsView: View {
     }
 
     private func padRow(_ button: String) -> some View {
-        let choices = ControlLayout.buttons + ["none"]
+        let targets = ControlLayout.buttons + (mappingStore == nil ? [] : ["Shake"])
+        let choices = targets + ["none"]
         return line(loc.t("controls.fn." + button), target: "pad." + button,
                     adjust: { by in
                         let at = choices.firstIndex(of: layout.sends(button)) ?? 0
                         layout.setSends(button, choices[(at + by + choices.count) % choices.count])
                     }) {
-            LauncherDropdown(options: ControlLayout.buttons.map { (value: $0, label: loc.t("controls.fn." + $0)) } + [(value: "none", label: loc.t("controls.none"))],
+            LauncherDropdown(options: targets.map { (value: $0, label: loc.t("controls.fn." + $0)) } + [(value: "none", label: loc.t("controls.none"))],
                              selection: layout.sends(button), label: loc.t("controls.fn." + button), fill: true) { layout.setSends(button, $0) }
                 .frame(width: 168)   // the keyboard rows' width (× and key field), and "Right stick press" fits
         }
