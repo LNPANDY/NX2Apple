@@ -145,6 +145,11 @@ extension BuildStore {
             }
         }
         if hasWorkDir { args += ["--work-dir", workDir] }
+        // The image of this game the other platform's build left (the iPhone build's games/<id>/romfs.img, the Mac app's): the
+        // script takes it in place of extracting the RomFS again once it checks out as this version's (#708). A game folder is packed, not extracted.
+        if folder == nil, RepoLayout.supportsRomfsFrom(repo.path) {
+            for image in RomFSArchive.reusableImages(root: outDir.isEmpty ? baseDir : outDir, key: tidHex) { args += ["--romfs-from", image] }
+        }
         let macApp = target == BuildTarget.mac
         oneGameIPAPath = ""
         if exportsOneGame {
