@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Vincent Keyan <vincent.keyan@gmail.com>
+Date: Wed, 4 Nov 2026 19:40:54 -0600
+Subject: [PATCH] nso_asm: B() names the branch it cannot encode
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A branch out of reach was a bare AssertionError. It now names to, frm
+and off and says whether the offset is beyond ±128 MiB or misaligned,
+which located Starlink: Battle for Atlas's site at 0x6f00574 before the
+split kept to the back area's reach (BACK_MIN).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#1271
+Reason: A branch out of reach in the rewriter was a bare AssertionError that did not say which site or how far
+Issue: none yet (Starlink: Battle for Atlas main rewrite)
+
+---
+ dm/tools/nso_asm.py                   |  4 +++-
+ dm/tools/tests/test_nso_asm_branch.py | 24 ++++++++++++++++++++++++
+ 2 files changed, 27 insertions(+), 1 deletion(-)
+ create mode 100644 dm/tools/tests/test_nso_asm_branch.py
+
+diff --git a/dm/tools/nso_asm.py b/dm/tools/nso_asm.py
+index db941fc..dbfd2d5 100644
+--- a/dm/tools/nso_asm.py
++++ b/dm/tools/nso_asm.py
+@@ -1,7 +1,9 @@
+ # AArch64 instruction encoders of the NSO rewriter (dm/tools/patch_nso.py) and of the per-build patch files (dm/tools/sdk_patches.py, dm/games/<id>/patches.py),
+ # which assemble their stubs with them. Each returns the instruction word; a branch asserts its reach
+ def B(frm, to):
+-    off = to - frm; assert -(1 << 27) <= off < (1 << 27) and off % 4 == 0
++    off = to - frm
++    if not (-(1 << 27) <= off < (1 << 27) and off % 4 == 0):   # names the branch, so a site the layout puts out of reach shows where
++        raise AssertionError(f'B out of reach: to={to:#x} frm={frm:#x} off={off:#x}' + ('' if -(1 << 27) <= off < (1 << 27) else ' (beyond ±128 MiB)') + ('' if off % 4 == 0 else ' (misaligned)'))
+     return 0x14000000 | ((off >> 2) & 0x3FFFFFF)
+ def STP(t, t2, n, off): return 0xA9000000 | (((off // 8) & 0x7F) << 15) | (t2 << 10) | (n << 5) | t
+ def LDP(t, t2, n, off): return 0xA9400000 | (((off // 8) & 0x7F) << 15) | (t2 << 10) | (n << 5) | t
+diff --git a/dm/tools/tests/test_nso_asm_branch.py b/dm/tools/tests/test_nso_asm_branch.py
+new file mode 100644
+index 0000000..f64c5b0
+--- /dev/null
++++ b/dm/tools/tests/test_nso_asm_branch.py
+@@ -0,0 +1,24 @@
++"""nso_asm.B(): a branch out of reach names its source, target and offset, so a layout that puts a site out of a stub's reach shows where."""
++from pathlib import Path
++import sys
++import unittest
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++import nso_asm
++
++
++class BranchTests(unittest.TestCase):
++    def test_in_reach(self):
++        self.assertEqual(nso_asm.B(0x1000, 0x1008), 0x14000002)
++        self.assertEqual(nso_asm.B(0x8000000, 0), 0x16000000)   # -128 MiB is the farthest back
++
++    def test_beyond_reach_names_the_branch(self):
++        with self.assertRaisesRegex(AssertionError, r'to=0x6f00578 frm=0xfc02320 off=-0x8d01da8 \(beyond ±128 MiB\)$'):
++            nso_asm.B(0xfc02320, 0x6f00578)   # Starlink: Battle for Atlas, before the split kept to the back area's reach
++
++    def test_misaligned(self):
++        with self.assertRaisesRegex(AssertionError, r'off=0x6 \(misaligned\)$'): nso_asm.B(0, 6)
++
++
++if __name__ == '__main__':
++    unittest.main()
