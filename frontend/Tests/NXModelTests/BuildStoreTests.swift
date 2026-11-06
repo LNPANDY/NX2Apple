@@ -150,7 +150,7 @@ import XCTest
     func testTheExperimentalBuilderIsOffByDefaultAndItsSettingIsSaved() {
         let store = makeStore()
         XCTAssertFalse(store.experimentalBuilder)
-        XCTAssertNil(store.experimentalBuilderProblem(gameFolder: false), "off: nothing to say")
+        XCTAssertNil(store.experimentalBuilderProblem(), "off: nothing to say")
         store.experimentalBuilder = true; store.experimentalBuilderPath = "/opt/nxbuild"
         XCTAssertTrue(defaults.bool(forKey: BuildStore.experimentalBuilderKey))
         XCTAssertEqual(defaults.string(forKey: BuildStore.experimentalBuilderPathKey), "/opt/nxbuild")
@@ -159,28 +159,24 @@ import XCTest
         XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
     }
 
-    func testTheExperimentalBuilderStopsAnUnsupportedBuildWithItsReasonAndNeverRunsTheScript() throws {
+    func testTheExperimentalBuilderStopsWithoutANewEnoughNxbAndNeverRunsTheScript() throws {
         let store = makeStore()
         store.bundledBuilder = nil
+        XCTAssertNil(store.experimentalBuilderProblem(), "off: nothing to say")
         store.experimentalBuilder = true
         store.experimentalBuilderPath = temporary.path + "/gone/nxb"
         XCTAssertNil(store.experimentalBuilderBinary)
-        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: false), store.t("msg.builderMissingError"), "no nxb is an error, not a build by the script")
-        let nxb = try file("nxb")
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+        XCTAssertEqual(store.experimentalBuilderProblem(), store.t("msg.builderMissingError"), "no nxb is an error, not a build by the script")
+        let old = try file("nxb")
+        try "#!/bin/sh\necho 'nxb 0.4.0'\n".write(toFile: old, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: old)
         store.experimentalBuilderPath = temporary.path   // the folder that holds it
-        XCTAssertEqual(store.experimentalBuilderBinary, nxb)
-        store.target = BuildTarget.mac; store.take(picked: ["/g/Game [0100000000001000][v0].nsp"], kind: .base)
-        XCTAssertNil(store.experimentalBuilderProblem(gameFolder: false))
-        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: true), store.t("nxb.unsupported.input"))
-        store.take(picked: ["/g/Game [0100000000001000].xci"], kind: .base)
-        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: false), store.t("nxb.unsupported.input"))
-        store.take(picked: ["/g/Game [0100000000001000].nsp"], kind: .base); store.take(picked: ["/g/DLC [0100000000001001].nsp"], kind: .dlc)
-        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: false), store.t("nxb.unsupported.dlc"))
-        store.clear("dlc"); store.target = "ios"
-        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: false), store.t("nxb.unsupported.target"))
+        XCTAssertEqual(store.experimentalBuilderBinary, old)
+        XCTAssertEqual(store.experimentalBuilderProblem(), String(format: store.t("nxb.tooOld"), "nxb 0.4.0", ExperimentalBuilder.minimumVersion))
+        try "#!/bin/sh\necho 'nxb 0.5.1'\n".write(toFile: old, atomically: true, encoding: .utf8)
+        XCTAssertNil(store.experimentalBuilderProblem(), "a game or a target nxb does not take ends with its own exit code 4")
         store.experimentalBuilder = false
-        XCTAssertNil(store.experimentalBuilderProblem(gameFolder: true), "off again: the script takes every case")
+        XCTAssertNil(store.experimentalBuilderProblem())
     }
 
     func testAFailedNxbBuildSaysItsExitCodeAndItsLastErrorLine() {

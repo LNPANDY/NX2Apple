@@ -10,18 +10,17 @@ extension BuildStore {
         ExperimentalBuilder.resolve(customPath: experimentalBuilderPath, bundled: bundledBuilder)
     }
 
-    /// Why the build cannot start as `nxb build`, as the player's text: no nxb found, or an input or target nxb does not take. nil when it can start (or the switch is off).
-    func experimentalBuilderProblem(gameFolder: Bool) -> String? {
+    /// Why the build cannot start as `nxb build`: no nxb found, or one that is older than the command line needs. The player's text, nil when it can start (or the switch is off).
+    /// A game or a target nxb does not take is not checked here: nxb says so itself (exit code 4) and the launcher shows it.
+    func experimentalBuilderProblem() -> String? {
         guard experimentalBuilder else { return nil }
-        if experimentalBuilderBinary == nil { return t("msg.builderMissingError") }
-        let ext = ([basePath, updatePath] + dlcPaths).map { ($0 as NSString).pathExtension.lowercased() }
-        return ExperimentalBuilder.unsupportedKey(mac: target == BuildTarget.mac, gameFolder: gameFolder, compressed: ext.contains { $0 == "nsz" || $0 == "xcz" },
-                                                  card: ext.contains("xci"), dlc: !dlcPaths.isEmpty).map(t)
+        guard let nxb = experimentalBuilderBinary, let version = runner.output(nxb, ["version"]) else { return t("msg.builderMissingError") }
+        return ExperimentalBuilder.isNewEnough(version) ? nil : String(format: t("nxb.tooOld"), version.trimmingCharacters(in: .whitespacesAndNewlines), ExperimentalBuilder.minimumVersion)
     }
 
-    /// The launch of `nxb build` for a Mac app: nxb as the program, the engine as its working folder and `NXB_ENGINE`, the tool environment the script gets.
-    func experimentalLaunch(nxb: String, inputDir: String, workDir: String, engine: String, environment: [String: String], python: String) -> ProcessLaunch {
-        let args = ExperimentalBuilder.buildArguments(inputDir: inputDir, keys: keysPath, titleID: buildKey, out: macAppPath, workDir: workDir, engine: engine)
+    /// The launch of `nxb build`: nxb as the program with the script's own arguments, the engine as its working folder and `NXB_ENGINE`, the tool environment the script gets.
+    func experimentalLaunch(nxb: String, scriptArguments: [String], engine: String, environment: [String: String], python: String) -> ProcessLaunch {
+        let args = ExperimentalBuilder.arguments(fromScript: scriptArguments)
         say(String(format: t("msg.builderOn"), nxb) + " " + args.joined(separator: " "))
         lastBuildCommand = [nxb] + args
         return ProcessLaunch(executable: nxb, arguments: args, environment: environment.merging(ExperimentalBuilder.environment(engine: engine)) { $1 }, directory: engine, groupPython: python)

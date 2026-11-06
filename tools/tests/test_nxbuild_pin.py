@@ -29,6 +29,17 @@ class Pin(unittest.TestCase):
             for n, b in files.items(): f.writestr(n, b)
         return z
 
+    def test_the_data_folders_of_the_release_go_beside_nxb(self):
+        with tempfile.TemporaryDirectory() as t:
+            z = self.zip(t, {'nxb-v0.5.1/nxb': b'binary', 'nxb-v0.5.1/rewrite-rules/a.toml': b'rule', 'nxb-v0.5.1/own-front/x/y.tsv': b'v',
+                             'nxb-v0.5.1/README': b'r', 'nxb-v0.5.1/other/z': b'z', 'nxb-v0.5.1/rewrite-rules/../../evil': b'e'})
+            out = nxbuild.unpack(z, hashlib.sha256(z.read_bytes()).hexdigest(), Path(t, 'res/nxbuild'))
+            self.assertEqual(Path(t, 'res/nxbuild/rewrite-rules/a.toml').read_bytes(), b'rule')
+            self.assertEqual(Path(t, 'res/nxbuild/own-front/x/y.tsv').read_bytes(), b'v')
+            self.assertFalse(Path(t, 'res/nxbuild/other').exists() or Path(t, 'res/nxbuild/README').exists())
+            self.assertFalse(Path(t, 'res/evil').exists() or Path(t, 'evil').exists())
+            self.assertEqual(out.read_bytes(), b'binary')
+
     def test_the_digest_is_checked_before_unpacking(self):
         with tempfile.TemporaryDirectory() as t:
             z = self.zip(t, {'nxb-v0.1.0/nxb': b'binary', 'nxb-v0.1.0/README': b'r'})

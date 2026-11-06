@@ -24,9 +24,9 @@ extension BuildStore {
             fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
             return
         }
-        // The experimental builder runs `nxb build` and never the script, so a case it does not take stops here with its reason (#749)
+        // The experimental builder runs `nxb build` and never the script: no nxb, or one too old, stops here (#749). A game nxb does not take ends with its own exit code 4
         nxbRun = experimentalBuilder
-        if let why = experimentalBuilderProblem(gameFolder: gameFolder != nil) { fail(why); return }
+        if let why = experimentalBuilderProblem() { fail(why); return }
         // Resolve the interpreter here if the dependency check has not landed yet. checkDeps()
         // runs on a background queue and startBuild() can beat it — for a moment deps.pythonPath is
         // empty, and the old fallback was Apple's /usr/bin/python3 (3.9), which the script then
@@ -54,7 +54,7 @@ extension BuildStore {
         // folder"), even when only the base game was picked (issue #58; ufooer's PR #31).
         // A game folder (BuildStore+GameFolder.swift) goes to the script as it is: the engine must have its packer and the game's profile.
         let folder = gameFolder
-        if let folder, let why = gameFolderEngineProblem(folder) { fail(why); return }
+        if let folder, !nxbRun, let why = gameFolderEngineProblem(folder) { fail(why); return }   // nxb reads the folder itself
         let baseDir = inputFolder
         let allPaths = folder != nil ? [] : [basePath, updatePath] + dlcPaths
         let dirs = Set(allPaths.filter { !$0.isEmpty }.map { ($0 as NSString).deletingLastPathComponent })
@@ -108,7 +108,7 @@ extension BuildStore {
         // option and would stop with "unrecognized arguments" (issue #5), so ask the script; without
         // it the script's own default (<input>/<title ID>_build) is used and the archive step follows
         // whatever folder the build reports.
-        let hasWorkDir = RepoLayout.supportsWorkDir(repo.path)
+        let hasWorkDir = nxbRun || RepoLayout.supportsWorkDir(repo.path)
         if !hasWorkDir {
             say(t("msg.noWorkDir"))
         }
@@ -119,7 +119,7 @@ extension BuildStore {
             let e = ($0 as NSString).pathExtension.lowercased()
             return e == "nsz" || e == "xcz"
         }
-        if compressed, !Toolchain.runOK(py, ["-c", "import nsz"]) {
+        if compressed, !nxbRun, !Toolchain.runOK(py, ["-c", "import nsz"]) {   // nxb reads NSZ itself
             say(t("msg.installingNsz"))
             let r = runner.runCaptured([py, "-m", "pip", "install", "nsz"],
                                      env: ["PATH": BuildCommands.toolPath(python: py),
@@ -182,7 +182,7 @@ extension BuildStore {
         var denv = toolEnvironment(python: py)
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
         let launch = nxbRun
-            ? experimentalLaunch(nxb: experimentalBuilderBinary ?? "", inputDir: inputDir, workDir: workDir, engine: engine, environment: denv, python: py)   // BuildStore+Builder.swift (#749)
+            ? experimentalLaunch(nxb: experimentalBuilderBinary ?? "", scriptArguments: args, engine: engine, environment: denv, python: py)   // BuildStore+Builder.swift (#749)
             : ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             hop {

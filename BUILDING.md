@@ -68,9 +68,10 @@ NXB_ENGINE=engine nxb build <NSP folder> --platform mac-app -k <prod.keys> --tit
   -o <app> --work-dir <build folder> --engine engine --progress json
 ```
 
-- The program is the `nxb` binary the player chose in Settings (the binary, or the folder that holds it), else the copy inside the app. This repository bundles no binary. It needs an `nxb` that has `build`.
+- The program is the `nxb` binary the player chose in Settings (the binary, or the folder that holds it), else the copy inside the app, which `frontend/nxbuild.pin` names. It needs nxb 0.5.1 or newer: the launcher reads `nxb version` first and stops with a message when the nxb is older.
+- The command line is the script's own: the launcher builds the arguments it gives the script (input folder, `.nup` file or dump folder, `-k`, `--work-dir`, `--platform`, `-o`, `--shell-framework`, `--team-id`, `--romfs`, `--env-file`) and runs `nxb build` with them, so the same cases reach nxb. DLC, NSZ, XCI and merged packages in the folder are found by nxb itself. A game with no profile is surveyed by nxb, and the launcher does not pass `--no-heap-check`, as it does not for the script, so nxb stops with exit code 4 and names the step it cannot do yet.
 - `--progress json` prints one JSON event per line (`stage`, `step`, `progress`, `stage_end`, `say`, each with `code` and `severity`). The launcher shows them as its own stages and writes every line to the build log.
-- There is no fallback. A case `nxb build` does not take stops before the build with the reason: an iPhone or iPad build, an NSZ, an XCI, a game folder or a NUP, and add-on content (DLC). A failure shows nxb's exit code and its last error line. The exit codes are 0 done, 1 error, 2 bad arguments, 3 damaged data, 4 not supported yet, 6 missing key and 130 interrupted. Turning the setting off builds with the script again.
+- There is no fallback. A failure, or a game or step nxb does not take, shows nxb's exit code in words and its last error line. The exit codes are 0 done, 1 error, 2 bad arguments, 3 damaged data, 4 not supported yet, 6 missing key and 130 interrupted. Turning the setting off builds with the script again.
 
 ## Build the IPA
 

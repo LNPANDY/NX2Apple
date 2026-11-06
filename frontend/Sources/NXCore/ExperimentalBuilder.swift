@@ -36,19 +36,26 @@ package enum ExperimentalBuilder {
         ["NXB_ENGINE": engine]
     }
 
-    /// The command line of `nxb build` for a Mac app, in the NSP script's own names. `inputDir` holds one game's NSPs.
-    /// No `--gpu`: nxb builds no pipeline archive then, where the script made one for this Mac's GPU.
-    package static func buildArguments(inputDir: String, keys: String, titleID: String, out: String, workDir: String, engine: String) -> [String] {
-        ["build", inputDir, "--platform", "mac-app", "-k", keys, "--title-id", titleID, "-o", out, "--work-dir", workDir, "--engine", engine, "--progress", "json"]
+    /// The oldest nxbuild that has the whole `nxb build` command line of the NSP script (NSZ, XCI, merged packages, a NUP, a dump folder, DLC, a game with no profile, the iPhone options).
+    package static let minimumVersion = "0.5.1"
+
+    /// The command line of `nxb build` from the script's: the same options in the same names, with `build` in place of the script's path (the first element).
+    package static func arguments(fromScript args: [String]) -> [String] {
+        ["build"] + args.dropFirst()
     }
 
-    /// The string key of what `nxb build` does not take, nil when it takes the case. The inputs are what the player picked:
-    /// `iPhone` is a build for an iPhone or iPad, `gameFolder` a game's files as a folder or a NUP, `compressed` an NSZ or XCZ, `card` an XCI, `dlc` add-on content.
-    package static func unsupportedKey(mac: Bool, gameFolder: Bool, compressed: Bool, card: Bool, dlc: Bool) -> String? {
-        if !mac { return "nxb.unsupported.target" }
-        if gameFolder || compressed || card { return "nxb.unsupported.input" }
-        if dlc { return "nxb.unsupported.dlc" }
-        return nil
+    /// Whether the output of `nxb version` ("nxb 0.5.1") names a version of at least `minimum`. A text with no version in it is too old.
+    package static func isNewEnough(_ output: String, minimum: String = minimumVersion) -> Bool {
+        func parts(_ s: String) -> [Int]? {
+            let numbers = s.split(whereSeparator: { !"0123456789.".contains($0) }).first { $0.first?.isNumber == true }
+            return numbers.map { $0.split(separator: ".").compactMap { Int($0) } }.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        guard let have = parts(output), let want = parts(minimum) else { return false }
+        for i in 0..<max(have.count, want.count) {
+            let (h, w) = (i < have.count ? have[i] : 0, i < want.count ? want[i] : 0)
+            if h != w { return h > w }
+        }
+        return true
     }
 
     /// The string key of what nxb's exit code says (`nxb build`'s: 0 done, 1 error, 2 bad arguments, 3 damaged data, 4 not supported yet, 6 missing key, 130 interrupted).

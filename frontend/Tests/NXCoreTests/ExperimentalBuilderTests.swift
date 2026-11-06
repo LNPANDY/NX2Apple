@@ -27,25 +27,22 @@ final class ExperimentalBuilderTests: XCTestCase {
                      "an app built without a pinned release has no copy")
     }
 
-    func testNxbBuildGetsTheScriptsOptionsAndTheEngine() {
-        let args = ExperimentalBuilder.buildArguments(inputDir: "/g", keys: "/k/prod.keys", titleID: "010015100B514000", out: "/o/W.app", workDir: "/o/w", engine: "/e")
-        XCTAssertEqual(args.first, "build", "the one nxb binary: its subcommand")
-        for pair in [["--platform", "mac-app"], ["-k", "/k/prod.keys"], ["--title-id", "010015100B514000"], ["-o", "/o/W.app"], ["--work-dir", "/o/w"], ["--engine", "/e"], ["--progress", "json"]] {
-            XCTAssertEqual(args[args.firstIndex(of: pair[0])! + 1], pair[1], pair[0])
-        }
+    func testNxbBuildGetsTheScriptsOptionsUnchanged() {
+        let script = ["/e/scripts/build_ipa_from_nsp.py", "/g", "-k", "/k/prod.keys", "--progress", "json", "--work-dir", "/o/w", "--platform", "mac-app", "-o", "/o/W.app"]
+        XCTAssertEqual(ExperimentalBuilder.arguments(fromScript: script), ["build"] + script.dropFirst(), "the one nxb binary: its subcommand in place of the script")
+        XCTAssertEqual(ExperimentalBuilder.arguments(fromScript: []), ["build"])
         XCTAssertEqual(ExperimentalBuilder.environment(engine: "/e"), ["NXB_ENGINE": "/e"])
     }
 
-    func testWhatNxbBuildDoesNotTake() {
-        func key(mac: Bool = true, folder: Bool = false, compressed: Bool = false, card: Bool = false, dlc: Bool = false) -> String? {
-            ExperimentalBuilder.unsupportedKey(mac: mac, gameFolder: folder, compressed: compressed, card: card, dlc: dlc)
-        }
-        XCTAssertNil(key())
-        XCTAssertEqual(key(mac: false), "nxb.unsupported.target")
-        XCTAssertEqual(key(folder: true), "nxb.unsupported.input")
-        XCTAssertEqual(key(compressed: true), "nxb.unsupported.input")
-        XCTAssertEqual(key(card: true), "nxb.unsupported.input")
-        XCTAssertEqual(key(dlc: true), "nxb.unsupported.dlc")
+    func testTheVersionThatHasTheWholeCommandLine() {
+        XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 0.5.1\n"))
+        XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 0.5.10"))
+        XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 1.0.0"))
+        XCTAssertFalse(ExperimentalBuilder.isNewEnough("nxb 0.5.0"))
+        XCTAssertFalse(ExperimentalBuilder.isNewEnough("nxb 0.4.0"))
+        XCTAssertFalse(ExperimentalBuilder.isNewEnough("usage: nxb <command>"), "no version in it")
+        XCTAssertFalse(ExperimentalBuilder.isNewEnough(""))
+        XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 0.5", minimum: "0.5.0"))
     }
 
     func testEveryExitCodeOfNxbHasItsOwnMessage() {
