@@ -38,7 +38,8 @@ package enum ExperimentalBuilder {
 
     /// The oldest nxbuild that builds with this app: it has the whole `nxb build` command line of the NSP script, reads the engine from
     /// `NXB_ENGINE` and takes the pinned engine's `patch_nso.py` (0.5.1 to 0.6.1 stop with "--engine is required" or at the rewrite).
-    package static let minimumVersion = "0.6.2"
+    /// 0.6.2 stops in the Mac shader step, because it needs the own front end's verdicts and a fresh build has none.
+    package static let minimumVersion = "0.6.3"
 
     /// The command line of `nxb build` from the script's: the same options in the same names, with `build` in place of the script's path (the first element).
     package static func arguments(fromScript args: [String]) -> [String] {
