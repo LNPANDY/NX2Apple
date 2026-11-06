@@ -667,13 +667,13 @@ enum OnboardingLaunch {
         library.setFolder(url)
         if !model.running { model.outDir = url.path }
         state.games = .found(found.map { OnboardingGame(id: $0.titleID, title: $0.name, version: "",
-                                                         cover: GameLibrary.artwork(for: $0, repo: stores.repo.path)) })
+                                                         cover: GameLibrary.artwork(for: $0, slot: .thumbnail, repo: stores.repo.path, maxPixel: ArtworkImages.cardPixels)) })
         let ids = found.map(\.titleID)
         spawn("covers") { d in
             await d.env.fetchArtwork(ids)
             guard case .found(var games) = d.state.games else { return }
             for i in games.indices where games[i].cover == nil {
-                if let g = found.first(where: { $0.titleID == games[i].id }) { games[i].cover = GameLibrary.artwork(for: g, repo: d.stores.repo.path) }
+                if let g = found.first(where: { $0.titleID == games[i].id }) { games[i].cover = GameLibrary.artwork(for: g, slot: .thumbnail, repo: d.stores.repo.path, maxPixel: ArtworkImages.cardPixels) }
             }
             d.state.games = .found(games)
         }

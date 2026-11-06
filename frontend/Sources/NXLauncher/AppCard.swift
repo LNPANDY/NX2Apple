@@ -80,7 +80,10 @@ package struct AppCard: View {
                     Button(loc.t("app.restartNow")) { updates.restartNow() }.disabled(buildRunning)
                         .padTarget("set.appRestart", scope: "main") { if !buildRunning { updates.restartNow() } }
                 } else if let u = updates.update, updates.installability == .ok {
-                    Button(String(format: loc.t("app.updateBtn"), u.tag)) { updates.performUpdate() }.disabled(updates.busy || buildRunning)
+                    let label = updates.downloadProgress.map {
+                        "\(Int((min(max($0, 0), 1) * 100).rounded()))%"
+                    } ?? String(format: loc.t("app.updateBtn"), u.tag)
+                    Button(label) { updates.performUpdate() }.disabled(updates.busy || buildRunning)
                         .padTarget("set.appUpdate", scope: "main") { if !(updates.busy || buildRunning) { updates.performUpdate() } }
                 } else {
                     Button(loc.t("repo.check")) { updates.checkForUpdate() }.disabled(updates.busy)
