@@ -1,0 +1,177 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Atomsk <135618857+Atomsk-debug@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 16:59:00 +0100
+Subject: [PATCH] iOS shell: a game framework's copies are clones of the
+ build's own outputs
+
+DM_FRAMEWORK_ONLY copied the built framework, the shader libraries and the
+pipeline archive into <work>/shell-framework with rsync. rsync writes a changed
+file anew, so on APFS each was a second copy on disk: the executable every
+time, the pipeline archive every time, and the shader image whenever the same
+chain's libraries were built again (the first copy of an image was already a
+clone, cp -c). Measured on Super Mario Bros. Wonder 1.2.1 by comparing the
+files' physical extents: the framework is 816 MB, of which the image is
+737 MB and the executable 76 MB. After a first build 737 MB shared their
+blocks with shader/ios/b-<chain>.img and 79 MB did not. After the image was
+written anew and the step ran again, nothing was shared.
+
+Every copy in the step is now a clone (cp -c: a copy on a file system without
+clones), made under a temporary name and renamed, so an interrupted build
+leaves the file that was there. A file whose size and time, to the nanosecond,
+are its source's is left alone, as rsync left it. A library folder and the
+pipeline archive are cloned whole and swapped in.
+
+With this the same build shares all 737 MB and all 76 MB with the build's
+outputs, after a first build, after a second one over it, and after the image
+was written anew: the framework costs about 3 MB of its own.
+
+test_framework_build.py checks the sharing for the image, the executable, a
+library folder and the pipeline archive at a first build and at a rebuild (it
+skips on a file system without clones), and that an unchanged image keeps its
+file.
+
+Upstream-Status: fork-only
+Reason: the route C shell's framework build (0050, fork-only) clones its copies instead of rsyncing them; upstream has no DM_FRAMEWORK_ONLY
+Issue: LNPANDY/NX2Apple#422
+
+---
+ dm/ios/tests/test_framework_build.py | 82 ++++++++++++++++++++++++++++
+ dm/ios/tools/build_ipa.sh            | 15 +++--
+ 2 files changed, 93 insertions(+), 4 deletions(-)
+
+diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
+index cfba21f..8e58e10 100644
+--- a/dm/ios/tests/test_framework_build.py
++++ b/dm/ios/tests/test_framework_build.py
+@@ -303,6 +303,88 @@ class FrameworkOnlyShaderLibrariesTests(unittest.TestCase):
+         self.build()
+         self.assertEqual(self.shaders(), ['b-fixture'])
+ 
++    # The framework's copies are clones of the build's own outputs, at a first build and at every later one (LNPANDY/NX2Apple#422)
++    BIG = 'shader ' * 40000   # 280 KB: several blocks of file data
++
++    @staticmethod
++    def extents(path):
++        """The device offset of each run of the file's data (fcntl F_LOG2PHYS_EXT): two files that share their blocks, as a clone and its source do, have the same list."""
++        import fcntl, struct
++        runs, size, at = [], os.path.getsize(path), 0
++        with open(path, 'rb') as f:
++            while at < size:
++                _, length, device = struct.unpack('=Iqq', fcntl.fcntl(f.fileno(), 65, struct.pack('=Iqq', 0, size - at, at)))
++                if length <= 0: break
++                runs.append((at, length, device)); at += length
++        return runs
++
++    def assertShared(self, copy, source):
++        self.assertEqual(Path(copy).read_bytes(), Path(source).read_bytes())
++        self.assertEqual(self.extents(copy), self.extents(source), f'{copy} is a second copy of {source} on disk, not a clone')
++
++    def needs_clones(self):
++        """Skips where the temporary folder's file system has no clones, or does not say where a file's blocks are."""
++        a, b = self.root / 'probe', self.root / 'probe.clone'
++        a.write_text(self.BIG)
++        try:
++            subprocess.run(['cp', '-c', str(a), str(b)], check=True, capture_output=True)
++            shared = self.extents(a) == self.extents(b) != []
++        except (OSError, subprocess.CalledProcessError): shared = False
++        a.unlink(); b.unlink(missing_ok=True)
++        if not shared: self.skipTest('the temporary folder is not on a file system with clones (APFS)')
++
++    def test_the_image_is_a_clone_after_every_build(self):
++        self.needs_clones()
++        image = self.library(packed=True, content=self.BIG)
++        self.build()
++        self.assertShared(self.out / 'msl/b-fixture.img', image)
++        image = self.library(packed=True, content=self.BIG.replace('shader', 'newer '))   # the same chain's libraries, built again
++        self.build()
++        self.assertShared(self.out / 'msl/b-fixture.img', image)
++        self.assertEqual(self.shaders(), ['b-fixture.img'])   # no temporary file left
++
++    def test_an_unchanged_image_is_left_alone(self):
++        self.library(packed=True, content=self.BIG)
++        self.build()
++        before = (self.out / 'msl/b-fixture.img').stat()
++        self.build()
++        after = (self.out / 'msl/b-fixture.img').stat()
++        self.assertEqual((before.st_ino, before.st_mtime_ns), (after.st_ino, after.st_mtime_ns))
++
++    def test_the_executable_is_a_clone_and_follows_a_rebuild(self):
++        self.needs_clones()
++        self.library(packed=True)
++        built = self.root / 'dd/Build/Products/Release-iphoneos' / f'{self.FW}.framework' / self.FW
++        built.write_text(self.BIG)
++        self.build()
++        self.assertShared(self.out / self.FW, built)
++        built.write_text(self.BIG.replace('shader', 'dylib2'))
++        self.build()
++        self.assertShared(self.out / self.FW, built)
++        self.assertFalse(list(self.out.glob('*.part')))
++
++    def test_a_library_folder_and_the_pipeline_archive_are_clones(self):
++        self.needs_clones()
++        folder = self.library(packed=False, content=self.BIG)
++        pso = self.root / 'pso-src'
++        (pso / 'applegpu_g18p').mkdir(parents=True)
++        (pso / 'applegpu_g18p/archive.metallib').write_text(self.BIG.replace('shader', 'pipeln'))
++        (self.out / 'pso').mkdir(parents=True)
++        (self.out / 'pso/stale.metallib').write_text('an earlier build')
++
++        def build_with_archive():
++            root = self.root
++            result = run_step(FRAMEWORK_ONLY, root, FRAMEWORK_ONLY=str(root / 'out'), FW_NAME=self.FW, O=str(root / 'pkg'), DD=str(root / 'dd'),
++                              DM_BUNDLE_ID='org.nxnative.fixture', MSL_IOS=str(root / 'shaders'), MSLDIR='b-fixture', PSO=str(pso),
++                              ICON=str(root / 'no-icon.jpg'), PATH=f'{root / "bin"}:{os.environ["PATH"]}')
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        for _ in range(2):   # a first build, then one over it
++            build_with_archive()
++            self.assertShared(self.out / 'msl/b-fixture/fixture_b.metallib', folder / 'fixture_b.metallib')
++            self.assertShared(self.out / 'pso/applegpu_g18p/archive.metallib', pso / 'applegpu_g18p/archive.metallib')
++            self.assertEqual(sorted(p.name for p in (self.out / 'pso').iterdir()), ['applegpu_g18p'])   # what the archive no longer has is gone
++            self.assertEqual(self.shaders(), ['b-fixture'])
++
+ 
+ if __name__ == '__main__':
+     unittest.main()
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index 3263fd5..b5fd57e 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -258,7 +258,13 @@ fi
+ # DM_FRAMEWORK_ONLY: the framework target alone, unsigned (build_shell.sh's project embeds it and Xcode signs it with the shell), then the
+ # game's per-game resources into it, so one folder is one game: the shader libraries (msl/<MSLDIR> or msl/<MSLDIR>.img, msl/ the shell's DM_MSL_DIR), the pipeline
+ # archive (pso/, DM_PSO_BUNDLE) and the icon the shell's library shows. The game files and add-on content stay out (data, Documents/games/<id>/)
++# Every copy into the framework is a clone of the build's own output (cp -c: on APFS the two share their blocks, on another file system it is a copy), made under a temporary name
++# and renamed, so an interrupted build leaves what was there. rsync writes a changed file anew: a rebuilt image of the same chain (Super Mario Bros. Wonder: 737 MB of the framework's
++# 816 MB), the pipeline archive and the executable were each a second copy on disk (LNPANDY/NX2Apple#422). A file whose size and time are its source's is left alone, as rsync left it
+ if [ -n "$FRAMEWORK_ONLY" ]; then
++  same_file() { [ -f "$2" ] && [ ! -L "$2" ] && [ "$(stat -f '%z %Fm' "$1")" = "$(stat -f '%z %Fm' "$2")" ]; }   # the time to the nanosecond, which cp -p keeps: a rebuild in the same second is seen
++  clone_file() { same_file "$1" "$2" || { rm -rf -- "$2.part" && cp -cp -- "$1" "$2.part" && { [ ! -d "$2" ] || rm -rf -- "$2"; } && mv -f -- "$2.part" "$2"; }; }
++  clone_tree() { rm -rf -- "$2.part" && cp -cRp -- "$1" "$2.part" && rm -rf -- "$2" && mv -- "$2.part" "$2"; }   # a folder, whole: every file a clone
+   t "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"
+   mkdir -p "$O" "$FRAMEWORK_ONLY" || die "mkdir $FRAMEWORK_ONLY"
+   xcodebuild -project DmIOS.xcodeproj -target DmShellGame -configuration Release -sdk iphoneos \
+@@ -268,19 +274,20 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
+   BUILT=$DD/Build/Products/Release-iphoneos/$FW_NAME.framework
+   [ -f "$BUILT/$FW_NAME" ] || die "no built framework $BUILT"
+   OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
+-  rsync -a --delete --exclude /msl --exclude /pso --exclude /icon.png -- "$BUILT/" "$OUTFW/" || die "copy the framework to $OUTFW"
++  rsync -a --delete --exclude /msl --exclude /pso --exclude /icon.png --exclude "/$FW_NAME" --exclude '/*.part' -- "$BUILT/" "$OUTFW/" || die "copy the framework to $OUTFW"
++  clone_file "$BUILT/$FW_NAME" "$OUTFW/$FW_NAME" || die "copy the framework's executable to $OUTFW"
+   # An NVN game's libraries may be the one file b-<chain>.img (dm/tools/shader_lib.py): it goes in as msl/<MSLDIR>.img, where the host reads it (nvn_mtl.m), as stage_resources.sh copies it into an app
+   LIB=$(lib_path "$MSL_IOS/$MSLDIR") || die "shader libraries $MSL_IOS/$MSLDIR"
+   mkdir -p "$OUTFW/msl" || die "mkdir $OUTFW/msl"
+   if [ -f "$LIB" ]; then
+     rm -rf "$OUTFW/msl/$MSLDIR"
+-    if [ -f "$OUTFW/msl/$MSLDIR.img" ]; then rsync -a -- "$LIB" "$OUTFW/msl/$MSLDIR.img"; else cp -cp -- "$LIB" "$OUTFW/msl/$MSLDIR.img"; fi || die "copy the shader libraries"
++    clone_file "$LIB" "$OUTFW/msl/$MSLDIR.img" || die "copy the shader libraries"
+   else
+     rm -f "$OUTFW/msl/$MSLDIR.img"
+-    mkdir -p "$OUTFW/msl/$MSLDIR" && rsync -a --delete -- "$LIB/" "$OUTFW/msl/$MSLDIR/" || die "copy the shader libraries"
++    clone_tree "$LIB" "$OUTFW/msl/$MSLDIR" || die "copy the shader libraries"
+   fi
+   for old in "$OUTFW/msl/"*; do case "$old" in "$OUTFW/msl/$MSLDIR"|"$OUTFW/msl/$MSLDIR.img") ;; *) rm -rf "$old";; esac; done
+-  if [ -n "$PSO" ]; then mkdir -p "$OUTFW/pso" && rsync -a --delete -- "$PSO/" "$OUTFW/pso/" || die "copy the pipeline archive"; else rm -rf "$OUTFW/pso"; fi
++  if [ -n "$PSO" ]; then clone_tree "$PSO" "$OUTFW/pso" || die "copy the pipeline archive"; else rm -rf "$OUTFW/pso"; fi
+   if [ -f "$ICON" ]; then sips -s format png -z 512 512 "$ICON" --out "$OUTFW/icon.png" > /dev/null || die "sips: cannot convert the icon $ICON"; else rm -f "$OUTFW/icon.png"; fi
+   python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
+     || die "$OUTFW/game.manifest.json does not name $FW_NAME"
