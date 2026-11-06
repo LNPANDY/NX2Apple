@@ -8,13 +8,16 @@
 # tag so the artifact is always available under Actions, and it becomes a release download only
 # once the reports from real hardware are clean.
 #
-#   - push a tag vX.Y.Z / workflow_dispatch → build, upload as a workflow artifact
-name: Build NS Port Builder (Qt, Windows testing)
+#   - push a tag vX.Y.Z / workflow_dispatch → build, upload as a workflow artifact and attach to the release
+name: Build NX2Apple (Qt, Windows)
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -54,6 +57,74 @@ jobs:
           python tools/engine.py tree --out engine-tree
           du -sh engine-tree
 
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish the extractor for the bundled Windows engine
+        shell: bash
+        run: |
+          # Use the patched sources that produced engine-tree. Keep obj/ and other build
+          # intermediates in engine/ so only the published output goes into the Windows zip.
+          out=engine-tree/dm/tools/nx_extract_bin
+          cp frontend-qt/nx_extract/packages.lock.json engine/dm/tools/nx_extract/
+          dotnet publish engine/dm/tools/nx_extract -c Release --self-contained false -p:RestoreLockedMode=true -o "$out"
+          cp frontend-qt/nx_extract/LibHac-LICENSE.txt "$out/"
+
+          # Open a synthetic empty PFS0 through LibHac before packaging.
+          touch empty.keys
+          python -c "from pathlib import Path; Path('empty.nsp').write_bytes(b'PFS0' + bytes(256))"
+          "$out/nx_extract.exe" empty.keys --keys empty.nsp
+
+      - name: Build Windows shader tools for the bundled engine
+        shell: bash
+        run: |
+          # The engine tree ships a macOS Mach-O spirv-cross binary in dm/gfx/tools/spirv_cross_bin/.
+          # Build the Windows executable from the exact commit build.sh pins, and bundle Khronos's
+          # standalone glslangValidator.exe alongside it so NVN, Vulkan and OpenGL shader builds
+          # all work out of the box without a manual Vulkan SDK install.
+          TAG=$(sed -n 's/^TAG=\([^ ]*\).*/\1/p' engine-tree/dm/gfx/tools/spirv_cross_bin/build.sh)
+          COMMIT=$(sed -n 's/^COMMIT=\([^ ]*\).*/\1/p' engine-tree/dm/gfx/tools/spirv_cross_bin/build.sh)
+          git clone --quiet --depth 1 --branch "$TAG" https://github.com/KhronosGroup/SPIRV-Cross.git spirv-cross-src
+          got=$(git -C spirv-cross-src rev-parse HEAD)
+          [ "$got" = "$COMMIT" ] || { echo "SPIRV-Cross $TAG is $got, expected $COMMIT" >&2; exit 1; }
+          cmake -S spirv-cross-src -B spirv-cross-build -DSPIRV_CROSS_ENABLE_TESTS=OFF -DSPIRV_CROSS_SKIP_INSTALL=ON
+          cmake --build spirv-cross-build --config Release --target spirv-cross --parallel
+          SPV_EXE=$(find spirv-cross-build -name "spirv-cross.exe" | head -1)
+          [ -n "$SPV_EXE" ] && [ -f "$SPV_EXE" ]
+          cp "$SPV_EXE" engine-tree/dm/gfx/tools/spirv_cross_bin/spirv-cross.exe
+          engine-tree/dm/gfx/tools/spirv_cross_bin/spirv-cross.exe --revision
+          rm -rf spirv-cross-src spirv-cross-build
+
+          GLSLANG_URL="https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip"
+          GLSLANG_SHA="82bf434e69b9bb4829de7e2b4bc2c5e7a7861e53d66cf75e5cc70f5f694a8d9b"
+          curl -fsSL "$GLSLANG_URL" -o glslang.zip
+          got_sha=$(sha256sum glslang.zip | awk '{print $1}')
+          [ "$got_sha" = "$GLSLANG_SHA" ] || { echo "glslang.zip sha256 is $got_sha, expected $GLSLANG_SHA" >&2; exit 1; }
+          unzip -q glslang.zip bin/glslang.exe
+          cp bin/glslang.exe engine-tree/dm/gfx/tools/spirv_cross_bin/glslangValidator.exe
+          engine-tree/dm/gfx/tools/spirv_cross_bin/glslangValidator.exe --version
+          rm -rf glslang.zip bin
+
+      - name: Version from the tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          src=$(sed -n "s/^APP_VERSION = '\(.*\)'/\1/p" frontend-qt/nspb_qt/app_update.py)
+          v="${TAG#v}"
+          if [[ "$v" =~ ^(.+)-rc([1-9][0-9]*)$ ]]; then
+            base="${BASH_REMATCH[1]}"
+          else
+            base="$v"
+          fi
+          if [ "$base" != "$src" ]; then
+            echo "::error::tag says $base but APP_VERSION says $src: bump the source first"
+            exit 1
+          fi
+
       - name: Build
         working-directory: frontend-qt
         shell: bash
@@ -68,16 +139,19 @@ jobs:
           # place). Collect only the modules this app imports, plus the platform plugin
           # directory a windowed build would otherwise miss.
           pyinstaller --noconfirm --clean --windowed \
-            --name "NS Port Builder" \
+            --name "NX2Apple" \
+            --icon "nspb_qt/assets/app_icon.ico" \
             --collect-submodules PySide6.QtCore \
             --collect-submodules PySide6.QtGui \
             --collect-submodules PySide6.QtWidgets \
             --collect-submodules nspb_qt \
+            --hidden-import nspb_qt.app_update \
             --hidden-import nspb_qt.win.toolchain \
             --hidden-import nspb_qt.win.fetch \
             --hidden-import nspb_qt.win.sdk_fetch \
             --hidden-import nspb_qt.win.driver \
             --hidden-import nspb_qt.win.shim \
+            --hidden-import nspb_qt.win.mp_worker \
             --hidden-import nspb_qt.win.build_app \
             --hidden-import nspb_qt.win.fix_ipa_modes \
             --hidden-import nspb_qt.win.doctor \
@@ -126,6 +200,7 @@ jobs:
             --add-data "../frontend/fonts/Manrope.ttf${PATHSEP}fonts" \
             --add-data "../frontend/fonts/Manrope-OFL.txt${PATHSEP}fonts" \
             --add-data "../frontend/l10n${PATHSEP}l10n" \
+            --add-data "nspb_qt${PATHSEP}nspb_qt" \
             --paths . \
             run_gui.py
 
@@ -138,30 +213,51 @@ jobs:
           # so they go.
           cd frontend-qt/dist
           for drop in Qt6Pdf Qt6Quick Qt6QuickWidgets Qt6Qml Qt6QmlModels Qt6QmlWorkerScript Qt6VirtualKeyboard; do
-            rm -f "NS Port Builder/$drop.dll" 2>/dev/null || true
+            rm -f "NX2Apple/$drop.dll" 2>/dev/null || true
           done
-          du -sh "NS Port Builder" 2>/dev/null || true
+          du -sh "NX2Apple" 2>/dev/null || true
 
       - name: Package
         shell: bash
         run: |
           cd frontend-qt/dist
-          cp -r ../wheels "NS Port Builder/wheels"
+          cp -r ../wheels "NX2Apple/wheels"
           # The engine tree goes inside the app folder: the launcher finds it at
           # <exe_dir>/engine (and also at <exe_dir>/../engine) and skips the repo/sync route entirely.
-          cp -r ../../engine-tree "NS Port Builder/engine"
-          powershell -Command "Compress-Archive -Path 'NS Port Builder' -DestinationPath '../NS-Port-Builder-qt-windows-x64.zip'"
+          cp -r ../../engine-tree "NX2Apple/engine"
+          powershell -Command "Compress-Archive -Path 'NX2Apple' -DestinationPath '../NX2Apple-windows-x64.zip'"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: NS-Port-Builder-qt-windows-x64
-          path: frontend-qt/NS-Port-Builder-qt-windows-x64.zip
+          name: NX2Apple-windows-x64
+          path: frontend-qt/NX2Apple-windows-x64.zip
           if-no-files-found: error
 
-      # Deliberately NOT attached to the release. Two reasons, both from real reports:
-      #  - the Windows build is still in testing. Shipping it on every tag put a 84 MB download
-      #    in front of users who could not use it, and it contradicted the release notes that
-      #    said the Windows front end was not ready;
-      #  - the Qt macOS build has no advantage over the native SwiftUI app on the same machine,
-      #    so a second macOS download only creates a way to pick the worse one.
-      # The artifacts above stay available under Actions for anyone testing the Windows path.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          v="${TAG#v}"
+          if [[ "$v" =~ ^(.+)-rc([1-9][0-9]*)$ ]]; then
+            ver="${BASH_REMATCH[1]}"
+            rc="${BASH_REMATCH[2]}"
+            if ! gh release view "$TAG" >/dev/null 2>&1; then
+              gh release create "$TAG" --prerelease --latest=false --verify-tag \
+                --title "NX2Apple $ver release candidate $rc" \
+                --notes "Release candidate $rc of NX2Apple $ver."
+            fi
+          else
+            # On a final tag, wait briefly for build-mac-app.yml to create the release with its full notes if both run in parallel
+            for _ in $(seq 1 30); do
+              gh release view "$TAG" >/dev/null 2>&1 && break
+              sleep 10
+            done
+            if ! gh release view "$TAG" >/dev/null 2>&1; then
+              gh release create "$TAG" --verify-tag --title "$TAG" --notes "NX2Apple $TAG"
+            fi
+          fi
+          gh release upload "$TAG" frontend-qt/NX2Apple-windows-x64.zip --clobber

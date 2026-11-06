@@ -100,6 +100,14 @@ import SwiftUI
         XCTAssertNil(launches.last?.environment["DM_CURSOR_HIDDEN"], "a visible pointer stays the game's default")
     }
 
+    func testAGameStartedWithThePointerHiddenGetsTheFrontYielded() throws {
+        let app = try makeApp().path
+        XCTAssertEqual(LiveConsoleDriver.yieldTarget(environment: ["DM_CURSOR_HIDDEN": "1"], appPath: app), bundleID,
+                       "LaunchServices activating the game shows the pointer for a moment")
+        XCTAssertNil(LiveConsoleDriver.yieldTarget(environment: [:], appPath: app), "with the pointer visible LaunchServices activates the game as before")
+        XCTAssertNil(LiveConsoleDriver.yieldTarget(environment: ["DM_CURSOR_HIDDEN": "1"], appPath: temporary.appendingPathComponent("Missing.app").path))
+    }
+
     func testConsoleLaunchesFullscreenOverTheSavedDisplayChoice() throws {
         var launches: [Launch] = []
         let (driver, library, _) = try makeDriver { launches.append($0) }
@@ -213,6 +221,25 @@ import SwiftUI
         XCTAssertNotNil(driver.state.toast, "a Bluetooth controller cannot be dropped by an app: the toast says where")
     }
 
+    func testJoyconSplitExpandsPairedJoyConIntoTwoSidewaysPlayers() throws {
+        let pads = [ConsolePadSnapshot(id: "jc", name: "Joy-Con (L/R)", category: "Nintendo Switch Joy-Con (L/R)", playerIndex: 1, battery: 0.75, charging: true)]
+        let (driver, _, layout) = try makeDriver(pads: pads)
+        XCTAssertEqual(driver.state.controllers.map(\.name), ["Joy-Con (L/R)"])
+        XCTAssertEqual(driver.state.controllers.map(\.kind), [.paired])
+        driver.setJoyconSplit(true)
+        XCTAssertTrue(layout.joyconSplit)
+        XCTAssertTrue(driver.state.joyconSplit)
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["jc.L", "jc.R"])
+        XCTAssertEqual(driver.state.controllers.map(\.name), ["Joy-Con (L)", "Joy-Con (R)"])
+        XCTAssertEqual(driver.state.controllers.map(\.kind), [.gamepad, .gamepad])
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
+        XCTAssertEqual(driver.state.controllers.map(\.batteryPercent), [75, 75])
+        driver.setJoyconSplit(false)
+        XCTAssertFalse(layout.joyconSplit)
+        XCTAssertEqual(driver.state.controllers.map(\.name), ["Joy-Con (L/R)"])
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1])
+    }
+
     func testEnteringAndLeavingConsoleModeRestoresTheWindowInOrder() async throws {
         var calls: [Bool] = []
         var finishEntering: (() -> Void)?
@@ -238,22 +265,25 @@ import SwiftUI
     func testAGameStartsFromAWindowThatLeftFullScreenAndFullScreenReturnsAfterIt() throws {
         var calls: [Bool] = []
         var active = true
-        final class FakeWindow: NSWindow {
-            var isFull = true
-            override var styleMask: NSWindow.StyleMask {
-                get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
-                set { super.styleMask = newValue.subtracting(.fullScreen) }
-            }
-        }
-        let window = FakeWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        var hideBalance = 0
+        let pointer = ConsolePointer(window: { window }, hide: { hideBalance += 1 }, show: { hideBalance -= 1 })
+        var finishReturn: (() -> Void)?
         let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
             calls.append(on)
-            window.isFull = on
-            done()
-        }, fadeSeconds: 0.05, appIsActive: { active })
+            if on {
+                finishReturn = { window.isFull = true; done() }
+            } else {
+                window.isFull = false
+                done()
+            }
+        }, fadeSeconds: 0.05, pointer: pointer, appIsActive: { active })
         coordinator.available = true
         coordinator.enter()
         XCTAssertTrue(coordinator.active, "the window was full screen already")
+        pointer.poll(now: 0, location: .zero, buttonDown: false, over: true)
+        pointer.poll(now: 2, location: .zero, buttonDown: false, over: true)
+        XCTAssertEqual(hideBalance, 1)
         var launched = 0
         coordinator.leaveFullScreenForGame { launched += 1 }
         XCTAssertEqual(calls, [false], "the window leaves full screen first")
@@ -261,8 +291,17 @@ import SwiftUI
         active = false
         coordinator.resumeFullScreenAfterGame()
         XCTAssertEqual(calls, [false], "a launcher behind another app waits")
+        pointer.poll(now: 3, location: .zero, buttonDown: false, over: false)
+        XCTAssertEqual(hideBalance, 1, "keep the stationary cursor hidden while waiting for activation")
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
         XCTAssertEqual(calls, [false, true], "full screen is back once the launcher is active")
+        pointer.poll(now: 4, location: .zero, buttonDown: false, over: false)
+        XCTAssertEqual(hideBalance, 1, "keep it hidden until the return animation actually finishes")
+        try XCTUnwrap(finishReturn)()
+        pointer.poll(now: 5, location: .zero, buttonDown: false, over: true)
+        XCTAssertEqual(hideBalance, 1, "the cursor is still idle over the restored window")
+        pointer.poll(now: 6, location: .zero, buttonDown: false, over: false)
+        XCTAssertEqual(hideBalance, 0, "outside the restored window the normal cursor rule resumes")
         coordinator.leaveFullScreenForGame { launched += 1 }
         coordinator.exit()
         coordinator.resumeFullScreenAfterGame()
@@ -274,16 +313,9 @@ import SwiftUI
     }
 
     func testFullScreenIsAskedAgainWhenTheSystemDroppedTheFirstRequest() throws {
-        final class FakeWindow: NSWindow {
-            var isFull = true
-            override var styleMask: NSWindow.StyleMask {
-                get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
-                set { super.styleMask = newValue.subtracting(.fullScreen) }
-            }
-        }
         var calls: [Bool] = []
         var dropped = 2
-        let window = FakeWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
         let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
             calls.append(on)
             if on, dropped > 0 { dropped -= 1 } else { window.isFull = on }
@@ -295,6 +327,35 @@ import SwiftUI
         coordinator.resumeFullScreenAfterGame()
         XCTAssertEqual(calls, [false, true, true, true], "two requests were dropped, the third one worked")
         XCTAssertTrue(window.isFull)
+    }
+
+    func testStaleReturnCannotReleaseTheNextGamesPointer() throws {
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let pointer = ConsolePointer(window: { window }, hide: {}, show: {})
+        var returns: [() -> Void] = []
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
+            if on { returns.append(done) } else { window.isFull = false; done() }
+        }, pointer: pointer, appIsActive: { true })
+        coordinator.available = true
+        coordinator.enter()
+        defer { coordinator.exit() }
+        pointer.poll(now: 0, location: .zero, buttonDown: false, over: true)
+        pointer.poll(now: 2, location: .zero, buttonDown: false, over: true)
+        coordinator.leaveFullScreenForGame {}
+        coordinator.resumeFullScreenAfterGame()
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(returns.count, 1, "a duplicate end notification cannot start another return")
+        coordinator.leaveFullScreenForGame {}
+        try XCTUnwrap(returns.first)()
+        XCTAssertEqual(returns.count, 1, "an old completion cannot retry during the next game")
+        pointer.poll(now: 3, location: .zero, buttonDown: false, over: false)
+        XCTAssertTrue(pointer.isHidden)
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(returns.count, 2, "the new game can restore the window")
+        window.isFull = true
+        try XCTUnwrap(returns.last)()
+        pointer.poll(now: 4, location: .zero, buttonDown: false, over: false)
+        XCTAssertFalse(pointer.isHidden)
     }
 
     func testPlayWaitsForTheLaunchHookAndReportsTheEnd() async throws {
@@ -713,5 +774,47 @@ import SwiftUI
         XCTAssertFalse(driver.handleConnection(id: "pad", name: "DUALSHOCK 4 Wireless Controller", connected: false))
         XCTAssertEqual(driver.state.toast, gone, "no second disconnect toast")
         XCTAssertTrue(driver.state.controllers.isEmpty)
+    }
+
+    /// Regression test (#740): a paired Joy-Con is a single GCController instance with one shared `playerIndex` property.
+    /// Writing `.R`'s assigned player back to that shared hardware slot used to overwrite `.L`'s playerIndex, causing P1 and P2
+    /// to ping-pong on every reread and spawning an exponential storm of reread Tasks.
+    func testSplitJoyConPairDoesNotPingPongSharedHardwarePlayerIndex() {
+        var hardwarePlayerIndex: Int? = 1
+        var writes: [(String, Int)] = []
+        let layout = ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!)
+        let driver = LiveConsoleDriver(
+            library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
+            controls: layout, repo: { "" }, lang: { .en }, labels: { $0 },
+            pads: {
+                [ConsolePadSnapshot(id: "jc", name: "Joy-Con (L/R)", category: "Nintendo Switch Joy-Con (L/R)", playerIndex: hardwarePlayerIndex)]
+            },
+            artwork: { _, _ in nil }, observeSystem: false,
+            playerOutput: { id, player in
+                writes.append((id, player))
+                hardwarePlayerIndex = player   // shared GCController.playerIndex
+            })
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["jc"])
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1])
+
+        driver.setJoyconSplit(true)
+        XCTAssertEqual(driver.state.controllers.map(\.id), ["jc.L", "jc.R"])
+        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
+        let countAfterSplit = writes.count
+
+        // Subsequent rereads (e.g. from primeOutputs or battery KVO) must keep L=1, R=2 stable and emit no new hardware writes.
+        for _ in 0..<5 {
+            driver.refreshControllers(announce: false)
+            XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2], "P1 and P2 must not ping-pong across rereads")
+            XCTAssertEqual(writes.count, countAfterSplit, "no new player output writes when nothing changed")
+        }
+    }
+}
+
+private final class ConsoleFullScreenTestWindow: NSWindow {
+    var isFull = true
+    override var styleMask: NSWindow.StyleMask {
+        get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
+        set { super.styleMask = newValue.subtracting(.fullScreen) }
     }
 }

@@ -447,11 +447,22 @@ final class GameLibrary: ObservableObject {
             // The enumerator hands out resolved paths (/private/var/…) while the library folder may not be, so compare resolved.
             let rootReal = root.resolvingSymlinksInPath().path
             func inside(_ u: URL) -> String { u.resolvingSymlinksInPath().path }
+            let skipDirs: Set<String> = ["romfs", "extract", "tools", "venv", "archive", "harness", "runs", "shader", "xcode"]
+            func holdsFamily(_ folder: URL, except child: String) -> Bool {
+                guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return false }
+                if names.contains(where: family) { return true }
+                for name in names where name != child && !name.hasPrefix(".") {
+                    let low = name.lowercased()
+                    if skipDirs.contains(low) || low.hasSuffix("_build") || low.hasSuffix("_survey") { continue }
+                    if let sub = try? FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent(name).path),
+                       sub.contains(where: family) { return true }
+                }
+                return false
+            }
             while inside(gameRoot) != rootReal, inside(gameRoot).hasPrefix(rootReal) {
                 let parent = gameRoot.deletingLastPathComponent()
                 guard inside(parent).hasPrefix(rootReal),
-                      let names = try? FileManager.default.contentsOfDirectory(atPath: parent.path),
-                      names.contains(where: family) else { break }
+                      holdsFamily(parent, except: gameRoot.lastPathComponent) else { break }
                 gameRoot = parent
             }
             // Packages of this game anywhere in that folder, a few levels at most (what the build script itself scans).
@@ -505,7 +516,9 @@ final class GameLibrary: ObservableObject {
                             for slot in ["update", "dlc", "keys"] where existing.inputs[slot, default: []].isEmpty {
                                 existing.inputs[slot] = source.inputs[slot] ?? []
                             }
-                            if existing.sourceFolder.isEmpty { existing.sourceFolder = source.sourceFolder }
+                            if existing.sourceFolder.isEmpty || (!source.sourceFolder.isEmpty && URL(fileURLWithPath: existing.sourceFolder).resolvingSymlinksInPath().path.hasPrefix(URL(fileURLWithPath: source.sourceFolder).resolvingSymlinksInPath().path + "/")) {
+                                existing.sourceFolder = source.sourceFolder
+                            }
                         }
                         if existing.ipaPath.isEmpty { existing.ipaPath = source.ipaPath }
                         self.upsert(existing)

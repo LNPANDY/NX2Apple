@@ -121,6 +121,23 @@ import XCTest
         XCTAssertTrue(args.contains("mac-app"))
     }
 
+    /// #749: with the experimental builder on, the same arguments go to `nxb build` and the script is not run.
+    func testTheExperimentalBuilderGivesTheScriptsArgumentsToNxbBuildAndIsNamedInTheLog() {
+        let (store, game) = makeStore()
+        store.scan(folder: game)
+        store.startBuild()
+        let standard = store.lastBuildCommand
+        XCTAssertFalse(store.log.text.contains("nxb"))
+        let nxb = root + "/nxbuild/nxb"
+        write(nxb)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.3\n") }
+        store.experimentalBuilder = true; store.experimentalBuilderPath = nxb
+        store.startBuild()
+        XCTAssertEqual(store.lastBuildCommand, [nxb, "build"] + standard.dropFirst(2), "nxb build in place of the interpreter and the script, the same options after")
+        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
+    }
+
     func testWithoutAProfileTheFolderIsRefusedWithTheTitleID() {
         let (store, game) = makeStore(profile: false)
         store.scan(folder: game)
@@ -194,6 +211,30 @@ import XCTest
         write(nup, nupData())
         store.scan(folder: nup)
         XCTAssertEqual(store.slot("base").problem, store.t("folder.engineOldNUP"))
+    }
+
+    /// An old engine (no survey in the script) refuses a NUP of a game it has no profile for, one with the survey builds it.
+    func testANUPOfAGameWithoutAProfileNeedsTheSurveyInTheEngine() throws {
+        let (store, _) = makeStore(profile: false)
+        let nup = root + "/Bananza.nup"
+        write(nup, nupData())
+        write(root + "/engine/scripts/build_ipa_from_nsp.py", Data("def survey_dump(src, out):\n    pass\n".utf8))
+        store.scan(folder: nup)
+        XCTAssertEqual(store.slot("base").problem, String(format: store.t("folder.noProfile"), "040074A01BF12000"))
+        XCTAssertFalse(store.canBuild)
+        write(root + "/engine/scripts/build_ipa_from_nsp.py", Data("def survey_nup(n, k, base, out):\n    pass\n".utf8))
+        store.scan(folder: nup)
+        XCTAssertEqual(store.gameFolder?.nup, nup)
+        XCTAssertEqual(store.slot("base").problem, "")
+        XCTAssertTrue(store.canBuild)
+    }
+
+    func testAGameFolderOfAGameWithoutAProfileNeedsTheSurveyInTheEngine() {
+        let (store, game) = makeStore(profile: false)
+        write(root + "/engine/scripts/build_ipa_from_nsp.py", Data("def survey_nup(n, k, base, out):\n    pass\n".utf8))
+        store.scan(folder: game)
+        XCTAssertNotNil(store.gameFolder)
+        XCTAssertTrue(store.canBuild)
     }
 
     /// A NUP's header and package table: base, one update, no data (as syntheticNUP in NXCoreTests).

@@ -72,6 +72,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let outputKey = "buildOutputDirectory"
     nonisolated package static let targetKey = "buildTarget"
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
+    nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
+    nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -79,7 +81,16 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         Slot(id: "update", kind: .update, title: "data.update", optional: true),
         Slot(id: "dlc", kind: .dlc, title: "data.dlc", optional: true),
         Slot(id: "keys", kind: .keys, title: "data.keys", optional: false),
-    ]
+    ] {
+        didSet {
+            if (selectedTitleID != nil || failure?.kind == .severalGames), slots.map(\.paths) != oldValue.map(\.paths) {
+                selectedTitleID = nil
+                if failure?.kind == .severalGames { failure = nil; doneNote = "" }
+            }
+        }
+    }
+    /// The program the player chose for this build, including its device checks and retries.
+    var selectedTitleID: String?
     /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
     @Published package var gameFolder: GameFolder.Contents?
     /// A folder meant as a game folder was refused: the base row says why.
@@ -121,11 +132,23 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     /// Decode BC-compressed textures on the CPU. Only relevant for GPUs without BC support
     /// (A15/A16 and older): on a device that has it the GPU path is always better, so the switch
-    /// is a compatibility option and defaults off. Passed as DM_TEX_BC_CPU through --env-file,
+    /// is a compatibility option and defaults off. Passed as DM_PROF_TEX_BC_CPU through --env-file,
     /// which the host reads at start-up — no rebuild of the host needed.
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
     }
+    /// Settings, "Use experimental builder" (#749): the NSP script hands the stages nxbuild supports to it, and runs the rest the standard way.
+    /// Off by default. BuildStore+Builder.swift passes it to the build.
+    @Published package var experimentalBuilder: Bool {
+        didSet { defaults.set(experimentalBuilder, forKey: Self.experimentalBuilderKey) }
+    }
+    /// The `nxb` binary the player chose (or its folder), empty for the app's own copy (ExperimentalBuilder.resolve).
+    @Published package var experimentalBuilderPath: String {
+        didSet { defaults.set(experimentalBuilderPath, forKey: Self.experimentalBuilderPathKey) }
+    }
+    /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
+    package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
+    package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
@@ -207,6 +230,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         outDir = defaults.string(forKey: Self.outputKey) ?? ""
         target = BuildTarget.saved(defaults)
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
+        experimentalBuilder = defaults.bool(forKey: Self.experimentalBuilderKey)
+        experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -319,21 +344,46 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             let name = e["name"] as? String ?? "", step = e["step"] as? String ?? ""
             let n = (e["n"] as? NSNumber)?.intValue ?? 0
             append("[\(k)/\(n)] \(name)" + (step.isEmpty ? "" : " · \(step)") + " …\n")
-            stage { $0.name = Stage.localizedName(name, t); $0.state = .running; $0.detail = step; $0.percent = nil; $0.started = Date(); $0.eta = nil }
+            stage {
+                $0.name = Stage.localizedName(name, t)
+                $0.state = .running
+                $0.started = Date()
+                $0.detail = step
+                $0.percent = nil
+                $0.eta = nil
+                $0.isScanningLastShaderFiles = false
+            }
         case "step":
             let step = e["step"] as? String ?? ""
             append("    · \(step)\n")
-            stage { $0.detail = step; $0.percent = nil; $0.eta = nil }
+            stage {
+                $0.detail = step
+                $0.percent = nil
+                $0.eta = nil
+                $0.isScanningLastShaderFiles = false
+            }
         case "progress":
             let fraction = (e["frac"] as? NSNumber)?.doubleValue
             let detail = BuildProgress.progressDetail(e)
             let eta = (e["eta"] as? NSNumber)?.doubleValue
-            stage { $0.percent = fraction.map { $0 * 100 }; $0.detail = detail; $0.eta = eta; $0.etaAt = eta == nil ? nil : Date() }
+            stage {
+                $0.percent = fraction.map { $0 * 100 }
+                $0.detail = detail
+                $0.eta = eta
+                $0.etaAt = eta == nil ? nil : Date()
+                $0.isScanningLastShaderFiles = BuildProgress.isScanningLastShaderFiles(e)
+            }
         case "stage_end":
             let ok = e["ok"] as? Bool ?? true, summary = e["summary"] as? String ?? ""
             let elapsed = BuildProgress.duration((e["elapsed"] as? NSNumber)?.doubleValue ?? 0)
             append("\(ok ? "✓" : "✗") \(e["name"] as? String ?? "") (\(elapsed))" + (summary.isEmpty ? "" : ": \(summary)") + "\n")
-            stage { $0.state = ok ? .done : .failed; $0.detail = summary; $0.percent = ok ? 100 : $0.percent; $0.eta = nil }
+            stage {
+                $0.state = ok ? .done : .failed
+                $0.detail = summary
+                $0.percent = ok ? 100 : $0.percent
+                $0.eta = nil
+                $0.isScanningLastShaderFiles = false
+            }
         case "say":
             let msg = e["msg"] as? String ?? ""
             append(msg + "\n")

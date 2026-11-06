@@ -7,14 +7,17 @@ import Combine
 @MainActor final class LauncherControllerDriver: ConsoleDriver {
     @Published var state = ConsoleState()
     private let layout: ControlLayout
-    private var subscription: AnyCancellable?
+    private var cancellables = Set<AnyCancellable>()
 
     init(layout: ControlLayout) {
         self.layout = layout
         state.padMerge = layout.padMerge
-        subscription = layout.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }
+        state.joyconSplit = layout.joyconSplit
+        layout.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }.store(in: &cancellables)
+        layout.$joyconSplit.sink { [weak self] split in self?.state.joyconSplit = split }.store(in: &cancellables)
     }
     func setPadMerge(_ enabled: Bool) { layout.padMerge = enabled }
+    func setJoyconSplit(_ enabled: Bool) { layout.joyconSplit = enabled }
     func openControllers() { state.openControllers() }
     func back() { state.back() }
     func dismissToast() { state.toast = nil }

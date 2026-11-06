@@ -65,6 +65,20 @@ import NXModel
         XCTAssertEqual(BuildFailureClassifier.classify(log).kind, .severalGames)
     }
 
+    func testOnlyTheEnginesSelectableBaseTitleIDsAreOffered() throws {
+        let line = try XCTUnwrap(fixtures().first { $0.id == "games.several" }).text
+        let filename = "Game [0100000000003000].xci"
+        let contents = "\(filename) holds several titles: DLC 0100000000011001 v0, update 0100000000010800 v1"
+        XCTAssertEqual(BuildFailureClassifier.classify(contents + "\n" + line).titleIDs,
+                       ["0100000000010000", "01006F8002326000"])
+        for malformed in [line.replacingOccurrences(of: "01006F8002326000", with: "123"),
+                          line.replacingOccurrences(of: "01006F8002326000", with: "0100000000010000"),
+                          "Running: " + line, contents,
+                          "[RED] more than one game in the folder, keep one game per folder: 0100000000010000, 01006F8002326000"] {
+            XCTAssertTrue(BuildFailureClassifier.classify(malformed).titleIDs.isEmpty, malformed)
+        }
+    }
+
     func testTheFailureIsFoundAboveTheLastLine() {
         let log = "[3/9] extract\n[RED] the NSP is damaged: 2 files fail the NCA's hash check (x)\n---- last lines of /w/extract.log ----\n[RED] nx_extract exit code 3 (full output: /w/extract.log)\n"
         XCTAssertEqual(BuildFailureClassifier.classify(log).kind, .damagedNSP)
@@ -286,7 +300,7 @@ import NXModel
         }
         for (name, kind, lang) in [("hint-other-metal", BuildFailureKind.otherMetal, Lang.en), ("hint-ios-sdk", .iosSDK, .en), ("hint-damaged-nsp", .damagedNSP, .en),
                                    ("hint-other-metal-zh", .otherMetal, .zh)]
-                                  + [BuildFailureKind.keys, .keysOld, .severalGames, .noTitleID, .noProfile, .driveMissing, .diskFull, .volumeFormat, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
+                                  + [BuildFailureKind.keys, .keysOld, .severalGames, .noTitleID, .driveMissing, .diskFull, .volumeFormat, .teamTaken, .noSigningAccount, .deviceTransfer].flatMap { k in
                                       [("row-\(k.rawValue)", k, Lang.en), ("row-\(k.rawValue)-zh", k, Lang.zh)] } {
             let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
             m.lang = CaptureLanguage.current(lang)
@@ -295,6 +309,44 @@ import NXModel
             try capture(name, width: 760, height: kind == .noTitleID ? 380 : 250, ZStack(alignment: .top) {
                 LauncherPalette.background
                 BuildFailureCard(m: m).environmentObject(mStores.localizer).padding(24)
+            })
+        }
+        let multiGame = try XCTUnwrap(fixtures().first { $0.id == "games.several" })
+        let files = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: files, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: files) }
+        let cartridge = files.appendingPathComponent("Collection.xci"), keys = files.appendingPathComponent("test.keys")
+        try Data().write(to: cartridge)
+        try Data().write(to: keys)
+        for lang in Lang.all {
+            let stores = LauncherStores(defaults: testDefaults)
+            stores.repo.path = Self.engine.path
+            stores.dependencies.checked = true
+            stores.dependencies.deps = [Dep(id: "test", name: "test", hint: "", present: true, installCmd: [])]
+            stores.build.take(picked: [cartridge.path], kind: .base)
+            stores.build.take(picked: [keys.path], kind: .keys)
+            stores.build.lang = lang
+            stores.build.logTail = multiGame.text
+            stores.build.noteFailure()
+            try capture("multi-game-\(lang.code)", width: 760, height: 250, ZStack(alignment: .top) {
+                LauncherPalette.background
+                BuildFailureCard(m: stores.build).environmentObject(stores.localizer).padding(24)
+            })
+        }
+        // Replay the real low-space stop through the classifier, including the raw-note fallback before a hint exists.
+        for lang in Lang.all {
+            let stores = LauncherStores(defaults: testDefaults)
+            let build = stores.build
+            build.lang = lang
+            build.doneNote = try XCTUnwrap(fixtures().first { $0.id == "pso.low" }).text
+            build.logTail = build.doneNote
+            build.noteFailure()
+            try capture("pso-low-\(lang.code)", width: 760, height: 360, ZStack(alignment: .top) {
+                LauncherPalette.background
+                VStack(alignment: .leading, spacing: 20) {
+                    ActionCard(build: build, dependencies: stores.dependencies, repo: stores.repo)
+                    BuildFailureCard(m: build)
+                }.environmentObject(stores.localizer).padding(24)
             })
         }
         let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build

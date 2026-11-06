@@ -3,19 +3,26 @@ import NXCore
 import NXModel
 import NXLauncher
 
-/// The window's content: the launcher, or the guided setup before it. It owns the one `LauncherStores` and `GameLibrary` both use,
-/// so what the setup detects, installs and chooses is what the launcher shows.
+/// App-lifetime state shared by setup and every launcher window. A build and its log must outlive the window that started it.
+/// Nothing is published here, so log output redraws only the views observing the individual stores.
+@MainActor final class LauncherSession: ObservableObject {
+    let stores: LauncherStores
+    let library: GameLibrary
+    let controls = ControlLayout()
+    lazy var console = LiveConsoleDriver(library: library, controls: controls, repo: { [stores] in stores.repo.path }, lang: { [stores] in stores.localizer.lang },
+                                         labels: { [stores] in stores.localizer.t($0) })
+
+    init(stores: LauncherStores? = nil, library: GameLibrary? = nil) {
+        self.stores = stores ?? LauncherStores()
+        self.library = library ?? GameLibrary()
+    }
+}
+
+/// The window's content: the launcher, or the guided setup before it. The app owns the shared session.
 struct RootView: View {
     private enum Mode { case checking, onboarding, launcher }
-    /// Holds the two objects without publishing, so this view does not redraw with every line of a build log.
-    @MainActor private final class Shared: ObservableObject {
-        let stores = LauncherStores(); let library = GameLibrary(); let controls = ControlLayout()
-        /// The console mode's driver over this window's model, library and controls.
-        lazy var console = LiveConsoleDriver(library: library, controls: controls, repo: { [stores] in stores.repo.path }, lang: { [stores] in stores.localizer.lang },
-                                             labels: { [stores] in stores.localizer.t($0) })
-    }
-    @StateObject private var shared = Shared()
-    private var stores: LauncherStores { shared.stores }
+    @ObservedObject var shared: LauncherSession
+    var stores: LauncherStores { shared.stores }
     private var library: GameLibrary { shared.library }
     @State private var mode: Mode = .checking
     @State private var driver: LiveOnboardingDriver?
