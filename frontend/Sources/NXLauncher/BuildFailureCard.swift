@@ -28,9 +28,20 @@ package struct BuildFailureCard: View {
                         Circle().fill(LauncherPalette.building).frame(width: 7, height: 7)
                         Text(m.failureWhat(f)).font(.manrope(14, .semibold)).fixedSize(horizontal: false, vertical: true)
                     }
-                    Text(loc.t(f.kind.nextKey)).font(.manrope(13)).foregroundStyle(.secondary)
+                    let chooseTitle = !f.titleIDs.isEmpty && !m.experimentalBuilder
+                    Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(.manrope(13)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true).padding(.leading, 17)
-                    buttons(f.kind).padding(.leading, 17).padding(.top, 2)
+                    if chooseTitle {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(f.titleIDs, id: \.self) { id in
+                                Button(id) { m.buildTitle(id) }
+                            }
+                        }
+                        .buttonStyle(LauncherSecondaryButtonStyle()).padding(.leading, 17)
+                        .disabled(!m.canBuild)
+                    } else {
+                        buttons(f.kind).padding(.leading, 17).padding(.top, 2)
+                    }
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
