@@ -2817,6 +2817,84 @@ class WindowsBuildFixesTest(unittest.TestCase):
             self.assertTrue(m.settings_value('onboardingComplete', False))
             self.assertFalse(should_show(m))
 
+    def test_non_ascii_paths_stage_metal_and_metallib_via_ascii_temp_dir(self) -> None:
+        """Chinese folder names (e.g. C:\\Games\\星露谷物语\\nsp本体\\...) must be staged via an ASCII temp dir."""
+        from nspb_qt.win import xcrun_shim
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ascii_fallback = root / 'ascii_tmp'
+            ascii_fallback.mkdir()
+            zh_build = root / '星露谷物语' / 'nsp本体' / '0100E65002BB8000_build'
+            zh_ios = zh_build / 'shader' / 'ios' / 'b-223f10d34f97'
+            zh_ios.mkdir(parents=True)
+            zh_msl = zh_build / 'dmsh_123' / '0000000000000001.metal'
+            zh_msl.parent.mkdir(parents=True)
+            zh_msl.write_text('#include <metal_stdlib>\n', encoding='utf-8')
+            zh_air = zh_build / 'dmsh_123' / '0000000000000001.air'
+            zh_lib = zh_ios / '0000000000000001_b.metallib.tmp-999'
+
+            seen_calls: list[tuple[list[str], str]] = []
+
+            def strict_metal_run(cmd, *a, **kw):
+                cwd = str(kw.get('cwd') or '')
+                args = [str(x) for x in cmd]
+                seen_calls.append((args, cwd))
+                for token in args + ([cwd] if cwd else []):
+                    if not token.isascii() or ' ' in token:
+                        return subprocess.CompletedProcess(
+                            cmd, 1, '', f"LLVM ERROR: Error opening '{token}': Invalid argument\n")
+                if '-o' in args:
+                    out_name = args[args.index('-o') + 1]
+                    out_p = (Path(cwd) / out_name) if cwd and not Path(out_name).is_absolute() else Path(out_name)
+                    out_p.write_bytes(b'MTLB_OK')
+                return subprocess.CompletedProcess(cmd, 0, '', '')
+
+            with mock.patch.object(tc, 'metal_tool', side_effect=lambda name, *a: Path(f'/opt/metal/{name}.exe')), \
+                 mock.patch.object(tempfile, 'gettempdir', return_value=str(root / '中文用户' / 'Temp')), \
+                 mock.patch.dict(os.environ, {'PUBLIC': str(ascii_fallback), 'LOCALAPPDATA': str(root / 'local')}, clear=False), \
+                 mock.patch.object(xcrun_shim.subprocess, 'run', side_effect=strict_metal_run):
+                rc1 = xcrun_shim.main(['-sdk', 'iphoneos', 'metal', '-c', str(zh_msl), '-o', str(zh_air)])
+                self.assertEqual(rc1, 0)
+                self.assertTrue(zh_air.is_file(), 'staged metal compile must copy .air back to Chinese path')
+                rc2 = xcrun_shim.main(['-sdk', 'iphoneos', 'metallib', str(zh_air), '-o', str(zh_lib)])
+                self.assertEqual(rc2, 0)
+                self.assertTrue(zh_lib.is_file(), 'staged metallib must copy .metallib back to Chinese path')
+                self.assertEqual(zh_lib.read_bytes(), b'MTLB_OK')
+                self.assertEqual(len(seen_calls), 2)
+
+            # Verify sitecustomize._resolve rejects non-ASCII args so they go to xcrun_shim,
+            # and dmsh_pch / dmsh_mtlcache redirect Chinese WORK folders to pure-ASCII temp dirs.
+            sd = root / 'shim'
+            shim.install(sd, python_exe=sys.executable)
+            sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                "if os.name == 'nt'", "if True", 1)
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            code = (
+                "import os, sys, types\n"
+                "import sitecustomize\n"
+                f"zh_lib = {str(zh_lib)!r}\n"
+                "assert sitecustomize._resolve(['-sdk', 'iphoneos', 'metallib', 'a.air', '-o', zh_lib]) is None\n"
+                "import importlib.machinery as mach, tempfile\n"
+                "pch_mod = types.ModuleType('dmsh_pch')\n"
+                "pch_mod.tempfile = tempfile\n"
+                "sitecustomize._patch_dmsh_pch_module(pch_mod)\n"
+                f"d = pch_mod.tempfile.mkdtemp(prefix='pch_', dir={str(zh_build)!r})\n"
+                "assert d.isascii() and ' ' not in d, d\n"
+                "os.rmdir(d)\n"
+                "mtl_mod = types.ModuleType('dmsh_mtlcache')\n"
+                "class Cache:\n"
+                "    def __init__(self, store, targets, work):\n"
+                "        self.work = work\n"
+                "mtl_mod.Cache = Cache\n"
+                "sitecustomize._patch_dmsh_mtlcache_module(mtl_mod)\n"
+                f"c = mtl_mod.Cache(None, {{}}, {str(zh_build)!r})\n"
+                "assert c.work.isascii() and ' ' not in c.work, c.work\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
