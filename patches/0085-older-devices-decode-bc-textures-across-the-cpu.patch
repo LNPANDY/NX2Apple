@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: bmle69 <128874520+bmle69@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 14:22:10 -0700
+Subject: [PATCH] Older devices: decode BC textures across the CPU's cores
+
+With tex_bc_cpu, pkg_upload_ decoded each BC texture on the submit thread, one block at a time, so
+a level load that brings many textures in one frame stalled that frame: on an iPhone 13 Pro (A15),
+Super Mario Bros. Wonder's World 1-1 loaded 86 textures, 67.6 MB, in 132.6 ms of a 160 ms frame.
+
+nvn_bc_decode_par splits a region's block rows into bands (at least 16 block rows, at most 4 bands
+per core) and decodes them with dispatch_apply; regions under 256x256 pixels stay on the calling
+thread. Each band is whole block rows, so its offsets are those of its first row and only the last
+band can end in a partial block row, which nvn_bc_decode trims as before. The output is byte for
+byte that of nvn_bc_decode (t_bcdec: every BC format, sizes on both sides of the threshold, odd
+widths and heights, a padded destination pitch, a guard after the last row).
+
+Measured: on a Mac, BC7 2048x2048 19.8 ms -> 2.7 ms, BC3 6.1 -> 0.8 ms; on the A15, the largest
+load frame went from 67.6 MB in 132.6 ms to 60.7 MB in 76.6 ms (the deswizzle before it is still
+single-threaded). GPUs with BC support never reach this path.
+
+Upstream-Status: fork-only (declined seedds/nxnative#488)
+Reason: speeds up bc-cpu-decode, which upstream declined; runs only with tex_bc_cpu on a GPU without BC support
+Issue: LNPANDY/NX2Apple#123
+---
+ dm/gfx/nvn/nvn_mtl.m       |  2 +-
+ dm/gfx/tex/nvn_bcdec.c     | 18 ++++++++++++++++++
+ dm/gfx/tex/nvn_bcdec.h     |  3 +++
+ dm/gfx/tex/tests/t_bcdec.c | 30 ++++++++++++++++++++++++++++++
+ 4 files changed, 52 insertions(+), 1 deletion(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 5d7f618..d8e00aa 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -2641,7 +2641,7 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
+                 if (nvn_deswizzle(&t->d, l, y, src, bc_tmp, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
+                 size_t dst_pitch = (size_t)w * bc_bpp;
+                 for (uint32_t zz = 0; zz < z; zz++)
+-                    nvn_bc_decode(t->d.format, bc_tmp + (size_t)zz * pitch * rows, pitch, w, h,
++                    nvn_bc_decode_par(t->d.format, bc_tmp + (size_t)zz * pitch * rows, pitch, w, h,   // block rows across the cores (a level load's textures in one frame)
+                                   (uint8_t *)stg.contents + off + (size_t)zz * dst_pitch * h, dst_pitch);
+                 up_blit_add(stg, off, dst_pitch, dst_pitch * h, MTLSizeMake(w, h, z), mt, y, l);
+                 off += dst_pitch * h * z;
+diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
+index 7b2d83c..46dee8e 100644
+--- a/dm/gfx/tex/nvn_bcdec.c
++++ b/dm/gfx/tex/nvn_bcdec.c
+@@ -5,6 +5,8 @@
+ #include "../../third_party/bcdec/bcdec.h"
+ #include "nvn_bcdec.h"
+ #include <string.h>
++#include <dispatch/dispatch.h>
++#include <unistd.h>
+ 
+ enum { R8Unorm = 10, R8Snorm = 12, RG8Unorm = 30, RG8Snorm = 32, RGBA8Unorm = 70, RGBA8Unorm_sRGB = 71, RGBA16Float = 115 };
+ // NVN：0x41 RGB_DXT1、0x42 RGBA_DXT1、0x43 DXT3、0x44 DXT5、0x45–0x48 同上 sRGB、0x49 / 0x4a BC4 无 / 有符号、0x4b / 0x4c BC5、0x4d / 0x4e BC7（sRGB）、0x4f / 0x50 BC6H 有 / 无符号
+@@ -56,3 +58,19 @@ int nvn_bc_decode(uint32_t f, const uint8_t *src, size_t pitch, uint32_t w, uint
+     }
+     return 0;
+ }
++
++// Block rows split into chunks of at least 16 (64 pixel rows) and at most 4 per core: each chunk is a band of whole block rows, so the src / dst offsets of a band are those
++// of its first block row and only the last band can end in a partial block row (nvn_bc_decode trims it as before). Under 256×256 pixels the thread handoff costs more than it saves
++int nvn_bc_decode_par(uint32_t f, const uint8_t *src, size_t pitch, uint32_t w, uint32_t h, uint8_t *dst, size_t dpitch) {
++    uint32_t pf; int bpp; if (!nvn_bc_unpacked(f, &pf, &bpp)) return -1;
++    uint32_t rows = (h + 3) / 4;
++    if ((uint64_t)w * h < 256 * 256 || rows < 32) return nvn_bc_decode(f, src, pitch, w, h, dst, dpitch);
++    long ncpu = sysconf(_SC_NPROCESSORS_ONLN); if (ncpu < 1) ncpu = 1;
++    uint32_t per = (rows + (uint32_t)ncpu * 4 - 1) / ((uint32_t)ncpu * 4); if (per < 16) per = 16;
++    uint32_t bands = (rows + per - 1) / per;
++    dispatch_apply(bands, dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^(size_t i) {
++        uint32_t r0 = (uint32_t)i * per, y0 = r0 * 4, bh = h - y0 < per * 4 ? h - y0 : per * 4;
++        nvn_bc_decode(f, src + (size_t)r0 * pitch, pitch, w, bh, dst + (size_t)y0 * dpitch, dpitch);
++    });
++    return 0;
++}
+diff --git a/dm/gfx/tex/nvn_bcdec.h b/dm/gfx/tex/nvn_bcdec.h
+index abf3d2d..55b172e 100644
+--- a/dm/gfx/tex/nvn_bcdec.h
++++ b/dm/gfx/tex/nvn_bcdec.h
+@@ -12,3 +12,6 @@ int nvn_bc_unpacked(uint32_t nvn_fmt, uint32_t *mtl_pf, int *bpp);
+ // 解一片 w×h 像素：src 按块行排（每块行 pitch 字节），dst 每像素行 dpitch 字节。成功 0
+ // Decode a w×h pixel region: src is laid out by block rows (pitch bytes per block row), dst has dpitch bytes per pixel row. Returns 0 on success
+ int nvn_bc_decode(uint32_t nvn_fmt, const uint8_t *src, size_t pitch, uint32_t w, uint32_t h, uint8_t *dst, size_t dpitch);
++// The same output as nvn_bc_decode, the block rows split across the CPU's cores (libdispatch); a small region is decoded on the calling thread. Blocks until done.
++// Decoding on one thread was the long frame of a level load on an A15 (Super Mario Bros. Wonder: 86 textures, 67.6 MB in 132.6 ms in one frame)
++int nvn_bc_decode_par(uint32_t nvn_fmt, const uint8_t *src, size_t pitch, uint32_t w, uint32_t h, uint8_t *dst, size_t dpitch);
+diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
+index 5fd5efe..c56110f 100644
+--- a/dm/gfx/tex/tests/t_bcdec.c
++++ b/dm/gfx/tex/tests/t_bcdec.c
+@@ -5,6 +5,7 @@
+ #include "../nvn_bcdec.h"
+ #include <assert.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include <string.h>
+ 
+ static int failures;
+@@ -126,7 +127,36 @@ static void test_bc4_single_channel(void) {
+     check(out[1 + 4] == 255, "bc4 writes every row (not just the first)");
+ }
+ 
++// The parallel decode writes the same bytes as the single-threaded one: every BC format, sizes below and above the split threshold, odd widths and heights
++// (a partial last block row lands in the last band), a padded destination pitch, and nothing written past the region
++static void test_parallel_matches_serial(void) {
++    static const uint32_t fmts[] = {0x41, 0x42, 0x43, 0x44, 0x45, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50};
++    static const uint32_t sizes[][2] = {{4, 4}, {255, 255}, {256, 256}, {1024, 512}, {1023, 1021}, {2048, 130}, {130, 2050}};
++    uint32_t seed = 12345;
++    for (unsigned s = 0; s < sizeof sizes / sizeof sizes[0]; s++) {
++        uint32_t w = sizes[s][0], h = sizes[s][1], bw = (w + 3) / 4, bh = (h + 3) / 4;
++        size_t pitch = (size_t)bw * 16, nsrc = pitch * bh;
++        unsigned char *src = malloc(nsrc);
++        for (size_t i = 0; i < nsrc; i++) { seed = seed * 1103515245u + 12345u; src[i] = (unsigned char)(seed >> 16); }
++        for (unsigned k = 0; k < sizeof fmts / sizeof fmts[0]; k++) {
++            uint32_t pf; int bpp; nvn_bc_unpacked(fmts[k], &pf, &bpp);
++            size_t sp = (fmts[k] == 0x41 || fmts[k] == 0x42 || fmts[k] == 0x45 || fmts[k] == 0x49 || fmts[k] == 0x4a) ? (size_t)bw * 8 : pitch;   // 8-byte blocks: half the pitch
++            size_t dp = (size_t)w * bpp + 12, n = dp * h + 64;   // padded rows, a guard after the last
++            unsigned char *a = malloc(n), *b = malloc(n);
++            memset(a, 0x5A, n); memset(b, 0x5A, n);
++            int ra = nvn_bc_decode(fmts[k], src, sp, w, h, a, dp), rb = nvn_bc_decode_par(fmts[k], src, sp, w, h, b, dp);
++            char msg[128]; snprintf(msg, sizeof msg, "parallel decode of format %#x %ux%u matches the serial one", fmts[k], w, h);
++            check(ra == 0 && rb == 0 && !memcmp(a, b, n), msg);
++            free(a); free(b);
++        }
++        free(src);
++    }
++    unsigned char out[4];
++    check(nvn_bc_decode_par(0x25, (const unsigned char *)"", 0, 1, 1, out, 4) == -1, "parallel decode rejects a non-BC format");
++}
++
+ int main(void) {
++    test_parallel_matches_serial();
+     test_bc1_matches_reference();
+     test_formats_map();
+     test_edge_blocks_trimmed();
