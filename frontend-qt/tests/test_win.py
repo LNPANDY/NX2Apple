@@ -3092,6 +3092,78 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 self.assertEqual(len(mirror_attempts), 2)
                 self.assertTrue(tc.is_sdk_dir(target))
 
+    def test_pyinstaller_internal_pyd_and_dll_are_isolated_from_build_python(self) -> None:
+        """A PyInstaller `_internal` folder holding `_ctypes.pyd` + `python312.dll` must never enter
+        a build child's `PYTHONPATH`, `sys.path`, `PATH` or `cwd` (prevents `ImportError: Module use
+        of python312.dll conflicts with this version of Python` on Python 3.13/3.14/3.15)."""
+        from nspb_qt import platform_util as pu
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            internal = root / 'NX2Apple' / '_internal'
+            (internal / 'nspb_qt' / 'win').mkdir(parents=True)
+            (internal / 'nspb_qt' / '__init__.py').write_text('# pkg\n', encoding='utf-8')
+            (internal / 'nspb_qt' / 'win' / '__init__.py').write_text('# win\n', encoding='utf-8')
+            (internal / 'nspb_qt' / 'win' / 'driver.py').write_text('# driver\n', encoding='utf-8')
+            (internal / '_ctypes.pyd').write_bytes(b'MZ_PY312_CTYPES')
+            (internal / 'python312.dll').write_bytes(b'MZ_PY312_DLL')
+
+            sd = root / 'shim'
+            sd.mkdir()
+            cleaned = shim.clean_pkg_root(sd, raw_root=internal)
+            self.assertEqual(cleaned, sd)
+            self.assertTrue((sd / 'nspb_qt' / 'win' / 'driver.py').is_file())
+            self.assertFalse((sd / '_ctypes.pyd').exists())
+            self.assertFalse((sd / 'python312.dll').exists())
+
+            # Verify build_env strips _internal from PATH/PYTHONPATH and removes PyInstaller vars
+            with mock.patch.object(shim, 'shim_dir', return_value=sd), \
+                 mock.patch.object(shim, 'clean_pkg_root', side_effect=lambda s, r=None: shim.clean_pkg_root.__wrapped__(s, internal) if hasattr(shim.clean_pkg_root, '__wrapped__') else sd):
+                env = shim.build_env({
+                    'PATH': f'{internal}{os.pathsep}C:\\Windows\\System32',
+                    'PYTHONPATH': str(internal),
+                    '_MEIPASS': str(internal),
+                    '_MEIPASS2': str(internal),
+                    'PYTHONHOME': str(internal),
+                }, python_exe='C:\\Python315\\python.exe')
+            self.assertNotIn(str(internal), env['PATH'].split(os.pathsep))
+            self.assertNotIn(str(internal), env['PYTHONPATH'].split(os.pathsep))
+            self.assertIn(str(sd), env['PYTHONPATH'].split(os.pathsep))
+            for k in ('_MEIPASS', '_MEIPASS2', 'PYTHONHOME'):
+                self.assertNotIn(k, env)
+
+            # Verify sitecustomize removes _internal from sys.path and redirects _PKG to _HERE/nspb_qt/win
+            sc = shim._SITECUSTOMIZE_SRC.replace("if os.name == 'nt'", "if True", 1)
+            sc = sc.replace("    _PKG = os.environ.get('NSPB_WIN_DIR') or _HERE\n",
+                            f"    _PKG = {str(internal / 'nspb_qt' / 'win')!r}\n")
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            code = (
+                "import sys\n"
+                f"sys.path.insert(0, {str(internal)!r})\n"
+                "import sitecustomize\n"
+                f"assert {str(internal)!r} not in sys.path, sys.path\n"
+                f"assert sitecustomize._PKG == {str(sd / 'nspb_qt' / 'win')!r}, sitecustomize._PKG\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+            # Verify Windows find_python / venv_base prefer 3.12 (matching bundled cp312 wheels) over 3.15
+            py312 = root / 'py312' / 'python.exe'
+            py315 = root / 'py315' / 'python.exe'
+            for p in (py312, py315):
+                p.parent.mkdir(parents=True)
+                p.write_bytes(b'MZ')
+                p.chmod(0o755)
+            vers = {str(py312): '3.12', str(py315): '3.15'}
+            with mock.patch.object(pu, 'IS_WIN', True), \
+                 mock.patch.object(pu, 'python_candidates', return_value=[str(py312), str(py315)]), \
+                 mock.patch.object(pu, '_python_version', side_effect=lambda p: vers[p]), \
+                 mock.patch.object(pu, '_runs', return_value=True):
+                chosen, ok, ver = pu.find_python()
+                self.assertEqual((chosen, ok, ver), (str(py312), True, '3.12'))
+                self.assertEqual(pu.venv_base(''), str(py312))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

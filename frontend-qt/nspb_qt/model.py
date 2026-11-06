@@ -1833,6 +1833,7 @@ class Model(QObject):
             try:
                 from .win import shim as wshim
                 env = wshim.build_env(env, python_exe=py)
+                cwd = str(wshim.clean_pkg_root(wshim.shim_dir()))
                 ok_shim, why = wshim.verify_shim(env)
                 if not ok_shim:
                     self.log(f'[shim] {why}\n')
