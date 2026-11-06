@@ -210,6 +210,61 @@ class LibraryAndSpaceTests(unittest.TestCase):
         self.assertEqual(failed, [])
         self.assertTrue((bf / 'run' / 'save.dat').is_file())
 
+    def test_switch2_fallback_banners(self) -> None:
+        import json
+        from unittest import mock
+
+        self.assertEqual(len(lib.ArtworkStore.FALLBACK_BANNERS), 8)
+        self.assertIn('0400486024DEC000', lib.ArtworkStore.FALLBACK_BANNERS)
+
+        updated: list[str] = []
+        store = lib.ArtworkStore(state_dir=self.dir / 'art_state', on_updated=updated.append)
+        store.banners_dir.mkdir(parents=True, exist_ok=True)
+        (store.banners_dir / 'banners_index.json').write_text(
+            json.dumps({'040074A01BF12000': 'https://img-eshop.cdn.nintendo.net/i/bananza.jpg'}),
+            encoding='utf-8',
+        )
+
+        png_payload = b'\x89PNG\r\n\x1a\n' + b'P' * 2048
+        jpg_payload = b'\xff\xd8\xff\xe0' + b'J' * 2048
+        requested_urls: list[str] = []
+
+        class _FakeResp:
+            def __init__(self, data: bytes) -> None:
+                self._data = data
+            def read(self) -> bytes:
+                return self._data
+            def __enter__(self) -> _FakeResp:
+                return self
+            def __exit__(self, *args: object) -> None:
+                pass
+
+        def fake_urlopen(req, timeout=15):
+            url = req.full_url if hasattr(req, 'full_url') else str(req)
+            requested_urls.append(url)
+            return _FakeResp(png_payload if url.endswith('.png') else jpg_payload)
+
+        with mock.patch('urllib.request.urlopen', side_effect=fake_urlopen):
+            store._fetch_one('0400486024DEC000')
+            store._fetch_one('040074A01BF12000')
+
+        self.assertEqual(
+            requested_urls,
+            [
+                lib.ArtworkStore.FALLBACK_BANNERS['0400486024DEC000'],
+                'https://img-eshop.cdn.nintendo.net/i/bananza.jpg',
+            ],
+        )
+        self.assertEqual(updated, ['0400486024DEC000', '040074A01BF12000'])
+        self.assertEqual(
+            store.image_path('0400486024DEC000'),
+            str(store.banners_dir / '0400486024DEC000.png'),
+        )
+        self.assertEqual(
+            store.image_path('040074A01BF12000'),
+            str(store.banners_dir / '040074A01BF12000.jpg'),
+        )
+
 
 class ParityWindowTests(unittest.TestCase):
     @classmethod
