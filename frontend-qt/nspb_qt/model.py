@@ -345,6 +345,9 @@ class Model(QObject):
         self.repoChanged.emit()
 
     def _find_repo(self) -> str:
+        bundled = engine.bundled_engine()
+        if bundled:
+            return bundled
         saved = os.environ.get('NSPB_REPO', '')
         if self.is_repo(saved):
             return saved
@@ -366,8 +369,12 @@ class Model(QObject):
         return self.is_repo(self.repo_path)
 
     @property
+    def uses_bundled_engine(self) -> bool:
+        return bool(engine.bundled_engine())
+
+    @property
     def repo_is_git(self) -> bool:
-        return bool(self.repo_path) and Path(self.repo_path, '.git').exists()
+        return not self.uses_bundled_engine and bool(self.repo_path) and Path(self.repo_path, '.git').exists()
 
     def supports_work_dir(self) -> bool:
         """Whether the checkout's build script declares --work-dir (an upstream checkout or an
@@ -700,6 +707,8 @@ class Model(QObject):
         Shallow on purpose: a quarter of the bytes and a third of the time of a full clone, and
         fetch/pull keep working on it. Runs on a thread with its progress in the log.
         """
+        if self.uses_bundled_engine:
+            return
         git = self.git_binary()
         if not git:
             if not pu.IS_WIN:
@@ -786,8 +795,10 @@ class Model(QObject):
         git's own progress is streamed: over a slow link the fetch alone takes tens of seconds and
         the button used to go grey in silence.
         """
+        if not self.repo_ok or not self.repo_is_git:
+            return
         git = self.git_binary()
-        if not git or not self.repo_ok or not self.repo_is_git:
+        if not git:
             return
         self.repo_busy = True
         self.repo_status = self.t('repo.checking')
