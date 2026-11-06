@@ -275,6 +275,26 @@ class ParityWindowTests(unittest.TestCase):
             raise unittest.SkipTest(f'PySide6 not installed: {e}')
         cls.app = QApplication.instance() or QApplication([])
 
+    def setUp(self) -> None:
+        from unittest import mock
+        from PySide6.QtCore import QSettings
+        from nspb_qt import library as lib_mod, model as model_mod
+
+        self._state_tmp = tempfile.TemporaryDirectory()
+        state_dir = Path(self._state_tmp.name) / 'state'
+        ini_file = str(Path(self._state_tmp.name) / 'settings.ini')
+        self._p_state = mock.patch.object(lib_mod, 'default_state_dir', return_value=state_dir)
+        self._p_qsettings = mock.patch.object(
+            model_mod, 'QSettings', side_effect=lambda *a, **kw: QSettings(ini_file, QSettings.IniFormat)
+        )
+        self._p_state.start()
+        self._p_qsettings.start()
+
+    def tearDown(self) -> None:
+        self._p_qsettings.stop()
+        self._p_state.stop()
+        self._state_tmp.cleanup()
+
     def _delete(self, m, w) -> None:
         from PySide6.QtCore import QEvent
         w.close()
@@ -449,6 +469,360 @@ class ParityWindowTests(unittest.TestCase):
             m.lang = Lang('en')
             self.assertEqual(m.t('install.reveal'), 'Show in folder')
             self.assertIn('this PC', m.t('shell.copyExternalNote'))
+
+    def test_shared_mode_builds_framework_and_exports_nx2apple_ipa_with_shell(self) -> None:
+        """Verify shared-app mode builds DmGame<ID>.framework and packs Payload/DmShell.app into NX2Apple.ipa."""
+        import importlib.util
+        import json
+        import plistlib
+        import struct
+        import subprocess
+        import time
+        import zipfile
+        from unittest import mock
+        from nspb_qt import model as model_mod
+        from nspb_qt.model import Model
+        from nspb_qt.win import build_app, macho_sign, shell_export, toolchain as tc
+
+        def make_arm64_macho(
+            filetype: int,
+            exported_syms: tuple[str, ...] = build_app.REQUIRED_DYLIB_SYMBOLS,
+            undef_syms: tuple[str, ...] = (),
+        ) -> bytes:
+            # Minimal 64-bit arm64 Mach-O with __TEXT, __LINKEDIT, LC_SYMTAB, and LC_CODE_SIGNATURE
+            strtab = bytearray(b'\x00')
+            nlists = bytearray()
+            for sym in exported_syms:
+                strx = len(strtab)
+                strtab.extend(sym.encode('utf-8') + b'\x00')
+                # N_SECT (0x0e) | N_EXT (0x01) = 0x0f
+                nlists.extend(struct.pack('<IBBHQ', strx, 0x0F, 1, 0, 0x100))
+            for sym in undef_syms:
+                strx = len(strtab)
+                strtab.extend(sym.encode('utf-8') + b'\x00')
+                # N_UNDF (0x00) | N_EXT (0x01) = 0x01
+                nlists.extend(struct.pack('<IBBHQ', strx, 0x01, 0, 0, 0))
+            while len(strtab) % 8:
+                strtab.append(0)
+
+            symoff = 0x800
+            stroff = symoff + len(nlists)
+            nsyms = len(exported_syms) + len(undef_syms)
+
+            ncmds = 4
+            text_cmd = struct.pack(
+                '<II16sQQQQiiII',
+                macho_sign.LC_SEGMENT_64, 72, b'__TEXT'.ljust(16, b'\x00'),
+                0, 0x1000, 0, 0x1000, 5, 5, 0, 0,
+            )
+            linkedit_cmd = struct.pack(
+                '<II16sQQQQiiII',
+                macho_sign.LC_SEGMENT_64, 72, b'__LINKEDIT'.ljust(16, b'\x00'),
+                0x1000, 0x4000, 0x1000, 0, 1, 1, 0, 0,
+            )
+            symtab_cmd = struct.pack('<IIIIII', 0x2, 24, symoff, nsyms, stroff, len(strtab))
+            sig_cmd = struct.pack('<IIII', macho_sign.LC_CODE_SIGNATURE, 16, 0x1000, 0)
+            loads = text_cmd + linkedit_cmd + symtab_cmd + sig_cmd
+            hdr = struct.pack(
+                '<IIIIIIII',
+                tc.MACHO_MAGIC_64, tc.CPU_TYPE_ARM64, 0, filetype, ncmds, len(loads), 0, 0,
+            )
+            buf = bytearray((hdr + loads).ljust(0x1000, b'\x00'))
+            buf[symoff:symoff + len(nlists)] = nlists
+            buf[stroff:stroff + len(strtab)] = strtab
+            return bytes(buf)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # 0. Verify build_app.check_dylib enforces the 6 exported symbols and rejects __mh_execute_header
+            good_dylib = root / 'good.dylib'
+            good_dylib.write_bytes(make_arm64_macho(tc.MH_DYLIB))
+            build_app.check_dylib(good_dylib)
+
+            bad_missing = root / 'missing_sym.dylib'
+            bad_missing.write_bytes(make_arm64_macho(tc.MH_DYLIB, exported_syms=build_app.REQUIRED_DYLIB_SYMBOLS[:-1]))
+            with self.assertRaises(SystemExit):
+                build_app.check_dylib(bad_missing)
+
+            bad_mhexec = root / 'mhexec.dylib'
+            bad_mhexec.write_bytes(make_arm64_macho(tc.MH_DYLIB, undef_syms=('___mh_execute_header',)))
+            with self.assertRaises(SystemExit):
+                build_app.check_dylib(bad_mhexec)
+
+            # 1. Create a realistic DmShell.app template
+            tpl = root / 'template' / 'DmShell.app'
+            tpl.mkdir(parents=True)
+            (tpl / 'DmShell').write_bytes(make_arm64_macho(tc.MH_EXECUTE))
+            with open(tpl / 'Info.plist', 'wb') as f:
+                plistlib.dump({'CFBundleExecutable': 'DmShell', 'CFBundleIdentifier': 'org.nxnative.shell'}, f)
+
+            # 2. Verify start_build passes --shell-framework in shared mode vs -o + DM_FULL_ROMFS=1 in oneGame mode
+            eng = ROOT / 'engine'
+            if not (eng / 'scripts' / 'build_ipa_from_nsp.py').is_file():
+                self.skipTest('engine/ is not synced')
+
+            p = mock.patch.object(Model, 'check_deps', lambda self: None)
+            p.start()
+            self.addCleanup(p.stop)
+
+            m = Model()
+            m.repo_path = str(ROOT)
+            m.deps_checked = True
+            m.deps = [model_mod.Dep('python', 'dep.python', 'dep.python.hint', model_mod.DepState.OK)]
+            tid1 = '010015100B514000'
+            tid2 = '01007EF00011E000'
+            base_nsp = root / f'Game [{tid1}][v0].nsp'
+            base_nsp.write_bytes(b'x')
+            keys_f = root / 'prod.keys'
+            keys_f.write_bytes(b'x')
+            out_dir = root / 'out'
+            out_dir.mkdir()
+            shell_root = root / 'shell_cache'
+            m.settings.setValue('shellRoot', str(shell_root))
+            m.base_path = str(base_nsp)
+            m.keys_path = str(keys_f)
+            m.out_dir = str(out_dir)
+
+            real_popen = model_mod.subprocess.Popen
+            seen_cmds: list[tuple[list[str], dict[str, str]]] = []
+
+            class FakePopen:
+                def __new__(cls, cmd, **kw):
+                    cmd_list = [str(c) for c in cmd]
+                    if '--progress' not in cmd_list:
+                        return real_popen(cmd, **kw)
+                    inst = super().__new__(cls)
+                    seen_cmds.append((cmd_list, dict(kw.get('env') or {})))
+                    inst.returncode = 0
+                    inst.stdout = []
+                    if '--shell-framework' in cmd_list:
+                        fw_parent = Path(cmd_list[cmd_list.index('--shell-framework') + 1])
+                        fw_dir = fw_parent / f'DmGame{tid1}.framework'
+                        fw_dir.mkdir(parents=True, exist_ok=True)
+                        fw_bin = fw_dir / f'DmGame{tid1}'
+                        fw_bin.write_bytes(make_arm64_macho(tc.MH_DYLIB))
+                        macho_sign.sign(fw_bin, f'org.nxnative.{tid1.lower()}.DmGame', None)
+                        (fw_dir / 'game.manifest.json').write_text(json.dumps({
+                            'schema': 1,
+                            'title_id': tid1,
+                            'name': 'Super Mario Bros. Wonder',
+                            'loader': 'FH',
+                            'framework': f'DmGame{tid1}.framework',
+                            'framework_executable': f'DmGame{tid1}',
+                        }), encoding='utf-8')
+                        w_dir = Path(cmd_list[cmd_list.index('--work-dir') + 1])
+                        v0 = w_dir / 'extract' / 'v0'
+                        v0.mkdir(parents=True, exist_ok=True)
+                        (v0 / 'RomFS.img').write_bytes(b'DMROMFS1_test')
+                    return inst
+
+                def wait(self):
+                    return 0
+
+            # Verify start_build checks for DmShell.app template before starting the long build
+            m.ipa_kind = 'shared'
+            missing_outcomes: list[tuple[bool, str]] = []
+            m.finished.connect(lambda ok, msg: missing_outcomes.append((ok, msg)))
+            with mock.patch.object(model_mod.subprocess, 'Popen', FakePopen), \
+                 mock.patch.object(shell_export, 'find_shell_template', return_value=None):
+                m.start_build()
+            self.assertEqual(len(seen_cmds), 0, 'build must not start when DmShell.app template is missing')
+            self.assertTrue(missing_outcomes and not missing_outcomes[-1][0])
+
+            std_font = root / 'standard.ttf'
+            std_font.write_bytes(b'STD_TTF_BYTES')
+            letter_font = root / 'letter_bold.ttf'
+            letter_font.write_bytes(b'LETTER_TTF_BYTES')
+            real_se_run = shell_export.subprocess.run
+            ext_font_calls: list[list[str]] = []
+
+            def checked_se_run(cmd, *a, **kw):
+                cmd_list = [str(c) for c in cmd]
+                if any(c.endswith('make_ext_font.py') for c in cmd_list):
+                    ext_font_calls.append(cmd_list)
+                    # make_ext_font.py must receive both the output path and the letter font path
+                    if len(cmd_list) < 4 or cmd_list[3] != str(letter_font):
+                        return subprocess.CompletedProcess(cmd_list, 1, '', 'missing letter font argument')
+                    Path(cmd_list[2]).write_bytes(b'EXT_TTF_BYTES')
+                    return subprocess.CompletedProcess(cmd_list, 0, 'ok\n', '')
+                return real_se_run(cmd, *a, **kw)
+
+            with mock.patch.object(model_mod.subprocess, 'Popen', FakePopen), \
+                 mock.patch.dict(os.environ, {
+                     'NSPB_SHELL_TEMPLATE': str(tpl),
+                     'NSPB_STD_FONT': str(std_font),
+                     'NSPB_LETTER_FONT': str(letter_font),
+                 }, clear=False), \
+                 mock.patch.object(shell_export.subprocess, 'run', side_effect=checked_se_run):
+                m.start_build()
+                for _ in range(100):
+                    if m.ipa_path and Path(m.ipa_path).is_file():
+                        break
+                    time.sleep(0.05)
+
+            self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_ext_font.py')
+            self.assertEqual(ext_font_calls[0][3], str(letter_font))
+
+            build_cmds = [(c, e) for c, e in seen_cmds if '--progress' in c]
+            self.assertEqual(len(build_cmds), 1)
+            shared_cmd, shared_env = build_cmds[0]
+            self.assertIn('--shell-framework', shared_cmd)
+            self.assertNotIn('-o', shared_cmd)
+            self.assertNotIn('DM_FULL_ROMFS', shared_env)
+
+            expected_ipa = shell_root / 'export' / 'NX2Apple.ipa'
+            self.assertEqual(Path(m.ipa_path), expected_ipa)
+            self.assertTrue(expected_ipa.is_file())
+            self.assertTrue((shell_root / 'shell.json').is_file())
+            self.assertTrue((shell_root / 'frameworks' / f'DmGame{tid1}.framework' / f'DmGame{tid1}').is_file())
+
+            # 3. Add a second game to the same shared shell and verify both frameworks live inside NX2Apple.ipa
+            fw2_src = root / f'DmGame{tid2}.framework'
+            fw2_src.mkdir(parents=True)
+            fw2_bin = fw2_src / f'DmGame{tid2}'
+            fw2_bin.write_bytes(make_arm64_macho(tc.MH_DYLIB))
+            macho_sign.sign(fw2_bin, f'org.nxnative.{tid2.lower()}.DmGame', None)
+            (fw2_src / 'game.manifest.json').write_text(json.dumps({
+                'schema': 1,
+                'title_id': tid2,
+                'name': 'Breath of the Wild',
+                'loader': 'FH',
+                'framework': f'DmGame{tid2}.framework',
+                'framework_executable': f'DmGame{tid2}',
+            }), encoding='utf-8')
+            with mock.patch.dict(os.environ, {
+                     'NSPB_SHELL_TEMPLATE': str(tpl),
+                     'NSPB_STD_FONT': str(std_font),
+                     'NSPB_LETTER_FONT': str(letter_font),
+                 }, clear=False), \
+                 mock.patch.object(shell_export.subprocess, 'run', side_effect=checked_se_run):
+                ok2, ipa2, _msg2, _notes2 = shell_export.export_shell(
+                    root=shell_root,
+                    repo=eng,
+                    framework=fw2_src,
+                    title_id=tid2,
+                    name='Breath of the Wild',
+                )
+            self.assertTrue(ok2)
+
+            with zipfile.ZipFile(ipa2) as zf:
+                names = set(zf.namelist())
+                self.assertIn('Payload/DmShell.app/DmShell', names)
+                self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid1}.framework/DmGame{tid1}', names)
+                self.assertIn(f'Payload/DmShell.app/Frameworks/DmGame{tid2}.framework/DmGame{tid2}', names)
+                self.assertIn('Payload/DmShell.app/dm/font/standard.ttf', names)
+                self.assertIn('Payload/DmShell.app/dm/font/nintendo_ext.ttf', names)
+                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/standard.ttf'), b'STD_TTF_BYTES')
+                self.assertEqual(zf.read('Payload/DmShell.app/dm/font/nintendo_ext.ttf'), b'EXT_TTF_BYTES')
+                # Verify Unix executable permission bits (0755) on DmShell and both framework binaries
+                for exec_entry in (
+                    'Payload/DmShell.app/DmShell',
+                    f'Payload/DmShell.app/Frameworks/DmGame{tid1}.framework/DmGame{tid1}',
+                    f'Payload/DmShell.app/Frameworks/DmGame{tid2}.framework/DmGame{tid2}',
+                ):
+                    mode = (zf.getinfo(exec_entry).external_attr >> 16) & 0o777
+                    self.assertEqual(mode, 0o755, f'{exec_entry} mode is {oct(mode)}, expected 0o755')
+                # Verify DmShell carries Increased Memory Limit entitlement while DmGame dylibs carry none
+                shell_bytes = zf.read('Payload/DmShell.app/DmShell')
+                self.assertIn(b'com.apple.developer.kernel.increased-memory-limit', shell_bytes)
+                fw1_bytes = zf.read(f'Payload/DmShell.app/Frameworks/DmGame{tid1}.framework/DmGame{tid1}')
+                self.assertNotIn(b'com.apple.developer.kernel.increased-memory-limit', fw1_bytes)
+
+            # 3b. Verify a failed export keeps the previous export/NX2Apple.ipa byte-for-byte intact
+            before_ipa_bytes = expected_ipa.read_bytes()
+
+            def failing_pack_run(cmd, *a, **kw):
+                cmd_list = [str(c) for c in cmd]
+                if any(c.endswith('pack_ipa.py') for c in cmd_list):
+                    return subprocess.CompletedProcess(cmd_list, 1, '', 'simulated pack_ipa failure')
+                return checked_se_run(cmd, *a, **kw)
+
+            with mock.patch.dict(os.environ, {
+                     'NSPB_SHELL_TEMPLATE': str(tpl),
+                     'NSPB_STD_FONT': str(std_font),
+                     'NSPB_LETTER_FONT': str(letter_font),
+                 }, clear=False), \
+                 mock.patch.object(shell_export.subprocess, 'run', side_effect=failing_pack_run):
+                ok_fail, _ipa_fail, _msg_fail, _notes_fail = shell_export.export_shell(
+                    root=shell_root,
+                    repo=eng,
+                    framework=fw2_src,
+                    title_id=tid2,
+                    name='Breath of the Wild',
+                )
+            self.assertFalse(ok_fail)
+            self.assertTrue(expected_ipa.is_file(), 'previous NX2Apple.ipa must not be deleted on export failure')
+            self.assertEqual(expected_ipa.read_bytes(), before_ipa_bytes)
+            leftover_tmps = [p for p in expected_ipa.parent.iterdir() if p.name.endswith('.tmp')]
+            self.assertEqual(leftover_tmps, [])
+
+            # 3c. Verify find_shell_template fallback passes --engine and build_shell_template.py accepts it
+            spec = importlib.util.spec_from_file_location(
+                'build_shell_template', ROOT / 'tools' / 'build_shell_template.py'
+            )
+            assert spec is not None and spec.loader is not None
+            bst = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(bst)
+            fb_root = root / 'fb_shell'
+            fb_out = fb_root / 'template' / 'DmShell.app'
+
+            def fake_build_template(out_app: Path, engine: Path | None = None) -> Path:
+                self.assertEqual(engine, eng)
+                out_app.mkdir(parents=True, exist_ok=True)
+                (out_app / 'DmShell').write_bytes(make_arm64_macho(tc.MH_EXECUTE))
+                with open(out_app / 'Info.plist', 'wb') as pf:
+                    plistlib.dump({'CFBundleExecutable': 'DmShell'}, pf)
+                return out_app
+
+            with mock.patch.object(bst, 'build_template', side_effect=fake_build_template):
+                rc = bst.main(['--engine', str(eng), '--out', str(fb_out)])
+            self.assertEqual(rc, 0)
+            self.assertTrue((fb_out / 'DmShell').is_file())
+
+            fb_root2 = root / 'fb_shell2'
+
+            def fake_builder_run(cmd, *a, **kw):
+                cmd_list = [str(c) for c in cmd]
+                if any(c.endswith('build_shell_template.py') for c in cmd_list):
+                    with mock.patch.object(bst, 'build_template', side_effect=fake_build_template):
+                        code = bst.main(cmd_list[2:])
+                    return subprocess.CompletedProcess(cmd_list, code, 'built\n', '')
+                return real_se_run(cmd, *a, **kw)
+
+            with mock.patch.dict(os.environ, {'NSPB_SHELL_TEMPLATE': ''}, clear=False), \
+                 mock.patch.object(shell_export.pu, 'IS_WIN', False), \
+                 mock.patch.object(shell_export.subprocess, 'run', side_effect=fake_builder_run):
+                found_tpl = shell_export.find_shell_template(eng, root=fb_root2)
+            self.assertEqual(found_tpl, fb_root2 / 'template' / 'DmShell.app')
+
+            # 4. Verify oneGame mode passes -o <tid>.ipa when out_dir is set, omits -o when out_dir is empty, and sets DM_FULL_ROMFS=1
+            seen_cmds.clear()
+            m.ipa_kind = 'oneGame'
+            with mock.patch.object(model_mod.subprocess, 'Popen', FakePopen):
+                m.start_build()
+                m._thread.join(5)
+            one_builds = [(c, e) for c, e in seen_cmds if '--progress' in c]
+            self.assertEqual(len(one_builds), 1)
+            one_cmd, one_env = one_builds[0]
+            self.assertNotIn('--shell-framework', one_cmd)
+            self.assertIn('-o', one_cmd)
+            self.assertEqual(one_env.get('DM_FULL_ROMFS'), '1')
+
+            seen_cmds.clear()
+            m.out_dir = ''
+            with mock.patch.object(model_mod.subprocess, 'Popen', FakePopen):
+                m.start_build()
+                m._thread.join(5)
+            one_no_out = [(c, e) for c, e in seen_cmds if '--progress' in c]
+            self.assertEqual(len(one_no_out), 1)
+            self.assertNotIn('-o', one_no_out[0][0])
+
+    def test_build_qt_workflow_packages_dmshell_template(self) -> None:
+        wf = (ROOT / '.github' / 'workflows' / 'build-qt.yml').read_text(encoding='utf-8')
+        self.assertIn('shell-template:', wf)
+        self.assertIn('tools/build_shell_template.py', wf)
+        self.assertIn('--hidden-import nspb_qt.win.shell_export', wf)
+        self.assertIn('--add-data "shell_template${PATHSEP}shell_template"', wf)
 
 
 if __name__ == '__main__':

@@ -1682,14 +1682,21 @@ class Model(QObject):
         # RomFS is inside it, so the archive step is skipped below.
         self.ipa_path = self.archive_path = self.mac_app_path = ''
         mac_app = self.target == 'mac-app'
+        self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
         if mac_app:
             args += ['--platform', 'mac-app']
             self.mac_app_path = str(Path(self.out_dir or base_dir, f'{tid_hex}.app'))
             args += ['-o', self.mac_app_path]
+        elif self.ipa_kind == 'shared':
+            from .win import shell_export as se
+            tpl = se.find_shell_template(self.engine_path, root=self.shell_cache_path, log=self.log)
+            if tpl is None or not (tpl / se.SCHEME).is_file():
+                self.finished.emit(False, self.t('shell.exportFailed', f'missing {se.APP_NAME} template'))
+                return
+            args += ['--shell-framework', str(Path(self.effective_work_dir, 'shell-framework'))]
         elif self.out_dir:
             self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
             args += ['-o', self.ipa_path]
-        self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
         if self.bc_on_cpu and not mac_app:
             try:
                 Path(self.effective_work_dir).mkdir(parents=True, exist_ok=True)
@@ -1776,10 +1783,12 @@ class Model(QObject):
                         st.state = 'done'
                 self.stagesChanged.emit()
                 if self.ipa_kind == 'oneGame':
+                    if not self.ipa_path:
+                        self.ipa_path = str(Path(base_dir, f'{tid_hex}.ipa'))
                     self._record_library_ios_completion()
                     self.finished.emit(True, self.t('shell.oneGameDone', self.ipa_path))
                 else:
-                    self.pack_archive()
+                    self.pack_archive(export_shell=True)
             else:
                 if self.stages:
                     self.stages[-1].state = 'failed'
@@ -1888,7 +1897,7 @@ class Model(QObject):
 
     # ---- the archive step (what makes a 16 GB game installable)
 
-    def pack_archive(self) -> None:
+    def pack_archive(self, *, export_shell: bool = False) -> None:
         work = getattr(self, 'effective_work_dir', '')
         extract = Path(work, 'extract')
         versions = []
@@ -1901,14 +1910,22 @@ class Model(QObject):
                     except ValueError:
                         pass
         if not versions:
-            self.finished.emit(True, self.t('msg.archiveSkipped', str(extract)))
+            if export_shell:
+                threading.Thread(
+                    target=self._export_shell_after_archive,
+                    args=(True, self.t('msg.archiveSkipped', str(extract))),
+                    daemon=True,
+                ).start()
+            else:
+                self.finished.emit(True, self.t('msg.archiveSkipped', str(extract)))
             return
         ver_dir = versions[-1][1]
         romfs_img = ver_dir / 'RomFS.img'
         romfs = str(ver_dir / 'RomFS')
+        base_parent = Path(self.game_folder.folder) if self.game_folder is not None else Path(self.base_path).parent
         # games/<id>/ is the per-game layout main.m looks in first, and the file inside it is
         # romfs.img — one file, which copies to a phone at full speed where 300,000 did not
-        dest = str(Path(self.out_dir or Path(self.base_path).parent, 'romfs'))
+        dest = str(Path(self.out_dir or base_parent, 'romfs'))
         self.stages.append(Stage(name=self.t('prog.archiveShort'), state='running'))
         self.stagesChanged.emit()
 
@@ -1951,12 +1968,73 @@ class Model(QObject):
             if self.stages:
                 self.stages[-1].state = 'done' if ok else 'failed'
             self.archive_path = dest if ok else ''
+            self.stagesChanged.emit()
+            if ok and export_shell:
+                self._export_shell_after_archive(True, '')
+                return
             if ok:
                 self._record_library_ios_completion()
-            self.stagesChanged.emit()
             self.finished.emit(ok, '' if ok else self.t('msg.archiveFailed'))
 
         threading.Thread(target=work_, daemon=True).start()
+
+    def _export_shell_after_archive(self, archive_ok: bool, archive_note: str) -> None:
+        if not archive_ok:
+            self.finished.emit(False, archive_note or self.t('msg.archiveFailed'))
+            return
+        from .win import shell_export as se
+
+        work = getattr(self, 'effective_work_dir', '')
+        fw = se.built_framework(work)
+        tid = se.title_id_of_framework(fw) if fw else self.build_key
+        if fw is None:
+            fw = Path(work, 'shell-framework', f'DmGame{tid}.framework')
+
+        game_name = ''
+        manifest_p = fw / 'game.manifest.json'
+        if manifest_p.is_file():
+            try:
+                import json
+                data = json.loads(manifest_p.read_text(encoding='utf-8'))
+                if isinstance(data, dict):
+                    game_name = str(data.get('name') or '').strip()
+            except Exception:
+                pass
+        if not game_name:
+            game_name = (
+                lib.GameFolder.profile_name(tid, self.engine_path)
+                or (lib.clean_game_name(self.base_path) if self.base_path else '')
+                or tid
+            )
+
+        def on_stage(stage_name: str, state: str) -> None:
+            for st in self.stages:
+                if st.name == stage_name:
+                    st.state = state
+                    self.stagesChanged.emit()
+                    return
+            self.stages.append(Stage(name=stage_name, state=state))
+            self.stagesChanged.emit()
+
+        py = self.python_path or sys.executable
+        picked = self.artwork.custom_paths.get(tid.upper())
+        ok, out_ipa, msg, _notes = se.export_shell(
+            root=self.shell_cache_path,
+            repo=self.engine_path,
+            framework=fw,
+            title_id=tid,
+            name=game_name,
+            python_exe=py,
+            banners_dir=self.artwork.banners_dir,
+            picked_artwork=picked,
+            t_func=self.t,
+            log=self.log,
+            stage_cb=on_stage,
+        )
+        if ok:
+            self.ipa_path = out_ipa
+            self._record_library_ios_completion()
+        self.finished.emit(ok, msg)
 
     def _record_library_ios_completion(self) -> None:
         inputs_map: dict[str, list[str]] = {}

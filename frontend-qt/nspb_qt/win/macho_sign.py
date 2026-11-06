@@ -64,7 +64,7 @@ def blob(magic: int, body: bytes) -> bytes:
     return struct.pack('>II', magic, 8 + len(body)) + body
 
 
-def sign(path: str | Path, ident: str, ents: dict) -> int:
+def sign(path: str | Path, ident: str, ents: dict | None = None) -> int:
     p = Path(path)
     b = bytearray(p.read_bytes())
     magic, _cpu, _sub, _ftype, ncmds, _sizeofcmds, _flags, _ = struct.unpack_from('<IiiIIIII', b, 0)
@@ -86,11 +86,19 @@ def sign(path: str | Path, ident: str, ents: dict) -> int:
         raise ValueError(f'{path}: no LC_CODE_SIGNATURE (link with -Wl,-adhoc_codesign)')
     dataoff = struct.unpack_from('<I', b, sig_lc + 8)[0]
     code_limit = dataoff
-    xml = plistlib.dumps(ents, fmt=plistlib.FMT_XML)
     reqs = blob(CSMAGIC_REQUIREMENTS, struct.pack('>I', 0))
-    ent = blob(CSMAGIC_ENTITLEMENTS, xml)
-    entd = blob(CSMAGIC_ENTITLEMENTS_DER, der_entitlements(ents))
-    nslots = CSSLOT_DER
+    has_ents = bool(ents)
+    if has_ents:
+        assert ents is not None
+        xml = plistlib.dumps(ents, fmt=plistlib.FMT_XML)
+        ent = blob(CSMAGIC_ENTITLEMENTS, xml)
+        entd = blob(CSMAGIC_ENTITLEMENTS_DER, der_entitlements(ents))
+        nslots = CSSLOT_DER
+        exec_flags = 1
+    else:
+        ent = entd = b''
+        nslots = CSSLOT_REQUIREMENTS
+        exec_flags = 0
     npages = (code_limit + (1 << PAGE) - 1) >> PAGE
     ident_b = ident.encode() + b'\0'
     hdr = 88   # CodeDirectory version 0x20400 header (through execSegFlags)
@@ -99,8 +107,9 @@ def sign(path: str | Path, ident: str, ents: dict) -> int:
     text_fo, text_fs = struct.unpack_from('<QQ', b, text + 40) if text is not None else (0, 0)
 
     def superblob(cd: bytes) -> bytes:
-        items = [(CSSLOT_CODEDIRECTORY, cd), (CSSLOT_REQUIREMENTS, reqs),
-                 (CSSLOT_ENTITLEMENTS, ent), (CSSLOT_DER, entd)]
+        items = [(CSSLOT_CODEDIRECTORY, cd), (CSSLOT_REQUIREMENTS, reqs)]
+        if has_ents:
+            items += [(CSSLOT_ENTITLEMENTS, ent), (CSSLOT_DER, entd)]
         off = 12 + 8 * len(items)
         index = b''
         body = b''
@@ -122,7 +131,10 @@ def sign(path: str | Path, ident: str, ents: dict) -> int:
     struct.pack_into('<Q', b, linkedit + 32, (new_le + 0x3FFF) & ~0x3FFF)   # vmsize, 16 KB pages
     struct.pack_into('<Q', b, linkedit + 48, new_le)                        # filesize
     del b[dataoff:]
-    special = {CSSLOT_REQUIREMENTS: reqs, CSSLOT_ENTITLEMENTS: ent, CSSLOT_DER: entd}
+    special = {CSSLOT_REQUIREMENTS: reqs}
+    if has_ents:
+        special[CSSLOT_ENTITLEMENTS] = ent
+        special[CSSLOT_DER] = entd
     slots = b''.join(
         hashlib.sha256(special[i]).digest() if i in special else b'\0' * 32
         for i in range(nslots, 0, -1))
@@ -135,7 +147,7 @@ def sign(path: str | Path, ident: str, ents: dict) -> int:
         hash_off, hdr, nslots, npages, code_limit,            # hashOffset, identOffset, nSpecialSlots, nCodeSlots, codeLimit
         32, 2, 0, PAGE, 0,                                    # hashSize, hashType SHA-256, platform, pageSize, spare2
         0, 0, 0, 0,                                           # scatterOffset, teamOffset, spare3, codeLimit64
-        text_fo, text_fs, 1)                                  # execSegBase, execSegLimit, execSegFlags (main binary)
+        text_fo, text_fs, exec_flags)                         # execSegBase, execSegLimit, execSegFlags
     assert len(cd) == hdr, len(cd)
     cd += ident_b + slots + hashes
     sb = superblob(cd)

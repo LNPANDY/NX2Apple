@@ -1153,6 +1153,10 @@ class MainWindow(QMainWindow):
     def _effective_ipa_path(self) -> str:
         if self.m.ipa_path and os.path.exists(self.m.ipa_path):
             return self.m.ipa_path
+        if self.m.ipa_kind == 'shared':
+            cand_shell = os.path.join(self.m.shell_cache_path, 'export', 'NX2Apple.ipa')
+            if os.path.isfile(cand_shell):
+                return cand_shell
         tid = self.m.build_key
         if tid and self.m.out_dir:
             cand = os.path.join(self.m.out_dir, f'{tid}.ipa')
