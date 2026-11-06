@@ -150,8 +150,7 @@ import XCTest
     func testTheExperimentalBuilderIsOffByDefaultAndItsSettingIsSaved() {
         let store = makeStore()
         XCTAssertFalse(store.experimentalBuilder)
-        XCTAssertEqual(store.builderEnvironment(), [:], "off: the build gets nothing")
-        XCTAssertFalse(store.log.text.contains(store.t("msg.builderMissing")), "and the log says nothing")
+        XCTAssertNil(store.experimentalBuilderProblem(), "off: nothing to say")
         store.experimentalBuilder = true; store.experimentalBuilderPath = "/opt/nxbuild"
         XCTAssertTrue(defaults.bool(forKey: BuildStore.experimentalBuilderKey))
         XCTAssertEqual(defaults.string(forKey: BuildStore.experimentalBuilderPathKey), "/opt/nxbuild")
@@ -160,22 +159,33 @@ import XCTest
         XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
     }
 
-    func testTheBuildGetsTheChosenNxbOrANoteThatTheStandardBuilderRuns() throws {
-        let store = makeStore()
+    func testTheExperimentalBuilderStopsWithoutANewEnoughNxbAndNeverRunsTheScript() throws {
+        let runner = FakeProcessRunner()
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults, targetChanged: {})
         store.bundledBuilder = nil
+        XCTAssertNil(store.experimentalBuilderProblem(), "off: nothing to say")
         store.experimentalBuilder = true
         store.experimentalBuilderPath = temporary.path + "/gone/nxb"
         XCTAssertNil(store.experimentalBuilderBinary)
-        XCTAssertEqual(store.builderEnvironment(), [:])
-        XCTAssertTrue(store.log.text.contains(store.t("msg.builderMissing")))
+        XCTAssertEqual(store.experimentalBuilderProblem(), store.t("msg.builderMissingError"), "no nxb is an error, not a build by the script")
         let nxb = try file("nxb")
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
         store.experimentalBuilderPath = temporary.path   // the folder that holds it
         XCTAssertEqual(store.experimentalBuilderBinary, nxb)
-        XCTAssertEqual(store.builderEnvironment(), ["DM_EXPERIMENTAL_BUILDER": "1", "NXB_BIN": nxb])
-        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.4.0\n") }
+        XCTAssertEqual(store.experimentalBuilderProblem(), String(format: store.t("nxb.tooOld"), "nxb 0.4.0", ExperimentalBuilder.minimumVersion))
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.5.1\n") }
+        XCTAssertNil(store.experimentalBuilderProblem(), "a game or a step nxb does not take ends with its own exit code 4")
+        XCTAssertTrue(runner.commands.contains("nxb version"))
         store.experimentalBuilder = false
-        XCTAssertEqual(store.builderEnvironment(), [:], "off again: nothing, whatever the path")
+        XCTAssertNil(store.experimentalBuilderProblem())
+    }
+
+    func testAFailedNxbBuildSaysItsExitCodeAndItsLastErrorLine() {
+        let store = makeStore()
+        store.append("{\"ev\": \"say\", \"msg\": \"[RED] no key master_key_0f in prod.keys\", \"severity\": \"error\"}\n")
+        XCTAssertEqual(store.experimentalFailureNote(status: 6), String(format: store.t("nxb.exit.6"), 6) + " no key master_key_0f in prod.keys")
+        XCTAssertTrue(store.experimentalFailureNote(status: 4).contains("exit code 4"))
     }
 
     func testTakingFilesFillsTheRowAndNamesTheFirstFileThatDoesNotFit() {

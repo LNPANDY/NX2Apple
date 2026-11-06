@@ -139,6 +139,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
     package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
+    package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).

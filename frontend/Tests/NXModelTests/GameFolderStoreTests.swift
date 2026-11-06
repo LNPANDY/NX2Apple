@@ -121,8 +121,8 @@ import XCTest
         XCTAssertTrue(args.contains("mac-app"))
     }
 
-    /// #749: the script's command stays the same with the experimental builder on, and the log names the nxb the build gets.
-    func testTheExperimentalBuilderChangesNoArgumentAndIsNamedInTheLog() {
+    /// #749: with the experimental builder on, the same arguments go to `nxb build` and the script is not run.
+    func testTheExperimentalBuilderGivesTheScriptsArgumentsToNxbBuildAndIsNamedInTheLog() {
         let (store, game) = makeStore()
         store.scan(folder: game)
         store.startBuild()
@@ -131,9 +131,10 @@ import XCTest
         let nxb = root + "/nxbuild/nxb"
         write(nxb)
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.5.1\n") }
         store.experimentalBuilder = true; store.experimentalBuilderPath = nxb
         store.startBuild()
-        XCTAssertEqual(store.lastBuildCommand, standard, "the variables carry it, not the command line")
+        XCTAssertEqual(store.lastBuildCommand, [nxb, "build"] + standard.dropFirst(2), "nxb build in place of the interpreter and the script, the same options after")
         XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
     }
 

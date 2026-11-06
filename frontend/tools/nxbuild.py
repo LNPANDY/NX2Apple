@@ -27,8 +27,11 @@ def digest(path):
     return h.hexdigest()
 
 
+DATA = ('rewrite-rules', 'own-front')   # folders of the release that nxb finds next to its own file
+
+
 def unpack(zip_path, expected, dest):
-    """Check the zip against expected, then copy its nxb (wherever it sits in the zip) to dest/nxb. Returns that path"""
+    """Check the zip against expected, then copy its nxb (wherever it sits in the zip) to dest/nxb, and the data folders beside it. Returns the path of nxb"""
     got = digest(zip_path)
     if got != expected:
         os.unlink(zip_path)
@@ -39,6 +42,13 @@ def unpack(zip_path, expected, dest):
         dest.mkdir(parents=True, exist_ok=True)
         out = dest / 'nxb'
         out.write_bytes(z.read(names[0]))
+        # The data nxb reads from beside its own file (the rewrite rules, the own front end's verdicts), as the release lays them out next to nxb
+        root = Path(names[0]).parent
+        for n in z.namelist():
+            rel = Path(n).relative_to(root) if Path(n).is_relative_to(root) else None
+            if rel is None or n.endswith('/') or rel.parts[0] not in DATA or '..' in rel.parts: continue
+            (dest / rel).parent.mkdir(parents=True, exist_ok=True)
+            (dest / rel).write_bytes(z.read(n))
     out.chmod(0o755)
     return out
 
