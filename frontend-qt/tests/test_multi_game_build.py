@@ -14,11 +14,12 @@ sys.path.insert(0, str(ROOT / 'frontend-qt'))
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from nspb_qt import build_failure as bf
+from nspb_qt import library
 
 try:
     from PySide6.QtCore import QEvent
     from PySide6.QtWidgets import QApplication, QPushButton
-    from nspb_qt import library, model
+    from nspb_qt import model
     from nspb_qt.ui import MainWindow
 except ImportError:
     QApplication = None
@@ -36,6 +37,24 @@ class MultiGameStop(unittest.TestCase):
                      DIAGNOSTIC.replace(SECOND, 'broken'), 'more than one game in the folder'):
             with self.subTest(text=text):
                 self.assertEqual(bf.classify(text).title_ids, ())
+
+
+class LibraryAppPath(unittest.TestCase):
+    def test_reload_drops_deleted_mac_app_but_keeps_the_game_and_its_inputs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp) / 'state'
+            app = Path(temp) / 'Game.app'
+            app.mkdir()
+            games = library.GameLibrary(state)
+            games.upsert(library.LibraryGame(SECOND, 'Game', app_path=str(app)))
+            inputs = {'base': ['Cartridge.xci']}
+            games.upsert(library.LibraryGame(SECOND, 'Game', inputs=inputs))
+            self.assertEqual(library.GameLibrary(state).selected.app_path, str(app))
+            app.rmdir()
+            reloaded = library.GameLibrary(state).selected
+            self.assertEqual(reloaded.app_path, '')
+            self.assertEqual(reloaded.title_id, SECOND)
+            self.assertEqual(reloaded.inputs, inputs)
 
 
 @unittest.skipIf(QApplication is None, 'PySide6 is not installed')
@@ -113,7 +132,9 @@ class MultiGameBuild(unittest.TestCase):
                 if ipa_kind == 'shared':
                     self.assertEqual(Path(self.m.archive_path), self.root / 'games' / SECOND)
                     self.assertEqual(Path(self.m.archive_path, 'romfs.img').read_bytes(), b'fixture')
+                self.m.load_game_from_library(self.m.library.selected)
                 self.run_process(DIAGNOSTIC)
+                self.assertEqual(self.m.selectable_titles, (FIRST, SECOND))
                 self.assertNotIn('--title-id', self.commands[-1])
 
     def test_mac_build_reports_an_ambiguous_cartridge_even_with_an_old_app(self):
@@ -125,6 +146,27 @@ class MultiGameBuild(unittest.TestCase):
         self.assertEqual(self.commands[-1][-1], str(self.root / f'{SECOND}.app'))
         self.assertEqual(self.m.library.selected.app_path, str(self.root / f'{SECOND}.app'))
 
+    def test_unexpected_errors_during_build_and_archive_finish_the_build(self):
+        self.m.out_dir = str(self.root)
+        self.m.ipa_kind = 'shared'
+        transitions = []
+        results = []
+        self.m.runningChanged.connect(transitions.append)
+        self.m.finished.connect(lambda ok, note: results.append((ok, note)))
+
+        def fail(*args):
+            self.assertTrue(self.m.running)
+            raise RuntimeError('fixture failed')
+
+        for method in ('_flush_lines', '_record_library_ios_completion'):
+            with self.subTest(method=method), mock.patch.object(self.m, method, side_effect=fail):
+                transitions.clear()
+                results.clear()
+                self.run_process()
+                self.assertFalse(self.m.running)
+                self.assertEqual(transitions, [True, False])
+                self.assertEqual(results, [(False, self.m.t('msg.buildFailedReason', 'fixture failed'))])
+
     def test_the_card_can_retry_only_a_title_offered_for_the_current_inputs(self):
         self.run_process(DIAGNOSTIC)
         w = MainWindow(self.m)
@@ -133,6 +175,11 @@ class MultiGameBuild(unittest.TestCase):
             w._show_failure()
             buttons = {b.text(): b for b in w.failure_box.findChildren(QPushButton)}
             self.assertIn(SECOND, buttons)
+            button = buttons[SECOND]
+            self.assertEqual(button.property('titleID'), SECOND)
+            button.setText('Second game')
+            w._show_failure()
+            self.assertIs(w.title_buttons.itemAt(1).widget(), button)
             with mock.patch.object(self.m, 'start_build') as start:
                 buttons[SECOND].click()
                 start.assert_called_once_with(title_id=SECOND)

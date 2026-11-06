@@ -2277,7 +2277,7 @@ class MainWindow(QMainWindow):
             self.failure_box.hide()
             return
         self.failure_next.setText(t('fail.severalGames.choose' if titles else f.next_key))
-        current = [self.title_buttons.itemAt(i).widget().text() for i in range(self.title_buttons.count())]
+        current = [self.title_buttons.itemAt(i).widget().property('titleID') for i in range(self.title_buttons.count())]
         if tuple(current) != titles:
             while self.title_buttons.count():
                 button = self.title_buttons.takeAt(0).widget()
@@ -2285,6 +2285,7 @@ class MainWindow(QMainWindow):
                 button.deleteLater()
             for title in titles:
                 button = QPushButton(title)
+                button.setProperty('titleID', title)
                 button.clicked.connect(lambda checked=False, tid=title: self._build_clicked(title_id=tid))
                 self.title_buttons.addWidget(button)
         folder = self.m.failure_folder(f)

@@ -511,10 +511,11 @@ class LibraryGame:
 
     @classmethod
     def from_dict(cls, d: dict) -> LibraryGame:
+        app_path = str(d.get('appPath') or '')
         return cls(
             title_id=str(d.get('titleID') or d.get('title_id') or '').upper(),
             name=str(d.get('name') or ''),
-            app_path=str(d.get('appPath') or ''),
+            app_path=app_path if os.path.isdir(app_path) else '',
             ipa_path=str(d.get('ipaPath') or ''),
             archive_path=str(d.get('archivePath') or ''),
             ios_app_path=str(d.get('iosAppPath') or ''),
@@ -594,7 +595,7 @@ class GameLibrary:
             if existing.title_id == tid:
                 if not game.name or game.name == tid:
                     game.name = existing.name
-                if not game.app_path:
+                if not game.app_path and existing.has_app:
                     game.app_path = existing.app_path
                 if not game.ipa_path:
                     game.ipa_path = existing.ipa_path

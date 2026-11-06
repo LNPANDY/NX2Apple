@@ -1737,7 +1737,7 @@ class Model(QObject):
                 self.log(f'[shim] could not prepare the Windows shim: {e}\n')
             env['NSPB_REPO'] = self.engine_path
 
-        def work() -> None:
+        def run_build() -> tuple[bool, str]:
             ok = False
             try:
                 self._proc = subprocess.Popen([py] + args, cwd=cwd,
@@ -1768,8 +1768,7 @@ class Model(QObject):
                         st.state = 'done'
                 self.stagesChanged.emit()
                 if self.ipa_kind != 'oneGame':
-                    self.pack_archive(title_id)
-                    return
+                    return self.pack_archive(title_id)
                 self._record_library_ios_completion(title_id)
                 note = self.t('shell.oneGameDone', self.ipa_path)
             else:
@@ -1784,8 +1783,20 @@ class Model(QObject):
                 if known.kind != bf.UNKNOWN:   # a known early stop: the window explains it and offers the next step
                     self.failure = known
                     note = self.failure_what(known)
-            self.running = False
-            self.runningChanged.emit(False)
+            return ok, note
+
+        def work() -> None:
+            try:
+                ok, note = run_build()
+            except Exception as e:
+                self.log(f'{e}\n')
+                if self.stages:
+                    self.stages[-1].state = 'failed'
+                    self.stagesChanged.emit()
+                ok, note = False, self.t('msg.buildFailedReason', str(e))
+            finally:
+                self.running = False
+                self.runningChanged.emit(False)
             self.finished.emit(ok, note)
 
         self._thread = threading.Thread(target=work, daemon=True)
@@ -1882,7 +1893,8 @@ class Model(QObject):
 
     # ---- the archive step (what makes a 16 GB game installable)
 
-    def pack_archive(self, title_id: str | None = None) -> None:
+    def pack_archive(self, title_id: str | None = None) -> tuple[bool, str]:
+        """Run the final shared-build step on the build worker."""
         work = getattr(self, 'effective_work_dir', '')
         extract = Path(work, 'extract')
         versions = []
@@ -1895,10 +1907,7 @@ class Model(QObject):
                     except ValueError:
                         pass
         if not versions:
-            self.running = False
-            self.runningChanged.emit(False)
-            self.finished.emit(True, self.t('msg.archiveSkipped', str(extract)))
-            return
+            return True, self.t('msg.archiveSkipped', str(extract))
         ver_dir = versions[-1][1]
         romfs_img = ver_dir / 'RomFS.img'
         romfs = str(ver_dir / 'RomFS')
@@ -1909,53 +1918,48 @@ class Model(QObject):
         self.stages.append(Stage(name=self.t('prog.archiveShort'), state='running'))
         self.stagesChanged.emit()
 
-        def work_() -> None:
-            ok = True
-            out_img = Path(dest, 'romfs.img')
-            try:
-                Path(dest).mkdir(parents=True, exist_ok=True)
-                if romfs_img.is_file():
-                    reused = (out_img.is_file()
-                              and out_img.stat().st_size == romfs_img.stat().st_size
-                              and abs(out_img.stat().st_mtime - romfs_img.stat().st_mtime) < 1)
-                    if not reused:
-                        out_img.unlink(missing_ok=True)
-                        try:
-                            os.link(romfs_img, out_img)
-                        except OSError:
-                            shutil.copy2(romfs_img, out_img)
-                else:
-                    args = [self.python_path,
-                            str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
-                            '--reuse', romfs, str(out_img)]
-                    env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
-                    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                         text=True, encoding='utf-8', errors='replace', env=env,
-                                         **pu.no_window_kwargs())
-                    assert p.stdout is not None
-                    for line in p.stdout:
-                        self.log(line)
-                    p.wait()
-                    ok = p.returncode == 0
-                aoc_src = Path(work, 'aoc')
-                if ok and aoc_src.is_dir() and any(aoc_src.iterdir()):
-                    aoc_dst = Path(dest, 'aoc')
-                    shutil.rmtree(aoc_dst, ignore_errors=True)
-                    shutil.copytree(aoc_src, aoc_dst)
-            except OSError as e:
-                self.log(f'{e}\n')
-                ok = False
-            if self.stages:
-                self.stages[-1].state = 'done' if ok else 'failed'
-            self.archive_path = dest if ok else ''
-            if ok:
-                self._record_library_ios_completion(title_id)
-            self.running = False
-            self.runningChanged.emit(False)
-            self.stagesChanged.emit()
-            self.finished.emit(ok, '' if ok else self.t('msg.archiveFailed'))
-
-        threading.Thread(target=work_, daemon=True).start()
+        ok = True
+        out_img = Path(dest, 'romfs.img')
+        try:
+            Path(dest).mkdir(parents=True, exist_ok=True)
+            if romfs_img.is_file():
+                reused = (out_img.is_file()
+                          and out_img.stat().st_size == romfs_img.stat().st_size
+                          and abs(out_img.stat().st_mtime - romfs_img.stat().st_mtime) < 1)
+                if not reused:
+                    out_img.unlink(missing_ok=True)
+                    try:
+                        os.link(romfs_img, out_img)
+                    except OSError:
+                        shutil.copy2(romfs_img, out_img)
+            else:
+                args = [self.python_path,
+                        str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
+                        '--reuse', romfs, str(out_img)]
+                env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
+                p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, encoding='utf-8', errors='replace', env=env,
+                                     **pu.no_window_kwargs())
+                assert p.stdout is not None
+                for line in p.stdout:
+                    self.log(line)
+                p.wait()
+                ok = p.returncode == 0
+            aoc_src = Path(work, 'aoc')
+            if ok and aoc_src.is_dir() and any(aoc_src.iterdir()):
+                aoc_dst = Path(dest, 'aoc')
+                shutil.rmtree(aoc_dst, ignore_errors=True)
+                shutil.copytree(aoc_src, aoc_dst)
+        except OSError as e:
+            self.log(f'{e}\n')
+            ok = False
+        if self.stages:
+            self.stages[-1].state = 'done' if ok else 'failed'
+        self.archive_path = dest if ok else ''
+        if ok:
+            self._record_library_ios_completion(title_id)
+        self.stagesChanged.emit()
+        return ok, '' if ok else self.t('msg.archiveFailed')
 
     def _record_library_ios_completion(self, title_id: str | None = None) -> None:
         inputs_map: dict[str, list[str]] = {}

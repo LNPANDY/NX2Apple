@@ -2333,7 +2333,6 @@ class WindowsBuildFixesTest(unittest.TestCase):
             mod.capture_jit('py', repo, root, patched, root, {}, root, g)
 
     def test_pack_archive_handles_romfs_img_and_copies_aoc(self) -> None:
-        import time
         try:
             from nspb_qt.model import Model
         except ImportError:
@@ -2354,11 +2353,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
             m.effective_work_dir = str(work)
             m.out_dir = str(out)
             m.base_path = str(root / 'game.nsp')
-            m.pack_archive()
-            for _ in range(50):
-                if m.archive_path:
-                    break
-                time.sleep(0.02)
+            self.assertEqual(m.pack_archive(), (True, ''))
             self.assertEqual(m.archive_path, str(out / 'romfs'))
             self.assertEqual((out / 'romfs' / 'romfs.img').read_bytes(), b'DMROMFS1_payload')
             self.assertEqual((out / 'romfs' / 'aoc' / '0.img').read_bytes(), b'dlc0')
