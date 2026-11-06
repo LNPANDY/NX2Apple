@@ -57,6 +57,25 @@ jobs:
           python tools/engine.py tree --out engine-tree
           du -sh engine-tree
 
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish the extractor for the bundled Windows engine
+        shell: bash
+        run: |
+          # Use the patched sources that produced engine-tree. Keep obj/ and other build
+          # intermediates in engine/ so only the published output goes into the Windows zip.
+          out=engine-tree/dm/tools/nx_extract_bin
+          cp frontend-qt/nx_extract/packages.lock.json engine/dm/tools/nx_extract/
+          dotnet publish engine/dm/tools/nx_extract -c Release --self-contained false -p:RestoreLockedMode=true -o "$out"
+          cp frontend-qt/nx_extract/LibHac-LICENSE.txt "$out/"
+
+          # Open a synthetic empty PFS0 through LibHac before packaging.
+          touch empty.keys
+          python -c "from pathlib import Path; Path('empty.nsp').write_bytes(b'PFS0' + bytes(256))"
+          "$out/nx_extract.exe" empty.keys --keys empty.nsp
+
       - name: Build Windows shader tools for the bundled engine
         shell: bash
         run: |
