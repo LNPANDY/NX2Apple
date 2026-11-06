@@ -1898,12 +1898,33 @@ class MainWindow(QMainWindow):
         self.ver_status_lbl.setText(self.m.app_update_status or t('app.upToDate'))
         if self.m.app_update is not None:
             _set_dot(self.ver_dot, style.ORANGE)
-            self.ver_action_btn.setText(t('app.updateBtn', self.m.app_update.tag))
-            self.update_btn.setText(t('app.updateBtn', self.m.app_update.tag))
+            prog = self.m.app_update_progress
+            if prog is not None:
+                clamped = min(max(prog, 0.0), 1.0)
+                pct = int(round(clamped * 100))
+                btn_label = t('app.downloading', f'{pct}%' if pct > 0 else self.m.app_update.tag)
+                stop_a = min(max(clamped, 0.001), 0.998)
+                stop_b = min(stop_a + 0.001, 0.999)
+                fill_qss = (
+                    f'background: qlineargradient(x1:0, y1:0, x2:1, y2:0, '
+                    f'stop:0 rgba(235, 175, 65, 215), stop:{stop_a:.3f} rgba(235, 175, 65, 215), '
+                    f'stop:{stop_b:.3f} rgba(255, 255, 255, 26), stop:1 rgba(255, 255, 255, 26)); '
+                    f'color: #ffffff; border: 1px solid rgba(235, 175, 65, 165); border-radius: 16px; '
+                    f'padding: 6px 16px; font-weight: 700;'
+                )
+                self.update_btn.setStyleSheet(fill_qss)
+                self.ver_action_btn.setStyleSheet(fill_qss)
+            else:
+                btn_label = t('app.updateBtn', self.m.app_update.tag)
+                self.update_btn.setStyleSheet('')
+                self.ver_action_btn.setStyleSheet('')
+            self.ver_action_btn.setText(btn_label)
+            self.update_btn.setText(btn_label)
             self.update_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
             self.update_btn.show()
         else:
             _set_dot(self.ver_dot, style.GREEN)
+            self.ver_action_btn.setStyleSheet('')
             self.ver_action_btn.setText(t('repo.update'))
         self.ver_action_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
 

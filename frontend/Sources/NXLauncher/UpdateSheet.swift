@@ -67,13 +67,11 @@ package struct UpdateSheet: View {
                     // The sheet stays up while it downloads, so a refusal (a macOS too old for the release) is seen here.
                     if updates.staged != nil { updates.install(relaunch: true); dismiss() } else { updates.performUpdate() }
                 } label: {
-                    Text(loc.t(updates.staged != nil ? "app.restartNow" : "update.now"))
-                        .font(.manrope(13.5, .bold)).foregroundStyle(.black)
-                        .padding(.horizontal, 20).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
+                    updateButtonLabel
                 }
                 .buttonStyle(.plain)
-                .disabled(updates.busy)
+                .disabled(updates.busy && updates.downloadProgress == nil)
+                .allowsHitTesting(!updates.busy)
                 .keyboardShortcut(.defaultAction)
             }
             .padding(.horizontal, 28).padding(.vertical, 16)
@@ -82,6 +80,38 @@ package struct UpdateSheet: View {
         .background(LauncherPalette.background)
         .preferredColorScheme(.dark)
         .tint(LauncherPalette.cream)
+    }
+
+    @ViewBuilder private var updateButtonLabel: some View {
+        if let progress = updates.downloadProgress {
+            let clamped = min(max(progress, 0), 1)
+            let pct = Int((clamped * 100).rounded())
+            let label = String(format: loc.t("app.downloading"), pct > 0 ? "\(pct)%" : (update?.tag ?? ""))
+            Text(label)
+                .font(.manrope(13.5, .bold)).monospacedDigit()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20).padding(.vertical, 9)
+                .background {
+                    Canvas { canvas, size in
+                        let rect = CGRect(origin: .zero, size: size)
+                        let capsule = Capsule().path(in: rect)
+                        canvas.fill(capsule, with: .color(Color.white.opacity(0.10)))
+                        if clamped > 0 {
+                            var inner = canvas
+                            inner.clip(to: capsule)
+                            let fillRect = CGRect(x: 0, y: 0, width: size.width * clamped, height: size.height)
+                            inner.fill(Path(fillRect), with: .color(LauncherPalette.building.opacity(0.85)))
+                        }
+                        let inset = rect.insetBy(dx: 0.5, dy: 0.5)
+                        canvas.stroke(Capsule().path(in: inset), with: .color(LauncherPalette.building.opacity(0.65)), lineWidth: 1)
+                    }
+                }
+        } else {
+            Text(loc.t(updates.staged != nil ? "app.restartNow" : "update.now"))
+                .font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                .padding(.horizontal, 20).padding(.vertical, 9)
+                .background(LauncherPalette.cream, in: Capsule())
+        }
     }
 
     @ViewBuilder private func blockView(_ block: ReleaseNotes.Block, first: Bool) -> some View {

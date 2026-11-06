@@ -129,6 +129,7 @@ class Model(QObject):
         self.repo_status = ''
         self.app_update: app_update.Release | None = None
         self.app_update_busy = False
+        self.app_update_progress: float | None = None
         self.app_update_status = ''
         self._app_update_checked = False
         self._proc: subprocess.Popen | None = None
@@ -933,12 +934,29 @@ class Model(QObject):
             return
 
         self.app_update_busy = True
+        self.app_update_progress = 0.0
         self.app_update_status = self.t('app.downloading', rel.tag)
         self.log(self.app_update_status + '\n')
         try:
             self.repoChanged.emit()
         except RuntimeError:
             pass
+
+        def on_progress(done_bytes: int, total_bytes: int) -> None:
+            if total_bytes > 0 and done_bytes >= 0:
+                frac = min(max(done_bytes / total_bytes, 0.0), 1.0)
+                self.app_update_progress = frac
+                pct = int(round(frac * 100))
+                self.app_update_status = self.t('app.downloading', f'{pct}%' if pct > 0 else rel.tag)
+                try:
+                    self.repoChanged.emit()
+                except RuntimeError:
+                    pass
+            self.log(
+                f'  {done_bytes // 1048576} MB'
+                + (f' / {total_bytes // 1048576} MB ({done_bytes * 100 // total_bytes}%)' if total_bytes else '')
+                + '\n'
+            )
 
         def work() -> None:
             try:
@@ -949,11 +967,7 @@ class Model(QObject):
                     wf.download(
                         rel.url,
                         zip_path,
-                        progress=lambda d, tot: self.log(
-                            f'  {d // 1048576} MB'
-                            + (f' / {tot // 1048576} MB ({d * 100 // tot}%)' if tot else '')
-                            + '\n'
-                        ),
+                        progress=on_progress,
                     )
                 except Exception as exc:
                     self.log(f'{exc}\n')
@@ -986,6 +1000,7 @@ class Model(QObject):
                     self.log(self.app_update_status + '\n')
             finally:
                 self.app_update_busy = False
+                self.app_update_progress = None
                 try:
                     self.repoChanged.emit()
                 except RuntimeError:
