@@ -1354,7 +1354,7 @@
   "shell.copyWifiOne": "已通过 Wi-Fi 连接：复制 %@ 大约需要 %d 分钟。用数据线会更快。",
   "shell.copyWired": "复制完成前请保持 %@ 解锁。",
   "shell.dataAlready": "已安装到 %@，游戏数据已经在设备上",
-  "shell.dataChanged": "游戏数据自上次拷贝后已更改。",
+  "shell.dataChanged": "游戏数据自上次复制后已更改。",
   "shell.dataCurrent": "%@ 上已有此版本的游戏数据。",
   "shell.driveChoose": "选择文件夹",
   "shell.driveCopy": "复制游戏数据",

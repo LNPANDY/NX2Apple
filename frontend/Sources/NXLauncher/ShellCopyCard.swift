@@ -15,7 +15,10 @@ package struct ShellCopyCard: View {
     package var body: some View {
         if let plan = devices.shellCopy {
             card {
-                Text(plan.versionNote ?? loc.t("shell.copyTitle")).font(.manrope(14, .semibold))
+                Text(loc.t("shell.copyTitle")).font(.manrope(14, .semibold))
+                if let note = plan.versionNote {
+                    Text(note).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
+                }
                 Text(plan.sizeText).font(.manrope(13)).foregroundStyle(.secondary)
                 Text(plan.connectionText).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
                 Text(loc.t("shell.copyExternalNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
