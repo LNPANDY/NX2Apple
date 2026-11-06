@@ -7,7 +7,7 @@
 
 **Vos jeux Switch, directement sur votre iPhone.**
 
-**Pas un émulateur. Pas de terminal. Une app macOS fait toute la compilation en quelques clics.**
+**Pas un émulateur. Pas de terminal. Une app macOS ou Windows fait toute la compilation en quelques clics.**
 
 [![Stars](https://img.shields.io/github/stars/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/stargazers)
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
@@ -26,9 +26,10 @@
 
 #### 🆕 Les nouveautés
 
+- **Lanceur Windows (`NX2Apple-windows-x64.zip`)** : compilez des IPA pour iPhone et iPad sous Windows avec la même interface 1.2, une arborescence du moteur embarquée (pas besoin de git), une configuration initiale guidée, une réécriture NSO multicœur et une mise à jour automatique intégrée (`NX2Apple.exe`).
 - **Jeux Switch 2** : choisissez un dossier de jeu Switch 2 ou un fichier `.nup` dans le lanceur Mac ou Windows, sans `prod.keys`, et jouez sur Mac, iPhone ou iPad.
-- **Commandes tactiles personnalisées et réattribution des boutons** : redimensionnez les boutons, déplacez le stick gauche ou placez chaque commande dans l’éditeur visuel sur iPhone et iPad. Les manettes physiques prennent en charge la réattribution par jeu ou globale.
-- **Une seule app pour iPhone et iPad** : tous vos jeux sont réunis dans une seule app coque (ou exportés en IPA non signé pour AltStore et SideStore), avec Cover Flow en paysage, réglages et mods par jeu, suppression du jeu en gardant les sauvegardes et 6 langues.
+- **Commandes tactiles personnalisées, Joy-Con séparés et Steam Controller (2026)** : redimensionnez les boutons, déplacez le stick gauche ou placez chaque commande dans l’éditeur visuel sur iPhone et iPad. Les manettes physiques prennent en charge la réattribution par jeu ou globale, la séparation d’une paire de Joy-Con Bluetooth en deux manettes tenues à l’horizontale sur Mac et le Steam Controller (2026).
+- **Une seule app pour iPhone et iPad** : tous vos jeux sont réunis dans une seule app coque (ou exportés en IPA non signé pour AltStore et SideStore), chacun embarquant son propre framework hôte pour que les mises à jour du moteur n’imposent jamais de recompiler, avec Cover Flow en paysage, réglages et mods par jeu, suppression du jeu en gardant les sauvegardes et 6 langues.
 - **Mode console** : branchez une manette et appuyez sur Select, ou démarrez directement en mode console. La bibliothèque passe en plein écran comme sur une Switch, et maintenir Home 2 secondes quitte un jeu.
 
 Toutes les versions sont dans le [journal des modifications](CHANGELOG.md).
@@ -153,7 +154,7 @@ de jeu ni rien d’extrait d’un jeu.
 
 ## Jeux
 
-140 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
+147 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
 profil qui n’a pas encore été essayé sur un téléphone. En voici quelques-uns :
 
 | | Jeu | Où il tourne | Statut |

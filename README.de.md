@@ -7,7 +7,7 @@
 
 **Deine Switch-Spiele, direkt auf deinem iPhone.**
 
-**Kein Emulator. Kein Terminal. Eine macOS-App erledigt den ganzen Build in wenigen Klicks.**
+**Kein Emulator. Kein Terminal. Eine macOS- oder Windows-App erledigt den ganzen Build in wenigen Klicks.**
 
 [![Stars](https://img.shields.io/github/stars/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/stargazers)
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
@@ -26,9 +26,10 @@
 
 #### 🆕 Die wichtigsten Neuerungen
 
+- **Windows-Launcher (`NX2Apple-windows-x64.zip`)**: Baue iPhone- und iPad-IPAs unter Windows mit derselben 1.2-Oberfläche, einem mitgelieferten Engine-Verzeichnis (kein git nötig), geführter Ersteinrichtung, mehrkernigem NSO-Rewriting und integriertem Selbst-Update (`NX2Apple.exe`).
 - **Switch-2-Spiele**: Wähle im Mac- oder Windows-Launcher einen Switch-2-Spielordner oder eine `.nup`-Datei ohne `prod.keys` aus und spiele auf Mac, iPhone oder iPad.
-- **Eigene Touch-Steuerung und Tastenbelegung**: Ändere die Tastengröße, verschiebe den linken Stick oder platziere jede Taste im visuellen Layout-Editor auf iPhone und iPad. Physische Controller unterstützen eine Tastenbelegung pro Spiel oder für alle Spiele.
-- **Eine App für iPhone und iPad**: Alle deine Spiele landen in einer einzigen Shell-App (oder als unsignierte IPA für AltStore und SideStore), mit Cover Flow im Querformat, Einstellungen und Mods pro Spiel, Löschen unter Beibehaltung der Spielstände und 6 Sprachen.
+- **Eigene Touch-Steuerung, geteilte Joy-Con und Steam Controller (2026)**: Ändere die Tastengröße, verschiebe den linken Stick oder platziere jede Taste im visuellen Layout-Editor auf iPhone und iPad. Physische Controller unterstützen eine Tastenbelegung pro Spiel oder global, die Aufteilung eines Bluetooth-Joy-Con-Paars in zwei quer gehaltene Controller auf dem Mac sowie den Steam Controller (2026).
+- **Eine App für iPhone und iPad**: Alle deine Spiele landen in einer einzigen Shell-App (oder als unsignierte IPA für AltStore und SideStore), jedes mit seinem eigenen Host-Framework, sodass Engine-Updates keinen Neubau erzwingen, mit Cover Flow im Querformat, Einstellungen und Mods pro Spiel, Löschen unter Beibehaltung der Spielstände und 6 Sprachen.
 - **Konsolenmodus**: Schließe einen Controller an und drücke Select oder starte direkt im Konsolenmodus. Die Bibliothek wird zum Vollbild-Menü wie auf einer Switch, und 2 Sekunden Home beendet ein Spiel.
 
 Alle Versionen stehen im [Changelog](CHANGELOG.md).
@@ -157,7 +158,7 @@ angesehen. Hänge niemals Schlüssel, Spieldateien oder etwas aus einem Spiel Ex
 
 ## Spiele
 
-140 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
+147 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
 ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
 
 | | Spiel | Wo es läuft | Status |
