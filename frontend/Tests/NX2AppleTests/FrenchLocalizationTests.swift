@@ -19,6 +19,8 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
         "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx", "launch.opt.DM_SCREEN_ASPECT.0", "key.tab",
         "switch2.badge",   // the console's name
+        // The Steam Controller's name, its back and Guide buttons: names that French keeps as they are.
+        "controls.steam.title", "controls.steam.L4", "controls.steam.L5", "controls.steam.R4", "controls.steam.R5", "controls.steam.Guide",
         // The iOS shell's words that French writes as English does: OK, Interface, the Switch's Plus button, Version.
         "ios.host.ok", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version",
     ]

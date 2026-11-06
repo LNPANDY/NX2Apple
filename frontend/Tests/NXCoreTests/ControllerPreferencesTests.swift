@@ -50,13 +50,13 @@ final class ControllerPreferencesTests: XCTestCase {
         store.setSteamButton(16, target: -1)
         XCTAssertNil(store.steam.buttons[16])
     }
-    func testGlobalControllerHelpUsesFreshFallbackKeys() {
+    func testGlobalControllerHelpIsTranslatedInEveryLanguage() {
         for key in ["controls.globalNote", "controls.globalApplied"] {
             let english = L10n.string(key, .en)
             XCTAssertNotEqual(english, key)
             XCTAssertNotEqual(L10n.string(key, .zh), english)
             XCTAssertNotEqual(L10n.string(key, Lang("de")), english)
-            for code in ["fr", "it", "sv"] { XCTAssertEqual(L10n.string(key, Lang(code)), english) }
+            for code in ["fr", "it", "sv"] { XCTAssertNotEqual(L10n.string(key, Lang(code)), english, code) }
         }
     }
 
