@@ -29,6 +29,7 @@ struct LauncherView: View {
     @State private var removing: LibraryGame?
     @State private var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
     @State var optionsFor: UUID?
+    @State private var controllerMappingOpen = false
     @State private var freeSpaceFor: UUID?   // the game whose Free space sheet is open
     @State private var controlsOpen = false
     @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
@@ -36,7 +37,7 @@ struct LauncherView: View {
     @State var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
     @StateObject private var controls: ControlLayout
     @StateObject private var gamepad: LauncherGamepad
-    @StateObject var padFocus = PadFocus()
+    @StateObject var padFocus: PadFocus
     @StateObject var row = RowScroller()
     @StateObject var toolsAge: ToolsAge
     @State private var buildCommit = ""   // the engine's commit when the running build started (ToolsAge)
@@ -51,7 +52,8 @@ struct LauncherView: View {
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false,
-         gamepad: LauncherGamepad? = nil) {
+         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil) {
+        _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
         self.onRunSetup = onRunSetup
         let layout = sharedControls ?? ControlLayout()
@@ -246,7 +248,7 @@ struct LauncherView: View {
             }
         } message: { Text(loc.t("library.removeNote")) }
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
-            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
+            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id, globalControls: controls, controllerMappingPresentation: $controllerMappingOpen).environmentObject(padFocus).launcherDropdownHost() }
         }
         .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
@@ -267,7 +269,11 @@ struct LauncherView: View {
         }
         .onChange(of: savesFor) { id in padFocus.scope = id != nil ? "saves" : currentPadScope }
         .cheatsSheet(for: $cheatsFor, m: m, library: library, pad: padFocus) { currentPadScope }
-        .onChange(of: optionsFor) { id in padFocus.scope = id != nil ? "launch" : (controlsOpen ? "controls" : "main") }
+        .onChange(of: optionsFor) { id in
+            if id == nil { controllerMappingOpen = false }
+            padFocus.scope = currentPadScope
+        }
+        .onChange(of: controllerMappingOpen) { _ in padFocus.scope = currentPadScope }
         .onChange(of: controlsOpen) { open in padFocus.scope = open ? "controls" : (optionsFor != nil ? "launch" : "main") }
         .onChange(of: page) { _ in padFocus.focused = nil }
         .onChange(of: padFocus.focused) { id in   // a controller moving onto a game's card selects it, as a click does
@@ -529,6 +535,7 @@ struct LauncherView: View {
             return
         case .pass: break
         }
+        if action == .b, controllerMappingOpen { controllerMappingOpen = false; return }
         if action == .b, controllerSheet { controllerSheet = false; return }
         if action == .b, savesFor != nil { savesFor = nil; return }
         if action == .b, cheatsFor != nil { cheatsFor = nil; return }
@@ -582,7 +589,7 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        controllerSheet ? "console.controllers" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
