@@ -1168,12 +1168,9 @@ class MainWindow(QMainWindow):
         return self.m.ipa_path
 
     def _effective_archive_path(self) -> str:
-        if self.m.archive_path and os.path.isdir(self.m.archive_path):
-            return self.m.archive_path
-        if self.m.out_dir:
-            cand = os.path.join(self.m.out_dir, 'romfs')
-            if os.path.isdir(cand):
-                return cand
+        eff = self.m.effective_archive_path()
+        if eff and os.path.isdir(eff):
+            return eff
         sel = self.m.library.selected
         if sel and sel.has_archive:
             return sel.archive_path
@@ -1233,8 +1230,7 @@ class MainWindow(QMainWindow):
                 return
             self._drive_folder = d
             self.drive_path_lbl.setText(d)
-        tid = self.m.build_key
-        ok, info = lib.DriveCopy.copy_to_folder(arch_p, self._drive_folder, tid)
+        ok, info = self.m.copy_archive_to_drive(self._drive_folder)
         if ok:
             self.step3_sub.setText(self.m.t('shell.driveDone', info, self.m.t('ios.ui.gameData')))
         else:

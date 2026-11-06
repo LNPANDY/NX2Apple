@@ -255,9 +255,13 @@ jobs:
         run: |
           cd frontend-qt/dist
           cp -r ../wheels "NX2Apple/wheels"
-          # The engine tree goes inside the app folder: the launcher finds it at
+          # The engine tree goes inside the app folder, where the launcher finds it at
           # <exe_dir>/engine (and also at <exe_dir>/../engine) and skips the repo/sync route entirely.
           cp -r ../../engine-tree "NX2Apple/engine"
+          NSPB_PACKAGED_BUNDLE_DIR="$PWD/NX2Apple/_internal" \
+          NSPB_ENGINE_DIR="$PWD/NX2Apple/engine" \
+          QT_QPA_PLATFORM=offscreen \
+            python -m unittest discover -s ../tests -p "test_swift_parity.py" -v
           powershell -Command "Compress-Archive -Path 'NX2Apple' -DestinationPath '../NX2Apple-windows-x64.zip'"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

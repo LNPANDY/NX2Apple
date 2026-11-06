@@ -46,7 +46,7 @@ class ShellGame:
 
     @classmethod
     def from_dict(cls, d: dict) -> ShellGame | None:
-        tid = str(d.get('titleID') or d.get('title_id') or '').strip()
+        tid = str(d.get('titleID') or d.get('title_id') or '').strip().upper()
         fw = str(d.get('framework') or '').strip()
         if not tid or not fw:
             return None
@@ -131,7 +131,8 @@ def mirrored_framework(root: str | os.PathLike, title_id: str) -> Path:
 def title_id_of_framework(framework: str | os.PathLike) -> str:
     name = Path(framework).name
     if name.startswith('DmGame') and name.endswith('.framework') and len(name) > len('DmGame.framework'):
-        return name[len('DmGame'):-len('.framework')]
+        raw = name[len('DmGame'):-len('.framework')]
+        return raw.upper() if re.fullmatch(r'[0-9A-Fa-f]{16}', raw) else raw
     return ''
 
 
@@ -434,6 +435,34 @@ def _update_shell_plist(staged_app: Path, bundle_id: str, repo: Path) -> None:
         plistlib.dump(info, f, fmt=plistlib.FMT_XML, sort_keys=True)
 
 
+def _resolve_python_exe(python_exe: str = '') -> str:
+    """Return a real Python interpreter even when called from a frozen PyInstaller GUI."""
+    if python_exe:
+        exe_name = Path(python_exe).stem.lower()
+        if not (getattr(sys, 'frozen', False) and exe_name.startswith('nx2apple')):
+            return python_exe
+    if not getattr(sys, 'frozen', False):
+        return sys.executable
+    py, _, _ = pu.find_python()
+    return py or ('python' if pu.IS_WIN else '/usr/bin/python3')
+
+
+def _cleanup_tmp_sidecars(tmp_ipa: Path) -> None:
+    """Remove temporary IPA and any sidecar files written by `pack_ipa.py` (`.idx`, `.partial`, `.clone`)."""
+    base = str(tmp_ipa)
+    for p in (
+        tmp_ipa,
+        Path(base + '.idx'),
+        Path(base + '.partial'),
+        Path(base + '.clone'),
+        Path(base + '.idx.partial'),
+    ):
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def export_shell(
     *,
     root: str | os.PathLike,
@@ -441,7 +470,7 @@ def export_shell(
     framework: str | os.PathLike,
     title_id: str,
     name: str,
-    python_exe: str = sys.executable,
+    python_exe: str = '',
     banners_dir: str | os.PathLike | None = None,
     picked_artwork: str | None = None,
     t_func: Callable[..., str] | None = None,
@@ -460,6 +489,8 @@ def export_shell(
     root_p = Path(root)
     repo_p = Path(repo)
     fw_p = Path(framework)
+    tid_norm = title_id.strip().upper() if re.fullmatch(r'[0-9A-Fa-f]{16}', title_id.strip()) else title_id.strip()
+    py_exe = _resolve_python_exe(python_exe)
 
     if not fw_p.is_dir():
         folder = fw_p.parent.name or 'shell-framework'
@@ -468,15 +499,15 @@ def export_shell(
     # 1. Update shell.json and mirror frameworks into <root>/frameworks/
     sweep_discarded(frameworks_mirror(root_p))
     library = ShellLibrary.load(root_p)
-    library.add(ShellGame(title_id=title_id, name=name, framework=str(fw_p)))
+    library.add(ShellGame(title_id=tid_norm, name=name, framework=str(fw_p)))
     mirror_frameworks(library, root_p, log=log)
     library.drop_missing()
-    notes, err = leave_out_incomplete(library, root_p, title_id, name, _t, log=log)
+    notes, err = leave_out_incomplete(library, root_p, tid_norm, name, _t, log=log)
     if err is not None:
         return False, '', _t('shell.projectFailed', err), []
 
     for g in library.games:
-        picked = picked_artwork if g.title_id == title_id else None
+        picked = picked_artwork if g.title_id == tid_norm else None
         banner = place_banner(g.title_id, g.framework, banners_dir=banners_dir, picked=picked)
         if banner:
             log(f'banner: {g.title_id} {banner}\n')
@@ -504,13 +535,13 @@ def export_shell(
     staged_app = stage_dir / 'Payload' / APP_NAME
     try:
         shutil.rmtree(stage_dir, ignore_errors=True)
-        tmp_ipa.unlink(missing_ok=True)
+        _cleanup_tmp_sidecars(tmp_ipa)
         staged_app.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(tpl, staged_app, symlinks=True)
         # Ensure template carries no stale embedded frameworks; pack_ipa maps the live ones
         shutil.rmtree(staged_app / 'Frameworks', ignore_errors=True)
 
-        _prepare_fonts(staged_app, repo_p, python_exe)
+        _prepare_fonts(staged_app, repo_p, py_exe)
         _update_shell_plist(staged_app, library.bundle_id, repo_p)
 
         # Ad-hoc sign DmShell with the Increased Memory Limit entitlement
@@ -524,11 +555,12 @@ def export_shell(
         for g in library.games:
             fw_path = Path(g.framework)
             fw_name = fw_path.name
+            fw_exe = fw_path.stem
             maps.append(f'Payload/{APP_NAME}/Frameworks/{fw_name}={fw_path}')
-            executables.append(f'Payload/{APP_NAME}/Frameworks/{fw_name}/DmGame{g.title_id}')
+            executables.append(f'Payload/{APP_NAME}/Frameworks/{fw_name}/{fw_exe}')
         maps.append(f'Payload/{APP_NAME}={staged_app}')
 
-        cmd = [python_exe, str(pack_py), str(tmp_ipa), '--no-reuse'] + maps
+        cmd = [py_exe, str(pack_py), str(tmp_ipa), '--no-reuse'] + maps
         log(f'[{pack_stage_name}] {" ".join(cmd)}\n')
         r = subprocess.run(
             cmd, capture_output=True, text=True, encoding='utf-8', errors='replace',
@@ -546,13 +578,13 @@ def export_shell(
         log(f'{mode_summary}\n')
         os.replace(tmp_ipa, out_ipa)
     except Exception as e:
-        shutil.rmtree(stage_dir, ignore_errors=True)
-        tmp_ipa.unlink(missing_ok=True)
         if stage_cb:
             stage_cb(pack_stage_name, 'failed')
         return False, '', _t('shell.exportFailed', str(e)), notes
+    finally:
+        shutil.rmtree(stage_dir, ignore_errors=True)
+        _cleanup_tmp_sidecars(tmp_ipa)
 
-    shutil.rmtree(stage_dir, ignore_errors=True)
     if stage_cb:
         stage_cb(pack_stage_name, 'done')
     msg = '\n'.join([_t('shell.exportDone', str(out_ipa))] + notes)

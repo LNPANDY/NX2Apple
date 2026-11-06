@@ -1035,8 +1035,9 @@ def main(argv: list[str] | None = None) -> int:
             r_id = subprocess.run([sys.executable, str(repo / 'dm/tools/romfs_image.py'),
                                    '--identity', str(romfs), str(game), str(version),
                                    str(pkg or '')], capture_output=True, text=True, errors='replace')
-            if r_id.returncode == 0 and r_id.stdout.strip():
-                romfs_id = r_id.stdout.strip()
+            if r_id.returncode != 0 or not r_id.stdout.strip():
+                die(f'identity of {romfs}: {r_id.stderr.strip() or r_id.stdout.strip()}')
+            romfs_id = r_id.stdout.strip()
 
         manifest_args = [
             repo / 'dm/ios/tools/gen_manifest.py',

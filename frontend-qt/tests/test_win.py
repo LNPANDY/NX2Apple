@@ -2349,16 +2349,20 @@ class WindowsBuildFixesTest(unittest.TestCase):
             (aoc / '0.img').write_bytes(b'dlc0')
             out = root / 'out'
             out.mkdir()
-            with mock.patch.object(Model, 'check_deps', lambda self: None):
+            from nspb_qt import library as lib
+            with (
+                mock.patch.object(Model, 'check_deps', lambda self: None),
+                mock.patch.object(lib, 'default_state_dir', lambda: root / 'state'),
+            ):
                 m = Model()
-            m.effective_work_dir = str(work)
-            m.out_dir = str(out)
-            m.base_path = str(root / 'game.nsp')
-            m.pack_archive()
-            for _ in range(50):
-                if m.archive_path:
-                    break
-                time.sleep(0.02)
+                m.effective_work_dir = str(work)
+                m.out_dir = str(out)
+                m.base_path = str(root / 'game.nsp')
+                m.pack_archive()
+                for _ in range(50):
+                    if m.archive_path:
+                        break
+                    time.sleep(0.02)
             self.assertEqual(m.archive_path, str(out / 'romfs'))
             self.assertEqual((out / 'romfs' / 'romfs.img').read_bytes(), b'DMROMFS1_payload')
             self.assertEqual((out / 'romfs' / 'aoc' / '0.img').read_bytes(), b'dlc0')
