@@ -628,18 +628,27 @@ def _is_symlink_stub_bytes(raw: bytes) -> str | None:
     """Return the relative target string if `raw` looks like a git symlink stub, else None."""
     if not (1 <= len(raw) <= 256) or raw.startswith(b'--- !tapi-tbd'):
         return None
-    if any(b in raw for b in (b'\n', b'\r', b'\x00', b' ', b'\t', b';', b'{', b'}', b'#')):
+    if any(b in raw for b in (b'\n', b'\r', b'\x00', b' ', b'\t', b';', b'{', b'}', b'#', b':')):
         return None
     try:
         target = raw.decode('utf-8')
     except UnicodeDecodeError:
         return None
-    if not target or target in ('.', '..') or target.startswith(('/', '\\')):
+    if not target or ':' in target or target in ('.', '..') or target.startswith(('/', '\\')):
         return None
     return target
 
 
-def repair_tbd_stubs(sdk: Path | str, log=None) -> int:
+def repair_tbd_stubs(
+    sdk: Path | str,
+    log=None,
+    *,
+    max_bytes: int | None = None,
+    bytes_used: int = 0,
+    max_entries: int | None = None,
+    entries_used: int = 0,
+    error_cls: type[Exception] | None = None,
+) -> int:
     """Fix git symlink text stubs (`.tbd`, `.h`, framework dirs) in a Windows SDK checkout.
 
     An SDK checked out on Windows without `core.symlinks=true` (or before `materialize_symlinks`
@@ -649,7 +658,23 @@ def repair_tbd_stubs(sdk: Path | str, log=None) -> int:
     resolves chained symlinks (`libm.tbd` → `libSystem.tbd` → `libSystem.B.tbd` and
     `Headers` → `Versions/Current/Headers`) without needing git or `.git`.
     """
-    sdk_root = Path(sdk).resolve()
+    sdk_abs = Path(os.path.abspath(os.fspath(sdk)))
+    sdk_root = sdk_abs.resolve()
+    exc_type = error_cls or ValueError
+
+    def _charge(added_entries: int, added_bytes: int) -> None:
+        nonlocal entries_used, bytes_used
+        entries_used += added_entries
+        bytes_used += added_bytes
+        if max_entries is not None and entries_used > max_entries:
+            raise exc_type(
+                f'text-stub materialization exceeds entry limit ({entries_used} > {max_entries})'
+            )
+        if max_bytes is not None and bytes_used > max_bytes:
+            raise exc_type(
+                f'text-stub materialization exceeds unpacked size limit ({bytes_used} > {max_bytes} bytes)'
+            )
+
     fixed = 0
     for _pass in range(4):
         round_fixed = 0
@@ -663,13 +688,33 @@ def repair_tbd_stubs(sdk: Path | str, log=None) -> int:
                 target = _is_symlink_stub_bytes(p.read_bytes())
                 if not target:
                     continue
-                cand = p.parent / target
-                real = cand.resolve()
-                if real == p.resolve() or not str(real).startswith(str(sdk_root)):
+                cand = p.parent / target.replace('\\', '/')
+                cand_abs = Path(os.path.abspath(os.fspath(cand)))
+                if cand_abs == sdk_root or not cand_abs.is_relative_to(sdk_root):
+                    continue
+                real = cand_abs.resolve()
+                p_real = p.resolve()
+                if real == p_real or real == sdk_root or not real.is_relative_to(sdk_root):
                     continue
                 if real.is_dir():
+                    if p_real.is_relative_to(real) or real.is_relative_to(p_real):
+                        if error_cls is not None:
+                            raise exc_type(f'recursive directory text stub: {p.relative_to(sdk_root)} -> {target!r}')
+                        continue
+                    items = sorted(real.rglob('*'))
                     p.unlink()
-                    shutil.copytree(real, p, dirs_exist_ok=True)
+                    p.mkdir(parents=True, exist_ok=True)
+                    for item in items:
+                        rel_item = item.relative_to(real)
+                        dst_item = p / rel_item
+                        if item.is_dir():
+                            _charge(1, 0)
+                            dst_item.mkdir(parents=True, exist_ok=True)
+                        elif item.is_file():
+                            fsize = max(0, item.stat().st_size)
+                            _charge(1, fsize)
+                            dst_item.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copyfile(str(item), str(dst_item))
                     round_fixed += 1
                     fixed += 1
                     if log:
@@ -680,6 +725,7 @@ def repair_tbd_stubs(sdk: Path | str, log=None) -> int:
                         continue  # target is itself an unexpanded stub; next pass will resolve it
                     if p.suffix == '.tbd' and real_bytes[:13] != b'--- !tapi-tbd':
                         continue
+                    _charge(0, max(0, len(real_bytes) - st.st_size))
                     p.write_bytes(real_bytes)
                     round_fixed += 1
                     fixed += 1

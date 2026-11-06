@@ -1191,7 +1191,7 @@ class Model(QObject):
                             unpack_progress=progress_logger(self.t('dep.phase.unpack')),
                             fallback_git=False)
                     except Exception as zip_err:
-                        self.log(f'SDK zip download failed ({zip_err}); trying git sparse-checkout fallback…\n')
+                        self.log(f'{zip_err}\n')
                         if not (wtc.git_exe() or shutil.which('git')):
                             self.log(self.t('dep.git.downloading') + '\n')
                             gpath = wf.install_git(

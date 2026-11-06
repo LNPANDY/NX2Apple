@@ -358,11 +358,24 @@ def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     HOME/USER present (a GUI launch can strip them), and DOTNET_CLI_HOME so .NET's first-run
     state has somewhere to go."""
     env = dict(os.environ)
-    for k in ('_MEIPASS', '_MEIPASS2', 'PYTHONHOME', 'PYTHONPATH', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
-        env.pop(k, None)
-    meipass = getattr(sys, '_MEIPASS', None)
+    meipass = getattr(sys, '_MEIPASS', None) or env.get('_MEIPASS') or env.get('_MEIPASS2')
+    is_frozen = bool(getattr(sys, 'frozen', False) or meipass)
+    env.pop('_MEIPASS', None)
+    env.pop('_MEIPASS2', None)
+    if is_frozen:
+        for k in ('PYTHONHOME', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
+            env.pop(k, None)
     meipass_norm = os.path.normcase(os.path.normpath(meipass)) if meipass else None
     sep = ';' if IS_WIN else ':'
+    if meipass_norm and 'PYTHONPATH' in env:
+        clean_pypath = [
+            d for d in env['PYTHONPATH'].split(sep)
+            if d and os.path.normcase(os.path.normpath(d)) != meipass_norm
+        ]
+        if clean_pypath:
+            env['PYTHONPATH'] = sep.join(clean_pypath)
+        else:
+            env.pop('PYTHONPATH', None)
     raw_dirs = [d for d in env.get('PATH', '').split(sep)
                 if d and (not meipass_norm or os.path.normcase(os.path.normpath(d)) != meipass_norm)]
     dirs = [sep.join(raw_dirs)]
