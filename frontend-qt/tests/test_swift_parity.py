@@ -323,6 +323,34 @@ class ParityWindowTests(unittest.TestCase):
 
         w.close()
 
+    def test_unbuilt_hero_names_and_opens_the_selected_games_build(self) -> None:
+        from unittest import mock
+        from nspb_qt import library
+        from nspb_qt.model import Model
+        from nspb_qt.ui import MainWindow
+
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(library, 'default_state_dir', return_value=Path(directory)), \
+                mock.patch.object(library.ArtworkStore, 'request_banner_async'):
+            model = Model()
+            game = library.LibraryGame('0100ABCD00001000', 'Marble Orchard', inputs={'base': ['example.xci']})
+            model.library.games = [game]
+            window = MainWindow(model)
+            window._init_timer.stop()
+            self.addCleanup(self._delete, model, window)
+            window.show()
+            self.app.processEvents()
+            window._switch_page('library')
+            for language in Lang.all():
+                model.set_lang(language)
+                hero_label = window.hero.primary_btn.text()
+                self.assertEqual(hero_label, model.t('library.setUpBuild'))
+                self.assertNotEqual(hero_label, model.t('library.newBuild'))
+                self.assertIn(model.t('library.newBuild'), window.new_build_btn.text())
+            window.hero.primary_btn.click()
+            self.assertEqual(window._current_page, 'builds')
+            self.assertEqual(model.base_path, 'example.xci')
+
     def test_ios26_sdk_compat_headers_in_common_flags(self) -> None:
         from nspb_qt.win import build_app
         flags = build_app.common_flags(Path('/fake/sdk'), [Path('/fake/inc')], '26.0')

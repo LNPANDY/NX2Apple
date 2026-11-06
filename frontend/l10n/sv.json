@@ -910,6 +910,7 @@
   "library.scrollBack": "Rulla bakåt",
   "library.scrollForward": "Rulla framåt",
   "library.search": "Sök spel …",
+  "library.setUpBuild": "Förbered bygget",
   "library.setupHint": "Slutför inställningen nedan före ditt första bygge.",
   "library.stopping": "Avslutar …",
   "library.toolsAdopted": "Byggverktygen är anslutna till git och uppdaterade",

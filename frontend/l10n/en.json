@@ -1067,6 +1067,7 @@
   "library.scrollBack": "Scroll back",
   "library.scrollForward": "Scroll forward",
   "library.search": "Search games…",
+  "library.setUpBuild": "Set up build",
   "library.setupHint": "Before your first build, finish the setup below.",
   "library.showLog": "Show game log",
   "library.showLog.none": "No game log yet. Play the game once to create it",
