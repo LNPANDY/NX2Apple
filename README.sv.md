@@ -7,7 +7,7 @@
 
 **Dina Switch-spel, direkt på din iPhone.**
 
-**Ingen emulator. Ingen terminal. En macOS-app sköter hela bygget med några klick.**
+**Ingen emulator. Ingen terminal. En macOS- eller Windows-app sköter hela bygget med några klick.**
 
 [![Stars](https://img.shields.io/github/stars/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/stargazers)
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
@@ -26,9 +26,10 @@
 
 #### 🆕 Senaste nyheterna
 
+- **Windows-launcher (`NX2Apple-windows-x64.zip`)**: Bygg iPhone- och iPad-IPA:er i Windows med samma 1.2-gränssnitt, ett medföljande motorträd (inget git behövs), guidad förstagångskonfiguration, flerkärnig NSO-omskrivning och inbyggd självuppdatering (`NX2Apple.exe`).
 - **Switch 2-spel**: Välj en Switch 2-spelmapp eller en `.nup`-fil i Mac- eller Windows-launchern, helt utan `prod.keys`, och spela på Mac, iPhone eller iPad.
-- **Anpassade pekkontroller och knappmappning**: Ändra storlek på knappar, flytta vänster spak eller placera varje knapp i den visuella layoutredigeraren på iPhone och iPad. Fysiska handkontroller stöder knappmappning per spel eller globalt.
-- **En app för iPhone och iPad**: Alla dina spel samlas i en enda skal-app (eller som en osignerad IPA för AltStore och SideStore), med Cover Flow i liggande läge, inställningar och moddar per spel, radering av spel med sparfilerna kvar och 6 språk.
+- **Anpassade pekkontroller, delade Joy-Con och Steam Controller (2026)**: Ändra storlek på knappar, flytta vänster spak eller placera varje knapp i den visuella layoutredigeraren på iPhone och iPad. Fysiska handkontroller stöder knappmappning per spel eller globalt, uppdelning av ett Bluetooth-anslutet Joy-Con-par i två horisontella handkontroller på Mac samt Steam Controller (2026).
+- **En app för iPhone och iPad**: Alla dina spel samlas i en enda skal-app (eller som en osignerad IPA för AltStore och SideStore), där varje spel bär sitt eget värdramverk så att motoruppdateringar aldrig tvingar fram ett ombygge, med Cover Flow i liggande läge, inställningar och moddar per spel, radering av spel med sparfilerna kvar och 6 språk.
 - **Konsolläge**: Anslut en handkontroll och tryck på Select, eller starta direkt i konsolläge. Biblioteket går till helskärm som på en Switch, och att hålla in Home i 2 sekunder avslutar ett spel.
 
 Alla versioner finns i [ändringsloggen](CHANGELOG.md).
@@ -151,7 +152,7 @@ Bifoga aldrig nycklar, spelfiler eller något som extraherats ur ett spel.
 
 ## Spel
 
-140 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
+147 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
 profil som ännu inte har prövats på en telefon. Några av dem:
 
 | | Spel | Var det körs | Status |

@@ -568,6 +568,7 @@
   "fail.rosetta.next": "NS Port Builder verwendet sein mitgeliefertes Python, wenn es eines hat. Falls dieser Build ein anderes benutzt hat, entferne das Intel-venv in ~/Library/Application Support/NS Port Builder/venv und klicke auf „Erneut prüfen“.",
   "fail.rosetta.what": "Das Build-Skript lief mit einem Intel-Python unter Rosetta, daher würden auch die Werkzeuge, die es startet, als Intel-Code laufen.",
   "fail.section": "Warum der Build gestoppt hat",
+  "fail.severalGames.choose": "Wähle die Titel-ID des Spiels, das du bauen möchtest.",
   "fail.severalGames.next": "Ein Build nimmt ein Spiel pro Ordner. Verschiebe die anderen Spiele aus dem Ordner oder lege die Dateien dieses Spiels in einen eigenen Ordner und baue dann erneut.",
   "fail.severalGames.what": "Der Ordner enthält mehr als ein Spiel.",
   "fail.shaderRegression.next": "Bitte melde es mit der Liste im Build-Protokoll. Wenn du trotzdem baust, fehlen diese Shader, und Teile des Bildes können fehlen.",

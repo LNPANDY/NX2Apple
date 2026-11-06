@@ -265,22 +265,25 @@ import SwiftUI
     func testAGameStartsFromAWindowThatLeftFullScreenAndFullScreenReturnsAfterIt() throws {
         var calls: [Bool] = []
         var active = true
-        final class FakeWindow: NSWindow {
-            var isFull = true
-            override var styleMask: NSWindow.StyleMask {
-                get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
-                set { super.styleMask = newValue.subtracting(.fullScreen) }
-            }
-        }
-        let window = FakeWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        var hideBalance = 0
+        let pointer = ConsolePointer(window: { window }, hide: { hideBalance += 1 }, show: { hideBalance -= 1 })
+        var finishReturn: (() -> Void)?
         let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
             calls.append(on)
-            window.isFull = on
-            done()
-        }, fadeSeconds: 0.05, appIsActive: { active })
+            if on {
+                finishReturn = { window.isFull = true; done() }
+            } else {
+                window.isFull = false
+                done()
+            }
+        }, fadeSeconds: 0.05, pointer: pointer, appIsActive: { active })
         coordinator.available = true
         coordinator.enter()
         XCTAssertTrue(coordinator.active, "the window was full screen already")
+        pointer.poll(now: 0, location: .zero, buttonDown: false, over: true)
+        pointer.poll(now: 2, location: .zero, buttonDown: false, over: true)
+        XCTAssertEqual(hideBalance, 1)
         var launched = 0
         coordinator.leaveFullScreenForGame { launched += 1 }
         XCTAssertEqual(calls, [false], "the window leaves full screen first")
@@ -288,8 +291,17 @@ import SwiftUI
         active = false
         coordinator.resumeFullScreenAfterGame()
         XCTAssertEqual(calls, [false], "a launcher behind another app waits")
+        pointer.poll(now: 3, location: .zero, buttonDown: false, over: false)
+        XCTAssertEqual(hideBalance, 1, "keep the stationary cursor hidden while waiting for activation")
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
         XCTAssertEqual(calls, [false, true], "full screen is back once the launcher is active")
+        pointer.poll(now: 4, location: .zero, buttonDown: false, over: false)
+        XCTAssertEqual(hideBalance, 1, "keep it hidden until the return animation actually finishes")
+        try XCTUnwrap(finishReturn)()
+        pointer.poll(now: 5, location: .zero, buttonDown: false, over: true)
+        XCTAssertEqual(hideBalance, 1, "the cursor is still idle over the restored window")
+        pointer.poll(now: 6, location: .zero, buttonDown: false, over: false)
+        XCTAssertEqual(hideBalance, 0, "outside the restored window the normal cursor rule resumes")
         coordinator.leaveFullScreenForGame { launched += 1 }
         coordinator.exit()
         coordinator.resumeFullScreenAfterGame()
@@ -301,16 +313,9 @@ import SwiftUI
     }
 
     func testFullScreenIsAskedAgainWhenTheSystemDroppedTheFirstRequest() throws {
-        final class FakeWindow: NSWindow {
-            var isFull = true
-            override var styleMask: NSWindow.StyleMask {
-                get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
-                set { super.styleMask = newValue.subtracting(.fullScreen) }
-            }
-        }
         var calls: [Bool] = []
         var dropped = 2
-        let window = FakeWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
         let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
             calls.append(on)
             if on, dropped > 0 { dropped -= 1 } else { window.isFull = on }
@@ -322,6 +327,35 @@ import SwiftUI
         coordinator.resumeFullScreenAfterGame()
         XCTAssertEqual(calls, [false, true, true, true], "two requests were dropped, the third one worked")
         XCTAssertTrue(window.isFull)
+    }
+
+    func testStaleReturnCannotReleaseTheNextGamesPointer() throws {
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let pointer = ConsolePointer(window: { window }, hide: {}, show: {})
+        var returns: [() -> Void] = []
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
+            if on { returns.append(done) } else { window.isFull = false; done() }
+        }, pointer: pointer, appIsActive: { true })
+        coordinator.available = true
+        coordinator.enter()
+        defer { coordinator.exit() }
+        pointer.poll(now: 0, location: .zero, buttonDown: false, over: true)
+        pointer.poll(now: 2, location: .zero, buttonDown: false, over: true)
+        coordinator.leaveFullScreenForGame {}
+        coordinator.resumeFullScreenAfterGame()
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(returns.count, 1, "a duplicate end notification cannot start another return")
+        coordinator.leaveFullScreenForGame {}
+        try XCTUnwrap(returns.first)()
+        XCTAssertEqual(returns.count, 1, "an old completion cannot retry during the next game")
+        pointer.poll(now: 3, location: .zero, buttonDown: false, over: false)
+        XCTAssertTrue(pointer.isHidden)
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(returns.count, 2, "the new game can restore the window")
+        window.isFull = true
+        try XCTUnwrap(returns.last)()
+        pointer.poll(now: 4, location: .zero, buttonDown: false, over: false)
+        XCTAssertFalse(pointer.isHidden)
     }
 
     func testPlayWaitsForTheLaunchHookAndReportsTheEnd() async throws {
@@ -774,5 +808,13 @@ import SwiftUI
             XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2], "P1 and P2 must not ping-pong across rereads")
             XCTAssertEqual(writes.count, countAfterSplit, "no new player output writes when nothing changed")
         }
+    }
+}
+
+private final class ConsoleFullScreenTestWindow: NSWindow {
+    var isFull = true
+    override var styleMask: NSWindow.StyleMask {
+        get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
+        set { super.styleMask = newValue.subtracting(.fullScreen) }
     }
 }

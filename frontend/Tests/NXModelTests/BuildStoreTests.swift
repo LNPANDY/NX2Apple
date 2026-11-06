@@ -174,7 +174,7 @@ import XCTest
         XCTAssertEqual(store.experimentalBuilderBinary, nxb)
         runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.4.0\n") }
         XCTAssertEqual(store.experimentalBuilderProblem(), String(format: store.t("nxb.tooOld"), "nxb 0.4.0", ExperimentalBuilder.minimumVersion))
-        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.2\n") }
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.3\n") }
         XCTAssertNil(store.experimentalBuilderProblem(), "a game or a step nxb does not take ends with its own exit code 4")
         XCTAssertTrue(runner.commands.contains("nxb version"))
         store.experimentalBuilder = false
@@ -213,6 +213,48 @@ import XCTest
         store.choosePaths = { _ in [] }
         store.pickFiles(kind: .update)
         XCTAssertEqual(store.updatePath, "", "a cancelled panel changes nothing")
+    }
+
+    func testRetryBuildsTheChosenTitleAndKeepsItsOutputsSeparate() throws {
+        let store = makeStore()
+        for path in [EngineLayout.marker] + RepoLayout.requiredTools {
+            let url = temporary.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "'--work-dir'".write(to: url, atomically: true, encoding: .utf8)
+        }
+        repo.path = temporary.path
+        store.take(picked: [try file("Cartridge [0100000000010000].xci")], kind: .base)
+        store.take(picked: [try file("test.keys")], kind: .keys)
+        store.outDir = temporary.path
+        defaults.set(temporary.appendingPathComponent("shell").path, forKey: "shellRoot")
+        devices.exportIPA = true
+        let second = "01006F8002326000"
+        let diagnostic = "[RED] more than one game in the folder: 0100000000010000, \(second); keep one game per folder, or name the one to pack with --title-id / TITLE_ID (a cartridge dump that holds two games)"
+        for target in [BuildTarget.mac, BuildTarget.ios] {
+            store.target = target
+            store.startBuild()
+            XCTAssertFalse(store.lastBuildCommand.contains("--title-id"))
+            store.logTail = diagnostic
+            store.noteFailure()
+            store.buildTitle("0100000000090000")  // not in the engine's list
+            XCTAssertFalse(store.lastBuildCommand.contains("--title-id"))
+            store.buildTitle(second)
+            let args = store.lastBuildCommand
+            XCTAssertEqual(args.firstIndex(of: "--title-id").map { args[$0 + 1] }, second)
+            let work = temporary.path + "/" + second + "_build"
+            XCTAssertEqual(args.firstIndex(of: "--work-dir").map { args[$0 + 1] }, work)
+            XCTAssertEqual(store.gameTitleID, second, "the library remembers the selected game")
+            if target == BuildTarget.mac {
+                XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, temporary.path + "/" + second + ".app")
+            } else {
+                XCTAssertEqual(args.firstIndex(of: "--shell-framework").map { args[$0 + 1] }, work + "/shell-framework")
+            }
+        }
+        store.logTail = diagnostic
+        store.noteFailure()
+        store.take(picked: [try file("Another.xci")], kind: .base)
+        XCTAssertNil(store.failure, "choices from the previous input no longer apply")
+        XCTAssertNil(store.gameTitleID)
     }
 
     // MARK: The script's events

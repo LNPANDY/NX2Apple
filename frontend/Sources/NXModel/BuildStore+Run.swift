@@ -7,6 +7,12 @@ import NXCore
 extension BuildStore {
     package func startBuild() {
         guard !running else { return }
+        selectedTitleID = nil
+        runBuild()
+    }
+
+    func runBuild() {
+        guard !running else { return }
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
         if target != BuildTarget.mac, !shellDeviceChecked, !exportsShell {
             guard installsDirectly else { doneNote = t("shell.needsDevice"); done = false; return }
@@ -36,7 +42,7 @@ extension BuildStore {
         if EngineLayout.needsSyncBeforeBuild(repo.path) {
             _ = engine.syncEngine { ok in
                 self.running = false
-                if ok && !EngineLayout.needsSyncBeforeBuild(self.repo.path) { self.startBuild() }
+                if ok && !EngineLayout.needsSyncBeforeBuild(self.repo.path) { self.runBuild() }
                 else { self.fail(String(format: self.t("msg.toolsOld"), "engine/ (python3 tools/engine.py sync, see the log)")) }
             }
             return
@@ -67,7 +73,7 @@ extension BuildStore {
         // exactly as build_ipa_from_nsp.py:445 reads it: the low 12 bits are 0x000 for a base game,
         // 0x800 for its update, and anything else is add-on content below the base.
         var staged = allPaths
-        if folder == nil, let base = TitleID.parse((basePath as NSString).lastPathComponent) {
+        if folder == nil, let base = selectedTitleID.flatMap({ UInt64($0, radix: 16) }) ?? TitleID.parse(basePath) {
             let app = base & ~0xFFF
             for f in unpicked {
                 guard let tid = TitleID.parse(f) else { continue }
@@ -134,6 +140,7 @@ extension BuildStore {
         let engine = EngineLayout.root(repo.path)   // the checkout's engine/ (#214)
         // A game folder's files are not encrypted: the script ignores -k for it, and the launcher does not ask for the keys.
         var args = [engine + "/" + RepoLayout.buildScript, inputDir] + (folder != nil ? [] : ["-k", keysPath]) + ["--progress", "json"]
+        if let selectedTitleID { args += ["--title-id", selectedTitleID] }
         // A compatibility switch the player turned on: written to a small env file the pipeline
         // copies into the app bundle (main.m sets one variable per line at boot). Only for an iPhone or iPad build;
         // a Mac app runs on this Mac's GPU, which always has BC support.
@@ -278,7 +285,7 @@ extension BuildStore {
                     return
                 }
                 self.shellDeviceChecked = true
-                self.startBuild()
+                self.runBuild()
             }
         }
     }

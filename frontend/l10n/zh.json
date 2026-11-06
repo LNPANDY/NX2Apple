@@ -587,6 +587,7 @@
   "fail.rosetta.next": "NS Port Builder 有自带的 Python 时会优先使用它。如果这次用的是别的，请删除 ~/Library/Application Support/NS Port Builder/venv 里的 Intel 虚拟环境，再点「重新检测」。",
   "fail.rosetta.what": "构建脚本用的是在 Rosetta 下运行的 Intel 版 Python，它启动的工具也会按 Intel 代码运行。",
   "fail.section": "构建为何停止",
+  "fail.severalGames.choose": "请选择要构建的游戏的标题 ID。",
   "fail.severalGames.next": "每次构建只能处理一个文件夹里的一个游戏。请把其他游戏移出这个文件夹，或把这个游戏的文件放进单独的文件夹，然后再构建。",
   "fail.severalGames.what": "这个文件夹里有不止一个游戏。",
   "fail.shaderRegression.next": "请带上构建日志里的列表去报告这个问题。「仍然构建」会把这些着色器留空，所以画面可能缺少一部分。",
