@@ -1,4 +1,4 @@
-# NS Port Builder — Qt front end (Windows and macOS)
+# NX2Apple — Qt front end (Windows and macOS)
 
 The SwiftUI app in `../frontend/` is the macOS-native one. This is the **cross-platform**
 counterpart: same job, same strings, built with PySide6 so Windows users get a native window.
@@ -68,8 +68,10 @@ the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system 
   SDK symlinks were materialized by hand. The current unmodified frontend is not yet verified end
   to end; other games and longer-term performance remain unverified. See
   [Windows build → Open risks](#open-risks).
-- No self-update. Repository download and update buttons do exist (`Download repository`,
-  `Check for updates`, `Pull updates`), and they log what git is doing.
+- Self-update (`nspb_qt/app_update.py`): checks `releases/latest` for `NX2Apple-windows-x64.zip`,
+  verifies the SHA-256 digest when present, unpacks and swaps the bundle in place via a detached
+  updater script after the running process exits. Repository download and update buttons also exist
+  (`Download repository`, `Check for updates`), logging what git is doing.
 - No per-stage progress bar, no cancel-with-cleanup (cancel terminates the child).
 
 ## Layout
