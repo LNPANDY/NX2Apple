@@ -2643,6 +2643,180 @@ class WindowsBuildFixesTest(unittest.TestCase):
             self.assertIn('game\t0100E65002BB8000', lines)
             self.assertIn('inputs\tabcdef01', lines)
 
+    def test_pack_dump_clone_and_cp_shim_on_windows(self) -> None:
+        """pack_dump.clone and romfs_image.guest must not fail with WinError 2 when cp/xattr are absent on Windows."""
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/pack_dump.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        driver.patch(mod, repo)
+        self.assertIs(mod.pack_dump.clone, shutil.copy2)
+
+        with tempfile.TemporaryDirectory() as td:
+            sd = Path(td) / 'shim'
+            shim.install(sd)
+            sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                "if os.name == 'nt'", "if True", 1)
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            src_exefs = Path(td) / 'src_exefs'
+            src_exefs.mkdir()
+            (src_exefs / 'main').write_bytes(b'NSO0_TEST')
+            (src_exefs / 'main.npdm').write_bytes(b'META_TEST')
+            dst_exefs = Path(td) / 'dst_exefs'
+            code = (
+                "import subprocess, sys\n"
+                "_orig_popen = subprocess.Popen.__init__\n"
+                "def _forbid_posix_tools(self, args, *a, **k):\n"
+                "    head = args[0] if isinstance(args, (list, tuple)) and args else ''\n"
+                "    if head in ('cp', 'xattr'):\n"
+                "        raise FileNotFoundError(2, 'The system cannot find the file specified', head)\n"
+                "    return _orig_popen(self, args, *a, **k)\n"
+                "subprocess.Popen.__init__ = _forbid_posix_tools\n"
+                "import sitecustomize\n"
+                f"sys.path.insert(0, {str(repo / 'scripts')!r})\n"
+                f"sys.path.insert(0, {str(repo / 'dm/tools')!r})\n"
+                "from pathlib import Path\n"
+                "import pack_dump, romfs_image\n"
+                f"pack_dump.exefs(Path({str(src_exefs)!r}), Path({str(dst_exefs)!r}))\n"
+                f"assert (Path({str(dst_exefs)!r}) / 'main').read_bytes() == b'NSO0_TEST'\n"
+                f"assert romfs_image.guest({str(src_exefs)!r}, '.dm-case-0') == '.dm-case-0'\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_high_core_cpu_caps_j_and_process_pool_executor_to_61(self) -> None:
+        """On a 32+ thread CPU, J and ProcessPoolExecutor(max_workers) must cap at 61 (_MAX_WINDOWS_WORKERS)."""
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.dict(os.environ, {'LOCALAPPDATA': td}, clear=False), \
+                    mock.patch('os.cpu_count', return_value=32):
+                env = shim.build_env(base={})
+                self.assertEqual(env['J'], '61')
+
+            sd = Path(td) / 'shim'
+            shim.install(sd)
+            sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                "if os.name == 'nt'", "if True", 1)
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            code = (
+                "import concurrent.futures.process as cfp\n"
+                "_orig_init = cfp.ProcessPoolExecutor.__init__\n"
+                "def _strict_win_init(self, max_workers=None, *a, **k):\n"
+                "    if max_workers is not None and max_workers > 61:\n"
+                "        raise ValueError('max_workers must be <= 61')\n"
+                "    return _orig_init(self, max_workers, *a, **k)\n"
+                "cfp.ProcessPoolExecutor.__init__ = _strict_win_init\n"
+                "import sitecustomize\n"
+                "import concurrent.futures as cf\n"
+                "with cf.ProcessPoolExecutor(64) as ex:\n"
+                "    assert ex._max_workers == 61, ex._max_workers\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_first_launch_shows_onboarding_when_incomplete(self) -> None:
+        """A fresh user opening MainWindow sees the OnboardingDialog once deps are checked; Later marks it complete."""
+        import ast
+        ui_src = (QT / 'nspb_qt' / 'ui.py').read_text(encoding='utf-8')
+        ui_tree = ast.parse(ui_src)
+        mw_cls = next(n for n in ast.walk(ui_tree)
+                      if isinstance(n, ast.ClassDef) and n.name == 'MainWindow')
+        fn_map = {n.name: n for n in mw_cls.body if isinstance(n, ast.FunctionDef)}
+        self.assertIn('should_show_onboarding', fn_map)
+        self.assertIn('_maybe_show_onboarding', fn_map)
+
+        class FakeTimer:
+            @staticmethod
+            def singleShot(_ms, cb):
+                cb()
+
+        ns: dict = {'Path': Path, 'os': os, 'QTimer': FakeTimer}
+        for name in ('should_show_onboarding', '_maybe_show_onboarding'):
+            fn = fn_map[name]
+            for n in ast.walk(fn):
+                ast.fix_missing_locations(n)
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                         '<ui>', 'exec'), ns)
+        should_show = ns['should_show_onboarding']
+        maybe_show = ns['_maybe_show_onboarding']
+
+        sheets_src = (QT / 'nspb_qt' / 'sheets.py').read_text(encoding='utf-8')
+        sheets_tree = ast.parse(sheets_src)
+        ob_cls = next(n for n in ast.walk(sheets_tree)
+                      if isinstance(n, ast.ClassDef) and n.name == 'OnboardingDialog')
+        later_fn = next(n for n in ob_cls.body
+                        if isinstance(n, ast.FunctionDef) and n.name == '_on_later')
+        for n in ast.walk(later_fn):
+            ast.fix_missing_locations(n)
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[later_fn], type_ignores=[])),
+                     '<sheets>', 'exec'), ns)
+        on_later = ns['_on_later']
+
+        with tempfile.TemporaryDirectory() as td:
+            keys_file = Path(td) / 'prod.keys'
+
+            class FakeSettings:
+                def __init__(self):
+                    self.store = {}
+                def setValue(self, k, v):
+                    self.store[k] = v
+
+            class FakeLibrary:
+                games_folder = ''
+                games: list = []
+
+            class FakeModel:
+                def __init__(self):
+                    self.settings = FakeSettings()
+                    self.deps_checked = False
+                    self.deps: list = []
+                    self.keys_path = str(keys_file)
+                    self.library = FakeLibrary()
+                def settings_value(self, k, default):
+                    v = self.settings.store.get(k, default)
+                    return v == 'true' if isinstance(v, str) else bool(v)
+                def settings_set(self, k, v):
+                    self.settings.setValue(k, 'true' if v else 'false')
+
+            class FakeWindow:
+                should_show_onboarding = staticmethod(should_show)
+                def __init__(self, m):
+                    self.m = m
+                    self._onboarding_checked = False
+                    self.opened = 0
+                def isVisible(self):
+                    return True
+                def _open_onboarding(self):
+                    self.opened += 1
+
+            m = FakeModel()
+            w = FakeWindow(m)
+            self.assertTrue(should_show(m))
+            maybe_show(w)
+            self.assertEqual(w.opened, 0, 'must wait until initial deps check finishes')
+            m.deps_checked = True
+            maybe_show(w)
+            self.assertEqual(w.opened, 1, 'must open once deps check finishes')
+            maybe_show(w)
+            self.assertEqual(w.opened, 1, 'must not re-open automatically in the same session')
+
+            class FakeDialog:
+                def __init__(self, model):
+                    self.m = model
+                    self.rejected = False
+                def reject(self):
+                    self.rejected = True
+
+            dlg = FakeDialog(m)
+            on_later(dlg)
+            self.assertTrue(dlg.rejected)
+            self.assertTrue(m.settings_value('onboardingComplete', False))
+            self.assertFalse(should_show(m))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

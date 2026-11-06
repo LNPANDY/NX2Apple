@@ -529,7 +529,7 @@ class OnboardingDialog(QDialog):
         foot = QHBoxLayout()
         self.later_btn = QPushButton(self.m.t('onboarding.later'))
         self.later_btn.setObjectName('ghost')
-        self.later_btn.clicked.connect(self.reject)
+        self.later_btn.clicked.connect(self._on_later)
         foot.addWidget(self.later_btn)
         foot.addStretch(1)
 
@@ -543,7 +543,13 @@ class OnboardingDialog(QDialog):
         foot.addWidget(self.next_btn)
         lay.addLayout(foot)
 
+        self.m.depsChanged.connect(self._render_step)
+        self.m.repoChanged.connect(self._render_step)
         self._render_step()
+
+    def _on_later(self) -> None:
+        self.m.settings_set('onboardingComplete', True)
+        self.reject()
 
     def _clear_body(self) -> None:
         while self.body_layout.count():

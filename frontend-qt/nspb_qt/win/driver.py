@@ -219,6 +219,8 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
 
     # ---------------------------------------------------------------- APFS clones
     mod.can_clone = lambda *a, **kw: False
+    if hasattr(mod, 'pack_dump'):
+        mod.pack_dump.clone = shutil.copy2
     mod.apple_silicon = lambda *a, **kw: True     # only the heap estimate below asks
     mod.ALLOW_OTHER_METAL = True                  # Windows Metal Tools version differs from Xcode's
 
