@@ -160,21 +160,23 @@ import XCTest
     }
 
     func testTheExperimentalBuilderStopsWithoutANewEnoughNxbAndNeverRunsTheScript() throws {
-        let store = makeStore()
+        let runner = FakeProcessRunner()
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults, targetChanged: {})
         store.bundledBuilder = nil
         XCTAssertNil(store.experimentalBuilderProblem(), "off: nothing to say")
         store.experimentalBuilder = true
         store.experimentalBuilderPath = temporary.path + "/gone/nxb"
         XCTAssertNil(store.experimentalBuilderBinary)
         XCTAssertEqual(store.experimentalBuilderProblem(), store.t("msg.builderMissingError"), "no nxb is an error, not a build by the script")
-        let old = try file("nxb")
-        try "#!/bin/sh\necho 'nxb 0.4.0'\n".write(toFile: old, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: old)
+        let nxb = try file("nxb")
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
         store.experimentalBuilderPath = temporary.path   // the folder that holds it
-        XCTAssertEqual(store.experimentalBuilderBinary, old)
+        XCTAssertEqual(store.experimentalBuilderBinary, nxb)
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.4.0\n") }
         XCTAssertEqual(store.experimentalBuilderProblem(), String(format: store.t("nxb.tooOld"), "nxb 0.4.0", ExperimentalBuilder.minimumVersion))
-        try "#!/bin/sh\necho 'nxb 0.5.1'\n".write(toFile: old, atomically: true, encoding: .utf8)
-        XCTAssertNil(store.experimentalBuilderProblem(), "a game or a target nxb does not take ends with its own exit code 4")
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.5.1\n") }
+        XCTAssertNil(store.experimentalBuilderProblem(), "a game or a step nxb does not take ends with its own exit code 4")
+        XCTAssertTrue(runner.commands.contains("nxb version"))
         store.experimentalBuilder = false
         XCTAssertNil(store.experimentalBuilderProblem())
     }
