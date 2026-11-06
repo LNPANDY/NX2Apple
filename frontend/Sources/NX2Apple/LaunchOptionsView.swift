@@ -13,6 +13,10 @@ struct LaunchOptionsView: View {
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     let gameID: UUID
+    var globalControls: ControlLayout? = nil
+    @State private var showControllerMapping = false
+    var controllerMappingPresentation: Binding<Bool>? = nil
+    private var mappingPresentation: Binding<Bool> { controllerMappingPresentation ?? $showControllerMapping }
     @Environment(\.dismiss) private var dismiss
     @State private var advancedOpen = false
     @State private var choicesRevision = 0   // bumped by a change: the values are read from the store again
@@ -48,6 +52,12 @@ struct LaunchOptionsView: View {
                 Spacer()
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
+            if let game, SavedChoices.appReadsControllerMappings(app: game.appPath) {
+                Button(loc.t("controls.mapping")) { mappingPresentation.wrappedValue = true }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .padTarget("opt.controllerMapping", scope: "launch") { mappingPresentation.wrappedValue = true }
+                    .padding(.horizontal, 30).padding(.bottom, 16)
+            }
             if let settings, !settings.isEmpty, let game {
                 ScrollViewReader { proxy in
                 ScrollView {
@@ -108,6 +118,16 @@ struct LaunchOptionsView: View {
         }
         .padScope("launch", focus)
         .onAppear { library.migrateLaunchOptions() }
+        .onChange(of: mappingPresentation.wrappedValue) { open in
+            // The launcher owns routing when embedded, while standalone sheets keep the same scope behavior.
+            if controllerMappingPresentation == nil { focus.scope = open ? "controls" : "launch" }
+        }
+        .sheet(isPresented: mappingPresentation) {
+            if let game {
+                GameControllerMappingView(game: game, globalControls: globalControls)
+                    .environmentObject(focus).environmentObject(loc).launcherDropdownHost()
+            }
+        }
         .frame(width: 600, height: 700)
         .background(LauncherPalette.background)
         .font(.manrope(13))

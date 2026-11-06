@@ -14,7 +14,7 @@ actor ArtworkStore {
     static let shared = ArtworkStore(directory: BannerCache.directory)
 
     static let titleListURL = URL(string: "https://raw.githubusercontent.com/blawar/titledb/master/US.en.json")!
-    static let imageHosts: Set<String> = ["img-eshop.cdn.nintendo.net"]
+    static let imageHosts: Set<String> = ["img-eshop.cdn.nintendo.net", "cdn2.steamgriddb.com"]
     /// The index format. An index written by an older launcher (no version: the first product per title ID won) is fetched
     /// again once, so its picks are made by `BannerPick`.
     static let indexVersion = 2
@@ -58,7 +58,7 @@ actor ArtworkStore {
         var added: [String] = []
         for id in wanted.sorted() {
             let cached = Self.cachedBanner(id, in: directory) != nil
-            guard let link = index.banners[id] else {
+            guard let link = index.banners[id] ?? fallbackBanner(for: id) else {
                 if cached && current { sources[id] = "" }   // the list no longer has it: keep the banner, check it no more
                 continue
             }
@@ -123,7 +123,33 @@ actor ArtworkStore {
         try? JSONEncoder().encode(sources).write(to: directory.appendingPathComponent("sources.json"), options: .atomic)
     }
 
-    /// Only Nintendo's image CDN over HTTPS: the list is third-party data.
+    /// Switch 2 and Nintendo Classics titles that blawar/titledb's regional lists do not carry yet: verified 16:9 key art
+    /// with the official logo on SteamGridDB's CDN, used only while the title list has no entry for the ID.
+    static let fallbackBanners: [String: String] = [
+        "0400245021D2C000": "https://cdn2.steamgriddb.com/grid/4019460f699df3ca57bb36a6cc8b1ce5.png",   // Yoshi and the Mysterious Book
+        "0400380020056000": "https://cdn2.steamgriddb.com/grid/220a08c045f283231e519ed83cd21466.png",   // Splatoon Raiders
+        "04003F40232DE000": "https://cdn2.steamgriddb.com/grid/30430599d3640690ebddef63609c5f31.png",   // Hyrule Warriors: Age of Imprisonment
+        "0400486024DEC000": "https://cdn2.steamgriddb.com/grid/925526bdfb5910517494acb4db2537d5.png",   // The Legend of Zelda: Ocarina of Time
+        "04007EF01F8AE000": "https://cdn2.steamgriddb.com/grid/f73cc1e0813d90b30a22ca9af2e9c8b0.png",   // Fire Emblem: Fortune's Weave
+        "0400A3A01EE4C000": "https://cdn2.steamgriddb.com/grid/00b97e285bef52b2826cfbeecd4d30f7.png",   // Pokémon Pokopia
+        "0400D4201C6EA000": "https://cdn2.steamgriddb.com/grid/eb3353d1afeb0b6b1c6507bb5d39c757.png",   // Mario Tennis Fever
+        "0400E88025B1A000": "https://cdn2.steamgriddb.com/grid/a82908cc940793dc1d63acfc0218b2f9.jpg",   // Star Fox
+    ]
+    private var customFallbacks: [String: String]?
+
+    init(directory: URL, titleList: URL, fallbacks: [String: String]) {
+        self.directory = directory
+        self.titleList = titleList
+        self.allowsFileURLs = true
+        self.customFallbacks = fallbacks
+    }
+
+    private func fallbackBanner(for id: String) -> String? {
+        if let customFallbacks { return customFallbacks[id] }
+        return allowsFileURLs ? nil : Self.fallbackBanners[id]
+    }
+
+    /// Only Nintendo's image CDN or the verified fallback host over HTTPS: the list is third-party data.
     private func allowed(_ url: URL) -> Bool {
         if allowsFileURLs && url.isFileURL { return true }
         return url.scheme == "https" && Self.imageHosts.contains(url.host ?? "")

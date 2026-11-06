@@ -48,4 +48,8 @@
 0078-document-the-fork-touch-controls-so-environment.patch
 0079-ios-carry-cpu-bc-compatibility-through-game-pack.patch
 0080-keep-the-selected-python-when-generating-the-mac.patch
-0081-ios-duo-outer-custom-control-bounds.patch
+0081-support-steam-controller-and-shared-mac-control.patch
+0082-ios-shell-copy-a-game-s-packed-shader-image-into.patch
+0083-test-table-of-uniform-handles-expects-the-pool-m.patch
+0084-ios-duo-outer-custom-control-bounds.patch
+0085-ios-hide-the-settings-gear-during-tv-play-with-a.patch

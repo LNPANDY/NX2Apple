@@ -15,6 +15,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, Signal, Slot
 
+from . import app_update
 from . import build_failure as bf
 from . import engine
 from . import input_staging
@@ -80,6 +81,7 @@ class Model(QObject):
     runningChanged = Signal(bool)
     finished = Signal(bool, str)          # ok, note
     appUpdateFound = Signal(str, str)     # tag, url
+    appRelaunching = Signal()
     libraryChanged = Signal()
 
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
@@ -125,6 +127,10 @@ class Model(QObject):
         self.repo_busy = False
         self.repo_behind: int | None = None
         self.repo_status = ''
+        self.app_update: app_update.Release | None = None
+        self.app_update_busy = False
+        self.app_update_status = ''
+        self._app_update_checked = False
         self._proc: subprocess.Popen | None = None
         self._thread: threading.Thread | None = None
         self._line_buf = ''
@@ -514,6 +520,9 @@ class Model(QObject):
             self.depsChanged.emit()
         except RuntimeError:
             pass
+        if getattr(sys, 'frozen', False) and not self._app_update_checked:
+            self._app_update_checked = True
+            self.check_app_update(silent=True)
 
     @property
     def all_deps_ok(self) -> bool:
@@ -852,6 +861,135 @@ class Model(QObject):
             finally:
                 self.repo_busy = False
                 self.repoChanged.emit()
+
+        threading.Thread(target=work, daemon=True).start()
+
+    # ---- app self-update (Windows release zip check + in-place swap) ----
+
+    def check_app_update(self, silent: bool = False) -> None:
+        """Check GitHub's latest release for a newer Windows build."""
+        if self.app_update_busy:
+            return
+        self.app_update_busy = True
+        if not silent:
+            self.app_update_status = self.t('app.checking')
+            try:
+                self.repoChanged.emit()
+            except RuntimeError:
+                pass
+
+        def work() -> None:
+            try:
+                data = app_update.fetch_latest_json()
+                outcome = app_update.check_release(data, current=app_update.APP_VERSION)
+                if outcome.kind == 'found' and outcome.release is not None:
+                    rel = outcome.release
+                    self.app_update = rel
+                    if getattr(sys, 'frozen', False):
+                        self.app_update_status = self.t('app.found', rel.tag)
+                    else:
+                        self.app_update_status = self.t('app.devBuild', rel.tag)
+                    self.log(self.app_update_status + '\n')
+                    try:
+                        self.appUpdateFound.emit(rel.tag, rel.html_url)
+                    except RuntimeError:
+                        pass
+                elif outcome.kind == 'no_asset':
+                    if not silent:
+                        self.app_update_status = self.t('app.noAsset', outcome.tag)
+                elif outcome.kind == 'unreachable':
+                    if not silent:
+                        self.app_update_status = self.t('app.netFail')
+                else:
+                    if not silent:
+                        self.app_update_status = self.t('app.upToDate')
+            finally:
+                self.app_update_busy = False
+                try:
+                    self.repoChanged.emit()
+                except RuntimeError:
+                    pass
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def perform_app_update(self) -> None:
+        """Download, verify, unpack, and relaunch the staged Windows release."""
+        rel = self.app_update
+        if rel is None or self.app_update_busy:
+            return
+        if self.running:
+            self.app_update_status = self.t('app.waitForBuild')
+            try:
+                self.repoChanged.emit()
+            except RuntimeError:
+                pass
+            return
+        if not (pu.IS_WIN and getattr(sys, 'frozen', False)):
+            self.app_update_status = self.t('app.devBuild', rel.tag)
+            try:
+                self.repoChanged.emit()
+            except RuntimeError:
+                pass
+            return
+
+        self.app_update_busy = True
+        self.app_update_status = self.t('app.downloading', rel.tag)
+        self.log(self.app_update_status + '\n')
+        try:
+            self.repoChanged.emit()
+        except RuntimeError:
+            pass
+
+        def work() -> None:
+            try:
+                from .win import fetch as wf
+                root = app_update.fresh_staging_root()
+                zip_path = root / 'update.zip'
+                try:
+                    wf.download(
+                        rel.url,
+                        zip_path,
+                        progress=lambda d, tot: self.log(
+                            f'  {d // 1048576} MB'
+                            + (f' / {tot // 1048576} MB ({d * 100 // tot}%)' if tot else '')
+                            + '\n'
+                        ),
+                    )
+                except Exception as exc:
+                    self.log(f'{exc}\n')
+                    self.app_update_status = self.t('app.stageNetFail', rel.tag)
+                    return
+
+                try:
+                    staged = app_update.stage_zip(zip_path, rel, root, require_digest=False)
+                except app_update.StageError as err:
+                    if err.key == 'app.digestMismatch':
+                        self.app_update_status = self.t('app.digestMismatch', rel.tag)
+                    elif err.key == 'app.noDigest':
+                        self.app_update_status = self.t('app.noDigest', rel.tag)
+                    elif err.key == 'app.notOurApp':
+                        self.app_update_status = self.t('app.notOurApp', rel.tag)
+                    else:
+                        self.app_update_status = self.t('app.unpackFail', rel.tag)
+                    self.log(self.app_update_status + '\n')
+                    return
+
+                self.app_update_status = self.t('app.relaunching', rel.tag)
+                self.log(self.app_update_status + '\n')
+                if app_update.relaunch_windows_update(staged):
+                    try:
+                        self.appRelaunching.emit()
+                    except RuntimeError:
+                        pass
+                else:
+                    self.app_update_status = self.t('app.relaunchFail', rel.tag)
+                    self.log(self.app_update_status + '\n')
+            finally:
+                self.app_update_busy = False
+                try:
+                    self.repoChanged.emit()
+                except RuntimeError:
+                    pass
 
         threading.Thread(target=work, daemon=True).start()
 

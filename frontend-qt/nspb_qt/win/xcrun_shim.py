@@ -138,20 +138,30 @@ def _die(msg: str, code: int = 127) -> None:
     raise SystemExit(code)
 
 
-def _run_metal_staged(sdk: str, tool: str, exe: Path, rest: list[str]) -> int:
-    """Run `metal.exe` or `metallib.exe` in a staging directory using space-free relative names.
+def _needs_staging(arg: str) -> bool:
+    """Whether `arg` contains spaces or non-ASCII characters that break `metal.exe` / `metallib.exe`."""
+    return ' ' in arg or not arg.isascii()
 
-    Apple's Windows `metal.exe` splits input paths on spaces when forwarding them to its internal
-    frontend (e.g. `.../NS Port Builder/engine/dm/gfx/msl/builtin.metal` becomes three arguments
-    `.../NS`, `Port`, `Builder/...`). Staging inputs and outputs in `cwd` with plain filenames
-    (`in_0.metal`, `out.air`, `out.metallib`) keeps every argument passed to `metal.exe` and
-    `metallib.exe` completely free of spaces, even when the app folder, temp folder or user
-    profile path contains spaces.
+
+def _safe_suffix(p: Path, default: str) -> str:
+    sfx = p.suffix
+    return sfx if (sfx and not _needs_staging(sfx)) else default
+
+
+def _run_metal_staged(sdk: str, tool: str, exe: Path, rest: list[str]) -> int:
+    """Run `metal.exe` or `metallib.exe` in a pure-ASCII, space-free staging directory.
+
+    Apple's Windows `metal.exe` and `metallib.exe` split input paths on spaces when forwarding
+    them to their internal frontend and fail with `LLVM ERROR: Error opening '<path>'` when any
+    input or output path contains non-ASCII characters (such as Chinese folder names). Staging
+    inputs and outputs in a pure-ASCII `cwd` with plain filenames (`in_0.metal`, `out.air`,
+    `out.metallib`) keeps every argument passed to `metal.exe` and `metallib.exe` completely
+    ASCII and space-free.
     """
     idx = rest.index('-o')
     out_target = Path(rest[idx + 1]).resolve()
     compile_and_link = (tool == 'metal' and '-c' not in rest)
-    with tempfile.TemporaryDirectory() as td:
+    with tc.ascii_temp_dir('nspb-metal-') as td:
         td_path = Path(td)
         staged: list[str] = []
         in_idx = 0
@@ -161,10 +171,29 @@ def _run_metal_staged(sdk: str, tool: str, exe: Path, rest: list[str]) -> int:
                 i += 2  # skip '-o' and its output path; added back below with a local name
                 continue
             a = rest[i]
-            if not a.startswith('-') and (a.endswith(('.metal', '.air', '.dia', '.pch'))
-                                          or (' ' in a and Path(a).is_file())):
+            if a == '-include-pch' and i + 1 < len(rest):
+                pch_arg = rest[i + 1]
+                pch_p = Path(pch_arg)
+                if not _needs_staging(pch_arg) and pch_p.is_absolute():
+                    staged.extend(['-include-pch', pch_arg])
+                else:
+                    local_pch = pch_p.name if not _needs_staging(pch_p.name) else f'in_{in_idx}.pch'
+                    in_idx += 1
+                    if pch_p.is_file():
+                        shutil.copyfile(pch_p, td_path / local_pch)
+                        for hdr in pch_p.parent.glob('*.h'):
+                            if not _needs_staging(hdr.name):
+                                shutil.copyfile(hdr, td_path / hdr.name)
+                    staged.extend(['-include-pch', local_pch])
+                i += 2
+                continue
+            if not a.startswith('-') and (a.endswith(('.metal', '.air', '.dia', '.pch', '.h'))
+                                          or (_needs_staging(a) and Path(a).is_file())):
                 src_p = Path(a)
-                local_name = f'in_{in_idx}{src_p.suffix or ".in"}'
+                if src_p.suffix == '.h' and not _needs_staging(src_p.name) and not (td_path / src_p.name).exists():
+                    local_name = src_p.name
+                else:
+                    local_name = f'in_{in_idx}{_safe_suffix(src_p, ".in")}'
                 in_idx += 1
                 if src_p.is_file():
                     shutil.copyfile(src_p, td_path / local_name)
@@ -185,7 +214,7 @@ def _run_metal_staged(sdk: str, tool: str, exe: Path, rest: list[str]) -> int:
                     return r2.returncode
                 out_local = td_path / 'out.metallib'
             else:
-                local_out_name = 'out' + (out_target.suffix or '.out')
+                local_out_name = 'out' + _safe_suffix(out_target, '.out')
                 r = subprocess.run([str(exe), *staged, '-o', local_out_name], cwd=td)
                 if r.returncode != 0:
                     return r.returncode
@@ -233,10 +262,10 @@ def main(argv: list[str] | None = None) -> int:
                 ' (see the Windows build section of frontend-qt/README.md)'))
     if tool == 'metal':
         rest = metal_args(sdk, rest)
-        if '-o' in rest and ('-c' not in rest or any(' ' in x for x in rest)):
+        if '-o' in rest and ('-c' not in rest or any(_needs_staging(x) for x in rest)):
             return _run_metal_staged(sdk, tool, exe, rest)
     elif tool == 'metallib':
-        if '-o' in rest and any(' ' in x for x in rest):
+        if '-o' in rest and any(_needs_staging(x) for x in rest):
             return _run_metal_staged(sdk, tool, exe, rest)
     elif tool == 'clang':
         rest = clang_args(rest)

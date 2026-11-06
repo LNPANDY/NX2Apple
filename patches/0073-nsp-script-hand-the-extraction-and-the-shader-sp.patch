@@ -255,7 +255,7 @@ index 0000000..444e186
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 83e5942..732fea6 100644
+index 85f6b3d..b934480 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -36,6 +36,7 @@ DM_ENV_FILE	path	`=<file>` makes `build_ipa.sh` bake its `KEY=VALUE` lines into
@@ -267,12 +267,12 @@ index 83e5942..732fea6 100644
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
  DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 486a464..ed02d0d 100755
+index 9cbf9b4..526292a 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@
  # unless ALLOW_OTHER_METAL / --allow-other-metal. Issue #242 reported corruption with another compiler; the cause is still unconfirmed.
- # Python 3.12+ is required for bounded archive mappings inside images. The Python running this file needs lz4, capstone 5.x and fonttools (and backports.zstd before Python 3.14); also needed: Xcode, xcodegen, .NET SDK 10, zstd. SPIRV-Cross is the in-repo build. A first run takes 2 (Metroid Dread) to 10 minutes (Breath of the Wild: 5 of them the shader split), longer when shader libraries must be compiled; a repeat run with unchanged inputs takes about 20 s (Metroid Dread), mostly packing the IPA. Key values are never printed.
+ # Python 3.12+ is required for bounded archive mappings inside images. The Python running this file needs lz4, capstone 5.x, fonttools and zbic (and backports.zstd before Python 3.14); also needed: Xcode, xcodegen, .NET SDK 10, zstd. SPIRV-Cross is the in-repo build. A first run takes 2 (Metroid Dread) to 10 minutes (Breath of the Wild: 5 of them the shader split), longer when shader libraries must be compiled; a repeat run with unchanged inputs takes about 20 s (Metroid Dread), mostly packing the IPA. Key values are never printed.
  # The console shows one line per stage ([k/n] stage, with a bar, done/total, percent, elapsed time and ETA where the work can be counted); the tools' own output goes only to logs/ (PROGRESS / --progress). --progress json writes newline-delimited JSON events to stdout.
 +# DM_EXPERIMENTAL_BUILDER=1 with NXB_BIN=<path of nxbuild's nxb binary>: the extraction and the shader split run through nxbuild's binaries where it supports the case, with the same outputs and events; anything else runs as always (nxb_tool).
  import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types

@@ -853,6 +853,16 @@ class GameLibrary:
 
 class ArtworkStore:
     TITLEDB_URL = 'https://raw.githubusercontent.com/blawar/titledb/master/US.en.json'
+    FALLBACK_BANNERS: dict[str, str] = {
+        '0400245021D2C000': 'https://cdn2.steamgriddb.com/grid/4019460f699df3ca57bb36a6cc8b1ce5.png',  # Yoshi and the Mysterious Book
+        '0400380020056000': 'https://cdn2.steamgriddb.com/grid/220a08c045f283231e519ed83cd21466.png',  # Splatoon Raiders
+        '04003F40232DE000': 'https://cdn2.steamgriddb.com/grid/30430599d3640690ebddef63609c5f31.png',  # Hyrule Warriors: Age of Imprisonment
+        '0400486024DEC000': 'https://cdn2.steamgriddb.com/grid/925526bdfb5910517494acb4db2537d5.png',  # The Legend of Zelda: Ocarina of Time
+        '04007EF01F8AE000': 'https://cdn2.steamgriddb.com/grid/f73cc1e0813d90b30a22ca9af2e9c8b0.png',  # Fire Emblem: Fortune's Weave
+        '0400A3A01EE4C000': 'https://cdn2.steamgriddb.com/grid/00b97e285bef52b2826cfbeecd4d30f7.png',  # Pokémon Pokopia
+        '0400D4201C6EA000': 'https://cdn2.steamgriddb.com/grid/eb3353d1afeb0b6b1c6507bb5d39c757.png',  # Mario Tennis Fever
+        '0400E88025B1A000': 'https://cdn2.steamgriddb.com/grid/a82908cc940793dc1d63acfc0218b2f9.jpg',  # Star Fox
+    }
 
     def __init__(self, state_dir: Path | None = None, on_updated: Callable[[str], None] | None = None) -> None:
         self.state_dir = state_dir or default_state_dir()
@@ -948,7 +958,7 @@ class ArtworkStore:
         if os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
             return
         tid = title_id.upper()
-        if self.has_custom(tid) or (self.banners_dir / f'{tid}.jpg').is_file():
+        if self.has_custom(tid) or (self.banners_dir / f'{tid}.jpg').is_file() or (self.banners_dir / f'{tid}.png').is_file():
             return
         with self._lock:
             if tid in self._fetching:
@@ -990,8 +1000,10 @@ class ArtworkStore:
                     index_file.write_text(json.dumps(mapping), encoding='utf-8')
                     url = mapping.get(tid)
             except Exception:
-                return
+                pass
 
+        if not url:
+            url = self.FALLBACK_BANNERS.get(tid)
         if not url:
             return
         try:
@@ -1000,7 +1012,8 @@ class ArtworkStore:
                 data = resp.read()
             if len(data) > 1024:
                 self.banners_dir.mkdir(parents=True, exist_ok=True)
-                dest = self.banners_dir / f'{tid}.jpg'
+                ext = 'png' if data[:8] == b'\x89PNG\r\n\x1a\n' else 'jpg'
+                dest = self.banners_dir / f'{tid}.{ext}'
                 dest.write_bytes(data)
                 if self.on_updated:
                     self.on_updated(tid)
