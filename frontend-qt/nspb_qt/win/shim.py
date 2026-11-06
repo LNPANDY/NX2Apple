@@ -454,6 +454,45 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         mod._lock = lambda folder, say=None: True
         mod._unlock = lambda folder: None
 
+    def _ascii_temp_base():
+        if _PKG not in sys.path:
+            sys.path.insert(0, _PKG)
+        import toolchain as _tc
+        with _tc.ascii_temp_dir('nspb-probe-') as _p:
+            return os.path.dirname(str(_p))
+
+    def _patch_dmsh_pch_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'tempfile'):
+            return
+        mod._nspb_patched = True
+        _orig_tf = mod.tempfile
+
+        class _PchTempfile:
+            def __getattr__(self, k):
+                return getattr(_orig_tf, k)
+
+            def mkdtemp(self, suffix=None, prefix=None, dir=None):
+                if dir and (' ' in str(dir) or not str(dir).isascii()):
+                    dir = _ascii_temp_base()
+                return _orig_tf.mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+
+        mod.tempfile = _PchTempfile()
+
+    def _patch_dmsh_mtlcache_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'Cache'):
+            return
+        mod._nspb_patched = True
+        _orig_init = mod.Cache.__init__
+
+        def _win_cache_init(self, store, targets, work):
+            if work and (' ' in str(work) or not str(work).isascii()):
+                import tempfile as _tf, atexit as _atexit
+                work = _tf.mkdtemp(prefix='mtlwork_', dir=_ascii_temp_base())
+                _atexit.register(shutil.rmtree, work, ignore_errors=True)
+            _orig_init(self, store, targets, work)
+
+        mod.Cache.__init__ = _win_cache_init
+
     import importlib.machinery as _machinery
     _exec_module = _machinery.SourceFileLoader.exec_module
 
@@ -470,6 +509,10 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _patch_tree_tar_module(module)
         elif name == 'pack_dump' or name.endswith('.pack_dump'):
             module.clone = shutil.copy2
+        elif name == 'dmsh_pch' or name.endswith('.dmsh_pch'):
+            _patch_dmsh_pch_module(module)
+        elif name == 'dmsh_mtlcache' or name.endswith('.dmsh_mtlcache'):
+            _patch_dmsh_mtlcache_module(module)
 
     _machinery.SourceFileLoader.exec_module = _win_exec_module
 
@@ -560,8 +603,8 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return None
         if rest[2] == 'metal' and '-c' not in rest[3:] and '-o' in rest[3:]:
             return None  # compile+link in one call (host_msl.py): handled by xcrun_shim.py
-        if any(' ' in str(a) for a in rest[3:]):
-            return None  # paths with spaces break metal.exe; xcrun_shim.py stages them via cwd
+        if any(' ' in str(a) or not str(a).isascii() for a in rest[3:]):
+            return None  # paths with spaces or non-ASCII chars break metal.exe; xcrun_shim.py stages them via cwd
         if 'modules' not in _CACHE:
             if _PKG not in sys.path:
                 sys.path.insert(0, _PKG)

@@ -249,7 +249,7 @@ def no_window() -> dict:
 
 def config_path() -> Path:
     """`toolchain.json` in the app's data folder (shared with the venv location)."""
-    base = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local'))
+    base = Path(os.environ.get('LOCALAPPDATA') or (Path.home() / 'AppData' / 'Local'))
     return base / 'NS Port Builder' / 'toolchain.json'
 
 
@@ -987,16 +987,18 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
         except UnicodeEncodeError:
             return False
     candidates = [tempfile.gettempdir()]
-    if os.name == 'nt':
-        candidates += [os.environ.get('PUBLIC', r'C:\Users\Public') + r'\Temp', r'C:\Windows\Temp', 'C:\\Temp']
-    for base in candidates:
-        if not base or not ok(base):
-            continue
-        try:
-            os.makedirs(base, exist_ok=True)
-            return _tf.TemporaryDirectory(prefix=prefix, dir=base)
-        except OSError:
-            continue
+    if os.name == 'nt' or 'PUBLIC' in os.environ:
+        candidates += [os.environ.get('PUBLIC', r'C:\Users\Public') + (r'\Temp' if os.name == 'nt' else '/Temp'),
+                       r'C:\Windows\Temp', 'C:\\Temp']
+    for allow_space in (False, True):
+        for base in candidates:
+            if not base or not ok(base) or (not allow_space and ' ' in base):
+                continue
+            try:
+                os.makedirs(base, exist_ok=True)
+                return _tf.TemporaryDirectory(prefix=prefix, dir=base)
+            except OSError:
+                continue
     # Nothing ASCII is writable: fall back to the default (created first — the caller may be on a
     # system where gettempdir() names a folder that does not exist yet) and let the tool say what
     # it says.
