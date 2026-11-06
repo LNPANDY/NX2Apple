@@ -35,6 +35,7 @@ enum ShellCLI {
         var installer = ShellInstaller(xcrun: o["xcrun"] ?? "/usr/bin/xcrun", repo: o["repo"]!, python: python, root: root,
                                        device: o["device"]!, team: o["team"]!)
         installer.deviceName = o["device"]!
+        installer.defaults = defaults
         installer.toolPath = BundledTools.path("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
         installer.log = out
         installer.stage = { s in
