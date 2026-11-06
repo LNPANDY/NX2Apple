@@ -45,6 +45,7 @@ from .widgets import (
     DropOverlayWidget,
     GameCardWidget,
     HeroBannerWidget,
+    HorizontalStripViewport,
     LauncherSegmented,
     LauncherSwitch,
     StatusDot,
@@ -513,12 +514,11 @@ class MainWindow(QMainWindow):
         ccol.addLayout(chead)
 
         self._coll_offset = 0
-        self.coll_strip = QWidget()
-        self.coll_strip.setFixedHeight(176)
-        self.coll_strip_layout = QHBoxLayout(self.coll_strip)
-        self.coll_strip_layout.setContentsMargins(0, 4, 0, 4)
-        self.coll_strip_layout.setSpacing(18)
-        ccol.addWidget(self.coll_strip)
+        self._ensure_selected_card_visible = False
+        self.coll_viewport = HorizontalStripViewport(height=176)
+        self.coll_strip = self.coll_viewport.strip
+        self.coll_strip_layout = self.coll_viewport.strip_layout
+        ccol.addWidget(self.coll_viewport)
 
         pcol.addWidget(coll_wrap)
         self.lib_stack.addWidget(pop)
@@ -607,6 +607,7 @@ class MainWindow(QMainWindow):
                 w_old.setParent(None)
                 w_old.deleteLater()
 
+        selected_card: GameCardWidget | None = None
         if not filtered:
             no_lbl = QLabel(self.m.t('library.noResults'))
             no_lbl.setObjectName('muted')
@@ -615,21 +616,29 @@ class MainWindow(QMainWindow):
             for g in filtered:
                 dot_c = style.GREEN if g.has_any_build else style.NEUTRAL_DOT
                 art = self.m.artwork.image_path(g.title_id, self.m.engine_path)
+                is_sel = sel is not None and g.title_id == sel.title_id
                 card = GameCardWidget(
                     title_id=g.title_id,
                     title=g.name,
                     image_path=art,
-                    selected=(sel is not None and g.title_id == sel.title_id),
+                    selected=is_sel,
                     dot_color=dot_c,
                     is_switch2=g.is_switch2(self.m.engine_path),
                     switch2_label=self.m.t('switch2.badge'),
                 )
+                if is_sel:
+                    selected_card = card
                 card.clicked.connect(self._on_card_selected)
                 card.doubleClicked.connect(self._on_card_double_clicked)
                 self.coll_strip_layout.addWidget(card)
         self.coll_strip_layout.addStretch(1)
+        self.coll_viewport.sync_strip(
+            ensure_visible=selected_card if self._ensure_selected_card_visible else None
+        )
+        self._ensure_selected_card_visible = False
 
     def _on_card_selected(self, title_id: str) -> None:
+        self._ensure_selected_card_visible = True
         self.m.library.select(title_id)
         self._refresh_library()
 
@@ -728,7 +737,13 @@ class MainWindow(QMainWindow):
         filtered = self._filtered_games()
         if not filtered:
             return
-        self._coll_offset = max(0, min(max(0, len(filtered) - 1), self._coll_offset + direction))
+        sel = self.m.library.selected
+        cur_idx = next(
+            (i for i, g in enumerate(filtered) if sel is not None and g.title_id == sel.title_id),
+            self._coll_offset,
+        )
+        self._coll_offset = max(0, min(max(0, len(filtered) - 1), cur_idx + direction))
+        self._ensure_selected_card_visible = True
         self.m.library.select(filtered[self._coll_offset].title_id)
         self._refresh_library()
 

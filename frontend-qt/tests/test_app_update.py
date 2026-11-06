@@ -163,6 +163,54 @@ class AppUpdateTests(unittest.TestCase):
         self.assertEqual(env['NX_NEW_EXE'], 'NX2Apple.exe')
         self.assertEqual(env['NX_TARGET'], str(old_exe.resolve().parent))
 
+    def test_library_horizontal_strip_does_not_widen_hero_or_page_and_scrolls_cards(self) -> None:
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        try:
+            from PySide6.QtCore import QEvent
+            from PySide6.QtWidgets import QApplication
+        except ImportError:
+            self.skipTest('PySide6 is not installed')
+
+        from nspb_qt.library import LibraryGame
+        from nspb_qt.model import Model
+        from nspb_qt.ui import MainWindow
+
+        app = QApplication.instance() or QApplication([])
+        m = Model()
+        w = MainWindow(m)
+
+        def cleanup() -> None:
+            w.close()
+            w.deleteLater()
+            m.deleteLater()
+            app.sendPostedEvents(None, QEvent.DeferredDelete)
+            app.processEvents()
+
+        self.addCleanup(cleanup)
+        m.library.games = [
+            LibraryGame(title_id=f'01000000000100{i:02X}', name=f'Game {i}')
+            for i in range(11)
+        ]
+        m.library.selected_id = m.library.games[0].title_id
+        w.resize(1080, 720)
+        w.show()
+        w._switch_page('library')
+        w._refresh_library()
+        for _ in range(3):
+            app.processEvents()
+
+        self.assertLessEqual(w.library_page.minimumSizeHint().width(), 1080)
+        self.assertLessEqual(w.hero.width(), 1080)
+        self.assertGreater(w.coll_viewport.max_scroll(), 1000)
+        self.assertEqual(w.coll_strip.x(), 0)
+
+        for _ in range(10):
+            w._scroll_collection(1)
+        app.processEvents()
+        self.assertEqual(m.library.selected_id, m.library.games[10].title_id)
+        self.assertLess(w.coll_strip.x(), -1000)
+        self.assertLessEqual(w.hero.width(), 1080)
+
 
 if __name__ == '__main__':
     unittest.main()
