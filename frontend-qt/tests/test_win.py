@@ -607,12 +607,17 @@ class ShimTest(unittest.TestCase):
             d = Path(td)
             shim.install(d, python_exe=sys.executable)
             first = {p.name: p.read_bytes() for p in d.iterdir()}
+            for p in d.iterdir():
+                os.utime(p, (1_000_000_000, 1_000_000_000))
+            mtimes = {p.name: p.stat().st_mtime_ns for p in d.iterdir()}
             shim.install(d, python_exe=sys.executable)
             second = {p.name: p.read_bytes() for p in d.iterdir()}
             self.assertEqual(first, second)
-            self.assertIn('sitecustomize.py', first)
+            self.assertEqual(mtimes, {p.name: p.stat().st_mtime_ns for p in d.iterdir()})
+            self.assertNotIn(b'\r', first['sitecustomize.py'])
             for name in ('xcrun.cmd', 'xcodebuild.cmd', 'xcodegen.cmd', 'python3.cmd'):
-                self.assertIn(name, first, f'{name} stand-in not written')
+                lines = first[name].splitlines(keepends=True)
+                self.assertTrue(lines and all(line.endswith(b'\r\n') for line in lines), name)
 
     def test_sitecustomize_is_valid_python(self) -> None:
         import ast
@@ -2008,7 +2013,7 @@ class VenvWheelsTest(unittest.TestCase):
             ns: dict = {}
             exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
                          '<model>', 'exec'), ns)
-            return ns['_pip_args']
+            return ns['_pip_args'].__func__
 
     def test_offline_args_when_wheels_are_bundled(self) -> None:
         args = self._pip_args_fn()(['lz4', 'nsz'], Path('C:/app/wheels'))
@@ -2036,7 +2041,7 @@ class VenvWheelsTest(unittest.TestCase):
         ns: dict = {'sys': sys, 'Path': Path}
         exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
                      '<model>', 'exec'), ns)
-        bundled_wheels = ns['bundled_wheels']
+        bundled_wheels = ns['bundled_wheels'].__func__
         with tempfile.TemporaryDirectory() as td:
             app_dir = Path(td) / 'NS Port Builder'
             internal = app_dir / '_internal'
@@ -2169,7 +2174,7 @@ class InstallFailureHintTest(unittest.TestCase):
             ns: dict = {}
             exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
                          '<model>', 'exec'), ns)
-            classify = ns['_classify_install_failure']
+            classify = ns['_classify_install_failure'].__func__
         self.assertEqual(classify('DownloadError: connection reset by peer'), 'dep.fix.network')
         self.assertEqual(classify('URLError: operation timed out'), 'dep.fix.network')
         self.assertEqual( classify('OSError: [Errno 28] No space left on device'), 'dep.fix.diskspace')
