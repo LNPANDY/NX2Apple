@@ -106,6 +106,7 @@ class Model(QObject):
         self.engine_syncing = False   # tools/engine.py sync runs: the window shows a status line
         self.engine_failure: bf.Failure | None = None   # how the last sync stopped (engine.py's failure_kind), shown as a failure row with Try again
         self.failure: bf.Failure | None = None   # the script's known early stop (build_failure.py), None for any other
+        self._last_build_inputs: tuple[str, ...] = ()
         self.override = bf.OverrideState()      # "Build anyway": one confirmed --allow-* for the next build
         self._last_error = ''   # the last real log line: the failure note names it (issue #52)
         self.game_dir = ''
@@ -1442,10 +1443,10 @@ class Model(QObject):
 
         threading.Thread(target=run_all, daemon=True).start()
 
-    @Slot(bool)
-    def _build_after_sync(self, ok: bool) -> None:
+    @Slot(bool, str)
+    def _build_after_sync(self, ok: bool, title_id: str) -> None:
         if ok and not engine.needs_sync_before_build(self.repo_path):
-            self.start_build()
+            self.start_build(title_id=title_id or None)
         else:
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
 
@@ -1591,15 +1592,25 @@ class Model(QObject):
 
     # ---- build
 
-    def start_build(self) -> None:
-        if self.running:
+    def _package_inputs(self) -> tuple[str, ...]:
+        return (self.repo_path, self.base_path, self.update_path, *self.dlc_paths)
+
+    @property
+    def selectable_titles(self) -> tuple[str, ...]:
+        if self.failure and self._last_build_inputs == self._package_inputs():
+            return self.failure.title_ids
+        return ()
+
+    def start_build(self, *, title_id: str | None = None) -> None:
+        if self.running or (title_id is not None and title_id not in self.selectable_titles):
             return
         if not self.repo_ok:
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
             return
         if engine.needs_sync_before_build(self.repo_path):
             # engine/ is the only engine and is stale or missing: make it, then build (a failed sync names its fix in the log)
-            self.sync_engine(lambda ok: QMetaObject.invokeMethod(self, '_build_after_sync', Qt.QueuedConnection, Q_ARG(bool, ok)))
+            self.sync_engine(lambda ok: QMetaObject.invokeMethod(
+                self, '_build_after_sync', Qt.QueuedConnection, Q_ARG(bool, ok), Q_ARG(str, title_id or '')))
             return
         py = self.python_path or ('python' if pu.IS_WIN else '/usr/bin/python3')
         folder = self.game_folder
@@ -1613,7 +1624,8 @@ class Model(QObject):
         all_files = [] if folder is not None else [self.base_path, self.update_path] + self.dlc_paths
         dirs = {str(Path(f).parent) for f in all_files if f}
 
-        tid_hex = self.build_key
+        self._last_build_inputs = self._package_inputs()
+        tid_hex = title_id or self.build_key
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
         input_dir = folder.script_input if folder is not None else base_dir
@@ -1646,6 +1658,8 @@ class Model(QObject):
             cwd = self.engine_path
         # a game folder's files are not encrypted: no -k, the keys are not asked for
         args = entry + [input_dir] + ([] if folder is not None else ['-k', self.keys_path]) + ['--progress', 'lines']
+        if title_id:
+            args += ['--title-id', title_id]
         has_work_dir = self.supports_work_dir()
         if has_work_dir:
             args += ['--work-dir', work_dir]
@@ -1660,8 +1674,8 @@ class Model(QObject):
             args += ['--platform', 'mac-app']
             self.mac_app_path = str(Path(self.out_dir or base_dir, f'{tid_hex}.app'))
             args += ['-o', self.mac_app_path]
-        elif self.out_dir:
-            self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
+        elif self.out_dir or title_id:
+            self.ipa_path = str(Path(self.out_dir or base_dir, f'{tid_hex}.ipa'))
             args += ['-o', self.ipa_path]
         self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
         if self.bc_on_cpu and not mac_app:
@@ -1676,14 +1690,16 @@ class Model(QObject):
         flag = self.override.take()   # for this build only: the next one asks again
         args = bf.arguments(args, flag)
 
+        input_game = None
         if self.base_path:
-            self.library.remember_inputs(
+            input_game = self.library.remember_inputs(
                 base_path=self.base_path,
                 update_path=self.update_path,
                 dlc_paths=self.dlc_paths,
                 keys_path=self.keys_path,
                 output_dir=self.out_dir,
                 repo_path=self.engine_path,
+                title_id=title_id,
             )
             self._emit_library_changed()
 
@@ -1739,21 +1755,23 @@ class Model(QObject):
             finally:
                 self._proc = None
             self._flush_lines()
-            self.running = False
-            self.runningChanged.emit(False)
-            if mac_app:
-                exists = bool(self.mac_app_path) and Path(self.mac_app_path).exists()
-                self.finished.emit(exists, self.t('target.macDone' if exists else 'target.missingApp'))
+            if ok and mac_app:
+                ok = bool(self.mac_app_path) and Path(self.mac_app_path).exists()
+                note = self.t('target.macDone' if ok else 'target.missingApp')
+                if ok and input_game:
+                    input_game.app_path = self.mac_app_path
+                    self.library.upsert(input_game)
+                    self._emit_library_changed()
             elif ok:
                 for st in self.stages:
                     if st.state == 'running':
                         st.state = 'done'
                 self.stagesChanged.emit()
-                if self.ipa_kind == 'oneGame':
-                    self._record_library_ios_completion()
-                    self.finished.emit(True, self.t('shell.oneGameDone', self.ipa_path))
-                else:
-                    self.pack_archive()
+                if self.ipa_kind != 'oneGame':
+                    self.pack_archive(title_id)
+                    return
+                self._record_library_ios_completion(title_id)
+                note = self.t('shell.oneGameDone', self.ipa_path)
             else:
                 if self.stages:
                     self.stages[-1].state = 'failed'
@@ -1766,7 +1784,9 @@ class Model(QObject):
                 if known.kind != bf.UNKNOWN:   # a known early stop: the window explains it and offers the next step
                     self.failure = known
                     note = self.failure_what(known)
-                self.finished.emit(False, note)
+            self.running = False
+            self.runningChanged.emit(False)
+            self.finished.emit(ok, note)
 
         self._thread = threading.Thread(target=work, daemon=True)
         self._thread.start()
@@ -1862,7 +1882,7 @@ class Model(QObject):
 
     # ---- the archive step (what makes a 16 GB game installable)
 
-    def pack_archive(self) -> None:
+    def pack_archive(self, title_id: str | None = None) -> None:
         work = getattr(self, 'effective_work_dir', '')
         extract = Path(work, 'extract')
         versions = []
@@ -1875,6 +1895,8 @@ class Model(QObject):
                     except ValueError:
                         pass
         if not versions:
+            self.running = False
+            self.runningChanged.emit(False)
             self.finished.emit(True, self.t('msg.archiveSkipped', str(extract)))
             return
         ver_dir = versions[-1][1]
@@ -1882,7 +1904,8 @@ class Model(QObject):
         romfs = str(ver_dir / 'RomFS')
         # games/<id>/ is the per-game layout main.m looks in first, and the file inside it is
         # romfs.img — one file, which copies to a phone at full speed where 300,000 did not
-        dest = str(Path(self.out_dir or Path(self.base_path).parent, 'romfs'))
+        output = Path(self.out_dir or Path(self.base_path).parent)
+        dest = str(output / 'games' / title_id if title_id else output / 'romfs')
         self.stages.append(Stage(name=self.t('prog.archiveShort'), state='running'))
         self.stagesChanged.emit()
 
@@ -1926,13 +1949,15 @@ class Model(QObject):
                 self.stages[-1].state = 'done' if ok else 'failed'
             self.archive_path = dest if ok else ''
             if ok:
-                self._record_library_ios_completion()
+                self._record_library_ios_completion(title_id)
+            self.running = False
+            self.runningChanged.emit(False)
             self.stagesChanged.emit()
             self.finished.emit(ok, '' if ok else self.t('msg.archiveFailed'))
 
         threading.Thread(target=work_, daemon=True).start()
 
-    def _record_library_ios_completion(self) -> None:
+    def _record_library_ios_completion(self, title_id: str | None = None) -> None:
         inputs_map: dict[str, list[str]] = {}
         if self.base_path:
             inputs_map['base'] = [self.base_path]
@@ -1949,6 +1974,7 @@ class Model(QObject):
             output_dir=self.out_dir,
             inputs=inputs_map,
             repo_path=self.engine_path,
+            title_id=title_id,
         )
         if g:
             self.artwork.request_banner_async(g.title_id)
