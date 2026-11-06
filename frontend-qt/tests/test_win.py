@@ -2720,32 +2720,102 @@ class WindowsBuildFixesTest(unittest.TestCase):
 
     def test_first_launch_shows_onboarding_when_incomplete(self) -> None:
         """A fresh user opening MainWindow sees the OnboardingDialog once deps are checked; Later marks it complete."""
-        from PySide6.QtWidgets import QApplication
-        from nspb_qt.model import Dep, DepState, Model
-        from nspb_qt.ui import MainWindow
-        _app = QApplication.instance() or QApplication([])
-        m = Model()
-        m.settings.setValue('onboardingComplete', 'false')
-        m.deps = [Dep(id='py', title_key='dep.python', hint_key='dep.python.hint', state=DepState.MISSING)]
-        m.deps_checked = False
-        self.assertTrue(MainWindow.should_show_onboarding(m))
+        import ast
+        ui_src = (QT / 'nspb_qt' / 'ui.py').read_text(encoding='utf-8')
+        ui_tree = ast.parse(ui_src)
+        mw_cls = next(n for n in ast.walk(ui_tree)
+                      if isinstance(n, ast.ClassDef) and n.name == 'MainWindow')
+        fn_map = {n.name: n for n in mw_cls.body if isinstance(n, ast.FunctionDef)}
+        self.assertIn('should_show_onboarding', fn_map)
+        self.assertIn('_maybe_show_onboarding', fn_map)
 
-        w = MainWindow(m)
-        w._init_timer.stop()
-        w.show()
-        try:
+        class FakeTimer:
+            @staticmethod
+            def singleShot(_ms, cb):
+                cb()
+
+        ns: dict = {'Path': Path, 'os': os, 'QTimer': FakeTimer}
+        for name in ('should_show_onboarding', '_maybe_show_onboarding'):
+            fn = fn_map[name]
+            for n in ast.walk(fn):
+                ast.fix_missing_locations(n)
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                         '<ui>', 'exec'), ns)
+        should_show = ns['should_show_onboarding']
+        maybe_show = ns['_maybe_show_onboarding']
+
+        sheets_src = (QT / 'nspb_qt' / 'sheets.py').read_text(encoding='utf-8')
+        sheets_tree = ast.parse(sheets_src)
+        ob_cls = next(n for n in ast.walk(sheets_tree)
+                      if isinstance(n, ast.ClassDef) and n.name == 'OnboardingDialog')
+        later_fn = next(n for n in ob_cls.body
+                        if isinstance(n, ast.FunctionDef) and n.name == '_on_later')
+        for n in ast.walk(later_fn):
+            ast.fix_missing_locations(n)
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[later_fn], type_ignores=[])),
+                     '<sheets>', 'exec'), ns)
+        on_later = ns['_on_later']
+
+        with tempfile.TemporaryDirectory() as td:
+            keys_file = Path(td) / 'prod.keys'
+
+            class FakeSettings:
+                def __init__(self):
+                    self.store = {}
+                def setValue(self, k, v):
+                    self.store[k] = v
+
+            class FakeLibrary:
+                games_folder = ''
+                games: list = []
+
+            class FakeModel:
+                def __init__(self):
+                    self.settings = FakeSettings()
+                    self.deps_checked = False
+                    self.deps: list = []
+                    self.keys_path = str(keys_file)
+                    self.library = FakeLibrary()
+                def settings_value(self, k, default):
+                    v = self.settings.store.get(k, default)
+                    return v == 'true' if isinstance(v, str) else bool(v)
+                def settings_set(self, k, v):
+                    self.settings.setValue(k, 'true' if v else 'false')
+
+            class FakeWindow:
+                should_show_onboarding = staticmethod(should_show)
+                def __init__(self, m):
+                    self.m = m
+                    self._onboarding_checked = False
+                    self.opened = 0
+                def isVisible(self):
+                    return True
+                def _open_onboarding(self):
+                    self.opened += 1
+
+            m = FakeModel()
+            w = FakeWindow(m)
+            self.assertTrue(should_show(m))
+            maybe_show(w)
+            self.assertEqual(w.opened, 0, 'must wait until initial deps check finishes')
             m.deps_checked = True
-            w._refresh_deps()
-            _app.processEvents()
-            self.assertIsNotNone(w._onboarding_dialog)
-            assert w._onboarding_dialog is not None
-            w._onboarding_dialog._on_later()
+            maybe_show(w)
+            self.assertEqual(w.opened, 1, 'must open once deps check finishes')
+            maybe_show(w)
+            self.assertEqual(w.opened, 1, 'must not re-open automatically in the same session')
+
+            class FakeDialog:
+                def __init__(self, model):
+                    self.m = model
+                    self.rejected = False
+                def reject(self):
+                    self.rejected = True
+
+            dlg = FakeDialog(m)
+            on_later(dlg)
+            self.assertTrue(dlg.rejected)
             self.assertTrue(m.settings_value('onboardingComplete', False))
-            self.assertFalse(MainWindow.should_show_onboarding(m))
-        finally:
-            if w._onboarding_dialog is not None:
-                w._onboarding_dialog.close()
-            w.close()
+            self.assertFalse(should_show(m))
 
 
 if __name__ == '__main__':
