@@ -423,6 +423,7 @@ public struct LibraryView: View {
                                    showsHeader: false, nativeSections: true)
                 }
                 .formStyle(.grouped)
+                .contentMargins(.top, 0, for: .scrollContent)
                 .scrollContentBackground(.hidden)
                 .onScrollGeometryChange(for: Bool.self) {
                     settingsHeroHeight == 0 || $0.contentOffset.y + $0.contentInsets.top < settingsHeroHeight
@@ -530,7 +531,7 @@ public struct LibraryView: View {
 
     private func controllerItem(_ item: ToolbarAction) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            toolbarButton(ShellStrings.text(item.title), item.symbol, item.id, item.target, item.action).badge(controllers.count)
+            toolbarButton(ShellStrings.text(item.title), item.symbol, item.id, item.target, item.action)
                 .disabled(menuPresented).accessibilityHidden(menuPresented)
         }
     }
@@ -565,7 +566,22 @@ public struct LibraryView: View {
     private func toolbarButton(_ label: String, _ symbol: String, _ identifier: String, _ target: String,
                                _ action: @escaping () -> Void) -> some View {
         let accessibilityLabel = identifier == "controllers.open" ? label + ", \(controllers.count)" : label
-        return Button { if !fromSystemEcho { action() } } label: { Label(label, systemImage: symbol) }
+        return Button { if !fromSystemEcho { action() } } label: {
+            if identifier == "controllers.open" {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: symbol).foregroundStyle(.white).frame(width: 32, height: 32)
+                        if !controllers.isEmpty {
+                            Text(controllers.count, format: .number)
+                                .font(.caption2.weight(.semibold)).monospacedDigit()
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 4).frame(minWidth: 18, minHeight: 18)
+                                .background(.black, in: Capsule())
+                                .fixedSize().offset(x: 4, y: -4)
+                                .allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
+            } else { Label(label, systemImage: symbol) }
+        }
             .accessibilityLabel(accessibilityLabel)
             .accessibilityIdentifier(identifier)
             .shellTarget(target, radius: 22, action: action)
@@ -860,17 +876,11 @@ private struct PaneBanner: View {
     let game: GameTile
     let width: CGFloat
     var body: some View {
-        let hasBanner = game.banner != nil
-        let bannerHeight = hasBanner ? min(width * 9 / 16, 220) : 16
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .bottom, spacing: 22) {
-                if !hasBanner { CoverThumbnail(game: game, showsShadow: false).frame(width: 96, height: 96) }
-                words(title: game.title).fixedSize(horizontal: true, vertical: true)
-            }
-            VStack(alignment: .leading, spacing: 16) {
-                if !hasBanner { CoverThumbnail(game: game, showsShadow: false).frame(width: 96, height: 96) }
-                words(title: game.title)
-            }
+        let hasBanner = game.banner != nil && game.icon == nil
+        let bannerHeight = hasBanner ? min(width * 9 / 16, 220) : 0
+        HStack(alignment: .bottom, spacing: 22) {
+            if !hasBanner { CoverThumbnail(game: game, showsShadow: false).frame(width: 96, height: 96) }
+            words(title: game.title).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, max(0, bannerHeight - (hasBanner ? 22 : 0)))
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -878,9 +888,7 @@ private struct PaneBanner: View {
 
     private func words(title: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !game.version.isEmpty {
-                VersionChip(version: game.version).fixedSize()
-            }
+
             Text(title).shellType(ShellType.pageTitle).lineLimit(2)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
             AlertStateChip(state: game.state)
@@ -888,23 +896,24 @@ private struct PaneBanner: View {
     }
 }
 
-/// A game's square art shown whole: the icon, or the placeholder cover when there is none.
+/// A square app icon beside metadata, or an uncropped banner when no icon is available.
 struct CoverThumbnail: View {
     let game: GameTile
     var showsShadow = true
+    var cornerRadius: CGFloat = 18
     var body: some View {
         Group {
             if let icon = game.icon {
-                Image(decorative: icon.image, scale: 1).resizable().interpolation(.high).scaledToFill()
+                Image(decorative: icon.image, scale: 1).resizable().interpolation(.high).scaledToFit()
             } else if let banner = game.banner {
-                Image(decorative: banner.image, scale: 1).resizable().interpolation(.high).scaledToFill()
+                Image(decorative: banner.image, scale: 1).resizable().interpolation(.high).scaledToFit()
             } else {
                 PlaceholderArt(title: game.title, seed: game.id)
             }
         }
         .saturation(game.state == .playable ? 1 : 0)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.14)))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(.white.opacity(0.14)))
         .shadow(color: showsShadow ? .black.opacity(0.4) : .clear, radius: 16, y: 6)
         .accessibilityHidden(true)
     }

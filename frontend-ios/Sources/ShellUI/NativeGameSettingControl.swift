@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The first native settings pass. Values and options remain supplied by each game's profile.
+/// Native settings for every profile-supplied row. Values and options remain supplied by each game's profile.
 struct NativeGameSettingControl: View {
     let row: SettingRow
     let targetPrefix: String

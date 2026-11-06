@@ -23,6 +23,7 @@ import Testing
         "Upscaling": ["it"],
         "Minus": ["de", "sv"], "Plus": ["de", "sv", "fr"],            // the Switch's buttons
         "Version %@": ["de", "sv", "fr"],
+        "Version": ["de", "sv", "fr"],
         "OK": ["de", "sv", "fr", "it"],
     ]
 

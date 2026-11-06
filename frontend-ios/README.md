@@ -112,11 +112,13 @@ Manrope and its SIL OFL licence are bundled and registered at runtime, with the 
 
 ## Demo
 
-Seven sample games. With `--real-art` the demo reads real Switch art at runtime from where the Mac launcher keeps it: the banner cache in the host's `~/Library/Application Support/NS Port Builder/artwork/<TITLEID>.jpg` and this checkout's `docs/images`, which the Simulator can read. `--art-dir <folder>` (repeatable) names other folders. A sample entry whose art is found becomes that real game (name and title ID in `SampleData.swift`). Without the files every entry stays fictional, with a square icon drawn in `SampleArt.swift`, so the demo and its tests work on any machine. No picture is part of this package, and `.gitignore` keeps them out.
+The test launcher uses one nine-game Nintendo metadata catalog. Installed versions, readiness and play history are simulated. Public cover art and app icons are supplied locally in the ignored `Demo/ReviewCatalog/` folder; metadata-only builds use the same Nintendo titles with standard artwork placeholders. Fictional launcher catalogs and legacy artwork switches have been removed. Separate host-test fixtures remain for automated tests.
 
 Other launch arguments: `--screen library|settings|needs-data|needs-update|broken|empty|controllers|controllers-empty|controllers-mapping|controllers-test|focus`, `--games <n>`, `--select <id>`, `--input-test` (on-screen controller buttons) and `--fold-test` (the foldable stand-in: the running shell in a frame that switches between a 1.4:1 folded size and a larger unfolded one, `--unfolded` to start open).
 
-`UITests/` checks navigation, controller input, setting edits, rotation and the fold. `ShellCaptureTests` captures every screen. With `TEST_RUNNER_SHOT_DIR` set it also writes the PNGs to that folder, and `TEST_RUNNER_SHOT_REAL_ART=1` launches the demo with `--real-art`.
+The bundled `Resources/catalog.json` is the metadata source. A local `ReviewCatalog/` also contains its public image files. `--review-catalog /absolute/path/catalog.json` can point at that same catalog for development; malformed input reports an error rather than substituting another catalog. No game data is bundled.
+
+`UITests/` checks navigation, controller input, setting edits, rotation and the fold. `ShellCaptureTests` captures every screen; `TEST_RUNNER_SHOT_DIR` also writes its PNGs to that folder.
 
 Cover Flow selection details use a 240 ms native blur-replace transition, independent of the action row. Play and Game Settings retain their identity between playable games; action-state changes crossfade. The existing 450 ms backdrop fade starts 120 ms later so content leads the background. Reduce Motion disables the new content effects and backdrop delay.
 

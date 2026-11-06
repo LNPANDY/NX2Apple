@@ -761,6 +761,46 @@
         }
       }
     },
+    "Default": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predefinita"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认"
+          }
+        }
+      }
+    },
     "Done": {
       "localizations": {
         "de": {
@@ -1517,46 +1557,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "右摇杆：在此拖动"
-          }
-        }
-      }
-    },
-    "Same as all games": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wie alle Spiele"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Same as all games"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comme tous les jeux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Come tutti i giochi"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Som alla spel"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "与所有游戏相同"
           }
         }
       }

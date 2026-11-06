@@ -22,7 +22,42 @@ import XCTest
         attachment.lifetime = .keepAlways
         add(attachment)
     }
-    func testRecentGamesOnlySelectForThePrimaryAction() {
+    func testThumbnailContextMenuDoesNotShowKeyboard() {
+        extraArguments = ["--samples"]
+        launch("library")
+        let tile = app.buttons["tile.orbit"]
+        XCTAssertTrue(tile.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.keyboards.count, 0)
+        tile.press(forDuration: 1)
+        let settings = app.buttons["Game settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        XCTAssertEqual(app.keyboards.count, 0)
+        let play = app.buttons["Play"]
+        XCTAssertTrue(play.exists)
+        XCTAssertLessThan(play.frame.minY, settings.frame.minY)
+        capture("thumbnail-context-menu")
+        play.tap()
+        XCTAssertTrue(app.alerts["Demo action"].waitForExistence(timeout: 5))
+
+    }
+
+    func testHardwareArrowNavigationDoesNotRequireEditingFocus() {
+        extraArguments = ["--samples"]
+        launch("library")
+        app.buttons["tile.orbit"].press(forDuration: 1)
+        let menuSettings = app.buttons["Game settings"]
+        XCTAssertTrue(menuSettings.waitForExistence(timeout: 5))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.95)).tap()
+        XCTAssertTrue(menuSettings.waitForNonExistence(timeout: 5))
+        app.typeKey(.rightArrow, modifierFlags: []) // First press establishes the current tile's focus.
+        app.typeKey(.rightArrow, modifierFlags: [])
+        let changed = NSPredicate(format: "label == %@", "Animal Crossing™: New Horizons")
+        expectation(for: changed, evaluatedWith: app.staticTexts["hero.title"])
+        waitForExpectations(timeout: 5)
+        XCTAssertEqual(app.keyboards.count, 0)
+    }
+
+    func testRecentGamesSelectWithoutLaunching() {
         extraArguments = ["--samples"]
         launch("library")
         let row = app.buttons["recent.select.tide"]
@@ -31,10 +66,10 @@ import XCTest
             app.scrollViews["library.grid"].swipeUp()
         }
         XCTAssertTrue(row.isHittable)
-        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recent.play.")).firstMatch.exists)
+        XCTAssertTrue(app.buttons["recent.play.tide"].exists)
         row.tap()
         XCTAssertFalse(app.alerts["Demo action"].exists)
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
         capture("recent-selection-only")
         app.buttons["state.action"].tap()
         XCTAssertTrue(app.alerts["Demo action"].waitForExistence(timeout: 5))
@@ -119,7 +154,7 @@ import XCTest
         capture("native-game-settings-game-group")
         sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
             .press(forDuration: 0.1, thenDragTo: sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4)))
-        XCTAssertTrue(app.navigationBars.staticTexts["Orbit Valley"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.navigationBars.staticTexts["Mario Kart™ 8 Deluxe"].waitForExistence(timeout: 5))
         let slider = sheet.sliders.firstMatch
         for _ in 0..<4 {
             if slider.isHittable { break }
@@ -707,12 +742,12 @@ import XCTest
         flow.swipeLeft(velocity: .slow)
         expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: app.buttons["tile.tide"])
         waitForExpectations(timeout: 5)
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
         XCTAssertFalse(app.alerts["Demo action"].exists)
         flow.swipeRight(velocity: .slow)
         expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: app.buttons["tile.orbit"])
         waitForExpectations(timeout: 5)
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "Orbit Valley")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Mario Kart™ 8 Deluxe")
     }
 
     // Run with the simulator in landscape; Device Hub owns Duo orientation.
@@ -735,7 +770,7 @@ import XCTest
             expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: tide)
             waitForExpectations(timeout: 5)
             XCTAssertEqual(tide.frame.midX, flow.frame.midX, accuracy: 4)
-            XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+            XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
             XCTAssertFalse(app.alerts["Demo action"].exists)
             let settings = app.buttons["settings.open"]
             XCTAssertEqual(settings.frame.width, settings.frame.height, accuracy: 2)
@@ -978,7 +1013,7 @@ import XCTest
         launch("library")
         app.buttons["settings.open"].tap()
         XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.navigationBars.staticTexts["Orbit Valley"].exists)
+        XCTAssertTrue(app.navigationBars.staticTexts["Mario Kart™ 8 Deluxe"].exists)
         XCTAssertTrue(app.navigationBars.staticTexts["GAME SETTINGS"].exists)
         XCTAssertFalse(app.staticTexts["detail.title"].exists)
         XCTAssertFalse(settingsScroll.staticTexts["Version 1.4.0"].exists)
@@ -1029,7 +1064,7 @@ import XCTest
             .press(forDuration: 0.05, thenDragTo: flow.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)).withOffset(CGVector(dx: -dragDistance, dy: 0)), withVelocity: .slow, thenHoldForDuration: 0.1)
         expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: tide)
         waitForExpectations(timeout: 5)
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
         XCTAssertEqual(app.buttons.matching(identifier: "tile.tide").count, 1)
         XCTAssertFalse(app.alerts["Demo action"].exists)
         XCTAssertEqual(app.buttons.matching(identifier: "state.action").count, 1)
@@ -1077,7 +1112,7 @@ import XCTest
         launch("library")
         app.buttons["settings.open"].tap()
         XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
-        let title = app.navigationBars.staticTexts["Orbit Valley"]
+        let title = app.navigationBars.staticTexts["Mario Kart™ 8 Deluxe"]
         XCTAssertFalse(title.exists)
         let scroll = settingsScroll
         scroll.swipeUp()
@@ -1162,9 +1197,9 @@ import XCTest
         extraArguments = ["--games", "3"]
         launch("library")
         app.buttons["tile.paper"].tap()
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "Paper Trails")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Super Smash Bros.™ Ultimate")
         // Under the card the native primary action offers the existing recovery action.
-        XCTAssertEqual(app.buttons["state.action"].label, "Choose game data…, Paper Trails")
+        XCTAssertEqual(app.buttons["state.action"].label, "Choose game data…, Super Smash Bros.™ Ultimate")
         XCUIDevice.shared.orientation = .portrait
     }
     func testLargeText() {
@@ -1186,7 +1221,7 @@ import XCTest
         launch("library")
         app.buttons["tile.tide"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
         capture("selected-after-rotation")
     }
 }

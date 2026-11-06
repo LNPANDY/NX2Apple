@@ -22,7 +22,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         // Steam Controller names retained in French.
         "controls.steam.title", "controls.steam.L4", "controls.steam.L5", "controls.steam.R4", "controls.steam.R5", "controls.steam.Guide",
         // Shell words shared by English and French.
-        "ios.host.ok", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version", "ios.ui.touchEditorPortrait",
+        "ios.host.ok", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version", "ios.ui.touchEditorPortrait", "ios.ui.gameVersionLabel",
     ]
 
     func testNothingIsLeftInEnglishButTheListedNames() {

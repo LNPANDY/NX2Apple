@@ -20,7 +20,7 @@ public struct GameTile: Identifiable, Equatable, Sendable {
     public var version: String
     /// The game's 16:9 key art, such as its eShop banner. Covers, Cover Flow cards and the hero all use it.
     public var banner: Artwork?
-    /// The square NACP icon. Only a fallback without a banner: shown whole inside a 16:9 card, never stretched.
+    /// The square app icon beside metadata. Without a banner, also shown whole inside the 16:9 card.
     public var icon: Artwork?
     public var state: GameState
     /// Already localized, such as "Played today". Nil leaves the game out of Recently played.

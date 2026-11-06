@@ -15,12 +15,6 @@ struct GameLaunchActions: View {
     @Namespace private var localGlassNamespace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private var primaryTitle: String {
-        expands && game.state == .playable
-            ? ShellStrings.text("Play \(game.title)")
-            : game.state.actionTitle
-    }
-
     var body: some View {
         Group {
             if let glassNamespace {
@@ -29,7 +23,7 @@ struct GameLaunchActions: View {
                 GlassEffectContainer(spacing: 12) { buttons(in: localGlassNamespace) }
             }
         }
-        .animation(reduceMotion ? nil : .smooth(duration: transitionDuration), value: primaryTitle)
+        .animation(reduceMotion ? nil : .smooth(duration: transitionDuration), value: game.state.actionTitle)
         .font(.headline)
         .padding(divisionInsets)
         .frame(maxWidth: .infinity, alignment: alignment)
@@ -43,7 +37,7 @@ struct GameLaunchActions: View {
     private func buttons(in namespace: Namespace.ID) -> some View {
         HStack(spacing: 12) {
             Button(action: primary) {
-                Label(primaryTitle, systemImage: game.state.actionSymbol)
+                Label(game.state.actionTitle, systemImage: game.state.actionSymbol)
                     .contentTransition(.opacity)
                     .padding(.horizontal, expands ? 0 : 14)
                     .frame(maxWidth: expands ? .infinity : nil, minHeight: 26)

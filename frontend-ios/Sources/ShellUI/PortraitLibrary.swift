@@ -126,7 +126,7 @@ struct PortraitLibrary: View, Equatable {
                     if id.hasPrefix("lib.tile.") {
                         scrollToTile(String(id.dropFirst("lib.tile.".count)))
                     } else {
-                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .center) }
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo(id.hasSuffix(".play") ? String(id.dropLast(5)) : id, anchor: .center) }
                     }
                 }
             }
@@ -136,21 +136,16 @@ struct PortraitLibrary: View, Equatable {
     private var tabletopHero: some View {
         GeometryReader { geometry in
             ScrollView {
-                VStack(spacing: 20) {
-                    CoverThumbnail(game: selected.game)
-                        .modifier(ShellSelectionTransition(value: selected.id))
-                        .matchedGeometryEffect(id: "hero.artwork", in: poseNamespace)
-                        .frame(width: min(geometry.size.width * 0.48, geometry.size.height * 0.46),
-                               height: min(geometry.size.width * 0.48, geometry.size.height * 0.46))
+                VStack(alignment: .leading, spacing: 20) {
                     HeroText(status: selected.game.state, title: selected.game.title,
                              explanation: selected.game.state == .playable ? "" : selected.game.state.explanation,
-                             titleSize: 34, version: selected.game.version,
-                             recentlyPlayed: selected.game.recentlyPlayed ?? "", centered: true)
+                             titleSize: 40,
+                             recentlyPlayed: selected.game.recentlyPlayed ?? "")
                         .modifier(ShellSelectionTransition(value: selected.id))
                         .matchedGeometryEffect(id: "hero.details", in: poseNamespace, properties: .position)
                 }
                 .padding(24)
-                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .bottomLeading)
             }
             .scrollIndicators(.hidden)
         }
@@ -164,23 +159,17 @@ struct PortraitLibrary: View, Equatable {
             .padding(.top, topInset)
             .padding(.bottom, 16)
             .frame(height: height)
-            .background { PortraitHeroBackdrop(game: selected.game) }
+            .background { PortraitHeroBackdrop(game: selected.game).ignoresSafeArea(.container, edges: .top) }
     }
 
     private func heroContent(height: CGFloat, compact: CGFloat) -> some View {
-        PortraitHeroLayout(collapse: compact,
-                           artworkSide: min(size.width * 0.48, max(72, height * 0.46))) {
-            CoverThumbnail(game: selected.game)
-                .modifier(ShellSelectionTransition(value: selected.id))
-                .matchedGeometryEffect(id: "hero.artwork", in: poseNamespace)
-            HeroText(status: selected.game.state, title: selected.game.title,
-                     explanation: selected.game.state == .playable ? "" : selected.game.state.explanation,
-                     titleSize: 34 - compact * 6, version: selected.game.version,
-                     recentlyPlayed: selected.game.recentlyPlayed ?? "", centered: compact < 0.5,
-                     centering: 1 - compact)
-                .modifier(ShellSelectionTransition(value: selected.id))
-                .matchedGeometryEffect(id: "hero.details", in: poseNamespace, properties: .position)
-        }
+        HeroText(status: selected.game.state, title: selected.game.title,
+                 explanation: selected.game.state == .playable ? "" : selected.game.state.explanation,
+                 titleSize: 44 - compact * 12,
+                 recentlyPlayed: selected.game.recentlyPlayed ?? "")
+            .modifier(ShellSelectionTransition(value: selected.id))
+            .matchedGeometryEffect(id: "hero.details", in: poseNamespace, properties: .position)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 
     private func hero(height: CGFloat, compact: CGFloat, fillsRegion: Bool = false) -> some View {
@@ -355,10 +344,15 @@ struct PortraitLibrary: View, Equatable {
         .accessibilityAddTraits(chosen ? .isSelected : [])
         .accessibilityIdentifier("tile.\(detail.id)")
         .contextMenu {
-            Button(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3") {
-                select(detail.id); openSettings()
+            Group {
+                Button(ShellStrings.text("Play"), systemImage: "play.fill") { primary(detail) }
+                    .disabled(detail.game.state != .playable)
+                Button(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3") {
+                    select(detail.id); openSettings()
+                }
             }
         }
+
         .accessibilityAction(named: Text(ShellStrings.text("Game settings"))) { select(detail.id); openSettings() }
         .id(detail.id)
     }
@@ -369,25 +363,40 @@ struct PortraitLibrary: View, Equatable {
             VStack(alignment: .leading, spacing: 0) {
                 SectionHeading(title: ShellStrings.text("Recently played")).padding(.bottom, 8)
                 ForEach(recent) { detail in
-                    Button { select(detail.id) } label: {
-                        HStack(spacing: 14) {
-                            CoverView(game: detail.game, radius: 6).frame(width: 78, height: 44)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(detail.game.title).shellText(15, .semibold).multilineTextAlignment(.leading)
-                                GameMetadataSubtitle(state: detail.game.state, recentlyPlayed: detail.game.recentlyPlayed ?? "")
+                    HStack(spacing: 14) {
+                        Button { select(detail.id) } label: {
+                            HStack(spacing: 14) {
+                                CoverThumbnail(game: detail.game, showsShadow: false, cornerRadius: 8)
+                                    .frame(width: 44, height: 44)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(detail.game.title).shellText(15, .semibold).multilineTextAlignment(.leading)
+                                    GameMetadataSubtitle(state: detail.game.state, recentlyPlayed: detail.game.recentlyPlayed ?? "")
+                                }
+                                Spacer(minLength: 8)
                             }
-                            Spacer(minLength: 8)
+                            .frame(maxWidth: .infinity, minHeight: RecentRow.minHeight)
+                            .contentShape(Rectangle())
                         }
-                        .frame(maxWidth: .infinity, minHeight: RecentRow.minHeight)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(detail.game.title)
+                        .accessibilityIdentifier("recent.select.\(detail.id)")
+                        .shellTarget("lib.recent.\(detail.id)") { select(detail.id) }
+                        // Keep this glass independent from the persistent primary action's morphing group.
+                        GlassEffectContainer {
+                            Button { primary(detail) } label: {
+                                Image(systemName: "play.fill").frame(minWidth: 24, minHeight: 24)
+                            }
+                            .buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
+                            .tint(.white).foregroundStyle(.white)
+                            .disabled(detail.game.state != .playable)
+                            .accessibilityLabel(ShellStrings.text("Play") + ", " + detail.game.title)
+                            .accessibilityIdentifier("recent.play.\(detail.id)")
+                            .shellTarget("lib.recent.\(detail.id).play") { if detail.game.state == .playable { primary(detail) } }
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(detail.game.title)
-                    .accessibilityIdentifier("recent.select.\(detail.id)")
-                    .shellTarget("lib.recent.\(detail.id)") { select(detail.id) }
                     .id("lib.recent.\(detail.id)")
                     if detail.id != recent.last?.id {
-                        Rectangle().fill(ShellPalette.hairline).frame(height: 1).padding(.leading, 92)
+                        Rectangle().fill(ShellPalette.hairline).frame(height: 1).padding(.leading, 58)
                             .padding(.vertical, RecentRow.separatorGap)
                     }
                 }
@@ -434,28 +443,23 @@ struct HeroView<Accessory: View>: View {
     let poseNamespace: Namespace.ID
     @ViewBuilder let accessory: () -> Accessory
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: detailAlignment, spacing: 16) {
-                CoverThumbnail(game: game)
-                    .modifier(ShellSelectionTransition(value: game.id))
-                    .matchedGeometryEffect(id: "hero.artwork", in: poseNamespace)
-                    .frame(width: coverSide, height: coverSide)
-                HeroText(status: game.state, title: game.title,
-                         // The hint only where the game cannot start; playable games may have a recency subtitle.
-                         explanation: game.state == .playable ? "" : game.state.explanation,
-                         titleSize: titleSize, hintLines: short ? 1 : 2, version: game.version, recentlyPlayed: game.recentlyPlayed ?? "")
-                    .modifier(ShellSelectionTransition(value: game.id))
-                    .matchedGeometryEffect(id: "hero.details", in: poseNamespace, properties: .position)
-            }
+            HeroText(status: game.state, title: game.title,
+                     explanation: game.state == .playable ? "" : game.state.explanation,
+                     titleSize: max(36, titleSize), hintLines: short ? 1 : 2,
+                     recentlyPlayed: game.recentlyPlayed ?? "")
+                .modifier(ShellSelectionTransition(value: game.id))
+                .matchedGeometryEffect(id: "hero.details", in: poseNamespace, properties: .position)
             accessory()
         }
         .padding(.horizontal, 24)
         .padding(.top, topInset + topSpacing)
         .padding(.bottom, bottomSpacing)
-        .frame(maxWidth: .infinity, minHeight: height, maxHeight: fillsRegion ? .infinity : nil, alignment: .bottomLeading)
-        .fixedSize(horizontal: false, vertical: !fillsRegion)
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: fillsRegion || typeSize.isAccessibilitySize ? .infinity : height, alignment: .bottomLeading)
+        .fixedSize(horizontal: false, vertical: typeSize.isAccessibilitySize && !fillsRegion)
         .background {
             PortraitHeroBackdrop(game: game)
                 .visualEffect { [pullDown] effect, geometry in
@@ -510,7 +514,6 @@ struct HeroText: View {
     let explanation: String
     let titleSize: CGFloat
     var hintLines = 2
-    var version = ""
     var recentlyPlayed = ""
     var centered = false
     var centering: CGFloat?
@@ -526,17 +529,25 @@ struct HeroText: View {
     }
 
     @ViewBuilder private var content: some View {
-        if !version.isEmpty {
-            VersionChip(version: version).fixedSize()
-        }
+        metadataSubtitle
+            .shellText(13, .medium, relativeTo: .footnote)
+            .foregroundStyle(.white.opacity(0.9))
+            .fixedSize(horizontal: false, vertical: true)
         Text(title).shellType(ShellType.heroTitle(titleSize))
             .lineLimit(2).truncationMode(.tail)
             .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
-        GameMetadataSubtitle(state: status, recentlyPlayed: recentlyPlayed)
         if !explanation.isEmpty {
             Text(explanation).shellType(ShellType.body).foregroundStyle(.white.opacity(0.78)).lineLimit(hintLines).padding(.top, 2)
         }
     }
+    @ViewBuilder private var metadataSubtitle: some View {
+        if status == .playable {
+            if !recentlyPlayed.isEmpty { Text(recentlyPlayed) }
+        } else {
+            AlertStateChip(state: status)
+        }
+    }
+
 }
 
 private struct HeroTextLayout: Layout {
@@ -566,15 +577,15 @@ private struct PortraitHeroBackdrop: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         ZStack {
-            ArtView(game: game, backdrop: true, lettering: false)
+            ArtView(game: game, lettering: false)
                 .id(game.id)
                 .transition(.opacity)
         }
             .animation(.easeInOut(duration: reduceMotion ? 0.12 : 0.35), value: game.id)
-            .blur(radius: 40, opaque: true)
             .overlay {
                 LinearGradient(stops: [.init(color: .black.opacity(0.3), location: 0),
-                                       .init(color: .clear, location: 0.3),
+                                       .init(color: .black.opacity(0.15), location: 0.3),
+                                       .init(color: .black.opacity(0.8), location: 0.58),
                                        .init(color: .black, location: 0.95),
                                        .init(color: .black, location: 1)],
                                startPoint: .top, endPoint: .bottom)

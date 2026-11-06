@@ -332,7 +332,6 @@ struct CoverView: View {
     let game: GameTile
     var radius: CGFloat = 10
     var showsState = false
-    var showsVersion = false
     var body: some View {
         ArtView(game: game)
             .aspectRatio(16 / 9, contentMode: .fit)
@@ -349,28 +348,11 @@ struct CoverView: View {
                                 StateDot(state: game.state, size: size)
                             }
                         }
-                        if showsVersion, !game.version.isEmpty {
-                            VersionChip(version: game.version)
-                        }
                     }
                     .padding(size * 0.9)
                 }
             }
             .accessibilityHidden(true)
-    }
-}
-
-struct VersionChip: View {
-    let version: String
-    var body: some View {
-        Text(version)
-            .shellText(11, .medium, relativeTo: .caption)
-            .foregroundStyle(.white.opacity(0.9))
-            .lineLimit(1)
-            .padding(.horizontal, 8).padding(.vertical, 4)
-            .background(.black, in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
-            .accessibilityLabel(ShellFormat.version(version))
     }
 }
 

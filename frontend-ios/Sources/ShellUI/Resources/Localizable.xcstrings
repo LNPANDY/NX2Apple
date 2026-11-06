@@ -8321,46 +8321,6 @@
         }
       }
     },
-    "Same as all games": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wie alle Spiele"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Same as all games"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comme tous les jeux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Come tutti i giochi"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Som alla spel"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "与所有游戏相同"
-          }
-        }
-      }
-    },
     "Save": {
       "localizations": {
         "de": {
@@ -10077,6 +10037,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "占用更多 GPU 时间，可能增加发热。"
+          }
+        }
+      }
+    },
+    "Version": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versione"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Version"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "版本"
           }
         }
       }

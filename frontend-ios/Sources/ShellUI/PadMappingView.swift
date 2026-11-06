@@ -57,7 +57,7 @@ public enum PadMappingRows {
     /// The compact row's value: nothing changed, only A and B swapped (or kept for one game), or a custom map.
     static func summary(_ rows: [SettingRow], game: Bool) -> String {
         let changed = Set(rows.filter { !$0.fromShell }.map(\.id))
-        guard let swap = rows.first, !changed.isEmpty else { return ShellStrings.text(game ? "Same as all games" : "Default") }
+        guard let swap = rows.first, !changed.isEmpty else { return ShellStrings.text("Default") }
         // Swapping A and B changes the rows of A and B too: only those three changed reads as the swap itself.
         if changed.contains(swap.id) && changed.isSubset(of: Set(rows.prefix(3).map(\.id))) {
             if swap.value == "1" || swap.value == "on" { return ShellStrings.text("A and B swapped") }
@@ -75,12 +75,20 @@ struct PadMappingEntryRow: View {
     @Environment(\.shellOpenPadMapping) private var openMapping
     var body: some View {
         let isGame = gameID != ControllersView.mappingID
-        let row = SettingRow(id: "padMapping", label: ShellStrings.text("Button mapping"),
-                             note: ShellStrings.text(isGame ? "Change buttons for this game only." : "What each button sends in games."),
-                             kind: .choice([]), value: "")
-        ChoiceValueRow(row: row, valueLabel: PadMappingRows.summary(rows, game: isGame), hint: ShellStrings.text("Opens the button mapping")) {
-            openMapping?(gameID)
+        Button { openMapping?(gameID) } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ShellStrings.text("Button mapping")).foregroundStyle(.primary)
+                    Text(ShellStrings.text(isGame ? "Change buttons for this game only." : "What each button sends in games."))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Text(PadMappingRows.summary(rows, game: isGame)).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .shellTarget(targetID, radius: 11) { openMapping?(gameID) }
         .accessibilityIdentifier("padMapping.open")
     }
@@ -274,7 +282,7 @@ struct PadMappingCard: View {
         .accessibilityIdentifier("padMapping.swap")
         .shellTarget("map.swap.toggle") { pick(row.id, on ? offValue : onValue) }
         if isGame {
-            Button(ShellStrings.text("Same as all games")) { pick(row.id, PadMappingRows.follow) }
+            Button(ShellStrings.text("Default")) { pick(row.id, PadMappingRows.follow) }
                 .shellTarget("map.swap.follow") { pick(row.id, PadMappingRows.follow) }
         }
     }
@@ -528,7 +536,7 @@ struct PadMappingCard: View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
         return VStack(alignment: .leading, spacing: 18) {
             if let inherited {
-                wideOption(row, id: PadMappingRows.follow, label: ShellStrings.text("Same as all games"),
+                wideOption(row, id: PadMappingRows.follow, label: ShellStrings.text("Default"),
                            glyph: inherited.output(for: button))
             }
             ForEach(PadMap.groups, id: \.title) { group in

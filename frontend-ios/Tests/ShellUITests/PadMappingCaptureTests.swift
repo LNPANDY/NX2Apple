@@ -46,7 +46,7 @@ final class PadMappingCaptureTests: XCTestCase {
     /// A game's rows as the host gives them: this game keeps A and B where they are and puts ZR on ZL, the rest follows.
     private var gameRows: [SettingRow] {
         let own = ["A": "A", "B": "B", "ZR": "ZL"]
-        let follow = SettingOption("follow", ShellStrings.text("Same as all games"))
+        let follow = SettingOption("follow", ShellStrings.text("Default"))
         let swap = SettingRow(id: "pad.swapAB", label: ShellStrings.text("Swap A and B"),
                               kind: .choice([follow, SettingOption("on", ShellStrings.text("On")), SettingOption("off", ShellStrings.text("Off"))]),
                               value: "off")

@@ -55,8 +55,14 @@ public struct GameDetailView: View {
                 }
             }
             divider
-            Label(detail.dlc.isEmpty ? ShellStrings.text("No additional content") : detail.dlc, systemImage: "square.stack.3d.up")
-                .shellText(14).foregroundStyle(.white.opacity(0.72)).frame(minHeight: 32)
+            HStack {
+                Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Text(detail.dlc.isEmpty ? ShellStrings.text("No additional content") : detail.dlc)
+                    .foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+            }
+            .frame(maxWidth: .infinity, minHeight: 32)
+            .accessibilityElement(children: .combine)
         }
         group(ShellStrings.text("Cloud saves")) {
             SourceRow(symbol: detail.cloudSaves == nil ? "icloud.slash" : "icloud",
@@ -70,6 +76,13 @@ public struct GameDetailView: View {
                     GameSettingsGlassButton(title: ShellStrings.text("Turn off")) { actions.onDisableCloudSaves(detail.id) }.accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
                         .shellTarget("set.cloud.off") { actions.onDisableCloudSaves(detail.id) }
                 }
+            }
+        }
+        if !detail.game.version.isEmpty {
+            if nativeSections {
+                Section { versionRow }
+            } else {
+                versionRow
             }
         }
         VStack(alignment: .leading, spacing: 10) {
@@ -92,15 +105,18 @@ public struct GameDetailView: View {
         }
     }
 
+    private var versionRow: some View {
+        LabeledContent(ShellStrings.text("Version"), value: detail.game.version)
+            .accessibilityIdentifier("detail.version")
+    }
+
     private var header: some View {
         VStack(alignment: .leading, spacing: 16) {
             if showsHeader {
             HStack(alignment: .center, spacing: 16) {
                 CoverView(game: detail.game, radius: 8).frame(width: 112, height: 63)
                 VStack(alignment: .leading, spacing: 6) {
-                    if !detail.game.version.isEmpty {
-                        VersionChip(version: detail.game.version).fixedSize()
-                    }
+
                     Text(detail.game.title).shellText(24, .heavy, relativeTo: .title).tracking(-0.6)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
@@ -192,97 +208,15 @@ struct SourceRow<Buttons: View>: View {
 }
 
 struct SettingControl: View, Equatable {
-    /// Part of the comparison: two games can have identical rows, and the row must report to its own game.
     let gameID: String
     let row: SettingRow
-    /// The focus ids of the row's controls start with this, so a panel can tell its own from the library's.
     var targetPrefix = "set.row."
     let change: (String) -> Void
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.gameID == rhs.gameID && lhs.row == rhs.row }
-    @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.shellPickChoice) private var pickChoice
-    @Environment(\.shellIgnoresPress) private var ignoresPress
-    /// The row's width, once measured, for the segmented-or-list rule.
-    @State private var width: CGFloat?
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.gameID == rhs.gameID && lhs.row == rhs.row && lhs.targetPrefix == rhs.targetPrefix
+    }
     var body: some View {
-        if ["DM_OPMODE", "DM_OPERATION_MODE", "DM_SHOW_FPS", "DM_LANG", "DM_LANGUAGE", "DM_PAD_MERGE", "DM_RENDER_SCALE", "DM_FPS_TARGET"].contains(row.id) {
-            NativeGameSettingControl(row: row, targetPrefix: targetPrefix, change: change)
-        } else {
-            legacyControl
-        }
-    }
-    private var legacyControl: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            switch row.kind {
-            case .toggle(let on, let off):
-                Toggle(isOn: Binding(get: { row.value == on }, set: { change($0 ? on : off) })) { label }
-                    .toggleStyle(CreamToggleStyle())
-                    .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled) { change(row.value == on ? off : on) }
-            case .choice(let options):
-                let labels = options.map(\.label)
-                let scale = ChoicePresentation.textScale(typeSize)
-                switch ChoicePresentation.resolve(labels: labels, width: width, textScale: scale) {
-                case .segmented:
-                    // Equal segments across the card. If the real layout still cannot hold them, the compact row. Only the segments
-                    // decide: the label wraps to the card, so a long note (Picture, #545) does not push the row into the list.
-                    ViewThatFits(in: .horizontal) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            label.frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
-                            segmented([options])
-                        }
-                        valueRow(options)
-                    }
-                case .list:
-                    valueRow(options)
-                }
-            case .range(let min, let max, let step, let unit):
-                HStack(alignment: .firstTextBaseline) {
-                    label
-                    Spacer(minLength: 8)
-                    Text((Double(row.value) ?? min).formatted(.number.precision(.fractionLength(0...2))) + unit)
-                        .shellText(15, .bold).monospacedDigit().foregroundStyle(ShellPalette.cream)
-                }
-                HStack(spacing: 10) {
-                    rangeButton("minus", min: min, max: max, delta: -step)
-                    if min < max && step > 0 {
-                        Slider(value: Binding(get: { Double(row.value) ?? min }, set: { change(String($0)) }), in: min...max, step: step)
-                            .frame(minHeight: 44).tint(ShellPalette.cream).accessibilityLabel(row.label)
-                    }
-                    rangeButton("plus", min: min, max: max, delta: step)
-                }
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading)
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { new in if width.map({ abs($0 - new) > 0.5 }) ?? true { width = new } }
-            .disabled(!row.enabled).opacity(row.enabled ? 1 : 0.45)
-            .accessibilityIdentifier("setting.\(row.id)")
-    }
-    private var label: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(row.label).shellType(ShellType.settingLabel).fixedSize(horizontal: false, vertical: true)
-            if !row.note.isEmpty { Text(row.note).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true) }
-            if row.fromShell { FromSettingsMark() }
-        }
-    }
-    private func segmented(_ rows: [[SettingOption]]) -> some View {
-        SegmentedChoice(label: row.label, rows: rows, value: row.value, targetPrefix: "\(targetPrefix)\(row.id).", enabled: row.enabled,
-                        change: change)
-    }
-    /// Many or long options: label and current value in one compact row that opens the list.
-    private func valueRow(_ options: [SettingOption]) -> some View {
-        ChoiceValueRow(row: row, valueLabel: options.first { $0.id == row.value }?.label ?? row.value) {
-            pickChoice?(ChoiceRequest(gameID: gameID, row: row))
-        }
-        .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled, radius: 11) { pickChoice?(ChoiceRequest(gameID: gameID, row: row)) }
-    }
-    private func rangeButton(_ symbol: String, min: Double, max: Double, delta: Double) -> some View {
-        let action = { change(String(Swift.min(max, Swift.max(min, (Double(row.value) ?? min) + delta)))) }
-        return Button { if !ignoresPress() { action() } } label: {
-            Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).frame(width: 44, height: 44)
-        }
-        .buttonStyle(.plain).background(.white.opacity(0.055), in: Circle())
-        .overlay(Circle().strokeBorder(.white.opacity(0.10)))
-        .accessibilityLabel(ShellStrings.text(symbol == "minus" ? "Decrease" : "Increase") + " " + row.label)
-        .shellTarget("\(targetPrefix)\(row.id).\(symbol)", enabled: row.enabled, radius: 22, action: action)
+        NativeGameSettingControl(row: row, targetPrefix: targetPrefix, change: change)
     }
 }
 
@@ -371,12 +305,13 @@ struct NativeChoiceControl: View {
             VStack(alignment: .leading, spacing: 8) {
                 if inline {
                     LabeledContent {
-                        if menuOnly {
-                            picker(options).pickerStyle(.menu)
-                        } else {
+                        if !menuOnly, (width ?? 0) * 0.65 >= 200, ChoicePresentation.resolve(labels: options.map(\.label),
+                            width: width.map { $0 * 0.65 }, textScale: ChoicePresentation.textScale(typeSize)) == .segmented {
                             picker(options).pickerStyle(.segmented)
                                 .frame(minWidth: 200)
                                 .fixedSize(horizontal: true, vertical: false)
+                        } else {
+                            picker(options).pickerStyle(.menu)
                         }
                     } label: {
                         Text(row.label).font(.body)

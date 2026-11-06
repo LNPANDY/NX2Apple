@@ -130,22 +130,66 @@ extension EnvironmentValues {
     }
 }
 
-/// Keep the same keyboard actions when focus moves into a system sheet.
+/// Keyboard commands use a non-text responder on iOS, so a context menu cannot summon a text keyboard.
 struct ShellKeyboardNavigation: ViewModifier {
     let active: Bool
     let handle: (ShellInput.Action) -> Void
     @FocusState private var focused: Bool
     func body(content: Content) -> some View {
-        content.focusable().focused($focused).focusEffectDisabled()
+        #if os(iOS)
+        content.background { ShellKeyCommands(active: active, handle: handle).frame(width: 0, height: 0) }
+        #else
+        content.focusable(active).focused($focused).focusEffectDisabled()
             .onAppear { focused = active }
             .onChange(of: active) { _, value in focused = value }
-            .onKeyPress(.leftArrow) { handle(.left); return .handled }
-            .onKeyPress(.rightArrow) { handle(.right); return .handled }
-            .onKeyPress(.upArrow) { handle(.up); return .handled }
-            .onKeyPress(.downArrow) { handle(.down); return .handled }
-            .onKeyPress(.return) { handle(.activate); return .handled }
-            .onKeyPress(.escape) { handle(.back); return .handled }
-            .onKeyPress("o") { handle(.settings); return .handled }
-            .onKeyPress("y") { handle(.controllers); return .handled }
+            .onKeyPress(.leftArrow) { press(.left) }
+            .onKeyPress(.rightArrow) { press(.right) }
+            .onKeyPress(.upArrow) { press(.up) }
+            .onKeyPress(.downArrow) { press(.down) }
+            .onKeyPress(.return) { press(.activate) }
+            .onKeyPress(.escape) { press(.back) }
+            .onKeyPress("o") { press(.settings) }
+            .onKeyPress("y") { press(.controllers) }
+        #endif
+    }
+    private func press(_ action: ShellInput.Action) -> KeyPress.Result {
+        guard active else { return .ignored }
+        handle(action)
+        return .handled
     }
 }
+
+#if os(iOS)
+private struct ShellKeyCommands: UIViewRepresentable {
+    let active: Bool
+    let handle: (ShellInput.Action) -> Void
+    func makeUIView(context: Context) -> CommandView { CommandView() }
+    func updateUIView(_ view: CommandView, context: Context) {
+        view.active = active
+        view.handle = handle
+        if active, view.window != nil, !view.isFirstResponder { view.becomeFirstResponder() }
+        else if !active, view.isFirstResponder { view.resignFirstResponder() }
+    }
+    final class CommandView: UIView {
+        var active = false
+        var handle: ((ShellInput.Action) -> Void)?
+        private static let actions: [(String, ShellInput.Action)] = [
+            (UIKeyCommand.inputLeftArrow, .left), (UIKeyCommand.inputRightArrow, .right),
+            (UIKeyCommand.inputUpArrow, .up), (UIKeyCommand.inputDownArrow, .down),
+            ("\r", .activate), (UIKeyCommand.inputEscape, .back), ("o", .settings), ("y", .controllers)
+        ]
+        override var canBecomeFirstResponder: Bool { active }
+        override var keyCommands: [UIKeyCommand]? {
+            active ? Self.actions.map { UIKeyCommand(input: $0.0, modifierFlags: [], action: #selector(command(_:))) } : nil
+        }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if active, window != nil { becomeFirstResponder() }
+        }
+        @objc private func command(_ command: UIKeyCommand) {
+            guard active, let action = Self.actions.first(where: { $0.0 == command.input })?.1 else { return }
+            handle?(action)
+        }
+    }
+}
+#endif
