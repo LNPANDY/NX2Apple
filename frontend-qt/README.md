@@ -12,7 +12,7 @@ written once and runs everywhere Python and Qt do.
 | | SwiftUI (`frontend/`) | Qt (this) |
 |---|---|---|
 | Platforms | macOS 13+ | Windows 10+, macOS 11+ |
-| Language | Swift | Python 3.9+ |
+| Language | Swift | Python 3.9+ for the launcher and its tests |
 | Strings | `l10n/*.json`, read by `LocalizationFiles.swift` | the same files, read by `nspb_qt/l10n.py` |
 | Build logic | runs the Python scripts | runs the same scripts |
 
@@ -131,7 +131,7 @@ Run this first if you prefer the command line. It lists what is missing and wher
 python -m nspb_qt.win.doctor
 ```
 
-1. **Python 3.10+**, then `pip install PySide6 lz4 capstone fonttools zbic pillow`
+1. **Python 3.12+** for the game build scripts, then `pip install PySide6 lz4 capstone fonttools zbic pillow`
    (and `backports.zstd` before Python 3.14).
 2. **.NET SDK 10** — the app downloads it (the zip, not the installer: no administrator rights,
    about 287 MB), or get it from <https://dotnet.microsoft.com/download/dotnet/10.0> (SDK, x64).

@@ -740,6 +740,12 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 '''
 
 
+def _write_if_changed(path: Path, text: str) -> None:
+    data = text.encode('utf-8')
+    if not path.is_file() or path.read_bytes() != data:
+        path.write_bytes(data)
+
+
 def install(shim_dir: Path, python_exe: str | None = None) -> None:
     """Write `sitecustomize.py` and the `.cmd` stand-ins into `shim_dir`.
 
@@ -756,9 +762,7 @@ def install(shim_dir: Path, python_exe: str | None = None) -> None:
     body = _SITECUSTOMIZE_SRC.replace(
         "    _PKG = os.environ.get('NSPB_WIN_DIR') or _HERE\n",
         '    _PKG = os.environ.get(\'NSPB_WIN_DIR\') or ' + repr(pkg) + '\n')
-    sc = shim_dir / SITECUSTOMIZE
-    if not sc.is_file() or sc.read_text(encoding='utf-8') != body:
-        sc.write_text(body, encoding='utf-8', newline='\n')
+    _write_if_changed(shim_dir / SITECUSTOMIZE, body)
     py = python_exe or sys.executable
     here = Path(pkg)
     for name, target in (('xcrun', here / 'xcrun_shim.py'),
@@ -766,14 +770,10 @@ def install(shim_dir: Path, python_exe: str | None = None) -> None:
                          ('xcodegen', here / 'xcodegen_shim.py')):
         body_cmd = (f'@echo off\r\n'
                     f'"{py}" "{target}" %*\r\n')
-        p = shim_dir / f'{name}.cmd'
-        if not p.is_file() or p.read_text(encoding='utf-8', errors='replace') != body_cmd:
-            p.write_text(body_cmd, encoding='utf-8', newline='')
+        _write_if_changed(shim_dir / f'{name}.cmd', body_cmd)
     # a `python3.cmd` so the pipeline's `python3` spelling works in a shell too
-    p = shim_dir / 'python3.cmd'
     body_py = f'@echo off\r\n"{py}" %*\r\n'
-    if not p.is_file() or p.read_text(encoding='utf-8', errors='replace') != body_py:
-        p.write_text(body_py, encoding='utf-8', newline='')
+    _write_if_changed(shim_dir / 'python3.cmd', body_py)
 
 
 def shim_dir() -> Path:
