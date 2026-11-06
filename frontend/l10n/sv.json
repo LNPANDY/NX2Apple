@@ -435,6 +435,7 @@
   "fail.psoDiskFull.what": "Det finns för lite ledigt utrymme för att bygga Metal-shaderarkivet.",
   "fail.psoDiskFull.whatNeeds": "Metal-shaderarkivet behöver ungefär %@ GB ledigt utrymme på byggdisken.",
   "fail.retry": "Försök igen",
+  "fail.severalGames.choose": "Välj titel-ID för spelet du vill bygga.",
   "fail.severalGames.next": "Ett bygge tar ett spel per mapp. Flytta de andra spelen ur mappen eller lägg det här spelets filer i en egen mapp. Bygg sedan igen.",
   "fail.severalGames.what": "Mappen innehåller fler än ett spel.",
   "fail.shellDataIncomplete.next": "Spelet är inte klart att spela. Lås upp enheten och håll den ansluten och försök sedan igen. Bara de filer som saknas eller är ofullständiga kopieras.",
