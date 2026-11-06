@@ -7,7 +7,7 @@
 
 **你的 Switch 游戏，跑在你的 iPhone 上。**
 
-**不是模拟器。不用命令行。一个 macOS App 点几下就把整个构建做完。**
+**不是模拟器。不用命令行。一个 macOS 或 Windows App 点几下就把整个构建做完。**
 
 [![Stars](https://img.shields.io/github/stars/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/stargazers)
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
@@ -26,9 +26,10 @@
 
 #### 🆕 最近重点更新
 
+- **Windows 版启动器上线（`NX2Apple-windows-x64.zip`）**：在 Windows 上使用与 Mac 版一致的 1.2 界面构建 iPhone 和 iPad IPA，自带完整引擎目录（无需安装 git），支持首次启动引导向导与工具链一键安装、多核并行 NSO 重写及应用内自动更新（`NX2Apple.exe`）
 - **支持 Switch 2 游戏**：在 Mac 或 Windows 启动器中直接选择 Switch 2 游戏文件夹或 `.nup` 文件，无需 `prod.keys`，即可在 Mac、iPhone 或 iPad 上构建和游玩
-- **虚拟手柄自定义与手柄改键**：在 iPhone 和 iPad 的可视化编辑器中自由调整触控按键大小、摇杆位置与整体布局（2D/3D 独立保存）。外接手柄支持全局或按游戏改键
-- **iPhone 和 iPad 共用一个 App**：所有游戏装进同一个壳 App（也支持导出未签名 IPA），支持横屏 Cover Flow、按游戏独立设置与 Mod、保留存档删除游戏，以及 6 种系统语言
+- **虚拟手柄自定义、双 Joy-Con 横握拆分与 Steam Controller（2026）**：在 iPhone 和 iPad 的可视化编辑器中自由调整触控按键大小、摇杆位置与整体布局（2D/3D 独立保存）。外接手柄支持全局或按游戏改键，Mac 端支持将一对蓝牙 Joy-Con 拆分为两个独立横握手柄，并支持新款 Steam Controller（2026）
+- **iPhone 和 iPad 共用一个 App**：所有游戏装进同一个壳 App（也支持导出未签名 IPA），每个游戏自带独立宿主框架（后续引擎更新无需重编旧游戏），支持横屏 Cover Flow、按游戏独立设置与 Mod、保留存档删除游戏，以及 6 种系统语言
 - **主机模式**：插上手柄按 Select 或设置开机直达，游戏库即刻变为全屏手柄界面，长按 Home 键 2 秒即可退出游戏
 
 所有版本见[更新日志](CHANGELOG.zh-CN.md)。
@@ -134,7 +135,7 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 
 ## 游戏
 
-共有 140 个游戏 profile。部分游戏上游报告 iPhone 可玩，其余的 profile 还没在手机上试过。其中几款：
+共有 147 个游戏 profile。部分游戏上游报告 iPhone 可玩，其余的 profile 还没在手机上试过。其中几款：
 
 | | 游戏 | 运行于 | 状态 |
 |---|---|---|---|
@@ -148,9 +149,9 @@ iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上�
 **[GAMES.zh-CN.md](GAMES.zh-CN.md)**（带截图图库和每款的安装大小）
 有完整表格和每款游戏需要的更新包版本：更新包 NSP 的显示版本必须与 profile 一致，否则构建会提示。
 
-**Switch 2 游戏**是引擎新加入的。目前有 7 款有 profile，上游都标为可在 Mac 上玩：Donkey Kong Bananza、
+**Switch 2 游戏**是引擎新加入的。目前有 11 款有 profile，上游都标为可在 Mac 上玩：Donkey Kong Bananza、
 Splatoon Raiders、Fire Emblem Fortune's Weave、Pokémon Pokopia、Hyrule Warriors: Age of Imprisonment、
-Mario Kart World 和 Mario Tennis Fever。
+Mario Kart World、Mario Tennis Fever、Star Fox、Yoshi and the Mysterious Book、The Legend of Zelda: Ocarina of Time 和 Kirby Air Riders。
 在构建页面选择游戏文件夹（`base/`、`updates/`、`dlc/`）或它的 `.nup` 文件即可，不需要 `prod.keys`。游戏库会把它们标为
 **Switch 2**。本 fork 只试过 Donkey Kong Bananza：所有者通过启动器构建，并在 Mac、iPhone 和 iPad 上玩过，Mac 和 iPhone 上没有发现问题，
 iPad 上基本没有问题。其他 Switch 2 游戏在本 fork 上没有试过。详情见 [GAMES.zh-CN.md](GAMES.zh-CN.md#switch-2-游戏)。
