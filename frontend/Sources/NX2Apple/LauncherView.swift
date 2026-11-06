@@ -181,7 +181,7 @@ struct LauncherView: View {
                           padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            if m.running && page != .library { activityBar }
+            if m.running && page == .settings { activityBar }
         }
         .padScope("main", padFocus)
         .environmentObject(padFocus)
