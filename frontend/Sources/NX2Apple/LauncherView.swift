@@ -5,7 +5,7 @@ import NXModel
 import NXLauncher
 
 struct LauncherView: View {
-    private let stores: LauncherStores   // the wiring: the stores below are its, the views take what they show
+    let stores: LauncherStores   // the wiring: the stores below are its, the views take what they show
     @StateObject var m: BuildStore   // the build: the stages, the failure, the inputs
     @ObservedObject var devices: DeviceStore   // the copy card and the activity line while the data goes over
     @ObservedObject var loc: Localizer   // the strings: handed on to every view below through the environment
@@ -13,7 +13,7 @@ struct LauncherView: View {
     @ObservedObject private var repo: RepoStore   // the repository: the activity line, and the checks that follow a change of it
     @ObservedObject private var engine: EngineSyncStore   // the engine: the sync banner, and the checks that follow a sync
     @StateObject var library: GameLibrary
-    @State private var page: LauncherPage = .library
+    @State var page: LauncherPage = .library
     @State private var search = ""
     @State private var searching = false
     @State private var consolePrompt = false
@@ -22,7 +22,8 @@ struct LauncherView: View {
     @StateObject private var consoleDriver: AnyConsoleDriver
     @State private var controllerSheet = false
     @FocusState private var searchFocused: Bool
-    @State var artwork: [UUID: NSImage] = [:]
+    @State var artwork: [UUID: NSImage] = [:]   // card size
+    @State var heroArtwork: (id: UUID, image: NSImage)?   // the hero game's, at the size the hero needs
     @State var activeBuildID: UUID?
     @State var launching = false
     @State private var launchError: String?
@@ -35,6 +36,12 @@ struct LauncherView: View {
     @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
     @State private var cheatsFor: UUID?  // the game whose Cheats sheet is open (CheatsView.swift)
     @State var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
+    @State var artworkEditor: ArtworkEditor?   // the game whose artwork panel is open (ArtworkPanel.swift, LauncherView+Artwork.swift)
+    @State var artworkSlot: ArtworkSlot?   // its tab: the part of the library not being edited dims
+    @State var artworkPreview: GameArtwork?   // its draft, which the hero and the selected card draw instead of the saved artwork
+    @State var previewGeneration = 0   // the latest preview decode: an older one that finishes late is dropped
+    @State var artworkHeroAspect = ArtworkEditor.heroBandAspect   // the hero's proportions now, the band the panel frames for
+    let artworkStore: ArtworkStore
     @StateObject private var controls: ControlLayout
     @StateObject private var gamepad: LauncherGamepad
     @StateObject var padFocus: PadFocus
@@ -46,13 +53,15 @@ struct LauncherView: View {
     private var performStartupChecks: Bool
     private let onRunSetup: (() -> Void)?   // Settings' "Run setup again"; the root view supplies it
     private let qaManage: (open: Bool, ring: Bool)   // visual QA: the Manage menu open at launch, with the controller's focus ring or without
+    private let qaArtwork: ArtworkSlot?   // visual QA: the artwork panel open at launch, on this tab
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
 
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false,
-         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil) {
+         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared) {
         _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
         self.onRunSetup = onRunSetup
@@ -62,6 +71,11 @@ struct LauncherView: View {
         injectedDriver = controllerDriver != nil
         self.enterConsole = enterConsole
         qaManage = (manageOpen, padRing)
+        qaArtwork = artworkOpen
+        self.artworkStore = artworkStore
+        _artworkEditor = State(initialValue: artworkEditor)   // tests hand in one with its own environment
+        _artworkPreview = State(initialValue: artworkEditor?.draft)   // and the library draws its draft from the first frame
+        _artworkSlot = State(initialValue: artworkEditor?.slot)
         if let search { _search = State(initialValue: search); _searching = State(initialValue: true) }   // visual QA: the bar with its field open
         _toolsAge = StateObject(wrappedValue: ToolsAge(older: olderTools))   // visual QA: games marked without a checkout to compare
         _gamepad = StateObject(wrappedValue: gamepad ?? LauncherGamepad())   // LauncherPerformanceTests presses its buttons
@@ -143,7 +157,23 @@ struct LauncherView: View {
             Divider().opacity(0.3)
             EngineSyncBanner(engine: engine, m: m)
             if page == .library {
-                libraryPage
+                HStack(spacing: 0) {
+                    // The activity bar stays under the library, so the panel runs to the window's bottom edge with its buttons
+                    VStack(spacing: 0) {
+                        libraryPage
+                            .allowsHitTesting(artworkEditor == nil)   // the library stays visible as the live preview, and takes no click or Return
+                            .transaction { if reduceMotion { $0.animation = nil } }   // under Reduce Motion the panel fades in, nothing moves
+                        activityBar
+                    }
+                    if let editor = artworkEditor {
+                        Divider().opacity(0.3)
+                        ArtworkPanel(editor: editor, labels: loc.t, save: { closeArtwork(save: true) }, cancel: { closeArtwork(save: false) })
+                            .onReceive(editor.$draft) { refreshPreview($0) }
+                            .onReceive(editor.$slot) { artworkSlot = $0 }
+                            .onChange(of: artworkHeroAspect) { editor.heroAspect = $0 }
+                            .transition(reduceMotion ? .opacity : .move(edge: .trailing).combined(with: .opacity))
+                    }
+                }
             } else {
                 CardPages(settings: page == .settings, build: m, updates: updates, repo: repo, engine: engine, dependencies: stores.dependencies, devices: devices,
                           library: library, diagnostics: stores.diagnostics, onViewGame: { page = .library }, onOpenSettings: { page = .settings },
@@ -151,7 +181,7 @@ struct LauncherView: View {
                           padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            if m.running || page == .library { activityBar }
+            if m.running && page != .library { activityBar }
         }
         .padScope("main", padFocus)
         .environmentObject(padFocus)
@@ -174,7 +204,8 @@ struct LauncherView: View {
         .onAppear {
             gamepad.perform = padAction
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
-            if performStartupChecks { library.migrateLaunchOptions(); CloudSavesMigration.run() }
+            if performStartupChecks { library.migrateLaunchOptions(); library.migrateArtwork(); CloudSavesMigration.run() }
+            if let slot = qaArtwork, artworkEditor == nil, let game = library.selected { openArtwork(game, slot: slot) }
             if qaManage.open {
                 if qaManage.ring { padFocus.show(default: nil) }
                 manageOpenFor = library.selected?.id
@@ -207,6 +238,7 @@ struct LauncherView: View {
         .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
+        .onChange(of: heroGame?.id) { _ in refreshHeroArtwork() }
         .onChange(of: buildProgress) { progress in if m.running { DockProgress.update(progress) } }
         .onReceive(m.$running.removeDuplicates()) { running in
             if !running { DockProgress.update(nil) }
@@ -276,7 +308,16 @@ struct LauncherView: View {
         }
         .onChange(of: controllerMappingOpen) { _ in padFocus.scope = currentPadScope }
         .onChange(of: controlsOpen) { open in padFocus.scope = open ? "controls" : (optionsFor != nil ? "launch" : "main") }
-        .onChange(of: page) { _ in padFocus.focused = nil }
+        .onChange(of: page) { page in
+            padFocus.focused = nil
+            if page != .library { closeArtwork(save: false) }
+        }
+        .onChange(of: artworkEditor?.gameID) { id in
+            padFocus.scope = id != nil ? "artwork" : currentPadScope
+            if id != nil, padFocus.visible {   // opened by the controller: its focus lands on the chosen tile once the panel is drawn
+                DispatchQueue.main.async { padFocus.show(default: artworkPadFocus) }
+            }
+        }
         .onChange(of: padFocus.focused) { id in   // a controller moving onto a game's card selects it, as a click does
             if let id, id.hasPrefix("card."), let uuid = UUID(uuidString: String(id.dropFirst(5))) { library.selectedID = uuid }
         }
@@ -409,6 +450,8 @@ struct LauncherView: View {
 
     /// The collection row's measured height (CollectionHeightKey); the hero above it takes the rest of the page.
     @State var collectionHeight: CGFloat = 274
+    /// The hero's height with the panel closed, kept while it is open so the scaled-down hero keeps its proportions.
+    @State var closedHeroHeight: CGFloat = 498
 
     private var activityBar: some View {
         VStack(spacing: 0) {
@@ -537,7 +580,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil
+        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil || artworkEditor != nil
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -550,6 +593,7 @@ struct LauncherView: View {
         }
         if action == .b, controllerMappingOpen { controllerMappingOpen = false; return }
         if action == .b, controllerSheet { controllerSheet = false; return }
+        if action == .b, artworkEditor != nil { closeArtwork(save: false); return }
         if action == .b, savesFor != nil { savesFor = nil; return }
         if action == .b, cheatsFor != nil { cheatsFor = nil; return }
         // The Free space sheet: B closes it, the D-pad and A work in it, X, L and R do nothing behind it
@@ -563,7 +607,7 @@ struct LauncherView: View {
         if removing != nil { return }   // the remove dialog is AppKit's; it takes the mouse or the keyboard
         if !padFocus.visible {
             padFocus.show(default: manageOpenFor != nil ? ManagePad.firstFocus(manageItems(for: library.selected))
-                          : !sheetOpen && page == .library ? library.selectedID.map { "card." + $0.uuidString } : nil)
+                          : artworkEditor != nil ? artworkPadFocus : !sheetOpen && page == .library ? library.selectedID.map { "card." + $0.uuidString } : nil)
             if [.up, .down, .left, .right].contains(action) { return }   // the first press only shows where the focus is
         }
         switch action {
@@ -593,7 +637,7 @@ struct LauncherView: View {
                         deviceName: devices.deviceName(game.installedDevice), launching: launching,
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
-                            changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
+                            changeArtwork: { openArtwork(game) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
                             freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }, delete: { deleting = game }))
@@ -603,7 +647,7 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
@@ -674,30 +718,6 @@ struct LauncherView: View {
     }
 
     private func checkTools() { toolsAge.check(games: library.games, repo: stores.repo.path) }
-
-    private func refreshArtwork() {
-        artwork = Dictionary(uniqueKeysWithValues: library.games.compactMap { game in
-            GameLibrary.artwork(for: game, repo: stores.repo.path).map { (game.id, $0) }
-        })
-    }
-
-    /// The eShop key art of the games that have none yet; the cards and the hero redraw as it arrives.
-    private func fetchArtwork() {
-        let ids = library.games.map(\.titleID)
-        Task {
-            let added = await ArtworkStore.shared.fetchMissing(ids)
-            if !added.isEmpty { await MainActor.run { refreshArtwork() } }
-        }
-    }
-
-    private func chooseArtwork(_ game: LibraryGame) {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic]
-        panel.message = loc.t("library.artworkHint")
-        if panel.runModal() == .OK, let url = panel.url, NSImage(contentsOf: url) != nil {
-            library.setArtwork(url.path, for: game.id)
-        }
-    }
 
     func chooseLibraryFolder() {
         let panel = NSOpenPanel()
