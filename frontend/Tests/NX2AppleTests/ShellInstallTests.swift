@@ -596,9 +596,13 @@ import NXModel
 
         try update.write(to: URL(fileURLWithPath: image))
         var plans: [ShellCopyPlan] = []
+        var log = ""
+        i.log = { log += $0 }
         i.decideCopy = { plans.append($0); return .skip }
         XCTAssertTrue(i.installData(titleID: titleID, archive: f.archive).copySkipped)
         XCTAssertEqual(plans.map(\.bytes), [Int64(update.count)])
+        XCTAssertEqual(plans.first?.versionNote, "The game data has changed since the last copy.")
+        XCTAssertTrue(log.contains("The game data has changed since the last copy."), log)
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: deviceImage)), first)
         i.decideCopy = { _ in .copy }
         try write(state + "/fail-on", "romfs.img")
@@ -607,7 +611,9 @@ import NXModel
         XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 1)
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: deviceImage)), update)
         i.decideCopy = { _ in XCTFail("an unchanged copy needs no prompt"); return .skip }
-        XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 0)
+        let current = i.installData(titleID: titleID, archive: f.archive)
+        XCTAssertEqual(current.copied, 0)
+        XCTAssertEqual(current.message, "Z already has this version of the game data.")
     }
 
     func testNewGameVersionWithUnchangedIndexAndReinstalledContainerBothNeedTheImage() throws {
@@ -626,6 +632,7 @@ import NXModel
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: docs + "/games/\(titleID)/romfs.img")), update)
 
         // A different paired device has its own copy history, even if its directory listing looks identical.
+        i.decideCopy = { plan in XCTAssertNil(plan.versionNote); return .copy }
         i.device = "00008150-BBBB"
         try writeDevices(state + "/devices-default.json", [(i.device, "wired")])
         XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 1)
@@ -769,6 +776,7 @@ import NXModel
         let r = install(i, f)
         XCTAssertTrue(r.ok, r.message)
         XCTAssertEqual(plans.count, 1)
+        XCTAssertNil(plans.first?.versionNote)
         XCTAssertEqual(plans.first?.connection, .wired)
         XCTAssertEqual(plans.first?.connectionText, "Keep Z unlocked until the copy finishes.")
         XCTAssertEqual(plans.first?.files, 2)

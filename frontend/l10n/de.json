@@ -1335,6 +1335,8 @@
   "shell.copyWifiOne": "Über WLAN verbunden: %@ zu kopieren dauert etwa %d Minuten. Mit Kabel geht es schneller.",
   "shell.copyWired": "Lass %@ entsperrt, bis das Kopieren fertig ist.",
   "shell.dataAlready": "Auf %@ installiert, die Spieldaten waren schon auf dem Gerät",
+  "shell.dataChanged": "Die Spieldaten haben sich seit der letzten Übertragung geändert.",
+  "shell.dataCurrent": "Diese Version der Spieldaten ist bereits auf %@.",
   "shell.driveChoose": "Ordner wählen",
   "shell.driveCopy": "Spieldaten kopieren",
   "shell.driveDone": "Die Spieldaten liegen in %@. Verbinde das Laufwerk mit dem iPhone und wähle diesen Ordner in der App unter %@. Das Laufwerk muss beim Spielen verbunden bleiben.",
