@@ -84,6 +84,13 @@ installs what it can with one click.
 
 Building by hand from a terminal is in [BUILDING.md](BUILDING.md).
 
+**Updating a Mac game you already built.** Select the game in the library and choose **Rebuild**.
+For an update NSP, keep the base game selected and choose the new NSP in **Updates & add-on content**.
+Build for **This Mac** in the same output folder. The update can change both game code and data, so
+the launcher builds the new version and reuses cached work where it can. Your saves stay in their
+existing folder outside the `.app`, keyed by the game's title ID. Rebuilding in the same library
+keeps that progress.
+
 ## The iPhone and iPad app
 
 The **iPhone / iPad** target builds one shell app that holds all your games, the way the Mac launcher
