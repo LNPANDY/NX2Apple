@@ -134,6 +134,16 @@ SDK_ACCEPTED = ('iPhoneOS27.2.sdk', 'iPhoneOS27.1.sdk', 'iPhoneOS27.0.sdk',
 #: Commit of `xybp888/iOS-SDKs` the pinned SDK was read from. Informational: the SDK tree is
 #: verified by its own layout and a caller-supplied hash, not by trusting this number.
 SDK_PINNED_COMMIT = '4a48e5409f8ea6ac422c44d91b86fa0f8ae010ff'
+#: Single-file release archive from `xybp888/iOS-SDKs/releases`, used before the git route so
+#: mainland networks can fetch the SDK through `GITHUB_MIRRORS` + `rank_by_speed` without
+#: needing PortableGit or a multi-step `git sparse-checkout` over 67k objects.
+SDK_RELEASE_TAG = 'iOS27.2-SDKs'
+SDK_ASSET = {
+    'name': f'{SDK_PINNED}.zip',
+    'url': f'{SDK_REPO}/releases/download/{SDK_RELEASE_TAG}/{SDK_PINNED}.zip',
+    'sha256': '5423a4ea3bf33a215380cd9bab1819df2ddd6a0c522b3afeb0b86647934f4349',
+    'size': 55417972,
+}
 
 #: .NET SDK. `dm/tools/nx_extract` targets net10.0 and the shader translator's runtimeconfig is
 #: net10.0, so 10 is the floor; a newer major (11) can still build a net10.0 project as long as
@@ -720,6 +730,40 @@ def is_sdk_dir(p: os.PathLike | str) -> bool:
         return False
 
 
+def resolve_sdk_dir(p: os.PathLike | str | None) -> Path | None:
+    """Resolve a user-chosen file (`SDKSettings.json`) or folder (`iPhoneOS*.sdk` or its parent)
+    to the actual `iPhoneOS*.sdk` directory, or None if no valid SDK is there."""
+    if not p:
+        return None
+    cand = Path(p)
+    try:
+        if not cand.exists():
+            return None
+        if cand.is_file():
+            cur = cand.parent
+            for _ in range(6):
+                if is_sdk_dir(cur):
+                    return cur
+                if cur.parent == cur:
+                    break
+                cur = cur.parent
+            return None
+        if is_sdk_dir(cand):
+            return cand
+        for sub in sorted(cand.glob('iPhoneOS*.sdk'), reverse=True):
+            if is_sdk_dir(sub):
+                return sub
+        for sub in sorted((x for x in cand.iterdir() if x.is_dir()), reverse=True):
+            if is_sdk_dir(sub):
+                return sub
+            for nested in sorted(sub.glob('iPhoneOS*.sdk'), reverse=True):
+                if is_sdk_dir(nested):
+                    return nested
+    except OSError:
+        return None
+    return None
+
+
 def sdk_version(sdk: Path) -> tuple[str, str]:
     """(version, build) of an SDK folder, from SDKSettings and the SystemVersion plist."""
     ver = build = ''
@@ -786,20 +830,63 @@ def sdk_tree_digest(sdk: Path, limit: int = 4_000_000) -> str:
 
 # ---------------------------------------------------------------- Metal
 
+def resolve_metal_dir(p: os.PathLike | str | None) -> Path | None:
+    """Resolve a user-chosen file (`metal.exe`, `metallib.exe`) or folder (`Metal Developer Tools`,
+    its `bin/` or `ios/` subfolder, or a wrapper folder) to the Metal Developer Tools root."""
+    if not p:
+        return None
+    cand = Path(p)
+    try:
+        if not cand.exists():
+            return None
+        if cand.is_file():
+            # User picked `metal.exe` or `metallib.exe` (or another binary beside `metal.exe`)
+            # inside the file dialog. Step up from the directory holding `metal.exe`.
+            cand = cand.parent
+        if not cand.is_dir():
+            return None
+        # User picked `<root>/ios` or `<root>/macos` (must check before `<cand>/bin/metal.exe`,
+        # because `<root>/ios` also has `bin/metal.exe` inside it)
+        if cand.name.lower() in ('ios', 'macos'):
+            parent = cand.parent
+            if (parent / 'ios' / 'bin' / 'metal.exe').is_file() or (parent / 'bin' / 'metal.exe').is_file():
+                return parent
+        # Standard root: `<root>/bin/metal.exe` (5.x/6.x) or `<root>/ios/bin/metal.exe` (4.x)
+        if (cand / 'bin' / 'metal.exe').is_file() or (cand / 'ios' / 'bin' / 'metal.exe').is_file():
+            return cand
+        # User picked `<root>/bin` or `<root>/ios/bin` (or a flat folder holding `metal.exe`)
+        if (cand / 'metal.exe').is_file():
+            if cand.name.lower() == 'bin':
+                up = cand.parent
+                if up.name.lower() in ('ios', 'macos'):
+                    return up.parent
+                return up
+            return cand
+        # User picked an outer wrapper folder one level above the unpacked root
+        for sub in sorted((x for x in cand.iterdir() if x.is_dir()), reverse=True):
+            if (sub / 'bin' / 'metal.exe').is_file() or (sub / 'ios' / 'bin' / 'metal.exe').is_file():
+                return sub
+    except OSError:
+        return None
+    return None
+
+
 def metal_dir() -> Path | None:
     """Metal Developer Tools for Windows root (it holds `bin/metal.exe`, or `ios/` + `macos/`)."""
-    cands: list[Path | str | None] = [setting('metal_dir'), os.environ.get(ENV_METAL)]
+    configured = [setting('metal_dir'), os.environ.get(ENV_METAL)]
+    cands: list[Path | str | None] = list(configured)
+    cands.append(tools_dir() / 'metal-developer-tools')
+    cands.append(bundled_tools_dir() / 'metal-developer-tools')
     for base in (os.environ.get('ProgramFiles'), os.environ.get('ProgramFiles(x86)')):
         if base:
             cands += sorted(glob.glob(os.path.join(base, 'Metal Developer Tools*')), reverse=True)
-    root = _first_existing(cands)
-    if root is None:
-        return None
-    # 4.x shipped one toolchain per OS in ios/ and macos/; 5.x and 6.x ship one bin/ for every
-    # target. Point at whichever folder actually holds metal.exe.
-    if (root / 'bin' / 'metal.exe').is_file() or (root / 'ios' / 'bin' / 'metal.exe').is_file():
-        return root
-    return root
+    for c in cands:
+        resolved = resolve_metal_dir(c)
+        if resolved is not None:
+            return resolved
+    # Fall back to the first existing configured folder so `check_all` can report
+    # `not found under <mroot>` when a user-configured path holds no `metal.exe`.
+    return _first_existing(configured)
 
 
 def metal_tool(name: str, sdk: str = 'iphoneos') -> Path | None:
@@ -814,7 +901,7 @@ def metal_tool(name: str, sdk: str = 'iphoneos') -> Path | None:
         return None
     sub = 'ios' if sdk.startswith('iphone') else 'macos'
     pats = (f'{sub}/bin/{name}.exe', f'{sub}/**/bin/{name}.exe', f'**/{sub}/**/{name}.exe',
-            f'bin/{name}.exe', f'**/bin/{name}.exe')
+            f'bin/{name}.exe', f'**/bin/{name}.exe', f'{name}.exe')
     for pat in pats:
         hits = sorted(glob.glob(str(root / pat), recursive=True))
         if hits:

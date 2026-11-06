@@ -236,6 +236,16 @@ def clone_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
         rmtree(work)
         try:
             run(clone_args + [repo, str(work)], 'clone', repo)
+            # narrow the working tree to the one SDK inside the mirror loop: `--filter=blob:none`
+            # defers all blob downloads to `sparse-checkout set`, so a connection that passes the
+            # tiny initial clone and drops during the multi-hundred-MB blob fetch must retry on
+            # the next mirror rather than aborting the whole install.
+            try:
+                subprocess.run([git, '-c', 'core.longpaths=true', 'sparse-checkout', 'set', version],
+                               cwd=str(work), check=True, capture_output=True, text=True,
+                               encoding='utf-8', errors='replace', **tc.no_window())
+            except subprocess.CalledProcessError as e:
+                raise SdkError(f'git sparse-checkout failed: {(e.stderr or "").strip()[-400:]}') from e
             last = None
             break
         except SdkError as e:
@@ -243,14 +253,6 @@ def clone_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
     if last is not None:
         rmtree(work)
         raise last
-    # narrow the working tree to the one SDK before checking anything out (same long-paths
-    # config: -c applies to one command only, so this call carries it too)
-    try:
-        subprocess.run([git, '-c', 'core.longpaths=true', 'sparse-checkout', 'set', version],
-                       cwd=str(work), check=True, capture_output=True, text=True,
-                       encoding='utf-8', errors='replace', **tc.no_window())
-    except subprocess.CalledProcessError as e:
-        raise SdkError(f'git sparse-checkout failed: {(e.stderr or "").strip()[-400:]}') from e
     src = work / version
     if not tc.is_sdk_dir(src):
         raise SdkError(f'{tc.SDK_REPO} has no usable {version}: pick another version, or use a .xip')
@@ -264,6 +266,127 @@ def clone_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
     repair_tbd_stubs(target, log=log)
     log(f'SDK ready: {target} ({tc.sdk_version(target)[0]})')
     return target
+
+
+def install_sdk_from_zip(zip_path: Path, dest: Path | None = None,
+                         log: Callable[[str], None] | None = None,
+                         unpack_progress: Callable[[int, int], None] | None = None) -> Path:
+    """Unpack an `iPhoneOS*.sdk.zip` archive (from `xybp888/iOS-SDKs` releases or user-supplied),
+    materialize Unix symlinks and `.tbd` text stubs, and return the SDK directory in `dest`.
+    """
+    import zipfile
+    log = log or (lambda s: None)
+    src_zip = Path(zip_path)
+    if not src_zip.is_file():
+        raise SdkError(f'no such file: {src_zip}')
+    dest = Path(dest or tc.sdk_cache_dir())
+    dest.mkdir(parents=True, exist_ok=True)
+    staging = dest / '.u'
+    rmtree(staging)
+    staging.mkdir(parents=True, exist_ok=True)
+    log(f'unpacking {src_zip.name} → {dest}')
+    links: list[tuple[str, str]] = []
+    try:
+        with zipfile.ZipFile(src_zip) as z:
+            bad_paths = [
+                i.filename for i in z.infolist()
+                if i.filename.startswith(('/', '\\')) or '..' in Path(i.filename).parts
+            ]
+            if bad_paths:
+                raise SdkError(f'unsafe paths inside {src_zip.name}: {bad_paths[:3]}')
+            members = [i for i in z.infolist() if not i.is_dir()]
+            grand = sum(i.file_size for i in members) or 1
+            done = 0
+            for info in members:
+                rel = info.filename.replace('\\', '/').lstrip('/')
+                if not rel:
+                    continue
+                is_sym = ((info.external_attr >> 16) & 0o170000) == 0o120000
+                if is_sym:
+                    target_rel = z.read(info).decode('utf-8', 'surrogateescape').strip()
+                    if target_rel:
+                        links.append((rel, target_rel))
+                    done += info.file_size
+                    if unpack_progress:
+                        unpack_progress(done, grand)
+                    continue
+                out_file = staging / rel
+                Path(_win_path(out_file.parent)).mkdir(parents=True, exist_ok=True)
+                with z.open(info) as zsrc, open(_win_path(out_file), 'wb') as zdst:
+                    shutil.copyfileobj(zsrc, zdst, 1 << 20)
+                done += info.file_size
+                if unpack_progress:
+                    unpack_progress(done, grand)
+    except zipfile.BadZipFile as e:
+        rmtree(staging)
+        raise SdkError(f'{src_zip.name} is not a valid zip archive ({e})') from e
+    except OSError as e:
+        rmtree(staging)
+        raise SdkError(f'failed to unpack {src_zip.name}: {e}') from e
+
+    if links:
+        _materialize(staging, links, log)
+
+    sdk_src = tc.resolve_sdk_dir(staging)
+    if sdk_src is None:
+        rmtree(staging)
+        raise SdkError(
+            f'{src_zip.name} does not contain a valid iPhoneOS SDK '
+            '(needs SDKSettings.json and System/Library/Frameworks/UIKit.framework)'
+        )
+    repair_tbd_stubs(sdk_src, log=log)
+    ver, _ = tc.sdk_version(sdk_src)
+    folder_name = sdk_src.name if sdk_src.name.startswith('iPhoneOS') and sdk_src.name.endswith('.sdk') else (
+        f'iPhoneOS{ver}.sdk' if ver else tc.SDK_PINNED
+    )
+    target = dest / folder_name
+    if target.exists():
+        rmtree(target)
+    shutil.move(_win_path(sdk_src), _win_path(target))
+    rmtree(staging)
+    log(f'SDK ready: {target} ({tc.sdk_version(target)[0]})')
+    return target
+
+
+def install_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
+                log: Callable[[str], None] | None = None,
+                progress: Callable[[int, int], None] | None = None,
+                unpack_progress: Callable[[int, int], None] | None = None,
+                fallback_git: bool = True) -> Path:
+    """Download and install the pinned iPhoneOS SDK via the release `.zip` (using GitHub mirrors
+    and speed ranking, no git required), falling back to `clone_sdk` if needed."""
+    log = log or (lambda s: None)
+    dest = Path(dest or tc.sdk_cache_dir())
+    dest.mkdir(parents=True, exist_ok=True)
+    target = dest / version
+    if tc.is_sdk_dir(target):
+        repair_tbd_stubs(target, log=log)
+        log(f'SDK already present: {target}')
+        return target
+    if version == tc.SDK_PINNED and tc.SDK_ASSET.get('url'):
+        from . import fetch as wf
+        asset = tc.SDK_ASSET
+        cache = tc.tools_dir() / 'downloads'
+        try:
+            zpath = wf.download(
+                asset['url'],
+                cache / asset['name'],
+                asset['sha256'],
+                asset.get('size'),
+                log=log,
+                progress=progress,
+            )
+            return install_sdk_from_zip(zpath, dest=dest, log=log, unpack_progress=unpack_progress)
+        except (wf.DownloadError, SdkError) as e:
+            if not fallback_git:
+                raise
+            log(f'release archive download did not succeed ({e}); trying git sparse-checkout fallback…')
+            if not (tc.git_exe() or shutil.which('git')):
+                try:
+                    wf.install_git(log=log, progress=progress)
+                except wf.DownloadError:
+                    raise SdkError(str(e)) from e
+    return clone_sdk(version=version, dest=dest, log=log)
 
 
 def available_versions(log: Callable[[str], None] | None = None) -> list[str]:

@@ -2916,6 +2916,182 @@ class WindowsBuildFixesTest(unittest.TestCase):
                                capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_resolve_metal_dir_accepts_exe_bin_ios_and_outer_folder(self) -> None:
+        """Selecting metal.exe, metallib.exe, bin/, ios/bin/, ios/, or the outer folder resolves to the Metal root."""
+        import ast
+        with tempfile.TemporaryDirectory() as td:
+            outer = Path(td) / 'Downloads' / 'Metal_Developer_Tools'
+            root = outer / 'Metal Developer Tools'
+            (root / 'bin').mkdir(parents=True)
+            (root / 'bin/metal.exe').write_bytes(b'MZ_METAL')
+            (root / 'bin/metallib.exe').write_bytes(b'MZ_METALLIB')
+            (root / 'ios/bin').mkdir(parents=True)
+            (root / 'ios/bin/metal.exe').write_bytes(b'MZ_IOS_METAL')
+            (root / 'ios/bin/metallib.exe').write_bytes(b'MZ_IOS_METALLIB')
+
+            for candidate in (
+                root,
+                outer,
+                root / 'bin',
+                root / 'ios',
+                root / 'ios/bin',
+                root / 'bin/metal.exe',
+                root / 'bin/metallib.exe',
+                root / 'ios/bin/metal.exe',
+                root / 'ios/bin/metallib.exe',
+            ):
+                resolved = tc.resolve_metal_dir(candidate)
+                self.assertEqual(resolved, root, f'failed to resolve {candidate}')
+
+            # Verify tc.metal_dir() and tc.metal_tool() work even if NSPB_METAL_DIR points to metal.exe
+            with mock.patch.dict(os.environ, {'NSPB_METAL_DIR': str(root / 'bin/metallib.exe')}, clear=False):
+                self.assertEqual(tc.metal_dir(), root)
+                self.assertEqual(tc.metal_tool('metal', 'iphoneos'), root / 'ios/bin/metal.exe')
+                self.assertEqual(tc.metal_tool('metallib', 'iphoneos'), root / 'ios/bin/metallib.exe')
+
+            # Verify Model._save_metal_folder accepts metal.exe / metallib.exe directly and saves root
+            model_src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+            model_tree = ast.parse(model_src)
+            m_cls = next(n for n in ast.walk(model_tree)
+                         if isinstance(n, ast.ClassDef) and n.name == 'Model')
+            save_fn = next(n for n in m_cls.body
+                           if isinstance(n, ast.FunctionDef) and n.name == '_save_metal_folder')
+            for n in ast.walk(save_fn):
+                ast.fix_missing_locations(n)
+            ns: dict = {'__name__': 'nspb_qt.model', '__package__': 'nspb_qt',
+                        'Path': Path, 'L': lambda k, *a: f'{k}:{a}'}
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[save_fn], type_ignores=[])),
+                         '<model>', 'exec'), ns)
+            save_metal = ns['_save_metal_folder']
+
+            class FakeModelForMetal:
+                def __init__(self):
+                    self.logs: list[str] = []
+                    self.rechecked = 0
+                def t(self, k: str, *a) -> str:
+                    return f'{k}:{a}'
+                def log(self, msg: str) -> None:
+                    self.logs.append(msg)
+                def check_deps(self) -> None:
+                    self.rechecked += 1
+
+            fm = FakeModelForMetal()
+            with mock.patch.dict(os.environ, {'LOCALAPPDATA': str(Path(td) / 'local')}, clear=False):
+                save_metal(fm, root / 'bin/metal.exe')
+                self.assertEqual(tc.setting('metal_dir'), str(root))
+                self.assertEqual(fm.rechecked, 1)
+                fm2 = FakeModelForMetal()
+                save_metal(fm2, root / 'bin/metallib.exe')
+                self.assertEqual(tc.setting('metal_dir'), str(root))
+                self.assertEqual(fm2.rechecked, 1)
+
+    def test_install_sdk_from_zip_materializes_symlinks_and_install_sdk_prefers_zip(self) -> None:
+        """install_sdk_from_zip materializes chained Unix symlinks in the zip; install_sdk uses HTTP zip first."""
+        from nspb_qt.win import fetch
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            zip_path = root / 'iPhoneOS27.2.sdk.zip'
+            with zipfile.ZipFile(zip_path, 'w') as zf:
+                def add_file(arcname: str, data: str) -> None:
+                    zi = zipfile.ZipInfo(arcname)
+                    zi.external_attr = (0o100644 << 16)
+                    zf.writestr(zi, data.encode('utf-8'))
+
+                def add_symlink(arcname: str, target: str) -> None:
+                    zi = zipfile.ZipInfo(arcname)
+                    zi.external_attr = (0o120777 << 16)
+                    zf.writestr(zi, target.encode('utf-8'))
+
+                add_file('iPhoneOS27.2.sdk/SDKSettings.json',
+                         json.dumps({'Version': '27.2', 'CanonicalName': 'iphoneos27.2'}))
+                add_file('iPhoneOS27.2.sdk/System/Library/Frameworks/UIKit.framework/Headers/UIKit.h',
+                         '// UIKit\n')
+                add_file('iPhoneOS27.2.sdk/System/Library/Frameworks/UIKit.framework/UIKit.tbd',
+                         '--- !tapi-tbd\n')
+                add_file('iPhoneOS27.2.sdk/System/Library/Frameworks/Foundation.framework/Foundation.tbd',
+                         '--- !tapi-tbd\n')
+                add_file('iPhoneOS27.2.sdk/usr/lib/libSystem.B.tbd',
+                         '--- !tapi-tbd\ntargets: [ arm64-ios ]\n')
+                # Chained file symlink: libm.tbd -> libSystem.tbd -> libSystem.B.tbd
+                add_symlink('iPhoneOS27.2.sdk/usr/lib/libSystem.tbd', 'libSystem.B.tbd')
+                add_symlink('iPhoneOS27.2.sdk/usr/lib/libm.tbd', 'libSystem.tbd')
+                # Directory symlink: IOKit.framework/Headers -> Versions/Current/Headers
+                add_file('iPhoneOS27.2.sdk/System/Library/Frameworks/IOKit.framework/Versions/A/Headers/IOKitLib.h',
+                         '// IOKit\n')
+                add_symlink('iPhoneOS27.2.sdk/System/Library/Frameworks/IOKit.framework/Versions/Current', 'A')
+                add_symlink('iPhoneOS27.2.sdk/System/Library/Frameworks/IOKit.framework/Headers',
+                            'Versions/Current/Headers')
+
+            with mock.patch.dict(os.environ, {'LOCALAPPDATA': str(root / 'local')}, clear=False):
+                installed = sdk_fetch.install_sdk_from_zip(zip_path)
+                self.assertTrue(tc.is_sdk_dir(installed))
+                self.assertEqual(tc.sdk_version(installed)[0], '27.2')
+                self.assertTrue((installed / 'usr/lib/libm.tbd').read_text(encoding='utf-8').startswith('--- !tapi-tbd'))
+                self.assertTrue((installed / 'System/Library/Frameworks/IOKit.framework/Headers/IOKitLib.h').is_file())
+                # Also verify resolve_sdk_dir handles SDKSettings.json and parent directories
+                self.assertEqual(tc.resolve_sdk_dir(installed / 'SDKSettings.json'), installed)
+                self.assertEqual(tc.resolve_sdk_dir(installed.parent), installed)
+
+                # Verify install_sdk downloads SDK_ASSET via fetch.download and does not need git
+                shutil.rmtree(installed)
+                def fake_download(url, dest, sha256=None, size=None, *, log=None, progress=None):
+                    self.assertEqual(url, tc.SDK_ASSET['url'])
+                    self.assertEqual(sha256, tc.SDK_ASSET['sha256'])
+                    dst = Path(dest)
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(zip_path, dst)
+                    return dst
+
+                with mock.patch.object(fetch, 'download', side_effect=fake_download) as dl_mock, \
+                     mock.patch.object(sdk_fetch, 'clone_sdk') as clone_mock:
+                    sdk_dir = sdk_fetch.install_sdk()
+                    self.assertEqual(dl_mock.call_count, 1)
+                    self.assertEqual(clone_mock.call_count, 0)
+                    self.assertTrue(tc.is_sdk_dir(sdk_dir))
+
+    def test_clone_sdk_retries_next_mirror_when_sparse_checkout_fails(self) -> None:
+        """If git sparse-checkout fails on the first mirror, clone_sdk must retry the next mirror."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            fake_git = root / 'git.exe'
+            fake_git.write_bytes(b'git')
+            seen_Log: list[str] = []
+            mirror_attempts: list[str] = []
+
+            class FakePopen:
+                def __init__(self, cmd, *a, **kw):
+                    args = [str(c) for c in cmd]
+                    url = args[-2]
+                    stage = Path(args[-1])
+                    mirror_attempts.append(url)
+                    stage.mkdir(parents=True, exist_ok=True)
+                    stage.joinpath('.git').mkdir(exist_ok=True)
+                    stage.joinpath('_mirror_url').write_text(url, encoding='utf-8')
+                    self.stdout = ['Cloning into stage...\n']
+                    self.returncode = 0
+                def wait(self):
+                    return 0
+
+            def fake_run(cmd, *a, **kw):
+                args = [str(c) for c in cmd]
+                if 'sparse-checkout' in args:
+                    cwd = Path(kw['cwd'])
+                    url = (cwd / '_mirror_url').read_text(encoding='utf-8')
+                    if 'mirror1' in url:
+                        raise subprocess.CalledProcessError(128, cmd, '', 'fatal: early EOF during sparse-checkout')
+                    make_fake_sdk(cwd, '27.2')
+                    return subprocess.CompletedProcess(cmd, 0, '', '')
+                return subprocess.CompletedProcess(cmd, 0, b'', b'')
+
+            with mock.patch.dict(os.environ, {'LOCALAPPDATA': str(root / 'local')}, clear=False), \
+                 mock.patch.object(tc, 'git_exe', return_value=fake_git), \
+                 mock.patch.object(tc, 'mirror_urls', return_value=['https://mirror1/repo.git', 'https://mirror2/repo.git']), \
+                 mock.patch.object(sdk_fetch.subprocess, 'Popen', FakePopen), \
+                 mock.patch.object(sdk_fetch.subprocess, 'run', side_effect=fake_run):
+                target = sdk_fetch.clone_sdk('iPhoneOS27.2.sdk', log=seen_Log.append)
+                self.assertEqual(len(mirror_attempts), 2)
+                self.assertTrue(tc.is_sdk_dir(target))
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -90,7 +90,9 @@ class Model(QObject):
     ask_folder: Callable[[str], str] | None = None
     #: Same, for a file ('Metal Developer Tools*.zip' the user downloaded from Apple).
     ask_file: Callable[[str], str] | None = None
+    ask_sdk_archive: Callable[[str], str] | None = None
     _metal_zip: Path | None = None
+    _sdk_archive: Path | None = None
 
     def __init__(self) -> None:
         super().__init__()
@@ -1182,16 +1184,36 @@ class Model(QObject):
                 elif what == 'ios_sdk':
                     self.log(self.t('dep.iossdk.downloading') + '\n')
                     from .win import sdk_fetch as sf
-                    # clone_sdk runs git, which a fresh machine has none of: the app installs
-                    # PortableGit itself (per-user, no installer) instead of sending the player
-                    # to git-scm.com — the report's SDK row failed three times on exactly that.
-                    if not (wtc.git_exe() or shutil.which('git')):
-                        self.log(self.t('dep.git.downloading') + '\n')
-                        from .win import fetch as wf
-                        git = wf.install_git(log=lambda s: self.log(str(s) + '\n'))
-                        self.log(self.t('dep.git.done', str(git)) + '\n')
-                    path = sf.clone_sdk(log=lambda s: self.log(str(s) + '\n'))
+                    try:
+                        path = sf.install_sdk(
+                            log=lambda s: self.log(str(s) + '\n'),
+                            progress=progress_logger(self.t('dep.phase.download')),
+                            unpack_progress=progress_logger(self.t('dep.phase.unpack')),
+                            fallback_git=False)
+                    except Exception as zip_err:
+                        self.log(f'SDK zip download failed ({zip_err}); trying git sparse-checkout fallback…\n')
+                        if not (wtc.git_exe() or shutil.which('git')):
+                            self.log(self.t('dep.git.downloading') + '\n')
+                            gpath = wf.install_git(
+                                log=lambda s: self.log(str(s) + '\n'),
+                                progress=progress_logger(self.t('dep.phase.download')))
+                            self.log(self.t('dep.git.done', str(gpath)) + '\n')
+                        path = sf.clone_sdk(log=lambda s: self.log(str(s) + '\n'))
                     self.log(self.t('dep.iossdk.done', str(path)) + '\n')
+                    ok = True
+                elif what == 'ios_sdk_archive':
+                    from .win import sdk_fetch as sf
+                    arc = self._sdk_archive
+                    self.log(self.t('dep.metal.unpacking', arc.name) + '\n')
+                    if arc.suffix.lower() == '.xip':
+                        dest = sf.extract_xip(arc, log=lambda s: self.log(str(s) + '\n'))
+                    else:
+                        dest = sf.install_sdk_from_zip(
+                            arc,
+                            log=lambda s: self.log(str(s) + '\n'),
+                            unpack_progress=progress_logger(self.t('dep.phase.unpack')))
+                    wtc.save_config('ios_sdk', str(dest))
+                    self.log(self.t('dep.iossdk.done', str(dest)) + '\n')
                     ok = True
                 elif what == 'metal_zip':
                     # Apple's tools are Apple-ID-gated: the browser download is the licensed
@@ -1265,39 +1287,63 @@ class Model(QObject):
             if picked.lower().endswith('.zip'):
                 return self.install_metal_zip(Path(picked))
             return self._save_metal_folder(Path(picked))
+        if dep.pick_key == 'ios_sdk':
+            ask_sdk = self.ask_sdk_archive or self.ask_folder
+            if ask_sdk is None:
+                return
+            folder = ask_sdk(self.t('dep.pick.ios_sdk.title'))
+            if not folder:
+                return
+            if folder.lower().endswith(('.zip', '.xip')):
+                return self.install_ios_sdk_archive(Path(folder))
+            match = wtc.resolve_sdk_dir(folder)
+            if match is None:
+                self.log(self.t('dep.pick.iossdk.invalid', folder) + '\n')
+                return
+            try:
+                from .win import sdk_fetch as sf
+                sf.repair_tbd_stubs(match)
+            except OSError:
+                pass
+            ver, _build = wtc.sdk_version(match)
+            wtc.save_config('ios_sdk', str(match))
+            self.log(self.t('dep.pick.iossdk.saved', match) + '\n')
+            if ver:
+                self.log(self.t('dep.pick.iossdk.version', ver) + '\n')
+            self.check_deps()
+            return
         ask = self.ask_folder
         if ask is None:
             return   # no window attached (tests): nothing to ask with
         folder = ask(self.t('dep.pick.' + dep.pick_key + '.title'))
         if not folder:
             return
-        if dep.pick_key == 'ios_sdk':
-            # The SDK can sit one level down (the guide's step 2 says so): accept both layouts.
-            candidates = [Path(folder)] + sorted(Path(folder).glob('iPhoneOS*.sdk'), reverse=True)
-            match = next((c for c in candidates if wtc.is_sdk_dir(c)), None)
-            if match is None:
-                self.log(self.t('dep.pick.iossdk.invalid', folder) + '\n')
-                return
-            ver, _build = wtc.sdk_version(match)
-            wtc.save_config('ios_sdk', str(match))
-            self.log(self.t('dep.pick.iossdk.saved', match) + '\n')
-            if ver:
-                self.log(self.t('dep.pick.iossdk.version', ver) + '\n')
-        else:
-            wtc.save_config(dep.pick_key, folder)
-            self.log(self.t('dep.pick.saved', folder) + '\n')
+        wtc.save_config(dep.pick_key, folder)
+        self.log(self.t('dep.pick.saved', folder) + '\n')
         self.check_deps()
 
     def _save_metal_folder(self, folder: Path) -> None:
-        """A folder the user already unpacked: validate the two layouts metal_dir() accepts."""
+        """A folder or executable (`metal.exe` / `metallib.exe`) the user chose: resolve to the
+        Metal Developer Tools root that `metal_dir()` accepts."""
         from .win import toolchain as wtc
-        if not (folder / 'bin' / 'metal.exe').is_file() and \
-           not (folder / 'ios' / 'bin' / 'metal.exe').is_file():
+        resolved = wtc.resolve_metal_dir(folder)
+        if resolved is None:
             self.log(self.t('dep.pick.metal.invalid', str(folder)) + '\n')
             return
-        wtc.save_config('metal_dir', str(folder))
-        self.log(self.t('dep.pick.saved', str(folder)) + '\n')
+        wtc.save_config('metal_dir', str(resolved))
+        self.log(self.t('dep.pick.saved', str(resolved)) + '\n')
         self.check_deps()
+
+    def install_ios_sdk_archive(self, archive_path: Path) -> None:
+        """Unpack an `iPhoneOS*.sdk.zip` or `Xcode_*.xip` the user downloaded and remember the SDK."""
+        if not archive_path.is_file():
+            self.log(self.t('dep.pick.iossdk.invalid', str(archive_path)) + '\n')
+            return
+        self._sdk_archive = archive_path
+        dep = next((d for d in self.deps if d.id == 'ios_sdk'), None)
+        if dep is None:
+            return
+        self._install_win(dep, 'ios_sdk_archive')
 
     def install_metal_zip(self, zip_path: Path) -> None:
         """Unpack the Apple zip the player downloaded and remember the folder (the one manual
