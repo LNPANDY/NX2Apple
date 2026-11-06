@@ -113,6 +113,10 @@ import NXModel
         let taken = "error: Failed to register bundle identifier. The app identifier \"org.nxnative.x\" cannot be registered to your development team."
         XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: taken, teamListed: true)?.kind, .teamTaken)
         XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: "error: No profiles for 'org.nxnative.x' were found", teamListed: true)?.kind, .teamTaken)
+        // The team's own variant has no profile for another reason (the retry under it ran already): not "registered to another team"
+        XCTAssertNil(BuildFailureClassifier.classifyInstall(.sign, error: "error: No profiles for 'org.nxnative.shell.TEAM123456' were found", teamListed: true))
+        XCTAssertFalse(BuildFailureClassifier.signingTeamTaken("error: No profiles for 'org.nxnative.shell.TEAM123456' were found"))
+        XCTAssertTrue(BuildFailureClassifier.signingTeamTaken("error: No profiles for 'org.nxnative.shell' were found"))
         XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: "error: something", teamListed: false)?.kind, .noSigningAccount)
         XCTAssertNil(BuildFailureClassifier.classifyInstall(.sign, error: "error: something", teamListed: true), "the tool's line stays")
         for step in [BuildFailureClassifier.InstallStep.install, .copy] {

@@ -53,6 +53,14 @@ extension ShellInstaller {
         -> (library: ShellLibrary?, env: [String: String]?, failure: Outcome?, notes: [String]) {
         // 3: the library
         ShellInstall.sweepDiscarded(in: ShellInstall.frameworksMirror(root: root))
+        // shell.json as it was, put back when the project step refuses: a framework build_shell.sh rejects (an older build, a game of
+        // another profile) must not stay in the library, or every later install of any game fails on it
+        let stateFile = ShellLibrary.stateFile(root: root)
+        let before = FileManager.default.contents(atPath: stateFile)
+        func restoreLibrary() {
+            if let before { try? before.write(to: URL(fileURLWithPath: stateFile), options: .atomic) }
+            else { try? FileManager.default.removeItem(atPath: stateFile) }
+        }
         var library = ShellLibrary.load(root: root)
         if !team.isEmpty { library.team = team }   // the export has no team: keep the one an install stored
         library.add(.init(titleID: titleID, name: name, framework: framework))
@@ -80,6 +88,7 @@ extension ShellInstaller {
         // 4: the project
         guard let package = ShellInstall.shellPackage(resources: resources, repo: repo) else {
             let looked = ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
+            restoreLibrary()
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", "no frontend-ios Swift package (Package.swift) in " + looked)), [])
         }
         var env = ShellInstall.projectEnvironment(root: root, frameworks: library.games.map(\.framework), bundleID: library.bundleID,
@@ -92,6 +101,7 @@ extension ShellInstaller {
         if project.status != 0 {
             let why = ShellInstall.scriptFailure(project.output) ?? fmt("msg.exitCode", project.status)
             end(Self.projectStageID, projectName, ok: false, detail: why)
+            restoreLibrary()
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
         }
         end(Self.projectStageID, projectName, ok: true)

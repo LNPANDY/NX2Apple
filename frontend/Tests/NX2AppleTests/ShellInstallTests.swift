@@ -668,6 +668,50 @@ import NXModel
         XCTAssertFalse(calls.contains { $0.hasPrefix("xcodebuild") || $0.hasPrefix("devicectl device") })   // nothing was signed or installed
     }
 
+    func testARefusedProjectLeavesShellJsonAsItWas() throws {
+        let f = try makeFixture()
+        let i = installer(f)
+        XCTAssertTrue(install(i, f).ok)
+        let before = try Data(contentsOf: URL(fileURLWithPath: ShellLibrary.stateFile(root: f.root)))
+        // A second game whose framework build_shell.sh rejects (an older build without a host in the framework, #392 follow-up)
+        let other = "0100AAAA00000000"
+        let framework = path("work2/shell-framework/DmGame\(other).framework")
+        try write(framework + "/game.manifest.json", "{}")
+        try write(framework + "/DmGame\(other)", "executable")
+        try write(state + "/refuse", "")
+        let r = i.install(framework: framework, titleID: other, name: "Other", archive: f.archive)
+        XCTAssertFalse(r.ok)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: ShellLibrary.stateFile(root: f.root))), before)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID])
+        try fm.removeItem(atPath: state + "/refuse")
+        XCTAssertTrue(install(i, f).ok, "the next install of the first game is not blocked by the refused one")
+    }
+
+    func testARefusedFirstProjectLeavesNoShellJson() throws {
+        let f = try makeFixture()
+        try write(state + "/refuse", "")
+        XCTAssertFalse(install(installer(f), f).ok)
+        XCTAssertFalse(fm.fileExists(atPath: ShellLibrary.stateFile(root: f.root)))
+    }
+
+    func testTeamVariantSignedWithoutTheMemoryCapabilityIsStored() throws {
+        let f = try makeFixture()
+        try write(state + "/taken", "")
+        try write(state + "/nomemory", "")
+        let variant = ShellLibrary.teamVariant(team: team)
+        let r = install(installer(f), f)
+        XCTAssertTrue(r.ok, r.message)
+        XCTAssertTrue(r.noMemoryCapability)
+        XCTAssertEqual(r.bundleID, variant)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).bundleID, variant)
+        let builds = calls.filter { $0.hasPrefix("xcodebuild") }
+        XCTAssertEqual(builds.count, 3)   // the plain identifier, the variant with the request, the variant without it
+        XCTAssertTrue(builds[2].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variant) build"))
+        XCTAssertTrue(install(installer(f), f).ok)
+        XCTAssertTrue(calls.filter { $0.hasPrefix("xcodebuild") }[3].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variant) build"),
+                      "the next install starts with the stored variant")
+    }
+
     func testMissingShellPackageStopsBeforeTheScript() throws {
         let f = try makeFixture()
         try fm.removeItem(atPath: f.repo + "/frontend-ios")
