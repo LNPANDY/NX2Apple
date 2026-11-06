@@ -27,14 +27,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: fork-only
 Reason: the route C shell's framework build (0050, fork-only) copies upstream's packed shader image (7249ee9); upstream has no DM_FRAMEWORK_ONLY
 Issue: LNPANDY/NX2Apple#781
-
 ---
  dm/ios/tests/test_framework_build.py | 82 +++++++++++++++++++++++++++-
  dm/ios/tools/build_ipa.sh            | 15 ++++-
  2 files changed, 91 insertions(+), 6 deletions(-)
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index fee9e53..0dccfbf 100644
+index 0d20b82..cfba21f 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -1,13 +1,15 @@
@@ -66,7 +65,7 @@ index fee9e53..0dccfbf 100644
  PREAMBLE = 'set -u\nt() { :; }; die() { echo "$*" >&2; exit 1; }\ngp() { python3 "$PROFILE_TOOL" "$GAME" "$1"; }\n'
  CAN_SIGN = sys.platform == 'darwin' and shutil.which('codesign') and shutil.which('cc')
  
-@@ -207,5 +212,76 @@ class FrameworkPackagingTests(unittest.TestCase):
+@@ -228,5 +233,76 @@ class FrameworkPackagingTests(unittest.TestCase):
          self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
  
  
@@ -144,10 +143,10 @@ index fee9e53..0dccfbf 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 9f67e73..707411c 100755
+index f177de7..3263fd5 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -255,7 +255,7 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -256,7 +256,7 @@ if [ "$PREPARE_XCODE" = YES ]; then
  fi
  
  # DM_FRAMEWORK_ONLY: the framework target alone, unsigned (build_shell.sh's project embeds it and Xcode signs it with the shell), then the
@@ -156,7 +155,7 @@ index 9f67e73..707411c 100755
  # archive (pso/, DM_PSO_BUNDLE) and the icon the shell's library shows. The game files and add-on content stay out (data, Documents/games/<id>/)
  if [ -n "$FRAMEWORK_ONLY" ]; then
    t "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"
-@@ -268,8 +268,17 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
+@@ -269,8 +269,17 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
    [ -f "$BUILT/$FW_NAME" ] || die "no built framework $BUILT"
    OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
    rsync -a --delete --exclude /msl --exclude /pso --exclude /icon.png -- "$BUILT/" "$OUTFW/" || die "copy the framework to $OUTFW"

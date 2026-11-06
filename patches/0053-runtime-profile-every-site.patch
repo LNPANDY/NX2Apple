@@ -21,7 +21,7 @@ Issue: LNPANDY/NX2Apple#144
  dm/gfx/nvn/hle_nvn.c                        |  39 ++++----
  dm/gfx/nvn/nvn_capture.h                    |   2 +-
  dm/gfx/nvn/nvn_capture.inc                  |   2 +-
- dm/gfx/nvn/nvn_mtl.m                        |  25 ++---
+ dm/gfx/nvn/nvn_mtl.m                        |  27 +++---
  dm/gfx/nvn/nvn_rec.h                        |   2 +-
  dm/gfx/tests/Makefile                       |   8 +-
  dm/gfx/tests/t_host_stubs.c                 |   2 +
@@ -29,35 +29,35 @@ Issue: LNPANDY/NX2Apple#144
  dm/host/hle_cheats.c                        |  10 +-
  dm/host/hle_fs.c                            |   4 +-
  dm/host/hle_oe.c                            |   4 +-
- dm/host/hle_profile.c                       |  35 ++++++-
+ dm/host/hle_profile.c                       |  39 +++++++-
  dm/host/hle_profile.h                       |  13 ++-
  dm/host/hle_sdk16.c                         |  17 ++--
- dm/host/hle_svc.c                           |   4 +-
+ dm/host/hle_svc.c                           |  10 +-
  dm/host/hle_thread.c                        |   2 +-
  dm/host/hle_uecvar.c                        |   4 +-
  dm/host/main.c                              |  17 ++--
  dm/host/tests/Makefile                      |  13 ++-
  dm/host/tests/t_profile_runtime.c           | 100 ++++++++++++++++++++
- dm/tools/tests/test_game_profile_runtime.py |  54 +++++++++++
- 22 files changed, 292 insertions(+), 80 deletions(-)
+ dm/tools/tests/test_game_profile_runtime.py |  55 +++++++++++
+ 22 files changed, 301 insertions(+), 84 deletions(-)
  create mode 100644 dm/host/tests/t_profile_runtime.c
  create mode 100644 dm/tools/tests/test_game_profile_runtime.py
 
 diff --git a/dm/games/game.py b/dm/games/game.py
-index a8f472a..b6e546a 100644
+index 978dd69..cb28a9e 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
-@@ -293,7 +293,8 @@ if __name__ == '__main__':
+@@ -296,7 +296,8 @@ if __name__ == '__main__':
                  ('shared_font', 'SHARED_FONT_TTF'), ('pad_layout', 'PAD_LAYOUT'), ('op_mode', 'OPMODE'), ('perf_mode', 'PERF_BOOST'),
                  ('feedback_snap', 'FEEDBACK_SNAP'), ('tex_flush_upload', 'TEX_FLUSH_UPLOAD'), ('render_cond', 'RENDER_COND'),
                  ('tex_dirty_upload', 'TEX_DIRTY_UPLOAD'), ('tex_dyn_slots', 'TEX_DYN_SLOTS'), ('gpu_timestamps', 'GPU_TS_SEGMENT'),
 -                ('vconv_range', 'VCONV_RANGE'), ('game_args', 'ARGS'), ('game_env', 'ENV')]
 +                ('vconv_range', 'VCONV_RANGE'), ('stdalloc_cap', 'STDALLOC_CAP'), ('tex_bc_cpu', 'TEX_BC_CPU'), ('ue_texture_pool', 'UE_TEXTURE_POOL'),
-+                ('enc_thread', 'ENC_THREAD'), ('game_args', 'ARGS'), ('game_env', 'ENV')]
++                ('enc_thread', 'ENC_THREAD'), ('draw_barriers', 'DRAW_BARRIERS_GAME'), ('game_args', 'ARGS'), ('game_env', 'ENV')]
          def val(macro):   # the header's C spelling → the file's plain spelling
              v = M.get('DM_GAME_' + macro)
              if v is None: return None
-@@ -309,7 +310,9 @@ if __name__ == '__main__':
+@@ -312,7 +313,9 @@ if __name__ == '__main__':
              v = val(macro)
              if v is not None: L.append(f'{key}\t{v}')
          api = [val('NVN_API_MAJOR'), val('NVN_API_MINOR')]
@@ -69,7 +69,7 @@ index a8f472a..b6e546a 100644
              L.append(f'display_version\t{b}\t{d}')
          text = '\n'.join(L) + '\n'
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 904fbec..35441ea 100644
+index 277d7a2..7ec797a 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -192,16 +192,14 @@ __attribute__((weak)) int dm_sdk_ounce(void) { return 0; }
@@ -91,12 +91,12 @@ index 904fbec..35441ea 100644
  }
  NVN(nvnDeviceGetInteger, void, const NVNdevice *d, NVNdeviceInfo what, int *out) {
      (void)d;
-@@ -387,16 +385,16 @@ static void ft_add(const tex_t *t) {
-     // COMPRESSIBLE is a memory-compression hint, not a data format: a game that sets it on every texture it creates (SD GUNDAM G GENERATION CROSS RAYS,
-     // SDK 9.4.1) still writes plain texels, so those textures must be registered too or the CPU writes that follow stay invisible (its tutorial overlay's
+@@ -391,16 +389,16 @@ static void ft_add(const tex_t *t) {
      // background never appeared). A CPU_NO_ACCESS pool keeps the exclusion: there the compression tags may really be there.
--    if (!DM_GAME_TEX_FLUSH_UPLOAD || !t->mem || !t->pool || t->has_layout || t->d.target == NVN_TEXTURE_TARGET_BUFFER || (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ||
-+    if (!dm_prof()->tex_flush_upload || !t->mem || !t->pool || t->has_layout || t->d.target == NVN_TEXTURE_TARGET_BUFFER || (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ||
+     // A sparse pool's addresses are no memory the CPU writes or flushes, and no range nvn_dirty tracks, so they read as dirty at once: every texture in one, a render target too, came out CPU-written at its first
+     // use in a profile with tex_dirty_upload. What the CPU wrote into the physical pages behind one is seen through the page table instead (tex_from_storage, sparse_look)
+-    if (!DM_GAME_TEX_FLUSH_UPLOAD || !t->mem || !t->pool || t->pool->vp || t->has_layout || t->d.target == NVN_TEXTURE_TARGET_BUFFER || (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ||
++    if (!dm_prof()->tex_flush_upload || !t->mem || !t->pool || t->pool->vp || t->has_layout || t->d.target == NVN_TEXTURE_TARGET_BUFFER || (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ||
          (t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET))) return;
      pthread_mutex_lock(&g_ft_mu);
      if (g_nft == g_cft && !(g_ft = realloc(g_ft, (g_cft = g_cft ? 2 * g_cft : 1024) * sizeof *g_ft))) die("flush_tex allocation failed");
@@ -111,7 +111,7 @@ index 904fbec..35441ea 100644
      pthread_mutex_lock(&g_ft_mu);
      for (size_t i = 0; i < g_nft; i++) if (g_ft[i].t.serial == serial) { g_ft[i] = g_ft[--g_nft]; break; }
      pthread_mutex_unlock(&g_ft_mu);
-@@ -405,7 +403,7 @@ static void ft_del(uint64_t serial) {
+@@ -409,7 +407,7 @@ static void ft_del(uint64_t serial) {
  // natively; its 121-layer ASTC terrain material arrays, 42 MB each). They stayed GPU-only textures with content 0, which ASTC decodes as the error colour, and the cave came out magenta.
  // ft_add write-protects a registered texture's pages, and on its first resolution (tex_mtl, submit thread) a write since then makes it CPU-written like a flushed one
  int nvn_ft_written(const tex_t *t) {
@@ -120,7 +120,7 @@ index 904fbec..35441ea 100644
      int r = 0; pthread_mutex_lock(&g_ft_mu);
      for (size_t i = 0; i < g_nft; i++) if (g_ft[i].t.serial == t->serial) {
          if (nvn_dirty_since_span(g_ft[i].span, g_ft[i].mem, g_ft[i].size, g_ft[i].stamp)) { r = 1; g_ft[i] = g_ft[--g_nft]; }
-@@ -415,7 +413,7 @@ int nvn_ft_written(const tex_t *t) {
+@@ -419,7 +417,7 @@ int nvn_ft_written(const tex_t *t) {
      return r;
  }
  int nvn_ft_tracked(uint64_t serial) {   // registered and not resolved yet: its storage holds whatever the CPU has written (nvn_tex_mirror_b2t / nvn_tex_mirror_t2t)
@@ -129,7 +129,7 @@ index 904fbec..35441ea 100644
      int r = 0; pthread_mutex_lock(&g_ft_mu);
      for (size_t i = 0; i < g_nft; i++) if (g_ft[i].t.serial == serial) { r = 1; break; }
      pthread_mutex_unlock(&g_ft_mu);
-@@ -430,7 +428,7 @@ int nvn_ft_tracked(uint64_t serial) {   // registered and not resolved yet: its
+@@ -434,7 +432,7 @@ int nvn_ft_tracked(uint64_t serial) {   // registered and not resolved yet: its
  // Checking every texture at every submission cost TOTK 0.4 ms of submit CPU per frame on the Mac; this way a texture is picked up a few submissions later at most
  enum { FT_POLL_BYTES = 128 << 20 };
  void nvn_ft_poll(void) {
@@ -138,7 +138,7 @@ index 904fbec..35441ea 100644
      static uint64_t gen; static size_t cur, left;
      static tex_t *hit; static size_t chit; size_t nhit = 0;
      uint64_t now = nvn_dirty_now(), scanned = 0;
-@@ -448,7 +446,7 @@ void nvn_ft_poll(void) {
+@@ -452,7 +450,7 @@ void nvn_ft_poll(void) {
      for (size_t i = 0; i < nhit; i++) if (!mtl_tex_gpu_owned(hit[i].serial)) mtl_tex_cpu_written(&hit[i]);   // outside g_ft_mu: the ownership check takes the replay's serial table lock
  }
  static void ft_flush(const uint8_t *a, uint64_t n) {
@@ -147,7 +147,7 @@ index 904fbec..35441ea 100644
      pthread_mutex_lock(&g_ft_mu);
      for (size_t i = 0; i < g_nft;)
          if (g_ft[i].mem < a + n && a < g_ft[i].mem + g_ft[i].size) { mtl_tex_cpu_written(&g_ft[i].t); g_ft[i] = g_ft[--g_nft]; } else i++;
-@@ -685,11 +683,12 @@ static int keys_hash(const NVNshaderData *sd, int mapped, uint8_t out[8]) {
+@@ -703,11 +701,12 @@ static int keys_hash(const NVNshaderData *sd, int mapped, uint8_t out[8]) {
      uint8_t md[CC_SHA256_DIGEST_LENGTH]; CC_SHA256_CTX hc; CC_SHA256_Init(&hc);
      // Profile key shader_key_skip: bytes of the control section hashed as zeros (shader_split.py key_ctl). Batman: Arkham Knight's engine shares one control section among shaders whose
      // sections differ only in GLSLC's compile information (+0x778..+0x791, +0x7d0..+0x7e7): it hands a program the section of an earlier shader with the same rest, so the bytes there name another shader
@@ -162,7 +162,7 @@ index 904fbec..35441ea 100644
          CC_SHA256_Update(&hc, ctl, nctl);
      } else CC_SHA256_Update(&hc, sd->control, nctl);
      if (code) CC_SHA256_Update(&hc, (const void *)(uintptr_t)sd->data, ncode);
-@@ -1763,7 +1762,7 @@ static _Atomic int g_high_cap = 60;
+@@ -1787,7 +1786,7 @@ static _Atomic int g_high_cap = 60;
  static int fps_high(void) {
      int v = __atomic_load_n(&g_fps_high, __ATOMIC_RELAXED);
      if (v < 0) {
@@ -171,7 +171,7 @@ index 904fbec..35441ea 100644
          v = t == 120 && DM_GAME_FPS_MAX >= 120 && !dm_fps_state && dm_fps_lock_engine();
          if (t == 120 && DM_GAME_FPS_MAX >= 120 && !v) LOG("[RED] [nvn] 120 fps: this main has %s, so it runs at 60", dm_fps_state ? "a frame step in whole vsyncs" : "no engine frame limit the host writes");
          __atomic_store_n(&g_fps_high, v, __ATOMIC_RELAXED);
-@@ -1799,7 +1798,7 @@ static int g_present_cap = -1;
+@@ -1823,7 +1822,7 @@ static int g_present_cap = -1;
  static int fps_present_cap(void) {
      if (dm_fps_state || fps_high()) return fps_step_cap();
      if (g_present_cap < 0) {
@@ -180,7 +180,7 @@ index 904fbec..35441ea 100644
          g_present_cap=t==30||t==60?t:t==120?60:0;   // 120 here: not this game's (fps_high), so it runs at 60
          if (g_present_cap && !dm_fps_lock_engine()) {
              LOG("[nvn] present cap %d fps (%s) not applied: this main has neither a frame step nor an engine frame limit the host writes, so the game's own present interval stays", g_present_cap, e ? "DM_FPS_TARGET" : "game profile fps_target");
-@@ -1824,7 +1823,7 @@ static void present_cfg(const win_t *o) {
+@@ -1848,7 +1847,7 @@ static void present_cfg(const win_t *o) {
      // with a fixed hard floor of 60 fps; the logic stays at 25 ticks, and the client's frame-counted UI logic is unaffected -
      // with the same save and the same input, the UI message streams of the two modes match message by message. Proof (before character select): r9 game / display 60 ×3 / display 120 ×2, 6 groups in total, uicmp consistent
      // (the save indicator is exempted as a timing race), and the timing differences of key messages are within game mode's own noise band; proof after entering a run is still missing, pending action script coverage
@@ -189,7 +189,7 @@ index 904fbec..35441ea 100644
      LOG("[nvn] present tick %d Hz, interval mode %s (%s; present interval set by the game %d; %s)", g_hz, g_display_mode ? "display (one frame per tick, a cut)" : "game (original semantics)",
          m ? "DM_PRESENT_INTERVAL" : "game profile present_interval", o->interval, scr > 0 ? "window" : "no window");
  }
-@@ -1889,7 +1888,7 @@ static int fstep_cpu_slowed(uint64_t presents) {
+@@ -1913,7 +1912,7 @@ static int fstep_cpu_slowed(uint64_t presents) {
  static int fstep_hold(void) {
      static int h = -1;
      if (h < 0) {
@@ -198,7 +198,7 @@ index 904fbec..35441ea 100644
          if (!h) LOG("[nvn] frame step: frames are not held longer than the cap's vsyncs (%s)", e ? "DM_FPS_HOLD" : "game profile fps_hold");
      }
      return h;
-@@ -2211,7 +2210,7 @@ static uint8_t *vpool_reserve(pool_t *o) {   // → the reserved range, or NULL
+@@ -2236,7 +2235,7 @@ static uint8_t *vpool_reserve(pool_t *o) {   // → the reserved range, or NULL
      pthread_mutex_lock(&g_vp_mu);
      if (g_nvp == g_cvp && !(g_vp = realloc(g_vp, (g_cvp = g_cvp ? 2 * g_cvp : 64) * sizeof *g_vp))) die("sparse pool table allocation failed");
      g_vp[g_nvp++] = v; o->vp = v;
@@ -207,7 +207,7 @@ index 904fbec..35441ea 100644
      pthread_mutex_unlock(&g_vp_mu);
      if (o->vmode == 2) LOG("[nvn] virtual pool %p (%#llx bytes, flags %#x): sparse, own address range %p+%#llx, physical pages are remapped into it", (const void *)o, (unsigned long long)o->size, o->flags, a, (unsigned long long)len);
      return a;
-@@ -2838,11 +2837,11 @@ NVN(nvnCommandBufferClearBuffer, void, NVNcommandBuffer *c, NVNbufferAddress a,
+@@ -2866,11 +2865,11 @@ NVN(nvnCommandBufferClearBuffer, void, NVNcommandBuffer *c, NVNbufferAddress a,
  // State the replay layer does not have yet: logged once (conditional rendering is treated as "always draw")
  // Render enable (profile render_cond, see OP_RENDER_COND in nvn_mtl.m): recorded and evaluated at replay; without the key everything draws, as before
  NVN(nvnCommandBufferSetRenderEnable, void, NVNcommandBuffer *c, uint32_t en) {
@@ -248,10 +248,10 @@ index be405db..bb0b536 100644
      for (char **e = *_NSGetEnviron(); *e; e++) if (!strncmp(*e, "DM_", 3) && strncmp(*e, "DM_NVN_CAPTURE=", 15)) KV("env\t%s\n", *e);
  #undef KV
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 3a28360..5d7f618 100644
+index db76d30..3ed684d 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -430,7 +430,7 @@ void mtl_init(void) {
+@@ -459,7 +459,7 @@ void mtl_init(void) {
      if (!g_dev) MDIE("no Metal device");
      if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
      g_bc_gpu = [g_dev supportsBCTextureCompression];
@@ -260,16 +260,25 @@ index 3a28360..5d7f618 100644
      if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
      g_q = [g_dev newCommandQueue];
      // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
-@@ -1513,7 +1513,7 @@ static void post(post_op o) {
+@@ -1029,7 +1029,7 @@ static inline void m4_end(id e) {
+ // indirect arguments), or when anything other than a draw pass ran in between (compute, copies and uploads keep their full barriers). Only vertex-stage reads of the previous pass's results without a barrier change order
+ // DM_NVN_BARRIER=ab... alternates game and full with the DM_AB phases (measurement)
+ static int sw_mode(const char *name, int dflt); static inline int sw_on(int m);
+-static int barrier_game(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_BARRIER"); v = e && !strncmp(e, "ab", 2) ? sw_mode("DM_NVN_BARRIER", 0) : e ? !strcmp(e, "game") : DM_GAME_DRAW_BARRIERS_GAME; if (v == 1) MLOG("DM_NVN_BARRIER=game: draw passes are ordered by the game's own barriers (fragment work still has barriers between passes; vertex work may overlap the previous pass's fragments)"); } return sw_on(v); }
++static int barrier_game(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_BARRIER"); v = e && !strncmp(e, "ab", 2) ? sw_mode("DM_NVN_BARRIER", 0) : e ? !strcmp(e, "game") : dm_prof()->draw_barriers_game; if (v == 1) MLOG("DM_NVN_BARRIER=game: draw passes are ordered by the game's own barriers (fragment work still has barriers between passes; vertex work may overlap the previous pass's fragments)"); } return sw_on(v); }
+ void mtl_barrier_stats(uint64_t *skip, uint64_t *full) { *skip = g_bar_skip; *full = g_bar_full; }
+ uint64_t mtl_cut_count(void);
+ // DM_NVN_GPUPROF=first frame[-last frame] (diagnostic): GPU time of every encoder of the main command buffers in those frames. A relaxed timestamp is written into a counter heap when an
+@@ -1574,7 +1574,7 @@ static void post(post_op o) {
  // so a game that waits for the fence reads one submission's reports together; a segment whose feedback has not arrived by then takes the last segment's times
  #define SEG_CLK_N 1024
- struct seg_clk { _Atomic int refs; _Atomic uint64_t t[SEG_CLK_N][2]; };   // per submission (g_sclk, allocated at its first cut): guest ns of each cut segment's GPU start / end (0 = no feedback yet)
+ struct seg_clk { _Atomic int refs; _Atomic uint64_t t[SEG_CLK_N][2]; uint32_t nb; uint16_t b[SEG_CLK_N + 1]; };   // per submission (g_sclk, allocated at its first cut): guest ns of each cut segment's GPU start / end (0 = no feedback yet); b: with ts_on, the heap slots of the segment boundaries, segment k from b[k] to b[k + 1]
 -static int seg_ts(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_GPU_TS"); v = e && *e ? !strcmp(e, "segment") : DM_GAME_GPU_TS_SEGMENT; MLOG("counter timestamps: %s (profile key gpu_timestamps; DM_NVN_GPU_TS=segment / submission)", v ? "GPU start / end time of their segment" : "one time for the whole submission"); } return v; }
 +static int seg_ts(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_GPU_TS"); v = e && *e ? !strcmp(e, "segment") : dm_prof()->gpu_ts_segment; MLOG("counter timestamps: %s (profile key gpu_timestamps; DM_NVN_GPU_TS=segment / submission)", v ? "GPU start / end time of their segment" : "one time for the whole submission"); } return v; }
  static void seg_clk_put(seg_clk *c) { if (c && atomic_fetch_sub(&c->refs, 1) == 1) free(c); }
  static uint64_t gpu_s_guest_ns(double s) {   // a feedback GPU time (seconds on the mach absolute time base) on the guest clock; 0 when unknown
      static mach_timebase_info_data_t tb; if (!tb.denom) mach_timebase_info(&tb);
-@@ -1701,7 +1701,7 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+@@ -1773,7 +1773,7 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
              free(l); uint64_t rec[2] = {sum, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec);
          }
          else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
@@ -278,16 +287,16 @@ index 3a28360..5d7f618 100644
      }
      free(ops); seg_clk_put(sc); r->ops = NULL; r->sc = NULL;
      atomic_store(&r->claimed, 1);
-@@ -3338,7 +3338,7 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
+@@ -3489,7 +3489,7 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
          }
      }
      id have = tex_get(t->serial);
 -    if (!packaged && !have && DM_GAME_TEX_DIRTY_UPLOAD && t->mem && on_sub_thread()) { int nvn_ft_written(const tex_t *); packaged = nvn_ft_written(t); }   // first use of a texture the CPU wrote since init without a flush (hle_nvn.c)
 +    if (!packaged && !have && dm_prof()->tex_dirty_upload && t->mem && on_sub_thread()) { int nvn_ft_written(const tex_t *); packaged = nvn_ft_written(t); }   // first use of a texture the CPU wrote since init without a flush (hle_nvn.c)
      if (!packaged && !have && on_sub_thread() && tex_cpu_content(t)) { mtl_tex_cpu_written(t); packaged = 1; }   // storage the CPU wrote before its first use (tex_cpu_content)
-     if (packaged) {
-         NvPkg *pk = [have isKindOfClass:[NvPkg class]] ? have : nil;   // resolved as GPU-only before the CPU wrote it: dropped and rebuilt as packaged
-@@ -4431,7 +4431,7 @@ static int clear_rect_zero(int i) {
+     if (!packaged && !have && on_sub_thread() && linear_cpu_only(t)) {   // a linear texture no view on its buffer can take (iOS wants 64-byte rows; Axiom Verge's 8x8 RGBA8 linear textures have 32): uploaded, and again after CPU writes
+         uint32_t pf; void *mb; uint64_t mo; size_t row;
+@@ -4621,7 +4621,7 @@ static int clear_rect_zero(int i) {
  static void shmap_read(void) {
      if (g_shmap) return;
      const char *e = getenv("DM_NVN_SHMAP");
@@ -296,7 +305,7 @@ index 3a28360..5d7f618 100644
      NSString *txt = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
      if (!txt) MDIE("cannot read the shader map %s (DM_NVN_SHMAP can name another)", path.UTF8String);
      g_shmap = [NSMutableDictionary dictionary];
-@@ -4458,7 +4458,7 @@ static void shmap_read(void) {
+@@ -4648,7 +4648,7 @@ static void shmap_read(void) {
          if (c.count == 2 && [c[0] isEqual:@"game"]) st_game = c[1]; else if (c.count == 2 && [c[0] isEqual:@"inputs"]) st_inputs = c[1];
      }
      if (!st_inputs) MLOG("[RED] shader library %s has no stamp (inputs.tsv): no full dmsh_build.py run made it as it is, so c1_full.tsv and cb_extent.tsv are not taken", g_msl_dir.UTF8String);
@@ -305,7 +314,7 @@ index 3a28360..5d7f618 100644
      else MLOG("shader library stamp: game %s, inputs %s", st_game.UTF8String, st_inputs.UTF8String);
      NSString *cp = [[path stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"c1_full.tsv"];   // Same directory as the mapping table (Mac: dm/games/<id>; iOS: dm/ inside the App, copied along by build_ipa.sh)
      NSString *ct = cp ? [NSString stringWithContentsOfFile:cp encoding:NSUTF8StringEncoding error:nil] : nil;
-@@ -4722,7 +4722,7 @@ @implementation FnDev @end
+@@ -4918,7 +4918,7 @@ @implementation FnDev @end
      if (stage == 0 && [j[@"layer_from"] isKindOfClass:[NSDictionary class]]) { o->lay_loc = [j[@"layer_from"][@"loc"] intValue]; o->lay_comp = [[j[@"layer_from"][@"comp"] description] UTF8String][0]; }
      char err[160];
      if (nvn_refl_from_json(j, &o->rf, err, sizeof err)) { MLOG("[RED] shader %s reflection conversion failed: %s", pc.UTF8String, err); return nil; }
@@ -314,7 +323,7 @@ index 3a28360..5d7f618 100644
          // (rf.c1 is freed by dealloc when o goes: freeing it here too was a double free, which aborted FINAL FANTASY RESONANCE at its first such shader)
          MLOG("[RED] shader %s reflection conversion failed: a texture handle the translator could not trace to one slot (profile key tex_dyn_slots off)", pc.UTF8String); return nil; }
      if (rt_range_on()) o->range_ro=rt_range_bindings_ro(j);
-@@ -6145,7 +6145,7 @@ static void vconv_fill(int f, uint64_t src, uint32_t stride, uint64_t nv, float
+@@ -6356,7 +6356,7 @@ static void vconv_fill(int f, uint64_t src, uint32_t stride, uint64_t nv, float
  typedef struct { uint32_t mn, mx; uint64_t stamp, seen, lo, n; const void *span; int gpuw; } ir_ent;   // gpuw: a GPU write was queued on the indices: never trusted again
  static nvn_hmap g_ir = {.klen = sizeof(ir_key)};
  static uint64_t g_vc_rgn[VC_RGN / 64], g_vc_stat, g_vc_conv, g_vc_whole, g_vc_checks, g_vc_bad;   // g_vc_rgn: 1 MB regions holding a kept index range (hashed); g_vc_conv / g_vc_whole: vertices converted / in the bound ranges
@@ -323,7 +332,7 @@ index 3a28360..5d7f618 100644
  static int vc_check(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_VCONV_CHECK"); v = e && *e && atoi(e); } return v; }
  static inline uint32_t vc_rgn(uint64_t r) { return (uint32_t)((r * 0x9E3779B97F4A7C15ull) >> 48) & (VC_RGN - 1); }
  static void vc_rgn_mark(uint64_t lo, uint64_t n) { for (uint64_t r = lo >> 20; r <= (lo + n - 1) >> 20; r++) { uint32_t b = vc_rgn(r); g_vc_rgn[b >> 6] |= 1ull << (b & 63); } }
-@@ -6618,7 +6618,7 @@ static int pso4_on(void) {
+@@ -6827,7 +6827,7 @@ static int pso4_on(void) {
      if (v < 0) {
          const char *e = getenv("DM_PSO_MTL4");
  #if TARGET_OS_IPHONE
@@ -332,16 +341,16 @@ index 3a28360..5d7f618 100644
          if (!v) MLOG("render pipelines through the MTLDevice (iOS: DM_PSO_MTL4=1 or the profile key pso_mtl4 on turns on the Metal 4 bases, the pipeline archive and the hybrid pipelines)");
  #else
          v = !(e && !strcmp(e, "0"));
-@@ -11487,7 +11487,7 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
-     // textures from the CPU, reads them back with ReadTexels on its own thread before any draw uses them, and copies the blocks into its 5120x5120 roughness atlas. Read from the
-     // never-uploaded host texture they were zeros, the atlas stayed empty, and the opening cave's stone blocks got roughness 0 and no torch light
-     int nvn_ft_written(const tex_t *);
+@@ -11997,7 +11997,7 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+         for (size_t y = 0; y < hb; y++) memcpy(dst + y * row, (const uint8_t *)t->mem + (y0 + y) * srow + x0, wb);
+         return;
+     }
 -    if (tex_from_storage(t) || (DM_GAME_TEX_DIRTY_UPLOAD && t->mem && nvn_ft_written(t))) {
 +    if (tex_from_storage(t) || (dm_prof()->tex_dirty_upload && t->mem && nvn_ft_written(t))) {
          // A sparse pool's texture is read through a copy gathered from its page table, unmapped pages as 0, as pkg_upload_ uploads it: where nothing is mapped its address range is
          // inaccessible (reading the storage directly stopped the host with SIGBUS)
          const uint8_t *mem = t->mem; uint8_t *part = NULL;
-@@ -12295,7 +12295,7 @@ void mtl_exec(const uint8_t *p) {
+@@ -12821,7 +12821,7 @@ void mtl_exec(const uint8_t *p) {
                  PD("Y signal_event cmd=%p dst=%p mode=%u value=%u", p, val, m, v); mtl_sub_event(val, m, v); break; }
              case OP_REPORT_COUNTER: { uint64_t t, ad; memcpy(&t, a, 8); memcpy(&ad, (const uint8_t *)a + 8, 8); g_cnt_report[t & 31]++;
                  PD("Q report type=%llu cmd=%p dst=%#llx", (unsigned long long)t, p, (unsigned long long)ad);
@@ -350,7 +359,7 @@ index 3a28360..5d7f618 100644
                  if (t == NVN_COUNTER_TYPE_SAMPLES_PASSED) { post((post_op){3, NULL, 0, 0, ad, (uint32_t)t, vis_snapshot()}); g_vis_cur = -1; }
                  else mtl_sub_counter(ad, (uint32_t)t);
                  break; }
-@@ -13528,9 +13528,10 @@ uint64_t mtl_present_ext(uint64_t serial, double period, void *ev, uint64_t ev_v
+@@ -14066,9 +14066,10 @@ uint64_t mtl_present_ext(uint64_t serial, double period, void *ev, uint64_t ev_v
  int mtl_snap_on(void) {
      static int v = -1; if (v >= 0) return v;
      const char *e = getenv("DM_PRESENT_SNAP");
@@ -376,7 +385,7 @@ index 3a3f5e0..10032d6 100644
      if (g_rec) MLOG("Metal encoding runs on its own thread (DM_NVN_ENC_THREAD=0 turns it off)");
      return g_rec;
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 5288b37..91a49ea 100644
+index 8ac4d86..95d583e 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
 @@ -47,10 +47,10 @@ t_transform_feedback: t_transform_feedback.m $(MTL_T_DEP)
@@ -395,12 +404,12 @@ index 5288b37..91a49ea 100644
  	clang $(CFLAGS) -o $@ t_dirty_slots.c ../../host/crash.c ../nvn/nvn_dirty.c
  t_dirty_race: t_dirty_race.c ../nvn/nvn_dirty.c ../../host/crash.c ../nvn/nvn_dirty.h $(GAME_H)
 diff --git a/dm/gfx/tests/t_host_stubs.c b/dm/gfx/tests/t_host_stubs.c
-index 8f9b3f8..24d3c63 100644
+index 1b7f85f..43c6fba 100644
 --- a/dm/gfx/tests/t_host_stubs.c
 +++ b/dm/gfx/tests/t_host_stubs.c
-@@ -4,3 +4,5 @@ __attribute__((weak)) uint64_t g_t0_ns;   // process start time (host main.c), r
- __attribute__((weak)) _Atomic uint64_t dm_present_ns;   // when the last present was made, for DM_HITCH_DUMP (hle_thread.c)
+@@ -5,3 +5,5 @@ __attribute__((weak)) _Atomic uint64_t dm_present_ns;   // when the last present
  __attribute__((weak)) int dm_guest_as_contains(uintptr_t address) { (void)address; return 0; }   // no guest address space (hle_bigstack.c)
+ int g_shape_w, g_shape_h; void front_picture_shape(int w, int h) { g_shape_w = w; g_shape_h = h; }   // the shape the present reports to the front end (t_present_crop reads it)
  __attribute__((weak)) void dm_vi_layer_crop(int c[4]) { c[0] = c[1] = c[2] = c[3] = 0; }   // no vi layer crop (hle_vi.c), read by hle_nvn's present
 +// The runtime profile the NVN layer reads (dm_profile in hle_profile.c): no DM_PROFILE in a test, so these are the compiled game_profile.h values
 +#include "../../host/hle_profile.c"
@@ -445,7 +454,7 @@ index 44eaf20..bf0a91e 100644
          g_cheats_menu = [DmCheatsMenuDelegate new];
          NSMenu *cm = [[NSMenu alloc] initWithTitle:@"Cheats"];
 diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
-index 3039303..fac8693 100644
+index 41ddc08..b728052 100644
 --- a/dm/host/hle_cheats.c
 +++ b/dm/host/hle_cheats.c
 @@ -129,7 +129,7 @@ static char g_dir[1024];       // cheats folder (DM_CHEATS or <DM_ROOT>/cheats),
@@ -457,7 +466,7 @@ index 3039303..fac8693 100644
  static char g_others[OTHER_MAX][17]; static int g_nothers;   // builds on disk that are not this game's build
  static char g_other_ver[OTHER_MAX][24];                      // their display versions, from their meta files ("" unknown)
  static char g_version[24];     // this build's display version (the profile's build rows, else the meta file), "" unknown
-@@ -1733,11 +1733,9 @@ static void report_build(void) {
+@@ -1731,11 +1731,9 @@ static void report_build(void) {
  
  // This build's display version from the profile's build rows (by the whole main build ID), as GetDisplayVersion answers it
  static void profile_version(void) {
@@ -471,7 +480,7 @@ index 3039303..fac8693 100644
  }
  
  // The anchored sources (*.cheats.toml) in the folder, for the panel's "compile them for this build" hint
-@@ -1855,7 +1853,7 @@ void dm_cheats_init(void) {
+@@ -1853,7 +1851,7 @@ void dm_cheats_init(void) {
      e = getenv("DM_CHEATS");
      if (e && *e) snprintf(g_dir, sizeof g_dir, "%s", e);
      else { e = getenv("DM_ROOT"); if (e && *e) snprintf(g_dir, sizeof g_dir, "%s/cheats", e); }
@@ -525,10 +534,10 @@ index a079a02..14d284c 100644
  // the default display resolution is the TV's (1080p docked) or the panel's (720p handheld) and only changes with the operation mode
  // Taiko Risshiden V DX (SDK 12.3.3) turns it on in nnMain (main+0x2e1e4c): the setter goes through the same apm session (null read at sdk+0x362b8). The host does not scale clocks;
 diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
-index 7543e08..ba22ff7 100644
+index 7543e08..dd7ef64 100644
 --- a/dm/host/hle_profile.c
 +++ b/dm/host/hle_profile.c
-@@ -103,6 +103,22 @@ static uint64_t num(const char *v, uint64_t dflt) {
+@@ -103,6 +103,25 @@ static uint64_t num(const char *v, uint64_t dflt) {
  #ifndef DM_GAME_VCONV_RANGE
  #define DM_GAME_VCONV_RANGE 0
  #endif
@@ -548,19 +557,22 @@ index 7543e08..ba22ff7 100644
 +#ifndef DM_GAME_ENC_THREAD
 +#define DM_GAME_ENC_THREAD 0
 +#endif
++#ifndef DM_GAME_DRAW_BARRIERS_GAME
++#define DM_GAME_DRAW_BARRIERS_GAME 0
++#endif
  #ifndef DM_GAME_ARGS
  #define DM_GAME_ARGS ""
  #endif
-@@ -142,6 +158,8 @@ static void defaults(void) {
+@@ -142,6 +161,8 @@ static void defaults(void) {
  #else
      P.nvn_api_major = 0; P.nvn_api_minor = 0;
  #endif
 +    P.stdalloc_cap = DM_GAME_STDALLOC_CAP; P.shader_skip_off = DM_GAME_SHADER_KEY_SKIP_OFF; P.shader_skip_len = DM_GAME_SHADER_KEY_SKIP_LEN;
-+    P.tex_bc_cpu = DM_GAME_TEX_BC_CPU; P.ue_texture_pool = DM_GAME_UE_TEXTURE_POOL; P.enc_thread = DM_GAME_ENC_THREAD;
++    P.tex_bc_cpu = DM_GAME_TEX_BC_CPU; P.ue_texture_pool = DM_GAME_UE_TEXTURE_POOL; P.enc_thread = DM_GAME_ENC_THREAD; P.draw_barriers_game = DM_GAME_DRAW_BARRIERS_GAME;
      copy_str(P.args, sizeof P.args, DM_GAME_ARGS);
      copy_str(P.genv, sizeof P.genv, DM_GAME_ENV);
      copy_str(P.source, sizeof P.source, "compiled game_profile.h");
-@@ -172,6 +190,8 @@ static void set_kv(const char *k, const char *v) {
+@@ -172,6 +193,8 @@ static void set_kv(const char *k, const char *v) {
      else if (!strcmp(k, "sys_resource")) P.sys_resource = num(v, P.sys_resource);
      else if (!strcmp(k, "mem_map_limit")) P.mem_map_limit = truthy(v);
      else if (!strcmp(k, "display_version")) {   // build<TAB>version; one row per build (game.tsv's build rows give the same)
@@ -569,7 +581,7 @@ index 7543e08..ba22ff7 100644
          const char *t = strchr(v, '\t'); if (t && P.nver < DM_PROF_MAX_VER) {
              size_t n = (size_t)(t - v); if (n >= sizeof P.ver[0].build) n = sizeof P.ver[0].build - 1;
              memcpy(P.ver[P.nver].build, v, n); P.ver[P.nver].build[n] = 0;
-@@ -188,7 +208,7 @@ static void set_kv(const char *k, const char *v) {
+@@ -188,7 +211,7 @@ static void set_kv(const char *k, const char *v) {
      else if (!strcmp(k, "fps_hold")) P.fps_hold = truthy(v);
      else if (!strcmp(k, "present_snap")) P.present_snap = truthy(v);
      else if (!strcmp(k, "pso_mtl4")) P.pso_mtl4 = truthy(v);
@@ -578,7 +590,7 @@ index 7543e08..ba22ff7 100644
      else if (!strcmp(k, "pad_layout")) P.pad_layout = !strcmp(v, "full") || !strcmp(v, "1") ? 1 : !strcmp(v, "touch") || !strcmp(v, "2") ? 2 : 0;
      else if (!strcmp(k, "op_mode")) P.opmode = !strcmp(v, "console") ? 1 : !strcmp(v, "handheld") ? 0 : truthy(v);
      else if (!strcmp(k, "perf_mode")) P.perf_boost = !strcmp(v, "boost") ? 1 : !strcmp(v, "follow") ? 0 : truthy(v);
-@@ -200,6 +220,15 @@ static void set_kv(const char *k, const char *v) {
+@@ -200,6 +223,16 @@ static void set_kv(const char *k, const char *v) {
      else if (!strcmp(k, "gpu_timestamps")) P.gpu_ts_segment = !strcmp(v, "segment") || !strcmp(v, "1");
      else if (!strcmp(k, "vconv_range")) P.vconv_range = truthy(v);
      else if (!strcmp(k, "device_api")) { char *e; P.nvn_api_major = (int)strtol(v, &e, 10); if (e && *e == '.') P.nvn_api_minor = atoi(e + 1); }
@@ -591,27 +603,28 @@ index 7543e08..ba22ff7 100644
 +    else if (!strcmp(k, "tex_bc_cpu")) P.tex_bc_cpu = truthy(v);
 +    else if (!strcmp(k, "ue_texture_pool")) P.ue_texture_pool = (int)num(v, (uint64_t)P.ue_texture_pool);
 +    else if (!strcmp(k, "enc_thread")) P.enc_thread = truthy(v);
++    else if (!strcmp(k, "draw_barriers")) P.draw_barriers_game = !strcmp(v, "game") || !strcmp(v, "1");
      else if (!strcmp(k, "game_args")) copy_str(P.args, sizeof P.args, v);
      else if (!strcmp(k, "game_env")) copy_str(P.genv, sizeof P.genv, v);
      // any other key (ipa, zip_store, shader_*, build, package, ...) is not a host constant: ignored
-@@ -236,7 +265,7 @@ static void read_env(void) {
+@@ -236,7 +269,7 @@ static void read_env(void) {
      static const char *keys[] = {"TITLE_ID","NAME","ROMFS_MARKER","PROGRAM_ID","MODULES","MEM_RESERVE","MEM_ALIAS","MEM_STACK","APP_POOL",
          "MEM_USED","SYS_RESOURCE","MEM_MAP_LIMIT","PRESENT_INTERVAL","CORE_PREEMPT","ALLOC_BIG_ALIGN","FPS_TARGET","FPS_HOLD","PRESENT_SNAP",
          "PSO_MTL4","SHARED_FONT","PAD_LAYOUT","OP_MODE","PERF_MODE","FEEDBACK_SNAP","TEX_FLUSH_UPLOAD","RENDER_COND","TEX_DIRTY_UPLOAD",
 -        "TEX_DYN_SLOTS","GPU_TIMESTAMPS","VCONV_RANGE","DEVICE_API","GAME_ARGS","GAME_ENV", NULL};
-+        "TEX_DYN_SLOTS","GPU_TIMESTAMPS","VCONV_RANGE","DEVICE_API","STDALLOC_CAP","SHADER_KEY_SKIP","TEX_BC_CPU","UE_TEXTURE_POOL","ENC_THREAD","GAME_ARGS","GAME_ENV", NULL};
++        "TEX_DYN_SLOTS","GPU_TIMESTAMPS","VCONV_RANGE","DEVICE_API","STDALLOC_CAP","SHADER_KEY_SKIP","TEX_BC_CPU","UE_TEXTURE_POOL","ENC_THREAD","DRAW_BARRIERS","GAME_ARGS","GAME_ENV", NULL};
      char k[64], name[96];
      for (int i = 0; keys[i]; i++) {
          snprintf(k, sizeof k, "%s", keys[i]);
-@@ -278,4 +307,6 @@ void dm_profile_log(void) {
+@@ -278,4 +311,6 @@ void dm_profile_log(void) {
      LOG("  graphics flush %d dirty %d rcond %d dynslots %d gputs %d vconv %d nvn_api %d.%d  versions %d",
          p->tex_flush_upload, p->tex_dirty_upload, p->render_cond, p->tex_dyn_slots, p->gpu_ts_segment, p->vconv_range,
          p->nvn_api_major, p->nvn_api_minor, p->nver);
-+    LOG("  more stdalloc_cap %#llx key_skip %#x+%#x bc_cpu %d ue_pool %d enc_thread %d",
-+        (unsigned long long)p->stdalloc_cap, p->shader_skip_off, p->shader_skip_len, p->tex_bc_cpu, p->ue_texture_pool, p->enc_thread);
++    LOG("  more stdalloc_cap %#llx key_skip %#x+%#x bc_cpu %d ue_pool %d enc_thread %d draw_barriers_game %d",
++        (unsigned long long)p->stdalloc_cap, p->shader_skip_off, p->shader_skip_len, p->tex_bc_cpu, p->ue_texture_pool, p->enc_thread, p->draw_barriers_game);
  }
 diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
-index a2febeb..5afd846 100644
+index a2febeb..9871608 100644
 --- a/dm/host/hle_profile.h
 +++ b/dm/host/hle_profile.h
 @@ -3,6 +3,7 @@
@@ -628,7 +641,7 @@ index a2febeb..5afd846 100644
      int nvn_api_major, nvn_api_minor;   // major 0 = decide by the SDK version (hle_nvn.c nvn_api)
 +    uint64_t stdalloc_cap;       // StandardAllocator's address space (hle_svc.c); 0 = what the alias region has room for
 +    uint32_t shader_skip_off, shader_skip_len;   // shader_key_skip <offset>+<length>: control bytes the shader keys hash as zeros (len 0 = none)
-+    int tex_bc_cpu, ue_texture_pool, enc_thread;   // ue_texture_pool in MB (0 = the game's own pool)
++    int tex_bc_cpu, ue_texture_pool, enc_thread, draw_barriers_game;   // ue_texture_pool in MB (0 = the game's own pool)
      char args[512], genv[1024];  // game_args / game_env
      char source[512];            // DM_PROFILE, or "compiled defaults"
  };
@@ -644,7 +657,7 @@ index a2febeb..5afd846 100644
 +    return p;
 +}                   // one line per differing value (called after loading)
 diff --git a/dm/host/hle_sdk16.c b/dm/host/hle_sdk16.c
-index eb7e0f1..6d397ff 100644
+index 6ad1c76..6cd4f05 100644
 --- a/dm/host/hle_sdk16.c
 +++ b/dm/host/hle_sdk16.c
 @@ -14,10 +14,10 @@
@@ -681,10 +694,24 @@ index eb7e0f1..6d397ff 100644
      return (size_t)skip;
  }
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index ea76b71..4069ab8 100644
+index e13bb44..0ac99e1 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
-@@ -379,11 +379,11 @@ static uint64_t alias_room(void) {
+@@ -168,10 +168,10 @@ static void guest_file_init(void) {
+     const double G = 1073741824.0; const char *e = getenv("DM_GUEST_FILE"), *d = getenv("DM_GUEST_FILE_DIR"), *mf = getenv("DM_GUEST_FILE_MIN_FREE");
+ #if TARGET_OS_IPHONE
+     uint64_t room = os_proc_available_memory();
+-    int want = guest_file_wanted(e, DM_GAME_APP_POOL, room);
+-    LOG("[mem] guest memory: memory pool %.2f GB, room to the memory limit %.2f GB, DM_GUEST_FILE %s: %s", DM_GAME_APP_POOL / G, room / G, e && *e ? e : "unset", want ? "in files" : "anonymous");
++    int want = guest_file_wanted(e, dm_profile()->app_pool, room);
++    LOG("[mem] guest memory: memory pool %.2f GB, room to the memory limit %.2f GB, DM_GUEST_FILE %s: %s", dm_profile()->app_pool / G, room / G, e && *e ? e : "unset", want ? "in files" : "anonymous");
+ #else
+-    int want = guest_file_wanted(e, DM_GAME_APP_POOL, 0);
++    int want = guest_file_wanted(e, dm_profile()->app_pool, 0);
+ #endif
+     if (!want) return;
+     g_gf_min_free = mf && *mf ? env_size("DM_GUEST_FILE_MIN_FREE", 0, 0x100000) : (uint64_t)5 << 30;
+@@ -562,11 +562,11 @@ static uint64_t alias_room(void) {
  static void stdalloc_init(uint64_t *r, int param) {
      (void)param;
      if (r[1]) return;   // a heap over memory the game passes in: no address region
@@ -699,7 +726,7 @@ index ea76b71..4069ab8 100644
  }
  // ---- Unreal's engine region ----
 diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
-index 13d9587..38e94d4 100644
+index 19354f3..544b34c 100644
 --- a/dm/host/hle_thread.c
 +++ b/dm/host/hle_thread.c
 @@ -528,7 +528,7 @@ static void hitch_init(void) {
@@ -767,19 +794,19 @@ index 6617759..af89a94 100644
      dm_cheats_init();   // the Atmosphère cheat files for this build (hle_cheats.c): picked by first 16 hex digits of main's build ID, which the loader knows now
      dm_sdk_major();   // logs the SDK version, which SDK-dependent behaviour follows (loader.c)
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index d1fa46b..f61c812 100644
+index 57917f5..c6add38 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
  GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
  $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
  GAME_H = ../gen/$(GAME)/game_profile.h
--run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_input_map $(B)/t_launcher_contract
-+run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
+-run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_input_map $(B)/t_launcher_contract
++run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
  	$(B)/t_language
  	$(B)/t_heap_size
  	$(B)/t_touch
-@@ -45,6 +45,7 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+@@ -46,6 +46,7 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
  	$(B)/t_sf
  	$(B)/t_time
  	$(B)/t_shared_font
@@ -787,7 +814,7 @@ index d1fa46b..f61c812 100644
  	$(B)/t_system_event
  	$(B)/t_vorbis
  	$(B)/t_vorbis_divides
-@@ -101,7 +102,7 @@ nro: $(B)/t_nro
+@@ -102,7 +103,7 @@ nro: $(B)/t_nro
  	$(B)/t_nro
  # the cheat engine (hle_cheats.c, compiled into the test with stubs for the loader, the heap and the keys)
  $(B)/t_cheats: t_cheats.c ../hle_cheats.c ../dm.h ../dm_input.h $(GAME_H) | $(B)
@@ -796,7 +823,7 @@ index d1fa46b..f61c812 100644
  .PHONY: cheats
  cheats: $(B)/t_cheats
  	TMPDIR="$(abspath $(B))" $(B)/t_cheats
-@@ -171,7 +172,7 @@ $(B)/t_ue_heap_span: t_ue_heap_span.c ../hle_uemalloc.c ../hle.h ../dm.h $(GAME_
+@@ -172,7 +173,7 @@ $(B)/t_ue_heap_span: t_ue_heap_span.c ../hle_uemalloc.c ../hle.h ../dm.h $(GAME_
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function $(GINC) -o $@ t_ue_heap_span.c
  run: $(B)/t_uecvar
  $(B)/t_uecvar: t_uecvar.c ../hle_uecvar.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -805,7 +832,7 @@ index d1fa46b..f61c812 100644
  $(B)/t_swkbd: t_swkbd.c ../hle_swkbd.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_swkbd.c ../hle_swkbd.c
  run: $(B)/t_bigstack
-@@ -364,3 +365,9 @@ coverage:
+@@ -376,3 +377,9 @@ coverage:
  	rm -rf $(B)/cov/prof
  	LLVM_PROFILE_FILE="$(call cov_profile,$(B)/cov)" $(MAKE) -i B=$(B)/cov SAN="$(COV_FLAGS)" run
  	@$(call cov_export,$(B)/cov)
@@ -817,7 +844,7 @@ index d1fa46b..f61c812 100644
 +	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
 diff --git a/dm/host/tests/t_profile_runtime.c b/dm/host/tests/t_profile_runtime.c
 new file mode 100644
-index 0000000..c4b4194
+index 0000000..bbf0e32
 --- /dev/null
 +++ b/dm/host/tests/t_profile_runtime.c
 @@ -0,0 +1,100 @@
@@ -845,7 +872,7 @@ index 0000000..c4b4194
 +    CHECK(!strcmp(p->args, "-foo=1 -bar"));
 +    CHECK(p->stdalloc_cap == 0x180000000ull);
 +    CHECK(p->shader_skip_off == 0x770 && p->shader_skip_len == 0x78);
-+    CHECK(p->tex_bc_cpu == 1 && p->ue_texture_pool == 1000 && p->enc_thread == 1 && p->core_preempt == 1 && p->fps_target == 30);
++    CHECK(p->tex_bc_cpu == 1 && p->ue_texture_pool == 1000 && p->enc_thread == 1 && p->draw_barriers_game == 1 && p->core_preempt == 1 && p->fps_target == 30);
 +    CHECK(p->shared_font_ttf == 1 && p->nvn_api_major == 55 && p->nvn_api_minor == 12);
 +    CHECK(p->nver == 1 && !strcmp(p->ver[0].build, "abcd") && !strcmp(p->ver[0].ver, "2.0.1"));
 +    return 0;
@@ -855,7 +882,7 @@ index 0000000..c4b4194
 +    setenv("DM_PROFILE", path, 1);
 +    const struct dm_profile *p = dm_profile();
 +    CHECK(p->shader_skip_len == 0 && p->shared_font_ttf == -1 && p->nvn_api_major == 0 && p->stdalloc_cap == 0);
-+    CHECK(p->tex_bc_cpu == 0 && p->ue_texture_pool == 0 && p->enc_thread == 0);
++    CHECK(p->tex_bc_cpu == 0 && p->ue_texture_pool == 0 && p->enc_thread == 0 && p->draw_barriers_game == 0);
 +    return 0;
 +}
 +static int child_env(void) {   // DM_PROF_<KEY> wins over the file and over the compiled profile
@@ -875,7 +902,7 @@ index 0000000..c4b4194
 +    CHECK(!strcmp(p->args, DM_GAME_ARGS));
 +    CHECK(p->stdalloc_cap == DM_GAME_STDALLOC_CAP);
 +    CHECK(p->shader_skip_off == DM_GAME_SHADER_KEY_SKIP_OFF && p->shader_skip_len == DM_GAME_SHADER_KEY_SKIP_LEN);
-+    CHECK(p->tex_bc_cpu == DM_GAME_TEX_BC_CPU && p->ue_texture_pool == DM_GAME_UE_TEXTURE_POOL && p->enc_thread == DM_GAME_ENC_THREAD);
++    CHECK(p->tex_bc_cpu == DM_GAME_TEX_BC_CPU && p->ue_texture_pool == DM_GAME_UE_TEXTURE_POOL && p->enc_thread == DM_GAME_ENC_THREAD && p->draw_barriers_game == DM_GAME_DRAW_BARRIERS_GAME);
 +    CHECK(p->core_preempt == DM_GAME_CORE_PREEMPT && p->fps_target == DM_GAME_FPS_TARGET);
 +#ifdef DM_GAME_NVN_API_MAJOR
 +    CHECK(p->nvn_api_major == DM_GAME_NVN_API_MAJOR && p->nvn_api_minor == DM_GAME_NVN_API_MINOR);
@@ -906,9 +933,9 @@ index 0000000..c4b4194
 +    char full[300], none[300]; snprintf(full, sizeof full, "%s/full.tsv", dir); snprintf(none, sizeof none, "%s/none.tsv", dir);
 +    if (write_file(full, "# values that differ from any compiled profile\n"
 +            "title_id\t0100000000001234\nprogram_id\t0x0100000000001234\nname\tRuntime Test\nmodules\tmain subsdk0 sdk\ngame_args\t-foo=1 -bar\n"
-+            "stdalloc_cap\t0x180000000\nshader_key_skip\t0x770+0x78\ntex_bc_cpu\t1\nue_texture_pool\t1000\nenc_thread\t1\ncore_preempt\t1\nfps_target\t30\n"
++            "stdalloc_cap\t0x180000000\nshader_key_skip\t0x770+0x78\ntex_bc_cpu\t1\nue_texture_pool\t1000\nenc_thread\t1\ndraw_barriers\tgame\ncore_preempt\t1\nfps_target\t30\n"
 +            "shared_font\tttf\ndevice_api\t55.12\nbuild\tabcd\t2.0.1\tdisplay\n")) return 1;
-+    if (write_file(none, "shader_key_skip\t0x0+0x0\nshared_font\tauto\ndevice_api\t0.0\nstdalloc_cap\t0x0\ntex_bc_cpu\t0\nue_texture_pool\t0\nenc_thread\t0\n")) return 1;
++    if (write_file(none, "shader_key_skip\t0x0+0x0\nshared_font\tauto\ndevice_api\t0.0\nstdalloc_cap\t0x0\ntex_bc_cpu\t0\nue_texture_pool\t0\nenc_thread\t0\ndraw_barriers\t0\n")) return 1;
 +    const char *cases[][2] = {{"file", full}, {"none", none}, {"env", NULL}, {"compiled", NULL}};
 +    int bad = 0;
 +    for (int i = 0; i < 4; i++) {
@@ -923,10 +950,10 @@ index 0000000..c4b4194
 +}
 diff --git a/dm/tools/tests/test_game_profile_runtime.py b/dm/tools/tests/test_game_profile_runtime.py
 new file mode 100644
-index 0000000..46e8f89
+index 0000000..a724f94
 --- /dev/null
 +++ b/dm/tools/tests/test_game_profile_runtime.py
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,55 @@
 +"""game.py profile: the runtime profile file the host reads from DM_PROFILE (dm/host/hle_profile.c set_kv) carries every key the host reads, with the "none" spellings
 +for a key the game leaves out (the host keeps the compiled game's value for a key the file lacks, so a second game's file must say it has none). No game files needed."""
 +import subprocess
@@ -939,7 +966,7 @@ index 0000000..46e8f89
 +sys.path.insert(0, str(REPO / 'dm/games'))
 +import game  # pyright: ignore[reportMissingImports]  (dm/games, put on sys.path above)
 +
-+KEYS = ('title_id', 'program_id', 'modules', 'stdalloc_cap', 'shader_key_skip', 'tex_bc_cpu', 'ue_texture_pool', 'enc_thread', 'core_preempt', 'fps_target', 'device_api', 'game_args')
++KEYS = ('title_id', 'program_id', 'modules', 'stdalloc_cap', 'shader_key_skip', 'tex_bc_cpu', 'ue_texture_pool', 'enc_thread', 'draw_barriers', 'core_preempt', 'fps_target', 'device_api', 'game_args')
 +
 +
 +def profile(gid):
@@ -975,6 +1002,7 @@ index 0000000..46e8f89
 +            self.assertEqual(int(rows['ue_texture_pool']), int(g.get('ue_texture_pool', '0')), g.id)
 +            self.assertEqual(int(rows['tex_bc_cpu']), int(g.get('tex_bc_cpu', 'off') == 'on'), g.id)
 +            self.assertEqual(int(rows['enc_thread']), int(g.get('enc_thread', 'off') == 'on'), g.id)
++            self.assertEqual(int(rows['draw_barriers']), int(g.get('draw_barriers', 'full') == 'game'), g.id)
 +            self.assertEqual(rows['device_api'] == '0.0', not g.get('device_api', ''), g.id)
 +            self.assertEqual(rows['shared_font'] == 'auto', not g.get('shared_font', ''), g.id)
 +

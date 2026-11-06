@@ -43,7 +43,7 @@ index ecbf20c..44eaf20 100644
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index d54f213..c475c35 100644
+index 483ef76..c51d5c4 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -22,6 +22,7 @@ DM_CHEATS_WINDOW	switch	`1` opens the Mac Cheats panel beside the game from the
@@ -55,7 +55,7 @@ index d54f213..c475c35 100644
  DM_DBG_AU_FRAMES	diagnostic	`=<frames>` asks the Mac's Core Audio output for that many frames per callback instead of about 5 ms (1024 reproduces the iOS default that caused crackling)
  DM_DETCLOCK	switch	`=<step ns>`: from the first present on, the guest clock advances a fixed step per present instead of following the wall clock, and the random source becomes a fixed-seed stream (replay and test runs)
 diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
-index 1e60583..79ebc58 100644
+index d644ee7..4cb6675 100644
 --- a/docs/reference/frame-rate.md
 +++ b/docs/reference/frame-rate.md
 @@ -310,6 +310,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an

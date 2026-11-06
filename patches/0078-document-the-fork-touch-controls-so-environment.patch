@@ -7,16 +7,15 @@ Subject: [PATCH] Document the fork touch controls so environment validation
 Upstream-Status: fork-only
 Reason: The fork touch-control patches add four environment settings without table rows, which makes the Tool tests job fail once it preserves test exit status
 Issue: LNPANDY/NX2Apple#690
-
 ---
  docs/env_switches.tsv | 4 ++++
  1 file changed, 4 insertions(+)
 
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 772479e..6d37d61 100644
+index d25e9e3..08e9eec 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -358,7 +358,11 @@ DM_THERMAL_CAP	switch	`0` turns off the thermal cap, which holds the frame step
+@@ -365,7 +365,11 @@ DM_THERMAL_CAP	switch	`0` turns off the thermal cap, which holds the frame step
  DM_THR	diagnostic	`=1` logs each SVC (except `SleepThread`) with its first four arguments, and each `CreateThread` with entry, stack, priority and core
  DM_THRCPU	diagnostic	`=<tsv path>[,<seconds>]` writes each thread's CPU time (100% = one core) and the total every interval (default 10 s); on iOS a relative path is under `Documents`
  DM_TOUCH_HAPTICS	player	`0` turns off the light haptic tap when a touch control is pressed (on by default); launcher setting
