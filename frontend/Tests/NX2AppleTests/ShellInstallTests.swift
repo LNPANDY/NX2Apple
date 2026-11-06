@@ -427,6 +427,7 @@ import NXModel
     private func installer(_ f: Fixture) -> ShellInstaller {
         var i = ShellInstaller(xcrun: f.xcrun, repo: f.repo, python: "/usr/bin/python3", root: f.root, device: device, team: team)
         i.deviceName = "Z"
+        i.defaults = testDefaults
         i.pollInterval = 0.02
         i.resources = nil
         return i
@@ -560,6 +561,76 @@ import NXModel
 
         XCTAssertFalse(calls.contains { $0.contains("--remove-existing-content") })
         XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 3)
+    }
+
+    private func fixtureWithRomFSTool() throws -> Fixture {
+        let f = try makeFixture()
+        let tool = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("engine/" + RepoLayout.romfsImageTool)
+        let tools = f.repo + "/dm/tools"
+        try fm.createDirectory(atPath: tools, withIntermediateDirectories: true)
+        try fm.copyItem(atPath: tool.path, toPath: tools + "/romfs_image.py")
+
+        return f
+    }
+
+    /// One byte of payload and a 24-byte index. Either byte can change independently at the same total size.
+    private func romfsImage(payload: UInt8 = 0, index: UInt8 = 0) -> Data {
+        var header = Data("DMROMFS1".utf8)
+        for word: UInt8 in [33, 24, 1] {
+            header.append(word)
+            header.append(Data(repeating: 0, count: 7))
+        }
+        return header + Data([payload, index]) + Data(repeating: 0, count: 23)
+    }
+
+    func testSameSizeGameUpdateNeedsAnotherCopyUntilItSucceeds() throws {
+        let f = try fixtureWithRomFSTool()
+        let image = f.archive + "/romfs.img"
+        let deviceImage = container + "/org.nxnative.shell/Documents/games/\(titleID)/romfs.img"
+        let first = romfsImage(), update = romfsImage(index: 1)
+        try first.write(to: URL(fileURLWithPath: image))
+        var i = installer(f)
+        XCTAssertTrue(install(i, f).ok)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: deviceImage)), first)
+
+        try update.write(to: URL(fileURLWithPath: image))
+        var plans: [ShellCopyPlan] = []
+        i.decideCopy = { plans.append($0); return .skip }
+        XCTAssertTrue(i.installData(titleID: titleID, archive: f.archive).copySkipped)
+        XCTAssertEqual(plans.map(\.bytes), [Int64(update.count)])
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: deviceImage)), first)
+        i.decideCopy = { _ in .copy }
+        try write(state + "/fail-on", "romfs.img")
+        XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).failure, .shellDataIncomplete)
+        try fm.removeItem(atPath: state + "/fail-on")
+        XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 1)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: deviceImage)), update)
+        i.decideCopy = { _ in XCTFail("an unchanged copy needs no prompt"); return .skip }
+        XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 0)
+    }
+
+    func testNewGameVersionWithUnchangedIndexAndReinstalledContainerBothNeedTheImage() throws {
+        let f = try fixtureWithRomFSTool()
+        let image = URL(fileURLWithPath: f.archive + "/romfs.img")
+        let manifest = f.framework + "/game.manifest.json"
+        try romfsImage().write(to: image)
+        try write(manifest, #"{"display_version":"1.0","package_version":"v0"}"#)
+        var i = installer(f)
+        XCTAssertEqual(install(i, f).copied, 2)
+        let update = romfsImage(payload: 9)
+        try update.write(to: image)
+        try write(manifest, #"{"display_version":"1.1","package_version":"v65536"}"#)
+        XCTAssertEqual(install(i, f).copied, 1)
+        let docs = container + "/org.nxnative.shell/Documents"
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: docs + "/games/\(titleID)/romfs.img")), update)
+
+        // A different paired device has its own copy history, even if its directory listing looks identical.
+        i.device = "00008150-BBBB"
+        try writeDevices(state + "/devices-default.json", [(i.device, "wired")])
+        XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 1)
+        try fm.removeItem(atPath: docs)
+        XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 2)
     }
 
     func testTeamVariantRetryStoresTheBundleIDAndTheNextRunUsesIt() throws {
@@ -802,7 +873,7 @@ import NXModel
     // ---- through the model: the build with the third target, and the re-sign ----
 
     @MainActor func testBuildWithTheShellTargetInstallsAndResignsTheSharedApp() throws {
-        let f = try makeFixture()
+        let f = try fixtureWithRomFSTool()
         testDefaults.set(f.root, forKey: "shellRoot")
         let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
@@ -815,9 +886,6 @@ import NXModel
         modelStores.deviceStore.installDevice = device
         modelStores.deviceStore.signingTeam = team
         try write(f.repo + "/dm/tools/nx_extract/Program.cs", "")
-        for tool in RepoLayout.requiredTools.filter({ $0 != RepoLayout.buildScript }) { try write(f.repo + "/" + tool, "") }
-        // the packer stand-in writes the image from the extracted RomFS
-        try write(f.repo + "/dm/tools/romfs_image.py", "import sys\nopen(sys.argv[3], 'wb').write(b'image')\n")
         try write(f.repo + "/scripts/build_ipa_from_nsp.py", """
         import sys, json, pathlib
         open('\(state)/script.txt', 'w').write(' '.join(sys.argv[1:]))

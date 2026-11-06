@@ -5,6 +5,7 @@ package struct Stage: Identifiable {
     package var name: String
     package var state: StepState = .running
     package var detail: String = ""
+    package var isScanningLastShaderFiles = false
     package var percent: Double? = nil
     package var started: Date? = nil   // when the stage began here: its clock runs while the count may stand still
     package var eta: Double? = nil     // the script's estimate of the seconds left, as of etaAt
@@ -73,6 +74,15 @@ package enum BuildProgress {
             return String(s.prefix(200))
         }
         return nil
+    }
+
+    /// shader_split.py reports completed batches of up to 16 files. Its fraction is capped at 99% even when all files are done.
+    package static func isScanningLastShaderFiles(_ event: [String: Any]) -> Bool {
+        guard event["name"] as? String == "shader split", event["step"] as? String == "splitting",
+              event["unit"] as? String == "files", event["est"] as? Bool != true,
+              let done = event["done"] as? Int, let total = event["total"] as? Int,
+              done > 0, total > done else { return false }
+        return total - done <= 16
     }
 
     /// "splitting · 1.2 / 3.4 GB", "1,203 / 19,592 shaders", "2,301 files": the step and the count (the time left is the Stage's clock).
