@@ -135,10 +135,10 @@ index c18bdc7..a341b42 100644
      if k == 0x60 and len(d) >= 4: return lz_undo(d, 4)
      if k in (0x70, 0x80) and len(d) >= 0x10: return d[0x10:]
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index d48d083..8681c21 100644
+index 384bbbd8..6785a194 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
-@@ -739,7 +739,9 @@ def cra_shaders(path, rel, ents, out):
+@@ -772,7 +772,9 @@ def cra_shaders(path, rel, ents, out):
      with open(path, 'rb') as f:
          for e in ents:
              if cra.head(f, e)[:4] in (b'FSTM', b'\x1aE\xdf\xa3'): continue
@@ -147,9 +147,9 @@ index d48d083..8681c21 100644
 +            except cra.Error as x: red(f'/{rel}/{e[1]}: {x}')
 +            scan_blob(d, f'/{rel}/{e[1]}', out)
  
- ZIP = b'PK\x03\x04'
- def zip_jobs(files, parts=64):
-@@ -2456,7 +2458,12 @@ def scan_blob(d, label, out, depth=0, left=None):
+ PDAT, PDAT_PMAP = b'PDAT', b'PMAP'
+ PDAT_ZSTD, PDAT_CTL, PDAT_SPAN = b'\x28\xb5\x2f\xfd', CTL_MAGIC + b'\xc9\0\0\0', 1 << 20   # a PMAP frame never takes up 1 MB (the largest of Kirby Air Riders' 27,299: 186 KB inflated); pdat_shaders stops if one does
+@@ -2720,7 +2722,12 @@ def scan_blob(d, label, out, depth=0, left=None):
          return
      if d[:4] == b'NARC':   # Camelot's containers (cra.py): each member packed by its first byte, so its size says nothing about the budget above
          import cra
