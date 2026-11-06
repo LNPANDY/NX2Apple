@@ -217,6 +217,40 @@ import XCTest
 
     // MARK: The script's events
 
+    func testLastShaderFileHintFollowsTheReportedBatch() {
+        let store = makeStore()
+        func progress(_ done: Int, _ total: Int, name: String = "shader split", step: String = "splitting",
+                      unit: String = "files", estimated: Bool = false) {
+            store.handleEvent("progress", ["k": 2, "name": name, "step": step, "unit": unit,
+                                           "done": done, "total": total, "est": estimated, "frac": 0.99])
+        }
+
+        progress(304_227, 304_243)
+        XCTAssertTrue(store.stages[0].isScanningLastShaderFiles)
+        XCTAssertEqual(store.stages[0].percent, 99)
+        XCTAssertEqual(store.stages[0].detail, BuildProgress.progressDetail(["step": "splitting", "unit": "files",
+                                                                             "done": 304_227, "total": 304_243]))
+        progress(48_145, 48_146)
+        XCTAssertTrue(store.stages[0].isScanningLastShaderFiles)
+        store.handleEvent("step", ["k": 2, "name": "shader split", "step": "checking the outputs"])
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        for done in [0, 48_129, 48_146] {
+            progress(done, 48_146)
+            XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        }
+        progress(48_130, 48_146, name: "extract")
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146, step: "checking the inputs")
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146, unit: "B")
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146, estimated: true)
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146)
+        store.handleEvent("stage_end", ["k": 2, "name": "shader split", "ok": false])
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+    }
+
     func testTheScriptsJSONEventsBecomeStagesAndLogLines() {
         let store = makeStore()
         store.ingest("{\"ev\":\"stage\",\"k\":1,\"n\":3,\"name\":\"extract\",\"step\":\"keys\"}\n")

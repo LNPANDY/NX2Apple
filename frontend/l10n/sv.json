@@ -1066,6 +1066,7 @@
   "prog.archiveReused": "återanvände föregående avbildning (%d filer oförändrade)",
   "prog.archiveShort": "Speldataavbildning",
   "prog.eta": "%@ kvar",
+  "prog.lastShaderFiles": "Det kan ta flera minuter att läsa igenom de sista filerna.",
   "prog.noRomfs": "ingen extraherad RomFS hittades",
   "prog.title": "Byggförlopp",
   "repo.adopt": "Gör uppdateringsbart",
