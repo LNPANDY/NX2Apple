@@ -91,7 +91,6 @@ struct GameArtwork: Codable, Equatable, Hashable {
 
     func focus(for slot: ArtworkSlot) -> UnitPoint { (choice(for: slot)?.focus ?? .center).point }
 
-    /// The file names in the game's folder that a slot uses.
     var importedFiles: Set<String> {
         Set([hero, thumbnail].compactMap { if case .imported(let file)? = $0?.source { return file } else { return nil } })
     }

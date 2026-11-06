@@ -648,11 +648,9 @@ final class GameLibrary: ObservableObject {
 
     private var migrating: Set<UUID> = []   // the games whose copy is being made in the background: setArtwork leaves their folder alone
 
-    /// Moves a custom image that is not yet a copy of ours into the app's own folder (ArtworkImport), so the original can go, and
-    /// makes the copy the hero's `imported` file (an older app, after a downgrade, shows the default artwork then). An
+    /// Moves a custom image that is not yet a copy of ours into the app's own folder (ArtworkImport), so the original can go. An
     /// image on a drive that is not connected, or that cannot be copied yet (a cloud file not downloaded, a damaged one), stays
-    /// where it is and is tried again at the next launch. One that is gone is cleared. The original is never touched. The copies are made in the background, the library is changed and
-    /// saved once on the main thread.
+    /// where it is and is tried again at the next launch. The original is never touched.
     func migrateArtwork(volumes: String = "/Volumes", completion: (() -> Void)? = nil) {
         let directory = artworkDirectory
         let copied = games.indices.filter { Self.isImported(games[$0].artworkPath, for: games[$0].id, in: directory) }   // a copy of the previous version
@@ -689,7 +687,6 @@ final class GameLibrary: ObservableObject {
         }
     }
 
-    /// The game's copy in its folder becomes the hero, and the old path is empty.
     private func adoptArtwork(at index: Int) {
         games[index].artwork.hero = ArtworkChoice(source: .imported(URL(fileURLWithPath: games[index].artworkPath).lastPathComponent))
         games[index].artworkPath = ""
@@ -699,8 +696,7 @@ final class GameLibrary: ObservableObject {
         path.hasPrefix(ArtworkStore.customDirectory(for: id, in: directory).path + "/")
     }
 
-    /// An entry that takes over another's settings (recordCompletedApp) takes its own images along: they are in a folder named for
-    /// the entry's id, which goes with the entry.
+    /// An entry that takes over another's settings (recordCompletedApp) takes its images along: their folder is named for the entry's id.
     private func carryArtwork(of old: UUID, to id: UUID) {
         let from = ArtworkStore.customDirectory(for: old, in: artworkDirectory), to = ArtworkStore.customDirectory(for: id, in: artworkDirectory)
         guard FileManager.default.fileExists(atPath: from.path) else { return }

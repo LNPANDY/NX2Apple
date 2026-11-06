@@ -81,6 +81,5 @@ extension LauncherView {
         }
     }
 
-    /// Where a controller's focus starts in the panel: the chosen tile.
     var artworkPadFocus: String? { artworkEditor.flatMap { $0.tiles.first(where: \.isSelected) }.map { "artwork.tile." + $0.id } }
 }

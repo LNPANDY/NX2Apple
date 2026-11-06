@@ -17,10 +17,8 @@ import XCTest
     var mediaResults: [ArtworkStore.MediaLoad] = []
     /// Every `retrying` flag `media` was called with.
     private(set) var retries: [Bool] = []
-    /// While set, a screenshot does not arrive.
     var holdDownloads = false
     var failingScreenshots: Set<Int> = []
-    /// While set, the list of screenshots does not arrive.
     var holdMedia = false
     /// `others` are more games in the library, each with a generated banner (the visual QA wants a row of cards).
     init(banner: Bool = true, screenshots: Int = 6, saved: String = "", others: [(titleID: String, name: String)] = []) throws {
@@ -81,7 +79,6 @@ import XCTest
         try XCTUnwrap(rep.representation(using: type, properties: [:])).write(to: url)
     }
 
-    /// A file for the player to choose: `width` pixels wide, 16:9.
     func chosenImage(width: Int, height: Int? = nil, name: String = "mine.png", hue: CGFloat = 0.6) throws -> URL {
         let url = temporary.appendingPathComponent(name)
         try Self.picture(url, width: width, height: height ?? width * 9 / 16, hue: hue, label: "My image", type: .png)
@@ -101,7 +98,6 @@ final class ArtworkEditorTests: XCTestCase {
         return editor
     }
 
-    // MARK: Choosing
 
     @MainActor func testTheGridHoldsTheBannerTheScreenshotsAndTheDefaultHeroIsTheBanner() async throws {
         let editor = try await loaded()
@@ -124,15 +120,15 @@ final class ArtworkEditorTests: XCTestCase {
         editor.move(.left); editor.move(.left); at(0)
         editor.move(.left); at(0)
         editor.move(.down); editor.move(.down); at(6)
-        editor.move(.right); at(6)   // the last tile: nothing further
-        editor.move(.down); at(6)   // nothing below
+        editor.move(.right); at(6)
+        editor.move(.down); at(6)
         XCTAssertEqual(editor.tiles.filter(\.isSelected).count, 1)
     }
 
     @MainActor func testReturnAndSpaceChooseTheTileTheArrowsAreOn() async throws {
         let editor = try await loaded()
         editor.move(.right)   // the screenshot 1 is chosen already
-        editor.reset(.hero)   // back to the banner
+        editor.reset(.hero)
         XCTAssertNil(editor.draft.hero)
         editor.selectCursor()
         XCTAssertEqual(editor.draft.hero?.source, .banner, "the cursor is back on the banner, and Return chooses it")
@@ -188,7 +184,6 @@ final class ArtworkEditorTests: XCTestCase {
         XCTAssertFalse(editor.canReset(.hero))
     }
 
-    // MARK: Save and Cancel
 
     @MainActor func testSaveWritesTheDraftToTheLibraryAndItIsKept() async throws {
         let editor = try await loaded()
@@ -240,7 +235,6 @@ final class ArtworkEditorTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: fixture.customDirectory.path).count, 1, "only the one the hero uses")
     }
 
-    // MARK: Loading
 
     @MainActor func testOfflineShowsWhatThereIsAndTryAgainLoadsTheScreenshots() async throws {
         fixture = try ArtworkFixture()
@@ -297,7 +291,6 @@ final class ArtworkEditorTests: XCTestCase {
         XCTAssertTrue(editor.select(editor.tiles[3]))
     }
 
-    // MARK: The player's own file
 
     @MainActor func testAnImportedFileIsChosenForTheTabItWasMadeOn() async throws {
         let editor = try await loaded()
@@ -342,7 +335,6 @@ final class ArtworkEditorTests: XCTestCase {
         XCTAssertNil(editor.draft.hero)
     }
 
-    // MARK: What the panel says
 
     @MainActor func testTilesAreLabelledForVoiceOverWithTheirBadges() async throws {
         let editor = try await loaded()
@@ -355,7 +347,6 @@ final class ArtworkEditorTests: XCTestCase {
         XCTAssertEqual(editor.gridLabel, "Thumbnail choices")
     }
 
-    // MARK: Framing
 
     @MainActor func testFramingIsOfferedOnlyWhenTheBandCutsFivePercentOrMore() async throws {
         let editor = try await loaded()   // 16:9 screenshots
@@ -427,7 +418,6 @@ final class ArtworkEditorTests: XCTestCase {
         XCTAssertEqual(fixture.library.games[0].artwork.hero, ArtworkChoice(source: .screenshot(0), focus: ArtworkFocus(x: 0.3, y: 0.5)))
     }
 
-    // MARK: Regressions from the review of #798
 
     /// The library's folder read-only, the game's artwork folder writable: a Save that resets an imported hero fails, keeps the copy and
     /// the file as they were, and leaves the panel able to save once the folder is writable again.

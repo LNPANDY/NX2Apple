@@ -138,7 +138,6 @@ final class ArtworkImportTests: XCTestCase {
         XCTAssertEqual(ArtworkStore.customDirectory(for: id, in: folder).path, folder.path + "/custom/" + id.uuidString)
     }
 
-    // MARK: The library
 
     /// A library file holding one game per path, the way an earlier version saved it.
     private func library(artwork paths: [String], volumes: String = "/Volumes") throws -> GameLibrary {

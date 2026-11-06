@@ -139,7 +139,7 @@ final class ArtworkStoreMediaTests: XCTestCase {
         XCTAssertEqual(GameLibrary.artworkURLs(for: game, repo: temporary.path, banners: folder), [banner])   // not downloaded yet
         let shot = try await store(try writeList()).candidate(.screenshot(2), titleID: titleID)
         XCTAssertEqual(GameLibrary.artworkURLs(for: game, repo: temporary.path, banners: folder), [shot, banner])
-        game.artwork.hero = ArtworkChoice(source: .screenshot(3))   // another one, not downloaded
+        game.artwork.hero = ArtworkChoice(source: .screenshot(3))
         XCTAssertEqual(GameLibrary.artworkURLs(for: game, repo: temporary.path, banners: folder), [banner])
     }
 }

@@ -7,7 +7,6 @@ import NXCore
 struct ArtworkEditorEnvironment {
     /// The title's screenshots. `retrying` is the player pressing Try again after `.offline`.
     var media: (_ titleID: String, _ retrying: Bool) async -> ArtworkStore.MediaLoad
-    /// Downloads a screenshot (or returns the file it already has).
     var candidate: (_ source: ArtworkChoice.Source, _ titleID: String) async throws -> URL
     var cachedCandidate: (_ source: ArtworkChoice.Source, _ titleID: String) -> URL?
     var banner: (_ titleID: String) -> URL?
@@ -38,10 +37,8 @@ struct ArtworkEditorEnvironment {
     }
 }
 
-/// The state behind the artwork panel, with no views: what the player may choose for a game's hero and thumbnail, what they chose so far
-/// (a draft the library shows as a preview), and what Save and Cancel do with it. The library is only written by `save`.
+/// The state behind the artwork panel, with no views: the draft the library shows as a preview. The library is only written by `save`.
 @MainActor final class ArtworkEditor: ObservableObject {
-    /// The grid is three tiles wide.
     static let columns = 3
     /// How far an arrow key moves the framing point, as a fraction of the image.
     static let nudgeStep = 0.05
@@ -112,7 +109,6 @@ struct ArtworkEditorEnvironment {
     private var loadTask: Task<Void, Never>?
     private var closed = false
 
-    /// `slot` is the tab the panel opens on.
     init(game: LibraryGame, slot: ArtworkSlot = .hero, artworkDirectory: URL, env: ArtworkEditorEnvironment, labels: @escaping (String) -> String) {
         gameID = game.id
         gameName = game.name
@@ -135,7 +131,6 @@ struct ArtworkEditorEnvironment {
 
     deinit { loadTask?.cancel() }
 
-    // MARK: What the panel shows
 
     var isDirty: Bool { draft != original }
 
@@ -182,7 +177,6 @@ struct ArtworkEditorEnvironment {
     /// The list of screenshots is being read: the view shows skeleton tiles after the ones it knows.
     var isLoading: Bool { loadState == .loading }
 
-    /// What VoiceOver says: the image, then the badges it carries.
     func label(for tile: Tile) -> String {
         var parts: [String]
         switch tile.source {
@@ -197,12 +191,10 @@ struct ArtworkEditorEnvironment {
 
     var gridLabel: String { labels("artwork.grid." + slot.rawValue) }
 
-    /// The tiles' width over their height.
     var tileAspect: CGFloat { 16 / 9 }
 
     private var importKind: ArtworkImport.Kind { slot == .hero ? .hero : .thumbnail }
 
-    // MARK: Choosing
 
     /// Makes the tile the slot's choice. A tile whose image has not arrived cannot be chosen.
     @discardableResult func select(_ tile: Tile) -> Bool {
@@ -226,7 +218,6 @@ struct ArtworkEditorEnvironment {
         cursor = tiles.firstIndex { $0.isSelected }
     }
 
-    /// Return and Space: the tile the arrows are on.
     func selectCursor() {
         let all = tiles
         if let cursor, all.indices.contains(cursor) { select(all[cursor]) }
@@ -248,9 +239,7 @@ struct ArtworkEditorEnvironment {
         selectCursor()
     }
 
-    // MARK: Framing
 
-    /// The file of the chosen tile, once it has arrived.
     var selectedFile: URL? { tiles.first { $0.isSelected }?.file }
 
     /// The chosen image's size in pixels, nil until `measureSelected` has read it.
@@ -293,7 +282,6 @@ struct ArtworkEditorEnvironment {
         }
     }
 
-    /// An arrow key on the framing preview: the point moves by `nudgeStep`.
     func nudge(_ direction: Direction) {
         let step = Self.nudgeStep, current = focus
         switch direction {
@@ -311,7 +299,6 @@ struct ArtworkEditorEnvironment {
         return image.width / image.height > framingBand.width / framingBand.height
     }
 
-    /// VoiceOver's increment and decrement: one step along the axis the slot crops.
     func adjustFocus(increment: Bool) {
         if cropsWidth { nudge(increment ? .right : .left) } else { nudge(increment ? .down : .up) }
     }
@@ -327,9 +314,7 @@ struct ArtworkEditorEnvironment {
         cursor = tiles.firstIndex { $0.isSelected }
     }
 
-    // MARK: The title's images
 
-    /// Starts reading the title's screenshots, once.
     func start() {
         guard loadTask == nil else { return }
         loadTask = Task { await load() }
@@ -371,7 +356,6 @@ struct ArtworkEditorEnvironment {
         if cursor == nil { cursor = tiles.firstIndex { $0.isSelected } }
     }
 
-    // MARK: The player's own file
 
     /// Copies a chosen file into the game's folder (ArtworkImport, off the main thread) and chooses it for the slot. A file that is
     /// not an image is an error to show, a small one a warning: both leave the choice as it was.
@@ -398,7 +382,6 @@ struct ArtworkEditorEnvironment {
         }
     }
 
-    // MARK: Leaving
 
     /// Writes the draft to the library, which also removes the copies no slot uses any more. When the library cannot be written,
     /// nothing is removed and the panel stays as it was, with an error, so Save can be pressed again.

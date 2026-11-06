@@ -40,7 +40,6 @@ final class ArtworkPanelTests: XCTestCase {
         fixture.library.selectedID = fixture.gameID
         let store = ArtworkStore(directory: fixture.artwork, titleList: fixture.temporary.appendingPathComponent("none.json"), allowsFileURLs: true)
 
-        /// The launcher with the panel open on an editor in the given state, drawn once the state has settled.
         func capture(_ name: String, slot: ArtworkSlot = .hero, prepare: (ArtworkEditor) async throws -> Void = { _ in }) async throws {
             let editor = fixture.editor(slot: slot, lang: lang)
             try await prepare(editor)
@@ -51,13 +50,13 @@ final class ArtworkPanelTests: XCTestCase {
 
         try await capture("artwork-hero") { editor in
             await editor.load()
-            editor.select(editor.tiles[3])   // the hero is the third screenshot
+            editor.select(editor.tiles[3])
         }
         try await capture("artwork-thumbnail") { editor in
             await editor.load()
-            editor.select(editor.tiles[2])   // the hero is the second screenshot
+            editor.select(editor.tiles[2])
             editor.slot = .thumbnail
-            editor.select(editor.tiles[5])   // the thumbnail another one
+            editor.select(editor.tiles[5])
         }
         try await capture("artwork-thumbnail-follows", slot: .thumbnail) { await $0.load() }   // the badge on the hero's tile, which is chosen
 
@@ -110,7 +109,6 @@ final class ArtworkPanelTests: XCTestCase {
                    ArtworkPanel(editor: dropping, labels: { L10n.string($0, lang) }, dropped: true, save: {}, cancel: {}).environmentObject(PadFocus()))
     }
 
-    // MARK: The wiring
 
     /// With the panel open the library behind it is a preview: the hero and the selected card draw the draft.
     @MainActor func testThePanelPreviewsTheDraftWithoutWritingIt() async throws {

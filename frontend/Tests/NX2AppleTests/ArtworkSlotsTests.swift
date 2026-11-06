@@ -19,7 +19,6 @@ final class ArtworkSlotsTests: XCTestCase {
         try FileManager.default.removeItem(at: temporary)
     }
 
-    // MARK: The format
 
     private func json(_ value: some Encodable) throws -> String {
         let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
@@ -57,7 +56,6 @@ final class ArtworkSlotsTests: XCTestCase {
         XCTAssertEqual(GameArtwork(hero: ArtworkChoice(source: .banner, focus: ArtworkFocus(x: 0, y: 1))).focus(for: .thumbnail), UnitPoint(x: 0, y: 1))   // follows the hero
     }
 
-    // MARK: The library file
 
     private func library(_ game: String, artwork: URL? = nil) throws -> GameLibrary {
         let file = temporary.appendingPathComponent("state/library.json")
@@ -111,7 +109,6 @@ final class ArtworkSlotsTests: XCTestCase {
         XCTAssertEqual(saved.games[0].artworkPath, "")
     }
 
-    // MARK: The resolver
 
     private func jpeg(_ url: URL, width: Int = 64, height: Int = 36) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -175,7 +172,6 @@ final class ArtworkSlotsTests: XCTestCase {
         XCTAssertEqual(urls(game, .thumbnail), urls(game, .hero))
     }
 
-    // MARK: The console cover
 
     @MainActor func testTheConsoleCoverIsDrawnAgainWhenTheThumbnailChanges() throws {
         let library = try library("")

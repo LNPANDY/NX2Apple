@@ -10,7 +10,6 @@ enum ArtworkImport {
     enum Kind {
         case hero, thumbnail
 
-        /// The widest the stored image gets.
         var maxWidth: Int {
             switch self {
             case .hero: return 3840

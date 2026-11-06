@@ -56,7 +56,6 @@ struct ArtworkPanel: View {
         .onExitCommand(perform: cancel)
     }
 
-    // MARK: Tabs
 
     /// The top bar's tab style: the chosen one a pale pill, bold. The bold text sizes both, so a tab never changes width.
     private var tabs: some View {
@@ -80,7 +79,6 @@ struct ArtworkPanel: View {
         }
     }
 
-    // MARK: The grid
 
     private var grid: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: ArtworkEditor.columns), spacing: 10) {
@@ -171,7 +169,6 @@ struct ArtworkPanel: View {
         Task { await editor.importFile(url) }
     }
 
-    // MARK: Framing
 
     /// Where the point to keep is chosen, for an image the slot crops by 5 % or more.
     private var framing: some View {
@@ -246,7 +243,6 @@ struct ArtworkPanel: View {
         }
     }
 
-    /// The image at the largest size that fits `area`, centred.
     private static func fit(_ image: CGSize, in area: CGSize) -> CGRect {
         guard image.width > 0, image.height > 0 else { return CGRect(origin: .zero, size: area) }
         let scale = min(area.width / image.width, area.height / image.height)
@@ -281,7 +277,6 @@ struct ArtworkPanel: View {
 
     private static func spoken(_ value: Double) -> String { value.formatted(.percent.precision(.fractionLength(0))) }
 
-    // MARK: Messages and footer
 
     private var offline: some View {
         HStack(spacing: 12) {

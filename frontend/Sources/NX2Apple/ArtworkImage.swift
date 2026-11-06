@@ -79,7 +79,6 @@ final class ArtworkImages {
         self.stat = stat
     }
 
-    /// The file's modification date, as of at most `recheckInterval` ago.
     private func modificationDate(of url: URL) -> Date? {
         let current = now()
         lock.lock()

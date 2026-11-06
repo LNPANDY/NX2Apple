@@ -34,7 +34,7 @@ actor ArtworkStore {
     enum MediaLoad: Equatable {
         case loaded(Media)
         case offline   // the list could not be fetched and nothing is saved for the title
-        case none      // the title has no screenshots
+        case none
     }
     enum ArtworkError: LocalizedError {
         case refused, unreadable, unavailable
@@ -48,9 +48,7 @@ actor ArtworkStore {
     }
     static let maxScreenshots = 6
 
-    /// Saved as index.json. Version 1 had no version and no media; `media` (absent from an index written before screenshots were
-    /// kept, which `media(for:)` reads again) holds only the titles that were asked for
-    /// (the library's, and those of `media(for:)`), as the list for all of them would add some 10 MB.
+    /// Saved as index.json. `media` holds only the titles that were asked for, as the list for all of them would add some 10 MB.
     private struct Index: Codable {
         var version: Int?
         var fetched: Date
@@ -83,7 +81,6 @@ actor ArtworkStore {
         return directory.appendingPathComponent(titleID.uppercased(), isDirectory: true).appendingPathComponent(name)
     }
 
-    /// The downloaded file of a screenshot; nil until `candidate` has fetched it.
     nonisolated static func cachedCandidate(_ source: ArtworkChoice.Source, titleID: String, in directory: URL = ArtworkStore.shared.directory) -> URL? {
         guard let url = candidateFile(source, titleID: titleID, in: directory) else { return nil }
         return FileManager.default.fileExists(atPath: url.path) ? url : nil
@@ -150,7 +147,6 @@ actor ArtworkStore {
         return media.screenshots.isEmpty ? .none : .loaded(media)
     }
 
-    /// Download a screenshot of a title, unless it is there already. Returns the file.
     func candidate(_ source: ArtworkChoice.Source, titleID: String) async throws -> URL {
         guard let file = Self.candidateFile(source, titleID: titleID, in: directory) else { throw ArtworkError.unavailable }
         if FileManager.default.fileExists(atPath: file.path) { return file }
