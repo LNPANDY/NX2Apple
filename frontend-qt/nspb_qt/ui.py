@@ -158,6 +158,8 @@ class MainWindow(QMainWindow):
         self._drive_folder = ''
         self._options_expanded = True
         self._deps_expanded = True
+        self._onboarding_checked = False
+        self._onboarding_dialog: OnboardingDialog | None = None
 
         root = QWidget()
         root.setObjectName('root')
@@ -1684,9 +1686,41 @@ class MainWindow(QMainWindow):
         if code and code != self.m.lang.code:
             self.m.set_lang(Lang(str(code)))
 
+    @staticmethod
+    def should_show_onboarding(model: Model) -> bool:
+        """Mirror OnboardingLaunch (Mac): show on first run unless dependencies, keys and games folder are already set."""
+        if os.environ.get('NSPB_ONBOARDING_FORCE') == '1':
+            return True
+        if model.settings_value('onboardingComplete', False):
+            return False
+        deps_ok = bool(model.deps) and all(d.ok for d in model.deps if d.required)
+        keys_ok = bool(model.keys_path and os.path.isfile(model.keys_path))
+        games_ok = bool(model.library.games_folder or model.library.games)
+        if deps_ok and keys_ok and games_ok:
+            model.settings_set('onboardingComplete', True)
+            return False
+        return True
+
+    def _maybe_show_onboarding(self) -> None:
+        if self._onboarding_checked or not self.m.deps_checked or not self.isVisible():
+            return
+        self._onboarding_checked = True
+        if self.should_show_onboarding(self.m):
+            QTimer.singleShot(0, self._open_onboarding)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self._maybe_show_onboarding()
+
     def _open_onboarding(self) -> None:
-        OnboardingDialog(self.m, self).exec()
-        self._refresh_all()
+        if self._onboarding_dialog is not None and self._onboarding_dialog.isVisible():
+            self._onboarding_dialog.raise_()
+            self._onboarding_dialog.activateWindow()
+            return
+        dlg = OnboardingDialog(self.m, self)
+        self._onboarding_dialog = dlg
+        dlg.finished.connect(lambda _res: self._refresh_all())
+        dlg.open()
 
     # ================================================================ Bottom Activity Bar
 
@@ -1917,6 +1951,7 @@ class MainWindow(QMainWindow):
             self.deps_rows.addWidget(self._make_dep_row(d))
 
         self._refresh_running()
+        self._maybe_show_onboarding()
 
     def _make_dep_row(self, d: Dep) -> QFrame:
         t = self.m.t

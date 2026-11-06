@@ -2643,6 +2643,110 @@ class WindowsBuildFixesTest(unittest.TestCase):
             self.assertIn('game\t0100E65002BB8000', lines)
             self.assertIn('inputs\tabcdef01', lines)
 
+    def test_pack_dump_clone_and_cp_shim_on_windows(self) -> None:
+        """pack_dump.clone and romfs_image.guest must not fail with WinError 2 when cp/xattr are absent on Windows."""
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/pack_dump.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        driver.patch(mod, repo)
+        self.assertIs(mod.pack_dump.clone, shutil.copy2)
+
+        with tempfile.TemporaryDirectory() as td:
+            sd = Path(td) / 'shim'
+            shim.install(sd)
+            sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                "if os.name == 'nt'", "if True", 1)
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            src_exefs = Path(td) / 'src_exefs'
+            src_exefs.mkdir()
+            (src_exefs / 'main').write_bytes(b'NSO0_TEST')
+            (src_exefs / 'main.npdm').write_bytes(b'META_TEST')
+            dst_exefs = Path(td) / 'dst_exefs'
+            code = (
+                "import subprocess, sys\n"
+                "_orig_popen = subprocess.Popen.__init__\n"
+                "def _forbid_posix_tools(self, args, *a, **k):\n"
+                "    head = args[0] if isinstance(args, (list, tuple)) and args else ''\n"
+                "    if head in ('cp', 'xattr'):\n"
+                "        raise FileNotFoundError(2, 'The system cannot find the file specified', head)\n"
+                "    return _orig_popen(self, args, *a, **k)\n"
+                "subprocess.Popen.__init__ = _forbid_posix_tools\n"
+                "import sitecustomize\n"
+                f"sys.path.insert(0, {str(repo / 'scripts')!r})\n"
+                f"sys.path.insert(0, {str(repo / 'dm/tools')!r})\n"
+                "from pathlib import Path\n"
+                "import pack_dump, romfs_image\n"
+                f"pack_dump.exefs(Path({str(src_exefs)!r}), Path({str(dst_exefs)!r}))\n"
+                f"assert (Path({str(dst_exefs)!r}) / 'main').read_bytes() == b'NSO0_TEST'\n"
+                f"assert romfs_image.guest({str(src_exefs)!r}, '.dm-case-0') == '.dm-case-0'\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_high_core_cpu_caps_j_and_process_pool_executor_to_61(self) -> None:
+        """On a 32+ thread CPU, J and ProcessPoolExecutor(max_workers) must cap at 61 (_MAX_WINDOWS_WORKERS)."""
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.dict(os.environ, {'LOCALAPPDATA': td}, clear=False), \
+                    mock.patch('os.cpu_count', return_value=32):
+                env = shim.build_env(base={})
+                self.assertEqual(env['J'], '61')
+
+            sd = Path(td) / 'shim'
+            shim.install(sd)
+            sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                "if os.name == 'nt'", "if True", 1)
+            (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+            code = (
+                "import concurrent.futures.process as cfp\n"
+                "_orig_init = cfp.ProcessPoolExecutor.__init__\n"
+                "def _strict_win_init(self, max_workers=None, *a, **k):\n"
+                "    if max_workers is not None and max_workers > 61:\n"
+                "        raise ValueError('max_workers must be <= 61')\n"
+                "    return _orig_init(self, max_workers, *a, **k)\n"
+                "cfp.ProcessPoolExecutor.__init__ = _strict_win_init\n"
+                "import sitecustomize\n"
+                "import concurrent.futures as cf\n"
+                "with cf.ProcessPoolExecutor(64) as ex:\n"
+                "    assert ex._max_workers == 61, ex._max_workers\n"
+            )
+            r = subprocess.run([sys.executable, '-S', '-c', code],
+                               env={**os.environ, 'PYTHONPATH': str(sd)},
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_first_launch_shows_onboarding_when_incomplete(self) -> None:
+        """A fresh user opening MainWindow sees the OnboardingDialog once deps are checked; Later marks it complete."""
+        from PySide6.QtWidgets import QApplication
+        from nspb_qt.model import Dep, DepState, Model
+        from nspb_qt.ui import MainWindow
+        _app = QApplication.instance() or QApplication([])
+        m = Model()
+        m.settings.setValue('onboardingComplete', 'false')
+        m.deps = [Dep(id='py', title_key='dep.python', hint_key='dep.python.hint', state=DepState.MISSING)]
+        m.deps_checked = False
+        self.assertTrue(MainWindow.should_show_onboarding(m))
+
+        w = MainWindow(m)
+        w._init_timer.stop()
+        w.show()
+        try:
+            m.deps_checked = True
+            w._refresh_deps()
+            _app.processEvents()
+            self.assertIsNotNone(w._onboarding_dialog)
+            assert w._onboarding_dialog is not None
+            w._onboarding_dialog._on_later()
+            self.assertTrue(m.settings_value('onboardingComplete', False))
+            self.assertFalse(MainWindow.should_show_onboarding(m))
+        finally:
+            if w._onboarding_dialog is not None:
+                w._onboarding_dialog.close()
+            w.close()
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

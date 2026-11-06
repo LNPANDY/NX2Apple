@@ -78,6 +78,16 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
     os.execve = _win_execve
 
     import concurrent.futures as _cf, marshal as _marshal, multiprocessing as _mp, multiprocessing.spawn as _mp_spawn, pickle as _pickle, tempfile as _tempfile, threading as _mp_threading, types as _mp_types
+    _MAX_WIN_WORKERS = 61
+    _OrigProcessPoolExecutor = _cf.ProcessPoolExecutor
+
+    class _WinProcessPoolExecutor(_OrigProcessPoolExecutor):
+        def __init__(self, max_workers=None, *a, **k):
+            if isinstance(max_workers, int) and max_workers > _MAX_WIN_WORKERS:
+                max_workers = _MAX_WIN_WORKERS
+            super().__init__(max_workers, *a, **k)
+
+    _cf.ProcessPoolExecutor = _WinProcessPoolExecutor
     _mp_tls = _mp_threading.local()
     _orig_get_context = _mp.get_context
     _orig_get_prep_data = _mp_spawn.get_preparation_data
@@ -133,7 +143,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
                         with _tempfile.NamedTemporaryFile(prefix='nspb_x18_', delete=False) as tf:
                             tf.write(IMG)
                             img_path = tf.name
-                        n_procs = min(len(jobs), max(self._workers, os.cpu_count() or 4))
+                        n_procs = min(_MAX_WIN_WORKERS, len(jobs), max(self._workers, os.cpu_count() or 4))
                         _in_fork_pool_spawn = True
                         try:
                             pool = _orig_get_context('spawn').Pool(
@@ -205,7 +215,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
                             img_path = tf_i.name
                             _pickle.dump((codes_blob, state), tf_s, protocol=_pickle.HIGHEST_PROTOCOL)
                             st_path = tf_s.name
-                        n_procs = min(len(jobs), max(self._workers, os.cpu_count() or 4))
+                        n_procs = min(_MAX_WIN_WORKERS, len(jobs), max(self._workers, os.cpu_count() or 4))
                         _in_fork_pool_spawn = True
                         try:
                             pool = _orig_get_context('spawn').Pool(
@@ -458,6 +468,8 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _patch_tool_lock_module(module)
         elif name == 'tree_tar' or name.endswith('.tree_tar'):
             _patch_tree_tar_module(module)
+        elif name == 'pack_dump' or name.endswith('.pack_dump'):
+            module.clone = shutil.copy2
 
     _machinery.SourceFileLoader.exec_module = _win_exec_module
 
@@ -604,6 +616,12 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
     _run = subprocess.run
 
     def _run_fast(args, *a, **k):
+        if isinstance(args, (list, tuple)) and args and isinstance(args[0], str):
+            _head = args[0].replace('\\', '/').rsplit('/', 1)[-1].lower()
+            if (_head in ('cp', 'cp.exe') and len(args) == 4 and args[1] == '-c') or _head in ('xattr', 'xattr.exe'):
+                return subprocess.CompletedProcess(args, 1,
+                                                   b'' if not k.get('text') else '',
+                                                   b'' if not k.get('text') else '')
         if (not os.environ.get('NSPB_MAC_METAL') and isinstance(args, (list, tuple))
                 and len(args) > 4 and isinstance(args[0], str)
                 and args[0].replace('\\', '/').rsplit('/', 1)[-1].lower() in ('xcrun', 'xcrun.exe')
@@ -783,8 +801,9 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
         env['METALLIB_EXE'] = str(with_lib)
 
     # the shader build spawns one metal.exe per shader and each start costs ~0.1 s on Windows,
-    # so keep every core busy rather than the upstream default of 8
-    env.setdefault('J', str(max(8, 2 * (os.cpu_count() or 4))))
+    # so keep every core busy rather than the upstream default of 8 (capped at 61, CPython's
+    # ProcessPoolExecutor _MAX_WINDOWS_WORKERS limit for WaitForMultipleObjects)
+    env.setdefault('J', str(min(61, max(8, 2 * (os.cpu_count() or 4)))))
     return env
 
 
