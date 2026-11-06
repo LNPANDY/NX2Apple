@@ -2284,6 +2284,23 @@ class WindowsBuildFixesTest(unittest.TestCase):
             self.assertEqual(d.returncode, 0, d.stderr)
             self.assertIn('com.apple.developer.kernel.increased-memory-limit', d.stdout)
 
+    def test_bundled_extractor_runs_without_a_nuget_restore(self) -> None:
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        with tempfile.TemporaryDirectory() as td:
+            bundled = Path(td) / 'NX2Apple' / 'engine'
+            exe = bundled / 'dm/tools/nx_extract_bin/nx_extract.exe'
+            exe.parent.mkdir(parents=True)
+            exe.touch()
+            work = Path(td) / 'title_probe'
+            with mock.patch.object(driver, '_UPSTREAM_RUN', None):
+                driver.patch(mod, bundled)
+                with mock.patch.object(mod, 'run', side_effect=AssertionError('attempted a source build')):
+                    self.assertEqual(mod.build_nx_extract(bundled, work, work / 'logs', {}), exe)
+
     def test_driver_region_skip_stamps_rewrite_id_and_capture_jit_reuses_image(self) -> None:
         from nspb_qt.win import driver
         repo = QT.parent / 'engine'
