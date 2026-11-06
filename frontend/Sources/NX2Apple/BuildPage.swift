@@ -25,7 +25,9 @@ struct BuildPage: View {
         if running {
             ProgressCard(build: build)
             CardDisclosure(loc.t("section.setup"), detail: build.gameName, isOpen: showRunningSetup) { showRunningSetup.toggle() }
-                .accessibilityLabel(loc.t("section.setup")).accessibilityValue(build.gameName)
+                .accessibilityLabel(loc.t("section.setup"))
+                .accessibilityValue([build.gameName, loc.t(showRunningSetup ? "onboarding.expanded" : "onboarding.collapsed")]
+                    .filter { !$0.isEmpty }.joined(separator: ", "))
                 .onDisappear { showRunningSetup = false }
         }
         if !running || showRunningSetup {

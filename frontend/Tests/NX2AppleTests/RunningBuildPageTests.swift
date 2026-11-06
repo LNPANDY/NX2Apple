@@ -31,7 +31,22 @@ import NXModel
         return labels
     }
 
-    func testRunningBuildPageAndOtherPages() throws {
+    private func wait(in view: NSView, for visible: [String], without hidden: [String] = [],
+                      file: StaticString = #filePath, line: UInt = #line) {
+        let deadline = Date().addingTimeInterval(5)
+        while true {
+            view.layoutSubtreeIfNeeded()
+            let actual = texts(in: view)
+            if actual.isSuperset(of: visible) && actual.isDisjoint(with: hidden) { return }
+            if Date() >= deadline {
+                XCTFail("Missing \(Set(visible).subtracting(actual)), still visible \(actual.intersection(hidden))", file: file, line: line)
+                return
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+    }
+
+    private func withLauncher(on page: LauncherPage, _ check: (LauncherStores, NSView) throws -> Void) throws {
         let enhanced = NSAccessibility.Attribute(rawValue: "AXEnhancedUserInterface")
         let previous = NSApplication.shared.accessibilityAttributeValue(enhanced)
         NSApplication.shared.accessibilitySetValue(true, forAttribute: enhanced)
@@ -61,71 +76,83 @@ import NXModel
         let library = GameLibrary(file: directory.appendingPathComponent("library.json"))
         let window = OffscreenWindow(size: NSSize(width: 1050, height: 850))
         defer { window.orderOut(nil) }
-        func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.16)) }
-        func show(_ page: LauncherPage) -> NSView {
-            let view = LauncherView(stores: stores, library: library, initialPage: page, performStartupChecks: false)
-            let host = NSHostingView(rootView: view)
-            window.contentView = host
-            window.orderFront(nil)
-            settle()
-            return host
+        let view = LauncherView(stores: stores, library: library, initialPage: page, performStartupChecks: false)
+        let host = NSHostingView(rootView: view)
+        window.contentView = host
+        window.orderFront(nil)
+        try check(stores, host)
+    }
+
+    func testRunningSetupAnnouncesItsStateAndRevealsTheInputs() throws {
+        try withLauncher(on: .builds) { stores, host in
+            let build = stores.build
+            let setup = build.t("section.setup"), files = build.t("section.files"), target = build.t("section.target")
+            let collapsed = build.t("onboarding.collapsed"), expanded = build.t("onboarding.expanded")
+            wait(in: host, for: [setup, build.gameName + ", " + collapsed, build.t("section.progress"),
+                                 build.t("btn.stop"), build.t("section.log")], without: [files, target, build.t("library.viewBuild")])
+            _ = texts(in: host, pressing: setup)
+            wait(in: host, for: [files, target, build.gameName + ", " + expanded])
+            _ = texts(in: host, pressing: setup)
+            wait(in: host, for: [build.gameName + ", " + collapsed], without: [files, target])
         }
-        let host = show(.builds)
-        if let folder = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] {
-            let output = URL(fileURLWithPath: folder)
-            try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+    }
+
+    func testRunningProgressShowsTheFinalShaderScanAndAnActiveTransfer() throws {
+        try withLauncher(on: .builds) { stores, host in
+            let build = stores.build
+            build.stages[0].isScanningLastShaderFiles = true
+            wait(in: host, for: [build.t("prog.lastShaderFiles")])
+            build.target = BuildTarget.ios
+            stores.deviceStore.exportIPA = true
+            stores.deviceStore.sendWhere = SendWhere.drive
+            build.send = .copying(done: 1, total: 2)
+            wait(in: host, for: [build.t("dev.section")])
+        }
+    }
+
+    func testStoppingOrFailingRestoresTheSetupCards() throws {
+        try withLauncher(on: .builds) { stores, host in
+            let build = stores.build
+            let files = build.t("section.files"), target = build.t("section.target"), setup = build.t("section.setup")
+            wait(in: host, for: [setup], without: [files, target])
+            build.running = false
+            build.doneNote = build.t("msg.stopped")
+            wait(in: host, for: [files, target], without: [setup])
+            build.running = true
+            wait(in: host, for: [setup], without: [files, target])
+            build.running = false
+            build.failure = BuildFailure(kind: .cloudFolder, gameName: nil)
+            wait(in: host, for: [files, target], without: [setup])
+        }
+    }
+
+    func testLibraryAndSettingsCanReturnToBuildsWithoutRepeatingTheActivityBar() throws {
+        for page in [LauncherPage.library, .settings] {
+            try withLauncher(on: page) { stores, host in
+                let viewBuild = stores.build.t("library.viewBuild")
+                wait(in: host, for: [viewBuild])
+                _ = texts(in: host, pressing: viewBuild)
+                wait(in: host, for: [stores.build.t("section.progress")], without: [viewBuild])
+            }
+        }
+    }
+
+    func testCaptureRunningBuilds() throws {
+        guard let folder = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else {
+            throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture the running Builds page")
+        }
+        let output = URL(fileURLWithPath: folder)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try withLauncher(on: .builds) { stores, host in
             for lang in Lang.all {
                 stores.localizer.lang = lang
-                build.stages = [Stage(id: 1, name: stores.localizer.t("stage.mac_shaders"), state: .running, detail: "20 / 50", percent: 40)]
-                settle()
-                host.layoutSubtreeIfNeeded()
+                let stage = stores.localizer.t("stage.mac_shaders")
+                stores.build.stages = [Stage(id: 1, name: stage, state: .running, detail: "20 / 50", percent: 40)]
+                wait(in: host, for: [stores.localizer.t("build.heading"), stage])
                 let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: rep)
                 try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(lang.code + ".png"))
             }
-            stores.localizer.lang = .en
-            settle()
         }
-        let running = texts(in: host)
-        XCTAssertFalse(running.contains(build.t("section.files")))
-        XCTAssertFalse(running.contains(build.t("section.target")))
-        XCTAssertFalse(running.contains(build.t("library.viewBuild")))
-        XCTAssertTrue(running.contains(build.t("section.progress")), "\(running.sorted())")
-        XCTAssertTrue(running.contains(build.t("btn.stop")))
-        XCTAssertTrue(running.contains(build.t("section.log")))
-        _ = texts(in: host, pressing: build.t("section.setup"))
-        settle()
-        XCTAssertTrue(texts(in: host).contains(build.t("section.files")))
-        _ = texts(in: host, pressing: build.t("section.setup"))
-        settle()
-        XCTAssertFalse(texts(in: host).contains(build.t("section.files")))
-        build.stages[0].isScanningLastShaderFiles = true
-        settle()
-        XCTAssertTrue(texts(in: host).contains(build.t("prog.lastShaderFiles")))
-        build.target = BuildTarget.ios
-        stores.deviceStore.exportIPA = true
-        stores.deviceStore.sendWhere = SendWhere.drive
-        build.send = .copying(done: 1, total: 2)
-        settle()
-        XCTAssertTrue(texts(in: host).contains(build.t("dev.section")), "an active transfer stays available")
-        build.running = false
-        build.doneNote = build.t("msg.stopped")
-        settle()
-        XCTAssertTrue(texts(in: host).contains(build.t("section.files")))
-        build.running = true
-        settle()
-        XCTAssertFalse(texts(in: host).contains(build.t("section.target")))
-        build.running = false
-        build.failure = BuildFailure(kind: .cloudFolder, gameName: nil)
-        settle()
-        XCTAssertTrue(texts(in: host).contains(build.t("section.target")))
-        build.running = true
-        let settings = show(.settings)
-        XCTAssertTrue(texts(in: settings).contains(build.t("library.viewBuild")))
-        _ = texts(in: settings, pressing: build.t("library.viewBuild"))
-        settle()
-        XCTAssertFalse(texts(in: settings).contains(build.t("library.viewBuild")))
-        XCTAssertTrue(texts(in: settings).contains(build.t("section.progress")))
-        XCTAssertTrue(texts(in: show(.library)).contains(build.t("library.viewBuild")))
     }
 }
