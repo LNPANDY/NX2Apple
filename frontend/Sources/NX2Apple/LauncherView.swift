@@ -92,14 +92,14 @@ struct LauncherView: View {
     }
 
     var filteredGames: [LibraryGame] {
-        library.games.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && libraryFilter.includes($0) }
+        libraryFilter.visibleGames(library.games, matching: search)
     }
 
     /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
     var heroGame: LibraryGame? {
         guard libraryFilter != .owned else { return library.selected }
         if let selected = library.selected, libraryFilter.includes(selected) { return selected }
-        return library.games.first(where: libraryFilter.includes)
+        return libraryFilter.visibleGames(library.games).first
     }
 
     var body: some View {
@@ -368,11 +368,13 @@ struct LauncherView: View {
                     .foregroundStyle(searching ? Color.secondary : Color.primary)
                     .frame(width: searching ? 16 : 40, height: searching ? 16 : 40).contentShape(Rectangle())
             }
+            .keyboardShortcut("f", modifiers: .command)
             .buttonStyle(.plain).help(loc.t("library.search")).accessibilityLabel(loc.t("library.search"))
             if searching {
                 TextField(loc.t("library.search"), text: $search)
                     .textFieldStyle(.plain).font(.manrope(14))
                     .focused($searchFocused)
+                    .onAppear { searchFocused = true }
                     .onSubmit { if search.isEmpty { closeSearch() } }
                     .onExitCommand { closeSearch() }
                     .frame(width: 210)
@@ -406,15 +408,19 @@ struct LauncherView: View {
             Divider().opacity(0.3)
             HStack(spacing: 22) {
                 if m.running {
+                    let stage = m.stages.last { $0.state == .running }
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
                                  ? "activity.transfer" : (m.target == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
-                            Text(m.stages.last(where: { $0.state == .running })
+                            Text(stage
                                     .map { [$0.name, $0.detail, $0.clock(at: context.date, left: loc.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · ") }
                                  ?? loc.t("library.preparing"))
                                 .font(.manrope(13)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
+                        if stage?.isScanningLastShaderFiles == true {
+                            Text(loc.t("prog.lastShaderFiles")).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .frame(minWidth: 180, alignment: .leading)
@@ -456,7 +462,7 @@ struct LauncherView: View {
                     }
                 }
             }
-            .padding(.horizontal, 30).frame(height: 84)
+            .padding(.horizontal, 30).frame(minHeight: 84)
         }
     }
 
@@ -577,8 +583,9 @@ struct LauncherView: View {
         ManageItem.list(game: game, labels: loc.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
                         hasBuildFolder: BuildFolder.location(for: game) != nil,
                         hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
+                        deviceName: devices.deviceName(game.installedDevice), launching: launching,
                         actions: ManageActions(
-                            rebuild: { configureBuild(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
+                            rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
@@ -595,15 +602,17 @@ struct LauncherView: View {
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
     static let ringRoom: CGFloat = 6
 
-    func primaryAction(_ game: LibraryGame) {
-        if !game.isReady && game.onDevice {   // installed on a device: start it there
-            launching = true
-            m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath) { error in
-                launching = false
-                if let error { launchError = error }
-            }
-            return
+    private func openOnDevice(_ game: LibraryGame) {
+        guard !launching else { return }
+        launching = true
+        m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath) { error in
+            launching = false
+            if let error { launchError = error }
         }
+    }
+
+    func primaryAction(_ game: LibraryGame) {
+        if game.primary == .openOnDevice { openOnDevice(game); return }
         guard game.isReady else { configureBuild(game); return }
         do {
             _ = try MacGameBundle.read(URL(fileURLWithPath: game.appPath))

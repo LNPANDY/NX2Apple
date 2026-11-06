@@ -7,7 +7,7 @@
 
 **Dina Switch-spel, direkt på din iPhone.**
 
-**Ingen emulator. Ingen terminal. En macOS-app sköter hela bygget med några klick.**
+**Ingen emulator. Ingen terminal. En macOS- eller Windows-app sköter hela bygget med några klick.**
 
 [![Stars](https://img.shields.io/github/stars/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/stargazers)
 [![Forks](https://img.shields.io/github/forks/LNPANDY/NX2Apple?style=social)](https://github.com/LNPANDY/NX2Apple/network/members)
@@ -26,9 +26,10 @@
 
 #### 🆕 Senaste nyheterna
 
+- **Windows-launcher (`NX2Apple-windows-x64.zip`)**: Bygg iPhone- och iPad-IPA:er i Windows med samma 1.2-gränssnitt, ett medföljande motorträd (inget git behövs), guidad förstagångskonfiguration, flerkärnig NSO-omskrivning och inbyggd självuppdatering (`NX2Apple.exe`).
 - **Switch 2-spel**: Välj en Switch 2-spelmapp eller en `.nup`-fil i Mac- eller Windows-launchern, helt utan `prod.keys`, och spela på Mac, iPhone eller iPad.
-- **Anpassade pekkontroller och knappmappning**: Ändra storlek på knappar, flytta vänster spak eller placera varje knapp i den visuella layoutredigeraren på iPhone och iPad. Fysiska handkontroller stöder knappmappning per spel eller globalt.
-- **En app för iPhone och iPad**: Alla dina spel samlas i en enda skal-app (eller som en osignerad IPA för AltStore och SideStore), med Cover Flow i liggande läge, inställningar och moddar per spel, radering av spel med sparfilerna kvar och 6 språk.
+- **Anpassade pekkontroller, delade Joy-Con och Steam Controller (2026)**: Ändra storlek på knappar, flytta vänster spak eller placera varje knapp i den visuella layoutredigeraren på iPhone och iPad. Fysiska handkontroller stöder knappmappning per spel eller globalt, uppdelning av ett Bluetooth-anslutet Joy-Con-par i två horisontella handkontroller på Mac samt Steam Controller (2026).
+- **En app för iPhone och iPad**: Alla dina spel samlas i en enda skal-app (eller som en osignerad IPA för AltStore och SideStore), där varje spel bär sitt eget värdramverk så att motoruppdateringar aldrig tvingar fram ett ombygge, med Cover Flow i liggande läge, inställningar och moddar per spel, radering av spel med sparfilerna kvar och 6 språk.
 - **Konsolläge**: Anslut en handkontroll och tryck på Select, eller starta direkt i konsolläge. Biblioteket går till helskärm som på en Switch, och att hålla in Home i 2 sekunder avslutar ett spel.
 
 Alla versioner finns i [ändringsloggen](CHANGELOG.md).
@@ -115,12 +116,12 @@ dina egna spel.
 **På Mac** visas ett färdigt spel i biblioteket med sin key art. **Spela** startar det.
 **Startalternativ** (per spel, behålls vid ombyggen) styr bildfrekvens, konsolläge (dockad eller handhållen),
 renderskala och uppskalning, spelspråk, kontroller med mera. Vad varje alternativ gör står i
-[docs/settings.md](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/settings.md). En handkontroll styr launchern lika väl som spelen.
+[docs/settings.md](https://github.com/seedds/nxnative/blob/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/settings.md). En handkontroll styr launchern lika väl som spelen.
 
 **På iPhone** visar appen samma inställningar innan spelet startar. Tryck på **Spela**. Pekkontrollerna
 finns i en 2D- och en 3D-layout (tryck på knappen överst i mitten), och en ansluten handkontroll (Xbox,
 PlayStation, Switch Pro, MFi) ersätter dem.
-[docs/playing.md](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/playing.md) tar upp touch, vibration och rörelse. Korta hack första gången en scen visas är
+[docs/playing.md](https://github.com/seedds/nxnative/blob/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/playing.md) tar upp touch, vibration och rörelse. Korta hack första gången en scen visas är
 normala: Appen kompilerar grafiken för den en gång och kommer ihåg den. Spelets data (`romfs.img`) kan ligga
 på en extern enhet som appen Filer väljer.
 
@@ -151,17 +152,17 @@ Bifoga aldrig nycklar, spelfiler eller något som extraherats ur ett spel.
 
 ## Spel
 
-140 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
+147 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
 profil som ännu inte har prövats på en telefon. Några av dem:
 
 | | Spel | Var det körs | Status |
 |---|---|---|---|
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac och iPhone | **Verifierat här**: 304 243 filer, bytekontrollerade, ca 17 GB |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac och iPhone | **Verifierat här** |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verifierat här**: går smidigt |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Rapporterat som spelbart uppströms |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Rapporterat som spelbart uppströms, 60 fps med 1.9.0 |
-| <img src="https://raw.githubusercontent.com/seedds/nxnative/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Rapporterat som spelbart uppströms |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/images/zelda-tears-of-the-kingdom.jpg" width="96" alt=""> | The Legend of Zelda: Tears of the Kingdom | Mac och iPhone | **Verifierat här**: 304 243 filer, bytekontrollerade, ca 17 GB |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/images/hades-ii.jpg" width="96" alt=""> | Hades II | Mac och iPhone | **Verifierat här** |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/images/animal-crossing-new-horizons.jpg" width="96" alt=""> | Animal Crossing: New Horizons | iPhone | **Verifierat här**: går smidigt |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/images/super-mario-odyssey.jpg" width="96" alt=""> | Super Mario Odyssey | iPhone | Rapporterat som spelbart uppströms |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/images/zelda-breath-of-the-wild.jpg" width="96" alt=""> | The Legend of Zelda: Breath of the Wild | iPhone | Rapporterat som spelbart uppströms, 60 fps med 1.9.0 |
+| <img src="https://raw.githubusercontent.com/seedds/nxnative/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/images/mario-kart-8-deluxe.jpg" width="96" alt=""> | Mario Kart 8 Deluxe | iPhone | Rapporterat som spelbart uppströms |
 
 **[GAMES.md](GAMES.md)** har skärmbildsgalleriet med varje spels installationsstorlek och den fullständiga
 tabellen med den uppdateringsversion som varje spel behöver: Uppdaterings-NSP:ns visade version måste
@@ -170,7 +171,7 @@ stämma med profilens, annars säger bygget ifrån.
 ## Begränsningar
 
 - **Bara spelen med en profil.** En titel utanför listan kräver eget bring-up-arbete. Börja med
-  [docs/agents](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/agents/README.md), uppströmsprojektets guide för en annan Switch-titel.
+  [docs/agents](https://github.com/seedds/nxnative/blob/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/agents/README.md), uppströmsprojektets guide för en annan Switch-titel.
 - **Stora spel slår i en minnesgräns på iPhone.** Utan behörigheten Increased Memory Limit ger iOS appen
   cirka 3,4 GB, vilket inte räcker för Tears of the Kingdom. Appen begär den, och AltStore Classic 2.2+,
   Impactor och Xcode med ett Personal Team behåller den. SideStore med ett gratis Apple-ID behöver en
@@ -193,7 +194,7 @@ stämma med profilens, annars säger bygget ifrån.
   [patches/README.md](patches/README.md) förklarar det, och `python3 tools/engine.py status` listar vad som
   bärs. Ett dagligt jobb flyttar fästpunkten och öppnar en pull request, eller ett ärende som namnger patchen
   som inte längre passar. Länkarna till motorns dokument i den här README:n pekar på nxnative vid den fastlåsta committen.
-- **Ett annat Switch-spel:** [docs/agents](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/docs/agents/README.md) (extrahering, binärgenomgång, bring-up).
+- **Ett annat Switch-spel:** [docs/agents](https://github.com/seedds/nxnative/blob/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/agents/README.md) (extrahering, binärgenomgång, bring-up).
 - **Versionshistorik:** [CHANGELOG.md](CHANGELOG.md).
 
 ## Tack
@@ -221,7 +222,7 @@ Allt motorarbete är andras. Det här förrådet lägger launchern och patchkön
 - **[SPIRV-Cross](https://github.com/KhronosGroup/SPIRV-Cross)**: SPIR-V till Metal Shading Language.
 - **yuzu**, **deko3d**, **libvpx**, **stb_vorbis**, **libdeflate**: uppströmsprojektets tackslista säger vad var och en bidrar med.
 
-`dm/third_party` innehåller andra projekt med deras licenser ([lista](https://github.com/seedds/nxnative/blob/7249ee9f95ed728aff9a86395330d10d4c91fb5c/dm/third_party/README.md)).
+`dm/third_party` innehåller andra projekt med deras licenser ([lista](https://github.com/seedds/nxnative/blob/88c7e03f51e3934dc227089ea81ec64fcd525b03/dm/third_party/README.md)).
 
 ## Juridik
 

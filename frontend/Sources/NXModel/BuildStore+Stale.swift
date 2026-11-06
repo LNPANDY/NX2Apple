@@ -36,7 +36,7 @@ extension BuildStore {
             doneNote = String(format: t("stale.removeFailed"), failed.map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))
             return
         }
-        (start ?? startBuild)()
+        (start ?? runBuild)()
     }
 
     /// The folders of `entries` are deleted and the games leave `<root>/shell.json`. Returns the folders that could not be deleted.

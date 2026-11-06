@@ -23,7 +23,7 @@ Issue: LNPANDY/NX2Apple#123
  6 files changed, 16 insertions(+), 2 deletions(-)
 
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 23e71a0..c11b457 100644
+index 56267e1..076d4ef 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -234,6 +234,9 @@ static int boot_env(void) {

@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QPainterPath,
     QPen,
     QPixmap,
+    QWheelEvent,
 )
 from PySide6.QtWidgets import (
     QFrame,
@@ -606,6 +607,86 @@ class GameCardWidget(QWidget):
             p.setPen(Qt.NoPen)
             p.setBrush(QColor(style.ACCENT))
             p.drawRoundedRect(QRectF(4.0, self.TOTAL_H - 5.0, 28.0, 3.0), 1.5, 1.5)
+
+
+class HorizontalStripViewport(QWidget):
+    """Clipping viewport that hosts a horizontally scrollable card strip without expanding parent width."""
+
+    def __init__(self, height: int = 176, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._fixed_h = height
+        self._scroll_x = 0
+        self.setFixedHeight(height)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        self.strip = QWidget(self)
+        self.strip.setFixedHeight(height)
+        self.strip_layout = QHBoxLayout(self.strip)
+        self.strip_layout.setContentsMargins(0, 4, 0, 4)
+        self.strip_layout.setSpacing(18)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, self._fixed_h)
+
+    def sizeHint(self) -> QSize:
+        return QSize(200, self._fixed_h)
+
+    def _layout_strip(self) -> tuple[int, int]:
+        for i in range(self.strip_layout.count()):
+            w = self.strip_layout.itemAt(i).widget()
+            if w is not None and not w.isVisibleTo(self.strip):
+                w.show()
+        self.strip_layout.invalidate()
+        self.strip_layout.activate()
+        content_w = self.strip_layout.sizeHint().width()
+        vw = max(1, self.width())
+        self.strip.resize(max(vw, content_w), self._fixed_h)
+        self.strip_layout.activate()
+        return content_w, vw
+
+    def max_scroll(self) -> int:
+        content_w, vw = self._layout_strip()
+        return max(0, content_w - vw)
+
+    def set_scroll_x(self, x: int) -> None:
+        content_w, vw = self._layout_strip()
+        self._scroll_x = max(0, min(max(0, content_w - vw), x))
+        self.strip.move(-self._scroll_x, 0)
+
+    def scroll_by(self, dx: int) -> None:
+        self.set_scroll_x(self._scroll_x + dx)
+
+    def sync_strip(self, ensure_visible: QWidget | None = None) -> None:
+        content_w, vw = self._layout_strip()
+        target_x = self._scroll_x
+        if ensure_visible is not None and self.width() > 0:
+            left = ensure_visible.x()
+            right = left + ensure_visible.width()
+            if left < target_x:
+                target_x = left
+            elif right > target_x + vw:
+                target_x = right - vw
+        self._scroll_x = max(0, min(max(0, content_w - vw), target_x))
+        self.strip.move(-self._scroll_x, 0)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.set_scroll_x(self._scroll_x)
+
+    def wheelEvent(self, event: QWheelEvent) -> None:
+        px = event.pixelDelta()
+        ang = event.angleDelta()
+        if not px.isNull() and (px.x() != 0 or px.y() != 0):
+            dx = -px.x() if abs(px.x()) >= abs(px.y()) else -px.y()
+        else:
+            raw = ang.x() if abs(ang.x()) >= abs(ang.y()) else ang.y()
+            dx = -int(raw * 0.8)
+        if dx != 0 and self.max_scroll() > 0:
+            self.scroll_by(dx)
+            event.accept()
+            return
+        super().wheelEvent(event)
 
 
 class DropOverlayWidget(QWidget):

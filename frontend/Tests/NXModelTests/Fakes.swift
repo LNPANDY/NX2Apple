@@ -48,6 +48,8 @@ final class FakeReleaseSource: ReleaseSource, @unchecked Sendable {
     var latest: Data?
     /// What a download writes. nil: the download fails.
     var file: Data? = Data("zip".utf8)
+    /// Fractions reported to `onProgress` during `download(_:to:onProgress:)`.
+    var progressSteps: [Double] = []
 
     var downloads: [URL] { lock.lock(); defer { lock.unlock() }; return downloaded }
     var latestCalls: Int { lock.lock(); defer { lock.unlock() }; return asked }
@@ -61,6 +63,12 @@ final class FakeReleaseSource: ReleaseSource, @unchecked Sendable {
         lock.withLock { downloaded.append(url) }
         guard let data = self.file else { return false }
         return (try? data.write(to: file)) != nil
+    }
+
+    func download(_ url: URL, to file: URL, onProgress: @escaping @Sendable (Double) -> Void) async -> Bool {
+        let steps = lock.withLock { progressSteps }
+        for s in steps { onProgress(s) }
+        return await download(url, to: file)
     }
 
     /// The JSON GitHub gives for a release with the asset this app installs.
