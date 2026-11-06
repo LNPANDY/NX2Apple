@@ -150,7 +150,7 @@ import NXLauncher
             }
         case .keys:
             switch state.keys {
-            case .empty, .searching, .skipped:
+            case .empty, .searching:
                 state.keys = .searching
                 run("keys", after: 0.9) { d in d.state.keys = .found(URL(fileURLWithPath: "/Demo/Switch/prod.keys")) }
             case .validating: validateKeys()
