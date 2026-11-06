@@ -1067,7 +1067,6 @@
   "msg.bcOn": "Modalità per dispositivi meno recenti: le texture BC verranno decodificate sulla CPU",
   "msg.buildFailed": "Build non riuscita (codice di uscita %d): vedi il log qui sotto",
   "msg.buildFailedReason": "Build non riuscita: vedi il log qui sotto. Ultima riga: %@",
-  "msg.builderMissing": "Il builder sperimentale è attivo, ma non è stato trovato nessun programma nxb. Si usa il builder standard.",
   "msg.builderOn": "Builder sperimentale: %@",
   "msg.done": "Fatto",
   "msg.exitCode": "codice di uscita %d",

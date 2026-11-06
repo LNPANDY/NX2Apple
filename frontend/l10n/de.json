@@ -1074,7 +1074,6 @@
   "msg.bcOn": "Modus für ältere Geräte: BC-Texturen werden auf der CPU dekodiert",
   "msg.buildFailed": "Build fehlgeschlagen (Exit-Code %d). Siehe das Protokoll unten",
   "msg.buildFailedReason": "Build fehlgeschlagen. Siehe das Protokoll unten. Letzte Zeile: %@",
-  "msg.builderMissing": "Der experimentelle Builder ist an, aber es wurde kein Programm nxb gefunden. Der Standard-Builder läuft.",
   "msg.builderOn": "Experimenteller Builder: %@",
   "msg.done": "Fertig",
   "msg.exitCode": "Exit-Code %d",

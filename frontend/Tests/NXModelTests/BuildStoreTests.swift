@@ -150,8 +150,7 @@ import XCTest
     func testTheExperimentalBuilderIsOffByDefaultAndItsSettingIsSaved() {
         let store = makeStore()
         XCTAssertFalse(store.experimentalBuilder)
-        XCTAssertEqual(store.builderEnvironment(), [:], "off: the build gets nothing")
-        XCTAssertFalse(store.log.text.contains(store.t("msg.builderMissing")), "and the log says nothing")
+        XCTAssertNil(store.experimentalBuilderProblem(gameFolder: false), "off: nothing to say")
         store.experimentalBuilder = true; store.experimentalBuilderPath = "/opt/nxbuild"
         XCTAssertTrue(defaults.bool(forKey: BuildStore.experimentalBuilderKey))
         XCTAssertEqual(defaults.string(forKey: BuildStore.experimentalBuilderPathKey), "/opt/nxbuild")
@@ -160,22 +159,35 @@ import XCTest
         XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
     }
 
-    func testTheBuildGetsTheChosenNxbOrANoteThatTheStandardBuilderRuns() throws {
+    func testTheExperimentalBuilderStopsAnUnsupportedBuildWithItsReasonAndNeverRunsTheScript() throws {
         let store = makeStore()
         store.bundledBuilder = nil
         store.experimentalBuilder = true
         store.experimentalBuilderPath = temporary.path + "/gone/nxb"
         XCTAssertNil(store.experimentalBuilderBinary)
-        XCTAssertEqual(store.builderEnvironment(), [:])
-        XCTAssertTrue(store.log.text.contains(store.t("msg.builderMissing")))
+        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: false), store.t("msg.builderMissingError"), "no nxb is an error, not a build by the script")
         let nxb = try file("nxb")
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
         store.experimentalBuilderPath = temporary.path   // the folder that holds it
         XCTAssertEqual(store.experimentalBuilderBinary, nxb)
-        XCTAssertEqual(store.builderEnvironment(), ["DM_EXPERIMENTAL_BUILDER": "1", "NXB_BIN": nxb])
-        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
+        store.target = BuildTarget.mac; store.take(picked: ["/g/Game [0100000000001000][v0].nsp"], kind: .base)
+        XCTAssertNil(store.experimentalBuilderProblem(gameFolder: false))
+        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: true), store.t("nxb.unsupported.input"))
+        store.take(picked: ["/g/Game [0100000000001000].xci"], kind: .base)
+        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: false), store.t("nxb.unsupported.input"))
+        store.take(picked: ["/g/Game [0100000000001000].nsp"], kind: .base); store.take(picked: ["/g/DLC [0100000000001001].nsp"], kind: .dlc)
+        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: false), store.t("nxb.unsupported.dlc"))
+        store.clear("dlc"); store.target = "ios"
+        XCTAssertEqual(store.experimentalBuilderProblem(gameFolder: false), store.t("nxb.unsupported.target"))
         store.experimentalBuilder = false
-        XCTAssertEqual(store.builderEnvironment(), [:], "off again: nothing, whatever the path")
+        XCTAssertNil(store.experimentalBuilderProblem(gameFolder: true), "off again: the script takes every case")
+    }
+
+    func testAFailedNxbBuildSaysItsExitCodeAndItsLastErrorLine() {
+        let store = makeStore()
+        store.append("{\"ev\": \"say\", \"msg\": \"[RED] no key master_key_0f in prod.keys\", \"severity\": \"error\"}\n")
+        XCTAssertEqual(store.experimentalFailureNote(status: 6), String(format: store.t("nxb.exit.6"), 6) + " no key master_key_0f in prod.keys")
+        XCTAssertTrue(store.experimentalFailureNote(status: 4).contains("exit code 4"))
     }
 
     func testTakingFilesFillsTheRowAndNamesTheFirstFileThatDoesNotFit() {

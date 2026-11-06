@@ -59,6 +59,19 @@ it. Two practical notes from real dumps:
 
 `backports.zstd` is needed for Tears of the Kingdom's zstd dictionaries. Other games do not use it.
 
+## The experimental builder (nxbuild)
+
+[nxbuild](https://github.com/v0lumehi/nxbuild) is a build tool in Rust. It makes the same files as the build script, faster. It is off by default. The Mac launcher has the setting "Use experimental builder" (Settings, Build tools). With it on, the launcher starts one program, `nxb build`, and does not run the build script at all:
+
+```bash
+NXB_ENGINE=engine nxb build <NSP folder> --platform mac-app -k <prod.keys> --title-id <title ID> \
+  -o <app> --work-dir <build folder> --engine engine --progress json
+```
+
+- The program is the `nxb` binary the player chose in Settings (the binary, or the folder that holds it), else the copy inside the app. This repository bundles no binary. It needs an `nxb` that has `build`.
+- `--progress json` prints one JSON event per line (`stage`, `step`, `progress`, `stage_end`, `say`, each with `code` and `severity`). The launcher shows them as its own stages and writes every line to the build log.
+- There is no fallback. A case `nxb build` does not take stops before the build with the reason: an iPhone or iPad build, an NSZ, an XCI, a game folder or a NUP, and add-on content (DLC). A failure shows nxb's exit code and its last error line. The exit codes are 0 done, 1 error, 2 bad arguments, 3 damaged data, 4 not supported yet, 6 missing key and 130 interrupted. Turning the setting off builds with the script again.
+
 ## Build the IPA
 
 The main build script packs a **slim IPA by default** (no RomFS inside, as the app reads the game's data from its folder on the device, `Documents/games/<id>/`), so the build above already produced it. To re-pack just the package later:

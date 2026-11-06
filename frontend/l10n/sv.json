@@ -907,7 +907,6 @@
   "msg.bcOn": "Läget för äldre enheter: BC-texturer avkodas på processorn",
   "msg.buildFailed": "Bygget misslyckades med slutkod %d. Se loggen nedan.",
   "msg.buildFailedReason": "Bygget misslyckades. Se loggen nedan. Sista raden: %@",
-  "msg.builderMissing": "Den experimentella byggaren är på, men inget program nxb hittades. Standardbyggaren körs.",
   "msg.builderOn": "Experimentell byggare: %@",
   "msg.done": "Klart",
   "msg.exitCode": "slutkod %d",

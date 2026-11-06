@@ -24,6 +24,9 @@ extension BuildStore {
             fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
             return
         }
+        // The experimental builder runs `nxb build` and never the script, so a case it does not take stops here with its reason (#749)
+        nxbRun = experimentalBuilder
+        if let why = experimentalBuilderProblem(gameFolder: gameFolder != nil) { fail(why); return }
         // Resolve the interpreter here if the dependency check has not landed yet. checkDeps()
         // runs on a background queue and startBuild() can beat it — for a moment deps.pythonPath is
         // empty, and the old fallback was Apple's /usr/bin/python3 (3.9), which the script then
@@ -176,19 +179,11 @@ extension BuildStore {
         // (NuGet-Migrations) under $TMPDIR/.dotnet/shm, and with no TMPDIR it stats "" and dies with
         // 'NuGet-Migrations' + lstat("") == ENOENT before any project is read. NSTemporaryDirectory()
         // is the per-user temp folder whether or not the app's own environment carries one.
-        var denv: [String: String] = ["PATH": BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: py),
-                                      "USER": NSUserName(), "HOME": NSHomeDirectory(), "LANG": "en_US.UTF-8",
-                                      "TMPDIR": NSTemporaryDirectory()]
-        if let droot = Toolchain.dotnetRoot(for: deps.dotnetPath.isEmpty ? "dotnet" : deps.dotnetPath) {
-            denv["DOTNET_ROOT"] = droot   // both variables carry the same root, as the apphost checks the arch-specific one first
-            denv["DOTNET_ROOT_ARM64"] = droot
-        }
-        // The bundled Python lives inside the signed app: a .pyc written there would change what the signature seals
-        // (the packages are compiled at bundle time), and a user site must not shadow its pinned packages.
-        denv.merge(BundledTools.environment(for: py)) { $1 }
+        var denv = toolEnvironment(python: py)
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
-        denv.merge(builderEnvironment()) { $1 }   // the experimental builder, when it is on (BuildStore+Builder.swift, #749)
-        let launch = ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
+        let launch = nxbRun
+            ? experimentalLaunch(nxb: experimentalBuilderBinary ?? "", inputDir: inputDir, workDir: workDir, engine: engine, environment: denv, python: py)   // BuildStore+Builder.swift (#749)
+            : ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             hop {
                 guard let self else { return }
@@ -237,7 +232,13 @@ extension BuildStore {
                         }
                     }
                 } else {
-                    if let i = self.stages.lastIndex(where: { $0.state == .running }) {
+                    if self.nxbRun {
+                        // nxb's own exit code and message, as they are: there is no script to run instead (#749)
+                        let note = self.experimentalFailureNote(status: status)
+                        if let i = self.stages.lastIndex(where: { $0.state == .running }) { self.stages[i].state = .failed; self.stages[i].detail = String(format: self.t("msg.exitCode"), status) }
+                        self.doneNote = note
+                        self.say("✗ " + note)
+                    } else if let i = self.stages.lastIndex(where: { $0.state == .running }) {
                         self.stages[i].state = .failed
                         self.stages[i].detail = String(format: self.t("msg.exitCode"), status)
                         self.noteFailure()
