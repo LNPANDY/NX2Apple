@@ -83,6 +83,35 @@ import NXModel
         XCTAssertNotNil(searchField(in: host), "the search field is now in the window")
     }
 
+    func testMinimumWidthToolbarKeepsControlsOnOneLine() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.build.lang = Lang("fr")
+        stores.appUpdates.update = .init(tag: "v9.9.9", url: "", digest: nil)
+        let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        let pad = PadFocus()
+        let view = LauncherView(stores: stores, library: library, performStartupChecks: false, search: "zel", padFocus: pad)
+        let window = OffscreenWindow(size: NSSize(width: 1440, height: 680))
+        window.contentView = NSHostingView(rootView: view)
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+
+        let singleLine = try XCTUnwrap(pad.frames["main"])
+        window.setContentSize(NSSize(width: 900, height: 680))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let targets = try XCTUnwrap(pad.frames["main"])
+        for id in ["tab.library", "tab.builds", "tab.settings", "top.build"] {
+            let frame = try XCTUnwrap(targets.first { $0.id == id }?.frame, id)
+            let wide = try XCTUnwrap(singleLine.first { $0.id == id }?.frame, id)
+            XCTAssertLessThanOrEqual(frame.height, wide.height + 1, "The top bar should fit a single line: " + id)
+        }
+        pad.show(default: "tab.library")
+        pad.horizontal(1)
+        XCTAssertEqual(pad.focused, "tab.builds")
+        pad.horizontal(1)
+        XCTAssertEqual(pad.focused, "tab.settings")
+    }
+
     /// Built hides the games without a build. The selection moves to a game it shows, and a controller's focus on a hidden card
     /// is dropped, so A cannot start a game that is not on screen.
     func testBuiltFilterKeepsSelectionAndFocusOnShownGames() throws {
@@ -891,6 +920,7 @@ import NXModel
         try capture("library")
         try capture("library-search", search: "zel")
         try capture("library-small", width: 900, height: 680)
+        try capture("library-small-search", width: 900, height: 680, search: "zel")
         try capture("manage-menu", manageOpen: true)   // the Manage menu open, mouse look
         try capture("manage-menu-pad", manageOpen: true, padRing: true)   // opened by the controller: the ring on the first row
         try capture("manage-menu-small", width: 900, height: 680, manageOpen: true, padRing: true)
@@ -933,6 +963,8 @@ import NXModel
             modelStores.appUpdates.status = String(format: model.t("app.ready"), release.tag)
             try capture("settings-update-ready", page: .settings)
             try capture("library-update-ready")
+            try capture("library-small-update", width: 900, height: 680)
+            try capture("library-small-search-update", width: 900, height: 680, search: "zel")
         }
         // Games built with older build tools (ToolsAge): the selected one rebuilt from its own inputs, as a recorded build has them
         model.slots[0].paths = ["/preview/Hades [\(titleID)].nsp"]
