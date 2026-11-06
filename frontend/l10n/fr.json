@@ -1368,6 +1368,8 @@
   "shell.copyWifiOne": "Connecté en Wi-Fi : la copie de %@ prend environ %d minutes. Un câble est plus rapide.",
   "shell.copyWired": "Gardez %@ déverrouillé jusqu’à la fin de la copie.",
   "shell.dataAlready": "Installé sur %@, les données du jeu étaient déjà sur l’appareil",
+  "shell.dataChanged": "Les données du jeu ont changé depuis la dernière copie.",
+  "shell.dataCurrent": "Cette version des données du jeu est déjà sur %@.",
   "shell.driveChoose": "Choisir un dossier",
   "shell.driveCopy": "Copier les données",
   "shell.driveDone": "Les données du jeu sont dans %@. Branchez le disque à l’iPhone et choisissez ce dossier dans l’app sous %@. Le disque doit rester branché pendant que vous jouez.",
