@@ -44,7 +44,7 @@ index f3e38a1..dc6edac 100644
      return NULL;
  }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 381c3c8..6e4a638 100644
+index 7ec797a..44b7bd4 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -38,8 +38,7 @@
@@ -67,7 +67,7 @@ index 381c3c8..6e4a638 100644
      for (unsigned i = 0; i < NVN_NFUNC; i++) nvn_slot[i].fn = (void *)nvn_unimpl_entry;
      for (unsigned k = 0; k < nim; k++) {
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 3728dff..bbe5bba 100644
+index 6b25664..9d141a4 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -21,8 +21,7 @@
@@ -112,10 +112,10 @@ index 672c16a..50bd6e6 100644
          unsigned cap = 16; while (cap < n * 2) cap <<= 1;
          g_hle_idx = calloc(cap, sizeof *g_hle_idx); g_hle_mask = cap - 1;
 diff --git a/dm/host/hle_jit.c b/dm/host/hle_jit.c
-index 6e1d614..aa99f11 100644
+index 198de55..da6203d 100644
 --- a/dm/host/hle_jit.c
 +++ b/dm/host/hle_jit.c
-@@ -145,15 +145,14 @@ static const jit_req *jit_find(const char *key) { for (int i = 0; i < g_nreq; i+
+@@ -146,15 +146,14 @@ static const jit_req *jit_find(const char *key) { for (int i = 0; i < g_nreq; i+
  // The image at the layout's base: the Mac maps jit.img read + execute, iOS remaps the executable's signed __TEXT,__dm<tag>_jit pages there (as loader.c remaps the modules)
  #if TARGET_OS_IPHONE
  #include <mach/mach.h>
@@ -148,7 +148,7 @@ index 0000000..9dde850
 +extern const struct mach_header_64 __dso_handle;
 +#define DM_HOST_IMAGE (&__dso_handle)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 5bc0117..1187658 100644
+index c12d21b..4845e63 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -8,9 +8,8 @@
@@ -171,7 +171,7 @@ index 5bc0117..1187658 100644
      g_nforce = g_force ? (unsigned)(sz / sizeof *g_force) : 0;
      g_force_hits = calloc(g_nforce + 1, sizeof *g_force_hits);
      unsigned cap = 16; while (cap < g_nforce * 2) cap <<= 1;
-@@ -707,7 +706,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+@@ -708,7 +707,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
  }
  // The image the module sections are read from (front.h dm_set_game_image_header). getsectiondata takes any loaded image's header and applies its slide
  #include "front.h"

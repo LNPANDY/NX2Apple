@@ -526,10 +526,10 @@ index a2d527c..2f5b1ad 100644
  
  @unittest.skipUnless(HAS_TOOLS and font_python(), 'needs macOS, XcodeGen, an iPhoneOS SDK and a python with fontTools')
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 97d22d1..3f81541 100755
+index eec7ee4..9f67e73 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -209,9 +209,10 @@ if [ "$FRAMEWORK" = 1 ]; then
+@@ -214,9 +214,10 @@ if [ "$FRAMEWORK" = 1 ]; then
      mkdir -p "$O" && ROMFS_ID=$(python3 -I "$DM/tools/romfs_image.py" --identity "$ROMFS" "$GAME" "$DM_APP_VERSION" "${PKG:-}") || die "identity of $ROMFS"
    fi
    NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
@@ -541,7 +541,7 @@ index 97d22d1..3f81541 100755
    printf 'OTHER_LDFLAGS = $(inherited) %s\n' "$F" > Gen/framework.xcconfig || die "framework link flags"
    t "framework: Gen/framework (modules $MODS, profile.tsv, game.manifest.json)"
  fi
-@@ -252,9 +253,9 @@ fi
+@@ -257,9 +258,9 @@ fi
  # game's per-game resources into it, so one folder is one game: the shader libraries (msl/<MSLDIR>, the shell's DM_MSL_DIR), the pipeline
  # archive (pso/, DM_PSO_BUNDLE) and the icon the shell's library shows. The game files and add-on content stay out (data, Documents/games/<id>/)
  if [ -n "$FRAMEWORK_ONLY" ]; then

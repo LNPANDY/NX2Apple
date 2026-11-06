@@ -579,10 +579,10 @@ index 0000000..a995be7
 +    }
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index f61c812..361cb46 100644
+index c6add38..a35ca5e 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -353,7 +353,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
+@@ -365,7 +365,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
  	$(B)/t_altstack
  	DM_QOS_MAP=1 $(B)/t_notify_sched
  	DM_QOS_MAP=1 $(B)/t_notify_sched --all-peers
@@ -739,10 +739,10 @@ index 2b64998..500e86f 100644
  int front_ios_boot_ok(void) { return 1; }
  void front_ios_boot(void) {}
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 732fea6..57e34f7 100644
+index b934480..d25e9e3 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -86,6 +86,7 @@ DM_JIT_CAPTURE	path	Folder the Mac host writes what a game's `nn::jit` plugin ma
+@@ -90,6 +90,7 @@ DM_JIT_CAPTURE	path	Folder the Mac host writes what a game's `nn::jit` plugin ma
  DM_JIT_LOG	diagnostic	`1` logs every `nn::jit` `GenerateCode` request
  DM_JIT_MISS_DUMP	diagnostic	Folder for the input of each `nn::jit` request a served image lacks
  DM_JIT_SERVE	path	Folder of a `nn::jit` image (`jit.img`, `jit.tsv`, `jit.out`): the Mac serves requests from it as the iOS app does, and the plugin does not run

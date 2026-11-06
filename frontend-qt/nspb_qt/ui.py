@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QTimer, QUrl, Qt
@@ -33,9 +34,8 @@ from . import inputs
 from . import library as lib
 from . import platform_util as pu
 from . import style
+from .app_update import APP_VERSION
 from .build_notes import TEXT, TITLE, stale_reason
-
-APP_VERSION = '1.2.0'
 from .i18n import Lang
 from .model import Dep, DepState, Model
 from .sheets import CheatsDialog, DeleteGameDialog, FreeSpaceDialog, OnboardingDialog
@@ -45,6 +45,7 @@ from .widgets import (
     DropOverlayWidget,
     GameCardWidget,
     HeroBannerWidget,
+    HorizontalStripViewport,
     LauncherSegmented,
     LauncherSwitch,
     StatusDot,
@@ -214,6 +215,7 @@ class MainWindow(QMainWindow):
         self.m.logAppended.connect(self._append_log)
         self.m.finished.connect(self._on_finished)
         self.m.appUpdateFound.connect(self._on_app_update)
+        self.m.appRelaunching.connect(QApplication.quit)
         self.m.libraryChanged.connect(self._refresh_library)
 
         if self.m.log_path:
@@ -512,12 +514,11 @@ class MainWindow(QMainWindow):
         ccol.addLayout(chead)
 
         self._coll_offset = 0
-        self.coll_strip = QWidget()
-        self.coll_strip.setFixedHeight(176)
-        self.coll_strip_layout = QHBoxLayout(self.coll_strip)
-        self.coll_strip_layout.setContentsMargins(0, 4, 0, 4)
-        self.coll_strip_layout.setSpacing(18)
-        ccol.addWidget(self.coll_strip)
+        self._ensure_selected_card_visible = False
+        self.coll_viewport = HorizontalStripViewport(height=176)
+        self.coll_strip = self.coll_viewport.strip
+        self.coll_strip_layout = self.coll_viewport.strip_layout
+        ccol.addWidget(self.coll_viewport)
 
         pcol.addWidget(coll_wrap)
         self.lib_stack.addWidget(pop)
@@ -606,6 +607,7 @@ class MainWindow(QMainWindow):
                 w_old.setParent(None)
                 w_old.deleteLater()
 
+        selected_card: GameCardWidget | None = None
         if not filtered:
             no_lbl = QLabel(self.m.t('library.noResults'))
             no_lbl.setObjectName('muted')
@@ -614,21 +616,29 @@ class MainWindow(QMainWindow):
             for g in filtered:
                 dot_c = style.GREEN if g.has_any_build else style.NEUTRAL_DOT
                 art = self.m.artwork.image_path(g.title_id, self.m.engine_path)
+                is_sel = sel is not None and g.title_id == sel.title_id
                 card = GameCardWidget(
                     title_id=g.title_id,
                     title=g.name,
                     image_path=art,
-                    selected=(sel is not None and g.title_id == sel.title_id),
+                    selected=is_sel,
                     dot_color=dot_c,
                     is_switch2=g.is_switch2(self.m.engine_path),
                     switch2_label=self.m.t('switch2.badge'),
                 )
+                if is_sel:
+                    selected_card = card
                 card.clicked.connect(self._on_card_selected)
                 card.doubleClicked.connect(self._on_card_double_clicked)
                 self.coll_strip_layout.addWidget(card)
         self.coll_strip_layout.addStretch(1)
+        self.coll_viewport.sync_strip(
+            ensure_visible=selected_card if self._ensure_selected_card_visible else None
+        )
+        self._ensure_selected_card_visible = False
 
     def _on_card_selected(self, title_id: str) -> None:
+        self._ensure_selected_card_visible = True
         self.m.library.select(title_id)
         self._refresh_library()
 
@@ -727,7 +737,13 @@ class MainWindow(QMainWindow):
         filtered = self._filtered_games()
         if not filtered:
             return
-        self._coll_offset = max(0, min(max(0, len(filtered) - 1), self._coll_offset + direction))
+        sel = self.m.library.selected
+        cur_idx = next(
+            (i for i, g in enumerate(filtered) if sel is not None and g.title_id == sel.title_id),
+            self._coll_offset,
+        )
+        self._coll_offset = max(0, min(max(0, len(filtered) - 1), cur_idx + direction))
+        self._ensure_selected_card_visible = True
         self.m.library.select(filtered[self._coll_offset].title_id)
         self._refresh_library()
 
@@ -1670,13 +1686,22 @@ class MainWindow(QMainWindow):
         r_ver = QWidget()
         rv_lay = QHBoxLayout(r_ver)
         rv_lay.setContentsMargins(18, 12, 18, 12)
-        rv_lay.addWidget(_dot(style.GREEN))
+        self.ver_dot = _dot(style.GREEN)
+        rv_lay.addWidget(self.ver_dot)
+        vcol = QVBoxLayout()
+        vcol.setSpacing(2)
         self.ver_title_lbl = QLabel(self.m.t('app.version', APP_VERSION))
         self.ver_title_lbl.setObjectName('rowTitle')
-        rv_lay.addWidget(self.ver_title_lbl, 1)
         self.ver_status_lbl = QLabel(self.m.t('app.upToDate'))
         self.ver_status_lbl.setObjectName('muted')
-        rv_lay.addWidget(self.ver_status_lbl)
+        self.ver_status_lbl.setWordWrap(True)
+        vcol.addWidget(self.ver_title_lbl)
+        vcol.addWidget(self.ver_status_lbl)
+        rv_lay.addLayout(vcol, 1)
+        self.ver_action_btn = QPushButton(self.m.t('repo.update'))
+        self.ver_action_btn.setFixedWidth(184)
+        self.ver_action_btn.clicked.connect(self._on_version_action_clicked)
+        rv_lay.addWidget(self.ver_action_btn)
         grp.add_row(r_ver)
 
         return grp
@@ -1870,7 +1895,17 @@ class MainWindow(QMainWindow):
         self.setup_row_note.setText(t('settings.setupNote'))
         self.run_onboarding_btn.setText(t('settings.setupBtn'))
         self.ver_title_lbl.setText(t('app.version', APP_VERSION))
-        self.ver_status_lbl.setText(t('app.upToDate'))
+        self.ver_status_lbl.setText(self.m.app_update_status or t('app.upToDate'))
+        if self.m.app_update is not None:
+            _set_dot(self.ver_dot, style.ORANGE)
+            self.ver_action_btn.setText(t('app.updateBtn', self.m.app_update.tag))
+            self.update_btn.setText(t('app.updateBtn', self.m.app_update.tag))
+            self.update_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
+            self.update_btn.show()
+        else:
+            _set_dot(self.ver_dot, style.GREEN)
+            self.ver_action_btn.setText(t('repo.update'))
+        self.ver_action_btn.setEnabled(not self.m.app_update_busy and not self.m.running)
 
         self._refresh_engine_banner()
         self._refresh_repo()
@@ -2288,6 +2323,21 @@ class MainWindow(QMainWindow):
         else:
             self.m.override.cancel()
 
+    def _trigger_app_update(self, fallback_url: str = '') -> None:
+        rel = self.m.app_update
+        if rel is not None and pu.IS_WIN and getattr(sys, 'frozen', False):
+            self.m.perform_app_update()
+            return
+        url = fallback_url or (rel.html_url if rel is not None else '')
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
+
+    def _on_version_action_clicked(self) -> None:
+        if self.m.app_update is not None:
+            self._trigger_app_update(self.m.app_update.html_url)
+        else:
+            self.m.check_app_update(silent=False)
+
     def _on_app_update(self, tag: str, url: str) -> None:
         self.update_btn.setText(self.m.t('app.updateBtn', tag))
         self.update_btn.setToolTip(url)
@@ -2295,7 +2345,7 @@ class MainWindow(QMainWindow):
             self.update_btn.clicked.disconnect()
         except (RuntimeError, TypeError):
             pass
-        self.update_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
+        self.update_btn.clicked.connect(lambda: self._trigger_app_update(url))
         self.update_btn.show()
 
     # ================================================================ File Pickers & Build Trigger

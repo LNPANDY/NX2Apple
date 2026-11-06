@@ -62,7 +62,7 @@ Issue: seedds/nxnative#221
  create mode 100644 docs/mac-controllers.md
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index 5505109..a1faaee 100644
+index 10876cc..dd12253 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -64,6 +64,8 @@ Game-specific findings. The general host changes they led to are listed under [F
@@ -74,7 +74,7 @@ index 5505109..a1faaee 100644
  - SDK 20 calls it needed (each aborted in `sm::Initialize` or read a null applet proxy, one per boot): `oe::GetPreviousProgramIndex`, the hardware Opus decoder's C interface, cache storage, `fs::IsSaveDataExisting` for another title (it asks for Breath of the Wild's save: none), `MountSaveDataReadOnly`, `time::ClockSnapshot::CreateWithStandardSystemClock` ([Applet resource user ID, launch parameters and VR mode](../../../docs/reference/services.md#applet-resource-user-id-launch-parameters-and-vr-mode), [Hardware Opus decoders](../../../docs/reference/audio.md#hardware-opus-decoders-built-on-the-sdks-software-decoders), [Cache storage and other titles' save data](../../../docs/reference/services.md#cache-storage-and-other-titles-save-data), [Steady clock, clock snapshots and user clocks](../../../docs/reference/services.md#steady-clock-clock-snapshots-and-user-clocks)).
  - **Resolved: clock snapshot types** ([PR #385](https://github.com/seedds/nxnative/pull/385), static SDK check). SDK build `574284b40c06cf1821a44857939083bee5716820` passes type 1 for standard snapshots (`sdk+0x441890`) and 2 for adjustable snapshots (`sdk+0x441924`); both entries first read the time-service session through `sdk+0xb6b280`. The host now sets the standard type and takes over the adjustable entry as described in [Steady clock, clock snapshots and user clocks](../../../docs/reference/services.md#steady-clock-clock-snapshots-and-user-clocks). This verifies the ABI; gameplay was not rerun for this check.
  - `main` imports `nn::ro` (it loads NRO modules at run time).
-@@ -112,6 +114,10 @@ General host changes first needed here; each applies to every game:
+@@ -113,6 +115,10 @@ General host changes first needed here; each applies to every game:
  
  - **RomFS folder transfer and startup deletion failures:** [RomFS images](../../../docs/reference/packing.md#romfs-folder-transfers-fail-or-leave-stale-game-files).
  
@@ -86,10 +86,10 @@ index 5505109..a1faaee 100644
  
  - **Resolved in the host (#342): recurring startup crash during archive compaction**, with a workaround for Metal's serializer defect: [Pipeline archive compaction crashes in Metal's serializer](../../../docs/reference/shaders.md#a-compaction-flush-that-crashes-then-crashes-every-start). Confirmed with local manifest replays; no new gameplay or iOS validation.
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 2100b89..33f6b5d 100644
+index cac0b94..b97e46f 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
-@@ -17,7 +17,7 @@ GAME_H = gen/$(GAME)/game_profile.h
+@@ -20,7 +20,7 @@ GAME_H = gen/$(GAME)/game_profile.h
  include ../mac/min_os.mk
  CFLAGS=-O1 -g -Wall -Wno-unused-function -mmacosx-version-min=$(MACOS_MIN)
  # Service-layer takeover hle_*.c files are included by wildcard: adding a file does not touch this line (avoids merge conflicts)
@@ -98,7 +98,7 @@ index 2100b89..33f6b5d 100644
  # NVN null device + nn::vi + the Vulkan layer (dm/gfx/)
  # Sources under dm/gfx, dm/gfx/nvn, dm/gfx/tex, dm/gfx/vk and dm/gfx/gl are included by wildcard (tests/ and metal/ do not go into the host): adding a file does not touch this line
  GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S ../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))
-@@ -76,7 +76,7 @@ endif
+@@ -79,7 +79,7 @@ endif
  endif
  .PHONY: FORCE
  FORCE:
@@ -1522,7 +1522,7 @@ index cfb6dcb..041bf07 100644
  // Mouse as a single-point touchscreen (front.h dm_touch_set): left button down / drag = finger 0, release = lifted. The content view takes the clicks,
  // not a window-wide event monitor, so clicks on the title bar, the window buttons and the resize edges still reach AppKit.
  // The picture's width / height (front.h front_picture_shape; 16:9 until the first present), which the present fits into the view
-@@ -507,9 +273,9 @@ void front_picture_shape(int w, int h) { if (w > 0 && h > 0) g_picture_aspect =
+@@ -507,9 +273,9 @@ - (void)mouseDragged:(NSEvent *)e {
      double a = g_picture_aspect; if (w / h > a) w = h * a; else h = w / a;   // the centered picture the present fits into the view (16:9, or a taller one under DM_SCREEN_ASPECT)
      double x0 = (b.width - w) / 2, y0 = (b.height - h) / 2;
      dm_touch t = {0, (float)fmin(fmax((p.x - x0) / w, 0), 0.999), (float)fmin(fmax(1 - (p.y - y0) / h, 0), 0.999)};   // The AppKit view origin is at bottom left, the touchscreen origin is at top left
@@ -1610,7 +1610,7 @@ diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
 index ca0414f..849af06 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
-@@ -40,6 +40,9 @@ static dispatch_queue_t queue;
+@@ -40,6 +40,9 @@ - (void)stop;
  static NSMutableArray<DmRumbleChannel *> *channels[DM_PLAYERS];
  static GCController *controllers[DM_PLAYERS];
  static GCHapticsLocality controllerLocalities[DM_PLAYERS];
@@ -1620,7 +1620,7 @@ index ca0414f..849af06 100644
  #if TARGET_OS_IPHONE
  static BOOL phoneSupported;
  #endif
-@@ -71,7 +74,7 @@ static CHHapticPattern *simple_pattern(dm_haptic_level level, NSError **error) {
+@@ -71,7 +74,7 @@ static NSTimeInterval now(void) {
  // low band at 0.1-0.4 all race long: 0.45 leaves crashes and drifts). The mapping stays linear by default: the opposite need, low levels that
  // rotating motors do not render at all (Breath of the Wild's charged attack on an Xbox controller), is open (docs/reference/services.md)
  static float rumble_min;
@@ -1629,7 +1629,7 @@ index ca0414f..849af06 100644
      x = isfinite(x) ? fmaxf(0, fminf(1, x)) : 0;
      return x <= rumble_min ? 0 : (x - rumble_min) / (1 - rumble_min);
  }
-@@ -161,7 +164,7 @@ static void report(NSError *e, NSString *target, const char *stage) {
+@@ -161,7 +164,7 @@ - (BOOL)startEngine {
      return YES;
  }
  - (void)apply:(dm_haptic_level)level {
@@ -1730,7 +1730,7 @@ index d808df0..3fb623b 100644
  // The sink copies/enqueues each snapshot in order; called under the state lock, it must not reenter.
  // No hardware calls on the sending thread. A changed epoch invalidates all older queued snapshots.
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 18a72cc..38b433d 100644
+index 751b9da..5351ff9 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -2,7 +2,7 @@
@@ -2437,10 +2437,10 @@ index 0000000..a252573
 +    memset(out, 0, 64); out[0] = 1; out[1] = 0x87; out[2] = 3; out[3] = 48; out[4] = enabled ? 0x18 : 0;
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 361cb46..b3ee543 100644
+index a35ca5e..cac33f6 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -70,6 +70,9 @@ run: $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture
+@@ -71,6 +71,9 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
  	TMPDIR="$(abspath $(B))" $(B)/t_cheats $(QUIET)
  	$(B)/t_nro
  	$(B)/t_symbols
@@ -2450,7 +2450,7 @@ index 361cb46..b3ee543 100644
  run: $(B)/t_nro
  run: $(B)/t_symbols
  $(B)/t_symbols: t_symbols.c ../hle.c ../loader.c ../hle.h ../dm.h $(GAME_H) | $(B)
-@@ -371,3 +374,11 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
+@@ -383,3 +386,11 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
  .PHONY: profile-runtime
  profile-runtime: $(B)/t_profile_runtime
  	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
@@ -3537,7 +3537,7 @@ diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
 index f7a5dfb..40fdeb7 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
-@@ -99,7 +99,7 @@ static void test_dispatch_after(dispatch_time_t when, dispatch_queue_t target, d
+@@ -99,7 +99,7 @@ @interface TestEngine : NSObject
  @property(copy) void (^startingReset)(void);
  @end
  @implementation TestEngine
@@ -3616,7 +3616,7 @@ index f7a5dfb..40fdeb7 100644
      assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
      dm_haptics_apple_shutdown();
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 2c8761f..9680dfc 100644
+index 18bb4b4..a69a9c9 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
 @@ -15,15 +15,16 @@ void dm_oe_execute(int index, const void *param, size_t n) { (void)index; (void)
@@ -3647,7 +3647,7 @@ index 2c8761f..9680dfc 100644
  
      // A one-player game ({No1, Handheld}): player 2's controller plays as player 1, No2 reads as not connected
      g_signals = 0; ids((const uint32_t[]){0, NPAD_HANDHELD}, 2);
-@@ -249,7 +250,7 @@ static void t_script_hold(void) {
+@@ -250,7 +251,7 @@ static void t_script_hold(void) {
      CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_A | DM_BTN_B | DM_BTN_X), "script, controller and keyboard buttons are combined");
      CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_A | DM_BTN_B | DM_BTN_X), "a scripted hold survives controller updates after the press latch is consumed");
      CHECK(lx_of(0) == -0x7000, "the scripted stick wins over controller drift");
@@ -3656,7 +3656,7 @@ index 2c8761f..9680dfc 100644
  }
  static void t_script(void) {
      g_mode = 1; dm_pad_players(1);
-@@ -260,7 +261,7 @@ static void t_script(void) {
+@@ -261,7 +262,7 @@ static void t_script(void) {
      script_hold = t_script_hold; keys_main(NULL); script_hold = NULL;
      CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_B | DM_BTN_X), "script release preserves the controller and keyboard buttons");
      CHECK(lx_of(0) == 120, "script release preserves the controller stick");
@@ -3665,7 +3665,7 @@ index 2c8761f..9680dfc 100644
      dm_input_set(0, 0, 0, 0, 0); dm_pad_set(0, 0, 0, 0, 0); buttons_of(0, STYLE_FULLKEY);
      g_steps[0] = (key_step){.btn = DM_BTN_Y}; keys_main(NULL);
      CHECK(buttons_of(0, STYLE_FULLKEY) == DM_BTN_Y, "a short scripted press is latched until the game reads");
-@@ -273,6 +274,7 @@ static void t_script(void) {
+@@ -274,6 +275,7 @@ static void t_script(void) {
      script_set(0, 0, 0, 0, 0); buttons_of(NPAD_HANDHELD, STYLE_HANDHELD);
      g_mode = 1; dm_pad_players(1);
      g_nsteps = 0; g_steps = NULL;
@@ -3673,7 +3673,7 @@ index 2c8761f..9680dfc 100644
  }
  
  // DM_REC (GitHub issue #313): player 1's physical input written as DM_KEYS steps, read back by the DM_KEYS parser and played on the scripted path at the game's reads (keys_sync);
-@@ -405,7 +407,7 @@ static void t_motion_threads(void) {
+@@ -406,7 +408,7 @@ static void t_motion_threads(void) {
  }
  static void t_motion_live(void) {
      g_mode = 1; dm_pad_players(1);
@@ -3682,7 +3682,7 @@ index 2c8761f..9680dfc 100644
  
      uint32_t h; uint32_t id = 0;
      CHECK(h_hid_SixHandles(&h, 1, &id, STYLE_FULLKEY) == 1, "one six-axis handle for player 1");
-@@ -459,7 +461,7 @@ static void t_motion_live(void) {
+@@ -460,7 +462,7 @@ static void t_motion_live(void) {
  }
  static void t_motion_hid(void) {
      g_mode = 1; dm_pad_players(3); ids((uint32_t[]){0, 1, NPAD_HANDHELD}, 3); g_phone_mode = 0;
@@ -3691,7 +3691,7 @@ index 2c8761f..9680dfc 100644
      float flat[3] = {0, 0, -1}, tilted[3] = {.5f, 0, -.8660254f}, turn[3] = {0, 0, 2 * (float)M_PI};
      motion_now += 1000000000;
      dm_motion_clear(0);
-@@ -490,16 +492,246 @@ static void t_motion_hid(void) {
+@@ -491,16 +493,246 @@ static void t_motion_hid(void) {
      dm_pad_players(1); g_phone_mode = -1;
  }
  
@@ -3938,7 +3938,7 @@ index 2c8761f..9680dfc 100644
      t_rec();
      {   // Nmouse with no device (SDK 21's forms): the pointer range is kept, the merged handle 0 takes settings, the standard mouse and the handle queries report nothing
          int w = 0, h = 0; uint64_t std = 7; uint32_t npad = 9;
-@@ -513,6 +745,7 @@ int main(void) {
+@@ -514,6 +746,7 @@ int main(void) {
          CHECK(!h_hid_NmouseEnable(5, 1) && !h_hid_NmousePos(5, 0, 0), "an unknown handle does not");
          CHECK(!h_hid_NmouseState(NULL, merged) && !h_hid_NmouseNpad(&npad, merged) && npad == 9, "no state and no controller behind the merged handle");
      }
@@ -4418,10 +4418,10 @@ index 4d70499..07010f3 100644
  
  With an Apple developer account, Xcode can sign and install the app itself:
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 57e34f7..96ccd19 100644
+index 08e9eec..3f37f7b 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -89,7 +89,7 @@ DM_JIT_SERVE	path	Folder of a `nn::jit` image (`jit.img`, `jit.tsv`, `jit.out`):
+@@ -93,7 +93,7 @@ DM_JIT_SERVE	path	Folder of a `nn::jit` image (`jit.img`, `jit.tsv`, `jit.out`):
  DM_JOYCON_SPLIT	switch	`1` splits a Bluetooth Nintendo Switch Joy-Con pair on macOS (`0x057e:0x2006` and `0x057e:0x2007`) into two sideways controllers over `IOHIDManager` (`pad_joycon_mac.h`, requires Input Monitoring permission) with per-half 6-axis motion and `LeftHandle` / `RightHandle` Core Haptics rumble
  DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
  DM_KBD_PLAYER	switch	`own` makes the Mac keyboard player 1 on its own, with controllers from player 2 on (by default the first controller shares player 1 with the keyboard)
@@ -4430,7 +4430,7 @@ index 57e34f7..96ccd19 100644
  DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold or ~f<frames>][*count/interval],…` presses buttons, sticks, touches and `Shake` at those times; `=@<file>` reads the steps from the file
  DM_LANG	player	Game language as a language code (default `en-US`; the iOS app sets the one the IPA was packed with)
  DM_LAUNCHER	switch	`0` skips the iOS settings screen or the Mac settings window and starts the game at once, with the saved choices (on the Mac also `--no-launcher`)
-@@ -233,7 +233,7 @@ DM_OODLE_JOB	path	`=<job file>`: the host runs the game's own Oodle decoder on e
+@@ -238,7 +238,7 @@ DM_OODLE_JOB	path	`=<job file>`: the host runs the game's own Oodle decoder on e
  DM_OODLE_MODULES	path	The rewritten modules the Mac host's Oodle tool mode loads when `shader_split.py` decodes Trinity packs; set by the NSP script
  DM_OODLE_SERVE	switch	`=1`: the host answers decode requests on stdin / stdout with the game's own Oodle (or LZ5) decoder from the guest main thread before the SDK starts, until stdin ends
  DM_OPMODE	player	The operation mode the game sees: `0` handheld, `1` console (default: the profile's `op_mode`, console unless set); read once at startup
@@ -4439,7 +4439,7 @@ index 57e34f7..96ccd19 100644
  DM_PAD_MERGE	switch	`=1` merges every controller into player 1, as before, instead of giving each controller a player of its own (Mac and iOS)
  DM_PATCH_FRONT	switch	`=<bytes>`: the size of the patch area right before the module base for a long text (`BIG_TEXT`); set only by the rewriter's own rerun with the size it needs
  DM_PHONE_MOTION	switch	On iOS, whether the phone's own device motion drives player 1's six-axis sensor: `auto` (default) while no controller supplies fresh motion, `1` phone only, `0` never; each source keeps its own orientation
-@@ -332,6 +332,8 @@ DM_SLOWFRAME	diagnostic	`=1` writes the per-frame timing breakdown to the log on
+@@ -337,6 +337,8 @@ DM_SLOWFRAME	diagnostic	`=1` writes the per-frame timing breakdown to the log on
  DM_SPIN	switch	`0` makes the rewriter's spin gate return at once, so guest poll loops spin with no sleep; the gate stays (on by default)
  DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it found and sends through a spin gate
  DM_SPIN_POLL	switch	`=<µs>`: how long a spin-gate wait polls before it sleeps with the yield back-off (default 2000; `0` yields on every pass)
@@ -4447,8 +4447,8 @@ index 57e34f7..96ccd19 100644
 +DM_STEAM_HID	switch	`=0` disables the Mac direct Steam Controller HID adapter and leaves input to Apple GameController; enabled otherwise
  DM_SVC	diagnostic	`=1` logs memory SVCs (`SetHeapSize`, `MapMemory`, `Map`/`UnmapPhysicalMemory`) with their addresses and sizes
  DM_SYMCHECK	diagnostic	`=1` checks every hashed module symbol lookup against a linear search and logs a red line for each mismatch
- DM_TBUF_ALIGN	diagnostic	`=<bytes>` uses that value as the linear-texture alignment for buffer textures when it is larger than the device's `minimumLinearTextureAlignmentForPixelFormat`: a Mac can then reproduce a phone's larger alignment (a 64-byte one fails the buffers a device with 64 bytes cannot view), to check `tbuf_as_2d`'s aligned-row copy
-@@ -364,6 +366,7 @@ DM_TOUCH_LOG	diagnostic	`=1` logs each touch-screen read with touch points (samp
+ DM_TBUF_ALIGN	diagnostic	`=<bytes>` uses that value as the linear-texture alignment when it is larger than the device's `minimumLinearTextureAlignmentForPixelFormat`, for buffer textures and for linear textures on a pool's buffer: a Mac can then reproduce a phone's larger alignment (a 64-byte one fails the buffers and linear textures a device with 64 bytes cannot view), to check `tbuf_as_2d`'s aligned-row copy and the upload of unaligned linear textures (`linear_fit`)
+@@ -373,6 +375,7 @@ DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or
  DM_UDC_SELFTEST	diagnostic	`=1` runs a start-up check of DontCare load and store on private depth-stencil and RGBA8 textures (clear, Load + DontCare, read back) and logs one result line
  DM_UE_SHADERS	path	Folder of the Unreal shader code archives decoded by `uepak.py`, for `shader_split.py` (default `ue_shaders` beside the RomFS); needed when the RomFS has Unreal paks
  DM_UE_TEXTURE_POOL	switch	Megabytes Unreal's texture streaming pool (`r.Streaming.PoolSize`) is raised to, overriding the profile's `ue_texture_pool`; `0` keeps the game's own pool. On iOS only this switch turns it on (`Documents/env.txt`)
@@ -4766,7 +4766,7 @@ index 0000000..e633df5
 +first. For repeated development builds, the packer's existing `--mac-sign`
 +option can use a stable signing identity, see [Mac app signing](development.md#a-mac-app).
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index cb19ffe..f2ba097 100644
+index 8a97476..813b5b0 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
 @@ -277,6 +277,27 @@ Most service calls can be found before they crash, before the first boot or the
