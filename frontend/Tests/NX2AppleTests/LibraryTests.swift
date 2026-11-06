@@ -633,6 +633,41 @@ import NXModel
         }
     }
 
+    private func hiddenBuildWindow(stores: LauncherStores, library: GameLibrary) -> NSWindow {
+        let view = LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false)
+        let appeared = expectation(description: "Build view appeared")
+        let window = OffscreenWindow(size: NSSize(width: 1100, height: 800))
+        window.contentView = NSHostingView(rootView: view.onAppear { appeared.fulfill() })
+        window.orderFront(nil)
+        wait(for: [appeared], timeout: 5)
+        window.orderOut(nil) // Registration must work even while the launcher is hidden.
+        return window
+    }
+
+    func testBuildStartingAtFirstAppearanceKeepsItsLibraryEntry() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        let model = stores.build
+        model.slots[0].paths = [temporary.appendingPathComponent("Test [\(titleID)].nsp").path]
+        model.target = "mac-app"
+        model.outDir = temporary.path
+        let app = try makeApp(titleID)
+        let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        let window = hiddenBuildWindow(stores: stores, library: library)
+        defer { window.close() }
+
+        // Start before the initial idle notification's deferred work, then finish on the next main-queue turn.
+        model.running = true
+        let finished = expectation(description: "Completion callbacks ran")
+        DispatchQueue.main.async {
+            model.macAppPath = app.path
+            model.running = false
+            model.done = true
+            DispatchQueue.main.async { finished.fulfill() }
+        }
+        wait(for: [finished], timeout: 5)
+        XCTAssertEqual(library.games.first?.appPath, app.path)
+    }
+
     @MainActor func testCompletedBuildAppearsAutomaticallyInCollection() throws {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
         let app = NSApplication.shared
@@ -679,24 +714,17 @@ import NXModel
         model.slots[0].paths = [base.path]
         model.slots[3].paths = [keys.path]
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
-        let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false))
-        let window = OffscreenWindow(size: NSSize(width: 1100, height: 800))
-        window.contentView = host
-        window.orderFront(nil)
-        defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let window = hiddenBuildWindow(stores: modelStores, library: library)
+        defer { window.close() }
         let completed = expectation(description: "Successful app is added without an import")
-        let token = library.$games.filter { $0.contains(where: \.isReady) }.prefix(1).sink { _ in completed.fulfill() }
+        let libraryToken = library.$games.filter { $0.contains(where: \.isReady) }.prefix(1).sink { _ in completed.fulfill() }
+        let settled = expectation(description: "Build process finished successfully")
+        let buildToken = model.$running.combineLatest(model.$done).first { !$0 && $1 }.sink { _ in settled.fulfill() }
         XCTAssertTrue(model.canBuild)
-        window.orderOut(nil) // Registration must work even while the launcher is hidden.
         model.startBuild()
-        // The fixture runs system Python in a child process. A loaded CI runner took more than 10 s for it once, so the deadline
-        // is only a hang guard. Each wait returns on its event, so a fast build does not wait longer.
-        wait(for: [completed], timeout: 120)
-        withExtendedLifetime(token) {}
-        // The library can list the app before the model has taken in the script's exit (a slower Mac, CI): wait for both
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in model.done && !model.running }, object: nil)
-        wait(for: [settled], timeout: 120)
+        // A ready app and the process exit may arrive in either order. The timeout only guards against a hang on CI.
+        wait(for: [completed, settled], timeout: 120)
+        withExtendedLifetime((libraryToken, buildToken)) {}
         XCTAssertTrue(model.done)
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.stages.map(\.name), ["Mac app"])   // from the JSON events, which the log shows as text
