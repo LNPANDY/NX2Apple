@@ -26,10 +26,8 @@ import NXLauncher
     (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(info))
     """
 
-    func testBothBuildersFinishWithTheReadableAppAndTheLibraryRediscoversIt() async throws {
+    private func buildFixture(at root: URL) throws -> LauncherStores {
         let fm = FileManager.default
-        let root = fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
-        defer { try? fm.removeItem(at: root) }
         let stores = LauncherStores(localizer: Localizer(.en), defaults: testDefaults)
         let build = stores.build
         for path in RepoLayout.requiredTools + [EngineLayout.marker, "nxb"] {
@@ -50,6 +48,41 @@ import NXLauncher
         build.take(picked: [base.path], kind: .base)
         build.take(picked: [keys.path], kind: .keys)
         XCTAssertTrue(build.canBuild)
+        return stores
+    }
+
+    func testReadOnlyOutputNamesThePackedAppLeftInTheWorkFolder() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        let stores = try buildFixture(at: root)
+        let build = stores.build
+        let output = root.appendingPathComponent("Games")
+        let work = output.appendingPathComponent(titleID + "_build")
+        try fm.createDirectory(at: work, withIntermediateDirectories: true)
+        try fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: output.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: output.path) }
+        build.outDir = output.path
+        build.startBuild()
+        let deadline = Date().addingTimeInterval(10)
+        while build.running && Date() < deadline { try await Task.sleep(nanoseconds: 20_000_000) }
+        let retained = work.appendingPathComponent(titleID + ".app")
+        let placement = MacAppOutput(workDir: work, key: titleID, titleID: titleID, preferred: "")
+        XCTAssertThrowsError(try placement.finish())
+        XCTAssertFalse(build.running)
+        XCTAssertFalse(build.done)
+        XCTAssertEqual(try MacGameBundle.read(retained).titleID, titleID)
+        XCTAssertTrue(build.doneNote.contains(retained.path), build.doneNote)
+        XCTAssertTrue(build.log.text.contains(build.doneNote))
+        try capture(stores, errorFolder: output)
+    }
+
+    func testBothBuildersFinishWithTheReadableAppAndTheLibraryRediscoversIt() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.resolvingSymlinksInPath().appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        let stores = try buildFixture(at: root)
+        let build = stores.build
         for experimental in [false, true] {
             let output = root.appendingPathComponent(experimental ? "experimental" : "standard")
             try fm.createDirectory(at: output, withIntermediateDirectories: true)
@@ -83,7 +116,20 @@ import NXLauncher
         let realPath = build.macAppPath
         defer { build.macAppPath = realPath }
         build.macAppPath = "/Volumes/Games/" + filename
-        let view = OutcomeCard(build: build, devices: stores.deviceStore, onViewGame: {})
+        try writeCapture(OutcomeCard(build: build, devices: stores.deviceStore, onViewGame: {}), stores: stores, to: directory, file: "mac-output.png")
+    }
+
+    private func capture(_ stores: LauncherStores, errorFolder: URL) throws {
+        guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { return }
+        let build = stores.build
+        let message = build.doneNote
+        defer { build.doneNote = message }
+        build.doneNote = message.replacingOccurrences(of: errorFolder.path, with: "/Volumes/Games")
+        try writeCapture(ActionCard(build: build, dependencies: stores.dependencies, repo: stores.repo), stores: stores, to: directory, file: "mac-placement-error.png")
+    }
+
+    private func writeCapture<V: View>(_ card: V, stores: LauncherStores, to directory: String, file: String) throws {
+        let view = card
             .environmentObject(stores.localizer).environmentObject(PadFocus())
             .padding(24).frame(width: 840).background(Color(white: 0.09)).environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: view)
@@ -98,6 +144,6 @@ import NXLauncher
         host.cacheDisplay(in: host.bounds, to: rep)
         let target = URL(fileURLWithPath: directory)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: target.appendingPathComponent("mac-output.png"))
+        try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: target.appendingPathComponent(file))
     }
 }

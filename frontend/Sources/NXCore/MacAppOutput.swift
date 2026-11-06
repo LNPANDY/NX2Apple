@@ -31,24 +31,36 @@ package struct MacAppOutput {
         return children?.sorted { $0.lastPathComponent < $1.lastPathComponent }.first(where: matches)
     }
 
+    package enum FinishError: Error {
+        case missingApp
+        case retainedApp(URL, Error)
+    }
+
     package func finish() throws -> URL {
         let fm = FileManager.default
-        let info = try MacGameBundle.read(builderURL)
-        let prior = rebuilding ? builderURL : Self.existing(in: directory, titleID: info.titleID)
-        if let prior, !rebuilding {
-            // A package without an ID in its filename can only identify an earlier app now.
-            _ = try fm.replaceItemAt(prior, withItemAt: builderURL, options: .usingNewMetadataOnly)
-            movePackingKey(from: builderURL, to: prior)
+        var packed = builderURL
+        do {
+            let info = try MacGameBundle.read(packed)
+            let prior = rebuilding ? packed : Self.existing(in: directory, titleID: info.titleID)
+            if let prior, !rebuilding {
+                // A package without an ID in its filename can only identify an earlier app now.
+                _ = try fm.replaceItemAt(prior, withItemAt: packed, options: .usingNewMetadataOnly)
+                movePackingKey(from: packed, to: prior)
+                packed = prior
+            }
+            let result: URL
+            if let prior, prior.deletingPathExtension().lastPathComponent.uppercased() != info.titleID {
+                result = prior  // keep the user's chosen filename
+            } else {
+                result = try place(packed, title: Self.filename(info.displayName, fallback: info.titleID), titleID: info.titleID)
+            }
+            // Saves and logs follow this output folder when the library moves.
+            try? Data().write(to: directory.appendingPathComponent(".nx2apple-library"))
+            return result
+        } catch {
+            guard fm.fileExists(atPath: packed.path) else { throw FinishError.missingApp }
+            throw FinishError.retainedApp(packed, error)
         }
-        let result: URL
-        if let prior, prior.deletingPathExtension().lastPathComponent.uppercased() != info.titleID {
-            result = prior  // keep the user's chosen filename
-        } else {
-            result = try place(prior ?? builderURL, title: Self.filename(info.displayName, fallback: info.titleID), titleID: info.titleID)
-        }
-        // Saves and logs follow this output folder when the library moves.
-        try? Data().write(to: directory.appendingPathComponent(".nx2apple-library"))
-        return result
     }
 
     private func place(_ source: URL, title: String, titleID: String) throws -> URL {

@@ -268,8 +268,10 @@ extension BuildStore {
                 doneNote = t("msg.macAppDone")
                 running = false
                 cleanupStaging()
+            } catch MacAppOutput.FinishError.retainedApp(let app, let cause) {
+                fail(app.path + "\n" + cause.localizedDescription)
             } catch {
-                fail(FileManager.default.fileExists(atPath: output.builderURL.path) ? error.localizedDescription : t("msg.macAppMissing"))
+                fail(t("msg.macAppMissing"))
             }
         }
     }
