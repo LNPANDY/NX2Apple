@@ -167,6 +167,37 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         XCTAssertTrue(lang.storeBacked, "the engine's own row stays a saved choice, which the app's launcher reads")
     }
 
+    /// Unlike the copied fixtures, this follows the pin: a changed engine row must still parse and narrow (#698).
+    func testPinnedEngineFallbackRowIsRecognizedAndNarrowedWithoutRewritingTheApp() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0..<4 { root.deleteLastPathComponent() }
+        let output = temporary.appendingPathComponent("engine-launcher.json")
+        try Data().write(to: temporary.appendingPathComponent("main.fixups.tsv"))
+        let result = SystemProcessRunner().capture(ProcessLaunch(
+            executable: "/usr/bin/env",
+            arguments: ["python3", root.appendingPathComponent("engine/dm/games/settings.py").path,
+                        "040074A01BF12000", temporary.path, temporary.appendingPathComponent("missing-control.nacp").path, output.path],
+            environment: ["PATH": ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin",
+                          "SETTINGS_PLATFORM": "mac", "GFXAPI": "nvn", "DM_LANG": "en-US",
+                          "PYTHONDONTWRITEBYTECODE": "1", "PYTHONNOUSERSITE": "1"], mergesErrors: true, timeout: 10))
+        XCTAssertTrue(result.ok, "Run python3 tools/engine.py sync before testing: \(result.out)")
+        let generated = try Data(contentsOf: output)
+        let emitted = try XCTUnwrap(LaunchList.parse(generated)?.settings.first { $0.env == "DM_LANG" })
+        XCTAssertEqual(emitted.kind, "choice")
+        XCTAssertTrue(RomFSLanguages.isFallbackRow(options: emitted.options, note: emitted.note))
+
+        let (app, _) = try appWithLangRow(nil, mask: "JPja USen CNzh TWzh EUfr\n01111\n")
+        let launcher = app.appendingPathComponent("Contents/Resources/dm/launcher.json")
+        try generated.write(to: launcher)
+        let language = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { $0 })?
+            .first { $0.env == "DM_LANG" })
+        XCTAssertEqual(language.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+        XCTAssertEqual(language.def, "en-US")
+        XCTAssertEqual(language.note, "")
+        // Reading options must not mutate resources inside a signed Mac app.
+        XCTAssertEqual(try Data(contentsOf: launcher), generated)
+    }
+
     /// The row is left alone when the RomFS cannot say: no list, one language, or the packed default is not among them.
     func testTheAllLanguagesRowStaysWhenTheRomFSCannotNarrowIt() throws {
         for mask in ["Hello\n", "USen\n", "JPja EUfr\n"] {   // no tag, one language, no American English (the packed default)

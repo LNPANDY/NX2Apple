@@ -312,8 +312,7 @@ package enum ShellInstall {
     }
 
     /// The local files to copy: missing on the device, or of another size. Sorted, so the copies run in a stable order.
-    /// Path and size only: a file with the same size and other content stays. A hash comparison (a manifest the device keeps next to
-    /// the game's folder) can close that gap later.
+    /// The caller also checks the last RomFS transfer before treating a same-size device image as a match.
     package static func filesToCopy(local: [String: Int64], device: [String: Int64]) -> [String] {
         local.filter { device[$0.key] != $0.value }.map(\.key).sorted()
     }
@@ -394,6 +393,7 @@ package struct ShellInstaller {
     package var team: String
     package var deviceName = "iPhone"
     package var lang: Lang = .en
+    package var defaults = UserDefaults.standard
     /// Run tools in a process group of their own (the model's Stop ends the group). The terminal does not need it.
     package var ownGroup = false
     package var toolPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -589,7 +589,13 @@ package struct ShellInstaller {
                 env: nil, label: checkName, step: { _ in nil })
         let onDevice = ShellInstall.parseListing(FileManager.default.contents(atPath: listing))
         let local = ShellInstall.localFiles(in: archive)
-        let missing = ShellInstall.filesToCopy(local: local, device: onDevice)
+        // The listing still catches missing and interrupted copies. Two releases can also have the same image size.
+        let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)"
+        let previous = defaults.string(forKey: receipt)
+        let identity = local["romfs.img"] == nil ? nil : imageIdentity(archive: archive, titleID: titleID)
+        var comparable = onDevice
+        if identity != previous { comparable.removeValue(forKey: "romfs.img") }
+        let missing = ShellInstall.filesToCopy(local: local, device: comparable)
         end(Self.checkStageID, checkName, ok: true)
         guard !missing.isEmpty else {
             outcome.message = fmt("shell.dataAlready", deviceName)
@@ -635,6 +641,8 @@ package struct ShellInstaller {
             copyProgress(copiedBytes, needed)
             stage(ShellStage(id: Self.copyStageID, name: copyName, state: .running, detail: "\(i + 1)/\(missing.count)",
                              percent: Double(i) / Double(missing.count) * 100))
+            // Once an overwrite begins, the old receipt cannot vouch for what a failed copy leaves behind.
+            if path == "romfs.img", previous != nil { defaults.removeObject(forKey: receipt) }
             let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID,
                                                  source: archive + "/" + path, relativePath: path),
                         env: nil, label: copyName, step: BuildProgress.installStep)
@@ -651,6 +659,7 @@ package struct ShellInstaller {
             outcome.copied = i + 1
             copiedBytes += local[path] ?? 0
         }
+        if let identity, missing.contains("romfs.img") { defaults.set(identity, forKey: receipt) }
         copyProgress(needed, needed)
         end(Self.copyStageID, copyName, ok: true)
         return outcome

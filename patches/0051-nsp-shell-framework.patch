@@ -15,7 +15,7 @@ Issue: LNPANDY/NX2Apple#144
  1 file changed, 21 insertions(+), 2 deletions(-)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index d8455c3..59f3df7 100755
+index ea22543..71922cd 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -2808,6 +2808,9 @@ def parse_args(argv):

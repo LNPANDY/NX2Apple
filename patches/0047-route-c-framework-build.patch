@@ -282,7 +282,7 @@ index 0000000..ec2c33b
 +if __name__ == '__main__':
 +    main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index c60ea0e..d8455c3 100755
+index 6923691..ea22543 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -2807,6 +2807,7 @@ def parse_args(argv):

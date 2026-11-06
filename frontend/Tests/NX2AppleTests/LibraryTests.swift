@@ -49,6 +49,40 @@ import NXModel
         defaults.removePersistentDomain(forName: "nxnative-tests-filter-" + temporary.lastPathComponent)
     }
 
+    func testLibraryTitleOrderUsesNumbersAndKeepsSelection() {
+        let ten = LibraryGame(titleID: "C", name: "Quest 10")
+        let two = LibraryGame(titleID: "B", name: "Quest 2")
+        let anotherTwo = LibraryGame(titleID: "A", name: "Quest 2")
+        let games = [ten, two, anotherTwo]
+        XCTAssertEqual(LibraryFilter.owned.visibleGames(games).map(\.id), [anotherTwo.id, two.id, ten.id])
+        XCTAssertEqual(LibraryFilter.owned.visibleGames(games, matching: "qUeSt 2").map(\.id), [anotherTwo.id, two.id])
+        XCTAssertTrue(LibraryFilter.built.visibleGames(games).isEmpty)
+        XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: nil, focused: nil).selectedID, anotherTwo.id)
+        XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: ten.id, focused: nil).selectedID, ten.id)
+    }
+
+    func testCommandFFromBuildsOpensLibrarySearch() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        let view = LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false)
+        let window = OffscreenWindow(size: NSSize(width: 1100, height: 800))
+        let host = NSHostingView(rootView: view)
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let find = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                                                  timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                                  characters: "f", charactersIgnoringModifiers: "f", isARepeat: false, keyCode: 3))
+        XCTAssertTrue(window.performKeyEquivalent(with: find))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        func searchField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.placeholderString == stores.localizer.t("library.search") { return field }
+            return view.subviews.lazy.compactMap { searchField(in: $0) }.first
+        }
+        XCTAssertNotNil(searchField(in: host), "the search field is now in the window")
+    }
+
     /// Built hides the games without a build. The selection moves to a game it shows, and a controller's focus on a hidden card
     /// is dropped, so A cannot start a game that is not on screen.
     func testBuiltFilterKeepsSelectionAndFocusOnShownGames() throws {

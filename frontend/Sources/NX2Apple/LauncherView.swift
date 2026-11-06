@@ -29,6 +29,7 @@ struct LauncherView: View {
     @State private var removing: LibraryGame?
     @State private var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
     @State var optionsFor: UUID?
+    @State private var controllerMappingOpen = false
     @State private var freeSpaceFor: UUID?   // the game whose Free space sheet is open
     @State private var controlsOpen = false
     @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
@@ -36,7 +37,7 @@ struct LauncherView: View {
     @State var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
     @StateObject private var controls: ControlLayout
     @StateObject private var gamepad: LauncherGamepad
-    @StateObject var padFocus = PadFocus()
+    @StateObject var padFocus: PadFocus
     @StateObject var row = RowScroller()
     @StateObject var toolsAge: ToolsAge
     @State private var buildCommit = ""   // the engine's commit when the running build started (ToolsAge)
@@ -51,7 +52,8 @@ struct LauncherView: View {
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false,
-         gamepad: LauncherGamepad? = nil) {
+         gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil) {
+        _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
         self.onRunSetup = onRunSetup
         let layout = sharedControls ?? ControlLayout()
@@ -90,14 +92,14 @@ struct LauncherView: View {
     }
 
     var filteredGames: [LibraryGame] {
-        library.games.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && libraryFilter.includes($0) }
+        libraryFilter.visibleGames(library.games, matching: search)
     }
 
     /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
     var heroGame: LibraryGame? {
         guard libraryFilter != .owned else { return library.selected }
         if let selected = library.selected, libraryFilter.includes(selected) { return selected }
-        return library.games.first(where: libraryFilter.includes)
+        return libraryFilter.visibleGames(library.games).first
     }
 
     var body: some View {
@@ -246,7 +248,7 @@ struct LauncherView: View {
             }
         } message: { Text(loc.t("library.removeNote")) }
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
-            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id).environmentObject(padFocus).launcherDropdownHost() }
+            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id, globalControls: controls, controllerMappingPresentation: $controllerMappingOpen).environmentObject(padFocus).launcherDropdownHost() }
         }
         .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
@@ -267,7 +269,11 @@ struct LauncherView: View {
         }
         .onChange(of: savesFor) { id in padFocus.scope = id != nil ? "saves" : currentPadScope }
         .cheatsSheet(for: $cheatsFor, m: m, library: library, pad: padFocus) { currentPadScope }
-        .onChange(of: optionsFor) { id in padFocus.scope = id != nil ? "launch" : (controlsOpen ? "controls" : "main") }
+        .onChange(of: optionsFor) { id in
+            if id == nil { controllerMappingOpen = false }
+            padFocus.scope = currentPadScope
+        }
+        .onChange(of: controllerMappingOpen) { _ in padFocus.scope = currentPadScope }
         .onChange(of: controlsOpen) { open in padFocus.scope = open ? "controls" : (optionsFor != nil ? "launch" : "main") }
         .onChange(of: page) { _ in padFocus.focused = nil }
         .onChange(of: padFocus.focused) { id in   // a controller moving onto a game's card selects it, as a click does
@@ -362,11 +368,13 @@ struct LauncherView: View {
                     .foregroundStyle(searching ? Color.secondary : Color.primary)
                     .frame(width: searching ? 16 : 40, height: searching ? 16 : 40).contentShape(Rectangle())
             }
+            .keyboardShortcut("f", modifiers: .command)
             .buttonStyle(.plain).help(loc.t("library.search")).accessibilityLabel(loc.t("library.search"))
             if searching {
                 TextField(loc.t("library.search"), text: $search)
                     .textFieldStyle(.plain).font(.manrope(14))
                     .focused($searchFocused)
+                    .onAppear { searchFocused = true }
                     .onSubmit { if search.isEmpty { closeSearch() } }
                     .onExitCommand { closeSearch() }
                     .frame(width: 210)
@@ -400,15 +408,19 @@ struct LauncherView: View {
             Divider().opacity(0.3)
             HStack(spacing: 22) {
                 if m.running {
+                    let stage = m.stages.last { $0.state == .running }
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
                                  ? "activity.transfer" : (m.target == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
-                            Text(m.stages.last(where: { $0.state == .running })
+                            Text(stage
                                     .map { [$0.name, $0.detail, $0.clock(at: context.date, left: loc.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · ") }
                                  ?? loc.t("library.preparing"))
                                 .font(.manrope(13)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
+                        if stage?.isScanningLastShaderFiles == true {
+                            Text(loc.t("prog.lastShaderFiles")).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .frame(minWidth: 180, alignment: .leading)
@@ -450,7 +462,7 @@ struct LauncherView: View {
                     }
                 }
             }
-            .padding(.horizontal, 30).frame(height: 84)
+            .padding(.horizontal, 30).frame(minHeight: 84)
         }
     }
 
@@ -529,6 +541,7 @@ struct LauncherView: View {
             return
         case .pass: break
         }
+        if action == .b, controllerMappingOpen { controllerMappingOpen = false; return }
         if action == .b, controllerSheet { controllerSheet = false; return }
         if action == .b, savesFor != nil { savesFor = nil; return }
         if action == .b, cheatsFor != nil { cheatsFor = nil; return }
@@ -570,8 +583,9 @@ struct LauncherView: View {
         ManageItem.list(game: game, labels: loc.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
                         hasBuildFolder: BuildFolder.location(for: game) != nil,
                         hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
+                        deviceName: devices.deviceName(game.installedDevice), launching: launching,
                         actions: ManageActions(
-                            rebuild: { configureBuild(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
+                            rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
                             changeArtwork: { chooseArtwork(game) }, resetArtwork: { library.setArtwork("", for: game.id) },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
@@ -582,21 +596,23 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        controllerSheet ? "console.controllers" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
     static let ringRoom: CGFloat = 6
 
-    func primaryAction(_ game: LibraryGame) {
-        if !game.isReady && game.onDevice {   // installed on a device: start it there
-            launching = true
-            m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath) { error in
-                launching = false
-                if let error { launchError = error }
-            }
-            return
+    private func openOnDevice(_ game: LibraryGame) {
+        guard !launching else { return }
+        launching = true
+        m.openOnDevice(udid: game.installedDevice, app: game.iosAppPath) { error in
+            launching = false
+            if let error { launchError = error }
         }
+    }
+
+    func primaryAction(_ game: LibraryGame) {
+        if game.primary == .openOnDevice { openOnDevice(game); return }
         guard game.isReady else { configureBuild(game); return }
         do {
             _ = try MacGameBundle.read(URL(fileURLWithPath: game.appPath))

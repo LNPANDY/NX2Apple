@@ -150,8 +150,7 @@ import XCTest
     func testTheExperimentalBuilderIsOffByDefaultAndItsSettingIsSaved() {
         let store = makeStore()
         XCTAssertFalse(store.experimentalBuilder)
-        XCTAssertEqual(store.builderEnvironment(), [:], "off: the build gets nothing")
-        XCTAssertFalse(store.log.text.contains(store.t("msg.builderMissing")), "and the log says nothing")
+        XCTAssertNil(store.experimentalBuilderProblem(), "off: nothing to say")
         store.experimentalBuilder = true; store.experimentalBuilderPath = "/opt/nxbuild"
         XCTAssertTrue(defaults.bool(forKey: BuildStore.experimentalBuilderKey))
         XCTAssertEqual(defaults.string(forKey: BuildStore.experimentalBuilderPathKey), "/opt/nxbuild")
@@ -160,22 +159,33 @@ import XCTest
         XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
     }
 
-    func testTheBuildGetsTheChosenNxbOrANoteThatTheStandardBuilderRuns() throws {
-        let store = makeStore()
+    func testTheExperimentalBuilderStopsWithoutANewEnoughNxbAndNeverRunsTheScript() throws {
+        let runner = FakeProcessRunner()
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults, targetChanged: {})
         store.bundledBuilder = nil
+        XCTAssertNil(store.experimentalBuilderProblem(), "off: nothing to say")
         store.experimentalBuilder = true
         store.experimentalBuilderPath = temporary.path + "/gone/nxb"
         XCTAssertNil(store.experimentalBuilderBinary)
-        XCTAssertEqual(store.builderEnvironment(), [:])
-        XCTAssertTrue(store.log.text.contains(store.t("msg.builderMissing")))
+        XCTAssertEqual(store.experimentalBuilderProblem(), store.t("msg.builderMissingError"), "no nxb is an error, not a build by the script")
         let nxb = try file("nxb")
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
         store.experimentalBuilderPath = temporary.path   // the folder that holds it
         XCTAssertEqual(store.experimentalBuilderBinary, nxb)
-        XCTAssertEqual(store.builderEnvironment(), ["DM_EXPERIMENTAL_BUILDER": "1", "NXB_BIN": nxb])
-        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.4.0\n") }
+        XCTAssertEqual(store.experimentalBuilderProblem(), String(format: store.t("nxb.tooOld"), "nxb 0.4.0", ExperimentalBuilder.minimumVersion))
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.3\n") }
+        XCTAssertNil(store.experimentalBuilderProblem(), "a game or a step nxb does not take ends with its own exit code 4")
+        XCTAssertTrue(runner.commands.contains("nxb version"))
         store.experimentalBuilder = false
-        XCTAssertEqual(store.builderEnvironment(), [:], "off again: nothing, whatever the path")
+        XCTAssertNil(store.experimentalBuilderProblem())
+    }
+
+    func testAFailedNxbBuildSaysItsExitCodeAndItsLastErrorLine() {
+        let store = makeStore()
+        store.append("{\"ev\": \"say\", \"msg\": \"[RED] no key master_key_0f in prod.keys\", \"severity\": \"error\"}\n")
+        XCTAssertEqual(store.experimentalFailureNote(status: 6), String(format: store.t("nxb.exit.6"), 6) + " no key master_key_0f in prod.keys")
+        XCTAssertTrue(store.experimentalFailureNote(status: 4).contains("exit code 4"))
     }
 
     func testTakingFilesFillsTheRowAndNamesTheFirstFileThatDoesNotFit() {
@@ -205,7 +215,83 @@ import XCTest
         XCTAssertEqual(store.updatePath, "", "a cancelled panel changes nothing")
     }
 
+    func testRetryBuildsTheChosenTitleAndKeepsItsOutputsSeparate() throws {
+        let store = makeStore()
+        for path in [EngineLayout.marker] + RepoLayout.requiredTools {
+            let url = temporary.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "'--work-dir'".write(to: url, atomically: true, encoding: .utf8)
+        }
+        repo.path = temporary.path
+        store.take(picked: [try file("Cartridge [0100000000010000].xci")], kind: .base)
+        store.take(picked: [try file("test.keys")], kind: .keys)
+        store.outDir = temporary.path
+        defaults.set(temporary.appendingPathComponent("shell").path, forKey: "shellRoot")
+        devices.exportIPA = true
+        let second = "01006F8002326000"
+        let diagnostic = "[RED] more than one game in the folder: 0100000000010000, \(second); keep one game per folder, or name the one to pack with --title-id / TITLE_ID (a cartridge dump that holds two games)"
+        for target in [BuildTarget.mac, BuildTarget.ios] {
+            store.target = target
+            store.startBuild()
+            XCTAssertFalse(store.lastBuildCommand.contains("--title-id"))
+            store.logTail = diagnostic
+            store.noteFailure()
+            store.buildTitle("0100000000090000")  // not in the engine's list
+            XCTAssertFalse(store.lastBuildCommand.contains("--title-id"))
+            store.buildTitle(second)
+            let args = store.lastBuildCommand
+            XCTAssertEqual(args.firstIndex(of: "--title-id").map { args[$0 + 1] }, second)
+            let work = temporary.path + "/" + second + "_build"
+            XCTAssertEqual(args.firstIndex(of: "--work-dir").map { args[$0 + 1] }, work)
+            XCTAssertEqual(store.gameTitleID, second, "the library remembers the selected game")
+            if target == BuildTarget.mac {
+                XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, temporary.path + "/" + second + ".app")
+            } else {
+                XCTAssertEqual(args.firstIndex(of: "--shell-framework").map { args[$0 + 1] }, work + "/shell-framework")
+            }
+        }
+        store.logTail = diagnostic
+        store.noteFailure()
+        store.take(picked: [try file("Another.xci")], kind: .base)
+        XCTAssertNil(store.failure, "choices from the previous input no longer apply")
+        XCTAssertNil(store.gameTitleID)
+    }
+
     // MARK: The script's events
+
+    func testLastShaderFileHintFollowsTheReportedBatch() {
+        let store = makeStore()
+        func progress(_ done: Int, _ total: Int, name: String = "shader split", step: String = "splitting",
+                      unit: String = "files", estimated: Bool = false) {
+            store.handleEvent("progress", ["k": 2, "name": name, "step": step, "unit": unit,
+                                           "done": done, "total": total, "est": estimated, "frac": 0.99])
+        }
+
+        progress(304_227, 304_243)
+        XCTAssertTrue(store.stages[0].isScanningLastShaderFiles)
+        XCTAssertEqual(store.stages[0].percent, 99)
+        XCTAssertEqual(store.stages[0].detail, BuildProgress.progressDetail(["step": "splitting", "unit": "files",
+                                                                             "done": 304_227, "total": 304_243]))
+        progress(48_145, 48_146)
+        XCTAssertTrue(store.stages[0].isScanningLastShaderFiles)
+        store.handleEvent("step", ["k": 2, "name": "shader split", "step": "checking the outputs"])
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        for done in [0, 48_129, 48_146] {
+            progress(done, 48_146)
+            XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        }
+        progress(48_130, 48_146, name: "extract")
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146, step: "checking the inputs")
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146, unit: "B")
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146, estimated: true)
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146)
+        store.handleEvent("stage_end", ["k": 2, "name": "shader split", "ok": false])
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+    }
 
     func testTheScriptsJSONEventsBecomeStagesAndLogLines() {
         let store = makeStore()

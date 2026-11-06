@@ -78,6 +78,16 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
     os.execve = _win_execve
 
     import concurrent.futures as _cf, marshal as _marshal, multiprocessing as _mp, multiprocessing.spawn as _mp_spawn, pickle as _pickle, tempfile as _tempfile, threading as _mp_threading, types as _mp_types
+    _MAX_WIN_WORKERS = 61
+    _OrigProcessPoolExecutor = _cf.ProcessPoolExecutor
+
+    class _WinProcessPoolExecutor(_OrigProcessPoolExecutor):
+        def __init__(self, max_workers=None, *a, **k):
+            if isinstance(max_workers, int) and max_workers > _MAX_WIN_WORKERS:
+                max_workers = _MAX_WIN_WORKERS
+            super().__init__(max_workers, *a, **k)
+
+    _cf.ProcessPoolExecutor = _WinProcessPoolExecutor
     _mp_tls = _mp_threading.local()
     _orig_get_context = _mp.get_context
     _orig_get_prep_data = _mp_spawn.get_preparation_data
@@ -133,7 +143,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
                         with _tempfile.NamedTemporaryFile(prefix='nspb_x18_', delete=False) as tf:
                             tf.write(IMG)
                             img_path = tf.name
-                        n_procs = min(len(jobs), max(self._workers, os.cpu_count() or 4))
+                        n_procs = min(_MAX_WIN_WORKERS, len(jobs), max(self._workers, os.cpu_count() or 4))
                         _in_fork_pool_spawn = True
                         try:
                             pool = _orig_get_context('spawn').Pool(
@@ -205,7 +215,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
                             img_path = tf_i.name
                             _pickle.dump((codes_blob, state), tf_s, protocol=_pickle.HIGHEST_PROTOCOL)
                             st_path = tf_s.name
-                        n_procs = min(len(jobs), max(self._workers, os.cpu_count() or 4))
+                        n_procs = min(_MAX_WIN_WORKERS, len(jobs), max(self._workers, os.cpu_count() or 4))
                         _in_fork_pool_spawn = True
                         try:
                             pool = _orig_get_context('spawn').Pool(
@@ -444,6 +454,45 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         mod._lock = lambda folder, say=None: True
         mod._unlock = lambda folder: None
 
+    def _ascii_temp_base():
+        if _PKG not in sys.path:
+            sys.path.insert(0, _PKG)
+        import toolchain as _tc
+        with _tc.ascii_temp_dir('nspb-probe-') as _p:
+            return os.path.dirname(str(_p))
+
+    def _patch_dmsh_pch_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'tempfile'):
+            return
+        mod._nspb_patched = True
+        _orig_tf = mod.tempfile
+
+        class _PchTempfile:
+            def __getattr__(self, k):
+                return getattr(_orig_tf, k)
+
+            def mkdtemp(self, suffix=None, prefix=None, dir=None):
+                if dir and (' ' in str(dir) or not str(dir).isascii()):
+                    dir = _ascii_temp_base()
+                return _orig_tf.mkdtemp(suffix=suffix, prefix=prefix, dir=dir)
+
+        mod.tempfile = _PchTempfile()
+
+    def _patch_dmsh_mtlcache_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'Cache'):
+            return
+        mod._nspb_patched = True
+        _orig_init = mod.Cache.__init__
+
+        def _win_cache_init(self, store, targets, work):
+            if work and (' ' in str(work) or not str(work).isascii()):
+                import tempfile as _tf, atexit as _atexit
+                work = _tf.mkdtemp(prefix='mtlwork_', dir=_ascii_temp_base())
+                _atexit.register(shutil.rmtree, work, ignore_errors=True)
+            _orig_init(self, store, targets, work)
+
+        mod.Cache.__init__ = _win_cache_init
+
     import importlib.machinery as _machinery
     _exec_module = _machinery.SourceFileLoader.exec_module
 
@@ -458,6 +507,12 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _patch_tool_lock_module(module)
         elif name == 'tree_tar' or name.endswith('.tree_tar'):
             _patch_tree_tar_module(module)
+        elif name == 'pack_dump' or name.endswith('.pack_dump'):
+            module.clone = shutil.copy2
+        elif name == 'dmsh_pch' or name.endswith('.dmsh_pch'):
+            _patch_dmsh_pch_module(module)
+        elif name == 'dmsh_mtlcache' or name.endswith('.dmsh_mtlcache'):
+            _patch_dmsh_mtlcache_module(module)
 
     _machinery.SourceFileLoader.exec_module = _win_exec_module
 
@@ -548,8 +603,8 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return None
         if rest[2] == 'metal' and '-c' not in rest[3:] and '-o' in rest[3:]:
             return None  # compile+link in one call (host_msl.py): handled by xcrun_shim.py
-        if any(' ' in str(a) for a in rest[3:]):
-            return None  # paths with spaces break metal.exe; xcrun_shim.py stages them via cwd
+        if any(' ' in str(a) or not str(a).isascii() for a in rest[3:]):
+            return None  # paths with spaces or non-ASCII chars break metal.exe; xcrun_shim.py stages them via cwd
         if 'modules' not in _CACHE:
             if _PKG not in sys.path:
                 sys.path.insert(0, _PKG)
@@ -604,6 +659,12 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
     _run = subprocess.run
 
     def _run_fast(args, *a, **k):
+        if isinstance(args, (list, tuple)) and args and isinstance(args[0], str):
+            _head = args[0].replace('\\', '/').rsplit('/', 1)[-1].lower()
+            if (_head in ('cp', 'cp.exe') and len(args) == 4 and args[1] == '-c') or _head in ('xattr', 'xattr.exe'):
+                return subprocess.CompletedProcess(args, 1,
+                                                   b'' if not k.get('text') else '',
+                                                   b'' if not k.get('text') else '')
         if (not os.environ.get('NSPB_MAC_METAL') and isinstance(args, (list, tuple))
                 and len(args) > 4 and isinstance(args[0], str)
                 and args[0].replace('\\', '/').rsplit('/', 1)[-1].lower() in ('xcrun', 'xcrun.exe')
@@ -679,6 +740,12 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 '''
 
 
+def _write_if_changed(path: Path, text: str) -> None:
+    data = text.encode('utf-8')
+    if not path.is_file() or path.read_bytes() != data:
+        path.write_bytes(data)
+
+
 def install(shim_dir: Path, python_exe: str | None = None) -> None:
     """Write `sitecustomize.py` and the `.cmd` stand-ins into `shim_dir`.
 
@@ -695,9 +762,7 @@ def install(shim_dir: Path, python_exe: str | None = None) -> None:
     body = _SITECUSTOMIZE_SRC.replace(
         "    _PKG = os.environ.get('NSPB_WIN_DIR') or _HERE\n",
         '    _PKG = os.environ.get(\'NSPB_WIN_DIR\') or ' + repr(pkg) + '\n')
-    sc = shim_dir / SITECUSTOMIZE
-    if not sc.is_file() or sc.read_text(encoding='utf-8') != body:
-        sc.write_text(body, encoding='utf-8', newline='\n')
+    _write_if_changed(shim_dir / SITECUSTOMIZE, body)
     py = python_exe or sys.executable
     here = Path(pkg)
     for name, target in (('xcrun', here / 'xcrun_shim.py'),
@@ -705,14 +770,10 @@ def install(shim_dir: Path, python_exe: str | None = None) -> None:
                          ('xcodegen', here / 'xcodegen_shim.py')):
         body_cmd = (f'@echo off\r\n'
                     f'"{py}" "{target}" %*\r\n')
-        p = shim_dir / f'{name}.cmd'
-        if not p.is_file() or p.read_text(encoding='utf-8', errors='replace') != body_cmd:
-            p.write_text(body_cmd, encoding='utf-8', newline='')
+        _write_if_changed(shim_dir / f'{name}.cmd', body_cmd)
     # a `python3.cmd` so the pipeline's `python3` spelling works in a shell too
-    p = shim_dir / 'python3.cmd'
     body_py = f'@echo off\r\n"{py}" %*\r\n'
-    if not p.is_file() or p.read_text(encoding='utf-8', errors='replace') != body_py:
-        p.write_text(body_py, encoding='utf-8', newline='')
+    _write_if_changed(shim_dir / 'python3.cmd', body_py)
 
 
 def shim_dir() -> Path:
@@ -783,8 +844,9 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
         env['METALLIB_EXE'] = str(with_lib)
 
     # the shader build spawns one metal.exe per shader and each start costs ~0.1 s on Windows,
-    # so keep every core busy rather than the upstream default of 8
-    env.setdefault('J', str(max(8, 2 * (os.cpu_count() or 4))))
+    # so keep every core busy rather than the upstream default of 8 (capped at 61, CPython's
+    # ProcessPoolExecutor _MAX_WINDOWS_WORKERS limit for WaitForMultipleObjects)
+    env.setdefault('J', str(min(61, max(8, 2 * (os.cpu_count() or 4)))))
     return env
 
 

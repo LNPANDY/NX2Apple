@@ -1,4 +1,4 @@
-# NS Port Builder — Qt front end (Windows and macOS)
+# NX2Apple — Qt front end (Windows and macOS)
 
 The SwiftUI app in `../frontend/` is the macOS-native one. This is the **cross-platform**
 counterpart: same job, same strings, built with PySide6 so Windows users get a native window.
@@ -12,7 +12,7 @@ written once and runs everywhere Python and Qt do.
 | | SwiftUI (`frontend/`) | Qt (this) |
 |---|---|---|
 | Platforms | macOS 13+ | Windows 10+, macOS 11+ |
-| Language | Swift | Python 3.9+ |
+| Language | Swift | Python 3.9+ for the launcher and its tests |
 | Strings | `l10n/*.json`, read by `LocalizationFiles.swift` | the same files, read by `nspb_qt/l10n.py` |
 | Build logic | runs the Python scripts | runs the same scripts |
 
@@ -68,8 +68,10 @@ the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system 
   SDK symlinks were materialized by hand. The current unmodified frontend is not yet verified end
   to end; other games and longer-term performance remain unverified. See
   [Windows build → Open risks](#open-risks).
-- No self-update. Repository download and update buttons do exist (`Download repository`,
-  `Check for updates`, `Pull updates`), and they log what git is doing.
+- Self-update (`nspb_qt/app_update.py`): checks `releases/latest` for `NX2Apple-windows-x64.zip`,
+  verifies the SHA-256 digest when present, unpacks and swaps the bundle in place via a detached
+  updater script after the running process exits. Repository download and update buttons also exist
+  (`Download repository`, `Check for updates`), logging what git is doing.
 - No per-stage progress bar, no cancel-with-cleanup (cancel terminates the child).
 
 ## Layout
@@ -131,7 +133,7 @@ Run this first if you prefer the command line. It lists what is missing and wher
 python -m nspb_qt.win.doctor
 ```
 
-1. **Python 3.10+**, then `pip install PySide6 lz4 capstone fonttools zbic pillow`
+1. **Python 3.12+** for the game build scripts, then `pip install PySide6 lz4 capstone fonttools zbic pillow`
    (and `backports.zstd` before Python 3.14).
 2. **.NET SDK 10** — the app downloads it (the zip, not the installer: no administrator rights,
    about 287 MB), or get it from <https://dotnet.microsoft.com/download/dotnet/10.0> (SDK, x64).

@@ -13,6 +13,10 @@ struct LaunchOptionsView: View {
     @EnvironmentObject var loc: Localizer
     @ObservedObject var library: GameLibrary
     let gameID: UUID
+    var globalControls: ControlLayout? = nil
+    @State private var showControllerMapping = false
+    var controllerMappingPresentation: Binding<Bool>? = nil
+    private var mappingPresentation: Binding<Bool> { controllerMappingPresentation ?? $showControllerMapping }
     @Environment(\.dismiss) private var dismiss
     @State private var advancedOpen = false
     @State private var choicesRevision = 0   // bumped by a change: the values are read from the store again
@@ -48,10 +52,17 @@ struct LaunchOptionsView: View {
                 Spacer()
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
+            if let game, SavedChoices.appReadsControllerMappings(app: game.appPath) {
+                Button(loc.t("controls.mapping")) { mappingPresentation.wrappedValue = true }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .padTarget("opt.controllerMapping", scope: "launch") { mappingPresentation.wrappedValue = true }
+                    .padding(.horizontal, 30).padding(.bottom, 16)
+            }
             if let settings, !settings.isEmpty, let game {
                 ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 24) {
+                        if let note = ResolutionNote.text(settings, shown: { $0.isShown(in: settings) { value($0, game) } }, t: loc.t) { resolutionNote(note) }
                         groups(settings.filter(\.isBasic), game, all: settings)
                         modsSection(game)
                         frameTimesSection(game)
@@ -107,6 +118,16 @@ struct LaunchOptionsView: View {
         }
         .padScope("launch", focus)
         .onAppear { library.migrateLaunchOptions() }
+        .onChange(of: mappingPresentation.wrappedValue) { open in
+            // The launcher owns routing when embedded, while standalone sheets keep the same scope behavior.
+            if controllerMappingPresentation == nil { focus.scope = open ? "controls" : "launch" }
+        }
+        .sheet(isPresented: mappingPresentation) {
+            if let game {
+                GameControllerMappingView(game: game, globalControls: globalControls)
+                    .environmentObject(focus).environmentObject(loc).launcherDropdownHost()
+            }
+        }
         .frame(width: 600, height: 700)
         .background(LauncherPalette.background)
         .font(.manrope(13))
@@ -144,6 +165,25 @@ struct LaunchOptionsView: View {
     }
 
     private var divider: some View { Divider().opacity(0.25).padding(.leading, 18) }
+
+    /// Why there is no resolution row (#574), above the settings, where the player looks for one.
+    private func resolutionNote(_ note: ResolutionNote.Text) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: "info.circle").font(.system(size: 13)).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(note.title).font(.manrope(14, .medium))
+                if let detail = note.detail {
+                    Text(detail).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18).padding(.vertical, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+        .accessibilityElement(children: .combine)
+    }
 
     /// The translated heading of a section this launcher knows; a section it does not know is drawn under its own name.
     private func sectionName(_ section: String) -> String {
@@ -380,5 +420,34 @@ struct LaunchOptionsView: View {
         let target = FileManager.default.fileExists(atPath: save.path) ? save : support
         if FileManager.default.fileExists(atPath: target.path) { NSWorkspace.shared.activateFileViewerSelecting([target]) }
         else { NSWorkspace.shared.open(support.deletingLastPathComponent()) }
+    }
+}
+
+/// The note of a game whose build has no render scale row (#574). The row comes only with a render scale hook in the engine
+/// for that game (today Breath of the Wild and Tears of the Kingdom, #534), so a player of another game looks for a resolution
+/// setting and finds none. The note says so and names the rows of the sheet that come closest, Console mode and Upscaling,
+/// with their labels as the sheet shows them and where they are when they sit under Advanced settings.
+enum ResolutionNote {
+    struct Text: Equatable {
+        let title: String
+        let detail: String?
+    }
+
+    /// The rows that come closest to a resolution setting, in the order the note names them.
+    static let closest = ["DM_OPMODE", "DM_PRESENT_UPSCALE"]
+
+    /// nil when the list has a render scale row (shown or not: the build has one), or no row at all. `shown` is the sheet's own test
+    /// for a sub-setting (needs), so the note names only rows the player can find.
+    static func text(_ settings: [LaunchSetting], shown: (LaunchSetting) -> Bool = { _ in true }, t: (String) -> String) -> Text? {
+        guard !settings.isEmpty, !settings.contains(where: { $0.env == "DM_RENDER_SCALE" }) else { return nil }
+        let names = closest.compactMap { env in settings.first { $0.env == env && shown($0) } }
+            .map { $0.isBasic ? $0.label : String(format: t("launch.noResolution.advanced"), $0.label) }
+        let detail: String?
+        switch names.count {
+        case 0: detail = nil
+        case 1: detail = String(format: t("launch.noResolution.one"), names[0])
+        default: detail = String(format: t("launch.noResolution.two"), names[0], names[1])
+        }
+        return Text(title: t("launch.noResolution"), detail: detail)
     }
 }

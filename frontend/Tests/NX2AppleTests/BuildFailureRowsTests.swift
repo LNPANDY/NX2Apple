@@ -88,6 +88,27 @@ import NXModel
         XCTAssertTrue(m.failureWhat(f).contains("“Games”"))
     }
 
+    func testOfflinePipelinesExplainLowSpaceAndKeepTheEngineEstimate() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.build.lang = .en
+        for (id, gb) in [("pso.low", "3"), ("pso.merge", "2.5"), ("pso.failed", nil)] {
+            let message = try fixture(id).text
+            let failure = BuildFailureClassifier.classify(message)
+            XCTAssertEqual(failure.kind.rawValue, "psoDiskFull", id)
+            XCTAssertEqual(failure.detail, gb, id)
+            if let gb { XCTAssertTrue(stores.build.failureWhat(failure).contains(gb + " GB"), id) }
+        }
+        for lang in Lang.all {
+            stores.build.lang = lang
+            let failure = BuildFailureClassifier.classify(try fixture("pso.low").text)
+            XCTAssertTrue(stores.build.failureWhat(failure).contains("3"), lang.code)
+            XCTAssertFalse(stores.build.failureWhat(failure).contains("%@"), lang.code)
+            XCTAssertNotEqual(stores.build.t(failure.kind.nextKey), failure.kind.nextKey, lang.code)
+        }
+        XCTAssertEqual(BuildFailureClassifier.classify("[RED] pso_offline: metal-tt failed for applegpu_g18p (exit 1): compiler error").kind, .unknown)
+        XCTAssertEqual(BuildFailureClassifier.classify("pso_offline: applegpu_g18p: batch 1/2: ready (compiled)").kind, .unknown)
+    }
+
     func testTheInstallStepsThatFailedBecomeRows() {
         let taken = "error: Failed to register bundle identifier. The app identifier \"org.nxnative.x\" cannot be registered to your development team."
         XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: taken, teamListed: true)?.kind, .teamTaken)

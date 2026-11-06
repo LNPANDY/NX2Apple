@@ -205,6 +205,33 @@ import NXLauncher
         XCTAssertEqual(GameLibrary.artwork(for: game, repo: repo.path, banners: f.folder)?.size, NSSize(width: 640, height: 360))
     }
 
+    /// Switch 2 titles absent from blawar/titledb (such as Ocarina of Time, 0400486024DEC000) use the verified fallback map,
+    /// while a title present in the list (Donkey Kong Bananza) keeps the list's own banner.
+    func testFallbackBannersCoverMissingSwitch2TitlesWithoutOverridingTheList() async throws {
+        XCTAssertEqual(ArtworkStore.fallbackBanners.count, 8)
+        XCTAssertNotNil(ArtworkStore.fallbackBanners["0400486024DEC000"])
+        for (id, link) in ArtworkStore.fallbackBanners {
+            XCTAssertNotNil(id.range(of: "^0400[0-9A-F]{12}$", options: .regularExpression), id)
+            let url = try XCTUnwrap(URL(string: link), id)
+            XCTAssertEqual(url.scheme, "https")
+            XCTAssertTrue(ArtworkStore.imageHosts.contains(url.host ?? ""), link)
+        }
+
+        let f = try fixture()
+        let ocarina = temporary.appendingPathComponent("cdn/ocarina.jpg")
+        try image(.systemIndigo, "Ocarina of Time\n(fallback banner)", to: ocarina)
+        let store = ArtworkStore(directory: f.folder, titleList: f.list, fallbacks: [
+            "0400486024DEC000": ocarina.absoluteString,
+            "040074A01BF12000": ocarina.absoluteString,
+        ])
+        let added = await store.fetchMissing(["0400486024DEC000", "040074A01BF12000"])
+        XCTAssertEqual(added, ["0400486024DEC000", "040074A01BF12000"])
+        XCTAssertEqual(bytes(ArtworkStore.cachedBanner("0400486024DEC000", in: f.folder)), bytes(ocarina))
+        XCTAssertEqual(bytes(ArtworkStore.cachedBanner("040074A01BF12000", in: f.folder)), bytes(f.bananza))
+        let again = await store.fetchMissing(["0400486024DEC000", "040074A01BF12000"])
+        XCTAssertEqual(again, [])
+    }
+
     // MARK: Visual QA (matched by --filter testRenderLauncherForVisualQA)
 
     /// The library before and after the update: covers an older launcher saved (the bundle, the Switch 2 Edition), then the

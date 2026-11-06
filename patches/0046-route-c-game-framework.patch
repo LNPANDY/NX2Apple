@@ -121,7 +121,7 @@ index 0000000..663ebe8
 +}
 +#endif
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index c11b457..69cf022 100644
+index 076d4ef..71f5be5 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -18,6 +18,14 @@
@@ -154,10 +154,10 @@ index c11b457..69cf022 100644
      // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
      NSMutableArray<NSString *> *from_file = [NSMutableArray array], *from_launch = [NSMutableArray array];
      for (char **e = environ; *e; e++) {   // set at launch (Xcode, devicectl): before the env files, and the launcher keeps them
-@@ -282,6 +298,12 @@ static int boot_env(void) {
-     BOOL per_game = [romfs hasPrefix:gdir];   // messaging nil is NO here: no data means the shared layout
+@@ -283,6 +299,12 @@ static int boot_env(void) {
      if (!set_data_env(romfs, NO)) { if (!romfs) romfs_identity_report(doc);   // a slim build says why its romfs.img was not used
          fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\n"); }
+     setenv("DM_GUEST_FILE_DIR", NSTemporaryDirectory().fileSystemRepresentation, 0);   // DM_GUEST_FILE (hle_svc.c) keeps the guest's memory in files there
 +#if DM_FRAMEWORK_BUILD
 +    // Route C: the modules, their rewriter tables and the shader map are the framework's. dlopen + dlsym + dladdr hand its
 +    // mach header to the loader here, after the data went to DM_ROMFS and before loading starts (the design's order).
