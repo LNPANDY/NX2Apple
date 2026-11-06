@@ -131,7 +131,7 @@ import XCTest
         let nxb = root + "/nxbuild/nxb"
         write(nxb)
         try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
-        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.5.1\n") }
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.2\n") }
         store.experimentalBuilder = true; store.experimentalBuilderPath = nxb
         store.startBuild()
         XCTAssertEqual(store.lastBuildCommand, [nxb, "build"] + standard.dropFirst(2), "nxb build in place of the interpreter and the script, the same options after")
