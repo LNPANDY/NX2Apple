@@ -1219,6 +1219,7 @@
   "prog.archiveReused": "vorheriges Image wiederverwendet (%d Dateien unverändert)",
   "prog.archiveShort": "Spieldaten-Image",
   "prog.eta": "Noch %@",
+  "prog.lastShaderFiles": "Das Durchsuchen der letzten Dateien kann mehrere Minuten dauern.",
   "prog.noRomfs": "kein entpacktes RomFS gefunden",
   "prog.title": "Build-Fortschritt",
   "repo.adopt": "Updatefähig machen",

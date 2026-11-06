@@ -1237,6 +1237,7 @@
   "prog.archiveReused": "reused the previous image (%d files unchanged)",
   "prog.archiveShort": "Game data image",
   "prog.eta": "%@ left",
+  "prog.lastShaderFiles": "Scanning the last few files can take several minutes.",
   "prog.noRomfs": "no extracted RomFS found",
   "prog.title": "Build progress",
   "repo.adopt": "Make updatable",

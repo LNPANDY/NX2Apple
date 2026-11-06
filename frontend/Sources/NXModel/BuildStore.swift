@@ -335,21 +335,46 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             let name = e["name"] as? String ?? "", step = e["step"] as? String ?? ""
             let n = (e["n"] as? NSNumber)?.intValue ?? 0
             append("[\(k)/\(n)] \(name)" + (step.isEmpty ? "" : " · \(step)") + " …\n")
-            stage { $0.name = Stage.localizedName(name, t); $0.state = .running; $0.detail = step; $0.percent = nil; $0.started = Date(); $0.eta = nil }
+            stage {
+                $0.name = Stage.localizedName(name, t)
+                $0.state = .running
+                $0.started = Date()
+                $0.detail = step
+                $0.percent = nil
+                $0.eta = nil
+                $0.isScanningLastShaderFiles = false
+            }
         case "step":
             let step = e["step"] as? String ?? ""
             append("    · \(step)\n")
-            stage { $0.detail = step; $0.percent = nil; $0.eta = nil }
+            stage {
+                $0.detail = step
+                $0.percent = nil
+                $0.eta = nil
+                $0.isScanningLastShaderFiles = false
+            }
         case "progress":
             let fraction = (e["frac"] as? NSNumber)?.doubleValue
             let detail = BuildProgress.progressDetail(e)
             let eta = (e["eta"] as? NSNumber)?.doubleValue
-            stage { $0.percent = fraction.map { $0 * 100 }; $0.detail = detail; $0.eta = eta; $0.etaAt = eta == nil ? nil : Date() }
+            stage {
+                $0.percent = fraction.map { $0 * 100 }
+                $0.detail = detail
+                $0.eta = eta
+                $0.etaAt = eta == nil ? nil : Date()
+                $0.isScanningLastShaderFiles = BuildProgress.isScanningLastShaderFiles(e)
+            }
         case "stage_end":
             let ok = e["ok"] as? Bool ?? true, summary = e["summary"] as? String ?? ""
             let elapsed = BuildProgress.duration((e["elapsed"] as? NSNumber)?.doubleValue ?? 0)
             append("\(ok ? "✓" : "✗") \(e["name"] as? String ?? "") (\(elapsed))" + (summary.isEmpty ? "" : ": \(summary)") + "\n")
-            stage { $0.state = ok ? .done : .failed; $0.detail = summary; $0.percent = ok ? 100 : $0.percent; $0.eta = nil }
+            stage {
+                $0.state = ok ? .done : .failed
+                $0.detail = summary
+                $0.percent = ok ? 100 : $0.percent
+                $0.eta = nil
+                $0.isScanningLastShaderFiles = false
+            }
         case "say":
             let msg = e["msg"] as? String ?? ""
             append(msg + "\n")

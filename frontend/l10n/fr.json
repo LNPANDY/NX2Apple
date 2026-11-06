@@ -1196,6 +1196,7 @@
   "prog.archiveReused": "image précédente réutilisée (%d fichiers inchangés)",
   "prog.archiveShort": "Image des données du jeu",
   "prog.eta": "%@ restant",
+  "prog.lastShaderFiles": "L’analyse des derniers fichiers peut prendre plusieurs minutes.",
   "prog.noRomfs": "aucun RomFS extrait trouvé",
   "prog.title": "Progression de la compilation",
   "repo.adopt": "Rendre actualisable",

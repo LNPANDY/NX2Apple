@@ -1238,6 +1238,7 @@
   "prog.archiveReused": "复用上次的镜像（%d 个文件未变）",
   "prog.archiveShort": "游戏数据镜像",
   "prog.eta": "还剩 %@",
+  "prog.lastShaderFiles": "扫描最后几个文件可能需要几分钟。",
   "prog.noRomfs": "找不到解出的 RomFS",
   "prog.title": "构建进度",
   "repo.adopt": "设为可更新",
