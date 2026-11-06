@@ -74,12 +74,19 @@ import NXLauncher
         guard state.step == .keys, state.exit == nil, case .found = state.keys else { return }
         validateKeys()
     }
+    func skipKeys() {
+        guard state.canSkipKeys else { return }
+        state.keys = .skipped
+        next()
+    }
     func chooseGames(_ url: URL) {
         guard state.step == .games, state.exit == nil else { return }
         state.games = .scanning
         run("games", after: 1.1) { driver in
             if driver.scenario == .noGames { driver.state.games = .none }
-            else {
+            else if driver.state.keys == .skipped {
+                driver.state.games = .found([.init(id: "demo.nup", title: "Demo.nup", version: "", needsKeys: false)])
+            } else {
                 driver.state.games = .found([
                     .init(id: "demo.mario", title: driver.t("onboarding.demo.mario"), version: "1.0.0"),
                     .init(id: "demo.balatro", title: "Balatro", version: "1.0.0")
@@ -143,7 +150,7 @@ import NXLauncher
             }
         case .keys:
             switch state.keys {
-            case .empty, .searching:
+            case .empty, .searching, .skipped:
                 state.keys = .searching
                 run("keys", after: 0.9) { d in d.state.keys = .found(URL(fileURLWithPath: "/Demo/Switch/prod.keys")) }
             case .validating: validateKeys()

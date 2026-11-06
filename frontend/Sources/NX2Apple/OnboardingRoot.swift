@@ -69,6 +69,8 @@ struct RootView: View {
         let defaults = UserDefaults.standard
         // NSPB_ONBOARDING_FORCE=1: the real flow with real detection whatever the state, leaving no trace until it is finished
         if OnboardingLaunch.forced() { show(fresh: false, ephemeral: true); return }
+        // Resume an explicit setup choice before inferring completion from a detected keys file and games folder.
+        if defaults.bool(forKey: OnboardingDefaults.inProgress) { show(fresh: false); return }
         if defaults.bool(forKey: OnboardingDefaults.completed) { mode = .launcher; return }
         await stores.dependencies.refreshDepsAndWait()
         let env = OnboardingEnvironment()

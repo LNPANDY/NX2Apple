@@ -393,6 +393,54 @@ import NXModel
         XCTAssertFalse(message.contains("00"), "a message never carries key material")
     }
 
+    func testSkippingKeysOnlyCompletesSetupWithADecryptedGameAndSurvivesResume() async throws {
+        let fake = Fake()
+        let (driver, model) = make(fake, deps: [], step: .keys, platform: .mac)
+        driver.skipKeys()
+        await driver.settle()
+        XCTAssertEqual(driver.state.step, .games)
+        XCTAssertEqual(driver.state.keys, .skipped)
+        let base = home.appendingPathComponent("Game [0100000000010000][v0].nsp")
+        try Data().write(to: base)
+        try Data().write(to: home.appendingPathComponent("prod.keys"))
+        fake.games = GameLibrary.sourceGames(in: home, repo: "")
+        driver.chooseGames(home)
+        await driver.settle()
+        XCTAssertFalse(driver.state.canAdvance)
+        XCTAssertFalse(model.inputsReady)
+        XCTAssertTrue(model.keysPath.isEmpty, "Skipping must not adopt an unverified keys file from the games folder")
+
+        let fixture = GameFolderCaptureTests.makeFolders(in: home.path)
+        // A folder containing a NUP and a library mixing a decrypted game with an encrypted package.
+        let nupDir = home.appendingPathComponent("NUP")
+        fake.games = GameLibrary.sourceGames(in: nupDir, repo: fixture.engine)
+        driver.chooseGames(nupDir)
+        await driver.settle()
+        XCTAssertTrue(driver.state.canAdvance)
+        XCTAssertTrue(model.inputsReady)
+        XCTAssertNotNil(model.gameFolder?.nup)
+        try FileManager.default.removeItem(at: nupDir)
+        fake.games = GameLibrary.sourceGames(in: home, repo: fixture.engine)
+        driver.chooseGames(home)
+        await driver.settle()
+        XCTAssertEqual(fake.games.count, 2)
+        XCTAssertTrue(driver.state.canAdvance)
+        XCTAssertTrue(model.inputsReady)
+        XCTAssertNotNil(model.gameFolder)
+        XCTAssertTrue(model.keysPath.isEmpty)
+        driver.next()
+        driver.skipForLater()
+        let (resumed, _) = make(fake, deps: [])
+        XCTAssertEqual(resumed.state.step, .done)
+        XCTAssertEqual(resumed.state.keys, .skipped)
+        resumed.back(); resumed.back()
+        await resumed.settle()
+        fake.keyOutcome = .noHeaderKey
+        resumed.chooseKeys(home.appendingPathComponent("other.keys"))
+        await resumed.settle()
+        guard case .invalid = resumed.state.keys else { return XCTFail("Chosen keys still need validation") }
+    }
+
     func testGamesFolderFillsTheSameSlotsAndLibrary() async throws {
         let fake = Fake()
         let folder = home.appendingPathComponent("games")
