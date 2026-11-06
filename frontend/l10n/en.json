@@ -1216,6 +1216,7 @@
   "onboarding.welcome.title": "Make yourself at home.",
   "onboarding.xcode.checking": "Checking Xcode…",
   "onboarding.xcode.checkingNote": "Looking for the tools your games need.",
+  "onboarding.xcode.disconnected": "The selected Xcode is unavailable.",
   "onboarding.xcode.downloadNote": "Leave the App Store download running. We will continue automatically when Xcode is installed.",
   "onboarding.xcode.downloading": "Waiting for Xcode…",
   "onboarding.xcode.missing": "First, get Xcode.",

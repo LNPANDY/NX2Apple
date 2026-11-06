@@ -61,7 +61,7 @@ package enum DependencyCheck {
     }
 
     /// The rows. `needsIOS`: the xcode row asks for the iOS SDK. `repo`: the checkout whose lock pins the Metal compiler ("" for none).
-    package static func detect(needsIOS: Bool, repo: String = "", customApp: String? = XcodeSelection.app()) -> [Dep] {
+    package static func detect(needsIOS: Bool, repo: String = "", customApp: String? = nil) -> [Dep] {
         let runner = SystemProcessRunner(xcodeApp: customApp)
         var out = [xcodeDep(needsIOS: needsIOS, customApp: customApp, runner: runner)]
 
@@ -92,7 +92,7 @@ package enum DependencyCheck {
     }
 
     /// The rows and the paths of the interpreter and of dotnet the build runs under.
-    package static func scan(needsIOS: Bool, repo: String, customApp: String? = XcodeSelection.app()) -> Result {
+    package static func scan(needsIOS: Bool, repo: String, customApp: String? = nil) -> Result {
         let deps = detect(needsIOS: needsIOS, repo: repo, customApp: customApp)
         let (py, _) = Toolchain.findPython()
         let (dn, _) = Toolchain.findDotnet()

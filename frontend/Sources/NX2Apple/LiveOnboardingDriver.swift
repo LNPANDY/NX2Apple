@@ -18,6 +18,7 @@ enum OnboardingDefaults {
 /// other state. License and first launch only count while an Xcode (not the Command Line Tools) is selected.
 struct XcodeProbe: Equatable {
     var appPath: String?            // an Xcode.app: the selected one, else the first in /Applications
+    var selectedAppUnavailable = false
     var selectedIsXcode = false     // `xcode-select -p` points into an Xcode.app, not the Command Line Tools
     var licenseAccepted = false
     var firstLaunchDone = false
@@ -86,7 +87,10 @@ struct OnboardingEnvironment {
     static func liveProbe(defaults: UserDefaults = .standard) async -> XcodeProbe {
         await Task.detached {
             var probe = XcodeProbe()
-            if let app = XcodeSelection.app(in: defaults), !XcodeSelection.isXcode(app) { return probe }
+            if let app = XcodeSelection.app(in: defaults), !XcodeSelection.isXcode(app) {
+                probe.selectedAppUnavailable = true
+                return probe
+            }
             let runner = SystemProcessRunner(defaults: defaults)
             let selected = runner.output("/usr/bin/xcode-select", ["-p"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             if selected.hasSuffix(".app/Contents/Developer") {
@@ -314,7 +318,10 @@ enum OnboardingLaunch {
             failedDeps.removeAll()
             if case .failed = state.xcode { state.xcode = .needsSetup }
             xcodeBusy = false
-            spawn("retry") { d in await d.modelDidRefresh() }
+            spawn("retry") { d in
+                if d.state.xcode == .disconnected { await d.env.detectDeps(d.stores.dependencies) }
+                await d.modelDidRefresh()
+            }
         case .keys: enter(.keys)
         case .games: state.games = .empty; enter(.games)
         default: break
@@ -477,7 +484,7 @@ enum OnboardingLaunch {
         let (xcode, setup) = OnboardingXcode.evaluate(probe: probe, metalReady: dep("metal")?.present ?? false,
                                                       iosReady: dep("xcode")?.present ?? false, includesIOS: includesIOS)
         state.setup = setup
-        if case .failed = state.xcode, xcode != .ready { return }   // a failure stays until Retry
+        if case .failed = state.xcode, xcode != .ready && xcode != .disconnected { return }   // a failure stays until Retry
         if xcode == .missing {
             state.xcode = waitingForXcode ? .downloading : .missing
         } else {
@@ -712,6 +719,7 @@ enum OnboardingLaunch {
 enum OnboardingXcode {
     static func evaluate(probe: XcodeProbe, metalReady: Bool, iosReady: Bool, includesIOS: Bool)
         -> (xcode: OnboardingState.Xcode, setup: [OnboardingSetupTask: OnboardingTaskState]) {
+        if probe.selectedAppUnavailable { return (.disconnected, [:]) }
         guard probe.appPath != nil else { return (.missing, [:]) }
         var setup: [OnboardingSetupTask: OnboardingTaskState] = [
             .selected: probe.selectedIsXcode ? .done : .queued,

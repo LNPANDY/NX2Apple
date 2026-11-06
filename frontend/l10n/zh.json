@@ -1217,6 +1217,7 @@
   "onboarding.welcome.title": "准备开始游戏。",
   "onboarding.xcode.checking": "正在检查 Xcode…",
   "onboarding.xcode.checkingNote": "正在查找游戏所需的工具。",
+  "onboarding.xcode.disconnected": "无法使用所选的 Xcode。",
   "onboarding.xcode.downloadNote": "请让 App Store 继续下载。Xcode 安装完成后，我们会自动继续。",
   "onboarding.xcode.downloading": "正在等待 Xcode…",
   "onboarding.xcode.missing": "先获取 Xcode。",

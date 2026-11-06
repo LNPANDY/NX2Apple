@@ -108,7 +108,7 @@ package struct SystemProcessRunner: ProcessRunner {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launch.executable)
         p.arguments = launch.arguments
-        if let app = xcodeApp() {
+        if let app = xcodeApp(), XcodeSelection.isXcode(app) {
             // xcrun, xcodebuild and the engine's grandchildren must agree, even for a build or install with a clean environment.
             var env = launch.environment ?? ProcessInfo.processInfo.environment
             env["DEVELOPER_DIR"] = app + "/Contents/Developer"

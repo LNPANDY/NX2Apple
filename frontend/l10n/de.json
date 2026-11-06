@@ -1198,6 +1198,7 @@
   "onboarding.welcome.title": "Fühl dich wie zu Hause.",
   "onboarding.xcode.checking": "Xcode wird geprüft …",
   "onboarding.xcode.checkingNote": "Suche nach den Werkzeugen, die deine Spiele brauchen.",
+  "onboarding.xcode.disconnected": "Das ausgewählte Xcode ist nicht verfügbar.",
   "onboarding.xcode.downloadNote": "Lass den Download im App Store weiterlaufen. Wir machen automatisch weiter, sobald Xcode installiert ist.",
   "onboarding.xcode.downloading": "Warten auf Xcode …",
   "onboarding.xcode.missing": "Zuerst Xcode laden.",

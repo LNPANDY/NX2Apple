@@ -111,9 +111,11 @@ extension BuildStore {
         revealFolder(URL(fileURLWithPath: folder))
     }
 
+    package var installedXcode: String? { Toolchain.installedXcode(customApp: XcodeSelection.app(in: defaults)) }
+
     /// Xcode itself: its Settings > Accounts is where a team is signed in, and Xcode has no address that opens that pane.
     package func openXcode() {
-        guard let app = Toolchain.installedXcode(customApp: XcodeSelection.app(in: defaults)) else { return }
+        guard let app = installedXcode else { return }
         openApp(URL(fileURLWithPath: app))
     }
 
