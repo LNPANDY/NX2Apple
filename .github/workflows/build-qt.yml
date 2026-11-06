@@ -34,6 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          command -v xcodegen || brew install xcodegen
           python3 tools/engine.py -q sync
           python3 tools/build_shell_template.py --out "$RUNNER_TEMP/shell_template/DmShell.app"
           du -sh "$RUNNER_TEMP/shell_template/DmShell.app"

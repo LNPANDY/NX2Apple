@@ -1313,7 +1313,7 @@ class DriveCopy:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 if os.path.isfile(dst) and os.path.getsize(dst) == sz:
                     same = abs(os.path.getmtime(src) - os.path.getmtime(dst)) < 0.001
-                    if not same and sz <= 1024 * 1024:
+                    if same and sz <= 1024 * 1024:
                         try:
                             same = Path(src).read_bytes() == Path(dst).read_bytes()
                         except OSError:
