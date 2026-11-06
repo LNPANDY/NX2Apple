@@ -1515,5 +1515,13 @@
   "update.pill": "更新 %@",
   "update.pillHelp": "查看这个版本更新了什么，并下载。",
   "update.readOnlyHint": "这个副本所在的位置无法自我更新。把 NX2Apple.app 移到「应用程序」文件夹后再更新。",
-  "update.title": "有新版本可用"
+  "update.title": "有新版本可用",
+  "xcodeChoice.choose": "选择 Xcode…",
+  "xcodeChoice.finishSetup": "请在所选的 Xcode 中完成配置，然后点「重试」。",
+  "xcodeChoice.invalid": "请选择包含开发工具的 Xcode 应用。",
+  "xcodeChoice.message": "选择 NX2Apple 构建和安装到设备时使用的 Xcode 应用。",
+  "xcodeChoice.reset": "使用系统 Xcode",
+  "xcodeChoice.system": "使用 macOS 中选定的 Xcode。",
+  "xcodeChoice.title": "NX2Apple 使用的 Xcode",
+  "xcodeChoice.unavailable": "请重新连接存有已选 Xcode 的驱动器，或选择另一份 Xcode。"
 }

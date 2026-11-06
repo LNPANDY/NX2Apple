@@ -34,6 +34,7 @@ import NXCore
 @MainActor package final class DependencyStore: ObservableObject, DependencyStatus {
     nonisolated package static let expandedKey = "depsExpanded"
 
+    @Published package private(set) var xcodeApp: String?
     @Published package var deps: [Dep] = []
     /// The check ran. False while one runs, so the panel shows its spinner.
     @Published package var checked = false
@@ -52,7 +53,7 @@ import NXCore
     private let repo: RepoLocation
     private let defaults: UserDefaults
     private let needsIOS: () -> Bool
-    private let scan: @Sendable (_ repo: String, _ needsIOS: Bool) -> DependencyCheck.Result
+    private let scan: (@Sendable (_ repo: String, _ needsIOS: Bool) -> DependencyCheck.Result)?
     private let report: @Sendable ([Dep]) -> Void
     private let openAppStore: () -> Void
     private let log: (String) -> Void
@@ -67,7 +68,7 @@ import NXCore
     ///   - installFailed: the note for a failed install, already translated.
     package init(localizer: Localizer, runner: ProcessRunner, repo: RepoLocation, defaults: UserDefaults = .standard,
                  needsIOS: @escaping () -> Bool = { true },
-                 scan: @escaping @Sendable (String, Bool) -> DependencyCheck.Result = { DependencyCheck.scan(needsIOS: $1, repo: $0) },
+                 scan: (@Sendable (String, Bool) -> DependencyCheck.Result)? = nil,
                  report: @escaping @Sendable ([Dep]) -> Void = { DependencyCheck.writeReport($0, appVersion: AppUpdateStore.appVersion) },
                  openAppStore: @escaping () -> Void = {}, log: @escaping (String) -> Void = { _ in },
                  installFailed: @escaping (String) -> Void = { _ in }) {
@@ -77,6 +78,7 @@ import NXCore
         self.defaults = defaults
         self.needsIOS = needsIOS
         self.scan = scan
+        self.xcodeApp = XcodeSelection.app(in: defaults)
         self.report = report
         self.openAppStore = openAppStore
         self.log = log
@@ -115,19 +117,30 @@ import NXCore
         return raw
     }
 
+    /// Clear the preference to follow the system Xcode again. A cancelled or invalid choice keeps the previous toolchain.
+    @discardableResult
+    package func selectXcode(_ app: URL?) -> Bool {
+        if let app, !XcodeSelection.isXcode(app.path) { return false }
+        defaults.set(app?.path, forKey: XcodeSelection.key)
+        xcodeApp = app?.path
+        check()
+        return true
+    }
+
     // ---- The check ----
 
     /// Looks at this Mac again: the rows, the interpreter and the dotnet. The panel shows its spinner until it has published.
     @discardableResult
     package func check() -> Task<Void, Never> {
         checked = false
-        let path = repo.path, needsIOS = needsIOS(), scan = self.scan, report = self.report
+        let path = repo.path, needsIOS = needsIOS(), scan = self.scan, report = self.report, selection = xcodeApp
         return Task {
             let found = await Task.detached { () -> DependencyCheck.Result in
-                let r = scan(path, needsIOS)
+                let r = scan?(path, needsIOS) ?? DependencyCheck.scan(needsIOS: needsIOS, repo: path, customApp: selection)
                 report(r.deps)
                 return r
             }.value
+            guard xcodeApp == selection else { return }
             deps = found.deps
             pythonPath = found.python                // the interpreter the build runs under
             dotnetPath = found.dotnet

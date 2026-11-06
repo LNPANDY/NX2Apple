@@ -235,6 +235,20 @@ import NXModel
         XCTAssertTrue(fake.adminCalls.isEmpty, "Xcode was already set up: no prompt")
     }
 
+    func testLauncherOnlyXcodeNeverRunsTheSystemSelectionCommandForFirstLaunch() async {
+        let app = "/Volumes/External Drive/Xcode.app"
+        testDefaults.set(app, forKey: XcodeSelection.key)
+        let fake = Fake()
+        fake.probe = XcodeProbe(appPath: app, selectedIsXcode: true, licenseAccepted: false, firstLaunchDone: false)
+        let (driver, _) = make(fake, deps: [dep("metal", present: true)], step: .xcode, platform: .mac)
+        await driver.refreshXcode()
+        driver.finishXcodeSetup()
+        await driver.settle()
+        XCTAssertTrue(fake.adminCalls.isEmpty)
+        guard case .failed(let failure) = driver.state.xcode else { return XCTFail("Expected first-launch instructions") }
+        XCTAssertEqual(failure.details, app)
+    }
+
     func testGetXcodeOpensTheAppStoreAndPollsUntilItAppears() async {
         let fake = Fake(); fake.probe = XcodeProbe()
         let (driver, _) = make(fake, deps: [dep("metal", present: true)], step: .xcode, platform: .mac)

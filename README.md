@@ -55,8 +55,11 @@ launcher and a short list of patches, and follows nxnative every day.
 - **An Apple silicon Mac.** The launcher opens on **macOS 13 or later**. Building needs Xcode with
   the iOS SDK, and NVN games need [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.2) 27.2 (macOS 26.6
   or later) unless built with `--allow-other-metal`. Take 27.2 from Apple's download page, not the App Store's newer
-  Xcode. With a newer Xcode installed too, rename 27.2 to `Xcode-27.2.app` and select it:
-  `sudo xcode-select -s /Applications/Xcode-27.2.app`.
+  Xcode. With both installed, give 27.2 a distinct name such as `Xcode-27.2.app`. In **Settings →
+  Build tools → Choose Xcode…**, select the copy to use with NX2Apple, including one on an external
+  drive. During first-run setup, click **Set up later** to reach Settings, then **Run setup again**
+  after choosing Xcode. **Use system Xcode** follows the Mac's command-line selection (for example,
+  `sudo xcode-select -s /Applications/Xcode-27.2.app`).
 - **Your own game dumps** (NSP or XCI) and **your own `prod.keys`** from your own console. Nothing is
   bundled, downloaded or looked up for you. The same `prod.keys` opens every one of your Switch
   games. A current dump covers all retail titles. Switch 2 games (a game folder or `.nup` file) do not need

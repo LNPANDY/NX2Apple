@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import NXCore
 import NXModel
 
@@ -11,6 +12,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
     @ObservedObject var repo: RepoStore
     @ObservedObject var engine: EngineSyncStore
     @ObservedObject var dependencies: DependencyStore
+    @State private var invalidXcode = false
     let buildRunning: Bool
     let shellCache: ShellCache
     let builder: Builder
@@ -87,6 +89,15 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
             }
             }
             CardDivider()
+            CardRow(loc.t("xcodeChoice.title"), detail: dependencies.xcodeApp ?? loc.t("xcodeChoice.system")) {
+                if dependencies.xcodeApp != nil {
+                    Button(loc.t("xcodeChoice.reset")) { dependencies.selectXcode(nil) }
+                }
+                Button(loc.t("xcodeChoice.choose")) { pickXcode() }
+            }
+            .disabled(buildRunning || dependencies.deps.contains(where: \.installing))
+            .alert(loc.t("xcodeChoice.invalid"), isPresented: $invalidXcode) {}
+            CardDivider()
             Button(action: { withAnimation(.easeInOut(duration: 0.18)) { dependencies.toggle() } }) {
                 CardRow(loc.t("dep.title"),
                     detail: !dependencies.checked ? loc.t("dep.checking")
@@ -109,7 +120,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                             if d.installing {
                                 ProgressView().controlSize(.small)
                                 Text(loc.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
-                            } else if !d.present {
+                            } else if !d.present && !(d.id == "xcode" && dependencies.xcodeApp != nil && d.installCmd.isEmpty) {
                                 Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? loc.t("dep.openAppStore") : loc.t("dep.install")) : loc.t(d.actionLabel)) { _ = dependencies.install(d) }
                             }
                         }
@@ -176,6 +187,15 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         CardDivider()
         CardRow(loc.t("repo.auto"), detail: loc.t("engine.autoNote")) {
             Toggle("", isOn: $repo.autoUpdate).labelsHidden().toggleStyle(LauncherSwitchStyle())
+        }
+    }
+
+    private func pickXcode() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.message = loc.t("xcodeChoice.message")
+        if panel.runModal() == .OK, let url = panel.url {
+            invalidXcode = !dependencies.selectXcode(url)
         }
     }
 

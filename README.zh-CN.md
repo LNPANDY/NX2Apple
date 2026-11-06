@@ -53,8 +53,10 @@ NX2Apple 用你自己导出的游戏文件，在你的 Mac 和 iPhone 上运行 
 
 - **Apple Silicon Mac。** 启动器支持 **macOS 13 或更新**。构建需要装了 iOS SDK 的 Xcode；NVN 游戏需要
   [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.2) 27.2（macOS 26.6 或更新），除非加 `--allow-other-metal`。
-  请从 Apple 的下载页面获取 27.2，而不是 App Store 里更新的 Xcode。如果同时装了更新的 Xcode，把 27.2 改名为
-  `Xcode-27.2.app` 并选中它：`sudo xcode-select -s /Applications/Xcode-27.2.app`。
+  请从 Apple 的下载页面获取 27.2，而不是 App Store 里更新的 Xcode。如果同时安装了两个版本，可以把 27.2 改名为
+  `Xcode-27.2.app`。在**设置 → 构建工具 → 选择 Xcode…** 中选择 NX2Apple 使用的 Xcode，也可以选择外置硬盘上的副本。
+  首次启动时，可先点**稍后设置**退出向导，选好 Xcode 后在设置页点**再次运行设置**。点**使用系统 Xcode** 可让启动器使用
+  Mac 的命令行工具设置（例如通过 `sudo xcode-select -s /Applications/Xcode-27.2.app` 选择的副本）。
 - **你自己的游戏文件**（NSP 或 XCI）和**你自己主机里导出的 `prod.keys`**。本项目不自带、不下载、
   也不替你查找任何东西。一份 `prod.keys` 能解你所有的 Switch 游戏。新导出的一份覆盖所有零售游戏。
   Switch 2 游戏（游戏文件夹或 `.nup` 文件）不需要 `prod.keys`。

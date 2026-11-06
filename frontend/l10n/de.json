@@ -1496,5 +1496,13 @@
   "update.pill": "Update %@",
   "update.pillHelp": "Was diese Version ändert und sie laden.",
   "update.readOnlyHint": "Diese Kopie kann sich nicht dort aktualisieren. Lege NX2Apple.app zuerst in Programme.",
-  "update.title": "Eine neue Version ist da"
+  "update.title": "Eine neue Version ist da",
+  "xcodeChoice.choose": "Xcode auswählen…",
+  "xcodeChoice.finishSetup": "Schließe die Einrichtung im ausgewählten Xcode ab und klicke dann auf „Erneut versuchen“.",
+  "xcodeChoice.invalid": "Wähle eine Xcode-App mit den Entwicklerwerkzeugen aus.",
+  "xcodeChoice.message": "Wähle die Xcode-App aus, mit der NX2Apple Spiele bauen und auf Geräten installieren soll.",
+  "xcodeChoice.reset": "System-Xcode verwenden",
+  "xcodeChoice.system": "Verwendet das in macOS ausgewählte Xcode.",
+  "xcodeChoice.title": "Xcode für NX2Apple",
+  "xcodeChoice.unavailable": "Schließe das Laufwerk mit dem ausgewählten Xcode wieder an oder wähle eine andere Kopie."
 }

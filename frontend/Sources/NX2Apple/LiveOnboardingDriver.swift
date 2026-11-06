@@ -38,7 +38,7 @@ struct OnboardingEnvironment {
     /// because the App Store creates Xcode.app while it is still downloading. Runs off the main thread.
     var xcodeInstalled: () async -> Bool = { await Task.detached { OnboardingEnvironment.xcodeApps().first != nil }.value }
     /// Only whether an Xcode*.app folder exists (no process): the Welcome estimate reads it.
-    var xcodeFolderExists: () -> Bool = { OnboardingEnvironment.xcodeFolders().first != nil }
+    var xcodeFolderExists: () -> Bool = { XcodeSelection.app().map(XcodeSelection.isXcode) ?? (OnboardingEnvironment.xcodeFolders().first != nil) }
     var xcodeProbe: () async -> XcodeProbe = { await OnboardingEnvironment.liveProbe() }
     /// One administrator prompt around the whole script (`OnboardingAdmin.source`).
     var runAdmin: (_ developerDir: String) async -> AdminResult = { await OnboardingAdmin.run(developerDir: $0) }
@@ -83,23 +83,24 @@ struct OnboardingEnvironment {
         xcodeFolders(in: directory).filter { Toolchain.runOK($0 + "/Contents/Developer/usr/bin/xcodebuild", ["-version"]) }
     }
 
-    static func liveProbe() async -> XcodeProbe {
+    static func liveProbe(defaults: UserDefaults = .standard) async -> XcodeProbe {
         await Task.detached {
             var probe = XcodeProbe()
-            let runner = SystemProcessRunner()
+            if let app = XcodeSelection.app(in: defaults), !XcodeSelection.isXcode(app) { return probe }
+            let runner = SystemProcessRunner(defaults: defaults)
             let selected = runner.output("/usr/bin/xcode-select", ["-p"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if let r = selected.range(of: ".app/Contents/Developer") {
+            if selected.hasSuffix(".app/Contents/Developer") {
                 probe.selectedIsXcode = true
-                probe.appPath = String(selected[..<r.lowerBound]) + ".app"
-            } else { probe.appPath = xcodeApps().first }
+                probe.appPath = String(selected.dropLast("/Contents/Developer".count))
+            } else if XcodeSelection.app(in: defaults) == nil { probe.appPath = xcodeApps().first }
             if let dir = probe.developerDir {
                 if let text = runner.output("/usr/bin/xcodebuild", ["-version"], env: ["DEVELOPER_DIR": dir, "PATH": "/usr/bin:/bin"]) {
                     probe.version = OnboardingNVN.xcodeVersion(from: text)
                 }
             }
             if probe.selectedIsXcode {
-                probe.licenseAccepted = Toolchain.runOK("/usr/bin/xcodebuild", ["-license", "check"])
-                probe.firstLaunchDone = Toolchain.runOK("/usr/bin/xcodebuild", ["-checkFirstLaunchStatus"])
+                probe.licenseAccepted = runner.runOK("/usr/bin/xcodebuild", ["-license", "check"])
+                probe.firstLaunchDone = runner.runOK("/usr/bin/xcodebuild", ["-checkFirstLaunchStatus"])
             }
             return probe
         }.value
@@ -509,6 +510,11 @@ enum OnboardingLaunch {
             state.xcode = .failed(OnboardingFailure(message: t(key), details: Self.tail(details)))
         }
         if probe.needsAdmin {
+            // The normal admin script switches the system Xcode. Let a launcher-only Xcode finish its own first launch.
+            if let app = stores.dependencies.xcodeApp {
+                if XcodeSelection.isXcode(app) { env.openURL(URL(fileURLWithPath: app)) }
+                return fail("xcodeChoice.finishSetup", app)
+            }
             guard let dir = probe.developerDir else { return fail("onboarding.error.xcode", "No Xcode.app was found.") }
             for task in [OnboardingSetupTask.selected, .license, .firstLaunch] where state.setup[task] != .done { state.setup[task] = .running(nil) }
             switch await env.runAdmin(dir) {
