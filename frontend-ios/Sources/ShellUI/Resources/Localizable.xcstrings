@@ -27,6 +27,12 @@
             "value": "%lld di %lld"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld / %lld"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -62,6 +68,12 @@
           }
         },
         "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "120 fps"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "120 fps"
@@ -107,6 +119,12 @@
             "value": "16:9 (Switch)"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "16:9（Switch）"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -142,6 +160,12 @@
           }
         },
         "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "30 fps"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "30 fps"
@@ -187,6 +211,12 @@
             "value": "60 fps"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "60 fps"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -225,6 +255,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "A e B non scambiati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A と B は入れ替えていません"
           }
         },
         "sv": {
@@ -267,6 +303,12 @@
             "value": "A e B scambiati"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A と B を入れ替え済み"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -305,6 +347,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Un po’ di spazio per l’avventura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ちょっとした冒険の場所"
           }
         },
         "sv": {
@@ -347,6 +395,12 @@
             "value": "Riduce la risoluzione fino al 70% quando il carico aumenta. Disattivala per mantenere il 100% della risoluzione prevista dalla modalità console selezionata."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "負荷に応じて解像度を 70% から 100% の間で調整します。オフにすると、選択したモードのフル解像度を維持します。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -385,6 +439,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tutti i giochi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのゲーム"
           }
         },
         "sv": {
@@ -427,6 +487,12 @@
             "value": "Elimina anche i salvataggi"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーブデータも削除"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -465,6 +531,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Inglese americano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アメリカ英語"
           }
         },
         "sv": {
@@ -507,6 +579,12 @@
             "value": "Serve un aggiornamento dell’app"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのアップデートが必要です"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -545,6 +623,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Disponi i comandi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロールを配置"
           }
         },
         "sv": {
@@ -587,6 +671,12 @@
             "value": "Disposizione"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -625,6 +715,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Disponi…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置…"
           }
         },
         "sv": {
@@ -667,6 +763,12 @@
             "value": "Al bordo"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端に"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -705,6 +807,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Indietro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る"
           }
         },
         "sv": {
@@ -747,6 +855,12 @@
             "value": "Sotto l’immagine"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "映像の下"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -785,6 +899,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tasto in basso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下のボタン"
           }
         },
         "sv": {
@@ -827,6 +947,12 @@
             "value": "Portoghese brasiliano"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラジルポルトガル語"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -865,6 +991,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ripristina le impostazioni con cui questo gioco è stato testato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのテストに使われた設定に戻します。"
           }
         },
         "sv": {
@@ -907,6 +1039,12 @@
             "value": "Inglese britannico"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イギリス英語"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -945,6 +1083,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ricompila questo gioco sul Mac e installalo su questo dispositivo. L’app per Mac controlla ogni file durante la compilazione, quindi la nuova copia è completa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac でこのゲームをもう一度ビルドし、このデバイスにインストールしてください。Mac アプリはビルド中にすべてのファイルを確認するので、新しいコピーは完全なものになります。"
           }
         },
         "sv": {
@@ -987,6 +1131,12 @@
             "value": "Predefinita"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1025,6 +1175,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mappatura tasti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタンの割り当て"
           }
         },
         "sv": {
@@ -1067,6 +1223,12 @@
             "value": "Test dei tasti"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタンテスト"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1105,6 +1267,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tasti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタン"
           }
         },
         "sv": {
@@ -1147,6 +1315,12 @@
             "value": "Francese canadese"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カナダフランス語"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1185,6 +1359,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Annulla"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
           }
         },
         "sv": {
@@ -1227,6 +1407,12 @@
             "value": "Cambia i tasti solo per questo gioco."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームだけのボタンを変更します。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1265,6 +1451,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Modificato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更済み"
           }
         },
         "sv": {
@@ -1307,6 +1499,12 @@
             "value": "In carica"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "充電中"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1345,6 +1543,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scegli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択"
           }
         },
         "sv": {
@@ -1387,6 +1591,12 @@
             "value": "Scegli un comando"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロールを選択"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1425,6 +1635,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scegli cartella…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを選択…"
           }
         },
         "sv": {
@@ -1467,6 +1683,12 @@
             "value": "Scegli i dati del gioco…"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームデータを選択…"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1505,6 +1727,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scegli la stessa cartella di iCloud Drive che usi sul Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac で使っているのと同じ iCloud Drive のフォルダを選んでください。"
           }
         },
         "sv": {
@@ -1547,6 +1775,12 @@
             "value": "Scegli i dati di questo gioco per poterci giocare."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレイの準備のため、このゲームのデータを選んでください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1585,6 +1819,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scegli…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択…"
           }
         },
         "sv": {
@@ -1627,6 +1867,12 @@
             "value": "Chiudi"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1665,6 +1911,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Chiudi i controller"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラーを閉じる"
           }
         },
         "sv": {
@@ -1707,6 +1959,12 @@
             "value": "Salvataggi nel cloud"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドセーブ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1745,6 +2003,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Collega un controller nelle impostazioni Bluetooth. I comandi touch sono sempre disponibili nella libreria."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bluetooth 設定でコントローラーを接続してください。ライブラリではいつでもタッチ操作を使えます。"
           }
         },
         "sv": {
@@ -1787,6 +2051,12 @@
             "value": "Modalità console"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本体モード"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1825,6 +2095,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Controller"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラー"
           }
         },
         "sv": {
@@ -1867,6 +2143,12 @@
             "value": "Controller"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラー"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1905,6 +2187,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Comandi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "操作"
           }
         },
         "sv": {
@@ -1947,6 +2235,12 @@
             "value": "Angolo"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隅"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1985,6 +2279,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Personalizzata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
           }
         },
         "sv": {
@@ -2027,6 +2327,12 @@
             "value": "Croce direzionale"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "十字キー"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2065,6 +2371,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Croce giù"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "十字キー下"
           }
         },
         "sv": {
@@ -2107,6 +2419,12 @@
             "value": "Croce sinistra"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "十字キー左"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2145,6 +2463,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Croce destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "十字キー右"
           }
         },
         "sv": {
@@ -2187,6 +2511,12 @@
             "value": "Croce su"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "十字キー上"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2225,6 +2555,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Diminuisci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "減らす"
           }
         },
         "sv": {
@@ -2267,6 +2603,12 @@
             "value": "Predefinita"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2305,6 +2647,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Elimina gioco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームを削除"
           }
         },
         "sv": {
@@ -2347,6 +2695,12 @@
             "value": "Elimina gioco e salvataggi"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームとセーブデータを削除"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2385,6 +2739,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Elimina gioco…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームを削除…"
           }
         },
         "sv": {
@@ -2427,6 +2787,12 @@
             "value": "Eliminare “%@”?"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” を削除しますか？"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2465,6 +2831,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Elimina i dati del gioco su questo dispositivo. Scegli tu se eliminare anche i salvataggi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイス上のゲームのデータを削除します。セーブデータも削除するかは選べます。"
           }
         },
         "sv": {
@@ -2507,6 +2879,12 @@
             "value": "Dettagli"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詳細"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2545,6 +2923,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Modalità di visualizzazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示モード"
           }
         },
         "sv": {
@@ -2587,6 +2971,12 @@
             "value": "TV"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TV モード"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2625,6 +3015,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
           }
         },
         "sv": {
@@ -2667,6 +3063,12 @@
             "value": "Tocca due volte per selezionare"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダブルタップで選択"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2705,6 +3107,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Giù"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下"
           }
         },
         "sv": {
@@ -2747,6 +3155,12 @@
             "value": "Trascina un comando per spostarlo. Toccane uno per selezionarlo, poi spostalo passo per passo con le frecce. Se un comando ne copre un altro o esce dallo schermo, torna al posto precedente. Vale per tutti i giochi."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロールをドラッグすると移動できます。タップして選んでから、矢印で少しずつ動かすこともできます。ほかのコントロールと重なったり画面からはみ出したりする位置では、元に戻ります。すべてのゲームに適用されます。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2785,6 +3199,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Olandese"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オランダ語"
           }
         },
         "sv": {
@@ -2827,6 +3247,12 @@
             "value": "Risoluzione dinamica"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動的解像度"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2865,6 +3291,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Thread di codifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エンコードスレッド"
           }
         },
         "sv": {
@@ -2907,6 +3339,12 @@
             "value": "Ogni tasto torna alla funzione predefinita."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのボタンがデフォルトの動作に戻ります。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2945,6 +3383,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ogni tasto funziona come in tutti gli altri giochi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのボタンが、すべてのゲーム共通の動作に戻ります。"
           }
         },
         "sv": {
@@ -2987,6 +3431,12 @@
             "value": "Tasti frontali"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フェイスボタン"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3025,6 +3475,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Riempi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全体に表示"
           }
         },
         "sv": {
@@ -3067,6 +3523,12 @@
             "value": "Riempi ritaglia l’immagine 16:9 del gioco per coprire lo schermo. Barre della salute, sottotitoli o mappe vicino ai bordi possono venire tagliati. Un’immagine a schermo intero senza ritaglio richiede una patch per ogni gioco."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「全体に表示」は、ゲームの 16:9 の映像を切り取って画面全体を覆います。端の近くにある体力ゲージ、字幕、マップなどが切れることがあります。切り取らずに全画面表示するには、ゲームごとのパッチが必要です。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3105,6 +3567,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Adatta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全体を収める"
           }
         },
         "sv": {
@@ -3147,6 +3615,12 @@
             "value": "Per una segnalazione di bug"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バグ報告用"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3185,6 +3659,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Solo per i controller nei giochi. I menu di questa app usano sempre A per confermare e B per tornare indietro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲーム内のコントローラーだけに適用されます。このアプリのメニューでは、A で決定、B で戻るのままです。"
           }
         },
         "sv": {
@@ -3227,6 +3707,12 @@
             "value": "Per tutti i giochi. Su uno schermo troppo piccolo per una scelta, i comandi restano più vicini al loro posto."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのゲームに適用されます。選んだサイズには画面が小さすぎる場合、コントロールは元の位置の近くに留まります。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3265,6 +3751,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Solo per questo gioco. Un tasto non modificato funziona come in tutti gli altri giochi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームだけに適用されます。変更していないボタンは、すべてのゲーム共通の動作になります。"
           }
         },
         "sv": {
@@ -3307,6 +3799,12 @@
             "value": "Buffer dei fotogrammi"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームバッファリング"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3345,6 +3843,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fotogrammi al secondo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームレート"
           }
         },
         "sv": {
@@ -3387,6 +3891,12 @@
             "value": "Contatore FPS"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フレームレート表示"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3425,6 +3935,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Francese"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フランス語"
           }
         },
         "sv": {
@@ -3467,6 +3983,12 @@
             "value": "Dalle Impostazioni"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共通設定を使用"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3505,6 +4027,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Schermo intero"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスクリーン"
           }
         },
         "sv": {
@@ -3547,6 +4075,12 @@
             "value": "Gioco"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲーム"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3585,6 +4119,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dati di gioco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームデータ"
           }
         },
         "sv": {
@@ -3627,6 +4167,12 @@
             "value": "Lingua del gioco"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームの言語"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3665,6 +4211,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vibrazione del gioco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームの振動"
           }
         },
         "sv": {
@@ -3707,6 +4259,12 @@
             "value": "Impostazioni del gioco"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームの設定"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3745,6 +4303,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Quello del gioco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲーム標準"
           }
         },
         "sv": {
@@ -3787,6 +4351,12 @@
             "value": "Upscaler del gioco"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームのアップスケーラー"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3825,6 +4395,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "I giochi cercano qui i loro dati. Metti un romfs.img per gioco in una cartella qualsiasi al suo interno. Ogni gioco viene riconosciuto dal file stesso, quindi i nomi delle cartelle non contano. Ogni gioco può anche avere una cartella propria."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームはここでデータを探します。中のどのフォルダでも、ゲームごとに romfs.img を 1 つ置いてください。各ゲームはイメージ自体で見つけるので、フォルダ名は関係ありません。ゲームごとに専用のフォルダを持たせることもできます。"
           }
         },
         "sv": {
@@ -3867,6 +4443,12 @@
             "value": "I giochi senza una cartella propria salvano qui. Scegli la stessa cartella di iCloud Drive che usi sul Mac."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "専用のフォルダがないゲームはここに保存されます。Mac で使っているのと同じ iCloud Drive のフォルダを選んでください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3905,6 +4487,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tedesco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドイツ語"
           }
         },
         "sv": {
@@ -3947,6 +4535,12 @@
             "value": "Portatile"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "携帯モード"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -3985,6 +4579,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Più in alto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "高め"
           }
         },
         "sv": {
@@ -4027,6 +4627,12 @@
             "value": "Tieni premuto B per chiudere"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "B 長押しで閉じる"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4065,6 +4671,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mantieni i fotogrammi in ritardo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遅れたフレームを保持"
           }
         },
         "sv": {
@@ -4107,6 +4719,12 @@
             "value": "Come risolvere"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "解決方法"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4145,6 +4763,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Come aggiornare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート方法"
           }
         },
         "sv": {
@@ -4187,6 +4811,12 @@
             "value": "Al suo posto"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元の位置"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4225,6 +4855,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aumenta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "増やす"
           }
         },
         "sv": {
@@ -4267,6 +4903,12 @@
             "value": "Per giocare a questo titolo, installa una versione più recente di questa app."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームをプレイするには、このアプリの新しいバージョンをインストールしてください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4305,6 +4947,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Interfaccia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェイス"
           }
         },
         "sv": {
@@ -4347,6 +4995,12 @@
             "value": "Verso il centro"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内側"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4385,6 +5039,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Italiano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "イタリア語"
           }
         },
         "sv": {
@@ -4427,6 +5087,12 @@
             "value": "Giapponese"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日本語"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4465,6 +5131,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mantiene un archivio delle pipeline grafiche e richiede più memoria."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パイプラインのアーカイブを保持し、メモリを多く使います。"
           }
         },
         "sv": {
@@ -4507,6 +5179,12 @@
             "value": "Conserva un archivio delle pipeline e usa più memoria."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パイプラインのアーカイブを保持します。メモリを多く使います。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4545,6 +5223,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Coreano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "韓国語"
           }
         },
         "sv": {
@@ -4587,6 +5271,12 @@
             "value": "Grande"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4625,6 +5315,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spagnolo latinoamericano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中南米スペイン語"
           }
         },
         "sv": {
@@ -4667,6 +5363,12 @@
             "value": "Schema"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レイアウト"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4705,6 +5407,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左"
           }
         },
         "sv": {
@@ -4747,6 +5455,12 @@
             "value": "Tasto a sinistra"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左のボタン"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4785,6 +5499,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dorsale sinistro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左ショルダー"
           }
         },
         "sv": {
@@ -4827,6 +5547,12 @@
             "value": "Levetta sinistra"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左スティック"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4865,6 +5591,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pressione levetta sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左スティック押し込み"
           }
         },
         "sv": {
@@ -4907,6 +5639,12 @@
             "value": "Grilletto sinistro"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左トリガー"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -4945,6 +5683,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Libreria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブラリ"
           }
         },
         "sv": {
@@ -4987,6 +5731,12 @@
             "value": "Media"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5027,6 +5777,12 @@
             "value": "Pipeline Metal 4"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metal 4 パイプライン"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5062,6 +5818,12 @@
           }
         },
         "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MetalFX"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "MetalFX"
@@ -5107,6 +5869,12 @@
             "value": "Meno"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイナス"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5145,6 +5913,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Altri tasti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のボタン"
           }
         },
         "sv": {
@@ -5187,6 +5961,12 @@
             "value": "Sposta A B X Y insieme"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A B X Y をまとめて動かす"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5225,6 +6005,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spostati tra i comandi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロール間を移動"
           }
         },
         "sv": {
@@ -5267,6 +6053,12 @@
             "value": "Giù"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下へ移動"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5305,6 +6097,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spostalo con la croce direzionale. A o B lo posa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "十字キーで動かします。A か B で配置を確定します。"
           }
         },
         "sv": {
@@ -5347,6 +6145,12 @@
             "value": "A sinistra"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左へ移動"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5385,6 +6189,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "A destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右へ移動"
           }
         },
         "sv": {
@@ -5427,6 +6237,12 @@
             "value": "Sposta i singoli comandi dove ti sono più comodi."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントロールを 1 つずつ、親指に合う位置へ動かします。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5465,6 +6281,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Su"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上へ移動"
           }
         },
         "sv": {
@@ -5507,6 +6329,12 @@
             "value": "Spostato"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動済み"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5545,6 +6373,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nomi come su un controller Switch, in base alla posizione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch のコントローラーと同じく、位置で名前を付けています。"
           }
         },
         "sv": {
@@ -5587,6 +6421,12 @@
             "value": "Servono i dati di gioco"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームデータが必要"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5625,6 +6465,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nessun contenuto aggiuntivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加コンテンツなし"
           }
         },
         "sv": {
@@ -5667,6 +6513,12 @@
             "value": "Livello batteria non disponibile"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バッテリー残量なし"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5705,6 +6557,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nessun tasto premuto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "押されているボタンはありません"
           }
         },
         "sv": {
@@ -5747,6 +6605,12 @@
             "value": "Nessun controller collegato"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のコントローラーはありません"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5785,6 +6649,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nessun dato selezionato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "データが選択されていません"
           }
         },
         "sv": {
@@ -5827,6 +6697,12 @@
             "value": "Nessuna cartella scelta"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダが選択されていません"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5865,6 +6741,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Non c’è spazio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そこには置けません"
           }
         },
         "sv": {
@@ -5907,6 +6789,12 @@
             "value": "Non c’è spazio. Il comando è tornato al suo posto."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そこには置けません。元の位置に戻しました。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -5945,6 +6833,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nessuno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なし"
           }
         },
         "sv": {
@@ -5987,6 +6881,12 @@
             "value": "Disattivato"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6025,6 +6925,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Attivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン"
           }
         },
         "sv": {
@@ -6067,6 +6973,12 @@
             "value": "Su un controller"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラーで"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6105,6 +7017,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apre la mappatura tasti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタンの割り当てを開きます"
           }
         },
         "sv": {
@@ -6147,6 +7065,12 @@
             "value": "Apre il test dei tasti"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタンテストを開きます"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6185,6 +7109,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Apre l’elenco delle scelte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択肢の一覧を開きます"
           }
         },
         "sv": {
@@ -6227,6 +7157,12 @@
             "value": "Sopra l’immagine"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面に重ねる"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6265,6 +7201,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Prestazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パフォーマンス"
           }
         },
         "sv": {
@@ -6307,6 +7249,12 @@
             "value": "HUD prestazioni"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パフォーマンス HUD"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6345,6 +7293,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Overlay prestazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パフォーマンスオーバーレイ"
           }
         },
         "sv": {
@@ -6387,6 +7341,12 @@
             "value": "Immagine"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "映像"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6425,6 +7385,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Formato dell’immagine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "映像の比率"
           }
         },
         "sv": {
@@ -6467,6 +7433,12 @@
             "value": "Precompilazione pipeline"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パイプラインの事前ビルド"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6505,6 +7477,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Gioca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレイ"
           }
         },
         "sv": {
@@ -6547,6 +7525,12 @@
             "value": "Giocato %@"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ にプレイ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6585,6 +7569,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Giocato oggi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今日プレイ"
           }
         },
         "sv": {
@@ -6627,6 +7617,12 @@
             "value": "Giocato ieri"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "昨日プレイ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6665,6 +7661,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Più"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プラス"
           }
         },
         "sv": {
@@ -6707,6 +7709,12 @@
             "value": "Portoghese"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポルトガル語"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6745,6 +7753,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Premi un tasto qualsiasi su un controller"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラーのボタンをどれか押してください"
           }
         },
         "sv": {
@@ -6787,6 +7801,12 @@
             "value": "Anteprima dei comandi touch"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タッチ操作のプレビュー"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6825,6 +7845,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rimettere tutti i comandi dello schema %@ al loro posto predefinito?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ レイアウトのすべてのコントロールを標準の位置に戻しますか？"
           }
         },
         "sv": {
@@ -6867,6 +7893,12 @@
             "value": "Mette A sul tasto in basso, dove confermano i controller Xbox e PlayStation."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xbox や PlayStation のコントローラーで決定に使う下のボタンに A を割り当てます。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6905,6 +7937,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pronto per giocare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレイ可能"
           }
         },
         "sv": {
@@ -6947,6 +7985,12 @@
             "value": "Giocati di recente"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近プレイしたゲーム"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -6985,6 +8029,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rimuovi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
           }
         },
         "sv": {
@@ -7027,6 +8077,12 @@
             "value": "Scala di rendering"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンダースケール"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7065,6 +8121,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Calcola circa un quarto di pixel in più: un po’ più lento e più caldo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "描画するピクセルが約 4 分の 1 増えます。少し遅くなり、発熱も少し増えます。"
           }
         },
         "sv": {
@@ -7107,6 +8169,12 @@
             "value": "Ripristina"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リセット"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7145,6 +8213,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ripristina tutti i comandi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのコントロールをリセット"
           }
         },
         "sv": {
@@ -7187,6 +8261,12 @@
             "value": "Ripristina questo comando"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このコントロールをリセット"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7225,6 +8305,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ripristina i valori testati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テスト済みの設定に戻す"
           }
         },
         "sv": {
@@ -7267,6 +8353,12 @@
             "value": "Destra"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7305,6 +8397,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tasto a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右のボタン"
           }
         },
         "sv": {
@@ -7347,6 +8445,12 @@
             "value": "Dorsale destro"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右ショルダー"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7385,6 +8489,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pressione levetta destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右スティック押し込み"
           }
         },
         "sv": {
@@ -7427,6 +8537,12 @@
             "value": "Grilletto destro"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右トリガー"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7465,6 +8581,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Soglia della vibrazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "振動のしきい値"
           }
         },
         "sv": {
@@ -7507,6 +8629,12 @@
             "value": "Intensità della vibrazione"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "振動の強さ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7545,6 +8673,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Russo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロシア語"
           }
         },
         "sv": {
@@ -7587,6 +8721,12 @@
             "value": "Come tutti i giochi"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのゲームと同じ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7625,6 +8765,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Anche i salvataggi vengono eliminati e non si possono recuperare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーブデータも削除され、元に戻せません。"
           }
         },
         "sv": {
@@ -7667,6 +8813,12 @@
             "value": "I salvataggi restano, a meno che tu non scelga di eliminarli."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除を選ばない限り、セーブデータは残ります。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7705,6 +8857,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Schermo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面"
           }
         },
         "sv": {
@@ -7747,6 +8905,12 @@
             "value": "Ogni tasto si illumina quando lo premi."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタンを押すと、そのボタンが光ります。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7785,6 +8949,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Seleziona"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択"
           }
         },
         "sv": {
@@ -7827,6 +8997,12 @@
             "value": "Comando nei giochi"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲーム内での入力"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7865,6 +9041,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Impostazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定"
           }
         },
         "sv": {
@@ -7907,6 +9089,12 @@
             "value": "Dorsali e grilletti"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショルダーとトリガー"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -7945,6 +9133,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Mostra log"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを表示"
           }
         },
         "sv": {
@@ -7987,6 +9181,12 @@
             "value": "Cinese semplificato"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "簡体字中国語"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8025,6 +9225,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dimensione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズ"
           }
         },
         "sv": {
@@ -8067,6 +9273,12 @@
             "value": "Piccola"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8105,6 +9317,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spagnolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スペイン語"
           }
         },
         "sv": {
@@ -8147,6 +9365,12 @@
             "value": "Standard"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標準"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8185,6 +9409,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scambia A e B"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A と B を入れ替える"
           }
         },
         "sv": {
@@ -8227,6 +9457,12 @@
             "value": "Nel gioco si cambia con il pulsante in alto al centro. Il 3D aggiunge la croce direzionale, L3 e R3."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲーム内では上部中央のボタンで切り替えます。3D では十字キー、L3、R3 が加わります。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8265,6 +9501,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tocca un tasto per cambiare il suo comando."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタンをタップすると、送る入力を変更できます。"
           }
         },
         "sv": {
@@ -8307,6 +9549,12 @@
             "value": "Tocca un comando nell’immagine."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "映像内のコントロールをタップしてください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8345,6 +9593,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Al primo avvio prepara le pipeline grafiche. L’operazione può richiedere alcuni minuti e viene eseguita una sola volta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初回起動時に 1 回だけ、数分待ちます。"
           }
         },
         "sv": {
@@ -8387,6 +9641,12 @@
             "value": "I dati del gioco su questo dispositivo vengono eliminati e il gioco viene rimosso dall’elenco. Un’eventuale cartella scelta da te non viene toccata. Invia nuovamente i dati del gioco dal tuo Mac per ripristinarlo."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイス上のゲームのデータが削除され、ゲームは一覧から消えます。自分で選んだフォルダには手を加えません。元に戻すには、Mac からもう一度ゲームデータを送ってください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8425,6 +9685,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Questo gioco richiede una versione più recente dell’app. Aggiornala dal launcher sul tuo Mac, poi installala nuovamente su questo dispositivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームには、このアプリの新しいバージョンが必要です。Mac の Mac アプリでアップデートしてから、このデバイスにもう一度インストールしてください。"
           }
         },
         "sv": {
@@ -8467,6 +9733,12 @@
             "value": "ID titolo %@"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトル ID %@"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8505,6 +9777,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tasto in alto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上のボタン"
           }
         },
         "sv": {
@@ -8547,6 +9825,12 @@
             "value": "Comandi touch"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タッチ操作"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8585,6 +9869,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Feedback al tocco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タッチのフィードバック"
           }
         },
         "sv": {
@@ -8627,6 +9917,12 @@
             "value": "Cinese tradizionale"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "繁体字中国語"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8665,6 +9961,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Disattiva"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにする"
           }
         },
         "sv": {
@@ -8707,6 +10009,12 @@
             "value": "Disattiva i salvataggi nel cloud"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドセーブをオフにする"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8745,6 +10053,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ruota il telefono in orizzontale per un’anteprima più grande."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone を横向きにすると、プレビューが大きくなります。"
           }
         },
         "sv": {
@@ -8787,6 +10101,12 @@
             "value": "Non disponibile"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用できません"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8825,6 +10145,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Su"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上"
           }
         },
         "sv": {
@@ -8867,6 +10193,12 @@
             "value": "Fino a un fotogramma in più di latenza dello schermo."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示の遅延が最大 1 フレーム増えます。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8905,6 +10237,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aggiorna l’app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリをアップデート"
           }
         },
         "sv": {
@@ -8947,6 +10285,12 @@
             "value": "Upscaling"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップスケーリング"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -8985,6 +10329,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Usa la cartella delle Impostazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定のフォルダを使う"
           }
         },
         "sv": {
@@ -9027,6 +10377,12 @@
             "value": "Usa i dati dell’app"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのデータを使う"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -9065,6 +10421,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Usato dai giochi che non hanno una scelta propria."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "独自の設定がないゲームで使われます。"
           }
         },
         "sv": {
@@ -9107,6 +10469,12 @@
             "value": "Richiede più lavoro alla GPU e può far scaldare di più il dispositivo."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPU 時間が増え、発熱が増えることがあります。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -9145,6 +10513,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Versione %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バージョン %@"
           }
         },
         "sv": {
@@ -9187,6 +10561,12 @@
             "value": "Cosa fa ogni tasto all’interno dei giochi."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲーム内で各ボタンが送る入力です。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -9225,6 +10605,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウインドウ"
           }
         },
         "sv": {
@@ -9267,6 +10653,12 @@
             "value": "I tuoi giochi"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マイライブラリ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -9305,6 +10697,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "I tuoi giochi compariranno qui quando saranno inclusi in questa app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリにゲームが含まれると、ここに表示されます。"
           }
         },
         "sv": {
@@ -9347,6 +10745,12 @@
             "value": "Personalizzata"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタム"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -9385,6 +10789,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Schermo di iPhone Duo (1.43:1)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iPhone Duo の画面（1.43:1）"
           }
         },
         "sv": {
