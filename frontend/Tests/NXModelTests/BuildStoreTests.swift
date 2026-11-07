@@ -212,6 +212,47 @@ import XCTest
         XCTAssertEqual(store.updatePath, "", "a cancelled panel changes nothing")
     }
 
+    /// #708: an image a previous build left is named to the script with --romfs-from, for each target. The experimental builder
+    /// gets the script's arguments, and `nxb build` has no such option: with it on, the option is left out.
+    func testAReusableImageIsNamedToTheScriptButNotToNxbBuild() throws {
+        let runner = FakeProcessRunner()
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.3\n") }
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        for path in [EngineLayout.marker] + RepoLayout.requiredTools {
+            let url = temporary.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "'--work-dir' '--romfs-from'".write(to: url, atomically: true, encoding: .utf8)
+        }
+        repo.path = temporary.path
+        let key = "0100000000010000"
+        store.take(picked: [try file("Cartridge [\(key)].xci")], kind: .base)
+        store.take(picked: [try file("test.keys")], kind: .keys)
+        store.outDir = temporary.path
+        defaults.set(temporary.appendingPathComponent("shell").path, forKey: "shellRoot")
+        devices.exportIPA = true
+        let image = temporary.path + "/games/\(key)/romfs.img"
+        try FileManager.default.createDirectory(atPath: (image as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        for path in [image, image + ".id"] { try Data([0]).write(to: URL(fileURLWithPath: path)) }
+        let nxb = temporary.path + "/nxbuild/nxb"
+        try FileManager.default.createDirectory(atPath: (nxb as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try Data([0]).write(to: URL(fileURLWithPath: nxb))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+        store.experimentalBuilderPath = nxb
+        for target in [BuildTarget.mac, BuildTarget.ios] {
+            store.target = target
+            store.experimentalBuilder = false
+            store.startBuild()
+            var args = store.lastBuildCommand
+            XCTAssertEqual(args.first, deps.pythonPath, "the script runs (\(target))")
+            XCTAssertEqual(args.firstIndex(of: "--romfs-from").map { args[$0 + 1] }, image, "the script is offered the image (\(target))")
+            store.experimentalBuilder = true
+            store.startBuild()
+            args = store.lastBuildCommand
+            XCTAssertEqual(Array(args.prefix(2)), [nxb, "build"], "nxb build runs (\(target))")
+            XCTAssertFalse(args.contains("--romfs-from"), "nxb build is not given an option it rejects (\(target))")
+        }
+    }
+
     func testRetryBuildsTheChosenTitleAndKeepsItsOutputsSeparate() throws {
         let store = makeStore()
         for path in [EngineLayout.marker] + RepoLayout.requiredTools {

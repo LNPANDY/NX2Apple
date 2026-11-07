@@ -53,3 +53,4 @@
 0083-test-table-of-uniform-handles-expects-the-pool-m.patch
 0085-tests-update-fixtures-for-shader-progress-and-romfs-validation.patch
 0086-ios-shell-declare-japanese-in-cfbundlelocalizati.patch
+0087-build-ipa-from-nsp-reuse-the-other-platform-s-ro.patch
