@@ -331,9 +331,10 @@ package struct LauncherSlider: View {
         }
     }
 
-    /// A raw value on the slider's steps, inside its range.
+    /// A raw value on the slider's steps, inside its range. The steps count from the range's lower bound, as the
+    /// accessibility `Slider` counts them, so a range of 1...9 with a step of 2 has 1, 3, 5, 7 and 9.
     package static func snapped(_ raw: Double, range: ClosedRange<Double>, step: Double) -> Double {
-        let snapped = step > 0 ? (raw / step).rounded() * step : raw
+        let snapped = step > 0 ? range.lowerBound + ((raw - range.lowerBound) / step).rounded() * step : raw
         return min(max(snapped, range.lowerBound), range.upperBound)
     }
 
