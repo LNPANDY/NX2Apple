@@ -99,12 +99,30 @@ package enum GameFolder {
         }
     }
 
-    /// Whether `path` itself (without unwrapping parent/child folders) is a game folder or a `.nup` file.
-    package static func isDirectCandidate(_ path: String) -> Bool {
+    /// Whether `path` itself is an unpacked dump directory (`base/exefs/main.npdm`, `updates/<v>/exefs/main.npdm`, or
+    /// misplaced `exefs/main.npdm` without `base/`), as opposed to a `.nup` file or a folder holding `.nup` files.
+    package static func isDumpDirectory(_ path: String) -> Bool {
         let fm = FileManager.default
-        if (path as NSString).pathExtension.lowercased() == "nup" && isFile(path) { return true }
-        if isFile(path + "/base/exefs/main.npdm") || !nupFiles(in: path).isEmpty || hasUpdateCode(path) { return true }
+        if isFile(path + "/base/exefs/main.npdm") || hasUpdateCode(path) { return true }
         return isFile(path + "/exefs/main.npdm") && !fm.fileExists(atPath: path + "/base")
+    }
+
+    private static func hasNestedGameFoldersOrPackages(in folder: String) -> Bool {
+        for sub in wrapperSubdirs(in: folder) {
+            if isDumpDirectory(sub) || !nupFiles(in: sub).isEmpty || hasPackages(in: sub) { return true }
+            for child in wrapperSubdirs(in: sub) {
+                if isDumpDirectory(child) || !nupFiles(in: child).isEmpty || hasPackages(in: child) { return true }
+            }
+        }
+        return false
+    }
+
+    /// Whether `path` itself (without unwrapping parent/child folders) is a game folder or a `.nup` file.
+    /// A folder holding a `.nup` alongside nested game folders or packages is a collection root, not a single-game folder.
+    package static func isDirectCandidate(_ path: String) -> Bool {
+        if (path as NSString).pathExtension.lowercased() == "nup" && isFile(path) { return true }
+        if isDumpDirectory(path) { return true }
+        return !nupFiles(in: path).isEmpty && !hasNestedGameFoldersOrPackages(in: path)
     }
 
     /// Resolves a picked or dropped folder to the actual game folder when the user selected an outer wrapper folder
@@ -159,7 +177,7 @@ package enum GameFolder {
     }
 
     private static func unwrappedGameFolder(in path: String) -> String? {
-        guard isDir(path), !hasPackages(in: path) else { return nil }
+        guard isDir(path), !hasPackages(in: path), nupFiles(in: path).isEmpty else { return nil }
         let level1 = wrapperSubdirs(in: path)
         if level1.contains(where: { hasPackages(in: $0) }) { return nil }
         let direct1 = level1.filter { isDirectCandidate($0) }

@@ -407,7 +407,7 @@ final class GameLibrary: ObservableObject {
     }
 
     static func sourceGames(in root: URL, repo: String) -> [LibraryGame] {
-        if GameFolder.isDirectCandidate(root.path), case .success(let f) = GameFolder.scan(root.path) {
+        if GameFolder.isDumpDirectory(root.path), case .success(let f) = GameFolder.scan(root.path) {
             var game = LibraryGame(titleID: f.titleIDHex, name: title(for: f.folder, repo: repo, titleID: f.titleIDHex))
             game.inputs = [GameLibrary.folderInput: [f.folder], "base": [f.basePath]]
             game.sourceFolder = f.folder

@@ -63,6 +63,7 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
         // the folder of files and the NUP beside it are the same game: one entry, from whichever the scan meets first
         let found = games.first?.inputs[GameLibrary.folderInput]?.map(real) ?? []
         XCTAssertTrue(found == [real(folders.game)] || found == [real(root + "/NUP")], "\(found)")
+        let nupBytes = try? Data(contentsOf: URL(fileURLWithPath: root + "/NUP/Donkey Kong Bananza.nup"))
         try? FileManager.default.removeItem(atPath: root + "/NUP")
         let again = GameLibrary.sourceGames(in: URL(fileURLWithPath: root), repo: folders.engine)
         XCTAssertEqual(again.first?.inputs[GameLibrary.folderInput]?.map(real), [real(folders.game)])
@@ -89,6 +90,27 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
             XCTAssertEqual(entryA?.inputs[GameLibrary.folderInput]?.map(real), [real(gameA)])
             XCTAssertEqual(entryB.map { real($0.sourceFolder) }, real(gameB))
             XCTAssertEqual(entryB?.inputs[GameLibrary.folderInput]?.map(real), [real(gameB)])
+        }
+
+        // Root-NUP-plus-nested-dump collection: Collection/GameA.nup alongside Collection/DumpB/base/... (and under a parent root).
+        let nupCollectionRoot = NSTemporaryDirectory() + "gamefolder-nup-collection-" + UUID().uuidString
+        defer { try? FileManager.default.removeItem(atPath: nupCollectionRoot) }
+        let nupCollection = nupCollectionRoot + "/Collection"
+        let nupA = nupCollection + "/GameA.nup"
+        let dumpB = nupCollection + "/DumpB"
+        try? fm.createDirectory(atPath: dumpB + "/base/exefs", withIntermediateDirectories: true)
+        try? fm.createDirectory(atPath: dumpB + "/base/romfs", withIntermediateDirectories: true)
+        fm.createFile(atPath: nupA, contents: nupBytes)
+        fm.createFile(atPath: dumpB + "/base/exefs/main.npdm", contents: Self.npdm(programID: 0x0400A3A01EE4C000))
+        for scanURL in [URL(fileURLWithPath: nupCollection), URL(fileURLWithPath: nupCollectionRoot)] {
+            let discovered = GameLibrary.sourceGames(in: scanURL, repo: folders.engine)
+            XCTAssertEqual(Set(discovered.map(\.titleID)), ["040074A01BF12000", "0400A3A01EE4C000"], "failed for \(scanURL.path)")
+            let entryA = discovered.first { $0.titleID == "040074A01BF12000" }
+            let entryB = discovered.first { $0.titleID == "0400A3A01EE4C000" }
+            XCTAssertEqual(entryA.map { real($0.sourceFolder) }, real(nupCollection))
+            XCTAssertEqual(entryA?.inputs[GameLibrary.folderInput]?.map(real), [real(nupA)])
+            XCTAssertEqual(entryB.map { real($0.sourceFolder) }, real(dumpB))
+            XCTAssertEqual(entryB?.inputs[GameLibrary.folderInput]?.map(real), [real(dumpB)])
         }
     }
 

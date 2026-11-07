@@ -195,13 +195,32 @@ def _has_update_code(folder: str | Path) -> bool:
     return any(v.isascii() and v.isdigit() and _is_file(u / v / 'exefs' / 'main.npdm') for v in _subdirs(u))
 
 
-def is_direct_game_folder_candidate(path: str) -> bool:
-    """Whether `path` itself (without unwrapping parent/child folders) is a game folder or a `.nup` file."""
-    if _is_nup_name(path):
-        return True
-    if _is_file(Path(path, 'base', 'exefs', 'main.npdm')) or nup_files(path) or _has_update_code(path):
+def is_dump_directory(path: str | Path) -> bool:
+    """Whether `path` itself is an unpacked dump directory (`base/exefs/main.npdm`, `updates/<v>/exefs/main.npdm`,
+    or misplaced `exefs/main.npdm` without `base/`), as opposed to a `.nup` file or a folder holding `.nup` files."""
+    if _is_file(Path(path, 'base', 'exefs', 'main.npdm')) or _has_update_code(path):
         return True
     return _is_file(Path(path, 'exefs', 'main.npdm')) and not Path(path, 'base').exists()
+
+
+def _has_nested_game_folders_or_packages(folder: str | Path) -> bool:
+    for sub in _wrapper_subdirs(folder):
+        if is_dump_directory(sub) or nup_files(sub) or _has_packages(sub):
+            return True
+        for child in _wrapper_subdirs(sub):
+            if is_dump_directory(child) or nup_files(child) or _has_packages(child):
+                return True
+    return False
+
+
+def is_direct_game_folder_candidate(path: str) -> bool:
+    """Whether `path` itself (without unwrapping parent/child folders) is a game folder or a `.nup` file.
+    A folder holding a `.nup` alongside nested game folders or packages is a collection root, not a single-game folder."""
+    if _is_nup_name(path):
+        return True
+    if is_dump_directory(path):
+        return True
+    return bool(nup_files(path)) and not _has_nested_game_folders_or_packages(path)
 
 
 def _is_hex(s: str) -> bool:
@@ -255,7 +274,7 @@ def _wrapper_subdirs(folder: str | Path) -> list[str]:
 
 
 def _unwrapped_game_folder(path: str) -> str | None:
-    if not Path(path).is_dir() or _has_packages(path):
+    if not Path(path).is_dir() or _has_packages(path) or nup_files(path):
         return None
     level1 = _wrapper_subdirs(path)
     if any(_has_packages(sub) for sub in level1):

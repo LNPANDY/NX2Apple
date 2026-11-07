@@ -761,7 +761,7 @@ class GameLibrary:
             nonlocal found_keys
             if depth > 3:
                 return
-            if GameFolder.is_direct_candidate(curr):
+            if _inputs.is_dump_directory(curr) if depth == 0 else GameFolder.is_direct_candidate(curr):
                 res = GameFolder.scan(curr)
                 if isinstance(res, GameFolderContents) and res.has_title_id:
                     tid = res.title_id_hex

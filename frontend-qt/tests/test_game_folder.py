@@ -277,6 +277,23 @@ class FolderTests(unittest.TestCase):
         self.assertEqual(by_tid[f'{TID:016X}'].inputs['base'], [str(game_a)])
         self.assertEqual(by_tid[f'{tid_b:016X}'].inputs['base'], [str(game_b)])
 
+        # Root-NUP-plus-nested-dump collection: Collection2/GameA.nup alongside Collection2/DumpB/base/...
+        coll2_root = self.dir / 'NupCollectionRoot'
+        coll2 = coll2_root / 'Collection'
+        nup_a = coll2 / 'GameA.nup'
+        dump_b = coll2 / 'DumpB'
+        (dump_b / 'base/exefs').mkdir(parents=True)
+        (dump_b / 'base/exefs/main.npdm').write_bytes(npdm(tid_b))
+        (dump_b / 'base/romfs').mkdir(parents=True)
+        nup_a.write_bytes(nup([(TID, 0, 0)]))
+        self.assertFalse(inputs.is_game_folder_candidate(str(coll2)))
+        for scan_root in (coll2, coll2_root):
+            found2 = lib.GameLibrary.discover_in_folder(str(scan_root))
+            by_tid2 = {g.title_id: g for g in found2}
+            self.assertEqual(set(by_tid2), {f'{TID:016X}', f'{tid_b:016X}'}, f'failed for {scan_root}')
+            self.assertEqual(by_tid2[f'{TID:016X}'].inputs['base'], [str(nup_a)])
+            self.assertEqual(by_tid2[f'{tid_b:016X}'].inputs['base'], [str(dump_b)])
+
     def test_update_only_dump_without_base_folder(self):
         self.make('updates/131072/exefs/main.npdm', npdm(TID))
         self.assertTrue(inputs.is_game_folder_candidate(str(self.dir)))
