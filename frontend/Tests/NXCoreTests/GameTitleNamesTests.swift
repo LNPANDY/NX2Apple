@@ -1,3 +1,4 @@
+import Compression
 import XCTest
 @testable import NXCore
 
@@ -28,6 +29,34 @@ final class GameTitleNamesTests: XCTestCase {
     func testLanguageWithoutTitleFallsBack() {
         XCTAssertNil(GameTitleNames.pick(names, for: Lang("sv"), preferred: []))   // Horizon has no Swedish
         XCTAssertNil(GameTitleNames.pick([:], for: .en, preferred: []))
+    }
+
+    /// A control.nacp's title area: 0x300 bytes per language, name first (dm/tools/nacp.py names() reads it the same way).
+    static func titleArea(_ titles: [Int: String], entries: Int = 16) -> [UInt8] {
+        var t = [UInt8](repeating: 0, count: 0x300 * entries)
+        for (i, name) in titles { let b = Array(name.utf8); t.replaceSubrange((i * 0x300)..<(i * 0x300 + b.count), with: b) }
+        return t
+    }
+
+    func testNamesFromPlainControlData() {
+        let nacp = Data(Self.titleArea([0: "Xenoblade Chronicles 3", 2: "Xenoblade3", 12: "제노블레이드 크로니클스 3", 14: "异度神剑3", 3: "Bad\u{1}Name"]) + [UInt8](repeating: 0, count: 0x1000))
+        XCTAssertEqual(GameTitleNames.names(nacp: nacp), ["en-US": "Xenoblade Chronicles 3", "ja": "Xenoblade3", "ko": "제노블레이드 크로니클스 3", "zh-Hans": "异度神剑3"])
+        XCTAssertEqual(GameTitleNames.names(nacp: Data([0xff, 0xfe] + [UInt8](repeating: 0, count: 0x3fff))), [:])   // not UTF-8, nothing else
+        XCTAssertEqual(GameTitleNames.names(nacp: Data()), [:])
+    }
+
+    /// Newer SDKs: a u16 size and raw deflate of 32 entries; the 16 after the known languages are not read.
+    func testNamesFromCompressedControlData() {
+        let area = Self.titleArea([0: "Super Mario Bros. Wonder", 14: "超级马力欧兄弟 惊奇", 20: "Other"], entries: 32)
+        var packed = [UInt8](repeating: 0, count: 0x6000)
+        let n = area.withUnsafeBufferPointer { src in
+            packed.withUnsafeMutableBufferPointer { compression_encode_buffer($0.baseAddress!, $0.count, src.baseAddress!, src.count, nil, COMPRESSION_ZLIB) }
+        }
+        XCTAssertGreaterThan(n, 0)
+        var nacp = [UInt8](repeating: 0, count: 0x4000)
+        nacp[0] = UInt8(n & 0xff); nacp[1] = UInt8(n >> 8)
+        nacp.replaceSubrange(2..<(2 + n), with: packed.prefix(n))
+        XCTAssertEqual(GameTitleNames.names(nacp: Data(nacp)), ["en-US": "Super Mario Bros. Wonder", "zh-Hans": "超级马力欧兄弟 惊奇"])
     }
 
     func testReadKeepsKnownLanguagesWithNames() {

@@ -546,7 +546,7 @@ final class GameLibrary: ObservableObject {
                     guard let info = try? MacGameBundle.read(url) else { continue }
                     if var existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady {
                         // An entry from before the names were kept learns them from its app, which a rebuild may have changed too
-                        if existing.appPath == url.standardizedFileURL.path, existing.titleNames != info.titleNames { existing.titleNames = info.titleNames; self.upsert(existing) }
+                        if existing.appPath == url.standardizedFileURL.path, !info.titleNames.isEmpty, existing.titleNames != info.titleNames { existing.titleNames = info.titleNames; self.upsert(existing) }
                         continue
                     }
                     _ = try? self.addApp(url)
@@ -562,7 +562,7 @@ final class GameLibrary: ObservableObject {
         let app = try MacGameBundle.read(url)
         var game = games.first { $0.titleID == app.titleID } ?? LibraryGame(titleID: app.titleID, name: app.name)
         game.name = app.name
-        game.titleNames = app.titleNames
+        if !app.titleNames.isEmpty { game.titleNames = app.titleNames }   // an older app has none: keep what TitleNameLookup read
         game.appPath = url.standardizedFileURL.path
         upsert(game)
         selectedID = game.id
@@ -609,7 +609,7 @@ final class GameLibrary: ObservableObject {
         game.titleID = app.titleID
         game.appPath = path
         game.name = app.name
-        game.titleNames = app.titleNames
+        if !app.titleNames.isEmpty { game.titleNames = app.titleNames }
         game.toolsCommit = commit   // empty for a checkout without git: nothing to compare, rather than an older build's commit
         upsert(game)
         selectedID = game.id
@@ -749,6 +749,13 @@ final class GameLibrary: ObservableObject {
         try? FileManager.default.removeItem(at: ArtworkStore.customDirectory(for: id, in: artworkDirectory))   // our copies, never the game's files
         if selectedID == id { selectedID = games.first?.id }
         save()
+    }
+
+    /// The names `TitleNameLookup` read for a game that had none (an app packed with them meanwhile wins).
+    func setTitleNames(_ names: [String: String], for id: UUID) {
+        guard var game = games.first(where: { $0.id == id }), game.titleNames.isEmpty else { return }
+        game.titleNames = names
+        upsert(game)
     }
 
     @discardableResult private func upsert(_ game: LibraryGame) -> Bool {

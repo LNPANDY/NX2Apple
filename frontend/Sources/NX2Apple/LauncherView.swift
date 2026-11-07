@@ -212,7 +212,7 @@ struct LauncherView: View {
             }
             refreshArtwork()
             readSignatures()
-            if performStartupChecks { library.discover(); fetchArtwork(); _ = stores.deviceStore.refresh(); checkTools() }
+            if performStartupChecks { library.discover(); fetchArtwork(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)); _ = stores.deviceStore.refresh(); checkTools() }
             if performStartupChecks {
                 _ = stores.dependencies.check()
                 if engine.usesEngineStore { engine.prepareEngine() }   // the release app: its engine store, never git
@@ -231,9 +231,9 @@ struct LauncherView: View {
         .onChange(of: library.games) { _ in
             refreshArtwork()
             readSignatures()
-            if performStartupChecks { fetchArtwork() }
+            if performStartupChecks { fetchArtwork(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)) }
         }
-        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
+        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)) } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)

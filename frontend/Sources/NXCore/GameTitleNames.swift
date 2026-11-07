@@ -1,3 +1,4 @@
+import Compression
 import Foundation
 
 /// A game's name in the launcher's language. A Mac app packed with `--control` (dm/mac/pack_app.py) carries `DMTitleNames` in its
@@ -18,9 +19,40 @@ package enum GameTitleNames {
         return names
     }
 
+    /// The names in a game's control data (`control.nacp`), as dm/tools/nacp.py `names()` reads them: 0x300 bytes per language
+    /// (name 0x200 + publisher 0x100) in `RomFSLanguages.table` order, or, from newer SDKs, a u16 size and raw deflate that inflates
+    /// to 32 entries (the 16 after the table name no language the launcher knows). An entry that is empty, not UTF-8 or not
+    /// printable is left out. For an app packed before `DMTitleNames`: `TitleNameLookup` reads the control data from the game's files.
+    package static func names(nacp: Data) -> [String: String] {
+        let bytes = [UInt8](nacp)
+        var area = Array(bytes.prefix(0x3000))
+        if bytes.count >= 2 {
+            let size = Int(bytes[0]) | Int(bytes[1]) << 8
+            if size > 0, 2 + size <= bytes.count {
+                var out = [UInt8](repeating: 0, count: 0x6000 + 1)   // no more than 32 entries: a crafted size must not inflate further
+                let n = bytes.withUnsafeBufferPointer { src in
+                    out.withUnsafeMutableBufferPointer { dst in
+                        compression_decode_buffer(dst.baseAddress!, dst.count, src.baseAddress! + 2, size, nil, COMPRESSION_ZLIB)   // raw deflate
+                    }
+                }
+                if n == 0x6000 { area = Array(out.prefix(0x6000)) }   // another length: a plain title that happened to inflate
+            }
+        }
+        var names: [String: String] = [:]
+        for (i, language) in RomFSLanguages.table.enumerated() where (i + 1) * 0x300 <= area.count {
+            let field = area[(i * 0x300)..<(i * 0x300 + 0x200)]
+            let raw = field.prefix { $0 != 0 }
+            guard !raw.isEmpty, let name = String(bytes: raw, encoding: .utf8),
+                  !name.unicodeScalars.contains(where: { [.control, .format, .lineSeparator, .paragraphSeparator].contains($0.properties.generalCategory) }),
+                  !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            names[language.code] = name
+        }
+        return names
+    }
+
     /// The Horizon codes that fit a launcher language, best first: the code itself, then the regional ones it starts in the control
-    /// data's order (`en` takes `en-US`, then `en-GB`, `es` takes `es`, then `es-419`, `fr` takes `fr`, then `fr-CA`). Chinese takes Simplified first, as the launcher's Chinese is, unless the
-    /// first of `preferred` (the system's languages) is a Traditional Chinese one.
+    /// data's order (`en` takes `en-US`, then `en-GB`, `es` takes `es`, then `es-419`, `fr` takes `fr`, then `fr-CA`). Chinese takes
+    /// Simplified first, as the launcher's Chinese is, unless the first of `preferred` (the system's languages) is a Traditional Chinese one.
     package static func codes(for lang: Lang, preferred: [String] = Locale.preferredLanguages) -> [String] {
         let all = RomFSLanguages.table.map(\.code)
         if lang.code == "zh" {

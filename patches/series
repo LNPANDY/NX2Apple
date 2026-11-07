@@ -56,3 +56,4 @@
 0087-build-ipa-from-nsp-reuse-the-other-platform-s-ro.patch
 0088-nvn-decode-bc-uploads-before-copying-into-unpack.patch
 0089-pack-app-the-game-s-name-in-each-of-its-language.patch
+0090-nx-extract-control-the-base-game-s-control-data.patch
