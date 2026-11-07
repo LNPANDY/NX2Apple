@@ -21,7 +21,16 @@ final class LauncherGamepad: ObservableObject {
     private var action: (Action) -> Void = { _ in }
     var perform: (Action) -> Void {
         get { action }
-        set { action = newValue; Self.inputOwner?.stopRepeat(); Self.inputOwner = self }
+        set {
+            if Self.inputOwner !== self {
+                Self.inputOwner?.inputGeneration += 1
+                inputGeneration += 1
+                // GC reports went to the previous view while this one was inactive. Steam's
+                // broadcast reports already kept its edges current, so preserve those held buttons.
+                for id in gcControllerIDs { edges.reset(controller: id) }
+            }
+            action = newValue; Self.inputOwner?.stopRepeat(); Self.inputOwner = self
+        }
     }
     /// The view releases its input route when it disappears, including during console transitions.
     func deactivate() {
@@ -126,6 +135,7 @@ final class LauncherGamepad: ObservableObject {
     }
     private var edges = Edges()
     private var inputGeneration = 0
+    private var gcControllerIDs: Set<String> = []
     private var observers: [NSObjectProtocol] = []
     private var repeatTimer: Timer?
     private var repeating: Action?
@@ -171,6 +181,7 @@ final class LauncherGamepad: ObservableObject {
     private func disconnected(_ id: String) {
         inputGeneration += 1
         edges.reset(controller: id)
+        gcControllerIDs.remove(id)
         if let repeatingController, [id, id + ".L", id + ".R"].contains(repeatingController) { stopRepeat() }
     }
 
@@ -202,6 +213,7 @@ final class LauncherGamepad: ObservableObject {
     }
 
     private func read(_ pad: GCPhysicalInputProfile, controller: String, isJoyCon: Bool) {
+        gcControllerIDs.insert(controller)
         func button(_ name: String) -> Bool { pad.buttons[name]?.isPressed ?? false }
         let dpad = pad.dpads[GCInputDirectionPad], lStick = pad.dpads[GCInputLeftThumbstick], rStick = pad.dpads[GCInputRightThumbstick]
         let raw = RawPadInput(

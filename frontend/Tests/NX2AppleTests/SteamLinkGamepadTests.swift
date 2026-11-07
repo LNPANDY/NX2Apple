@@ -107,8 +107,15 @@ import GameController
         await drain()
         send(SteamVirtualGamepad(), source: source)
         await drain()
+        send(button(1), source: source)
+        await drain()
         console.perform = { _ in consolePresses += 1 }
         desktop.deactivate() // A disappearing old view must not deactivate the new view.
+        send(button(1), source: source)
+        await drain()
+        XCTAssertEqual(consolePresses, 0, "held Steam buttons must not refire on a view change")
+        send(SteamVirtualGamepad(), source: source)
+        await drain()
         send(button(1), source: source)
         await drain()
         send(SteamVirtualGamepad(), source: source)
@@ -118,7 +125,7 @@ import GameController
         send(button(1), source: source)
         await drain()
         desktop.deactivate()
-        XCTAssertEqual(desktopPresses, 2)
+        XCTAssertEqual(desktopPresses, 3)
         XCTAssertEqual(consolePresses, 1)
     }
 
@@ -146,17 +153,30 @@ import GameController
         button.setValue(1)
         profile.valueDidChangeHandler?(profile, button)
         await drain()
+        desktop.perform = { _ in desktopPresses += 1 }
+        profile.valueDidChangeHandler?(profile, button)
+        await drain()
+        XCTAssertEqual(desktopPresses, 1, "updating a visible view's handler does not refire held buttons")
+        console.perform = { _ in consolePresses += 1 }
+        desktop.deactivate()
+        // Release reaches the new view, not the desktop that saw the original press.
         button.setValue(0)
         profile.valueDidChangeHandler?(profile, button)
         await drain()
-        console.perform = { _ in consolePresses += 1 }
-        desktop.deactivate()
         button.setValue(1)
         profile.valueDidChangeHandler?(profile, button)
         await drain()
+        button.setValue(0)
+        profile.valueDidChangeHandler?(profile, button)
+        await drain()
+        desktop.perform = { _ in desktopPresses += 1 }
         console.deactivate()
+        button.setValue(1)
+        profile.valueDidChangeHandler?(profile, button)
+        await drain()
+        desktop.deactivate()
         physical.physicalInputProfile.valueDidChangeHandler = nil
-        XCTAssertEqual(desktopPresses, 1)
+        XCTAssertEqual(desktopPresses, 2)
         XCTAssertEqual(consolePresses, 1)
     }
 
