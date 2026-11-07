@@ -971,6 +971,25 @@ import NXModel
         let repairedPbx = try String(contentsOfFile: pbxPath, encoding: .utf8)
         XCTAssertFalse(repairedPbx.contains("AppTranslocation"), repairedPbx)
         XCTAssertTrue(repairedPbx.contains(#"relativePath = "frontend-ios";"#), repairedPbx)
+
+        // When repo is an NX2Apple checkout (tools/engine.py + .upstream-ref), engine symlinks resolve under <checkout>/engine/dm/ios/
+        let checkout = path("moved-checkout")
+        try write(checkout + "/tools/engine.py", "")
+        try write(checkout + "/.upstream-ref", "deadbeef\n")
+        try write(checkout + "/frontend-ios/Package.swift", "// swift-tools-version: 5.9\n")
+        for item in ["Sources", "Shell", "tools"] {
+            try fm.createDirectory(atPath: checkout + "/engine/dm/ios/" + item, withIntermediateDirectories: true)
+            let link = f.root + "/project/" + item
+            try? fm.removeItem(atPath: link)
+            try fm.createSymbolicLink(atPath: link, withDestinationPath: "/missing/" + item)
+        }
+        try? fm.removeItem(atPath: pkgLink)
+        try fm.createSymbolicLink(atPath: pkgLink, withDestinationPath: "/missing/frontend-ios")
+        ShellInstall.refreshProjectLinks(root: f.root, resources: nil, repo: checkout)
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: pkgLink), checkout + "/frontend-ios")
+        for item in ["Sources", "Shell", "tools"] {
+            XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: f.root + "/project/" + item), checkout + "/engine/dm/ios/" + item)
+        }
     }
 
     @MainActor private func makeModel(_ f: Fixture) throws -> LauncherStores {

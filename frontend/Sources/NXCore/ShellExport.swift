@@ -62,8 +62,9 @@ extension ShellInstall {
                 try? fm.createSymbolicLink(atPath: link, withDestinationPath: pkg)
             }
         }
+        let engine = EngineLayout.root(repo)
         for item in ["Sources", "Shell", "tools"] {
-            let itemLink = proj + "/" + item, target = repo + "/dm/ios/" + item
+            let itemLink = proj + "/" + item, target = engine + "/dm/ios/" + item
             guard !fm.fileExists(atPath: itemLink), fm.fileExists(atPath: target) else { continue }
             let attrs = try? fm.attributesOfItem(atPath: itemLink)
             let isSymlink = (attrs?[.type] as? FileAttributeType) == .typeSymbolicLink
