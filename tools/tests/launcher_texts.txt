@@ -35,6 +35,7 @@ Japanese
 Keeps a pipeline archive; uses more memory.
 Korean
 Latin American Spanish
+Loads each program's shader libraries in the background, whether a draw uses them or not.
 Metal 4 pipelines
 MetalFX
 Performance
@@ -48,6 +49,7 @@ Renders about a quarter more pixels: a little slower and warmer.
 Rumble cutoff
 Rumble strength
 Russian
+Shader prefetch
 Simplified Chinese
 Spanish
 Standard
