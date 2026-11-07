@@ -33,12 +33,12 @@ import NXLauncher
     var body: some View {
         Group {
             if savingEnabled {
-                ControlsView(layout: layout, gameName: game.name, mappingStore: store, copyGlobal: globalControls.map { global in
+                ControlsView(layout: layout, gameName: game.displayName(loc.lang), mappingStore: store, copyGlobal: globalControls.map { global in
                     { copy(global.environment) }
                 })
             } else {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text(game.name).font(.manrope(26, .heavy))
+                    Text(game.displayName(loc.lang)).font(.manrope(26, .heavy))
                     Text(loc.t("controls.savingDisabled")).font(.manrope(14))
                     Button(loc.t("launch.done")) { dismiss() }.buttonStyle(LauncherSecondaryButtonStyle())
                         .padTarget("controls.done", scope: "controls") { dismiss() }

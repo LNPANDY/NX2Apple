@@ -28,6 +28,12 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var installedDevice = ""
     /// The engine's commit (engine/ HEAD: the pin plus the series) the last finished build used (ToolsAge); empty for a build from before it was recorded.
     var toolsCommit = ""
+    /// The game's name in each language its control data names it in (the Mac app's `DMTitleNames`, `GameTitleNames`), by Horizon
+    /// language code. Empty for an app packed before the key existed. `name` stays the bundle name: this is only what is shown.
+    var titleNames: [String: String] = [:]
+
+    /// The name to show in `lang`: the game's own name in that language when its app has one, else `name`.
+    func displayName(_ lang: Lang) -> String { GameTitleNames.pick(titleNames, for: lang) ?? name }
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
     var isReady: Bool {
@@ -81,6 +87,7 @@ extension LibraryGame {
         iosAppPath = try c.decodeIfPresent(String.self, forKey: .iosAppPath) ?? ""
         installedDevice = try c.decodeIfPresent(String.self, forKey: .installedDevice) ?? ""
         toolsCommit = try c.decodeIfPresent(String.self, forKey: .toolsCommit) ?? ""
+        titleNames = (try? c.decodeIfPresent([String: String].self, forKey: .titleNames)) ?? [:]
     }
 }
 
@@ -265,6 +272,7 @@ extension LibraryGame {
 struct MacGameBundle {
     let titleID: String
     let name: String
+    var titleNames: [String: String] = [:]
 
     enum Invalid: LocalizedError {
         case notGame
@@ -284,7 +292,8 @@ struct MacGameBundle {
               FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/dmhost").path)
         else { throw Invalid.notGame }
         return MacGameBundle(titleID: rawID.uppercased(),
-                             name: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? url.deletingPathExtension().lastPathComponent)
+                             name: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? url.deletingPathExtension().lastPathComponent,
+                             titleNames: GameTitleNames.read(info))
     }
 }
 
@@ -535,7 +544,11 @@ final class GameLibrary: ObservableObject {
                 }
                 for url in apps {
                     guard let info = try? MacGameBundle.read(url) else { continue }
-                    if let existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady { continue }
+                    if var existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady {
+                        // An entry from before the names were kept learns them from its app, which a rebuild may have changed too
+                        if existing.appPath == url.standardizedFileURL.path, existing.titleNames != info.titleNames { existing.titleNames = info.titleNames; self.upsert(existing) }
+                        continue
+                    }
                     _ = try? self.addApp(url)
                 }
                 self.pruneMissingPaths()
@@ -549,6 +562,7 @@ final class GameLibrary: ObservableObject {
         let app = try MacGameBundle.read(url)
         var game = games.first { $0.titleID == app.titleID } ?? LibraryGame(titleID: app.titleID, name: app.name)
         game.name = app.name
+        game.titleNames = app.titleNames
         game.appPath = url.standardizedFileURL.path
         upsert(game)
         selectedID = game.id
@@ -595,6 +609,7 @@ final class GameLibrary: ObservableObject {
         game.titleID = app.titleID
         game.appPath = path
         game.name = app.name
+        game.titleNames = app.titleNames
         game.toolsCommit = commit   // empty for a checkout without git: nothing to compare, rather than an older build's commit
         upsert(game)
         selectedID = game.id

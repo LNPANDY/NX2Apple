@@ -1,0 +1,342 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sat, 7 Nov 2026 18:33:10 +0900
+Subject: [PATCH] pack_app: the game's name in each of its languages
+ (DMTitleNames)
+
+The Mac app's bundle name is the first non-empty title of control.nacp,
+usually American English, so a front end in another language shows an
+English (or Korean) name for a game whose control data has a name in
+that language. nacp.names() reads every language's title (plain or
+compressed title area, entries that are not printable UTF-8 left out),
+and pack_app.py --control writes them into Info.plist as DMTitleNames,
+keyed by the codes of nacp.LANGUAGES. The NSP script passes the control
+data that lists the game's languages. The control data is part of the
+app's reuse key, and nacp.py of its sources.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: Mac front ends show the game's name in their own language (DMTitleNames from control.nacp)
+Issue: LNPANDY/NX2Apple#895
+
+---
+ dm/mac/pack_app.py                 | 13 ++++--
+ dm/tools/fuzz/fuzz_nacp.py         |  5 ++-
+ dm/tools/nacp.py                   | 30 +++++++++----
+ dm/tools/tests/test_nacp.py        | 69 ++++++++++++++++++++++++++++++
+ dm/tools/tests/test_nsp_mac_app.py | 20 +++++++--
+ scripts/build_ipa_from_nsp.py      |  3 +-
+ 6 files changed, 122 insertions(+), 18 deletions(-)
+ create mode 100644 dm/tools/tests/test_nacp.py
+
+diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
+index 96b61191..154fdb5c 100755
+--- a/dm/mac/pack_app.py
++++ b/dm/mac/pack_app.py
+@@ -5,7 +5,8 @@
+ # aoc/<index>/ (DLC), pso/ (an NVN game's pipeline archive made offline for this Mac's GPU, dm/gfx/tools/pso_offline.py: the launcher hands it to the host as DM_PSO_BUNDLE),
+ # and dm/ (the rewritten modules and their rewriter tables, nro.tsv, the profile's shader_map.tsv / pso_manifest.tsv / c1_full.tsv / cb_extent.tsv / shader_pairs.tsv / pso_pairs.tsv, font/, env.txt,
+ # launcher.json: the game's launcher settings, dm/games/settings.py, which the settings window and Mac front ends show),
+-# plus AppIcon.icns from the game's icon (sips, iconutil) and the Info.plist keys the launcher reads (DMTitleID, DMRomfsMarker, DMLanguage).
++# plus AppIcon.icns from the game's icon (sips, iconutil) and the Info.plist keys the launcher reads (DMTitleID, DMRomfsMarker, DMLanguage, DMTitleNames: the game's name in each of its languages,
++# from --control, which Mac front ends show in their own language).
+ # The large folders are APFS clones (cp -c) when the app is on the same APFS volume as the build, so they take no space; plain copies otherwise.
+ # Signing: the inner host first, then the bundle (codesign --force --sign <identity>; '-' = ad-hoc), without the hardened runtime: the host maps the game's code executable, which the hardened
+ # runtime refuses without entitlements, and so the app cannot be notarized. The bundle is stripped of its "._name" files first: on exFAT (an external drive for the build or the app) every
+@@ -17,6 +18,7 @@ from pathlib import Path
+ 
+ HERE = Path(__file__).resolve().parent
+ sys.path.insert(0, str(HERE.parent / 'tools'))
++import nacp
+ import romfs as rfs
+ import shader_lib
+ MODULE_FILES = ('*.patched.bin', '*.fixups.tsv', '*.gates.tsv', '*.cuts.tsv', '*.obs.tsv', '*.changed.tsv', 'nro.tsv')   # what the host reads from the module folder (build_ipa.sh copies the same tables but changed.tsv: the iPhone's cheats never write code)
+@@ -137,6 +139,9 @@ def info_plist(a, minos, icon):
+         p['DMSettings'] = settings_rules(listed)
+         lang = next((s['default'] for s in listed if s['env'] == 'DM_LANG'), None)
+         if lang: p['DMLanguage'] = lang   # the Game language row's default: --lang, or the game's first language when it lacks that one (settings.py), with or without the window
++    if getattr(a, 'control', None):
++        names = nacp.names(a.control)   # the title in each language the control data names it in: a front end shows the one of its own language (the bundle name is the base game's first)
++        if names: p['DMTitleNames'] = names
+     return p
+ 
+ 
+@@ -275,7 +280,7 @@ def pack(a):
+     except (OSError, ValueError): previous = None
+     try:
+         a = argparse.Namespace(**vars(a))
+-        for name in ('out', 'host', 'patched', 'romfs', 'msl', 'tables', 'font', 'aoc', 'pso', 'pso_pairs', 'env_file', 'settings', 'icon', 'html'):
++        for name in ('out', 'host', 'patched', 'romfs', 'msl', 'tables', 'font', 'aoc', 'pso', 'pso_pairs', 'env_file', 'settings', 'icon', 'html', 'control'):
+             if getattr(a, name): setattr(a, name, str(Path(getattr(a, name)).resolve()))
+         mods, msls, pso, tables, pairs, fonts, files = selected_inputs(a)
+         # --program: the other programs of a game of several programs (index, rewritten modules, RomFS, shader libraries, tables, offline pages; tab-separated), which go in beside the first's as one app
+@@ -285,6 +290,7 @@ def pack(a):
+             pa = argparse.Namespace(**{**vars(a), 'patched': patched, 'romfs': prom, 'msl': pmsl, 'tables': ptab, 'pso': None, 'pso_pairs': None, 'aoc': None, 'marker': None})
+             pmods, pmsls, _, ptables, _, _, pfiles = selected_inputs(pa)
+             programs.append((n, Path(prom), Path(pmsl), Path(phtml), pmods, pmsls, ptables)); files += pfiles
++        if a.control and Path(a.control).is_file(): files.append(Path(a.control))   # its names go into Info.plist
+         clang = Path(run(['xcrun', '--find', 'clang']).strip()).resolve()
+         swiftc = Path(run(['xcrun', '--find', 'swiftc']).strip())   # not resolved: the driver is a link to swift-frontend, which acts by its name
+         sdk = Path(run(['xcrun', '--sdk', 'macosx', '--show-sdk-path']).strip()).resolve()
+@@ -293,7 +299,7 @@ def pack(a):
+         if not codesign: raise SystemExit('codesign is not available')
+         codesign = Path(codesign).resolve()
+         minos = min_os(a.host)
+-        sources = [Path(__file__).resolve(), HERE / 'launcher.c', HERE.parent / 'host/romfs_image.h', HERE.parent / 'host/input_map.h', HERE.parent / 'host/dm_input.h', HERE.parent / 'host/save_sync.c', HERE.parent / 'host/save_sync.h', HERE.parent / 'tools/romfs.py'] + swift_sources()
++        sources = [Path(__file__).resolve(), HERE / 'launcher.c', HERE.parent / 'host/romfs_image.h', HERE.parent / 'host/input_map.h', HERE.parent / 'host/dm_input.h', HERE.parent / 'host/save_sync.c', HERE.parent / 'host/save_sync.h', HERE.parent / 'tools/romfs.py', HERE.parent / 'tools/nacp.py'] + swift_sources()
+         inputs = {'options': vars(a), 'files': [(str(p), p.stat().st_mode, digest(p), os.readlink(p) if p.is_symlink() else None) for p in files + sources],
+                   'trees': [(p, inventory(Path(p))) for p in (a.romfs, a.romfs and f'{a.romfs}.id', a.aoc, a.html, *(str(x[1]) for x in programs), *(str(x[3]) for x in programs)) if p and Path(p).exists()],
+                   'tools': [[str(c), c.stat().st_mode, c.stat().st_size, c.stat().st_mtime_ns, c.stat().st_ctime_ns, run([c, '--version']).strip()] for c in (clang, swiftc)] + [
+@@ -394,6 +400,7 @@ def parse(argv):
+     ap.add_argument('--title-id', required=True); ap.add_argument('--name', required=True)
+     ap.add_argument('--version'); ap.add_argument('--bundle-id'); ap.add_argument('--category'); ap.add_argument('--lang'); ap.add_argument('--marker', help='the profile\'s romfs_marker')
+     ap.add_argument('--icon', help='the game icon (icon.jpg from the control data)')
++    ap.add_argument('--control', help='the game\'s control data (control.nacp): its title in each language goes into Info.plist as DMTitleNames')
+     ap.add_argument('--sign', default='-', help='codesign identity (default: - = ad-hoc)')
+     return ap.parse_args(argv)
+ 
+diff --git a/dm/tools/fuzz/fuzz_nacp.py b/dm/tools/fuzz/fuzz_nacp.py
+index 2400cabb..48e9bae6 100644
+--- a/dm/tools/fuzz/fuzz_nacp.py
++++ b/dm/tools/fuzz/fuzz_nacp.py
+@@ -1,7 +1,7 @@
+ #!/usr/bin/env python3
+ """Fuzz dm/tools/nacp.py, the reader of an NSP's control.nacp (the app name, display version and languages).
+ Seeds: a 0x4000-byte NACP with a name and publisher in two languages, a display version and a language flag, and one whose title area is compressed (u16 size + raw deflate).
+-Clean rejection: none raises; name() and version() return '' and languages() returns [] for data they cannot read (their docstrings). Any exception is a finding, and so is a
++Clean rejection: none raises; name() and version() return '', languages() returns [] and names() {} for data they cannot read (their docstrings). Any exception is a finding, and so is a
+ result of another type. Usage: see fuzzlib.py"""
+ import struct
+ import sys
+@@ -34,8 +34,9 @@ _file = fuzzlib.InputFile('control.nacp')
+ 
+ def check(data):
+     p = _file.write(data)
+-    n, v, langs = nacp.name(p), nacp.version(p), nacp.languages(p)
++    n, v, langs, names = nacp.name(p), nacp.version(p), nacp.languages(p), nacp.names(p)
+     if not isinstance(n, str) or not isinstance(v, str) or not isinstance(langs, list): raise fuzzlib.broken('nacp.py', f'unexpected result types {n!r} {v!r} {langs!r}')
++    if not isinstance(names, dict) or not all(isinstance(t, str) and t.isprintable() for t in names.values()): raise fuzzlib.broken('nacp.py', f'unexpected names {names!r}')
+ 
+ 
+ if __name__ == '__main__':
+diff --git a/dm/tools/nacp.py b/dm/tools/nacp.py
+index d5c4b593..0c3a98f5 100644
+--- a/dm/tools/nacp.py
++++ b/dm/tools/nacp.py
+@@ -2,7 +2,7 @@
+ # The game name, display version and languages from the NSP's control data (control.nacp, saved in the extraction folder by nx_extract): the iOS app name and version come from them (shared by the packing script and build_ipa.sh),
+ #   and the packing script checks the game language against the languages the game supports.
+ # Usage: nacp.py <control.nacp> (prints the game name), nacp.py --version <control.nacp> (prints the display version), nacp.py --languages <control.nacp> (prints the supported language codes);
+-#   each prints an empty line and exits 1 when none can be read. From Python: import nacp; nacp.name(path), nacp.version(path), nacp.languages(path)
++#   each prints an empty line and exits 1 when none can be read. From Python: import nacp; nacp.name(path), nacp.names(path), nacp.version(path), nacp.languages(path)
+ import re, struct, sys, zlib
+ from pathlib import Path
+ 
+@@ -11,23 +11,37 @@ LANGUAGES = [('en-US', 'American English'), ('en-GB', 'British English'), ('ja',
+              ('nl', 'Dutch'), ('fr-CA', 'Canadian French'), ('pt', 'Portuguese'), ('ru', 'Russian'), ('ko', 'Korean'), ('zh-Hant', 'Traditional Chinese'), ('zh-Hans', 'Simplified Chinese'), ('pt-BR', 'Brazilian Portuguese')]
+ 
+ 
+-def name(path):
+-    """The title area holds 0x300 bytes per language (name 0x200 + publisher 0x100); take the first non-empty one (0 = American English); a missing file or no sensible name returns an empty string"""
++def titles(path):
++    """The title area's names, one per entry in its order (0 = American English): '' for an empty entry, None for one that is not printable UTF-8. The area holds 0x300 bytes per language
++    (name 0x200 + publisher 0x100), 16 of them, or 32 when a newer SDK compressed it; a missing file returns an empty list"""
+     p = Path(path)
+-    if not p.is_file(): return ''
++    if not p.is_file(): return []
+     b = p.read_bytes(); t = b[:0x3000]
+     if len(b) >= 2:
+         try:   # newer SDKs compress the title area: a u16 size + raw deflate, inflating to 32 languages × 0x300 (Mario 1.2.1 does); inflate no further than that (a crafted size could inflate about 1,000 times)
+             d = zlib.decompressobj(-15); z = d.decompress(b[2:2 + struct.unpack_from('<H', b)[0]], 0x6000 + 1)
+             if d.eof and len(z) == 0x6000: t = z
+         except zlib.error: pass   # not compressed
++    out = []
+     for i in range(len(t) // 0x300):
+         n = t[i * 0x300:i * 0x300 + 0x200].split(b'\0', 1)[0]
+-        if not n: continue
++        if not n: out.append(''); continue
+         try: n = n.decode('utf-8')
+-        except UnicodeDecodeError: return ''
+-        return n if n.isprintable() else ''
+-    return ''
++        except UnicodeDecodeError: out.append(None); continue
++        out.append(n if n.isprintable() else None)
++    return out
++
++
++def name(path):
++    """The first non-empty title (0 = American English); a missing file or no sensible name returns an empty string"""
++    n = next((n for n in titles(path) if n != ''), '')
++    return n or ''   # None: the first non-empty entry is not printable UTF-8
++
++
++def names(path):
++    """The game's name in each language of LANGUAGES that has one, {code: name} (the Mac app's DMTitleNames: the launcher shows the one of its own language); entries without a sensible name
++    are left out, a missing file returns an empty dict"""
++    return {c: n for (c, _), n in zip(LANGUAGES, titles(path)) if n}
+ 
+ 
+ def version(path):
+diff --git a/dm/tools/tests/test_nacp.py b/dm/tools/tests/test_nacp.py
+new file mode 100644
+index 00000000..e49f7854
+--- /dev/null
++++ b/dm/tools/tests/test_nacp.py
+@@ -0,0 +1,69 @@
++"""dm/tools/nacp.py's titles: name() (the first non-empty one, the app name) and names() (each language's, the Mac app's DMTitleNames), from a plain and from a compressed title area,
++with entries that are empty, not UTF-8 or not printable left out."""
++from pathlib import Path
++import struct
++import sys
++import tempfile
++import unittest
++import zlib
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
++import nacp
++
++CODES = [c for c, _ in nacp.LANGUAGES]
++
++
++def title_area(titles, entries=16):   # 0x300 bytes per language: name 0x200 + publisher 0x100
++    t = bytearray(0x300 * entries)
++    for code, n in titles.items():
++        i = CODES.index(code) if isinstance(code, str) else code
++        t[i * 0x300:i * 0x300 + len(n)] = n; t[i * 0x300 + 0x200:i * 0x300 + 0x203] = b'Pub'
++    return bytes(t)
++
++
++def plain(titles):
++    return title_area(titles) + bytes(0x1000)
++
++
++def compressed(titles):   # newer SDKs: a u16 size + raw deflate of 32 entries
++    z = zlib.compressobj(9, zlib.DEFLATED, -15); area = z.compress(title_area(titles, 32)) + z.flush()
++    b = bytearray(0x4000); struct.pack_into('<H', b, 0, len(area)); b[2:2 + len(area)] = area
++    return bytes(b)
++
++
++class Titles(unittest.TestCase):
++    def setUp(self):
++        self.dir = tempfile.TemporaryDirectory(); self.addCleanup(self.dir.cleanup)
++
++    def nacp(self, data):
++        p = Path(self.dir.name) / 'control.nacp'; p.write_bytes(data); return p
++
++    def test_names_by_language(self):
++        titles = {'en-US': b'The Game', 'ja': 'ザ・ゲーム'.encode(), 'ko': '더 게임'.encode(), 'zh-Hant': '遊戲'.encode(), 'zh-Hans': '游戏'.encode()}
++        for make in (plain, compressed):
++            with self.subTest(make.__name__):
++                p = self.nacp(make(titles))
++                self.assertEqual(nacp.names(p), {'en-US': 'The Game', 'ja': 'ザ・ゲーム', 'ko': '더 게임', 'zh-Hant': '遊戲', 'zh-Hans': '游戏'})
++                self.assertEqual(nacp.name(p), 'The Game')
++
++    def test_first_title_names_the_app(self):   # a game without American English: the first non-empty entry
++        p = self.nacp(plain({'ja': 'ザ・ゲーム'.encode(), 'ko': '더 게임'.encode()}))
++        self.assertEqual(nacp.name(p), 'ザ・ゲーム')
++
++    def test_bad_entries_left_out(self):   # an entry that is not UTF-8 or not printable is not a name; the others still are
++        p = self.nacp(plain({'en-US': b'\xff\xfe', 'fr': b'Le\x01Jeu', 'de': b'Das Spiel'}))
++        self.assertEqual(nacp.names(p), {'de': 'Das Spiel'})
++        self.assertEqual(nacp.name(p), '')   # as before: the first non-empty entry decides
++
++    def test_entries_beyond_the_known_languages(self):   # a compressed area has 32 entries: the 16 after LANGUAGES name no language the launcher knows
++        p = self.nacp(compressed({'en-US': b'Game', 20: b'Other'}))
++        self.assertEqual(nacp.names(p), {'en-US': 'Game'})
++
++    def test_missing_or_short(self):
++        self.assertEqual((nacp.names(Path(self.dir.name) / 'none.nacp'), nacp.name(Path(self.dir.name) / 'none.nacp')), ({}, ''))
++        self.assertEqual(nacp.names(self.nacp(b'')), {})
++        self.assertEqual(nacp.names(self.nacp(b'\0' * 0x4000)), {})
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
+index afc1dd59..9912d7c0 100644
+--- a/dm/tools/tests/test_nsp_mac_app.py
++++ b/dm/tools/tests/test_nsp_mac_app.py
+@@ -118,7 +118,7 @@ class PackReuse(unittest.TestCase):
+             'font/nintendo_ext.ttf': b'font', 'aoc/1/data': b'dlc', 'pso/gpu.mtl4a': b'archive',
+             'pso/prebuilt.tsv': b'prebuilt', 'pso/rest_pairs.tsv': b'rest', 'pso/archive.tsv': b'index',
+             'env.txt': b'DM_TEST=1', 'split.tsv': b'split', 'icon.jpg': b'jpeg', 'source/launcher.c': b'launcher',
+-            'host/romfs_image.h': b'validator', 'host/input_map.h': b'maps', 'host/dm_input.h': b'buttons', 'host/save_sync.c': b'sync', 'host/save_sync.h': b'sync api', 'tools/romfs.py': b'reader',
++            'host/romfs_image.h': b'validator', 'host/input_map.h': b'maps', 'host/dm_input.h': b'buttons', 'host/save_sync.c': b'sync', 'host/save_sync.h': b'sync api', 'tools/romfs.py': b'reader', 'tools/nacp.py': b'names', 'control.nacp': b'nacp',
+             'source/Launcher.swift': b'window', 'ios/Sources/LauncherSettings.swift': b'model', 'ios/Sources/LauncherRow.swift': b'rows',
+         }
+         for n in pack_app.TABLES: files['profile/' + n] = n.encode()
+@@ -128,7 +128,7 @@ class PackReuse(unittest.TestCase):
+         self.args = pack_app.parse([str(t / 'Game.app'), '--host', str(t / 'dmhost'), '--patched', str(t / 'patched'),
+                                    '--romfs', str(t / 'romfs'), '--msl', str(t / 'msl'), '--tables', str(t / 'profile'), '--font', str(t / 'font'),
+                                    '--aoc', str(t / 'aoc'), '--pso', str(t / 'pso'), '--pso-pairs', str(t / 'split.tsv'), '--env-file', str(t / 'env.txt'),
+-                                   '--title-id', TID, '--name', 'Test Game', '--marker', 'marker', '--icon', str(t / 'icon.jpg')])
++                                   '--title-id', TID, '--name', 'Test Game', '--marker', 'marker', '--icon', str(t / 'icon.jpg'), '--control', str(t / 'control.nacp')])
+         self.commands = []
+         self.clang_version, self.swiftc_version, self.sdk_version = 'clang fixture 1', 'swiftc fixture 1', '27.0'
+         self.clang, self.swiftc, self.sdk = t / 'bin/clang', t / 'bin/swiftc', t / 'sdk'
+@@ -207,7 +207,8 @@ class PackReuse(unittest.TestCase):
+                  'pso/gpu.mtl4a', 'pso/prebuilt.tsv', 'pso/rest_pairs.tsv', 'pso/archive.tsv', 'env.txt', 'icon.jpg', 'source/launcher.c',
+                  'source/Launcher.swift', 'ios/Sources/LauncherSettings.swift', 'ios/Sources/LauncherRow.swift',   # the settings window's sources
+                  'host/input_map.h', 'host/dm_input.h',   # the launcher's headers
+-                 'host/save_sync.c', 'host/save_sync.h']   # the cloud-save code the launcher links (its send after the host exits)
++                 'host/save_sync.c', 'host/save_sync.h',   # the cloud-save code the launcher links (its send after the host exits)
++                 'control.nacp', 'tools/nacp.py']   # the game's names in Info.plist (DMTitleNames) and their reader
+         names += ['profile/' + n for n in pack_app.TABLES]
+         for name in names:
+             with self.subTest(name=name):
+@@ -457,6 +458,9 @@ class App(unittest.TestCase):
+         (t / 'pso').mkdir(); (t / 'pso/applegpu_g14s.mtl4a').write_bytes(b'arch'); (t / 'pso/prebuilt.tsv').write_text('chain\t0123456789ab\n'); (t / 'pso/key.x').write_text('not for the app')
+         (t / 'env.txt').write_text('# baked in\nDM_BAKED=1\nDM_BOTH=bundle\n')
+         (t / 'launcher.json').write_text('{"game": "x", "settings": []}\n')
++        titles = bytearray(0x4000)
++        for i, n in ((0, b'Game: Test'), (2, 'ゲーム'.encode()), (14, '游戏'.encode())): titles[i * 0x300:i * 0x300 + len(n)] = n   # American English, Japanese, Simplified Chinese
++        (t / 'control.nacp').write_bytes(titles)
+         subprocess.run(['sips', '-s', 'format', 'jpeg', '-z', '256', '256', '/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns',
+                         '--out', t / 'icon.jpg'], check=True, capture_output=True)
+         (t / 'bin/osascript').write_text('#!/bin/sh\necho "$@" > "$HOME/alert.txt"\nprintf "%s\\0" "$@" > "$HOME/alert.args"\n'
+@@ -466,7 +470,7 @@ class App(unittest.TestCase):
+         cls.args = pack_app.parse([str(cls.app), '--host', str(t / 'dmhost'), '--patched', str(t / 'patched'), '--romfs', str(t / 'romfs'), '--msl', str(t / 'cache/b-0123456789ab'),
+                                    '--tables', str(t / 'profile'), '--font', str(t / 'font'), '--aoc', str(t / 'aoc'), '--pso', str(t / 'pso'), '--env-file', str(t / 'env.txt'), '--settings', str(t / 'launcher.json'), '--title-id', TID.lower(),
+                                    '--name', 'Game: Test', '--version', '1.0.1', '--lang', 'fr', '--marker', 'region_common/audio/edward.bfsar', '--icon', str(t / 'icon.jpg'),
+-                                   '--category', 'public.app-category.games'])
++                                   '--category', 'public.app-category.games', '--control', str(t / 'control.nacp')])
+         with contextlib.redirect_stdout(io.StringIO()): pack_app.pack(cls.args)
+ 
+     @classmethod
+@@ -524,6 +528,13 @@ class App(unittest.TestCase):
+         self.assertEqual(p['DMSettings'], [])   # launcher.json's settings, as the saved choices they accept: none here
+         self.assertRegex(p['DMCommit'], r'^[0-9a-f]{12}(\+dirty)?$')   # the packing checkout (scripts/bug_report.py, the host's start line)
+         self.assertEqual(p['DMChain'], '0123456789ab')   # the chain of the libraries packed (msl/b-<chain>)
++        self.assertEqual(p['DMTitleNames'], {'en-US': 'Game: Test', 'ja': 'ゲーム', 'zh-Hans': '游戏'})   # the game's name in each of its languages: Mac front ends show their own language's
++
++    def test_no_title_names_without_control_data(self):   # no --control, or control data with no names: no DMTitleNames, the front ends show CFBundleDisplayName
++        a = types.SimpleNamespace(**vars(self.args)); a.control = None; a.settings = None
++        self.assertNotIn('DMTitleNames', pack_app.info_plist(a, '26.0', False))
++        a.control = str(self.tmp / 'missing.nacp')
++        self.assertNotIn('DMTitleNames', pack_app.info_plist(a, '26.0', False))
+ 
+     def test_packed_language_is_the_lists(self):   # --lang a game lacks: the Game language row's default (settings.py: the game's first), with or without the window
+         with tempfile.TemporaryDirectory(dir=TEST_ROOT) as d:
+@@ -877,6 +888,7 @@ class Script(unittest.TestCase):
+         self.assertNotIn('--aoc', o); self.assertNotIn('--icon', o)
+         self.assertNotIn('--pso', o)   # no shader pairs: no pipeline archive
+         self.assertEqual(o['--settings'], str(tmp / 'app/launcher.json'))   # the launcher settings the Mac front end reads, without the iPhone's own switches
++        self.assertEqual(o['--control'], str(tmp / 'ex/control.nacp'))   # the game's names in each language (DMTitleNames), from the control data that lists its languages
+         self.assertEqual(self.settings_cmd[2:], ['01008CF01BAAC000', str(tmp / 'patched'), str(tmp / 'ex/control.nacp'), str(tmp / 'app/launcher.json')])
+         self.assertEqual((self.settings_env['SETTINGS_PLATFORM'], self.settings_env['GFXAPI'], self.settings_env['DM_LANG']), ('mac', 'nvn', 'en-US'))
+         o, tmp = self.pack_cmd('vulkan', aoc=Path('/x/aoc'), sign='Developer ID Application: X (T)')
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index d0c8601e..76c86c31 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -3014,7 +3014,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+     split_pairs = work / 'shader/pso_pairs.tsv'   # the split's copy of pso_pairs.tsv, for a profile without the table (as mac_run's DM_PSO_PAIRS)
+     for opt, v in (('--version', version), ('--category', g.get('app_category')), ('--marker', g.get('romfs_marker')), ('--aoc', aoc), ('--icon', icon),
+                    ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
+-                   ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings)):
++                   ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings),
++                   ('--control', control or game / 'control.nacp')):   # the game's name in each language (DMTitleNames), from the same control data as its languages
+         if v: cmd += [opt, v]
+     for n, r in (programs or {}).items(): cmd += ['--program', f'{n}\t{r["patched"]}\t{r["romfs"]}\t{r["msl"]}\t{r["tables"]}\t{r["html"]}']
+     if (game / 'html').is_dir(): cmd += ['--html', game / 'html']

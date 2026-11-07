@@ -397,7 +397,7 @@ struct SavesView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(loc.t("saves.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                if let game { Text(game.name).font(.manrope(14)).foregroundStyle(.secondary) }
+                if let game { Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(.secondary) }
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, model.showsSelector ? 12 : 20)
             if model.showsSelector {
@@ -553,7 +553,7 @@ struct SavesView: View {
     private func ask(_ replacing: SaveTransfer.Side) {
         result = nil
         guard let game, !SaveTransfer.runningOnMac(titleID: game.titleID) else {
-            result = (String(format: loc.t("saves.running"), game?.name ?? ""), false)
+            result = (String(format: loc.t("saves.running"), game?.displayName(loc.lang) ?? ""), false)
             return
         }
         asking = replacing
@@ -564,7 +564,7 @@ struct SavesView: View {
         asking = nil
         guard let game, let transfer = model.found else { return }
         if SaveTransfer.runningOnMac(titleID: game.titleID) {   // started while the question was open
-            result = (String(format: loc.t("saves.running"), game.name), false)
+            result = (String(format: loc.t("saves.running"), game.displayName(loc.lang)), false)
             return
         }
         busy = true

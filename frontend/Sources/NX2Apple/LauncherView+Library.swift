@@ -100,7 +100,7 @@ extension LauncherView {
                         .padTarget("hero.rebuild", scope: "main", radius: 12) { if !m.running { configureBuild(game) } }
                     }
                 }
-                Text(game.name).font(.manrope(min(68, width * 0.052), .heavy))
+                Text(game.displayName(loc.lang)).font(.manrope(min(68, width * 0.052), .heavy))
                     .tracking(-1.6).lineLimit(2).shadow(color: .black.opacity(0.25), radius: 12)
                 HStack(spacing: 18) {
                     Button { primaryAction(game) } label: {
@@ -200,7 +200,7 @@ extension LauncherView {
                                         .clipShape(RoundedRectangle(cornerRadius: 5))
                                         .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
                                             game.id == heroID ? LauncherPalette.cream : .clear, lineWidth: 2))
-                                        Text(game.name).font(.manrope(16, .semibold)).lineLimit(1)
+                                        Text(game.displayName(loc.lang)).font(.manrope(16, .semibold)).lineLimit(1)
                                         status(game)
                                         Capsule().fill(game.id == heroID ? LauncherPalette.cream : .clear)
                                             .frame(height: 3).padding(.top, 4)

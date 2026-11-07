@@ -233,7 +233,7 @@ struct FreeSpaceView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(loc.t("free.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(game.name).font(.manrope(14)).foregroundStyle(.secondary)
+                Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(.secondary)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 14)
             Text(loc.t("free.note")).font(.manrope(13)).foregroundStyle(.secondary)

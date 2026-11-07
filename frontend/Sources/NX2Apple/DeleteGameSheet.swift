@@ -32,7 +32,7 @@ struct DeleteGameSheet: View {
                 Image(systemName: "trash").font(.system(size: 20, weight: .medium)).foregroundStyle(Self.red)
                     .frame(width: 40, height: 40).background(Self.red.opacity(0.14), in: Circle())
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(String(format: loc.t("delete.question"), game.name)).font(.manrope(22, .heavy)).tracking(-0.4)
+                    Text(String(format: loc.t("delete.question"), game.displayName(loc.lang))).font(.manrope(22, .heavy)).tracking(-0.4)
                         .fixedSize(horizontal: false, vertical: true)
                     if plan.map({ !$0.items.isEmpty || $0.saves != nil }) ?? true {   // nothing goes to the Trash for a game with no files here
                         Text(loc.t("delete.note")).font(.manrope(13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

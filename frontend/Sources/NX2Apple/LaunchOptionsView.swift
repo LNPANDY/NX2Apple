@@ -47,7 +47,7 @@ struct LaunchOptionsView: View {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loc.t("launch.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                    if let game { Text(game.name).font(.manrope(14)).foregroundStyle(.secondary) }
+                    if let game { Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(.secondary) }
                 }
                 Spacer()
             }
