@@ -1,4 +1,4 @@
-﻿"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
+"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
 KeyCheck (AES-128-XTS NCA header verification), CheatFiles, GameLibrary,
 BuildFolder (FreeSpace), GameDeletion, DriveCopy, Diagnostics, and the 3-page UI.
 """
@@ -879,6 +879,66 @@ class LibraryAndSpaceTests(unittest.TestCase):
         )
         self.assertIn('def _win_cache_compile', shim._SITECUSTOMIZE_SRC)
         self.assertIn('def _patch_ios_metal_module', shim._SITECUSTOMIZE_SRC)
+        self.assertIn('def _patch_game_module', shim._SITECUSTOMIZE_SRC)
+
+        # 4. Verify Windows DM_GAMES_DIR drive-letter colons are preserved for derived profiles (e.g. Pokemon Sword v0)
+        if (eng / 'dm' / 'games' / 'game.py').is_file():
+            import importlib.util
+            from unittest import mock
+
+            spec = importlib.util.spec_from_file_location('test_upstream_game', eng / 'dm' / 'games' / 'game.py')
+            assert spec is not None and spec.loader is not None
+            gm = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(gm)
+
+            # Create a fake Windows drive folder 'D/games/SWORD/0100ABF008968000_build/profile'
+            # and map 'D:\\...' to it via a Path wrapper so the test runs on macOS/Linux/Windows alike
+            derived_root = self.dir / 'win_d_drive' / 'games' / 'SWORD' / '0100ABF008968000_build' / 'profile'
+            sword_derived = derived_root / '0100ABF008968000'
+            sword_derived.mkdir(parents=True, exist_ok=True)
+            reg_tsv = (eng / 'dm' / 'games' / '0100ABF008968000' / 'game.tsv').read_text(encoding='utf-8')
+            derived_tsv = re.sub(
+                r'^build\tv458752\t.*$',
+                'build\tv0\t1.0.0\tmain=00112233445566778899aabbccddeeff',
+                reg_tsv,
+                flags=re.M,
+            )
+            (sword_derived / 'game.tsv').write_text(derived_tsv, encoding='utf-8')
+
+            win_dm_games_dir = r'D:\games\SWORD\0100ABF008968000_build\profile;E:\other\profiles'
+
+            def map_win_path(p: str) -> Path:
+                s = str(p).replace('\\', '/')
+                if s.startswith('D:/'):
+                    return self.dir / 'win_d_drive' / s[3:]
+                return Path(s)
+
+            gm.Path = map_win_path  # type: ignore[attr-defined]
+            # Without the fix, game.py's .split(':') splits 'D:\...' into 'D' and '\games\...', falling back to dm/games (KeyError: 'v0')
+            with mock.patch.dict(os.environ, {'DM_GAMES_DIR': win_dm_games_dir, 'DM_GAMES_FIRST': '1'}):
+                fallback_g = gm.load('0100ABF008968000')
+                self.assertNotIn('v0', fallback_g.builds())
+
+                # Apply the shim's _split_dm_games_dir and _patch_game_module logic
+                ns: dict = {'os': os}
+                shim_chunk = shim._SITECUSTOMIZE_SRC[
+                    shim._SITECUSTOMIZE_SRC.index('    def _split_dm_games_dir'):
+                    shim._SITECUSTOMIZE_SRC.index('    import importlib.machinery as _machinery')
+                ]
+                import textwrap
+                exec(textwrap.dedent(shim_chunk), ns)
+                self.assertEqual(
+                    ns['_split_dm_games_dir'](win_dm_games_dir),
+                    [r'D:\games\SWORD\0100ABF008968000_build\profile', r'E:\other\profiles'],
+                )
+                self.assertEqual(
+                    ns['_GamesDirStr'](win_dm_games_dir).split(':'),
+                    [r'D:\games\SWORD\0100ABF008968000_build\profile', r'E:\other\profiles'],
+                )
+                ns['_patch_game_module'](gm)
+                derived_g = gm.load('0100ABF008968000')
+                self.assertIn('v0', derived_g.builds())
+                self.assertEqual(derived_g.builds()['v0']['display'], '1.0.0')
 
 
 class ParityWindowTests(unittest.TestCase):

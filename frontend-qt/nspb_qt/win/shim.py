@@ -538,6 +538,45 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
         mod.compile = _win_ios_compile
 
+    def _split_dm_games_dir(raw):
+        out = []
+        for semi in str(raw or '').split(';'):
+            parts = semi.split(':')
+            i = 0
+            while i < len(parts):
+                cur = parts[i]
+                if len(cur) == 1 and cur.isalpha() and i + 1 < len(parts) and parts[i + 1][:1] in ('\\', '/'):
+                    out.append(cur + ':' + parts[i + 1])
+                    i += 2
+                else:
+                    if cur:
+                        out.append(cur)
+                    i += 1
+        return out
+
+    class _GamesDirStr(str):
+        def split(self, sep=None, maxsplit=-1):
+            if sep in (':', ';', os.pathsep) and maxsplit == -1:
+                return _split_dm_games_dir(str(self))
+            return super().split(sep, maxsplit)
+
+    def _patch_game_module(mod):
+        if getattr(mod, '_nspb_patched', False):
+            return
+        mod._nspb_patched = True
+        from pathlib import Path as _FallbackPath
+        _Path = getattr(mod, 'Path', _FallbackPath)
+        mod.extra_dirs = lambda: [_Path(p) for p in _split_dm_games_dir(os.environ.get('DM_GAMES_DIR', ''))]
+        if hasattr(mod, 'find_dir'):
+            _orig_find_dir = mod.find_dir
+
+            def _win_find_dir(name):
+                if '/' in str(name) or '\\' in str(name):
+                    return _Path(name)
+                return _orig_find_dir(name)
+
+            mod.find_dir = _win_find_dir
+
     import importlib.machinery as _machinery
     _exec_module = _machinery.SourceFileLoader.exec_module
 
@@ -560,8 +599,22 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _patch_dmsh_mtlcache_module(module)
         elif name == 'ios_metal' or name.endswith('.ios_metal'):
             _patch_ios_metal_module(module)
+        elif name == 'game' or name.endswith('.game'):
+            _patch_game_module(module)
 
     _machinery.SourceFileLoader.exec_module = _win_exec_module
+
+    _orig_env_get = type(os.environ).get
+
+    def _win_env_get(self, key, default=None):
+        val = _orig_env_get(self, key, default)
+        if key == 'DM_GAMES_DIR' and isinstance(val, str):
+            return _GamesDirStr(val)
+        return val
+
+    type(os.environ).get = _win_env_get
+    if 'game' in sys.modules:
+        _patch_game_module(sys.modules['game'])
 
     # ---- os.replace as on a Mac
     # Windows refuses to replace a file another thread has open. The shader caches are
