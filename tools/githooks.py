@@ -33,7 +33,7 @@ CHECKS = (
 
 def checks_for(paths):
     """The checks a change to these paths needs, cheapest first."""
-    return [c for c in CHECKS if any(p.startswith(c.prefixes) for p in paths)]
+    return [c for c in CHECKS if any(p.startswith(c.prefixes) for p in paths if not (c.cwd == 'frontend' and p.startswith('frontend/l10n/')))]
 
 
 def git(*a, env=None):
