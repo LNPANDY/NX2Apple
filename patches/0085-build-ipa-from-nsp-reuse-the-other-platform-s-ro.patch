@@ -23,8 +23,8 @@ LNPANDY/NX2Apple#708
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: pending
-Reason: seedds/nxnative pull request to follow
+Upstream-Status: forwarded seedds/nxnative#1623 (upstream without the nxb build hook)
+Reason: the launcher reuses the other platform's romfs.img until upstream merges --romfs-from
 Issue: LNPANDY/NX2Apple#708
 ---
  dm/mac/pack_app.py                     |   4 +-
