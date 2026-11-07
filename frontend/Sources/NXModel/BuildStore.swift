@@ -64,8 +64,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 ///   stores: `RepoLocation` (where the checkout is), `DependencyInstalling` (the tools: `DependencyStatus` and the install the fix
 ///   buttons run), `EngineSyncing` (the sync a stale `engine/` needs before a build) and `InstallTarget` (the device, the team and
 ///   the copy flow). The app wires them.
-/// - AppKit reaches it as closures: the file and folder pickers (`choosePaths`, `chooseFolder`, `chooseSaveLocation`), the notice
-///   (`showNotice`), the Finder (`revealFolder`, `openApp`), and `targetChanged`, which the app answers with a new dependency check.
+/// - AppKit reaches it as closures: the file and folder pickers (`choosePaths`, `chooseFolder`, `chooseSaveLocation`), the Finder
+///   (`revealFolder`, `openApp`), and `targetChanged`, which the app answers with a new dependency check.
 /// - It checks the conditions for its own actions: `canBuild` and the start of a build (`startBuild`).
 /// - The pieces live in the `BuildStore+` files: `Inputs`, `Run`, `Failure`, `Archive`, `Install`, `Stale`, `DropFiles`.
 @MainActor package final class BuildStore: ObservableObject {
@@ -99,7 +99,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet { defaults.set(outDir, forKey: Self.outputKey) }
     }
     @Published package var stages: [Stage] = []
-    var staleShadersShown = false   // the stale-shaders notice shows once per build
+    /// The first shader rebuild explanation of this build. The view localizes it without pausing progress ingestion.
+    @Published package var staleShadersMessageKey: String?
     @Published package var running = false
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
@@ -186,8 +187,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var chooseFolder: () -> String? = { nil }
     /// The save panel of "Save IPA" (title, the name offered): where to write, nil when they cancelled.
     package var chooseSaveLocation: (String, String) -> URL? = { _, _ in nil }
-    /// A notice the player must see (the shaders are rebuilt): an alert with a title and a text.
-    package var showNotice: (_ title: String, _ text: String) -> Void = { _, _ in }
     package var revealFolder: (URL) -> Void = { _ in }
     /// A Finder window with this file or folder selected (`activateFileViewerSelecting`).
     package var revealItem: (URL) -> Void = { _ in }
@@ -425,12 +424,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     /// The `shaders_stale` event: the cached shader libraries cannot be reused and this build rebuilds them, because the
     /// shader translator changed (`reason` "chain") or the game profile's shader inputs did ("inputs").
-    /// An alert, not a log line: a report asked why the shaders were building again, because the log line went unnoticed.
+    /// The progress card keeps the explanation visible without waiting for an acknowledgment (#862).
     /// Once per build: the script sends the event once per shader step. A reason a newer script adds shows nothing: no text explains it.
     package func noteStaleShaders(reason: String) {
-        guard let text = ["chain": "msg.shadersStale.chain", "inputs": "msg.shadersStale.inputs"][reason], !staleShadersShown else { return }
-        staleShadersShown = true
-        showNotice(t("msg.shadersStale.title"), t(text))
+        guard let text = ["chain": "msg.shadersStale.chain", "inputs": "msg.shadersStale.inputs"][reason], staleShadersMessageKey == nil else { return }
+        staleShadersMessageKey = text
     }
 
     /// One event of `--progress json`: the stage list follows it, and the log gets a readable line (no count updates).
