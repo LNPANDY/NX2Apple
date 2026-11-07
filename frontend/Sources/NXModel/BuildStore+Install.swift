@@ -127,6 +127,7 @@ extension BuildStore {
         }
         let xcrun = devices.xcrun, team = devices.signingTeam, name = devices.deviceName(device)
         let bundle = ShellLibrary.load(root: shell.root).bundleID
+        ShellInstall.refreshProjectLinks(root: shell.root, resources: Bundle.main.resourceURL?.path, repo: repo.path)
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
         let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
