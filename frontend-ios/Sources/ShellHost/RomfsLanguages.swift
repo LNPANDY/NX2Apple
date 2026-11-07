@@ -44,12 +44,17 @@ enum RomfsLanguages {
             url
         ]
         for candidate in candidates {
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: candidate.path, isDirectory: &isDir) else { continue }
-            let found = isDir.boolValue ? fromDirectory(candidate, fm: fm) : cachedFromImage(candidate, fm: fm)
+            let found = options(forRomfs: candidate, fm: fm)
             if found.count > 1 { return found }
         }
         return []
+    }
+
+    /// Reads only the image or unpacked tree the launcher will use.
+    static func options(forRomfs url: URL, fm: FileManager = .default) -> [[String]] {
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return [] }
+        return isDir.boolValue ? fromDirectory(url, fm: fm) : cachedFromImage(url, fm: fm)
     }
 
     /// Whether a `DM_LANG` row is the all-languages row `dm/games/settings.py` writes for a game with no language list (no control
