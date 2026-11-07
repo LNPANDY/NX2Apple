@@ -162,9 +162,9 @@ def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, s
         if not ver or _ver_tuple(ver) < MIN_PYTHON:
             continue
         if _runs(c, ['-c', probe]):
-            if ready is None or _ver_tuple(ver) > _ver_tuple(ready[1]):
+            if ready is None or _win_ver_rank(ver) > _win_ver_rank(ready[1]):
                 ready = (c, ver)
-        elif fallback is None or _ver_tuple(ver) > _ver_tuple(fallback[1]):
+        elif fallback is None or _win_ver_rank(ver) > _win_ver_rank(fallback[1]):
             fallback = (c, ver)
     if ready:
         return (ready[0], True, ready[1])
@@ -200,7 +200,7 @@ def venv_base(preferred: str) -> str | None:
         v = _python_version(c)
         if not v or _ver_tuple(v) < MIN_PYTHON:
             continue
-        if best is None or _ver_tuple(v) > _ver_tuple(best[1]):
+        if best is None or _win_ver_rank(v) > _win_ver_rank(best[1]):
             best = (c, v)
     return best[0] if best else None
 
@@ -208,7 +208,7 @@ def venv_base(preferred: str) -> str | None:
 def _python_version(py: str) -> str:
     try:
         r = subprocess.run([py, '-c', 'import sys;print("%d.%d"%sys.version_info[:2])'],
-                           capture_output=True, text=True, timeout=20)
+                           capture_output=True, text=True, timeout=20, env=child_env())
         return r.stdout.strip() if r.returncode == 0 else ''
     except Exception:
         return ''
@@ -222,9 +222,16 @@ def _ver_tuple(v: str) -> tuple[int, int]:
         return (0, 0)
 
 
+def _win_ver_rank(v: str) -> tuple[int, int, int]:
+    vt = _ver_tuple(v)
+    # On Windows the bundled offline wheels target Python 3.12 (cp312); prefer 3.12 over
+    # pre-release/newer system Pythons (e.g. 3.15) when both are present on the machine.
+    return (1 if (IS_WIN and vt == (3, 12)) else 0, vt[0], vt[1])
+
+
 def _runs(exe: str, args: list[str]) -> bool:
     try:
-        return subprocess.run([exe] + args, capture_output=True, timeout=120).returncode == 0
+        return subprocess.run([exe] + args, capture_output=True, timeout=120, env=child_env()).returncode == 0
     except Exception:
         return False
 
@@ -351,13 +358,31 @@ def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     HOME/USER present (a GUI launch can strip them), and DOTNET_CLI_HOME so .NET's first-run
     state has somewhere to go."""
     env = dict(os.environ)
-    dirs = [env.get('PATH', '')]
+    meipass = getattr(sys, '_MEIPASS', None) or env.get('_MEIPASS') or env.get('_MEIPASS2')
+    is_frozen = bool(getattr(sys, 'frozen', False) or meipass)
+    env.pop('_MEIPASS', None)
+    env.pop('_MEIPASS2', None)
+    if is_frozen:
+        for k in ('PYTHONHOME', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
+            env.pop(k, None)
+    meipass_norm = os.path.normcase(os.path.normpath(meipass)) if meipass else None
+    sep = ';' if IS_WIN else ':'
+    if meipass_norm and 'PYTHONPATH' in env:
+        clean_pypath = [
+            d for d in env['PYTHONPATH'].split(sep)
+            if d and os.path.normcase(os.path.normpath(d)) != meipass_norm
+        ]
+        if clean_pypath:
+            env['PYTHONPATH'] = sep.join(clean_pypath)
+        else:
+            env.pop('PYTHONPATH', None)
+    raw_dirs = [d for d in env.get('PATH', '').split(sep)
+                if d and (not meipass_norm or os.path.normcase(os.path.normpath(d)) != meipass_norm)]
+    dirs = [sep.join(raw_dirs)]
     if IS_WIN:
         dirs += [r'C:\Program Files\dotnet', os.path.expandvars(r'%LOCALAPPDATA%\Microsoft\dotnet')]
-        sep = ';'
     else:
         dirs += ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
-        sep = ':'
     env['PATH'] = sep.join(d for d in dirs if d)
     if not env.get('HOME') or not Path(env['HOME']).is_dir():
         env['HOME'] = str(Path.home())
