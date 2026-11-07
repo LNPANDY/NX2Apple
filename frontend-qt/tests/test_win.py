@@ -3826,7 +3826,13 @@ class UnrealInlineShadersWinTest(unittest.TestCase):
                 env.pop('DM_OODLE_MODULES', None)
                 env['DM_GAME'] = '0100A3501946E000'
                 probe = (
-                    'import os, runpy, struct, sys, zlib\n'
+                    'import os, runpy, struct, sys, types, zlib\n'
+                    'try:\n'
+                    '    import lz4.block\n'
+                    'except ModuleNotFoundError:\n'
+                    '    _m = types.ModuleType("lz4"); _b = types.ModuleType("lz4.block")\n'
+                    '    _b.decompress = lambda *a, **kw: b""; _m.block = _b\n'
+                    '    sys.modules["lz4"] = _m; sys.modules["lz4.block"] = _b\n'
                     f'repo = {str(self.repo)!r}\n'
                     'sys.path.insert(0, os.path.join(repo, "dm/gfx/tools"))\n'
                     'import uepak\n'
