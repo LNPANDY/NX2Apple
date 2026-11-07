@@ -262,32 +262,6 @@ extension LibraryGame {
     }
 }
 
-struct MacGameBundle {
-    let titleID: String
-    let name: String
-
-    enum Invalid: LocalizedError {
-        case notGame
-        var errorDescription: String? { L10n.string("library.notGame", Lang.initial()) }
-    }
-
-    static func read(_ url: URL) throws -> MacGameBundle {
-        guard url.pathExtension.lowercased() == "app" else { throw Invalid.notGame }
-        LauncherWork.count(.infoPlistRead)
-        guard let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
-              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let rawID = info["DMTitleID"] as? String,
-              rawID.range(of: "^[0-9A-Fa-f]{16}$", options: .regularExpression) != nil,
-              let executable = info["CFBundleExecutable"] as? String,
-              !executable.isEmpty, executable != ".", executable != "..", !executable.contains("/"),
-              FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/" + executable).path),
-              FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/dmhost").path)
-        else { throw Invalid.notGame }
-        return MacGameBundle(titleID: rawID.uppercased(),
-                             name: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? url.deletingPathExtension().lastPathComponent)
-    }
-}
-
 final class GameLibrary: ObservableObject {
     /// The key of `LibraryGame.inputs` that holds a game folder (a Switch 2 game's base/, updates/, dlc/), read again on Build.
     static let folderInput = "folder"
@@ -574,8 +548,9 @@ final class GameLibrary: ObservableObject {
         game.lastTarget = model.target
         // An existing output is linked only after validating its metadata and executables.
         let dir = model.outDir.isEmpty ? model.inputFolder : model.outDir
-        let expected = URL(fileURLWithPath: dir).appendingPathComponent(titleID + ".app")
-        if let app = try? MacGameBundle.read(expected), app.titleID == titleID { game.appPath = expected.path }
+        if let existing = MacAppOutput.existing(in: URL(fileURLWithPath: dir), titleID: model.gameTitleID, preferred: game.appPath) {
+            game.appPath = existing.path
+        }
         upsert(game)
         selectedID = game.id
         return game.id

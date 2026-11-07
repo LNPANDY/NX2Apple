@@ -161,7 +161,7 @@ import NXLauncher
             VStack(alignment: .leading, spacing: 18) {
                 requirement("onboarding.done.platform", value: t("onboarding.platform.\(state.selectedPlatform?.rawValue ?? "mac")"), okay: true)
                 requirement("onboarding.done.tools", value: t("onboarding.ready"), okay: true)
-                requirement("onboarding.done.keys", value: t("onboarding.keys.valid"), okay: true)
+                requirement("onboarding.done.keys", value: t(state.keys.statusKey), okay: state.keys == .valid ? true : nil)
             }.modifier(OnboardingCard())
         }
     }
@@ -370,6 +370,11 @@ import NXLauncher
             if state.keys != .valid {
                 dropZone(keys: true, enabled: state.keys != .validating)
             }
+            if state.canSkipKeys {
+                Button(t("onboarding.keys.skip"), action: skipKeys)
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .padTarget("onboarding.keys.skip", scope: "onboarding", activate: skipKeys)
+            }
             Text(t("onboarding.keys.privacy")).font(.manrope(12)).foregroundStyle(.secondary)
         }
         .frame(minHeight: onboardingDropCardHeight, alignment: .topLeading)   // the same size whether it asks, checks or is done
@@ -385,6 +390,7 @@ import NXLauncher
                     Text(t("onboarding.games.scanning"))
                 }
             case let .found(games) where !games.isEmpty:
+                if state.gamesNeedKeys { Text(t("onboarding.games.needKeys")).foregroundStyle(LauncherPalette.building) }
                 Text(String(format: t("onboarding.games.count"), games.count)).foregroundStyle(LauncherPalette.ready)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 210, maximum: 290))], alignment: .leading, spacing: 22) {
                     ForEach(games) { game in
@@ -451,6 +457,8 @@ import NXLauncher
             }.padding(.horizontal, 56).padding(.vertical, 24)
         }
     }
+
+    private func skipKeys() { backwards = false; driver.skipKeys() }
 
     private func primaryAction() {
         guard state.primaryEnabled else { return }
