@@ -13,7 +13,7 @@ package enum TitleID {
         return found.flatMap { UInt64($0, radix: 16) }
     }
 
-    /// The name of a game's work folder and output (`<key>_build`, `<key>.app`). The title ID in the file name when there
+    /// The key of a game's work folder (`<key>_build`). The title ID in the file name when there
     /// is one, so `<ID>_build` stays what the library looks for. Else the file name without its extension, cut to letters,
     /// digits, `-` and `_`, plus a short hash of the full name: two games never share a folder (and so a shader cache),
     /// the same file name always gets the same one (a rebuild reuses its cache). Never a constant.

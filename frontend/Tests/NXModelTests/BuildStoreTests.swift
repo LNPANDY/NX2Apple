@@ -328,7 +328,7 @@ import XCTest
             XCTAssertEqual(args.firstIndex(of: "--work-dir").map { args[$0 + 1] }, work)
             XCTAssertEqual(store.gameTitleID, second, "the library remembers the selected game")
             if target == BuildTarget.mac {
-                XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, temporary.path + "/" + second + ".app")
+                XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, work + "/" + second + ".app")
             } else {
                 XCTAssertEqual(args.firstIndex(of: "--shell-framework").map { args[$0 + 1] }, work + "/shell-framework")
             }

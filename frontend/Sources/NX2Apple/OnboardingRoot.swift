@@ -66,20 +66,17 @@ struct RootView: View {
     /// On launch: a setup marked done, or one that is complete already, goes straight to the launcher (and is marked done);
     /// anything else starts or resumes the guided setup.
     private func decide() async {
-        let defaults = UserDefaults.standard
-        // NSPB_ONBOARDING_FORCE=1: the real flow with real detection whatever the state, leaving no trace until it is finished
-        if OnboardingLaunch.forced() { show(fresh: false, ephemeral: true); return }
-        if defaults.bool(forKey: OnboardingDefaults.completed) { mode = .launcher; return }
-        await stores.dependencies.refreshDepsAndWait()
-        let env = OnboardingEnvironment()
-        let keysKnown = stores.build.slot("keys").ok || !env.keyCandidates(gamesFolder: library.folder).isEmpty || library.games.contains(where: \.isReady)
-        let gamesKnown = !library.folder.isEmpty || !library.games.isEmpty
-        let complete = OnboardingLaunch.setupComplete(depsPresent: stores.dependencies.allPresent, keysKnown: keysKnown, gamesKnown: gamesKnown)
-        if OnboardingLaunch.shouldShow(completed: false, setupComplete: complete) {
-            show(fresh: false)
-        } else {
-            defaults.set(true, forKey: OnboardingDefaults.completed)
-            mode = .launcher
+        let destination = await OnboardingLaunch.decide(defaults: .standard, force: OnboardingLaunch.forced(), keysSlotIsEmpty: stores.build.keysPath.isEmpty) {
+            await stores.dependencies.refreshDepsAndWait()
+            let env = OnboardingEnvironment()
+            let keysKnown = stores.build.slot("keys").ok || !env.keyCandidates(gamesFolder: library.folder).isEmpty || library.games.contains(where: \.isReady)
+            let gamesKnown = !library.folder.isEmpty || !library.games.isEmpty
+            return OnboardingLaunch.setupComplete(depsPresent: stores.dependencies.allPresent, keysKnown: keysKnown, gamesKnown: gamesKnown)
+        }
+        switch destination {
+        case .launcher: mode = .launcher
+        case .onboarding: show(fresh: false)
+        case .forced: show(fresh: false, ephemeral: true)
         }
     }
 
