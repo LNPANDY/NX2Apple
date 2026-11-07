@@ -28,8 +28,10 @@ shader split found nothing.
   core device function is null, so the game destroyed its device and
   recreated its vi layer every frame. Implemented: dynamic blend
   constants, vkCmdUpdateBuffer, vkCmdClearAttachments of whole targets,
-  vkCmdBlitImage (copy, or a quad sampling the source) and
-  vkCmdResolveImage. Compute, indirect draws, vkCmdCopyQueryPoolResults
+  vkCmdBlitImage (one layer and level of single-sampled 2D colour
+  images: a copy, or a quad sampling a 2D view of the source's layer and
+  level; t_vk_blit checks layer 1 of an array, copied and scaled, under
+  Metal's validation) and vkCmdResolveImage. Compute, indirect draws, vkCmdCopyQueryPoolResults
   and partial clears exist and log a [RED] line once (open).
   An integer vertex input read through an integer format of the other
   sign (the skinned actors' int bone indices fed R16_UINT) is read through
@@ -46,15 +48,18 @@ Issue: LNPANDY/NX2Apple#769
 
 ---
  dm/games/profile_guess.py              |  35 +++--
+ dm/gfx/tests/Makefile                  |   4 +
+ dm/gfx/tests/t_vk_blit.m               |  85 +++++++++++
  dm/gfx/tools/vk_shaders.py             |  92 ++++++++++--
- dm/gfx/vk/hle_vk.m                     | 189 ++++++++++++++++++++++++-
+ dm/gfx/vk/hle_vk.m                     | 198 ++++++++++++++++++++++++-
  dm/host/hle_ro.c                       |   6 +
  dm/host/tests/t_nro.c                  |   5 +-
  dm/tools/tests/test_vk_renderdragon.py |  54 +++++++
- docs/reference/rendering.md            |  23 +++
- docs/reference/shaders.md              |   8 ++
+ docs/reference/rendering.md            |  24 +++
+ docs/reference/shaders.md              |   8 +
  scripts/build_ipa_from_nsp.py          |  12 +-
- 9 files changed, 390 insertions(+), 34 deletions(-)
+ 11 files changed, 489 insertions(+), 34 deletions(-)
+ create mode 100644 dm/gfx/tests/t_vk_blit.m
  create mode 100644 dm/tools/tests/test_vk_renderdragon.py
 
 diff --git a/dm/games/profile_guess.py b/dm/games/profile_guess.py
@@ -159,6 +164,112 @@ index f5444929..30f61d0d 100644
  
  
  def va_heap(sysres, imports):   # virtual address memory (an NPDM system resource) and a heap: the alias / heap split is a starting point the heap check corrects (Wonder, Tears of the Kingdom; Engage's pool is its own measurement)
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index 6796c5ed..37697542 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -470,6 +470,10 @@ check_t_gl_imports: t_gl_imports
+ 	./t_gl_imports --stubs
+ gl-imports: check_t_gl_imports
+ check_t_vk_desc: RUN_ENV = MTL_DEBUG_LAYER=1
++# vkCmdBlitImage of one layer of an array, copied and scaled (hle_vk.m blit_image), under Metal's validation: a texture of the wrong type stops it
++t_vk_blit: t_vk_blit.m ../vk/hle_vk.m $(MTL_T_DEP)
++	clang $(CFLAGS) -I../../third_party/vulkan-headers/include -fobjc-arc -o $@ t_vk_blit.m $(MTL_T_SRC) ../nvn/nvn_mtl.m $(FW)
++check_t_vk_blit: RUN_ENV = MTL_DEBUG_LAYER=1
+ # Float32 missing components retain float padding through integer shader inputs.
+ t_float_pad: t_float_pad.m $(MTL_T_DEP)
+ 	clang $(CFLAGS) -fobjc-arc -o $@ t_float_pad.m $(MTL_T_SRC) $(FW)
+diff --git a/dm/gfx/tests/t_vk_blit.m b/dm/gfx/tests/t_vk_blit.m
+new file mode 100644
+index 00000000..a19bf3f4
+--- /dev/null
++++ b/dm/gfx/tests/t_vk_blit.m
+@@ -0,0 +1,85 @@
++// vkCmdBlitImage on the GPU (hle_vk.m blit_image): layer 1 (green) of a two-layer 4x4 array whose layer 0 is red, blitted into a 2D image. The same-size region is a copy,
++// the scaled one (to 8x8) a drawn quad: both must give green. The drawn path once bound the whole array to the shader's texture2d and read layer 0 (red), and Metal's
++// validation stopped at the texture type. A multisampled source is refused before anything is encoded (the destination keeps its contents)
++#include "../vk/hle_vk.m"
++int dm_guest_as_contains(uintptr_t address) { (void)address; return 0; }
++void *front_metal_layer(void) { return NULL; }
++module_t *module_of(const void *p) { (void)p; return NULL; }
++module_t *g_mod; int g_nmod;
++void svc_thread_dump(void) {}
++uint64_t now_ns(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
++void dm_vi_layer_crop(int c[4]) { c[0] = c[1] = c[2] = c[3] = 0; }
++int dm_opmode(void) { return 1; }
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s\n", msg); } } while (0)
++
++static VkImage image(uint32_t w, uint32_t h, uint32_t layers, VkSampleCountFlagBits samples, VkImageUsageFlags usage) {
++    VkImageCreateInfo ici = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = VK_FORMAT_R8G8B8A8_UNORM, .extent = {w, h, 1},
++                             .mipLevels = 1, .arrayLayers = layers, .samples = samples, .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = usage};
++    VkImage im = NULL; CHECK(h_vkCreateImage(&g_device, &ici, NULL, &im) == VK_SUCCESS && im && im->tex, "image created");
++    return im;
++}
++static void fill(VkImage im, uint32_t layer, uint32_t rgba) {   // through a shared buffer: the image's texture is private
++    uint32_t n = im->w * im->h, px[64]; for (uint32_t i = 0; i < n; i++) px[i] = rgba;
++    id<MTLBuffer> b = [g_dev newBufferWithBytes:px length:n * 4 options:MTLResourceStorageModeShared];
++    id<MTLCommandBuffer> cb = [g_q commandBuffer]; id<MTLBlitCommandEncoder> be = [cb blitCommandEncoder];
++    [be copyFromBuffer:b sourceOffset:0 sourceBytesPerRow:im->w * 4 sourceBytesPerImage:n * 4 sourceSize:MTLSizeMake(im->w, im->h, 1)
++             toTexture:im->tex destinationSlice:layer destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
++    [be endEncoding]; [cb commit]; [cb waitUntilCompleted];
++}
++static int all(VkImage im, uint32_t rgba) {   // every texel of layer 0 is rgba
++    uint32_t n = im->w * im->h;
++    id<MTLBuffer> b = [g_dev newBufferWithLength:n * 4 options:MTLResourceStorageModeShared];
++    id<MTLCommandBuffer> cb = [g_q commandBuffer]; id<MTLBlitCommandEncoder> be = [cb blitCommandEncoder];
++    [be copyFromTexture:im->tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(im->w, im->h, 1)
++               toBuffer:b destinationOffset:0 destinationBytesPerRow:im->w * 4 destinationBytesPerImage:n * 4];
++    [be endEncoding]; [cb commit]; [cb waitUntilCompleted];
++    const uint32_t *p = b.contents; int ok = 1;
++    for (uint32_t i = 0; i < n; i++) if (p[i] != rgba) { if (ok) fprintf(stderr, "  texel %u: %08x, want %08x\n", i, p[i], rgba); ok = 0; }
++    return ok;
++}
++static void run_blit(VkImage src, uint32_t layer, VkImage dst, VkFilter filter) {   // what the replay does with one recorded C_BLIT
++    c_blit *x = calloc(1, sizeof *x + sizeof(VkImageBlit));
++    x->src = src; x->dst = dst; x->filter = filter; x->n = 1;
++    x->r[0] = (VkImageBlit){{VK_IMAGE_ASPECT_COLOR_BIT, 0, layer, 1}, {{0, 0, 0}, {(int32_t)src->w, (int32_t)src->h, 1}},
++                            {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {{0, 0, 0}, {(int32_t)dst->w, (int32_t)dst->h, 1}}};
++    rs_t s = {0}; s.cb = [g_q commandBuffer];
++    blit_image(&s, x, C_BLIT);
++    end_blit(&s); [s.cb commit]; [s.cb waitUntilCompleted];
++    CHECK(s.cb.status == MTLCommandBufferStatusCompleted, "the blit's command buffer completed");
++    free(x);
++}
++
++int main(void) {
++    @autoreleasepool {
++        dev_init();
++        const uint32_t red = 0xff0000ff, green = 0xff00ff00, blue = 0xffff0000;   // RGBA8 in memory order R, G, B, A
++        VkImageUsageFlags su = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, du = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
++        VkImage arr = image(4, 4, 2, VK_SAMPLE_COUNT_1_BIT, su);
++        CHECK(arr->tex.textureType == MTLTextureType2DArray, "the source is a 2D array texture");
++        fill(arr, 0, red); fill(arr, 1, green);
++
++        VkImage same = image(4, 4, 1, VK_SAMPLE_COUNT_1_BIT, du);
++        run_blit(arr, 1, same, VK_FILTER_NEAREST);
++        CHECK(all(same, green), "same-size blit of layer 1 copies green");
++
++        VkImage big = image(8, 8, 1, VK_SAMPLE_COUNT_1_BIT, du);
++        run_blit(arr, 1, big, VK_FILTER_LINEAR);
++        CHECK(all(big, green), "scaled blit of layer 1 samples green, not layer 0's red");
++        run_blit(arr, 0, big, VK_FILTER_NEAREST);
++        CHECK(all(big, red), "scaled blit of layer 0 samples red");
++
++        VkImage plain = image(4, 4, 1, VK_SAMPLE_COUNT_1_BIT, su);
++        fill(plain, 0, green);
++        run_blit(plain, 0, big, VK_FILTER_LINEAR);
++        CHECK(all(big, green), "scaled blit of a plain 2D image");
++
++        VkImage ms = image(4, 4, 1, VK_SAMPLE_COUNT_4_BIT, su | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
++        VkImage keep = image(8, 8, 1, VK_SAMPLE_COUNT_1_BIT, du);
++        fill(keep, 0, blue);
++        run_blit(ms, 0, keep, VK_FILTER_LINEAR);
++        CHECK(all(keep, blue), "a multisampled source is refused: the destination keeps its contents");
++    }
++    printf("t_vk_blit: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
 diff --git a/dm/gfx/tools/vk_shaders.py b/dm/gfx/tools/vk_shaders.py
 index 18f18b9d..53d1f696 100644
 --- a/dm/gfx/tools/vk_shaders.py
@@ -303,7 +414,7 @@ index 18f18b9d..53d1f696 100644
 +    try: main()
 +    except nso.Error as e: red(str(e))   # a damaged main
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 9d141a4f..875c4a56 100644
+index 9d141a4f..9b258a22 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -133,7 +133,9 @@
@@ -461,7 +572,7 @@ index 9d141a4f..875c4a56 100644
  } rs_t;
  #define DONE_RING 1024
  static uint64_t g_done_ns[DONE_RING];   // completion time of submit v at [v % DONE_RING] (timestamp query results)
-@@ -1239,16 +1306,104 @@ static void occ_start(rs_t *s) {
+@@ -1239,16 +1306,113 @@ static void occ_start(rs_t *s) {
      q->occ[q->nvis] = (occ_t){s->aq, s->aq_first, q->nvis};
      [s->re setVisibilityResultMode:MTLVisibilityResultModeCounting offset:q->nvis * 8]; q->nvis++;
  }
@@ -489,10 +600,11 @@ index 9d141a4f..875c4a56 100644
      occ_start(s);
  }
 +// vkCmdBlitImage: a region of the same size and format is a copy; one that scales, flips or converts is drawn, sampling the source over the destination rectangle
-+// (Minecraft's bgfx blits its 1920x1080 frame into the swapchain image). 2D colour images of float or normalized formats only
++// (Minecraft's bgfx blits its 1920x1080 frame into the swapchain image). One layer of 2D (array or cube) colour images; a drawn one takes float or normalized formats and
++// samples a 2D view of the source's layer and level, so a layer other than 0 of an array is read and the shader's texture2d gets a 2D texture
 +static const char k_blit_msl[] = "#include <metal_stdlib>\nusing namespace metal;\nstruct V { float4 p [[position]]; float2 uv; };\n"
 +    "vertex V vk_blit_vs(uint vid [[vertex_id]], constant float4 &uv [[buffer(0)]]) { float2 t = float2(vid & 1, vid >> 1); V o; o.p = float4(t.x * 2 - 1, 1 - t.y * 2, 0, 1); o.uv = mix(uv.xy, uv.zw, t); return o; }\n"
-+    "fragment float4 vk_blit_fs(V i [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]], constant float &lod [[buffer(0)]]) { return t.sample(s, i.uv, level(lod)); }\n";
++    "fragment float4 vk_blit_fs(V i [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) { return t.sample(s, i.uv); }\n";
 +static id<MTLRenderPipelineState> blit_pso(MTLPixelFormat pf) {
 +    static id<MTLLibrary> lib; static NSMutableDictionary<NSNumber *, id<MTLRenderPipelineState>> *cache; static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
 +    pthread_mutex_lock(&mu);
@@ -517,7 +629,10 @@ index 9d141a4f..875c4a56 100644
 +        const VkImageBlit *r = &x->r[i];
 +        int sx0 = r->srcOffsets[0].x, sy0 = r->srcOffsets[0].y, sx1 = r->srcOffsets[1].x, sy1 = r->srcOffsets[1].y, dx0 = r->dstOffsets[0].x, dy0 = r->dstOffsets[0].y, dx1 = r->dstOffsets[1].x, dy1 = r->dstOffsets[1].y;
 +        uint32_t sl = r->srcSubresource.mipLevel, dl = r->dstSubresource.mipLevel;
-+        if (a->type != VK_IMAGE_TYPE_2D || b->type != VK_IMAGE_TYPE_2D || r->srcSubresource.layerCount != 1 || !(r->srcSubresource.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)) { RED1("vkCmdBlitImage of other than one layer of 2D colour images not implemented"); continue; }
++        if (a->type != VK_IMAGE_TYPE_2D || b->type != VK_IMAGE_TYPE_2D || r->srcSubresource.layerCount != 1 || r->dstSubresource.layerCount != 1 || !(r->srcSubresource.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)
++            || a->tex.sampleCount > 1 || b->tex.sampleCount > 1 || r->srcSubresource.baseArrayLayer >= a->layers || r->dstSubresource.baseArrayLayer >= b->layers || sl >= a->mips || dl >= b->mips) {
++            RED1("vkCmdBlitImage of other than one layer and level of single-sampled 2D colour images not implemented: not copied"); continue;
++        }
 +        if (dx1 - dx0 == sx1 - sx0 && dy1 - dy0 == sy1 - sy0 && sx1 > sx0 && sy1 > sy0 && a->tex.pixelFormat == b->tex.pixelFormat) {
 +            [blit(s, op) copyFromTexture:a->tex sourceSlice:r->srcSubresource.baseArrayLayer sourceLevel:sl sourceOrigin:MTLOriginMake(sx0, sy0, 0) sourceSize:MTLSizeMake(sx1 - sx0, sy1 - sy0, 1)
 +                               toTexture:b->tex destinationSlice:r->dstSubresource.baseArrayLayer destinationLevel:dl destinationOrigin:MTLOriginMake(dx0, dy0, 0)];
@@ -527,7 +642,12 @@ index 9d141a4f..875c4a56 100644
 +        id<MTLRenderPipelineState> pso = blit_pso(b->tex.pixelFormat); if (!pso) continue;
 +        if (s->re) { end_rp(s, 0); s->cut = 1; }
 +        end_blit(s);
-+        float sw = (float)umax(a->w >> sl, 1), sh = (float)umax(a->h >> sl, 1), uv[4], lod = (float)sl;
++        // a 2D view of the source's layer and level (same format: no pixel-format-view usage needed), in place of the whole texture
++        id<MTLTexture> src = a->tex;
++        if (src.textureType != MTLTextureType2D || src.mipmapLevelCount > 1)
++            src = [a->tex newTextureViewWithPixelFormat:a->tex.pixelFormat textureType:MTLTextureType2D levels:NSMakeRange(sl, 1) slices:NSMakeRange(r->srcSubresource.baseArrayLayer, 1)];
++        if (!src) { RED1("vkCmdBlitImage: no 2D view of the source layer (texture type %lu): not copied", (unsigned long)a->tex.textureType); continue; }
++        float sw = (float)umax(a->w >> sl, 1), sh = (float)umax(a->h >> sl, 1), uv[4];
 +        // a reversed destination range flips: the quad covers the destination rectangle in increasing order and takes the source ends swapped
 +        int fx = dx1 < dx0, fy = dy1 < dy0;
 +        uv[0] = (fx ? sx1 : sx0) / sw; uv[2] = (fx ? sx0 : sx1) / sw; uv[1] = (fy ? sy1 : sy0) / sh; uv[3] = (fy ? sy0 : sy1) / sh;
@@ -540,8 +660,8 @@ index 9d141a4f..875c4a56 100644
 +        sd.sAddressMode = sd.tAddressMode = MTLSamplerAddressModeClampToEdge;
 +        [e setRenderPipelineState:pso];
 +        [e setViewport:(MTLViewport){(double)umin(dx0, dx1), (double)umin(dy0, dy1), (double)abs(dx1 - dx0), (double)abs(dy1 - dy0), 0, 1}];
-+        [e setVertexBytes:uv length:sizeof uv atIndex:0]; [e setFragmentBytes:&lod length:sizeof lod atIndex:0];
-+        [e setFragmentTexture:a->tex atIndex:0]; [e setFragmentSamplerState:[g_dev newSamplerStateWithDescriptor:sd] atIndex:0];
++        [e setVertexBytes:uv length:sizeof uv atIndex:0];
++        [e setFragmentTexture:src atIndex:0]; [e setFragmentSamplerState:[g_dev newSamplerStateWithDescriptor:sd] atIndex:0];
 +        [e drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
 +        [e endEncoding];
 +        g_n_copy++;
@@ -567,7 +687,7 @@ index 9d141a4f..875c4a56 100644
  static MTLLoadAction load_a(VkAttachmentLoadOp o) { return o == VK_ATTACHMENT_LOAD_OP_CLEAR ? MTLLoadActionClear : o == VK_ATTACHMENT_LOAD_OP_LOAD ? MTLLoadActionLoad : MTLLoadActionDontCare; }
  static MTLStoreAction store_a(VkAttachmentStoreOp o) { return o == VK_ATTACHMENT_STORE_OP_DONT_CARE ? MTLStoreActionDontCare : MTLStoreActionStore; }
  static void begin_rp(rs_t *s, const c_brp *c) {
-@@ -1351,7 +1506,7 @@ static int pre_draw(rs_t *s) {
+@@ -1351,7 +1515,7 @@ static int pre_draw(rs_t *s) {
          [re setDepthBias:p->bias ? p->bias_c : 0 slopeScale:p->bias ? p->bias_s : 0 clamp:p->bias ? p->bias_cl : 0];
          [re setBlendColorRed:p->blend[0] green:p->blend[1] blue:p->blend[2] alpha:p->blend[3]];
          [re setStencilFrontReferenceValue:p->sref_f backReferenceValue:p->sref_b];
@@ -576,7 +696,7 @@ index 9d141a4f..875c4a56 100644
          if (p->has_vp && (!s->applied || !s->applied->has_vp || memcmp(&s->applied->vp, &p->vp, sizeof p->vp))) s->vp_dirty = 1;
          if (p->has_sc) s->sc_dirty = 1;
          s->applied = p;
-@@ -1372,6 +1527,8 @@ static int pre_draw(rs_t *s) {
+@@ -1372,6 +1536,8 @@ static int pre_draw(rs_t *s) {
          }
      }
      s->s_dirty = 0;
@@ -585,7 +705,7 @@ index 9d141a4f..875c4a56 100644
      if (s->vp_dirty) {
          MTLViewport v = p->has_vp ? p->vp : vp_of(&s->vp);
          [re setViewport:v]; s->vp_dirty = 0;
-@@ -1510,6 +1667,26 @@ static void replay(rs_t *s, VkCommandBuffer cb) {
+@@ -1510,6 +1676,26 @@ static void replay(rs_t *s, VkCommandBuffer cb) {
              }
              case C_STENCIL: { const c_stencil *x = c; if (x->faces & VK_STENCIL_FACE_FRONT_BIT) s->sdyn[x->what][0] = x->v; if (x->faces & VK_STENCIL_FACE_BACK_BIT) s->sdyn[x->what][1] = x->v;
                                s->sdyn_set[x->what] = 1; s->s_dirty = 1; break; }
@@ -715,10 +835,10 @@ index 00000000..5a6635db
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index e0c66364..aba1cfb5 100644
+index e0c66364..f63c11f2 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -1363,6 +1363,29 @@ The Vulkan layer (`dm/gfx/vk/hle_vk.m`) was written for Hades; Super Mario Galax
+@@ -1363,6 +1363,30 @@ The Vulkan layer (`dm/gfx/vk/hle_vk.m`) was written for Hades; Super Mario Galax
  - **Cause:** two geometry shaders (GX points and lines expanded to quads) are not translated (Metal has no geometry stage).
  - **Found on:** [Super Mario Galaxy](../../dm/games/010099C022B96000/README.md).
  
@@ -734,7 +854,8 @@ index e0c66364..aba1cfb5 100644
 +
 +- **Symptom:** right after `vkCreateDevice` the game calls `vkDestroyDevice` and `vkDestroyInstance`, creates no surface, and from then on destroys and recreates its `vi` layer every frame (`vi::CreateLayer` hundreds of times in the log); nothing is presented.
 +- **Cause:** bgfx loads every core device function with `vkGetDeviceProcAddr` and gives up on the device when one is null; the layer had no `vkCmdSetBlendConstants`, `vkCmdUpdateBuffer`, `vkCmdClearAttachments`, `vkCmdBlitImage`, `vkCmdResolveImage`, `vkCmdDrawIndirect`, `vkCmdDrawIndexedIndirect`, `vkCmdDispatch`, `vkCmdDispatchIndirect`, `vkCmdCopyQueryPoolResults` or `vkCreateComputePipelines`. RenderDragon's main loop then retries its renderer each frame.
-+- **Fix:** the layer has them all. Implemented: dynamic blend constants (`C_BLENDC`), `vkCmdUpdateBuffer` (a staging buffer copied in order, `C_UPDB`), `vkCmdClearAttachments` of whole render targets (the pass's encoder ends and resumes with clearing load actions, `C_CLEARA`), `vkCmdBlitImage` (a copy for a region of the same size and format, otherwise a quad that samples the source with the blit's filter, `blit_image`), `vkCmdResolveImage` (a pass that loads the multisampled image and resolves it, `resolve_image`). Minecraft renders its frame into its own target and blits it into the swapchain image: without the blit the screen kept the swapchain's magenta.
++- **Fix:** the layer has them all. Implemented: dynamic blend constants (`C_BLENDC`), `vkCmdUpdateBuffer` (a staging buffer copied in order, `C_UPDB`), `vkCmdClearAttachments` of whole render targets (the pass's encoder ends and resumes with clearing load actions, `C_CLEARA`), `vkCmdBlitImage` of one layer and level of single-sampled 2D (array or cube) colour images (a copy for a region of the same size and format, otherwise a quad that samples a 2D view of the source's layer and level with the blit's filter, `blit_image`; other blits are refused before anything is encoded), `vkCmdResolveImage` (a pass that loads the multisampled image and resolves it, `resolve_image`). Minecraft renders its frame into its own target and blits it into the swapchain image: without the blit the screen kept the swapchain's magenta.
++- **Check:** `t_vk_blit` (`make -C dm/gfx/tests GAME=<id> check_t_vk_blit`, under Metal's validation): layer 1 of a red / green array copied and scaled gives green, a multisampled source is refused. Bound whole to the shader's `texture2d`, the scaled blit had read layer 0 and stopped Metal's validation.
 +- **Not implemented (open):** compute pipelines and dispatches, indirect draws, `vkCmdCopyQueryPoolResults`, clears of part of a render target. Each exists and logs a `[RED]` line once when a game records it.
 +- **Found on:** Minecraft (Bedrock Edition, 1.21.120): with these the game draws its panorama and first dialog. Its 35 compute shaders (FSR 1, volumetrics, light clustering) are not translated.
 +
