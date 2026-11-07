@@ -313,10 +313,33 @@ package struct LauncherSlider: View {
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
                 let raw = range.lowerBound + Double(min(max(drag.location.x - knob / 2, 0), track) / max(track, 1)) * span
-                let snapped = step > 0 ? (raw / step).rounded() * step : raw
-                change(min(max(snapped, range.lowerBound), range.upperBound))
+                change(Self.snapped(raw, range: range, step: step))
             })
         }
         .frame(height: 22)
+        .focusable()
+        .onMoveCommand { direction in
+            switch direction {
+            case .left: change(Self.moved(value, by: -1, range: range, step: step))
+            case .right: change(Self.moved(value, by: 1, range: range, step: step))
+            default: break
+            }
+        }
+        .accessibilityRepresentation {
+            Slider(value: Binding(get: { value }, set: change), in: range,
+                   step: step > 0 ? step : (range.upperBound - range.lowerBound) / 20)
+        }
+    }
+
+    /// A raw value on the slider's steps, inside its range.
+    package static func snapped(_ raw: Double, range: ClosedRange<Double>, step: Double) -> Double {
+        let snapped = step > 0 ? (raw / step).rounded() * step : raw
+        return min(max(snapped, range.lowerBound), range.upperBound)
+    }
+
+    /// The value one arrow key press away. Without a step it moves a twentieth of the range.
+    package static func moved(_ value: Double, by presses: Int, range: ClosedRange<Double>, step: Double) -> Double {
+        let unit = step > 0 ? step : (range.upperBound - range.lowerBound) / 20
+        return snapped(value + Double(presses) * unit, range: range, step: step)
     }
 }
