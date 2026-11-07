@@ -7,7 +7,6 @@ import XCTest
 /// real git against local repositories).
 @MainActor final class RepoStoreTests: XCTestCase {
     private var temporary: URL!
-    private var suite: String!
     private var defaults: UserDefaults!
     private let git = FakeGitCheckout()
     private let localizer = Localizer(.en)
@@ -19,13 +18,11 @@ import XCTest
     override func setUpWithError() throws {
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxmodel-repo-tests-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-        suite = "nxmodel-repo-tests-" + UUID().uuidString
-        defaults = UserDefaults(suiteName: suite)
+        defaults = TestDefaults.make("nxmodel-repo-tests")
     }
 
     override func tearDownWithError() throws {
         try FileManager.default.removeItem(at: temporary)
-        defaults.removePersistentDomain(forName: suite)
     }
 
     /// A folder the launcher takes for a checkout: the extractor's project, and a .git when `isGit`.

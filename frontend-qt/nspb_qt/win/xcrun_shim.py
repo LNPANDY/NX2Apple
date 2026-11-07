@@ -144,6 +144,10 @@ def _needs_staging(arg: str) -> bool:
 
 
 def _safe_suffix(p: Path, default: str) -> str:
+    name = p.name
+    for ext in ('.metallib', '.air', '.pch', '.metal', '.dia', '.h'):
+        if name.endswith(ext) or f'{ext}.' in name:
+            return ext
     sfx = p.suffix
     return sfx if (sfx and not _needs_staging(sfx)) else default
 

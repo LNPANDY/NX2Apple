@@ -30,7 +30,7 @@ index 71f5be5..757d875 100644
  #include "front.h"
  #include "romfs_image.h"
  #include "DataBookmark.h"
-@@ -212,7 +211,7 @@ static void aoc_locate(void) {
+@@ -212,7 +211,7 @@ const char *front_ios_device_check(void) {
      static char msg[320]; static int done;
      if (done++) return msg[0] ? msg : NULL;
      id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();   // the system default device, the one the graphics layers take (mtl_init repeats this check for the other routes)
@@ -134,7 +134,7 @@ index fee9e53..0d20b82 100644
      """The signing and pack steps on a stand-in app; no Xcode, no game files."""
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 9f67e73..f177de7 100755
+index e081698..1af6290 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -202,7 +202,8 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi

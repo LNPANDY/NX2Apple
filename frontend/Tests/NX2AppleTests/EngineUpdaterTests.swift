@@ -173,7 +173,7 @@ final class EngineUpdaterTests: IsolatedDefaultsTestCase {
     // MARK: Remembering the choice
 
     func testTheSelectionSurvivesAndRemembersWhereItCameFrom() {
-        let suite = UserDefaults(suiteName: "engine-selection-" + UUID().uuidString)!
+        let suite = TestDefaults.make("engine-selection")
         var s = EngineSelection.load(suite)
         XCTAssertEqual(s.channel, .stable, "stable by default")
         XCTAssertEqual(s.engineID, "")

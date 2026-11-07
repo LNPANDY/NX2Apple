@@ -40,7 +40,7 @@ import SwiftUI
         -> (LiveConsoleDriver, GameLibrary, ControlLayout) {
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
         _ = try library.addApp(try makeApp())
-        let layout = controls ?? ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!)
+        let layout = controls ?? ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests"))
         let driver = LiveConsoleDriver(library: library, controls: layout, repo: { "" }, lang: { .en }, labels: { L10n.string($0, .en) },
                                        pads: { pads }, launch: { game, env, done in launched(Launch(game: game, environment: env)); done(4242, nil) },
                                        artwork: { _, _ in nil }, startingTimeout: 0.2, observeSystem: false)
@@ -139,7 +139,7 @@ import SwiftUI
     /// #336: a game that found the system keeping the Home button for itself gets the hint once, after it quit, in console mode.
     func testHomeButtonHintShowsOnceWhenTheSystemKeepsHome() async throws {
         let (driver, _, _) = try makeDriver()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "ConsoleLiveTests-home-" + UUID().uuidString))
+        let defaults = TestDefaults.make("ConsoleLiveTests-home")
         var reported: String? = "system", opened = 0
         driver.homeButtonReported = { _ in reported }
         driver.homeHintDefaults = defaults
@@ -510,7 +510,7 @@ import SwiftUI
     func testConnectNotificationPublishesTheNewControllerAtOnce() async throws {
         var current = [ConsolePadSnapshot(id: "first", name: "First", category: "DualShock 4", playerIndex: nil)]
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
-        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { current }, artwork: { _, _ in nil }, observeSystem: true)
         XCTAssertEqual(driver.state.controllers.map(\.id), ["first"])
         XCTAssertEqual(driver.state.controllers.map(\.player), [1])
@@ -557,7 +557,7 @@ import SwiftUI
     // MARK: Player assignment
 
     private func twoPadDriver(merge: Bool) -> (LiveConsoleDriver, ControlLayout) {
-        let layout = ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!)
+        let layout = ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests"))
         layout.padMerge = merge
         let pads = [ConsolePadSnapshot(id: "xbox", name: "Xbox Wireless Controller", category: "Xbox One", playerIndex: nil),
                     ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4", category: "DualShock 4", playerIndex: nil)]
@@ -613,7 +613,7 @@ import SwiftUI
 
     private func liveDriver(pads: @escaping () -> [ConsolePadSnapshot]) -> LiveConsoleDriver {
         LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                          controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                          controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                           repo: { "" }, lang: { .en }, labels: { $0 }, pads: pads, artwork: { _, _ in nil }, observeSystem: false)
     }
 
@@ -655,7 +655,7 @@ import SwiftUI
         var list = [ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: nil),
                     ConsolePadSnapshot(id: "xbox", name: "Xbox Wireless Controller", category: "Xbox One", playerIndex: nil, battery: 0.8)]
         let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false)
         XCTAssertEqual(driver.state.controllers.map(\.id), ["ds4", "xbox"], "both appear together")
         XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
@@ -734,7 +734,7 @@ import SwiftUI
         var wroteOutput = false
         var sent: [(String, Int)] = []
         let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 },
                                        pads: { [ConsolePadSnapshot(id: "g7", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: wroteOutput ? 0.72 : nil)] },
                                        artwork: { _, _ in nil }, observeSystem: false,
@@ -755,7 +755,7 @@ import SwiftUI
         var list: [ConsolePadSnapshot] = []
         var writes: [(String, Int)] = []
         let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false,
                                        playerOutput: { writes.append(($0, $1)) })
         list = [ConsolePadSnapshot(id: "pad", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil)]
@@ -782,7 +782,7 @@ import SwiftUI
     func testSplitJoyConPairDoesNotPingPongSharedHardwarePlayerIndex() {
         var hardwarePlayerIndex: Int? = 1
         var writes: [(String, Int)] = []
-        let layout = ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!)
+        let layout = ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests"))
         let driver = LiveConsoleDriver(
             library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
             controls: layout, repo: { "" }, lang: { .en }, labels: { $0 },

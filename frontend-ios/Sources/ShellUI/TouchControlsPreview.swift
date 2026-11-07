@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreGraphics
 
 /// Where the touch controls sit on an iPhone Pro Max held sideways (932 x 430 points, the side insets of the Dynamic Island and the home
 /// indicator), for the preview in the settings, in the 3D layout so every control shows. It is the engine's geometry for that screen
@@ -47,8 +48,7 @@ struct TouchPadPreviewGeometry: Equatable {
     static func bounds(_ shape: Shape) -> CGRect {
         switch shape {
         case .circle(let c, let r, _), .ring(let c, let r, _): CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
-        case .drop(let c, let r, _, _): CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
-        case .dpad(let c, let r): CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)
+        case .drop, .dpad: PadDrawing.outline(shape).boundingRect
         case .pill(let rect, _): rect
         }
     }
@@ -107,31 +107,43 @@ enum PadDrawing {
     static func outline(_ shape: TouchPadPreviewGeometry.Shape) -> Path {
         switch shape {
         case .circle(let c, let r, _), .ring(let c, let r, _): Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
-        case .drop(let c, let r, let right, _): dropPath(c, r, right)
+        case .drop(let c, let r, let right, let name): dropPath(c, r, right, round: dropRound(r, name))
         case .pill(let rect, _): Path(roundedRect: rect, cornerRadius: rect.height / 2)
         case .dpad(let c, let r): dpadPath(c, r)
         }
     }
 
-    static func dropPath(_ c: CGPoint, _ r: CGFloat, _ right: Bool) -> Path {
-        let angle = right ? -Double.pi / 4 : -3 * Double.pi / 4, d = r * 1.45, th = acos(r / d)
-        var p = Path()
-        p.move(to: CGPoint(x: c.x + d * cos(angle), y: c.y + d * sin(angle)))
-        p.addArc(center: c, radius: r, startAngle: .radians(angle + th), endAngle: .radians(angle - th + 2 * .pi), clockwise: false)
-        p.closeSubpath()
-        return p
+    private static func dropRound(_ r: CGFloat, _ name: String) -> CGFloat {
+        r * 4 / (name == "ZL" || name == "ZR" ? 26 : 24)
+    }
+
+    /// DmGamepad's tangent-rounded teardrop. The radius is 4*u in the engine.
+    static func dropPath(_ c: CGPoint, _ r: CGFloat, _ right: Bool, round: CGFloat) -> Path {
+        let angle: CGFloat = right ? -.pi / 4 : -3 * .pi / 4
+        let d = r * 1.45, th = acos(r / d)
+        let tip = CGPoint(x: c.x + d * cos(angle), y: c.y + d * sin(angle))
+        let p1 = CGPoint(x: c.x + r * cos(angle + th), y: c.y + r * sin(angle + th))
+        let p2 = CGPoint(x: c.x + r * cos(angle - th), y: c.y + r * sin(angle - th))
+        let path = CGMutablePath()
+        path.move(to: p2)
+        path.addArc(tangent1End: tip, tangent2End: p1, radius: round)
+        path.addArc(center: c, radius: r, startAngle: angle + th, endAngle: angle - th + 2 * .pi, clockwise: false)
+        path.closeSubpath()
+        return Path(path)
     }
 
     static func dpadPath(_ c: CGPoint, _ r: CGFloat) -> Path {
-        let w = r * 17 / 48, inner = r * 11 / 48
-        var all = Path()
+        let w = r * 17 / 48, inner = r * 11 / 48, round = r / 8 // 6*u, where the engine's D-pad radius is 48*u
+        let path = CGMutablePath()
         for turn in 0..<4 {
-            var p = Path()
-            p.addLines([CGPoint(x: -w, y: -r), CGPoint(x: w, y: -r), CGPoint(x: w, y: -(inner + w)), CGPoint(x: 0, y: -inner), CGPoint(x: -w, y: -(inner + w))])
-            p.closeSubpath()
-            all.addPath(p.applying(CGAffineTransform(rotationAngle: CGFloat(turn) * .pi / 2).concatenating(CGAffineTransform(translationX: c.x, y: c.y))))
+            let angle = CGFloat(turn) * .pi / 2, cs = cos(angle), sn = sin(angle)
+            let local: [CGPoint] = [CGPoint(x: -w, y: -r), CGPoint(x: w, y: -r), CGPoint(x: w, y: -(inner + w)), CGPoint(x: 0, y: -inner), CGPoint(x: -w, y: -(inner + w))]
+            let v = local.map { CGPoint(x: c.x + $0.x * cs - $0.y * sn, y: c.y + $0.x * sn + $0.y * cs) }
+            path.move(to: CGPoint(x: (v[4].x + v[0].x) / 2, y: (v[4].y + v[0].y) / 2))
+            for i in 0..<5 { path.addArc(tangent1End: v[i], tangent2End: v[(i + 1) % 5], radius: round) }
+            path.closeSubpath()
         }
-        return all
+        return Path(path)
     }
 
     static func draw(_ shape: TouchPadPreviewGeometry.Shape, in context: inout GraphicsContext, style: Style = Style()) {
@@ -148,7 +160,7 @@ enum PadDrawing {
             context.fill(ring, with: .color(style.ring)); context.stroke(ring, with: .color(style.line), lineWidth: style.lineWidth)
             key(Path(ellipseIn: CGRect(x: c.x - knob, y: c.y - knob, width: 2 * knob, height: 2 * knob)))
         case .drop(let c, let r, let right, let name):
-            key(dropPath(c, r, right))
+            key(dropPath(c, r, right, round: dropRound(r, name)))
             label(name, c, r * 0.62)
         case .pill(let rect, let name):
             key(Path(roundedRect: rect, cornerRadius: rect.height / 2))

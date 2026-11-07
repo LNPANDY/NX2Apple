@@ -12,7 +12,7 @@ class Pin(unittest.TestCase):
     def test_the_repository_pin_reads(self):
         pin = nxbuild.read()
         self.assertRegex(pin['version'], r'^\d+\.\d+\.\d+$')
-        self.assertTrue(pin['url'].startswith('https://github.com/v0lumehi/nxbuild/releases/download/v' + pin['version'] + '/'))
+        self.assertTrue(pin['url'].startswith('https://github.com/v0lumehi/nxkit/releases/download/v' + pin['version'] + '/'))
         self.assertTrue(pin['url'].endswith('-macos-arm64.zip'))
         self.assertTrue(pin['sha256'] is None or len(pin['sha256']) == 64)
 

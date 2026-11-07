@@ -20,7 +20,7 @@ import urllib.request
 import zipfile
 
 #: Bump together with each release tag and `AppUpdateStore.appVersion` in Swift.
-APP_VERSION = '1.2.3'
+APP_VERSION = '1.3.0'
 
 LATEST_RELEASE_URL = 'https://api.github.com/repos/LNPANDY/NX2Apple/releases/latest'
 RELEASES_PAGE_URL = 'https://github.com/LNPANDY/NX2Apple/releases/latest'

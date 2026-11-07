@@ -26,7 +26,7 @@ final class BuildTargetTests: IsolatedDefaultsTestCase {
     }
 
     func testTheSavedChoiceIsMigratedAndStoredAgain() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "nspb-target-" + UUID().uuidString))
+        let defaults = TestDefaults.make("nspb-target")
         XCTAssertEqual(BuildTarget.saved(defaults), BuildTarget.ios, "nothing stored yet")
         XCTAssertNil(defaults.string(forKey: "buildTarget"))
         defaults.set("ios-shell", forKey: "buildTarget")

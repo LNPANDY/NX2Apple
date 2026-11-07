@@ -102,7 +102,7 @@ import NXModel
                                             "update": ["Marble Orchard [v9.9.9].nsp"]])
             try JSONEncoder().encode([game]).write(to: file)
             let library = GameLibrary(file: file)
-            for code in ["en", "zh", "de", "fr", "it", "sv"] {
+            for code in Lang.all.map(\.code) {
                 let stores = LauncherStores(localizer: Localizer(Lang(code)), defaults: testDefaults)
                 stores.repo.path = directory.path
                 let view = LauncherView(stores: stores, library: library, performStartupChecks: false)

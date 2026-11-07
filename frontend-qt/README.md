@@ -52,6 +52,9 @@ the bundle's `fonts` folder (`build-qt.yml`). If the file is missing the system 
   recognised from the dump names.
 - Build: runs the same script the SwiftUI app runs, streams its stage lines and log, then packs
   the RomFS archive and reports where the IPA and archive landed.
+- Show in folder follows the selected IPA kind, checking the app bundle inside each candidate
+  IPA. Remembered outputs still work after a folder change or when a profile supplies the filename.
+  Missing files, unrecognized archives and outputs of the other kind are not offered.
 - `--work-dir` is passed only when the checkout's script declares it (an upstream checkout has
   no such option — issue #5).
 - Languages: every language that has a file in `frontend/l10n` (today Chinese, Swedish, German and French)

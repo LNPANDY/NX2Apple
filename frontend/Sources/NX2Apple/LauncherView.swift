@@ -204,7 +204,10 @@ struct LauncherView: View {
         .onAppear {
             gamepad.perform = padAction
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
-            if performStartupChecks { library.migrateLaunchOptions(); library.migrateArtwork(); CloudSavesMigration.run() }
+            if performStartupChecks {
+                library.migrateLaunchOptions(); library.migrateArtwork(); CloudSavesMigration.run()
+                library.syncSharedApp(root: m.shellCachePath)
+            }
             if let slot = qaArtwork, artworkEditor == nil, let game = library.selected { openArtwork(game, slot: slot) }
             if qaManage.open {
                 if qaManage.ring { padFocus.show(default: nil) }
@@ -229,9 +232,13 @@ struct LauncherView: View {
             DispatchQueue.main.async { BuildNotifier.shared.route = nil }
         }
         .onChange(of: library.games) { _ in
+            if performStartupChecks { library.syncSharedApp(root: m.shellCachePath) }
             refreshArtwork()
             readSignatures()
             if performStartupChecks { fetchArtwork() }
+        }
+        .onChange(of: m.shellCachePath) { root in
+            if performStartupChecks { library.syncSharedApp(root: root); readSignatures() }
         }
         .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
@@ -554,6 +561,7 @@ struct LauncherView: View {
             // scan, or from the last build. Falling back to the base's folder would put the update and DLC out of reach.
             m.gameDir = game.sourceFolder.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : game.sourceFolder
         }
+        m.macAppPath = game.appPath
         m.outDir = game.outputDirectory
         m.done = false; m.doneNote = ""; m.stages = []
         m.target = game.lastTarget
@@ -688,13 +696,13 @@ struct LauncherView: View {
         } catch { launchError = error.localizedDescription }
     }
 
-    /// The installed apps' profile expiries, read in the background: `security cms` per app, so not in a view body.
+    /// The installed apps' profile expiries, read in the background: `security cms` per unique app path, so not in a view body.
     private func readSignatures() {
         let apps = library.games.filter(\.onDevice).map { ($0.id, $0.iosAppPath) }
         guard !apps.isEmpty else { signatureExpiry = [:]; return }
+        let runner = stores.runner
         DispatchQueue.global(qos: .utility).async {
-            var found: [UUID: Date] = [:]
-            for (id, path) in apps { if let date = AppSignature.expiration(ofApp: path, runner: stores.runner) { found[id] = date } }
+            let found = AppSignature.expirations(ofApps: apps, runner: runner)
             DispatchQueue.main.async { signatureExpiry = found }
         }
     }
@@ -705,14 +713,18 @@ struct LauncherView: View {
         resignNote = nil
         m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
             resignNote = m.doneNote
-            signatureExpiry[game.id] = AppSignature.expiration(ofApp: game.iosAppPath, runner: stores.runner)
+            if !m.installedOn.isEmpty { library.recordSharedAppInstalled(app: m.installedAppPath, device: m.installedOn) }
+            readSignatures()
         }
     }
 
     private func recordBuild() {
         guard m.done, let id = activeBuildID else { return }
         if m.target == BuildTarget.mac { library.recordCompletedApp(path: m.macAppPath, commit: buildCommit, for: id) }
-        else { library.recordCompletedIOS(archive: m.archivePath, app: m.installedAppPath, device: m.installedOn, commit: buildCommit, for: id) }
+        else {
+            library.recordCompletedIOS(archive: m.archivePath, app: m.installedAppPath, device: m.installedOn, commit: buildCommit, for: id)
+            readSignatures()
+        }
         refreshArtwork()
         if performStartupChecks { checkTools() }
     }

@@ -40,7 +40,7 @@ public struct GamePadMapStore {
     /// The rows of the game's mapping card. A row that follows the shell's map holds "follow". The swap holds "custom" while
     /// A and B are changed to something that is neither the swap nor explicitly off: no segment is chosen then.
     public func section() -> SettingSection {
-        let follow = SettingOption("follow", hostText("Same as all games"))
+        let follow = SettingOption("follow", hostText("Default"))
         let rows = [SettingRow(id: "pad.swapAB", label: hostText("Swap A and B"),
                                kind: .choice([follow, SettingOption("on", hostText("On")), SettingOption("off", hostText("Off"))]),
                                value: swapValue, fromShell: swapValue == "follow")]

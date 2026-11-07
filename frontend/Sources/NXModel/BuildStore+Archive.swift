@@ -74,7 +74,7 @@ extension BuildStore {
         // main.m takes Documents/games/<id>/romfs.img before romfs/, so a stale archive would sit
         // there confusingly.
         for old in ((try? fm.contentsOfDirectory(atPath: dest)) ?? [])
-        where old == "romfs.img" || old == "romfs.idx" || (old.hasPrefix("romfs.") && old.dropFirst(6).allSatisfy(\.isNumber)) {
+        where old == "romfs.img" || old == "romfs.img.id" || old == "romfs.idx" || (old.hasPrefix("romfs.") && old.dropFirst(6).allSatisfy(\.isNumber)) {
             try? fm.removeItem(atPath: dest + "/" + old)
         }
         let idx = 1000
@@ -94,6 +94,7 @@ extension BuildStore {
                let a = src[.size] as? Int64, let b = have[.size] as? Int64, a == b,
                let da = src[.modificationDate] as? Date, let db = have[.modificationDate] as? Date,
                abs(da.timeIntervalSince(db)) < 1 {
+                RomFSArchive.copyImageIdentity(of: romfsImage, to: to)   // an image copied before identity files gains one
                 stages.append(Stage(id: idx, name: t("prog.archive"), state: .done,
                                     detail: String(format: t("prog.archiveReused"), 1)))
                 say(String(format: t("msg.archiveReused"), dest))
@@ -104,6 +105,8 @@ extension BuildStore {
             try? fm.removeItem(atPath: to)
             do {
                 try fm.copyItem(atPath: romfsImage, toPath: to)
+                // Its identity goes along: a Mac build of this game takes the image from here instead of extracting it again (#708)
+                RomFSArchive.copyImageIdentity(of: romfsImage, to: to)
                 // The running stage is updated in place: there is no process here whose progress
                 // events would move it, and appending a second stage of the same name read as a
                 // duplicate in the stage list.

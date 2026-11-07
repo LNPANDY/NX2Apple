@@ -7,14 +7,8 @@ import XCTest
 /// reads a real controller.
 final class ControlPresetsTests: IsolatedDefaultsTestCase {
     private var defaults: UserDefaults!
-    private let suite = "nxnative-control-presets-tests"
 
-    override func setUp() {
-        defaults = UserDefaults(suiteName: suite)
-        defaults.removePersistentDomain(forName: suite)
-    }
-
-    override func tearDown() { defaults.removePersistentDomain(forName: suite) }
+    override func setUp() { defaults = TestDefaults.make("nxnative-control-presets-tests") }
 
     private func layout(_ category: String? = nil) -> ControlLayout {
         let l = ControlLayout(defaults: defaults)

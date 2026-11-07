@@ -5,7 +5,6 @@ import XCTest
 /// `DeviceStore` without SwiftUI: the listings are closures that answer from the test and the defaults are a suite of their own.
 /// Nothing reaches devicectl or the keychain of this Mac. The copy question is answered from the test the way the card does it.
 @MainActor final class DeviceStoreTests: XCTestCase {
-    private var suite: String!
     private var defaults: UserDefaults!
     private let runner = FakeProcessRunner()
     private let phone = AppleDevice(id: "UDID-1", name: "Jo's iPhone", model: "iPhone 17", os: "27.0", reachable: true, transport: "wired")
@@ -13,12 +12,7 @@ import XCTest
     private let freeTeam = SigningTeam(id: "FGHIJ67890", identity: "", name: "Jo Doe", personal: true)
 
     override func setUpWithError() throws {
-        suite = "nxmodel-device-tests-" + UUID().uuidString
-        defaults = UserDefaults(suiteName: suite)
-    }
-
-    override func tearDownWithError() throws {
-        defaults.removePersistentDomain(forName: suite)
+        defaults = TestDefaults.make("nxmodel-device-tests")
     }
 
     private func makeStore(devices: [AppleDevice]? = nil, teams: [SigningTeam]? = nil, xcrun: String = "/fake/xcrun") -> DeviceStore {

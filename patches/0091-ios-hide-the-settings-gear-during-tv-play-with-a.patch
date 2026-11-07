@@ -1,0 +1,193 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: thehobbit85 <thehobbit85@gmail.com>
+Date: Fri, 6 Nov 2026 04:21:59 -0800
+Subject: [PATCH] iOS: hide the settings gear during TV play with a controller
+
+Use the layout selected after the game view moves and the active controller state so disconnecting either restores the touch menu. Check both connection orders, hit testing and mapped controller input in the iOS harness.
+
+Upstream-Status: forwarded seedds/nxnative#1485
+Reason: Hide the in-game menu gear only while a controller is in use and the game picture is on the TV.
+Issue: LNPANDY/NX2Apple#809
+---
+ dm/ios/Sources/DmGamepad.m                 | 14 +++++++---
+ dm/ios/Sources/DmLayout.h                  |  6 ++---
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |  7 +++++
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m   | 30 ++++++++++++++++++++++
+ docs/reference/rendering.md                |  2 +-
+ docs/settings.md                           |  4 +--
+ 6 files changed, 53 insertions(+), 10 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 19c3501..58f7662 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -1,6 +1,6 @@
+ // Virtual gamepad (Nintendo button positions) + physical controllers (GameController), handed to the host through dm_input_set and dm_pad_set_player (hle_hid.c, bit layout in dm_input.h).
+ //   Two layouts, three in handheld mode, picked in the in-game menu (GameMenu.swift) that the menu button at the top centre (a gear) opens; the choice is kept in NSUserDefaults (each game is its own app, so per game); the first launch uses the game profile's pad_layout (DM_GAME_PAD_LAYOUT).
+-//   The menu button stays while a physical controller is connected, so the menu is there in every layout and with every controller. Its last item quits the game
++//   The menu button hides when a physical controller is in use and the picture is on a TV. Its last item quits the game
+ //     (a prompt, front_ios.m), and so does holding a controller's Home button for 2 seconds.
+ //   Tap (touch): no control but the menu button, every other touch goes to the game's local touch viewport; offered only while the game is in handheld mode, the only one in which it reads the touch screen (Balatro, played by touch).
+ //   2D (simple): top corners ZL above L (one column), ZR above R likewise, teardrops with the tip toward the screen corner; − and + side by side at the top centre; the left stick in the bottom-left corner (fixed ring, tilt measured from the ring centre, small dead zone);
+@@ -15,7 +15,7 @@
+ //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
+ //   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium) and the left stick's place through DM_TOUCH_STICK (corner, higher, inward).
+ //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
+-//   The virtual gamepad (all but the menu button) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
++//   The touch sticks and keys hide while a physical controller is connected and return when it is removed. Unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
+ //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
+ //   Shaking the phone shakes the controller (DM_BTN_SHAKE: its six-axis sensor, hle_hid.c), whichever controls are in use; see "Shaking the phone" below.
+ #import <UIKit/UIKit.h>
+@@ -276,9 +276,11 @@ - (void)setTouchFeedback:(BOOL)on {
+ // ---- Layout (points; computed inside the safe area) ----
+ - (void)arrange:(DmLayout)layout {
+     if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated
+-        && _layout.topSafeOnly == layout.topSafeOnly && _layout.customControlsFullBounds == layout.customControlsFullBounds) return;
++        && _layout.topSafeOnly == layout.topSafeOnly && _layout.customControlsFullBounds == layout.customControlsFullBounds
++        && _layout.onTV == layout.onTV) return;
+     [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
+     _layout = layout; _geoValid = NO;
++    [self updateControlVisibility];
+     [self setNeedsLayout];
+ }
+ - (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the bounds, the safe area, the split or the layout changed
+@@ -662,11 +664,15 @@ static BOOL pads_slotted(GCController *gone) {
+     dm_pad_players(pad_slot_mask(&g_slots));
+     return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
+ }
++- (void)updateControlVisibility {
++    _controls.hidden = _padOff;
++    _menu.hidden = _padOff && _layout.onTV;
++}
+ - (void)padsChanged:(NSNotification *)note {
+     GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
+     if (c && (!c.extendedGamepad || g_merge)) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
+     BOOL any = g_merge ? pads_merged(gone) : pads_slotted(gone);
+-    dispatch_async(dispatch_get_main_queue(), ^{ self->_padOff = any; self->_controls.hidden = any; [self reset]; front_ios_quit_controllers(); });   // the touch gamepad hides while any controller is in use
++    dispatch_async(dispatch_get_main_queue(), ^{ self->_padOff = any; [self updateControlVisibility]; [self reset]; front_ios_quit_controllers(); });   // the touch gamepad hides while any controller is in use
+ }
+ @end
+ 
+diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
+index bfc19b7..3301c55 100644
+--- a/dm/ios/Sources/DmLayout.h
++++ b/dm/ios/Sources/DmLayout.h
+@@ -5,7 +5,7 @@
+ 
+ NS_ASSUME_NONNULL_BEGIN
+ 
+-typedef struct { CGRect game, controls; BOOL separated, topSafeOnly, customControlsFullBounds; } DmLayout;
++typedef struct { CGRect game, controls; BOOL separated, topSafeOnly, customControlsFullBounds, onTV; } DmLayout;
+ 
+ static inline BOOL dm_layout_custom_controls_full_bounds(CGRect bounds, BOOL hingeClosed) {
+     return hingeClosed && bounds.size.width > bounds.size.height;
+@@ -50,7 +50,7 @@ static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
+ }
+ 
+ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOpen, CGRect division, CGFloat aspect) {
+-    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO, NO };
++    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO, NO, NO };
+     if (CGRectIsEmpty(b)) return l;
+     division = dm_horizontal_division(b, division);
+     BOOL portrait = b.size.height > b.size.width;
+@@ -67,7 +67,7 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
+ }
+ 
+ // The picture is on a TV (front_ios.m DmTVSceneDelegate): the controls take the whole view and no touch goes to the game's touch screen (the game is docked there).
+-static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO, NO }; }
++static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO, NO, YES }; }
+ 
+ // Fill covers the full view only in the overlay layout (landscape). A portrait or tabletop split keeps the picture fitted in its
+ // area above the controls, where cropping a small picture would cost more than the bars.
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 500e86f..418d0ec 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -105,6 +105,13 @@ void dm_haptics_apple_init(void) {}
+ void dm_haptics_apple_controller(int player, GCController *controller) { (void)player; (void)controller; }
+ void dm_haptics_apple_controller_locality(int player, GCController *controller, GCHapticsLocality locality) { (void)player; (void)controller; (void)locality; }
+ 
++int front_web_touch(void) { return 0; }   // no offline web page above the synthetic game
++int dm_locate_game_data(void) { return 1; }
++const struct dm_profile *dm_profile(void) {
++    static const struct dm_profile profile = {.name = "DuoHarness", .pad_layout = DM_GAME_PAD_LAYOUT};
++    return &profile;
++}
++
+ int front_ios_boot_ok(void) { return 1; }
+ void front_ios_boot(void) {}
+ bool dm_show_launcher(void *viewController, void (*done)(void)) { (void)viewController; (void)done; return false; }
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+index 641d8f5..1241c54 100644
+--- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+@@ -1246,6 +1246,36 @@ - (void)testPoseChangeReleasesHeldButtonAndGameTouch {
+     [self endTouches:@[video, button] onPad:pad cancelled:NO];
+ }
+ 
++- (void)testMenuButtonFollowsTheGameViewAndTheController {
++    UIViewController *root = [self harnessRootViewController];
++    UIView *game = [root valueForKey:@"game"], *pad = [root valueForKey:@"pad"];
++    UIButton *menu = [self menuButtonInPad:pad];
++    UIView *tv = [[UIView alloc] initWithFrame:root.view.bounds];
++    GCController *controller = [GCController controllerWithExtendedGamepad];
++    @try {
++        // The TV scene moves the same game view into its own view hierarchy.
++        [tv addSubview:game]; [root.view setNeedsLayout]; [root.view layoutIfNeeded];
++        XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"A touch-only player still has the menu on TV");
++        [self setHarnessControllers:@[controller] notification:GCControllerDidConnectNotification];
++        [self waitForView:menu hidden:YES];
++        XCTAssertNotEqual([pad hitTest:menu.center withEvent:nil], menu);
++        [self deliverSnapshotChangeFor:controller button:controller.extendedGamepad.buttonB value:1];
++        XCTAssertEqual(duo_harness_state().players[0].buttons, DM_BTN_A);
++
++        [root.view insertSubview:game atIndex:0]; [root.view setNeedsLayout]; [root.view layoutIfNeeded];
++        XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"The gear returns even with the controller still connected");
++        XCTAssertEqual(duo_harness_state().players[0].buttons, DM_BTN_A);
++        [tv addSubview:game]; [root.view setNeedsLayout]; [root.view layoutIfNeeded];
++        XCTAssertTrue(menu.hidden, @"The TV can also connect after the controller");
++        [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
++        [self waitForView:menu hidden:NO];
++        XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu);
++    } @finally {
++        [root.view insertSubview:game atIndex:0]; [root.view setNeedsLayout]; [root.view layoutIfNeeded];
++        [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
++    }
++}
++
+ - (void)testConnectedVirtualControllerKeepsVideoTouchAndMapsPhysicalButtons {
+     if (@available(iOS 17.0, *)) {
+         [self setHarnessControllers:nil notification:nil];
+diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
+index 95271ae..17e2eef 100644
+--- a/docs/reference/rendering.md
++++ b/docs/reference/rendering.md
+@@ -1533,7 +1533,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+ 
+ - **Symptom:** portrait gameplay overlaps the touch controls, touch coordinates land outside the game picture, or a TV's picture renders at 4K again after a layout pass.
+ - **Cause:** the front end assumed a landscape screen with the controls over the whole view, so its picture and touch geometry did not follow a portrait screen (an iPad, an iPhone Duo's inner display) or a Duo's fold. On iPadOS the deprecated `UIRequiresFullScreen` kept the game out of resizable windows, and a native rotation A/B on the iPhone Duo iOS 27.1 simulator showed that it also blocked upside-down portrait.
+-- **Fix:** `dm/ios/Sources/DmLayout.h` computes the picture and controls rectangles from the view's bounds, its safe area and UIKit's division region (`UIHingeInteraction`, iOS 27.1); front_ios.m lays the views out from them and DmGamepad.m its controls. Landscape keeps the overlay unless the hinge is half open over a horizontal division; portrait puts a fitted 16:9 picture above the controls, at the division or the midpoint. On a Duo in portrait only the top safe-area inset applies. Game touches map through the picture rectangle (with [Fill](../settings.md#picture), larger than the view), and a layout change releases held inputs. The phone's orientation list stays landscape (the Duo's inner display follows its bounds), the iPad's has all four and no `UIRequiresFullScreen`. While a TV shows the picture the phone is all controls (`dm_layout_pad_only`). The drawable's scale is set in one place, `DmGameView layoutSubviews`: the screen's pixels, at most `maxPixelWidth` across, which the TV sets to 1920, so a later layout pass cannot undo the TV's 1080p cap.
++- **Fix:** `dm/ios/Sources/DmLayout.h` computes the picture and controls rectangles from the view's bounds, its safe area and UIKit's division region (`UIHingeInteraction`, iOS 27.1); front_ios.m lays the views out from them and DmGamepad.m its controls. Landscape keeps the overlay unless the hinge is half open over a horizontal division; portrait puts a fitted 16:9 picture above the controls, at the division or the midpoint. On a Duo in portrait only the top safe-area inset applies. Game touches map through the picture rectangle (with [Fill](../settings.md#picture), larger than the view), and a layout change releases held inputs. The phone's orientation list stays landscape (the Duo's inner display follows its bounds), the iPad's has all four and no `UIRequiresFullScreen`. While a TV shows the picture the phone uses the controls-only layout (`dm_layout_pad_only`). A connected gamepad hides both the touch controls and the gear in this layout. The drawable's scale is set in one place, `DmGameView layoutSubviews`: the screen's pixels, at most `maxPixelWidth` across, which the TV sets to 1920, so a later layout pass cannot undo the TV's 1080p cap.
+ - **Check:** the [Duo harness](../../dm/ios/tests/duo/README.md) tests layout, hit targets, touches, the in-game menu's live settings and the drawable cap in the Simulator with synthetic host state. A physical Duo was tested by the PR #683 author on their fork; full-game tests on a physical iPad and a Duo with this repository's build are open.
+ - **Found on:** [Pokémon Brilliant Diamond](../../dm/games/0100000011D90000/README.md).
+ 
+diff --git a/docs/settings.md b/docs/settings.md
+index f2bf1ea..f19ca21 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -241,13 +241,13 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
+ 
+ ## In-game menu
+ 
+-On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs; it stays when a controller hides the other controls. It holds **Console mode**, **Picture** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
++On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. It holds **Console mode**, **Picture** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
+ 
+ Console mode changes as on a Switch put in or taken out of its dock. While a TV shows the game it stays **Docked**, and the mode you pick applies when the TV is disconnected. **Docked** removes the Tap layout, as a docked Switch reads no touch screen.
+ 
+ ## TV
+ 
+-Connect a TV or monitor by cable, or start Screen Mirroring to an Apple TV or AirPlay TV. The game fills it in 16:9 at up to 1080p and switches to **Docked**; the iPhone or iPad keeps the controls. Disconnect to bring the game back to the device in its earlier mode. AirPlay adds some delay; a cable has almost none.
++Connect a TV or monitor by cable, or start Screen Mirroring to an Apple TV or AirPlay TV. The game fills it in 16:9 at up to 1080p and switches to **Docked**. The iPhone or iPad keeps its touch controls. With a physical controller connected, the touch controls and settings gear hide. Disconnect the controller to use touch again, or disconnect the TV to bring the picture and gear back to the device in its earlier mode. AirPlay adds some delay; a cable has almost none.
+ 
+ ## Settings in a file
+ 

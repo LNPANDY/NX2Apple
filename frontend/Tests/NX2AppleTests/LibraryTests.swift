@@ -15,13 +15,12 @@ import NXModel
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     }
 
-    /// Every test app carries this bundle ID, so a saved choice goes to a preferences domain of this run and never to a real game's.
-    private var bundleID: String { "org.nxnative.frontendtests." + temporary.lastPathComponent }
+    /// Every test app carries this bundle ID, so a saved choice goes to a preferences domain of this run and never to a real game's,
+    /// a plist in the test's folder (`TestPreferences`).
+    private var bundleID: String { TestPreferences.domain(in: temporary, "library") }
 
     override func tearDownWithError() throws {
-        let domain = bundleID as CFString
-        for key in (CFPreferencesCopyKeyList(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] { CFPreferencesSetAppValue(key as CFString, nil, domain) }
-        CFPreferencesAppSynchronize(domain)
+        CFPreferencesAppSynchronize(bundleID as CFString)
         try FileManager.default.removeItem(at: temporary)
     }
 
@@ -40,13 +39,12 @@ import NXModel
 
     /// The library opens on the player's own games: Owned is the default, also for the "all" an earlier build may have stored.
     func testLibraryFilterDefaultsToOwned() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "nxnative-tests-filter-" + temporary.lastPathComponent))
+        let defaults = TestDefaults.make("nxnative-tests-filter")
         XCTAssertEqual(LibraryFilter.load(defaults), .owned)
         defaults.set("all", forKey: "libraryFilter")
         XCTAssertEqual(LibraryFilter.load(defaults), .owned)
         LibraryFilter.built.save(defaults)
         XCTAssertEqual(LibraryFilter.load(defaults), .built)
-        defaults.removePersistentDomain(forName: "nxnative-tests-filter-" + temporary.lastPathComponent)
     }
 
     func testLibraryTitleOrderUsesNumbersAndKeepsSelection() {
@@ -674,6 +672,37 @@ import NXModel
         XCTAssertEqual(hades.inputs["dlc"]?.map(Self.canon), [Self.canon(flat.appendingPathComponent(files[2]).path)])
     }
 
+    func testAScanRetainsCollectionEnumerationWhenRootHoldsANUPBesideAGameFolder() throws {
+        let fm = FileManager.default
+        let collection = temporary.appendingPathComponent("Collection")
+        let nupURL = collection.appendingPathComponent("GameA.nup")
+        let dumpB = collection.appendingPathComponent("DumpB")
+        try fm.createDirectory(at: dumpB.appendingPathComponent("base/exefs"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: dumpB.appendingPathComponent("base/romfs"), withIntermediateDirectories: true)
+
+        var nup = [UInt8](repeating: 0, count: 0x80 + 0x30 + 0x40)
+        func put(_ o: Int, _ v: UInt64, _ n: Int) { for i in 0..<n { nup[o + i] = UInt8(v >> (8 * UInt64(i)) & 0xFF) } }
+        nup.replaceSubrange(0..<4, with: [0x4E, 0x55, 0x50, 0x01])
+        put(0x08, 0x80, 8); put(0x40, UInt64(nup.count), 8); put(0x48, 1, 4)
+        nup.replaceSubrange(0x80..<0x84, with: [0x54, 0x4F, 0x43, 0x01])
+        put(0xB0, 0x040074A01BF12000, 8)
+        try Data(nup).write(to: nupURL)
+        try GameFolderCaptureTests.npdm(programID: 0x0400A3A01EE4C000).write(to: dumpB.appendingPathComponent("base/exefs/main.npdm"))
+
+        for root in [collection, temporary!] {
+            XCTAssertEqual(GameFolder.resolve(root.path), root.path, "failed for \(root.path)")
+            XCTAssertFalse(GameFolder.isCandidate(root.path), "failed for \(root.path)")
+            let games = GameLibrary.sourceGames(in: root, repo: "")
+            XCTAssertEqual(Set(games.map(\.titleID)), ["040074A01BF12000", "0400A3A01EE4C000"], "failed for \(root.path)")
+            let gameA = try XCTUnwrap(games.first { $0.titleID == "040074A01BF12000" })
+            let gameB = try XCTUnwrap(games.first { $0.titleID == "0400A3A01EE4C000" })
+            XCTAssertEqual(Self.canon(gameA.sourceFolder), Self.canon(collection.path))
+            XCTAssertEqual(gameA.inputs[GameLibrary.folderInput]?.map(Self.canon), [Self.canon(nupURL.path)])
+            XCTAssertEqual(Self.canon(gameB.sourceFolder), Self.canon(dumpB.path))
+            XCTAssertEqual(gameB.inputs[GameLibrary.folderInput]?.map(Self.canon), [Self.canon(dumpB.path)])
+        }
+    }
+
     func testReadOnlyScanOfConfiguredFolder() throws {
         guard let path = ProcessInfo.processInfo.environment["NX_LAUNCHER_SCAN_FOLDER"] else { throw XCTSkip("Set NX_LAUNCHER_SCAN_FOLDER for a read-only scan of real builds") }
         let apps = GameLibrary.builtApps(in: URL(fileURLWithPath: path))
@@ -1071,10 +1100,7 @@ import NXModel
             window.orderOut(nil)
         }
         do {   // the Controls sheet with a few changes, kept in a suite of its own
-            let suite = "nxnative-visual-qa-controls"
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-            defaults.removePersistentDomain(forName: suite)
-            defer { defaults.removePersistentDomain(forName: suite) }
+            let defaults = TestDefaults.make("nxnative-visual-qa-controls")
             let layout = ControlLayout(defaults: defaults)
             if let up = ControlLayout.functions.first(where: { $0.id == "RUp" }) { layout.assign(up, key: 34) }
             layout.setSends("A", "B"); layout.setSends("B", "A")
@@ -1135,10 +1161,7 @@ import NXModel
         // ---- Controller layouts (#70): the Controls sheet scrolled to the layout by the controller's focus, Auto with a
         // stand-in Xbox controller, then By label with none connected (a suite of its own; no real controller is read) ----
         do {
-            let suite = "nxnative-visual-qa-control-presets"
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-            defaults.removePersistentDomain(forName: suite)
-            defer { defaults.removePersistentDomain(forName: suite) }
+            let defaults = TestDefaults.make("nxnative-visual-qa-control-presets")
             for (name, mode, category) in [("controls-layout-auto", PadMode.auto, "Xbox One" as String?), ("controls-layout-bylabel", .byLabel, nil)] {
                 let layout = ControlLayout(defaults: defaults)
                 layout.controllerCategory = { category }
@@ -1312,5 +1335,115 @@ import NXModel
         try FileManager.default.createDirectory(at: extract.appendingPathComponent("v1").appendingPathComponent("RomFS"),
                                                 withIntermediateDirectories: true)
         XCTAssertEqual(RomFSArchive.extractedVersion(in: extract.path), "v1")
+    }
+
+    func testSharedShellInstallAndSyncPropagateToAllShellGames() throws {
+        let shellRoot = temporary.appendingPathComponent("shell")
+        let shellApp = shellRoot.appendingPathComponent("derived-data/Build/Products/Release-iphoneos/DmShell.app")
+        try FileManager.default.createDirectory(at: shellApp, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: shellApp.appendingPathComponent("Info.plist"))
+        try Data("profile".utf8).write(to: shellApp.appendingPathComponent("embedded.mobileprovision"))
+        try ShellLibrary(games: [
+            ShellLibrary.Game(titleID: "0100CD801CE5E000", name: "Balatro", framework: "DmGame0100CD801CE5E000.framework"),
+            ShellLibrary.Game(titleID: "0100E65002BB8000", name: "Stardew Valley", framework: "DmGame0100E65002BB8000.framework"),
+        ]).save(root: shellRoot.path)
+
+        let file = temporary.appendingPathComponent("library.json")
+        let g1 = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        let g2 = LibraryGame(titleID: "0100E65002BB8000", name: "Stardew Valley")
+        let g3 = LibraryGame(titleID: "01007EF00011E000", name: "Breath of the Wild")
+        try JSONEncoder().encode([g1, g2, g3]).write(to: file)
+
+        let library = GameLibrary(file: file)
+        library.recordCompletedIOS(archive: "", app: shellApp.path, device: "00008150-TESTDEVICE", for: g1.id)
+        XCTAssertEqual(library.games[0].iosAppPath, shellApp.path)
+        XCTAssertEqual(library.games[0].installedDevice, "00008150-TESTDEVICE")
+        XCTAssertEqual(library.games[1].iosAppPath, shellApp.path, "other games in shell.json share DmShell.app")
+        XCTAssertEqual(library.games[1].installedDevice, "00008150-TESTDEVICE")
+        XCTAssertEqual(library.games[2].iosAppPath, "", "a game outside shell.json is untouched")
+
+        library.recordSharedAppInstalled(app: shellApp.path, device: "00008150-SECOND")
+        XCTAssertEqual(library.games[0].installedDevice, "00008150-SECOND")
+        XCTAssertEqual(library.games[1].installedDevice, "00008150-SECOND")
+
+        // If an external tool cleared iosAppPath on one of the shared-shell games while a peer entry kept its provenance, syncSharedApp restores it.
+        var cleared = library.games
+        cleared[1].iosAppPath = ""
+        cleared[1].installedDevice = ""
+        try JSONEncoder().encode(cleared).write(to: file)
+        let reloaded = GameLibrary(file: file)
+        XCTAssertFalse(reloaded.games[1].onDevice)
+        reloaded.syncSharedApp(root: shellRoot.path)
+        XCTAssertTrue(reloaded.games[1].onDevice)
+        XCTAssertEqual(reloaded.games[1].iosAppPath, shellApp.path)
+        XCTAssertEqual(reloaded.games[1].installedDevice, "00008150-SECOND")
+    }
+
+    func testSyncSharedAppDoesNotInferInstallFromSignedLocalAppAfterFailedInstall() throws {
+        let shellRoot = temporary.appendingPathComponent("shell-failed-install")
+        let shellApp = shellRoot.appendingPathComponent("derived-data/Build/Products/Release-iphoneos/DmShell.app")
+        try FileManager.default.createDirectory(at: shellApp, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: shellApp.appendingPathComponent("Info.plist"))
+        // Signing succeeded and shell.json was saved before devicectl failed, leaving embedded.mobileprovision on disk.
+        try Data("profile".utf8).write(to: shellApp.appendingPathComponent("embedded.mobileprovision"))
+        try ShellLibrary(games: [
+            ShellLibrary.Game(titleID: "0100CD801CE5E000", name: "Balatro", framework: "DmGame0100CD801CE5E000.framework"),
+        ]).save(root: shellRoot.path)
+
+        let ipa = temporary.appendingPathComponent("Balatro.ipa")
+        try Data("ipa".utf8).write(to: ipa)
+
+        let file = temporary.appendingPathComponent("library.json")
+        var uninstalled = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        uninstalled.ipaPath = ipa.path
+        try JSONEncoder().encode([uninstalled]).write(to: file)
+
+        let library = GameLibrary(file: file)
+        library.syncSharedApp(root: shellRoot.path)
+        XCTAssertFalse(library.games[0].onDevice, "a signed local DmShell.app without recorded install provenance must not mark the game as installed")
+        XCTAssertEqual(library.games[0].installedDevice, "")
+        XCTAssertEqual(library.games[0].iosAppPath, "")
+        XCTAssertEqual(library.games[0].ipaPath, ipa.path, "remembered IPA path must not be cleared when the shared app was never installed")
+    }
+
+    func testSyncSharedAppDoesNotMarkNewGameInstalledWhenItsDeviceInstallFailedAfterEarlierPeerSucceeded() throws {
+        let shellRoot = temporary.appendingPathComponent("shell-partial-install")
+        let shellApp = shellRoot.appendingPathComponent("derived-data/Build/Products/Release-iphoneos/DmShell.app")
+        try FileManager.default.createDirectory(at: shellApp, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: shellApp.appendingPathComponent("Info.plist"))
+        try Data("profile".utf8).write(to: shellApp.appendingPathComponent("embedded.mobileprovision"))
+
+        let ipaB = temporary.appendingPathComponent("Stardew.ipa")
+        try Data("ipa".utf8).write(to: ipaB)
+
+        let file = temporary.appendingPathComponent("library.json")
+        let gameA = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        var gameB = LibraryGame(titleID: "0100E65002BB8000", name: "Stardew Valley")
+        gameB.ipaPath = ipaB.path
+        try JSONEncoder().encode([gameA, gameB]).write(to: file)
+
+        // 1. Install game A successfully.
+        let entryA = ShellLibrary.Game(titleID: "0100CD801CE5E000", name: "Balatro", framework: "DmGame0100CD801CE5E000.framework")
+        let entryB = ShellLibrary.Game(titleID: "0100E65002BB8000", name: "Stardew Valley", framework: "DmGame0100E65002BB8000.framework")
+        try ShellLibrary(games: [entryA]).save(root: shellRoot.path)
+        let library = GameLibrary(file: file)
+        library.recordCompletedIOS(archive: "", app: shellApp.path, device: "EXISTING-DEVICE", for: gameA.id)
+        XCTAssertTrue(library.games[0].onDevice)
+        XCTAssertFalse(library.games[1].onDevice)
+        XCTAssertEqual(library.games[1].ipaPath, ipaB.path)
+
+        // 2. Build B so the current shared shell.json contains A and B, but let B's device install fail.
+        try ShellLibrary(games: [entryA, entryB]).save(root: shellRoot.path)
+
+        // 3. Restart the launcher.
+        let relaunched = GameLibrary(file: file)
+        relaunched.syncSharedApp(root: shellRoot.path)
+        XCTAssertTrue(relaunched.games[0].onDevice)
+        XCTAssertEqual(relaunched.games[0].installedDevice, "EXISTING-DEVICE")
+        XCTAssertEqual(relaunched.games[0].iosAppPath, shellApp.path)
+        XCTAssertFalse(relaunched.games[1].onDevice, "B's failed device install must not be marked installed from A's earlier receipt")
+        XCTAssertEqual(relaunched.games[1].installedDevice, "")
+        XCTAssertEqual(relaunched.games[1].iosAppPath, "")
+        XCTAssertEqual(relaunched.games[1].ipaPath, ipaB.path, "B's remembered IPA must stay intact after a failed device install")
     }
 }

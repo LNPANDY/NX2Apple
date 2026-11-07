@@ -19,9 +19,8 @@ import XCTest
     }
     private func launch(_ arguments: [String]) {
         app.terminate()
-        // TEST_RUNNER_SHOT_REAL_ART=1: the demo reads real game art from the host (see RealArt.swift).
         let language = ProcessInfo.processInfo.environment["SHOT_LANG"] ?? ""   // TEST_RUNNER_SHOT_LANG=zh-Hans
-        app.launchArguments = arguments + (language.isEmpty ? [] : ["-AppleLanguages", "(\(language))"]) + ((ProcessInfo.processInfo.environment["SHOT_REAL_ART"] ?? "").isEmpty ? [] : ["--real-art"])
+        app.launchArguments = arguments + (language.isEmpty ? [] : ["-AppleLanguages", "(\(language))"])
         app.launch()
         _ = app.buttons["controllers.open"].firstMatch.waitForExistence(timeout: 10)
             || app.buttons["controllers.close"].waitForExistence(timeout: 2)

@@ -27,6 +27,12 @@
             "value": "“%@” non è un interruttore DM_."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "\"%@\" は DM_ スイッチではありません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -65,6 +71,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ (dalle Impostazioni)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（共通設定）"
           }
         },
         "sv": {
@@ -107,6 +119,12 @@
             "value": "%@ compare due volte in launcher.json."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ が launcher.json に 2 回出てきます。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -145,6 +163,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ ha un valore errato o mancante in “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の \"%@\" の値が正しくないか、ありません。"
           }
         },
         "sv": {
@@ -187,6 +211,12 @@
             "value": "%@ non ha “%@” (in %@)."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に \"%@\" がありません（%@ 内）。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -225,6 +255,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ non ha “%@”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に \"%@\" がありません。"
           }
         },
         "sv": {
@@ -267,6 +303,12 @@
             "value": "%@ non ha un game.manifest.json."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に game.manifest.json がありません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -305,6 +347,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ ha lo stesso ID titolo %@ di %@, che viene usato al suo posto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のタイトル ID %@ は %@ と同じです。そちらが代わりに使われます。"
           }
         },
         "sv": {
@@ -347,6 +395,12 @@
             "value": "%@ ha il tipo sconosciuto “%@”."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の種類 \"%@\" は不明です。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -385,6 +439,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ è una scelta senza opzioni [value, label]."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は選択肢ですが、[value, label] のオプションがありません。"
           }
         },
         "sv": {
@@ -427,6 +487,12 @@
             "value": "%@ è un intervallo senza min, max e step."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は範囲ですが、min、max、step がありません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -465,6 +531,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ non è nella cartella di questo gioco. Installa di nuovo il gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ がこのゲームのフォルダにありません。ゲームをもう一度インストールしてください。"
           }
         },
         "sv": {
@@ -507,6 +579,12 @@
             "value": "%@ non è un JSON valido."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は正しい JSON ではありません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -545,6 +623,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld contenuti aggiuntivi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加コンテンツ %lld 個"
           }
         },
         "sv": {
@@ -587,6 +671,12 @@
             "value": "1 contenuto aggiuntivo"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加コンテンツ 1 個"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -625,6 +715,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Impossibile leggere questo gioco"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームを読み込めません"
           }
         },
         "sv": {
@@ -667,6 +763,12 @@
             "value": "Annulla"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャンセル"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -705,6 +807,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scegli una cartella RomFS o un file romfs.img su questo dispositivo, su un disco esterno o su iCloud Drive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイス、外付けドライブ、または iCloud Drive にある RomFS フォルダか romfs.img を選んでください。"
           }
         },
         "sv": {
@@ -747,6 +855,12 @@
             "value": "Controller"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コントローラー"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -757,6 +871,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "手柄"
+          }
+        }
+      }
+    },
+    "Default": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Default"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par défaut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predefinita"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デフォルト"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Standard"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "默认"
           }
         }
       }
@@ -785,6 +945,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了"
           }
         },
         "sv": {
@@ -827,6 +993,12 @@
             "value": "Codice del gioco mancante"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームのコードがありません"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -865,6 +1037,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "File del gioco danneggiati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームファイルが破損しています"
           }
         },
         "sv": {
@@ -907,6 +1085,12 @@
             "value": "Manifest del gioco mancante"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームのマニフェストがありません"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -945,6 +1129,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Tieni premuto per uscire"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "押し続けると終了します"
           }
         },
         "sv": {
@@ -987,6 +1177,12 @@
             "value": "L’avvio non è ancora disponibile."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだ起動できません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1025,6 +1221,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Manifest non supportato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サポートされていないマニフェストです"
           }
         },
         "sv": {
@@ -1067,6 +1269,12 @@
             "value": "Nessun contenuto aggiuntivo"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加コンテンツなし"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1105,6 +1313,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nella cartella non sono stati trovati dati di gioco per %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのフォルダに %@ のゲームデータが見つかりませんでした。"
           }
         },
         "sv": {
@@ -1147,6 +1361,12 @@
             "value": "Per questa app non è impostato alcun indirizzo di aggiornamento."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリにはアップデートのアドレスが設定されていません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1182,6 +1402,12 @@
           }
         },
         "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ja": {
           "stringUnit": {
             "state": "translated",
             "value": "OK"
@@ -1227,6 +1453,12 @@
             "value": "Disattivato"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1265,6 +1497,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Attivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オン"
           }
         },
         "sv": {
@@ -1307,6 +1545,12 @@
             "value": "Viene mostrata solo la fine del log."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログの末尾だけを表示しています。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1345,6 +1589,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Giocatore %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレイヤー %@"
           }
         },
         "sv": {
@@ -1387,6 +1637,12 @@
             "value": "Preparazione del gioco…"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームを準備中…"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1425,6 +1681,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Esci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了"
           }
         },
         "sv": {
@@ -1467,6 +1729,12 @@
             "value": "Uscire da %@?"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を終了しますか？"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1507,6 +1775,12 @@
             "value": "Levetta destra: trascina qui"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右スティック：ここをドラッグ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1517,46 +1791,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "右摇杆：在此拖动"
-          }
-        }
-      }
-    },
-    "Same as all games": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Wie alle Spiele"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Same as all games"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comme tous les jeux"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Come tutti i giochi"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Som alla spel"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "与所有游戏相同"
           }
         }
       }
@@ -1585,6 +1819,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Elenco impostazioni danneggiato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定リストが破損しています"
           }
         },
         "sv": {
@@ -1627,6 +1867,12 @@
             "value": "Elenco impostazioni mancante"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定リストがありません"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1665,6 +1911,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Elenco impostazioni non supportato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サポートされていない設定リストです"
           }
         },
         "sv": {
@@ -1707,6 +1959,12 @@
             "value": "Avviso"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェル"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1745,6 +2003,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alcuni file di %@ non sono stati eliminati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の一部のファイルを削除できませんでした。"
           }
         },
         "sv": {
@@ -1787,6 +2051,12 @@
             "value": "Scambia A e B"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A と B を入れ替える"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1825,6 +2095,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Non è stato possibile memorizzare la cartella. Provane un’altra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのフォルダを記憶できませんでした。別のフォルダをお試しください。"
           }
         },
         "sv": {
@@ -1867,6 +2143,12 @@
             "value": "Non è stato possibile memorizzare la posizione. Provane un’altra."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その場所を記憶できませんでした。別の場所をお試しください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1905,6 +2187,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "La cartella si chiama %@ ma il manifest indica %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ名は %@ ですが、マニフェストには %@ と記載されています。"
           }
         },
         "sv": {
@@ -1947,6 +2235,12 @@
             "value": "La cartella scelta prima non è più leggibile. Sceglila di nuovo."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前選んだフォルダを読み込めなくなりました。もう一度選んでください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -1985,6 +2279,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "In questa app manca il codice del gioco. Ricompilalo e installalo di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリにゲームのコードがありません。再ビルドして、もう一度インストールしてください。"
           }
         },
         "sv": {
@@ -2027,6 +2327,12 @@
             "value": "Il manifest del gioco"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームのマニフェスト"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2065,6 +2371,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "La posizione scelta prima non è più leggibile (l’app è stata firmata in modo diverso). Sceglila di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前選んだ場所を読み込めなくなりました（アプリの署名が変わりました）。もう一度選んでください。"
           }
         },
         "sv": {
@@ -2107,6 +2419,12 @@
             "value": "Il manifest non elenca alcun modulo."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マニフェストにモジュールが記載されていません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2145,6 +2463,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "L’elenco delle impostazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定リスト"
           }
         },
         "sv": {
@@ -2187,6 +2511,12 @@
             "value": "Cartella di questa app"
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリのフォルダ"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2225,6 +2555,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "La cartella di questa app non contiene ancora i dati del gioco. Puoi copiarli con l’app File in games/%@, all’interno della cartella di questa app."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリのフォルダには、まだこのゲームのデータがありません。「ファイル」アプリで、このアプリのフォルダ内の games/%@ にコピーしてください。"
           }
         },
         "sv": {
@@ -2267,6 +2603,12 @@
             "value": "Questo gioco non ha un launcher.json."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームには launcher.json がありません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2305,6 +2647,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Questo gioco non ha ancora un log. Compare dopo che il gioco è stato avviato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームにはまだログがありません。ゲームを実行すると表示されます。"
           }
         },
         "sv": {
@@ -2347,6 +2695,12 @@
             "value": "Questo gioco è stato compilato per un’altra versione di questa app. Aggiorna l’app o ricompila il gioco nel launcher sul Mac."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームは別のバージョンのアプリ用にビルドされています。アプリをアップデートするか、Mac のランチャーでゲームを再ビルドしてください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2385,6 +2739,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "I file di questo gioco sono danneggiati. Ricompila il gioco nel launcher sul Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのファイルが破損しています。Mac のランチャーでゲームを再ビルドしてください。"
           }
         },
         "sv": {
@@ -2427,6 +2787,12 @@
             "value": "La cartella di questo gioco non ha un game.manifest.json."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのフォルダに game.manifest.json がありません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2465,6 +2831,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Il manifest di questo gioco è danneggiato. Ricompila il gioco nel launcher sul Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのマニフェストが破損しています。Mac のランチャーでゲームを再ビルドしてください。"
           }
         },
         "sv": {
@@ -2507,6 +2879,12 @@
             "value": "Manca il manifest di questo gioco. Ricompila il gioco nel launcher sul Mac."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのマニフェストがありません。Mac のランチャーでゲームを再ビルドしてください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2545,6 +2923,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "L’elenco delle impostazioni di questo gioco è danneggiato. Ricompila il gioco nel launcher sul Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームの設定リストが破損しています。Mac のランチャーでゲームを再ビルドしてください。"
           }
         },
         "sv": {
@@ -2587,6 +2971,12 @@
             "value": "Manca l’elenco delle impostazioni di questo gioco. Ricompila il gioco nel launcher sul Mac."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームの設定リストがありません。Mac のランチャーでゲームを再ビルドしてください。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2625,6 +3015,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "Gioco sconosciuto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なゲーム"
           }
         },
         "sv": {
@@ -2667,6 +3063,12 @@
             "value": "I progressi non salvati andranno persi. L’app si chiude. Riaprila per tornare ai tuoi giochi."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保存していない進行状況は失われます。アプリが閉じます。もう一度開くとゲーム一覧に戻ります。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2705,6 +3107,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "chain “%@” non ha la forma b-<hex>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chain \"%@\" が b-<hex> の形式ではありません。"
           }
         },
         "sv": {
@@ -2747,6 +3155,12 @@
             "value": "framework “%@” non è un nome .framework."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "framework \"%@\" が .framework の名前ではありません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2785,6 +3199,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "game “%@” in launcher.json non ha 16 cifre esadecimali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json の game \"%@\" が 16 桁の 16 進数ではありません。"
           }
         },
         "sv": {
@@ -2827,6 +3247,12 @@
             "value": "game.manifest.json ha lo schema %lld, questa app legge lo schema %lld."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json のスキーマは %lld ですが、このアプリが読めるのはスキーマ %lld です。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2865,6 +3291,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "launcher.json ha lo schema %lld, questa app legge lo schema 1."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json のスキーマは %lld ですが、このアプリが読めるのはスキーマ 1 です。"
           }
         },
         "sv": {
@@ -2907,6 +3339,12 @@
             "value": "launcher.json è per %@, il manifest per %@."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json は %@ 用ですが、マニフェストは %@ 用です。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2947,6 +3385,12 @@
             "value": "loader “%@” non è né FR né FH."
           }
         },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "loader \"%@\" は FR でも FH でもありません。"
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2985,6 +3429,12 @@
           "stringUnit": {
             "state": "translated",
             "value": "title_id “%@” non ha 16 cifre esadecimali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id \"%@\" が 16 桁の 16 進数ではありません。"
           }
         },
         "sv": {

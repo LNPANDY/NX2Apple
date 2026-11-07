@@ -64,4 +64,39 @@ final class SignatureTests: IsolatedDefaultsTestCase {
         let zh = AppSignature.describe(inThree, { L10n.string($0, .zh) }, now: now, locale: Locale(identifier: "zh_CN"))
         XCTAssertTrue(zh.contains("剩 3 天"), zh)
     }
+
+    func testExpirationsDeduplicatesSharedShellAppLookups() throws {
+        final class CountingRunner: ProcessRunner {
+            let xml: String
+            var count = 0
+            init(xml: String) { self.xml = xml }
+            func capture(_ launch: ProcessLaunch) -> ProcessResult {
+                if launch.executable == "/usr/bin/security" { count += 1 }
+                return ProcessResult(status: 0, out: xml)
+            }
+            func stream(_ launch: ProcessLaunch, line: @escaping (String) -> Void) -> Bool { false }
+            func streamLines(_ launch: ProcessLaunch, started: @escaping (RunningProcess) -> Void, line: @escaping (String) -> Void) -> ProcessResult { .failedToStart("unused") }
+            func start(_ launch: ProcessLaunch, onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) throws -> RunningProcess { fatalError("unused") }
+        }
+        let app = FileManager.default.temporaryDirectory.appendingPathComponent("shared-shell-\(UUID().uuidString).app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: app) }
+        try Data("cms-envelope".utf8).write(to: app.appendingPathComponent("embedded.mobileprovision"))
+
+        let expected = Date(timeIntervalSince1970: 1_795_000_000)
+        let xml = try String(decoding: profile(expires: expected), as: UTF8.self)
+        let runner = CountingRunner(xml: xml)
+
+        let g1 = UUID()
+        let g2 = UUID()
+        let g3 = UUID()
+        let found = AppSignature.expirations(
+            ofApps: [(g1, app.path), (g2, app.path), (g3, app.appendingPathComponent("missing.app").path)],
+            runner: runner
+        )
+        XCTAssertEqual(found[g1], expected)
+        XCTAssertEqual(found[g2], expected)
+        XCTAssertNil(found[g3])
+        XCTAssertEqual(runner.count, 1, "games sharing one DmShell.app should invoke security cms only once")
+    }
 }

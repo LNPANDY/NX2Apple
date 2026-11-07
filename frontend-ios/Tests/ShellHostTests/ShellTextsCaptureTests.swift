@@ -76,6 +76,22 @@ final class ShellTextsCaptureTests: XCTestCase {
                     LibraryView(games: model.details, initialSelection: quiet, initialDetailOpen: true))
     }
 
+    func testCaptureAdaptiveGameActions() throws {
+        let box = try Sandbox()
+        let model = try model(box)
+        for (name, width, height) in [("phone", 402.0, 874.0), ("ipad-portrait", 834.0, 1194.0),
+                                       ("ipad-landscape", 1194.0, 834.0), ("resized", 507.0, 834.0)] {
+            try capture("actions-" + name, width: width, height: height,
+                        LibraryView(games: model.details, initialSelection: Fixtures.orbit))
+        }
+        try capture("actions-expanded-settings", width: 1194, height: 834,
+                    LibraryView(games: model.details, initialSelection: Fixtures.orbit, initialDetailOpen: true))
+        try capture("actions-update-inline", width: 402, height: 874,
+                    LibraryView(games: model.details, initialSelection: Fixtures.chain))
+        try capture("actions-ipad-large-text", width: 834, height: 1194,
+                    LibraryView(games: model.details, initialSelection: Fixtures.orbit).environment(\.dynamicTypeSize, .accessibility3))
+    }
+
     func testCaptureTheHelpCards() throws {
         let box = try Sandbox()
         let model = try model(box)
