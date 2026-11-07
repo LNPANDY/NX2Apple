@@ -45,7 +45,7 @@ struct CheatsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(loc.t("cheats.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                if let game { Text(game.name).font(.manrope(14)).foregroundStyle(.secondary) }
+                if let game { Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(.secondary) }
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 16)
             VStack(alignment: .leading, spacing: 14) {
@@ -259,7 +259,7 @@ struct CheatsView: View {
         do {
             try cheatFiles.writeEnabled(file.buildID, cheats: cheats, on: next)
             on = next
-            result = game.flatMap { CheatsView.running(game: $0) ? (String(format: loc.t("cheats.running"), $0.name), false) : nil }
+            result = game.flatMap { CheatsView.running(game: $0) ? (String(format: loc.t("cheats.running"), $0.displayName(loc.lang)), false) : nil }
         } catch { result = (String(format: loc.t("cheats.writeFailed"), error.localizedDescription), false) }
     }
 

@@ -29,6 +29,7 @@ struct LauncherView: View {
     @State private var launchError: String?
     @State private var removing: LibraryGame?
     @State private var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
+    @State private var renaming: LibraryGame?   // the game whose Rename sheet is open (RenameGameSheet.swift)
     @State var optionsFor: UUID?
     @State private var controllerMappingOpen = false
     @State private var freeSpaceFor: UUID?   // the game whose Free space sheet is open
@@ -106,14 +107,14 @@ struct LauncherView: View {
     }
 
     var filteredGames: [LibraryGame] {
-        libraryFilter.visibleGames(library.games, matching: search)
+        libraryFilter.visibleGames(library.games, matching: search, lang: loc.lang)
     }
 
     /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
     var heroGame: LibraryGame? {
         guard libraryFilter != .owned else { return library.selected }
         if let selected = library.selected, libraryFilter.includes(selected) { return selected }
-        return libraryFilter.visibleGames(library.games).first
+        return libraryFilter.visibleGames(library.games, lang: loc.lang).first
     }
 
     var body: some View {
@@ -212,7 +213,7 @@ struct LauncherView: View {
             }
             refreshArtwork()
             readSignatures()
-            if performStartupChecks { library.discover(); fetchArtwork(); _ = stores.deviceStore.refresh(); checkTools() }
+            if performStartupChecks { library.discover(); fetchArtwork(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)); _ = stores.deviceStore.refresh(); checkTools() }
             if performStartupChecks {
                 _ = stores.dependencies.check()
                 if engine.usesEngineStore { engine.prepareEngine() }   // the release app: its engine store, never git
@@ -231,9 +232,9 @@ struct LauncherView: View {
         .onChange(of: library.games) { _ in
             refreshArtwork()
             readSignatures()
-            if performStartupChecks { fetchArtwork() }
+            if performStartupChecks { fetchArtwork(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)) }
         }
-        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
+        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)) } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
@@ -289,6 +290,7 @@ struct LauncherView: View {
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
+        .renameGameSheet($renaming, library: library, pad: padFocus, scope: { currentPadScope })
         .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates) }
         .confirmationDialog(loc.t("uninstall.title"), isPresented: Binding(
             get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } }
@@ -580,7 +582,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil || artworkEditor != nil
+        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil || renaming != nil || artworkEditor != nil
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -599,6 +601,7 @@ struct LauncherView: View {
         // The Free space sheet: B closes it, the D-pad and A work in it, X, L and R do nothing behind it
         if freeSpaceFor != nil && [.b, .x, .l, .r].contains(action) { if action == .b { freeSpaceFor = nil }; return }
         if deleting != nil && [.b, .x, .l, .r].contains(action) { if action == .b { deleting = nil }; return }
+        if renaming != nil && [.b, .x, .l, .r].contains(action) { if action == .b { renaming = nil }; return }
         if action == .b {
             if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsOpen = false }
             else if searching { searching = false; search = "" } else if page != .library { page = .library }
@@ -637,7 +640,7 @@ struct LauncherView: View {
                         deviceName: devices.deviceName(game.installedDevice), launching: launching,
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
-                            changeArtwork: { openArtwork(game) },
+                            changeArtwork: { openArtwork(game) }, rename: { renaming = game },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
                             freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }, delete: { deleting = game }))
@@ -647,7 +650,7 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
@@ -672,7 +675,7 @@ struct LauncherView: View {
             // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
             // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
             // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
-            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t)   // GameStart.swift: the console mode starts games with the same
+            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t, lang: loc.lang)   // GameStart.swift: the console mode starts games with the same
             let withRecording = environment.merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // FrameTimes.swift, as console mode does
             if !withRecording.isEmpty { configuration.environment = withRecording }
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in

@@ -11,6 +11,7 @@ struct ManageActions {
     var saves: () -> Void = {}
     var cheats: () -> Void = {}
     var changeArtwork: () -> Void = {}
+    var rename: () -> Void = {}
     var reveal: () -> Void = {}
     var showLog: () -> Void = {}
     var freeSpace: () -> Void = {}
@@ -45,6 +46,7 @@ struct ManageItem: Identifiable {
         items.append(.init(id: "saves", symbol: "tray.and.arrow.down", title: t("saves.menu"), run: a.saves))
         items.append(.init(id: "cheats", symbol: "wand.and.stars", title: t("cheats.menu"), run: a.cheats))
         items.append(.init(id: "artwork", symbol: "photo", title: t("library.changeArtwork"), run: a.changeArtwork))
+        items.append(.init(id: "rename", symbol: "pencil", title: t("library.rename"), run: a.rename))
         if game.revealTarget != nil { items.append(.init(id: "reveal", symbol: "folder", title: t("install.reveal"), run: a.reveal)) }
         if game.isReady {
             items.append(.init(id: "log", symbol: "doc.text.magnifyingglass", title: t("library.showLog"), enabled: hasLog,

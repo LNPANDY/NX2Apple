@@ -22,10 +22,11 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     func includes(_ game: LibraryGame) -> Bool { self == .owned || game.isReady || game.hasIOSBuild }
 
     /// Use Finder-style ordering on the display title. Different games can have the same title.
-    func visibleGames(_ games: [LibraryGame], matching search: String = "") -> [LibraryGame] {
-        games.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && includes($0) }
+    /// The search finds a game by the name shown in `lang` or by its bundle name.
+    func visibleGames(_ games: [LibraryGame], matching search: String = "", lang: Lang = Lang.initial()) -> [LibraryGame] {
+        games.filter { (search.isEmpty || $0.displayName(lang).localizedCaseInsensitiveContains(search) || $0.name.localizedCaseInsensitiveContains(search)) && includes($0) }
             .sorted { left, right in
-                let order = left.name.localizedStandardCompare(right.name)
+                let order = left.displayName(lang).localizedStandardCompare(right.displayName(lang))
                 return order == .orderedSame ? left.titleID < right.titleID : order == .orderedAscending
             }
     }

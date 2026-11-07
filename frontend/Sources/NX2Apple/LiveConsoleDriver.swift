@@ -176,7 +176,7 @@ struct ConsolePadSnapshot: Equatable {
         let store = SavedChoices(app: game.appPath, titleID: game.titleID)
         var values: [String: String] = [:]
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : game.launchValue(s) }
-        return ConsoleGame(id: game.id.uuidString, title: game.name, version: version(of: game),
+        return ConsoleGame(id: game.id.uuidString, title: game.displayName(lang()), version: version(of: game),
                            platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),
                            status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values)
     }
@@ -237,7 +237,7 @@ struct ConsolePadSnapshot: Equatable {
     func play(_ gameID: String) {
         state.play(gameID)
         guard state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
-        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, fullscreen: true)
+        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, lang: lang(), fullscreen: true)
             .merging(pointerHidden() ? ["DM_CURSOR_HIDDEN": "1"] : [:]) { $1 }   // the game is a new process: without this its pointer shows until its own idle wait ends
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
