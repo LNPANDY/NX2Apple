@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sat, 7 Nov 2026 17:32:44 +0100
+Subject: [PATCH] Turn the direct NDVE movie scaling on by default
+
+Ocarina of Time's title movie runs its NDVE reconstruction on the GPU for
+about 32.7 ms per frame on an M2 Max (2 to 3 draws per frame), so the movie
+and the title run at 30 fps and the picture falls behind the audio
+(seedds/nxnative#1375). seedds/nxnative#1331 scales the clean decoded frame
+with one bilinear draw instead, behind DM_NVN_NDVE_MOVIE_DIRECT=1.
+
+The path only matches Ocarina's two NDVE shader keys and the known
+13-dispatch sequence, so other games keep their path. DM_NVN_NDVE_MOVIE_DIRECT=0
+turns it off.
+
+Upstream-Status: fork-only (builds on seedds/nxnative#1331, where the switch is off by default)
+Reason: players do not set environment switches, and the movie runs at 30 fps with the audio drifting without it
+Issue: seedds/nxnative#1375
+---
+ dm/gfx/nvn/nvn_mtl.m        | 2 +-
+ docs/env_switches.tsv       | 2 +-
+ docs/reference/rendering.md | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 260dc4f9..b8e27662 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -12579,7 +12579,7 @@ static int ndve_direct_role(NvShader *cs) {
+     static int enabled = -1;
+     if (enabled < 0) {
+         const char *e = getenv("DM_NVN_NDVE_MOVIE_DIRECT");
+-        enabled = e && !strcmp(e, "1");
++        enabled = !(e && !strcmp(e, "0"));
+     }
+     if (!enabled) return 0;
+     if (!strcmp(cs->key, "49dff010b9832251_b")) return 1;
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 16a50403..e1d163f2 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -173,7 +173,7 @@ DM_NVN_LAZY_CLEAR	switch	`0` makes clears with no draw after them open a pass of
+ DM_NVN_LOADPROBE	diagnostic	`=1`, `2` or `3`: attachments whose load is skipped are cleared to a sentinel colour (`3` NaN; `1` NaN for float formats) and the sentinel pixels left at pass end are counted (should be 0)
+ DM_NVN_LOG	diagnostic	`=1` logs the creation of NVN objects
+ DM_NVN_MAGSCAN	diagnostic	`=<fs key>[:every[:phase]]`: device self-check that reads each pass's colour attachments every `every` frames (default 30) and logs `[mag]` lines for solid magenta 16×16 blocks or non-finite pixels
+-DM_NVN_NDVE_MOVIE_DIRECT	switch	`=1` scales Ocarina of Time's clean 1920×1080 decoded movie frame into its 2560×1440 output with a bilinear Metal draw when the known NDVE dispatches match
++DM_NVN_NDVE_MOVIE_DIRECT	switch	On by default, `=0` turns it off. It scales Ocarina of Time's clean 1920×1080 decoded movie frame into its 2560×1440 output with a bilinear Metal draw when the known NDVE dispatches match
+ DM_NVN_PASSDUMP	diagnostic	`=<f>`, `<f1>-<f2>` or `every:<n>`: logs every render pass of those frames (attachments, clears, shader keys, bindings, draw state, presents, and the host function and line that ended each pass) for the `tbdr_*.py` tools
+ DM_NVN_PASSDUMP_ALL	diagnostic	`=1` makes `DM_NVN_PASSDUMP` record every draw and binding change, not only the first per pass and stage, including copies and inline uniform updates
+ DM_NVN_PASSGPU	diagnostic	`=<file>` writes the GPU time of each render and compute pass from stage-boundary timestamp counters (off under Metal 4); also gives each dispatch its own encoder
+diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
+index e0e0cc5f..d64688c5 100644
+--- a/docs/reference/rendering.md
++++ b/docs/reference/rendering.md
+@@ -1091,7 +1091,7 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
+ 
+ - **Symptom:** Ocarina of Time's title movie shows rectangular colour blocks while the logo, menu and subtitles remain legible.
+ - **Cause:** GPU readbacks on an M1 Pro show a clean 1920×1080 RGBA texture after the AV1 frame is converted. Artifacts first appear in the following NDVE intermediate and cover the picture in its 2560×1440 output. The translation error inside NDVE remains open.
+-- **Fix:** `DM_NVN_NDVE_MOVIE_DIRECT=1` scales the clean frame into the movie's usual output with a bilinear Metal draw. It matches the observed conversion and final shader keys, requires both dispatches in the same submission and checks the image formats and dimensions. The known contiguous sequence of 13 reconstruction dispatches is replaced only after the native draw has been encoded successfully; image and program bindings are still replayed. An unknown shader, indirect dispatch, side-effect operation, missing destination or mismatched output falls back to the original sequence. The option trades NDVE reconstruction for standard scaling, is off by default, and does not alter gameplay reconstruction.
++- **Fix:** `DM_NVN_NDVE_MOVIE_DIRECT` (on by default, `=0` turns it off) scales the clean frame into the movie's usual output with a bilinear Metal draw. It matches the observed conversion and final shader keys, requires both dispatches in the same submission and checks the image formats and dimensions. The known contiguous sequence of 13 reconstruction dispatches is replaced only after the native draw has been encoded successfully; image and program bindings are still replayed. An unknown shader, indirect dispatch, side-effect operation, missing destination or mismatched output falls back to the original sequence. The option trades NDVE reconstruction for standard scaling, is on by default, and does not alter gameplay reconstruction.
+ - **Check:** `make -C dm/gfx/tests GAME=040074A01BF12000 check_t_ndve_movie` checks the submission lifetime and samples three points in the scaled output. The combined local Ocarina integration showed the title movie without the rectangular blocks after the switch was enabled.
+ - **Found on:** The Legend of Zelda: Ocarina of Time (Switch 2), title ID `0400486024DEC000`, version 1.1.1.
+ 
