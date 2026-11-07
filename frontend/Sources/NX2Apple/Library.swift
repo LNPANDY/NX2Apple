@@ -265,6 +265,7 @@ extension LibraryGame {
 struct MacGameBundle {
     let titleID: String
     let name: String
+    let shaderChain: String?
 
     enum Invalid: LocalizedError {
         case notGame
@@ -284,7 +285,8 @@ struct MacGameBundle {
               FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/dmhost").path)
         else { throw Invalid.notGame }
         return MacGameBundle(titleID: rawID.uppercased(),
-                             name: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? url.deletingPathExtension().lastPathComponent)
+                             name: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? url.deletingPathExtension().lastPathComponent,
+                             shaderChain: info["DMChain"] as? String)
     }
 }
 
