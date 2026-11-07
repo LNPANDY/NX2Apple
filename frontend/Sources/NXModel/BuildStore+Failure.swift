@@ -47,7 +47,7 @@ extension BuildStore {
     }
 
     package func buildTitle(_ titleID: String) {
-        guard canBuild, !experimentalBuilder, failure?.titleIDs.contains(titleID) == true else { return }
+        guard canBuild, failure?.titleIDs.contains(titleID) == true else { return }
         selectedTitleID = titleID
         runBuild()
     }
