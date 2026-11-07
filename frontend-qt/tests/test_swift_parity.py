@@ -1,4 +1,4 @@
-"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
+﻿"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
 KeyCheck (AES-128-XTS NCA header verification), CheatFiles, GameLibrary,
 BuildFolder (FreeSpace), GameDeletion, DriveCopy, Diagnostics, and the 3-page UI.
 """
@@ -295,7 +295,7 @@ class SharedShellParityTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            # 0. Verify build_app.check_dylib enforces the 6 exported symbols and rejects __mh_execute_header
+            # 0. Verify build_app.check_dylib enforces the required exported symbols and rejects __mh_execute_header
             good_dylib = root / 'good.dylib'
             good_dylib.write_bytes(_make_arm64_macho(tc.MH_DYLIB))
             build_app.check_dylib(good_dylib)
@@ -884,6 +884,54 @@ class ParityWindowTests(unittest.TestCase):
         self.assertTrue((build_app.SDK_COMPAT / 'MetalFX' / 'MetalFX.h').is_file())
         self.assertTrue((build_app.SDK_COMPAT / 'CoreMotion' / 'CoreMotion.h').is_file())
 
+    def test_reveal_button_tracks_the_mode_with_both_saved_fallbacks(self) -> None:
+        from unittest import mock
+        from nspb_qt import platform_util as pu
+        from nspb_qt.model import Model
+        from nspb_qt.ui import MainWindow
+
+        with mock.patch.object(Model, 'check_deps', lambda self: None):
+            m = Model()
+        root = Path(self._state_tmp.name)
+        m.settings.setValue('shellRoot', str(root / 'shell'))
+        m.base_path = str(root / 'Game [010063301BD50000].nsp')
+        m.out_dir = str(root / 'out')
+        shared = root / 'shell' / 'export' / 'NX2Apple.ipa'
+        shared.parent.mkdir(parents=True)
+        with zipfile.ZipFile(shared, 'w') as ipa:
+            ipa.writestr('Payload/DmShell.app/Info.plist', b'fixture')
+            ipa.writestr('Payload/DmShell.app/DmShell', b'fixture')
+        game = lib.LibraryGame(title_id='010063301BD50000', name='Fixture', ipa_path=str(shared))
+        m.library.upsert(game)
+        m.library.selected_id = game.title_id
+        m.ipa_path = str(shared)
+        w = MainWindow(m)
+        self.addCleanup(self._delete, m, w)
+        revealed = []
+        with mock.patch.object(pu, 'reveal', side_effect=revealed.append):
+            w._on_ipa_kind_changed('shared')
+            self.assertFalse(w.step1_reveal_btn.isHidden())
+            w.step1_reveal_btn.click()
+            self.assertEqual(revealed, [str(shared)])
+
+            w._on_ipa_kind_changed('oneGame')
+            self.assertTrue(w.step1_reveal_btn.isHidden())
+
+            named = root / 'ProfileSuppliedName.ipa'
+            with zipfile.ZipFile(named, 'w') as ipa:
+                ipa.writestr('Payload/DmIOS.app/Info.plist', b'fixture')
+                ipa.writestr('Payload/DmIOS.app/DmIOS', b'fixture')
+            m.ipa_path = str(named)
+            m.library.selected.ipa_path = str(named)
+            w._refresh_install_card()
+            self.assertFalse(w.step1_reveal_btn.isHidden())
+            w.step1_reveal_btn.click()
+            self.assertEqual(revealed, [str(shared), str(named)])
+
+            shared.unlink()
+            w._on_ipa_kind_changed('shared')
+            self.assertTrue(w.step1_reveal_btn.isHidden())
+
     def test_ten_point_ui_and_ux_refinements(self) -> None:
         from unittest import mock
         from PySide6.QtCore import Qt
@@ -946,7 +994,9 @@ class ParityWindowTests(unittest.TestCase):
             # 6. Step 1 & Step 3 reveal buttons + Copy game data button enabled when archive exists,
             # while redundant buttons on the Start Build row stay hidden
             fake_ipa = td_path / '0100E65002BB8000.ipa'
-            fake_ipa.write_bytes(b'PK\x03\x04')
+            with zipfile.ZipFile(fake_ipa, 'w') as ipa:
+                ipa.writestr('Payload/DmShell.app/Info.plist', b'fixture')
+                ipa.writestr('Payload/DmShell.app/DmShell', b'fixture')
             fake_romfs = td_path / 'romfs'
             fake_romfs.mkdir()
             (fake_romfs / 'romfs.img').write_bytes(b'DMROMFS1')
@@ -1099,7 +1149,7 @@ class ParityWindowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            # 0. Verify build_app.check_dylib enforces the 6 exported symbols and rejects __mh_execute_header
+            # 0. Verify build_app.check_dylib enforces the required exported symbols and rejects __mh_execute_header
             good_dylib = root / 'good.dylib'
             good_dylib.write_bytes(make_arm64_macho(tc.MH_DYLIB))
             build_app.check_dylib(good_dylib)

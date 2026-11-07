@@ -1158,22 +1158,25 @@ class MainWindow(QMainWindow):
 
         return grp
 
+    def _shell_ipa_path(self) -> str:
+        """The shared app's only output, whatever mode ran last."""
+        return lib.shell_ipa_path(self.m.shell_cache_path)
+
+    def _one_game_ipa_path(self) -> str:
+        return lib.one_game_ipa_path(self.m.out_dir, self.m.build_key)
+
     def _effective_ipa_path(self) -> str:
-        if self.m.ipa_path and os.path.exists(self.m.ipa_path):
-            return self.m.ipa_path
-        if self.m.ipa_kind == 'shared':
-            cand_shell = os.path.join(self.m.shell_cache_path, 'export', 'NX2Apple.ipa')
-            if os.path.isfile(cand_shell):
-                return cand_shell
-        tid = self.m.build_key
-        if tid and self.m.out_dir:
-            cand = os.path.join(self.m.out_dir, f'{tid}.ipa')
-            if os.path.isfile(cand):
-                return cand
+        # The two kinds write different files, so the reveal button answers for the kind that is
+        # selected now: `self.m.ipa_path` alone would name the other mode's IPA after a switch.
         sel = self.m.library.selected
-        if sel and sel.has_ipa:
-            return sel.ipa_path
-        return self.m.ipa_path
+        return lib.reveal_ipa_path(
+            ipa_kind=self.m.ipa_kind,
+            shell_cache=self.m.shell_cache_path,
+            out_dir=self.m.out_dir,
+            build_key=self.m.build_key,
+            last_ipa=self.m.ipa_path,
+            library_ipa=sel.ipa_path if (sel and sel.has_ipa) else '',
+        )
 
     def _effective_archive_path(self) -> str:
         eff = self.m.effective_archive_path()

@@ -244,6 +244,28 @@ import CryptoKit
         return (store, current)
     }
 
+    /// #873: started from a read-only translocated copy, the store replaces and relaunches the copy in Applications.
+    func testATranslocatedLauncherUpdatesTheCopyItWasStartedFrom() throws {
+        let original = try makeApp("NX2Apple", in: temporary.appendingPathComponent("Applications"), marker: "old")
+        let info: [String: Any] = ["CFBundleIdentifier": bundleID, "CFBundleExecutable": "NSPortBuilder", "CFBundleShortVersionString": "0.4.6"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: original.appendingPathComponent("Contents/Info.plist"))
+        let translocated = temporary.appendingPathComponent("AppTranslocation/8B24E873-DC49-4FFE-808C-9E2A2385F70A/d/NX2Apple.app")
+        var relaunched: URL?
+        let updates = AppUpdateStore(localizer: Localizer(.en), runner: runner, releases: source, version: "0.4.6",
+                                     bundle: translocated, bundleIdentifier: bundleID, defaults: defaults, buildRunning: { false },
+                                     relaunch: { relaunched = $0; return true }, trashOldApp: false,
+                                     translocationOriginal: { _ in original })
+        XCTAssertEqual(updates.installability, .ok)
+        let staged = try makeApp("NX2Apple", in: temporary.appendingPathComponent("staged"), marker: "new")
+        updates.staged = AppUpdate.Staged(release: AppUpdate.Release(tag: "v0.4.8", url: "", digest: nil), app: staged)
+        XCTAssertTrue(updates.install(relaunch: true))
+        XCTAssertEqual(try marker(original), "new")
+        XCTAssertEqual(relaunched, original)
+        XCTAssertTrue(runner.commands.contains("xattr -dr com.apple.quarantine " + original.path),
+                      "the new copy loses the quarantine flag, so the next launch is not translocated")
+    }
+
     func testTheStoreWaitsForTheBuild() throws {
         let (store, current) = try stagedStore(buildRunning: { true })
         XCTAssertFalse(store.mayInstall)
