@@ -183,6 +183,7 @@ package struct LauncherSecondaryButtonStyle: ButtonStyle {
             .opacity(enabled ? 1 : 0.55)
             .contentShape(RoundedRectangle(cornerRadius: 9))
             .launcherMeasured(label: configuration.label.font(.manrope(13, .semibold)), room: LauncherControl.buttonLabelWidth)
+            .launcherHover()
     }
 }
 
