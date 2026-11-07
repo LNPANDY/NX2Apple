@@ -15,13 +15,12 @@ import NXModel
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     }
 
-    /// Every test app carries this bundle ID, so a saved choice goes to a preferences domain of this run and never to a real game's.
-    private var bundleID: String { "org.nxnative.frontendtests." + temporary.lastPathComponent }
+    /// Every test app carries this bundle ID, so a saved choice goes to a preferences domain of this run and never to a real game's,
+    /// a plist in the test's folder (`TestPreferences`).
+    private var bundleID: String { TestPreferences.domain(in: temporary, "library") }
 
     override func tearDownWithError() throws {
-        let domain = bundleID as CFString
-        for key in (CFPreferencesCopyKeyList(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] { CFPreferencesSetAppValue(key as CFString, nil, domain) }
-        CFPreferencesAppSynchronize(domain)
+        CFPreferencesAppSynchronize(bundleID as CFString)
         try FileManager.default.removeItem(at: temporary)
     }
 

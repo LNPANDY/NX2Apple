@@ -308,7 +308,7 @@ import NXLauncher
             try FileManager.default.createSymbolicLink(at: executables.appendingPathComponent(tool), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
         }
         let info: [String: Any] = ["DMTitleID": titleID, "CFBundleDisplayName": name, "CFBundleExecutable": "nxnative",
-                                   "CFBundleIdentifier": "org.nxnative.frontendtests.artwork." + temporary.lastPathComponent]
+                                   "CFBundleIdentifier": TestPreferences.domain(in: temporary, "artwork")]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
         return app
     }

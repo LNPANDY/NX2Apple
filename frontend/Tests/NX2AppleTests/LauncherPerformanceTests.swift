@@ -95,7 +95,7 @@ import NXModel
                     try fm.createSymbolicLink(at: app.appendingPathComponent("Contents/MacOS/" + exe), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
                 }
                 let info: [String: Any] = ["DMTitleID": id, "CFBundleDisplayName": name, "CFBundleExecutable": "nxnative",
-                                           "CFBundleIdentifier": "org.nxnative.perftest." + id]
+                                           "CFBundleIdentifier": TestPreferences.domain(in: folder, "perftest." + id)]
                 try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
                 let dm = app.appendingPathComponent("Contents/Resources/dm")
                 try fm.createDirectory(at: dm, withIntermediateDirectories: true)
