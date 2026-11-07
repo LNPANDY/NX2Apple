@@ -16,12 +16,16 @@ package struct ShellCopyCard: View {
         if let plan = devices.shellCopy {
             card {
                 Text(loc.t("shell.copyTitle")).font(.manrope(14, .semibold))
+                if let note = plan.versionNote {
+                    Text(note).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
+                }
                 Text(plan.sizeText).font(.manrope(13)).foregroundStyle(.secondary)
                 Text(plan.connectionText).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
                 Text(loc.t("shell.copyExternalNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 1)
                 HStack(spacing: 10) {
                     Button(loc.t("shell.copyStart")) { devices.answerCopy(.copy) }
+                        .keyboardShortcut(plan.versionNote == nil ? nil : .defaultAction)
                     if plan.canWaitForCable { Button(loc.t("shell.copyWaitCable")) { devices.answerCopy(.waitForCable) } }
                     Button(loc.t("shell.copySkip")) { devices.answerCopy(.skip) }
                 }

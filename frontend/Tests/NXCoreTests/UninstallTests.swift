@@ -113,9 +113,8 @@ final class UninstallTests: XCTestCase {
 
     /// The settings live in UserDefaults, not in a state folder: the uninstall removes that domain too.
     func testTheSettingsDomainIsRemoved() throws {
-        let domain = "uninstall-test-" + UUID().uuidString
+        let domain = TestDefaults.suite("uninstall-test").name
         UserDefaults.standard.setPersistentDomain(["buildOutputDirectory": "/somewhere"], forName: domain)
-        defer { UserDefaults.standard.removePersistentDomain(forName: domain) }
         let plan = Uninstall.plan(home: home.path, gamesFolder: games.path, checkouts: [], defaultsDomain: domain)
         XCTAssertEqual(plan.defaultsDomain, domain)
         _ = Uninstall.run(plan, movingAppToTrash: false)

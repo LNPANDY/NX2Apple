@@ -42,7 +42,7 @@ index 29cb19c..f935755 100644
  //   Touch-down ownership: the menu button where it is nearer than a locked key (a view of its own, DmMenuButton), locked keys next (shoulders, − / +, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
  //     then in 3D the right stick for a touch in the right third.
  //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
-@@ -149,6 +150,7 @@ @implementation DmGamepad {
+@@ -149,6 +150,7 @@ static void pads_start(void);   // Physical controllers, below
      NSMapTable<UITouch *, NSNumber *> *_faceOf;    // which keys each touch on the diamond currently holds
      CAShapeLayer *_key[B_N]; CATextLayer *_label[B_N];   // one layer per key
      CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
@@ -50,7 +50,7 @@ index 29cb19c..f935755 100644
      DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
      UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
      unsigned _hapticSticks;
-@@ -219,6 +221,11 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -219,6 +221,11 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
          __weak DmGamepad *weakSelf = self;
          [_menu addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weakSelf reset]; }] forControlEvents:UIControlEventMenuActionTriggered];   // the menu opens: release every key and touch first
          [self addSubview:_menu];
@@ -62,7 +62,7 @@ index 29cb19c..f935755 100644
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
          int l = saved ? (int)saved.integerValue : dm_profile()->pad_layout;
          if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
-@@ -420,7 +427,7 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -420,7 +427,7 @@ int front_web_touch(void);
          CGFloat f = dist(p, self.faceCenter) / (self.faceGap + MAX(self.faceR * 1.6, self.faceHitR)); if (f <= best) { best = f; kind = C_FACE; }
          if (_full) { CGFloat d = dist(p, self.dpadCenter) / MAX(self.dpadR * K_DPAD_GRAB, _layout.separated ? 22 : 0); if (d < best) { best = d; kind = C_DPAD; } }
          if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / MAX([self stickR:0] * K_STICK_GRAB, _layout.separated ? 22 : 0); if (s < best) { best = s; kind = C_STICK; } }
@@ -71,7 +71,7 @@ index 29cb19c..f935755 100644
          if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
          else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
          else if (kind == C_STICK) { [_owner setObject:@(C_STICK | (uint64_t)idx << 8) forKey:t]; _stick[idx] = t; _stickNow[idx] = p; }
-@@ -520,8 +527,47 @@ - (void)layoutSubviews {
+@@ -520,8 +527,47 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
      CAShapeLayer *in = (CAShapeLayer *)_knob.sublayers.firstObject; CGPathRef ip = circlePath(CGPointMake(k, k), k * 0.62);
      in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
      [CATransaction commit];

@@ -5,16 +5,14 @@ import AppKit
 
 @MainActor final class ControllerLaunchTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
-    private var domain: String { "org.nxnative.controller-tests." + temporary.lastPathComponent }
+    private var domain: String { TestPreferences.domain(in: temporary, "controller") }
     private let titleID = "0100000000000000"
     override func setUpWithError() throws {
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     }
     override func tearDownWithError() throws {
-        let storage = SystemControllerPreferences(domain: domain)
-        for key in (CFPreferencesCopyKeyList(domain as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] { storage.write(key, value: nil) }
-        _ = storage.synchronize()
+        _ = SystemControllerPreferences(domain: domain).synchronize()
         try FileManager.default.removeItem(at: temporary)
     }
     private func game(marker: Any? = 1) throws -> LibraryGame {

@@ -89,7 +89,7 @@ index 9de7201..d4f6e57 100644
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
  static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
  int dm_opmode(void);   // hle_oe.c: 0 = handheld
-@@ -163,7 +157,9 @@ @implementation DmGamepad {
+@@ -163,7 +157,9 @@ static void pads_start(void);   // Physical controllers, below
      CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
      BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
      DmLayout _layout;
@@ -100,7 +100,7 @@ index 9de7201..d4f6e57 100644
  }
  
  static UIColor *k_idle, *k_on, *k_line, *k_ringFill, *k_text, *k_textOn;
-@@ -183,6 +179,9 @@ @implementation DmGamepad {
+@@ -183,6 +179,9 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
  - (instancetype)initWithFrame:(CGRect)f {
      if ((self = [super initWithFrame:f])) {
          _layout = dm_layout(self.bounds, UIEdgeInsetsZero, NO, CGRectNull, DM_PICTURE_16_9);   // until the front end arranges it
@@ -110,7 +110,7 @@ index 9de7201..d4f6e57 100644
          [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
              [(UIView *)environment setNeedsLayout];
          }];
-@@ -259,68 +258,43 @@ - (void)setTouchFeedback:(BOOL)on {
+@@ -259,68 +258,43 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
  - (void)arrange:(DmLayout)layout {
      if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated && _layout.topSafeOnly == layout.topSafeOnly) return;
      [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
@@ -204,7 +204,7 @@ index 9de7201..d4f6e57 100644
      CGRect r = CGRectInset([self pillRect:b], -8 * u, -8 * u);
      if (!_layout.separated && !CGRectContainsPoint(r, p)) return CGFLOAT_MAX;
      CGFloat w = MAX(r.size.width, _layout.separated ? 28 : 0), h = MAX(r.size.height, _layout.separated ? 28 : 0);
-@@ -338,7 +312,7 @@ - (int)btnAt:(CGPoint)p {   // Locked at touch-down; nearest normalized target w
+@@ -338,7 +312,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y);
      }
      return best;
  }
@@ -213,7 +213,7 @@ index 9de7201..d4f6e57 100644
  - (BOOL)menuTakes:(CGPoint)p {   // the menu button takes a touch in its hit circle unless a locked key's target is nearer (the drawn keys are hidden in Tap and with a controller)
      CGFloat d = [self menuDistance:p]; if (d > 1) return NO;
      if (_tap || _padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return YES;
-@@ -482,7 +456,7 @@ - (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0]
+@@ -482,7 +456,7 @@ int front_web_touch(void);
  // ---- Shapes ----
  static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
  static CGPathRef dropPath(CGPoint c, CGFloat r, CGFloat tipAngle, CGFloat round) {   // teardrop: circle + two tangents meeting at the tip, tip slightly rounded
@@ -222,7 +222,7 @@ index 9de7201..d4f6e57 100644
      CGPoint tip = CGPointMake(c.x + d * cos(tipAngle), c.y + d * sin(tipAngle));
      CGPoint p1 = CGPointMake(c.x + r * cos(tipAngle + th), c.y + r * sin(tipAngle + th)), p2 = CGPointMake(c.x + r * cos(tipAngle - th), c.y + r * sin(tipAngle - th));
      CGMutablePathRef p = CGPathCreateMutable();
-@@ -525,20 +499,20 @@ - (void)layoutSubviews {
+@@ -525,20 +499,20 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
              BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
              setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
          } else if (isClick(b)) {

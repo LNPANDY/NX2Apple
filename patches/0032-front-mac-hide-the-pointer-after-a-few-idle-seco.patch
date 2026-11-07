@@ -43,7 +43,7 @@ index ecbf20c..44eaf20 100644
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 483ef76..c51d5c4 100644
+index 8e048ed..d2710a0 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -22,6 +22,7 @@ DM_CHEATS_WINDOW	switch	`1` opens the Mac Cheats panel beside the game from the

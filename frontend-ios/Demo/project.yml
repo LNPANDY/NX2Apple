@@ -34,7 +34,7 @@ targets:
     info:
       path: Gen/Info.plist
       properties:
-        CFBundleLocalizations: [en, de, fr, it, sv, zh-Hans]   # every file of frontend/l10n (tools/l10n_shell_catalogs.py), so iOS offers them to the package bundles
+        CFBundleLocalizations: [en, de, fr, it, ja, sv, zh-Hans]   # every file of frontend/l10n (tools/l10n_shell_catalogs.py), so iOS offers them to the package bundles
     dependencies:
       - package: ShellUI
         product: ShellUI

@@ -18,10 +18,9 @@ import NXModel
         let app = temporary.appendingPathComponent("Hades.app")
         let dm = app.appendingPathComponent("Contents/Resources/dm")
         try FileManager.default.createDirectory(at: dm, withIntermediateDirectories: true)
-        let domain = "org.nxnative.controller-capture." + temporary.lastPathComponent
+        let domain = TestPreferences.domain(in: temporary, "controller-capture")
         let prefs = SystemControllerPreferences(domain: domain)
         defer {
-            for key in (CFPreferencesCopyKeyList(domain as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] { prefs.write(key, value: nil) }
             _ = prefs.synchronize()
             try? FileManager.default.removeItem(at: temporary)
         }

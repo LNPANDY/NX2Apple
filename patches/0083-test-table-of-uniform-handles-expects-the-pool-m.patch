@@ -17,7 +17,6 @@ without it. Only the test changes.
 Upstream-Status: forwarded seedds/nxnative#1478
 Reason: the test predates the pool marker and fails on upstream's main too
 Issue: LNPANDY/NX2Apple#813
-
 ---
  dm/tools/tests/test_dmsh_pool_arrays.py | 3 ++-
  1 file changed, 2 insertions(+), 1 deletion(-)

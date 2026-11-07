@@ -152,10 +152,10 @@ index 6175a81..6ce3573 100644
          nsp = script('build_ipa_from_nsp')
          self.host_dirs(nsp.HOST_DIRS)
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index de3564f..e686c5b 100644
+index 83a2160..4af8302 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
-@@ -33,6 +33,13 @@
+@@ -40,6 +40,13 @@
  
  ## Build tools
  
@@ -170,10 +170,10 @@ index de3564f..e686c5b 100644
  
  - **Symptom:** the first extraction stops with `nx_extract exit code 131` and `.NET location: Not found`, even though `dotnet` is on `PATH`. The shader translator can fail the same way.
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 526292a..f3c0428 100755
+index b6f6d7e..6090ae6 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1704,8 +1704,8 @@ def build_mac_host(repo, out, env, logs, g):
+@@ -1728,8 +1728,8 @@ def build_mac_host(repo, out, env, logs, g):
      and the macOS SDK) are as at the last build into out. The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
      if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      host = repo / 'dm/host'

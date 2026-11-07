@@ -19,7 +19,7 @@ final class ShellRootMigrationTests: XCTestCase {
 
     override func tearDownWithError() throws { try? fm.removeItem(atPath: base) }
 
-    private func defaults() -> UserDefaults { UserDefaults(suiteName: "nspb-migrate-" + UUID().uuidString)! }
+    private func defaults() -> UserDefaults { TestDefaults.make("nspb-migrate") }
 
     /// An old shell folder: a mirrored framework (listed in shell.json), a framework in a build folder, and the other folders.
     @discardableResult

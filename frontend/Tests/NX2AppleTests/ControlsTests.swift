@@ -6,14 +6,8 @@ import XCTest
 /// The Controls page's layout and the DM_KEYMAP / DM_PAD_MAP it passes (read by dm/host/input_map.h).
 final class ControlsTests: IsolatedDefaultsTestCase {
     private var defaults: UserDefaults!
-    private let suite = "nxnative-controls-tests"
 
-    override func setUp() {
-        defaults = UserDefaults(suiteName: suite)
-        defaults.removePersistentDomain(forName: suite)
-    }
-
-    override func tearDown() { defaults.removePersistentDomain(forName: suite) }
+    override func setUp() { defaults = TestDefaults.make("nxnative-controls-tests") }
 
     private func fn(_ id: String) -> ControlLayout.Function { ControlLayout.functions.first { $0.id == id }! }
 

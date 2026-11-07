@@ -237,7 +237,7 @@ index 0000000..56fa499
 +}
 +static int pad_map_is_default(const pad_map *m) { for (int b = 0; b < IM_BUTTONS; b++) if (m->to[b] != b) return 0; return 1; }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 057f13a..57917f5 100644
+index f495794..d468a96 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
@@ -249,7 +249,7 @@ index 057f13a..57917f5 100644
  	$(B)/t_language
  	$(B)/t_heap_size
  	$(B)/t_touch
-@@ -63,6 +63,8 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
+@@ -64,6 +64,8 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
  	$(B)/t_motion_pro_mac
  	TMPDIR="$(abspath $(B))" $(B)/t_hid
  	$(B)/t_pad_hid
@@ -258,7 +258,7 @@ index 057f13a..57917f5 100644
  	$(B)/t_haptics
  	$(B)/t_haptics_apple
  	TMPDIR="$(abspath $(B))" $(B)/t_cheats $(QUIET)
-@@ -223,6 +225,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
+@@ -228,6 +230,10 @@ $(B)/t_motion_pro: t_motion_pro.c ../motion_pro.h | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -fsanitize=address,undefined -o $@ t_motion_pro.c
  $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ../dm_input.h | $(B)
  	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit
@@ -372,7 +372,7 @@ index c3e768e..c3d5771 100644
  dm/host/motion_apple.h	hle:*SixAxisSensor*	controller motion supplied by GameController
  dm/host/pad_apple.h	hle:*hid*	controller face buttons from GameController
 diff --git a/docs/development.md b/docs/development.md
-index 6131969..b1ccc86 100644
+index 9bfe47f..cad0b90 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -14,6 +14,8 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -385,7 +385,7 @@ index 6131969..b1ccc86 100644
  
  How a Switch with Atmosphère runs cheats, and where this host differs, is in [Cheats on a Switch](reference/cheats.md).
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 6f3b3ef..3ca609a 100644
+index 848e67d..3689993 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -85,6 +85,7 @@ DM_JIT_MISS_DUMP	diagnostic	Folder for the input of each `nn::jit` request a ser
