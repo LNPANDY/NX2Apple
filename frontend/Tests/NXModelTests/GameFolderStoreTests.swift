@@ -257,4 +257,19 @@ import XCTest
         XCTAssertEqual((store.basePath as NSString).lastPathComponent, "Mario [010015100B514000][v0].nsp")
         XCTAssertEqual(store.buildKey, "010015100B514000")
     }
+
+    func testNestedWrapperAndBaseSubfolderResolveToTheGameFolderWithoutKeys() {
+        let (store, game) = makeStore()
+        let nested = root + "/Unzipped/Wrapper/Donkey Kong Bananza"
+        try? FileManager.default.createDirectory(atPath: (nested as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try? FileManager.default.moveItem(atPath: game, toPath: nested)
+
+        for picked in [root + "/Unzipped", root + "/Unzipped/Wrapper", nested + "/base", nested + "/base/exefs"] {
+            store.scan(folder: picked)
+            XCTAssertEqual(store.gameDir, nested, "failed for \(picked)")
+            XCTAssertEqual(store.gameFolder?.folder, nested, "failed for \(picked)")
+            XCTAssertTrue(store.canBuild, "no prod.keys needed for \(picked)")
+            XCTAssertTrue(store.keysPath.isEmpty)
+        }
+    }
 }

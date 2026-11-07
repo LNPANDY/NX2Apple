@@ -28,18 +28,8 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var installedDevice = ""
     /// The engine's commit (engine/ HEAD: the pin plus the series) the last finished build used (ToolsAge); empty for a build from before it was recorded.
     var toolsCommit = ""
-    /// The game's name in each language its control data names it in (the Mac app's `DMTitleNames`, `GameTitleNames`), by Horizon
-    /// language code. Empty for an app packed before the key existed. `name` stays the bundle name: this is only what is shown.
-    var titleNames: [String: String] = [:]
-
-    /// The name the player gave the game (Manage > Rename), shown in every language. Empty: the game's own names.
-    var customName = ""
-
-    /// The name to show in `lang`: the player's, else the game's own name in that language (or English), else `name`.
-    func displayName(_ lang: Lang) -> String { customName.isEmpty ? ownName(lang) : customName }
-
-    /// The game's own name in `lang`, ignoring the player's: what Rename offers to go back to.
-    func ownName(_ lang: Lang) -> String { GameTitleNames.pick(titleNames, for: lang) ?? name }
+    var titleNames: [String: String] = [:]   // the game's names by language, only what is shown (LibraryGame+Names.swift)
+    var customName = ""   // the player's name (Manage > Rename), shown in every language
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
     var isReady: Bool {
@@ -276,33 +266,6 @@ extension LibraryGame {
     }
 }
 
-struct MacGameBundle {
-    let titleID: String
-    let name: String
-    var titleNames: [String: String] = [:]
-
-    enum Invalid: LocalizedError {
-        case notGame
-        var errorDescription: String? { L10n.string("library.notGame", Lang.initial()) }
-    }
-
-    static func read(_ url: URL) throws -> MacGameBundle {
-        guard url.pathExtension.lowercased() == "app" else { throw Invalid.notGame }
-        LauncherWork.count(.infoPlistRead)
-        guard let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
-              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let rawID = info["DMTitleID"] as? String,
-              rawID.range(of: "^[0-9A-Fa-f]{16}$", options: .regularExpression) != nil,
-              let executable = info["CFBundleExecutable"] as? String,
-              !executable.isEmpty, executable != ".", executable != "..", !executable.contains("/"),
-              FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/" + executable).path),
-              FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/dmhost").path)
-        else { throw Invalid.notGame }
-        return MacGameBundle(titleID: rawID.uppercased(),
-                             name: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? url.deletingPathExtension().lastPathComponent,
-                             titleNames: GameTitleNames.read(info))
-    }
-}
 
 final class GameLibrary: ObservableObject {
     /// The key of `LibraryGame.inputs` that holds a game folder (a Switch 2 game's base/, updates/, dlc/), read again on Build.
@@ -423,6 +386,13 @@ final class GameLibrary: ObservableObject {
     }
 
     static func sourceGames(in root: URL, repo: String) -> [LibraryGame] {
+        if GameFolder.isDumpDirectory(root.path), case .success(let f) = GameFolder.scan(root.path) {
+            var game = LibraryGame(titleID: f.titleIDHex, name: title(for: f.folder, repo: repo, titleID: f.titleIDHex))
+            game.inputs = [GameLibrary.folderInput: [f.folder], "base": [f.basePath]]
+            game.sourceFolder = f.folder
+            game.outputDirectory = f.folder
+            return [game]
+        }
         guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { return [] }
         let packages = Set(["nsp", "xci", "nsz", "xcz"])
         var result: [String: LibraryGame] = [:]
@@ -431,13 +401,13 @@ final class GameLibrary: ObservableObject {
                 let name = url.lastPathComponent.lowercased()
                 // A game folder (a Switch 2 game's base/, updates/, dlc/, GameFolder.swift) is one game: its folder is its input,
                 // and its 80,000 files are not walked.
-                if GameFolder.isCandidate(url.path) {
+                if GameFolder.isDirectCandidate(url.path) {
                     e.skipDescendants()
                     if case .success(let f) = GameFolder.scan(url.path), result[f.titleIDHex] == nil {
-                        var game = LibraryGame(titleID: f.titleIDHex, name: title(for: url.path, repo: repo, titleID: f.titleIDHex))
-                        game.inputs = [GameLibrary.folderInput: [url.path], "base": [f.basePath]]
-                        game.sourceFolder = url.path
-                        game.outputDirectory = url.path
+                        var game = LibraryGame(titleID: f.titleIDHex, name: title(for: f.folder, repo: repo, titleID: f.titleIDHex))
+                        game.inputs = [GameLibrary.folderInput: [f.folder], "base": [f.basePath]]
+                        game.sourceFolder = f.folder
+                        game.outputDirectory = f.folder
                         result[f.titleIDHex] = game
                     }
                     continue
@@ -551,11 +521,7 @@ final class GameLibrary: ObservableObject {
                 }
                 for url in apps {
                     guard let info = try? MacGameBundle.read(url) else { continue }
-                    if var existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady {
-                        // An entry from before the names were kept learns them from its app, which a rebuild may have changed too
-                        if existing.appPath == url.standardizedFileURL.path, !info.titleNames.isEmpty, existing.titleNames != info.titleNames { existing.titleNames = info.titleNames; self.upsert(existing) }
-                        continue
-                    }
+                    if let existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady { self.learnTitleNames(existing, from: info, at: url); continue }
                     _ = try? self.addApp(url)
                 }
                 self.pruneMissingPaths()
@@ -632,6 +598,44 @@ final class GameLibrary: ObservableObject {
         game.installedDevice = device
         game.toolsCommit = commit
         upsert(game)
+        recordSharedAppInstalled(app: app, device: device)
+    }
+
+    /// Every game in the shared app's shell.json is inside `app` on `device` once the shared app is signed and installed there.
+    func recordSharedAppInstalled(app: String, device: String) {
+        guard !device.isEmpty,
+              FileManager.default.fileExists(atPath: app + "/Info.plist"),
+              let shell = ShellInstall.paths(ofApp: app) else { return }
+        applySharedAppInstalled(titles: ShellLibrary.recordInstalled(root: shell.root), app: app, device: device)
+    }
+
+    private func applySharedAppInstalled(titles: Set<String>, app: String, device: String) {
+        guard !device.isEmpty, !titles.isEmpty else { return }
+        var changed = false
+        for i in games.indices where titles.contains(games[i].titleID.uppercased()) {
+            if games[i].iosAppPath != app || games[i].installedDevice != device || !games[i].ipaPath.isEmpty {
+                games[i].ipaPath = ""
+                games[i].iosAppPath = app
+                games[i].installedDevice = device
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// Restores the shared app's games from the last successful install receipt when `DmShell.app` is signed on disk
+    /// (`embedded.mobileprovision` is present) and at least one receipt member still has recorded shared-app install provenance.
+    func syncSharedApp(root: String) {
+        let app = ShellInstall.appPath(root: root)
+        guard FileManager.default.fileExists(atPath: app + "/" + AppSignature.profileName) else { return }
+        let receipt = ShellLibrary.installedReceipt(root: root)
+        guard !receipt.isEmpty,
+              let device = games.first(where: {
+                  receipt.contains($0.titleID.uppercased())
+                      && !$0.installedDevice.isEmpty
+                      && ShellInstall.paths(ofApp: $0.iosAppPath) != nil
+              })?.installedDevice else { return }
+        applySharedAppInstalled(titles: receipt, app: app, device: device)
     }
 
     /// Only a choice that differs from the game's default is kept, so a setting left at its default follows a later build's.
@@ -758,21 +762,7 @@ final class GameLibrary: ObservableObject {
         save()
     }
 
-    /// The player's name for a game, trimmed. Empty goes back to the game's own names.
-    func rename(_ id: UUID, to name: String) {
-        guard var game = games.first(where: { $0.id == id }) else { return }
-        game.customName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        upsert(game)
-    }
-
-    /// The names `TitleNameLookup` read for a game that had none (an app packed with them meanwhile wins).
-    func setTitleNames(_ names: [String: String], for id: UUID) {
-        guard var game = games.first(where: { $0.id == id }), game.titleNames.isEmpty else { return }
-        game.titleNames = names
-        upsert(game)
-    }
-
-    @discardableResult private func upsert(_ game: LibraryGame) -> Bool {
+    @discardableResult func upsert(_ game: LibraryGame) -> Bool {   // internal: LibraryGame+Names.swift
         if let index = games.firstIndex(where: { $0.id == game.id }) { games[index] = game }
         else { games.append(game) }
         return save()
