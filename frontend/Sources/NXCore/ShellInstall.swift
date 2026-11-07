@@ -532,12 +532,13 @@ package struct ShellInstaller {
         if built.status != 0 {
             // Xcode follows a destination failure with reasons other destinations are ineligible.
             // Those entries can contain "error:" even though they do not describe the requested device.
-            let destinationError = built.output.split(whereSeparator: \.isNewline).first {
+            let destinationUnavailable = built.output.split(whereSeparator: \.isNewline).contains {
                 $0.hasPrefix("xcodebuild: error: Unable to find a destination matching the provided destination specifier:")
             }
-            let why = destinationError.map(String.init) ?? built.lastError ?? fmt("msg.exitCode", built.status)
+            let why = destinationUnavailable ? t("shell.destinationUnavailable") : built.lastError ?? fmt("msg.exitCode", built.status)
             end(Self.signStageID, signName, ok: false, detail: why)
-            return Outcome(ok: false, message: fmt("dev.signFailed", why), step: .sign)
+            let message = destinationUnavailable ? t("shell.destinationUnavailableNext") : fmt("dev.signFailed", why)
+            return Outcome(ok: false, message: message, step: .sign)
         }
         end(Self.signStageID, signName, ok: true)
 

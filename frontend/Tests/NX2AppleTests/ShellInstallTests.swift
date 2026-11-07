@@ -744,30 +744,42 @@ import NXModel
 
     // ---- the connection ----
 
-    func testUnavailableDestinationShowsThePrimaryXcodeError() throws {
+    func testUnavailableDestinationShowsLocalizedRecoveryStepsAndKeepsTheLog() throws {
         let f = try makeFixture()
         let error = "xcodebuild: error: Unable to find a destination matching the provided destination specifier:"
-        try write(state + "/xcodebuild-error", """
+        let diagnostic = """
         \(error)
             { id:\(device) }
 
         Destinations incompatible with the "DmShell" scheme:
             { platform:macOS, arch:arm64e, id:MAC, name:My Mac, error:My Mac’s macOS platform doesn’t match DmShell.app’s supported platforms. }
-        """)
+        """
+        try write(state + "/xcodebuild-error", diagnostic)
         testDefaults.set(f.root, forKey: "shellRoot")
-        let stores = try makeModel(f)
-        let model = stores.build
-        stores.localizer.lang = .en
-        stores.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "")] }
+        let messages: [(Lang, String, String)] = [
+            (.en, "Selected iPhone or iPad unavailable",
+             "Xcode cannot use the selected iPhone or iPad. Connect and unlock it, check Xcode’s Devices and Simulators, then select it again under Install on."),
+            (.zh, "所选 iPhone 或 iPad 不可用",
+             "Xcode 无法使用所选 iPhone 或 iPad。请连接并解锁设备，在 Xcode 的“设备与模拟器”中检查它，然后在“安装到”中重新选择。"),
+            (Lang("de"), "Ausgewähltes Gerät nicht verfügbar",
+             "Xcode kann das ausgewählte iPhone oder iPad nicht verwenden. Verbinde und entsperre es, prüfe es in Xcodes „Devices and Simulators“ und wähle es unter „Installieren auf“ erneut aus.")
+        ]
+        for (lang, summary, message) in messages {
+            let stores = try makeModel(f)
+            let model = stores.build
+            stores.localizer.lang = lang
+            stores.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "")] }
 
-        let stopped = expectation(description: "The sign step failed")
-        let token = model.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in stopped.fulfill() }
-        model.installShell(framework: f.framework, titleID: titleID, name: "Test Game", archive: f.archive)
-        wait(for: [stopped], timeout: 30)
-        withExtendedLifetime(token) {}
+            let stopped = expectation(description: "The sign step failed")
+            let token = model.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in stopped.fulfill() }
+            model.installShell(framework: f.framework, titleID: titleID, name: "Test Game", archive: f.archive)
+            wait(for: [stopped], timeout: 30)
+            withExtendedLifetime(token) {}
 
-        XCTAssertEqual(model.doneNote, "Signing failed: \(error)")
-        XCTAssertEqual(model.stages.first(where: { $0.id == ShellInstaller.signStageID })?.detail, error)
+            XCTAssertEqual(model.doneNote, message, lang.code)
+            XCTAssertEqual(model.stages.first(where: { $0.id == ShellInstaller.signStageID })?.detail, summary, lang.code)
+            XCTAssertTrue(model.log.text.contains(diagnostic), "The full Xcode diagnostic remains available in the build log")
+        }
     }
 
     func testOtherXcodeFailuresStillShowTheLastError() throws {
