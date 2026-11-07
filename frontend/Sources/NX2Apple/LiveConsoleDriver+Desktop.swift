@@ -31,6 +31,7 @@ extension LiveConsoleDriver {
         if let updates = appUpdates {
             prefs.appVersion = updates.version
             prefs.update = Self.update(updates, buildRunning: builds?.running == true)
+            prefs.updateStatus = updates.status
         }
         if prefs != state.prefs { state.prefs = prefs }
         let build = builds.flatMap { Self.build($0, library: library, t: t) }
@@ -43,6 +44,7 @@ extension LiveConsoleDriver {
         if let progress = u.downloadProgress { return .downloading(Int((progress * 100).rounded())) }
         if let release = u.update {
             guard u.installability == .ok else { return .cannotInstall(release.tag) }
+            if let reason = u.blocked, !u.busy { return .failed(tag: release.tag, reason: reason) }   // the last try failed: say why, A tries again
             return buildRunning ? .waitingForBuild : .available(release.tag)
         }
         return u.busy ? .checking : .upToDate
@@ -89,6 +91,19 @@ extension LiveConsoleDriver {
         }
         return result
     }
+
+    /// The game whose options (or a page over them) are open: its details are read again after the list is rebuilt (refresh) or an
+    /// option changes, so the mods, cheats, save and Reset stay on the page.
+    var openOptionsGameID: String? {
+        for sheet in state.sheets.reversed() {
+            switch sheet {
+            case let .options(id), let .advanced(id), let .confirmReset(id), let .gamePad(id): return id
+            default: continue
+            }
+        }
+        return nil
+    }
+    func reloadOpenDetails() { if let id = openOptionsGameID { loadDetails(id) } }
 
     func openOptions(_ gameID: String) {
         loadDetails(gameID)
@@ -163,7 +178,7 @@ extension LiveConsoleDriver {
     func appUpdateAction() {
         refreshDesktop()
         switch state.prefs.update {
-        case .available, .ready: state.push(.confirmUpdate)
+        case .available, .ready, .failed: state.push(.confirmUpdate)
         case .upToDate: _ = appUpdates?.checkForUpdate()
         case .checking, .downloading, .cannotInstall, .waitingForBuild: break
         }

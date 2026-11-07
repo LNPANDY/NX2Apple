@@ -12,7 +12,8 @@ extension LiveConsoleDriver {
         if wasGame, state.mappingGameID == nil { refreshPadLayout() }   // the sheets below show the mapping of all games again
     }
     func openMenu() { state.openMenu() }
-    func openGeneral() { state.openGeneral() }
+    /// The switches are read again first: Settings on the desktop may have changed them since.
+    func openGeneral() { refreshDesktop(); state.openGeneral() }
     func openLanguage() { state.openLanguage() }
     /// Kept in the launcher's defaults, read again with the layout (refreshPadLayout), so it lasts from one console session to the next.
     static let menuSwapKey = "console.menuSwapAB"
@@ -35,11 +36,18 @@ extension LiveConsoleDriver {
     }
     func confirmExit() { state.confirmExit() }
     /// The page opens once the rows are read: each game's log and cloud folder, off the main thread, nothing written.
+    /// Read off the main thread; the page opens only if nothing was opened or closed meanwhile (B before the rows are read stays back).
     func openCloudSaves() {
         let inputs = ConsoleCloudSaves.inputs(library: library)
+        let from = state.sheets
         DispatchQueue.global(qos: .userInitiated).async {
             let rows = ConsoleCloudSaves.rows(inputs)
-            DispatchQueue.main.async { [weak self] in MainActor.assumeIsolated { self?.state.openCloudSaves(rows) } }
+            DispatchQueue.main.async { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.state.sheets == from else { return }
+                    self.state.openCloudSaves(rows)
+                }
+            }
         }
     }
     func openMapping() {

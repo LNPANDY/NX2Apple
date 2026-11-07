@@ -299,10 +299,30 @@ import NXModel
         let repo = RepoLayout.find()
         for (sizeName, width, height) in [("1920", CGFloat(1920), CGFloat(1080)), ("compact", 390, 844)] {
             for (name, scenario, family) in [("home", MockConsoleDriver.Scenario.full, ConsoleGlyphs.Family.xbox), ("home-dualsense", .full, .playStation), ("home-keyboard", .full, .keyboard),
-                                             ("controllers", .controllersMixed, .xbox), ("home-4pads", .controllersMixed, .xbox), ("controllers-wired", .controllers, .xbox), ("options", .full, .xbox), ("empty", .empty, .xbox), ("starting", .starting, .xbox)] {
+                                             ("controllers", .controllersMixed, .xbox), ("home-4pads", .controllersMixed, .xbox), ("controllers-wired", .controllers, .xbox), ("options", .full, .xbox), ("empty", .empty, .xbox), ("starting", .starting, .xbox),
+                                             ("menu", .full, .xbox), ("general", .full, .xbox), ("update", .full, .xbox), ("leave", .full, .xbox),
+                                             ("mapping", .full, .xbox), ("mapping-button", .full, .xbox), ("mapping-save", .full, .xbox),
+                                             ("game-controller", .full, .xbox), ("game-mapping", .full, .xbox), ("advanced", .full, .xbox),
+                                             ("reset", .full, .xbox), ("cloud-saves", .full, .xbox), ("not-built", .full, .xbox)] {
                 let driver = MockConsoleDriver(scenario: scenario, lang: .en, animated: false, artworkRepo: repo.isEmpty ? nil : repo)
                 if name == "options" { driver.openOptions("demo.0") }
                 if name == "home-4pads" { driver.back() }
+                switch name {
+                case "menu": driver.openMenu()
+                case "general": driver.openMenu(); driver.openGeneral()
+                case "update": driver.openMenu(); driver.openGeneral(); driver.appUpdateAction()
+                case "leave": driver.back()
+                case "mapping": driver.openMenu(); driver.openMapping()
+                case "mapping-button": driver.openMenu(); driver.openMapping(); driver.setPadSends(button: "A", to: "B"); driver.openMappingRow("A")
+                case "mapping-save": driver.openMenu(); driver.openMapping(); driver.setPadSends(button: "ZR", to: "none"); driver.back()
+                case "game-controller": driver.openOptions("demo.0"); driver.openGamePad("demo.0")
+                case "game-mapping": driver.openOptions("demo.0"); driver.openGamePad("demo.0"); driver.openGameMapping("demo.0"); driver.setPadSends(button: "ZR", to: "none")
+                case "advanced": driver.openOptions("demo.0"); driver.openAdvanced("demo.0")
+                case "reset": driver.openOptions("demo.0"); driver.setOption(gameID: "demo.0", setting: "DM_VSYNC", value: "0"); driver.askResetOptions("demo.0")
+                case "cloud-saves": driver.openMenu(); driver.openGeneral(); driver.openCloudSaves()
+                case "not-built": driver.focus("demo.3"); driver.play("demo.3")
+                default: break
+                }
                 let host = NSHostingView(rootView: ConsoleView(driver: driver, lang: .en, glyphs: .init(family: family)).transaction { $0.disablesAnimations = true }.frame(width: width, height: height))
                 let window = OffscreenWindow(size: NSSize(width: width, height: height), styleMask: [.borderless])
                 window.contentView = host

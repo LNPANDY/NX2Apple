@@ -370,6 +370,7 @@
   "console.update.onDesktop": "在桌面处理",
   "console.update.restartAsk": "立即重启？",
   "console.update.restartBody": "新版本已安装。启动器会关闭并重新打开。",
+  "console.update.retry": "重试",
   "console.update.title": "应用更新",
   "console.update.waiting": "构建完成后",
   "console.update.waitingNote": "更新会等桌面上的构建完成后再进行。",

@@ -369,6 +369,7 @@
   "console.update.onDesktop": "On the desktop",
   "console.update.restartAsk": "Restart now?",
   "console.update.restartBody": "The new version is installed. The launcher closes and opens again.",
+  "console.update.retry": "Try again",
   "console.update.title": "App update",
   "console.update.waiting": "After the build",
   "console.update.waitingNote": "Updating waits until the build on the desktop is done.",

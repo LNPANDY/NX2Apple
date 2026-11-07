@@ -163,6 +163,7 @@ struct ConsolePadSnapshot: Equatable {
         state.games = games
         state.focusedGameID = games.contains { $0.id == focus } ? focus : (library.selected.map { $0.id.uuidString }.flatMap { id in games.contains { $0.id == id } ? id : nil } ?? games.first?.id)
         state.time = Date(); loadHero()
+        reloadOpenDetails()   // the open options page keeps its mods, cheats, save and Reset
     }
 
     static func status(of game: LibraryGame, brokenMessage: String) -> ConsoleGame.Status {
@@ -352,6 +353,7 @@ struct ConsolePadSnapshot: Equatable {
               let shown = state.games.first(where: { $0.id == gameID }), let s = shown.settings.first(where: { $0.env == env }),
               let stored = shown.values[env] else { return }
         if s.storeBacked { SavedChoices(app: game.appPath, titleID: game.titleID).set(s, stored) } else { library.setLaunchOption(s, stored, for: game.id) }
+        loadDetails(gameID)   // Reset to defaults shows once something differs
     }
 
     // MARK: Controllers

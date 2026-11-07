@@ -221,6 +221,22 @@ import SwiftUI
 
     /// The console's button mapping is the Controls page's controller layout: a button changed there makes it Custom, Reset goes back
     /// to the standard layout, and the sheet shows what the layout sends.
+    /// A game's options page keeps what it read when it opened (its cloud save, whether Reset applies) across a rebuilt list, and
+    /// Reset shows as soon as an option differs.
+    func testOpenOptionsKeepTheirDetails() throws {
+        let (driver, _, _) = try makeDriver()
+        let id = try XCTUnwrap(driver.state.games.first?.id)
+        driver.openOptions(id)
+        XCTAssertNotNil(driver.state.games.first?.save, "the cloud save's state is read with the options")
+        XCTAssertNotNil(driver.state.games.first?.cheats)
+        driver.setOption(gameID: id, setting: "DM_FPS_TARGET", value: "30")
+        XCTAssertEqual(driver.state.games.first?.canReset, true, "an option that differs shows Reset at once")
+        driver.refresh()
+        XCTAssertNotNil(driver.state.games.first?.save, "a rebuilt list keeps the open page's details")
+        XCTAssertEqual(driver.state.games.first?.canReset, true)
+        driver.setOption(gameID: id, setting: "DM_FPS_TARGET", value: "60")
+    }
+
     func testMappingChangesTheSharedControllerLayout() throws {
         let (driver, _, layout) = try makeDriver(pads: [])
         driver.openMenu()

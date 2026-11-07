@@ -369,6 +369,7 @@
   "console.update.onDesktop": "デスクトップで",
   "console.update.restartAsk": "今すぐ再起動しますか？",
   "console.update.restartBody": "新しいバージョンがインストールされました。ランチャーを閉じて開き直します。",
+  "console.update.retry": "再試行",
   "console.update.title": "アプリのアップデート",
   "console.update.waiting": "ビルド後",
   "console.update.waitingNote": "デスクトップのビルドが終わってから更新します。",

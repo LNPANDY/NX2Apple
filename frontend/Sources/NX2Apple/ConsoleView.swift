@@ -359,7 +359,9 @@ enum ConsoleInput {
                 .padScope("console.confirmReset", pad)
         } else if state.presentedSheet == .confirmUpdate {
             let ready = state.prefs.update == .ready
-            let tag: String = { if case let .available(tag) = state.prefs.update { return tag }; return "" }()
+            let tag: String = {
+                switch state.prefs.update { case let .available(tag), let .failed(tag, _): return tag; default: return "" }
+            }()
             ConsoleQuestion(compact: compact, symbol: "arrow.down.app", title: ready ? t("console.update.restartAsk") : String(format: t("console.update.ask"), tag),
                             message: t(ready ? "console.update.restartBody" : "console.update.askBody"), scope: "console.confirmUpdate",
                             other: (t("console.exit.cancel"), "console.confirmUpdate.cancel", { driver.back() }),

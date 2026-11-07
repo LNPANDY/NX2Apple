@@ -155,7 +155,7 @@ struct ConsoleQuestion: View {
                         }
                     }
                     .padding(.horizontal, inset).padding(.bottom, compact ? 24 : 40)
-                    .frame(maxWidth: .infinity, alignment: compact ? .leading : .center)
+                    .frame(maxWidth: .infinity, alignment: .leading)   // lined up with the title
                 }
                 .onChange(of: pad.focused) { id in
                     guard let id, id.hasPrefix("console.option.") || id.hasPrefix("console.gamePad.") else { return }

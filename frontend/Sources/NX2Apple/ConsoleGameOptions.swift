@@ -249,6 +249,7 @@ struct ConsoleSwitchRow: View {
         case .ready: return t("app.restartNow")
         case .cannotInstall: return t("console.update.onDesktop")
         case .waitingForBuild: return t("console.update.waiting")
+        case .failed: return t("console.update.retry")
         }
     }
 
@@ -257,7 +258,8 @@ struct ConsoleSwitchRow: View {
         switch prefs.update {
         case .cannotInstall(let tag): return version + " \u{00b7} " + String(format: t("console.update.cannotInstall"), tag)
         case .waitingForBuild: return version + " \u{00b7} " + t("console.update.waitingNote")
-        default: return version
+        case .failed(_, let reason): return version + " \u{00b7} " + reason   // why the last try failed
+        default: return prefs.updateStatus.isEmpty ? version : version + " \u{00b7} " + prefs.updateStatus   // downloading, ready, or why an install failed
         }
     }
 }

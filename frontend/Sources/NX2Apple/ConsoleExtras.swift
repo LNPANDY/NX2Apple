@@ -58,12 +58,16 @@ enum ConsoleAppUpdate: Equatable {
     case cannotInstall(String)
     /// Updating waits while a build runs.
     case waitingForBuild
+    /// The last download or check of a release failed (AppUpdateStore.blocked): A tries again.
+    case failed(tag: String, reason: String)
 }
 
 struct ConsolePrefs: Equatable {
     var values: [ConsolePref: Bool] = [:]
     var appVersion = ""
     var update: ConsoleAppUpdate = .upToDate
+    /// What the update store says now (downloading, ready, why an install failed), shown under the version.
+    var updateStatus = ""
     subscript(_ pref: ConsolePref) -> Bool { values[pref] ?? Self.defaults[pref] ?? false }
     static let defaults: [ConsolePref: Bool] = [.startInConsole: false, .promptOnController: true, .returnAfterPlay: true, .onlyBuilt: false]
 }
