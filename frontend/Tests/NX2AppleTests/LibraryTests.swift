@@ -1374,4 +1374,45 @@ import NXModel
         XCTAssertEqual(library.games[0].iosAppPath, "")
         XCTAssertEqual(library.games[0].ipaPath, ipa.path, "remembered IPA path must not be cleared when the shared app was never installed")
     }
+
+    func testSyncSharedAppDoesNotMarkNewGameInstalledWhenItsDeviceInstallFailedAfterEarlierPeerSucceeded() throws {
+        let shellRoot = temporary.appendingPathComponent("shell-partial-install")
+        let shellApp = shellRoot.appendingPathComponent("derived-data/Build/Products/Release-iphoneos/DmShell.app")
+        try FileManager.default.createDirectory(at: shellApp, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: shellApp.appendingPathComponent("Info.plist"))
+        try Data("profile".utf8).write(to: shellApp.appendingPathComponent("embedded.mobileprovision"))
+
+        let ipaB = temporary.appendingPathComponent("Stardew.ipa")
+        try Data("ipa".utf8).write(to: ipaB)
+
+        let file = temporary.appendingPathComponent("library.json")
+        let gameA = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        var gameB = LibraryGame(titleID: "0100E65002BB8000", name: "Stardew Valley")
+        gameB.ipaPath = ipaB.path
+        try JSONEncoder().encode([gameA, gameB]).write(to: file)
+
+        // 1. Install game A successfully.
+        let entryA = ShellLibrary.Game(titleID: "0100CD801CE5E000", name: "Balatro", framework: "DmGame0100CD801CE5E000.framework")
+        let entryB = ShellLibrary.Game(titleID: "0100E65002BB8000", name: "Stardew Valley", framework: "DmGame0100E65002BB8000.framework")
+        try ShellLibrary(games: [entryA]).save(root: shellRoot.path)
+        let library = GameLibrary(file: file)
+        library.recordCompletedIOS(archive: "", app: shellApp.path, device: "EXISTING-DEVICE", for: gameA.id)
+        XCTAssertTrue(library.games[0].onDevice)
+        XCTAssertFalse(library.games[1].onDevice)
+        XCTAssertEqual(library.games[1].ipaPath, ipaB.path)
+
+        // 2. Build B so the current shared shell.json contains A and B, but let B's device install fail.
+        try ShellLibrary(games: [entryA, entryB]).save(root: shellRoot.path)
+
+        // 3. Restart the launcher.
+        let relaunched = GameLibrary(file: file)
+        relaunched.syncSharedApp(root: shellRoot.path)
+        XCTAssertTrue(relaunched.games[0].onDevice)
+        XCTAssertEqual(relaunched.games[0].installedDevice, "EXISTING-DEVICE")
+        XCTAssertEqual(relaunched.games[0].iosAppPath, shellApp.path)
+        XCTAssertFalse(relaunched.games[1].onDevice, "B's failed device install must not be marked installed from A's earlier receipt")
+        XCTAssertEqual(relaunched.games[1].installedDevice, "")
+        XCTAssertEqual(relaunched.games[1].iosAppPath, "")
+        XCTAssertEqual(relaunched.games[1].ipaPath, ipaB.path, "B's remembered IPA must stay intact after a failed device install")
+    }
 }
