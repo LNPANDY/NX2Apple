@@ -22,6 +22,7 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_FPS_TARGET.120", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx",
         "launch.opt.DM_SCREEN_ASPECT.0",   // 16:9 (Switch) reads the same in every language
         "switch2.badge",   // the console's name
+        "console.mapping.place.Plus", "console.mapping.place.Minus", "console.general.launcher",   // the Switch's Plus and Minus buttons, and Launcher, as German writes them
         // The iOS shell's words that German writes as English does: OK, the controller, the Switch's Minus and Plus buttons, Version.
         // Every other ios.* key needs a German text that differs (ShellStringsTests in frontend-ios checks all seven languages).
         "ios.host.ok", "ios.host.padController", "ios.ui.padController", "ios.ui.padMinus", "ios.ui.padPlus", "ios.ui.version",
