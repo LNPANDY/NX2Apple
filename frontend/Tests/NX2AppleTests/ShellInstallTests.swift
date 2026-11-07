@@ -60,7 +60,7 @@ import NXModel
 
     /// #427: the default no longer depends on the output folder, and what is saved stays.
     func testShellRootDefaultsToApplicationSupportAndIsKept() throws {
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         let home = temporary.path + "/home"
         XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/A", home: home),
                        home + "/Library/Application Support/NX2Apple/shell")
@@ -75,7 +75,7 @@ import NXModel
     /// #492: the Settings page reads the path before a game is chosen; the empty parent put the shell at the root of the
     /// read-only system volume, where the write failed after the whole build.
     func testAnEmptyOrRootParentNeverSavesTheShellAtTheVolumeRoot() {
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         let home = "/Users/tester"
         let root = "/Users/tester/Library/Application Support/NX2Apple/shell"
         for parent in ["", "/", "relative/games"] {
@@ -86,7 +86,7 @@ import NXModel
     }
 
     func testASavedRootAtTheVolumeRootIsRepaired() {
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         defaults.set("/NX2Apple-shell", forKey: "shellRoot")
         XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games", home: "/Users/tester"),
                        "/Users/tester/Library/Application Support/NX2Apple/shell")
@@ -94,7 +94,7 @@ import NXModel
     }
 
     func testThePreviewDoesNotSaveARoot() {
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A", home: "/Users/tester"),
                        "/Users/tester/Library/Application Support/NX2Apple/shell")
         XCTAssertNil(defaults.string(forKey: "shellRoot"))
@@ -439,7 +439,7 @@ import NXModel
 
     private func run(_ f: Fixture, _ extra: [String] = []) -> (status: Int32, output: String) {
         var output = ""
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         let status = ShellCLI.run(f.args(extra: extra), defaults: defaults) { output += $0 }
         return (status, output)
     }
@@ -596,9 +596,13 @@ import NXModel
 
         try update.write(to: URL(fileURLWithPath: image))
         var plans: [ShellCopyPlan] = []
+        var log = ""
+        i.log = { log += $0 }
         i.decideCopy = { plans.append($0); return .skip }
         XCTAssertTrue(i.installData(titleID: titleID, archive: f.archive).copySkipped)
         XCTAssertEqual(plans.map(\.bytes), [Int64(update.count)])
+        XCTAssertEqual(plans.first?.versionNote, "The game data has changed since the last copy.")
+        XCTAssertTrue(log.contains("The game data has changed since the last copy."), log)
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: deviceImage)), first)
         i.decideCopy = { _ in .copy }
         try write(state + "/fail-on", "romfs.img")
@@ -607,7 +611,9 @@ import NXModel
         XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 1)
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: deviceImage)), update)
         i.decideCopy = { _ in XCTFail("an unchanged copy needs no prompt"); return .skip }
-        XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 0)
+        let current = i.installData(titleID: titleID, archive: f.archive)
+        XCTAssertEqual(current.copied, 0)
+        XCTAssertEqual(current.message, "Z already has this version of the game data.")
     }
 
     func testNewGameVersionWithUnchangedIndexAndReinstalledContainerBothNeedTheImage() throws {
@@ -626,6 +632,7 @@ import NXModel
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: docs + "/games/\(titleID)/romfs.img")), update)
 
         // A different paired device has its own copy history, even if its directory listing looks identical.
+        i.decideCopy = { plan in XCTAssertNil(plan.versionNote); return .copy }
         i.device = "00008150-BBBB"
         try writeDevices(state + "/devices-default.json", [(i.device, "wired")])
         XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 1)
@@ -679,12 +686,12 @@ import NXModel
 
     func testCLIChecksItsArguments() throws {
         var output = ""
-        XCTAssertEqual(ShellCLI.run(["--install-shell", "--framework", "/x"], defaults: UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!) { output += $0 }, 1)
+        XCTAssertEqual(ShellCLI.run(["--install-shell", "--framework", "/x"], defaults: TestDefaults.make("nspb-shell")) { output += $0 }, 1)
         XCTAssertTrue(output.hasPrefix("usage: NSPortBuilder --install-shell"))
         let f = try makeFixture()
         output = ""
         XCTAssertEqual(ShellCLI.run(f.args(extra: ["--framework", path("missing.framework")]),
-                                    defaults: UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!) { output += $0 }, 1)
+                                    defaults: TestDefaults.make("nspb-shell")) { output += $0 }, 1)
         XCTAssertTrue(output.contains("its framework is not in the"), output)
     }
 
@@ -769,6 +776,7 @@ import NXModel
         let r = install(i, f)
         XCTAssertTrue(r.ok, r.message)
         XCTAssertEqual(plans.count, 1)
+        XCTAssertNil(plans.first?.versionNote)
         XCTAssertEqual(plans.first?.connection, .wired)
         XCTAssertEqual(plans.first?.connectionText, "Keep Z unlocked until the copy finishes.")
         XCTAssertEqual(plans.first?.files, 2)
@@ -832,7 +840,7 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"), "build_shell.sh did not run")
         XCTAssertFalse(calls.contains { $0.hasPrefix("xcodebuild") || $0.hasPrefix("devicectl device") })
         var output = ""
-        XCTAssertEqual(ShellCLI.run(f.args(), defaults: UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!) { output += $0 }, 1)
+        XCTAssertEqual(ShellCLI.run(f.args(), defaults: TestDefaults.make("nspb-shell")) { output += $0 }, 1)
         XCTAssertTrue(output.contains("FAIL: ") && output.contains("tap Trust"), output)
     }
 

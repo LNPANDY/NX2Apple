@@ -1161,6 +1161,10 @@ class MainWindow(QMainWindow):
     def _effective_ipa_path(self) -> str:
         if self.m.ipa_path and os.path.exists(self.m.ipa_path):
             return self.m.ipa_path
+        if self.m.ipa_kind == 'shared':
+            cand_shell = os.path.join(self.m.shell_cache_path, 'export', 'NX2Apple.ipa')
+            if os.path.isfile(cand_shell):
+                return cand_shell
         tid = self.m.build_key
         if tid and self.m.out_dir:
             cand = os.path.join(self.m.out_dir, f'{tid}.ipa')
@@ -1172,12 +1176,9 @@ class MainWindow(QMainWindow):
         return self.m.ipa_path
 
     def _effective_archive_path(self) -> str:
-        if self.m.archive_path and os.path.isdir(self.m.archive_path):
-            return self.m.archive_path
-        if self.m.out_dir:
-            cand = os.path.join(self.m.out_dir, 'romfs')
-            if os.path.isdir(cand):
-                return cand
+        eff = self.m.effective_archive_path()
+        if eff and os.path.isdir(eff):
+            return eff
         sel = self.m.library.selected
         if sel and sel.has_archive:
             return sel.archive_path
@@ -1237,8 +1238,7 @@ class MainWindow(QMainWindow):
                 return
             self._drive_folder = d
             self.drive_path_lbl.setText(d)
-        tid = self.m.build_key
-        ok, info = lib.DriveCopy.copy_to_folder(arch_p, self._drive_folder, tid)
+        ok, info = self.m.copy_archive_to_drive(self._drive_folder)
         if ok:
             self.step3_sub.setText(self.m.t('shell.driveDone', info, self.m.t('ios.ui.gameData')))
         else:

@@ -60,7 +60,7 @@ class CommittedCatalogs(unittest.TestCase):
 
     def test_every_language_has_every_shell_text(self):
         codes = C.apple_codes(self.languages)
-        self.assertEqual(sorted(codes), sorted(['en', 'zh-Hans', 'de', 'sv', 'fr', 'it']))
+        self.assertEqual(sorted(codes), sorted(['en', 'zh-Hans', 'de', 'sv', 'fr', 'it', 'ja']))
         for target in C.CATALOGS:
             for key, entry in json.loads(C.catalog_path(target).read_text(encoding='utf-8'))['strings'].items():
                 self.assertEqual(sorted(entry['localizations']), sorted(codes), f'{target}: {key} lacks a language')

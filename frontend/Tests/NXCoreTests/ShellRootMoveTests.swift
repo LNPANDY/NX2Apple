@@ -242,7 +242,7 @@ final class ShellRootMoveTests: XCTestCase {
     func testAPickedRootIsNotMigratedBackAtLaunch() throws {
         try makeCache()
         XCTAssertEqual(ShellRootMove.run(ShellRootMove.plan(from: source, to: destination)), .moved)
-        let defaults = UserDefaults(suiteName: "nspb-move-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-move")
         defaults.set(destination, forKey: "shellRoot")
         defaults.set(true, forKey: ShellRootMove.pickedKey)
         ShellRootMigration.migrateSavedRoot(defaults: defaults, home: home)

@@ -176,7 +176,7 @@ final class ArtworkSlotsTests: XCTestCase {
     @MainActor func testTheConsoleCoverIsDrawnAgainWhenTheThumbnailChanges() throws {
         let library = try library("")
         var asked: [ArtworkSlot] = []
-        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: UserDefaults(suiteName: "ArtworkSlotsTests-" + UUID().uuidString)!),
+        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: TestDefaults.make("ArtworkSlotsTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { [] },
                                        artwork: { game, _ in asked.append(game.artwork.thumbnail == nil ? .hero : .thumbnail); return nil }, observeSystem: false)
         driver.refresh()

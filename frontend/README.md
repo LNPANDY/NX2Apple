@@ -169,7 +169,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/88c7e03f51e3934dc227089ea81ec64fcd525b03/docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/b2d46b86d03f4b03afe11ea61c67cdf00d7a5345/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a
@@ -414,7 +414,7 @@ text of the JSON key, and each language file that has the JSON key adds a locali
 code stays as it is). A new shell text is a line in every language file under the prefix, the same words in the Swift call
 and `python3 tools/l10n_shell_catalogs.py`. A new language file shows up in both catalogs with no change in the tool. Unlike the
 launchers' texts, every shell text has every language: `python3 tools/l10n_shell_catalogs.py --check` fails when a language file
-lacks one, and so do `ShellStringsTests` (each catalog entry has all six) and `ShellTextSourcesTests` (each `ShellStrings.text` and
+lacks one, and so do `ShellStringsTests` (each catalog entry has all seven) and `ShellTextSourcesTests` (each `ShellStrings.text` and
 `hostText` literal of the sources is a catalog key) in frontend-ios. A text a language writes as English does (OK, Minus, Version)
 is listed in `ShellStringsTests.cognates` and in the German and French launcher tests. `tools/tests/test_l10n_shell_catalogs.py` fails when a
 committed catalog differs from what the files give, and when the app's `CFBundleLocalizations` (the Demo app, `tools/try-local`

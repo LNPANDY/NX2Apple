@@ -27,7 +27,6 @@ import XCTest
         func report(_ deps: [Dep]) { lock.lock(); written.append(deps); lock.unlock() }
     }
 
-    private var suite: String!
     private var defaults: UserDefaults!
     private let runner = FakeProcessRunner()
     private let localizer = Localizer(.en)
@@ -39,12 +38,7 @@ import XCTest
     private var iOS = true
 
     override func setUpWithError() throws {
-        suite = "nxmodel-dependency-tests-" + UUID().uuidString
-        defaults = UserDefaults(suiteName: suite)
-    }
-
-    override func tearDownWithError() throws {
-        defaults.removePersistentDomain(forName: suite)
+        defaults = TestDefaults.make("nxmodel-dependency-tests")
     }
 
     private func makeStore() -> DependencyStore {

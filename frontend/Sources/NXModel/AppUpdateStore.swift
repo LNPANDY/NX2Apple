@@ -77,6 +77,7 @@ import NXCore
     ///   - terminate: quits the app.
     ///   - uninstall: removes what a plan names and says what went and what failed.
     ///   - trashOldApp: the replaced bundle goes to the Trash (a test says false, so it leaves nothing there).
+    ///   - translocationOriginal: where a translocated `bundle` was started from (`AppUpdate.untranslocated`; a test passes its own).
     package init(localizer: Localizer, runner: ProcessRunner, releases: ReleaseSource,
                              version: String = AppUpdateStore.appVersion,
                              bundle: URL = Bundle.main.bundleURL, bundleIdentifier: String? = Bundle.main.bundleIdentifier,
@@ -86,12 +87,14 @@ import NXCore
                              relaunch: @escaping (URL) -> Bool = { AppUpdate.relaunch($0) },
                              terminate: @escaping () -> Void = {},
                              uninstall: @escaping (Uninstall.Plan) -> (removed: [String], failures: [String]) = { Uninstall.run($0) },
-                         trashOldApp: Bool = true) {
+                         trashOldApp: Bool = true,
+                         translocationOriginal: (URL) -> URL? = AppUpdate.translocationOriginal) {
         self.localizer = localizer
         self.runner = runner
         self.releases = releases
         self.version = version
-        self.bundle = bundle
+        // A translocated launcher (#873) updates and relaunches the copy it was started from, not the read-only one it runs as
+        self.bundle = AppUpdate.untranslocated(bundle, original: translocationOriginal)
         self.bundleIdentifier = bundleIdentifier ?? ""
         self.runningOS = runningOS
         self.defaults = defaults
@@ -100,7 +103,7 @@ import NXCore
         self.terminate = terminate
         self.uninstall = uninstall
         self.trashOldApp = trashOldApp
-        installability = AppUpdate.installability(bundle, appVersion: version)
+        installability = AppUpdate.installability(self.bundle, appVersion: version)
         automatic = defaults.object(forKey: Self.automaticKey) as? Bool ?? true
     }
 

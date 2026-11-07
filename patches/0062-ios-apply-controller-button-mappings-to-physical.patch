@@ -22,7 +22,7 @@ index c33176a..9de7201 100644
  #include <stdatomic.h>
  #import "DmLayout.h"
  #import "DmGameMenu.h"
-@@ -563,6 +564,7 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
+@@ -563,6 +564,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
  static pad_slots g_slots;
  static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
  static int g_merge;
@@ -38,7 +38,7 @@ index c33176a..9de7201 100644
      dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
  }
  // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
-@@ -582,6 +585,9 @@ static void read_pad(GCExtendedGamepad *g) {
+@@ -582,6 +585,9 @@ static void pad_keep_system_buttons(GCController *c) { for (NSString *b in @[GCI
  static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
  static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
  static void pads_start(void) {

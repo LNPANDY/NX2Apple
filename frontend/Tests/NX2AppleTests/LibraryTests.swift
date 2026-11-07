@@ -15,13 +15,12 @@ import NXModel
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     }
 
-    /// Every test app carries this bundle ID, so a saved choice goes to a preferences domain of this run and never to a real game's.
-    private var bundleID: String { "org.nxnative.frontendtests." + temporary.lastPathComponent }
+    /// Every test app carries this bundle ID, so a saved choice goes to a preferences domain of this run and never to a real game's,
+    /// a plist in the test's folder (`TestPreferences`).
+    private var bundleID: String { TestPreferences.domain(in: temporary, "library") }
 
     override func tearDownWithError() throws {
-        let domain = bundleID as CFString
-        for key in (CFPreferencesCopyKeyList(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] { CFPreferencesSetAppValue(key as CFString, nil, domain) }
-        CFPreferencesAppSynchronize(domain)
+        CFPreferencesAppSynchronize(bundleID as CFString)
         try FileManager.default.removeItem(at: temporary)
     }
 
@@ -40,13 +39,12 @@ import NXModel
 
     /// The library opens on the player's own games: Owned is the default, also for the "all" an earlier build may have stored.
     func testLibraryFilterDefaultsToOwned() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "nxnative-tests-filter-" + temporary.lastPathComponent))
+        let defaults = TestDefaults.make("nxnative-tests-filter")
         XCTAssertEqual(LibraryFilter.load(defaults), .owned)
         defaults.set("all", forKey: "libraryFilter")
         XCTAssertEqual(LibraryFilter.load(defaults), .owned)
         LibraryFilter.built.save(defaults)
         XCTAssertEqual(LibraryFilter.load(defaults), .built)
-        defaults.removePersistentDomain(forName: "nxnative-tests-filter-" + temporary.lastPathComponent)
     }
 
     func testLibraryTitleOrderUsesNumbersAndKeepsSelection() {
@@ -1071,10 +1069,7 @@ import NXModel
             window.orderOut(nil)
         }
         do {   // the Controls sheet with a few changes, kept in a suite of its own
-            let suite = "nxnative-visual-qa-controls"
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-            defaults.removePersistentDomain(forName: suite)
-            defer { defaults.removePersistentDomain(forName: suite) }
+            let defaults = TestDefaults.make("nxnative-visual-qa-controls")
             let layout = ControlLayout(defaults: defaults)
             if let up = ControlLayout.functions.first(where: { $0.id == "RUp" }) { layout.assign(up, key: 34) }
             layout.setSends("A", "B"); layout.setSends("B", "A")
@@ -1135,10 +1130,7 @@ import NXModel
         // ---- Controller layouts (#70): the Controls sheet scrolled to the layout by the controller's focus, Auto with a
         // stand-in Xbox controller, then By label with none connected (a suite of its own; no real controller is read) ----
         do {
-            let suite = "nxnative-visual-qa-control-presets"
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-            defaults.removePersistentDomain(forName: suite)
-            defer { defaults.removePersistentDomain(forName: suite) }
+            let defaults = TestDefaults.make("nxnative-visual-qa-control-presets")
             for (name, mode, category) in [("controls-layout-auto", PadMode.auto, "Xbox One" as String?), ("controls-layout-bylabel", .byLabel, nil)] {
                 let layout = ControlLayout(defaults: defaults)
                 layout.controllerCategory = { category }

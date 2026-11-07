@@ -77,7 +77,7 @@ index f935755..fc375cb 100644
  //   Tap (touch): no control but the menu button, every other touch goes to the game's local touch viewport; offered only while the game is in handheld mode, the only one in which it reads the touch screen (Balatro, played by touch).
  //   2D (simple): top corners ZL above L (one column), ZR above R likewise, teardrops with the tip toward the screen corner; − and + side by side at the top centre; the left stick in the bottom-left corner (fixed ring, tilt measured from the ring centre, small dead zone);
  //     the A (right) B (bottom) X (top) Y (left) diamond in the bottom-right corner, sliding a finger between keys switches keys. Each bottom corner holds a single control, so it sits close in (reaching halfway into the side safe-area inset).
-@@ -127,6 +128,9 @@ static void phone_motion_start(UIView *body) {
+@@ -127,6 +128,9 @@ static const CGFloat
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
  static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
  int dm_opmode(void);   // hle_oe.c: 0 = handheld
@@ -87,7 +87,7 @@ index f935755..fc375cb 100644
  
  @interface DmGamepad : UIView
  - (void)arrange:(DmLayout)layout;
-@@ -590,6 +594,7 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
+@@ -590,6 +594,7 @@ static int g_merge;
  static pad_map g_padmap;   // DM_PAD_MAP affects physical controllers only
  static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 32767); }
  static void read_pad(GCExtendedGamepad *g) {
@@ -107,7 +107,7 @@ index f935755..fc375cb 100644
  static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
  static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
  static void pads_start(void) {
-@@ -654,7 +662,7 @@ - (void)padsChanged:(NSNotification *)note {
+@@ -654,7 +662,7 @@ static BOOL pads_slotted(GCController *gone) {
      GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
      if (c && (!c.extendedGamepad || g_merge)) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
      BOOL any = g_merge ? pads_merged(gone) : pads_slotted(gone);
@@ -116,7 +116,7 @@ index f935755..fc375cb 100644
  }
  @end
  
-@@ -665,6 +673,10 @@ - (void)padsChanged:(NSNotification *)note {
+@@ -665,6 +673,10 @@ void dm_gamepad_touch_feedback(bool on) { [g_view setTouchFeedback:on]; }
  int dm_pad_layout(void) { return g_view ? [g_view padLayout] : 0; }
  bool dm_pad_layout_offered(int layout) { return layout == 0 || layout == 1 || (layout == 2 && dm_opmode() == 0); }
  void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }
@@ -589,7 +589,7 @@ diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sourc
 index 84efd5d..2b64998 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -121,3 +121,4 @@ void dm_audio_reset(void) {}
+@@ -121,3 +121,4 @@ const char *front_ios_boot_message(void) { return NULL; }
  const char *front_ios_device_check(void) { return NULL; }   // a supported GPU
  void dm_cloud_saves_env(void) {}
  int save_sync_flush(int timeout_ms) { (void)timeout_ms; return 1; }
@@ -774,7 +774,7 @@ index 0000000..3f409e9
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index e43f2ba..85f6b3d 100644
+index 548bb63..1bc990f 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -78,7 +78,7 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre
