@@ -6,6 +6,93 @@ import Testing
 @Suite struct TouchControlsTests {
     private func store() -> ShellSettingsStore { ShellSettingsStore(defaults: UserDefaults(suiteName: "t-touch-\(UUID().uuidString)")!) }
 
+    @MainActor @Test func savedModeReopensAndUsesTheExistingEngineSetting() {
+        let store = store()
+        #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == nil)
+        let editor = TouchLayoutEditorModel(store: store)
+        editor.setKind(.twoD)
+        #expect(store.touchMode == "3d")
+        editor.commit()
+        #expect(store.touchMode == "2d" && store.gameDefaults["DM_PROF_PAD_LAYOUT"] == "0")
+        let reopened = TouchLayoutEditorModel(store: store)
+        #expect(reopened.kind == .twoD && !reopened.hasChanges)
+        reopened.updateScreen(.duoUpright)
+        #expect(reopened.kind == .twoDSplit && !reopened.hasChanges)
+        reopened.setKind(.threeDSplit)
+        reopened.commit()
+        #expect(TouchLayoutEditorModel(store: store).kind == .threeD)
+        #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == "1")
+        store.storeTouchMode("invalid")
+        #expect(store.touchMode == "3d")
+    }
+
+    @MainActor @Test(arguments: ["noop", "size", "stick", "arrangement", "pose"])
+    func savingOtherEditorStateKeepsAnUnsetModeUnset(edit: String) {
+        let store = store()
+        let model = TouchLayoutEditorModel(store: store, upright: edit == "pose" ? .duoUpright : nil)
+        switch edit {
+        case "size": model.setSize("large")
+        case "stick": model.setStick("higher")
+        case "arrangement":
+            model.select(.stick)
+            #expect(model.nudge(dx: 1, dy: 0) == .moved)
+        case "pose": model.setKind(.threeDSplit)
+        default: break
+        }
+
+        model.commit()
+
+        #expect(store.defaults.object(forKey: ShellSettingsStore.touchModeKey) == nil)
+        #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == nil)
+        if edit == "size" { #expect(store.touchSize == "large") }
+        if edit == "stick" { #expect(store.touchStick == "higher") }
+        if edit == "arrangement" { #expect(!store.touchLayout.isEmpty) }
+    }
+
+    @MainActor @Test func changingModeBackToItsInitialValueLeavesThePreferenceUnchanged() {
+        let unset = store()
+        let model = TouchLayoutEditorModel(store: unset)
+        model.setKind(.twoD)
+        model.setKind(.threeD)
+        #expect(!model.hasChanges)
+        model.commit()
+        #expect(unset.defaults.object(forKey: ShellSettingsStore.touchModeKey) == nil)
+
+        for initial in ["2d", "3d"] {
+            let saved = store()
+            saved.storeTouchMode(initial)
+            let editor = TouchLayoutEditorModel(store: saved)
+            editor.setKind(initial == "2d" ? .threeD : .twoD)
+            editor.setKind(initial == "2d" ? .twoD : .threeD)
+            #expect(!editor.hasChanges)
+            editor.commit()
+            #expect(saved.defaults.string(forKey: ShellSettingsStore.touchModeKey) == initial)
+        }
+    }
+
+    @MainActor @Test func discardingAChangedModeDoesNotStoreIt() {
+        let store = store()
+        let model = TouchLayoutEditorModel(store: store)
+        model.setKind(.twoD)
+        #expect(!model.requestExit() && model.confirmingExit)
+        #expect(store.defaults.object(forKey: ShellSettingsStore.touchModeKey) == nil)
+        #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == nil)
+    }
+
+    @MainActor @Test(arguments: ["2d", "3d"])
+    func unrelatedSavePreservesAnExplicitMode(mode: String) {
+        let store = store()
+        store.storeTouchMode(mode)
+        let model = TouchLayoutEditorModel(store: store)
+        model.setSize("large")
+        model.updateScreen(.duoUpright)
+        model.commit()
+        let reopened = ShellSettingsStore(defaults: store.defaults)
+        #expect(reopened.touchSize == "large")
+        #expect(reopened.defaults.string(forKey: ShellSettingsStore.touchModeKey) == mode)
+        #expect(reopened.gameDefaults["DM_PROF_PAD_LAYOUT"] == (mode == "3d" ? "1" : "0"))
+    }
+
     @Test func theSizeRowOffersTheEngineSizesAndStoresThem() {
         let store = store()
         let row = ShellSettingsRows.touchSizeRow(store)
@@ -69,35 +156,128 @@ import Testing
         }
     }
 
-    /// Reset all controls asks first: the first press only asks, Cancel keeps every move, the answer resets the shown layout alone.
+    /// Reset all asks first, edits stay local until commit, and resetting one layout keeps the other saved layouts.
     @MainActor @Test func resetAllAsksBeforeItActs() {
         let store = store()
+        var original = TouchLayout()
+        original[.threeDSplit, .stick] = TouchLayout.Offset(dx: 2, dy: -1)
+        store.storeTouchLayout(original)
         let m = TouchLayoutEditorModel(store: store, kind: .threeD)
         m.askReset()
         #expect(!m.confirmingReset, "nothing moved, nothing to ask")
         m.setKind(.twoD); m.select(.stick); m.nudge(dx: 0, dy: -1)
         m.setKind(.threeD); m.select(.face); m.nudge(dx: -1, dy: 0)
-        let moved = store.touchLayout
+        let moved = m.editing.layout
+        #expect(store.touchLayout == original, "editing is a draft until confirmation")
         m.askReset()
-        #expect(m.confirmingReset && store.touchLayout == moved && !m.layoutIsBuiltIn)
+        #expect(m.confirmingReset && m.editing.layout == moved && !m.layoutIsBuiltIn)
         m.cancelReset()
-        #expect(!m.confirmingReset && store.touchLayout == moved)
+        #expect(!m.confirmingReset && m.editing.layout == moved)
         m.askReset(); m.setKind(.twoD)
         #expect(!m.confirmingReset, "another layout drops the question")
         m.setKind(.threeD); m.askReset(); m.reset()
         #expect(!m.confirmingReset && m.layoutIsBuiltIn)
-        #expect(store.touchLayout.isEmpty(.threeD) && !store.touchLayout.isEmpty(.twoD), "the 2D layout keeps its move")
-    }
-
-    /// The column beside the preview held sideways fits the smallest phone and never grows past the buttons' room on an iPad.
-    @Test func theSidewaysColumnFitsEveryPhone() {
-        #expect(TouchLayoutEditorView.column(width: 667) == 250)
-        #expect(TouchLayoutEditorView.column(width: 832) == 283)
-        #expect(TouchLayoutEditorView.column(width: 1376) == 340)
+        #expect(store.touchLayout == original, "reset remains a draft too")
+        m.commit()
+        #expect(store.touchLayout.isEmpty(.threeD) && !store.touchLayout.isEmpty(.twoD), "the 2D move is saved")
+        #expect(store.touchLayout[.threeDSplit, .stick] == original[.threeDSplit, .stick], "the split layout is preserved")
     }
 
     @Test func theSizesKeepTheirOrder() {
         #expect(TouchPadPreviewGeometry(size: "small").u < TouchPadPreviewGeometry(size: "medium").u)
         #expect(TouchPadPreviewGeometry(size: "large").u > TouchPadPreviewGeometry(size: "medium").u)
     }
+    @MainActor @Test func presetsAndCustomPositionsShareOneDraft() {
+        let store = store()
+        var original = TouchLayout()
+        original[.threeDSplit, .stick] = .init(dx: 2, dy: -1)
+        store.storeTouchLayout(original)
+        let discarded = TouchLayoutEditorModel(store: store)
+        discarded.setSize("large"); discarded.setStick("inward")
+        discarded.select(.stick); discarded.nudge(dx: 0, dy: -1)
+        #expect(store.touchSize == "medium" && store.touchStick == "corner")
+        #expect(store.touchLayout == original)
+        let saved = TouchLayoutEditorModel(store: store)
+        saved.setSize("small"); saved.setStick("higher")
+        saved.select(.stick); saved.nudge(dx: 0, dy: -1)
+        let grouped = saved.editing.layout
+        saved.setTogether(false)
+        #expect(saved.editing.layout == grouped, "ungrouping must not move saved controls")
+        #expect(saved.editing.layout[.threeDSplit, .stick] == original[.threeDSplit, .stick])
+        let draft = saved.editing.layout
+        saved.commit()
+        #expect(store.touchSize == "small" && store.touchStick == "higher")
+        #expect(store.touchLayout == draft)
+        saved.setSize("invalid"); saved.setStick("invalid")
+        #expect(saved.editing.size == "small" && saved.editing.stick == "higher")
+    }
+
+    /// A live pose change selects the engine's separated or over-the-picture layout while preserving the draft for every pose.
+    @MainActor @Test func liveSurfaceChangesKeepAllLayoutDraftsAndCancelTransientState() {
+        let store = store()
+        var original = TouchLayout()
+        original[.twoD, .a] = .init(dx: 2, dy: 1)
+        original[.threeDSplit, .plus] = .init(dx: -3, dy: 2)
+        store.storeTouchLayout(original)
+
+        let model = TouchLayoutEditorModel(store: store, sideways: .proMax)
+        model.select(.stick)
+        #expect(model.nudge(dx: 0, dy: -1) == .moved)
+        model.setSize("large")
+        model.setStick("inward")
+        let draft = model.editing.layout
+        #expect(draft[.twoD, .a] == original[.twoD, .a])
+        #expect(draft[.threeD, .stick] == .init(dx: 0, dy: -1))
+        #expect(draft[.threeDSplit, .plus] == original[.threeDSplit, .plus])
+
+        model.pickUp(.stick)
+        model.dragTo(.stick, from: model.dragOffset(.stick), by: CGSize(width: 10_000, height: 0))
+        #expect(model.invalidPlacement)
+        model.askReset()
+        #expect(model.confirmingReset)
+
+        model.updateScreen(.duoUpright)
+        #expect(model.kind == .threeDSplit, "the inner portrait surface separates the controls")
+        #expect(model.editing.screen == .duoUpright)
+        #expect(model.editing.layout == draft, "pose adaptation must not prune or replace any saved/draft offsets")
+        #expect(model.selected == .stick && !model.held)
+        #expect(!model.invalidPlacement && !model.rejected && !model.confirmingReset)
+        #expect(model.editing.size == "large" && model.editing.stick == "inward")
+
+        model.updateScreen(.proMax)
+        #expect(model.kind == .threeD, "the landscape surface returns to the over-the-picture variant")
+        #expect(model.editing.screen == .proMax && model.editing.layout == draft)
+        #expect(model.selected == .stick && !model.held)
+
+        model.setKind(.twoD)
+        model.updateScreen(.duoUpright)
+        #expect(model.kind == .twoDSplit, "the same pose adaptation retains the selected 2D layout")
+        #expect(model.editing.layout == draft)
+    }
+
+    @MainActor @Test func exitOnlyConfirmsUnsavedPersistentChanges() {
+        let store = store()
+        let model = TouchLayoutEditorModel(store: store)
+        #expect(!model.hasChanges && model.requestExit() && !model.confirmingExit)
+        model.setKind(.twoD)
+        #expect(model.hasChanges && !model.requestExit(), "2D/3D is a saved choice")
+        model.confirmingExit = false
+        model.setKind(.threeD)
+        model.setTogether(false)
+        #expect(!model.hasChanges, "grouping is temporary; reverting the mode clears its change")
+        model.setSize("large")
+        #expect(model.hasChanges && !model.requestExit() && model.confirmingExit)
+        #expect(store.touchSize == "medium", "requesting Exit must not save the draft")
+        model.confirmingExit = false
+        model.setSize("medium")
+        #expect(!model.hasChanges && model.requestExit())
+        model.select(.stick)
+        #expect(model.nudge(dx: 0, dy: -1) == .moved)
+        #expect(model.hasChanges && !model.requestExit())
+        model.putBack()
+        #expect(!model.hasChanges)
+        model.setStick("higher")
+        #expect(model.hasChanges && !model.requestExit())
+    }
+
 }

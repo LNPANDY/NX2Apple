@@ -20,19 +20,23 @@ extension BuildStore {
             return
         }
         shellDeviceChecked = false
-        if target != BuildTarget.mac, !exportsOneGame, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
+        if target != BuildTarget.mac, !exportsOneGame, !scriptFallback, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         stopping = false
-        running = true; done = false; doneNote = ""; stages = []; log.clear(); staleShadersShown = false
+        running = true; done = false; doneNote = ""; stages = []; staleShadersShown = false
+        if !scriptFallback { log.clear() }   // the script's run after nxb's exit code 4 goes below nxb's lines
         failure = nil; confirmingOverride = nil
+        let overrideKind = armedOverride   // kept for the script's run after nxb's exit code 4, which is the same build
         let override = takeOverrideFlag()   // for this build only: the next one asks again
         installedOn = ""; installedAppPath = ""; exportedIPAPath = ""; send = .idle
         guard repo.isRepo else {
             fail(repo.path.isEmpty ? t("msg.repoInvalidEmpty") : String(format: t("msg.repoInvalid"), shortPath(repo.path)))
             return
         }
-        // The experimental builder runs `nxb build` and never the script: no nxb, or one too old, stops here (#749). A game nxb does not take ends with its own exit code 4
-        nxbRun = experimentalBuilder
-        if let why = experimentalBuilderProblem() { fail(why); return }
+        // nxb builds by default (#749). A chosen nxb that is missing or too old stops here. A game nxb does not take ends with exit code 4, and the script builds it then
+        nxbRun = usesNxb && !scriptFallback
+        if experimentalBuilder, !usesNxb, !scriptFallback { say(t("msg.builderNotBundled")) }
+        scriptFallback = false
+        if nxbRun, let why = experimentalBuilderProblem() { fail(why); return }
         // Resolve the interpreter here if the dependency check has not landed yet. checkDeps()
         // runs on a background queue and startBuild() can beat it — for a moment deps.pythonPath is
         // empty, and the old fallback was Apple's /usr/bin/python3 (3.9), which the script then
@@ -244,6 +248,14 @@ extension BuildStore {
                             else { self.installShell(framework: fw, titleID: tid, name: name, archive: $0) }
                         }
                     }
+                } else if self.fallsBackToScript(status: status) {
+                    // nxb does not take this game or step yet (exit code 4): the script builds it, in the same build, with the same choices
+                    self.say("⟳ " + self.t("msg.builderFallback"))
+                    self.cleanupStaging()
+                    self.scriptFallback = true
+                    self.shellDeviceChecked = true   // the device was checked for this build already
+                    self.armedOverride = overrideKind
+                    self.runBuild()
                 } else {
                     if self.nxbRun {
                         // nxb's own exit code and message, as they are: there is no script to run instead (#749)

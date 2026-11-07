@@ -9,83 +9,105 @@ public struct GameDetailView: View {
     public var showsPrimaryAction: Bool
     /// Off where the game's cover and title are already in view, as beside the library's hero.
     public var showsHeader: Bool
+    /// The parent Form owns scrolling, section backgrounds and separators.
+    public var nativeSections: Bool
     @Environment(\.shellAskDelete) private var askDelete
-    public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true) {
+    public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true, nativeSections: Bool = false) {
         self.detail = detail
         self.actions = actions
         self.showsPrimaryAction = showsPrimaryAction
         self.showsHeader = showsHeader
+        self.nativeSections = nativeSections
     }
     public var body: some View {
-        VStack(alignment: .leading, spacing: 30) {
-            if showsHeader || showsPrimaryAction { header }
-            ForEach(detail.sections) { section in
-                group(section.title) {
-                    // The button mapping is one row here and opens a card of its own, as a long choice list does.
-                    if section.id == PadMappingRows.sectionID {
-                        PadMappingEntryRow(gameID: detail.id, rows: section.rows, targetID: "set.row.padMapping")
-                    } else {
-                        ForEach(section.rows) { row in
-                            // Equatable on its row: a change re-renders the changed row only, not every row of the game.
-                            SettingControl(gameID: detail.id, row: row) { actions.onChange(detail.id, row.id, $0) }.equatable()
-                            if row.id != section.rows.last?.id { divider }
-                        }
-                    }
-                }
-            }
-            group(ShellStrings.text("Game data")) {
-                SourceRow(symbol: "folder",
-                          title: detail.dataSource.isEmpty ? ShellStrings.text("No data selected") : detail.dataSource,
-                          note: detail.dataNote) {
-                    Button(ShellStrings.text("Choose…")) { actions.onPickGameData(detail.id) }
-                        .buttonStyle(ShellButtonStyle(fills: true)).accessibilityLabel(ShellStrings.text("Choose game data…"))
-                        .shellTarget("set.data") { actions.onPickGameData(detail.id) }
-                    if !detail.dataSource.isEmpty && !detail.dataFromShell {
-                        Button(ShellStrings.text("Use app data")) { actions.onUseAppData(detail.id) }
-                            .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.appdata") { actions.onUseAppData(detail.id) }
-                    }
-                }
-                divider
-                Label(detail.dlc.isEmpty ? ShellStrings.text("No additional content") : detail.dlc, systemImage: "square.stack.3d.up")
-                    .shellText(14).foregroundStyle(.white.opacity(0.72)).frame(minHeight: 32)
-            }
-            group(ShellStrings.text("Cloud saves")) {
-                SourceRow(symbol: detail.cloudSaves == nil ? "icloud.slash" : "icloud",
-                          title: detail.cloudSaves ?? ShellStrings.text("Off"),
-                          note: detail.cloudNote.isEmpty ? ShellStrings.text("Choose the same iCloud Drive folder you use on your Mac.") : detail.cloudNote) {
-                    Button(ShellStrings.text("Choose folder…")) { actions.onPickCloudSaves(detail.id) }
-                        .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.cloud") { actions.onPickCloudSaves(detail.id) }
-                    if detail.cloudCanUseShell {
-                        Button(ShellStrings.text("Use Settings folder")) { actions.onUseShellCloud(detail.id) }
-                            .buttonStyle(ShellButtonStyle(fills: true)).shellTarget("set.cloud.shell") { actions.onUseShellCloud(detail.id) }
-                    }
-                    if detail.cloudSaves != nil {
-                        Button(ShellStrings.text("Turn off")) { actions.onDisableCloudSaves(detail.id) }
-                            .buttonStyle(ShellButtonStyle(fills: true)).accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
-                            .shellTarget("set.cloud.off") { actions.onDisableCloudSaves(detail.id) }
-                    }
-                }
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                Button(ShellStrings.text("Reset to tested defaults")) { actions.onResetDefaults(detail.id) }
-                    .buttonStyle(ShellButtonStyle(fills: true))
-                    .disabled(!detail.hasModifiedSettings)
-                    .shellTarget("set.reset", enabled: detail.hasModifiedSettings) { actions.onResetDefaults(detail.id) }
-                Text(ShellStrings.text("Brings back the settings this game was tested with."))
-                    .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
-            }
-            if let askDelete {
-                // Last and apart from the rest: the one action here that removes something. It only asks, the question names what goes.
-                VStack(alignment: .leading, spacing: 10) {
-                    Button(ShellStrings.text("Delete game…")) { askDelete(detail.game) }
-                        .buttonStyle(ShellButtonStyle(fills: true, destructive: true))
-                        .accessibilityIdentifier("set.delete")
-                        .shellTarget("set.delete") { askDelete(detail.game) }
-                    Text(ShellStrings.text("Deletes the game’s data on this device. You choose whether its saves go too."))
-                        .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
-                }
+        Group {
+            if nativeSections { contents } else {
+                VStack(alignment: .leading, spacing: 30) { contents }
             }
         }.foregroundStyle(.white)
+    }
+    @ViewBuilder private var contents: some View {
+        if showsHeader || showsPrimaryAction {
+            header.listRowBackground(Color.clear).listRowSeparator(.hidden)
+        }
+        ForEach(detail.sections) { section in
+            group(section.title) {
+                // The button mapping is one row here and opens a card of its own, as a long choice list does.
+                if section.id == PadMappingRows.sectionID {
+                    PadMappingEntryRow(gameID: detail.id, rows: section.rows, targetID: "set.row.padMapping")
+                } else {
+                    ForEach(section.rows) { row in
+                        // Equatable on its row: a change re-renders the changed row only, not every row of the game.
+                        SettingControl(gameID: detail.id, row: row) { actions.onChange(detail.id, row.id, $0) }.equatable()
+                        if row.id != section.rows.last?.id { divider }
+                    }
+                }
+            }
+        }
+        group(ShellStrings.text("Game data")) {
+            SourceRow(symbol: "folder",
+                      title: detail.dataSource.isEmpty ? ShellStrings.text("No data selected") : detail.dataSource,
+                      note: detail.dataNote) {
+                GameSettingsGlassButton(title: ShellStrings.text("Choose…")) { actions.onPickGameData(detail.id) }.accessibilityLabel(ShellStrings.text("Choose game data…"))
+                    .shellTarget("set.data") { actions.onPickGameData(detail.id) }
+                if !detail.dataSource.isEmpty && !detail.dataFromShell {
+                    GameSettingsGlassButton(title: ShellStrings.text("Use app data")) { actions.onUseAppData(detail.id) }.shellTarget("set.appdata") { actions.onUseAppData(detail.id) }
+                }
+            }
+            divider
+            HStack {
+                Image(systemName: "square.stack.3d.up").foregroundStyle(.secondary)
+                Spacer(minLength: 12)
+                Text(detail.dlc.isEmpty ? ShellStrings.text("No additional content") : detail.dlc)
+                    .foregroundStyle(.secondary).multilineTextAlignment(.trailing)
+            }
+            .frame(maxWidth: .infinity, minHeight: 32)
+            .accessibilityElement(children: .combine)
+        }
+        group(ShellStrings.text("Cloud saves")) {
+            SourceRow(symbol: detail.cloudSaves == nil ? "icloud.slash" : "icloud",
+                      title: detail.cloudSaves ?? ShellStrings.text("Off"),
+                      note: detail.cloudNote.isEmpty ? ShellStrings.text("Choose the same iCloud Drive folder you use on your Mac.") : detail.cloudNote) {
+                GameSettingsGlassButton(title: ShellStrings.text("Choose folder…")) { actions.onPickCloudSaves(detail.id) }.shellTarget("set.cloud") { actions.onPickCloudSaves(detail.id) }
+                if detail.cloudCanUseShell {
+                    GameSettingsGlassButton(title: ShellStrings.text("Use Settings folder")) { actions.onUseShellCloud(detail.id) }.shellTarget("set.cloud.shell") { actions.onUseShellCloud(detail.id) }
+                }
+                if detail.cloudSaves != nil {
+                    GameSettingsGlassButton(title: ShellStrings.text("Turn off")) { actions.onDisableCloudSaves(detail.id) }.accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
+                        .shellTarget("set.cloud.off") { actions.onDisableCloudSaves(detail.id) }
+                }
+            }
+        }
+        if !detail.game.version.isEmpty {
+            if nativeSections {
+                Section { versionRow }
+            } else {
+                versionRow
+            }
+        }
+        VStack(alignment: .leading, spacing: 10) {
+            GameSettingsGlassButton(title: ShellStrings.text("Reset to tested defaults")) { actions.onResetDefaults(detail.id) }
+                .accessibilityIdentifier("set.reset")
+                .disabled(!detail.hasModifiedSettings)
+                .shellTarget("set.reset", enabled: detail.hasModifiedSettings) { actions.onResetDefaults(detail.id) }
+            Text(ShellStrings.text("Brings back the settings this game was tested with."))
+                .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+        }
+        if let askDelete {
+            // Last and apart from the rest: the one action here that removes something. It only asks, the question names what goes.
+            VStack(alignment: .leading, spacing: 10) {
+                GameSettingsGlassButton(title: ShellStrings.text("Delete game…"), destructive: true) { askDelete(detail.game) }
+                    .accessibilityIdentifier("set.delete")
+                    .shellTarget("set.delete") { askDelete(detail.game) }
+                Text(ShellStrings.text("Deletes the game’s data on this device. You choose whether its saves go too."))
+                    .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private var versionRow: some View {
+        LabeledContent(ShellStrings.text("Version"), value: detail.game.version)
+            .accessibilityIdentifier("detail.version")
     }
 
     private var header: some View {
@@ -94,13 +116,12 @@ public struct GameDetailView: View {
             HStack(alignment: .center, spacing: 16) {
                 CoverView(game: detail.game, radius: 8).frame(width: 112, height: 63)
                 VStack(alignment: .leading, spacing: 6) {
+
                     Text(detail.game.title).shellText(24, .heavy, relativeTo: .title).tracking(-0.6)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 10) { status }
-                        VStack(alignment: .leading, spacing: 4) { status }
-                    }
+                    AlertStateChip(state: detail.game.state)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             }
@@ -114,17 +135,13 @@ public struct GameDetailView: View {
         }
     }
 
-    @ViewBuilder private var status: some View {
-        StatusLabel(state: detail.game.state).fixedSize()
-        if !detail.game.subtitle.isEmpty {
-            Text(detail.game.subtitle).shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize()
-        }
+    @ViewBuilder private var divider: some View {
+        if !nativeSections { Rectangle().fill(.white.opacity(0.06)).frame(height: 1) }
     }
 
-    private var divider: some View { Rectangle().fill(.white.opacity(0.06)).frame(height: 1) }
-
-    private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        SettingsGroup(title: title, content: content)
+    @ViewBuilder private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        if nativeSections { Section { content() } header: { Text(title) } }
+        else { SettingsGroup(title: title, content: content) }
     }
 }
 
@@ -146,6 +163,21 @@ struct SettingsGroup<Content: View>: View {
     }
 }
 
+private struct GameSettingsGlassButton: View {
+    let title: String
+    var destructive = false
+    let action: () -> Void
+    var body: some View {
+        Button(role: destructive ? .destructive : nil, action: action) {
+            Text(title).frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.glass)
+        .controlSize(.large)
+        .tint(destructive ? DeleteStyle.red : .white)
+        .foregroundStyle(destructive ? DeleteStyle.red : .white)
+    }
+}
+
 /// Where something comes from (game data, a cloud folder) and the buttons that change it.
 struct SourceRow<Buttons: View>: View {
     let symbol: String
@@ -154,109 +186,37 @@ struct SourceRow<Buttons: View>: View {
     @ViewBuilder let buttons: () -> Buttons
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Image(systemName: symbol).foregroundStyle(ShellPalette.cream.opacity(0.8)).frame(width: 20).accessibilityHidden(true)
+            Label {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(title).shellText(15, .semibold).fixedSize(horizontal: false, vertical: true)
+                    Text(title).font(.body).fixedSize(horizontal: false, vertical: true)
                     if !note.isEmpty {
-                        Text(note).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true)
+                        Text(note).font(.subheadline).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-            }
+            } icon: { Image(systemName: symbol) }
+            .labelStyle(SettingsRowLabelStyle())
             // The buttons share the card's width in equal parts, or stack full width when their labels do not fit.
-            ViewThatFits(in: .horizontal) {
-                EqualRow(spacing: 10) { buttons() }
-                VStack(spacing: 10) { buttons() }
+            GlassEffectContainer(spacing: 10) {
+                ViewThatFits(in: .horizontal) {
+                    EqualRow(spacing: 10) { buttons() }
+                    VStack(spacing: 10) { buttons() }
+                }
             }
         }
     }
 }
 
 struct SettingControl: View, Equatable {
-    /// Part of the comparison: two games can have identical rows, and the row must report to its own game.
     let gameID: String
     let row: SettingRow
-    /// The focus ids of the row's controls start with this, so a panel can tell its own from the library's.
     var targetPrefix = "set.row."
     let change: (String) -> Void
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.gameID == rhs.gameID && lhs.row == rhs.row }
-    @Environment(\.dynamicTypeSize) private var typeSize
-    @Environment(\.shellPickChoice) private var pickChoice
-    @Environment(\.shellIgnoresPress) private var ignoresPress
-    /// The row's width, once measured, for the segmented-or-list rule.
-    @State private var width: CGFloat?
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.gameID == rhs.gameID && lhs.row == rhs.row && lhs.targetPrefix == rhs.targetPrefix
+    }
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            switch row.kind {
-            case .toggle(let on, let off):
-                Toggle(isOn: Binding(get: { row.value == on }, set: { change($0 ? on : off) })) { label }
-                    .toggleStyle(CreamToggleStyle())
-                    .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled) { change(row.value == on ? off : on) }
-            case .choice(let options):
-                let labels = options.map(\.label)
-                let scale = ChoicePresentation.textScale(typeSize)
-                switch ChoicePresentation.resolve(labels: labels, width: width, textScale: scale) {
-                case .segmented:
-                    // Equal segments across the card. If the real layout still cannot hold them, the compact row. Only the segments
-                    // decide: the label wraps to the card, so a long note (Picture, #545) does not push the row into the list.
-                    ViewThatFits(in: .horizontal) {
-                        VStack(alignment: .leading, spacing: 12) {
-                            label.frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, alignment: .leading)
-                            segmented([options])
-                        }
-                        valueRow(options)
-                    }
-                case .list:
-                    valueRow(options)
-                }
-            case .range(let min, let max, let step, let unit):
-                HStack(alignment: .firstTextBaseline) {
-                    label
-                    Spacer(minLength: 8)
-                    Text((Double(row.value) ?? min).formatted(.number.precision(.fractionLength(0...2))) + unit)
-                        .shellText(15, .bold).monospacedDigit().foregroundStyle(ShellPalette.cream)
-                }
-                HStack(spacing: 10) {
-                    rangeButton("minus", min: min, max: max, delta: -step)
-                    if min < max && step > 0 {
-                        Slider(value: Binding(get: { Double(row.value) ?? min }, set: { change(String($0)) }), in: min...max, step: step)
-                            .frame(minHeight: 44).tint(ShellPalette.cream).accessibilityLabel(row.label)
-                    }
-                    rangeButton("plus", min: min, max: max, delta: step)
-                }
-            }
-        }.frame(maxWidth: .infinity, alignment: .leading)
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { new in if width.map({ abs($0 - new) > 0.5 }) ?? true { width = new } }
-            .disabled(!row.enabled).opacity(row.enabled ? 1 : 0.45)
-            .accessibilityIdentifier("setting.\(row.id)")
-    }
-    private var label: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(row.label).shellType(ShellType.settingLabel).fixedSize(horizontal: false, vertical: true)
-            if !row.note.isEmpty { Text(row.note).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).fixedSize(horizontal: false, vertical: true) }
-            if row.fromShell { FromSettingsMark() }
-        }
-    }
-    private func segmented(_ rows: [[SettingOption]]) -> some View {
-        SegmentedChoice(label: row.label, rows: rows, value: row.value, targetPrefix: "\(targetPrefix)\(row.id).", enabled: row.enabled,
-                        change: change)
-    }
-    /// Many or long options: label and current value in one compact row that opens the list.
-    private func valueRow(_ options: [SettingOption]) -> some View {
-        ChoiceValueRow(row: row, valueLabel: options.first { $0.id == row.value }?.label ?? row.value) {
-            pickChoice?(ChoiceRequest(gameID: gameID, row: row))
-        }
-        .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled, radius: 11) { pickChoice?(ChoiceRequest(gameID: gameID, row: row)) }
-    }
-    private func rangeButton(_ symbol: String, min: Double, max: Double, delta: Double) -> some View {
-        let action = { change(String(Swift.min(max, Swift.max(min, (Double(row.value) ?? min) + delta)))) }
-        return Button { if !ignoresPress() { action() } } label: {
-            Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).frame(width: 44, height: 44)
-        }
-        .buttonStyle(.plain).background(.white.opacity(0.055), in: Circle())
-        .overlay(Circle().strokeBorder(.white.opacity(0.10)))
-        .accessibilityLabel(ShellStrings.text(symbol == "minus" ? "Decrease" : "Increase") + " " + row.label)
-        .shellTarget("\(targetPrefix)\(row.id).\(symbol)", enabled: row.enabled, radius: 22, action: action)
+        NativeGameSettingControl(row: row, targetPrefix: targetPrefix, change: change)
     }
 }
 
@@ -326,5 +286,73 @@ struct EqualRow: Layout {
             subview.place(at: CGPoint(x: bounds.minX + CGFloat(index) * (cell + spacing), y: bounds.minY),
                           proposal: ProposedViewSize(width: cell, height: bounds.height))
         }
+    }
+}
+
+/// Small choices stay in place: native segments when labels fit, native menus otherwise.
+struct NativeChoiceControl: View {
+    let row: SettingRow
+    var menuOnly = false
+    var inline = false
+    let targetPrefix: String
+    let change: (String) -> Void
+    @Environment(\.shellIgnoresPress) private var ignoresPress
+    @State private var width: CGFloat?
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        if case .choice(let options) = row.kind {
+            VStack(alignment: .leading, spacing: 8) {
+                if inline {
+                    LabeledContent {
+                        if !menuOnly, (width ?? 0) * 0.65 >= 200, ChoicePresentation.resolve(labels: options.map(\.label),
+                            width: width.map { $0 * 0.65 }, textScale: ChoicePresentation.textScale(typeSize)) == .segmented {
+                            picker(options).pickerStyle(.segmented)
+                                .frame(minWidth: 200)
+                                .fixedSize(horizontal: true, vertical: false)
+                        } else {
+                            picker(options).pickerStyle(.menu)
+                        }
+                    } label: {
+                        Text(row.label).font(.body)
+                    }
+                } else {
+                    Text(row.label).shellType(ShellType.settingLabel)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !menuOnly, ChoicePresentation.resolve(labels: options.map(\.label), width: width,
+                                                   textScale: ChoicePresentation.textScale(typeSize)) == .segmented {
+                        picker(options).pickerStyle(.segmented)
+                    } else {
+                        picker(options).pickerStyle(.menu)
+                    }
+                }
+                if !row.note.isEmpty {
+                    Text(row.note).shellType(ShellType.note).foregroundStyle(.secondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .tint(ShellPalette.cream)
+            .disabled(!row.enabled)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+            .accessibilityIdentifier("setting.\(row.id)")
+        }
+    }
+
+    private func picker(_ options: [SettingOption]) -> some View {
+        Picker(row.label, selection: Binding(get: { row.value }, set: { if !ignoresPress() { change($0) } })) {
+            ForEach(options) { option in Text(option.label).tag(option.id) }
+        }
+        .labelsHidden()
+        .accessibilityLabel(row.label)
+        .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled) {
+            if let next = Self.nextValue(options, after: row.value) { change(next) }
+        }
+    }
+
+    // Controller activation advances the native picker without opening a separate page.
+    nonisolated static func nextValue(_ options: [SettingOption], after value: String) -> String? {
+        guard !options.isEmpty else { return nil }
+        let index = options.firstIndex { $0.id == value } ?? -1
+        return options[(index + 1) % options.count].id
     }
 }

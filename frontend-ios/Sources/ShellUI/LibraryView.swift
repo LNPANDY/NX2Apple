@@ -3,11 +3,11 @@ import SwiftUI
 /// How the library arranges itself. Only the available size decides, never the device model or orientation,
 /// so a Stage Manager window, Split View and a foldable opening while the app runs all follow the same rules.
 enum ShellLayout: Equatable {
-    /// Compact and taller than wide: one column, settings over the whole library when asked for.
+    /// Compact and taller than wide: one library column.
     case column
-    /// Regular width and height, not wide: the library alone with a grid of cards, settings as a panel when asked for.
+    /// Regular width and height, not wide: a grid of cards.
     case grid
-    /// Wider than tall: Cover Flow. Settings as a panel on the right (regular) or over the whole library (compact).
+    /// Wider than tall: Cover Flow.
     case coverFlow(regular: Bool)
 
     static func resolve(_ size: CGSize, accessibilityText: Bool) -> ShellLayout {
@@ -16,14 +16,18 @@ enum ShellLayout: Equatable {
         return regular && !accessibilityText ? .grid : .column
     }
 
-    /// The width of the overlay Settings and Controllers share: a panel from the trailing edge over the dimmed library.
-    static let overlayWidth: CGFloat = 520
-    /// Settings drop in as that overlay wherever the library stays in view beside it (at least 120 points of it), and
-    /// take the whole screen where it would not: a phone held upright, a folded foldable, a narrow window.
-    func settingsFloat(_ width: CGFloat) -> Bool { self != .column && width >= Self.overlayWidth + 120 }
-    /// The settings' width: the overlay, or the whole width.
-    func paneWidth(_ width: CGFloat) -> CGFloat { settingsFloat(width) ? min(width, Self.overlayWidth) : width }
     var isCoverFlow: Bool { if case .coverFlow = self { true } else { false } }
+
+    static func divisionAxis(_ division: CGRect?, in size: CGSize) -> Axis? {
+        guard let division, division.intersects(CGRect(origin: .zero, size: size)), !division.isEmpty else { return nil }
+        return division.width > division.height ? .horizontal : .vertical
+    }
+
+    static func collapseProgress(expanded: CGFloat, minimum: CGFloat, travel: CGFloat) -> CGFloat {
+        let distance = expanded - minimum
+        return distance > 0 ? min(1, max(0, travel / distance)) : 1
+    }
+
 }
 
 /// A presentation-only shell. Selection, focus, navigation and scroll positions are local UI state.
@@ -61,28 +65,28 @@ public struct LibraryView: View {
     @State private var focus: FocusAppearance
     @State private var targets = FocusTargetBuffer()
     @State private var settingsPosition = ScrollPosition()
-    /// How far the left-edge swipe has dragged the open settings or Controllers to the right.
-    @State private var edgeDrag: CGFloat = 0
+    @State private var settingsHeroVisible = true
+    @State private var settingsHeroHeight: CGFloat = 0
     @State private var libraryPosition = ScrollPosition()
     @State private var layout: ShellLayout = .column
+    @State private var divisionAxis: Axis?
+    private var horizontalDivision: Bool { divisionAxis == .horizontal }
+    @State private var pendingMenuAction: (() -> Void)?
     @State private var returnFocus: String?
     /// The device that sent the last input, for the glyphs.
     @State private var device: InputDevice = .controller(.neutral)
     /// True after a touch: the controller hints and the focus ring step back until the next controller or key press.
     @State private var touchMode: Bool
     @State private var gate = InputGate()
-    @FocusState private var keyboardFocus: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dynamicTypeSize) private var typeSize
-    /// The side column of iPhone Duo (#622): the captures set it, otherwise the system's values from SideBarProbe.
-    @Environment(\.shellSideBar) private var sideBarOverride
-    @State private var probedSideBar = SideBar(edge: nil)
 
     public init(games: [GameDetail], controllers: [ControllerInfo] = [], actions: ShellActions = ShellActions(),
                 input: ShellInputLog = ShellInputLog(), initialSelection: String? = nil, initialDetailOpen: Bool = false,
                 initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false,
                 globalPadMap: PadMap = PadMap(), padSnapshot: PadSnapshot? = nil,
                 initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false) {
+        ShellPalette.configureNativeAppearance()
         self.games = games
         self.controllers = controllers
         self.globalPadMap = globalPadMap
@@ -104,200 +108,79 @@ public struct LibraryView: View {
     private var selected: GameDetail? { games.first { $0.id == selectedID } ?? games.first }
 
     public var body: some View {
+        NavigationStack {
+            Group {
+                #if os(iOS)
+                if #available(iOS 27.1, *) {
+                    content.toolbarMinimizationBehavior(.never, for: .navigationBar)
+                        .toolbarVerticalBehavior(landscapeLibrary ? .disabled : .automatic)
+                } else if #available(iOS 27.0, *) {
+                    // Keep library actions available when rotation replaces the vertical scroll view with Cover Flow.
+                    content.toolbarMinimizationBehavior(.never, for: .navigationBar)
+                } else { content }
+                #else
+                content
+                #endif
+            }
+            .toolbar { libraryToolbar }
+        }
+        .environment(\.shellNativeBars, true)
+        .environment(\.shellFocus, focus)
+        .coordinateSpace(name: "shell")
+        .tint(ShellPalette.cream).preferredColorScheme(.dark)
+    }
+
+    private var content: some View {
         GeometryReader { geometry in
             let insets = geometry.safeAreaInsets
             let whole = CGSize(width: geometry.size.width + insets.leading + insets.trailing,
                                height: geometry.size.height + insets.top + insets.bottom)
             let layout = ShellLayout.resolve(whole, accessibilityText: typeSize.isAccessibilitySize)
             let width = geometry.size.width
-            let pane = layout.paneWidth(width)
-            // Settings only when asked for. A panel floats over the dimmed library where there is room, otherwise the
-            // settings take the whole screen and the library steps out of the way.
-            let floating = layout.settingsFloat(width)
-            let paneCovers = settingsOpen && !floating
-            let panelOverLibrary = settingsOpen && floating
-            // The chips go into the side column where the system has one. At the accessibility text sizes they stay in the header.
-            let side = typeSize.isAccessibilitySize ? nil : (sideBarOverride ?? probedSideBar)
-                .place(screen: whole, insets: insets, top: games.isEmpty ? [] : SideBar.topHeights)
-            let column = side?.bottom
             ZStack(alignment: .topLeading) {
                 if layout.isCoverFlow, let selected { CoverFlowBackdrop(game: selected.game) } else { ShellPalette.background.ignoresSafeArea() }
                 if games.isEmpty {
                     EmptyLibraryView()
-                        .overlay(alignment: .topTrailing) {
-                            if column == nil {
-                                HStack(spacing: 10) {
-                                    ControllerChip(count: controllers.count, action: openControllers)
-                                    ShellSettingsChip(action: openShellSettings)
-                                }.padding(.top, 6).padding(.trailing, 16)
-                            }
-                        }
-                    if let column { sideChips(column, insets: insets) }
                 } else if let selected {
-                    library(selected, layout: layout, size: geometry.size, insets: insets, chipsInSideBar: column != nil,
-                            settingsInSideBar: side?.top != nil)
+                    library(selected, layout: layout, size: geometry.size, insets: insets)
                         .frame(width: width, height: geometry.size.height)
-                        .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
-                        .allowsHitTesting(!settingsOpen)
-                        .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
-                    if let side {
-                        Group {
-                            sideChips(side.bottom, insets: insets)
-                            if let top = side.top, !settingsOpen {
-                                SideBarTopChip(symbol: "slider.horizontal.3", label: ShellStrings.text("Game settings") + ", " + selected.game.title,
-                                               identifier: "settings.open", target: "lib.settings", action: openSettings)
-                                    .sideBarFrame(top, insets: insets)
-                            }
-                        }
-                        .opacity(paneCovers && edgeDrag == 0 ? 0 : 1)
-                        .allowsHitTesting(!settingsOpen)
-                        .accessibilityHidden(settingsOpen || helpGameID != nil || deleteGameID != nil)
-                    }
-                    if panelOverLibrary {
-                        // The same dimming and dismissal as the Controllers overlay.
-                        Color.black.opacity(0.55 * (settingsOpen && !controllersOpen ? 1 - min(1, edgeDrag / pane) : 1)).ignoresSafeArea()
-                            .onTapGesture { closeSettings() }
-                            .accessibilityHidden(true)
-                            .transition(.opacity)
-                    }
-                    // One settings view in one place for every layout, so its state, scroll position and focus survive
-                    // a fold, a rotation or a Stage Manager resize.
-                    settingsPane(selected, floating: floating, width: pane, backInSideBar: side?.top != nil,
-                                 insets: floating ? EdgeInsets(top: insets.top, leading: 0, bottom: insets.bottom, trailing: insets.trailing)
-                                                  : insets)
-                        .transformEnvironment(\.shellFocus) { if !settingsArrived { $0.visible = false } }
-                        .frame(width: pane)
-                        .frame(maxHeight: .infinity)
-                        // Presented like Controllers: the page colour edge to edge, a hairline toward the library.
-                        .background { ShellPalette.background.ignoresSafeArea() }
-                        .overlay(alignment: .leading) {
-                            if floating { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
-                        }
-                        .offset(x: settingsOpen ? (controllersOpen ? 0 : edgeDrag) : pane + 40)
-                        .opacity(settingsOpen ? 1 : 0)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                        .allowsHitTesting(settingsOpen)
-                        .accessibilityHidden(!settingsOpen || choice != nil || padMapping != nil || deleteGameID != nil)
-                        .accessibilityAddTraits(settingsOpen ? .isModal : [])
-                    if let top = side?.top, settingsOpen {
-                        // Back at the top of the side column, where the system's bars put an app's own navigation.
-                        SideBarTopChip(symbol: "chevron.left", label: ShellStrings.text("Library"), identifier: "library.back",
-                                       target: "set.back", action: closeSettings)
-                            .sideBarFrame(top, insets: insets)
-                            .opacity(1 - min(1, edgeDrag / pane))
-                            .accessibilityHidden(choice != nil || padMapping != nil || deleteGameID != nil)
-                    }
+                        .allowsHitTesting(!menuPresented)
+                        .accessibilityHidden(menuPresented)
                 }
-                // Every dialog and panel above the library keeps its place while it goes: a ZStack child that is
-                // removed loses its order, and its exit (the slide out of Controllers and the shell settings) played
-                // behind the library, so it looked cut off.
-                if let id = helpGameID, let game = games.first(where: { $0.id == id })?.game { Group {
-                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
-                        .onTapGesture { closeHelp() }
-                        .transition(.opacity)
-                    StateHelpView(game: game, actions: guardedActions, onClose: closeHelp)
-                        .frame(maxWidth: 460)
-                        .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
-                        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
-                        .shadow(color: .black.opacity(0.5), radius: 40)
-                        .padding(16)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .accessibilityAddTraits(.isModal)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }.zIndex(1) }
-                if let id = deleteGameID, let game = games.first(where: { $0.id == id })?.game { Group {
-                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
-                        .onTapGesture { closeDelete() }
-                        .transition(.opacity)
-                    DeleteGameView(game: game, saves: Binding(get: { deleteSaves }, set: { if !fromSystemEcho { deleteSaves = $0 } }), delete: { confirmDelete(id) }, cancel: closeDelete)
-                        .frame(maxWidth: 460)
-                        .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
-                        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
-                        .shadow(color: .black.opacity(0.5), radius: 40)
-                        .padding(16)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .accessibilityAddTraits(.isModal)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }.zIndex(2) }
-                if controllersOpen { Group {
-                    Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
-                        .onTapGesture { back() }
-                    ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap)
-                        .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen)
-                        .frame(width: min(width, 520))
-                        .frame(maxHeight: .infinity)
-                        .background { ShellPalette.background.ignoresSafeArea() }
-                        .overlay(alignment: .leading) { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
-                        .offset(x: edgeDrag)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .accessibilityAddTraits(.isModal)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }.zIndex(3) }
-                if shellSettingsOpen { Group {
-                    Color.black.opacity(0.55 * (1 - min(1, edgeDrag / min(width, 520)))).ignoresSafeArea().accessibilityHidden(true)
-                        .onTapGesture { back() }
-                    ShellSettingsView(actions: guardedActions, onClose: closeShellSettings)
-                        .frame(width: min(width, 520))
-                        .frame(maxHeight: .infinity)
-                        .background { ShellPalette.background.ignoresSafeArea() }
-                        .overlay(alignment: .leading) { Rectangle().fill(ShellPalette.hairline).frame(width: 1).ignoresSafeArea() }
-                        .offset(x: edgeDrag)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                        .accessibilityHidden(touchLayout != nil)
-                        .accessibilityAddTraits(.isModal)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                }.zIndex(4) }
-                if let touchLayout { Group {
-                    // The whole screen, so the preview is as large as the device allows.
-                    ShellPalette.background.ignoresSafeArea().accessibilityHidden(true)
-                    TouchLayoutEditorView(model: touchLayout, close: closeTouchLayout)
-                        .accessibilityAddTraits(.isModal)
-                        .transition(.opacity.combined(with: .scale(scale: 0.98)))
-                }.zIndex(5) }
-                if let choice { Group {
-                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
-                        .onTapGesture { closeChoice() }
-                        .transition(.opacity)
-                    ChoicePickerView(request: choice, pick: pickChoice, close: closeChoice)
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }.zIndex(6) }
-                if let padMapping { Group {
-                    Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true)
-                        .onTapGesture { closePadMapping() }
-                        .transition(.opacity)
-                    PadMappingCard(title: padMappingTitle(padMapping.gameID), rows: padMappingRows(padMapping.gameID),
-                                   inherited: padMapping.gameID == ControllersView.mappingID ? nil : globalPadMap, openRow: padMapping.row,
-                                   open: openPadRow, pick: pickPadValue, backToList: closePadRow, reset: resetPadMapping, close: closePadMapping)
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }.zIndex(7) }
-                if buttonTestOpen { Group {
-                    Color.black.opacity(0.7).ignoresSafeArea().accessibilityHidden(true)
-                        .onTapGesture { closeButtonTest() }
-                        .transition(.opacity)
-                    ButtonTestView(snapshot: padSnapshot, close: closeButtonTest)
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity.combined(with: .scale(scale: 0.96)))
-                }.zIndex(8) }
+
             }
             .coordinateSpace(name: "shell")
-            .background { SideBarProbe { probedSideBar = $0 }.ignoresSafeArea().accessibilityHidden(true) }
-            .environment(\.shellOpenTouchLayout, { openTouchLayout(whole, insets) })
-            .background {
-                EdgeSwipeBack(enabled: (settingsOpen || controllersOpen || shellSettingsOpen) && choice == nil && helpGameID == nil && deleteGameID == nil
-                                  && padMapping == nil && !buttonTestOpen && touchLayout == nil,
-                              changed: { edgeDrag = $0 },
-                              ended: { finishEdgeSwipe(travel: $0, velocity: $1, span: controllersOpen || shellSettingsOpen ? min(width, 520) : pane) },
-                              cancelled: cancelEdgeSwipe)
+            .sheet(isPresented: Binding(get: { menuPresented }, set: { if !$0 { dismissMenus() } }), onDismiss: runPendingMenuAction) {
+                menuSheet
+                    #if os(iOS)
+                    .background(TouchEditorPresentation(content: touchLayout.map { AnyView(editorPage($0)) }))
+                    #else
+                    .sheet(isPresented: Binding(get: { touchLayout != nil }, set: { if !$0 { closeTouchLayout() } })) {
+                        if let touchLayout { editorPage(touchLayout) }
+                    }
+                    #endif
+                    .presentationSizing(LauncherMenuSizing(mapping: padMapping != nil))
+                    // shortcut: cap tabletop sheets until the runtime keeps large detents clear of the fold.
+                    .presentationDetents(horizontalDivision ? [.medium] : [.large])
+                    .presentationCompactAdaptation(divisionAxis == nil ? .automatic : .sheet)
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(ShellPalette.background)
+                    .presentationContentInteraction(touchLayout != nil ? .scrolls : .automatic)
+                    .interactiveDismissDisabled(touchLayout != nil)
+                    .modifier(MenuPlacement(divided: divisionAxis == .vertical, secondary: controllersOpen || shellSettingsOpen))
+                    .modifier(ShellKeyboardNavigation(active: touchLayout == nil && padMapping?.row == nil) { handle($0, from: .keyboard) })
             }
-            // Every target on screen. Which of them the D-pad reaches is decided when it is used (`isLive`), from the
-            // state at that moment: a filter here would run only when some target changes, and closing a panel changes
-            // none, so the closed panel's targets stayed and the focus on the button that opened it was taken for lost.
-            .onPreferenceChange(FocusTargets.self) { all in targets.values = all.filter { $0.frame.width > 1 } }
+
+            .environment(\.shellOpenTouchLayout, { openTouchLayout(whole, insets) })
+            .onPreferenceChange(FocusTargets.self) { all in
+                targets.libraryValues = all.filter { $0.frame.width > 1 }
+            }
+            .onGeometryChange(for: Axis?.self) { geometry in
+                if #available(iOS 27.1, macOS 27.1, *) {
+                    return ShellLayout.divisionAxis(geometry.reservedRegions(kind: .division).first?.frame, in: geometry.size)
+                }
+                return nil
+            } action: { divisionAxis = $0 }
             .onAppear { self.layout = layout }
             .onChange(of: layout) { _, new in self.layout = new }
         }
@@ -330,20 +213,9 @@ public struct LibraryView: View {
             }
             inputSeen = log.last
         }
-        // A hardware keyboard, as on the Mac: arrows move, Return activates, Escape goes back, O opens game settings,
-        // Y opens controllers.
-        .focusable().focused($keyboardFocus).focusEffectDisabled()
-        .onAppear { keyboardFocus = true }
         .onAnyTouch { gate.touch() }
-        .onKeyPress(.leftArrow) { handle(.left, from: .keyboard); return .handled }
-        .onKeyPress(.rightArrow) { handle(.right, from: .keyboard); return .handled }
-        .onKeyPress(.upArrow) { handle(.up, from: .keyboard); return .handled }
-        .onKeyPress(.downArrow) { handle(.down, from: .keyboard); return .handled }
-        .onKeyPress(.return) { handle(.activate, from: .keyboard); return .handled }
-        .onKeyPress(.escape) { handle(.back, from: .keyboard); return .handled }
-        .onKeyPress("o") { handle(.settings, from: .keyboard); return .handled }
-        .onKeyPress("y") { handle(.controllers, from: .keyboard); return .handled }
-        .onDisappear { targets.values.removeAll() }
+        .modifier(ShellKeyboardNavigation(active: !menuPresented) { handle($0, from: .keyboard) })
+        .onDisappear { targets.values.removeAll(); targets.libraryValues.removeAll() }
         .onChange(of: settingsOpen) { _, open in
             settingsArrived = false
             settingsOpenings += 1
@@ -360,25 +232,171 @@ public struct LibraryView: View {
         }
     }
 
-    /// The Controllers and Settings chips in the side column, `column` in the screen's coordinates.
-    private func sideChips(_ column: CGRect, insets: EdgeInsets) -> some View {
-        SideBarChips(controllers: controllers.count, openControllers: openControllers, openShellSettings: openShellSettings)
-            .sideBarFrame(column, insets: insets)
+    private func visibleTargets(_ values: [FocusTarget]) -> [FocusTarget] {
+        values.filter { $0.frame.width > 1 }
     }
 
-    @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets,
-                                      chipsInSideBar: Bool, settingsInSideBar: Bool) -> some View {
+    private var menuPresented: Bool {
+        touchLayout != nil || settingsOpen || controllersOpen || shellSettingsOpen || helpGameID != nil
+            || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
+    }
+
+    // Host-owned alerts and sheets must wait until the menu presentation finishes closing.
+    private var menuActions: ShellActions {
+        var routed = guardedActions
+        routed.onPlay = { id in handOffMenu { actions.onPlay(id) } }
+        routed.onShowLog = { id in handOffMenu { actions.onShowLog(id) } }
+        routed.onAppUpdate = { handOffMenu { actions.onAppUpdate() } }
+        return routed
+    }
+
+    private func handOffMenu(_ action: @escaping () -> Void) {
+        pendingMenuAction = action
+        dismissMenus()
+    }
+
+    private func runPendingMenuAction() {
+        let action = pendingMenuAction
+        pendingMenuAction = nil
+        action?()
+    }
+
+    private func dismissMenus() {
+        closeTouchLayout()
+        if buttonTestOpen { closeButtonTest() }
+        choice = nil
+        padMapping = nil
+        helpGameID = nil
+        deleteGameID = nil
+        controllersOpen = false
+        shellSettingsOpen = false
+        settingsOpen = false
+        focus.id = "lib.tile.\(selected?.id ?? "")"
+    }
+
+    private var menuSheet: some View {
+        NavigationStack {
+            menuContent.toolbar { if touchLayout == nil { launcherToolbar } }
+                .accessibilityHidden(touchLayout != nil)
+                .navigationDestination(isPresented: Binding(get: { padMapping != nil }, set: { if !$0 { closePadMapping() } })) {
+                    if let mapping = padMapping {
+                        PadMappingCard(title: padMappingTitle(mapping.gameID), rows: padMappingRows(mapping.gameID),
+                                       inherited: mapping.gameID == ControllersView.mappingID ? nil : globalPadMap, openRow: mapping.row,
+                                       open: openPadRow, pick: pickPadValue, backToList: closePadRow, reset: resetPadMapping, close: closePadMapping,
+                                       onChoiceTargets: { targets.values = visibleTargets($0) },
+                                       onChoiceInput: { handle($0, from: .keyboard) })
+                            .navigationTitle(ShellStrings.text("Button mapping"))
+                            #if os(iOS)
+                            .navigationBarTitleDisplayMode(.inline)
+                            #endif
+                            .navigationBarBackButtonHidden()
+                            .toolbar { launcherToolbar }
+                            .onPreferenceChange(FocusTargets.self) { if padMapping?.row == nil { targets.values = visibleTargets($0) } }
+                    }
+                }
+                .navigationDestination(isPresented: Binding(get: { buttonTestOpen }, set: { if !$0 { closeButtonTest() } })) {
+                    ButtonTestView(snapshot: padSnapshot, close: closeButtonTest)
+                        .navigationTitle(ShellStrings.text("Button test"))
+                        #if os(iOS)
+                        .navigationBarTitleDisplayMode(.inline)
+                        #endif
+                        .navigationBarBackButtonHidden()
+                        .toolbar { launcherToolbar }
+                        .onPreferenceChange(FocusTargets.self) { targets.values = visibleTargets($0) }
+                }
+        }
+        .background {
+            if settingsOpen, let selected { CoverFlowBackdrop(game: selected.game) }
+        }
+        #if os(iOS)
+        .toolbarBackground(settingsOpen ? .hidden : .automatic, for: .navigationBar)
+        #endif
+    }
+
+    private func editorPage(_ model: TouchLayoutEditorModel) -> some View {
+        TouchLayoutEditorView(model: model, close: confirmTouchLayout, cancel: closeTouchLayout)
+            .ignoresSafeArea(.container)
+            #if os(iOS)
+            .statusBarHidden(true)
+            .persistentSystemOverlays(.hidden)
+            #endif
+            .coordinateSpace(name: "shell")
+            .environment(\.shellNativeBars, true)
+            .environment(\.shellFocus, focus)
+            .environment(\.shellIgnoresPress, { [gate] in gate.isSystemEcho })
+            .onPreferenceChange(FocusTargets.self) { targets.values = visibleTargets($0) }
+            .tint(ShellPalette.cream)
+            .preferredColorScheme(.dark)
+            .interactiveDismissDisabled()
+            .modifier(ShellKeyboardNavigation(active: true) { handle($0, from: .keyboard) })
+    }
+
+    private var menuContent: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if settingsOpen, let selected {
+                    settingsPane(selected, width: geometry.size.width)
+                        .accessibilityHidden(controllersOpen || shellSettingsOpen || choice != nil || padMapping != nil || helpGameID != nil || deleteGameID != nil)
+                }
+                if controllersOpen {
+                    ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap)
+                        .background(ShellPalette.background)
+                        .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen)
+                }
+                if shellSettingsOpen {
+                    ShellSettingsView(actions: menuActions, onClose: closeShellSettings)
+                        .background(ShellPalette.background)
+                        .accessibilityHidden(choice != nil)
+                }
+                if let id = helpGameID, let game = games.first(where: { $0.id == id })?.game {
+                    ScrollView { StateHelpView(game: game, actions: menuActions, onClose: closeHelp).padding(24) }
+                        .background(ShellPalette.background)
+                }
+                if let id = deleteGameID, let game = games.first(where: { $0.id == id })?.game {
+                    ScrollView { DeleteGameView(game: game, saves: $deleteSaves, delete: { confirmDelete(id) }, cancel: closeDelete) }
+                        .background(ShellPalette.background)
+                }
+                if let choice {
+                    ChoicePickerView(request: choice, pick: pickChoice, close: closeChoice)
+                        .padding(16).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(ShellPalette.background)
+                }
+
+            }
+            .onPreferenceChange(FocusTargets.self) { all in
+                if touchLayout == nil { targets.values = visibleTargets(all).filter { $0.frame.width > 1 } }
+            }
+
+        }
+        .navigationTitle(menuTitle)
+        .navigationSubtitle(tabletopSettings ? ShellStrings.text("Game settings").uppercased() : "")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private var tabletopSettings: Bool {
+        horizontalDivision && settingsOpen && !controllersOpen && !shellSettingsOpen && choice == nil
+            && padMapping == nil && !buttonTestOpen && helpGameID == nil && deleteGameID == nil
+    }
+
+    private var menuTitle: String {
+        guard choice == nil, padMapping == nil, !buttonTestOpen, helpGameID == nil, deleteGameID == nil else { return "" }
+        if controllersOpen { return ShellStrings.text("Controllers") }
+        if shellSettingsOpen { return ShellStrings.text("Settings") }
+        return settingsOpen && (horizontalDivision || !settingsHeroVisible) ? selected?.game.title ?? "" : ""
+    }
+
+    @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
         if layout.isCoverFlow {
-            CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, screenInsets: insets,
-                          chipsInSideBar: chipsInSideBar, settingsInSideBar: settingsInSideBar,
-                          select: select, primary: primary, openSettings: openSettings, openControllers: openControllers,
+            CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, obscured: menuPresented, screenInsets: insets,
+                          select: select, primary: { primary($0) }, openSettings: openSettings, openControllers: openControllers,
                           openShellSettings: openShellSettings)
                 .equatable()
                 .transition(.opacity)
         } else {
-            PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom,
-                            chipsInSideBar: chipsInSideBar, settingsInSideBar: settingsInSideBar,
-                            controllers: controllers.count, select: select, primary: primary,
+            PortraitLibrary(games: games, selected: selected, wide: layout == .grid, size: size, topInset: insets.top, bottomInset: insets.bottom, obscured: menuPresented,
+                            controllers: controllers.count, select: select, primary: { primary($0) },
                             openSettings: openSettings, openControllers: openControllers, openShellSettings: openShellSettings,
                             position: $libraryPosition)
                 .equatable()
@@ -386,53 +404,207 @@ public struct LibraryView: View {
         }
     }
 
-    /// The settings for the selected game: its banner as the header, with the title over it and Back on top, then
-    /// the primary action and the setting groups. A panel or the whole screen, the same view.
-    /// The settings for the selected game: its banner as the header, with the title below it and Back on top, then
-    /// the primary action and the setting groups. A panel or the whole screen, the same view. The banner runs edge to
-    /// edge under the status bar and the settings scroll under the home indicator, while Back, the words and the
-    /// settings keep their insets.
-    private func settingsPane(_ selected: GameDetail, floating: Bool, width: CGFloat, backInSideBar: Bool, insets: EdgeInsets) -> some View {
+    /// Game settings keep their content column inside the system sheet's safe area.
+    private func settingsPane(_ selected: GameDetail, width: CGFloat) -> some View {
         return ZStack(alignment: .top) {
             ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        PaneBanner(game: selected.game, width: width + insets.leading + insets.trailing,
-                                   leading: insets.leading, trailing: insets.trailing, topInset: insets.top).id("set.top")
-                        GameDetailView(detail: selected, actions: guardedActions, showsPrimaryAction: true, showsHeader: false)
-                            .padding(.horizontal, 24).padding(.top, 18).padding(.bottom, 32 + insets.bottom)
-                            // A phone on its side: a readable column, not rows stretched across the whole width.
-                            .frame(maxWidth: 640, alignment: .leading)
-                            .padding(.leading, insets.leading).padding(.trailing, insets.trailing)
+                Form {
+                    if !horizontalDivision {
+                        Section {
+                            PaneBanner(game: selected.game, width: width)
+                                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { settingsHeroHeight = $0 }
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                        }
+                        .id("set.top")
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    GameDetailView(detail: selected, actions: menuActions,
+                                   showsPrimaryAction: false,
+                                   showsHeader: false, nativeSections: true)
                 }
+                .formStyle(.grouped)
+                .contentMargins(.top, 0, for: .scrollContent)
+                .scrollContentBackground(.hidden)
+                .onScrollGeometryChange(for: Bool.self) {
+                    settingsHeroHeight == 0 || $0.contentOffset.y + $0.contentInsets.top < settingsHeroHeight
+                } action: { _, visible in settingsHeroVisible = visible }
                 .scrollPosition($settingsPosition)
+                .accessibilityIdentifier("settings.scroll")
                 .scrollIndicators(.hidden)
-                .ignoresSafeArea(edges: .all)
                 .onChange(of: focus.id) { _, id in
                     guard let id, id.hasPrefix("set.") else { return }
                     withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) {
-                        proxy.scrollTo(id, anchor: id == "set.back" ? .top : .center)
+                        if id == "set.back" { settingsPosition.scrollTo(edge: .top) }
+                        else { proxy.scrollTo(id, anchor: .center) }
                     }
                 }
             }
-            // In the side column (SideBar) Back sits at the column's top instead.
-            if !backInSideBar { HStack(spacing: 0) {
-                Button(action: closeSettings) {
-                    if typeSize.isAccessibilitySize { Image(systemName: "chevron.left").frame(minWidth: 24) }
-                    else { Label(ShellStrings.text("Library"), systemImage: "chevron.left") }
-                }
-                .buttonStyle(ChipButtonStyle())
-                .accessibilityLabel(ShellStrings.text("Library"))
-                .accessibilityIdentifier("library.back")
-                .shellTarget("set.back", radius: 22, action: closeSettings)
-                Spacer(minLength: 0)
-            }
-            .padding(.leading, 16 + insets.leading).padding(.trailing, 16 + insets.trailing)
-            .padding(.top, 6)
-            .accessibilityElement(children: .contain) }
         }
+    }
+
+    private enum BarGroup { case close, done, actions }
+    private struct ToolbarAction: Identifiable {
+        let title: String.LocalizationValue
+        let symbol: String
+        let id: String
+        let target: String
+        let placement: BarGroup
+        let action: () -> Void
+    }
+
+    // The navigation container owns these bars so UIKit can share the Duo rail with system UI.
+    @ToolbarContentBuilder private var launcherToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .cancellationAction) {
+            ForEach(toolbarActions.filter { $0.placement == .close }) { item in
+                toolbarButton(ShellStrings.text(item.title), item.symbol, item.id, item.target, item.action)
+            }
+        }
+        ToolbarItemGroup(placement: donePlacement) {
+            ForEach(toolbarActions.filter { $0.placement == .done }) { item in
+                toolbarButton(ShellStrings.text(item.title), item.symbol, item.id, item.target, item.action)
+                    .disabled(item.id == "touchLayout.done" && touchLayout?.invalidPlacement == true)
+                    .buttonStyle(.borderedProminent).tint(ShellPalette.cream).foregroundStyle(.black)
+            }
+        }
+        if settingsOpen, helpGameID == nil, deleteGameID == nil, choice == nil, padMapping == nil,
+           !controllersOpen, !shellSettingsOpen, let selected {
+            ToolbarItem(placement: .primaryAction) {
+                toolbarButton(selected.game.state.actionTitle, selected.game.state.actionSymbol, "state.action", "set.play") { primary(selected, fromSettings: true) }
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.borderedProminent)
+                    .tint(ShellPalette.cream)
+                    .foregroundStyle(.black)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {
+        #if os(iOS)
+        if #available(iOS 27.1, *) {
+            libraryToolbarItems.axisBehavior(layout.isCoverFlow || layout == .column ? .horizontalOnly : .automatic)
+        } else { libraryToolbarItems }
+        #else
+        libraryToolbarItems
+        #endif
+    }
+
+    private var libraryTitlePlacement: ToolbarItemPlacement {
+        #if os(iOS)
+        .topBarLeading
+        #else
+        .navigation
+        #endif
+    }
+
+    private var landscapeLibrary: Bool {
+        layout.isCoverFlow
+    }
+
+    @ToolbarContentBuilder private var libraryToolbarItems: some ToolbarContent {
+        if landscapeLibrary, let selected {
+            ToolbarItem(placement: libraryTitlePlacement) {
+                HStack(spacing: 8) {
+                    Text(ShellStrings.text("Your games")).textCase(.uppercase).font(.caption).tracking(1.8)
+                    Text(ShellStrings.text("\((games.firstIndex { $0.id == selected.id } ?? 0) + 1) of \(games.count)"))
+                        .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+                        .fixedSize().layoutPriority(1)
+                }
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("library.position")
+            }
+            .sharedBackgroundVisibility(.hidden)
+        }
+
+        if let item = libraryActions.first(where: { $0.id == "controllers.open" }) {
+            controllerItem(item)
+            ToolbarSpacer(.fixed, placement: .primaryAction)
+        }
+        if let item = libraryActions.first(where: { $0.id == "shellSettings.open" }) {
+            ToolbarItem(placement: .primaryAction) {
+                toolbarButton(ShellStrings.text(item.title), item.symbol, item.id, item.target, item.action)
+                    .disabled(menuPresented).accessibilityHidden(menuPresented)
+            }
+        }
+    }
+
+    private func controllerItem(_ item: ToolbarAction) -> some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            toolbarButton(ShellStrings.text(item.title), item.symbol, item.id, item.target, item.action)
+                .disabled(menuPresented).accessibilityHidden(menuPresented)
+        }
+    }
+
+    private var toolbarActions: [ToolbarAction] {
+        if buttonTestOpen { return [.init(title: "Controllers", symbol: "chevron.left", id: "buttonTest.close", target: "test.close", placement: .close, action: closeButtonTest)] }
+        if padMapping != nil {
+            return [.init(title: "Back", symbol: "chevron.left", id: "padMapping.close", target: "map.close", placement: .close, action: closePadMapping)]
+        }
+        if choice != nil { return [.init(title: "Close", symbol: "xmark", id: "choice.close", target: "pick.close", placement: .close, action: closeChoice)] }
+        if touchLayout != nil {
+            return [.init(title: "Cancel", symbol: "xmark", id: "touchLayout.back", target: "lay.back", placement: .close, action: closeTouchLayout),
+                    .init(title: "Done", symbol: "checkmark", id: "touchLayout.done", target: "lay.done", placement: .done, action: confirmTouchLayout)]
+        }
+        if helpGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "help.done", target: "help.done", placement: .close, action: closeHelp)] }
+        if deleteGameID != nil { return [] }
+        if controllersOpen { return [.init(title: "Close controllers", symbol: "xmark", id: "controllers.close", target: "ctl.close", placement: .close, action: back)] }
+        if shellSettingsOpen { return [.init(title: "Close", symbol: "xmark", id: "shellSettings.close", target: "shs.close", placement: .close, action: closeShellSettings)] }
+        if settingsOpen { return [.init(title: "Close", symbol: "xmark", id: "library.back", target: "set.back", placement: .close, action: closeSettings)] }
+        return libraryActions
+    }
+
+    private var libraryActions: [ToolbarAction] {
+        var items: [ToolbarAction] = []
+        items.append(.init(title: "Controllers", symbol: controllers.isEmpty ? "gamecontroller" : "gamecontroller.fill", id: "controllers.open", target: "lib.controllers", placement: .actions, action: openControllers))
+        items.append(.init(title: "Settings", symbol: "gearshape", id: "shellSettings.open", target: "lib.shellSettings", placement: .actions, action: openShellSettings))
+        return items
+    }
+
+    private var donePlacement: ToolbarItemPlacement { .confirmationAction }
+
+    private func toolbarButton(_ label: String, _ symbol: String, _ identifier: String, _ target: String,
+                               _ action: @escaping () -> Void) -> some View {
+        let accessibilityLabel = identifier == "controllers.open" ? label + ", \(controllers.count)" : label
+        return Button { if !fromSystemEcho { action() } } label: {
+            if identifier == "controllers.open" {
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: symbol).foregroundStyle(.white).frame(width: 32, height: 32)
+                        if !controllers.isEmpty {
+                            Text(controllers.count, format: .number)
+                                .font(.caption2.weight(.semibold)).monospacedDigit()
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 4).frame(minWidth: 18, minHeight: 18)
+                                .background(.black, in: Capsule())
+                                .fixedSize().offset(x: 4, y: -4)
+                                .allowsHitTesting(false).accessibilityHidden(true)
+                        }
+                    }
+            } else { Label(label, systemImage: symbol) }
+        }
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityIdentifier(identifier)
+            .shellTarget(target, radius: 22, action: action)
+            // Toolbar content is separately hosted: register its actual geometry without relying on preferences crossing hosts.
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                targets.toolbarValues[target] = FocusTarget(id: target, frame: frame, activate: action)
+            }
+            .onDisappear { targets.toolbarValues.removeValue(forKey: target) }
+    }
+
+    private var activeTargets: [FocusTarget] {
+        let prefix: String
+        if buttonTestOpen { prefix = "test." }
+        else if padMapping != nil { prefix = "map." }
+        else if choice != nil { prefix = "pick." }
+        else if touchLayout != nil { prefix = "lay." }
+        else if helpGameID != nil { prefix = "help." }
+        else if deleteGameID != nil { prefix = "del." }
+        else if controllersOpen { prefix = "ctl." }
+        else if shellSettingsOpen { prefix = "shs." }
+        else if settingsOpen { prefix = "set." }
+        else { prefix = "lib." }
+        return targets.active(prefix: prefix, toolbarIDs: Set(toolbarActions.map(\.target)))
     }
 
     // MARK: Actions and focus
@@ -482,14 +654,15 @@ public struct LibraryView: View {
     /// system's echo of a controller button, whatever the window says: a finger that came down elsewhere just before the
     /// echo (a tap in the settings pane right after A) ends the window, and Play behind the pane started the game.
     private var libraryPressAllowed: Bool { FocusLayer.libraryTakesPress(fromShell: gate.handling, under: topLayer) }
-    private func primary(_ detail: GameDetail) {
-        guard libraryPressAllowed, noteTouch() else { return }
+    private func primary(_ detail: GameDetail, fromSettings: Bool = false) {
+        guard (fromSettings && topLayer == .settings) || libraryPressAllowed, noteTouch() else { return }
         if detail.game.state.needsHelp { openHelp(detail.id); return }
+        let targetActions = settingsOpen ? menuActions : actions
         switch detail.game.state {
-        case .playable: actions.onPlay(detail.id)
-        case .needsGameData: actions.onPickGameData(detail.id)
-        case .needsAppUpdate: actions.onAppUpdate()
-        case .broken: actions.onShowLog(detail.id)
+        case .playable: targetActions.onPlay(detail.id)
+        case .needsGameData: targetActions.onPickGameData(detail.id)
+        case .needsAppUpdate: targetActions.onAppUpdate()
+        case .broken: targetActions.onShowLog(detail.id)
         }
     }
     private func select(_ id: String) {
@@ -497,26 +670,13 @@ public struct LibraryView: View {
         guard id != selectedID else { return }
         selectedID = id
         actions.onSelect(id)
+        settingsHeroVisible = true
         settingsPosition.scrollTo(edge: .top)
-    }
-    /// The swipe lets go: past a third of the panel or flung to the right, it finishes the slide out from where the
-    /// finger is and then closes without a second animation. Otherwise the panel springs back.
-    private func finishEdgeSwipe(travel: CGFloat, velocity: CGFloat, span: CGFloat) {
-        guard travel > span / 3 || velocity > 600 else { cancelEdgeSwipe(); return }
-        let close = {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { back(); edgeDrag = 0 }
-        }
-        if reduceMotion { close(); return }
-        withAnimation(.smooth(duration: 0.25), completionCriteria: .logicallyComplete) { edgeDrag = span + 40 } completion: { close() }
-    }
-    private func cancelEdgeSwipe() {
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { edgeDrag = 0 }
     }
     private func openSettings() {
         guard !shellSettingsOpen else { return }
         guard noteTouch() else { return }
+        controllersOpen = false
         settingsOpen = true
         focus.id = "set.back"
     }
@@ -531,9 +691,14 @@ public struct LibraryView: View {
     private func openTouchLayout(_ window: CGSize, _ insets: EdgeInsets) {
         guard noteTouch() else { return }
         touchLayout = TouchLayoutEditorModel.forDevice(window: window, insets: insets)
-        focus.id = "lay.done"
+        focus.id = "lay.options"
     }
     private func closeTouchLayout() { guard !fromSystemEcho else { return }; touchLayout = nil; focus.id = "shs.arrange" }
+    private func confirmTouchLayout() {
+        guard !fromSystemEcho, let touchLayout, !touchLayout.invalidPlacement else { return }
+        touchLayout.commit()
+        closeTouchLayout()
+    }
     private func openHelp(_ id: String) { guard !fromSystemEcho else { return }; returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
     private func closeHelp() { guard !fromSystemEcho else { return }; helpGameID = nil; focus.id = returnFocus }
     /// The question starts on Cancel, with the saves kept.
@@ -583,9 +748,7 @@ public struct LibraryView: View {
         guard noteTouch() else { return }
         returnFocus = focus.id
         padMapping = PadMappingState(gameID: id)
-        // The swap's current segment, or the first button while a game's swap is neither on, off nor the shell's.
-        let swap = padMappingRows(id).first
-        focus.id = swap?.value == "custom" ? "map.row.pad.A" : "map.swap." + (swap?.value ?? "")
+        focus.id = "map.close"
     }
     private func closePadMapping() { guard !fromSystemEcho else { return }; padMapping = nil; focus.id = returnFocus }
     private func openPadRow(_ row: String) {
@@ -611,7 +774,7 @@ public struct LibraryView: View {
         let global = id == ControllersView.mappingID
         if global { actions.onGlobalPadMapReset() } else { actions.onChange(id, PadMappingRows.resetID, "") }
         // Reset is disabled now: the focus goes to the swap, which is back at its default.
-        focus.id = "map.swap." + (global ? "0" : PadMappingRows.follow)
+        focus.id = "map.swap.toggle"
     }
     private func openButtonTest() { guard noteTouch() else { return }; buttonTestOpen = true; focus.id = "test.close"; actions.onButtonTest(true) }
     private func closeButtonTest() {
@@ -627,11 +790,11 @@ public struct LibraryView: View {
         else if padMapping != nil { closePadMapping() }
         else if choice != nil { closeChoice() }
         else if let touchLayout {
-            if touchLayout.held { touchLayout.putDown() } else if touchLayout.confirmingReset { touchLayout.cancelReset() } else { closeTouchLayout() }
+            if touchLayout.held { touchLayout.putDown() } else if touchLayout.confirmingExit { touchLayout.confirmingExit = false } else if touchLayout.requestExit() { closeTouchLayout() }
         }
         else if helpGameID != nil { closeHelp() }
         else if deleteGameID != nil { closeDelete() }
-        else if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
+        else if controllersOpen { controllersOpen = false; focus.id = settingsOpen ? "set.back" : "lib.controllers" }
         else if shellSettingsOpen { closeShellSettings() }
         else if settingsOpen { closeSettings() }
         else { actions.onBack() }
@@ -653,13 +816,12 @@ public struct LibraryView: View {
             default: break
             }
         }
-        let live = liveTargets
-        if focus.id == nil || !live.contains(where: { $0.id == focus.id }) {
+        if focus.id == nil || !activeTargets.contains(where: { $0.id == focus.id }) {
             focus.id = defaultFocus
             if action != .activate && action != .back && action != .settings && action != .controllers { return }
         }
         switch action {
-        case .activate: live.first { $0.id == focus.id }?.activate()
+        case .activate: activeTargets.first { $0.id == focus.id }?.activate()
         case .back: back()
         case .settings: openSettings()
         case .controllers: openControllers()
@@ -675,9 +837,6 @@ public struct LibraryView: View {
         default: move(action)
         }
     }
-    /// The targets the D-pad reaches now: the open dialog's or panel's own, else the library's.
-    private var liveTargets: [FocusTarget] { targets.values.filter { isLive($0.id) } }
-    private func isLive(_ id: String) -> Bool { FocusLayer.isLive(id, under: topLayer) }
     /// The dialog or panel on top, in the order of `FocusLayer`.
     private var topLayer: FocusLayer? {
         if buttonTestOpen { return .buttonTest }
@@ -692,10 +851,9 @@ public struct LibraryView: View {
         return nil
     }
     private func move(_ action: ShellInput.Action) {
-        let live = liveTargets
         let candidates = layout.isCoverFlow
-            ? live.filter { !$0.id.hasPrefix("lib.tile.") || $0.id == "lib.tile.\(selected?.id ?? "")" }
-            : live
+            ? activeTargets.filter { !$0.id.hasPrefix("lib.tile.") || $0.id == "lib.tile.\(selected?.id ?? "")" }
+            : activeTargets
         focus.id = FocusNavigation.next(from: focus.id, action: action, targets: candidates)
         if let id = focus.id, id.hasPrefix("lib.tile.") { select(String(id.dropFirst("lib.tile.".count))) }
     }
@@ -703,7 +861,7 @@ public struct LibraryView: View {
         if buttonTestOpen { return "test.close" }
         if let padMapping { return padMapping.row == nil ? "map.close" : "map.back" }
         if let choice { return "pick." + choice.row.value }
-        if touchLayout != nil { return "lay.done" }
+        if touchLayout != nil { return activeTargets.contains { $0.id == "lay.done" } ? "lay.done" : "lay.options" }
         if helpGameID != nil { return "help.done" }
         if deleteGameID != nil { return "del.cancel" }
         if controllersOpen { return "ctl.close" }
@@ -717,106 +875,70 @@ public struct LibraryView: View {
 /// so the banner's own logo and the title never overlap. Capped in height for a phone on its side.
 private struct PaneBanner: View {
     let game: GameTile
-    /// The full width, edge to edge under the side safe areas.
     let width: CGFloat
-    /// The side safe areas: the words keep them, the banner does not.
-    var leading: CGFloat = 0
-    var trailing: CGFloat = 0
-    /// The status bar's height where the banner runs under it.
-    var topInset: CGFloat = 0
     var body: some View {
-        let hasBanner = game.banner != nil
-        // A banner gets its full width and 16:9 height. Square or portrait art is never cropped into a tile: it shows
-        // whole as a rounded cover above the words, on a heavily blurred fill of itself.
-        let bannerHeight = hasBanner ? min(width * 9 / 16, 220) + topInset : topInset + 64
-        // On a wide screen the cover sits beside the words, on a narrow one above them, aligned to the same edge.
-        let layout = width >= 560 ? AnyLayout(HStackLayout(alignment: .bottom, spacing: 22))
-                                  : AnyLayout(VStackLayout(alignment: .leading, spacing: 16))
-        layout {
-            if !hasBanner { CoverThumbnail(game: game).frame(width: 96, height: 96) }
-            // The words are bottom-aligned in a block that always reserves two lines of title, as in the library
-            // hero: a short title shows more banner above it instead of leaving a hole.
-            ZStack(alignment: .bottomLeading) {
-                words(title: "M\nM").hidden().accessibilityHidden(true)
-                words(title: game.title)
-            }
+        let hasBanner = game.banner != nil && game.icon == nil
+        let bannerHeight = hasBanner ? min(width * 9 / 16, 220) : 0
+        // Centred on the artwork like the title in the game detail header, not sitting on its lower edge.
+        HStack(alignment: .center, spacing: 22) {
+            if !hasBanner { CoverThumbnail(game: game, showsShadow: false).frame(width: 96, height: 96) }
+            words(title: game.title).fixedSize(horizontal: false, vertical: true)
         }
-        .padding(.leading, leading + 24).padding(.trailing, trailing + 24)
-        .padding(.top, bannerHeight - (hasBanner ? 22 : 0))
+        .padding(.top, max(0, bannerHeight - (hasBanner ? 22 : 0)))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(alignment: .top) {
-            // The art runs on past the header and fades into the page over a long distance, so there is no line where
-            // the header ends and the settings begin.
-            GeometryReader { geometry in
-                let tall = geometry.size.height + 160
-                Group {
-                    if hasBanner {
-                        // The banner fills the header edge to edge, cropped as needed, darker under the words.
-                        ArtView(game: game, lettering: false)
-                            .overlay {
-                                LinearGradient(stops: [.init(color: .clear, location: 0.3), .init(color: .black.opacity(0.4), location: 0.6),
-                                                       .init(color: .black.opacity(0.55), location: 1)], startPoint: .top, endPoint: .bottom)
-                            }
-                    } else {
-                        ArtView(game: game, backdrop: true)
-                            .scaleEffect(1.4)
-                            .blur(radius: 40, opaque: true)
-                            .saturation(1.2)
-                            .overlay(Color.black.opacity(0.38))
-                    }
-                }
-                .frame(width: width, height: tall)
-                .clipped()
-                .overlay(alignment: .top) {
-                    // Darker under the status bar, so the time and battery stay legible on any art.
-                    if topInset > 0 {
-                        LinearGradient(colors: [.black.opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
-                            .frame(height: topInset + 50)
-                    }
-                }
-                .mask {
-                    LinearGradient(stops: [.init(color: .black, location: 0),
-                                           .init(color: .black, location: 0.45),
-                                           .init(color: .black.opacity(0.55), location: 0.68),
-                                           .init(color: .black.opacity(0.18), location: 0.85),
-                                           .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
-                }
-            }
-            .accessibilityHidden(true)
-        }
     }
 
     private func words(title: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            StatusLabel(state: game.state, prominent: true)
+
             Text(title).shellType(ShellType.pageTitle).lineLimit(2)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
-            HStack(spacing: 8) {
-                SectionHeading(title: ShellStrings.text("Game settings"))
-                if !game.subtitle.isEmpty {
-                    Text(game.subtitle).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5))
-                }
-            }.padding(.top, 2)
+            AlertStateChip(state: game.state)
         }
     }
 }
 
-/// A game's square art shown whole: the icon, or the placeholder cover when there is none.
-private struct CoverThumbnail: View {
+/// A square app icon beside metadata, or an uncropped banner when no icon is available.
+struct CoverThumbnail: View {
     let game: GameTile
+    var showsShadow = true
+    var cornerRadius: CGFloat = 18
     var body: some View {
         Group {
             if let icon = game.icon {
-                Image(decorative: icon.image, scale: 1).resizable().interpolation(.high).scaledToFill()
+                Image(decorative: icon.image, scale: 1).resizable().interpolation(.high).scaledToFit()
             } else if let banner = game.banner {
-                Image(decorative: banner.image, scale: 1).resizable().interpolation(.high).scaledToFill()
+                Image(decorative: banner.image, scale: 1).resizable().interpolation(.high).scaledToFit()
             } else {
                 PlaceholderArt(title: game.title, seed: game.id)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18))
-        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.14)))
-        .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
+        .saturation(game.state == .playable ? 1 : 0)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .overlay(RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(.white.opacity(0.14)))
+        .shadow(color: showsShadow ? .black.opacity(0.4) : .clear, radius: 16, y: 6)
         .accessibilityHidden(true)
+    }
+}
+/// Request a native side only when the system reports a vertical division; flat iPhone/iPad sheets stay adaptive.
+private struct MenuPlacement: ViewModifier {
+    var divided: Bool
+    var secondary: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        #if os(iOS)
+        if #available(iOS 27.0, *), divided {
+            content.presentationPlacement(secondary ? .trailing : .leading)
+        } else { content }
+        #else
+        content
+        #endif
+    }
+}
+
+private struct LauncherMenuSizing: PresentationSizing {
+    var mapping: Bool
+    func proposedSize(for root: PresentationSizingRoot, context: PresentationSizingContext) -> ProposedViewSize {
+        if mapping { return PagePresentationSizing.page.proposedSize(for: root, context: context) }
+        return FormPresentationSizing.form.proposedSize(for: root, context: context)
     }
 }

@@ -133,7 +133,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(model.globalPadMap.swapAB)
         #expect(try !detail(model).hasModifiedSettings)
         // The game's row follows: the card shows what all games send there (B), from the shell's map.
-        if case .choice(let options) = try row("pad.A").kind { #expect(options.first?.id == "follow" && options.first?.label == "Same as all games") }
+        if case .choice(let options) = try row("pad.A").kind { #expect(options.first?.id == "follow" && options.first?.label == "Default") }
         #expect(try row("pad.A").value == "follow" && model.globalPadMap.output(for: "A") == "B")
         await model.playNow(Fixtures.orbit)
         #expect(launcher.launched.last?.environment["DM_PAD_MAP"] == "A=B,B=A")

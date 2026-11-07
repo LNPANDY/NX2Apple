@@ -19,7 +19,7 @@ import NXCore
 @MainActor package final class AppUpdateStore: ObservableObject {
     /// Bump together with each release tag: the update check compares it with the latest release.
     /// `build-mac-app.yml`, `sync-upstream.yml`, `tools/try-local` and `RELEASING.md` read this line. Keep it in this form.
-    nonisolated package static let appVersion = "1.2.3"
+    nonisolated package static let appVersion = "1.3.0"
 
     /// The version this store compares releases with: `appVersion`, unless a test passes another.
     nonisolated package let version: String
