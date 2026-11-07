@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import NX2Apple
 @testable import NXCore
@@ -106,6 +107,74 @@ final class OlderToolsTests: IsolatedDefaultsTestCase {
         try FileManager.default.createDirectory(at: zip.appendingPathComponent("dm/host"), withIntermediateDirectories: true)
         XCTAssertNil(ToolsAge.head(repo: zip.path))
         XCTAssertEqual(ToolsAge.olderGames([game("abc")], repo: zip.path), [])
+    }
+
+    private let currentChain = "95ba69b5403e"
+    private let previousChain = "e047be1b6829"
+
+    private func macGame(_ name: String, chain: String?, bundleTitleID: String? = nil,
+                         hasHost: Bool = true) throws -> LibraryGame {
+        let app = temporary.appendingPathComponent(name + ".app")
+        let executables = app.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: executables, withIntermediateDirectories: true)
+        for executable in hasHost ? ["nxnative", "dmhost"] : ["nxnative"] {
+            try FileManager.default.createSymbolicLink(at: executables.appendingPathComponent(executable),
+                                                       withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
+        }
+        var info = ["DMTitleID": bundleTitleID ?? titleID, "CFBundleExecutable": "nxnative"]
+        info["DMChain"] = chain
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: app.appendingPathComponent("Contents/Info.plist"))
+        return LibraryGame(titleID: titleID, name: name, appPath: app.path)
+    }
+
+    private func check(_ age: ToolsAge, games: [LibraryGame], repo: URL, marks: Set<UUID>) {
+        let updated = expectation(description: "Tools age is published")
+        let subscription = age.$older.dropFirst().sink { result in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertEqual(result, marks)
+            updated.fulfill()
+        }
+        age.check(games: games, repo: repo.path)
+        withExtendedLifetime(subscription) { wait(for: [updated], timeout: 3) }
+    }
+
+    func testAReleaseMarksOnlyValidMacGamesWithADifferentShaderChain() throws {
+        let engine = temporary.appendingPathComponent("release-engine")
+        let chainHeader = engine.appendingPathComponent("dm/gfx/nvn/dmsh_chain.h")
+        let marker = engine.appendingPathComponent(EngineLayout.marker)
+        for file in [chainHeader, marker] {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        }
+        try Data().write(to: marker)
+        try "#define DMSH_CHAIN \"\(currentChain)\"\n".write(to: chainHeader, atomically: true, encoding: .utf8)
+        XCTAssertNil(ToolsAge.head(repo: engine.path), "a release engine has no Git history")
+
+        var old = try macGame("Old", chain: previousChain)
+        let matching = try macGame("Matching", chain: currentChain)
+        let unstamped = try macGame("Unstamped", chain: nil)
+        let malformed = try macGame("Malformed", chain: "not-a-shader-chain")
+        let trailingNewline = try macGame("Trailing newline", chain: previousChain + "\n")
+        let wrongGame = try macGame("Wrong title", chain: previousChain, bundleTitleID: "01007EF00011E000")
+        let invalid = try macGame("Missing host", chain: previousChain, hasHost: false)
+        let age = ToolsAge()
+        check(age, games: [old, matching, unstamped, malformed, trailingNewline, wrongGame, invalid], repo: engine, marks: [old.id])
+
+        guard age.older == [old.id] else { return }
+        old.appPath = matching.appPath
+        check(age, games: [old], repo: engine, marks: [])
+
+        // Switching back to the earlier engine also makes a valid build differ from the selected tools.
+        try "#define DMSH_CHAIN \"\(previousChain)\"\n".write(to: chainHeader, atomically: true, encoding: .utf8)
+        check(age, games: [matching], repo: engine, marks: [matching.id])
+    }
+
+    func testShaderChainAndGitMarksAreCombined() throws {
+        let (repo, built) = try fixture()
+        try commit(["dm/host/hle_fs.c": "two", "dm/gfx/nvn/dmsh_chain.h": "#define DMSH_CHAIN \"\(currentChain)\"\n"], in: repo)
+        let changedHost = LibraryGame(titleID: titleID, name: "Older host", toolsCommit: built)
+        let changedChain = try macGame("Older shader chain", chain: previousChain)
+        check(ToolsAge(), games: [changedHost, changedChain], repo: repo, marks: [changedHost.id, changedChain.id])
     }
 
     func testWhatABuildReads() {
