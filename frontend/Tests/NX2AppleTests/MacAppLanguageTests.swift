@@ -12,7 +12,7 @@ import XCTest
 final class MacAppLanguageTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "01008CF01BAAC000"
-    private var bundleID: String { "org.nxnative.frontendtests.lang." + temporary.lastPathComponent }
+    private var bundleID: String { TestPreferences.domain(in: temporary, "lang") }
     private let languages = ["en-US", "ja", "fr", "de", "es", "it", "pt", "ru", "ko", "zh-Hant", "zh-Hans"]
 
     override func setUpWithError() throws {
@@ -21,11 +21,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
     }
 
     override func tearDownWithError() throws {
-        let domain = bundleID as CFString
-        for key in (CFPreferencesCopyKeyList(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] {
-            CFPreferencesSetAppValue(key as CFString, nil, domain)
-        }
-        CFPreferencesAppSynchronize(domain)
+        CFPreferencesAppSynchronize(bundleID as CFString)
         try FileManager.default.removeItem(at: temporary)
     }
 
