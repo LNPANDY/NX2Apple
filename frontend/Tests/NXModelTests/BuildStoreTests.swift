@@ -144,16 +144,61 @@ import XCTest
 
     // MARK: The experimental builder (#749)
 
-    func testTheExperimentalBuilderIsOffByDefaultAndItsSettingIsSaved() {
+    func testNxbIsOnByDefaultAndAChoiceThePlayerSavedStays() {
         let store = makeStore()
-        XCTAssertFalse(store.experimentalBuilder)
-        XCTAssertNil(store.experimentalBuilderProblem(), "off: nothing to say")
+        XCTAssertTrue(store.experimentalBuilder, "nxb builds unless the player turned it off")
+        store.bundledBuilder = nil
+        XCTAssertFalse(store.usesNxb, "no nxb in the app and none chosen: the script builds")
+        XCTAssertNil(store.experimentalBuilderProblem(), "the script builds: nothing to say")
+        store.experimentalBuilder = false
+        XCTAssertFalse(makeStore().experimentalBuilder, "off stays off")
         store.experimentalBuilder = true; store.experimentalBuilderPath = "/opt/nxbuild"
         XCTAssertTrue(defaults.bool(forKey: BuildStore.experimentalBuilderKey))
         XCTAssertEqual(defaults.string(forKey: BuildStore.experimentalBuilderPathKey), "/opt/nxbuild")
         let again = makeStore()
         XCTAssertTrue(again.experimentalBuilder)
         XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
+    }
+
+    /// nxb's exit code 4 ("not supported yet") builds the same game again with the script, in the same build. Any other exit code is a failure.
+    func testNxbsExitCode4BuildsWithTheScriptAndOtherCodesFail() throws {
+        for (status, fallsBack) in [(Int32(4), true), (Int32(1), false)] {
+            let runner = FakeProcessRunner()
+            runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.9.0\n") }
+            runner.startExit = { $0.arguments.first == "build" ? status : 0 }
+            let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+            for path in [EngineLayout.marker] + RepoLayout.requiredTools {
+                let url = temporary.appendingPathComponent(path)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try "'--work-dir'".write(to: url, atomically: true, encoding: .utf8)
+            }
+            repo.path = temporary.path
+            store.take(picked: [try file("Game [0100000000010000].nsp")], kind: .base)
+            store.take(picked: [try file("test.keys")], kind: .keys)
+            store.outDir = temporary.path
+            store.target = BuildTarget.mac
+            let nxb = temporary.path + "/nxbuild/nxb"
+            try FileManager.default.createDirectory(atPath: (nxb as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try Data([0]).write(to: URL(fileURLWithPath: nxb))
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+            store.bundledBuilder = nxb
+            store.startBuild()
+            let ran = expectation(description: "the build ends (\(status))")
+            DispatchQueue.main.async { DispatchQueue.main.async { ran.fulfill() } }
+            wait(for: [ran], timeout: 5)
+            let builds = runner.launches.filter { $0.executable == nxb ? $0.arguments.first == "build" : $0.executable == deps.pythonPath }
+            XCTAssertEqual(builds.first?.executable, nxb, "nxb builds first (\(status))")
+            XCTAssertEqual(builds.count, fallsBack ? 2 : 1, "exit code \(status)")
+            if fallsBack {
+                XCTAssertEqual(builds.last?.executable, deps.pythonPath, "then the script")
+                XCTAssertEqual(Array(builds.last!.arguments.dropFirst()), Array(builds.first!.arguments.dropFirst()), "with the same options")
+                XCTAssertTrue(store.log.text.contains(store.t("msg.builderFallback")), "the log says why, below nxb's lines")
+                XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
+                XCTAssertFalse(store.scriptFallback, "the next build is nxb again")
+            } else {
+                XCTAssertFalse(store.log.text.contains(store.t("msg.builderFallback")))
+            }
+        }
     }
 
     func testTheExperimentalBuilderStopsWithoutANewEnoughNxbAndNeverRunsTheScript() throws {

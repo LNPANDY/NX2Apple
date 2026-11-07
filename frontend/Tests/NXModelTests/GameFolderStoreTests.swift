@@ -120,10 +120,11 @@ import XCTest
         XCTAssertTrue(args.contains("mac-app"))
     }
 
-    /// #749: with the experimental builder on, the same arguments go to `nxb build` and the script is not run.
+    /// #749: with nxb on, the same arguments go to `nxb build` and the script is not run.
     func testTheExperimentalBuilderGivesTheScriptsArgumentsToNxbBuildAndIsNamedInTheLog() {
         let (store, game) = makeStore()
         store.scan(folder: game)
+        store.experimentalBuilder = false
         store.startBuild()
         let standard = store.lastBuildCommand
         XCTAssertFalse(store.log.text.contains("nxb"))
@@ -256,5 +257,20 @@ import XCTest
         XCTAssertNil(store.gameFolder)
         XCTAssertEqual((store.basePath as NSString).lastPathComponent, "Mario [010015100B514000][v0].nsp")
         XCTAssertEqual(store.buildKey, "010015100B514000")
+    }
+
+    func testNestedWrapperAndBaseSubfolderResolveToTheGameFolderWithoutKeys() {
+        let (store, game) = makeStore()
+        let nested = root + "/Unzipped/Wrapper/Donkey Kong Bananza"
+        try? FileManager.default.createDirectory(atPath: (nested as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try? FileManager.default.moveItem(atPath: game, toPath: nested)
+
+        for picked in [root + "/Unzipped", root + "/Unzipped/Wrapper", nested + "/base", nested + "/base/exefs"] {
+            store.scan(folder: picked)
+            XCTAssertEqual(store.gameDir, nested, "failed for \(picked)")
+            XCTAssertEqual(store.gameFolder?.folder, nested, "failed for \(picked)")
+            XCTAssertTrue(store.canBuild, "no prod.keys needed for \(picked)")
+            XCTAssertTrue(store.keysPath.isEmpty)
+        }
     }
 }

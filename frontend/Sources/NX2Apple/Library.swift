@@ -407,6 +407,13 @@ final class GameLibrary: ObservableObject {
     }
 
     static func sourceGames(in root: URL, repo: String) -> [LibraryGame] {
+        if GameFolder.isDumpDirectory(root.path), case .success(let f) = GameFolder.scan(root.path) {
+            var game = LibraryGame(titleID: f.titleIDHex, name: title(for: f.folder, repo: repo, titleID: f.titleIDHex))
+            game.inputs = [GameLibrary.folderInput: [f.folder], "base": [f.basePath]]
+            game.sourceFolder = f.folder
+            game.outputDirectory = f.folder
+            return [game]
+        }
         guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { return [] }
         let packages = Set(["nsp", "xci", "nsz", "xcz"])
         var result: [String: LibraryGame] = [:]
@@ -415,13 +422,13 @@ final class GameLibrary: ObservableObject {
                 let name = url.lastPathComponent.lowercased()
                 // A game folder (a Switch 2 game's base/, updates/, dlc/, GameFolder.swift) is one game: its folder is its input,
                 // and its 80,000 files are not walked.
-                if GameFolder.isCandidate(url.path) {
+                if GameFolder.isDirectCandidate(url.path) {
                     e.skipDescendants()
                     if case .success(let f) = GameFolder.scan(url.path), result[f.titleIDHex] == nil {
-                        var game = LibraryGame(titleID: f.titleIDHex, name: title(for: url.path, repo: repo, titleID: f.titleIDHex))
-                        game.inputs = [GameLibrary.folderInput: [url.path], "base": [f.basePath]]
-                        game.sourceFolder = url.path
-                        game.outputDirectory = url.path
+                        var game = LibraryGame(titleID: f.titleIDHex, name: title(for: f.folder, repo: repo, titleID: f.titleIDHex))
+                        game.inputs = [GameLibrary.folderInput: [f.folder], "base": [f.basePath]]
+                        game.sourceFolder = f.folder
+                        game.outputDirectory = f.folder
                         result[f.titleIDHex] = game
                     }
                     continue
@@ -610,6 +617,44 @@ final class GameLibrary: ObservableObject {
         game.installedDevice = device
         game.toolsCommit = commit
         upsert(game)
+        recordSharedAppInstalled(app: app, device: device)
+    }
+
+    /// Every game in the shared app's shell.json is inside `app` on `device` once the shared app is signed and installed there.
+    func recordSharedAppInstalled(app: String, device: String) {
+        guard !device.isEmpty,
+              FileManager.default.fileExists(atPath: app + "/Info.plist"),
+              let shell = ShellInstall.paths(ofApp: app) else { return }
+        applySharedAppInstalled(titles: ShellLibrary.recordInstalled(root: shell.root), app: app, device: device)
+    }
+
+    private func applySharedAppInstalled(titles: Set<String>, app: String, device: String) {
+        guard !device.isEmpty, !titles.isEmpty else { return }
+        var changed = false
+        for i in games.indices where titles.contains(games[i].titleID.uppercased()) {
+            if games[i].iosAppPath != app || games[i].installedDevice != device || !games[i].ipaPath.isEmpty {
+                games[i].ipaPath = ""
+                games[i].iosAppPath = app
+                games[i].installedDevice = device
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// Restores the shared app's games from the last successful install receipt when `DmShell.app` is signed on disk
+    /// (`embedded.mobileprovision` is present) and at least one receipt member still has recorded shared-app install provenance.
+    func syncSharedApp(root: String) {
+        let app = ShellInstall.appPath(root: root)
+        guard FileManager.default.fileExists(atPath: app + "/" + AppSignature.profileName) else { return }
+        let receipt = ShellLibrary.installedReceipt(root: root)
+        guard !receipt.isEmpty,
+              let device = games.first(where: {
+                  receipt.contains($0.titleID.uppercased())
+                      && !$0.installedDevice.isEmpty
+                      && ShellInstall.paths(ofApp: $0.iosAppPath) != nil
+              })?.installedDevice else { return }
+        applySharedAppInstalled(titles: receipt, app: app, device: device)
     }
 
     /// Only a choice that differs from the game's default is kept, so a setting left at its default follows a later build's.

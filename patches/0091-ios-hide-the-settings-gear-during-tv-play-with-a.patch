@@ -8,10 +8,17 @@ Use the layout selected after the game view moves and the active controller stat
 Upstream-Status: forwarded seedds/nxnative#1485
 Reason: Hide the in-game menu gear only while a controller is in use and the game picture is on the TV.
 Issue: LNPANDY/NX2Apple#809
-
 ---
+ dm/ios/Sources/DmGamepad.m                 | 14 +++++++---
+ dm/ios/Sources/DmLayout.h                  |  6 ++---
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |  7 +++++
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m   | 30 ++++++++++++++++++++++
+ docs/reference/rendering.md                |  2 +-
+ docs/settings.md                           |  4 +--
+ 6 files changed, 53 insertions(+), 10 deletions(-)
+
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 43bd72a..0ff27a3 100644
+index 19c3501..58f7662 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,6 @@
@@ -44,9 +51,9 @@ index 43bd72a..0ff27a3 100644
      [self setNeedsLayout];
  }
  - (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the bounds, the safe area, the split or the layout changed
-@@ -644,11 +646,15 @@ static BOOL pads_slotted(GCController *gone) {
+@@ -662,11 +664,15 @@ static BOOL pads_slotted(GCController *gone) {
      dm_pad_players(pad_slot_mask(&g_slots));
-     return pad_slot_mask(&g_slots) != 0;
+     return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
  }
 +- (void)updateControlVisibility {
 +    _controls.hidden = _padOff;
@@ -152,10 +159,10 @@ index 641d8f5..1241c54 100644
      if (@available(iOS 17.0, *)) {
          [self setHarnessControllers:nil notification:nil];
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index c936ba5..7f4e89e 100644
+index 95271ae..17e2eef 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -1487,7 +1487,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+@@ -1533,7 +1533,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
  
  - **Symptom:** portrait gameplay overlaps the touch controls, touch coordinates land outside the game picture, or a TV's picture renders at 4K again after a layout pass.
  - **Cause:** the front end assumed a landscape screen with the controls over the whole view, so its picture and touch geometry did not follow a portrait screen (an iPad, an iPhone Duo's inner display) or a Duo's fold. On iPadOS the deprecated `UIRequiresFullScreen` kept the game out of resizable windows, and a native rotation A/B on the iPhone Duo iOS 27.1 simulator showed that it also blocked upside-down portrait.
@@ -165,10 +172,10 @@ index c936ba5..7f4e89e 100644
  - **Found on:** [Pokémon Brilliant Diamond](../../dm/games/0100000011D90000/README.md).
  
 diff --git a/docs/settings.md b/docs/settings.md
-index 69c3aca..ecc5384 100644
+index f2bf1ea..f19ca21 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
-@@ -237,13 +237,13 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
+@@ -241,13 +241,13 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
  
  ## In-game menu
  

@@ -134,7 +134,7 @@ index fee9e53..0d20b82 100644
      """The signing and pack steps on a stand-in app; no Xcode, no game files."""
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 9f67e73..f177de7 100755
+index e081698..1af6290 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -202,7 +202,8 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi

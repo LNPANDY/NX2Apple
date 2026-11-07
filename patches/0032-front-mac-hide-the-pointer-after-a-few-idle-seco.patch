@@ -16,10 +16,10 @@ Issue: LNPANDY/NX2Apple#272
  3 files changed, 25 insertions(+)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index ecbf20c..44eaf20 100644
+index 9142aad..f1acc62 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1408,6 +1408,22 @@ void front_run(void (*guest)(void)) {
+@@ -1451,6 +1451,22 @@ void front_run(void (*guest)(void)) {
                  (void)n; want = 0; entering = 0; g_fs_failed = nil; }];   // startup succeeded: later manual refusals have no startup request to retry
              dispatch_async(dispatch_get_main_queue(), enter);
          }
@@ -43,7 +43,7 @@ index ecbf20c..44eaf20 100644
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 8e048ed..d2710a0 100644
+index fcd1f51..7ea5443 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -22,6 +22,7 @@ DM_CHEATS_WINDOW	switch	`1` opens the Mac Cheats panel beside the game from the
@@ -55,7 +55,7 @@ index 8e048ed..d2710a0 100644
  DM_DBG_AU_FRAMES	diagnostic	`=<frames>` asks the Mac's Core Audio output for that many frames per callback instead of about 5 ms (1024 reproduces the iOS default that caused crackling)
  DM_DETCLOCK	switch	`=<step ns>`: from the first present on, the guest clock advances a fixed step per present instead of following the wall clock, and the random source becomes a fixed-seed stream (replay and test runs)
 diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
-index d644ee7..4cb6675 100644
+index 3eb6a63..c021698 100644
 --- a/docs/reference/frame-rate.md
 +++ b/docs/reference/frame-rate.md
 @@ -310,6 +310,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an

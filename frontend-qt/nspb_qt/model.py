@@ -1743,12 +1743,13 @@ class Model(QObject):
 
     def take_game_folder(self, path: str) -> None:
         """Fill the rows from a game folder or a NUP file, or show the reason it cannot be built on the base row."""
-        self.game_dir = str(Path(path).parent) if path.lower().endswith('.nup') else path
+        resolved = inputs.resolve_game_folder(path)
+        self.game_dir = str(Path(resolved).parent) if resolved.lower().endswith('.nup') else resolved
         self.game_folder = None
         self.game_folder_problem = ''
         self.base_path = self.update_path = ''
         self.dlc_paths = []
-        found = inputs.scan_game_folder(path)
+        found = inputs.scan_game_folder(resolved)
         if isinstance(found, inputs.GameFolderProblem):
             self.game_folder_problem = self.t(found.l10n_key, *found.args)
         else:
