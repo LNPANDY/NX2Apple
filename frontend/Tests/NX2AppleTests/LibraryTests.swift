@@ -672,6 +672,35 @@ import NXModel
         XCTAssertEqual(hades.inputs["dlc"]?.map(Self.canon), [Self.canon(flat.appendingPathComponent(files[2]).path)])
     }
 
+    func testAScanRetainsCollectionEnumerationWhenRootHoldsANUPBesideAGameFolder() throws {
+        let fm = FileManager.default
+        let collection = temporary.appendingPathComponent("Collection")
+        let nupURL = collection.appendingPathComponent("GameA.nup")
+        let dumpB = collection.appendingPathComponent("DumpB")
+        try fm.createDirectory(at: dumpB.appendingPathComponent("base/exefs"), withIntermediateDirectories: true)
+        try fm.createDirectory(at: dumpB.appendingPathComponent("base/romfs"), withIntermediateDirectories: true)
+
+        var nup = [UInt8](repeating: 0, count: 0x80 + 0x30 + 0x40)
+        func put(_ o: Int, _ v: UInt64, _ n: Int) { for i in 0..<n { nup[o + i] = UInt8(v >> (8 * UInt64(i)) & 0xFF) } }
+        nup.replaceSubrange(0..<4, with: [0x4E, 0x55, 0x50, 0x01])
+        put(0x08, 0x80, 8); put(0x40, UInt64(nup.count), 8); put(0x48, 1, 4)
+        nup.replaceSubrange(0x80..<0x84, with: [0x54, 0x4F, 0x43, 0x01])
+        put(0xB0, 0x040074A01BF12000, 8)
+        try Data(nup).write(to: nupURL)
+        try GameFolderCaptureTests.npdm(programID: 0x0400A3A01EE4C000).write(to: dumpB.appendingPathComponent("base/exefs/main.npdm"))
+
+        for root in [collection, temporary!] {
+            let games = GameLibrary.sourceGames(in: root, repo: "")
+            XCTAssertEqual(Set(games.map(\.titleID)), ["040074A01BF12000", "0400A3A01EE4C000"], "failed for \(root.path)")
+            let gameA = try XCTUnwrap(games.first { $0.titleID == "040074A01BF12000" })
+            let gameB = try XCTUnwrap(games.first { $0.titleID == "0400A3A01EE4C000" })
+            XCTAssertEqual(Self.canon(gameA.sourceFolder), Self.canon(collection.path))
+            XCTAssertEqual(gameA.inputs[GameLibrary.folderInput]?.map(Self.canon), [Self.canon(nupURL.path)])
+            XCTAssertEqual(Self.canon(gameB.sourceFolder), Self.canon(dumpB.path))
+            XCTAssertEqual(gameB.inputs[GameLibrary.folderInput]?.map(Self.canon), [Self.canon(dumpB.path)])
+        }
+    }
+
     func testReadOnlyScanOfConfiguredFolder() throws {
         guard let path = ProcessInfo.processInfo.environment["NX_LAUNCHER_SCAN_FOLDER"] else { throw XCTSkip("Set NX_LAUNCHER_SCAN_FOLDER for a read-only scan of real builds") }
         let apps = GameLibrary.builtApps(in: URL(fileURLWithPath: path))
