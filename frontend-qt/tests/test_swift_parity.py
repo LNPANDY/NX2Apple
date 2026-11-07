@@ -1172,11 +1172,16 @@ class LibraryAndSpaceTests(unittest.TestCase):
 
             win_dm_games_dir = r'D:\games\SWORD\0100ABF008968000_build\profile;E:\other\profiles'
 
-            def map_win_path(p: str) -> Path:
+            def map_win_path(p: str | Path) -> Path:
                 s = str(p).replace('\\', '/')
-                if s.startswith('D:/'):
+                if s.lower() == 'd:/games' or s.lower().startswith('d:/games/'):
                     return self.dir / 'win_d_drive' / s[3:]
-                return Path(s)
+                return Path(p)
+
+            self.assertEqual(
+                map_win_path(r'D:\a\NX2Apple\NX2Apple\engine\dm\games\0100ABF008968000'),
+                Path(r'D:\a\NX2Apple\NX2Apple\engine\dm\games\0100ABF008968000'),
+            )
 
             gm.Path = map_win_path  # type: ignore[attr-defined]
             # Without the fix, game.py's .split(':') splits 'D:\...' into 'D' and '\games\...', falling back to dm/games (KeyError: 'v0')
