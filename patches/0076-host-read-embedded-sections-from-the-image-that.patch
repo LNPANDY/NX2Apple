@@ -10,14 +10,15 @@ Upstream-Status: pending
 Reason: Let the host read its Mach-O sections when linked into a dynamic framework as well as the main executable
 Issue: LNPANDY/NX2Apple#451
 ---
- dm/gfx/gl/hle_gl.m   | 5 ++---
- dm/gfx/nvn/hle_nvn.c | 5 ++---
- dm/gfx/vk/hle_vk.m   | 5 ++---
- dm/host/hle.c        | 5 ++---
- dm/host/hle_jit.c    | 5 ++---
- dm/host/host_image.h | 8 ++++++++
- dm/host/loader.c     | 7 +++----
- 7 files changed, 21 insertions(+), 19 deletions(-)
+ dm/gfx/gl/hle_gl.m          | 5 ++---
+ dm/gfx/nvn/hle_nvn.c        | 5 ++---
+ dm/gfx/tests/t_gl_imports.m | 2 +-
+ dm/gfx/vk/hle_vk.m          | 5 ++---
+ dm/host/hle.c               | 5 ++---
+ dm/host/hle_jit.c           | 5 ++---
+ dm/host/host_image.h        | 8 ++++++++
+ dm/host/loader.c            | 7 +++----
+ 8 files changed, 22 insertions(+), 20 deletions(-)
  create mode 100644 dm/host/host_image.h
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
@@ -44,7 +45,7 @@ index f3e38a1..dc6edac 100644
      return NULL;
  }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 6969e52..2ffe59a 100644
+index 8015ced..92b2934 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -38,8 +38,7 @@
@@ -66,6 +67,19 @@ index 6969e52..2ffe59a 100644
      unsigned nim = im ? (unsigned)(sz / sizeof *im) : 0, hit = 0;
      for (unsigned i = 0; i < NVN_NFUNC; i++) nvn_slot[i].fn = (void *)nvn_unimpl_entry;
      for (unsigned k = 0; k < nim; k++) {
+diff --git a/dm/gfx/tests/t_gl_imports.m b/dm/gfx/tests/t_gl_imports.m
+index d469b3f..0538b27 100644
+--- a/dm/gfx/tests/t_gl_imports.m
++++ b/dm/gfx/tests/t_gl_imports.m
+@@ -55,7 +55,7 @@ int main(int argc, char **argv) {
+     void (*delete)(GLuint) = import("glDeleteShader"); delete(sh); assert(!shader_of(sh));
+ 
+     unsigned long sz;
+-    const hle_ent *sec = (const hle_ent *)getsectiondata(&_mh_execute_header, "__DATA", "swhle", &sz);
++    const hle_ent *sec = (const hle_ent *)getsectiondata(DM_HOST_IMAGE, "__DATA", "swhle", &sz);
+     unsigned count = 0;
+     for (unsigned long i = 0; i < sz / sizeof *sec; i++)
+         if (!strncmp(sec[i].name, "gl", 2)) {
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
 index 6b25664..9d141a4 100644
 --- a/dm/gfx/vk/hle_vk.m
@@ -148,7 +162,7 @@ index 0000000..9dde850
 +extern const struct mach_header_64 __dso_handle;
 +#define DM_HOST_IMAGE (&__dso_handle)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index c12d21b..4845e63 100644
+index a81d7da..8e623ec 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -8,9 +8,8 @@

@@ -28,7 +28,7 @@ package struct BuildFailureCard: View {
                         Circle().fill(LauncherPalette.building).frame(width: 7, height: 7)
                         Text(m.failureWhat(f)).font(.manrope(14, .semibold)).fixedSize(horizontal: false, vertical: true)
                     }
-                    let chooseTitle = !f.titleIDs.isEmpty && !m.experimentalBuilder
+                    let chooseTitle = !f.titleIDs.isEmpty
                     Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(.manrope(13)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true).padding(.leading, 17)
                     if chooseTitle {

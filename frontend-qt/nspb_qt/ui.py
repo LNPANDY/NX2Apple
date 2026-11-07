@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
             self, title, str(Path.home())
         )
         self.m.ask_file = self._ask_metal_archive
+        self.m.ask_sdk_archive = self._ask_sdk_archive
         self.setWindowTitle(f'NX2Apple v{APP_VERSION}')
         self.setWindowFlags(
             Qt.Window
@@ -1158,22 +1159,25 @@ class MainWindow(QMainWindow):
 
         return grp
 
+    def _shell_ipa_path(self) -> str:
+        """The shared app's only output, whatever mode ran last."""
+        return lib.shell_ipa_path(self.m.shell_cache_path)
+
+    def _one_game_ipa_path(self) -> str:
+        return lib.one_game_ipa_path(self.m.out_dir, self.m.build_key)
+
     def _effective_ipa_path(self) -> str:
-        if self.m.ipa_path and os.path.exists(self.m.ipa_path):
-            return self.m.ipa_path
-        if self.m.ipa_kind == 'shared':
-            cand_shell = os.path.join(self.m.shell_cache_path, 'export', 'NX2Apple.ipa')
-            if os.path.isfile(cand_shell):
-                return cand_shell
-        tid = self.m.build_key
-        if tid and self.m.out_dir:
-            cand = os.path.join(self.m.out_dir, f'{tid}.ipa')
-            if os.path.isfile(cand):
-                return cand
+        # The two kinds write different files, so the reveal button answers for the kind that is
+        # selected now: `self.m.ipa_path` alone would name the other mode's IPA after a switch.
         sel = self.m.library.selected
-        if sel and sel.has_ipa:
-            return sel.ipa_path
-        return self.m.ipa_path
+        return lib.reveal_ipa_path(
+            ipa_kind=self.m.ipa_kind,
+            shell_cache=self.m.shell_cache_path,
+            out_dir=self.m.out_dir,
+            build_key=self.m.build_key,
+            last_ipa=self.m.ipa_path,
+            library_ipa=sel.ipa_path if (sel and sel.has_ipa) else '',
+        )
 
     def _effective_archive_path(self) -> str:
         eff = self.m.effective_archive_path()
@@ -2077,7 +2081,7 @@ class MainWindow(QMainWindow):
                 QUrl('macappstore://apps.apple.com/app/id497799835')))
             r.addWidget(b)
         if d.pick_key:
-            label_key = 'dep.pick.metal' if d.pick_key == 'metal_dir' else 'dep.pick'
+            label_key = 'dep.pick.metal' if d.pick_key in ('metal_dir', 'ios_sdk') else 'dep.pick'
             pb = QPushButton(t(label_key))
             pb.setEnabled(not d.installing)
             pb.clicked.connect(lambda _=False, dep=d: self.m.pick_dep_folder(dep))
@@ -2443,7 +2447,15 @@ class MainWindow(QMainWindow):
     def _ask_metal_archive(self, title: str) -> str:
         picked, _ = QFileDialog.getOpenFileName(
             self, title, str(Path.home() / 'Downloads'),
-            'Metal Developer Tools (*.zip *.exe *.msi);;All files (*)')
+            'Metal Developer Tools (metal.exe metallib.exe *.zip *.exe *.msi);;All files (*)')
+        if picked:
+            return picked
+        return QFileDialog.getExistingDirectory(self, title, str(Path.home()))
+
+    def _ask_sdk_archive(self, title: str) -> str:
+        picked, _ = QFileDialog.getOpenFileName(
+            self, title, str(Path.home() / 'Downloads'),
+            'iPhoneOS SDK (*.zip *.xip SDKSettings.json SDKSettings.plist);;All files (*)')
         if picked:
             return picked
         return QFileDialog.getExistingDirectory(self, title, str(Path.home()))

@@ -35,10 +35,18 @@ struct DemoScreen: View {
         return args[i + 1]
     }
     private var scenario: String { value("--screen") ?? "library" }
-    /// `--games 3` shows the first three sample games, for the short shelf.
+    /// `--games` sizes the sample library, repeating fixtures for long-scroll checks.
     private var shown: [GameDetail] {
         guard scenario != "empty" else { return [] }
-        return value("--games").flatMap(Int.init).map { Array(games.prefix($0)) } ?? games
+        guard let count = value("--games").flatMap(Int.init), !games.isEmpty else { return games }
+        return (0..<max(0, count)).map { index in
+            var detail = games[index % games.count]
+            if index >= games.count {
+                detail.game.id += "-\(index)"
+                detail.game.recentlyPlayed = nil
+            }
+            return detail
+        }
     }
     private var initialSelection: String {
         switch scenario {
@@ -134,7 +142,7 @@ struct DemoScreen: View {
     }
     /// The real controllers when any are connected, the sample ones otherwise.
     private var controllers: [ControllerInfo] {
-        if !connected.isEmpty {
+        if !args.contains("--samples"), !connected.isEmpty {
             return connected.map { ControllerInfo(id: $0.id, name: $0.name, player: demoText("Player \($0.player)"),
                                                   batteryPercent: $0.batteryPercent, charging: $0.charging) }
         }

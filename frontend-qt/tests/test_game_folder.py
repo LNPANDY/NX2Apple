@@ -219,6 +219,95 @@ class FolderTests(unittest.TestCase):
         self.make('g.xci')
         self.problem('packageBeside', ('g.xci',))
 
+    def test_outer_wrapper_and_inner_subfolders_resolve_to_game_folder(self):
+        nested = self.dir / 'Outer' / 'Donkey Kong Bananza'
+        (nested / 'base/exefs').mkdir(parents=True)
+        (nested / 'base/exefs/main.npdm').write_bytes(npdm(TID))
+        (nested / 'base/romfs').mkdir(parents=True)
+        (nested / 'updates/458752/romfs').mkdir(parents=True)
+        (nested / f'dlc/{TID + 0x1001:016x}/0/romfs').mkdir(parents=True)
+
+        for picked in (
+            self.dir,
+            self.dir / 'Outer',
+            nested / 'base',
+            nested / 'base/exefs',
+            nested / 'base/romfs',
+            nested / 'updates',
+            nested / 'updates/458752',
+            nested / 'updates/458752/romfs',
+            nested / 'dlc',
+            nested / f'dlc/{TID + 0x1001:016x}',
+            nested / f'dlc/{TID + 0x1001:016x}/0/romfs',
+        ):
+            self.assertEqual(inputs.resolve_game_folder(str(picked)), str(nested), f'failed for {picked}')
+            self.assertTrue(inputs.is_game_folder_candidate(str(picked)), f'failed for {picked}')
+            r = inputs.scan_game_folder(str(picked))
+            self.assertIsInstance(r, inputs.GameFolderContents)
+            self.assertEqual(r.folder, str(nested))
+            self.assertEqual(r.title_id, TID)
+            self.assertEqual([v for v, _ in r.updates], [458752])
+            self.assertEqual([t for t, _ in r.dlc], [TID + 0x1001])
+
+        (self.dir / 'Outer' / 'Other [010015100B514000][v0].nsp').write_bytes(b'x')
+        self.assertFalse(inputs.is_game_folder_candidate(str(self.dir / 'Outer')))
+        (self.dir / 'Outer' / 'Other [010015100B514000][v0].nsp').unlink()
+        (self.dir / 'Outer' / 'Second' / 'base/exefs').mkdir(parents=True)
+        (self.dir / 'Outer' / 'Second' / 'base/exefs/main.npdm').write_bytes(npdm(TID))
+        self.assertFalse(inputs.is_game_folder_candidate(str(self.dir / 'Outer')))
+
+        # Mixed-depth collection: GameA at Collection/GameA/base (level 1) and GameB at Collection/Wrapper/GameB/base (level 2)
+        from nspb_qt import library as lib
+        coll = self.dir / 'Collection'
+        game_a = coll / 'GameA'
+        game_b = coll / 'Wrapper' / 'GameB'
+        tid_b = 0x0400A3A01EE4C000
+        for gdir, gtid in ((game_a, TID), (game_b, tid_b)):
+            (gdir / 'base/exefs').mkdir(parents=True)
+            (gdir / 'base/exefs/main.npdm').write_bytes(npdm(gtid))
+            (gdir / 'base/romfs').mkdir(parents=True)
+        self.assertEqual(inputs.resolve_game_folder(str(coll)), str(coll))
+        self.assertFalse(inputs.is_game_folder_candidate(str(coll)))
+        self.assertFalse(lib.GameFolder.is_candidate(str(coll)))
+        self.assertEqual(inputs.scan_game_folder(str(coll)), inputs.GameFolderProblem('missing', ('base/exefs/main.npdm',)))
+        self.assertEqual(inputs.resolve_game_folder(str(coll / 'Wrapper')), str(game_b))
+        found = lib.GameLibrary.discover_in_folder(str(coll))
+        by_tid = {g.title_id: g for g in found}
+        self.assertEqual(set(by_tid), {f'{TID:016X}', f'{tid_b:016X}'})
+        self.assertEqual(by_tid[f'{TID:016X}'].inputs['base'], [str(game_a)])
+        self.assertEqual(by_tid[f'{tid_b:016X}'].inputs['base'], [str(game_b)])
+
+        # Root-NUP-plus-nested-dump collection: Collection2/GameA.nup alongside Collection2/DumpB/base/...
+        coll2_root = self.dir / 'NupCollectionRoot'
+        coll2 = coll2_root / 'Collection'
+        nup_a = coll2 / 'GameA.nup'
+        dump_b = coll2 / 'DumpB'
+        (dump_b / 'base/exefs').mkdir(parents=True)
+        (dump_b / 'base/exefs/main.npdm').write_bytes(npdm(tid_b))
+        (dump_b / 'base/romfs').mkdir(parents=True)
+        nup_a.write_bytes(nup([(TID, 0, 0)]))
+        for scan_root in (coll2, coll2_root):
+            self.assertEqual(inputs.resolve_game_folder(str(scan_root)), str(scan_root), f'failed for {scan_root}')
+            self.assertFalse(inputs.is_game_folder_candidate(str(scan_root)), f'failed for {scan_root}')
+            self.assertFalse(lib.GameFolder.is_candidate(str(scan_root)), f'failed for {scan_root}')
+            found2 = lib.GameLibrary.discover_in_folder(str(scan_root))
+            by_tid2 = {g.title_id: g for g in found2}
+            self.assertEqual(set(by_tid2), {f'{TID:016X}', f'{tid_b:016X}'}, f'failed for {scan_root}')
+            self.assertEqual(by_tid2[f'{TID:016X}'].inputs['base'], [str(nup_a)])
+            self.assertEqual(by_tid2[f'{tid_b:016X}'].inputs['base'], [str(dump_b)])
+        self.assertEqual(inputs.resolve_game_folder(str(dump_b)), str(dump_b))
+        self.assertTrue(inputs.is_game_folder_candidate(str(dump_b)))
+
+    def test_update_only_dump_without_base_folder(self):
+        self.make('updates/131072/exefs/main.npdm', npdm(TID))
+        self.assertTrue(inputs.is_game_folder_candidate(str(self.dir)))
+        self.problem('missing', ('updates/131072/romfs',))
+        (self.dir / 'updates/131072/romfs').mkdir(parents=True)
+        r = self.scan()
+        self.assertIsInstance(r, inputs.GameFolderContents)
+        self.assertEqual(r.title_id, TID)
+        self.assertEqual(r.base_path, str(self.dir / 'updates/131072'))
+
 
 @unittest.skipIf(model_mod is None, 'PySide6 is not installed')
 class ModelTests(unittest.TestCase):
@@ -381,6 +470,19 @@ class ModelTests(unittest.TestCase):
         self.assertIsNone(self.m.game_folder)
         args, _ = self.run_build()
         self.assertEqual(args[args.index('-k') + 1], str(pk / 'prod.keys'))
+
+    def test_nested_wrapper_and_base_subfolder_build_without_keys(self):
+        self.ready()
+        nested = self.game.parent / 'Unzipped' / 'Wrapper' / 'Bananza'
+        nested.parent.mkdir(parents=True)
+        self.game.rename(nested)
+        for picked in (nested.parent.parent, nested.parent, nested / 'base', nested / 'base/exefs'):
+            self.m.scan_game_dir(str(picked))
+            self.assertEqual(self.m.game_dir, str(nested))
+            self.assertIsNotNone(self.m.game_folder)
+            self.assertEqual(self.m.game_folder.folder, str(nested))
+            self.assertTrue(self.m.can_build)
+            self.assertEqual(self.m.keys_path, '')
 
 
 if __name__ == '__main__':

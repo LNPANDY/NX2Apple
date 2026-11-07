@@ -27,6 +27,7 @@ CHECKS = (
     Check('tools', ('tools/',), 'python3 -m unittest discover tools/tests', '.', True),
     Check('triage scripts', ('.github/scripts/',), 'python3 -m unittest discover -s .github/scripts/tests', '.', True),
     Check('Mac launcher (slow)', ('frontend/',), 'swift build && swift test', 'frontend', True),
+    Check('iOS shell (slow)', ('frontend-ios/',), 'swift build && swift test', 'frontend-ios', True),
 )
 
 

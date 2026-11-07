@@ -1,5 +1,8 @@
 import SwiftUI
 import CoreText
+#if os(iOS)
+import UIKit
+#endif
 
 public enum ShellPalette {
     public static let background = Color(red: 0.055, green: 0.055, blue: 0.06)
@@ -10,6 +13,21 @@ public enum ShellPalette {
     public static let muted = Color(red: 0.57, green: 0.58, blue: 0.61)
     /// Hairlines between rows and around cards.
     static let hairline = Color.white.opacity(0.08)
+
+    @MainActor static func configureNativeAppearance() {
+        #if os(iOS)
+        _ = nativeAppearance
+        #endif
+    }
+
+    #if os(iOS)
+    @MainActor private static let nativeAppearance: Void = {
+        let segments = UISegmentedControl.appearance()
+        segments.selectedSegmentTintColor = UIColor(cream)
+        segments.setTitleTextAttributes([.foregroundColor: UIColor.black], for: .selected)
+    }()
+    #endif
+
 }
 
 enum ShellStrings {
@@ -251,7 +269,9 @@ struct ArtView: View {
             } else {
                 PlaceholderArt(title: game.title, seed: game.id, lettering: lettering && !backdrop)
             }
-        }.clipped()
+        }
+        .saturation(game.state == .playable ? 1 : 0)
+        .clipped()
     }
 }
 
@@ -318,19 +338,60 @@ struct CoverView: View {
             .clipShape(RoundedRectangle(cornerRadius: radius))
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(.white.opacity(0.10)))
             .overlay(alignment: .topLeading) {
-                if showsState {
-                    GeometryReader { geometry in
-                        let size = max(8, min(14, geometry.size.width * 0.034))
-                        StateDot(state: game.state, size: size).padding(size * 0.9)
+                GeometryReader { geometry in
+                    let size = max(8, min(14, geometry.size.width * 0.034))
+                    HStack(spacing: 6) {
+                        if showsState {
+                            if game.state.artworkWarning != nil {
+                                AlertStateChip(state: game.state, dotSize: size)
+                            } else {
+                                StateDot(state: game.state, size: size)
+                            }
+                        }
                     }
+                    .padding(size * 0.9)
                 }
             }
             .accessibilityHidden(true)
     }
 }
 
-/// The game's state as a dot: green ready, amber when it needs data or an update, grey when it is damaged. A dark
-/// ring behind it keeps it readable on light art.
+struct AlertStateChip: View {
+    let state: GameState
+    var dotSize: CGFloat = 7
+
+    var body: some View {
+        if let warning = state.artworkWarning {
+            HStack(spacing: 6) {
+                Circle().fill(state.color).frame(width: dotSize, height: dotSize).accessibilityHidden(true)
+                Text(warning).shellText(11, .semibold, relativeTo: .caption)
+                    .foregroundStyle(state.color).lineLimit(1)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(.black, in: Capsule())
+            .overlay(Capsule().strokeBorder(state.color, lineWidth: 1))
+            .accessibilityElement(children: .combine)
+        }
+    }
+}
+
+struct GameMetadataSubtitle: View {
+    let state: GameState
+    let recentlyPlayed: String
+
+    @ViewBuilder var body: some View {
+        if state == .playable {
+            if !recentlyPlayed.isEmpty {
+                Text(recentlyPlayed).shellType(ShellType.meta)
+                    .foregroundStyle(.white.opacity(0.62)).lineLimit(1)
+            }
+        } else {
+            AlertStateChip(state: state)
+        }
+    }
+}
+
+/// Green means ready; amber means the game needs attention. A dark ring keeps the dot readable on light art.
 struct StateDot: View {
     let state: GameState
     var size: CGFloat = 10
@@ -344,6 +405,15 @@ struct StateDot: View {
 }
 
 extension GameState {
+    var artworkWarning: String? {
+        switch self {
+        case .needsGameData: ShellStrings.text("Missing Data")
+        case .needsAppUpdate: ShellStrings.text("Update Required")
+        case .broken: ShellStrings.text("Fix Game Files")
+        default: nil
+        }
+    }
+
     var title: String {
         switch self {
         case .playable: ShellStrings.text("Ready to play")
@@ -355,16 +425,15 @@ extension GameState {
     var color: Color {
         switch self {
         case .playable: ShellPalette.ready
-        case .needsGameData, .needsAppUpdate: ShellPalette.attention
-        case .broken: ShellPalette.muted
+        case .needsGameData, .needsAppUpdate, .broken: ShellPalette.attention
         }
     }
     var explanation: String {
         switch self {
         case .playable: ""
-        case .needsGameData: ShellStrings.text("Choose this game's data to get ready to play.")
-        case .needsAppUpdate: ShellStrings.text("Install a newer version of this app to play this game.")
-        case .broken(_, let detail, _): detail
+        case .needsGameData: ""
+        case .needsAppUpdate: ""
+        case .broken: ""
         }
     }
     var actionTitle: String {
@@ -390,13 +459,16 @@ struct StatusLabel: View {
     let state: GameState
     var prominent = false
     var body: some View {
-        HStack(spacing: prominent ? 8 : 6) {
-            Circle().fill(state.color).frame(width: prominent ? 7 : 6, height: prominent ? 7 : 6)
-            Text(prominent ? state.title.uppercased() : state.title)
-                .shellType(prominent ? ShellType.eyebrow : ShellType.status)
-                .foregroundStyle(state.color)
-                .lineLimit(prominent ? 2 : 1)
-        }.accessibilityElement(children: .combine)
+        // Play and the artwork's state dot already communicate availability.
+        if state != .playable {
+            HStack(spacing: prominent ? 8 : 6) {
+                Circle().fill(state.color).frame(width: prominent ? 7 : 6, height: prominent ? 7 : 6)
+                Text(prominent ? state.title.uppercased() : state.title)
+                    .shellType(prominent ? ShellType.eyebrow : ShellType.status)
+                    .foregroundStyle(state.color)
+                    .lineLimit(prominent ? 2 : 1)
+            }.accessibilityElement(children: .combine)
+        }
     }
 }
 
@@ -483,5 +555,19 @@ extension EnvironmentValues {
     var shellShowHelp: ((GameTile) -> Void)? {
         get { self[ShellHelpKey.self] }
         set { self[ShellHelpKey.self] = newValue }
+    }
+}
+
+/// Keep selected-game content motion consistent without replacing surrounding controls or layout.
+struct ShellSelectionTransition<Value: Hashable>: ViewModifier {
+    let value: Value
+    var duration: Double = 0.24
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        ZStack {
+            content.id(value).transition(.blurReplace)
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: duration), value: value)
     }
 }

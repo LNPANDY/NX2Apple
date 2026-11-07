@@ -35,7 +35,7 @@ Issue: LNPANDY/NX2Apple#347
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 9de7201..d4f6e57 100644
+index f849056..e6e401f 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -10,6 +10,7 @@

@@ -496,8 +496,7 @@ def install_git(arch: str | None = None, dest: Path | None = None,
     if exe.is_file():
         log(f'git is already installed: {exe}')
         return exe
-    base = Path(__file__).resolve().parents[2]
-    cache = base / '.tools' / 'downloads'
+    cache = tc.tools_dir() / 'downloads'
     cache.mkdir(parents=True, exist_ok=True)
     url = f'{tc.GIT_RELEASE_URL}/{asset["name"]}'
     log(f'downloading {asset["name"]} ({asset["size"] // 1048576 if asset["size"] else "~57"} MB)')
@@ -591,11 +590,7 @@ def install_metal_from_zip(zip_path: Path, dest: Path | None = None,
         shutil.rmtree(staging, ignore_errors=True)
         raise DownloadError(f'{src.name} is not a zip file ({e})') from e
 
-    def has_metal(root: Path) -> bool:
-        return (root / 'bin' / 'metal.exe').is_file() or (root / 'ios' / 'bin' / 'metal.exe').is_file()
-
-    roots = [staging] + [p for p in staging.iterdir() if p.is_dir()]   # zip may or may not carry a top folder
-    hit = next((r for r in roots if has_metal(r)), None)
+    hit = tc.resolve_metal_dir(staging)
     if hit is None:
         shutil.rmtree(staging, ignore_errors=True)
         raise DownloadError(f'{src.name} does not look like Metal Developer Tools '

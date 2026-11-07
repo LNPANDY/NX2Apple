@@ -217,6 +217,79 @@ extension GameFolderTests {
         write("Game.nsp")
         XCTAssertEqual(GameFolder.scan(root).failureValue, .packageBeside("Game.nsp"))
     }
+
+    func testOuterWrapperFoldersAndInnerSubfoldersResolveToTheGameFolder() throws {
+        let game = root + "/Outer/Donkey Kong Bananza"
+        write("Outer/Donkey Kong Bananza/base/exefs/main.npdm", Self.npdm(programID: 0x040074A01BF12000))
+        mkdir("Outer/Donkey Kong Bananza/base/romfs")
+        mkdir("Outer/Donkey Kong Bananza/updates/458752/romfs")
+        mkdir("Outer/Donkey Kong Bananza/dlc/040074a01bf13001/0/romfs")
+
+        for picked in [
+            root,
+            root + "/Outer",
+            game + "/base",
+            game + "/base/exefs",
+            game + "/base/romfs",
+            game + "/updates",
+            game + "/updates/458752",
+            game + "/updates/458752/romfs",
+            game + "/dlc",
+            game + "/dlc/040074a01bf13001",
+            game + "/dlc/040074a01bf13001/0/romfs"
+        ] {
+            XCTAssertEqual(GameFolder.resolve(picked), game, "failed for \(picked)")
+            XCTAssertTrue(GameFolder.isCandidate(picked), "failed for \(picked)")
+            let c = try GameFolder.scan(picked).get()
+            XCTAssertEqual(c.folder, game)
+            XCTAssertEqual(c.titleIDHex, "040074A01BF12000")
+            XCTAssertEqual(c.updates.map(\.version), [458752])
+            XCTAssertEqual(c.dlc.map(\.titleID), [0x040074A01BF13001])
+        }
+
+        // An outer folder that also holds an NSP or a second game folder (at the same level or a mixed depth) is not unwrapped.
+        write("Outer/Other [010015100B514000][v0].nsp")
+        XCTAssertFalse(GameFolder.isCandidate(root + "/Outer"))
+        try? FileManager.default.removeItem(atPath: root + "/Outer/Other [010015100B514000][v0].nsp")
+        write("Outer/SecondGame/base/exefs/main.npdm", Self.npdm(programID: 0x0400C3F00006E000))
+        mkdir("Outer/SecondGame/base/romfs")
+        XCTAssertFalse(GameFolder.isCandidate(root + "/Outer"))
+
+        // Mixed-depth collection: GameA at Collection/GameA/base (level 1) and GameB at Collection/Wrapper/GameB/base (level 2).
+        let collection = root + "/Collection"
+        write("Collection/GameA/base/exefs/main.npdm", Self.npdm(programID: 0x040074A01BF12000))
+        mkdir("Collection/GameA/base/romfs")
+        write("Collection/Wrapper/GameB/base/exefs/main.npdm", Self.npdm(programID: 0x0400A3A01EE4C000))
+        mkdir("Collection/Wrapper/GameB/base/romfs")
+        XCTAssertEqual(GameFolder.resolve(collection), collection, "a mixed-depth collection of two games must not pick GameA")
+        XCTAssertFalse(GameFolder.isCandidate(collection))
+        XCTAssertEqual(GameFolder.scan(collection).failureValue, .missing("base/exefs/main.npdm"))
+        XCTAssertEqual(GameFolder.resolve(collection + "/Wrapper"), collection + "/Wrapper/GameB", "the single-game wrapper inside the collection still resolves")
+
+        // A parent above a collection holding GameA.nup beside DumpB/base must not unwrap through Collection to DumpB.
+        let nupParent = root + "/NupCollectionParent"
+        let nupCollection = nupParent + "/Collection"
+        write("NupCollectionParent/Collection/GameA.nup", syntheticNUP([(0, 0x040074A01BF12000, 0)]))
+        write("NupCollectionParent/Collection/DumpB/base/exefs/main.npdm", Self.npdm(programID: 0x0400A3A01EE4C000))
+        mkdir("NupCollectionParent/Collection/DumpB/base/romfs")
+        for dir in [nupParent, nupCollection] {
+            XCTAssertEqual(GameFolder.resolve(dir), dir, "failed for \(dir)")
+            XCTAssertFalse(GameFolder.isCandidate(dir), "failed for \(dir)")
+        }
+        XCTAssertEqual(GameFolder.resolve(nupCollection + "/DumpB"), nupCollection + "/DumpB")
+        XCTAssertTrue(GameFolder.isCandidate(nupCollection + "/DumpB"))
+    }
+
+    func testAnUpdateOnlyDumpWithoutABaseFolderIsAccepted() throws {
+        write("updates/131072/exefs/main.npdm", Self.npdm(programID: 0x040074A01BF12000))
+        XCTAssertTrue(GameFolder.isCandidate(root))
+        XCTAssertEqual(GameFolder.scan(root).failureValue, .missing("updates/131072/romfs"))
+        mkdir("updates/131072/romfs")
+        let c = try GameFolder.scan(root).get()
+        XCTAssertEqual(c.titleIDHex, "040074A01BF12000")
+        XCTAssertEqual(c.basePath, root + "/updates/131072")
+        XCTAssertEqual(c.updates.map(\.version), [131072])
+    }
 }
 
 extension Result {

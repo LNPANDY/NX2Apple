@@ -409,13 +409,21 @@ def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: P
         t(f'sign: ad-hoc with Increased Memory Limit entitlement ({sig_n} B)')
 
 
+# What the shell dlsym()s out of a game framework, by the names the engine itself defines:
+# `dmgame_image_marker` is DmGameMarker.m (FrameworkBootstrap.h finds it through
+# DM_FRAMEWORK_MARKER), `dm_glue_version` / `dm_glue_start_game` / `dm_glue_present_game` /
+# `dm_glue_focus_event` are ShellGlue.m (ShellMain.m checks all four), `dm_game_menu` is
+# Launcher.m, and `dm_main` / `dm_show_launcher` are the host entry point and the framework's own
+# launcher stub.
 REQUIRED_DYLIB_SYMBOLS = (
-    '_dm_framework_marker',
+    '_dmgame_image_marker',
     '_dm_main',
-    '_dm_IosView',
     '_dm_show_launcher',
     '_dm_game_menu',
-    '_dm_game_reload_AN',
+    '_dm_glue_version',
+    '_dm_glue_start_game',
+    '_dm_glue_present_game',
+    '_dm_glue_focus_event',
 )
 
 
@@ -656,10 +664,10 @@ def framework_info_plist(*, bundle_id: str, fw_name: str, display_name: str, ver
 def shader_lib_real_path(repo: Path, lib: Path) -> Path:
     """Path to the shader library folder or `.img` file, via `dm/tools/shader_lib.py` when present."""
     slib = _shader_lib_module(repo)
-    if slib is not None and hasattr(slib, 'path'):
-        return Path(slib.path(lib))
+    if slib is not None and hasattr(slib, 'view'):
+        return Path(slib.view(lib))
     img = lib.parent / f'{lib.name}.img'
-    return img if img.is_file() else lib
+    return img if img.is_file() and not (lib / 'inputs.tsv').is_file() else lib
 
 
 def build_pso_archive(repo: Path, w: Path, game: str, gd: Path, gp, gfx: str,
@@ -729,6 +737,24 @@ def main(argv: list[str] | None = None) -> int:
         import game as gm  # noqa: N813  (the upstream module name)
     except ImportError as e:
         die(f'cannot import dm/games/game.py from {repo}: {e}')
+    if not getattr(gm, '_nspb_patched', False):
+        def _split_games_dir(raw: str) -> list[str]:
+            out: list[str] = []
+            for semi in str(raw or '').split(';'):
+                parts = semi.split(':')
+                i = 0
+                while i < len(parts):
+                    cur = parts[i]
+                    if len(cur) == 1 and cur.isalpha() and i + 1 < len(parts) and parts[i + 1][:1] in ('\\', '/'):
+                        out.append(cur + ':' + parts[i + 1])
+                        i += 2
+                    else:
+                        if cur:
+                            out.append(cur)
+                        i += 1
+            return out
+
+        gm.extra_dirs = lambda: [Path(p) for p in _split_games_dir(os.environ.get('DM_GAMES_DIR', ''))]
     try:
         prof = gm.load(game)
     except Exception as e:
@@ -860,7 +886,7 @@ def main(argv: list[str] | None = None) -> int:
     t('generate Gen/ (profile header, embedded modules, tables)')
     gp_h = gen / 'profile/game_profile.h'
     gp_h_tmp = gen / 'profile/game_profile.h.tmp'
-    py(repo / 'dm/games/game.py', 'header', game, gp_h_tmp)
+    py(repo / 'dm/games/game.py', 'header', gd, gp_h_tmp)
     _replace_if_changed(gp_h_tmp, gp_h)
 
     msl_srcs = sorted((repo / 'dm/gfx/msl').glob('*.metal'))
@@ -928,7 +954,7 @@ def main(argv: list[str] | None = None) -> int:
         if (gd / f).exists():
             shutil.copy2(gd / f, dmres)
 
-    launcher = py(repo / 'dm/games/settings.py', game, patched, nacp,
+    launcher = py(repo / 'dm/games/settings.py', gd, patched, nacp,
                   gen / 'launcher.json', env=dict(env, GFXAPI=gfx))
     shutil.copy2(gen / 'launcher.json', dmres / 'launcher.json')
     if not env.get('DM_LANG'):
@@ -1028,7 +1054,7 @@ def main(argv: list[str] | None = None) -> int:
                        flags.split() if flags else [], rt_obj, lld_dir,
                        bundle_id=f'{bundle_id}.DmGame')
         shutil.copytree(dmres, out_fw / 'dm')
-        py(repo / 'dm/games/game.py', 'profile', game, out_fw / 'profile.tsv')
+        py(repo / 'dm/games/game.py', 'profile', gd, out_fw / 'profile.tsv')
 
         romfs_id = ''
         if romfs.is_file() and not env.get('DM_FULL_ROMFS'):

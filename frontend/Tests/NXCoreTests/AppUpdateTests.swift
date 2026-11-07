@@ -175,6 +175,30 @@ final class AppUpdateTests: XCTestCase {
         XCTAssertEqual(AppUpdate.installability(app, appVersion: "0.4.7"), .ok)
     }
 
+    func testATranslocatedCopyUpdatesTheCopyItWasStartedFrom() throws {
+        // #873: an app in Applications that still carries the quarantine flag runs from a read-only translocated copy
+        let original = try makeApp(in: temporary.appendingPathComponent("Applications", isDirectory: true), version: "0.4.7")
+        let translocated = try makeApp(in: temporary.appendingPathComponent("AppTranslocation/8B24E873-DC49-4FFE-808C-9E2A2385F70A/d"),
+                                       version: "0.4.7")
+        XCTAssertEqual(AppUpdate.installability(translocated, appVersion: "0.4.7"), .readOnly)
+        let found = AppUpdate.untranslocated(translocated, original: { _ in original })
+        XCTAssertEqual(found, original)
+        XCTAssertEqual(AppUpdate.installability(found, appVersion: "0.4.7"), .ok)
+        // an original the system cannot name leaves the translocated copy, still read-only
+        XCTAssertEqual(AppUpdate.untranslocated(translocated, original: { _ in nil }), translocated)
+        // a copy that is not translocated is never looked up
+        XCTAssertEqual(AppUpdate.untranslocated(original, original: { _ in XCTFail("looked up"); return nil }), original)
+    }
+
+    func testTheSecurityFrameworkNamesTheOriginalOfATranslocatedCopy() throws {
+        let security = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY)
+        XCTAssertNotNil(security.flatMap { dlsym($0, "SecTranslocateCreateOriginalPathForURL") }, "the lookup must find the function")
+        // an ordinary path is not translocated: nothing to replace it with
+        let app = try makeApp(in: temporary.appendingPathComponent("Applications", isDirectory: true), version: "0.4.7")
+        XCTAssertNil(AppUpdate.translocationOriginal(app))
+        XCTAssertEqual(AppUpdate.untranslocated(app), app)
+    }
+
     func testDeveloperBuildsDoNotUpdate() throws {
         // swift run: a bare executable's folder, no bundle
         let release = temporary.appendingPathComponent("frontend/.build/arm64-apple-macosx/release", isDirectory: true)

@@ -91,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f'cannot install LLVM-MinGW: {e}', file=sys.stderr)
     if a.sdk:
         try:
-            sdk_fetch.clone_sdk(log=log)
+            sdk_fetch.install_sdk(log=log)
             did = True
         except sdk_fetch.SdkError as e:
             print(f'cannot download the SDK: {e}', file=sys.stderr)

@@ -126,7 +126,12 @@ class GameFolderContents:
 
     @property
     def base_path(self) -> str:
-        return self.nup or str(Path(self.folder, 'base'))
+        if self.nup:
+            return self.nup
+        base = Path(self.folder, 'base')
+        if (base / 'exefs' / 'main.npdm').is_file():
+            return str(base)
+        return self.updates[-1][1] if self.updates else str(base)
 
     @property
     def script_input(self) -> str:
@@ -170,14 +175,148 @@ def nup_files(folder: str) -> list[str]:
     return sorted(n for n in names if not n.startswith('._') and n.lower().endswith('.nup') and _is_file(Path(folder, n)))
 
 
-def is_game_folder_candidate(path: str) -> bool:
-    """Whether the path is meant as a game folder or a NUP: a .nup file, a folder with a .nup at its top, a folder with
-    base/exefs/main.npdm, or exefs/main.npdm with no base/ (the files one level too high). Cheap."""
-    if _is_nup_name(path):
-        return True
-    if _is_file(Path(path, 'base', 'exefs', 'main.npdm')) or nup_files(path):
+_SKIP_WRAPPER_DIRS = frozenset({
+    'base', 'updates', 'dlc', 'romfs', 'exefs', 'extract', 'tools',
+    'venv', 'archive', 'harness', 'runs', 'shader', 'node_modules', 'xcode',
+})
+
+
+def _subdirs(p: str | Path) -> list[str]:
+    try:
+        return sorted(n for n in os.listdir(p) if not n.startswith('.') and Path(p, n).is_dir())
+    except OSError:
+        return []
+
+
+def _has_update_code(folder: str | Path) -> bool:
+    u = Path(folder, 'updates')
+    if not u.is_dir():
+        return False
+    return any(v.isascii() and v.isdigit() and _is_file(u / v / 'exefs' / 'main.npdm') for v in _subdirs(u))
+
+
+def is_dump_directory(path: str | Path) -> bool:
+    """Whether `path` itself is an unpacked dump directory (`base/exefs/main.npdm`, `updates/<v>/exefs/main.npdm`,
+    or misplaced `exefs/main.npdm` without `base/`), as opposed to a `.nup` file or a folder holding `.nup` files."""
+    if _is_file(Path(path, 'base', 'exefs', 'main.npdm')) or _has_update_code(path):
         return True
     return _is_file(Path(path, 'exefs', 'main.npdm')) and not Path(path, 'base').exists()
+
+
+def _has_nested_game_folders_or_packages(folder: str | Path) -> bool:
+    for sub in _wrapper_subdirs(folder):
+        if is_dump_directory(sub) or nup_files(sub) or _has_packages(sub):
+            return True
+        for child in _wrapper_subdirs(sub):
+            if is_dump_directory(child) or nup_files(child) or _has_packages(child):
+                return True
+    return False
+
+
+def is_direct_game_folder_candidate(path: str) -> bool:
+    """Whether `path` itself (without unwrapping parent/child folders) is a game folder or a `.nup` file.
+    A folder holding a `.nup` alongside nested game folders or packages is a collection root, not a single-game folder."""
+    if _is_nup_name(path):
+        return True
+    if is_dump_directory(path):
+        return True
+    return bool(nup_files(path)) and not _has_nested_game_folders_or_packages(path)
+
+
+def _is_hex(s: str) -> bool:
+    return bool(s) and len(s) <= 16 and all(c in '0123456789abcdefABCDEF' for c in s)
+
+
+def _enclosing_game_folder(path: str) -> str | None:
+    cur = Path(path)
+    best: str | None = None
+    for _ in range(4):
+        name = cur.name.lower()
+        is_inner = (
+            name in ('base', 'exefs', 'romfs', 'updates', 'dlc')
+            or (name.isascii() and name.isdigit())
+            or _is_hex(name)
+        )
+        if not is_inner:
+            break
+        parent = cur.parent
+        if not str(parent) or parent == cur:
+            break
+        if _is_file(parent / 'base' / 'exefs' / 'main.npdm') or _has_update_code(parent):
+            best = str(parent)
+        cur = parent
+    if best is not None:
+        return best
+    leaf = Path(path).name.lower()
+    if leaf in ('exefs', 'romfs'):
+        parent = Path(path).parent
+        if _is_file(parent / 'exefs' / 'main.npdm') and not (parent / 'base').exists():
+            return str(parent)
+    return None
+
+
+def _has_packages(folder: str | Path) -> bool:
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return False
+    return any(not n.startswith('._') and n.lower().endswith(_PACKAGES) and _is_file(Path(folder, n)) for n in names)
+
+
+def _wrapper_subdirs(folder: str | Path) -> list[str]:
+    out: list[str] = []
+    for name in _subdirs(folder):
+        low = name.lower()
+        if low in _SKIP_WRAPPER_DIRS or low.endswith(('.app', '_build', '_survey')):
+            continue
+        out.append(str(Path(folder, name)))
+    return out
+
+
+def _unwrapped_game_folder(path: str) -> str | None:
+    if not Path(path).is_dir() or _has_packages(path) or nup_files(path):
+        return None
+    level1 = _wrapper_subdirs(path)
+    if any(_has_packages(sub) for sub in level1):
+        return None
+    direct1 = [sub for sub in level1 if is_direct_game_folder_candidate(sub)]
+    if len(direct1) > 1:
+        return None
+    level2: list[str] = []
+    for sub in level1:
+        if is_direct_game_folder_candidate(sub):
+            continue
+        if nup_files(sub):
+            return None
+        children = _wrapper_subdirs(sub)
+        if any(_has_packages(c) or (not is_direct_game_folder_candidate(c) and nup_files(c)) for c in children):
+            return None
+        level2.extend(children)
+    candidates = direct1 + [sub for sub in level2 if is_direct_game_folder_candidate(sub)]
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def resolve_game_folder(path: str) -> str:
+    """Resolves a picked or dropped folder to the actual game folder when the user selected an outer wrapper folder
+    (1-2 levels above a single game folder or `.nup`) or stepped inside `base/`, `updates/`, `dlc/`, `exefs/`, or `romfs/`."""
+    if not path:
+        return path
+    if _is_nup_name(path):
+        return path
+    anc = _enclosing_game_folder(path)
+    if anc is not None:
+        return anc
+    if is_direct_game_folder_candidate(path):
+        return path
+    inner = _unwrapped_game_folder(path)
+    return inner if inner is not None else path
+
+
+def is_game_folder_candidate(path: str) -> bool:
+    """Whether the path is meant as a game folder or a NUP: a .nup file, a folder with a .nup at its top, a folder with
+    base/exefs/main.npdm (or updates/<version>/exefs/main.npdm), exefs/main.npdm with no base/, or a 1-2 level wrapper
+    folder / inner subfolder of one. Cheap."""
+    return is_direct_game_folder_candidate(resolve_game_folder(path))
 
 
 def program_id(npdm: bytes) -> int | None:
@@ -234,17 +373,12 @@ def read_nup(path: str) -> GameFolderContents | GameFolderProblem:
                               dlc=[(t, path) for t in sorted(addons)], nup=path)
 
 
-def scan_game_folder(path: str) -> GameFolderContents | GameFolderProblem:
+def scan_game_folder(raw_path: str) -> GameFolderContents | GameFolderProblem:
     """What the folder (or NUP file) holds, or the first reason it cannot be built, in the order the script finds them."""
+    path = resolve_game_folder(raw_path)
     if _is_nup_name(path):
         return read_nup(path)
     root = Path(path)
-
-    def dirs(p: Path) -> list[str]:
-        try:
-            return sorted(n for n in os.listdir(p) if not n.startswith('.') and Path(p, n).is_dir())
-        except OSError:
-            return []
 
     try:
         top = sorted(os.listdir(path))
@@ -258,14 +392,24 @@ def scan_game_folder(path: str) -> GameFolderContents | GameFolderProblem:
         return GameFolderProblem('severalNUPs', (len(nups),))
     if nups:
         return read_nup(str(root / nups[0]))
-    npdm = root / 'base' / 'exefs' / 'main.npdm'
-    if not npdm.is_file():
-        if (root / 'exefs' / 'main.npdm').is_file() and not (root / 'base').exists():
-            return GameFolderProblem('noBaseFolder')
-        return GameFolderProblem('missing', ('base/exefs/main.npdm',))
-    versions = [v for v in dirs(root / 'updates') if v.isascii() and v.isdigit()] if (root / 'updates').is_dir() else []
-    if not ((root / 'base' / 'romfs').is_dir() or any((root / 'updates' / v / 'romfs').is_dir() for v in versions)):
-        return GameFolderProblem('missing', ('base/romfs',))
+    versions = [v for v in _subdirs(root / 'updates') if v.isascii() and v.isdigit()] if (root / 'updates').is_dir() else []
+    updates = sorted((int(v), str(root / 'updates' / v)) for v in versions)
+    base_npdm = root / 'base' / 'exefs' / 'main.npdm'
+    if base_npdm.is_file():
+        if not ((root / 'base' / 'romfs').is_dir() or any(( Path(u_path) / 'romfs').is_dir() for _, u_path in updates)):
+            return GameFolderProblem('missing', ('base/romfs',))
+        npdm = base_npdm
+    else:
+        code_updates = [(ver, u_path) for ver, u_path in updates if (Path(u_path) / 'exefs' / 'main.npdm').is_file()]
+        if code_updates:
+            full_updates = [(ver, u_path) for ver, u_path in code_updates if (Path(u_path) / 'romfs').is_dir()]
+            if not full_updates:
+                return GameFolderProblem('missing', (f'updates/{code_updates[-1][0]}/romfs',))
+            npdm = Path(full_updates[-1][1]) / 'exefs' / 'main.npdm'
+        else:
+            if (root / 'exefs' / 'main.npdm').is_file() and not (root / 'base').exists():
+                return GameFolderProblem('noBaseFolder')
+            return GameFolderProblem('missing', ('base/exefs/main.npdm',))
     try:
         app = program_id(npdm.read_bytes())
     except OSError:
@@ -274,9 +418,8 @@ def scan_game_folder(path: str) -> GameFolderContents | GameFolderProblem:
         return GameFolderProblem('unreadableNPDM')
     if app & 0xFFF:
         return GameFolderProblem('notBaseTitle', (f'{app:016X}',))
-    updates = sorted((int(v), str(root / 'updates' / v)) for v in versions)
     dlc: list[tuple[int, str]] = []
-    for name in dirs(root / 'dlc') if (root / 'dlc').is_dir() else []:
+    for name in _subdirs(root / 'dlc') if (root / 'dlc').is_dir() else []:
         d = root / 'dlc' / name
         try:
             tid = int(name, 16) if len(name) <= 16 else None
@@ -286,7 +429,7 @@ def scan_game_folder(path: str) -> GameFolderContents | GameFolderProblem:
             return GameFolderProblem('dlcName', (name,))
         if not 0 < tid - app - 0x1000 <= 2000:
             return GameFolderProblem('notDLC', (name,))
-        numbered = [n for n in dirs(d) if (d / n / 'romfs').is_dir()]
+        numbered = [n for n in _subdirs(d) if (d / n / 'romfs').is_dir()]
         count = len(numbered) if numbered else (1 if (d / 'romfs').is_dir() else 0)
         if count != 1:
             return GameFolderProblem('dlcRomFS', (name, count))

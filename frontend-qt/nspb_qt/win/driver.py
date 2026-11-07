@@ -100,6 +100,27 @@ def load_upstream(repo: Path) -> ModuleType:
     if hasattr(mod, 'tree_tar'):
         mod.tree_tar._lock = lambda folder, say=None: True
         mod.tree_tar._unlock = lambda folder: None
+    if hasattr(mod, 'gamemod'):
+        gm = mod.gamemod
+        _Path = getattr(gm, 'Path', Path)
+
+        def _split_games_dir(raw: str) -> list[str]:
+            out: list[str] = []
+            for semi in str(raw or '').split(';'):
+                parts = semi.split(':')
+                i = 0
+                while i < len(parts):
+                    cur = parts[i]
+                    if len(cur) == 1 and cur.isalpha() and i + 1 < len(parts) and parts[i + 1][:1] in ('\\', '/'):
+                        out.append(cur + ':' + parts[i + 1])
+                        i += 2
+                    else:
+                        if cur:
+                            out.append(cur)
+                        i += 1
+            return out
+
+        gm.extra_dirs = lambda: [_Path(p) for p in _split_games_dir(os.environ.get('DM_GAMES_DIR', ''))]
     return mod
 
 
