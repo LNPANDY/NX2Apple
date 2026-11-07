@@ -14,7 +14,7 @@ changes. Minimizing still counts as leaving the game.
 
 Upstream-Status: fork-only
 Reason: a Mac game should keep running when another app is active, as a player expects from a window
-Issue: seedds/nxnative#1375
+Issue: LNPANDY/NX2Apple#911
 ---
  dm/host/front_mac.m   | 6 +++---
  docs/env_switches.tsv | 2 +-
