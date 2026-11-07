@@ -1,0 +1,141 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sat, 7 Nov 2026 20:19:10 +0900
+Subject: [PATCH] net: event descriptors inside an fd_set, and Select waits on
+ them
+
+The host numbered its event descriptors from 0x4000. Minecraft's NetherNet
+threads put theirs in an fd_set on the stack for Select (1024 bits, as the
+bsd service's descriptors are small numbers), and FD_SET(0x4000) at
+main+0x18b2ae8 (1.21.120) read and wrote 2 KB past the set: SIGBUS in
+"NetherNet Network" right after start. Select also failed as soon as a
+descriptor was set, so it could never wait on one.
+
+The event descriptors are now 960-1023, and Select (both overloads) waits
+on the event descriptors in its sets as Poll does, returning the ready
+ones in the sets. With only descriptors the host never made it fails as
+before, with none it waits out the timeout. t_net_eventfd covers Select.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#1651
+Reason: Minecraft's NetherNet threads crash on FD_SET of a host event descriptor numbered past the fd_set
+Issue: LNPANDY/NX2Apple#769
+
+---
+ dm/host/hle_net.c             | 34 ++++++++++++++++++++++++++++------
+ dm/host/hle_offline.c         |  2 +-
+ dm/host/tests/t_net_eventfd.c | 15 +++++++++++++++
+ docs/reference/services.md    |  8 ++++++++
+ 4 files changed, 52 insertions(+), 7 deletions(-)
+
+diff --git a/dm/host/hle_net.c b/dm/host/hle_net.c
+index e4bc48c..b1a1698 100644
+--- a/dm/host/hle_net.c
++++ b/dm/host/hle_net.c
+@@ -49,8 +49,10 @@ static int sk_idle(int64_t ms) { dm_guest_sleep_ns((ms < 0 ? 100 : ms) * 1000000
+ typedef struct { int32_t fd; int16_t events, revents; } sk_pollfd;
+ // EventFd is a local descriptor of the bsd service and works with no network, so it is real here: gRPC (nn::npln, Ocarina of Time at startup) wakes its pollers with one, and with no
+ // wakeup descriptor its poll engine's factory (main+0x21f1280) returns null and grpc_init calls abort (main+0x21f0c7c). The descriptors are the host's only ones: Socket still fails.
+-// The flags are Horizon's: gRPC creates its descriptor with 6 and consumes after a poll says it is ready. A descriptor with bit 0 reads one at a time; bits 1 and 2 never block
+-enum { EFD_BASE = 0x4000, EFD_MAX = 64, SK_POLLIN = 1, SK_POLLOUT = 4, SK_POLLRDNORM = 0x40, SK_POLLWRNORM = 4, SK_EBADF = 9, SK_EAGAIN = 35 };
++// The flags are Horizon's: gRPC creates its descriptor with 6 and consumes after a poll says it is ready. A descriptor with bit 0 reads one at a time; bits 1 and 2 never block.
++// The numbers stay inside a 1024-bit fd_set, as the bsd service's small descriptors do: Minecraft's NetherNet threads put theirs in an fd_set on the stack for Select (FD_SET at
++// main+0x18b2ae8 in 1.21.120), and from 0x4000 the bit landed 2 KB past the set and the thread crashed (SIGBUS). 960 + 64 ends at 1023
++enum { EFD_BASE = 960, EFD_MAX = 64, SK_POLLIN = 1, SK_POLLOUT = 4, SK_POLLRDNORM = 0x40, SK_POLLWRNORM = 4, SK_EBADF = 9, SK_EAGAIN = 35 };
+ static struct { uint64_t count; int used, flags; } g_efd[EFD_MAX];
+ static pthread_mutex_t g_efd_m = PTHREAD_MUTEX_INITIALIZER;
+ static pthread_cond_t g_efd_c = PTHREAD_COND_INITIALIZER;
+@@ -131,10 +133,30 @@ int dm_sk_poll(void *fds, uint64_t n, int ms) {   // also hle_offline.c's plain
+     pthread_mutex_unlock(&g_efd_m);
+     return ready;
+ }
+-int dm_sk_select(int nfds, const uint64_t *r, const uint64_t *w, const uint64_t *e, const int64_t *tv) {   // fd_set: 1024 bits; timeval: {i64 seconds, i64 microseconds}
+-    const uint64_t *sets[3] = {r, w, e};
+-    for (int k = 0; k < 3; k++) for (int fd = 0; sets[k] && fd < nfds && fd < 1024; fd++) if (sets[k][fd >> 6] >> (fd & 63) & 1) return sk_fail();
+-    return sk_idle(tv ? tv[0] * 1000 + tv[1] / 1000 : -1);
++// Select waits on the event descriptors in its sets as Poll does (Minecraft's NetherNet threads wait on theirs this way) and gives back the sets of those that are ready; with only
++// descriptors the host never made in them it fails as before, and with none it waits out the timeout
++int dm_sk_select(int nfds, uint64_t *r, uint64_t *w, uint64_t *e, const int64_t *tv) {   // fd_set: 1024 bits; timeval: {i64 seconds, i64 microseconds}
++    uint64_t *sets[3] = {r, w, e};
++    sk_pollfd p[EFD_MAX]; int np = 0, other = 0;
++    if (nfds > 1024) nfds = 1024;
++    pthread_mutex_lock(&g_efd_m);
++    for (int fd = 0; fd < nfds; fd++) {
++        int in = 0; int16_t ev = 0;
++        for (int k = 0; k < 3; k++) if (sets[k] && sets[k][fd >> 6] >> (fd & 63) & 1) { in = 1; ev |= k == 0 ? SK_POLLIN : k == 1 ? SK_POLLOUT : 0; }
++        if (!in) continue;
++        if (efd_used(fd) && np < EFD_MAX) p[np++] = (sk_pollfd){fd, ev, 0}; else other = 1;
++    }
++    pthread_mutex_unlock(&g_efd_m);
++    int ms = tv ? (int)(tv[0] * 1000 + tv[1] / 1000) : -1;
++    if (!np) return other ? sk_fail() : sk_idle(ms);
++    dm_sk_poll(p, (uint64_t)np, ms);
++    for (int k = 0; k < 3; k++) for (int fd = 0; sets[k] && fd < nfds; fd++) sets[k][fd >> 6] &= ~(1ull << (fd & 63));
++    int n = 0;
++    for (int i = 0; i < np; i++) {
++        if (p[i].revents & (SK_POLLIN | SK_POLLRDNORM) && r) { r[p[i].fd >> 6] |= 1ull << (p[i].fd & 63); n++; }
++        if (p[i].revents & SK_POLLOUT && w) { w[p[i].fd >> 6] |= 1ull << (p[i].fd & 63); n++; }
++    }
++    return n;
+ }
+ SKF("_ZN2nn6socket6SocketENS0_6FamilyENS0_4TypeENS0_8ProtocolE", h_sk_Socket, int a, int b, int c) { (void)a; (void)b; (void)c; return sk_fail(); }
+ SKF("_ZN2nn6socket4BindEiPKNS0_8SockAddrEj", h_sk_Bind, int s, const void *a, unsigned n) { (void)s; (void)a; (void)n; return sk_fail(); }
+diff --git a/dm/host/hle_offline.c b/dm/host/hle_offline.c
+index 51bcda1..e84f301 100644
+--- a/dm/host/hle_offline.c
++++ b/dm/host/hle_offline.c
+@@ -74,7 +74,7 @@ HLE_FORCE("_ZN2nn6socket6SocketEiii", "offline (cut): -1", int, h_sk_Socket3i, i
+ HLE_FORCE("_ZN2nn6socket8ShutdownEii", "offline (cut)", int, h_sk_Shutdown, int s, int h) { (void)s; (void)h; return -1; }
+ HLE_FORCE("_ZN2nn6socket4BindEiPK8sockaddrj", "offline (cut)", int, h_sk_Bind, int s, const void *a, unsigned n) { (void)s; (void)a; (void)n; return -1; }
+ int dm_sk_poll(void *fds, uint64_t n, int ms);   // hle_net.c: nothing to wait on → the timeout passes, 0; else -1
+-int dm_sk_select(int nfds, const uint64_t *r, const uint64_t *w, const uint64_t *e, const int64_t *tv);
++int dm_sk_select(int nfds, uint64_t *r, uint64_t *w, uint64_t *e, const int64_t *tv);
+ HLE_FORCE("_ZN2nn6socket4PollEP6pollfdmi", "offline: waits out the timeout when there is nothing to wait on, else fails", int, h_sk_Poll, void *p, uint64_t n, int t) { return dm_sk_poll(p, n, t); }
+ // SDK 4's Select with plain fd_set / timeval (Dark Souls Remastered)
+ HLE_FORCE("_ZN2nn6socket6SelectEiP6fd_setS2_S2_P7timeval", "offline: waits out the timeout when there is nothing to wait on, else fails", int, h_sk_Select2, int n, void *r, void *w, void *e, void *t) { return dm_sk_select(n, r, w, e, t); }
+diff --git a/dm/host/tests/t_net_eventfd.c b/dm/host/tests/t_net_eventfd.c
+index 59b8575..50f8ab6 100644
+--- a/dm/host/tests/t_net_eventfd.c
++++ b/dm/host/tests/t_net_eventfd.c
+@@ -41,6 +41,21 @@ int main(void) {
+     sk_pollfd w = {fd, SK_POLLOUT, 0};   // writable whenever it is open
+     assert(h_sk_Poll(&w, 1, 0) == 1 && w.revents == SK_POLLOUT);
+ 
++    // Select: the descriptor fits a 1024-bit fd_set (Minecraft's NetherNet sets its bit in one on the stack), waits like Poll and returns the ready sets
++    assert(fd < 1024);
++    uint64_t rs[16] = {0}, ws[16] = {0}; int64_t tv[2] = {0, 20000};
++    rs[fd >> 6] |= 1ull << (fd & 63);
++    t0 = guest_ns();
++    assert(h_sk_Select(fd + 1, rs, NULL, NULL, tv) == 0 && !(rs[fd >> 6] >> (fd & 63) & 1));   // nothing written: the timeout passes and the set comes back empty
++    assert(guest_ns() - t0 >= 15000000);
++    assert(h_sk_EventFdWrite(fd, 1) == 0);
++    rs[fd >> 6] |= 1ull << (fd & 63); ws[fd >> 6] |= 1ull << (fd & 63); ws[0] |= 1 << 5;   // with a descriptor the host never made beside it: not ready
++    assert(h_sk_Select(fd + 1, rs, ws, NULL, tv) == 2 && rs[fd >> 6] >> (fd & 63) & 1 && ws[fd >> 6] >> (fd & 63) & 1 && !(ws[0] & 1 << 5));
++    assert(h_sk_EventFdRead(fd, &v) == 0 && v == 1);
++    uint64_t only[16] = {1 << 5};
++    assert(h_sk_Select(6, only, NULL, NULL, tv) == -1 && h_sk_GetLastError() == SK_ENETDOWN);   // only descriptors the host never made: fails, as before
++    assert(h_sk_Select(0, NULL, NULL, NULL, tv) == 0);
++
+     int sem = h_sk_EventFd(2, 1 | 2);   // one at a time
+     assert(sem > 0 && sem != fd);
+     assert(h_sk_EventFdRead(sem, &v) == 0 && v == 1 && h_sk_EventFdRead(sem, &v) == 0 && v == 1 && h_sk_EventFdRead(sem, &v) == -1);
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index 96e9986..a7d63e2 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -689,6 +689,14 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Check:** `make -C dm/host/tests GAME=<id> run` runs `t_net_eventfd`.
+ - **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md) (SDK 22.2.8).
+ 
++### Event descriptors in an `fd_set`
++
++- **Symptom:** `CRASH sig=10` (SIGBUS) in a network thread right after start (Minecraft's `NetherNet Network`, `main+0x18b2ae8`, `x0=0x4000`), at a load from its own stack.
++- **Cause:** the host numbered its event descriptors from `0x4000`. NetherNet puts its event descriptor in an `fd_set` on the stack for `Select` (1024 bits, as the bsd service's descriptors are small numbers), and `FD_SET(0x4000)` reads and writes 2 KB past the set. `Select` also failed whenever a descriptor was set, so it could never wait on one.
++- **Fix:** the event descriptors are 960-1023, inside an `fd_set`. `Select` (`dm_sk_select`, both overloads) waits on the event descriptors in its sets as `Poll` does and returns the ready ones in the sets; with only descriptors the host never made it fails as before, with none it waits out the timeout.
++- **Check:** `t_net_eventfd` (`make -C dm/host/tests GAME=<id> run`).
++- **Found on:** Minecraft (Bedrock Edition, 1.21.120).
++
+ ### The local user's profile image
+ 
+ - **Symptom:** `Break#1 reason=0 Result=0` right after the first save is created, then exit 42; the stack has `nn::diag::detail::OnAssertionFailure` under `nn::image::JpegDecoder::Decode` (`sdk+0x394e4`), called from the game (Burnout Paradise Remastered, SDK 9.3).
