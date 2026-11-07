@@ -118,6 +118,29 @@ package enum AppUpdate {
         case readOnly    // a released copy that cannot be replaced where it is (translocated, or a folder without write access)
     }
 
+    /// Where the copy at `bundle` really is. Gatekeeper runs a quarantined app that was never moved in the Finder from a
+    /// read-only copy under /private/var/folders/…/AppTranslocation/: an app unzipped straight into Applications, or moved
+    /// there with mv or a script, runs from there on every launch (#873). The original is what an update replaces and
+    /// relaunches. `original` is the Security framework's answer (a stand-in in the tests). A path it cannot resolve stays
+    /// as it is, and `installability` then calls it read-only.
+    package static func untranslocated(_ bundle: URL, original: (URL) -> URL? = translocationOriginal) -> URL {
+        guard bundle.path.contains("/AppTranslocation/"), let found = original(bundle) else { return bundle }
+        return found
+    }
+
+    /// `SecTranslocateCreateOriginalPathForURL`, in Security.framework since macOS 10.12 but not in its Swift interface, so
+    /// it is looked up by name. nil when the lookup fails or the URL is not a translocated one (the function then hands
+    /// back the URL it was given).
+    package static func translocationOriginal(_ url: URL) -> URL? {
+        typealias CreateOriginal = @convention(c) (CFURL, UnsafeMutablePointer<Unmanaged<CFError>?>?) -> Unmanaged<CFURL>?
+        guard let security = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY),
+              let symbol = dlsym(security, "SecTranslocateCreateOriginalPathForURL")
+        else { return nil }
+        let createOriginal = unsafeBitCast(symbol, to: CreateOriginal.self)
+        guard let found = createOriginal(url as CFURL, nil)?.takeRetainedValue() as URL? else { return nil }
+        return found.standardizedFileURL.path == url.standardizedFileURL.path ? nil : found
+    }
+
     /// Whether the launcher at `bundle` may replace itself. A released copy is an `.app` whose Info.plist has a bundle
     /// identifier and, as its version, this binary's own release number (the release workflow stops when the two
     /// differ), and which is not where a developer's build sits: in SwiftPM's .build, Xcode's DerivedData, or beside
@@ -136,7 +159,7 @@ package enum AppUpdate {
               let id = info["CFBundleIdentifier"] as? String, !id.isEmpty,
               info["CFBundleShortVersionString"] as? String == appVersion
         else { return .developer }
-        // Gatekeeper runs a quarantined app opened from Downloads from a read-only copy: the swap cannot reach the real one
+        // A translocated copy whose original `untranslocated` could not find: the swap cannot reach the real one
         if path.contains("/AppTranslocation/") { return .readOnly }
         if !FileManager.default.isWritableFile(atPath: parent.path) { return .readOnly }
         return .ok
