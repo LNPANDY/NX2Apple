@@ -665,7 +665,7 @@ def shader_lib_real_path(repo: Path, lib: Path) -> Path:
     """Path to the shader library folder or `.img` file, via `dm/tools/shader_lib.py` when present."""
     slib = _shader_lib_module(repo)
     if slib is not None and hasattr(slib, 'view'):
-        return Path(slib.view(lib).path)
+        return Path(slib.view(lib))
     img = lib.parent / f'{lib.name}.img'
     return img if img.is_file() and not (lib / 'inputs.tsv').is_file() else lib
 

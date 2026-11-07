@@ -1335,16 +1335,43 @@ import NXModel
         XCTAssertEqual(library.games[0].installedDevice, "00008150-SECOND")
         XCTAssertEqual(library.games[1].installedDevice, "00008150-SECOND")
 
-        // If an external tool cleared iosAppPath on one of the shared-shell games, syncSharedApp restores it.
+        // If an external tool cleared iosAppPath on one of the shared-shell games while a peer entry kept its provenance, syncSharedApp restores it.
         var cleared = library.games
         cleared[1].iosAppPath = ""
         cleared[1].installedDevice = ""
         try JSONEncoder().encode(cleared).write(to: file)
         let reloaded = GameLibrary(file: file)
         XCTAssertFalse(reloaded.games[1].onDevice)
-        reloaded.syncSharedApp(root: shellRoot.path, defaultDevice: "00008150-FALLBACK")
+        reloaded.syncSharedApp(root: shellRoot.path)
         XCTAssertTrue(reloaded.games[1].onDevice)
         XCTAssertEqual(reloaded.games[1].iosAppPath, shellApp.path)
         XCTAssertEqual(reloaded.games[1].installedDevice, "00008150-SECOND")
+    }
+
+    func testSyncSharedAppDoesNotInferInstallFromSignedLocalAppAfterFailedInstall() throws {
+        let shellRoot = temporary.appendingPathComponent("shell-failed-install")
+        let shellApp = shellRoot.appendingPathComponent("derived-data/Build/Products/Release-iphoneos/DmShell.app")
+        try FileManager.default.createDirectory(at: shellApp, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: shellApp.appendingPathComponent("Info.plist"))
+        // Signing succeeded and shell.json was saved before devicectl failed, leaving embedded.mobileprovision on disk.
+        try Data("profile".utf8).write(to: shellApp.appendingPathComponent("embedded.mobileprovision"))
+        try ShellLibrary(games: [
+            ShellLibrary.Game(titleID: "0100CD801CE5E000", name: "Balatro", framework: "DmGame0100CD801CE5E000.framework"),
+        ]).save(root: shellRoot.path)
+
+        let ipa = temporary.appendingPathComponent("Balatro.ipa")
+        try Data("ipa".utf8).write(to: ipa)
+
+        let file = temporary.appendingPathComponent("library.json")
+        var uninstalled = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        uninstalled.ipaPath = ipa.path
+        try JSONEncoder().encode([uninstalled]).write(to: file)
+
+        let library = GameLibrary(file: file)
+        library.syncSharedApp(root: shellRoot.path)
+        XCTAssertFalse(library.games[0].onDevice, "a signed local DmShell.app without recorded install provenance must not mark the game as installed")
+        XCTAssertEqual(library.games[0].installedDevice, "")
+        XCTAssertEqual(library.games[0].iosAppPath, "")
+        XCTAssertEqual(library.games[0].ipaPath, ipa.path, "remembered IPA path must not be cleared when the shared app was never installed")
     }
 }

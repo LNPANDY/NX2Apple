@@ -845,28 +845,38 @@ class LibraryAndSpaceTests(unittest.TestCase):
 
         # 2. Verify REQUIRED_DYLIB_SYMBOLS against real C/ObjC sources in engine/ and win/ios/Launcher.m
         eng = ROOT / 'engine'
-        if (eng / 'dm' / 'ios' / 'DmGameMarker.m').is_file():
-            marker_src = (eng / 'dm' / 'ios' / 'DmGameMarker.m').read_text(encoding='utf-8')
-            glue_src = (eng / 'dm' / 'ios' / 'ShellGlue.m').read_text(encoding='utf-8')
-            main_src = (eng / 'dm' / 'ios' / 'ShellMain.m').read_text(encoding='utf-8')
-            boot_hdr = (eng / 'dm' / 'ios' / 'FrameworkBootstrap.h').read_text(encoding='utf-8')
-            launcher_src = (ROOT / 'frontend-qt' / 'nspb_qt' / 'win' / 'ios' / 'Launcher.m').read_text(encoding='utf-8')
-            combined_src = '\n'.join([marker_src, glue_src, launcher_src])
-            for sym in build_app.REQUIRED_DYLIB_SYMBOLS:
-                c_name = sym.lstrip('_')
-                self.assertRegex(combined_src, rf'\b{re.escape(c_name)}\b')
-            for sym in re.findall(r'dlsym\([^,]+,\s*"([^"]+)"\)', main_src + '\n' + boot_hdr):
-                self.assertIn(f'_{sym}', build_app.REQUIRED_DYLIB_SYMBOLS)
+        marker_file = eng / 'dm' / 'ios' / 'framework' / 'DmGameMarker.m'
+        glue_file = eng / 'dm' / 'ios' / 'framework' / 'ShellGlue.m'
+        main_file = eng / 'dm' / 'ios' / 'Shell' / 'ShellMain.m'
+        boot_hdr_file = eng / 'dm' / 'ios' / 'Sources' / 'FrameworkBootstrap.h'
+        for required_src in (marker_file, glue_file, main_file, boot_hdr_file):
+            self.assertTrue(required_src.is_file(), f'missing synced engine source: {required_src}')
+        marker_src = marker_file.read_text(encoding='utf-8')
+        glue_src = glue_file.read_text(encoding='utf-8')
+        main_src = main_file.read_text(encoding='utf-8')
+        boot_hdr = boot_hdr_file.read_text(encoding='utf-8')
+        launcher_src = (ROOT / 'frontend-qt' / 'nspb_qt' / 'win' / 'ios' / 'Launcher.m').read_text(encoding='utf-8')
+        combined_src = '\n'.join([marker_src, glue_src, launcher_src])
+        for sym in build_app.REQUIRED_DYLIB_SYMBOLS:
+            c_name = sym.lstrip('_')
+            self.assertRegex(combined_src, rf'\b{re.escape(c_name)}\b')
+        for sym in re.findall(r'dlsym\([^,]+,\s*"([^"]+)"\)', main_src + '\n' + boot_hdr):
+            self.assertIn(f'_{sym}', build_app.REQUIRED_DYLIB_SYMBOLS)
 
-            # Verify shader_lib_real_path uses shader_lib.view(lib)
-            sh_parent = self.dir / 'sh_test'
-            sh_dir = sh_parent / 'b-adec7d81d970'
-            sh_dir.mkdir(parents=True)
-            sh_img = sh_parent / 'b-adec7d81d970.img'
-            sh_img.write_bytes(b'IMG')
-            self.assertEqual(build_app.shader_lib_real_path(eng, sh_dir), sh_img)
-            (sh_dir / 'inputs.tsv').write_text('game\t0100E65002BB8000\n', encoding='utf-8')
-            self.assertEqual(build_app.shader_lib_real_path(eng, sh_dir), sh_dir)
+        # Verify shader_lib_real_path uses the synced engine's shader_lib.view(lib) for both .img and folder
+        self.assertIsNotNone(build_app._shader_lib_module(eng))
+        sh_parent = self.dir / 'sh_test'
+        sh_dir = sh_parent / 'b-adec7d81d970'
+        sh_dir.mkdir(parents=True)
+        sh_img = sh_parent / 'b-adec7d81d970.img'
+        sh_img.write_bytes(b'IMG')
+        resolved_img = build_app.shader_lib_real_path(eng, sh_dir)
+        self.assertIsInstance(resolved_img, Path)
+        self.assertEqual(resolved_img, sh_img)
+        (sh_dir / 'inputs.tsv').write_text('game\t0100E65002BB8000\n', encoding='utf-8')
+        resolved_dir = build_app.shader_lib_real_path(eng, sh_dir)
+        self.assertIsInstance(resolved_dir, Path)
+        self.assertEqual(resolved_dir, sh_dir)
 
         # 3. Verify xcrun_shim._safe_suffix handles .metallib.tmp-<pid>-<tid> and .air.tmp
         self.assertEqual(

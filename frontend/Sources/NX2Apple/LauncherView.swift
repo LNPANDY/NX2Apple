@@ -206,7 +206,7 @@ struct LauncherView: View {
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
             if performStartupChecks {
                 library.migrateLaunchOptions(); library.migrateArtwork(); CloudSavesMigration.run()
-                library.syncSharedApp(root: m.shellCachePath, defaultDevice: devices.installDevice)
+                library.syncSharedApp(root: m.shellCachePath)
             }
             if let slot = qaArtwork, artworkEditor == nil, let game = library.selected { openArtwork(game, slot: slot) }
             if qaManage.open {
@@ -232,13 +232,13 @@ struct LauncherView: View {
             DispatchQueue.main.async { BuildNotifier.shared.route = nil }
         }
         .onChange(of: library.games) { _ in
-            if performStartupChecks { library.syncSharedApp(root: m.shellCachePath, defaultDevice: devices.installDevice) }
+            if performStartupChecks { library.syncSharedApp(root: m.shellCachePath) }
             refreshArtwork()
             readSignatures()
             if performStartupChecks { fetchArtwork() }
         }
-        .onChange(of: devices.installDevice) { device in
-            if performStartupChecks { library.syncSharedApp(root: m.shellCachePath, defaultDevice: device) }
+        .onChange(of: m.shellCachePath) { root in
+            if performStartupChecks { library.syncSharedApp(root: root); readSignatures() }
         }
         .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved

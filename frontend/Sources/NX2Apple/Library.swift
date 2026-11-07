@@ -632,12 +632,19 @@ final class GameLibrary: ObservableObject {
         if changed { save() }
     }
 
-    /// Restores the shared app's games when `DmShell.app` is signed on disk (`embedded.mobileprovision` is present) and a
-    /// library entry in `shell.json` lost its `iosAppPath` or `installedDevice` (e.g. after moving the shell cache folder).
-    func syncSharedApp(root: String, defaultDevice: String) {
+    /// Restores the shared app's games when `DmShell.app` is signed on disk (`embedded.mobileprovision` is present) and at
+    /// least one entry in `shell.json` already has recorded shared-app install provenance (`installedDevice` + shared `iosAppPath`).
+    /// Never infers installation from a selected/default device alone, because a failed install leaves the signed `.app` on disk.
+    func syncSharedApp(root: String) {
         let app = ShellInstall.appPath(root: root)
         guard FileManager.default.fileExists(atPath: app + "/" + AppSignature.profileName) else { return }
-        let device = games.first(where: { !$0.installedDevice.isEmpty && ShellInstall.paths(ofApp: $0.iosAppPath) != nil })?.installedDevice ?? defaultDevice
+        let inShell = Set(ShellLibrary.load(root: root).games.map { $0.titleID.uppercased() })
+        guard !inShell.isEmpty,
+              let device = games.first(where: {
+                  inShell.contains($0.titleID.uppercased())
+                      && !$0.installedDevice.isEmpty
+                      && ShellInstall.paths(ofApp: $0.iosAppPath) != nil
+              })?.installedDevice else { return }
         recordSharedAppInstalled(app: app, device: device)
     }
 
