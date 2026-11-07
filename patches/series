@@ -55,3 +55,4 @@
 0086-ios-shell-declare-japanese-in-cfbundlelocalizati.patch
 0087-build-ipa-from-nsp-reuse-the-other-platform-s-ro.patch
 0088-nvn-decode-bc-uploads-before-copying-into-unpack.patch
+0089-shader-split-encrypted-legacy-ue-pak.patch
