@@ -23,6 +23,7 @@ call — so the two paths cannot drift in what they pass.
 from __future__ import annotations
 
 import concurrent.futures as cf
+from contextlib import contextmanager
 import hashlib
 import os
 import plistlib
@@ -30,6 +31,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -383,22 +385,33 @@ _HOST_MAIN: Path | None = None
 
 # ---------------------------------------------------------------- link
 
+@contextmanager
+def _link_filelist(objs: list[Path], rt_obj: Path | None):
+    """Keep the object paths out of both clang's and ld64.lld's Windows command lines."""
+    with tempfile.TemporaryDirectory(prefix='nspb-link-') as tmp:
+        filelist = Path(tmp) / 'objects.txt'
+        # ld64's file list has one literal path per line, without shell quoting or escaping.
+        # Close it before starting clang so the linker can read it on Windows too.
+        objects = objs + ([rt_obj] if rt_obj else [])
+        filelist.write_text(''.join(str(obj) + '\n' for obj in objects), encoding='utf-8')
+        yield ['-Xlinker', '-filelist', '-Xlinker', str(filelist)]
+
+
 def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: Path,
          deployment: str, embed_flags: list[str], rt_obj: Path | None,
          lld_dir: Path, bundle_id: str = 'org.nxnative.app') -> None:
     """Link the app, then prove the result is an arm64 iOS executable and sign its entitlements."""
     entitle = os.environ.get('NSPB_ENTITLEMENTS', '1') != '0'
-    args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
-            '-fuse-ld=lld', '-fobjc-arc', '-o', str(out), *map(str, objs),
-            '-Wl,-rpath,@executable_path/Frameworks', '-lobjc', '-lSystem',
-            *(('-Wl,-adhoc_codesign',) if entitle else ()),
-            *[x for fw in frameworks for x in ('-framework', fw)], *embed_flags]
-    if rt_obj:
-        args.append(str(rt_obj))
     env = dict(os.environ)
     env['PATH'] = str(lld_dir) + os.pathsep + env.get('PATH', '')
     t(f'link: {len(objs)} objects, {len(frameworks)} frameworks (ld64.lld)')
-    r = subprocess.run(args, capture_output=True, text=True, errors='replace', env=env)
+    with _link_filelist(objs, rt_obj) as object_args:
+        args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
+                '-fuse-ld=lld', '-fobjc-arc', '-o', str(out), *object_args,
+                '-Wl,-rpath,@executable_path/Frameworks', '-lobjc', '-lSystem',
+                *(('-Wl,-adhoc_codesign',) if entitle else ()),
+                *[x for fw in frameworks for x in ('-framework', fw)], *embed_flags]
+        r = subprocess.run(args, capture_output=True, text=True, errors='replace', env=env)
     if r.returncode:
         print((r.stderr or r.stdout)[-6000:], file=sys.stderr)
         die('link failed (see the linker output above)')
@@ -423,19 +436,18 @@ def link_framework(clang: Path, sdk: Path, objs: list[Path], frameworks: list[st
                    fw_name: str, deployment: str, embed_flags: list[str], rt_obj: Path | None,
                    lld_dir: Path, bundle_id: str = 'org.nxnative.app.DmGame') -> None:
     """Link the game's `DmGame<title ID>.framework` dylib and sign it ad-hoc without entitlements."""
-    args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
-            '-fuse-ld=lld', '-dynamiclib',
-            f'-Wl,-install_name,@rpath/{fw_name}.framework/{fw_name}',
-            '-Wl,-rpath,@executable_path/Frameworks',
-            '-fobjc-arc', '-o', str(out), *map(str, objs),
-            '-lobjc', '-lSystem', '-Wl,-adhoc_codesign',
-            *[x for fw in frameworks for x in ('-framework', fw)], *embed_flags]
-    if rt_obj:
-        args.append(str(rt_obj))
     env = dict(os.environ)
     env['PATH'] = str(lld_dir) + os.pathsep + env.get('PATH', '')
     t(f'link framework: {len(objs)} objects, {len(frameworks)} frameworks (ld64.lld)')
-    r = subprocess.run(args, capture_output=True, text=True, errors='replace', env=env)
+    with _link_filelist(objs, rt_obj) as object_args:
+        args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
+                '-fuse-ld=lld', '-dynamiclib',
+                f'-Wl,-install_name,@rpath/{fw_name}.framework/{fw_name}',
+                '-Wl,-rpath,@executable_path/Frameworks',
+                '-fobjc-arc', '-o', str(out), *object_args,
+                '-lobjc', '-lSystem', '-Wl,-adhoc_codesign',
+                *[x for fw in frameworks for x in ('-framework', fw)], *embed_flags]
+        r = subprocess.run(args, capture_output=True, text=True, errors='replace', env=env)
     if r.returncode:
         print((r.stderr or r.stdout)[-6000:], file=sys.stderr)
         die('framework link failed (see the linker output above)')
