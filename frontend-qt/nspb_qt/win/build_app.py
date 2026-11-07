@@ -409,13 +409,21 @@ def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: P
         t(f'sign: ad-hoc with Increased Memory Limit entitlement ({sig_n} B)')
 
 
+# What the shell dlsym()s out of a game framework, by the names the engine itself defines:
+# `dmgame_image_marker` is DmGameMarker.m (FrameworkBootstrap.h finds it through
+# DM_FRAMEWORK_MARKER), `dm_glue_version` / `dm_glue_start_game` / `dm_glue_present_game` /
+# `dm_glue_focus_event` are ShellGlue.m (ShellMain.m checks all four), `dm_game_menu` is
+# Launcher.m, and `dm_main` / `dm_show_launcher` are the host entry point and the framework's own
+# launcher stub.
 REQUIRED_DYLIB_SYMBOLS = (
-    '_dm_framework_marker',
+    '_dmgame_image_marker',
     '_dm_main',
-    '_dm_IosView',
     '_dm_show_launcher',
     '_dm_game_menu',
-    '_dm_game_reload_AN',
+    '_dm_glue_version',
+    '_dm_glue_start_game',
+    '_dm_glue_present_game',
+    '_dm_glue_focus_event',
 )
 
 

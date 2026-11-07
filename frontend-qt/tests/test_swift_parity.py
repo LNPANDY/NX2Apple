@@ -1,4 +1,4 @@
-"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
+﻿"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
 KeyCheck (AES-128-XTS NCA header verification), CheatFiles, GameLibrary,
 BuildFolder (FreeSpace), GameDeletion, DriveCopy, Diagnostics, and the 3-page UI.
 """
@@ -295,7 +295,7 @@ class SharedShellParityTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            # 0. Verify build_app.check_dylib enforces the 6 exported symbols and rejects __mh_execute_header
+            # 0. Verify build_app.check_dylib enforces the required exported symbols and rejects __mh_execute_header
             good_dylib = root / 'good.dylib'
             good_dylib.write_bytes(_make_arm64_macho(tc.MH_DYLIB))
             build_app.check_dylib(good_dylib)
@@ -1099,7 +1099,7 @@ class ParityWindowTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            # 0. Verify build_app.check_dylib enforces the 6 exported symbols and rejects __mh_execute_header
+            # 0. Verify build_app.check_dylib enforces the required exported symbols and rejects __mh_execute_header
             good_dylib = root / 'good.dylib'
             good_dylib.write_bytes(make_arm64_macho(tc.MH_DYLIB))
             build_app.check_dylib(good_dylib)

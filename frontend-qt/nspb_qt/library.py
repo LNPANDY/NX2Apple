@@ -122,6 +122,40 @@ def format_bytes(size: int) -> str:
     return f'{val:.1f} {units[idx]}'
 
 
+def shell_ipa_path(shell_cache: str) -> str:
+    """The shared app's one output: `<shell cache>/export/NX2Apple.ipa` (shell_export.ipa_path)."""
+    return os.path.join(shell_cache, 'export', 'NX2Apple.ipa')
+
+
+def one_game_ipa_path(out_dir: str, build_key: str) -> str:
+    """Where `ipa_kind == 'oneGame'` writes its IPA: `<out dir>/<title ID>.ipa`."""
+    if not out_dir or not build_key:
+        return ''
+    return os.path.join(out_dir, f'{build_key}.ipa')
+
+
+def reveal_ipa_path(*, ipa_kind: str, shell_cache: str, out_dir: str, build_key: str,
+                    last_ipa: str = '', library_ipa: str = '') -> str:
+    """The IPA that the selected kind produced, for "Show in folder".
+
+    The two kinds write different files, and `Model.ipa_path` is whatever the last build of
+    *either* kind left behind, so it cannot be asked first: after switching the kind it names the
+    other mode's IPA. Prefer the selected kind's own path, fall back to `last_ipa` only when it is
+    not the other kind's file, and then to the library's record.
+    """
+    shared = shell_ipa_path(shell_cache) if shell_cache else ''
+    one = one_game_ipa_path(out_dir, build_key)
+    want, other = (shared, one) if ipa_kind == 'shared' else (one, shared)
+    if want and os.path.isfile(want):
+        return want
+    if last_ipa and os.path.exists(last_ipa):
+        if not other or os.path.normcase(os.path.abspath(last_ipa)) != os.path.normcase(os.path.abspath(other)):
+            return last_ipa
+    if library_ipa:
+        return library_ipa
+    return ''
+
+
 def clean_game_name(filename: str) -> str:
     stem = os.path.splitext(os.path.basename(filename))[0]
     s = _BRACKET_TAG_RE.sub('', stem)
