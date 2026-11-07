@@ -610,6 +610,35 @@ final class GameLibrary: ObservableObject {
         game.installedDevice = device
         game.toolsCommit = commit
         upsert(game)
+        recordSharedAppInstalled(app: app, device: device)
+    }
+
+    /// Every game in the shared app's shell.json is inside `app` on `device` once the shared app is signed and installed there.
+    func recordSharedAppInstalled(app: String, device: String) {
+        guard !device.isEmpty,
+              FileManager.default.fileExists(atPath: app + "/Info.plist"),
+              let shell = ShellInstall.paths(ofApp: app) else { return }
+        let inShell = Set(ShellLibrary.load(root: shell.root).games.map { $0.titleID.uppercased() })
+        guard !inShell.isEmpty else { return }
+        var changed = false
+        for i in games.indices where inShell.contains(games[i].titleID.uppercased()) {
+            if games[i].iosAppPath != app || games[i].installedDevice != device || !games[i].ipaPath.isEmpty {
+                games[i].ipaPath = ""
+                games[i].iosAppPath = app
+                games[i].installedDevice = device
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// Restores the shared app's games when `DmShell.app` is signed on disk (`embedded.mobileprovision` is present) and a
+    /// library entry in `shell.json` lost its `iosAppPath` or `installedDevice` (e.g. after moving the shell cache folder).
+    func syncSharedApp(root: String, defaultDevice: String) {
+        let app = ShellInstall.appPath(root: root)
+        guard FileManager.default.fileExists(atPath: app + "/" + AppSignature.profileName) else { return }
+        let device = games.first(where: { !$0.installedDevice.isEmpty && ShellInstall.paths(ofApp: $0.iosAppPath) != nil })?.installedDevice ?? defaultDevice
+        recordSharedAppInstalled(app: app, device: device)
     }
 
     /// Only a choice that differs from the game's default is kept, so a setting left at its default follows a later build's.

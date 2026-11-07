@@ -664,10 +664,10 @@ def framework_info_plist(*, bundle_id: str, fw_name: str, display_name: str, ver
 def shader_lib_real_path(repo: Path, lib: Path) -> Path:
     """Path to the shader library folder or `.img` file, via `dm/tools/shader_lib.py` when present."""
     slib = _shader_lib_module(repo)
-    if slib is not None and hasattr(slib, 'path'):
-        return Path(slib.path(lib))
+    if slib is not None and hasattr(slib, 'view'):
+        return Path(slib.view(lib).path)
     img = lib.parent / f'{lib.name}.img'
-    return img if img.is_file() else lib
+    return img if img.is_file() and not (lib / 'inputs.tsv').is_file() else lib
 
 
 def build_pso_archive(repo: Path, w: Path, game: str, gd: Path, gp, gfx: str,

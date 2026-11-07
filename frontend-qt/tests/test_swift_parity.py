@@ -799,6 +799,87 @@ class LibraryAndSpaceTests(unittest.TestCase):
             str(store.banners_dir / '040074A01BF12000.jpg'),
         )
 
+    def test_library_preserves_swift_fields_and_win_shader_helpers(self) -> None:
+        import json
+        import re
+        from nspb_qt.win import build_app, shim, xcrun_shim
+
+        # 1. Verify GameLibrary preserves Swift's UUID id, installedDevice, iosAppPath, and top-level folder
+        state_dir = self.dir / 'swift_state'
+        state_dir.mkdir(parents=True, exist_ok=True)
+        swift_uuid = 'B6F6DB62-D0D5-47A2-941D-BA37A1CFCA0C'
+        swift_payload = {
+            'folder': '/Users/test/Games',
+            'games': [
+                {
+                    'id': swift_uuid,
+                    'titleID': '0100E65002BB8000',
+                    'name': 'Stardew Valley',
+                    'iosAppPath': '/Users/test/DmShell.app',
+                    'installedDevice': '00008150-000660C01447801C',
+                    'archivePath': '/Users/test/Games/0100E65002BB8000',
+                    'lastTarget': 'iPhone / iPad',
+                    'toolsCommit': 'b2d46b86d03f',
+                    'mods': [{'name': 'ModA', 'enabled': True}],
+                }
+            ],
+        }
+        (state_dir / 'library.json').write_text(json.dumps(swift_payload), encoding='utf-8')
+        gl = lib.GameLibrary(state_dir=state_dir)
+        self.assertEqual(gl.games_folder, '/Users/test/Games')
+        self.assertEqual(len(gl.games), 1)
+        self.assertEqual(gl.games[0].installed_device, '00008150-000660C01447801C')
+        self.assertEqual(gl.games[0].ios_app_path, '/Users/test/DmShell.app')
+
+        # Upsert an updated entry and verify Swift fields survive round-trip save
+        updated_game = lib.LibraryGame(title_id='0100E65002BB8000', name='Stardew Valley')
+        gl.upsert(updated_game)
+        saved = json.loads((state_dir / 'library.json').read_text(encoding='utf-8'))
+        self.assertEqual(saved.get('folder'), '/Users/test/Games')
+        saved_g = saved['games'][0]
+        self.assertEqual(saved_g['id'], swift_uuid)
+        self.assertEqual(saved_g['installedDevice'], '00008150-000660C01447801C')
+        self.assertEqual(saved_g['iosAppPath'], '/Users/test/DmShell.app')
+        self.assertEqual(saved_g['lastTarget'], 'iPhone / iPad')
+        self.assertEqual(saved_g['toolsCommit'], 'b2d46b86d03f')
+
+        # 2. Verify REQUIRED_DYLIB_SYMBOLS against real C/ObjC sources in engine/ and win/ios/Launcher.m
+        eng = ROOT / 'engine'
+        if (eng / 'dm' / 'ios' / 'DmGameMarker.m').is_file():
+            marker_src = (eng / 'dm' / 'ios' / 'DmGameMarker.m').read_text(encoding='utf-8')
+            glue_src = (eng / 'dm' / 'ios' / 'ShellGlue.m').read_text(encoding='utf-8')
+            main_src = (eng / 'dm' / 'ios' / 'ShellMain.m').read_text(encoding='utf-8')
+            boot_hdr = (eng / 'dm' / 'ios' / 'FrameworkBootstrap.h').read_text(encoding='utf-8')
+            launcher_src = (ROOT / 'frontend-qt' / 'nspb_qt' / 'win' / 'ios' / 'Launcher.m').read_text(encoding='utf-8')
+            combined_src = '\n'.join([marker_src, glue_src, launcher_src])
+            for sym in build_app.REQUIRED_DYLIB_SYMBOLS:
+                c_name = sym.lstrip('_')
+                self.assertRegex(combined_src, rf'\b{re.escape(c_name)}\b')
+            for sym in re.findall(r'dlsym\([^,]+,\s*"([^"]+)"\)', main_src + '\n' + boot_hdr):
+                self.assertIn(f'_{sym}', build_app.REQUIRED_DYLIB_SYMBOLS)
+
+            # Verify shader_lib_real_path uses shader_lib.view(lib)
+            sh_parent = self.dir / 'sh_test'
+            sh_dir = sh_parent / 'b-adec7d81d970'
+            sh_dir.mkdir(parents=True)
+            sh_img = sh_parent / 'b-adec7d81d970.img'
+            sh_img.write_bytes(b'IMG')
+            self.assertEqual(build_app.shader_lib_real_path(eng, sh_dir), sh_img)
+            (sh_dir / 'inputs.tsv').write_text('game\t0100E65002BB8000\n', encoding='utf-8')
+            self.assertEqual(build_app.shader_lib_real_path(eng, sh_dir), sh_dir)
+
+        # 3. Verify xcrun_shim._safe_suffix handles .metallib.tmp-<pid>-<tid> and .air.tmp
+        self.assertEqual(
+            xcrun_shim._safe_suffix(Path('E:/game/Fire Emblem/0123_b.metallib.tmp-123-456'), '.out'),
+            '.metallib',
+        )
+        self.assertEqual(
+            xcrun_shim._safe_suffix(Path('E:/game/Fire Emblem/0123_bf.ios.air.tmp'), '.out'),
+            '.air',
+        )
+        self.assertIn('def _win_cache_compile', shim._SITECUSTOMIZE_SRC)
+        self.assertIn('def _patch_ios_metal_module', shim._SITECUSTOMIZE_SRC)
+
 
 class ParityWindowTests(unittest.TestCase):
     @classmethod

@@ -483,6 +483,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return
         mod._nspb_patched = True
         _orig_init = mod.Cache.__init__
+        _orig_compile = getattr(mod.Cache, '_compile', None)
 
         def _win_cache_init(self, store, targets, work):
             if work and (' ' in str(work) or not str(work).isascii()):
@@ -492,6 +493,50 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _orig_init(self, store, targets, work)
 
         mod.Cache.__init__ = _win_cache_init
+        if _orig_compile is not None:
+            def _win_cache_compile(self, target, msl, lib):
+                if lib and (' ' in str(lib) or not str(lib).isascii()):
+                    import threading as _th
+                    tmp_lib = os.path.join(self.work, f'mtllib-{target}-{os.getpid()}-{_th.get_ident()}.metallib')
+                    try:
+                        _orig_compile(self, target, msl, tmp_lib)
+                        os.makedirs(os.path.dirname(os.fspath(lib)), exist_ok=True)
+                        shutil.move(tmp_lib, lib)
+                    finally:
+                        if os.path.exists(tmp_lib):
+                            try:
+                                os.unlink(tmp_lib)
+                            except OSError:
+                                pass
+                    return
+                _orig_compile(self, target, msl, lib)
+
+            mod.Cache._compile = _win_cache_compile
+
+    def _patch_ios_metal_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'compile'):
+            return
+        mod._nspb_patched = True
+        _orig_ios_compile = mod.compile
+
+        def _win_ios_compile(msl, air, lib):
+            need_air = bool(air and (' ' in str(air) or not str(air).isascii()))
+            need_lib = bool(lib and (' ' in str(lib) or not str(lib).isascii()))
+            if not need_air and not need_lib:
+                return _orig_ios_compile(msl, air, lib)
+            import tempfile as _tf
+            td = _tf.mkdtemp(prefix='iosmtl_', dir=_ascii_temp_base())
+            try:
+                use_air = os.path.join(td, 'out.air') if need_air else air
+                use_lib = os.path.join(td, 'out.metallib') if need_lib else lib
+                _orig_ios_compile(msl, use_air, use_lib)
+                if need_lib and os.path.isfile(use_lib):
+                    os.makedirs(os.path.dirname(os.fspath(lib)), exist_ok=True)
+                    shutil.move(use_lib, lib)
+            finally:
+                shutil.rmtree(td, ignore_errors=True)
+
+        mod.compile = _win_ios_compile
 
     import importlib.machinery as _machinery
     _exec_module = _machinery.SourceFileLoader.exec_module
@@ -513,6 +558,8 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _patch_dmsh_pch_module(module)
         elif name == 'dmsh_mtlcache' or name.endswith('.dmsh_mtlcache'):
             _patch_dmsh_mtlcache_module(module)
+        elif name == 'ios_metal' or name.endswith('.ios_metal'):
+            _patch_ios_metal_module(module)
 
     _machinery.SourceFileLoader.exec_module = _win_exec_module
 

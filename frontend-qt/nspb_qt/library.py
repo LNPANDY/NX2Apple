@@ -15,6 +15,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+import uuid
 import zipfile
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -495,11 +496,13 @@ class LibraryGame:
     ipa_path: str = ''
     archive_path: str = ''
     ios_app_path: str = ''
+    installed_device: str = ''
     output_dir: str = ''
     inputs: dict[str, list[str]] = field(default_factory=dict)
     added_at: float = field(default_factory=time.time)
     last_built_at: float | None = None
     built_chain_tag: str = ''
+    _extra: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def id(self) -> str:
@@ -555,23 +558,35 @@ class LibraryGame:
         return GameFolder.profile_is_switch2(self.title_id, repo_path)
 
     def to_dict(self) -> dict:
-        return {
+        out = dict(self._extra)
+        if not out.get('id'):
+            out['id'] = str(uuid.uuid4()).upper()
+            self._extra['id'] = out['id']
+        out.update({
             'titleID': self.title_id,
             'name': self.name,
             'appPath': self.app_path,
             'ipaPath': self.ipa_path,
             'archivePath': self.archive_path,
             'iosAppPath': self.ios_app_path,
+            'installedDevice': self.installed_device,
             'outputDir': self.output_dir,
             'inputs': self.inputs,
             'addedAt': self.added_at,
             'lastBuiltAt': self.last_built_at,
             'builtChainTag': self.built_chain_tag,
-        }
+        })
+        return out
 
     @classmethod
     def from_dict(cls, d: dict) -> LibraryGame:
         app_path = str(d.get('appPath') or '')
+        known = {
+            'titleID', 'title_id', 'name', 'appPath', 'ipaPath', 'archivePath',
+            'iosAppPath', 'installedDevice', 'outputDir', 'inputs', 'addedAt',
+            'lastBuiltAt', 'builtChainTag',
+        }
+        extra = {k: v for k, v in d.items() if k not in known}
         return cls(
             title_id=str(d.get('titleID') or d.get('title_id') or '').upper(),
             name=str(d.get('name') or ''),
@@ -579,11 +594,13 @@ class LibraryGame:
             ipa_path=str(d.get('ipaPath') or ''),
             archive_path=str(d.get('archivePath') or ''),
             ios_app_path=str(d.get('iosAppPath') or ''),
-            output_dir=str(d.get('outputDir') or ''),
+            installed_device=str(d.get('installedDevice') or ''),
+            output_dir=str(d.get('outputDir') or d.get('outputDirectory') or ''),
             inputs=dict(d.get('inputs') or {}),
             added_at=float(d.get('addedAt') or time.time()),
             last_built_at=float(d['lastBuiltAt']) if d.get('lastBuiltAt') is not None else None,
             built_chain_tag=str(d.get('builtChainTag') or ''),
+            _extra=extra,
         )
 
 
@@ -594,6 +611,7 @@ class GameLibrary:
         self.games: list[LibraryGame] = []
         self.selected_id: str | None = None
         self.games_folder: str = ''
+        self._extra_top: dict = {}
         self.load()
 
     @property
@@ -616,8 +634,12 @@ class GameLibrary:
                 self.games = [LibraryGame.from_dict(x) for x in raw if isinstance(x, dict)]
             elif isinstance(raw, dict):
                 self.games = [LibraryGame.from_dict(x) for x in raw.get('games', []) if isinstance(x, dict)]
-                self.games_folder = str(raw.get('gamesFolder') or '')
+                self.games_folder = str(raw.get('gamesFolder') or raw.get('folder') or '')
                 self.selected_id = raw.get('selectedID')
+                self._extra_top = {
+                    k: v for k, v in raw.items()
+                    if k not in ('games', 'gamesFolder', 'selectedID')
+                }
             if self.games and not self.selected_id:
                 self.selected_id = self.games[0].title_id
         except Exception:
@@ -626,11 +648,14 @@ class GameLibrary:
     def save(self) -> None:
         try:
             self.state_dir.mkdir(parents=True, exist_ok=True)
-            payload = {
+            payload = dict(self._extra_top)
+            if 'folder' in payload or self.games_folder:
+                payload['folder'] = self.games_folder or payload.get('folder', '')
+            payload.update({
                 'gamesFolder': self.games_folder,
                 'selectedID': self.selected_id,
                 'games': [g.to_dict() for g in self.games],
-            }
+            })
             self.file_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding='utf-8')
         except OSError:
             pass
@@ -661,12 +686,20 @@ class GameLibrary:
                     game.ipa_path = existing.ipa_path
                 if not game.archive_path:
                     game.archive_path = existing.archive_path
+                if not game.ios_app_path:
+                    game.ios_app_path = existing.ios_app_path
+                if not game.installed_device:
+                    game.installed_device = existing.installed_device
                 if not game.output_dir:
                     game.output_dir = existing.output_dir
                 if not game.inputs:
                     game.inputs = existing.inputs
                 if game.last_built_at is None:
                     game.last_built_at = existing.last_built_at
+                if existing._extra:
+                    merged_extra = dict(existing._extra)
+                    merged_extra.update(game._extra)
+                    game._extra = merged_extra
                 self.games[i] = game
                 self.save()
                 return game

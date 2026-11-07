@@ -17,6 +17,23 @@ package enum AppSignature {
         return expiration(fromProfile: Data(out.utf8))
     }
 
+    /// The profile expiries of several installed games (`(id, iosAppPath)`), reading each distinct app bundle once so a
+    /// shared `DmShell.app` runs `security cms` once and gives every game in the shell the same date.
+    package static func expirations(ofApps apps: [(UUID, String)], runner: ProcessRunner = SystemProcessRunner()) -> [UUID: Date] {
+        var byPath: [String: Date?] = [:]
+        var found: [UUID: Date] = [:]
+        for (id, path) in apps {
+            let date: Date?
+            if let cached = byPath[path] { date = cached }
+            else {
+                date = expiration(ofApp: path, runner: runner)
+                byPath[path] = date
+            }
+            if let date { found[id] = date }
+        }
+        return found
+    }
+
     /// The profile plist's ExpirationDate. Split out so the parse is tested without a signed app.
     package static func expiration(fromProfile data: Data) -> Date? {
         guard let plist = (try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)) as? [String: Any]
