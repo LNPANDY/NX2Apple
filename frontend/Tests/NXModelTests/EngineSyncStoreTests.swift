@@ -17,7 +17,6 @@ import XCTest
     }
 
     private var temporary: URL!
-    private var suite: String!
     private var defaults: UserDefaults!
     private let runner = FakeProcessRunner()
     private let localizer = Localizer(.en)
@@ -31,13 +30,11 @@ import XCTest
     override func setUpWithError() throws {
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxmodel-engine-tests-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-        suite = "nxmodel-engine-tests-" + UUID().uuidString
-        defaults = UserDefaults(suiteName: suite)
+        defaults = TestDefaults.make("nxmodel-engine-tests")
     }
 
     override func tearDownWithError() throws {
         try FileManager.default.removeItem(at: temporary)
-        defaults.removePersistentDomain(forName: suite)
     }
 
     private func id(_ c: Character) -> String { String(repeating: c, count: 40) + "-0123456789ab" }

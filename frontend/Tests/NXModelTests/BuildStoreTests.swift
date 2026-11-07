@@ -46,7 +46,6 @@ import XCTest
         func copyEnded() {}
     }
 
-    private var suite: String!
     private var defaults: UserDefaults!
     private var temporary: URL!
     private let repo = FakeRepo()
@@ -56,14 +55,12 @@ import XCTest
     private let localizer = Localizer(.en)
 
     override func setUpWithError() throws {
-        suite = "nxmodel-build-tests-" + UUID().uuidString
-        defaults = UserDefaults(suiteName: suite)
+        defaults = TestDefaults.make("nxmodel-build-tests")
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: temporary)
     }
 

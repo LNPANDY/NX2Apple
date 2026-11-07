@@ -60,7 +60,7 @@ import NXModel
 
     /// #427: the default no longer depends on the output folder, and what is saved stays.
     func testShellRootDefaultsToApplicationSupportAndIsKept() throws {
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         let home = temporary.path + "/home"
         XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Volumes/A", home: home),
                        home + "/Library/Application Support/NX2Apple/shell")
@@ -75,7 +75,7 @@ import NXModel
     /// #492: the Settings page reads the path before a game is chosen; the empty parent put the shell at the root of the
     /// read-only system volume, where the write failed after the whole build.
     func testAnEmptyOrRootParentNeverSavesTheShellAtTheVolumeRoot() {
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         let home = "/Users/tester"
         let root = "/Users/tester/Library/Application Support/NX2Apple/shell"
         for parent in ["", "/", "relative/games"] {
@@ -86,7 +86,7 @@ import NXModel
     }
 
     func testASavedRootAtTheVolumeRootIsRepaired() {
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         defaults.set("/NX2Apple-shell", forKey: "shellRoot")
         XCTAssertEqual(ShellLibrary.resolveRoot(defaults: defaults, parent: "/Users/tester/games", home: "/Users/tester"),
                        "/Users/tester/Library/Application Support/NX2Apple/shell")
@@ -94,7 +94,7 @@ import NXModel
     }
 
     func testThePreviewDoesNotSaveARoot() {
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         XCTAssertEqual(ShellLibrary.previewRoot(defaults: defaults, parent: "/Volumes/A", home: "/Users/tester"),
                        "/Users/tester/Library/Application Support/NX2Apple/shell")
         XCTAssertNil(defaults.string(forKey: "shellRoot"))
@@ -439,7 +439,7 @@ import NXModel
 
     private func run(_ f: Fixture, _ extra: [String] = []) -> (status: Int32, output: String) {
         var output = ""
-        let defaults = UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!
+        let defaults = TestDefaults.make("nspb-shell")
         let status = ShellCLI.run(f.args(extra: extra), defaults: defaults) { output += $0 }
         return (status, output)
     }
@@ -686,12 +686,12 @@ import NXModel
 
     func testCLIChecksItsArguments() throws {
         var output = ""
-        XCTAssertEqual(ShellCLI.run(["--install-shell", "--framework", "/x"], defaults: UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!) { output += $0 }, 1)
+        XCTAssertEqual(ShellCLI.run(["--install-shell", "--framework", "/x"], defaults: TestDefaults.make("nspb-shell")) { output += $0 }, 1)
         XCTAssertTrue(output.hasPrefix("usage: NSPortBuilder --install-shell"))
         let f = try makeFixture()
         output = ""
         XCTAssertEqual(ShellCLI.run(f.args(extra: ["--framework", path("missing.framework")]),
-                                    defaults: UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!) { output += $0 }, 1)
+                                    defaults: TestDefaults.make("nspb-shell")) { output += $0 }, 1)
         XCTAssertTrue(output.contains("its framework is not in the"), output)
     }
 
@@ -840,7 +840,7 @@ import NXModel
         XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"), "build_shell.sh did not run")
         XCTAssertFalse(calls.contains { $0.hasPrefix("xcodebuild") || $0.hasPrefix("devicectl device") })
         var output = ""
-        XCTAssertEqual(ShellCLI.run(f.args(), defaults: UserDefaults(suiteName: "nspb-shell-" + UUID().uuidString)!) { output += $0 }, 1)
+        XCTAssertEqual(ShellCLI.run(f.args(), defaults: TestDefaults.make("nspb-shell")) { output += $0 }, 1)
         XCTAssertTrue(output.contains("FAIL: ") && output.contains("tap Trust"), output)
     }
 
