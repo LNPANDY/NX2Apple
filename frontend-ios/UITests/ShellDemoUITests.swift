@@ -220,10 +220,11 @@ import XCTest
             launch("settings")
             let sheet = settingsScroll
             let title = sheet.staticTexts["detail.title"]
-            let version = sheet.staticTexts["Version " + number].firstMatch
+            // The version is the "Version" row's value below the header, not a line above the title.
+            let version = sheet.staticTexts[number].firstMatch
             XCTAssertTrue(title.waitForExistence(timeout: 5))
             XCTAssertTrue(version.exists)
-            XCTAssertLessThanOrEqual(version.frame.maxY, title.frame.minY)
+            XCTAssertGreaterThanOrEqual(version.frame.minY, title.frame.maxY)
             if subtitle.isEmpty {
                 XCTAssertFalse(sheet.staticTexts["Played today"].exists)
                 XCTAssertFalse(sheet.staticTexts["Played yesterday"].exists)

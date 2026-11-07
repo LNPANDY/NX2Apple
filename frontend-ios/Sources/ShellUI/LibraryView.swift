@@ -879,7 +879,8 @@ private struct PaneBanner: View {
     var body: some View {
         let hasBanner = game.banner != nil && game.icon == nil
         let bannerHeight = hasBanner ? min(width * 9 / 16, 220) : 0
-        HStack(alignment: .bottom, spacing: 22) {
+        // Centred on the artwork like the title in the game detail header, not sitting on its lower edge.
+        HStack(alignment: .center, spacing: 22) {
             if !hasBanner { CoverThumbnail(game: game, showsShadow: false).frame(width: 96, height: 96) }
             words(title: game.title).fixedSize(horizontal: false, vertical: true)
         }
