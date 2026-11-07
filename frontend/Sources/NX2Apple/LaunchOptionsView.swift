@@ -66,6 +66,9 @@ struct LaunchOptionsView: View {
                         groups(settings.filter(\.isBasic), game, all: settings)
                         modsSection(game)
                         frameTimesSection(game)
+                        if game.titleID.uppercased() == "0400A3A01EE4C000" {
+                            LinkPlayCard(game: game).id(game.titleID)
+                        }
                         CloudSavesCard(game: game)
                         let advanced = settings.filter { !$0.isBasic }
                         if !advanced.isEmpty {
@@ -89,6 +92,11 @@ struct LaunchOptionsView: View {
                     .padding(.horizontal, 30).padding(.bottom, 24)
                 }
                 .onChange(of: focus.focused) { id in if let id { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } } }
+                }
+            } else if let game, game.titleID.uppercased() == "0400A3A01EE4C000" {
+                ScrollView {
+                    LinkPlayCard(game: game).id(game.titleID)
+                        .padding(.horizontal, 30).padding(.bottom, 24)
                 }
             } else {
                 Text(loc.t("launch.none")).font(.manrope(14)).foregroundStyle(.secondary)
