@@ -6,6 +6,7 @@ import CoreHaptics
 import os
 import NXCore
 import NXLauncher
+import NXModel
 
 /// A controller as GameController reports it, reduced to what the console mode shows. Tests build these instead of hardware.
 /// What a controller reports about its battery.
@@ -61,16 +62,17 @@ struct ConsolePadSnapshot: Equatable {
 @MainActor final class LiveConsoleDriver: ConsoleDriver {
     @Published var state = ConsoleState()
 
-    private let library: GameLibrary
-    private let controls: ControlLayout
-    private let repo: () -> String
+    let library: GameLibrary
+    /// The Controls page's layout: the player mode, the Joy-Con split and the button mapping (LiveConsoleDriver+Mapping.swift).
+    let controls: ControlLayout
+    let repo: () -> String
     private let lang: () -> Lang
     private let labels: (String) -> String
     private let pads: () -> [ConsolePadSnapshot]
     private let launch: (LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void
     private let artwork: (LibraryGame, String) -> NSImage?
     private let startingTimeout: TimeInterval
-    private var cancellables = Set<AnyCancellable>()
+    var cancellables = Set<AnyCancellable>()
     private var observers: [NSObjectProtocol] = []
     private var refreshQueued = false
     private var covers: [UUID: (path: String, image: NSImage?)] = [:]
@@ -79,7 +81,7 @@ struct ConsolePadSnapshot: Equatable {
     private var toastTask: Task<Void, Never>?
     private var clock: Timer?
     /// Real controllers by id, for Identify and player assignment.
-    private var devices: [String: GCController] = [:]
+    private(set) var devices: [String: GCController] = [:]
 
     init(library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
          pads: (() -> [ConsolePadSnapshot])? = nil,
@@ -98,6 +100,9 @@ struct ConsolePadSnapshot: Equatable {
         state.joyconSplit = controls.joyconSplit
         library.objectWillChange.sink { [weak self] _ in self?.queueRefresh() }.store(in: &cancellables)
         controls.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }.store(in: &cancellables)
+        // A @Published sink runs before the value is stored: the layout is read on the next turn of the run loop.
+        controls.$pad.combineLatest(controls.$padMode).dropFirst().receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in MainActor.assumeIsolated { self?.refreshPadLayout() } }.store(in: &cancellables)
         controls.$joyconSplit.dropFirst().sink { [weak self] split in
             guard let self, self.state.joyconSplit != split else { return }
             self.state.joyconSplit = split
@@ -106,6 +111,7 @@ struct ConsolePadSnapshot: Equatable {
         }.store(in: &cancellables)
         refresh()
         refreshControllers(announce: false)
+        refreshPadLayout()
         announced = Set(state.controllers.map(\.id))   // controllers there at launch are not announced again by a repeated notification
         if observeSystem { scheduleBatteryRereads() }   // a controller there at launch may not have its battery yet either
         guard observeSystem else { return }
@@ -140,7 +146,7 @@ struct ConsolePadSnapshot: Equatable {
 
     // MARK: Games
 
-    private func t(_ key: String) -> String { L10n.string(key, lang()) }
+    func t(_ key: String) -> String { L10n.string(key, lang()) }
 
     private func queueRefresh() {
         guard !refreshQueued else { return }
@@ -151,10 +157,12 @@ struct ConsolePadSnapshot: Equatable {
     /// The library as console games, the ones ready on this Mac first, keeping the focus and each game's shown values.
     func refresh() {
         let focus = state.focusedGameID
-        let games = ConsoleGame.readyFirst(library.games.map { consoleGame($0) })
+        let heroes = Dictionary(state.games.compactMap { g in g.hero.map { (g.id, ($0, g.heroFocus)) } }) { a, _ in a }   // kept across a refresh: no flash
+        let shown = LibraryFilter.load() == .built ? library.games.filter(LibraryFilter.built.includes) : library.games   // the desktop's filter
+        let games = ConsoleGame.readyFirst(shown.map { var g = consoleGame($0); (g.hero, g.heroFocus) = heroes[g.id].map { ($0.0, $0.1) } ?? (nil, .center); return g })
         state.games = games
         state.focusedGameID = games.contains { $0.id == focus } ? focus : (library.selected.map { $0.id.uuidString }.flatMap { id in games.contains { $0.id == id } ? id : nil } ?? games.first?.id)
-        state.time = Date()
+        state.time = Date(); loadHero()
     }
 
     static func status(of game: LibraryGame, brokenMessage: String) -> ConsoleGame.Status {
@@ -178,8 +186,13 @@ struct ConsolePadSnapshot: Equatable {
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : game.launchValue(s) }
         return ConsoleGame(id: game.id.uuidString, title: game.name, version: version(of: game),
                            platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),
-                           status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values)
+                           status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values,
+                           mapsButtons: game.isReady && SavedChoices.appReadsControllerMappings(app: game.appPath)
+                               && game.controllerSavingEnabled(environment: game.launchOptions))
     }
+
+    /// The library's game behind a console game (LiveConsoleDriver+Mapping.swift reads its own button mapping).
+    func libraryGame(_ id: String) -> LibraryGame? { library.games.first { $0.id.uuidString == id } }
 
     private var versions: [String: String] = [:]
 
@@ -230,9 +243,9 @@ struct ConsolePadSnapshot: Equatable {
     }
 
     /// Covers downloaded after the first draw (ArtworkStore) show up when the console asks again.
-    func reloadCovers() { covers = [:]; refresh() }
+    func reloadCovers() { covers = [:]; for i in state.games.indices { state.games[i].hero = nil }; refresh() }
 
-    func focus(_ gameID: String) { state.focus(gameID) }
+    func focus(_ gameID: String) { state.focus(gameID); loadHero() }
 
     func play(_ gameID: String) {
         state.play(gameID)
@@ -332,7 +345,6 @@ struct ConsolePadSnapshot: Equatable {
 
     // MARK: Options
 
-    func openOptions(_ gameID: String) { state.openOptions(gameID) }
 
     func setOption(gameID: String, setting env: String, value: String) {
         state.setOption(game: gameID, setting: env, value: value)
@@ -468,61 +480,21 @@ struct ConsolePadSnapshot: Equatable {
         IdentifyPlan.actions(playerLights: c.extendedGamepad != nil, lightBar: c.light != nil, rumble: c.haptics != nil)
     }
 
-    private static let log = Logger(subsystem: "NX2Apple", category: "console.identify")
-    private var identifyEngines: [String: CHHapticEngine] = [:]   // kept alive: an engine that is released stops its pattern
-    private var identifyTask: Task<Void, Never>?
+    static let identifyLog = Logger(subsystem: "NX2Apple", category: "console.identify")
+    /// One haptics engine per controller, made on its first Identify and reused after. A new engine for every press, with the old
+    /// one released while it still played, left some controllers (DualSense, Xbox) rumbling until they were switched off.
+    var identifyEngines: [String: CHHapticEngine] = [:]
+    var identifyPlayers: [String: CHHapticPatternPlayer] = [:]
+    var rumbleStops: [String: Task<Void, Never>] = [:]
+    var identifyTask: Task<Void, Never>?
+    /// The controller whose lights and rumble run right now: a press on Identify meanwhile does not start them again.
+    var identifyRunning: String?
+    /// How long one Identify rumbles. The pattern is stopped by hand after it, whatever the controller does with the pattern's end.
+    static let rumbleSeconds = 0.6
 
-    /// Everything the controller has: its player lights step through 1 to 4, the light bar pulses, it rumbles. The assigned player
-    /// and the light's colour are restored after.
-    func identify(controllerID: String) {
-        guard let c = state.controllers.first(where: { $0.id == controllerID }) else { return }
-        state.identifyingControllerID = controllerID
-        showToast(String(format: t("console.identifyingName"), c.name))
-        guard let pad = devices[controllerID] else { return }
-        let actions = Self.identifyActions(pad)
-        Self.log.debug("identify \(c.name, privacy: .public): \(actions.map { "\($0)" }.joined(separator: ","), privacy: .public)")
-        identifyTask?.cancel()
-        identifyTask = Task { [weak self] in
-            let player = pad.playerIndex
-            let color = pad.light?.color
-            if actions.contains(.rumble) { self?.rumble(pad, id: controllerID) }
-            for step in 0..<8 {
-                guard !Task.isCancelled else { break }
-                if actions.contains(.playerLights) { pad.playerIndex = GCControllerPlayerIndex(rawValue: step % 4) ?? .indexUnset }
-                if actions.contains(.lightBar) { pad.light?.color = step % 2 == 0 ? GCColor(red: 1, green: 0.1, blue: 0.9) : GCColor(red: 0.1, green: 0.9, blue: 1) }
-                try? await Task.sleep(nanoseconds: 140_000_000)
-            }
-            pad.playerIndex = player
-            if let color { pad.light?.color = color }
-        }
-    }
-
-    private func rumble(_ pad: GCController, id: String) {
-        guard let haptics = pad.haptics else { Self.log.debug("identify: no haptics on this controller"); return }
-        let localities: [GCHapticsLocality]
-        if id.hasSuffix(".L") {
-            localities = [.leftHandle, .default, .all, .handles]
-        } else if id.hasSuffix(".R") {
-            localities = [.rightHandle, .default, .all, .handles]
-        } else {
-            localities = [.default, .all, .handles, .leftHandle, .rightHandle]
-        }
-        guard let engine = localities.lazy.compactMap({ haptics.createEngine(withLocality: $0) }).first else {
-            Self.log.debug("identify: haptics exist but no engine could be created (supported localities: \(haptics.supportedLocalities.map(\.rawValue).joined(separator: ","), privacy: .public))")
-            return
-        }
-        identifyEngines[id] = engine
-        do {
-            try engine.start()
-            let events = [CHHapticEvent(eventType: .hapticContinuous, parameters: [CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
-                                                                                  CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.6)],
-                                        relativeTime: 0, duration: 0.9)]
-            try engine.makePlayer(with: CHHapticPattern(events: events, parameters: [])).start(atTime: CHHapticTimeImmediate)
-        } catch { Self.log.debug("identify: rumble failed: \(error.localizedDescription, privacy: .public)") }
-    }
-
-    /// macOS offers apps no way to drop a Bluetooth controller, so this says where to do it instead.
-    func disconnect(controllerID: String) { showToast(t("console.disconnectHint")) }
+    /// The launcher's app updates and builds, for the General page and the build chip (LiveConsoleDriver+Desktop). Set by the session.
+    weak var appUpdates: AppUpdateStore?
+    weak var builds: BuildStore?
 
     /// Controllers that have no player take the next free one, in the order they are listed, as a console does. A fifth has none.
     static func autoAssigned(_ pads: [ConsolePadSnapshot], remembered: [String: Int] = [:]) -> [ConsolePadSnapshot] {
@@ -635,7 +607,7 @@ struct ConsolePadSnapshot: Equatable {
         guard connected else { showToast(String(format: t("console.disconnected"), name)); return true }
         if let player = state.padMerge ? 1 : state.controllers.first(where: { $0.id == id })?.player {
             showToast(String(format: t("console.connected"), name, player))
-        } else { showToast(t("console.noFreePlayer"), glyph: ConsoleGlyphs.current().glyph(for: .controllers)) }
+        } else { showToast(t("console.noFreePlayer"), glyph: ConsoleGlyphs.current().glyph(for: .menu)) }
         scheduleBatteryRereads()
         return true
     }
@@ -649,8 +621,10 @@ struct ConsolePadSnapshot: Equatable {
         let id = String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16)
         pad.physicalInputProfile.valueDidChangeHandler = nil
         for key in [id, id + ".L", id + ".R"] {
-            identifyEngines.removeValue(forKey: key)?.stop(completionHandler: nil)
-            if state.identifyingControllerID == key { identifyTask?.cancel(); state.identifyingControllerID = nil }
+            stopRumble(key)
+            identifyEngines[key] = nil
+            if identifyRunning == key { identifyTask?.cancel(); identifyRunning = nil }
+            if state.identifyingControllerID == key { state.identifyingControllerID = nil }
             devices[key] = nil
             overrides[key] = nil
             primedPlayer[key] = nil
@@ -719,16 +693,16 @@ struct ConsolePadSnapshot: Equatable {
             Self.hidLog.debug("publish \(list.count) controllers at \(self.stamp(), privacy: .public): \(list.map { "\($0.name)" }.joined(separator: ", "), privacy: .public)")
             state.controllers = list
         }
+        if controls.padMode == .auto { refreshPadLayout() }   // Auto's buttons follow the controller connected now
     }
 
     // MARK: Navigation
 
     func dismissToast() { toastTask?.cancel(); state.toast = nil; state.identifyingControllerID = nil }
-    func back() { state.back() }
     func exitToDesktop() { state.exitToDesktop() }
     func returnFromGame() { state.returnFromGame() }
 
-    private func showToast(_ message: String, glyph: ConsoleGlyphs.Glyph? = nil) {
+    func showToast(_ message: String, glyph: ConsoleGlyphs.Glyph? = nil) {
         toastTask?.cancel()
         state.toast = ConsoleToast(glyph: glyph, message: message)
         toastTask = Task { [weak self] in

@@ -87,7 +87,17 @@ import AppKit
 
     func toggle() { active ? exit() : enter() }
 
-    /// Takes the window out of full screen and then calls `launch`, which starts the game. A window that is not full screen calls it at once.
+    /// Starts the game with the launcher still full screen, so its Starting screen fills the screen until the game's own full screen
+    /// takes over: the host waits for its window to reach the active Space before entering full screen and asks once more if refused
+    /// (front_mac.m, seedds/nxnative#665). Nothing to put back after the game, so `resumeFullScreenAfterGame` only lets the pointer go.
+    func startGameInFullScreen(then launch: @escaping () -> Void) {
+        cancelPendingReturn()
+        leftForGame = false
+        launch()
+    }
+
+    /// The way before the game host waited for the Space change, kept for a launcher that turns it back on: takes the window out
+    /// of full screen and then calls `launch`, which starts the game. A window that is not full screen calls it at once.
     /// A hidden pointer stays hidden until the game has quit, as the smaller window no longer covers it (ConsolePointer.hold).
     func leaveFullScreenForGame(then launch: @escaping () -> Void) {
         guard active else { launch(); return }

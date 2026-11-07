@@ -173,8 +173,6 @@
   "console.desktop": "Retour au bureau",
   "console.desktopPreview": "De retour sur le bureau",
   "console.desktopPreviewNote": "Aperçu terminé. Votre bibliothèque reste inchangée.",
-  "console.disconnect": "Déconnecter",
-  "console.disconnectHint": "Déconnectez-la dans les réglages Bluetooth de macOS.",
   "console.disconnected": "Déconnexion : %@",
   "console.empty": "Aucun jeu pour l’instant",
   "console.emptyNote": "Compilez-en un sur votre Mac.",

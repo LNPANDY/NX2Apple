@@ -180,8 +180,6 @@
   "console.desktop": "Zum Desktop",
   "console.desktopPreview": "Zurück auf dem Desktop",
   "console.desktopPreviewNote": "Vorschau beendet. Deine Bibliothek bleibt unverändert.",
-  "console.disconnect": "Trennen",
-  "console.disconnectHint": "Trenne ihn in den Bluetooth-Einstellungen von macOS.",
   "console.disconnected": "%@ getrennt",
   "console.empty": "Noch keine Spiele",
   "console.emptyNote": "Baue eines auf deinem Mac.",

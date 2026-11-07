@@ -179,8 +179,6 @@
   "console.desktop": "Torna al desktop",
   "console.desktopPreview": "Di nuovo sul desktop",
   "console.desktopPreviewNote": "Anteprima completata. La tua libreria resta com’è.",
-  "console.disconnect": "Disconnetti",
-  "console.disconnectHint": "Disconnettilo nelle impostazioni Bluetooth di macOS.",
   "console.disconnected": "%@ scollegato",
   "console.empty": "Ancora nessun gioco",
   "console.emptyNote": "Compilane uno sul Mac.",

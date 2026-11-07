@@ -80,6 +80,10 @@ import NXModel
         XCTAssertNil(driver.state.presentedSheet)
         XCTAssertFalse(driver.state.exited)
         driver.back()
+        XCTAssertEqual(driver.state.presentedSheet, .confirmExit, "B on the home screen asks before leaving")
+        driver.back()
+        XCTAssertNil(driver.state.presentedSheet, "B again: not left")
+        driver.back(); driver.exitToDesktop()
         XCTAssertTrue(driver.state.exited)
         driver.openOptions("demo.0"); driver.openControllers(); driver.play("demo.0")
         XCTAssertNil(driver.state.presentedSheet)
@@ -240,7 +244,7 @@ import NXModel
         let sizes: [(String, CGFloat, CGFloat)] = [("tv", 1920, 1080), ("mac", 1280, 800), ("compact", 390, 844)]
         for lang in CaptureLanguage.all([.en, .zh]) {
             for (name, width, height) in sizes {
-                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "controllerDesktopSplit", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint"] {
+                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "controllerDesktopSplit", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint", "menu", "mapping", "mappingCustom", "mappingRow", "gamePad", "gameMapping", "cloudSaves", "general", "language", "confirmExit", "menuExit", "confirmMapping", "advanced", "confirmReset", "confirmUpdate"] {
                     let driver = MockConsoleDriver(scenario: MockConsoleDriver.Scenario(rawValue: screen) ?? (screen == "mixedHome" || screen == "controllerDesktop" || screen == "controllerDesktopSplit" || screen == "connectedToast" ? .controllersMixed : .full), lang: lang, animated: false)
                     switch screen {
                     case "mixedHome": driver.back()
@@ -254,6 +258,21 @@ import NXModel
                     case "broken": driver.focus("demo.7"); driver.play("demo.7")
                     case "desktop": driver.exitToDesktop()
                     case "homeHint": driver.state.showHomeButtonHint()
+                    case "menu": driver.openMenu()
+                    case "mapping": driver.openMapping()
+                    case "mappingCustom": driver.openMapping(); driver.setPadSends(button: "A", to: "B"); driver.setPadSends(button: "ZR", to: "none")
+                    case "mappingRow": driver.openMapping(); driver.setPadMode(.byLabel); driver.openMappingRow("A")
+                    case "gamePad": driver.openOptions("demo.0"); driver.openGamePad("demo.0")
+                    case "cloudSaves": driver.openMenu(); driver.openCloudSaves()
+                    case "general": driver.openMenu(); driver.openGeneral()
+                    case "language": driver.openMenu(); driver.openGeneral(); driver.openLanguage()
+                    case "confirmExit": driver.back()
+                    case "menuExit": driver.openMenu(); driver.confirmExit()
+                    case "confirmMapping": driver.openMenu(); driver.openMapping(); driver.setMenuSwapAB(true); driver.back()
+                    case "advanced": driver.openOptions("demo.0"); driver.openAdvanced("demo.0")
+                    case "confirmReset": driver.openOptions("demo.0"); driver.setOption(gameID: "demo.0", setting: "DM_VSYNC", value: "0"); driver.askResetOptions("demo.0")
+                    case "confirmUpdate": driver.openMenu(); driver.openGeneral(); driver.appUpdateAction()
+                    case "gameMapping": driver.openOptions("demo.0"); driver.openGamePad("demo.0"); driver.openGameMapping("demo.0"); driver.setPadSends(button: "ZR", to: "none")
                     default: break
                     }
                     let view: AnyView
@@ -281,8 +300,8 @@ import NXModel
     }
 
     /// The focus ring of the first tile must survive a scroll to the far end and back. Scrolling to a tile's own edge used to push the
-    /// 8 pt of room for the ring out of the row's clip, so the ring was cut at the left. The ring is cream, so the test looks for a
-    /// cream column just left of the first tile's image. Set NX_CONSOLE_CAPTURE_DIR to keep the PNGs.
+    /// 8 pt of room for the ring out of the row's clip, so the ring was cut at the left. The ring is white, so the test looks for a
+    /// light column just left of the first tile's image. Set NX_CONSOLE_CAPTURE_DIR to keep the PNGs.
     @MainActor func testFirstTileRingIsNotClippedAfterScrollingBack() throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         let (width, height): (CGFloat, CGFloat) = (1280, 800)
@@ -330,7 +349,7 @@ import NXModel
         let atEnd = try snapshot("clip-2-last")
         driver.focus(first); try settle(after: atEnd)
         let rep = try snapshot("clip-3-back")
-        // the ring is a vertical cream line along the image's left edge: the leftmost column with a long run of cream pixels
+        // the ring is a vertical light line along the image's left edge: the leftmost column with a long run of light pixels
         func ringColumn(_ rep: NSBitmapImageRep) -> Int? {
             func isCream(_ x: Int, _ y: Int) -> Bool {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }

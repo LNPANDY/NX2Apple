@@ -19,14 +19,16 @@ import Combine
     func setPadMerge(_ enabled: Bool) { layout.padMerge = enabled }
     func setJoyconSplit(_ enabled: Bool) { layout.joyconSplit = enabled }
     func openControllers() { state.openControllers() }
-    func back() { state.back() }
+    func back() { if !state.sheets.isEmpty { state.back() } }   // the desktop has no console mode to leave
     func dismissToast() { state.toast = nil }
     func focus(_ gameID: String) {}
     func play(_ gameID: String) {}
     func openOptions(_ gameID: String) {}
     func setOption(gameID: String, setting: String, value: String) {}
     func identify(controllerID: String) {}
-    func disconnect(controllerID: String) {}
+    func openMenu() {}
+    func openMapping() {}
+    func openMappingRow(_ button: String?) {}
     func requestAssignment(controllerID: String) {}
     func requestPlayer(_ player: Int) {}
     func assignPlayer(controllerID: String, player: Int) {}

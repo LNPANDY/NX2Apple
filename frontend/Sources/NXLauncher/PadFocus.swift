@@ -110,15 +110,30 @@ private struct PadTargetModifier: ViewModifier {
     let handlers: PadFocus.Handlers
     @EnvironmentObject private var focus: PadFocus
     @Environment(\.padRingStyle) private var ringStyle
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func body(content: Content) -> some View {
         focus.register(id, handlers)
         let on = focus.visible && focus.focused == id
         return content
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(LauncherPalette.cream, lineWidth: on ? 2 : 0).padding(ringStyle == .hug ? 0 : -4).allowsHitTesting(false))
+            .overlay(ring(on).allowsHitTesting(false))
             .background(GeometryReader { g in
                 Color.clear.preference(key: PadTargetKey.self, value: [.init(id: id, frame: g.frame(in: .named("pad." + scope)))])
             })
             .id(id)
+    }
+
+    /// The desktop's ring: cream, 4 points outside, there or not. The console's: white on the control's own edge, coming into focus
+    /// from a soft blur as it arrives (a fade alone with Reduce Motion), so nothing moves or grows.
+    @ViewBuilder private func ring(_ on: Bool) -> some View {
+        switch ringStyle {
+        case .outset:
+            RoundedRectangle(cornerRadius: radius).strokeBorder(LauncherPalette.cream, lineWidth: on ? 2 : 0).padding(-4)
+        case .hug:
+            RoundedRectangle(cornerRadius: radius).strokeBorder(Color.white, lineWidth: 2.5)
+                .opacity(on ? 1 : 0)
+                .blur(radius: on || reduceMotion ? 0 : 8)
+                .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.22), value: on)
+        }
     }
 }

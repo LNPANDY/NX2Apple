@@ -22,7 +22,32 @@ import NXLauncher
     func assignPlayer(controllerID: String, player: Int) { base.assignPlayer(controllerID: controllerID, player: player) }
     func requestAssignment(controllerID: String) { base.requestAssignment(controllerID: controllerID) }
     func identify(controllerID: String) { base.identify(controllerID: controllerID) }
-    func disconnect(controllerID: String) { base.disconnect(controllerID: controllerID) }
+    func openMenu() { base.openMenu() }
+    func openGeneral() { base.openGeneral() }
+    func openCloudSaves() { base.openCloudSaves() }
+    func openLanguage() { base.openLanguage() }
+    func confirmExit() { base.confirmExit() }
+    func testRumble(gameID: String) { base.testRumble(gameID: gameID) }
+    func setMod(gameID: String, name: String, on: Bool) { base.setMod(gameID: gameID, name: name, on: on) }
+    func setCheatsMaster(gameID: String, on: Bool) { base.setCheatsMaster(gameID: gameID, on: on) }
+    func setCheat(gameID: String, key: String, on: Bool) { base.setCheat(gameID: gameID, key: key, on: on) }
+    func openAdvanced(_ gameID: String) { base.openAdvanced(gameID) }
+    func askResetOptions(_ gameID: String) { base.askResetOptions(gameID) }
+    func resetOptions(_ gameID: String) { base.resetOptions(gameID) }
+    func openOnDesktop(_ gameID: String) { base.openOnDesktop(gameID) }
+    func setPref(_ pref: ConsolePref, on: Bool) { base.setPref(pref, on: on) }
+    func appUpdateAction() { base.appUpdateAction() }
+    func confirmAppUpdate() { base.confirmAppUpdate() }
+    func openSystemHomeSettings() { base.openSystemHomeSettings() }
+    func openGameMapping(_ gameID: String) { base.openGameMapping(gameID) }
+    func openGamePad(_ gameID: String) { base.openGamePad(gameID) }
+    func openMapping() { base.openMapping() }
+    func openMappingRow(_ button: String?) { base.openMappingRow(button) }
+    func setPadMode(_ mode: PadMode) { base.setPadMode(mode) }
+    func setPadSends(button: String, to output: String) { base.setPadSends(button: button, to: output) }
+    func resetPadMapping() { base.resetPadMapping() }
+    func setMenuSwapAB(_ on: Bool) { base.setMenuSwapAB(on) }
+    func finishMapping(save: Bool) { base.finishMapping(save: save) }
     func setPadMerge(_ enabled: Bool) { base.setPadMerge(enabled) }
     func setJoyconSplit(_ enabled: Bool) { base.setJoyconSplit(enabled) }
     func dismissToast() { base.dismissToast() }
@@ -210,6 +235,15 @@ struct ConsoleToastView: View {
     let lang: Lang
     let compact: Bool
     var scope = "console.controllers"
+    /// The row that opens the button mapping. The desktop's Controllers sheet has the Controls page for that instead.
+    var showsMapping = true
+    /// The Joy-Con split only while a Joy-Con is connected (or the split is on, so it can be turned off). The desktop's sheet lists no
+    /// controllers, so it always shows it.
+    var joyconSplitOnlyWithJoyCon = true
+    private var showsJoyconSplit: Bool {
+        !joyconSplitOnlyWithJoyCon || state.joyconSplit
+            || state.controllers.contains { $0.kind == .paired || $0.name.hasPrefix("Joy-Con") }
+    }
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var state: ConsoleState { driver.state }
@@ -222,7 +256,9 @@ struct ConsoleToastView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     mergeToggle
-                    joyconSplitToggle
+                    if showsJoyconSplit { joyconSplitToggle }
+                    if showsMapping { mappingEntry }
+                    if showsMapping && state.homeButtonAvailable { homeEntry }
                     Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(.secondary)
                     HStack(spacing: 12) {
                         ForEach(1...4, id: \.self) { player in
@@ -270,6 +306,48 @@ struct ConsoleToastView: View {
         .accessibilityLabel(t("console.mergeAll")).accessibilityValue(t(state.padMerge ? "console.on" : "console.off"))
     }
 
+    /// The button mapping for all games, with the layout it uses now, as iOS shows it in its Controllers page.
+    private var mappingEntry: some View {
+        let open = { driver.openMapping() }
+        let value = t("controls.mode." + state.padLayout.mode.rawValue)
+        return Button(action: open) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(t("console.mapping"), systemImage: "arrow.left.arrow.right").font(.manrope(compact ? 16 : 18, .semibold))
+                    Text(value).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.padLayout.isDefault ? .secondary : LauncherPalette.cream)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundStyle(.white.opacity(0.4)).accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.controller.mapping", scope: scope, radius: 10, activate: open)
+        .accessibilityLabel(t("console.mapping")).accessibilityValue(value)
+        .accessibilityHint(t("console.menu.mappingNote"))
+    }
+
+    /// "Quit games with the Home button": the system's setting on macOS 27 (HomeButtonSettings), opened as the desktop's Controls page does.
+    private var homeEntry: some View {
+        let open = { driver.openSystemHomeSettings() }
+        return Button(action: open) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(t("controls.homeQuit"), systemImage: "house").font(.manrope(compact ? 16 : 18, .semibold))
+                    Text(t("controls.homeQuitNote")).font(.manrope(compact ? 14 : 16)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.forward.app").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white.opacity(0.45)).accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.controller.home", scope: scope, radius: 10, activate: open)
+        .accessibilityLabel(t("controls.homeQuit")).accessibilityHint(t("controls.homeQuitNote"))
+    }
+
     /// "Split Joy-Con pair into two controllers" (#740) as a switch with its state spelled out.
     private var joyconSplitToggle: some View {
         let flip = { driver.setJoyconSplit(!state.joyconSplit) }
@@ -302,11 +380,10 @@ struct ConsoleToastView: View {
                 }
                 Spacer(minLength: 0)
             }
-            // Three equal tiles: the icon above a label that wraps between words only (and shrinks a little rather than break a word).
+            // Equal tiles (no Disconnect: macOS gives apps no way to drop a Bluetooth controller): the icon above a label that wraps between words only (and shrinks a little rather than break a word).
             HStack(spacing: 10) {
                 if controller.canIdentify { tile(id: controller.id + ".identify", label: t(state.identifyingControllerID == controller.id ? "console.identifying" : "console.identify"), symbol: "wave.3.right") { driver.identify(controllerID: controller.id) } }
                 tile(id: controller.id + ".assign", label: t("console.assign"), symbol: "person.crop.circle.badge.plus") { driver.requestAssignment(controllerID: controller.id) }
-                tile(id: controller.id + ".disconnect", label: t("console.disconnect"), symbol: "xmark.circle") { driver.disconnect(controllerID: controller.id) }
             }
             if state.isPreview, state.assigningPlayer != nil, state.assigningControllerID == nil || state.assigningControllerID == controller.id {
                 action(id: controller.id + ".press", label: t("console.mockPress"), symbol: "hand.tap") {
@@ -359,7 +436,7 @@ struct ConsoleToastView: View {
                     .buttonStyle(.plain).accessibilityLabel(L10n.string("console.close", lang))
                     .padTarget("console.sheet.close", scope: "console.controllers", radius: 24, activate: close)
             }.padding(24)
-            ConsoleControllerList(driver: driver, lang: lang, compact: true)
+            ConsoleControllerList(driver: driver, lang: lang, compact: true, showsMapping: false, joyconSplitOnlyWithJoyCon: false)
         }
         .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).preferredColorScheme(.dark)
         .foregroundStyle(.white).padScope("console.controllers", pad)

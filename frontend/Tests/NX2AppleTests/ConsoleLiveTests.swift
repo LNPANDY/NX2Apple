@@ -217,8 +217,40 @@ import SwiftUI
         driver.setPadMerge(true)
         XCTAssertTrue(layout.padMerge)
         XCTAssertTrue(driver.state.padMerge)
-        driver.disconnect(controllerID: "a")
-        XCTAssertNotNil(driver.state.toast, "a Bluetooth controller cannot be dropped by an app: the toast says where")
+    }
+
+    /// The console's button mapping is the Controls page's controller layout: a button changed there makes it Custom, Reset goes back
+    /// to the standard layout, and the sheet shows what the layout sends.
+    func testMappingChangesTheSharedControllerLayout() throws {
+        let (driver, _, layout) = try makeDriver(pads: [])
+        driver.openMenu()
+        XCTAssertEqual(driver.state.presentedSheet, .menu)
+        driver.openMapping()
+        XCTAssertEqual(driver.state.presentedSheet, .mapping)
+        driver.openMappingRow("A")
+        XCTAssertEqual(driver.state.mappingRow, "A")
+        driver.setPadSends(button: "A", to: "B")
+        driver.refreshPadLayout()
+        XCTAssertEqual(layout.padMode, .custom)
+        XCTAssertEqual(layout.environment["DM_PAD_MAP"], "A=B")
+        XCTAssertEqual(driver.state.padLayout.mode, .custom)
+        XCTAssertEqual(driver.state.padLayout.output("A"), "B")
+        XCTAssertTrue(driver.state.padLayout.changed("A"))
+        driver.setPadSends(button: "X", to: "nonsense")
+        XCTAssertNil(layout.environment["DM_PAD_MAP"]?.range(of: "X="), "an unknown button is refused")
+        driver.back()
+        XCTAssertNil(driver.state.mappingRow, "B in a button's choices goes back to the list")
+        XCTAssertEqual(driver.state.presentedSheet, .mapping)
+        driver.setPadMode(.byLabel)
+        driver.refreshPadLayout()
+        XCTAssertEqual(driver.state.padLayout.output("A"), "B")
+        XCTAssertEqual(driver.state.padLayout.output("X"), "Y")
+        driver.resetPadMapping()
+        driver.refreshPadLayout()
+        XCTAssertTrue(driver.state.padLayout.isDefault)
+        XCTAssertNil(layout.environment["DM_PAD_MAP"])
+        driver.back(); driver.back()
+        XCTAssertNil(driver.state.presentedSheet, "mapping, then the menu, close in turn")
     }
 
     func testJoyconSplitExpandsPairedJoyConIntoTwoSidewaysPlayers() throws {
@@ -260,6 +292,23 @@ import SwiftUI
         XCTAssertEqual(calls, [true], "the window has not left full screen yet")
         try await Task.sleep(nanoseconds: 150_000_000)
         coordinator.toggle()
+    }
+
+    /// Console mode's Play: the launcher stays full screen while the game starts, and nothing changes the window when it quits.
+    func testAGameStartsWithTheConsoleStillFullScreen() {
+        var calls: [Bool] = []
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        window.isFull = true
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in calls.append(on); done() }, fadeSeconds: 0.05)
+        coordinator.available = true
+        coordinator.enter()
+        var launched = 0
+        coordinator.startGameInFullScreen { launched += 1 }
+        XCTAssertEqual(launched, 1, "the game starts at once")
+        XCTAssertEqual(calls, [], "the window stays full screen")
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(calls, [], "and is left alone when the game quits")
+        XCTAssertTrue(coordinator.active)
     }
 
     func testAGameStartsFromAWindowThatLeftFullScreenAndFullScreenReturnsAfterIt() throws {
@@ -496,7 +545,9 @@ import SwiftUI
     }
 
     func testSelectButtonGlyphAndInput() {
-        XCTAssertNil(ConsoleInput(.select), "in console mode Select does nothing special")
+        XCTAssertEqual(ConsoleInput(.select), .menu, "in console mode Select opens the console's menu")
+        XCTAssertEqual(ConsoleInput(.plus), .menu, "so does the menu button")
+        XCTAssertEqual(ConsoleInput(.y), .options, "Y opens a game's options")
         XCTAssertEqual(ConsoleGlyphs.Role.select.element, .select)
         XCTAssertEqual(ConsoleGlyphs(family: .playStation, reported: [.select: "square.and.arrow.up"]).glyph(for: .select), .symbol("square.and.arrow.up"), "the controller's own symbol")
         for family in [ConsoleGlyphs.Family.xbox, .playStation, .nintendo, .neutral] {
