@@ -23,6 +23,7 @@ from . import input_staging
 from . import inputs
 from . import library as lib
 from . import platform_util as pu
+from . import romfs_languages
 from .i18n import Lang
 from .l10n import t
 
@@ -2116,26 +2117,68 @@ class Model(QObject):
                 return
         base_dir = folder.folder if folder is not None else str(Path(self.base_path).parent)
         # a game folder or a NUP goes to the script as it is: nothing is staged and no file is a package
-        all_files = [] if folder is not None else [self.base_path, self.update_path] + self.dlc_paths
-        dirs = {str(Path(f).parent) for f in all_files if f}
+        all_files = [] if folder is not None else [f for f in ([self.base_path, self.update_path] + list(self.dlc_paths)) if f]
+        dirs = {str(Path(f).parent) for f in all_files}
+        picked = {Path(f).name for f in all_files}
+        unpicked: list[str] = []
+        if folder is None:
+            try:
+                unpicked = sorted(
+                    n for n in os.listdir(base_dir)
+                    if not n.startswith('._')
+                    and Path(n).suffix.lower() in inputs.GAME_SUFFIXES
+                    and n not in picked
+                    and Path(base_dir, n).is_file()
+                )
+            except OSError:
+                unpicked = []
+        staged = list(all_files)
+        if folder is None:
+            base_tid = int(title_id, 16) if title_id else inputs.title_id(Path(self.base_path).name)
+            if base_tid is not None:
+                app = base_tid & ~0xFFF
+                upd_candidates: list[str] = []
+                for f in unpicked:
+                    ftid = inputs.title_id(f)
+                    if ftid is None or inputs.owner(ftid) != app:
+                        continue
+                    low = ftid & 0xFFF
+                    if low == 0:
+                        continue
+                    if low == 0x800:
+                        if not self.update_path:
+                            upd_candidates.append(f)
+                        continue
+                    if ftid <= app:
+                        continue
+                    staged.append(str(Path(base_dir, f)))
+                if upd_candidates:
+                    best_upd = max(upd_candidates, key=lambda n: (inputs.update_version(n), n))
+                    staged.append(str(Path(base_dir, best_upd)))
 
         self._last_build_inputs = self._package_inputs()
         tid_hex = title_id or self.build_key
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
         input_dir = folder.script_input if folder is not None else base_dir
-        if len(dirs) > 1 or any(input_staging.needs_lowercase_name(f) for f in all_files if f):
+        if folder is None and (
+            len(dirs) > 1
+            or bool(unpicked)
+            or any(input_staging.needs_lowercase_name(f) for f in staged if f)
+        ):
             # (a .NSP or .Xci file goes through it too, under a lowercase extension: the script's glob misses it, #554)
-            # files from different folders: a stable folder of links per game, so the script sees one
-            # folder and its fingerprints match on the next build (#132)
+            # files from different folders or a shared ROMs folder: a stable folder of links per game, so the script sees
+            # one game and its fingerprints match on the next build (#58, #132)
             staging = input_staging.folder(work_dir)
-            if input_staging.sync(all_files, staging, hard_links=not pu.IS_WIN) == 0:
+            if input_staging.sync(staged, staging, hard_links=not pu.IS_WIN) == 0:
                 self.finished.emit(False, self.t('msg.stagingFailed'))
                 return
             input_dir = staging
+            if unpicked:
+                self.log(self.t('msg.stagedFromSharedFolder', Path(self.base_path).name) + '\n')
 
         compressed = any(Path(f).suffix.lower() in ('.nsz', '.xcz')
-                         for f in all_files if f)
+                         for f in staged if f)
         if compressed and not pu._runs(py, ['-c', 'import nsz']):
             self.log(self.t('msg.installingNsz') + '\n')
             if not pu._runs(py, ['-m', 'pip', 'install', 'nsz']):
@@ -2630,7 +2673,7 @@ class Model(QObject):
             if lp.is_file():
                 try:
                     data = json.loads(lp.read_text(encoding='utf-8'))
-                    ltid = str(data.get('title_id') or '').strip() if isinstance(data, dict) else ''
+                    ltid = str((data.get('title_id') or data.get('game')) or '').strip() if isinstance(data, dict) else ''
                     if re.fullmatch(r'[0-9A-Fa-f]{16}', ltid):
                         return ltid.upper()
                 except Exception:
@@ -2724,6 +2767,7 @@ class Model(QObject):
                         versions.append((int(d.name[1:]), d))
                     except ValueError:
                         pass
+            versions.sort(key=lambda x: x[0])
         if not versions:
             if export_shell:
                 return self._export_shell_after_archive(True, self.t('msg.archiveSkipped', str(extract)))
@@ -2742,6 +2786,8 @@ class Model(QObject):
 
         ok = True
         out_img = Path(dest, 'romfs.img')
+        id_src = Path(f'{romfs_img}.id')
+        id_dst = Path(f'{out_img}.id')
         try:
             Path(dest).mkdir(parents=True, exist_ok=True)
             if romfs_img.is_file():
@@ -2759,6 +2805,9 @@ class Model(QObject):
                         os.link(romfs_img, out_img)
                     except OSError:
                         shutil.copy2(romfs_img, out_img)
+                id_dst.unlink(missing_ok=True)
+                if id_src.is_file():
+                    shutil.copy2(id_src, id_dst)
             else:
                 py_exe = self.python_path
                 if not py_exe:
@@ -2776,12 +2825,22 @@ class Model(QObject):
                     self.log(line)
                 p.wait()
                 ok = p.returncode == 0
+                id_dst.unlink(missing_ok=True)
+                if ok and id_src.is_file():
+                    shutil.copy2(id_src, id_dst)
             aoc_dst = Path(dest, 'aoc')
             aoc_src = Path(work, 'aoc')
             if ok:
                 shutil.rmtree(aoc_dst, ignore_errors=True)
                 if aoc_src.is_dir() and any(aoc_src.iterdir()):
                     shutil.copytree(aoc_src, aoc_dst)
+                try:
+                    from .win import shell_export as se
+                    fw = se.built_framework(work)
+                    if fw is not None:
+                        romfs_languages.apply_to_launcher_json(fw / 'dm' / 'launcher.json', dest)
+                except Exception:
+                    pass
         except OSError as e:
             self.log(f'{e}\n')
             ok = False
