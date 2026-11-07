@@ -4,11 +4,12 @@ import XCTest
 @testable import NXLauncher
 
 /// The launch options as saved choices in the app's own preferences domain, and launcher.json schema 1. Every app here has a
-/// bundle ID of this run, so nothing touches a real game's domain; tearDown removes it.
+/// bundle ID of this run, a path in the test's folder (`TestPreferences`), so nothing touches a real game's domain or
+/// `~/Library/Preferences`; tearDown removes the folder.
 final class SavedChoicesTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "01007EF00011E000"
-    private var bundleID: String { "org.nxnative.frontendtests.saved." + temporary.lastPathComponent }
+    private var bundleID: String { TestPreferences.domain(in: temporary, "saved") }
 
     override func setUpWithError() throws {
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxnative-saved-" + UUID().uuidString)
@@ -16,11 +17,7 @@ final class SavedChoicesTests: IsolatedDefaultsTestCase {
     }
 
     override func tearDownWithError() throws {
-        let domain = bundleID as CFString
-        for key in (CFPreferencesCopyKeyList(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] {
-            CFPreferencesSetAppValue(key as CFString, nil, domain)
-        }
-        CFPreferencesAppSynchronize(domain)
+        CFPreferencesAppSynchronize(bundleID as CFString)
         try FileManager.default.removeItem(at: temporary)
     }
 

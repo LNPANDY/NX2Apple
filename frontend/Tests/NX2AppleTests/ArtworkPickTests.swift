@@ -268,7 +268,7 @@ import NXLauncher
         model.lang = CaptureLanguage.current(.en)
         stores.dependencies.checked = true
         stores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])]
-        let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
+        let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"), artwork: f.folder)   // the banners saved above
         let games = [("0100C2500FC20000", "Splatoon 3"), ("010015100B514000", "Super Mario Bros. Wonder"),
                      ("040074A01BF12000", "Donkey Kong Bananza"), ("0400380020056000", "Splatoon Raiders")]
         var ids: [String: UUID] = [:]
@@ -276,7 +276,7 @@ import NXLauncher
         func showSaved() {
             for (titleID, _) in games {
                 guard let id = ids[titleID] else { continue }
-                library.setArtwork(ArtworkStore.cachedBanner(titleID, in: f.folder)?.path ?? "", for: id)
+                library.setArtwork(GameArtwork(), for: id)   // no choice: the saved banner, read again
             }
             library.selectedID = ids["0100C2500FC20000"]
         }
@@ -308,7 +308,7 @@ import NXLauncher
             try FileManager.default.createSymbolicLink(at: executables.appendingPathComponent(tool), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
         }
         let info: [String: Any] = ["DMTitleID": titleID, "CFBundleDisplayName": name, "CFBundleExecutable": "nxnative",
-                                   "CFBundleIdentifier": "org.nxnative.frontendtests.artwork." + temporary.lastPathComponent]
+                                   "CFBundleIdentifier": TestPreferences.domain(in: temporary, "artwork")]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
         return app
     }

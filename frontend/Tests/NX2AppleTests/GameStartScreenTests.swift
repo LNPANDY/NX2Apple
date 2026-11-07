@@ -20,7 +20,7 @@ import XCTest
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let library = GameLibrary(file: dir.appendingPathComponent("library.json"))
-        let layout = ControlLayout(defaults: UserDefaults(suiteName: "GameStartScreenTests-" + UUID().uuidString)!)
+        let layout = ControlLayout(defaults: TestDefaults.make("GameStartScreenTests"))
         let game = LibraryGame(titleID: "01001A9012345000", name: "X", appPath: dir.appendingPathComponent("X.app").path)
         func environment(_ screen: NSScreen?) -> [String: String] {
             GameStart.environment(for: game, library: library, controls: layout, repo: "", labels: { $0 }, screen: screen)

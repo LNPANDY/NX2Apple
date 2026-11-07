@@ -93,7 +93,7 @@ index 77d7ca3..7fb0bfc 100644
  
  static NSString *documents(void) { return NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0]; }
  
-@@ -52,10 +45,9 @@ static void log_to(NSString *log) {
+@@ -52,10 +45,9 @@ const char *dm_shell_start_game(const char *const *keys, const char *const *valu
          fprintf(stderr, "boot: %s=%s\n", keys[i], values[i]);   // every one: a report then shows which of the game's settings reached the engine
      }
      if (cwd && *cwd) chdir(cwd);
@@ -107,7 +107,7 @@ index 77d7ca3..7fb0bfc 100644
      if (!h) {
          snprintf(err, sizeof err, "The game's code could not be loaded: %s", dlerror() ?: "no reason given");
          fprintf(stderr, "[RED] boot: dlopen %s failed: %s\n", executable, err);
-@@ -69,11 +61,25 @@ static void log_to(NSString *log) {
+@@ -69,11 +61,25 @@ const char *dm_shell_start_game(const char *const *keys, const char *const *valu
          fprintf(stderr, "[RED] boot: %s: %s\n", executable, err);
          return err;
      }
@@ -181,7 +181,7 @@ index 77d7ca3..7fb0bfc 100644
  
  @interface App : UIResponder <UIApplicationDelegate>
  @end
-@@ -145,11 +120,11 @@ - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session op
+@@ -145,11 +120,11 @@ static UIInterfaceOrientationMask shell_orientations(UITraitCollection *traits)
      self.window.rootViewController = [ShellLibrary makeController];
      [self.window makeKeyAndVisible];
  }

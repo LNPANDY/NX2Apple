@@ -32,6 +32,10 @@ package struct ProgressCard: View {
                         }
                     }
                     .padding(.horizontal, 18).padding(.vertical, 12)
+                    if s.state == .running && s.isScanningLastShaderFiles {
+                        Text(loc.t("prog.lastShaderFiles")).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 18).padding(.bottom, 12)
+                    }
                 }
                 if build.stages.isEmpty && build.running {
                     CardRow(loc.t("library.preparing")) { ProgressView().controlSize(.small) }

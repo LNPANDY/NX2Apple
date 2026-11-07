@@ -42,18 +42,17 @@ import XCTest
     }
 
     private var root = ""
-    private var suite = ""
+    private var defaults: UserDefaults!
     private let repo = FakeRepo()
     private let runner = FakeProcessRunner()
 
     override func setUpWithError() throws {
         root = NSTemporaryDirectory() + "gamefolder-store-" + UUID().uuidString
-        suite = "nxmodel-gamefolder-" + UUID().uuidString
+        defaults = TestDefaults.make("nxmodel-gamefolder")
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        UserDefaults(suiteName: suite)?.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(atPath: root)
     }
 
@@ -86,7 +85,7 @@ import XCTest
         mkdir(game + "/dlc/040074a01bf13001/0/romfs")
         repo.path = engine
         let store = BuildStore(localizer: Localizer(.en), runner: runner, repo: repo, deps: FakeDeps(), engine: FakeEngine(), devices: FakeDevices(),
-                               defaults: UserDefaults(suiteName: suite)!)
+                               defaults: defaults)
         store.cloudFolderCheck = { _ in false }
         store.target = BuildTarget.mac
         return (store, game)

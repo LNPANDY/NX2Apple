@@ -1,6 +1,7 @@
 """State, dependency detection and the build runner. No UI here: the window connects to signals."""
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -106,6 +107,7 @@ class Model(QObject):
         self.engine_syncing = False   # tools/engine.py sync runs: the window shows a status line
         self.engine_failure: bf.Failure | None = None   # how the last sync stopped (engine.py's failure_kind), shown as a failure row with Try again
         self.failure: bf.Failure | None = None   # the script's known early stop (build_failure.py), None for any other
+        self._last_build_inputs: tuple[str, ...] = ()
         self.override = bf.OverrideState()      # "Build anyway": one confirmed --allow-* for the next build
         self._last_error = ''   # the last real log line: the failure note names it (issue #52)
         self.game_dir = ''
@@ -275,10 +277,19 @@ class Model(QObject):
             keys = (game.inputs.get('keys') or [''])[0]
             if keys:
                 self.keys_path = keys
-        if game.output_dir:
-            self.out_dir = game.output_dir
+        self.out_dir = game.output_dir or ''
         self.ipa_path = game.ipa_path if game.has_ipa else ''
-        self.archive_path = game.archive_path if game.has_archive else ''
+        arch = game.archive_path if game.has_archive else ''
+        if (not arch or Path(arch).name == 'romfs') and re.fullmatch(r'[0-9A-Fa-f]{16}', game.title_id or ''):
+            base_parent = Path(self.game_folder.folder) if self.game_folder is not None else (
+                Path(self.base_path).parent if self.base_path else None)
+            root = Path(self.out_dir) if self.out_dir else base_parent
+            if root is not None:
+                cand = root / 'games' / game.title_id.upper()
+                if (cand / 'romfs.img').is_file() or (cand / 'romfs').is_dir() or (cand / 'aoc').is_dir():
+                    arch = str(cand)
+        self.archive_path = arch
+        self.effective_work_dir = ''
         self.library.select(game.title_id)
         self.repoChanged.emit()
 
@@ -388,6 +399,11 @@ class Model(QObject):
         except OSError:
             return False
         return "'--work-dir'" in text or '"--work-dir"' in text
+
+    def supports_shell_framework(self) -> bool:
+        return (Path(self.engine_path, 'dm', 'ios', 'Shell').is_dir()
+                or Path(self.engine_path, 'dm', 'ios', 'framework').is_dir()
+                or Path(self.engine_path, 'dm', 'ios', 'shell').is_dir())
 
     # ---- dependencies
 
@@ -1468,10 +1484,10 @@ class Model(QObject):
 
         threading.Thread(target=run_all, daemon=True).start()
 
-    @Slot(bool)
-    def _build_after_sync(self, ok: bool) -> None:
+    @Slot(bool, str)
+    def _build_after_sync(self, ok: bool, title_id: str) -> None:
         if ok and not engine.needs_sync_before_build(self.repo_path):
-            self.start_build()
+            self.start_build(title_id=title_id or None)
         else:
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
 
@@ -1617,15 +1633,29 @@ class Model(QObject):
 
     # ---- build
 
-    def start_build(self) -> None:
-        if self.running:
+    def _package_inputs(self) -> tuple[str, ...]:
+        return (self.repo_path, self.base_path, self.update_path, *self.dlc_paths)
+
+    @property
+    def selectable_titles(self) -> tuple[str, ...]:
+        if self.failure and self._last_build_inputs == self._package_inputs():
+            return self.failure.title_ids
+        return ()
+
+    def start_build(self, *, title_id: str | None = None) -> None:
+        if self.running or (title_id is not None and title_id not in self.selectable_titles):
             return
+        self._last_error = ''
+        self.failure = None
         if not self.repo_ok:
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
             return
+        if self.game_folder is None and not self.base_path:
+            return
         if engine.needs_sync_before_build(self.repo_path):
             # engine/ is the only engine and is stale or missing: make it, then build (a failed sync names its fix in the log)
-            self.sync_engine(lambda ok: QMetaObject.invokeMethod(self, '_build_after_sync', Qt.QueuedConnection, Q_ARG(bool, ok)))
+            self.sync_engine(lambda ok: QMetaObject.invokeMethod(
+                self, '_build_after_sync', Qt.QueuedConnection, Q_ARG(bool, ok), Q_ARG(str, title_id or '')))
             return
         py = self.python_path or ('python' if pu.IS_WIN else '/usr/bin/python3')
         folder = self.game_folder
@@ -1639,7 +1669,8 @@ class Model(QObject):
         all_files = [] if folder is not None else [self.base_path, self.update_path] + self.dlc_paths
         dirs = {str(Path(f).parent) for f in all_files if f}
 
-        tid_hex = self.build_key
+        self._last_build_inputs = self._package_inputs()
+        tid_hex = title_id or self.build_key
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
         input_dir = folder.script_input if folder is not None else base_dir
@@ -1672,6 +1703,8 @@ class Model(QObject):
             cwd = self.engine_path
         # a game folder's files are not encrypted: no -k, the keys are not asked for
         args = entry + [input_dir] + ([] if folder is not None else ['-k', self.keys_path]) + ['--progress', 'lines']
+        if title_id:
+            args += ['--title-id', title_id]
         has_work_dir = self.supports_work_dir()
         if has_work_dir:
             args += ['--work-dir', work_dir]
@@ -1682,14 +1715,26 @@ class Model(QObject):
         # RomFS is inside it, so the archive step is skipped below.
         self.ipa_path = self.archive_path = self.mac_app_path = ''
         mac_app = self.target == 'mac-app'
+        self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
+        use_shell_fw = not mac_app and self.ipa_kind == 'shared' and self.supports_shell_framework()
         if mac_app:
             args += ['--platform', 'mac-app']
             self.mac_app_path = str(Path(self.out_dir or base_dir, f'{tid_hex}.app'))
             args += ['-o', self.mac_app_path]
-        elif self.out_dir:
-            self.ipa_path = str(Path(self.out_dir, f'{tid_hex}.ipa'))
+        elif use_shell_fw:
+            from .win import shell_export as se
+            tpl = se.find_shell_template(self.engine_path, root=self.shell_cache_path, log=self.log)
+            if tpl is None or not (tpl / se.SCHEME).is_file():
+                self.finished.emit(False, self.t('shell.exportFailed', f'missing {se.APP_NAME} template'))
+                return
+            sf_dir = Path(self.effective_work_dir, 'shell-framework')
+            if sf_dir.is_dir():
+                for old_fw in sf_dir.glob('DmGame*.framework'):
+                    shutil.rmtree(old_fw, ignore_errors=True)
+            args += ['--shell-framework', str(sf_dir)]
+        elif self.out_dir or title_id:
+            self.ipa_path = str(Path(self.out_dir or base_dir, f'{tid_hex}.ipa'))
             args += ['-o', self.ipa_path]
-        self.effective_work_dir = work_dir if has_work_dir else str(Path(base_dir if folder is not None else input_dir, f'{tid_hex}_build'))
         if self.bc_on_cpu and not mac_app:
             try:
                 Path(self.effective_work_dir).mkdir(parents=True, exist_ok=True)
@@ -1702,14 +1747,16 @@ class Model(QObject):
         flag = self.override.take()   # for this build only: the next one asks again
         args = bf.arguments(args, flag)
 
+        input_game = None
         if self.base_path:
-            self.library.remember_inputs(
+            input_game = self.library.remember_inputs(
                 base_path=self.base_path,
                 update_path=self.update_path,
                 dlc_paths=self.dlc_paths,
                 keys_path=self.keys_path,
                 output_dir=self.out_dir,
                 repo_path=self.engine_path,
+                title_id=title_id,
             )
             self._emit_library_changed()
 
@@ -1747,7 +1794,7 @@ class Model(QObject):
                 self.log(f'[shim] could not prepare the Windows shim: {e}\n')
             env['NSPB_REPO'] = self.engine_path
 
-        def work() -> None:
+        def run_build() -> tuple[bool, str]:
             ok = False
             try:
                 self._proc = subprocess.Popen([py] + args, cwd=cwd,
@@ -1765,21 +1812,24 @@ class Model(QObject):
             finally:
                 self._proc = None
             self._flush_lines()
-            self.running = False
-            self.runningChanged.emit(False)
-            if mac_app:
-                exists = bool(self.mac_app_path) and Path(self.mac_app_path).exists()
-                self.finished.emit(exists, self.t('target.macDone' if exists else 'target.missingApp'))
+            if ok and mac_app:
+                ok = bool(self.mac_app_path) and Path(self.mac_app_path).exists()
+                note = self.t('target.macDone' if ok else 'target.missingApp')
+                if ok and input_game:
+                    input_game.app_path = self.mac_app_path
+                    self.library.upsert(input_game)
+                    self._emit_library_changed()
             elif ok:
                 for st in self.stages:
                     if st.state == 'running':
                         st.state = 'done'
                 self.stagesChanged.emit()
-                if self.ipa_kind == 'oneGame':
-                    self._record_library_ios_completion()
-                    self.finished.emit(True, self.t('shell.oneGameDone', self.ipa_path))
-                else:
-                    self.pack_archive()
+                if self.ipa_kind != 'oneGame':
+                    return self.pack_archive(title_id, export_shell=use_shell_fw)
+                if not self.ipa_path:
+                    self.ipa_path = str(Path(base_dir, f'{tid_hex}.ipa'))
+                self._record_library_ios_completion(title_id)
+                note = self.t('shell.oneGameDone', self.ipa_path)
             else:
                 if self.stages:
                     self.stages[-1].state = 'failed'
@@ -1792,7 +1842,21 @@ class Model(QObject):
                 if known.kind != bf.UNKNOWN:   # a known early stop: the window explains it and offers the next step
                     self.failure = known
                     note = self.failure_what(known)
-                self.finished.emit(False, note)
+            return ok, note
+
+        def work() -> None:
+            try:
+                ok, note = run_build()
+            except Exception as e:
+                self.log(f'{e}\n')
+                if self.stages:
+                    self.stages[-1].state = 'failed'
+                    self.stagesChanged.emit()
+                ok, note = False, self.t('msg.buildFailedReason', str(e))
+            finally:
+                self.running = False
+                self.runningChanged.emit(False)
+            self.finished.emit(ok, note)
 
         self._thread = threading.Thread(target=work, daemon=True)
         self._thread.start()
@@ -1888,8 +1952,116 @@ class Model(QObject):
 
     # ---- the archive step (what makes a 16 GB game installable)
 
-    def pack_archive(self) -> None:
+    def _verified_title_id(self, work: str = '', title_id: str | None = '') -> str:
+        if re.fullmatch(r'[0-9A-Fa-f]{16}', title_id or ''):
+            return (title_id or '').upper()
+
+        def _from_work(w: str) -> str:
+            if not w:
+                return ''
+            try:
+                from .win import shell_export as se
+                fw = se.built_framework(w)
+                if fw is not None:
+                    ftid = se.title_id_of_framework(fw)
+                    if re.fullmatch(r'[0-9A-Fa-f]{16}', ftid or ''):
+                        return ftid.upper()
+                    mp = fw / 'game.manifest.json'
+                    if mp.is_file():
+                        data = json.loads(mp.read_text(encoding='utf-8'))
+                        mtid = str(data.get('title_id') or '').strip() if isinstance(data, dict) else ''
+                        if re.fullmatch(r'[0-9A-Fa-f]{16}', mtid):
+                            return mtid.upper()
+            except Exception:
+                pass
+            lp = Path(w, 'Gen', 'launcher.json')
+            if lp.is_file():
+                try:
+                    data = json.loads(lp.read_text(encoding='utf-8'))
+                    ltid = str(data.get('title_id') or '').strip() if isinstance(data, dict) else ''
+                    if re.fullmatch(r'[0-9A-Fa-f]{16}', ltid):
+                        return ltid.upper()
+                except Exception:
+                    pass
+            return ''
+
+        if work:
+            wtid = _from_work(work)
+            if wtid:
+                return wtid
+        arch = getattr(self, 'archive_path', '') or ''
+        if arch:
+            ap = Path(arch)
+            if ap.parent.name == 'games' and re.fullmatch(r'[0-9A-Fa-f]{16}', ap.name):
+                return ap.name.upper()
+        sel = self.library.selected
+        if sel is not None and re.fullmatch(r'[0-9A-Fa-f]{16}', sel.title_id or ''):
+            sel_base = (sel.inputs.get('base') or [''])[0]
+            cur_base = self.game_folder.folder if self.game_folder is not None else self.base_path
+            if not cur_base or not sel_base or os.path.normcase(os.path.abspath(sel_base)) == os.path.normcase(os.path.abspath(cur_base)):
+                return sel.title_id.upper()
+        bk = self.build_key
+        if re.fullmatch(r'[0-9A-Fa-f]{16}', bk or ''):
+            return bk.upper()
+        wtid = _from_work(getattr(self, 'effective_work_dir', ''))
+        if wtid:
+            return wtid
+        return (title_id or bk or 'game')
+
+    @property
+    def packed_title_id(self) -> str:
+        return self._verified_title_id()
+
+    def effective_archive_path(self) -> str:
+        if self.archive_path and (
+            os.path.isfile(os.path.join(self.archive_path, 'romfs.img'))
+            or os.path.isdir(os.path.join(self.archive_path, 'romfs'))
+            or os.path.isdir(os.path.join(self.archive_path, 'aoc'))
+        ):
+            return self.archive_path
+        tid = self._verified_title_id()
+        roots: list[str] = []
+        if self.out_dir:
+            roots.append(self.out_dir)
+        if self.game_folder is not None and self.game_folder.folder:
+            roots.append(self.game_folder.folder)
+        elif self.base_path:
+            roots.append(os.path.dirname(self.base_path))
+        if re.fullmatch(r'[0-9A-Fa-f]{16}', tid or ''):
+            for r in roots:
+                cand = os.path.join(r, 'games', tid.upper())
+                if (
+                    os.path.isfile(os.path.join(cand, 'romfs.img'))
+                    or os.path.isdir(os.path.join(cand, 'romfs'))
+                    or os.path.isdir(os.path.join(cand, 'aoc'))
+                ):
+                    return cand
+        for r in roots:
+            cand = os.path.join(r, 'romfs')
+            if os.path.isfile(os.path.join(cand, 'romfs.img')) or os.path.isdir(cand):
+                return cand
+        return ''
+
+    def copy_archive_to_drive(
+        self,
+        dest_root: str,
+        progress_cb: Callable[[int, int], None] | None = None,
+    ) -> tuple[bool, str]:
+        arch = self.effective_archive_path()
+        if not arch or not dest_root:
+            return False, ''
+        tid = self.packed_title_id
+        return lib.DriveCopy.copy_to_folder(
+            arch,
+            dest_root,
+            tid,
+            progress_cb=progress_cb,
+        )
+
+    def pack_archive(self, title_id: str | None = None, *, export_shell: bool = False) -> tuple[bool, str]:
+        """Run the final shared-build step on the build worker."""
         work = getattr(self, 'effective_work_dir', '')
+        tid = self._verified_title_id(work, title_id)
         extract = Path(work, 'extract')
         versions = []
         if extract.is_dir():
@@ -1901,64 +2073,133 @@ class Model(QObject):
                     except ValueError:
                         pass
         if not versions:
-            self.finished.emit(True, self.t('msg.archiveSkipped', str(extract)))
-            return
+            if export_shell:
+                return self._export_shell_after_archive(True, self.t('msg.archiveSkipped', str(extract)))
+            return True, self.t('msg.archiveSkipped', str(extract))
         ver_dir = versions[-1][1]
         romfs_img = ver_dir / 'RomFS.img'
         romfs = str(ver_dir / 'RomFS')
-        # games/<id>/ is the per-game layout main.m looks in first, and the file inside it is
-        # romfs.img — one file, which copies to a phone at full speed where 300,000 did not
-        dest = str(Path(self.out_dir or Path(self.base_path).parent, 'romfs'))
+        base_parent = Path(self.game_folder.folder) if self.game_folder is not None else Path(self.base_path).parent
+        # games/<id>/ is the per-game layout the shell reads and matches BuildStore+Archive.swift
+        if export_shell or bool(title_id) or re.fullmatch(r'[0-9A-Fa-f]{16}', tid):
+            dest = str(Path(self.out_dir or base_parent, 'games', tid.upper() if re.fullmatch(r'[0-9A-Fa-f]{16}', tid) else tid))
+        else:
+            dest = str(Path(self.out_dir or base_parent, 'romfs'))
         self.stages.append(Stage(name=self.t('prog.archiveShort'), state='running'))
         self.stagesChanged.emit()
 
-        def work_() -> None:
-            ok = True
-            out_img = Path(dest, 'romfs.img')
-            try:
-                Path(dest).mkdir(parents=True, exist_ok=True)
-                if romfs_img.is_file():
-                    reused = (out_img.is_file()
-                              and out_img.stat().st_size == romfs_img.stat().st_size
-                              and abs(out_img.stat().st_mtime - romfs_img.stat().st_mtime) < 1)
-                    if not reused:
-                        out_img.unlink(missing_ok=True)
-                        try:
-                            os.link(romfs_img, out_img)
-                        except OSError:
-                            shutil.copy2(romfs_img, out_img)
-                else:
-                    args = [self.python_path,
-                            str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
-                            '--reuse', romfs, str(out_img)]
-                    env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
-                    p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                         text=True, encoding='utf-8', errors='replace', env=env,
-                                         **pu.no_window_kwargs())
-                    assert p.stdout is not None
-                    for line in p.stdout:
-                        self.log(line)
-                    p.wait()
-                    ok = p.returncode == 0
-                aoc_src = Path(work, 'aoc')
-                if ok and aoc_src.is_dir() and any(aoc_src.iterdir()):
-                    aoc_dst = Path(dest, 'aoc')
-                    shutil.rmtree(aoc_dst, ignore_errors=True)
-                    shutil.copytree(aoc_src, aoc_dst)
-            except OSError as e:
-                self.log(f'{e}\n')
-                ok = False
-            if self.stages:
-                self.stages[-1].state = 'done' if ok else 'failed'
-            self.archive_path = dest if ok else ''
+        ok = True
+        out_img = Path(dest, 'romfs.img')
+        try:
+            Path(dest).mkdir(parents=True, exist_ok=True)
+            if romfs_img.is_file():
+                reused = (out_img.is_file()
+                          and out_img.stat().st_size == romfs_img.stat().st_size
+                          and abs(out_img.stat().st_mtime - romfs_img.stat().st_mtime) < 1)
+                if reused and out_img.stat().st_size <= 1024 * 1024:
+                    try:
+                        reused = out_img.read_bytes() == romfs_img.read_bytes()
+                    except OSError:
+                        reused = False
+                if not reused:
+                    out_img.unlink(missing_ok=True)
+                    try:
+                        os.link(romfs_img, out_img)
+                    except OSError:
+                        shutil.copy2(romfs_img, out_img)
+            else:
+                py_exe = self.python_path
+                if not py_exe:
+                    from .win import shell_export as se
+                    py_exe = se._resolve_python_exe(self.python_path)
+                args = [py_exe,
+                        str(Path(self.engine_path, 'dm', 'tools', 'romfs_image.py')),
+                        '--reuse', romfs, str(out_img)]
+                env = pu.child_env({'PYTHONPATH': str(Path(self.engine_path, 'dm', 'tools'))})
+                p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     text=True, encoding='utf-8', errors='replace', env=env,
+                                     **pu.no_window_kwargs())
+                assert p.stdout is not None
+                for line in p.stdout:
+                    self.log(line)
+                p.wait()
+                ok = p.returncode == 0
+            aoc_dst = Path(dest, 'aoc')
+            aoc_src = Path(work, 'aoc')
             if ok:
-                self._record_library_ios_completion()
+                shutil.rmtree(aoc_dst, ignore_errors=True)
+                if aoc_src.is_dir() and any(aoc_src.iterdir()):
+                    shutil.copytree(aoc_src, aoc_dst)
+        except OSError as e:
+            self.log(f'{e}\n')
+            ok = False
+        if self.stages:
+            self.stages[-1].state = 'done' if ok else 'failed'
+        self.archive_path = dest if ok else ''
+        self.stagesChanged.emit()
+        if ok and export_shell:
+            return self._export_shell_after_archive(True, '')
+        if ok:
+            self._record_library_ios_completion(tid if (title_id or re.fullmatch(r'[0-9A-Fa-f]{16}', tid)) else None)
+        return ok, '' if ok else self.t('msg.archiveFailed')
+
+    def _export_shell_after_archive(self, archive_ok: bool, archive_note: str) -> tuple[bool, str]:
+        if not archive_ok:
+            return False, archive_note or self.t('msg.archiveFailed')
+        from .win import shell_export as se
+
+        work = getattr(self, 'effective_work_dir', '')
+        fw = se.built_framework(work)
+        tid = self._verified_title_id(work, se.title_id_of_framework(fw) if fw else '')
+        if fw is None:
+            fw = Path(work, 'shell-framework', f'DmGame{tid}.framework')
+
+        game_name = ''
+        manifest_p = fw / 'game.manifest.json'
+        if manifest_p.is_file():
+            try:
+                data = json.loads(manifest_p.read_text(encoding='utf-8'))
+                if isinstance(data, dict):
+                    game_name = str(data.get('name') or '').strip()
+            except Exception:
+                pass
+        if not game_name:
+            game_name = (
+                lib.GameFolder.profile_name(tid, self.engine_path)
+                or (lib.clean_game_name(self.base_path) if self.base_path else '')
+                or tid
+            )
+
+        def on_stage(stage_name: str, state: str) -> None:
+            for st in self.stages:
+                if st.name == stage_name:
+                    st.state = state
+                    self.stagesChanged.emit()
+                    return
+            self.stages.append(Stage(name=stage_name, state=state))
             self.stagesChanged.emit()
-            self.finished.emit(ok, '' if ok else self.t('msg.archiveFailed'))
 
-        threading.Thread(target=work_, daemon=True).start()
+        py = self.python_path or sys.executable
+        picked = self.artwork.custom_paths.get(tid.upper())
+        ok, out_ipa, msg, _notes = se.export_shell(
+            root=self.shell_cache_path,
+            repo=self.engine_path,
+            framework=fw,
+            title_id=tid,
+            name=game_name,
+            python_exe=py,
+            banners_dir=self.artwork.banners_dir,
+            picked_artwork=picked,
+            t_func=self.t,
+            log=self.log,
+            stage_cb=on_stage,
+        )
+        if ok:
+            self.ipa_path = out_ipa
+            self._record_library_ios_completion(tid, name=game_name)
+        return ok, msg
 
-    def _record_library_ios_completion(self) -> None:
+    def _record_library_ios_completion(self, title_id: str | None = None, name: str = '') -> None:
         inputs_map: dict[str, list[str]] = {}
         if self.base_path:
             inputs_map['base'] = [self.base_path]
@@ -1975,6 +2216,8 @@ class Model(QObject):
             output_dir=self.out_dir,
             inputs=inputs_map,
             repo_path=self.engine_path,
+            title_id=title_id,
+            name=name,
         )
         if g:
             self.artwork.request_banner_async(g.title_id)

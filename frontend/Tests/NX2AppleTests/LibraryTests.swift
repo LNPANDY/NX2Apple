@@ -15,13 +15,12 @@ import NXModel
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     }
 
-    /// Every test app carries this bundle ID, so a saved choice goes to a preferences domain of this run and never to a real game's.
-    private var bundleID: String { "org.nxnative.frontendtests." + temporary.lastPathComponent }
+    /// Every test app carries this bundle ID, so a saved choice goes to a preferences domain of this run and never to a real game's,
+    /// a plist in the test's folder (`TestPreferences`).
+    private var bundleID: String { TestPreferences.domain(in: temporary, "library") }
 
     override func tearDownWithError() throws {
-        let domain = bundleID as CFString
-        for key in (CFPreferencesCopyKeyList(domain, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] { CFPreferencesSetAppValue(key as CFString, nil, domain) }
-        CFPreferencesAppSynchronize(domain)
+        CFPreferencesAppSynchronize(bundleID as CFString)
         try FileManager.default.removeItem(at: temporary)
     }
 
@@ -40,13 +39,12 @@ import NXModel
 
     /// The library opens on the player's own games: Owned is the default, also for the "all" an earlier build may have stored.
     func testLibraryFilterDefaultsToOwned() throws {
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "nxnative-tests-filter-" + temporary.lastPathComponent))
+        let defaults = TestDefaults.make("nxnative-tests-filter")
         XCTAssertEqual(LibraryFilter.load(defaults), .owned)
         defaults.set("all", forKey: "libraryFilter")
         XCTAssertEqual(LibraryFilter.load(defaults), .owned)
         LibraryFilter.built.save(defaults)
         XCTAssertEqual(LibraryFilter.load(defaults), .built)
-        defaults.removePersistentDomain(forName: "nxnative-tests-filter-" + temporary.lastPathComponent)
     }
 
     func testLibraryTitleOrderUsesNumbersAndKeepsSelection() {
@@ -81,6 +79,35 @@ import NXModel
             return view.subviews.lazy.compactMap { searchField(in: $0) }.first
         }
         XCTAssertNotNil(searchField(in: host), "the search field is now in the window")
+    }
+
+    func testMinimumWidthToolbarKeepsControlsOnOneLine() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.build.lang = Lang("fr")
+        stores.appUpdates.update = .init(tag: "v9.9.9", url: "", digest: nil)
+        let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        let pad = PadFocus()
+        let view = LauncherView(stores: stores, library: library, performStartupChecks: false, search: "zel", padFocus: pad)
+        let window = OffscreenWindow(size: NSSize(width: 1440, height: 680))
+        window.contentView = NSHostingView(rootView: view)
+        window.orderFront(nil)
+        defer { window.orderOut(nil) }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+
+        let singleLine = try XCTUnwrap(pad.frames["main"])
+        window.setContentSize(NSSize(width: 900, height: 680))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let targets = try XCTUnwrap(pad.frames["main"])
+        for id in ["tab.library", "tab.builds", "tab.settings", "top.build"] {
+            let frame = try XCTUnwrap(targets.first { $0.id == id }?.frame, id)
+            let wide = try XCTUnwrap(singleLine.first { $0.id == id }?.frame, id)
+            XCTAssertLessThanOrEqual(frame.height, wide.height + 1, "The top bar should fit a single line: " + id)
+        }
+        pad.show(default: "tab.library")
+        pad.horizontal(1)
+        XCTAssertEqual(pad.focused, "tab.builds")
+        pad.horizontal(1)
+        XCTAssertEqual(pad.focused, "tab.settings")
     }
 
     /// Built hides the games without a build. The selection moves to a game it shows, and a controller's focus on a hidden card
@@ -145,10 +172,12 @@ import NXModel
         let id = try library.addApp(app)
         let image = temporary.appendingPathComponent("my-picture.png")
         try Data("not game data".utf8).write(to: image)
-        library.setArtwork(image.path, for: id)
+        library.setArtwork(GameArtwork(hero: ArtworkChoice(source: .imported(image.lastPathComponent))), for: id)
         let restored = GameLibrary(file: file)
+        XCTAssertEqual(restored.artworkDirectory, temporary.appendingPathComponent("state/artwork", isDirectory: true),
+                       "a library kept elsewhere never touches the player's artwork folder")
         XCTAssertEqual(restored.games.count, 1)
-        XCTAssertEqual(restored.games.first?.artworkPath, image.path)
+        XCTAssertEqual(restored.games.first?.artwork.hero?.source, .imported("my-picture.png"))
         XCTAssertEqual(restored.games.first?.appPath, app.path)
         XCTAssertTrue(restored.games[0].isReady)
         restored.remove(id)
@@ -194,14 +223,34 @@ import NXModel
         XCTAssertEqual(library.selectedID, library.games[0].id)
     }
 
+    func testBuildOfPathKeyedEntryTakesTheOldEntrysImagesAlong() throws {
+        let app = try makeApp(titleID)
+        let file = temporary.appendingPathComponent("library.json")
+        var existing = LibraryGame(titleID: titleID, name: "Hades")
+        existing.appPath = app.path
+        existing.artwork.hero = ArtworkChoice(source: .imported("mine.jpg"), focus: ArtworkFocus(x: 0.2, y: 0.5))
+        var pending = LibraryGame(titleID: "/games/Hades.nsp", name: "Hades")
+        pending.inputs = ["base": ["/games/Hades.nsp"]]
+        try JSONEncoder().encode([existing, pending]).write(to: file)
+        let library = GameLibrary(file: file)
+        let from = ArtworkStore.customDirectory(for: existing.id, in: library.artworkDirectory)
+        try FileManager.default.createDirectory(at: from, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: from.appendingPathComponent("mine.jpg"))
+        library.recordCompletedApp(path: app.path, for: pending.id)
+        XCTAssertEqual(library.games[0].artwork.hero, existing.artwork.hero)
+        let to = ArtworkStore.customDirectory(for: pending.id, in: library.artworkDirectory)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: to.appendingPathComponent("mine.jpg").path), "the image goes to the entry that stays")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: from.path))
+    }
+
     func testRebuildingSameGameKeepsOneEntryAndCustomArtwork() throws {
         let app = try makeApp(titleID)
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
         let first = try library.addApp(app)
-        library.setArtwork("/some/external/artwork.jpg", for: first)
+        library.setArtwork(GameArtwork(hero: ArtworkChoice(source: .imported("artwork.jpg"))), for: first)
         XCTAssertEqual(try library.addApp(app), first)
         XCTAssertEqual(library.games.count, 1)
-        XCTAssertEqual(library.games[0].artworkPath, "/some/external/artwork.jpg")
+        XCTAssertEqual(library.games[0].artwork.hero?.source, .imported("artwork.jpg"))
     }
 
     private func writeSettings(_ app: URL) throws {
@@ -633,6 +682,41 @@ import NXModel
         }
     }
 
+    private func hiddenBuildWindow(stores: LauncherStores, library: GameLibrary) -> NSWindow {
+        let view = LauncherView(stores: stores, library: library, initialPage: .builds, performStartupChecks: false)
+        let appeared = expectation(description: "Build view appeared")
+        let window = OffscreenWindow(size: NSSize(width: 1100, height: 800))
+        window.contentView = NSHostingView(rootView: view.onAppear { appeared.fulfill() })
+        window.orderFront(nil)
+        wait(for: [appeared], timeout: 5)
+        window.orderOut(nil) // Registration must work even while the launcher is hidden.
+        return window
+    }
+
+    func testBuildStartingAtFirstAppearanceKeepsItsLibraryEntry() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        let model = stores.build
+        model.slots[0].paths = [temporary.appendingPathComponent("Test [\(titleID)].nsp").path]
+        model.target = "mac-app"
+        model.outDir = temporary.path
+        let app = try makeApp(titleID)
+        let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        let window = hiddenBuildWindow(stores: stores, library: library)
+        defer { window.close() }
+
+        // Start before the initial idle notification's deferred work, then finish on the next main-queue turn.
+        model.running = true
+        let finished = expectation(description: "Completion callbacks ran")
+        DispatchQueue.main.async {
+            model.macAppPath = app.path
+            model.running = false
+            model.done = true
+            DispatchQueue.main.async { finished.fulfill() }
+        }
+        wait(for: [finished], timeout: 5)
+        XCTAssertEqual(library.games.first?.appPath, app.path)
+    }
+
     @MainActor func testCompletedBuildAppearsAutomaticallyInCollection() throws {
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/python3") else { throw XCTSkip("System Python is required for the process fixture") }
         let app = NSApplication.shared
@@ -679,24 +763,17 @@ import NXModel
         model.slots[0].paths = [base.path]
         model.slots[3].paths = [keys.path]
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
-        let host = NSHostingView(rootView: LauncherView(stores: modelStores, library: library, initialPage: .builds, performStartupChecks: false))
-        let window = OffscreenWindow(size: NSSize(width: 1100, height: 800))
-        window.contentView = host
-        window.orderFront(nil)
-        defer { window.orderOut(nil) }
-        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let window = hiddenBuildWindow(stores: modelStores, library: library)
+        defer { window.close() }
         let completed = expectation(description: "Successful app is added without an import")
-        let token = library.$games.filter { $0.contains(where: \.isReady) }.prefix(1).sink { _ in completed.fulfill() }
+        let libraryToken = library.$games.filter { $0.contains(where: \.isReady) }.prefix(1).sink { _ in completed.fulfill() }
+        let settled = expectation(description: "Build process finished successfully")
+        let buildToken = model.$running.combineLatest(model.$done).first { !$0 && $1 }.sink { _ in settled.fulfill() }
         XCTAssertTrue(model.canBuild)
-        window.orderOut(nil) // Registration must work even while the launcher is hidden.
         model.startBuild()
-        // The fixture runs system Python in a child process. A loaded CI runner took more than 10 s for it once, so the deadline
-        // is only a hang guard. Each wait returns on its event, so a fast build does not wait longer.
-        wait(for: [completed], timeout: 120)
-        withExtendedLifetime(token) {}
-        // The library can list the app before the model has taken in the script's exit (a slower Mac, CI): wait for both
-        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in model.done && !model.running }, object: nil)
-        wait(for: [settled], timeout: 120)
+        // A ready app and the process exit may arrive in either order. The timeout only guards against a hang on CI.
+        wait(for: [completed, settled], timeout: 120)
+        withExtendedLifetime((libraryToken, buildToken)) {}
         XCTAssertTrue(model.done)
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.stages.map(\.name), ["Mac app"])   // from the JSON events, which the log shows as text
@@ -863,6 +940,7 @@ import NXModel
         try capture("library")
         try capture("library-search", search: "zel")
         try capture("library-small", width: 900, height: 680)
+        try capture("library-small-search", width: 900, height: 680, search: "zel")
         try capture("manage-menu", manageOpen: true)   // the Manage menu open, mouse look
         try capture("manage-menu-pad", manageOpen: true, padRing: true)   // opened by the controller: the ring on the first row
         try capture("manage-menu-small", width: 900, height: 680, manageOpen: true, padRing: true)
@@ -905,6 +983,8 @@ import NXModel
             modelStores.appUpdates.status = String(format: model.t("app.ready"), release.tag)
             try capture("settings-update-ready", page: .settings)
             try capture("library-update-ready")
+            try capture("library-small-update", width: 900, height: 680)
+            try capture("library-small-search-update", width: 900, height: 680, search: "zel")
         }
         // Games built with older build tools (ToolsAge): the selected one rebuilt from its own inputs, as a recorded build has them
         model.slots[0].paths = ["/preview/Hades [\(titleID)].nsp"]
@@ -989,10 +1069,7 @@ import NXModel
             window.orderOut(nil)
         }
         do {   // the Controls sheet with a few changes, kept in a suite of its own
-            let suite = "nxnative-visual-qa-controls"
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-            defaults.removePersistentDomain(forName: suite)
-            defer { defaults.removePersistentDomain(forName: suite) }
+            let defaults = TestDefaults.make("nxnative-visual-qa-controls")
             let layout = ControlLayout(defaults: defaults)
             if let up = ControlLayout.functions.first(where: { $0.id == "RUp" }) { layout.assign(up, key: 34) }
             layout.setSends("A", "B"); layout.setSends("B", "A")
@@ -1053,10 +1130,7 @@ import NXModel
         // ---- Controller layouts (#70): the Controls sheet scrolled to the layout by the controller's focus, Auto with a
         // stand-in Xbox controller, then By label with none connected (a suite of its own; no real controller is read) ----
         do {
-            let suite = "nxnative-visual-qa-control-presets"
-            let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
-            defaults.removePersistentDomain(forName: suite)
-            defer { defaults.removePersistentDomain(forName: suite) }
+            let defaults = TestDefaults.make("nxnative-visual-qa-control-presets")
             for (name, mode, category) in [("controls-layout-auto", PadMode.auto, "Xbox One" as String?), ("controls-layout-bylabel", .byLabel, nil)] {
                 let layout = ControlLayout(defaults: defaults)
                 layout.controllerCategory = { category }

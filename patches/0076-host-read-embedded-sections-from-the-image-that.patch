@@ -34,7 +34,7 @@ index f3e38a1..dc6edac 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -2025,7 +2024,7 @@ static void frame_end(void) {
+@@ -2025,7 +2024,7 @@ EGL(eglSwapBuffers, EGLBoolean, EGLDisplay d, EGLSurface s) {
  // eglGetProcAddress: GL names from the same table as direct imports; anything else is null (the game's loader asks for every GL name it knows)
  static void *gl_lookup(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
@@ -44,7 +44,7 @@ index f3e38a1..dc6edac 100644
      return NULL;
  }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 7ec797a..44b7bd4 100644
+index 6969e52..2ffe59a 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -38,8 +38,7 @@
@@ -80,7 +80,7 @@ index 6b25664..9d141a4 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -1743,7 +1742,7 @@ static void frame_end(void) {
+@@ -1743,7 +1742,7 @@ VKB(vkQueuePresentKHR, VkResult, VkQueue q, const VkPresentInfoKHR *pi) {
  static void *vk_lookup(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
      if (!name || strncmp(name, "vk", 2)) return NULL;

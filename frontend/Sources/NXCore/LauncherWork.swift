@@ -1,10 +1,10 @@
 import Foundation
 
-/// Counts the launcher's costly work on the main thread: Info.plist reads, Manrope fonts made, game cards built and frame time recordings parsed. LauncherPerformanceTests reads the counts per interaction (a tab
+/// Counts the launcher's costly work on the main thread: Info.plist reads, Manrope fonts made, game cards built, frame time recordings parsed and artwork decoded. LauncherPerformanceTests reads the counts per interaction (a tab
 /// switch, Options, Manage, a redraw), so a change that does this work for every game on every redraw fails there. Only debug
 /// builds (`swift test`) count. In a release build `count` is empty.
 package enum LauncherWork {
-    package enum Kind: CaseIterable { case infoPlistRead, font, card, frameTimesParse }
+    package enum Kind: CaseIterable { case infoPlistRead, font, card, frameTimesParse, artworkDecode }
 
     #if DEBUG
     /// Written on the main thread only, so no lock is needed.

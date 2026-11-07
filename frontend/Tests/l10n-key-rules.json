@@ -1,6 +1,10 @@
 {
   "_about": "Read by LocalizationKeyTests.swift (Mac launcher) and frontend-qt/tests/test_localization_keys.py (Qt front end), LNPANDY/NX2Apple#388. A key that code builds at run time (a prefix plus a variable) must start with one of the dynamicKeys, and every entry needs at least one key in frontend/l10n/en.json and one place in the sources that builds it. A key of en.json that no source mentions and no dynamicKeys entry covers fails the tests unless it is in unusedAllowed, with the reason. The iOS shell's texts (catalogKeys) are not looked up by key in any source: tools/l10n_shell_catalogs.py writes them into the shell's string catalogs, and tools/tests/test_l10n_shell_catalogs.py checks that those files are current, so a key under a catalogKeys prefix counts as used.",
   "dynamicKeys": [
+    {"prefix": "artwork.dropHint.", "suffix": "", "why": "the drop hint of each artwork tab, ArtworkPanel.swift"},
+    {"prefix": "artwork.grid.", "suffix": "", "why": "the VoiceOver label of each artwork tab's grid, ArtworkEditor.swift"},
+    {"prefix": "artwork.reset.", "suffix": "", "why": "the Reset button of each artwork tab, ArtworkPanel.swift"},
+    {"prefix": "artwork.tab.", "suffix": "", "why": "the name of each artwork tab, ArtworkPanel.swift"},
     {"prefix": "console.kind.", "suffix": "", "why": "the controller kinds, ConsoleState.swift"},
     {"prefix": "console.platform.", "suffix": "", "why": "the platforms of a game, ConsoleState.swift"},
     {"prefix": "controls.fn.", "suffix": "", "why": "the label of each controller button, Controls.swift"},

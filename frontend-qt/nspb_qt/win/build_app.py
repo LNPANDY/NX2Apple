@@ -385,7 +385,7 @@ _HOST_MAIN: Path | None = None
 
 def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: Path,
          deployment: str, embed_flags: list[str], rt_obj: Path | None,
-         lld_dir: Path | None, bundle_id: str = 'org.nxnative.app') -> None:
+         lld_dir: Path, bundle_id: str = 'org.nxnative.app') -> None:
     """Link the app, then prove the result is an arm64 iOS executable and sign its entitlements."""
     entitle = os.environ.get('NSPB_ENTITLEMENTS', '1') != '0'
     args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
@@ -396,8 +396,7 @@ def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: P
     if rt_obj:
         args.append(str(rt_obj))
     env = dict(os.environ)
-    if lld_dir:
-        env['PATH'] = str(lld_dir) + os.pathsep + env.get('PATH', '')
+    env['PATH'] = str(lld_dir) + os.pathsep + env.get('PATH', '')
     t(f'link: {len(objs)} objects, {len(frameworks)} frameworks (ld64.lld)')
     r = subprocess.run(args, capture_output=True, text=True, errors='replace', env=env)
     if r.returncode:
@@ -408,6 +407,41 @@ def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: P
         ents = {'com.apple.developer.kernel.increased-memory-limit': True}
         sig_n = macho_sign.sign(out, bundle_id, ents)
         t(f'sign: ad-hoc with Increased Memory Limit entitlement ({sig_n} B)')
+
+
+REQUIRED_DYLIB_SYMBOLS = (
+    '_dm_framework_marker',
+    '_dm_main',
+    '_dm_IosView',
+    '_dm_show_launcher',
+    '_dm_game_menu',
+    '_dm_game_reload_AN',
+)
+
+
+def link_framework(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: Path,
+                   fw_name: str, deployment: str, embed_flags: list[str], rt_obj: Path | None,
+                   lld_dir: Path, bundle_id: str = 'org.nxnative.app.DmGame') -> None:
+    """Link the game's `DmGame<title ID>.framework` dylib and sign it ad-hoc without entitlements."""
+    args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
+            '-fuse-ld=lld', '-dynamiclib',
+            f'-Wl,-install_name,@rpath/{fw_name}.framework/{fw_name}',
+            '-Wl,-rpath,@executable_path/Frameworks',
+            '-fobjc-arc', '-o', str(out), *map(str, objs),
+            '-lobjc', '-lSystem', '-Wl,-adhoc_codesign',
+            *[x for fw in frameworks for x in ('-framework', fw)], *embed_flags]
+    if rt_obj:
+        args.append(str(rt_obj))
+    env = dict(os.environ)
+    env['PATH'] = str(lld_dir) + os.pathsep + env.get('PATH', '')
+    t(f'link framework: {len(objs)} objects, {len(frameworks)} frameworks (ld64.lld)')
+    r = subprocess.run(args, capture_output=True, text=True, errors='replace', env=env)
+    if r.returncode:
+        print((r.stderr or r.stdout)[-6000:], file=sys.stderr)
+        die('framework link failed (see the linker output above)')
+    check_dylib(out)
+    sig_n = macho_sign.sign(out, bundle_id, None)
+    t(f'sign framework: ad-hoc, no entitlements ({sig_n} B)')
 
 
 def check_executable(path: Path) -> None:
@@ -429,6 +463,66 @@ def check_executable(path: Path) -> None:
     plat = tc.macho_platform(data)
     if plat is not None and plat != tc.PLATFORM_IOS:
         die(f'{path.name} targets platform {plat}, not iOS')
+
+
+def check_dylib(path: Path) -> None:
+    """Reject a framework link output that is not a 64-bit arm64 iOS dylib with the required exports."""
+    import struct
+    data = path.read_bytes()
+    if len(data) < 32:
+        die(f'{path.name} is truncated ({len(data)} B)')
+    magic, cputype, _sub, filetype, ncmds, sizeofcmds, _flags, _res = struct.unpack_from('<IIIIIIII', data, 0)
+    if magic != tc.MACHO_MAGIC_64:
+        die(f'{path.name} is not 64-bit Mach-O (magic 0x{magic:08x})')
+    if cputype != tc.CPU_TYPE_ARM64:
+        die(f'{path.name} is not arm64 (cputype 0x{cputype:08x})')
+    if filetype != tc.MH_DYLIB:
+        die(f'{path.name} is not a dynamic library (filetype {filetype})')
+    plat = tc.macho_platform(data)
+    if plat is not None and plat != tc.PLATFORM_IOS:
+        die(f'{path.name} targets platform {plat}, not iOS')
+
+    end_cmds = min(len(data), 32 + sizeofcmds)
+    off = 32
+    exported: set[str] = set()
+    undef: set[str] = set()
+    saw_symtab = False
+    for _ in range(ncmds):
+        if off + 8 > end_cmds:
+            break
+        cmd, cmdsize = struct.unpack_from('<II', data, off)
+        if cmdsize < 8 or off + cmdsize > end_cmds:
+            break
+        if cmd == 0x2 and cmdsize >= 24:  # LC_SYMTAB
+            _, _, symoff, nsyms, stroff, strsize = struct.unpack_from('<IIIIII', data, off)
+            if symoff > len(data) or nsyms > (len(data) - symoff) // 16:
+                die(f'{path.name} has an out-of-bounds LC_SYMTAB symbol table')
+            if stroff > len(data) or strsize > len(data) - stroff:
+                die(f'{path.name} has an out-of-bounds LC_SYMTAB string table')
+            saw_symtab = True
+            str_end = stroff + strsize
+            for i in range(nsyms):
+                n_strx, n_type, _sect, _desc, _val = struct.unpack_from('<IBBHQ', data, symoff + i * 16)
+                if n_type & 0xe0:  # N_STAB debug entry
+                    continue
+                if n_strx >= strsize:
+                    continue
+                pos = stroff + n_strx
+                nul = data.find(b'\x00', pos, str_end)
+                name = data[pos:(nul if nul != -1 else str_end)].decode('utf-8', 'replace')
+                if (n_type & 0x0e) == 0:  # N_UNDF
+                    undef.add(name)
+                elif (n_type & 0x01) and not (n_type & 0x10):  # N_EXT and not N_PEXT
+                    exported.add(name)
+        off += cmdsize
+
+    if not saw_symtab:
+        die(f'{path.name} has no LC_SYMTAB symbol table')
+    if '___mh_execute_header' in undef or '__mh_execute_header' in undef:
+        die(f'{path.name} references undefined __mh_execute_header')
+    missing = [s for s in REQUIRED_DYLIB_SYMBOLS if s not in exported]
+    if missing:
+        die(f'{path.name} is missing required exported symbol(s): {", ".join(missing)}')
 
 
 # ---------------------------------------------------------------- the bundle
@@ -524,6 +618,100 @@ def info_plist(*, bundle_id: str, name: str, version: str, category: str, show_f
     return p
 
 
+def make_framework_icon(src: Path, dst: Path) -> bool:
+    """Scale the game's icon to a 512x512 PNG at `<framework>/icon.png` (as `build_ipa.sh` does)."""
+    try:
+        from PIL import Image
+        im = Image.open(src).convert('RGB')
+        im.resize((512, 512), Image.LANCZOS).save(dst, 'PNG')
+        return True
+    except Exception as e:
+        t(f'no framework icon: cannot convert {src} ({e})')
+        return False
+
+
+def framework_info_plist(*, bundle_id: str, fw_name: str, display_name: str, version: str,
+                         sdk_ver: str, sdk_build: str, deployment: str) -> dict:
+    """`Info.plist` for `DmGame<title ID>.framework` (`project-framework.yml` `DmShellGame`)."""
+    return {
+        'CFBundleDevelopmentRegion': 'en',
+        'CFBundleExecutable': fw_name,
+        'CFBundleIdentifier': bundle_id,
+        'CFBundleInfoDictionaryVersion': '6.0',
+        'CFBundleName': fw_name,
+        'CFBundleDisplayName': display_name,
+        'CFBundlePackageType': 'FMWK',
+        'CFBundleShortVersionString': version,
+        'CFBundleVersion': version,
+        'CFBundleSupportedPlatforms': ['iPhoneOS'],
+        'DTPlatformName': 'iphoneos',
+        'DTPlatformVersion': sdk_ver,
+        'DTSDKName': f'iphoneos{sdk_ver}',
+        'DTSDKBuild': sdk_build,
+        'MinimumOSVersion': deployment,
+        'UIDeviceFamily': [1, 2],
+    }
+
+
+def shader_lib_real_path(repo: Path, lib: Path) -> Path:
+    """Path to the shader library folder or `.img` file, via `dm/tools/shader_lib.py` when present."""
+    slib = _shader_lib_module(repo)
+    if slib is not None and hasattr(slib, 'path'):
+        return Path(slib.path(lib))
+    img = lib.parent / f'{lib.name}.img'
+    return img if img.is_file() else lib
+
+
+def build_pso_archive(repo: Path, w: Path, game: str, gd: Path, gp, gfx: str,
+                      msl_ios: Path, v: str, env) -> Path | None:
+    """Run `dm/gfx/tools/pso_offline.py` when the game profile or `DM_PSO_GPUS` requests an archive."""
+    if gfx != 'nvn' or not (gd / 'shader_pairs.tsv').is_file():
+        return None
+    try:
+        p4 = gp('pso_mtl4', 'off') or 'off'
+    except (KeyError, SystemExit, TypeError):
+        p4 = 'off'
+    try:
+        pg = gp('pso_gpu', '') or ''
+    except (KeyError, SystemExit, TypeError):
+        pg = ''
+    pg_words = pg.split()
+    pgk = 'g18p'
+    if p4 == 'on' and 1 <= len(pg_words) <= 4 and all(
+        w_ != 'none' and re.sub(r'^applegpu_', '', w_).isalnum() for w_ in pg_words
+    ):
+        pgk = ','.join(pg_words)
+    if 'DM_PSO_GPUS' in env:
+        gpus = env.get('DM_PSO_GPUS') or ''
+    elif p4 == 'on':
+        gpus = pgk
+    else:
+        gpus = 'none'
+    if not gpus or gpus == 'none':
+        return None
+    pso = w / 'build/ios/pso/bundle'
+    t(f'pipeline archive for {gpus} (metal-tt; minutes when its inputs changed)')
+    cmd = [
+        sys.executable, str(repo / 'dm/gfx/tools/pso_offline.py'),
+        '--game', game,
+        '--msl', str(msl_ios / f'b-{v}'),
+        '--out', str(pso),
+        '--work', str(w / 'build/ios/pso/work'),
+        '--gpu', gpus,
+    ]
+    if env.get('DM_PSO_IOS_MIN'):
+        cmd += ['--os-min', env['DM_PSO_IOS_MIN']]
+    r = subprocess.run(cmd, env=dict(env), capture_output=True, text=True, errors='replace')
+    for ln in (r.stdout + '\n' + r.stderr).splitlines():
+        if ln.strip():
+            t(ln)
+    if r.returncode != 0 or not pso.is_dir():
+        t('[RED] pipeline archive: pso_offline.py failed; building without one')
+        shutil.rmtree(pso, ignore_errors=True)
+        return None
+    return pso
+
+
 # ---------------------------------------------------------------- main
 
 def main(argv: list[str] | None = None) -> int:
@@ -585,7 +773,10 @@ def main(argv: list[str] | None = None) -> int:
     bundle_id = env.get('DM_BUNDLE_ID') or f'org.nxnative.{game.lower()}'
     show_fps = env.get('DM_SHOW_FPS', '0') in ('1', 'YES', 'yes', 'TRUE', 'true')
     lang = env.get('DM_LANG') or 'en-US'
-    category = gp('app_category') or 'public.app-category.games'
+    try:
+        category = gp('app_category', 'public.app-category.games') or 'public.app-category.games'
+    except (KeyError, SystemExit, TypeError):
+        category = 'public.app-category.games'
 
     # --- graphics API, exactly as build_ipa.sh decides it without GFXAPI
     hdr = (repo / 'dm/gfx/nvn/dmsh_chain.h').read_text(encoding='utf-8')
@@ -750,27 +941,56 @@ def main(argv: list[str] | None = None) -> int:
     if env.get('DM_ENV_FILE'):
         shutil.copy2(env['DM_ENV_FILE'], dmres / 'env.txt')
 
-    (dmres / 'font').mkdir()
-    font = tc.std_font() or die('no standard font: set STD_FONT to a TTF with broad Unicode '
-                                'coverage')
-    shutil.copy2(font, dmres / 'font/standard.ttf')
-    t(f'standard font: {font} (upstream copies macOS\'s Arial Unicode; Windows fonts have '
-      f'different CJK coverage)')
-    letter = tc.letter_font()
-    if not letter:
-        die('no bold TTF for the button icons: set LETTER_FONT')
-    py(repo / 'dm/tools/make_ext_font.py', dmres / 'font/nintendo_ext.ttf', letter)
+    framework_only = env.get('DM_FRAMEWORK_ONLY') or ''
+    pso = build_pso_archive(repo, w, game, gd, gp, gfx, msl_ios, v, env) if framework_only else None
+
+    if not framework_only:
+        (dmres / 'font').mkdir()
+        font = tc.std_font() or die('no standard font: set STD_FONT to a TTF with broad Unicode '
+                                    'coverage')
+        shutil.copy2(font, dmres / 'font/standard.ttf')
+        t(f'standard font: {font} (upstream copies macOS\'s Arial Unicode; Windows fonts have '
+          f'different CJK coverage)')
+        letter = tc.letter_font()
+        if not letter:
+            die('no bold TTF for the button icons: set LETTER_FONT')
+        py(repo / 'dm/tools/make_ext_font.py', dmres / 'font/nintendo_ext.ttf', letter)
 
     # --- the source list and the compile
     global _HOST_MAIN
     _HOST_MAIN = (repo / 'dm/host/main.c').resolve()
     files, incs = host_sources(repo, gen / 'profile')
-    ios_sources = sorted((repo / 'dm/ios/Sources').glob('*.m'))
-    files += [p.resolve() for p in ios_sources]
-    files.append((HERE / 'ios/Launcher.m').resolve())
-    files.append(es.resolve())
-    # our Launcher.m replaces Launcher.swift and adds no Swift file; nothing else to exclude
+    if framework_only:
+        shell_ios_files = [
+            repo / 'dm/ios/framework/DmGameMarker.m',
+            repo / 'dm/ios/framework/ShellGlue.m',
+            repo / 'dm/ios/Sources/front_ios.m',
+            repo / 'dm/ios/Sources/DmGamepad.m',
+            repo / 'dm/ios/Sources/CloudSaves.m',
+            repo / 'dm/ios/Sources/SaveSync.m',
+            repo / 'dm/ios/Sources/DataBookmark.m',
+            HERE / 'ios/Launcher.m',
+            es,
+        ]
+        for p in shell_ios_files:
+            if not p.is_file():
+                die(f'missing framework source: {p}')
+            files.append(p.resolve())
+        for extra_inc in (repo / 'dm/ios/Sources', repo / 'dm/ios/Shell', repo / 'dm/ios/framework'):
+            ri = extra_inc.resolve()
+            if ri not in incs:
+                incs.append(ri)
+    else:
+        ios_sources = sorted((repo / 'dm/ios/Sources').glob('*.m'))
+        files += [p.resolve() for p in ios_sources]
+        files.append((HERE / 'ios/Launcher.m').resolve())
+        files.append(es.resolve())
+    # our Launcher.m replaces Launcher.swift / GameMenu.swift and adds no Swift file
     frameworks = framework_list(sdk, files)
+    if framework_only:
+        for req_fw in ('UIKit', 'UserNotifications'):
+            if req_fw not in frameworks and (sdk / 'System/Library/Frameworks' / f'{req_fw}.framework').is_dir():
+                frameworks.append(req_fw)
 
     rt_obj = None
     if compat_rt_needed(clang):
@@ -784,14 +1004,108 @@ def main(argv: list[str] | None = None) -> int:
             print(r.stderr, file=sys.stderr)
             die('compat_rt.c did not compile (it stands in for Darwin\'s compiler-rt)')
 
-    objs = compile_all(clang, sdk, files, incs, base / 'obj', deployment)
+    obj_subdir = base / ('obj_fw' if framework_only else 'obj')
+    extra_cflags = ['-DDM_SHELL_FRAMEWORK=1'] if framework_only else None
+    objs = compile_all(clang, sdk, files, incs, obj_subdir, deployment, extra=extra_cflags)
+
+    icon = Path(env.get('DM_ICON') or '')
+    if not icon.is_file():
+        icon = romfs.parent / 'icon.jpg'
+
+    if framework_only:
+        fw_name = f'DmGame{game.upper()}'
+        out_fw = Path(framework_only) / f'{fw_name}.framework'
+        out_fw.mkdir(parents=True, exist_ok=True)
+        for child in list(out_fw.iterdir()):
+            if child.name in ('msl', 'pso', 'icon.png') or child.name.startswith('banner.'):
+                continue
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                child.unlink(missing_ok=True)
+
+        link_framework(clang, sdk, objs, frameworks, out_fw / fw_name, fw_name, deployment,
+                       flags.split() if flags else [], rt_obj, lld_dir,
+                       bundle_id=f'{bundle_id}.DmGame')
+        shutil.copytree(dmres, out_fw / 'dm')
+        py(repo / 'dm/games/game.py', 'profile', game, out_fw / 'profile.tsv')
+
+        romfs_id = ''
+        if romfs.is_file() and not env.get('DM_FULL_ROMFS'):
+            r_id = subprocess.run([sys.executable, str(repo / 'dm/tools/romfs_image.py'),
+                                   '--identity', str(romfs), str(game), str(version),
+                                   str(pkg or '')], capture_output=True, text=True, errors='replace')
+            if r_id.returncode != 0 or not r_id.stdout.strip():
+                die(f'identity of {romfs}: {r_id.stderr.strip() or r_id.stdout.strip()}')
+            romfs_id = r_id.stdout.strip()
+
+        manifest_args = [
+            repo / 'dm/ios/tools/gen_manifest.py',
+            out_fw / 'game.manifest.json',
+            '--game', game,
+            '--name', name,
+            '--display-version', version,
+            '--package-version', pkg or '',
+            '--modules', ' '.join(mods),
+            '--chain', f'b-{v}',
+            '--romfs-marker', marker,
+            '--romfs-identity', romfs_id,
+            '--framework-name', fw_name,
+            '--loader', 'FH',
+        ]
+        if (patched / 'nro.tsv').is_file():
+            manifest_args += ['--nro-table', patched / 'nro.tsv']
+        py(*manifest_args)
+
+        with open(out_fw / 'Info.plist', 'wb') as f:
+            plistlib.dump(framework_info_plist(bundle_id=f'{bundle_id}.DmGame', fw_name=fw_name,
+                                               display_name=name, version=version,
+                                               sdk_ver=sdk_ver, sdk_build=sdk_build,
+                                               deployment=deployment),
+                          f, fmt=plistlib.FMT_BINARY)
+
+        lib_src = shader_lib_real_path(repo, msl_ios / msldir)
+        msl_dst = out_fw / 'msl'
+        msl_dst.mkdir(parents=True, exist_ok=True)
+        if lib_src.is_file():
+            shutil.rmtree(msl_dst / msldir, ignore_errors=True)
+            target_img = msl_dst / f'{msldir}.img'
+            if not (target_img.is_file()
+                    and target_img.stat().st_size == lib_src.stat().st_size
+                    and abs(target_img.stat().st_mtime - lib_src.stat().st_mtime) < 1):
+                shutil.copy2(lib_src, target_img)
+            keep_name = f'{msldir}.img'
+        else:
+            (msl_dst / f'{msldir}.img').unlink(missing_ok=True)
+            target_dir = msl_dst / msldir
+            shutil.rmtree(target_dir, ignore_errors=True)
+            shutil.copytree(lib_src, target_dir)
+            keep_name = msldir
+        for old in list(msl_dst.iterdir()):
+            if old.name != keep_name:
+                if old.is_dir():
+                    shutil.rmtree(old, ignore_errors=True)
+                else:
+                    old.unlink(missing_ok=True)
+
+        if pso and pso.is_dir():
+            shutil.rmtree(out_fw / 'pso', ignore_errors=True)
+            shutil.copytree(pso, out_fw / 'pso')
+        else:
+            shutil.rmtree(out_fw / 'pso', ignore_errors=True)
+
+        if icon.is_file():
+            make_framework_icon(icon, out_fw / 'icon.png')
+        else:
+            (out_fw / 'icon.png').unlink(missing_ok=True)
+
+        t(f'done: {out_fw} (build_shell.sh embeds it in the shell)')
+        return 0
+
     link(clang, sdk, objs, frameworks, app / 'DmIOS', deployment,
          flags.split() if flags else [], rt_obj, lld_dir, bundle_id=bundle_id)
 
     # --- icon + Info.plist
-    icon = Path(env.get('DM_ICON') or '')
-    if not icon.is_file():
-        icon = romfs.parent / 'icon.jpg'
     icons = icon.is_file() and make_icons(icon, app)
     if not icon.is_file():
         t(f'no app icon ({icon} not found): the home-screen icon stays blank')
@@ -827,7 +1141,10 @@ def main(argv: list[str] | None = None) -> int:
                 rid_file.write_bytes(r_id.stdout)
                 maps.append(f'Payload/DmIOS.app/romfs.id={rid_file}')
         t('packing a slim IPA without the RomFS (the game files come from Documents/romfs)')
-    store = gp('zip_store') or ''
+    try:
+        store = gp('zip_store', '') or ''
+    except (KeyError, SystemExit, TypeError):
+        store = ''
     t('pack IPA')
     pack = [sys.executable, str(repo / 'dm/ios/tools/pack_ipa.py'), str(out_ipa)]
     if store:

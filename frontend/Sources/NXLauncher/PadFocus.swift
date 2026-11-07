@@ -23,7 +23,7 @@ package final class PadFocus: ObservableObject {
     @Published package private(set) var visible = false
     /// The scope the controller acts in: "main", or the open sheet's.
     package var scope = "main" { didSet { if scope != oldValue { focused = nil } } }
-    private var frames: [String: [Target]] = [:]
+    private(set) var frames: [String: [Target]] = [:]
     private var handlers: [String: Handlers] = [:]   // refreshed on every render of the target, so the closures see current state
 
     package func setFrames(_ targets: [Target], scope: String) { frames[scope] = targets }

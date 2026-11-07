@@ -255,7 +255,7 @@ index 0000000..444e186
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 85f6b3d..b934480 100644
+index 1bc990f..19cb3c3 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -36,6 +36,7 @@ DM_ENV_FILE	path	`=<file>` makes `build_ipa.sh` bake its `KEY=VALUE` lines into
@@ -267,7 +267,7 @@ index 85f6b3d..b934480 100644
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
  DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 9cbf9b4..526292a 100755
+index e5ce071..b6f6d7e 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@
@@ -447,7 +447,7 @@ index 9cbf9b4..526292a 100755
          pack_nup.pack_version(n, k, base, app, dst, say=lambda s: None)
      except pack_nup.Error as e: raise BuildError(str(e)) from e
      PROG.end(amount((dst / 'RomFS.img').stat().st_size, 'B'))
-@@ -1334,6 +1473,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
+@@ -1358,6 +1497,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
      if not fam['dlc']: return None
      if fam.get('nup'):
          PROG.stage('unpack DLC', step='unpacking')
@@ -459,7 +459,7 @@ index 9cbf9b4..526292a 100755
          try: pack_nup.pack_dlc(fam['nup'], app, {tid: k for tid, _, k in fam['dlc']}, work / 'aoc', say=lambda s: None)
          except pack_nup.Error as e: raise BuildError(str(e)) from e
          PROG.end(f'{len(fam["dlc"])} DLC')
-@@ -2189,9 +2333,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
+@@ -2213,9 +2357,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
      tmp = pkg.with_name(pkg.name + '.partial'); rmtree(tmp); (tmp / 'tables').mkdir(parents=True)
      def counted(ln):   # shader_split.py's 'progress: <done>/<total>'
          if m := re.fullmatch(r'progress: (\d+)/(\d+)', ln): PROG.set(done=int(m[1]), total=int(m[2]), unit='files')
@@ -480,12 +480,12 @@ index 9cbf9b4..526292a 100755
      m = re.search(r'shaders: (\d+) \(', text)
      bad = re.search(r'^\[RED\] (\d+) file\(s\) could not be read.*$', text, re.M)   # the split leaves out a file no reader reads (its own red line per file in the log) and goes on
      if bad and not provisional:   # the profile's tables were split from every file: one that does not read now is a reader change
-@@ -3122,7 +3274,7 @@ def main(args=None):
+@@ -3118,7 +3270,7 @@ def main(args=None):
      dirs = {}
      for ver in versions:   # each merged version streams directly into its own image
          b, u = picks[ver]
 -        dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup']) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
 +        dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup'], g.get('romfs_marker')) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
          if not nup and not dump: extract_html(nx, keys, dirs[ver], b, u, logs, app)
+     check_formats(dirs)
      check_versions_aarch64(dirs, logs, g, nacp.name(dirs[versions[0]] / 'control.nacp') or f'{app:016X}')   # before build_mismatch, derive_profile and build_sources read the modules
-     bad = [] if derived else [f'{v}: {x}' for v in versions for x in build_mismatch(dirs[v], v, g)]   # every module's build ID must be the one the profile registers for its version

@@ -11,7 +11,6 @@ struct ManageActions {
     var saves: () -> Void = {}
     var cheats: () -> Void = {}
     var changeArtwork: () -> Void = {}
-    var resetArtwork: () -> Void = {}
     var reveal: () -> Void = {}
     var showLog: () -> Void = {}
     var freeSpace: () -> Void = {}
@@ -46,7 +45,6 @@ struct ManageItem: Identifiable {
         items.append(.init(id: "saves", symbol: "tray.and.arrow.down", title: t("saves.menu"), run: a.saves))
         items.append(.init(id: "cheats", symbol: "wand.and.stars", title: t("cheats.menu"), run: a.cheats))
         items.append(.init(id: "artwork", symbol: "photo", title: t("library.changeArtwork"), run: a.changeArtwork))
-        if !game.artworkPath.isEmpty { items.append(.init(id: "resetArtwork", symbol: "arrow.uturn.backward", title: t("library.resetArtwork"), run: a.resetArtwork)) }
         if game.revealTarget != nil { items.append(.init(id: "reveal", symbol: "folder", title: t("install.reveal"), run: a.reveal)) }
         if game.isReady {
             items.append(.init(id: "log", symbol: "doc.text.magnifyingglass", title: t("library.showLog"), enabled: hasLog,
@@ -169,7 +167,7 @@ struct ManageMenuPanel: View {
     }
 
     private func row(_ item: ManageItem, index: Int) -> some View {
-        let tint = item.destructive ? Color(red: 1, green: 0.42, blue: 0.40) : Color.white.opacity(0.92)
+        let tint = item.destructive ? LauncherPalette.danger : Color.white.opacity(0.92)
         return Button { activate(item) } label: {
             HStack(spacing: 11) {
                 Image(systemName: item.symbol).font(.system(size: 13, weight: .medium)).frame(width: 18)

@@ -14,12 +14,11 @@ import NXModel
         let exe = app.appendingPathComponent("Contents/MacOS")
         try FileManager.default.createDirectory(at: exe, withIntermediateDirectories: true)
         for name in ["nxnative", "dmhost"] { try FileManager.default.createSymbolicLink(at: exe.appendingPathComponent(name), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true")) }
-        let domain = "org.nxnative.routing." + temporary.lastPathComponent
+        let domain = TestPreferences.domain(in: temporary, "routing")
         let info: [String: Any] = ["DMTitleID": "0100000000000000", "CFBundleIdentifier": domain, "CFBundleExecutable": "nxnative", "DMControllerMappings": 1]
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Contents/Info.plist"))
         let storage = SystemControllerPreferences(domain: domain)
         defer {
-            for key in (CFPreferencesCopyKeyList(domain as CFString, kCFPreferencesCurrentUser, kCFPreferencesAnyHost) as? [String]) ?? [] { storage.write(key, value: nil) }
             _ = storage.synchronize()
             try? FileManager.default.removeItem(at: temporary)
         }

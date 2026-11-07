@@ -511,10 +511,11 @@ class LibraryGame:
 
     @classmethod
     def from_dict(cls, d: dict) -> LibraryGame:
+        app_path = str(d.get('appPath') or '')
         return cls(
             title_id=str(d.get('titleID') or d.get('title_id') or '').upper(),
             name=str(d.get('name') or ''),
-            app_path=str(d.get('appPath') or ''),
+            app_path=app_path if os.path.isdir(app_path) else '',
             ipa_path=str(d.get('ipaPath') or ''),
             archive_path=str(d.get('archivePath') or ''),
             ios_app_path=str(d.get('iosAppPath') or ''),
@@ -594,6 +595,8 @@ class GameLibrary:
             if existing.title_id == tid:
                 if not game.name or game.name == tid:
                     game.name = existing.name
+                if not game.app_path and existing.has_app:
+                    game.app_path = existing.app_path
                 if not game.ipa_path:
                     game.ipa_path = existing.ipa_path
                 if not game.archive_path:
@@ -621,12 +624,13 @@ class GameLibrary:
         keys_path: str,
         output_dir: str,
         repo_path: str = '',
+        title_id: str | None = None,
     ) -> LibraryGame | None:
         if not base_path:
             return None
-        tid = ''
+        tid = title_id or ''
         name = ''
-        if GameFolder.is_candidate(base_path):
+        if not tid and GameFolder.is_candidate(base_path):
             res = GameFolder.scan(base_path if not os.path.basename(base_path) == 'base' else os.path.dirname(base_path))
             if isinstance(res, GameFolderContents) and res.has_title_id:
                 tid = res.title_id_hex
@@ -638,7 +642,7 @@ class GameLibrary:
         if not tid:
             return None
         if not name:
-            name = GameFolder.profile_name(tid, repo_path) or clean_game_name(base_path)
+            name = GameFolder.profile_name(tid, repo_path) or (tid if title_id else clean_game_name(base_path))
 
         inputs: dict[str, list[str]] = {'base': [base_path]}
         if update_path:
@@ -649,7 +653,7 @@ class GameLibrary:
             inputs['keys'] = [keys_path]
 
         out = output_dir or os.path.dirname(base_path)
-        ipa_candidate = os.path.join(out, f'{name}.ipa')
+        ipa_candidate = os.path.join(out, f'{tid if title_id else name}.ipa')
         archive_candidate = os.path.join(out, 'games', tid)
         game = LibraryGame(
             title_id=tid,
@@ -672,11 +676,17 @@ class GameLibrary:
         output_dir: str,
         inputs: dict[str, list[str]],
         repo_path: str = '',
+        title_id: str | None = None,
+        name: str = '',
     ) -> LibraryGame | None:
         tid = ''
-        if archive_path:
+        if title_id and re.fullmatch(r'[0-9A-Fa-f]{16}', title_id.strip()):
+            tid = title_id.strip().upper()
+        elif title_id:
+            tid = title_id.strip()
+        if not tid and archive_path:
             bn = os.path.basename(archive_path.rstrip('/\\'))
-            if len(bn) == 16:
+            if re.fullmatch(r'[0-9A-Fa-f]{16}', bn):
                 tid = bn.upper()
         if not tid and base_path:
             if GameFolder.is_candidate(base_path):
@@ -694,18 +704,18 @@ class GameLibrary:
         if not tid:
             tid = '0100000000000000'
 
-        name = GameFolder.profile_name(tid, repo_path)
-        if not name:
-            if ipa_path:
-                name = clean_game_name(ipa_path)
+        resolved_name = name.strip() or GameFolder.profile_name(tid, repo_path)
+        if not resolved_name:
+            if ipa_path and os.path.basename(ipa_path).lower() != 'nx2apple.ipa':
+                resolved_name = clean_game_name(ipa_path)
             elif base_path:
-                name = clean_game_name(base_path)
+                resolved_name = clean_game_name(base_path)
             else:
-                name = tid
+                resolved_name = tid
 
         game = LibraryGame(
             title_id=tid,
-            name=name,
+            name=resolved_name,
             ipa_path=ipa_path if (ipa_path and os.path.isfile(ipa_path)) else '',
             archive_path=archive_path if (archive_path and os.path.isdir(archive_path)) else '',
             output_dir=output_dir,
@@ -1190,7 +1200,7 @@ class GameDeletionPlan:
         items: list[GameDeletionItem] = []
         if game.has_app:
             items.append(GameDeletionItem('macApp', [game.app_path]))
-        if game.has_ipa:
+        if game.has_ipa and os.path.basename(game.ipa_path).lower() != 'nx2apple.ipa':
             items.append(GameDeletionItem('ipa', [game.ipa_path]))
         if game.has_archive and os.path.basename(game.archive_path.rstrip('/\\')).upper() == game.title_id.upper():
             items.append(GameDeletionItem('archive', [game.archive_path]))
@@ -1295,16 +1305,24 @@ class DriveCopy:
         done = 0
         if progress_cb:
             progress_cb(0, total)
+        partial = ''
         try:
             for rel, sz in sorted(files.items()):
                 src = os.path.join(archive_dir, rel)
                 dst = os.path.join(dest_dir, rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 if os.path.isfile(dst) and os.path.getsize(dst) == sz:
-                    done += sz
-                    if progress_cb:
-                        progress_cb(done, total)
-                    continue
+                    same = abs(os.path.getmtime(src) - os.path.getmtime(dst)) < 0.001
+                    if same and sz <= 1024 * 1024:
+                        try:
+                            same = Path(src).read_bytes() == Path(dst).read_bytes()
+                        except OSError:
+                            same = False
+                    if same:
+                        done += sz
+                        if progress_cb:
+                            progress_cb(done, total)
+                        continue
                 partial = dst + '.partial'
                 with open(src, 'rb') as fin, open(partial, 'wb') as fout:
                     while True:
@@ -1318,6 +1336,16 @@ class DriveCopy:
                 if os.path.exists(dst):
                     os.remove(dst)
                 os.replace(partial, dst)
+                partial = ''
+                try:
+                    shutil.copystat(src, dst)
+                except OSError:
+                    pass
             return True, dest_dir
         except OSError as e:
+            if partial and os.path.exists(partial):
+                try:
+                    os.remove(partial)
+                except OSError:
+                    pass
             return False, str(e)
