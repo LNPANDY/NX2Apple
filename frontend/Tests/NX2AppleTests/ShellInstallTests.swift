@@ -301,6 +301,15 @@ import NXModel
         open(STATE + '/calls.txt', 'a').write(' '.join(a) + '\\n')
         def val(flag): return a[a.index(flag) + 1] if flag in a else None
         if a[0] == 'xcodebuild':
+            pbx = val('-project') + '/project.pbxproj'
+            if os.path.exists(pbx):
+                import re
+                pdir = os.path.dirname(val('-project'))
+                for m in re.finditer(r'(?:path|relativePath) = "([^"]+)";', open(pbx).read()):
+                    pkg = m.group(1) if os.path.isabs(m.group(1)) else os.path.normpath(os.path.join(pdir, m.group(1)))
+                    if not os.path.isfile(pkg + '/Package.swift'):
+                        print('xcodebuild: error: Could not resolve package dependencies:', flush=True)
+                        sys.exit(74)
             bundle = [x.split('=', 1)[1] for x in a if x.startswith('PRODUCT_BUNDLE_IDENTIFIER=')][0]
             if os.path.exists(STATE + '/taken') and bundle == 'org.nxnative.shell':
                 print('error: The app identifier "' + bundle + '" cannot be registered to your development team because it is not available. Change your bundle identifier to a unique string to try again.', flush=True)
@@ -382,10 +391,15 @@ import NXModel
           exit 1
         fi
         mkdir -p "$SHELL_DIR/DmShell.xcodeproj"
+        cat > "$SHELL_DIR/DmShell.xcodeproj/project.pbxproj" <<EOF
+        F96F /* frontend-ios */ = {isa = PBXFileReference; name = "frontend-ios"; path = "$DM_SHELL_PACKAGE"; sourceTree = SOURCE_ROOT; };
+        376B /* XCLocalSwiftPackageReference */ = {isa = XCLocalSwiftPackageReference; relativePath = "$DM_SHELL_PACKAGE"; };
+        EOF
         env | sort > "\(state)/shell-env.txt"
         if [ "${DM_ENTITLEMENTS+set}" = set ] && [ -z "$DM_ENTITLEMENTS" ]; then touch "$SHELL_DIR/entitlements-empty"; else rm -f "$SHELL_DIR/entitlements-empty"; fi
         """)
         try write(repo + "/frontend-ios/Package.swift", "// swift-tools-version: 5.9\n")
+        try fm.createDirectory(atPath: repo + "/dm/ios/Shell", withIntermediateDirectories: true)
         return repo
     }
 
@@ -926,7 +940,19 @@ import NXModel
         XCTAssertTrue(fm.fileExists(atPath: games + "/romfs.img"))
         XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID])
 
-        // the re-sign after seven days: same project, same identifier, same app
+        // the re-sign after seven days: same project, same identifier, same app, even if the project was generated from an
+        // unmounted Gatekeeper AppTranslocation path or a moved launcher bundle
+        let pbxPath = f.root + "/project/DmShell.xcodeproj/project.pbxproj"
+        XCTAssertFalse((try String(contentsOfFile: pbxPath, encoding: .utf8)).contains(f.repo))
+        let translocated = "/private/var/folders/xx/T/AppTranslocation/2CFF0344-0DA8/d/NX2Apple.app/Contents/Resources/frontend-ios"
+        try write(pbxPath, """
+        F96F /* frontend-ios */ = {isa = PBXFileReference; name = "frontend-ios"; path = "../../../../../../../\(translocated.dropFirst())"; sourceTree = SOURCE_ROOT; };
+        376B /* XCLocalSwiftPackageReference */ = {isa = XCLocalSwiftPackageReference; relativePath = "\(translocated)"; };
+        """)
+        let pkgLink = f.root + "/project/frontend-ios", shellLink = f.root + "/project/Shell"
+        try? fm.removeItem(atPath: pkgLink); try? fm.removeItem(atPath: shellLink)
+        try fm.createSymbolicLink(atPath: pkgLink, withDestinationPath: translocated)
+        try fm.createSymbolicLink(atPath: shellLink, withDestinationPath: "/private/var/folders/xx/T/AppTranslocation/2CFF0344-0DA8/Shell")
         try write(container + "/org.nxnative.shell/Documents/save/slot1.bin", "my save")
         let before = calls.count
         let resigned = expectation(description: "Re-signed")
@@ -940,6 +966,11 @@ import NXModel
         XCTAssertTrue(log.allSatisfy { !$0.contains("--remove-existing-content") })
         XCTAssertEqual(try String(contentsOfFile: container + "/org.nxnative.shell/Documents/save/slot1.bin"), "my save")
         XCTAssertEqual(model.doneNote, String(format: model.t("dev.resigned"), "iPhone"))
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: pkgLink), f.repo + "/frontend-ios")
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: shellLink), f.repo + "/dm/ios/Shell")
+        let repairedPbx = try String(contentsOfFile: pbxPath, encoding: .utf8)
+        XCTAssertFalse(repairedPbx.contains("AppTranslocation"), repairedPbx)
+        XCTAssertTrue(repairedPbx.contains(#"relativePath = "frontend-ios";"#), repairedPbx)
     }
 
     @MainActor private func makeModel(_ f: Fixture) throws -> LauncherStores {
