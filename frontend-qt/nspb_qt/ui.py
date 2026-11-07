@@ -2022,7 +2022,7 @@ class MainWindow(QMainWindow):
         req_missing = sum(1 for d in self.m.deps if not d.ok and d.required)
         opt_missing = sum(1 for d in self.m.deps if not d.ok and not d.required)
         fixable = any(not d.ok and d.install for d in self.m.deps)
-        any_busy = any(d.installing for d in self.m.deps)
+        any_busy = any(d.installing for d in self.m.deps) or bool(getattr(self.m, '_install_all_running', False))
         if req_missing == 0 and opt_missing == 0:
             _set_dot(self.deps_dot, style.GREEN)
             self.deps_summary.setText(t('dep.allReady'))
@@ -2054,16 +2054,18 @@ class MainWindow(QMainWindow):
 
         r = QHBoxLayout()
         r.setSpacing(10)
-        color = style.GREEN if d.ok else (style.NEUTRAL_DOT if not d.required else
-                (style.AMBER if d.state is DepState.OLD else style.RED))
+        color = style.GREEN if d.ok else (style.AMBER if getattr(d, 'installing', False) else
+                (style.NEUTRAL_DOT if not d.required else
+                (style.AMBER if d.state is DepState.OLD else style.RED)))
         r.addWidget(_dot(color))
         col = QVBoxLayout()
         col.setSpacing(2)
         title = QLabel(t(d.title_key))
         title.setStyleSheet('font-weight: 600;')
         detail = self._format_dep_detail(d)
-        sub = QLabel(detail or t(d.hint_key))
-        sub.setObjectName('mono' if d.ok else 'muted')
+        live_detail = getattr(d, 'install_detail', '') if getattr(d, 'installing', False) else ''
+        sub = QLabel(live_detail or detail or t(d.hint_key))
+        sub.setObjectName('mono' if (d.ok or live_detail) else 'muted')
         sub.setWordWrap(True)
         sub.setOpenExternalLinks(True)
         col.addWidget(title)
@@ -2071,7 +2073,8 @@ class MainWindow(QMainWindow):
         r.addLayout(col, 1)
 
         if d.install and (not d.ok or d.id == 'ios_sdk'):
-            b = QPushButton(t('dep.installing') if d.installing else t('dep.install'))
+            live_stage = getattr(d, 'install_stage', '') if getattr(d, 'installing', False) else ''
+            b = QPushButton((live_stage or t('dep.installing')) if d.installing else t('dep.install'))
             b.setEnabled(not d.installing)
             b.clicked.connect(lambda _=False, dep=d: self.m.install_dep(dep))
             r.addWidget(b)

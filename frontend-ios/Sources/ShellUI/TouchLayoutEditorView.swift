@@ -519,24 +519,28 @@ struct TouchLayoutEditorView: View {
     /// up). They take no touches, the drag above does.
     private func accessibilityElements(_ g: PadGeo, k: CGFloat) -> some View {
         let controls = model.together ? [TouchLayout.Control.face] + g.drawnControls.filter { !$0.isFaceKey } : g.drawnControls
-        return ForEach(controls, id: \.self) { c in
-            let box = g.box(of: c)?.box ?? .zero
-            Color.clear
-                .frame(width: max(box.width * k, 30), height: max(box.height * k, 30))
-                .position(x: box.midX * k, y: box.midY * k)
-                .accessibilityElement()
-                .accessibilityLabel(c.title)
-                .accessibilityValue(ShellStrings.text(model.editing.isMoved(c) ? "Moved" : "In its place"))
-                .accessibilityAddTraits(model.selected.map { model.editing.mover($0) == c } == true ? [.isButton, .isSelected] : .isButton)
-                .accessibilityAction { model.select(c) }
-                .accessibilityAction(named: ShellStrings.text("Move up")) { voiceOverMove(c, 0, -1) }
-                .accessibilityAction(named: ShellStrings.text("Move down")) { voiceOverMove(c, 0, 1) }
-                .accessibilityAction(named: ShellStrings.text("Move left")) { voiceOverMove(c, -1, 0) }
-                .accessibilityAction(named: ShellStrings.text("Move right")) { voiceOverMove(c, 1, 0) }
-                .accessibilityAction(named: ShellStrings.text("Reset this control")) { model.select(c); model.putBack() }
-                .shellTarget("lay.ctl.\(c.rawValue)", radius: max(box.width, box.height) * k / 2) { model.pickUp(c) }
-                .allowsHitTesting(false)
-        }
+        return ForEach(controls, id: \.self) { c in accessibilityElement(c, g, k: k) }
+    }
+
+    private func accessibilityElement(_ c: TouchLayout.Control, _ g: PadGeo, k: CGFloat) -> some View {
+        let box = g.box(of: c)?.box ?? .zero
+        let value: String = ShellStrings.text(model.editing.isMoved(c) ? "Moved" : "In its place")
+        let traits: AccessibilityTraits = (model.selected.map { model.editing.mover($0) == c } == true) ? [.isButton, .isSelected] : .isButton
+        return Color.clear
+            .frame(width: max(box.width * k, 30), height: max(box.height * k, 30))
+            .position(x: box.midX * k, y: box.midY * k)
+            .accessibilityElement()
+            .accessibilityLabel(c.title)
+            .accessibilityValue(value)
+            .accessibilityAddTraits(traits)
+            .accessibilityAction { model.select(c) }
+            .accessibilityAction(named: ShellStrings.text("Move up")) { voiceOverMove(c, 0, -1) }
+            .accessibilityAction(named: ShellStrings.text("Move down")) { voiceOverMove(c, 0, 1) }
+            .accessibilityAction(named: ShellStrings.text("Move left")) { voiceOverMove(c, -1, 0) }
+            .accessibilityAction(named: ShellStrings.text("Move right")) { voiceOverMove(c, 1, 0) }
+            .accessibilityAction(named: ShellStrings.text("Reset this control")) { model.select(c); model.putBack() }
+            .shellTarget("lay.ctl.\(c.rawValue)", radius: max(box.width, box.height) * k / 2) { model.pickUp(c) }
+            .allowsHitTesting(false)
     }
 
     private func voiceOverMove(_ c: TouchLayout.Control, _ dx: Int, _ dy: Int) {

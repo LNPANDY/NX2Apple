@@ -185,6 +185,16 @@ import Testing
         let duo = TouchLayoutScreens.device(window: CGSize(width: 669, height: 951), insets: .init(top: 62, leading: 0, bottom: 34, trailing: 0), isPad: false)
         #expect(duo.upright?.topSafeOnly == true && duo.upright?.division != nil)
     }
+
+    /// Xcode 26.6 Release builds time out type-checking when the 14-modifier chain and two inline ternaries sit inside the ForEach closure.
+    @Test func accessibilityElementsSplitsClosureAndTypesTernaries() throws {
+        let package = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: package.appendingPathComponent("Sources/ShellUI/TouchLayoutEditorView.swift"), encoding: .utf8)
+        #expect(source.contains("ForEach(controls, id: \\.self) { c in accessibilityElement(c, g, k: k) }"))
+        #expect(source.contains("private func accessibilityElement(_ c: TouchLayout.Control, _ g: PadGeo, k: CGFloat) -> some View"))
+        #expect(source.contains("let value: String ="))
+        #expect(source.contains("let traits: AccessibilityTraits ="))
+    }
 }
 
 import SwiftUI
