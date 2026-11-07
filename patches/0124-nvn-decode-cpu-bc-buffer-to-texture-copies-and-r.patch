@@ -1,0 +1,161 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Romulo Ruas <romulo.fernandes@googlemail.com>
+Date: Sat, 7 Nov 2026 20:25:43 +0100
+Subject: [PATCH] nvn: decode CPU BC buffer-to-texture copies and reject
+ unsupported BC readbacks
+
+When g_bc_cpu is active on GPUs without native BC support, buffer-to-texture copies
+carrying compressed BC blocks into unpacked Metal textures must be decoded on the CPU
+into the frame arena before blitting to match the unpacked format and strides.
+
+Pending GPU writes to the source range are resolved before CPU decoding to prevent
+stale reads from earlier GPU buffer copies within the same submission.
+
+Texture-to-buffer copies and GPU readbacks from CPU-decoded BC textures cannot be
+re-encoded to guest BC layout and log a RED warning instead of performing invalid blits.
+
+Upstream-Status: fork-only (declined seedds/nxnative#488)
+Reason: Decompress BC blocks during buffer-to-texture copies into unpacked textures and safely reject unsupported BC readbacks on GPUs without native BC support.
+Issue: LNPANDY/NX2Apple#446
+---
+ dm/gfx/nvn/nvn_mtl.m    | 28 +++++++++++++++--
+ dm/gfx/tests/t_bc_cpu.m | 69 +++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 95 insertions(+), 2 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 167c0ce..a695d31 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -14119,6 +14119,10 @@ static void copy_t2b(const p_copy_b2t *c, uint32_t size) {
+     int is3d = c->tex->d.target == 2, nz = c->r.depth ? c->r.depth : 1;
+     void *mb; uint64_t mo;
+     if (!mtl_addr(c->src, img * nz, &mb, &mo)) { RED_ONCE(31, "texture→buffer copy destination is in no memory pool"); return; }
++    if (g_bc_cpu && nvn_fmt_bc(c->tex->d.format)) {
++        RED_ONCE(101, "texture→buffer copy from CPU-decoded BC texture is not supported");
++        return;
++    }
+     sbw_note(c->src, img * nz, SBW_GPU);
+     id<MTL4ComputeCommandEncoder> b = blit();
+     if (is3d)
+@@ -14185,7 +14189,10 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+     // Finding: docs/reference/memory.md, GPU readback without an autorelease pool.
+     @autoreleasepool {
+     id<MTLTexture> mt = tex_mtl(t);
+-    if (!mt || !tex_level_ok(mt, level, "CPU readback")) { memset(dst, 0, img * nz); return; }
++    if (!mt || !tex_level_ok(mt, level, "CPU readback") || (g_bc_cpu && nvn_fmt_bc(t->d.format))) {
++        if (mt && g_bc_cpu && nvn_fmt_bc(t->d.format)) RED_ONCE(102, "CPU readback of CPU-decoded BC texture from GPU is not supported");
++        memset(dst, 0, img * nz); return;
++    }
+     mtl_finish_gpu_at(WS_READTEX);
+     id<MTLBuffer> buf = [g_dev newBufferWithLength:wb * hb * nz options:MTLResourceStorageModeShared];
+     id<MTLCommandBuffer> cb = q_cb(); id<MTLBlitCommandEncoder> b = enc_b_begin(cb);
+@@ -14236,7 +14243,24 @@ static void copy_b2t(const p_copy_b2t *c, uint32_t size) {
+     // Into Metal's order (rb_copy_shift): converted on the GPU into a staging area of the frame arena, which the blit copies from
+     id<MTLBuffer> sb = (__bridge id<MTLBuffer>)mb; int shift = rb_copy_shift(c->tex, t);
+     uint64_t gsrc = sb.gpuAddress + mo; size_t grow = row, gimg = img;   // the guest's bytes, the storage's order (gsb_store_buf)
+-    if (shift) {
++    uint32_t bc_pf = 0; int bc_bpp = 0;
++    int bc_cpu = g_bc_cpu && nvn_bc_unpacked(c->tex->d.format, &bc_pf, &bc_bpp);
++    if (bc_cpu) {
++        if (g_cb && (pend_hits(c->src, img * nz) || sbw_hits(c->src, c->src + img * nz) || g_sbw_over)) {
++            uint64_t fence = mtl_sub_commit();
++            mtl_wait(fence, UINT64_MAX);
++            mtl_sub_begin();
++            mtl_addr(c->src, img * nz, &mb, &mo);
++            sb = (__bridge id<MTLBuffer>)mb;
++        } else if (gw_live(c->src, c->src + img * nz)) {
++            mtl_finish_gpu_at(WS_FINISH);
++        }
++        size_t urow = (size_t)c->r.width * (size_t)bc_bpp, uimg = urow * (size_t)c->r.height;
++        id<MTLBuffer> ab; size_t ao = arena_alloc(uimg * (size_t)nz, &ab);
++        for (int z = 0; z < nz; z++)
++            nvn_bc_decode(c->tex->d.format, (const uint8_t *)sb.contents + mo + (size_t)z * img, row, c->r.width, c->r.height, (uint8_t *)ab.contents + ao + (size_t)z * uimg, urow);
++        sb = ab; mo = ao; row = urow; img = uimg;
++    } else if (shift) {
+         size_t wb = (size_t)((c->r.width + bw - 1) / bw) * bpb; id<MTLBuffer> ab; size_t ao = arena_alloc(wb * rows * nz, &ab);
+         if (rb_swap_gpu(sb.gpuAddress + mo, row, img, ab.gpuAddress + ao, wb, wb * rows, wb, rows, nz, shift)) { sb = ab; mo = ao; row = wb; img = wb * rows; }
+         else RED_ONCE(7, "RGB565-family buffer→texture copy left in the guest's order: red and blue exchanged");
+diff --git a/dm/gfx/tests/t_bc_cpu.m b/dm/gfx/tests/t_bc_cpu.m
+index b395b55..f0e6fc3 100644
+--- a/dm/gfx/tests/t_bc_cpu.m
++++ b/dm/gfx/tests/t_bc_cpu.m
+@@ -81,10 +81,79 @@ static void views(void) {
+         mtl_drain();
+     }
+ }
++static void copies_and_readback(void) {
++    uint32_t unpacked=0; int bpp=0;
++    CHECK("BC1 has decoded format", nvn_bc_unpacked(0x41, &unpacked, &bpp));
++    tex_t t = {.magic=MAGIC('T','E','X',0), .serial=1000200};
++    t.d = (nvn_texdesc){.target=1, .format=0x41, .width=4, .height=4, .depth=1, .levels=1, .samples=1};
++    MTLTextureDescriptor *td = tex_desc(&t, 0); td.storageMode = MTLStorageModeShared;
++    id<MTLTexture> mt = [g_dev newTextureWithDescriptor:td];
++    CHECK("decoded texture allocated", mt != nil);
++    serial_put(t.serial, mt);
++
++    size_t buf_sz = 4096;
++    void *buf_mem = NULL;
++    if (posix_memalign(&buf_mem, getpagesize(), buf_sz)) abort();
++    memset(buf_mem, 0, buf_sz);
++    mtl_pool_add(buf_mem, buf_sz);
++
++    // BC1 block: red = 0xf800, blue = 0x001f; all indices 0 -> red
++    uint8_t *bc1_src = (uint8_t *)buf_mem;
++    bc1_src[0] = 0x00; bc1_src[1] = 0xf8; bc1_src[2] = 0x1f; bc1_src[3] = 0x00;
++    bc1_src[4] = 0x00; bc1_src[5] = 0x00; bc1_src[6] = 0x00; bc1_src[7] = 0x00;
++
++    p_copy_b2t cb2t = {.tex=&t, .src=(uint64_t)(uintptr_t)buf_mem, .r={0, 0, 0, 4, 4, 1}};
++    mtl_sub_begin();
++    copy_b2t(&cb2t, 0);
++    finish();
++
++    uint8_t pixel[4] = {0};
++    [mt getBytes:pixel bytesPerRow:16 fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
++    CHECK("copy_b2t decoded BC1 red texel", pixel[0] == 255 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255);
++
++    // GPU-copy-to-BC-copy ordering regression:
++    // With BC1 source initially containing red, mtl_sub_copy queues blue over that source before copy_b2t.
++    // copy_b2t must resolve pending GPU writes before CPU decode so that the copied texture is blue
++    // and guest memory preserves the compressed blue BC1 block.
++    uint8_t *bc1_blue = (uint8_t *)buf_mem + 2048;
++    bc1_blue[0] = 0x1f; bc1_blue[1] = 0x00; bc1_blue[2] = 0x00; bc1_blue[3] = 0x00;
++    bc1_blue[4] = 0x00; bc1_blue[5] = 0x00; bc1_blue[6] = 0x00; bc1_blue[7] = 0x00;
++
++    mtl_sub_begin();
++    mtl_sub_copy((uint64_t)(uintptr_t)bc1_blue, (uint64_t)(uintptr_t)buf_mem, 64);
++    copy_b2t(&cb2t, 0);
++    finish();
++
++    memset(pixel, 0, sizeof(pixel));
++    [mt getBytes:pixel bytesPerRow:16 fromRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0];
++    CHECK("copy_b2t decoded BC1 blue texel after pending GPU copy", pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 255 && pixel[3] == 255);
++    CHECK("source buffer preserves compressed BC1 blue block", bc1_src[0] == 0x1f && bc1_src[1] == 0x00);
++
++    p_copy_b2t ct2b = {.tex=&t, .src=(uint64_t)(uintptr_t)buf_mem, .r={0, 0, 0, 4, 4, 1}};
++    mtl_sub_begin();
++    copy_t2b(&ct2b, 0);
++    finish();
++    CHECK("copy_t2b on decoded BC texture returns safely", 1);
++
++    uint8_t dst[64];
++    memset(dst, 0xaa, sizeof(dst));
++    NVNcopyRegion r = {0, 0, 0, 4, 4, 1};
++    mtl_read_texels(&t, 0, 0, &r, dst, 16, 64);
++    int all_zero = 1;
++    for (size_t i = 0; i < sizeof(dst); i++) if (dst[i] != 0) { all_zero = 0; break; }
++    CHECK("mtl_read_texels on decoded BC texture zeroes dst", all_zero);
++
++    mtl_tex_release(&t);
++    mtl_drain();
++    mtl_pool_del(buf_mem);
++    mtl_drain();
++    free(buf_mem);
++}
+ int main(int argc,char **argv) { @autoreleasepool {
+     mtl_init(); g_bc_cpu=1;
+     CHECK("GPU deswizzle is enabled for the regression",g_nvn_deswz_gpu);
+     if(argc<2||strcmp(argv[1],"views"))for(int direct=0;direct<2;direct++){uploads(0x41,4,direct);uploads(0x49,1,direct);uploads(0x4b,2,direct);}
+     if(argc<2||strcmp(argv[1],"uploads"))views();
++    copies_and_readback();
+     printf("t_bc_cpu: %d checks, %d failed\n",checks,failed); return failed!=0;
+ }}
