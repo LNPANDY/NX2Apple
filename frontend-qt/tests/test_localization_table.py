@@ -18,7 +18,7 @@ from nspb_qt.l10n import TABLE, load, t   # noqa: E402
 class Files(unittest.TestCase):
     def test_the_checkout_has_every_language_and_english_and_chinese_have_every_key(self):
         loaded = load(str(ROOT / 'frontend' / 'l10n'))
-        self.assertEqual(sorted(loaded), ['de', 'en', 'fr', 'it', 'sv', 'zh'])
+        self.assertEqual(sorted(loaded), ['de', 'en', 'fr', 'it', 'ja', 'sv', 'zh'])
         self.assertEqual(set(loaded['en']), set(loaded['zh']))
         self.assertNotIn('_language', loaded['en'])
         self.assertEqual(set(TABLE), set(loaded['en']))
