@@ -63,9 +63,166 @@ package enum StepState: Equatable {
     }
 }
 
+/// Offline pipeline archive (`pso_offline.py`) batch progress inspected from its work directory.
+package struct PSOArchiveProgress: Equatable, Sendable {
+    package let done: Int
+    package let total: Int
+    package let merging: Bool
+
+    package init(done: Int, total: Int, merging: Bool = false) {
+        self.done = done
+        self.total = total
+        self.merging = merging
+    }
+}
+
 /// Reading what a build prints: the script's stage lines and JSON events, durations, the steps of Xcode and the install, and what
 /// a failed install says. Pure functions of the text.
 package enum BuildProgress {
+    private static let basesCacheLock = NSLock()
+    nonisolated(unsafe) private static var basesCache: (key: String, count: Int)?
+
+    /// Batch progress of `pso_offline.py` read from its log or work directory (`<work>/pso/mac-work` on macOS,
+    /// `<work>/ipa/build/ios/pso/work` on iOS) when the script has not emitted native JSON batch counts.
+    /// Returns `nil` when no batch compilation is active (e.g. single-invocation `metal-tt` without `batches.<arch>`).
+    package static func psoArchiveProgress(workDir: String, batchSize: Int = 1000) -> PSOArchiveProgress? {
+        guard !workDir.isEmpty, batchSize > 0 else { return nil }
+        let fm = FileManager.default
+        let candidates = [workDir + "/pso/mac-work", workDir + "/ipa/build/ios/pso/work"]
+        var chosenWork = ""
+        var rootMtime = Date.distantPast
+        var rootSize: UInt64 = 0
+        for dir in candidates {
+            let js = dir + "/bases.mtl4-json"
+            guard let attr = try? fm.attributesOfItem(atPath: js),
+                  let size = attr[.size] as? UInt64, size > 0,
+                  let mtime = attr[.modificationDate] as? Date else { continue }
+            if mtime >= rootMtime {
+                chosenWork = dir; rootMtime = mtime; rootSize = size
+            }
+        }
+        guard !chosenWork.isEmpty else { return nil }
+        let cutoff = rootMtime.addingTimeInterval(-2)
+
+        // 1. Prefer `pso_offline.py`'s own batch log lines (`pso_offline: <arch>: batch i/N: ...` / `merging N batches`),
+        // which carry the exact batch total without reading `bases.mtl4-json` or assuming a fixed batch size.
+        if let fromLog = psoProgressFromLogs(workDir: workDir, cutoff: cutoff, fm: fm) {
+            return fromLog
+        }
+
+        // 2. Fall back to inspecting `batches.<arch>/NNNNN/`. If no `batches.*` folder exists yet, return nil
+        // immediately without reading the (potentially large) `bases.mtl4-json` or showing a misleading "0 / N" at 0%.
+        guard let entries = try? fm.contentsOfDirectory(atPath: chosenWork) else { return nil }
+        let archDirs = entries.filter { $0.hasPrefix("batches.") && $0.count > "batches.".count }
+        var chosenArch = ""
+        var latestArchMtime = Date.distantPast
+        for name in archDirs {
+            let p = chosenWork + "/" + name
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: p, isDirectory: &isDir), isDir.boolValue else { continue }
+            let mtime = (try? fm.attributesOfItem(atPath: p)[.modificationDate] as? Date) ?? .distantPast
+            if chosenArch.isEmpty || mtime >= latestArchMtime {
+                chosenArch = String(name.dropFirst("batches.".count))
+                latestArchMtime = mtime
+            }
+        }
+        guard !chosenArch.isEmpty else { return nil }
+        let batchesRoot = chosenWork + "/batches." + chosenArch
+        let firstBatchJS = batchesRoot + "/00001/bases.mtl4-json"
+        guard let firstAttr = try? fm.attributesOfItem(atPath: firstBatchJS),
+              let firstMtime = firstAttr[.modificationDate] as? Date,
+              firstMtime >= cutoff else { return nil }
+
+        let jsPath = chosenWork + "/bases.mtl4-json"
+        let cacheKey = "\(jsPath)|\(rootSize)|\(rootMtime.timeIntervalSince1970)"
+        let basesCount: Int = {
+            basesCacheLock.lock()
+            if let cached = basesCache, cached.key == cacheKey {
+                basesCacheLock.unlock()
+                return cached.count
+            }
+            basesCacheLock.unlock()
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: jsPath), options: .mappedIfSafe) else { return 0 }
+            let token = Data("\"vertex_function_descriptor\"".utf8)
+            var count = 0
+            var searchRange = data.startIndex..<data.endIndex
+            while let r = data.range(of: token, options: [], in: searchRange) {
+                count += 1
+                searchRange = r.upperBound..<data.endIndex
+            }
+            if count > 0 {
+                basesCacheLock.lock()
+                basesCache = (cacheKey, count)
+                basesCacheLock.unlock()
+            }
+            return count
+        }()
+        guard basesCount > batchSize else { return nil }
+        let total = (basesCount - 1) / batchSize + 1
+        var done = 0
+        for index in 1...total {
+            let batchDir = batchesRoot + "/" + String(format: "%05d", index)
+            let batchJS = batchDir + "/bases.mtl4-json"
+            guard let bAttr = try? fm.attributesOfItem(atPath: batchJS),
+                  let bMtime = bAttr[.modificationDate] as? Date,
+                  bMtime >= cutoff else { break }
+            let keyPath = batchDir + "/key." + chosenArch
+            let archivePath = batchDir + "/" + chosenArch + ".mtl4a"
+            let partialPath = archivePath + ".partial"
+            if fm.fileExists(atPath: partialPath) || !fm.fileExists(atPath: keyPath) {
+                break
+            }
+            guard let aAttr = try? fm.attributesOfItem(atPath: archivePath),
+                  let aSize = aAttr[.size] as? UInt64, aSize > 0 else { break }
+            done = index
+        }
+        let packLog = chosenWork + "/metal-pack." + chosenArch + ".log"
+        let packMtime = (try? fm.attributesOfItem(atPath: packLog)[.modificationDate] as? Date) ?? .distantPast
+        let merging = done == total && packMtime >= cutoff
+        return PSOArchiveProgress(done: done, total: total, merging: merging)
+    }
+
+    private static func psoProgressFromLogs(workDir: String, cutoff: Date, fm: FileManager) -> PSOArchiveProgress? {
+        let logNames = ["pso_offline_mac.log", "build_ipa.log", "build_framework.log", "prepare_xcode.log"]
+        var bestLog = ""
+        var bestMtime = Date.distantPast
+        for name in logNames {
+            let p = workDir + "/logs/" + name
+            guard let attr = try? fm.attributesOfItem(atPath: p),
+                  let mtime = attr[.modificationDate] as? Date,
+                  mtime >= cutoff else { continue }
+            if bestLog.isEmpty || mtime >= bestMtime {
+                bestLog = p; bestMtime = mtime
+            }
+        }
+        guard !bestLog.isEmpty,
+              let text = try? String(contentsOfFile: bestLog, encoding: .utf8) else { return nil }
+        guard let batchRe = try? NSRegularExpression(pattern: #"pso_offline: \S+: batch (\d+)/(\d+): (ready|\d+ bases)"#),
+              let mergeRe = try? NSRegularExpression(pattern: #"pso_offline: \S+: merging (\d+) batches"#) else { return nil }
+        var done = 0
+        var total = 0
+        var merging = false
+        for line in text.split(separator: "\n") {
+            let s = String(line)
+            let ns = s as NSString
+            let range = NSRange(location: 0, length: ns.length)
+            if let m = batchRe.firstMatch(in: s, range: range),
+               let idx = Int(ns.substring(with: m.range(at: 1))),
+               let tot = Int(ns.substring(with: m.range(at: 2))), tot > 0 {
+                let kind = ns.substring(with: m.range(at: 3))
+                total = tot
+                done = kind == "ready" ? idx : max(0, idx - 1)
+                merging = false
+            } else if let m = mergeRe.firstMatch(in: s, range: range),
+                      let tot = Int(ns.substring(with: m.range(at: 1))), tot > 0 {
+                total = tot
+                done = tot
+                merging = true
+            }
+        }
+        guard total > 0 else { return nil }
+        return PSOArchiveProgress(done: done, total: total, merging: merging)
+    }
     /// The last line of the log that says something: not blank, not a progress event. Used for the
     /// failure note, where the exit code on its own is not actionable (issue #52).
     package static func lastMeaningfulLine(_ log: String) -> String? {
@@ -135,16 +292,25 @@ package enum BuildProgress {
             let after = String(rest[pct.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: ", :"))
             return (k, name, .running, after, v)
         }
-        let ok = line.contains("✓"), bad = line.contains("✗")
+        let ok = line.contains("✓") || line.contains("⚠"), bad = line.contains("✗")
         if ok || bad {
             var detail = ""
             if let r = rest.range(of: "): ") { detail = String(rest[r.upperBound...]); rest = String(rest[..<r.lowerBound]) + ")" }
             if let r = rest.range(of: " (", options: .backwards) { rest = String(rest[..<r.lowerBound]) }
             return (k, rest, bad ? .failed : .done, detail, 100)
         }
-        if rest.hasSuffix(" …") { rest = String(rest.dropLast(2)) }
+        if rest.hasSuffix(" …") {
+            rest = String(rest.dropLast(2))
+            if let dot = rest.range(of: " · ", options: .backwards), !rest.hasPrefix("survey") { rest = String(rest[..<dot.lowerBound]) }
+            return (k, rest, .running, "", nil)
+        }
+        var detail = ""
+        if let col = rest.range(of: ": ") {
+            detail = String(rest[col.upperBound...]).trimmingCharacters(in: .whitespaces)
+            rest = String(rest[..<col.lowerBound])
+        }
         if let dot = rest.range(of: " · ", options: .backwards), !rest.hasPrefix("survey") { rest = String(rest[..<dot.lowerBound]) }
-        return (k, rest, .running, "", nil)
+        return (k, rest, .running, detail, nil)
     }
 
     /// What xcodebuild is doing, from the actions it prints.

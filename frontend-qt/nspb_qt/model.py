@@ -64,6 +64,145 @@ class Stage:
     state: str = 'pending'      # pending | running | done | failed
     detail: str = ''
     percent: float = 0.0
+    id: int = 0
+
+
+_STAGE_LINE_RE = re.compile(r'^(?:([✓✗⚠])\s*)?\[(\d+)/(\d+)\]\s+(.+)$')
+_PSO_BASES_CACHE: tuple[tuple[str, int, float], int] | None = None
+_PSO_BASES_LOCK = threading.Lock()
+_PSO_LOG_BATCH_RE = re.compile(r'pso_offline: \S+: batch (\d+)/(\d+): (ready|\d+ bases)')
+_PSO_LOG_MERGE_RE = re.compile(r'pso_offline: \S+: merging (\d+) batches')
+
+
+def _pso_progress_from_logs(root: Path, cutoff: float) -> tuple[int, int, bool] | None:
+    """Parse exact `(done, total, merging)` counts from `pso_offline.py`'s own log lines when present."""
+    logs_dir = root / 'logs'
+    best_log: Path | None = None
+    best_mtime = -1.0
+    for name in ('pso_offline_mac.log', 'build_ipa.log', 'build_framework.log', 'prepare_xcode.log'):
+        cand = logs_dir / name
+        try:
+            st = cand.stat()
+        except OSError:
+            continue
+        if st.st_size > 0 and st.st_mtime >= cutoff and st.st_mtime >= best_mtime:
+            best_log = cand
+            best_mtime = st.st_mtime
+    if best_log is None:
+        return None
+    try:
+        text = best_log.read_text(encoding='utf-8', errors='replace')
+    except OSError:
+        return None
+    done = 0
+    total = 0
+    merging = False
+    for line in text.splitlines():
+        m = _PSO_LOG_BATCH_RE.search(line)
+        if m:
+            idx, tot, kind = int(m.group(1)), int(m.group(2)), m.group(3)
+            if tot > 0:
+                total = tot
+                done = idx if kind == 'ready' else max(0, idx - 1)
+                merging = False
+            continue
+        m2 = _PSO_LOG_MERGE_RE.search(line)
+        if m2:
+            tot = int(m2.group(1))
+            if tot > 0:
+                total = tot
+                done = tot
+                merging = True
+    return (done, total, merging) if total > 0 else None
+
+
+def pso_archive_progress(work_dir: str, batch_size: int = 1000) -> tuple[int, int, bool] | None:
+    """Batch progress of pso_offline.py read from its log or work directory when native counts are absent."""
+    global _PSO_BASES_CACHE
+    if not work_dir or batch_size <= 0:
+        return None
+    root = Path(work_dir)
+    chosen_work: Path | None = None
+    root_mtime = -1.0
+    root_size = 0
+    for cand in (root / 'pso' / 'mac-work', root / 'ipa' / 'build' / 'ios' / 'pso' / 'work'):
+        js = cand / 'bases.mtl4-json'
+        try:
+            st = js.stat()
+        except OSError:
+            continue
+        if st.st_size > 0 and st.st_mtime >= root_mtime:
+            chosen_work = cand
+            root_mtime = st.st_mtime
+            root_size = st.st_size
+    if chosen_work is None:
+        return None
+    cutoff = root_mtime - 2.0
+
+    # 1. Prefer `pso_offline.py`'s own batch log lines when present
+    from_log = _pso_progress_from_logs(root, cutoff)
+    if from_log is not None:
+        return from_log
+
+    # 2. Fall back to `batches.<arch>/NNNNN/`. Return None when no `batches.*` directory exists yet
+    # so single-invocation `metal-tt` neither reads `bases.mtl4-json` nor shows a stuck "0 / N" at 0%.
+    try:
+        arch_dirs = [p for p in chosen_work.iterdir() if p.is_dir() and p.name.startswith('batches.') and len(p.name) > 8]
+    except OSError:
+        return None
+    if not arch_dirs:
+        return None
+    chosen_arch_dir = max(arch_dirs, key=lambda p: p.stat().st_mtime if p.exists() else 0.0)
+    arch = chosen_arch_dir.name[len('batches.'):]
+    try:
+        first_bst = (chosen_arch_dir / '00001' / 'bases.mtl4-json').stat()
+    except OSError:
+        return None
+    if first_bst.st_mtime < cutoff:
+        return None
+
+    js_path = str(chosen_work / 'bases.mtl4-json')
+    cache_key = (js_path, root_size, root_mtime)
+    with _PSO_BASES_LOCK:
+        cached = _PSO_BASES_CACHE
+    if cached is not None and cached[0] == cache_key:
+        bases_count = cached[1]
+    else:
+        try:
+            data = Path(js_path).read_bytes()
+        except OSError:
+            return None
+        bases_count = data.count(b'"vertex_function_descriptor"')
+        if bases_count > 0:
+            with _PSO_BASES_LOCK:
+                _PSO_BASES_CACHE = (cache_key, bases_count)
+    if bases_count <= batch_size:
+        return None
+    total = (bases_count - 1) // batch_size + 1
+    done = 0
+    for idx in range(1, total + 1):
+        bdir = chosen_arch_dir / f'{idx:05d}'
+        try:
+            bst = (bdir / 'bases.mtl4-json').stat()
+        except OSError:
+            break
+        if bst.st_mtime < cutoff:
+            break
+        if (bdir / f'{arch}.mtl4a.partial').exists() or not (bdir / f'key.{arch}').exists():
+            break
+        try:
+            ast = (bdir / f'{arch}.mtl4a').stat()
+        except OSError:
+            break
+        if ast.st_size <= 0:
+            break
+        done = idx
+    pack_log = chosen_work / f'metal-pack.{arch}.log'
+    try:
+        merging = done == total and pack_log.stat().st_mtime >= cutoff
+    except OSError:
+        merging = False
+    return (done, total, merging)
 
 
 # ---------------------------------------------------------------- the model
@@ -90,7 +229,9 @@ class Model(QObject):
     ask_folder: Callable[[str], str] | None = None
     #: Same, for a file ('Metal Developer Tools*.zip' the user downloaded from Apple).
     ask_file: Callable[[str], str] | None = None
+    ask_sdk_archive: Callable[[str], str] | None = None
     _metal_zip: Path | None = None
+    _sdk_archive: Path | None = None
 
     def __init__(self) -> None:
         super().__init__()
@@ -137,6 +278,10 @@ class Model(QObject):
         self._proc: subprocess.Popen | None = None
         self._thread: threading.Thread | None = None
         self._line_buf = ''
+        self._pso_lock = threading.RLock()
+        self._pso_poll_gen = 0
+        self._pso_native_progress = False
+        self._pso_poll_stop: threading.Event | None = None
         # Every log line also goes to a file, so a user on a handheld can send one file instead of
         # copying text out of the window. One file per run, overwritten at start; the path is shown
         # in the log's first line so it can be found.
@@ -1182,16 +1327,36 @@ class Model(QObject):
                 elif what == 'ios_sdk':
                     self.log(self.t('dep.iossdk.downloading') + '\n')
                     from .win import sdk_fetch as sf
-                    # clone_sdk runs git, which a fresh machine has none of: the app installs
-                    # PortableGit itself (per-user, no installer) instead of sending the player
-                    # to git-scm.com — the report's SDK row failed three times on exactly that.
-                    if not (wtc.git_exe() or shutil.which('git')):
-                        self.log(self.t('dep.git.downloading') + '\n')
-                        from .win import fetch as wf
-                        git = wf.install_git(log=lambda s: self.log(str(s) + '\n'))
-                        self.log(self.t('dep.git.done', str(git)) + '\n')
-                    path = sf.clone_sdk(log=lambda s: self.log(str(s) + '\n'))
+                    try:
+                        path = sf.install_sdk(
+                            log=lambda s: self.log(str(s) + '\n'),
+                            progress=progress_logger(self.t('dep.phase.download')),
+                            unpack_progress=progress_logger(self.t('dep.phase.unpack')),
+                            fallback_git=False)
+                    except Exception as zip_err:
+                        self.log(f'{zip_err}\n')
+                        if not (wtc.git_exe() or shutil.which('git')):
+                            self.log(self.t('dep.git.downloading') + '\n')
+                            gpath = wf.install_git(
+                                log=lambda s: self.log(str(s) + '\n'),
+                                progress=progress_logger(self.t('dep.phase.download')))
+                            self.log(self.t('dep.git.done', str(gpath)) + '\n')
+                        path = sf.clone_sdk(log=lambda s: self.log(str(s) + '\n'))
                     self.log(self.t('dep.iossdk.done', str(path)) + '\n')
+                    ok = True
+                elif what == 'ios_sdk_archive':
+                    from .win import sdk_fetch as sf
+                    arc = self._sdk_archive
+                    self.log(self.t('dep.metal.unpacking', arc.name) + '\n')
+                    if arc.suffix.lower() == '.xip':
+                        dest = sf.extract_xip(arc, log=lambda s: self.log(str(s) + '\n'))
+                    else:
+                        dest = sf.install_sdk_from_zip(
+                            arc,
+                            log=lambda s: self.log(str(s) + '\n'),
+                            unpack_progress=progress_logger(self.t('dep.phase.unpack')))
+                    wtc.save_config('ios_sdk', str(dest))
+                    self.log(self.t('dep.iossdk.done', str(dest)) + '\n')
                     ok = True
                 elif what == 'metal_zip':
                     # Apple's tools are Apple-ID-gated: the browser download is the licensed
@@ -1265,39 +1430,63 @@ class Model(QObject):
             if picked.lower().endswith('.zip'):
                 return self.install_metal_zip(Path(picked))
             return self._save_metal_folder(Path(picked))
+        if dep.pick_key == 'ios_sdk':
+            ask_sdk = self.ask_sdk_archive or self.ask_folder
+            if ask_sdk is None:
+                return
+            folder = ask_sdk(self.t('dep.pick.ios_sdk.title'))
+            if not folder:
+                return
+            if folder.lower().endswith(('.zip', '.xip')):
+                return self.install_ios_sdk_archive(Path(folder))
+            match = wtc.resolve_sdk_dir(folder)
+            if match is None:
+                self.log(self.t('dep.pick.iossdk.invalid', folder) + '\n')
+                return
+            try:
+                from .win import sdk_fetch as sf
+                sf.repair_tbd_stubs(match)
+            except OSError:
+                pass
+            ver, _build = wtc.sdk_version(match)
+            wtc.save_config('ios_sdk', str(match))
+            self.log(self.t('dep.pick.iossdk.saved', match) + '\n')
+            if ver:
+                self.log(self.t('dep.pick.iossdk.version', ver) + '\n')
+            self.check_deps()
+            return
         ask = self.ask_folder
         if ask is None:
             return   # no window attached (tests): nothing to ask with
         folder = ask(self.t('dep.pick.' + dep.pick_key + '.title'))
         if not folder:
             return
-        if dep.pick_key == 'ios_sdk':
-            # The SDK can sit one level down (the guide's step 2 says so): accept both layouts.
-            candidates = [Path(folder)] + sorted(Path(folder).glob('iPhoneOS*.sdk'), reverse=True)
-            match = next((c for c in candidates if wtc.is_sdk_dir(c)), None)
-            if match is None:
-                self.log(self.t('dep.pick.iossdk.invalid', folder) + '\n')
-                return
-            ver, _build = wtc.sdk_version(match)
-            wtc.save_config('ios_sdk', str(match))
-            self.log(self.t('dep.pick.iossdk.saved', match) + '\n')
-            if ver:
-                self.log(self.t('dep.pick.iossdk.version', ver) + '\n')
-        else:
-            wtc.save_config(dep.pick_key, folder)
-            self.log(self.t('dep.pick.saved', folder) + '\n')
+        wtc.save_config(dep.pick_key, folder)
+        self.log(self.t('dep.pick.saved', folder) + '\n')
         self.check_deps()
 
     def _save_metal_folder(self, folder: Path) -> None:
-        """A folder the user already unpacked: validate the two layouts metal_dir() accepts."""
+        """A folder or executable (`metal.exe` / `metallib.exe`) the user chose: resolve to the
+        Metal Developer Tools root that `metal_dir()` accepts."""
         from .win import toolchain as wtc
-        if not (folder / 'bin' / 'metal.exe').is_file() and \
-           not (folder / 'ios' / 'bin' / 'metal.exe').is_file():
+        resolved = wtc.resolve_metal_dir(folder)
+        if resolved is None:
             self.log(self.t('dep.pick.metal.invalid', str(folder)) + '\n')
             return
-        wtc.save_config('metal_dir', str(folder))
-        self.log(self.t('dep.pick.saved', str(folder)) + '\n')
+        wtc.save_config('metal_dir', str(resolved))
+        self.log(self.t('dep.pick.saved', str(resolved)) + '\n')
         self.check_deps()
+
+    def install_ios_sdk_archive(self, archive_path: Path) -> None:
+        """Unpack an `iPhoneOS*.sdk.zip` or `Xcode_*.xip` the user downloaded and remember the SDK."""
+        if not archive_path.is_file():
+            self.log(self.t('dep.pick.iossdk.invalid', str(archive_path)) + '\n')
+            return
+        self._sdk_archive = archive_path
+        dep = next((d for d in self.deps if d.id == 'ios_sdk'), None)
+        if dep is None:
+            return
+        self._install_win(dep, 'ios_sdk_archive')
 
     def install_metal_zip(self, zip_path: Path) -> None:
         """Unpack the Apple zip the player downloaded and remember the folder (the one manual
@@ -1762,7 +1951,9 @@ class Model(QObject):
 
         self.running = True
         self.runningChanged.emit(True)
-        self.stages = []
+        self._stop_pso_poll()
+        with self._ensure_pso_lock():
+            self.stages = []
         self.log_tail = ''
         self._last_error = ''
         self.failure = None
@@ -1787,6 +1978,7 @@ class Model(QObject):
             try:
                 from .win import shim as wshim
                 env = wshim.build_env(env, python_exe=py)
+                cwd = str(wshim.clean_pkg_root(wshim.shim_dir()))
                 ok_shim, why = wshim.verify_shim(env)
                 if not ok_shim:
                     self.log(f'[shim] {why}\n')
@@ -1810,6 +2002,7 @@ class Model(QObject):
             except OSError as e:
                 self.log(f'{e}\n')
             finally:
+                self._stop_pso_poll()
                 self._proc = None
             self._flush_lines()
             if ok and mac_app:
@@ -1910,42 +2103,240 @@ class Model(QObject):
                                  install=['/usr/bin/xcodebuild', '-downloadPlatform', 'iOS']))
 
     def cancel_build(self) -> None:
+        self._stop_pso_poll()
         if self._proc and self._proc.poll() is None:
             self._proc.terminate()
 
     # ---- the script's own progress lines
+
+    def _ensure_pso_lock(self) -> threading.RLock:
+        lock = getattr(self, '_pso_lock', None)
+        if lock is None:
+            lock = threading.RLock()
+            self._pso_lock = lock
+        return lock
+
+    def _is_pso_stage_text(self, text: str) -> bool:
+        low = text.lower()
+        return 'pipeline archive' in low or self.t('stage.pipeline_archive').lower() in low
+
+    def _start_pso_poll(self) -> None:
+        lock = self._ensure_pso_lock()
+        with lock:
+            self._stop_pso_poll()
+            self._pso_native_progress = False
+            gen = self._pso_poll_gen
+            stop_ev = threading.Event()
+            self._pso_poll_stop = stop_ev
+        self.poll_pso_archive()
+
+        def loop() -> None:
+            while not stop_ev.wait(1.0):
+                with lock:
+                    if getattr(self, '_pso_native_progress', False) or getattr(self, '_pso_poll_gen', 0) != gen:
+                        break
+                self.poll_pso_archive()
+
+        threading.Thread(target=loop, daemon=True).start()
+
+    def _stop_pso_poll(self) -> None:
+        with self._ensure_pso_lock():
+            self._pso_poll_gen = getattr(self, '_pso_poll_gen', 0) + 1
+            ev = getattr(self, '_pso_poll_stop', None)
+            if ev is not None:
+                ev.set()
+                self._pso_poll_stop = None
 
     def _on_line(self, line: str) -> None:
         """Feed one line of the build's output: stage lines move the stage list, everything
         else goes to the log (which is what the window shows)."""
         self.log(line + '\n')
         self.log_tail = (self.log_tail + line + '\n')[-12000:]   # what the classifier reads on a failure
-        body = re.sub(r'^\[\d\d:\d\d:\d\d\]\s*', '', line)
+        body = re.sub(r'^\[\d\d:\d\d:\d\d\]\s*', '', line).strip()
         # The last line that was not stage bookkeeping: a failed build's summary used to be the
         # bare exit code ("Build failed (exit code 1)"), which told the reporter nothing and sent
         # them looking for a log that a short window had below the fold (issue #52)
-        is_stage = (body.startswith('[') and ']' in body
-                    and '/' in body[:body.find(']') + 1]
-                    and body.find(']') + 1 < len(body))
-        if body.strip() and not is_stage:
-            self._last_error = body.strip()[:200]
+        m_stage = _STAGE_LINE_RE.match(body)
+        is_stage = m_stage is not None
+        if body and not is_stage:
+            self._last_error = body[:200]
         if body.startswith('output IPA:'):
             self.ipa_path = body.split(':', 1)[1].strip()
-        for st in self.stages:
-            if st.state == 'running':
-                st.detail = body[:120]
-                break
-        if is_stage:
-            name = body[body.find(']') + 1:].strip()
-            if name and '✓' not in name:
-                if self.stages and self.stages[-1].state == 'running':
-                    self.stages[-1].state = 'done'
-                self.stages.append(Stage(name=name, state='running'))
+        lock = self._ensure_pso_lock()
+        if not is_stage:
+            action = ''
+            with lock:
+                for st in self.stages:
+                    if st.state == 'running':
+                        if not (self._is_pso_stage_text(st.name) and st.percent > 0):
+                            st.detail = body[:120]
+                        if body.lower().startswith('pipeline archive for'):
+                            action = 'start'
+                        elif _PSO_LOG_BATCH_RE.search(body) or _PSO_LOG_MERGE_RE.search(body):
+                            action = 'poll'
+                        break
+            if action == 'start':
+                self._start_pso_poll()
+            elif action == 'poll':
+                self.poll_pso_archive()
+            return
+
+        assert m_stage is not None
+        prefix_mark = m_stage.group(1)
+        k = int(m_stage.group(2))
+        rest = m_stage.group(4).strip()
+        status_mark = prefix_mark
+        if status_mark is None:
+            for sym in ('✗', '⚠', '✓'):
+                if sym in rest:
+                    status_mark = sym
+                    break
+
+        if status_mark is not None:
+            emit_changed = False
+            with lock:
+                existing = next((st for st in self.stages if st.id == k), None)
+                if existing is None and self.stages and self.stages[-1].id == 0 and self.stages[-1].state == 'running':
+                    existing = self.stages[-1]
+                    existing.id = k
+                self._stop_pso_poll()
+                summary = ''
+                head = rest
+                if '): ' in head:
+                    head, summary = head.split('): ', 1)
+                    head = head + ')'
+                    summary = summary.strip()
+                head = re.sub(r'\s*\([^()]*\)\s*$', '', head)
+                head = re.sub(r'[✓✗⚠]', '', head).strip()
+                target_state = 'failed' if status_mark == '✗' else 'done'
+                if existing is not None:
+                    if head and not existing.name:
+                        existing.name = head
+                    existing.state = target_state
+                    if target_state == 'done' and existing.percent > 0:
+                        existing.percent = 100.0
+                    if summary:
+                        existing.detail = summary
+                    emit_changed = True
+                elif head:
+                    self.stages.append(
+                        Stage(
+                            id=k,
+                            name=head,
+                            state=target_state,
+                            detail=summary,
+                            percent=100.0 if target_state == 'done' else 0.0,
+                        )
+                    )
+                    emit_changed = True
+            if emit_changed:
                 self.stagesChanged.emit()
-            elif name and '✓' in name:
-                if self.stages and self.stages[-1].state == 'running':
-                    self.stages[-1].state = 'done'
-                    self.stagesChanged.emit()
+            return
+
+        # Running line: initial stage start, step change ("…"), percentage update ("66%"), or uncounted heartbeat (": 0:30")
+        pct_m = re.search(r'(\d+(?:\.\d+)?)%', rest)
+        should_start_poll = False
+        with lock:
+            existing = next((st for st in self.stages if st.id == k), None)
+            if existing is not None:
+                existing.state = 'running'
+                if pct_m:
+                    if self._is_pso_stage_text(existing.name) or self._is_pso_stage_text(rest):
+                        self._pso_native_progress = True
+                        self._stop_pso_poll()
+                    existing.percent = min(float(pct_m.group(1)), 100.0)
+                    after = rest[pct_m.end():].lstrip(' ·,:')
+                    if after:
+                        existing.detail = after
+                elif rest.endswith(' …'):
+                    clean_name = rest[:-2].strip()
+                    if clean_name:
+                        existing.name = clean_name
+                    if self._is_pso_stage_text(clean_name):
+                        if not getattr(self, '_pso_native_progress', False) and getattr(self, '_pso_poll_stop', None) is None:
+                            should_start_poll = True
+                    else:
+                        self._stop_pso_poll()
+                elif ': ' in rest:
+                    _head_part, hb_detail = rest.split(': ', 1)
+                    if not (self._is_pso_stage_text(existing.name) and existing.percent > 0):
+                        existing.detail = hb_detail.strip()
+            else:
+                for st in self.stages:
+                    if st.state == 'running':
+                        st.state = 'done'
+                clean_name = re.sub(r'\s+…$', '', rest).strip()
+                detail = ''
+                pct = 0.0
+                if pct_m:
+                    pct = min(float(pct_m.group(1)), 100.0)
+                    clean_name = rest[:pct_m.start()].rstrip(' ·:')
+                    detail = rest[pct_m.end():].lstrip(' ·,:')
+                elif ': ' in clean_name:
+                    clean_name, detail = [p.strip() for p in clean_name.split(': ', 1)]
+                self.stages.append(Stage(id=k, name=clean_name, state='running', detail=detail, percent=pct))
+                if self._is_pso_stage_text(clean_name):
+                    if pct_m:
+                        self._pso_native_progress = True
+                        self._stop_pso_poll()
+                    else:
+                        should_start_poll = True
+                else:
+                    self._stop_pso_poll()
+        if should_start_poll:
+            self._start_pso_poll()
+        self.stagesChanged.emit()
+
+    def poll_pso_archive(self) -> None:
+        """Update the running Pipeline archive stage from pso_offline.py's work folder when present."""
+        lock = self._ensure_pso_lock()
+        with lock:
+            if getattr(self, '_pso_native_progress', False):
+                return
+            work = getattr(self, 'effective_work_dir', '')
+            if not work:
+                return
+            st = next(
+                (
+                    s for s in reversed(self.stages)
+                    if s.state == 'running'
+                    and (self._is_pso_stage_text(s.name) or self._is_pso_stage_text(s.detail))
+                ),
+                None,
+            )
+            if st is None:
+                return
+            gen = getattr(self, '_pso_poll_gen', 0)
+            stage_id = st.id
+        prog = pso_archive_progress(work)
+        if prog is None:
+            return
+        done, total, merging = prog
+        pct = min(done / total * 100.0, 99.0)
+        unit = self.t('prog.unit.batches')
+        note = (' · ' + self.t('prog.note.merging')) if merging else ''
+        detail = f'{done:,} / {total:,} {unit}{note}'
+        changed = False
+        with lock:
+            if getattr(self, '_pso_native_progress', False):
+                return
+            if getattr(self, '_pso_poll_gen', 0) != gen:
+                return
+            if getattr(self, 'effective_work_dir', '') != work:
+                return
+            if st not in self.stages or st.id != stage_id or st.state != 'running':
+                return
+            if not (self._is_pso_stage_text(st.name) or self._is_pso_stage_text(st.detail)):
+                return
+            if st.percent != pct or st.detail != detail:
+                st.percent = pct
+                st.detail = detail
+                changed = True
+        if changed:
+            try:
+                self.stagesChanged.emit()
+            except RuntimeError:
+                pass
 
     def _flush_lines(self) -> None:
         self._line_buf = ''

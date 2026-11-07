@@ -1,4 +1,4 @@
-﻿"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
+"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
 KeyCheck (AES-128-XTS NCA header verification), CheatFiles, GameLibrary,
 BuildFolder (FreeSpace), GameDeletion, DriveCopy, Diagnostics, and the 3-page UI.
 """
@@ -608,6 +608,261 @@ class SharedShellParityTests(unittest.TestCase):
                 rc = bst.main(['--engine', str(eng), '--out', str(fb_out)])
             self.assertEqual(rc, 0)
             self.assertTrue((fb_out / 'DmShell').is_file())
+
+    def test_pso_archive_progress_and_pinned_emitter_stage_lifecycle(self) -> None:
+        """Exercise pso_archive_progress and Model._on_line with the pinned engine's Progress emitter in a headless job."""
+        import ast
+        import collections
+        import json
+        import shutil
+        import threading
+        import time
+        import types
+        from unittest import mock
+
+        model_mod = self._model_mod
+        eng_script = Path(os.environ.get('NSPB_ENGINE_DIR') or (ROOT / 'engine')) / 'scripts' / 'build_ipa_from_nsp.py'
+        self.assertTrue(eng_script.is_file(), f'engine script missing at {eng_script}')
+
+        # Load the pinned engine's actual Progress class and helpers directly from build_ipa_from_nsp.py
+        src = eng_script.read_text(encoding='utf-8')
+        mod_ast = ast.parse(src, filename=str(eng_script))
+        wanted_names = {'BEAT', 'clock', 'hms', 'size_unit', 'amount', 'Progress'}
+        selected_nodes: list[ast.stmt] = []
+        for node in mod_ast.body:
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted_names:
+                selected_nodes.append(node)
+            elif isinstance(node, ast.Assign):
+                if any(isinstance(t, ast.Name) and t.id in wanted_names for t in node.targets):
+                    selected_nodes.append(node)
+        emitter_ns: dict[str, object] = {
+            'collections': collections,
+            'json': json,
+            'shutil': shutil,
+            'sys': sys,
+            'threading': threading,
+            'time': time,
+            'types': types,
+            'in_ipython': lambda: False,
+        }
+        exec(compile(ast.Module(body=selected_nodes, type_ignores=[]), str(eng_script), 'exec'), emitter_ns)
+        ProgressCls = emitter_ns['Progress']
+        clock_fn = emitter_ns['clock']
+        assert isinstance(ProgressCls, type) and callable(clock_fn)
+
+        def emit_heartbeat(p) -> None:
+            with p.lock:
+                st = p.cur
+                assert st is not None
+                head, frac, count, note, times = p._fields(st)
+                p._out(
+                    f'[{clock_fn()}] {head}: '
+                    + ', '.join(x for x in (f'{frac * 100:.0f}%' if frac is not None else '', count, note, times) if x)
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            mac_work = Path(tmp, 'pso', 'mac-work')
+            mac_work.mkdir(parents=True)
+            entry = '{"vertex_function_descriptor":"v"}'
+            (mac_work / 'bases.mtl4-json').write_text('[' + ','.join([entry] * 2500) + ']\n', encoding='utf-8')
+            # Without any `batches.<arch>` directory or batch log lines, return None (no misleading 0% bar)
+            self.assertIsNone(model_mod.pso_archive_progress(tmp))
+
+            with mock.patch.object(model_mod.Model, 'check_deps', lambda self: None):
+                m = model_mod.Model()
+            m.lang = Lang('en')
+            m.effective_work_dir = tmp
+
+            emitted: list[str] = []
+            prog = ProgressCls('lines')
+            prog._out = lambda text: (emitted.append(text), m._on_line(text))
+
+            try:
+                # 1. Start stage [6/7] Pipeline archive from the pinned emitter, then feed an uncounted heartbeat and end
+                prog.plan(7)
+                prog.k = 5
+                prog.stage('Pipeline archive')
+                if prog.tstop:
+                    prog.tstop.set()
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].id, 6)
+                self.assertEqual(m.stages[0].name, 'Pipeline archive')
+                self.assertEqual(m.stages[0].state, 'running')
+                self.assertIsNotNone(m._pso_poll_stop)
+                self.assertFalse(m._pso_poll_stop.is_set())
+
+                # Uncounted heartbeat "[HH:MM:SS] [6/7] Pipeline archive: 0:00" updates the existing row in place
+                emit_heartbeat(prog)
+                self.assertTrue(emitted[-1].endswith('[6/7] Pipeline archive: 0:00'), emitted[-1])
+                self.assertEqual(len(m.stages), 1, 'uncounted heartbeat must not add a duplicate stage row')
+                self.assertEqual(m.stages[0].state, 'running')
+                self.assertEqual(m.stages[0].detail, '0:00')
+
+                # Completion line "[HH:MM:SS] ✓ [6/7] Pipeline archive (0:00)" puts ✓ before [6/7], marks row done, stops poller
+                prog.end()
+                self.assertIn('✓ [6/7] Pipeline archive (', emitted[-1])
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'done')
+                self.assertIsNone(m._pso_poll_stop)
+
+                # 2. Verify warning ("⚠ [6/7] ...") and failure ("✗ [6/7] ...") prefixes from the pinned emitter
+                m.stages.clear()
+                prog.k = 5
+                prog.stage('Pipeline archive')
+                if prog.tstop:
+                    prog.tstop.set()
+                self.assertIsNotNone(m._pso_poll_stop)
+                prog.end('skipped', warn=True)
+                self.assertIn('⚠ [6/7] Pipeline archive (', emitted[-1])
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'done')
+                self.assertEqual(m.stages[0].detail, 'skipped')
+                self.assertIsNone(m._pso_poll_stop)
+
+                m.stages.clear()
+                prog.k = 5
+                prog.stage('Pipeline archive')
+                if prog.tstop:
+                    prog.tstop.set()
+                self.assertIsNotNone(m._pso_poll_stop)
+                prog.end('metal-tt failed', ok=False)
+                self.assertIn('✗ [6/7] Pipeline archive (', emitted[-1])
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'failed')
+                self.assertEqual(m.stages[0].detail, 'metal-tt failed')
+                self.assertIsNone(m._pso_poll_stop)
+
+                # 3. Populate batch directories and verify polling, uncounted heartbeat preservation, localization, and native takeover
+                arch = 'applegpu_g13s'
+                for idx in (1, 2, 3):
+                    (mac_work / f'batches.{arch}' / f'{idx:05d}').mkdir(parents=True)
+                b1 = mac_work / f'batches.{arch}' / '00001'
+                (b1 / 'bases.mtl4-json').write_text('{}', encoding='utf-8')
+                (b1 / f'{arch}.mtl4a').write_bytes(b'arch')
+                (b1 / f'key.{arch}').write_text('k\n', encoding='utf-8')
+                (mac_work / f'batches.{arch}' / '00002' / 'bases.mtl4-json').write_text('{}', encoding='utf-8')
+                self.assertEqual(model_mod.pso_archive_progress(tmp), (1, 3, False))
+
+                m.stages.clear()
+                prog.k = 5
+                prog.stage('Pipeline archive', step='applegpu_g13s (metal-tt)')
+                if prog.tstop:
+                    prog.tstop.set()
+                self.assertEqual(len(m.stages), 1)
+                self.assertIsNotNone(m._pso_poll_stop)
+                self.assertAlmostEqual(m.stages[0].percent, 100.0 / 3.0, places=1)
+                self.assertIn('1 / 3 batches', m.stages[0].detail)
+
+                # An uncounted heartbeat while batch polling is active keeps the single row and preserves batch progress
+                emit_heartbeat(prog)
+                self.assertEqual(len(m.stages), 1)
+                self.assertAlmostEqual(m.stages[0].percent, 100.0 / 3.0, places=1)
+                self.assertIn('1 / 3 batches', m.stages[0].detail)
+
+                for idx in (2, 3):
+                    b = mac_work / f'batches.{arch}' / f'{idx:05d}'
+                    (b / 'bases.mtl4-json').write_text('{}', encoding='utf-8')
+                    (b / f'{arch}.mtl4a').write_bytes(b'arch')
+                    (b / f'key.{arch}').write_text('k\n', encoding='utf-8')
+                (mac_work / f'metal-pack.{arch}.log').write_text('', encoding='utf-8')
+                self.assertEqual(model_mod.pso_archive_progress(tmp), (3, 3, True))
+
+                # Chinese localization for batches and merging
+                m.lang = Lang('zh')
+                m._on_line('pso_offline: applegpu_g13s: merging 3 batches')
+                self.assertAlmostEqual(m.stages[0].percent, 99.0, places=1)
+                self.assertIn('3 / 3 批 · 正在合并', m.stages[0].detail)
+                m.lang = Lang('en')
+
+                # Native percentage heartbeat from the pinned emitter stops directory polling and takes over
+                prog.set(done=2, total=3, unit='batches')
+                emit_heartbeat(prog)
+                self.assertTrue(m._pso_native_progress)
+                self.assertIsNone(m._pso_poll_stop)
+                self.assertEqual(len(m.stages), 1)
+                self.assertAlmostEqual(m.stages[0].percent, 67.0, places=1)
+                self.assertIn('2/3 batches', m.stages[0].detail)
+
+                prog.end()
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'done')
+                self.assertEqual(m.stages[0].percent, 100.0)
+                self.assertIsNone(m._pso_poll_stop)
+
+                # Race 1: a fallback disk scan paused in-flight while a pinned native heartbeat (2/3 = 67%) arrives
+                # must not overwrite the 67% native progress with stale 1/3 (33.3%) upon completion.
+                m.stages.clear()
+                m._stop_pso_poll()
+                m._pso_native_progress = False
+                prog.k = 5
+                with mock.patch.object(model_mod, 'pso_archive_progress', return_value=None):
+                    prog.stage('Pipeline archive')
+                    if prog.tstop:
+                        prog.tstop.set()
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'running')
+                m._stop_pso_poll()
+                m._pso_native_progress = False
+
+                scan_entered = threading.Event()
+                release_scan = threading.Event()
+
+                def paused_scan(_work: str):
+                    scan_entered.set()
+                    release_scan.wait(timeout=5.0)
+                    return (1, 3, False)
+
+                with mock.patch.object(model_mod, 'pso_archive_progress', side_effect=paused_scan):
+                    t_poll = threading.Thread(target=m.poll_pso_archive)
+                    t_poll.start()
+                    self.assertTrue(scan_entered.wait(timeout=5.0))
+                    prog.set(done=2, total=3, unit='batches')
+                    emit_heartbeat(prog)
+                    self.assertTrue(m._pso_native_progress)
+                    self.assertAlmostEqual(m.stages[0].percent, 67.0, places=1)
+                    release_scan.set()
+                    t_poll.join(timeout=5.0)
+
+                self.assertAlmostEqual(m.stages[0].percent, 67.0, places=1)
+                self.assertIn('2/3 batches', m.stages[0].detail)
+                prog.end()
+
+                # Race 2: a fallback disk scan paused in-flight while the stage ends (done / 100%)
+                # must not overwrite done / 100% with stale 1/3 (33.3%) upon completion.
+                m.stages.clear()
+                m._stop_pso_poll()
+                m._pso_native_progress = False
+                prog.k = 5
+                with mock.patch.object(model_mod, 'pso_archive_progress', return_value=(1, 3, False)):
+                    prog.stage('Pipeline archive')
+                    if prog.tstop:
+                        prog.tstop.set()
+                self.assertAlmostEqual(m.stages[0].percent, 100.0 / 3.0, places=1)
+
+                scan_entered2 = threading.Event()
+                release_scan2 = threading.Event()
+
+                def paused_scan2(_work: str):
+                    scan_entered2.set()
+                    release_scan2.wait(timeout=5.0)
+                    return (1, 3, False)
+
+                with mock.patch.object(model_mod, 'pso_archive_progress', side_effect=paused_scan2):
+                    t_poll2 = threading.Thread(target=m.poll_pso_archive)
+                    t_poll2.start()
+                    self.assertTrue(scan_entered2.wait(timeout=5.0))
+                    prog.end('3 batches')
+                    self.assertEqual(m.stages[0].state, 'done')
+                    self.assertEqual(m.stages[0].percent, 100.0)
+                    release_scan2.set()
+                    t_poll2.join(timeout=5.0)
+
+                self.assertEqual(m.stages[0].state, 'done')
+                self.assertEqual(m.stages[0].percent, 100.0)
+                self.assertEqual(m.stages[0].detail, '3 batches')
+            finally:
+                prog.close()
+                m._stop_pso_poll()
 
 
 class KeyCheckTests(unittest.TestCase):
