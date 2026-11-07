@@ -17,7 +17,7 @@ each with its own count and first, and counts above 8192 are reported
 once as RED 156. Draws with a task shader are unchanged, the
 translator already clamps the grid they emit.
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1708
 Reason: Ocarina of Time page faults the GPU 30 to 40 seconds after loading a save without it, a mesh draw with no task shader exceeds Metal's 1024 threadgroup mesh grid
 Issue: seedds/nxnative#1326
 
