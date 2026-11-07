@@ -49,13 +49,33 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
     # sitecustomize working when the variable is absent.
     _HERE = os.path.dirname(os.path.abspath(__file__))
     _PKG = os.environ.get('NSPB_WIN_DIR') or _HERE
+    _cur_py_dll = f'python{sys.version_info[0]}{sys.version_info[1]}.dll'.lower()
+
+    def _has_foreign_pyd(d):
+        if not d or not os.path.isdir(d):
+            return False
+        try:
+            names = [n.lower() for n in os.listdir(d)]
+        except OSError:
+            return False
+        if not any(n.endswith('.pyd') for n in names):
+            return False
+        py_dlls = [n for n in names if n.startswith('python3') and n.endswith('.dll') and n != 'python3.dll']
+        return bool(py_dlls and _cur_py_dll not in py_dlls) or os.path.basename(os.path.normpath(d)).lower() == '_internal'
+
+    if _has_foreign_pyd(os.path.dirname(os.path.dirname(_PKG))):
+        _staged_win = os.path.join(_HERE, 'nspb_qt', 'win')
+        if os.path.isdir(_staged_win):
+            _PKG = _staged_win
+    sys.path[:] = [p for p in sys.path if not _has_foreign_pyd(p or os.getcwd())]
+
     _XCRUN = os.path.join(_PKG, 'xcrun_shim.py')
     _BUILD_APP = os.path.join(_PKG, 'build_app.py')
 
     # the package root goes on sys.path so `import toolchain` / `import xcrun_shim` resolve, and
     # so `import nspb_qt.win` works from a child that wants the whole package
     for _p in (_PKG, os.path.dirname(_PKG), os.path.dirname(os.path.dirname(_PKG))):
-        if _p and _p not in sys.path:
+        if _p and _p not in sys.path and not _has_foreign_pyd(_p):
             sys.path.insert(0, _p)
 
     # ---- POSIX signal, os.execve & multi-core fork Pool adapter for patch_nso.py / nro_collect.py
@@ -483,6 +503,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return
         mod._nspb_patched = True
         _orig_init = mod.Cache.__init__
+        _orig_compile = getattr(mod.Cache, '_compile', None)
 
         def _win_cache_init(self, store, targets, work):
             if work and (' ' in str(work) or not str(work).isascii()):
@@ -492,6 +513,89 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _orig_init(self, store, targets, work)
 
         mod.Cache.__init__ = _win_cache_init
+        if _orig_compile is not None:
+            def _win_cache_compile(self, target, msl, lib):
+                if lib and (' ' in str(lib) or not str(lib).isascii()):
+                    import threading as _th
+                    tmp_lib = os.path.join(self.work, f'mtllib-{target}-{os.getpid()}-{_th.get_ident()}.metallib')
+                    try:
+                        _orig_compile(self, target, msl, tmp_lib)
+                        os.makedirs(os.path.dirname(os.fspath(lib)), exist_ok=True)
+                        shutil.move(tmp_lib, lib)
+                    finally:
+                        if os.path.exists(tmp_lib):
+                            try:
+                                os.unlink(tmp_lib)
+                            except OSError:
+                                pass
+                    return
+                _orig_compile(self, target, msl, lib)
+
+            mod.Cache._compile = _win_cache_compile
+
+    def _patch_ios_metal_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'compile'):
+            return
+        mod._nspb_patched = True
+        _orig_ios_compile = mod.compile
+
+        def _win_ios_compile(msl, air, lib):
+            need_air = bool(air and (' ' in str(air) or not str(air).isascii()))
+            need_lib = bool(lib and (' ' in str(lib) or not str(lib).isascii()))
+            if not need_air and not need_lib:
+                return _orig_ios_compile(msl, air, lib)
+            import tempfile as _tf
+            td = _tf.mkdtemp(prefix='iosmtl_', dir=_ascii_temp_base())
+            try:
+                use_air = os.path.join(td, 'out.air') if need_air else air
+                use_lib = os.path.join(td, 'out.metallib') if need_lib else lib
+                _orig_ios_compile(msl, use_air, use_lib)
+                if need_lib and os.path.isfile(use_lib):
+                    os.makedirs(os.path.dirname(os.fspath(lib)), exist_ok=True)
+                    shutil.move(use_lib, lib)
+            finally:
+                shutil.rmtree(td, ignore_errors=True)
+
+        mod.compile = _win_ios_compile
+
+    def _split_dm_games_dir(raw):
+        out = []
+        for semi in str(raw or '').split(';'):
+            parts = semi.split(':')
+            i = 0
+            while i < len(parts):
+                cur = parts[i]
+                if len(cur) == 1 and cur.isalpha() and i + 1 < len(parts) and parts[i + 1][:1] in ('\\', '/'):
+                    out.append(cur + ':' + parts[i + 1])
+                    i += 2
+                else:
+                    if cur:
+                        out.append(cur)
+                    i += 1
+        return out
+
+    class _GamesDirStr(str):
+        def split(self, sep=None, maxsplit=-1):
+            if sep in (':', ';', os.pathsep) and maxsplit == -1:
+                return _split_dm_games_dir(str(self))
+            return super().split(sep, maxsplit)
+
+    def _patch_game_module(mod):
+        if getattr(mod, '_nspb_patched', False):
+            return
+        mod._nspb_patched = True
+        from pathlib import Path as _FallbackPath
+        _Path = getattr(mod, 'Path', _FallbackPath)
+        mod.extra_dirs = lambda: [_Path(p) for p in _split_dm_games_dir(os.environ.get('DM_GAMES_DIR', ''))]
+        if hasattr(mod, 'find_dir'):
+            _orig_find_dir = mod.find_dir
+
+            def _win_find_dir(name):
+                if '/' in str(name) or '\\' in str(name):
+                    return _Path(name)
+                return _orig_find_dir(name)
+
+            mod.find_dir = _win_find_dir
 
     import importlib.machinery as _machinery
     _exec_module = _machinery.SourceFileLoader.exec_module
@@ -513,8 +617,24 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _patch_dmsh_pch_module(module)
         elif name == 'dmsh_mtlcache' or name.endswith('.dmsh_mtlcache'):
             _patch_dmsh_mtlcache_module(module)
+        elif name == 'ios_metal' or name.endswith('.ios_metal'):
+            _patch_ios_metal_module(module)
+        elif name == 'game' or name.endswith('.game'):
+            _patch_game_module(module)
 
     _machinery.SourceFileLoader.exec_module = _win_exec_module
+
+    _orig_env_get = type(os.environ).get
+
+    def _win_env_get(self, key, default=None):
+        val = _orig_env_get(self, key, default)
+        if key == 'DM_GAMES_DIR' and isinstance(val, str):
+            return _GamesDirStr(val)
+        return val
+
+    type(os.environ).get = _win_env_get
+    if 'game' in sys.modules:
+        _patch_game_module(sys.modules['game'])
 
     # ---- os.replace as on a Mac
     # Windows refuses to replace a file another thread has open. The shader caches are
@@ -746,6 +866,47 @@ def _write_if_changed(path: Path, text: str) -> None:
         path.write_bytes(data)
 
 
+def _has_native_extensions(d: Path) -> bool:
+    """True when `d` is a PyInstaller `_internal` folder holding `.pyd` or `python*.dll` files."""
+    try:
+        return any(d.glob('*.pyd')) or any(d.glob('python*.dll'))
+    except OSError:
+        return False
+
+
+def clean_pkg_root(shim_dir: Path, raw_root: Path | None = None) -> Path:
+    """Return a package root for `nspb_qt` that has no PyInstaller `.pyd`/`python*.dll` siblings.
+
+    In a source checkout, `frontend-qt/` holds only `nspb_qt/` and has no `.pyd` or `python*.dll`,
+    so it is returned directly. In the frozen Windows bundle, `Path(__file__).parents[2]` is
+    `NX2Apple\\_internal`, which holds both `nspb_qt/` and Python 3.12's `_ctypes.pyd` /
+    `python312.dll` at its root. Putting `_internal` on `PYTHONPATH`, `sys.path` or `cwd` makes an
+    external Python 3.13/3.14/3.15 load `_internal\\_ctypes.pyd` and fail with:
+        `ImportError: Module use of python312.dll conflicts with this version of Python.`
+    Mirroring the pure-Python `nspb_qt` files into `shim_dir / 'nspb_qt'` gives child processes a
+    clean package root with zero native extension siblings.
+    """
+    root = Path(raw_root) if raw_root is not None else Path(__file__).resolve().parents[2]
+    if not _has_native_extensions(root):
+        return root
+    src_pkg = root / 'nspb_qt'
+    dst_pkg = shim_dir / 'nspb_qt'
+    if src_pkg.is_dir():
+        for src in src_pkg.rglob('*'):
+            rel = src.relative_to(src_pkg)
+            if '__pycache__' in rel.parts or src.suffix.lower() in ('.pyc', '.pyo', '.pyd', '.dll', '.so'):
+                continue
+            dst = dst_pkg / rel
+            if src.is_dir():
+                dst.mkdir(parents=True, exist_ok=True)
+            elif src.is_file():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                data = src.read_bytes()
+                if not dst.is_file() or dst.read_bytes() != data:
+                    dst.write_bytes(data)
+    return shim_dir
+
+
 def install(shim_dir: Path, python_exe: str | None = None) -> None:
     """Write `sitecustomize.py` and the `.cmd` stand-ins into `shim_dir`.
 
@@ -758,7 +919,9 @@ def install(shim_dir: Path, python_exe: str | None = None) -> None:
     of whichever process imports it.
     """
     shim_dir.mkdir(parents=True, exist_ok=True)
-    pkg = str(Path(__file__).resolve().parent)
+    pkg_root = clean_pkg_root(shim_dir)
+    pkg_dir = pkg_root / 'nspb_qt' / 'win'
+    pkg = str(pkg_dir if pkg_dir.is_dir() else Path(__file__).resolve().parent)
     body = _SITECUSTOMIZE_SRC.replace(
         "    _PKG = os.environ.get('NSPB_WIN_DIR') or _HERE\n",
         '    _PKG = os.environ.get(\'NSPB_WIN_DIR\') or ' + repr(pkg) + '\n')
@@ -791,6 +954,8 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
     `toolchain.json` reaches a process that never reads the app's config.
     """
     env = dict(base if base is not None else os.environ)
+    for k in ('_MEIPASS', '_MEIPASS2', 'PYTHONHOME', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
+        env.pop(k, None)
     sd = shim_dir()
     install(sd, python_exe)
 
@@ -822,11 +987,14 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
     elif dn := shutil.which('dotnet'):
         parts.append(str(Path(dn).parent))
 
-    pkg_root = str(Path(__file__).resolve().parents[2])
-    env['PATH'] = os.pathsep.join(dict.fromkeys(parts + [env.get('PATH', '')]))
+    pkg_root = str(clean_pkg_root(sd))
+    existing_path = [p for p in env.get('PATH', '').split(os.pathsep)
+                     if p and not _has_native_extensions(Path(p))]
+    env['PATH'] = os.pathsep.join(dict.fromkeys(parts + existing_path))
+    existing_pypath = [p for p in env.get('PYTHONPATH', '').split(os.pathsep)
+                       if p and not _has_native_extensions(Path(p))]
     env['PYTHONPATH'] = os.pathsep.join(
-        dict.fromkeys([str(sd), pkg_root]
-                      + [p for p in env.get('PYTHONPATH', '').split(os.pathsep) if p]))
+        dict.fromkeys([str(sd), pkg_root] + existing_pypath))
     env.setdefault('PYTHONUTF8', '1')     # the pipeline reads and writes UTF-8 without naming it
     env.setdefault('PYTHONIOENCODING', 'utf-8')
 

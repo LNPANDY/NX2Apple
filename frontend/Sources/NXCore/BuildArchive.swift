@@ -46,6 +46,29 @@ package enum RomFSArchive {
     }
 
     /// Replace `to` with a copy of `from` when `from` exists. Returns how many entries `to` holds afterwards.
+    /// The RomFS images an earlier build of this game left outside its build folder: the iPhone build's games/<id>/romfs.img and the
+    /// Mac app's Contents/Resources/romfs.img, under `root` (the output folder, else the input folder). Only those with the identity
+    /// file the build script writes beside an image: the script checks it, the image's SHA-256 and its files against the game
+    /// packages, and takes the image instead of extracting the RomFS again for the other platform (`--romfs-from`, #708).
+    /// A build key that is no title ID (a file name without one, #515) names the Mac app but not the games folder, which the
+    /// archive step names after the framework's title ID: then every game's image there is named, and the script, which reads
+    /// the title in each identity file first, keeps this game's.
+    package nonisolated static func reusableImages(root: String, key: String) -> [String] {
+        let fm = FileManager.default
+        let isTitleID = key.count == 16 && key.allSatisfy(\.isHexDigit)
+        let games = isTitleID ? [key] : ((try? fm.contentsOfDirectory(atPath: root + "/games")) ?? []).sorted()
+        return (games.map { root + "/games/" + $0 + "/romfs.img" } + [root + "/" + key + ".app/Contents/Resources/romfs.img"])
+            .filter { fm.fileExists(atPath: $0) && fm.fileExists(atPath: $0 + ".id") }
+    }
+
+    /// The identity file beside an extracted image (RomFS.img.id) goes with the image's copy, as romfs.img.id; without one a stale
+    /// file is removed, as it would vouch for an image it was not written for (#708).
+    package nonisolated static func copyImageIdentity(of image: String, to copy: String) {
+        let fm = FileManager.default
+        try? fm.removeItem(atPath: copy + ".id")
+        if fm.fileExists(atPath: image + ".id") { try? fm.copyItem(atPath: image + ".id", toPath: copy + ".id") }
+    }
+
     package nonisolated static func copyAddOnContent(from: String, to: String) -> Int {
         let fm = FileManager.default
         guard fm.fileExists(atPath: from) else { return 0 }

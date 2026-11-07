@@ -141,6 +141,19 @@ final class OnboardingTests: IsolatedDefaultsTestCase {
         }
     }
 
+    @MainActor func testDemoCanSkipKeysForDecryptedGamesAndResume() {
+        var state = OnboardingState()
+        state.step = .keys
+        state.keys = .found(URL(fileURLWithPath: "/Demo/prod.keys"))
+        state.games = .found([OnboardingGame(id: "sample", title: "Sample", version: "", needsKeys: false)])
+        let demo = MockOnboardingDriver(state: state, animated: false)
+        demo.skipKeys()
+        XCTAssertEqual(demo.state.step, .games)
+        demo.skipForLater(); demo.resume(); demo.next()
+        XCTAssertEqual(demo.state.step, .done)
+        XCTAssertEqual(demo.state.keys, .skipped)
+    }
+
     func testAllOnboardingStringsHaveBothLanguages() {
         let keys = L10n.table.keys.filter { $0.hasPrefix("onboarding.") }
         XCTAssertGreaterThan(keys.count, 80)

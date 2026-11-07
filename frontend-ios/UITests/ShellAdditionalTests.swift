@@ -25,7 +25,7 @@ import XCTest
         tree.name = "stage-manager-hierarchy"
         tree.lifetime = .keepAlways
         add(tree)
-        XCTAssertTrue(app.staticTexts["The Quiet Tide"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["Animal Crossing™: New Horizons"].firstMatch.exists)
         XCTAssertTrue(app.buttons["settings.open"].waitForExistence(timeout: 5), "The actual window resize must enter compact layout")
     }
 }
@@ -44,7 +44,7 @@ import XCTest
         app.launch()
         XCTAssertTrue(app.buttons["qa.input.right"].waitForExistence(timeout: 10))
         app.buttons["qa.input.right"].tap()
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
         capture("controller-right-selects-second-cover")
         app.buttons["qa.input.activate"].tap()
         XCTAssertTrue(app.alerts["Demo action"].waitForExistence(timeout: 5))
@@ -69,7 +69,7 @@ import XCTest
         app.launch()
         XCTAssertTrue(app.buttons["qa.input.right"].waitForExistence(timeout: 10))
         for _ in 0..<6 { app.buttons["qa.input.right"].tap() }
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "Amber Hours")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Pokémon™ Sword")
         capture("controller-reaches-last-cover")
     }
 
@@ -127,9 +127,9 @@ import XCTest
         app.launch()
         XCTAssertTrue(app.buttons["qa.input.right"].waitForExistence(timeout: 10))
         for _ in 0..<3 { app.buttons["qa.input.right"].tap() }
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "Moonlit Express")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Legend of Zelda™: Breath of the Wild")
         app.buttons["qa.input.left"].tap()
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "Paper Trails")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Super Smash Bros.™ Ultimate")
         capture("cover-flow-controller")
         XCUIDevice.shared.orientation = .portrait
     }
@@ -151,7 +151,7 @@ import XCTest
         capture("folded-settings-scrolled")
         app.buttons["qa.fold"].tap()
         // Unfolded: the settings stay open, now as a panel over the library.
-        XCTAssertEqual(app.staticTexts["detail.title"].label, "The Quiet Tide")
+        XCTAssertEqual(app.staticTexts["detail.title"].label, "Animal Crossing™: New Horizons")
         XCTAssertTrue(toggle.exists)
         XCTAssertTrue(app.buttons["library.back"].exists)
         capture("unfolded-settings-scrolled")
@@ -161,7 +161,7 @@ import XCTest
         app.scrollViews.element(boundBy: app.scrollViews.count - 1).swipeDown()
         XCTAssertEqual(toggle.value as? String, "1")
         app.buttons["library.back"].tap()
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
     }
 
     /// The middle of the centred card, measured from the title under it. The tilted cards' accessibility frames are
@@ -172,7 +172,7 @@ import XCTest
         return app.windows.firstMatch.coordinate(withNormalizedOffset: .zero)
             .withOffset(CGVector(dx: window.midX - window.minX, dy: title.minY - window.minY - 80))
     }
-    private let sampleTitles = ["Orbit Valley", "The Quiet Tide", "Paper Trails", "Moonlit Express", "Wild Gardens", "Drift Atlas", "Amber Hours"]
+    private let sampleTitles = ["Mario Kart™ 8 Deluxe", "Animal Crossing™: New Horizons", "Super Smash Bros.™ Ultimate", "The Legend of Zelda™: Breath of the Wild", "Super Mario Odyssey™", "Pokémon™ Scarlet", "Pokémon™ Sword"]
 
     /// A touch swipe that snaps to another card makes it the selection: title, counter and buttons follow.
     private func swipeCoverFlow(_ arguments: [String]) {
@@ -180,7 +180,7 @@ import XCTest
         app.launchArguments = arguments
         app.launch()
         XCTAssertTrue(app.buttons["tile.orbit"].waitForExistence(timeout: 10))
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "Orbit Valley")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Mario Kart™ 8 Deluxe")
         let start = centreCard()
         start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: -260, dy: 0)), withVelocity: .fast, thenHoldForDuration: 0)
         sleep(2)
@@ -207,7 +207,7 @@ import XCTest
         XCTAssertTrue(app.staticTexts["hero.title"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS[c] 'game files damaged'")).firstMatch.exists)
         let fix = app.buttons.matching(identifier: "state.action").allElementsBoundByIndex.first { $0.isHittable }
-        XCTAssertEqual(fix?.label, "How to fix, Wild Gardens")
+        XCTAssertEqual(fix?.label, "How to fix, Super Mario Odyssey™")
         fix?.tap()
         XCTAssertTrue(app.staticTexts["help.title"].waitForExistence(timeout: 5))
         capture("broken-how-to-fix")
@@ -227,7 +227,7 @@ import XCTest
         XCTAssertTrue(side.waitForExistence(timeout: 10))
         side.tap()
         sleep(1)
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "The Quiet Tide")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Animal Crossing™: New Horizons")
         XCTAssertFalse(app.alerts["Demo action"].exists, "a side card only comes to the middle")
         centreCard().tap()
         XCTAssertTrue(app.alerts["Demo action"].waitForExistence(timeout: 5))
@@ -251,7 +251,7 @@ import XCTest
         sleep(2)
         let counter = app.staticTexts.matching(NSPredicate(format: "label ENDSWITH ' of 7'")).firstMatch
         XCTAssertEqual(counter.label, "3 of 7")
-        XCTAssertEqual(app.staticTexts["hero.title"].label, "Paper Trails")
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Super Smash Bros.™ Ultimate")
         XCTAssertFalse(app.alerts["Demo action"].exists)
         XCUIDevice.shared.orientation = .portrait
     }

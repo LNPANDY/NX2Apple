@@ -1,0 +1,279 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E9=87=8E=E6=BC=AB=E6=A8=AA=E6=B1=9F?= <1399226280@qq.com>
+Date: Sat, 7 Nov 2026 14:54:35 +0800
+Subject: [PATCH] nvn: decode BC uploads before copying into unpacked textures
+
+Keep CPU-decoded BC textures off the GPU block-copy paths and resolve sampled, attachment and clear views to their decoded Metal formats. Preserve the existing compatibility opt-in and native BC path.
+
+Add production GPU regression coverage for uploads, reuploads, mip and array layout, all BC views, attachments and clears.
+
+Upstream-Status: fork-only (declined seedds/nxnative#488)
+Reason: Repair uploads and format views in the existing opt-in CPU BC path on GPUs without native BC sampling.
+Issue: LNPANDY/NX2Apple#732
+---
+ dm/games/010015100B514000/README.md |  6 ++
+ dm/gfx/nvn/nvn_mtl.m                | 34 ++++++-----
+ dm/gfx/tests/Makefile               |  4 ++
+ dm/gfx/tests/t_bc_cpu.m             | 90 +++++++++++++++++++++++++++++
+ docs/reference/rendering.md         |  9 +++
+ 5 files changed, 130 insertions(+), 13 deletions(-)
+ create mode 100644 dm/gfx/tests/t_bc_cpu.m
+
+diff --git a/dm/games/010015100B514000/README.md b/dm/games/010015100B514000/README.md
+index 143bda1..4baa36f 100644
+--- a/dm/games/010015100B514000/README.md
++++ b/dm/games/010015100B514000/README.md
+@@ -100,6 +100,8 @@ Game-specific findings; the general host changes they led to are listed under [F
+ 
+ ## Found on this game
+ 
++- [CPU-decoded BC uploads and format views](../../../docs/reference/rendering.md#cpu-decoded-bc-uploads-and-format-views): A15 corruption and invalid format views with the compatibility option enabled.
++
+ - [Offline pipeline archive missing for the device GPU](../../../docs/reference/shaders.md#offline-pipeline-archive-missing-for-the-device-gpu): archive targets can follow profile metadata while iOS Metal 4 remains opt-in; [the probe above](#offline-pipeline-archive-probe) records the build evidence and open device checks.
+ General host changes first needed here; each applies to every game:
+ 
+@@ -123,3 +125,7 @@ General host changes first needed here; each applies to every game:
+ - dm/games/README.md says the heap check turns "Wonder's 1.44 GB" request into a 0xc0000000 alias region; 03 says it asks for 1.47 GB, and the profile's alias region is 0xB8000000.
+ - Several addresses in 02 and 03 (`main+0x1070910`, `main+0x107dbc0`, `main+0x4da5c`, `main+0xb8dec`, `main+0xcfd24`, `main+0x36ceff0`) do not name their build; the present-interval ones are from 1.2.1.
+ - 2 agl post-effect compute shaders do not translate.
++
++## A15 CPU BC compatibility investigation
++
++With the fork's CPU BC option enabled, an iPhone 13 Pro Max on iOS 27.0.1 showed striped rectangles in version 1.0.0 character selection, followed by an invalid decoded-texture view abort. The equivalent upload and view fix restored that screen in a historical local build. See [CPU-decoded BC uploads and format views](../../../docs/reference/rendering.md#cpu-decoded-bc-uploads-and-format-views) for the mechanism, regression coverage and limits. Current-pin verification is through synthetic GPU tests, not a new full-game phone run.
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index f4bc60c..ca019e9 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -2424,6 +2424,14 @@ static int tex_atomic_alias(id<MTLTexture> base) {
+         || pf == MTLPixelFormatRG16Unorm || pf == MTLPixelFormatRG16Snorm || pf == MTLPixelFormatRG16Uint || pf == MTLPixelFormatRG16Sint || pf == MTLPixelFormatRG16Float || pf == MTLPixelFormatR32Float;
+     return bytes32 && (base.textureType == MTLTextureType2D || base.textureType == MTLTextureType2DArray) && base.sampleCount == 1 && base.storageMode == MTLStorageModePrivate && !base.buffer && !base.isSparse;
+ }
++// A view of CPU-decoded BC storage must name the decoded Metal format too.
++// Keep the NVN format's channel mapping, including RGB BC1's opaque alpha.
++static int tex_view_to_mtl(uint32_t format, uint32_t *pf, uint8_t swz[4]) {
++    int mapped = nvn_fmt_to_mtl(format, pf, swz);
++    uint32_t unpacked; int bpp;
++    if (g_bc_cpu && pf && nvn_bc_unpacked(format, &unpacked, &bpp)) *pf = unpacked;
++    return mapped;
++}
+ static MTLTextureDescriptor *tex_desc(const tex_t *t, int packaged) {
+     uint32_t pf = 0; uint8_t swz[4];
+     // A BC format on a GPU without BC support: create the texture in the uncompressed format the
+@@ -2869,8 +2877,10 @@ static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture
+     if (!d) return nil;
+     d.usage |= keep & (MTLTextureUsageRenderTarget | MTLTextureUsagePixelFormatView);
+     int rb_shift = rb_packed_shift(t->d.format);   // the RGB565 family is repacked into Metal's order on the CPU (rb_packed_shift)
++    uint32_t bc_pf = 0; int bc_bpp = 0;
++    int bc_cpu = g_bc_cpu && nvn_bc_unpacked(t->d.format, &bc_pf, &bc_bpp);
+     int linear = (t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) != 0;   // linear storage no view could take (linear_fit): its rows are copied on the CPU
+-    int direct = !linear && !rb_shift && stamp && direct_upload_on() && g_nvn_deswz_gpu && !(t->pool && nvn_sparse_pool(t->pool)) && nvn_deswz_gpu_direct_supported(&t->d);
++    int direct = !bc_cpu && !linear && !rb_shift && stamp && direct_upload_on() && g_nvn_deswz_gpu && !(t->pool && nvn_sparse_pool(t->pool)) && nvn_deswz_gpu_direct_supported(&t->d);
+     if (direct) d.usage |= MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView;
+     id<MTLTexture> mt = reuse && reuse.pixelFormat == d.pixelFormat && reuse.width == d.width && reuse.height == d.height && reuse.mipmapLevelCount == d.mipmapLevelCount && reuse.textureType == d.textureType
+                         && (reuse.usage & d.usage) == d.usage
+@@ -2896,11 +2906,11 @@ static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture
+     void *mb; uint64_t mo;
+     // A texture in a large pool (BIG_MIN) or one that holds only textures is read through a buffer of its own, held by the upload batch: a one-time read must not leave that memory wired for good
+     id<MTLBuffer> upsrc = nil;
+-    if (!linear && !rb_shift && !sparse && g_nvn_deswz_gpu) { up_begin(); upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo); if (upsrc) mb = (__bridge void *)upsrc; }
++    if (!bc_cpu && !linear && !rb_shift && !sparse && g_nvn_deswz_gpu) { up_begin(); upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo); if (upsrc) mb = (__bridge void *)upsrc; }
+     t_tex_upload_lookup = 1;
+-    int use_gpu = !linear && !rb_shift && !sparse && g_nvn_deswz_gpu && (upsrc || mtl_addr((uint64_t)t->mem, t->L.size, &mb, &mo));   // a sparse pool's texture is gathered through its page table on the CPU
++    int use_gpu = !bc_cpu && !linear && !rb_shift && !sparse && g_nvn_deswz_gpu && (upsrc || mtl_addr((uint64_t)t->mem, t->L.size, &mb, &mo));   // a sparse pool's texture is gathered through its page table on the CPU
+     t_tex_upload_lookup = 0;
+-    if (g_nvn_deswz_gpu && !use_gpu && !sparse && !rb_shift && !linear) RED_ONCE(40, "swizzled texture storage is not in a memory pool; falling back to the CPU");
++    if (g_nvn_deswz_gpu && !use_gpu && !bc_cpu && !sparse && !rb_shift && !linear) RED_ONCE(40, "swizzled texture storage is not in a memory pool; falling back to the CPU");
+     if (use_gpu) {
+         // The GPU reads the memory pool at execution time, which is closer to a real Switch than a snapshot at CPU upload time; the dirty-page stamp is still taken before encoding, and later writes still trigger a re-upload.
+         up_begin();
+@@ -2952,10 +2962,8 @@ static id<MTLTexture> pkg_upload_(const tex_t *t, uint64_t *stamp, id<MTLTexture
+     }
+     // A BC texture on a GPU without BC support: tex_desc made the Metal texture RGBA8 (or R8/RG8,
+     // RGBA16F for BC6H), so the staging slot is per-pixel, not per-block, and the deswizzled block
+-    // data is expanded through nvn_bc_decode before the blit. bc_cpu stays 0 on Macs and A19+,
++    // data is expanded through nvn_bc_decode before the blit. bc_cpu stays 0 on GPUs with native BC support,
+     // where the compressed path below is used unchanged.
+-    uint32_t bc_pf = 0; int bc_bpp = 0;
+-    int bc_cpu = g_bc_cpu && nvn_bc_unpacked(t->d.format, &bc_pf, &bc_bpp);
+     size_t total_bc = 0;
+     if (bc_cpu) {
+         total_bc = 0;
+@@ -4662,7 +4670,7 @@ static int mtl_fmt_depth(MTLPixelFormat f) { return f == MTLPixelFormatDepth16Un
+ // The shadow's format: the view's, when the base is BC (or a depth format, above) and the view is an uncompressed colour format with one block's bytes per pixel
+ static int bcrt_view(id<MTLTexture> base, const view_t *v, int has_v, MTLPixelFormat *pf_out) {
+     uint32_t pf = 0; uint8_t swz[4]; int bw = 0, bh = 0, side = 0, bb = base ? shrt_block(base.pixelFormat, &side) : 0;
+-    if (!bb || !has_v || !v->set_format || !nvn_fmt_to_mtl(v->format, &pf, swz) || !pf || mtl_fmt_block((MTLPixelFormat)pf) || mtl_fmt_depth((MTLPixelFormat)pf)) return 0;
++    if (!bb || !has_v || !v->set_format || !tex_view_to_mtl(v->format, &pf, swz) || !pf || mtl_fmt_block((MTLPixelFormat)pf) || mtl_fmt_depth((MTLPixelFormat)pf)) return 0;
+     if (nvn_fmt_bpb(v->format, &bw, &bh) != bb || bw != 1 || bh != 1) return 0;
+     *pf_out = (MTLPixelFormat)pf; return 1;
+ }
+@@ -4716,7 +4724,7 @@ static MTLPixelFormat rt_view_fmt(id<MTLTexture> base, const view_t *v, int has_
+     }
+     if (!base || !has_v || !v->set_format) return base.pixelFormat;
+     uint32_t pf = 0; uint8_t swz[4];
+-    if (!nvn_fmt_to_mtl(v->format, &pf, swz) || !pf || pf == (uint32_t)base.pixelFormat) return base.pixelFormat;
++    if (!tex_view_to_mtl(v->format, &pf, swz) || !pf || pf == (uint32_t)base.pixelFormat) return base.pixelFormat;
+     if (tex_need_pfv(base.pixelFormat, (MTLPixelFormat)pf) && !(base.usage & MTLTextureUsagePixelFormatView)) return base.pixelFormat;
+     return (MTLPixelFormat)pf;
+ }
+@@ -4761,7 +4769,7 @@ static void attach(MTLRenderPassAttachmentDescriptor *a, const tex_t *t, const v
+             if (vw) { a.texture = vw; defer_obj_unref(vw); }
+             else RED_ONCE(67, "cannot create the render target view: format %#x (base texture Metal format %lu)", v->format, (unsigned long)base.pixelFormat);
+         } else { uint32_t want = 0; uint8_t swz[4];
+-            if (nvn_fmt_to_mtl(v->format, &want, swz) && want && want != (uint32_t)base.pixelFormat)
++            if (tex_view_to_mtl(v->format, &want, swz) && want && want != (uint32_t)base.pixelFormat)
+                 RED_ONCE(68, "render target view format %#x cannot be attached (base texture Metal format %lu was created without the format-view usage): drawing in the base format", v->format, (unsigned long)base.pixelFormat); }
+     }
+ }
+@@ -5958,7 +5966,7 @@ static id<MTLTexture> tex_by_id(int tid) {   // Caller holds g_rmu
+     // The swap is for bits in the guest's order, so only for textures that read guest memory in place (linear and buffer textures): every other host texture holds Metal's order, uploads
+     // included (rb_packed_shift): for them only the format's alpha 1 remains
+     uint8_t sw[4] = {MTLTextureSwizzleRed, MTLTextureSwizzleGreen, MTLTextureSwizzleBlue, MTLTextureSwizzleAlpha}, fsw[4]; int need_sw = 0; uint32_t view_pf = 0;
+-    if (!(r.has_v && r.v.set_format && nvn_fmt_to_mtl(r.v.format, &view_pf, fsw) && view_pf)) nvn_fmt_to_mtl(r.t.d.format, NULL, fsw);
++    if (!(r.has_v && r.v.set_format && tex_view_to_mtl(r.v.format, &view_pf, fsw) && view_pf)) nvn_fmt_to_mtl(r.t.d.format, NULL, fsw);
+     if (!base.buffer) for (int c = 0; c < 4; c++) if (fsw[c] >= MTLTextureSwizzleRed) fsw[c] = (uint8_t)(MTLTextureSwizzleRed + c);
+     // Metal cannot cast a depth texture to its single-channel colour equivalent. Use the same depth storage,
+     // but present (R, 0, 0, 1) to the NVN swizzle: a float shader reading Metal depth can see depth in G and B too.
+@@ -11112,7 +11120,7 @@ static int fz_p2_draw(NvProg *pr, const p_draw *dw, const p_draw_idx *di, uint8_
+                 // the proof would still hold, the sampling would be changed to read on-tile level 0 / the original format, and the picture would be wrong). The view's starting level / layer must be 0 and its format must equal the attachment's actual format, otherwise do not merge
+                 int tid_ = (int)(h & 0xfffff); void *tv_ = NULL; if (tid_) { os_unfair_lock_lock(&g_rmu); tex_fast_rid(tid_, &tv_); os_unfair_lock_unlock(&g_rmu); } __unsafe_unretained id<MTLTexture> tv = (__bridge id<MTLTexture>)tv_;   // under g_rmu: a lookup may sync the ID cache (ser_sync)
+                 uint32_t apf_ = tv.parentTexture ? (uint32_t)tv.parentTexture.pixelFormat : (uint32_t)tv.pixelFormat; uint8_t swz_[4];
+-                if (R.rt.has_cview[j] && R.rt.cview[j].set_format && !(nvn_fmt_to_mtl(R.rt.cview[j].format, &apf_, swz_) && apf_)) apf_ = 0;   // The attachment is attached through a format-changing view: take that format; if unrecognized, do not merge
++                if (R.rt.has_cview[j] && R.rt.cview[j].set_format && !(tex_view_to_mtl(R.rt.cview[j].format, &apf_, swz_) && apf_)) apf_ = 0;   // The attachment is attached through a format-changing view: take that format; if unrecognized, do not merge
+                 MTLPixelFormat apf = (MTLPixelFormat)apf_;   // a read of the tile takes no channel mapping either (alpha 1 of an RGBX attachment, tex_by_id), beyond filling missing channels (sw_tile)
+                 int tsw_id = tv && sw_tile(tv);
+                 if (!tv || (tv.parentTexture && (tv.parentRelativeLevel || tv.parentRelativeSlice)) || tv.pixelFormat != apf || !tsw_id) {
+@@ -13246,7 +13254,7 @@ static void clear_tex(const p_clear_tex *c) {
+         t = tex_upgrade(c->tex, t, MTLTextureUsageRenderTarget, t.pixelFormat);   // a clear of a texture made without render-target use (packaged): give it that use
+     if (c->has_view && c->view.set_format) {   // View with changed format: the clear value is interpreted in the view format (all 5 of the game's calls are the ui version with an integer view), and the clear is done on a view of the same format
+         uint32_t vpf = 0; uint8_t swz[4];
+-        if (!nvn_fmt_to_mtl(c->view.format, &vpf, swz) || !vpf) { RED_ONCE(42, "texture clear view format %#x has no equivalent", c->view.format); return; }
++        if (!tex_view_to_mtl(c->view.format, &vpf, swz) || !vpf) { RED_ONCE(42, "texture clear view format %#x has no equivalent", c->view.format); return; }
+         if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf) && !(t.usage & MTLTextureUsagePixelFormatView)) t = tex_upgrade_pfv(c->tex, t, (MTLPixelFormat)vpf);
+         if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf)) {
+             id<MTLTexture> v = [t newTextureViewWithPixelFormat:(MTLPixelFormat)vpf];
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index e7670d0..7495f8e 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -493,3 +493,7 @@ check_t_logic: t_logic
+ # MUFU.SIN / COS lowered from turns through the fraction (InstEmitAmpereAlu.cs ATurnsToRadians), on the GPU against a double-precision reference
+ t_mufu_turns: t_mufu_turns.m
+ 	clang -O1 -g -Wall -fobjc-arc -o $@ t_mufu_turns.m -framework Metal -framework Foundation
++
++t_bc_cpu: t_bc_cpu.m $(MTL_T_DEP)
++	clang $(CFLAGS) -fobjc-arc -o $@ t_bc_cpu.m $(MTL_T_SRC) $(FW)
++check_t_bc_cpu: RUN_ENV = MTL_DEBUG_LAYER=1
+diff --git a/dm/gfx/tests/t_bc_cpu.m b/dm/gfx/tests/t_bc_cpu.m
+new file mode 100644
+index 0000000..b395b55
+--- /dev/null
++++ b/dm/gfx/tests/t_bc_cpu.m
+@@ -0,0 +1,90 @@
++// Exercise the production upload and sampled-view paths with CPU BC decoding
++// forced on a BC-capable Mac GPU. No game assets or test-only production hooks.
++#include "../nvn/nvn_mtl.m"
++void *front_metal_layer(void) { return NULL; }
++module_t *module_of(const void *p) { (void)p; return NULL; }
++module_t *g_mod; int g_nmod;
++void svc_thread_dump(void) {}
++uint64_t now_ns(void) { return bp_now(); }
++static int checks, failed;
++#define CHECK(label,c) do { checks++; if (!(c)) { failed++; fprintf(stderr,"FAIL: %s\n",label); } } while (0)
++static void finish(void) {
++    CHECK("upload submission completes",mtl_wait(mtl_sub_commit(),5000000000ull));
++    CHECK("upload has no GPU error",!mtl_last_commit_error());
++}
++static void uploads(int format, int bpp, int direct) {
++    g_direct_upload_on=direct;
++    static uint64_t serial=990000;
++    tex_t t={.magic=MAGIC('T','E','X',0),.serial=serial++,.has_layout=1};
++    t.d=(nvn_texdesc){.target=4,.format=format,.width=7,.height=5,.depth=2,.levels=3,.samples=1};
++    nvn_tex_layout(&t.d,&t.L);
++    size_t poolsize=(t.L.size+4096+getpagesize()-1)&~(size_t)(getpagesize()-1);
++    void *mem=NULL; if(posix_memalign(&mem,getpagesize(),poolsize))abort(); memset(mem,0,poolsize);
++    pool_t pool={.magic=MAGIC('P','O','O','L'),.mem=mem,.size=poolsize,.flags=NVN_MEMORY_POOL_FLAGS_CPU_UNCACHED|NVN_MEMORY_POOL_FLAGS_GPU_CACHED};
++    t.pool=&pool; t.mem=(uint8_t*)mem+4096;
++    mtl_pool_add(mem,poolsize); nvn_dirty_add_range(mem,poolsize);
++    size_t bytes=0; for(unsigned l=0;l<3;l++)bytes+=(size_t)MAX(7u>>l,1u)*MAX(5u>>l,1u)*2*bpp;
++    uint8_t *expected=malloc(bytes);
++    id<MTLBuffer> readback=[g_dev newBufferWithLength:bytes+512 options:MTLResourceStorageModeShared];
++    for(unsigned round=0;round<2;round++) {
++        dm_guest_write_prepare(mem,poolsize); size_t off=0;
++        for(unsigned l=0;l<3;l++)for(unsigned a=0;a<2;a++) {
++            unsigned w=MAX(7u>>l,1u),h=MAX(5u>>l,1u),nb=((w+3)/4)*((h+3)/4);
++            unsigned bb=format==0x41||format==0x49?8:16;
++            uint8_t blocks[64]={0},pixel[4]={0};
++            for(unsigned i=0;i<nb;i++) {
++                uint8_t *b=blocks+i*bb;
++                if(format==0x41) { b[0]=round?0xe0:0; b[1]=round?7:0xf8; pixel[round?1:0]=255; pixel[3]=255; }
++                else { b[0]=(uint8_t)(200+round+a+l); pixel[0]=b[0]; if(format==0x4b){b[8]=100+round+a+l;pixel[1]=b[8];} }
++            }
++            CHECK("compressed blocks swizzle",!nvn_swizzle(&t.d,l,a,blocks,((w+3)/4)*bb,t.mem));
++            for(unsigned i=0;i<w*h;i++)memcpy(expected+off+(size_t)i*bpp,pixel,bpp);
++            off+=(size_t)w*h*bpp;
++        }
++        mtl_sub_begin(); id<MTLTexture> image=tex_mtl(&t); CHECK("decoded texture exists",image!=nil); finish();
++        if(!image)break;
++        CHECK("decoded mip count",image.mipmapLevelCount==3); CHECK("decoded array layers",image.arrayLength==2);
++        id<MTLCommandBuffer> cb=q_cb(); id<MTLBlitCommandEncoder> enc=[cb blitCommandEncoder]; off=0;
++        for(unsigned l=0;l<3;l++)for(unsigned a=0;a<2;a++) {
++            unsigned w=MAX(7u>>l,1u),h=MAX(5u>>l,1u);
++            [enc copyFromTexture:image sourceSlice:a sourceLevel:l sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(w,h,1) toBuffer:readback destinationOffset:256+off destinationBytesPerRow:w*bpp destinationBytesPerImage:w*h*bpp];
++            off+=(size_t)w*h*bpp;
++        }
++        [enc endEncoding]; [cb commit]; [cb waitUntilCompleted];
++        CHECK("GPU readback completes",cb.status==MTLCommandBufferStatusCompleted);
++        CHECK("every decoded mip/layer pixel matches independent uniform-block reference",!memcmp((uint8_t*)readback.contents+256,expected,bytes));
++    }
++    mtl_tex_release(&t); mtl_drain(); mtl_alias_drop_pool(&pool); nvn_dirty_remove_range(mem); mtl_pool_del(mem); mtl_drain(); free(mem); free(expected);
++}
++static void views(void) {
++    for(unsigned f=0x41;f<=0x50;f++) {
++        uint32_t unpacked=0,native=0; int bpp=0; uint8_t sw[4];
++        CHECK("BC family has decoded format",nvn_bc_unpacked(f,&unpacked,&bpp));
++        CHECK("BC family has native format",nvn_fmt_to_mtl(f,&native,sw));
++        tex_t t={.magic=MAGIC('T','E','X',0),.serial=1000000+f};
++        t.d=(nvn_texdesc){.target=1,.format=f,.width=4,.height=4,.depth=1,.levels=1,.samples=1};
++        g_bc_cpu=0; CHECK("native BC descriptor unchanged",tex_desc(&t,0).pixelFormat==native);
++        g_bc_cpu=1; MTLTextureDescriptor *d=tex_desc(&t,0); d.storageMode=MTLStorageModeShared;
++        id<MTLTexture> base=[g_dev newTextureWithDescriptor:d]; CHECK("decoded base allocated",base!=nil); if(!base)continue;
++        CHECK("decoded base format",base.pixelFormat==unpacked); serial_put(t.serial,base);
++        view_t v={.set_format=1,.format=f}; mtl_reg_tex(200+f,&t,&v);
++        os_unfair_lock_lock(&g_rmu); id<MTLTexture> view=tex_by_id(200+f);
++        CHECK("sampled BC view exists",view!=nil); CHECK("sampled BC view uses decoded storage format",view.pixelFormat==unpacked);
++        CHECK("sampled BC view cache reused",tex_by_id(200+f)==view); os_unfair_lock_unlock(&g_rmu);
++        CHECK("render-target view uses decoded format",rt_view_fmt(base,&v,1)==unpacked);
++        MTLRenderPassDescriptor *rp=[MTLRenderPassDescriptor renderPassDescriptor];
++        attach(rp.colorAttachments[0],&t,&v,1);
++        CHECK("decoded attachment is retained",rp.colorAttachments[0].texture.pixelFormat==unpacked);
++        p_clear_tex clear={.tex=&t,.view=v,.has_view=1,.mask=15,.r={0,0,0,4,4,1}};
++        clear.c.f[0]=0.25f; clear.c.f[1]=0.5f; clear.c.f[2]=0.75f; clear.c.f[3]=1;
++        state_reset(); memset(&R,0,sizeof R); mtl_sub_begin(); clear_tex(&clear); finish();
++        mtl_drain();
++    }
++}
++int main(int argc,char **argv) { @autoreleasepool {
++    mtl_init(); g_bc_cpu=1;
++    CHECK("GPU deswizzle is enabled for the regression",g_nvn_deswz_gpu);
++    if(argc<2||strcmp(argv[1],"views"))for(int direct=0;direct<2;direct++){uploads(0x41,4,direct);uploads(0x49,1,direct);uploads(0x4b,2,direct);}
++    if(argc<2||strcmp(argv[1],"uploads"))views();
++    printf("t_bc_cpu: %d checks, %d failed\n",checks,failed); return failed!=0;
++}}
+diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
+index cc0bef1..95271ae 100644
+--- a/docs/reference/rendering.md
++++ b/docs/reference/rendering.md
+@@ -1544,3 +1544,12 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+ - **Fix:** the present reports the shape of the frame it draws ([the layer's](#a-crop-only-picks-texels-the-picture-has-the-layers-shape)) whenever its width / height changes (`nvn_mtl.m` `present_now` → `front.h` `front_picture_shape`; every graphics API presents there). The iOS front end lays the game's view out in that shape (`DmLayout.h` takes it as a parameter: the overlay, the split, Fill and the TV alike), so a 1.43:1 picture fills a 1.43:1 screen in Fit and touches are normalized on the picture as drawn; the Mac maps the mouse on the picture's own rectangle. A 16:9 game reports 16:9 and keeps its layout, and a size change of the same shape (1280x720 handheld, 1920x1080 docked) is not reported.
+ - **Check:** the [Duo harness](../../dm/ios/tests/duo/README.md) tests the taller picture in Fit, in Fill and on a wider screen, and the production root view following a reported shape and returning to 16:9. Not yet run on a device.
+ - **Found on:** [Breath of the Wild](../../dm/games/01007EF00011E000/README.md#screen-shape-dm_screen_aspect-current) and [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#screen-shape-dm_screen_aspect-current) with `DM_SCREEN_ASPECT=1.43`.
++
++### CPU-decoded BC uploads and format views
++
++- **Symptom:** with `tex_bc_cpu` enabled on an A15, Wonder's character-selection screen has striped rectangles and noise around otherwise readable characters. Metal can also abort when a BC view is requested on the decoded R8, RG8 or RGBA8 backing texture.
++- **Cause:** `tex_desc` allocates decoded storage, but the GPU deswizzle paths copy compressed blocks without decoding them. A view still resolves the original BC Metal format instead of the backing texture's decoded format.
++- **Fix:** CPU-decoded textures bypass both GPU upload paths and reach the existing CPU decoder. Sampled views, render-target views and clear views resolve BC formats through the same decoded-format helper while preserving the NVN channel mapping. Native BC-capable devices keep their existing path.
++- **Checked:** `make -C dm/gfx/tests GAME=010015100B514000 check_t_bc_cpu` forces the decoded path on a Mac GPU through the production implementation. It checks pooled uploads and reuploads, partial blocks, three mip levels, two array layers, both direct-upload settings, all sixteen BC format views, attachments and clears. Before the fix the upload and sampled-view cases abort under Metal validation. Historical iPhone 13 Pro Max / A15 evidence on iOS 27.0.1 shows Wonder 1.0.0 character selection before and after the equivalent fix. The current engine revision has not been installed on that phone.
++- **Limits:** this does not implement raw compressed-block views, GPU BC block encoding, or decoded-to-compressed readback. It keeps the existing compatibility opt-in and does not change the supported-device check.
++- **Found on:** [Super Mario Bros. Wonder](../../dm/games/010015100B514000/README.md).

@@ -4,20 +4,20 @@ import XCTest
 /// outlives the run: a key one test wrote, or a killed run left behind, was read by the next test and the next run (a stale
 /// `exportIPA` or a `repoPath` in a deleted folder failed the shell install tests).
 ///
-/// - `testDefaults` is a suite of its own for the test, removed after it. A test hands it to `LauncherStores(defaults:)` and to every
-///   store or helper that takes a `defaults`, so nothing reads or writes the shared domain.
+/// - `testDefaults` is a suite of its own for the test, from `TestDefaults`, so no file of it stays in `~/Library/Preferences`.
+///   A test hands it to `LauncherStores(defaults:)` and to every store or helper that takes a `defaults`, so nothing reads or
+///   writes the shared domain.
 /// - The shared domain is emptied once per process, so a leftover of an earlier run is gone before the first test.
 /// - After each test the shared domain must be as it was before: a test that leaves a key there fails, and the key is put back.
 class IsolatedDefaultsTestCase: XCTestCase {
     /// The suite of this test, created on first use.
     var testDefaults: UserDefaults {
-        if let suite = isolatedSuite { return suite.defaults }
-        let name = "nx2apple-test-" + UUID().uuidString
-        let defaults = UserDefaults(suiteName: name)!
-        isolatedSuite = (name, defaults)
+        if let suite = isolatedSuite { return suite }
+        let defaults = TestDefaults.make("nx2apple-test")
+        isolatedSuite = defaults
         return defaults
     }
-    private var isolatedSuite: (name: String, defaults: UserDefaults)?
+    private var isolatedSuite: UserDefaults?
 
     /// The domain the process reads and writes through `UserDefaults.standard`.
     static var sharedDomain: String { Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName }
@@ -33,10 +33,6 @@ class IsolatedDefaultsTestCase: XCTestCase {
         let before = Self.sharedKeys()
         isolatedSuite = nil
         super.invokeTest()
-        if let suite = isolatedSuite {
-            UserDefaults().removePersistentDomain(forName: suite.name)
-            try? FileManager.default.removeItem(atPath: NSHomeDirectory() + "/Library/Preferences/\(suite.name).plist")   // no file per test
-        }
         isolatedSuite = nil
         let after = Self.sharedKeys()
         let changed = Set(before.keys).union(after.keys).filter { !Self.same(before[$0], after[$0]) }.sorted()

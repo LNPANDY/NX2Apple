@@ -20,10 +20,42 @@ permissions:
   contents: write
 
 jobs:
+  shell-template:
+    name: Build DmShell.app template (macOS)
+    runs-on: xcode-27
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build unsigned DmShell.app template
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v xcodegen || brew install xcodegen
+          python3 tools/engine.py -q sync
+          python3 tools/build_shell_template.py --out "$RUNNER_TEMP/shell_template/DmShell.app"
+          du -sh "$RUNNER_TEMP/shell_template/DmShell.app"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dmshell-template
+          path: ${{ runner.temp }}/shell_template/DmShell.app
+          if-no-files-found: error
+
   build:
+    needs: shell-template
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the DmShell.app template
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dmshell-template
+          path: frontend-qt/shell_template/DmShell.app
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
@@ -153,6 +185,7 @@ jobs:
             --hidden-import nspb_qt.win.shim \
             --hidden-import nspb_qt.win.mp_worker \
             --hidden-import nspb_qt.win.build_app \
+            --hidden-import nspb_qt.win.shell_export \
             --hidden-import nspb_qt.win.fix_ipa_modes \
             --hidden-import nspb_qt.win.doctor \
             --collect-data PySide6 \
@@ -200,6 +233,7 @@ jobs:
             --add-data "../frontend/fonts/Manrope.ttf${PATHSEP}fonts" \
             --add-data "../frontend/fonts/Manrope-OFL.txt${PATHSEP}fonts" \
             --add-data "../frontend/l10n${PATHSEP}l10n" \
+            --add-data "shell_template${PATHSEP}shell_template" \
             --add-data "nspb_qt${PATHSEP}nspb_qt" \
             --paths . \
             run_gui.py
@@ -222,9 +256,13 @@ jobs:
         run: |
           cd frontend-qt/dist
           cp -r ../wheels "NX2Apple/wheels"
-          # The engine tree goes inside the app folder: the launcher finds it at
+          # The engine tree goes inside the app folder, where the launcher finds it at
           # <exe_dir>/engine (and also at <exe_dir>/../engine) and skips the repo/sync route entirely.
           cp -r ../../engine-tree "NX2Apple/engine"
+          NSPB_PACKAGED_BUNDLE_DIR="$PWD/NX2Apple/_internal" \
+          NSPB_ENGINE_DIR="$PWD/NX2Apple/engine" \
+          QT_QPA_PLATFORM=offscreen \
+            python -m unittest discover -s ../tests -p "test_swift_parity.py" -v
           powershell -Command "Compress-Archive -Path 'NX2Apple' -DestinationPath '../NX2Apple-windows-x64.zip'"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

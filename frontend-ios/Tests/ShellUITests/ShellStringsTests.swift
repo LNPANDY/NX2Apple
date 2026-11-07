@@ -2,27 +2,29 @@ import Foundation
 import Testing
 @testable import ShellUI
 
-/// Every text of the shell comes in all six languages of the app. The catalogs are generated from `frontend/l10n/*.json`
-/// (`tools/l10n_shell_catalogs.py`), so a new `ios.*` key without all six fails here and in `tools/tests/test_l10n_shell_catalogs.py`.
+/// Every text of the shell comes in all seven languages of the app. The catalogs are generated from `frontend/l10n/*.json`
+/// (`tools/l10n_shell_catalogs.py`), so a new `ios.*` key without all seven fails here and in `tools/tests/test_l10n_shell_catalogs.py`.
 @Suite struct ShellStringsTests {
-    private static let languages = ["en", "zh-Hans", "de", "sv", "fr", "it"]
+    private static let languages = ["en", "zh-Hans", "de", "sv", "fr", "it", "ja"]
 
     /// Texts a language writes exactly as English does, by English text, with the languages that do. Names, units and words that are
     /// the same in that language. Anything else equal to English is a text nobody translated. Reviewed with each new entry.
     private static let cognates: [String: Set<String>] = [
-        "30 fps": ["de", "sv", "it"], "60 fps": ["de", "sv", "it"],   // a unit
-        "120 fps": ["de", "sv", "it"],                              // a unit
+        "30 fps": ["de", "sv", "it", "ja"], "60 fps": ["de", "sv", "it", "ja"],   // a unit
+        "120 fps": ["de", "sv", "it", "ja"],                              // a unit
         "16:9 (Switch)": ["de", "sv", "fr", "it"],                 // aspect ratio and console name
-        "MetalFX": ["de", "sv", "fr", "it"],                          // a name
+        "MetalFX": ["de", "sv", "fr", "it", "ja"],                          // a name
         "Standard": ["de", "sv", "fr", "it"],                         // launch.opt: the game's standard mode, a word in each
         "Controller": ["de", "it"],
         "Handheld": ["de"],
         "Interface": ["fr"],
         "Layout": ["sv"],
+        "Portrait": ["fr"],
         "Upscaling": ["it"],
         "Minus": ["de", "sv"], "Plus": ["de", "sv", "fr"],            // the Switch's buttons
         "Version %@": ["de", "sv", "fr"],
-        "OK": ["de", "sv", "fr", "it"],
+        "Version": ["de", "sv", "fr"],
+        "OK": ["de", "sv", "fr", "it", "ja"],
     ]
 
     private func table(_ name: String, in folder: String) throws -> [String: Any] {
@@ -45,14 +47,14 @@ import Testing
         }
     }
 
-    /// German, Swedish, French and Italian are not left in English, except the listed cognates. The list is exact, so an entry that is
+    /// German, Swedish, French, Italian and Japanese are not left in English, except the listed cognates. The list is exact, so an entry that is
     /// no longer needed fails too.
     @Test func nothingIsLeftInEnglishButTheListedCognates() throws {
         var same: [String: Set<String>] = [:]
         for folder in ["ShellUI", "ShellHost"] {
             for (key, entry) in try table("Localizable", in: folder) {
                 let localizations = ((entry as? [String: Any])?["localizations"] as? [String: Any]) ?? [:]
-                for language in ["de", "sv", "fr", "it"] {
+                for language in ["de", "sv", "fr", "it", "ja"] {
                     let value = ((localizations[language] as? [String: Any])?["stringUnit"] as? [String: Any])?["value"] as? String
                     if value == key { same[key, default: []].insert(language) }
                 }
@@ -130,16 +132,20 @@ import Testing
     // MARK: The touch layout editor speaks every language of the app
 
     /// The layout editor showed an English Done in a German screen: `ios.ui.done` was only in en and zh. Every text the editor asks for
-    /// (read from its source, an interpolation as %@) has all six languages now, so a new text without them fails here.
+    /// (read from its source, an interpolation as %@) has all seven languages now, so a new text without them fails here.
     @Test func everyTextOfTheLayoutEditorHasEveryLanguage() throws {
-        let source = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().appendingPathComponent("Sources/ShellUI/TouchLayoutEditorView.swift"), encoding: .utf8)
+        let directory = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("Sources/ShellUI")
+        let source = try ["TouchLayoutEditorView.swift"].map {
+            try String(contentsOf: directory.appendingPathComponent($0), encoding: .utf8)
+        }.joined(separator: "\n")
         let literal = try Regex(#"ShellStrings\.text\("((?:[^"\\]|\\\([^)]*\))*)"\)"#)
         let interpolation = try Regex(#"\\\([^)]*\)"#)
-        var keys = Set(source.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }.map { $0.replacing(interpolation, with: "%@") })
+        let sourceKeys = Set(source.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }.map { $0.replacing(interpolation, with: "%@") })
+        #expect(sourceKeys.contains("Save") && sourceKeys.contains("Exit"), "editor strings were not found in the source")
+        var keys = sourceKeys
         // Passed on as LocalizationValue: the arrows' names and the two resets.
         keys.formUnion(["Move up", "Move down", "Move left", "Move right", "Reset this control", "Reset all controls", "Moved", "In its place"])
-        #expect(keys.contains("Done") && keys.contains("Put every control of the %@ layout back in its built-in place?"), "\(keys.sorted())")
         let strings = try table("Localizable", in: "ShellUI")
         for key in keys.sorted() {
             let localizations = ((strings[key] as? [String: Any])?["localizations"] as? [String: Any]) ?? [:]

@@ -1,0 +1,202 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon Ochocki <24785922+jonochocki@users.noreply.github.com>
+Date: Thu, 5 Nov 2026 16:15:00 -0600
+Subject: [PATCH] ios: allow custom controls across Duo outer landscape
+
+Keep built-in control positions and size fallback inside their existing
+safe areas. Only when the native hinge reports Closed and the view is
+landscape, allow manually arranged controls to use the full view bounds.
+Keep collision rejection and the fixed menu button's protected area.
+
+Mirror this rule in the launcher editor so its saved offsets match the
+runtime. Other phones, iPad and Duo inner/split layouts retain their
+current bounds. Existing games need rebuilding to consume this change.
+
+Front-ends: enable full custom bounds only for native Closed hinge status
+in landscape, after computing safe-area default placement.
+
+This change depends on the fork touch-control geometry and arrangement
+introduced by patches 0065-0070. Upstream does not yet contain those
+files, so forwarding this patch awaits those prerequisites.
+
+Upstream-Status: pending
+Reason: preserve editor and gameplay geometry parity when customizing Duo outer controls
+Issue: LNPANDY/NX2Apple#695
+---
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 167cc49..43bd72a 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -275,7 +275,8 @@ - (void)setTouchFeedback:(BOOL)on {
+ 
+ // ---- Layout (points; computed inside the safe area) ----
+ - (void)arrange:(DmLayout)layout {
+-    if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated && _layout.topSafeOnly == layout.topSafeOnly) return;
++    if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated
++        && _layout.topSafeOnly == layout.topSafeOnly && _layout.customControlsFullBounds == layout.customControlsFullBounds) return;
+     [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
+     _layout = layout; _geoValid = NO;
+     [self setNeedsLayout];
+diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
+index bb3631f..bfc19b7 100644
+--- a/dm/ios/Sources/DmLayout.h
++++ b/dm/ios/Sources/DmLayout.h
+@@ -5,7 +5,11 @@
+ 
+ NS_ASSUME_NONNULL_BEGIN
+ 
+-typedef struct { CGRect game, controls; BOOL separated, topSafeOnly; } DmLayout;
++typedef struct { CGRect game, controls; BOOL separated, topSafeOnly, customControlsFullBounds; } DmLayout;
++
++static inline BOOL dm_layout_custom_controls_full_bounds(CGRect bounds, BOOL hingeClosed) {
++    return hingeClosed && bounds.size.width > bounds.size.height;
++}
+ 
+ static inline UIEdgeInsets dm_game_safe_insets(CGRect bounds, UIEdgeInsets insets, BOOL duo) {
+     return duo && bounds.size.height > bounds.size.width ? UIEdgeInsetsMake(insets.top, 0, 0, 0) : insets;
+@@ -46,7 +50,7 @@ static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
+ }
+ 
+ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOpen, CGRect division, CGFloat aspect) {
+-    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO };
++    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO, NO };
+     if (CGRectIsEmpty(b)) return l;
+     division = dm_horizontal_division(b, division);
+     BOOL portrait = b.size.height > b.size.width;
+@@ -63,7 +67,7 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
+ }
+ 
+ // The picture is on a TV (front_ios.m DmTVSceneDelegate): the controls take the whole view and no touch goes to the game's touch screen (the game is docked there).
+-static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO }; }
++static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO, NO }; }
+ 
+ // Fill covers the full view only in the overlay layout (landscape). A portrait or tabletop split keeps the picture fitted in its
+ // area above the controls, where cropping a small picture would cost more than the bars.
+diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
+index df8eebf..d2efd77 100644
+--- a/dm/ios/Sources/DmPadGeometry.h
++++ b/dm/ios/Sources/DmPadGeometry.h
+@@ -37,7 +37,7 @@ typedef struct {
+ 
+ typedef struct {
+     CGFloat u;                            // the unit every size below is a multiple of
+-    CGRect safe, corner;                  // the top row lives in safe, the bottom-corner controls in corner (reaching halfway into the side insets)
++    CGRect safe, corner, customBounds;    // built-in areas; customBounds, when set after placement, is only for manual moves
+     BOOL portrait;                        // separated and taller than wide: both thumbs' clusters sit in the controls region's middle band
+     CGPoint face; CGFloat faceGap, faceR, faceHitR;   // the A B X Y diamond: centre, key distance from it, key radius, hit radius
+     CGPoint stick; CGFloat stickR, knobR;             // the left stick: ring centre and radius, knob radius
+@@ -91,7 +91,7 @@ static inline CGPoint dm_pad_diamond_key(CGPoint c, CGFloat d, int i) {
+ static inline DmPadGeo dm_pad_geo_at(CGRect bounds, UIEdgeInsets insets, DmLayout layout, BOOL full, CGFloat u) {
+     DmPadGeo g; memset(&g, 0, sizeof g);
+     BOOL sep = layout.separated;
+-    g.u = u;
++    g.u = u; g.customBounds = CGRectNull;
+     g.safe = CGRectIntersection(layout.controls, UIEdgeInsetsInsetRect(bounds, dm_game_safe_insets(bounds, insets, layout.topSafeOnly)));
+     UIEdgeInsets ci = insets; ci.left *= DM_PAD_CORNER_IN; ci.right *= DM_PAD_CORNER_IN;
+     g.corner = sep ? g.safe : UIEdgeInsetsInsetRect(bounds, ci);
+@@ -142,16 +142,18 @@ typedef struct { CGPoint c; CGFloat r; CGRect rect; BOOL isRect; CGRect within;
+ enum { DM_PAD_SHAPE_FACE = 0, DM_PAD_SHAPE_STICK = 4, DM_PAD_SHAPE_DPAD, DM_PAD_SHAPE_DROP, DM_PAD_SHAPE_TIP = 10, DM_PAD_SHAPE_CLICK = 14, DM_PAD_SHAPE_PILL = 16, DM_PAD_SHAPE_SWAP = 18 };
+ static inline int dm_pad_shapes(const DmPadGeo *g, BOOL full, DmPadShape out[_Nonnull 20]) {
+     int n = 0;
+-    for (int i = 0; i < 4; i++) out[n++] = (DmPadShape){dm_pad_face_key(g, i), g->faceR, CGRectNull, NO, g->corner, DM_PAD_SHAPE_FACE + i};
+-    out[n++] = (DmPadShape){g->stick, g->stickR, CGRectNull, NO, g->corner, DM_PAD_SHAPE_STICK};
+-    if (full) out[n++] = (DmPadShape){g->dpad, hypot(g->dpadR, g->armW), CGRectNull, NO, g->corner, DM_PAD_SHAPE_DPAD};
++    CGRect safe = CGRectIsNull(g->customBounds) ? g->safe : g->customBounds;
++    CGRect corner = CGRectIsNull(g->customBounds) ? g->corner : g->customBounds;
++    for (int i = 0; i < 4; i++) out[n++] = (DmPadShape){dm_pad_face_key(g, i), g->faceR, CGRectNull, NO, corner, DM_PAD_SHAPE_FACE + i};
++    out[n++] = (DmPadShape){g->stick, g->stickR, CGRectNull, NO, corner, DM_PAD_SHAPE_STICK};
++    if (full) out[n++] = (DmPadShape){g->dpad, hypot(g->dpadR, g->armW), CGRectNull, NO, corner, DM_PAD_SHAPE_DPAD};
+     for (int i = 0; i < 4; i++) {
+-        out[n++] = (DmPadShape){g->drop[i], g->dropR[i], CGRectNull, NO, g->safe, DM_PAD_SHAPE_DROP + i};
+-        out[n++] = (DmPadShape){dm_pad_drop_tip(g, i), 0, CGRectNull, NO, g->safe, DM_PAD_SHAPE_TIP + i};
++        out[n++] = (DmPadShape){g->drop[i], g->dropR[i], CGRectNull, NO, safe, DM_PAD_SHAPE_DROP + i};
++        out[n++] = (DmPadShape){dm_pad_drop_tip(g, i), 0, CGRectNull, NO, safe, DM_PAD_SHAPE_TIP + i};
+     }
+-    if (full) for (int i = 0; i < 2; i++) out[n++] = (DmPadShape){g->click[i], g->clickR, CGRectNull, NO, g->safe, DM_PAD_SHAPE_CLICK + i};
+-    for (int i = 0; i < 2; i++) out[n++] = (DmPadShape){CGPointZero, 0, g->pill[i], YES, g->safe, DM_PAD_SHAPE_PILL + i};
+-    out[n++] = (DmPadShape){g->swap, g->swapR, CGRectNull, NO, g->safe, DM_PAD_SHAPE_SWAP};
++    if (full) for (int i = 0; i < 2; i++) out[n++] = (DmPadShape){g->click[i], g->clickR, CGRectNull, NO, safe, DM_PAD_SHAPE_CLICK + i};
++    for (int i = 0; i < 2; i++) out[n++] = (DmPadShape){CGPointZero, 0, g->pill[i], YES, safe, DM_PAD_SHAPE_PILL + i};
++    out[n++] = (DmPadShape){g->swap, g->swapR, CGRectNull, NO, safe, DM_PAD_SHAPE_SWAP};
+     return n;
+ }
+ static inline BOOL dm_pad_shape_inside(const DmPadShape *s) {
+@@ -370,6 +372,7 @@ static inline void dm_pad_arrange(DmPadGeo *g, BOOL full, BOOL separated, const
+ // The geometry the gamepad draws, hit-tests and grabs with: the size and the stick's place (dm_pad_geo_placed), then the player's arrangement.
+ static inline DmPadGeo dm_pad_geo(CGRect bounds, UIEdgeInsets insets, DmLayout layout, BOOL full, DmPadOptions o) {
+     DmPadGeo g = dm_pad_geo_placed(bounds, insets, layout, full, o);
++    if (layout.customControlsFullBounds && bounds.size.width > bounds.size.height && !layout.separated) g.customBounds = bounds;
+     if (o.layout) dm_pad_arrange(&g, full, layout.separated, o.layout);
+     return g;
+ }
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index fad49fd..1989148 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -205,6 +205,11 @@ - (void)viewDidLayoutSubviews {
+     DmLayout layout = onTV ? dm_layout_pad_only(b) : dm_layout_picture(dm_layout(b, gameInsets, self.partiallyOpen, division, g_picture_aspect), b, self.fill, g_picture_aspect);
+     if (!onTV) self.game.frame = layout.game;
+     layout.topSafeOnly = duoPortrait;
++    BOOL hingeClosed = NO;
++#if __has_include(<UIKit/UIHingeInteraction.h>)
++    if (@available(iOS 27.1, *)) hingeClosed = self.hingeStatus == UIHingeStatusClosed;
++#endif
++    layout.customControlsFullBounds = dm_layout_custom_controls_full_bounds(b, hingeClosed);
+     NSString *line = [NSString stringWithFormat:@"%@, hinge %ld%s, divisions %@, picture %@, controls %@", onTV ? @"pad only (picture on the TV)" : layout.separated ? @"split" : self.fill ? @"overlay, Fill" : @"overlay",
+                       (long)self.hingeStatus, self.partiallyOpen ? " (half open)" : "", regionLog, NSStringFromCGRect(layout.game), NSStringFromCGRect(layout.controls)];
+     if (![line isEqualToString:self.layoutLog]) { self.layoutLog = line; LOG("front end: layout %s", line.UTF8String); }
+diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+index 99925b6..b78567b 100644
+--- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
++++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+@@ -214,6 +214,42 @@ static void check_arrangement(const Screen *screens, int nscreens) {
+                     }
+ }
+ 
++static void check_duo_outer_custom_bounds(void) {
++    Screen s = {"Duo outer landscape", {{0, 0}, {956, 440}}, {0, 62, 20, 62}, NO, CGRectNull};
++    DmLayout ordinary = dm_layout(s.bounds, s.insets, NO, CGRectNull, DM_PICTURE_16_9);
++    DmLayout outer = ordinary;
++    outer.customControlsFullBounds = dm_layout_custom_controls_full_bounds(s.bounds, YES);
++    if (!outer.customControlsFullBounds || dm_layout_custom_controls_full_bounds(s.bounds, NO)
++        || dm_layout_custom_controls_full_bounds(CGRectMake(0, 0, 440, 956), YES))
++        FAIL("custom touch bounds are only enabled for a closed landscape hinge");
++
++    DmPadGeo base = dm_pad_geo(s.bounds, s.insets, ordinary, NO, (DmPadOptions){1});
++    DmPadGeo unchanged = dm_pad_geo(s.bounds, s.insets, outer, NO, (DmPadOptions){1});
++    if (!geo_equal(&base, &unchanged) || !CGRectEqualToRect(base.safe, unchanged.safe)
++        || !CGPointEqualToPoint(base.drop[DM_PAD_ZL], unchanged.drop[DM_PAD_ZL]))
++        FAIL("Duo outer custom bounds changed the built-in positions");
++
++    DmPadLayout m; dm_pad_layout_parse("1;2d/zl:-5,0", &m);
++    DmPadOptions o = {1, 0, &m};
++    DmPadGeo safe = dm_pad_geo(s.bounds, s.insets, ordinary, NO, o);
++    DmPadGeo expanded = dm_pad_geo(s.bounds, s.insets, outer, NO, o);
++    CGFloat step = base.faceR / 2;
++    if (!(expanded.moved & (1u << DM_PAD_C_ZL)) || expanded.dropped
++        || !NEAR(expanded.drop[DM_PAD_ZL].x, base.drop[DM_PAD_ZL].x - 5 * step)
++        || !(expanded.drop[DM_PAD_ZL].x - expanded.dropR[DM_PAD_ZL] < CGRectGetMinX(expanded.safe))
++        || expanded.drop[DM_PAD_ZL].x - expanded.dropR[DM_PAD_ZL] < CGRectGetMinX(s.bounds))
++        FAIL("Duo outer: a moved shoulder did not use the full screen bounds");
++    if (!(safe.drop[DM_PAD_ZL].x > expanded.drop[DM_PAD_ZL].x))
++        FAIL("ordinary landscape: a moved shoulder used the expanded bounds");
++    check_geo(&s, NO, &safe, "safe-area clamp");
++    check_geo(&s, NO, &expanded, "custom bounds");
++
++    dm_pad_layout_parse("1;2d/zl:0,5", &m);   // into the L shoulder: the larger region must not relax collision checks
++    expanded = dm_pad_geo(s.bounds, s.insets, outer, NO, o);
++    if (!(expanded.dropped & (1u << DM_PAD_C_ZL)) || !CGPointEqualToPoint(expanded.drop[DM_PAD_ZL], base.drop[DM_PAD_ZL]))
++        FAIL("Duo outer: full bounds allowed a moved shoulder to overlap another");
++}
++
+ int main(void) {
+     const Screen screens[] = {
+         // iPhone landscape (the phone's only orientation): the Dynamic Island or notch on one side, the home indicator at the bottom.
+@@ -319,6 +355,7 @@ int main(void) {
+ 
+     check_layout_values();
+     check_arrangement(screens, nscreens);
++    check_duo_outer_custom_bounds();
+ 
+     if (!g_fail) printf("ok: %d screens, %d arrangements\n", nscreens, g_arranged);
+     return g_fail > 100 ? 100 : g_fail;

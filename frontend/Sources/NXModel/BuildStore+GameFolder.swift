@@ -8,11 +8,12 @@ import NXCore
 extension BuildStore {
     /// The folder's rows, or the reason on the base row. Called by `scan(folder:)` when `GameFolder.isCandidate` says so.
     package func takeGameFolder(_ folder: String) {
-        gameDir = (folder as NSString).pathExtension.lowercased() == "nup" ? (folder as NSString).deletingLastPathComponent : folder   // a NUP: its folder
+        let resolved = GameFolder.resolve(folder)
+        gameDir = (resolved as NSString).pathExtension.lowercased() == "nup" ? (resolved as NSString).deletingLastPathComponent : resolved   // a NUP: its folder
         gameFolder = nil
         gameFolderRefused = false
         for i in slots.indices { slots[i].paths = []; slots[i].problem = ""; slots[i].note = "" }
-        switch GameFolder.scan(folder) {
+        switch GameFolder.scan(resolved) {
         case .failure(let problem):
             refuseGameFolder(gameFolderProblemText(problem))
         case .success(let contents):
@@ -88,7 +89,7 @@ extension BuildStore {
     /// The base game and the keys are there, or a game folder that needs no keys.
     package var inputsReady: Bool { gameFolder != nil ? slot("base").ok : slot("base").ok && slot("keys").ok }
 
-    /// The key of the build folder and the app (`<key>_build`, `<key>.app`): the folder's title ID, else the base package's (TitleID.buildKey).
+    /// The key of the work folder (`<key>_build`): the folder's title ID, else the base package's (TitleID.buildKey).
     package var buildKey: String {
         if let selectedTitleID { return selectedTitleID }
         guard let f = gameFolder else { return TitleID.buildKey(basePath) }
