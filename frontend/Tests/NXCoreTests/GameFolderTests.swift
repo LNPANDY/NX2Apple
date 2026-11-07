@@ -265,6 +265,19 @@ extension GameFolderTests {
         XCTAssertFalse(GameFolder.isCandidate(collection))
         XCTAssertEqual(GameFolder.scan(collection).failureValue, .missing("base/exefs/main.npdm"))
         XCTAssertEqual(GameFolder.resolve(collection + "/Wrapper"), collection + "/Wrapper/GameB", "the single-game wrapper inside the collection still resolves")
+
+        // A parent above a collection holding GameA.nup beside DumpB/base must not unwrap through Collection to DumpB.
+        let nupParent = root + "/NupCollectionParent"
+        let nupCollection = nupParent + "/Collection"
+        write("NupCollectionParent/Collection/GameA.nup", syntheticNUP([(0, 0x040074A01BF12000, 0)]))
+        write("NupCollectionParent/Collection/DumpB/base/exefs/main.npdm", Self.npdm(programID: 0x0400A3A01EE4C000))
+        mkdir("NupCollectionParent/Collection/DumpB/base/romfs")
+        for dir in [nupParent, nupCollection] {
+            XCTAssertEqual(GameFolder.resolve(dir), dir, "failed for \(dir)")
+            XCTAssertFalse(GameFolder.isCandidate(dir), "failed for \(dir)")
+        }
+        XCTAssertEqual(GameFolder.resolve(nupCollection + "/DumpB"), nupCollection + "/DumpB")
+        XCTAssertTrue(GameFolder.isCandidate(nupCollection + "/DumpB"))
     }
 
     func testAnUpdateOnlyDumpWithoutABaseFolderIsAccepted() throws {

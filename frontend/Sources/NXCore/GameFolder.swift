@@ -184,8 +184,9 @@ package enum GameFolder {
         if direct1.count > 1 { return nil }
         var level2: [String] = []
         for sub in level1 where !isDirectCandidate(sub) {
+            if !nupFiles(in: sub).isEmpty { return nil }
             let children = wrapperSubdirs(in: sub)
-            if children.contains(where: { hasPackages(in: $0) }) { return nil }
+            if children.contains(where: { hasPackages(in: $0) || (!isDirectCandidate($0) && !nupFiles(in: $0).isEmpty) }) { return nil }
             level2.append(contentsOf: children)
         }
         let candidates = direct1 + level2.filter { isDirectCandidate($0) }

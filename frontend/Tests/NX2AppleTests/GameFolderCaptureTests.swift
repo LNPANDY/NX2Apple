@@ -103,6 +103,8 @@ final class GameFolderCaptureTests: IsolatedDefaultsTestCase {
         fm.createFile(atPath: nupA, contents: nupBytes)
         fm.createFile(atPath: dumpB + "/base/exefs/main.npdm", contents: Self.npdm(programID: 0x0400A3A01EE4C000))
         for scanURL in [URL(fileURLWithPath: nupCollection), URL(fileURLWithPath: nupCollectionRoot)] {
+            XCTAssertEqual(GameFolder.resolve(scanURL.path), scanURL.path, "failed for \(scanURL.path)")
+            XCTAssertFalse(GameFolder.isCandidate(scanURL.path), "failed for \(scanURL.path)")
             let discovered = GameLibrary.sourceGames(in: scanURL, repo: folders.engine)
             XCTAssertEqual(Set(discovered.map(\.titleID)), ["040074A01BF12000", "0400A3A01EE4C000"], "failed for \(scanURL.path)")
             let entryA = discovered.first { $0.titleID == "040074A01BF12000" }

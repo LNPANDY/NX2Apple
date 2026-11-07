@@ -692,6 +692,8 @@ import NXModel
         try GameFolderCaptureTests.npdm(programID: 0x0400A3A01EE4C000).write(to: dumpB.appendingPathComponent("base/exefs/main.npdm"))
 
         for root in [collection, temporary!] {
+            XCTAssertEqual(GameFolder.resolve(root.path), root.path, "failed for \(root.path)")
+            XCTAssertFalse(GameFolder.isCandidate(root.path), "failed for \(root.path)")
             let games = GameLibrary.sourceGames(in: root, repo: "")
             XCTAssertEqual(Set(games.map(\.titleID)), ["040074A01BF12000", "0400A3A01EE4C000"], "failed for \(root.path)")
             let gameA = try XCTUnwrap(games.first { $0.titleID == "040074A01BF12000" })

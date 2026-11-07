@@ -286,8 +286,10 @@ def _unwrapped_game_folder(path: str) -> str | None:
     for sub in level1:
         if is_direct_game_folder_candidate(sub):
             continue
+        if nup_files(sub):
+            return None
         children = _wrapper_subdirs(sub)
-        if any(_has_packages(c) for c in children):
+        if any(_has_packages(c) or (not is_direct_game_folder_candidate(c) and nup_files(c)) for c in children):
             return None
         level2.extend(children)
     candidates = direct1 + [sub for sub in level2 if is_direct_game_folder_candidate(sub)]

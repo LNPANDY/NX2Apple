@@ -286,13 +286,17 @@ class FolderTests(unittest.TestCase):
         (dump_b / 'base/exefs/main.npdm').write_bytes(npdm(tid_b))
         (dump_b / 'base/romfs').mkdir(parents=True)
         nup_a.write_bytes(nup([(TID, 0, 0)]))
-        self.assertFalse(inputs.is_game_folder_candidate(str(coll2)))
         for scan_root in (coll2, coll2_root):
+            self.assertEqual(inputs.resolve_game_folder(str(scan_root)), str(scan_root), f'failed for {scan_root}')
+            self.assertFalse(inputs.is_game_folder_candidate(str(scan_root)), f'failed for {scan_root}')
+            self.assertFalse(lib.GameFolder.is_candidate(str(scan_root)), f'failed for {scan_root}')
             found2 = lib.GameLibrary.discover_in_folder(str(scan_root))
             by_tid2 = {g.title_id: g for g in found2}
             self.assertEqual(set(by_tid2), {f'{TID:016X}', f'{tid_b:016X}'}, f'failed for {scan_root}')
             self.assertEqual(by_tid2[f'{TID:016X}'].inputs['base'], [str(nup_a)])
             self.assertEqual(by_tid2[f'{tid_b:016X}'].inputs['base'], [str(dump_b)])
+        self.assertEqual(inputs.resolve_game_folder(str(dump_b)), str(dump_b))
+        self.assertTrue(inputs.is_game_folder_candidate(str(dump_b)))
 
     def test_update_only_dump_without_base_folder(self):
         self.make('updates/131072/exefs/main.npdm', npdm(TID))
