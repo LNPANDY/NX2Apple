@@ -58,6 +58,9 @@ class ChecksFor(unittest.TestCase):
     def test_qt_does_not_match_the_mac_launcher(self):
         self.assertNotIn('Mac launcher (slow)', names(['frontend-qt/x.py']))
 
+    def test_l10n_runs_qt_check_not_slow_mac_launcher(self):
+        self.assertEqual(names(['frontend/l10n/en.json', 'frontend-qt/x.py']), ['Qt front end'])
+
     def test_cheapest_first_and_the_slow_one_last(self):
         got = names(['frontend/a.swift', 'frontend-ios/Package.swift', 'tools/a.py', 'patches/series', 'frontend-qt/a.py'])
         self.assertEqual(got, ['patch queue', 'Qt front end', 'tools', 'Mac launcher (slow)', 'iOS shell (slow)'])

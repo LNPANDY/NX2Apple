@@ -110,6 +110,19 @@ import NXModel
         }
     }
 
+    func testShaderRebuildNoticeKeepsProgressAndStopVisibleWithoutADialog() throws {
+        try withLauncher(on: .builds) { stores, host in
+            let build = stores.build
+            build.ingest("{\"ev\":\"shaders_stale\",\"reason\":\"chain\"}\n{\"ev\":\"progress\",\"k\":1,\"name\":\"mac shaders\",\"frac\":0.5,\"done\":25,\"total\":50}\n")
+            XCTAssertNil(NSApp.modalWindow)
+            wait(in: host, for: [build.t("msg.shadersStale.title"), build.t("msg.shadersStale.chain"),
+                                 build.t("btn.stop"), "50%"])
+            XCTAssertTrue(build.running)
+            stores.localizer.lang = .de
+            wait(in: host, for: [build.t("msg.shadersStale.title"), build.t("msg.shadersStale.chain"), build.t("btn.stop")])
+        }
+    }
+
     func testStoppingOrFailingRestoresTheSetupCards() throws {
         try withLauncher(on: .builds) { stores, host in
             let build = stores.build
@@ -152,6 +165,27 @@ import NXModel
                 let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
                 host.cacheDisplay(in: host.bounds, to: rep)
                 try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(lang.code + ".png"))
+            }
+        }
+    }
+
+    func testCaptureShaderRebuildNotice() throws {
+        guard let folder = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else {
+            throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture the shader notice")
+        }
+        let output = URL(fileURLWithPath: folder)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        try withLauncher(on: .builds) { stores, host in
+            stores.build.ingest("{\"ev\":\"shaders_stale\",\"reason\":\"chain\"}\n")
+            for lang in Lang.all {
+                stores.localizer.lang = lang
+                let stage = stores.localizer.t("stage.mac_shaders")
+                stores.build.stages = [Stage(id: 1, name: stage, state: .running, detail: "20 / 50", percent: 40)]
+                wait(in: host, for: [stores.localizer.t("msg.shadersStale.chain"), stage])
+                let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: rep)
+                try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+                    .write(to: output.appendingPathComponent("after-\(lang.code).png"))
             }
         }
     }

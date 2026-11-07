@@ -1,16 +1,16 @@
 import Foundation
 import NXCore
 
-/// Which library games were built with older build tools (LNPANDY/NX2Apple#65, after seedds/nxnative#209): a finished build
+/// Which library games were built with different tools than the selected engine (LNPANDY/NX2Apple#65): a finished build
 /// records the engine's commit (LibraryGame.toolsCommit); once the engine has moved on, a game is marked when files a build uses
 /// changed between that commit and the engine's HEAD. Only a change that can alter the built game counts, so a docs-only
 /// pull marks nothing. The engine is `engine/` of the checkout (EngineLayout.root), a git repository whose HEAD is the pin plus the
 /// patch series (tools/engine.py sync), so the diff is exactly what a new pin or a changed patch did to the build's files, and
 /// the launcher's own commits never count (#214, step 2: the checkout itself holds no engine files).
-/// A game built before the commit was recorded (or recorded the checkout's commit, as until step 2), or with an engine that is
-/// not a git one (an installed release's engine tree), is never marked.
+/// A Mac game's bundle can also name the shader chain it was built with. This detects a chain change even when the release
+/// engine has no Git history or the library has no build commit.
 final class ToolsAge: ObservableObject {
-    /// The games whose build is older than the tools in the checkout now.
+    /// The games whose build tools differ from the current engine.
     @Published private(set) var older: Set<UUID> = []
     private var generation = 0
 
@@ -22,12 +22,27 @@ final class ToolsAge: ObservableObject {
         let mine = generation
         let builds = games.map { (id: $0.id, titleID: $0.titleID, commit: $0.toolsCommit) }
         DispatchQueue.global(qos: .utility).async {
-            let result = Self.olderGames(builds, repo: repo)
+            let result = Self.olderGames(builds, repo: repo).union(Self.shaderChainMismatches(games, repo: repo))
             DispatchQueue.main.async {
                 guard mine == self.generation, result != self.older else { return }
                 self.older = result
             }
         }
+    }
+
+    /// The packer stamps the chain in NVN bundles. A missing stamp is normal for other graphics backends.
+    nonisolated private static func shaderChainMismatches(_ games: [LibraryGame], repo: String) -> Set<UUID> {
+        let pattern = #"\A[0-9a-f]{12}\z"#
+        guard let current = EngineLayout.shaderChain(repo: repo),
+              current.range(of: pattern, options: .regularExpression) != nil else { return [] }
+        return Set(games.compactMap { game in
+            guard !game.appPath.isEmpty,
+                  let app = try? MacGameBundle.read(URL(fileURLWithPath: game.appPath)),
+                  app.titleID == game.titleID,
+                  let chain = app.shaderChain, chain != current,
+                  chain.range(of: pattern, options: .regularExpression) != nil else { return nil }
+            return game.id
+        })
     }
 
     /// The engine's folders and files a build reads (scripts/build_ipa_from_nsp.py's `repo / …` paths): the host, the

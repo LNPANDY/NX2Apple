@@ -22,7 +22,7 @@ extension BuildStore {
         shellDeviceChecked = false
         if target != BuildTarget.mac, !exportsOneGame, !scriptFallback, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         stopping = false
-        running = true; done = false; doneNote = ""; stages = []; staleShadersShown = false
+        running = true; done = false; doneNote = ""; stages = []; staleShadersMessageKey = nil
         if !scriptFallback { log.clear() }   // the script's run after nxb's exit code 4 goes below nxb's lines
         failure = nil; confirmingOverride = nil
         let overrideKind = armedOverride   // kept for the script's run after nxb's exit code 4, which is the same build

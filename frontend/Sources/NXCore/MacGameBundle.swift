@@ -4,6 +4,7 @@ import Foundation
 package struct MacGameBundle {
     package let titleID: String
     package let name: String
+    package let shaderChain: String?
     let displayName: String?
     package var titleNames: [String: String] = [:]
 
@@ -27,7 +28,8 @@ package struct MacGameBundle {
         let title = [info["CFBundleDisplayName"], info["CFBundleName"]]
             .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
-        return MacGameBundle(titleID: rawID.uppercased(), name: title ?? url.deletingPathExtension().lastPathComponent, displayName: title,
+        return MacGameBundle(titleID: rawID.uppercased(), name: title ?? url.deletingPathExtension().lastPathComponent,
+                             shaderChain: info["DMChain"] as? String, displayName: title,
                              titleNames: GameTitleNames.read(info))
     }
 }

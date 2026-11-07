@@ -82,6 +82,7 @@ jobs:
       pull-requests: read
     outputs:
       engine: ${{ steps.diff.outputs.engine }}
+      launcher: ${{ steps.diff.outputs.launcher }}
     steps:
       - name: Which areas changed
         id: diff
@@ -93,6 +94,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           engine=true
+          launcher=true
           if [ "$EVENT" = pull_request ]; then
             files=''
             complete=false
@@ -111,12 +113,22 @@ jobs:
               else
                 engine=false
               fi
+              # What the Mac launcher job (frontend, swift test) reads: frontend/ (except frontend/l10n/, whose rules and keys are checked on
+              # ubuntu-latest by launcher-qt's test_localization_*.py and patch-queue's test_l10n_shell_catalogs.py / test_launcher_texts.py),
+              # the synced engine (.upstream-ref, patches/, tools/engine.py, dm/, scripts/), and this file. A Windows-only (frontend-qt/) or
+              # l10n-only change skips the xcode-27 runner.
+              if echo "$files" | grep -v '^frontend/l10n/' | grep -Eq '^(frontend/|dm/|scripts/|patches/|tools/engine\.py$|\.upstream-ref$|\.github/workflows/tests\.yml$)'; then
+                launcher=true
+              else
+                launcher=false
+              fi
             else
               echo "::warning::No complete diff against $DEFAULT_BRANCH, so every area counts as changed"
             fi
           fi
           echo "engine=$engine" >> "$GITHUB_OUTPUT"
-          echo "engine=$engine"
+          echo "launcher=$launcher" >> "$GITHUB_OUTPUT"
+          echo "engine=$engine launcher=$launcher"
 
   tool-tests:
     name: Tool tests
@@ -294,8 +306,8 @@ jobs:
 
   launcher:
     name: Mac launcher (frontend, swift test)
-    needs: stack
-    if: ${{ !cancelled() && (needs.stack.result != 'success' || needs.stack.outputs.is_tip == 'true') }}
+    needs: [stack, changes]
+    if: ${{ !cancelled() && (needs.stack.result != 'success' || needs.stack.outputs.is_tip == 'true') && (needs.changes.result != 'success' || needs.changes.outputs.launcher == 'true') }}
     runs-on: xcode-27
     timeout-minutes: 20
     steps:
