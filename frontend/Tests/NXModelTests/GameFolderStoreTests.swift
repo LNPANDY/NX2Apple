@@ -120,10 +120,11 @@ import XCTest
         XCTAssertTrue(args.contains("mac-app"))
     }
 
-    /// #749: with the experimental builder on, the same arguments go to `nxb build` and the script is not run.
+    /// #749: with nxb on, the same arguments go to `nxb build` and the script is not run.
     func testTheExperimentalBuilderGivesTheScriptsArgumentsToNxbBuildAndIsNamedInTheLog() {
         let (store, game) = makeStore()
         store.scan(folder: game)
+        store.experimentalBuilder = false
         store.startBuild()
         let standard = store.lastBuildCommand
         XCTAssertFalse(store.log.text.contains("nxb"))
