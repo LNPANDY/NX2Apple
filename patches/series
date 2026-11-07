@@ -55,3 +55,5 @@
 0086-ios-shell-declare-japanese-in-cfbundlelocalizati.patch
 0087-build-ipa-from-nsp-reuse-the-other-platform-s-ro.patch
 0088-nvn-decode-bc-uploads-before-copying-into-unpack.patch
+0089-ios-duo-outer-custom-control-bounds.patch
+0090-ios-hide-the-settings-gear-during-tv-play-with-a.patch

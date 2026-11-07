@@ -18,7 +18,7 @@ struct DeleteGameView: View {
                 .shellText(15).foregroundStyle(.white.opacity(0.78)).fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 8) {
                 Toggle(isOn: $saves) { Text(ShellStrings.text("Also delete saves")).shellText(15, .semibold) }
-                    .toggleStyle(CreamToggleStyle())
+                    .toggleStyle(NativeCreamToggleStyle())
                     .accessibilityIdentifier("delete.saves")
                     .shellTarget("del.saves") { saves.toggle() }
                 Text(saves ? ShellStrings.text("Saves are deleted too and cannot be brought back.")
@@ -30,14 +30,14 @@ struct DeleteGameView: View {
             .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 12))
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.08)))
             VStack(spacing: 10) {
-                Button(action: delete) {
+                Button(role: .destructive, action: delete) {
                     Text(saves ? ShellStrings.text("Delete game and saves") : ShellStrings.text("Delete game")).frame(maxWidth: .infinity)
                 }
-                .buttonStyle(DeletePillStyle())
+                .buttonStyle(.glassProminent).tint(DeleteStyle.red).controlSize(.large)
                 .accessibilityIdentifier("delete.confirm")
                 .shellTarget("del.confirm", radius: 25, action: delete)
                 Button(action: cancel) { Text(ShellStrings.text("Cancel")).frame(maxWidth: .infinity) }
-                    .buttonStyle(ShellButtonStyle(fills: true))
+                    .buttonStyle(.glass).controlSize(.large)
                     .accessibilityIdentifier("delete.cancel")
                     .shellTarget("del.cancel", action: cancel)
             }.padding(.top, 4)
@@ -57,7 +57,7 @@ enum DeleteStyle {
 struct DeletePillStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.shellType(ShellType.primaryButton)
-            .lineLimit(1).minimumScaleFactor(0.8)
+            .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 26).frame(minHeight: 50)
             .foregroundStyle(.white)
             .background(Color(red: 0.86, green: 0.25, blue: 0.24), in: Capsule())

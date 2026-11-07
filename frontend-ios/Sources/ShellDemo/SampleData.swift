@@ -9,28 +9,16 @@ func demoText(_ key: String.LocalizationValue) -> String {
     #endif
 }
 
-/// Fictional fixtures. Only the demo and previews reference this file.
+/// Nintendo screenshot fixtures. Only the demo and previews reference this file.
 @MainActor enum SampleData {
     static var games: [GameDetail] {
-        let tiles: [GameTile] = [
-            SampleArt.tile("orbit", title: "Orbit Valley", version: "1.4.0", real: RealTitle("The Legend of Zelda: Breath of the Wild", "01007EF00011E000", "zelda-breath-of-the-wild.jpg"),
-                           recentlyPlayed: ShellFormat.played(Date())),
-            SampleArt.tile("tide", title: "The Quiet Tide", version: "2.0.1", real: RealTitle("Hades", "0100535012974000", "hades.jpg"),
-                           recentlyPlayed: ShellFormat.played(Date().addingTimeInterval(-86_400))),
-            SampleArt.tile("paper", title: "Paper Trails", version: "1.0.0", real: RealTitle("The Legend of Zelda: Tears of the Kingdom", "0100F2C0115B6000", "zelda-tears-of-the-kingdom.jpg"),
-                           state: .needsGameData),
-            SampleArt.tile("moon", title: "Moonlit Express", version: "3.1.0", real: RealTitle("Super Smash Bros. Ultimate", "01006A800016E000", "super-smash-bros-ultimate.jpg"),
-                           state: .needsAppUpdate),
-            SampleArt.tile("wild", title: "Wild Gardens", version: "1.2.0", real: RealTitle("Batman: Arkham Knight", "0100ACD0163D0000", "batman-arkham-knight.jpg"),
-                           state: .broken(reason: demoText("Game files damaged"), detail: demoText("Some of this game's bundled files could not be verified."))),
-            SampleArt.tile("drift", title: "Drift Atlas", version: "1.1.0", real: RealTitle("Celeste", "01002B30028F6000", "celeste.jpg")),
-            // Always fictional: the icon-only fallback, a square icon inside a wide card.
-            SampleArt.tile("amber", title: "Amber Hours", version: "1.0.2", real: nil)
-        ]
+        let tiles = RealArt.tiles()
         return tiles.map { tile in
             GameDetail(game: tile, sections: [
                 SettingSection(id: "game", title: demoText("Game"), rows: [
                     SettingRow(id: "DM_OPERATION_MODE", label: demoText("Play mode"), note: demoText("The game's display and performance profile."), kind: .choice([SettingOption("handheld", demoText("Handheld")), SettingOption("docked", demoText("Docked"))]), value: "handheld"),
+                    SettingRow(id: "DM_PRESENT_UPSCALE", label: demoText("Upscaling"), note: demoText("Uses more GPU time and can increase heat."), kind: .choice([SettingOption("off", "Standard"), SettingOption("metalfx", "MetalFX")]), value: "off"),
+                    SettingRow(id: "DM_SCREEN_FILL", label: demoText("Picture"), kind: .choice([SettingOption("0", demoText("Fit")), SettingOption("1", demoText("Fill"))]), value: "0"),
                     SettingRow(id: "DM_SHOW_FPS", label: demoText("Show frame rate"), kind: .toggle(on: "1", off: "0"), value: "1", fromShell: tile.id == "orbit"),
                     SettingRow(id: "DM_LANGUAGE", label: demoText("Language"), kind: .choice([SettingOption("en-US", demoText("American English")), SettingOption("en-GB", demoText("British English")), SettingOption("ja", demoText("Japanese")), SettingOption("fr", demoText("French")), SettingOption("de", demoText("German")), SettingOption("es-419", demoText("Latin American Spanish")), SettingOption("es", demoText("Spanish")), SettingOption("it", demoText("Italian")), SettingOption("nl", demoText("Dutch")), SettingOption("fr-CA", demoText("Canadian French")), SettingOption("ru", demoText("Russian")), SettingOption("ko", demoText("Korean")), SettingOption("zh-Hant", demoText("Traditional Chinese")), SettingOption("zh-Hans", demoText("Simplified Chinese")), SettingOption("pt-BR", demoText("Brazilian Portuguese"))]), value: "en-US")
                 ]),
