@@ -1037,6 +1037,8 @@
   "launch.set.DM_LANG": "游戏语言",
   "launch.set.DM_METAL_HUD": "性能 HUD",
   "launch.set.DM_NVN_ENC_THREAD": "编码线程",
+  "launch.set.DM_NVN_PREFETCH": "着色器预取",
+  "launch.set.DM_NVN_PREFETCH.note": "在后台加载每个程序的着色器库，无论是否有绘制用到它们。",
   "launch.set.DM_OPMODE": "主机模式",
   "launch.set.DM_PICTURE_FIT": "画面",
   "launch.set.DM_PICTURE_FIT.note": "填充会裁切游戏的 16:9 画面以铺满屏幕。边缘附近的血条、字幕或地图可能被裁掉。不裁切的全屏画面需要为每个游戏单独打补丁。",

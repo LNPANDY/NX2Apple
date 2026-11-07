@@ -1036,6 +1036,8 @@
   "launch.set.DM_LANG": "Game language",
   "launch.set.DM_METAL_HUD": "Performance HUD",
   "launch.set.DM_NVN_ENC_THREAD": "Encode thread",
+  "launch.set.DM_NVN_PREFETCH": "Shader prefetch",
+  "launch.set.DM_NVN_PREFETCH.note": "Loads each program's shader libraries in the background, whether a draw uses them or not.",
   "launch.set.DM_OPMODE": "Console mode",
   "launch.set.DM_PICTURE_FIT": "Picture",
   "launch.set.DM_PICTURE_FIT.note": "Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.",

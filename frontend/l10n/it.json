@@ -1037,6 +1037,8 @@
   "launch.set.DM_LANG": "Lingua del gioco",
   "launch.set.DM_METAL_HUD": "HUD prestazioni",
   "launch.set.DM_NVN_ENC_THREAD": "Thread di codifica",
+  "launch.set.DM_NVN_PREFETCH": "Precaricamento degli shader",
+  "launch.set.DM_NVN_PREFETCH.note": "Carica in background le librerie di shader di ogni programma, che una draw call le usi o no.",
   "launch.set.DM_OPMODE": "Modalità console",
   "launch.set.DM_PICTURE_FIT": "Immagine",
   "launch.set.DM_PICTURE_FIT.note": "Riempi ritaglia l’immagine 16:9 del gioco per coprire lo schermo. Barre della salute, sottotitoli o mappe vicino ai bordi possono venire tagliati. Un’immagine a schermo intero senza ritaglio richiede una patch per ogni gioco.",

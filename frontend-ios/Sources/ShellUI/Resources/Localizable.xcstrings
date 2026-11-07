@@ -5705,6 +5705,46 @@
         }
       }
     },
+    "Loads each program's shader libraries in the background, whether a draw uses them or not.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lädt die Shader-Bibliotheken jedes Programms im Hintergrund, ob ein Draw Call sie nutzt oder nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loads each program's shader libraries in the background, whether a draw uses them or not."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charge en arrière-plan les bibliothèques de shaders de chaque programme, qu’un draw call les utilise ou non."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carica in background le librerie di shader di ogni programma, che una draw call le usi o no."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laddar varje programs shaderbibliotek i bakgrunden, oavsett om en draw call använder dem."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在后台加载每个程序的着色器库，无论是否有绘制用到它们。"
+          }
+        }
+      }
+    },
     "Medium": {
       "localizations": {
         "de": {
@@ -9059,6 +9099,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "设置"
+          }
+        }
+      }
+    },
+    "Shader prefetch": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader-Prefetch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader prefetch"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préchargement des shaders"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precaricamento degli shader"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Förhämtning av shaders"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "着色器预取"
           }
         }
       }
