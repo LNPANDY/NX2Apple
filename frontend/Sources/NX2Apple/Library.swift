@@ -32,8 +32,14 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     /// language code. Empty for an app packed before the key existed. `name` stays the bundle name: this is only what is shown.
     var titleNames: [String: String] = [:]
 
-    /// The name to show in `lang`: the game's own name in that language when its app has one, else `name`.
-    func displayName(_ lang: Lang) -> String { GameTitleNames.pick(titleNames, for: lang) ?? name }
+    /// The name the player gave the game (Manage > Rename), shown in every language. Empty: the game's own names.
+    var customName = ""
+
+    /// The name to show in `lang`: the player's, else the game's own name in that language (or English), else `name`.
+    func displayName(_ lang: Lang) -> String { customName.isEmpty ? ownName(lang) : customName }
+
+    /// The game's own name in `lang`, ignoring the player's: what Rename offers to go back to.
+    func ownName(_ lang: Lang) -> String { GameTitleNames.pick(titleNames, for: lang) ?? name }
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
     var isReady: Bool {
@@ -88,6 +94,7 @@ extension LibraryGame {
         installedDevice = try c.decodeIfPresent(String.self, forKey: .installedDevice) ?? ""
         toolsCommit = try c.decodeIfPresent(String.self, forKey: .toolsCommit) ?? ""
         titleNames = (try? c.decodeIfPresent([String: String].self, forKey: .titleNames)) ?? [:]
+        customName = try c.decodeIfPresent(String.self, forKey: .customName) ?? ""
     }
 }
 
@@ -749,6 +756,13 @@ final class GameLibrary: ObservableObject {
         try? FileManager.default.removeItem(at: ArtworkStore.customDirectory(for: id, in: artworkDirectory))   // our copies, never the game's files
         if selectedID == id { selectedID = games.first?.id }
         save()
+    }
+
+    /// The player's name for a game, trimmed. Empty goes back to the game's own names.
+    func rename(_ id: UUID, to name: String) {
+        guard var game = games.first(where: { $0.id == id }) else { return }
+        game.customName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        upsert(game)
     }
 
     /// The names `TitleNameLookup` read for a game that had none (an app packed with them meanwhile wins).
