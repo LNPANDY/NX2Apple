@@ -9,7 +9,7 @@ import NXLauncher
 /// `fullscreen`, which forces DM_FULLSCREEN on whatever the game's Display setting says.
 enum GameStart {
     @MainActor static func environment(for game: LibraryGame, library: GameLibrary, controls: ControlLayout, repo: String,
-                                       labels: (String) -> String, fullscreen: Bool = false,
+                                       labels: (String) -> String, fullscreen: Bool = false, player: PlayerProfile? = nil,
                                        screen: NSScreen? = NSApp?.keyWindow?.screen ?? NSScreen.main) -> [String: String] {
         library.migrateLaunchOptions()
         CloudSavesMigration.run()   // before the app reads its env.txt: DM_SAVE_SYNC=icloud keeps the folder the iPhone app uses
@@ -25,6 +25,13 @@ enum GameStart {
         if fullscreen, settings.contains(where: { $0.env == "DM_FULLSCREEN" }) { environment["DM_FULLSCREEN"] = "1" }
         if let id = displayID(of: screen) { environment["DM_SCREEN"] = String(id) }
         environment["DM_HOME_QUIT_TEXT"] = HomeButtonHint.promptText(gameName: game.name, labels: labels)   // the game's Home button quit prompt in the launcher's language (#336)
+        // The player's own save folder (PlayerProfile.swift); the default player adds nothing, so their saves stay where they were
+        if let player, !player.isDefault {
+            let base = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
+            let playerEnv = player.environment(base: base, existing: environment)
+            if let save = playerEnv["DM_SAVE"] { try? FileManager.default.createDirectory(atPath: save, withIntermediateDirectories: true) }
+            environment.merge(playerEnv) { $1 }
+        }
         return environment
     }
 

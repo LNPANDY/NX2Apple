@@ -10,7 +10,7 @@ import NXLauncher
     let library: GameLibrary
     let controls = ControlLayout()
     lazy var console = LiveConsoleDriver(library: library, controls: controls, repo: { [stores] in stores.repo.path }, lang: { [stores] in stores.localizer.lang },
-                                         labels: { [stores] in stores.localizer.t($0) })
+                                         labels: { [stores] in stores.localizer.t($0) }, player: { [stores] in stores.players.active })
 
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil) {
         self.stores = stores ?? LauncherStores()

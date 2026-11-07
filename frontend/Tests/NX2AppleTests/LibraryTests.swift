@@ -969,6 +969,23 @@ import NXModel
             window.orderOut(nil)
         }
         try capture("library")
+        do {   // #907: a second player in the top bar, and the sheet that names a new one
+            modelStores.players.create(name: "Ana")
+            defer { modelStores.players.remove("ana") }
+            try capture("library-player")
+            let sheet = PlayerNameSheet(players: modelStores.players, renaming: nil, close: {})
+                .environmentObject(modelStores.localizer).background(LauncherPalette.background).preferredColorScheme(.dark)
+            let host = NSHostingView(rootView: sheet)
+            let window = OffscreenWindow(size: NSSize(width: 380, height: 200), styleMask: [.borderless])
+            window.contentView = host
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("player-new.png"))
+            window.orderOut(nil)
+        }
         try capture("library-search", search: "zel")
         try capture("library-small", width: 900, height: 680)
         try capture("library-small-search", width: 900, height: 680, search: "zel")

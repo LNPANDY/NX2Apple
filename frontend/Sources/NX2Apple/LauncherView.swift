@@ -375,6 +375,7 @@ struct LauncherView: View {
                 navigationTabs(compact: true, tabInset: 14, brandGap: 16)
             }
             Spacer(minLength: 8)
+            PlayerPicker(players: stores.players).padding(.trailing, 12)   // whose saves Play uses (PlayerPicker.swift)
             searchField
             Button { newBuild() } label: {
                 ViewThatFits(in: .horizontal) {
@@ -681,7 +682,7 @@ struct LauncherView: View {
             // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
             // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
             // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
-            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t)   // GameStart.swift: the console mode starts games with the same
+            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t, player: stores.players.active)   // GameStart.swift: the console mode starts games with the same
             let withRecording = environment.merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // FrameTimes.swift, as console mode does
             if !withRecording.isEmpty { configuration.environment = withRecording }
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in

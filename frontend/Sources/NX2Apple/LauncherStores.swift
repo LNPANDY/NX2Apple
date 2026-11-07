@@ -21,6 +21,7 @@ import NXModel
     let deviceStore: DeviceStore
     let appUpdates: AppUpdateStore
     let build: BuildStore
+    let players: PlayerProfileStore
     private var quitObserver: NSObjectProtocol?
 
     /// - Parameters:
@@ -73,6 +74,7 @@ import NXModel
         laterBuild.value = build
         self.repo = repo; self.engineSync = engineSync; self.dependencies = dependencies; self.deviceStore = devices
         self.appUpdates = updates; self.build = build
+        self.players = PlayerProfileStore(defaults: defaults, defaultName: { localizer.t("players.default") })
 
         // The staged update goes in as the app quits, so the next launch is the new version without interrupting anyone.
         quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak updates] _ in

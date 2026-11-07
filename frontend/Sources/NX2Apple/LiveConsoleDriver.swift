@@ -66,6 +66,7 @@ struct ConsolePadSnapshot: Equatable {
     private let repo: () -> String
     private let lang: () -> Lang
     private let labels: (String) -> String
+    private let player: () -> PlayerProfile?   // whose saves the game plays with (PlayerProfileStore)
     private let pads: () -> [ConsolePadSnapshot]
     private let launch: (LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void
     private let artwork: (LibraryGame, String) -> NSImage?
@@ -84,8 +85,10 @@ struct ConsolePadSnapshot: Equatable {
     init(library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
          pads: (() -> [ConsolePadSnapshot])? = nil,
          launch: ((LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void)? = nil,
-         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, playerOutput: ((String, Int) -> Void)? = nil) {
+         artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, playerOutput: ((String, Int) -> Void)? = nil,
+         player: @escaping () -> PlayerProfile? = { nil }) {
         self.sendPlayerOutput = playerOutput
+        self.player = player
         self.library = library; self.controls = controls; self.repo = repo; self.lang = lang; self.labels = labels
         self.startingTimeout = startingTimeout
         self.pads = pads ?? { [] }
@@ -237,7 +240,7 @@ struct ConsolePadSnapshot: Equatable {
     func play(_ gameID: String) {
         state.play(gameID)
         guard state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
-        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, fullscreen: true)
+        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, fullscreen: true, player: player())
             .merging(pointerHidden() ? ["DM_CURSOR_HIDDEN": "1"] : [:]) { $1 }   // the game is a new process: without this its pointer shows until its own idle wait ends
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
