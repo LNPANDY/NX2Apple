@@ -1369,6 +1369,8 @@
   "shell.dataAlready": "Auf %@ installiert, die Spieldaten waren schon auf dem Gerät",
   "shell.dataChanged": "Die Spieldaten haben sich seit der letzten Übertragung geändert.",
   "shell.dataCurrent": "Diese Version der Spieldaten ist bereits auf %@.",
+  "shell.destinationUnavailable": "Ausgewähltes Gerät nicht verfügbar",
+  "shell.destinationUnavailableNext": "Xcode kann das ausgewählte iPhone oder iPad nicht verwenden. Verbinde und entsperre es, prüfe es in Xcodes „Devices and Simulators“ und wähle es unter „Installieren auf“ erneut aus.",
   "shell.driveChoose": "Ordner wählen",
   "shell.driveCopy": "Spieldaten kopieren",
   "shell.driveDone": "Die Spieldaten liegen in %@. Verbinde das Laufwerk mit dem iPhone und wähle diesen Ordner in der App unter %@. Das Laufwerk muss beim Spielen verbunden bleiben.",

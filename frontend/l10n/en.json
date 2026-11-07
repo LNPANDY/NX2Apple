@@ -1387,6 +1387,8 @@
   "shell.dataAlready": "Installed on %@, the game data was already on the device",
   "shell.dataChanged": "The game data has changed since the last copy.",
   "shell.dataCurrent": "%@ already has this version of the game data.",
+  "shell.destinationUnavailable": "Selected iPhone or iPad unavailable",
+  "shell.destinationUnavailableNext": "Xcode cannot use the selected iPhone or iPad. Connect and unlock it, check Xcode’s Devices and Simulators, then select it again under Install on.",
   "shell.driveChoose": "Choose folder",
   "shell.driveCopy": "Copy game data",
   "shell.driveDone": "Game data is in %@. Connect the drive to the iPhone and choose this folder in the app under %@. The drive has to stay connected while you play.",

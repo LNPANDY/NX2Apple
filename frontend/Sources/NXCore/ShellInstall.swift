@@ -381,7 +381,7 @@ package struct ShellStage {
 }
 
 /// Steps 3 to 7: the shell's library, its project, signing, the install and the game data, blocking. A tool that fails ends the
-/// install with its own last error line.
+/// install with a diagnostic from the tool.
 package struct ShellInstaller {
     package var xcrun = "/usr/bin/xcrun"
     package var repo: String
@@ -530,9 +530,15 @@ package struct ShellInstaller {
             if again.status == 0 { noMemoryCapability = true; built = sign(bundleID) }
         }
         if built.status != 0 {
-            let why = built.lastError ?? fmt("msg.exitCode", built.status)
+            // Xcode follows a destination failure with reasons other destinations are ineligible.
+            // Those entries can contain "error:" even though they do not describe the requested device.
+            let destinationUnavailable = built.output.split(whereSeparator: \.isNewline).contains {
+                $0.hasPrefix("xcodebuild: error: Unable to find a destination matching the provided destination specifier:")
+            }
+            let why = destinationUnavailable ? t("shell.destinationUnavailable") : built.lastError ?? fmt("msg.exitCode", built.status)
             end(Self.signStageID, signName, ok: false, detail: why)
-            return Outcome(ok: false, message: fmt("dev.signFailed", why), step: .sign)
+            let message = destinationUnavailable ? t("shell.destinationUnavailableNext") : fmt("dev.signFailed", why)
+            return Outcome(ok: false, message: message, step: .sign)
         }
         end(Self.signStageID, signName, ok: true)
 
