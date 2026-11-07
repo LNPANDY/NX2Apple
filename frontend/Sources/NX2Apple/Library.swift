@@ -30,10 +30,15 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var toolsCommit = ""
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
-    var isReady: Bool {
-        guard !appPath.isEmpty, let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)) else { return false }
-        return app.titleID == titleID
+    private var playableMacBundle: MacGameBundle? {
+        guard !appPath.isEmpty, let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)),
+              app.titleID == titleID else { return nil }
+        return app
     }
+    var isReady: Bool { playableMacBundle != nil }
+
+    /// The package Play opens, never the newer source inputs or an iPhone build.
+    var playVersion: String? { playableMacBundle?.version }
 
     /// Signed and installed on a paired device (installedDevice is its UDID): Play starts it there.
     var onDevice: Bool { !installedDevice.isEmpty && FileManager.default.fileExists(atPath: iosAppPath + "/Info.plist") }
@@ -265,6 +270,7 @@ extension LibraryGame {
 struct MacGameBundle {
     let titleID: String
     let name: String
+    let version: String?
 
     enum Invalid: LocalizedError {
         case notGame
@@ -283,8 +289,10 @@ struct MacGameBundle {
               FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/" + executable).path),
               FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/dmhost").path)
         else { throw Invalid.notGame }
+        let version = (info["CFBundleShortVersionString"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return MacGameBundle(titleID: rawID.uppercased(),
-                             name: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? url.deletingPathExtension().lastPathComponent)
+                             name: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? url.deletingPathExtension().lastPathComponent,
+                             version: version.flatMap { $0.isEmpty ? nil : $0 })
     }
 }
 
