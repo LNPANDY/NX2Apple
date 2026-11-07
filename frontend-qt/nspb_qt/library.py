@@ -9,12 +9,15 @@ import json
 import os
 import re
 import shutil
+import stat
 import struct
 import tempfile
 import threading
 import time
 import urllib.request
+import zipfile
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
@@ -134,25 +137,48 @@ def one_game_ipa_path(out_dir: str, build_key: str) -> str:
     return os.path.join(out_dir, f'{build_key}.ipa')
 
 
+@lru_cache(maxsize=128)
+def _ipa_kind(path: str, signature: tuple[int, ...]) -> str:
+    """Read only the ZIP directory, cached until the file's stat signature changes.
+
+    Output filenames are configurable or profile-supplied, but the app bundle names are fixed
+    by the two exporters. No executable or game data is read or extracted.
+    """
+    try:
+        with zipfile.ZipFile(path) as ipa:
+            names = set(ipa.namelist())
+    except (OSError, zipfile.BadZipFile, NotImplementedError, UnicodeError):
+        return ''
+    kinds = [kind for kind, app in (('shared', 'DmShell'), ('oneGame', 'DmIOS'))
+             if {f'Payload/{app}.app/Info.plist', f'Payload/{app}.app/{app}'} <= names]
+    return kinds[0] if len(kinds) == 1 else ''
+
+
 def reveal_ipa_path(*, ipa_kind: str, shell_cache: str, out_dir: str, build_key: str,
                     last_ipa: str = '', library_ipa: str = '') -> str:
     """The IPA that the selected kind produced, for "Show in folder".
 
     The two kinds write different files, and `Model.ipa_path` is whatever the last build of
     *either* kind left behind, so it cannot be asked first: after switching the kind it names the
-    other mode's IPA. Prefer the selected kind's own path, fall back to `last_ipa` only when it is
-    not the other kind's file, and then to the library's record.
+    other mode's IPA. Prefer the selected kind's expected path, then the last build and library
+    record. Check the app bundle in every candidate so profile-named one-game outputs and moved
+    files still work without mistaking a remembered shared IPA for a one-game output.
     """
+    if ipa_kind not in ('shared', 'oneGame'):
+        return ''
     shared = shell_ipa_path(shell_cache) if shell_cache else ''
-    one = one_game_ipa_path(out_dir, build_key)
-    want, other = (shared, one) if ipa_kind == 'shared' else (one, shared)
-    if want and os.path.isfile(want):
-        return want
-    if last_ipa and os.path.exists(last_ipa):
-        if not other or os.path.normcase(os.path.abspath(last_ipa)) != os.path.normcase(os.path.abspath(other)):
-            return last_ipa
-    if library_ipa:
-        return library_ipa
+    want = shared if ipa_kind == 'shared' else one_game_ipa_path(out_dir, build_key)
+    for candidate in (want, last_ipa, library_ipa):
+        if not candidate:
+            continue
+        try:
+            path = os.path.realpath(candidate)
+            info = os.stat(path)
+        except OSError:
+            continue
+        signature = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+        if stat.S_ISREG(info.st_mode) and _ipa_kind(path, signature) == ipa_kind:
+            return candidate
     return ''
 
 
