@@ -1,0 +1,262 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sat, 7 Nov 2026 18:16:11 +0900
+Subject: [PATCH] shader_split: read encrypted legacy Unreal paks with the key
+ from main
+
+Little Nightmares II keeps its shaders inline in the cooked packages of
+Helios-Switch.pak, a version 8 pak whose index and entries are
+AES-encrypted. ue_legacy_jobs opened it without a key, so the index did
+not parse, the pak was left out, and the shader split found no shaders.
+
+ue_legacy_jobs now looks for the key in the game's mains (base and
+update) with uepak.find_key when the footer says the index is encrypted,
+and passes it with each job, so ue_legacy_shaders decrypts the entries
+too. A key found once is tried first on the next pak. With no key in
+main the pak is reported in red and skipped, as before.
+
+The rebuilt game finds 20,170 shaders and reaches the title screen on
+the Mac, where it plays.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#1646
+Reason: Little Nightmares II keeps its shaders in an encrypted legacy pak; without the key from main the shader split finds none
+Issue: LNPANDY/NX2Apple#877
+
+---
+ dm/gfx/tools/shader_split.py            | 36 +++++++---
+ dm/gfx/tools/uepak.py                   |  8 +--
+ dm/tools/tests/test_uepak_legacy_key.py | 89 +++++++++++++++++++++++++
+ docs/reference/shaders.md               |  7 ++
+ 4 files changed, 125 insertions(+), 15 deletions(-)
+ create mode 100644 dm/tools/tests/test_uepak_legacy_key.py
+
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index e572bc8..243f3e0 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -2160,21 +2160,34 @@ def ue3_shaders(d, label):
+     return out
+ 
+ UE_LEGACY, UE_IO = 'UE legacy pak', 'UE IoStore'
+-def ue_legacy_jobs(files, parts=64):
++def ue_legacy_jobs(files, parts=64, mains=()):
+     """Unreal paks whose shaders are inline in the cooked packages (uepak.inline_shaders): legacy paks (version 4, DRAGON QUEST XI S: pakchunk0-Switch.pak and pakchunk1-Switch.pak, 13.8 GB,
+     and the update's *_0_P.pak) and version 11 paks without shader code archives (OCTOPATH TRAVELER II: Majesty-Switch.pak, 3.3 GB). The engine mounts them all as one view, and a patch pak
+     (name ending in _P.pak) wins over the others for the same path. Only the newest copy of each path is scanned. With IoStore on (Mario & Luigi: Brothership) the cooked packages are the export bundles
+     of the containers beside such a pak, the pak holding only the global shader cache of the shaders: those chunks are scanned too, the newest copy of each chunk ID (uepak.mount_order).
+-    → ([(pak path, rel, (UE_LEGACY, names)) or (TOC path, rel, (UE_IO, chunk indices)), …] in about equal raw sizes, the pak and container paths taken)"""
++    A pak whose index is encrypted (Little Nightmares II: Helios-Switch.pak, version 8, every entry encrypted too) is opened with the AES key from main (uepak.find_key, tried on each of mains,
++    the ExeFS main of every version, until one opens it), and its jobs carry the key: (UE_LEGACY, names, key).
++    → ([(pak path, rel, (UE_LEGACY, names[, key])) or (TOC path, rel, (UE_IO, chunk indices)), …] in about equal raw sizes, the pak and container paths taken)"""
++    imgs, found = {}, []
++    def key_of(p):
++        with open(p, 'rb') as f: enc = uepak.footer(f)[0]
++        if not enc: return None
++        for m in mains:
++            if m not in imgs: imgs[m] = uepak.nso_image(m)
++            k = uepak.find_key(*imgs[m], p, first=found)
++            if k:
++                if k not in found: found.append(k)
++                return k
++        raise ValueError(f'the index is encrypted and no key in main (a 32-byte window or two 16-byte literals its code stores together) decrypts it')
+     def inline(p):
+         try: return uepak.inline_shaders(p)
+         except (OSError, ValueError, struct.error): return False
+     paks = [(p, r) for p, r in files if p.endswith('.pak') and inline(p)]
+     if not paks: return [], set()
+-    view = {}
++    view, keys = {}, {}
+     for p, r in sorted(paks, key=lambda x: (x[1].endswith('_P.pak'), x[1])):   # patch paks last, so they replace; one view per pak folder (one per version given)
+         try:   # all of a pak's names or none: a patch pak read halfway would still replace the base pak's files
+-            pk = uepak.Pak(p)
++            keys[p] = key_of(p); pk = uepak.Pak(p, keys[p])
+             view.update({(os.path.dirname(p), os.path.normpath(pk.mount + name)): (p, r, name, pk.entry(name)['raw']) for name in pk.files})
+         except (OSError, ValueError) as e: print(f'[RED] /{r}: the pak cannot be read ({e}); its shaders are left out', flush=True)
+     chunks, taken, folders = {}, {p for p, _ in paks}, {os.path.dirname(p) for p, _ in paks}
+@@ -2187,12 +2200,13 @@ def ue_legacy_jobs(files, parts=64):
+         taken.update([p, *t.ucas_paths()])
+         chunks.update({(os.path.dirname(p), t.ids[i]): (p, r, i, t.ranges[i][1]) for i in bundles})
+     jobs = []
++    def job(p, r, tag, ns): return (p, r, (tag, tuple(ns), keys[p]) if tag == UE_LEGACY and keys.get(p) else (tag, tuple(ns)))
+     for tag, items in ((UE_LEGACY, view.values()), (UE_IO, chunks.values())):
+         cur, size, step = collections.defaultdict(list), 0, sum(v[3] for v in items) / parts
+         for p, r, name, raw in sorted(items, key=lambda x: (x[1], x[2])):
+             cur[(p, r)].append(name); size += raw
+-            if size >= step: jobs += [(p_, r_, (tag, tuple(ns))) for (p_, r_), ns in cur.items()]; cur, size = collections.defaultdict(list), 0
+-        jobs += [(p_, r_, (tag, tuple(ns))) for (p_, r_), ns in cur.items()]
++            if size >= step: jobs += [job(p_, r_, tag, ns) for (p_, r_), ns in cur.items()]; cur, size = collections.defaultdict(list), 0
++        jobs += [job(p_, r_, tag, ns) for (p_, r_), ns in cur.items()]
+     return jobs, taken
+ 
+ _PAKS = {}
+@@ -2208,10 +2222,10 @@ def ue_packages(items, out, shown=8):
+             if lost <= shown: print(f'[RED] {why} (its shaders are left out)', flush=True)
+     return ('unreadable', first, lost) if lost else None
+ 
+-def ue_legacy_shaders(path, rel, names, out):
++def ue_legacy_shaders(path, rel, names, out, key=None):
+     """Files of an Unreal pak with inline shaders (ue_legacy_jobs), each decoded block by block (Zlib and LZ4 in uepak.py; others with the game's own decoder, DRAGON QUEST XI S: LZ5) and scanned
+-    for the shader records the engine keeps inline → ue_packages's extra"""
+-    pk = _PAKS.get(path) or _PAKS.setdefault(path, uepak.Pak(path))
++    for the shader records the engine keeps inline; key: the AES key of a pak whose index and entries are encrypted (ue_legacy_jobs) → ue_packages's extra"""
++    pk = _PAKS.get(path) or _PAKS.setdefault(path, uepak.Pak(path, key))
+     label = lambda name: re.sub(r"^(\.\./)+", "", os.path.normpath(pk.mount + name))
+     return ue_packages(((f'/{rel}#{label(name)}', lambda name=name: pk.read(name, decode=oodle)) for name in names), out)
+ 
+@@ -2941,7 +2955,7 @@ def scan_file_in(args):
+         zip_shaders(path, rel, args[2][1], found)
+         return rel, uniq_keys(found), var_pairs(found), trees
+     if len(args) > 2 and args[2][0] == UE_LEGACY:   # files of a legacy Unreal pak (ue_legacy_jobs)
+-        lost = ue_legacy_shaders(path, rel, args[2][1], found)
++        lost = ue_legacy_shaders(path, rel, args[2][1], found, *args[2][2:])
+         return rel, uniq_keys(found), var_pairs(found), lost or trees
+     if len(args) > 2 and args[2][0] == UE_IO:   # export bundles of an IoStore container beside such a pak (ue_legacy_jobs)
+         lost = ue_io_shaders(path, rel, args[2][1], found)
+@@ -3128,7 +3142,7 @@ def main():
+     big = [j for p, r in files for j in (linkdata_jobs(p, r) or [])]   # Three Houses' 6.9 GB DATA1.bin: one job per range of entries, not one read of the whole file
+     pak_jobs, paks = kpka_jobs(files)   # Monster Hunter Rise's PAKs: the newest copy of each path, in ranges of entries
+     tr_jobs, trp = trpfs_jobs(files)   # Pokémon Legends: Z-A's Trinity packs (data.trpfs and its index data.trpfd), decoded by the game's own Oodle in the Mac host
+-    ue_jobs, uep = ue_legacy_jobs(files)   # Unreal paks with inline shaders: DRAGON QUEST XI S's legacy ones (the game's own LZ5 in the Mac host), OCTOPATH TRAVELER II's (Zlib)
++    ue_jobs, uep = ue_legacy_jobs(files, mains=main_v)   # Unreal paks with inline shaders: DRAGON QUEST XI S's legacy ones (the game's own LZ5 in the Mac host), OCTOPATH TRAVELER II's (Zlib)
+     bd_jobs, bdts = bdt_jobs(files)   # Dark Souls Remastered's dvdbnd archives: the entries of each .bdt by its .bhd5 index, in ranges
+     arc_jobs, arcs = smash_arc_jobs(files)   # Super Smash Bros. Ultimate's data.arc: its current files, in ranges
+     pz_jobs, pkzs = pkz_jobs(files)   # Bayonetta 3's PKZ archives, Oodle Kraken decoded by the game's own decoder in the Mac host
+diff --git a/dm/gfx/tools/uepak.py b/dm/gfx/tools/uepak.py
+index 36a04c9..db33eca 100644
+--- a/dm/gfx/tools/uepak.py
++++ b/dm/gfx/tools/uepak.py
+@@ -215,15 +215,15 @@ def code_keys(img, lo):
+         if a is not None and b is not None and a + 16 <= len(img) and b + 16 <= len(img): out.append(img[a:a + 16] + img[b:b + 16])
+     return out
+ 
+-def find_key(img, lo, hi, pak):
+-    """The AES key that decrypts the index start to a short mount point: one main's code stores from two 16-byte literals (code_keys), else one of main's 32-byte windows
+-    (read-only and data segments, 4-aligned, at least 20 distinct bytes)"""
++def find_key(img, lo, hi, pak, first=()):
++    """The AES key that decrypts the index start to a short mount point: one of first (a key another pak of the game opened with), one main's code stores from two 16-byte literals
++    (code_keys), else one of main's 32-byte windows (read-only and data segments, 4-aligned, at least 20 distinct bytes)"""
+     with open(pak, 'rb') as f:
+         _, ioff, _, _, _ = footer(f); f.seek(ioff); blk = f.read(16)
+     def opens(k):
+         d = aes_decrypt(k, blk)
+         return 0 < struct.unpack_from('<i', d)[0] < 512 and d[4:7] == b'../'
+-    for k in code_keys(img, lo):
++    for k in (*first, *code_keys(img, lo)):
+         if opens(k): return k
+     for a in range(lo, hi - 32, 4):
+         w = img[a:a + 32]
+diff --git a/dm/tools/tests/test_uepak_legacy_key.py b/dm/tools/tests/test_uepak_legacy_key.py
+new file mode 100644
+index 0000000..da0eb50
+--- /dev/null
++++ b/dm/tools/tests/test_uepak_legacy_key.py
+@@ -0,0 +1,89 @@
++"""The shader split of a legacy Unreal pak whose index and entries are encrypted (Little Nightmares II: Helios-Switch.pak): the key comes from main and goes with the jobs; a synthetic pak
++and main, no game files or keys."""
++import contextlib
++import io
++import os
++from pathlib import Path
++import struct
++import sys
++import tempfile
++import unittest
++from unittest.mock import patch
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/gfx/tools'))
++import uepak
++_had = os.environ.get('DM_GAME'); os.environ['DM_GAME'] = '010029B0118E8000'   # shader_split loads a profile at import; other tests expect no default
++import shader_split as ss
++if _had is None: del os.environ['DM_GAME']
++else: os.environ['DM_GAME'] = _had
++
++
++def aes_encrypt(key, data):
++    import ctypes
++    data += bytes(-len(data) % 16)
++    cc = ctypes.CDLL('/usr/lib/libSystem.B.dylib').CCCrypt
++    out = ctypes.create_string_buffer(len(data)); moved = ctypes.c_size_t()
++    assert cc(0, 0, 2, key, len(key), None, data, len(data), out, len(data), ctypes.byref(moved)) == 0
++    return out.raw[:moved.value]
++
++
++def fstr(s):
++    b = s.encode() + b'\0'
++    return struct.pack('<i', len(b)) + b
++
++
++def legacy_pak(path, key, files):
++    """A version 4 pak: each file stored without compression behind a 53-byte entry header, its bytes and the index AES-encrypted with key (the 0x2d footer of Unreal Engine 4.18)"""
++    data, index = bytearray(), fstr('../../../') + struct.pack('<i', len(files))
++    for name, body in files.items():
++        off = len(data)
++        data += bytes(53) + aes_encrypt(key, body)
++        index += fstr(name) + struct.pack('<qqqi', off, len(body), len(body), 0) + bytes(20) + struct.pack('<BI', 1, 0)
++    ioff = len(data)
++    data += aes_encrypt(key, bytes(index))
++    data += struct.pack('<BIIQQ', 1, uepak.PAK_MAGIC, 4, ioff, len(index)) + bytes(20)
++    path.write_bytes(bytes(data))
++
++
++@unittest.skipUnless(sys.platform == 'darwin', 'CommonCrypto')
++class EncryptedLegacyPak(unittest.TestCase):
++    def setUp(self):
++        tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
++        self.tmp = Path(tmp.name); self.key = bytes(range(7, 39))
++        self.pak = self.tmp / 'Helios-Switch.pak'
++        legacy_pak(self.pak, self.key, {'Engine/GlobalShaderCache-GLSL_SWITCH.bin': b'global shaders', 'Helios/M_A.uexp': b'a material'})
++        ro = bytearray(os.urandom(0x2000)); ro[0x400:0x420] = self.key   # the key stored whole in main's read-only data
++        self.main = (bytes(0x1000) + bytes(ro), 0x1000, 0x3000)
++        ss._PAKS.pop(str(self.pak), None); self.addCleanup(ss._PAKS.pop, str(self.pak), None)
++
++    def jobs(self, mains):
++        with patch.object(uepak, 'nso_image', return_value=self.main):
++            return ss.ue_legacy_jobs([(str(self.pak), 'Helios-Switch.pak')], mains=mains)
++
++    def test_the_jobs_carry_the_key_from_main(self):
++        jobs, taken = self.jobs(['main'])
++        self.assertEqual(taken, {str(self.pak)})
++        self.assertEqual(sorted(n for _, _, (tag, names, key) in jobs for n in names), ['Engine/GlobalShaderCache-GLSL_SWITCH.bin', 'Helios/M_A.uexp'])
++        self.assertEqual({key for _, _, (_, _, key) in jobs}, {self.key})
++
++    def test_the_next_main_is_tried_when_one_holds_no_key(self):
++        other = (bytes(0x3000), 0x1000, 0x3000)
++        with patch.object(uepak, 'nso_image', side_effect=[other, self.main]):
++            jobs, _ = ss.ue_legacy_jobs([(str(self.pak), 'Helios-Switch.pak')], mains=['base main', 'update main'])
++        self.assertEqual({key for _, _, (_, _, key) in jobs}, {self.key})
++
++    def test_no_key_in_main_leaves_the_pak_out_with_a_red_line(self):
++        said = io.StringIO()
++        with contextlib.redirect_stdout(said): self.assertEqual(self.jobs([]), ([], {str(self.pak)}))
++        self.assertIn('/Helios-Switch.pak: the pak cannot be read (the index is encrypted and no key in main', said.getvalue())
++
++    def test_a_job_reads_the_encrypted_files_with_its_key(self):
++        jobs, _ = self.jobs(['main'])
++        seen = []
++        with patch.object(ss, 'ue_inline_shaders', side_effect=lambda d, label, out: seen.append((label, d))):
++            for path, rel, args in jobs: ss.scan_file((path, rel, args))
++        self.assertEqual(sorted(seen), [('/Helios-Switch.pak#Engine/GlobalShaderCache-GLSL_SWITCH.bin', b'global shaders'), ('/Helios-Switch.pak#Helios/M_A.uexp', b'a material')])
++
++
++if __name__ == '__main__': unittest.main()
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index 1814c11..c349233 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -508,6 +508,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **Fix:** `uepak.py` reads version 8 as a legacy pak: its footer as version 11's, its index as version 4's, each file's method named from the footer (`Zlib`, decoded in Python by `Pak.read`). The shaders are inline in the cooked packages and `Engine/GlobalShaderCache-GLSL_SWITCH.bin`, as in [Unreal Engine 4.18](#unreal-engine-418-shaders-inline-in-cooked-packages), so `shader_split.py` `ue_legacy_jobs` reads them unchanged. `dm/tools/tests/test_uepak_v8.py` builds a version 8 pak with a Zlib file and a stored one.
+ - **Found on:** DRAGON BALL Z: KAKAROT + A NEW POWER AWAKENS SET (`010051C0134F8000`, 1.00, SDK 9.3.1): 43,113 shaders from 3,776 files in 38 s; it plays from the title through the opening fight.
+ 
++### An encrypted legacy Unreal pak with the shaders inline
++
++- **Symptom:** `[RED] the shader split found no shaders in main or the RomFS` for a game whose survey reports a legacy Unreal pak with the shaders inline in the cooked packages; the split reads its files and finds nothing.
++- **Cause:** the pak's index and its entries are AES-encrypted. `shader_split.py` `ue_legacy_jobs` opened legacy paks without a key, so the index did not parse and the pak was left out. The paks with archives already took their key from `main` ([An Unreal pak key split into two 16-byte literals](#an-unreal-pak-key-split-into-two-16-byte-literals)); the inline path did not.
++- **Fix:** when a legacy pak's footer says the index is encrypted, `ue_legacy_jobs` tries each `main` the split is given (base game and update) with `uepak.find_key`, and each job carries it, so `ue_legacy_shaders` decrypts the entries too. A key found once is tried first on the next pak (`find_key(..., first=)`). With no key in any main the pak is reported in red and skipped. Covered by `dm/tools/tests/test_uepak_legacy_key.py` (a synthetic encrypted version 4 pak and `main`, no game files).
++- **Found on:** Little Nightmares II (`010097100EDD6000`, 1.4, v262144; one version 8 pak): 20,170 shaders from 57 files in 9:38; it reaches the title screen and plays on the Mac.
++
+ ### Unreal Engine 3 shader caches (Oodle packages)
+ 
+ - **Symptom:** `the shader split found no shaders in main or the RomFS`; the survey lists the RomFS as cooked packages (`.xxx`) and `.usm` movies only.
