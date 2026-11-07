@@ -116,14 +116,15 @@ import XCTest
         XCTAssertEqual(args.dropFirst(2).first, game, "the folder is the script's input, not a staging folder")
         XCTAssertFalse(args.contains("-k"))
         XCTAssertEqual(args.firstIndex(of: "--work-dir").map { args[$0 + 1] }, game + "/040074A01BF12000_build")
-        XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, game + "/040074A01BF12000.app")
+        XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, game + "/040074A01BF12000_build/040074A01BF12000.app")
         XCTAssertTrue(args.contains("mac-app"))
     }
 
-    /// #749: with the experimental builder on, the same arguments go to `nxb build` and the script is not run.
+    /// #749: with nxb on, the same arguments go to `nxb build` and the script is not run.
     func testTheExperimentalBuilderGivesTheScriptsArgumentsToNxbBuildAndIsNamedInTheLog() {
         let (store, game) = makeStore()
         store.scan(folder: game)
+        store.experimentalBuilder = false
         store.startBuild()
         let standard = store.lastBuildCommand
         XCTAssertFalse(store.log.text.contains("nxb"))

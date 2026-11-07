@@ -55,14 +55,15 @@ import XCTest
         XCTAssertEqual(app.staticTexts["help.titleid"].label, "Title ID 0100000000050000")
     }
 
-    func testLibraryStartsOnAPlayableGameWithTheVersionLine() {
+    func testLibraryStartsOnAPlayableGameWithoutAVersionLineOnTheCover() {
         XCUIDevice.shared.orientation = .portrait
         app.launchArguments = ["--host"]
         app.launch()
         XCTAssertTrue(app.staticTexts["hero.title"].waitForExistence(timeout: 10))
         XCTAssertNotEqual(app.staticTexts["hero.title"].label, "Bad Settings Fixture")
         XCTAssertEqual(app.staticTexts["hero.title"].label, "Orbit Fixture")
-        XCTAssertTrue(app.staticTexts["Version 1.0.0"].exists)
+        // The accepted design shows the version in the game's settings only, no longer under the hero title.
+        XCTAssertFalse(app.staticTexts["Version 1.0.0"].exists)
     }
 
     func testSettingChangeSurvivesReopeningSettings() {

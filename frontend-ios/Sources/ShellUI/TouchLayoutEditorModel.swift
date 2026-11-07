@@ -5,8 +5,8 @@ import UIKit
 #endif
 
 /// The layout editor's state while it is open (#414): which layout, which control is chosen, whether a controller holds it, and the
-/// feedback of the last move. The library owns it, so a controller's D-pad moves a held control instead of the focus. Every kept move
-/// goes to the shell settings at once (`ShellSettingsStore.storeTouchLayout`), so the next game start gets it.
+/// feedback of the last move. Changes stay in this draft until the player confirms. The editor session owner keeps this model alive
+/// while the displayed game surface changes size or pose.
 @MainActor @Observable final class TouchLayoutEditorModel {
     typealias Control = TouchLayout.Control
 
@@ -14,6 +14,11 @@ import UIKit
     /// The device held sideways, and upright where the controls can sit below the picture (an iPad, iPhone Duo), else nil.
     let sideways: PadScreen
     let upright: PadScreen?
+    private let initialLayout: TouchLayout
+    private let initialSize: String
+    private let initialStick: String
+    private let initialFull: Bool
+    var confirmingExit = false
     private(set) var editing: TouchLayoutEditing
     /// The control the arrows and VoiceOver's actions move.
     var selected: Control?
@@ -24,16 +29,31 @@ import UIKit
     private(set) var rejectCount = 0
     /// The last move had no room: the line under the preview says so until the next move.
     private(set) var rejected = false
+    /// A touch drag is currently showing a rejected position; Save waits until the finger is released.
+    private(set) var invalidPlacement = false
     /// Reset all was asked for and waits for its answer: the editor asks before it puts every control of the shown layout back.
     private(set) var confirmingReset = false
 
-    init(store: ShellSettingsStore = .current, sideways: PadScreen = .proMax, upright: PadScreen? = nil, kind: TouchLayout.Kind = .threeD) {
+    init(store: ShellSettingsStore = .current, sideways: PadScreen = .proMax, upright: PadScreen? = nil, kind: TouchLayout.Kind? = nil) {
         self.store = store
+        initialLayout = store.touchLayout
+        initialSize = store.touchSize
+        initialStick = store.touchStick
         self.sideways = sideways
         self.upright = upright
+        let kind = kind ?? .of(full: store.touchMode == "3d", split: false)
+        initialFull = kind.full
         let k = upright == nil && kind.split ? TouchLayout.Kind.of(full: kind.full, split: false) : kind
         editing = TouchLayoutEditing(layout: store.touchLayout, kind: k, screen: k.split ? (upright ?? sideways) : sideways,
                                      size: store.touchSize, stick: store.touchStick)
+    }
+
+    var hasChanges: Bool {
+        editing.layout != initialLayout || editing.size != initialSize || editing.stick != initialStick || editing.kind.full != initialFull
+    }
+    func requestExit() -> Bool {
+        confirmingExit = hasChanges
+        return !hasChanges
     }
 
     var kind: TouchLayout.Kind { editing.kind }
@@ -41,33 +61,82 @@ import UIKit
     var together: Bool { editing.together }
     var layoutIsBuiltIn: Bool { editing.layout.isEmpty(editing.kind) }
 
-    func setKind(_ kind: TouchLayout.Kind) {
-        guard kind != editing.kind, !kind.split || upright != nil else { return }
-        editing.kind = kind
-        editing.screen = kind.split ? (upright ?? sideways) : sideways
-        if let s = selected, !s.drawn(full: kind.full) { selected = nil }
-        held = false; rejected = false; confirmingReset = false
+    /// The live game surface supplied by the in-context editor. The legacy sideways/upright pair remains the initial fallback for
+    /// settings previews and captures; once a live surface arrives it owns the active geometry and split-layout choice.
+    private(set) var actualScreen: PadScreen?
+
+    /// Rebase the draft's geometry on the current game surface. A split layout is available whenever the engine geometry separates
+    /// gameplay and controls; device identity is deliberately not part of this decision. Keep the complete layout object untouched:
+    /// offsets for other layouts may not fit this surface, but are still valid saved preferences for those layouts.
+    func updateScreen(_ screen: PadScreen) {
+        guard screen.size.width.isFinite, screen.size.height.isFinite,
+              screen.size.width > 0, screen.size.height > 0 else { return }
+
+        let split = PadGeo.region(screen).separated
+        let nextKind = TouchLayout.Kind.of(full: editing.kind.full, split: split)
+        guard actualScreen != screen || editing.screen != screen || editing.kind != nextKind else { return }
+
+        actualScreen = screen
+        editing.screen = screen
+        editing.kind = nextKind
+        if let selected, !selected.drawn(full: nextKind.full) { self.selected = nil }
+        held = false
+        rejected = false
+        invalidPlacement = false
+        confirmingReset = false
     }
+
+    func setKind(_ kind: TouchLayout.Kind) {
+        let nextKind: TouchLayout.Kind
+        if let actualScreen {
+            nextKind = .of(full: kind.full, split: PadGeo.region(actualScreen).separated)
+        } else {
+            guard !kind.split || upright != nil else { return }
+            nextKind = kind
+        }
+        guard nextKind != editing.kind else { return }
+        editing.kind = nextKind
+        if actualScreen == nil {
+            editing.screen = nextKind.split ? (upright ?? sideways) : sideways
+        }
+        if let s = selected, !s.drawn(full: nextKind.full) { selected = nil }
+        held = false; rejected = false; invalidPlacement = false; confirmingReset = false
+    }
+    func setSize(_ size: String) {
+        guard ShellSettingsStore.touchSizes.contains(size) else { return }
+        editing.size = size
+        held = false; rejected = false; invalidPlacement = false
+    }
+    func setStick(_ stick: String) {
+        guard ShellSettingsStore.touchStickPlaces.contains(stick) else { return }
+        editing.stick = stick
+        held = false; rejected = false; invalidPlacement = false
+    }
+
     func setTogether(_ on: Bool) {
         editing.together = on
+        if !on, selected == .face { selected = .a }
+        held = false
         rejected = false
+        invalidPlacement = false
     }
 
     func select(_ c: Control?) {
         selected = c
         rejected = false
+        invalidPlacement = false
         if c == nil { held = false }
     }
     /// A controller's A on a control: it is held until A or B puts it down.
-    func pickUp(_ c: Control) { selected = c; held = true; rejected = false }
-    func putDown() { held = false }
+    func pickUp(_ c: Control) { selected = c; held = true; rejected = false; invalidPlacement = false }
+    func putDown() { held = false; invalidPlacement = false }
 
     /// One step of the chosen control. Reports the outcome for VoiceOver.
     @discardableResult func nudge(dx: Int, dy: Int) -> TouchLayoutEditing.Outcome? {
         guard let c = selected else { return nil }
         let outcome = editing.nudge(c, dx: dx, dy: dy)
         switch outcome {
-        case .moved: stepCount += 1; rejected = false; save()
+        case .moved: stepCount += 1; rejected = false
         case .rejected: rejectCount += 1; rejected = true
         case .atEdge: rejectCount += 1; rejected = false
         }
@@ -83,26 +152,27 @@ import UIKit
         }
     }
 
-    /// A drag: the offset of the control it holds, as asked so far. Kept spots are drawn at once and saved when the drag ends.
+    /// A drag: the offset of the control it holds, as asked so far. Kept spots are drawn at once and held in the draft.
     func dragOffset(_ c: Control) -> TouchLayout.Offset { editing.offset(editing.mover(c)) }
     func dragTo(_ c: Control, from start: TouchLayout.Offset, by translation: CGSize) -> (offset: TouchLayout.Offset, kept: Bool) {
         let o = editing.dragged(from: start, by: translation)
         let before = editing.offset(editing.mover(c))
         let kept = editing.place(c, o)
+        invalidPlacement = !kept
         if kept && editing.offset(editing.mover(c)) != before { stepCount += 1 }
         return (o, kept)
     }
     /// The end of a drag: a rejected spot sends the control back (the view animates it) and says so.
     func dragEnded(rejected spot: Bool) {
+        invalidPlacement = false
         if spot { rejectCount += 1; rejected = true } else { rejected = false }
-        save()
     }
 
     func putBack() {
         guard let c = selected else { return }
         editing.putBack(c)
         rejected = false
-        save()
+        invalidPlacement = false
     }
     /// Reset all: ask first. Nothing to reset asks nothing.
     func askReset() { if !layoutIsBuiltIn { confirmingReset = true } }
@@ -111,15 +181,21 @@ import UIKit
     func reset() {
         editing.reset()
         rejected = false
+        invalidPlacement = false
         confirmingReset = false
-        save()
     }
 
-    private func save() { store.storeTouchLayout(editing.layout) }
+    /// Save presets and custom positions together; untouched layout variants remain in the draft.
+    func commit() {
+        store.storeTouchSize(editing.size)
+        store.storeTouchStick(editing.stick)
+        store.storeTouchLayout(editing.layout)
+        if editing.kind.full != initialFull { store.storeTouchMode(editing.kind.full ? "3d" : "2d") }
+    }
 }
 
 extension TouchLayoutEditorModel {
-    /// The editor for this device, opened on the 3D layout (every control shows) held sideways.
+    /// Opens the saved global layout; live geometry decides the overlay/split variant.
     static func forDevice(window: CGSize, insets: EdgeInsets, store: ShellSettingsStore = .current) -> TouchLayoutEditorModel {
         #if os(iOS)
         let screens = TouchLayoutScreens.device(window: window, insets: insets, isPad: UIDevice.current.userInterfaceIdiom == .pad)

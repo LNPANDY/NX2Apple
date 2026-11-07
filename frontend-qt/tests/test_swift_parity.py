@@ -1172,9 +1172,10 @@ class LibraryAndSpaceTests(unittest.TestCase):
 
             win_dm_games_dir = r'D:\games\SWORD\0100ABF008968000_build\profile;E:\other\profiles'
 
+            # Only the fake profile folder is mapped. The CI runner keeps the repository on D: too.
             def map_win_path(p: str) -> Path:
                 s = str(p).replace('\\', '/')
-                if s.startswith('D:/'):
+                if s.startswith('D:/games/'):
                     return self.dir / 'win_d_drive' / s[3:]
                 return Path(s)
 

@@ -57,7 +57,7 @@ public enum PadMappingRows {
     /// The compact row's value: nothing changed, only A and B swapped (or kept for one game), or a custom map.
     static func summary(_ rows: [SettingRow], game: Bool) -> String {
         let changed = Set(rows.filter { !$0.fromShell }.map(\.id))
-        guard let swap = rows.first, !changed.isEmpty else { return ShellStrings.text(game ? "Same as all games" : "Default") }
+        guard let swap = rows.first, !changed.isEmpty else { return ShellStrings.text("Default") }
         // Swapping A and B changes the rows of A and B too: only those three changed reads as the swap itself.
         if changed.contains(swap.id) && changed.isSubset(of: Set(rows.prefix(3).map(\.id))) {
             if swap.value == "1" || swap.value == "on" { return ShellStrings.text("A and B swapped") }
@@ -75,12 +75,20 @@ struct PadMappingEntryRow: View {
     @Environment(\.shellOpenPadMapping) private var openMapping
     var body: some View {
         let isGame = gameID != ControllersView.mappingID
-        let row = SettingRow(id: "padMapping", label: ShellStrings.text("Button mapping"),
-                             note: ShellStrings.text(isGame ? "Change buttons for this game only." : "What each button sends in games."),
-                             kind: .choice([]), value: "")
-        ChoiceValueRow(row: row, valueLabel: PadMappingRows.summary(rows, game: isGame), hint: ShellStrings.text("Opens the button mapping")) {
-            openMapping?(gameID)
+        Button { openMapping?(gameID) } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(ShellStrings.text("Button mapping")).foregroundStyle(.primary)
+                    Text(ShellStrings.text(isGame ? "Change buttons for this game only." : "What each button sends in games."))
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Text(PadMappingRows.summary(rows, game: isGame)).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .shellTarget(targetID, radius: 11) { openMapping?(gameID) }
         .accessibilityIdentifier("padMapping.open")
     }
@@ -93,6 +101,7 @@ struct PadMappingEntryRow: View {
 /// buttons it can send as a grid of glyphs, in the same groups. D-pad and keys move through `map.` targets, A picks, B goes
 /// back to the rows and then closes.
 struct PadMappingCard: View {
+    @Environment(\.shellNativeBars) private var nativeBars
     /// The game's title, or All games for the shell's map.
     let title: String
     let rows: [SettingRow]
@@ -104,6 +113,11 @@ struct PadMappingCard: View {
     let backToList: () -> Void
     let reset: () -> Void
     let close: () -> Void
+    var onChoiceTargets: (([FocusTarget]) -> Void)? = nil
+    var onChoiceInput: ((ShellInput.Action) -> Void)? = nil
+    @State private var confirmingReset = false
+    @State private var mappingsScrolled = false
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.shellFocus) private var focus
 
@@ -113,6 +127,193 @@ struct PadMappingCard: View {
     private var changedAny: Bool { !rows.allSatisfy(\.fromShell) }
 
     var body: some View {
+        Group {
+            if nativeBars { nativePage } else { legacyPage }
+        }
+        .confirmationDialog(ShellStrings.text("Are you sure?"), isPresented: $confirmingReset, titleVisibility: .visible) {
+            Button(ShellStrings.text("Reset"), role: .destructive, action: reset)
+                .accessibilityIdentifier("padMapping.reset.confirm")
+            Button(ShellStrings.text("Cancel"), role: .cancel) { }
+        } message: {
+            Text(ShellStrings.text(isGame ? "Every button does what it does in all games." : "Every button does what it does by default."))
+        }
+    }
+
+    private var nativePage: some View {
+        VStack(spacing: 0) {
+            GeometryReader { geometry in
+                if geometry.size.width >= 640 && !typeSize.isAccessibilitySize {
+                    HStack(alignment: .top, spacing: 0) {
+                        drawing.frame(width: min(420, geometry.size.width * 0.4)).padding(20)
+                        nativeList
+                    }
+                } else {
+                    VStack(spacing: 0) {
+                        drawing
+                            .frame(height: min(max(0, geometry.size.width - 40) * 220 / 320, geometry.size.height * 0.45))
+                            .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
+                        nativeList
+                            .scrollEdgeEffectHidden(true, for: .top)
+                            .overlay(alignment: .top) {
+                                Rectangle().fill(.ultraThinMaterial)
+                                    .overlay {
+                                        LinearGradient(colors: [ShellPalette.background, .clear], startPoint: .top, endPoint: .bottom)
+                                    }
+                                    .mask {
+                                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                    }
+                                    .frame(height: 32)
+                                    .opacity(mappingsScrolled ? 1 : 0)
+                                    .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: mappingsScrolled)
+                                    .allowsHitTesting(false)
+                                    .accessibilityHidden(true)
+                            }
+                    }
+                }
+            }
+        }
+        .toolbar {
+            if changedAny {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { confirmingReset = true } label: {
+                        ViewThatFits(in: .horizontal) {
+                            Label(ShellStrings.text("Reset"), systemImage: "arrow.counterclockwise")
+                                .labelStyle(.titleAndIcon).fixedSize()
+                            Label(ShellStrings.text("Reset"), systemImage: "arrow.counterclockwise")
+                                .labelStyle(.iconOnly)
+                        }
+                    }
+                    .accessibilityLabel(ShellStrings.text("Reset"))
+                    .accessibilityIdentifier("padMapping.reset")
+                    .shellTarget("map.reset") { confirmingReset = true }
+                }
+            }
+        }
+        .background(ShellPalette.background)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("padMapping.page")
+        .sheet(isPresented: Binding(get: { shown != nil }, set: { if !$0 { backToList() } })) {
+            if let shown {
+                NavigationStack {
+                    VStack(spacing: 0) {
+                        mappingPreview(shown).padding(16)
+                        ScrollViewReader { proxy in
+                            ScrollView { options(shown) }
+                                .accessibilityIdentifier("padMapping.choices")
+                                .onChange(of: focus.id) { _, id in
+                                    guard focus.visible, let id, id.hasPrefix("map.opt.") else { return }
+                                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) }
+                                }
+                        }
+                    }
+                    .background(ShellPalette.background)
+                    .navigationTitle(PadMap.place(PadMappingRows.button(of: shown)))
+                    #if os(iOS)
+                    .navigationBarTitleDisplayMode(.inline)
+                    #endif
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button(action: backToList) { Label(ShellStrings.text("Button mapping"), systemImage: "chevron.left") }
+                                .accessibilityIdentifier("padMapping.back")
+                                .shellTarget("map.back", action: backToList)
+                        }
+                    }
+                    .onPreferenceChange(FocusTargets.self) { onChoiceTargets?($0) }
+                }
+                .modifier(ShellKeyboardNavigation(active: true) { onChoiceInput?($0) })
+                .tint(ShellPalette.cream)
+                .preferredColorScheme(.dark)
+                .presentationSizing(.form)
+                .presentationDragIndicator(.visible)
+            }
+        }
+    }
+
+    private var nativeList: some View {
+        ScrollViewReader { proxy in
+            Form {
+                Section {
+                    if let swapRow { nativeSwap(swapRow) }
+                } footer: {
+                    if isGame {
+                        Text(ShellStrings.text("For this game only. A button left alone does what it does in all games."))
+                    }
+                }
+                ForEach(PadMap.groups, id: \.title) { group in
+                    Section {
+                        ForEach(group.buttons, id: \.self) { button in
+                            if let row = rows.first(where: { PadMappingRows.button(of: $0) == button }) {
+                                buttonRow(row).listRowInsets(EdgeInsets())
+                            }
+                        }
+                    } header: { Text(group.title) }
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                geometry.contentOffset.y + geometry.contentInsets.top > 1
+            } action: { _, scrolled in
+                mappingsScrolled = scrolled
+            }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .tint(ShellPalette.cream)
+            .accessibilityIdentifier("padMapping.mappings")
+            .onChange(of: focus.id) { _, id in
+                guard focus.visible, shown == nil, let id,
+                      id.hasPrefix("map.row.") || id == "map.swap.toggle" else { return }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) }
+            }
+        }
+    }
+
+    @ViewBuilder private func nativeSwap(_ row: SettingRow) -> some View {
+        let onValue = isGame ? "on" : "1"
+        let offValue = isGame ? "off" : "0"
+        let on = row.value == PadMappingRows.follow ? (inherited?.swapAB ?? false) : row.value == onValue
+        Toggle(isOn: Binding(get: { on }, set: { pick(row.id, $0 ? onValue : offValue) })) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(ShellStrings.text("Swap A/B in Game"))
+                Text(ShellStrings.text("Puts A on the bottom button, where Xbox and PlayStation controllers confirm."))
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .toggleStyle(NativeCreamToggleStyle())
+        .accessibilityIdentifier("padMapping.swap")
+        .shellTarget("map.swap.toggle") { pick(row.id, on ? offValue : onValue) }
+        if isGame {
+            Button(ShellStrings.text("Default")) { pick(row.id, PadMappingRows.follow) }
+                .shellTarget("map.swap.follow") { pick(row.id, PadMappingRows.follow) }
+        }
+    }
+
+    private func mappingPreview(_ row: SettingRow) -> some View {
+        HStack(spacing: 20) {
+            PadGlyph(button: PadMappingRows.button(of: row), lit: true)
+                .frame(width: 60, height: 54)
+                .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                .accessibilityIdentifier("padMapping.source")
+            Image(systemName: "arrow.right").foregroundStyle(.secondary).accessibilityHidden(true)
+            Group {
+                if row.fromShell {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(ShellPalette.cream.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                        .accessibilityLabel(ShellStrings.text("Default"))
+                } else {
+                    PadGlyph(button: PadMappingRows.output(of: row, inherited: inherited), lit: true)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(ShellPalette.surface, in: RoundedRectangle(cornerRadius: 12))
+                        .accessibilityLabel(PadMap.label(PadMappingRows.output(of: row, inherited: inherited)))
+                }
+            }
+            .frame(width: 60, height: 54)
+            .accessibilityIdentifier("padMapping.destination")
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .contain)
+    }
+
+    private var legacyPage: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Rectangle().fill(ShellPalette.hairline).frame(height: 1)
@@ -121,7 +322,6 @@ struct PadMappingCard: View {
                 ScrollViewReader { proxy in
                     ScrollView { content }
                         .scrollIndicators(.hidden)
-                        .onAppear { if let id = focus.id { proxy.scrollTo(id, anchor: .center) } }
                         .onChange(of: focus.id) { _, id in
                             guard let id, id.hasPrefix("map."), id != "map.close", id != "map.back", id != "map.reset" else { return }
                             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { proxy.scrollTo(id, anchor: .center) }
@@ -133,14 +333,20 @@ struct PadMappingCard: View {
                 footer
             }
         }
-        .frame(maxWidth: 480)
-        .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
-        .clipShape(RoundedRectangle(cornerRadius: 26))
-        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
-        .shadow(color: .black.opacity(0.5), radius: 40)
+        .frame(maxWidth: nativeBars ? .infinity : 480, maxHeight: nativeBars ? .infinity : nil)
+        .background {
+            if !nativeBars {
+                RoundedRectangle(cornerRadius: 26).fill(Color(red: 0.075, green: 0.075, blue: 0.082))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: nativeBars ? 0 : 26))
+        .overlay {
+            if !nativeBars { RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)) }
+        }
+        .shadow(color: .black.opacity(nativeBars ? 0 : 0.5), radius: nativeBars ? 0 : 40)
         .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isModal)
-        .accessibilityIdentifier("padMapping.card")
+        .accessibilityAddTraits(nativeBars ? [] : .isModal)
+        .accessibilityIdentifier(nativeBars ? "padMapping.page" : "padMapping.card")
     }
 
     @ViewBuilder private var content: some View {
@@ -151,7 +357,7 @@ struct PadMappingCard: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
-            if shown != nil {
+            if shown != nil && !nativeBars {
                 roundButton("chevron.left", label: ShellStrings.text("Button mapping"), id: "padMapping.back", target: "map.back", action: backToList)
             }
             if let shown {
@@ -161,17 +367,20 @@ struct PadMappingCard: View {
                     Text(PadMap.place(button)).shellType(ShellType.flowTitle(20)).lineLimit(2)
                         .accessibilityAddTraits(.isHeader).accessibilityIdentifier("padMapping.title")
                         .accessibilityLabel(PadMap.label(button) + ", " + PadMap.place(button))
-                    Text(ShellStrings.text("Sends in games")).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).lineLimit(2)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(ShellStrings.text("Button mapping")).shellType(ShellType.flowTitle(20)).lineLimit(2)
-                        .accessibilityAddTraits(.isHeader).accessibilityIdentifier("padMapping.title")
+                    if !nativeBars {
+                        Text(ShellStrings.text("Button mapping")).shellType(ShellType.flowTitle(20)).lineLimit(2)
+                            .accessibilityAddTraits(.isHeader).accessibilityIdentifier("padMapping.title")
+                    }
                     Text(title).shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).lineLimit(2)
                 }
             }
             Spacer(minLength: 8)
-            roundButton("xmark", label: ShellStrings.text("Close"), id: "padMapping.close", target: "map.close", action: close)
+            if !nativeBars {
+                roundButton("xmark", label: ShellStrings.text("Close"), id: "padMapping.close", target: "map.close", action: close)
+            }
         }
         .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 10)
     }
@@ -197,12 +406,12 @@ struct PadMappingCard: View {
             .opacity(changedAny ? 1 : 0)
             .accessibilityHidden(true)
             Spacer(minLength: 8)
-            Button(action: reset) { Text(ShellStrings.text("Reset")) }
-                .buttonStyle(ShellButtonStyle())
+            Button { confirmingReset = true } label: { Text(ShellStrings.text("Reset")) }
+                .buttonStyle(.bordered)
                 .accessibilityHint(ShellStrings.text(isGame ? "Every button does what it does in all games." : "Every button does what it does by default."))
                 .disabled(!changedAny)
                 .accessibilityIdentifier("padMapping.reset")
-                .shellTarget("map.reset", enabled: changedAny, radius: 9, action: reset)
+                .shellTarget("map.reset", enabled: changedAny, radius: 9) { confirmingReset = true }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
     }
@@ -256,13 +465,10 @@ struct PadMappingCard: View {
                                       return row.fromShell ? sends : sends + ", " + ShellStrings.text("Changed")
                                   })
                 .aspectRatio(XboxControllerDiagram.design.width / XboxControllerDiagram.design.height, contentMode: .fit)
-                .frame(maxWidth: 420)
+                .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel(ShellStrings.text("Controller"))
                 .accessibilityIdentifier("padMapping.drawing")
-            Text(ShellStrings.text("Tap a button to change what it sends."))
-                .shellType(ShellType.note).foregroundStyle(.white.opacity(0.45)).multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity)
     }
@@ -330,7 +536,7 @@ struct PadMappingCard: View {
         let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 4)
         return VStack(alignment: .leading, spacing: 18) {
             if let inherited {
-                wideOption(row, id: PadMappingRows.follow, label: ShellStrings.text("Same as all games"),
+                wideOption(row, id: PadMappingRows.follow, label: ShellStrings.text("Default"),
                            glyph: inherited.output(for: button))
             }
             ForEach(PadMap.groups, id: \.title) { group in

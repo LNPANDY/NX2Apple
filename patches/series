@@ -55,4 +55,5 @@
 0087-build-ipa-from-nsp-reuse-the-other-platform-s-ro.patch
 0088-nvn-decode-bc-uploads-before-copying-into-unpack.patch
 0089-shader-split-encrypted-legacy-ue-pak.patch
-0090-ios-hide-the-settings-gear-during-tv-play-with-a.patch
+0090-ios-duo-outer-custom-control-bounds.patch
+0091-ios-hide-the-settings-gear-during-tv-play-with-a.patch

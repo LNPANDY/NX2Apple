@@ -10,7 +10,7 @@ Reason: Hide the in-game menu gear only while a controller is in use and the gam
 Issue: LNPANDY/NX2Apple#809
 ---
  dm/ios/Sources/DmGamepad.m                 | 14 +++++++---
- dm/ios/Sources/DmLayout.h                  |  6 ++--
+ dm/ios/Sources/DmLayout.h                  |  6 ++---
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |  7 +++++
  dm/ios/tests/duo/Tests/DuoHarnessTests.m   | 32 ++++++++++++++++++++++
  docs/reference/rendering.md                |  2 +-
@@ -18,7 +18,7 @@ Issue: LNPANDY/NX2Apple#809
  6 files changed, 55 insertions(+), 10 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 167cc49..36e4f8f 100644
+index 19c3501..58f7662 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,6 @@
@@ -38,12 +38,12 @@ index 167cc49..36e4f8f 100644
  //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
  //   Shaking the phone shakes the controller (DM_BTN_SHAKE: its six-axis sensor, hle_hid.c), whichever controls are in use; see "Shaking the phone" below.
  #import <UIKit/UIKit.h>
-@@ -275,9 +275,11 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
- 
+@@ -276,9 +276,11 @@ - (void)setTouchFeedback:(BOOL)on {
  // ---- Layout (points; computed inside the safe area) ----
  - (void)arrange:(DmLayout)layout {
--    if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated && _layout.topSafeOnly == layout.topSafeOnly) return;
-+    if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated && _layout.topSafeOnly == layout.topSafeOnly
+     if (CGRectEqualToRect(_layout.controls, layout.controls) && CGRectEqualToRect(_layout.game, layout.game) && _layout.separated == layout.separated
+-        && _layout.topSafeOnly == layout.topSafeOnly && _layout.customControlsFullBounds == layout.customControlsFullBounds) return;
++        && _layout.topSafeOnly == layout.topSafeOnly && _layout.customControlsFullBounds == layout.customControlsFullBounds
 +        && _layout.onTV == layout.onTV) return;
      [self reset];   // A finger held across a pose change must not leave a key or game touch stuck.
      _layout = layout; _geoValid = NO;
@@ -51,9 +51,9 @@ index 167cc49..36e4f8f 100644
      [self setNeedsLayout];
  }
  - (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the bounds, the safe area, the split or the layout changed
-@@ -643,11 +645,15 @@ static BOOL pads_slotted(GCController *gone) {
+@@ -662,11 +664,15 @@ static BOOL pads_slotted(GCController *gone) {
      dm_pad_players(pad_slot_mask(&g_slots));
-     return pad_slot_mask(&g_slots) != 0;
+     return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
  }
 +- (void)updateControlVisibility {
 +    _controls.hidden = _padOff;
@@ -69,33 +69,33 @@ index 167cc49..36e4f8f 100644
  @end
  
 diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
-index bb3631f..f8c145a 100644
+index bfc19b7..3301c55 100644
 --- a/dm/ios/Sources/DmLayout.h
 +++ b/dm/ios/Sources/DmLayout.h
 @@ -5,7 +5,7 @@
  
  NS_ASSUME_NONNULL_BEGIN
  
--typedef struct { CGRect game, controls; BOOL separated, topSafeOnly; } DmLayout;
-+typedef struct { CGRect game, controls; BOOL separated, topSafeOnly, onTV; } DmLayout;
+-typedef struct { CGRect game, controls; BOOL separated, topSafeOnly, customControlsFullBounds; } DmLayout;
++typedef struct { CGRect game, controls; BOOL separated, topSafeOnly, customControlsFullBounds, onTV; } DmLayout;
  
- static inline UIEdgeInsets dm_game_safe_insets(CGRect bounds, UIEdgeInsets insets, BOOL duo) {
-     return duo && bounds.size.height > bounds.size.width ? UIEdgeInsetsMake(insets.top, 0, 0, 0) : insets;
-@@ -46,7 +46,7 @@ static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
+ static inline BOOL dm_layout_custom_controls_full_bounds(CGRect bounds, BOOL hingeClosed) {
+     return hingeClosed && bounds.size.width > bounds.size.height;
+@@ -50,7 +50,7 @@ static inline CGRect dm_horizontal_division(CGRect b, CGRect division) {
  }
  
  static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOpen, CGRect division, CGFloat aspect) {
--    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO };
-+    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO, NO };
+-    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO, NO };
++    DmLayout l = { dm_aspect_fit(b, aspect), b, NO, NO, NO, NO };
      if (CGRectIsEmpty(b)) return l;
      division = dm_horizontal_division(b, division);
      BOOL portrait = b.size.height > b.size.width;
-@@ -63,7 +63,7 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
+@@ -67,7 +67,7 @@ static inline DmLayout dm_layout(CGRect b, UIEdgeInsets insets, BOOL partiallyOp
  }
  
  // The picture is on a TV (front_ios.m DmTVSceneDelegate): the controls take the whole view and no touch goes to the game's touch screen (the game is docked there).
--static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO }; }
-+static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO, YES }; }
+-static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO, NO }; }
++static inline DmLayout dm_layout_pad_only(CGRect b) { return (DmLayout){ CGRectZero, b, NO, NO, NO, YES }; }
  
  // Fill covers the full view only in the overlay layout (landscape). A portrait or tabletop split keeps the picture fitted in its
  // area above the controls, where cropping a small picture would cost more than the bars.
@@ -121,7 +121,7 @@ diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/D
 index 641d8f5..178e576 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-@@ -1246,6 +1246,38 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
+@@ -1246,6 +1246,38 @@ - (void)testPoseChangeReleasesHeldButtonAndGameTouch {
      [self endTouches:@[video, button] onPad:pad cancelled:NO];
  }
  
@@ -161,10 +161,10 @@ index 641d8f5..178e576 100644
      if (@available(iOS 17.0, *)) {
          [self setHarnessControllers:nil notification:nil];
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index c936ba5..7f4e89e 100644
+index 95271ae..17e2eef 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -1487,7 +1487,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+@@ -1533,7 +1533,7 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
  
  - **Symptom:** portrait gameplay overlaps the touch controls, touch coordinates land outside the game picture, or a TV's picture renders at 4K again after a layout pass.
  - **Cause:** the front end assumed a landscape screen with the controls over the whole view, so its picture and touch geometry did not follow a portrait screen (an iPad, an iPhone Duo's inner display) or a Duo's fold. On iPadOS the deprecated `UIRequiresFullScreen` kept the game out of resizable windows, and a native rotation A/B on the iPhone Duo iOS 27.1 simulator showed that it also blocked upside-down portrait.
@@ -174,10 +174,10 @@ index c936ba5..7f4e89e 100644
  - **Found on:** [Pokémon Brilliant Diamond](../../dm/games/0100000011D90000/README.md).
  
 diff --git a/docs/settings.md b/docs/settings.md
-index 69c3aca..ecc5384 100644
+index f2bf1ea..f19ca21 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
-@@ -237,13 +237,13 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
+@@ -241,13 +241,13 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
  
  ## In-game menu
  

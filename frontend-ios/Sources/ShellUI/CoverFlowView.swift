@@ -4,29 +4,27 @@ import SwiftUI
 /// state underneath. The card is the button: a tap on the centred card does what the game needs (Play, choose its
 /// data, how to fix it). The backdrop (the blurred banner) is drawn by the library behind the safe area.
 struct CoverFlowView: View, Equatable {
+    @Environment(\.shellNativeBars) private var nativeBars
     let games: [GameDetail]
     let selected: GameDetail
     let controllers: Int
     /// The controller hints at the bottom, while a controller or keyboard is in use.
     let showsHints: Bool
+    var obscured = false
     /// The screen's safe areas around this view, so the cards can sit in the middle of the whole screen.
     var screenInsets = EdgeInsets()
-    /// The Controllers and Settings chips sit in the side column (SideBar), not in the top bar.
-    var chipsInSideBar = false
-    /// The game settings button sits at the top of the side column, not in the top bar.
-    var settingsInSideBar = false
     let select: (String) -> Void
     let primary: (GameDetail) -> Void
     let openSettings: () -> Void
     let openControllers: () -> Void
     let openShellSettings: () -> Void
     @State private var centredID: String?
+    @State private var division: CGRect?
+    private var divided: Bool { division != nil }
     /// How far the carousel is scrolled: 0 with the first card in the middle.
     @State private var scrolled: CGFloat = 0
     /// True from the first touch of a scroll until it has settled.
     @State private var userScrolling = false
-    /// The card nearest the middle when the current touch began, also mid-snap, for one card per gesture.
-    @State private var gestureStart = 0
     /// False while the carousel scrolls, decelerates or snaps: a tap on the centre card then does nothing.
     @State private var settled = true
     /// A long press on the centre card opened settings: the touch that ends it must not also play.
@@ -37,57 +35,78 @@ struct CoverFlowView: View, Equatable {
     /// not reach the carousel.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.games.map(\.game) == rhs.games.map(\.game) && lhs.selected.game == rhs.selected.game
-            && lhs.controllers == rhs.controllers && lhs.showsHints == rhs.showsHints && lhs.screenInsets == rhs.screenInsets
-            && lhs.chipsInSideBar == rhs.chipsInSideBar && lhs.settingsInSideBar == rhs.settingsInSideBar
+            && lhs.controllers == rhs.controllers && lhs.showsHints == rhs.showsHints && lhs.screenInsets == rhs.screenInsets && lhs.obscured == rhs.obscured
     }
 
     var body: some View {
         GeometryReader { geometry in
-            let short = geometry.size.height < 520
-            // The centred card sits in the middle of the whole screen, the top bar laid over it. The title and state
-            // go under the card at a fixed distance, so the card is only as tall as leaves room for them above the
-            // bottom edge, and never so wide that the neighbours vanish.
-            let height = geometry.size.height
-            let middle = (height + screenInsets.top + screenInsets.bottom) / 2 - screenInsets.top
-            let gap: CGFloat = short ? 10 : 24
-            let words = Self.infoHeight(short: short)
-            let below: CGFloat = short ? 4 : 56          // the hint row on a tablet, a margin on a phone
-            let byBottom = 2 * (height - middle - gap - words - below)
-            let byTop = 2 * (middle - Self.barTop(short: short) - Self.barHeight - (short ? 6 : 16))
-            let cardHeight = max(90, min(byBottom, byTop, geometry.size.width * 0.54 * 9 / 16) / 1.06)
-            let cover = cardHeight * 16 / 9
-            ZStack(alignment: .top) {
-                VStack(spacing: 0) {
-                    Group {
-                        if games.count <= 3 { shelf(width: geometry.size.width, cover: cover) } else { carousel(width: geometry.size.width, cover: cover) }
-                    }.frame(height: cardHeight * 1.06)
-                    info(short: short, width: geometry.size.width)
-                        .padding(.top, gap).padding(.horizontal, 24)
-                }
-                .padding(.top, middle - cardHeight * 1.06 / 2)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                topBar(short: short).padding(.horizontal, 24).padding(.top, Self.barTop(short: short))
-                if !short {
-                    // The hint row keeps its place when it is hidden, so nothing moves when it appears.
-                    hints.opacity(showsHints ? 1 : 0).padding(.bottom, 20)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                }
-            }
+            flow(size: geometry.size)
+                .onGeometryChange(for: CGRect?.self) { proxy in
+                    if #available(iOS 27.1, macOS 27.1, *) {
+                        let region = proxy.reservedRegions(kind: .division).first?.frame
+                        return ShellLayout.divisionAxis(region, in: proxy.size) == .vertical ? region : nil
+                    }
+                    return nil
+                } action: { division = $0 }
         }
+        .ignoresSafeArea(.container)
         .sensoryFeedback(.selection, trigger: selected.id)
         .onAppear { centredID = selected.id }
         .onChange(of: selected.id) { _, id in
+
             // A selection from the D-pad or a tap scrolls the carousel. Never while the player is touching it or it is
             // still moving: the player's gesture always wins.
             guard centredID != id, !userScrolling else { return }
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { centredID = id }
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) { centredID = id }
+        }
+    }
+
+    @ViewBuilder private func flow(size: CGSize) -> some View {
+        let short = size.height < 520
+        // Keep the focused card in the leading usable region when a division is active.
+        let height = size.height
+        let primaryWidth = division?.minX ?? size.width
+        let gap: CGFloat = short ? 10 : 24
+        let words = Self.infoHeight(short: short)
+        let footer: CGFloat = short ? 36 : 56
+        let bar = nativeBars ? 0 : Self.barTop(short: short) + Self.barHeight
+        // Use the same usable half-width in both inner-display poses; folding only changes the anchor.
+        let artworkWidth = short ? size.width * 0.64 : max(0, size.width / 2 - 48)
+        let cardHeight = max(90, min(artworkWidth * 9 / 16, height - words - gap - footer - bar - 32) / 1.06)
+        let cover = cardHeight * 16 / 9
+        ZStack(alignment: .top) {
+            VStack(spacing: gap) {
+                carousel(width: size.width, cover: cover, primaryWidth: primaryWidth)
+                    .frame(height: cardHeight * 1.06)
+                info(short: short, width: primaryWidth)
+                    .frame(width: size.width, alignment: divided ? .leading : .center)
+            }
+            .overlay(alignment: .bottom) {
+                launchActions(width: primaryWidth)
+                    .frame(width: size.width, alignment: divided ? .leading : .center)
+                    .alignmentGuide(.bottom) { $0[.top] - gap }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            if !nativeBars { topBar(short: short).padding(.horizontal, 24).padding(.top, Self.barTop(short: short)) }
+        }
+        .overlay(alignment: .bottom) {
+            // Hints stay outside the centered cover row without shifting its midpoint.
+            if nativeBars || divided || !short {
+                hints
+                    .opacity(showsHints ? 1 : 0)
+                    .frame(width: divided ? max(0, primaryWidth - 48) : max(0, size.width - 48))
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, short ? 4 : 12)
+                    .frame(maxWidth: .infinity, alignment: divided ? .leading : .center)
+                    .allowsHitTesting(false)
+            }
         }
     }
 
     /// The title and state under the card: two lines of title reserved, then the state line.
     static func infoHeight(short: Bool) -> CGFloat {
         let size: CGFloat = short ? 18 : 28
-        return size * 1.3 * 2 + 8 + 34
+        return size * 1.3 * 2 + (short ? 52 : 72) + 58
     }
 
     /// The distance from the top of the safe area to the top bar. A phone on its side has no status bar, so the chips
@@ -106,14 +125,7 @@ struct CoverFlowView: View, Equatable {
                 hints.opacity(showsHints ? 1 : 0)
                 Spacer(minLength: 12)
             }
-            if !settingsInSideBar {
-                Button(action: openSettings) { Image(systemName: "slider.horizontal.3").frame(minWidth: 18) }
-                    .buttonStyle(ChipButtonStyle())
-                    .accessibilityLabel(ShellStrings.text("Game settings") + ", " + selected.game.title)
-                    .accessibilityIdentifier("settings.open")
-                    .shellTarget("lib.settings", radius: 22, action: openSettings)
-            }
-            if !chipsInSideBar {
+            if !nativeBars {
                 ControllerChip(count: controllers, action: openControllers)
                 ShellSettingsChip(action: openShellSettings)
             }
@@ -124,14 +136,14 @@ struct CoverFlowView: View, Equatable {
         .dynamicTypeSize(...(short ? DynamicTypeSize.xxLarge : DynamicTypeSize.accessibility5))
     }
     private var position: Int { (games.firstIndex { $0.id == selected.id } ?? 0) + 1 }
-    private var selectedIndex: Int { games.firstIndex { $0.id == selected.id } ?? 0 }
 
-    /// More than three games: a carousel that moves one card per gesture, the neighbours turned back a little and
+    /// One native snapping carousel, with the neighbours turned back a little and
     /// tucked behind the middle card, a deck rather than a row.
-    private func carousel(width: CGFloat, cover: CGFloat) -> some View {
+    private func carousel(width: CGFloat, cover: CGFloat, primaryWidth: CGFloat) -> some View {
         let spacing = cover * 0.04
         let stride = cover + spacing
-        let margin = max(0, (width - cover) / 2)
+        let margin = max(0, (primaryWidth - cover) / 2)
+        let anchor: UnitPoint = divided ? .leading : .center
         return ScrollView(.horizontal) {
             LazyHStack(spacing: spacing) {
                 ForEach(Array(games.enumerated()), id: \.element.id) { index, detail in
@@ -142,54 +154,35 @@ struct CoverFlowView: View, Equatable {
                 }
             }.scrollTargetLayout()
         }
-        .scrollTargetBehavior(CardSnap(stride: stride, count: games.count, start: gestureStart))
-        .scrollPosition(id: $centredID, anchor: .center)
-        .contentMargins(.horizontal, margin, for: .scrollContent)
+        .scrollTargetBehavior(.viewAligned(limitBehavior: .alwaysByOne, anchor: anchor))
+        .scrollPosition(id: $centredID, anchor: anchor)
+        .contentMargins(.leading, margin, for: .scrollContent)
+        .contentMargins(.trailing, max(0, width - cover - margin), for: .scrollContent)
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.x + $0.contentInsets.leading } action: { _, offset in
             scrolled = offset
+            guard !games.isEmpty else { return }
+            let index = min(games.count - 1, max(0, Int((offset / stride).rounded())))
+            if userScrolling, games[index].id != selected.id { select(games[index].id) }
         }
-        .onScrollPhaseChange { old, phase, context in
-            // A touch scroll goes interacting, decelerating, maybe animating (the snap), then idle. Only once it has
-            // settled does the card in the middle become the selection, read from the final offset itself, so a stale
-            // value can never send the carousel back. A scroll this view animates starts from idle and never sets the
-            // flag, so it never selects.
+        .onScrollPhaseChange { _, phase, context in
+            // Preview the nearest card while dragging; commit the final scroll ID only when snapping settles.
             settled = phase == .idle
-            if phase == .interacting && old != .interacting {
-                let offset = context.geometry.contentOffset.x + context.geometry.contentInsets.leading
-                gestureStart = min(games.count - 1, max(0, Int((offset / stride).rounded())))
-            }
             switch phase {
             case .interacting, .decelerating: userScrolling = true
             case .idle:
-                if userScrolling {
+                if userScrolling, !games.isEmpty {
                     let offset = context.geometry.contentOffset.x + context.geometry.contentInsets.leading
                     let index = min(games.count - 1, max(0, Int((offset / stride).rounded())))
                     if games[index].id != selected.id { select(games[index].id) }
+                    centredID = games[index].id
                 }
                 userScrolling = false
             default: break
             }
         }
+        .accessibilityIdentifier("library.coverflow")
         .scrollIndicators(.hidden)
         .scrollClipDisabled()
-    }
-
-    /// One to three games: they sit together in the middle, the chosen one in front and larger. No empty track.
-    private func shelf(width: CGFloat, cover: CGFloat) -> some View {
-        let card = min(cover, width / (1 + CGFloat(games.count - 1) * 0.8))
-        let chosenIndex = selectedIndex
-        return ZStack {
-            ForEach(Array(games.enumerated()), id: \.element.id) { index, detail in
-                let chosen = index == chosenIndex
-                coverButton(detail, cover: card)
-                    .scaleEffect(chosen ? 1 : 0.8)
-                    .brightness(chosen ? 0 : -0.22)
-                    .offset(x: (CGFloat(index) - CGFloat(games.count - 1) / 2) * card * 0.78)
-                    .zIndex(chosen ? 10 : -Double(abs(index - chosenIndex)))
-            }
-        }
-        .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: selected.id)
-        .frame(maxWidth: .infinity)
     }
 
     private func coverButton(_ detail: GameDetail, cover: CGFloat) -> some View {
@@ -202,7 +195,7 @@ struct CoverFlowView: View, Equatable {
                 if settled { primary(detail) }
                 return
             }
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) { centredID = detail.id }
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) { centredID = detail.id }
             select(detail.id)
         } label: {
             CoverView(game: detail.game, radius: cover * 0.03, showsState: true)
@@ -218,129 +211,70 @@ struct CoverFlowView: View, Equatable {
         })
         .sensoryFeedback(.impact(weight: .medium), trigger: longPressed) { _, new in new }
         .shellTarget("lib.tile.\(detail.id)", radius: cover * 0.03) { primary(detail) }
-        .accessibilityLabel(detail.game.title + ", " + detail.game.state.title)
+        .accessibilityLabel([detail.game.title, detail.game.state.title, detail.game.subtitle].filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAddTraits(chosen ? .isSelected : [])
         .accessibilityHint(chosen ? detail.game.state.actionTitle : ShellStrings.text("Double-tap to select"))
         .accessibilityIdentifier("tile.\(detail.id)")
+        .accessibilityAction(named: Text(ShellStrings.text("Game settings"))) { select(detail.id); openSettings() }
     }
 
     /// Under the centre card, the same on a phone and a tablet: the title with room for two lines, then one line of
     /// state. For a game that cannot start, that line is the way out: a small chip that says what is wrong and what to
     /// do. The space is reserved, so nothing moves when the selection changes, only the words crossfade.
-    private func info(short: Bool, width: CGFloat) -> some View {
+    @ViewBuilder private func info(short: Bool, width: CGFloat) -> some View {
         let game = selected.game
         let size: CGFloat = short ? 18 : 28
-        return ZStack(alignment: .top) {
-            VStack(spacing: 8) {
-                Text("M\nM").shellType(ShellType.flowTitle(size))
-                StateChip(game: game) {}.allowsHitTesting(false)
-            }.hidden().accessibilityHidden(true)
-            VStack(spacing: 8) {
-                Text(game.title).shellType(ShellType.flowTitle(size))
-                    .lineLimit(2).truncationMode(.tail).multilineTextAlignment(.center)
-                    .shadow(color: .black.opacity(0.35), radius: 10)
-                    .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
-                // A ready game needs no words: its green dot says it. A game that cannot start gets one small line, its
-                // way out in the state's colour. The space is reserved either way.
-                if game.state == .playable {
-                    Color.clear.frame(height: 34).accessibilityHidden(true)
-                } else {
-                    StateAction(game: game) { primary(selected) }
+        VStack(alignment: divided ? .leading : .center, spacing: short ? 16 : 24) {
+            ZStack(alignment: divided ? .leading : .center) {
+                VStack(alignment: divided ? .leading : .center, spacing: short ? 6 : 10) {
+                    if game.state.artworkWarning == nil {
+                        StatusLabel(state: game.state, prominent: true)
+                    }
+                    Text(game.title).shellType(ShellType.flowTitle(size))
+                        .lineLimit(2).truncationMode(.tail)
+                        .multilineTextAlignment(divided ? .leading : .center)
+                        .shadow(color: .black.opacity(0.35), radius: 10)
+                        .accessibilityAddTraits(.isHeader).accessibilityIdentifier("hero.title")
+                    if game.state != .playable, !game.state.explanation.isEmpty {
+                        Text(game.state.explanation).shellType(ShellType.body)
+                            .foregroundStyle(.white.opacity(0.78)).lineLimit(2)
+                            .multilineTextAlignment(divided ? .leading : .center)
+                    }
                 }
+                .modifier(ShellSelectionTransition(value: game.id, duration: 0.16))
             }
-            .id(game.id).transition(.opacity)
+
         }
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: game.id)
-        .frame(maxWidth: min(560, width - 48))
+        .frame(maxWidth: max(0, min(560, width - 48)), alignment: divided ? .leading : .center)
+        .padding(.horizontal, 24)
         .dynamicTypeSize(...(short ? DynamicTypeSize.xxLarge : DynamicTypeSize.accessibility1))
     }
 
+    private func launchActions(width: CGFloat) -> some View {
+        let game = selected.game
+        return ZStack(alignment: divided ? .leading : .center) {
+                let actions = GameLaunchActions(game: game, primary: { primary(selected) }, settings: openSettings,
+                                                alignment: divided ? .leading : .center, transitionDuration: 0.18)
+                if obscured { actions.hidden() } else { actions }
+            }
+            .frame(maxWidth: max(0, min(560, width - 48)))
+            .padding(.horizontal, 24)
+    }
+
     private var hints: some View {
-        HStack(spacing: 24) {
-            GlyphHint(role: .activate, label: selected.game.state.actionTitle)
-            GlyphHint(role: .settings, label: ShellStrings.text("Game settings"))
-            GlyphHint(role: .controllers, label: ShellStrings.text("Controllers"))
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 24) { hintItems }
+            VStack(alignment: .leading, spacing: 6) { hintItems }
         }
         .frame(minHeight: 24)
         .accessibilityHidden(true)
     }
-}
 
-/// The way out for a game that cannot start, as one small tappable line in the state's colour: "How to fix ›".
-/// VoiceOver reads the state with it.
-struct StateAction: View {
-    let game: GameTile
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Text(game.state.actionTitle).shellType(ShellType.button)
-                Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold))
-            }
-            .foregroundStyle(game.state.color)
-            .lineLimit(1)
-            .padding(.horizontal, 12).frame(minHeight: 34)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(game.state.title + ", " + game.state.actionTitle)
-        .accessibilityIdentifier("state.chip")
-        .shellTarget("lib.chip", radius: 17, action: action)
+    @ViewBuilder private var hintItems: some View {
+        GlyphHint(role: .activate, label: selected.game.state.actionTitle)
+        GlyphHint(role: .settings, label: ShellStrings.text("Game settings"))
+        GlyphHint(role: .controllers, label: ShellStrings.text("Controllers"))
     }
-}
-
-/// What is wrong and what to do, as one small tappable line: "Game files damaged · How to fix".
-struct StateChip: View {
-    let game: GameTile
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Circle().fill(game.state.color).frame(width: 7, height: 7)
-                Text(game.state.title.uppercased()).shellType(ShellType.eyebrow)
-                    .foregroundStyle(game.state.color)
-                Text("·").foregroundStyle(.white.opacity(0.4))
-                Text(game.state.chipAction).shellType(ShellType.button)
-                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).opacity(0.6)
-            }
-            .lineLimit(1)
-            .padding(.horizontal, 14).frame(minHeight: 34)
-            .background(.black.opacity(0.35), in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
-            .contentShape(Capsule().inset(by: -6))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.white)
-        .accessibilityLabel(game.state.title + ", " + game.state.actionTitle)
-        .accessibilityIdentifier("state.chip")
-        .shellTarget("lib.chip", radius: 17, action: action)
-    }
-}
-
-/// Moves the carousel one card per gesture, like paging: a flick goes to the neighbour of the card the touch began on,
-/// a slow drag settles on the card nearest the middle. The target is always a card close by, so the snap is short
-/// instead of a long glide, and a second swipe that starts mid-snap counts from where the carousel is.
-struct CardSnap: ScrollTargetBehavior {
-    let stride: CGFloat
-    let count: Int
-    /// The card nearest the middle when the touch began.
-    let start: Int
-    func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
-        let card = Self.card(target: target.rect.origin.x, velocity: context.velocity.dx, stride: stride, count: count, start: start)
-        target.rect.origin.x = CGFloat(card) * stride
-    }
-    /// The card a gesture ends on. `target` is where the scroll would rest, in content points (0 with the first card in
-    /// the middle), `velocity` the release speed in points per millisecond, positive toward the later cards.
-    static func card(target: CGFloat, velocity: CGFloat, stride: CGFloat, count: Int, start: Int) -> Int {
-        let nearest = Int((target / stride).rounded())
-        let card: Int
-        if velocity > flickVelocity { card = max(start + 1, min(nearest, start + 1)) }
-        else if velocity < -flickVelocity { card = min(start - 1, max(nearest, start - 1)) }
-        else { card = nearest }
-        return min(count - 1, max(0, card))
-    }
-    /// Above this release speed (points per millisecond) the gesture counts as a flick.
-    static let flickVelocity: CGFloat = 0.3
 }
 
 /// A card's turn by its place: up to 24 degrees back, smaller and darker, pulled in behind its nearer neighbour.
@@ -381,7 +315,7 @@ struct CoverFlowBackdrop: View {
             LinearGradient(colors: [.black.opacity(0.25), .clear, ShellPalette.background.opacity(0.85)],
                            startPoint: .top, endPoint: .bottom)
         }
-        .animation(reduceMotion ? .linear(duration: 0.2) : .easeInOut(duration: 0.45), value: game.id)
+        .animation(reduceMotion ? .linear(duration: 0.12) : .easeInOut(duration: 0.22).delay(0.04), value: game.id)
         .ignoresSafeArea()
         .accessibilityHidden(true)
     }
@@ -390,17 +324,13 @@ struct CoverFlowBackdrop: View {
 /// The controller count on top of art, which opens Controllers.
 struct ControllerChip: View {
     let count: Int
-    /// In the side column (SideBar): the count under the symbol, so the chip is as narrow as the gear.
-    var vertical = false
     let action: () -> Void
     var body: some View {
         Button(action: action) {
-            let layout = vertical ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 8))
-            layout {
+            HStack(spacing: 8) {
                 Image(systemName: count == 0 ? "gamecontroller" : "gamecontroller.fill")
                 Text("\(count)").monospacedDigit()
             }
-            .frame(width: vertical ? SideBar.chipWidth - 28 : nil, height: vertical ? SideBar.heights[0] : nil)
         }
         .buttonStyle(ChipButtonStyle())
         .accessibilityLabel(ShellStrings.text("Controllers") + ", \(count)")
@@ -411,12 +341,10 @@ struct ControllerChip: View {
 
 /// The gear at the top-right corner, which opens the shell's own settings.
 struct ShellSettingsChip: View {
-    var vertical = false
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             Image(systemName: "gearshape").frame(minWidth: 18)
-                .frame(width: vertical ? SideBar.chipWidth - 28 : nil, height: vertical ? SideBar.heights[1] : nil)
         }
             .buttonStyle(ChipButtonStyle())
             .accessibilityLabel(ShellStrings.text("Settings"))
