@@ -407,6 +407,13 @@ final class GameLibrary: ObservableObject {
     }
 
     static func sourceGames(in root: URL, repo: String) -> [LibraryGame] {
+        if GameFolder.isDumpDirectory(root.path), case .success(let f) = GameFolder.scan(root.path) {
+            var game = LibraryGame(titleID: f.titleIDHex, name: title(for: f.folder, repo: repo, titleID: f.titleIDHex))
+            game.inputs = [GameLibrary.folderInput: [f.folder], "base": [f.basePath]]
+            game.sourceFolder = f.folder
+            game.outputDirectory = f.folder
+            return [game]
+        }
         guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { return [] }
         let packages = Set(["nsp", "xci", "nsz", "xcz"])
         var result: [String: LibraryGame] = [:]
@@ -415,13 +422,13 @@ final class GameLibrary: ObservableObject {
                 let name = url.lastPathComponent.lowercased()
                 // A game folder (a Switch 2 game's base/, updates/, dlc/, GameFolder.swift) is one game: its folder is its input,
                 // and its 80,000 files are not walked.
-                if GameFolder.isCandidate(url.path) {
+                if GameFolder.isDirectCandidate(url.path) {
                     e.skipDescendants()
                     if case .success(let f) = GameFolder.scan(url.path), result[f.titleIDHex] == nil {
-                        var game = LibraryGame(titleID: f.titleIDHex, name: title(for: url.path, repo: repo, titleID: f.titleIDHex))
-                        game.inputs = [GameLibrary.folderInput: [url.path], "base": [f.basePath]]
-                        game.sourceFolder = url.path
-                        game.outputDirectory = url.path
+                        var game = LibraryGame(titleID: f.titleIDHex, name: title(for: f.folder, repo: repo, titleID: f.titleIDHex))
+                        game.inputs = [GameLibrary.folderInput: [f.folder], "base": [f.basePath]]
+                        game.sourceFolder = f.folder
+                        game.outputDirectory = f.folder
                         result[f.titleIDHex] = game
                     }
                     continue

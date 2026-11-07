@@ -21,6 +21,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
+from . import inputs as _inputs
 from . import platform_util as pu
 
 
@@ -245,7 +246,12 @@ class GameFolderContents:
 
     @property
     def base_path(self) -> str:
-        return self.nup or os.path.join(self.folder, 'base')
+        if self.nup:
+            return self.nup
+        base = os.path.join(self.folder, 'base')
+        if os.path.isfile(os.path.join(base, 'exefs', 'main.npdm')):
+            return base
+        return self.updates[-1][1] if self.updates else base
 
     @property
     def script_input(self) -> str:
@@ -283,19 +289,16 @@ class GameFolder:
         return out
 
     @staticmethod
+    def is_direct_candidate(path: str) -> bool:
+        if not path:
+            return False
+        return _inputs.is_direct_game_folder_candidate(path)
+
+    @staticmethod
     def is_candidate(path: str) -> bool:
         if not path:
             return False
-        if path.lower().endswith('.nup') and os.path.isfile(path):
-            return True
-        if os.path.isfile(os.path.join(path, 'base', 'exefs', 'main.npdm')):
-            return True
-        if GameFolder.nup_files(path):
-            return True
-        return (
-            os.path.isfile(os.path.join(path, 'exefs', 'main.npdm'))
-            and not os.path.exists(os.path.join(path, 'base'))
-        )
+        return _inputs.is_game_folder_candidate(path)
 
     @staticmethod
     def program_id(npdm_bytes: bytes) -> int | None:
@@ -360,7 +363,8 @@ class GameFolder:
         )
 
     @staticmethod
-    def scan(folder: str) -> GameFolderContents | GameFolderProblem:
+    def scan(raw_folder: str) -> GameFolderContents | GameFolderProblem:
+        folder = _inputs.resolve_game_folder(raw_folder)
         if folder.lower().endswith('.nup') and os.path.isfile(folder):
             return GameFolder.read_nup(folder)
         try:
@@ -379,12 +383,6 @@ class GameFolder:
         if len(nups) == 1:
             return GameFolder.read_nup(os.path.join(folder, nups[0]))
 
-        npdm_path = os.path.join(folder, 'base', 'exefs', 'main.npdm')
-        if not os.path.isfile(npdm_path):
-            if os.path.isfile(os.path.join(folder, 'exefs', 'main.npdm')) and not os.path.exists(os.path.join(folder, 'base')):
-                return GameFolderProblem('noBaseFolder')
-            return GameFolderProblem('missing', 'base/exefs/main.npdm')
-
         def subdirs(p: str) -> list[str]:
             if not os.path.isdir(p):
                 return []
@@ -394,12 +392,27 @@ class GameFolder:
                 return []
 
         updates_dir = os.path.join(folder, 'updates')
-        versions = [v for v in subdirs(updates_dir) if v.isdigit()]
-        has_romfs = os.path.isdir(os.path.join(folder, 'base', 'romfs')) or any(
-            os.path.isdir(os.path.join(updates_dir, v, 'romfs')) for v in versions
-        )
-        if not has_romfs:
-            return GameFolderProblem('missing', 'base/romfs')
+        versions = [v for v in subdirs(updates_dir) if v.isascii() and v.isdigit()]
+        updates = sorted((int(v), os.path.join(updates_dir, v)) for v in versions)
+        base_npdm = os.path.join(folder, 'base', 'exefs', 'main.npdm')
+        if os.path.isfile(base_npdm):
+            has_romfs = os.path.isdir(os.path.join(folder, 'base', 'romfs')) or any(
+                os.path.isdir(os.path.join(u_path, 'romfs')) for _, u_path in updates
+            )
+            if not has_romfs:
+                return GameFolderProblem('missing', 'base/romfs')
+            npdm_path = base_npdm
+        else:
+            code_updates = [(ver, u_path) for ver, u_path in updates if os.path.isfile(os.path.join(u_path, 'exefs', 'main.npdm'))]
+            if code_updates:
+                full_updates = [(ver, u_path) for ver, u_path in code_updates if os.path.isdir(os.path.join(u_path, 'romfs'))]
+                if not full_updates:
+                    return GameFolderProblem('missing', f'updates/{code_updates[-1][0]}/romfs')
+                npdm_path = os.path.join(full_updates[-1][1], 'exefs', 'main.npdm')
+            else:
+                if os.path.isfile(os.path.join(folder, 'exefs', 'main.npdm')) and not os.path.exists(os.path.join(folder, 'base')):
+                    return GameFolderProblem('noBaseFolder')
+                return GameFolderProblem('missing', 'base/exefs/main.npdm')
 
         try:
             with open(npdm_path, 'rb') as f:
@@ -813,7 +826,7 @@ class GameLibrary:
             nonlocal found_keys
             if depth > 3:
                 return
-            if GameFolder.is_candidate(curr):
+            if _inputs.is_dump_directory(curr) if depth == 0 else GameFolder.is_direct_candidate(curr):
                 res = GameFolder.scan(curr)
                 if isinstance(res, GameFolderContents) and res.has_title_id:
                     tid = res.title_id_hex
@@ -822,7 +835,7 @@ class GameLibrary:
                         families[tid]['update'] = [res.newest_update[1]]
                     if res.dlc:
                         families[tid]['dlc'] = [p for _, p in res.dlc]
-                    names[tid] = GameFolder.profile_name(tid, repo_path) or clean_game_name(curr)
+                    names[tid] = GameFolder.profile_name(tid, repo_path) or clean_game_name(res.folder)
                 return
 
             try:
