@@ -138,7 +138,8 @@ modalità portatile).
 **Salvataggi e log.** Un gioco per Mac situato in una cartella della libreria conserva i propri salvataggi e il file di log accanto all'app
 (`log/<title ID>.log`), altrimenti si trovano in `~/Library/Application Support/nxnative/<title ID>/` e
 `~/Library/Logs/nxnative/<title ID>.log`. Sull'iPhone si trovano nell'app File sotto il nome dell'app:
-`save/` e `log.txt` (l'esecuzione precedente è salvata come `log.prev.txt`).
+`save/` e `log.txt` (l'esecuzione precedente è salvata come `log.prev.txt`). I salvataggi richiedono un disco APFS. Se la cartella della libreria è su un altro formato (exFAT, Mac OS esteso), i salvataggi
+restano in `~/Library/Application Support/nxnative/<title ID>/save` e solo il log va accanto all'app.
 
 **Segnalare un bug.** Usa gli appositi [moduli per le segnalazioni](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
 (problema di gioco, problema di compilazione, problema del launcher). Ciascun modulo richiede il nome del gioco e il suo Title ID, le versioni in uso

@@ -144,7 +144,8 @@ même fichier. Quand une même clé est définie plusieurs fois, l’ordre est :
 **Sauvegardes et journaux.** Un jeu Mac placé dans un dossier de bibliothèque garde ses sauvegardes et son journal
 à côté de l’app (`log/<title ID>.log`). Sinon, ils se trouvent dans `~/Library/Application Support/nxnative/<title ID>/`
 et `~/Library/Logs/nxnative/<title ID>.log`. Sur l’iPhone, ils sont dans l’app Fichiers sous le nom de l’app :
-`save/` et `log.txt` (l’exécution précédente est `log.prev.txt`).
+`save/` et `log.txt` (l’exécution précédente est `log.prev.txt`). Les sauvegardes ont besoin d’un disque APFS. Si le dossier de bibliothèque est sur un autre format (exFAT, Mac OS étendu),
+les sauvegardes restent dans `~/Library/Application Support/nxnative/<title ID>/save` et seul le journal est à côté de l’app.
 
 **Signaler un bug.** Utilisez les [formulaires de ticket](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
 (problème de jeu, de compilation, de lanceur). Chacun demande le jeu et son title ID, vos versions et votre

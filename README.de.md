@@ -148,7 +148,8 @@ des Spiels, die gemeinsame `Documents/env.txt`.
 **Spielstände und Logs.** Ein Mac-Spiel in einem Bibliotheksordner legt seine Spielstände und sein Log neben
 der App ab (`log/<title ID>.log`). Sonst liegen sie in `~/Library/Application Support/nxnative/<title ID>/` und
 `~/Library/Logs/nxnative/<title ID>.log`. Auf dem iPhone liegen sie in der Dateien-App unter dem Namen der
-App: `save/` und `log.txt` (der vorige Lauf ist `log.prev.txt`).
+App: `save/` und `log.txt` (der vorige Lauf ist `log.prev.txt`). Spielstände brauchen ein APFS-Laufwerk. Liegt der Bibliotheksordner auf einem anderen Format (exFAT, Mac OS Extended),
+bleiben die Spielstände in `~/Library/Application Support/nxnative/<title ID>/save`, und nur das Log liegt neben der App.
 
 **Einen Fehler melden.** Nutze die [Issue-Formulare](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
 (Spielproblem, Build-Problem, Launcher-Problem). Jedes fragt nach dem Spiel und seiner Title ID, deinen

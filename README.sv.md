@@ -142,7 +142,8 @@ inställningar, spelets `env.txt`, spelets mapp `mods/`, den delade `Documents/e
 **Sparfiler och loggar.** Ett Mac-spel i en biblioteksmapp har sina sparfiler och sin logg bredvid appen
 (`log/<title ID>.log`). Annars ligger de i `~/Library/Application Support/nxnative/<title ID>/` och
 `~/Library/Logs/nxnative/<title ID>.log`. På iPhone ligger de i appen Filer under appens namn: `save/` och
-`log.txt` (föregående körning är `log.prev.txt`).
+`log.txt` (föregående körning är `log.prev.txt`). Sparfiler behöver en APFS-enhet. Ligger biblioteksmappen på ett annat format (exFAT, Mac OS Extended) stannar sparfilerna i
+`~/Library/Application Support/nxnative/<title ID>/save` och bara loggen hamnar bredvid appen.
 
 **Rapportera ett fel.** Använd [formulären för ärenden](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
 (spelproblem, byggproblem, launcherproblem). Varje formulär frågar efter spelet och dess title ID, dina

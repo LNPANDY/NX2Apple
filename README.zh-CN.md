@@ -126,7 +126,8 @@ Mod 更简单：把它的文件夹放进 `Documents/games/<title ID>/mods/<mod �
 
 **存档和日志。** 放在游戏库文件夹里的 Mac 游戏，存档和日志在 App 旁边（`log/<title ID>.log`）；否则在
 `~/Library/Application Support/nxnative/<title ID>/` 和 `~/Library/Logs/nxnative/<title ID>.log`。
-iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上一次运行的是 `log.prev.txt`）。
+iPhone 上在「文件」App 里该 App 名字下：`save/` 和 `log.txt`（上一次运行的是 `log.prev.txt`）。存档需要 APFS 磁盘。游戏库文件夹在其他格式（exFAT、Mac OS 扩展）的磁盘上时，存档留在
+`~/Library/Application Support/nxnative/<title ID>/save`，只有日志在 App 旁边。
 
 **报告问题。** 请用[问题表单](https://github.com/LNPANDY/NX2Apple/issues/new/choose)（游戏问题、构建问题、
 启动器问题）。表单会要你填游戏和 title ID、版本和设备、**设置 > 复制诊断信息**，以及游戏的日志；

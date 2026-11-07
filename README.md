@@ -151,7 +151,8 @@ the order is: the shell's own settings, the game's `env.txt`, the game's `mods/`
 **Saves and logs.** A Mac game in a library folder keeps its saves and its log beside the app
 (`log/<title ID>.log`); otherwise they are in `~/Library/Application Support/nxnative/<title ID>/` and
 `~/Library/Logs/nxnative/<title ID>.log`. On the iPhone they are in the Files app under the app's
-name: `save/` and `log.txt` (the previous run is `log.prev.txt`).
+name: `save/` and `log.txt` (the previous run is `log.prev.txt`). Saves need an APFS drive. When the library folder is on another format (exFAT, Mac OS Extended), the saves stay in
+`~/Library/Application Support/nxnative/<title ID>/save` and only the log goes beside the app.
 
 **Reporting a bug.** Use the [issue forms](https://github.com/LNPANDY/NX2Apple/issues/new/choose)
 (game problem, build problem, launcher problem). Each asks for the game and its title ID, your
