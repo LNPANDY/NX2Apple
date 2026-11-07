@@ -106,7 +106,7 @@ final class TouchControlsCaptureTests: XCTestCase {
             let asking = TouchLayoutEditorModel(store: store(), sideways: screens.sideways, upright: screens.upright, kind: .threeD)
             asking.select(.face); asking.nudge(dx: -2, dy: -2); asking.askReset()
             try capture("touch-editor-device-\(d.name)-end", width: d.window.width, height: d.window.height,
-                        TouchLayoutEditorView(model: asking, close: {}, columnAnchor: .bottom).padding(d.insets).background(Color.black))
+                        TouchLayoutEditorView(model: asking, close: {}).padding(d.insets).background(Color.black))
             let none = TouchLayoutEditorModel(store: store(), sideways: screens.sideways, upright: screens.upright, kind: .twoD)
             try capture("touch-editor-device-\(d.name)-2d", width: d.window.width, height: d.window.height,
                         TouchLayoutEditorView(model: none, close: {}).padding(d.insets).background(Color.black))

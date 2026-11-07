@@ -18,10 +18,10 @@ Issue: LNPANDY/NX2Apple#740
  dm/host/pad_joycon_mac.h                   | 115 +++++++++++++++++
  dm/host/tests/Makefile                     |   2 +-
  dm/host/tests/t_haptics_apple.m            |  14 +++
- dm/host/tests/t_pad_hid.c                  |  88 +++++++++++++
+ dm/host/tests/t_pad_hid.c                  |  93 +++++++++++++-
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   1 +
  docs/env_switches.tsv                      |   1 +
- 11 files changed, 464 insertions(+), 17 deletions(-)
+ 11 files changed, 464 insertions(+), 22 deletions(-)
  create mode 100644 dm/host/pad_joycon.h
  create mode 100644 dm/host/pad_joycon_mac.h
 
@@ -39,7 +39,7 @@ index 8b66f0b..2100b89 100644
  clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
  	rm -rf gen dmhost dmhost_* *.dSYM
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 892df56..1d5f680 100644
+index 04a17ef..04b4092 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -25,6 +25,7 @@
@@ -50,10 +50,10 @@ index 892df56..1d5f680 100644
  #include "home_quit.h"
  #include "home_quit_mac.h"
  #include <signal.h>
-@@ -200,28 +201,43 @@ static void pro_players_changed(GCController *gone) {
-     dm_motion_pro_players(count, player);
+@@ -218,29 +219,44 @@ static int pad_join(const void *owner, const char *name) {
+     dm_pad_players(pad_slot_mask(&g_slots));
+     return p;
  }
- static void pro_devices_changed(void) { pro_players_changed(nil); }
 -// DM_PAD_MERGE: whether a controller still plays player 1 (gone: one just removed, not counted), a GameController one or a raw HID pad (pad_hid_mac.h)
 +static int gc_pad_used(GCController *c) {
 +    return c && c.extendedGamepad && !(g_joycon_split && joycon_is_gc_controller(c));
@@ -94,34 +94,38 @@ index 892df56..1d5f680 100644
          pro_players_changed(gone);
          return;
      }
+     hidpad_twins_eval(gone); hidpad_twins_release();   // identical pads (pad_hid_mac.h): those GameController lists them all of again go back to it first
      NSArray<GCController *> *now = GCController.controllers; char nb[16];
--    for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p] && (g_held[p] == gone || ![now containsObject:g_held[p]])) {
-+    for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p] && (g_held[p] == gone || ![now containsObject:g_held[p]] || !gc_pad_used(g_held[p]))) {
+-    for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p] && (g_held[p] == gone || ![now containsObject:g_held[p]] || hidpad_gc_unread(g_held[p]))) {
++    for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p] && (g_held[p] == gone || ![now containsObject:g_held[p]] || hidpad_gc_unread(g_held[p]) || !gc_pad_used(g_held[p]))) {
          npad_name(p, nb, sizeof nb); LOG("controller '%s' disconnected: player %d (npad %s) is free", pad_name(g_held[p]), p + 1, nb);
          g_held[p].extendedGamepad.valueChangedHandler = nil;
          dm_motion_detach(g_held[p], p);
-@@ -229,7 +245,7 @@ static void pads_changed(GCController *gone) {
+@@ -248,7 +264,7 @@ static void pads_changed(GCController *gone) {
          pad_slot_free(&g_slots, (__bridge const void *)g_held[p]); g_held[p] = nil;
          dm_pad_set_player(p, 0, 0, 0, 0, 0);   // nothing stays pressed
      }
 -    for (GCController *c in now) if (c.extendedGamepad && c != gone && pad_slot_of(&g_slots, (__bridge const void *)c) < 0) {
 +    for (GCController *c in now) if (gc_pad_used(c) && c != gone && pad_slot_of(&g_slots, (__bridge const void *)c) < 0) {
-         int p = pad_slot_take(&g_slots, (__bridge const void *)c, pad_name(c));
-         if (p < 0) { LOG("controller '%s' connected: all %d players are taken, not used", pad_name(c), DM_PLAYERS); continue; }
-         g_held[p] = c; pad_keep_system_buttons(c);
-@@ -239,6 +255,7 @@ static void pads_changed(GCController *gone) {
-         pad_read(c.extendedGamepad);
+         if (hidpad_gc_unread(c)) { pad_keep_system_buttons(c); c.extendedGamepad.valueChangedHandler = nil; continue; }   // its model's pads are read from IOKit; Home and Capture stay out of macOS's hands
+         if (g_press_to_join) {   // a player at its first button (pad_read)
+             pad_keep_system_buttons(c);
+@@ -266,6 +282,7 @@ static void pads_changed(GCController *gone) {
      }
+     hidpad_twins_take(gone);   // the pads of a model GameController lists fewer of, a player each
      dm_pad_players(pad_slot_mask(&g_slots));
 +    joycon_haptics_sync(gone);
      pro_players_changed(gone);
  }
  // Display sleep: macOS counts keyboard and mouse input as user activity, not a controller's, so in controller-only play the display dims and locks; the latency
-@@ -259,12 +276,14 @@ static void pads_release(void) {
+@@ -286,15 +303,17 @@ static void pads_release(void) {
      if (g_merge) { if (merge_pads_left(nil)) dm_pad_set(0, 0, 0, 0, 0); return; }
      for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
      for (hid_pad *d = g_hidpads; d; d = d->next) { int p = pad_slot_of(&g_slots, d); if (p >= 0) dm_pad_set_player(p, 0, 0, 0, 0, 0); }
 +    for (joycon_pad *d = g_joycons; d; d = d->next) { int p = pad_slot_of(&g_slots, d); if (p >= 0) dm_pad_set_player(p, 0, 0, 0, 0, 0); }
+ }
+ static void hidpad_motion_clear(void) {   // the gyro of identical Pro Controllers read from IOKit (pad_hid_mac.h)
+     for (hid_pad *d = g_hidpads; d; d = d->next) { int p = d->twin && hidpad_is_pro(d) ? pad_slot_of(&g_slots, d) : -1; if (p >= 0) dm_motion_clear_hid(p); }
  }
  // Each controller read as it is now (focus back, the Home quit prompt closed)
  static void pads_reread(void) {
@@ -133,10 +137,10 @@ index 892df56..1d5f680 100644
  }
  static void hq_close(void);
  static void input_release(void) {
-@@ -273,6 +292,11 @@ static void input_release(void) {
+@@ -303,6 +322,11 @@ static void input_release(void) {
      display_awake(0);
      g_input_on = 0;
-     dm_motion_pro_active(0);
+     dm_motion_pro_active(0); hidpad_motion_clear();
 +    for (joycon_pad *d = g_joycons; d; d = d->next) {
 +        d->motion = (pro_motion){0};
 +        int p = g_merge ? 0 : pad_slot_of(&g_slots, d);
@@ -145,7 +149,7 @@ index 892df56..1d5f680 100644
      g_btn = 0; g_held_fn = 0; memset(g_shift_fn, 0, sizeof g_shift_fn); push();
      if (g_mouse_down) { g_mouse_down = 0; dm_touch_set(NULL, 0); }
      pads_release();
-@@ -308,6 +332,43 @@ static void hidpad_detach(hid_pad *d) {   // d is already off g_hidpads
+@@ -349,6 +373,43 @@ static void hidpad_detach(hid_pad *d) {   // d is already off g_hidpads
      dm_pad_set_player(p, 0, 0, 0, 0, 0);   // nothing stays pressed
      dm_pad_players(pad_slot_mask(&g_slots));
  }
@@ -189,7 +193,7 @@ index 892df56..1d5f680 100644
  // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
  // (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
  // Switch's HOME menu does, and gets no controller input or touch; the keyboard and ⌘Q work as always. DM_HOME_QUIT=0 turns it off
-@@ -342,10 +403,16 @@ static void hq_log_setting(void) {
+@@ -383,10 +444,16 @@ static void hq_log_setting(void) {
  static void hq_buttons(int *home, int *a, int *b, GCController **holder) {
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
@@ -206,22 +210,22 @@ index 892df56..1d5f680 100644
  }
  static void hq_fade(NSView *v, int in) {
      if (!v) return;
-@@ -417,6 +484,7 @@ static void pads_start(void) {
-     LOG("front end: %s", g_merge ? "every controller is player 1 (DM_PAD_MERGE)" : g_kbd_own ? "the keyboard is player 1, each controller a player of its own from player 2 on (DM_KBD_PLAYER=own)"
+@@ -460,6 +527,7 @@ static void pads_start(void) {
                                                                             : "each controller is a player of its own, the keyboard plays with player 1");
+     if (g_press_to_join) LOG("front end: a controller becomes a player at its first button press, the lowest player free (DM_PAD_PRESS_TO_JOIN)");
      hq_start();
 +    joycon_start();
      pads_changed(nil);
      hq_log_setting();
      dm_motion_pro_start(pro_devices_changed);
-@@ -1432,6 +1500,7 @@ void front_run(void (*guest)(void)) {
+@@ -1475,6 +1543,7 @@ void front_run(void (*guest)(void)) {
          for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 +                if (g_joycon_split && joycon_is_gc_controller(c)) return;
                  if (!c.extendedGamepad || g_merge) LOG("controller %s: %s%s", conn ? "connected" : "disconnected", pad_name(c), c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
+                 if (conn) hidpad_gc_connected(c);   // a HID pad of its name that only waited for it (pad_hid_mac.h)
                  pads_changed(conn ? nil : c);
-                 if (conn) hq_log_setting(); }];
 diff --git a/dm/host/haptics_apple.h b/dm/host/haptics_apple.h
 index 2fd1b0f..d8ce98f 100644
 --- a/dm/host/haptics_apple.h
@@ -579,18 +583,18 @@ index 0000000..a995be7
 +    }
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 944b23e..0434e48 100644
+index fea9962..c080308 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -370,7 +370,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
+@@ -371,7 +371,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
  	$(B)/t_altstack
  	DM_QOS_MAP=1 $(B)/t_notify_sched
  	DM_QOS_MAP=1 $(B)/t_notify_sched --all-peers
 -$(B)/t_pad_hid: t_pad_hid.c ../pad_hid.h ../dm_input.h | $(B)
 +$(B)/t_pad_hid: t_pad_hid.c ../pad_hid.h ../pad_joycon.h ../motion_pro.h ../dm_input.h | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_pad_hid.c
- 
- # Line coverage (../../sanitizers/coverage.mk): make coverage builds every test of run into $(B)/cov with COV_FLAGS, runs them and writes $(B)/cov/coverage.lcov.
+ run: $(B)/t_pad_pro
+ $(B)/t_pad_pro: t_pad_pro.c ../pad_pro.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
 index 27adba0..f7a5dfb 100644
 --- a/dm/host/tests/t_haptics_apple.m
@@ -617,7 +621,7 @@ index 27adba0..f7a5dfb 100644
      dm_haptics_apple_shutdown();
      puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, level cutoff and the DualShock 4 route passed");
 diff --git a/dm/host/tests/t_pad_hid.c b/dm/host/tests/t_pad_hid.c
-index 48341c7..898ad8f 100644
+index c5cf986..ca52870 100644
 --- a/dm/host/tests/t_pad_hid.c
 +++ b/dm/host/tests/t_pad_hid.c
 @@ -1,10 +1,97 @@
@@ -718,10 +722,16 @@ index 48341c7..898ad8f 100644
  int main(void) {
      pad_hid h; int32_t s[4];
      pad_hid_init(&h, NULL);
-@@ -34,6 +121,7 @@ int main(void) {
+@@ -34,12 +121,8 @@ int main(void) {
      h.has[PH_Z] = 0; h.has[PH_RX] = 1; h.axis[PH_RX] = -1; pad_hid_sticks(&h, s); CHECK(s[2] == -DM_STICK_MAX && s[3] == 0);   // Rx / Ry without Z
      h.has[PH_ACCEL] = 1; h.axis[PH_ACCEL] = -1; CHECK(!(pad_hid_buttons(&h) & DM_BTN_ZR));
      h.axis[PH_ACCEL] = pad_hid_norm(200, 0, 255); CHECK(pad_hid_buttons(&h) & DM_BTN_ZR);
+-    // identical pads: a model is read here only with two or more pads and more than GameController lists, after the wait, and stops at once
+-    CHECK(pad_dupes_want(1, 0, 0, 1) == 0); CHECK(pad_dupes_want(2, 2, 1, 0) == 0); CHECK(pad_dupes_want(3, 3, 0, 1) == 0);
+-    CHECK(pad_dupes_want(2, 1, 0, 0) == -1); CHECK(pad_dupes_want(2, 1, 0, 1) == 1); CHECK(pad_dupes_want(2, 0, 0, 1) == 1);
+-    CHECK(pad_dupes_want(3, 1, 1, 0) == 1);   // a third pad of a model read already joins it without a wait
+     CHECK(pad_dupes_want(1, 1, 1, 0) == 0);   // one unplugged: back to GameController
+-
 +    test_joycon_split();
      printf("t_pad_hid: %d checks, %d failed\n", checks, fails);
      return fails != 0;
@@ -739,7 +749,7 @@ index 2b64998..500e86f 100644
  int front_ios_boot_ok(void) { return 1; }
  void front_ios_boot(void) {}
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 19cb3c3..125152b 100644
+index 2c748ab..4a8e6ef 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -90,6 +90,7 @@ DM_JIT_CAPTURE	path	Folder the Mac host writes what a game's `nn::jit` plugin ma

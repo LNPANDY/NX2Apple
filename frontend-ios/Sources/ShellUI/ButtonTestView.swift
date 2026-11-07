@@ -4,6 +4,7 @@ import SwiftUI
 /// triggers filling as they are pulled. Every button belongs to the test while it is open, so a controller closes it by
 /// holding B. Touch closes it with ×, a keyboard with Escape.
 struct ButtonTestView: View {
+    @Environment(\.shellNativeBars) private var nativeBars
     let snapshot: PadSnapshot?
     let close: () -> Void
     /// How long B is held to close.
@@ -14,28 +15,84 @@ struct ButtonTestView: View {
     @Environment(\.shellIgnoresPress) private var ignoresPress
 
     var body: some View {
+        Group {
+            if nativeBars { nativePage } else { legacyPage }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(nativeBars ? [] : .isModal)
+        .accessibilityIdentifier("buttonTest")
+        .onChange(of: snapshot?.pressed.contains(.b) ?? false) { _, held in held ? startHold() : stopHold() }
+        .onDisappear { holdTask?.cancel() }
+    }
+
+    private var controllerName: String {
+        snapshot.map { $0.name.isEmpty ? ShellStrings.text("Controller") : $0.name }
+            ?? ShellStrings.text("Press any button on a controller")
+    }
+
+    private var nativePage: some View {
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Text(controllerName)
+                        .font(.subheadline).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20).padding(.top, 16)
+                    testContent
+                }
+                .frame(maxWidth: 620)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+            }
+        }
+        .background(ShellPalette.background)
+    }
+
+    private var legacyPage: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(ShellStrings.text("Button test")).shellType(ShellType.flowTitle(20)).lineLimit(1)
-                        .accessibilityAddTraits(.isHeader).accessibilityIdentifier("buttonTest.title")
-                    Text(snapshot.map { $0.name.isEmpty ? ShellStrings.text("Controller") : $0.name } ?? ShellStrings.text("Press any button on a controller"))
-                        .shellType(ShellType.note).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                    if !nativeBars {
+                        Text(ShellStrings.text("Button test")).shellType(ShellType.flowTitle(20))
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityAddTraits(.isHeader).accessibilityIdentifier("buttonTest.title")
+                    }
+                    Text(controllerName)
+                        .shellType(ShellType.note).foregroundStyle(.white.opacity(0.5))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                // The system's echo of a controller button does not close the test. Holding B, which goes past this
-                // button, still does.
-                Button { if !ignoresPress() { close() } } label: {
-                    Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).frame(width: 44, height: 44)
-                        .background(.white.opacity(0.08), in: Circle()).contentShape(Circle())
+                if !nativeBars {
+                    Button { if !ignoresPress() { close() } } label: {
+                        Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).frame(width: 44, height: 44)
+                            .background(.white.opacity(0.08), in: Circle()).contentShape(Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(ShellStrings.text("Close"))
+                    .accessibilityIdentifier("buttonTest.close")
+                    .shellTarget("test.close", radius: 22, action: close)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(ShellStrings.text("Close"))
-                .accessibilityIdentifier("buttonTest.close")
-                .shellTarget("test.close", radius: 22, action: close)
             }
             .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 8)
             Rectangle().fill(ShellPalette.hairline).frame(height: 1)
+            ViewThatFits(in: .vertical) {
+                testContent.fixedSize(horizontal: false, vertical: true)
+                ScrollView { testContent }.scrollIndicators(.hidden)
+            }
+        }
+        .frame(maxWidth: nativeBars ? .infinity : 620, maxHeight: nativeBars ? .infinity : nil)
+        .background {
+            if !nativeBars {
+                RoundedRectangle(cornerRadius: 26).fill(Color(red: 0.075, green: 0.075, blue: 0.082))
+            }
+        }
+        .overlay {
+            if !nativeBars { RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)) }
+        }
+        .shadow(color: .black.opacity(nativeBars ? 0 : 0.5), radius: nativeBars ? 0 : 40)
+    }
+
+    private var testContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
             XboxControllerDiagram(snapshot: snapshot ?? PadSnapshot())
                 .aspectRatio(XboxControllerDiagram.design.width / XboxControllerDiagram.design.height, contentMode: .fit)
                 .frame(maxWidth: .infinity)
@@ -59,15 +116,6 @@ struct ButtonTestView: View {
             }
             .frame(maxWidth: .infinity).padding(.bottom, 18).padding(.top, 4)
         }
-        .frame(maxWidth: 620)
-        .background(Color(red: 0.075, green: 0.075, blue: 0.082), in: RoundedRectangle(cornerRadius: 26))
-        .overlay(RoundedRectangle(cornerRadius: 26).strokeBorder(.white.opacity(0.10)))
-        .shadow(color: .black.opacity(0.5), radius: 40)
-        .accessibilityElement(children: .contain)
-        .accessibilityAddTraits(.isModal)
-        .accessibilityIdentifier("buttonTest")
-        .onChange(of: snapshot?.pressed.contains(.b) ?? false) { _, held in held ? startHold() : stopHold() }
-        .onDisappear { holdTask?.cancel() }
     }
 
     private var pressedText: String {

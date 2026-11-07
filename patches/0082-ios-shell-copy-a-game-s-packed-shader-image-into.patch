@@ -143,7 +143,7 @@ index 0d20b82..cfba21f 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index f177de7..3263fd5 100755
+index 1af6290..3019b44 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -256,7 +256,7 @@ if [ "$PREPARE_XCODE" = YES ]; then

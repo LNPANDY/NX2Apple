@@ -30,7 +30,11 @@ package enum GameFolder {
         package var nup: String? = nil
 
         package var titleIDHex: String { String(format: "%016llX", titleID) }
-        package var basePath: String { nup ?? folder + "/base" }
+        package var basePath: String {
+            if let nup { return nup }
+            if FileManager.default.fileExists(atPath: folder + "/base/exefs/main.npdm") { return folder + "/base" }
+            return updates.last?.path ?? (folder + "/base")
+        }
         /// What the script is given: the NUP file, else the folder.
         package var scriptInput: String { nup ?? folder }
         /// The title ID is known (a NUP whose package table names none leaves it to the script, from the code in the container).
@@ -74,6 +78,12 @@ package enum GameFolder {
     /// Packages that make the script take the folder as a folder of packages.
     private static let packages: Set<String> = ["nsp", "xci", "nsz", "xcz"]
 
+    /// Subfolders that belong inside a dump or build tree and are never outer wrapper folders.
+    private static let skipWrapperDirs: Set<String> = [
+        "base", "updates", "dlc", "romfs", "exefs", "extract", "tools",
+        "venv", "archive", "harness", "runs", "shader", "node_modules", "xcode"
+    ]
+
     /// The NUP files at the top of a folder (build_ipa_from_nsp.py `nup_file` looks there only), by name.
     package static func nupFiles(in folder: String) -> [String] {
         ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).filter {
@@ -81,24 +91,120 @@ package enum GameFolder {
         }.sorted()
     }
 
-    /// Whether the path is meant as a game folder or a NUP: a `.nup` file, a folder with a `.nup` at its top, a folder with
-    /// `base/exefs/main.npdm`, or `exefs/main.npdm` with no `base/` (the files one level too high). Cheap: the folder picker asks
-    /// this before it walks a folder that may hold 80,000 files.
-    package static func isCandidate(_ path: String) -> Bool {
+    /// Whether `folder/updates/<version>/exefs/main.npdm` exists (an update-only dump without `base/`, pack_dump.py).
+    private static func hasUpdateCode(_ folder: String) -> Bool {
+        guard isDir(folder + "/updates") else { return false }
+        return subdirs(in: folder + "/updates").contains {
+            !$0.isEmpty && $0.allSatisfy(\.isASCIIDigit) && isFile(folder + "/updates/" + $0 + "/exefs/main.npdm")
+        }
+    }
+
+    /// Whether `path` itself is an unpacked dump directory (`base/exefs/main.npdm`, `updates/<v>/exefs/main.npdm`, or
+    /// misplaced `exefs/main.npdm` without `base/`), as opposed to a `.nup` file or a folder holding `.nup` files.
+    package static func isDumpDirectory(_ path: String) -> Bool {
         let fm = FileManager.default
-        if (path as NSString).pathExtension.lowercased() == "nup" && isFile(path) { return true }
-        if isFile(path + "/base/exefs/main.npdm") || !nupFiles(in: path).isEmpty { return true }
+        if isFile(path + "/base/exefs/main.npdm") || hasUpdateCode(path) { return true }
         return isFile(path + "/exefs/main.npdm") && !fm.fileExists(atPath: path + "/base")
     }
 
+    private static func hasNestedGameFoldersOrPackages(in folder: String) -> Bool {
+        for sub in wrapperSubdirs(in: folder) {
+            if isDumpDirectory(sub) || !nupFiles(in: sub).isEmpty || hasPackages(in: sub) { return true }
+            for child in wrapperSubdirs(in: sub) {
+                if isDumpDirectory(child) || !nupFiles(in: child).isEmpty || hasPackages(in: child) { return true }
+            }
+        }
+        return false
+    }
+
+    /// Whether `path` itself (without unwrapping parent/child folders) is a game folder or a `.nup` file.
+    /// A folder holding a `.nup` alongside nested game folders or packages is a collection root, not a single-game folder.
+    package static func isDirectCandidate(_ path: String) -> Bool {
+        if (path as NSString).pathExtension.lowercased() == "nup" && isFile(path) { return true }
+        if isDumpDirectory(path) { return true }
+        return !nupFiles(in: path).isEmpty && !hasNestedGameFoldersOrPackages(in: path)
+    }
+
+    /// Resolves a picked or dropped folder to the actual game folder when the user selected an outer wrapper folder
+    /// (1–2 levels above a single game folder or `.nup`) or stepped inside `base/`, `updates/`, `dlc/`, `exefs/`, or `romfs/`.
+    package static func resolve(_ path: String) -> String {
+        guard !path.isEmpty else { return path }
+        if (path as NSString).pathExtension.lowercased() == "nup" && isFile(path) { return path }
+        if let ancestor = enclosingGameFolder(of: path) { return ancestor }
+        if isDirectCandidate(path) { return path }
+        if let inner = unwrappedGameFolder(in: path) { return inner }
+        return path
+    }
+
+    private static func enclosingGameFolder(of path: String) -> String? {
+        var cur = path
+        var best: String? = nil
+        for _ in 0..<4 {
+            let name = (cur as NSString).lastPathComponent.lowercased()
+            let isInnerName = ["base", "exefs", "romfs", "updates", "dlc"].contains(name)
+                || (!name.isEmpty && name.allSatisfy(\.isASCIIDigit))
+                || (!name.isEmpty && name.count <= 16 && name.allSatisfy(\.isHexDigit))
+            guard isInnerName else { break }
+            let parent = (cur as NSString).deletingLastPathComponent
+            guard !parent.isEmpty, parent != cur else { break }
+            if isFile(parent + "/base/exefs/main.npdm") || hasUpdateCode(parent) {
+                best = parent
+            }
+            cur = parent
+        }
+        if let best { return best }
+        let leaf = (path as NSString).lastPathComponent.lowercased()
+        if leaf == "exefs" || leaf == "romfs" {
+            let parent = (path as NSString).deletingLastPathComponent
+            if isFile(parent + "/exefs/main.npdm") && !FileManager.default.fileExists(atPath: parent + "/base") {
+                return parent
+            }
+        }
+        return nil
+    }
+
+    private static func hasPackages(in folder: String) -> Bool {
+        ((try? FileManager.default.contentsOfDirectory(atPath: folder)) ?? []).contains {
+            !$0.hasPrefix("._") && packages.contains(($0 as NSString).pathExtension.lowercased()) && isFile(folder + "/" + $0)
+        }
+    }
+
+    private static func wrapperSubdirs(in folder: String) -> [String] {
+        subdirs(in: folder).filter { name in
+            let low = name.lowercased()
+            return !skipWrapperDirs.contains(low) && !low.hasSuffix(".app") && !low.hasSuffix("_build") && !low.hasSuffix("_survey")
+        }.map { folder + "/" + $0 }
+    }
+
+    private static func unwrappedGameFolder(in path: String) -> String? {
+        guard isDir(path), !hasPackages(in: path), nupFiles(in: path).isEmpty else { return nil }
+        let level1 = wrapperSubdirs(in: path)
+        if level1.contains(where: { hasPackages(in: $0) }) { return nil }
+        let direct1 = level1.filter { isDirectCandidate($0) }
+        if direct1.count > 1 { return nil }
+        var level2: [String] = []
+        for sub in level1 where !isDirectCandidate(sub) {
+            if !nupFiles(in: sub).isEmpty { return nil }
+            let children = wrapperSubdirs(in: sub)
+            if children.contains(where: { hasPackages(in: $0) || (!isDirectCandidate($0) && !nupFiles(in: $0).isEmpty) }) { return nil }
+            level2.append(contentsOf: children)
+        }
+        let candidates = direct1 + level2.filter { isDirectCandidate($0) }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
+    /// Whether the path is meant as a game folder or a NUP: a `.nup` file, a folder with a `.nup` at its top, a folder with
+    /// `base/exefs/main.npdm` (or `updates/<version>/exefs/main.npdm`), `exefs/main.npdm` with no `base/`, or a 1–2 level
+    /// wrapper folder / inner subfolder of one. Cheap: reads only directory entries and never walks `romfs/`.
+    package static func isCandidate(_ path: String) -> Bool {
+        isDirectCandidate(resolve(path))
+    }
+
     /// What the folder holds, or the first reason it cannot be built, in the order the script finds them.
-    package static func scan(_ folder: String) -> Result<Contents, Problem> {
+    package static func scan(_ rawFolder: String) -> Result<Contents, Problem> {
+        let folder = resolve(rawFolder)
         if (folder as NSString).pathExtension.lowercased() == "nup" && isFile(folder) { return readNUP(folder) }
         let fm = FileManager.default
-        func isDir(_ p: String) -> Bool { var d: ObjCBool = false; return fm.fileExists(atPath: p, isDirectory: &d) && d.boolValue }
-        func dirs(_ p: String) -> [String] {
-            ((try? fm.contentsOfDirectory(atPath: p)) ?? []).filter { !$0.hasPrefix(".") && isDir(p + "/" + $0) }.sorted()
-        }
         let top = ((try? fm.contentsOfDirectory(atPath: folder)) ?? []).sorted()
         if let pkg = top.first(where: { !$0.hasPrefix("._") && packages.contains(($0 as NSString).pathExtension.lowercased()) && isFile(folder + "/" + $0) }) {
             return .failure(.packageBeside(pkg))
@@ -107,25 +213,37 @@ package enum GameFolder {
         let nups = nupFiles(in: folder)
         if nups.count > 1 { return .failure(.severalNUPs(nups.count)) }
         if let nup = nups.first { return readNUP(folder + "/" + nup) }
-        let npdm = folder + "/base/exefs/main.npdm"
-        if !isFile(npdm) {
-            if isFile(folder + "/exefs/main.npdm") && !fm.fileExists(atPath: folder + "/base") { return .failure(.noBaseFolder) }
-            return .failure(.missing("base/exefs/main.npdm"))
-        }
-        let versions = isDir(folder + "/updates") ? dirs(folder + "/updates").filter { !$0.isEmpty && $0.allSatisfy(\.isASCIIDigit) } : []
-        // A newer engine takes a folder whose base has no RomFS when an update has one (pack_dump.py at seedds/nxnative 641d148).
-        guard isDir(folder + "/base/romfs") || versions.contains(where: { isDir(folder + "/updates/" + $0 + "/romfs") }) else {
-            return .failure(.missing("base/romfs"))
+        let versions = isDir(folder + "/updates") ? subdirs(in: folder + "/updates").filter { !$0.isEmpty && $0.allSatisfy(\.isASCIIDigit) } : []
+        let updates = versions.compactMap { v in Int(v).map { (version: $0, path: folder + "/updates/" + v) } }.sorted { $0.version < $1.version }
+        let baseNPDM = folder + "/base/exefs/main.npdm"
+        let npdm: String
+        if isFile(baseNPDM) {
+            // A newer engine takes a folder whose base has no RomFS when an update has one (pack_dump.py at seedds/nxnative 641d148).
+            guard isDir(folder + "/base/romfs") || updates.contains(where: { isDir($0.path + "/romfs") }) else {
+                return .failure(.missing("base/romfs"))
+            }
+            npdm = baseNPDM
+        } else {
+            // pack_dump.py also builds a dump with no base/ when updates/<version>/ holds both exefs/main.npdm and romfs/.
+            let codeUpdates = updates.filter { isFile($0.path + "/exefs/main.npdm") }
+            if let newestCode = codeUpdates.last {
+                guard let full = codeUpdates.last(where: { isDir($0.path + "/romfs") }) else {
+                    return .failure(.missing("updates/\(newestCode.version)/romfs"))
+                }
+                npdm = full.path + "/exefs/main.npdm"
+            } else {
+                if isFile(folder + "/exefs/main.npdm") && !fm.fileExists(atPath: folder + "/base") { return .failure(.noBaseFolder) }
+                return .failure(.missing("base/exefs/main.npdm"))
+            }
         }
         guard let data = fm.contents(atPath: npdm), let app = programID(npdm: data) else { return .failure(.unreadableNPDM) }
         if app & 0xFFF != 0 { return .failure(.notBaseTitle(app)) }
-        let updates = versions.compactMap { v in Int(v).map { (version: $0, path: folder + "/updates/" + v) } }.sorted { $0.version < $1.version }
         var dlc: [(titleID: UInt64, path: String)] = []
-        for name in isDir(folder + "/dlc") ? dirs(folder + "/dlc") : [] {
+        for name in isDir(folder + "/dlc") ? subdirs(in: folder + "/dlc") : [] {
             let path = folder + "/dlc/" + name
             guard name.count <= 16, let tid = UInt64(name, radix: 16) else { return .failure(.dlcName(name)) }
             guard tid > app + 0x1000, tid - app - 0x1000 <= 2000 else { return .failure(.notDLC(name, tid)) }
-            let numbered = dirs(path).filter { isDir(path + "/" + $0 + "/romfs") }
+            let numbered = subdirs(in: path).filter { isDir(path + "/" + $0 + "/romfs") }
             let count = numbered.isEmpty ? (isDir(path + "/romfs") ? 1 : 0) : numbered.count
             guard count == 1 else { return .failure(.dlcRomFS(name, count)) }
             dlc.append((titleID: tid, path: path))
@@ -224,8 +342,18 @@ package enum GameFolder {
         var d: ObjCBool = false
         return FileManager.default.fileExists(atPath: path, isDirectory: &d) && !d.boolValue
     }
+
+    private static func isDir(_ path: String) -> Bool {
+        var d: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &d) && d.boolValue
+    }
+
+    private static func subdirs(in path: String) -> [String] {
+        ((try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []).filter { !$0.hasPrefix(".") && isDir(path + "/" + $0) }.sorted()
+    }
 }
 
 private extension Character {
     var isASCIIDigit: Bool { ("0"..."9").contains(self) }
+    var isHexDigit: Bool { ("0"..."9").contains(self) || ("a"..."f").contains(self) || ("A"..."F").contains(self) }
 }

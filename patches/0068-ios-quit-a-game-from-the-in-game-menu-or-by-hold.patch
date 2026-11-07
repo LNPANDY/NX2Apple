@@ -65,7 +65,7 @@ index 784727b..a7e9c69 100644
  }
  #endif
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index f935755..fc375cb 100644
+index dd28492..586c46e 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,7 @@
@@ -87,15 +87,15 @@ index f935755..fc375cb 100644
  
  @interface DmGamepad : UIView
  - (void)arrange:(DmLayout)layout;
-@@ -590,6 +594,7 @@ static int g_merge;
- static pad_map g_padmap;   // DM_PAD_MAP affects physical controllers only
- static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 32767); }
+@@ -593,6 +597,7 @@ static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 327
+ static const char *pad_name(GCController *c);
+ static void npad_name(int p, char *out, size_t cap);
  static void read_pad(GCExtendedGamepad *g) {
 +    front_ios_quit_poll(); if (front_ios_quit_blocks_input()) return;   // the quit prompt has the controllers (Home held 2 s, or Quit in the in-game menu)
-     int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0) return;
-     dm_haptics_apple_controller(p, g.controller);
+     int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0 && !g_press_to_join) return;
      _Static_assert(DM_BTN_A == 1u << B_A && DM_BTN_B == 1u << B_B && DM_BTN_X == 1u << B_X && DM_BTN_Y == 1u << B_Y, "face button bits");
-@@ -604,7 +609,10 @@ static void read_pad(GCExtendedGamepad *g) {
+     uint64_t m = dm_pad_face(g);   // by position, a Nintendo pad by its labels
+@@ -614,7 +619,10 @@ static void read_pad(GCExtendedGamepad *g) {
      dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
  }
  // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
@@ -107,7 +107,7 @@ index f935755..fc375cb 100644
  static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
  static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
  static void pads_start(void) {
-@@ -654,7 +662,7 @@ static BOOL pads_slotted(GCController *gone) {
+@@ -672,7 +680,7 @@ static BOOL pads_slotted(GCController *gone) {
      GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
      if (c && (!c.extendedGamepad || g_merge)) LOG("controller %s: %s%s", gone ? "disconnected" : "connected", pad_name(c), c.extendedGamepad ? "" : " (no extended gamepad profile: not used)");
      BOOL any = g_merge ? pads_merged(gone) : pads_slotted(gone);
@@ -116,7 +116,7 @@ index f935755..fc375cb 100644
  }
  @end
  
-@@ -665,6 +673,10 @@ void dm_gamepad_touch_feedback(bool on) { [g_view setTouchFeedback:on]; }
+@@ -683,6 +691,10 @@ void dm_gamepad_touch_feedback(bool on) { [g_view setTouchFeedback:on]; }
  int dm_pad_layout(void) { return g_view ? [g_view padLayout] : 0; }
  bool dm_pad_layout_offered(int layout) { return layout == 0 || layout == 1 || (layout == 2 && dm_opmode() == 0); }
  void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }
@@ -140,7 +140,7 @@ index 1f3ad5b..f91b002 100644
  }
  
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 58077b4..fad49fd 100644
+index 138cabc..9666d9e 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -13,9 +13,14 @@
@@ -158,7 +158,7 @@ index 58077b4..fad49fd 100644
  #import "DmLayout.h"
  #import "DmGameMenu.h"
  
-@@ -533,7 +538,7 @@ static void save_sync_background(void) {
+@@ -543,7 +548,7 @@ static void save_sync_background(void) {
  void front_ios_focus_event(int ev) {
      if (!g_layer) return;
      switch (ev) {
@@ -167,7 +167,7 @@ index 58077b4..fad49fd 100644
          case 1: UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); save_sync_background(); break;
          case 2: dm_gfx_suspend(0); guest_clock_freeze_for(1, 0); front_ios_audio_session(); g_audio_bg = 0; front_ios_audio_apply(); dm_focus_set(2); break;
          case 3:   // Becoming active again also ends an interruption whose "ended" never came (not every one sends it), and retries a session that would not activate on the way back
-@@ -543,3 +548,200 @@ void front_ios_focus_event(int ev) {
+@@ -553,3 +558,200 @@ void front_ios_focus_event(int ev) {
              front_ios_audio_apply(); dm_gamepad_active(); dm_focus_set(1); break;
      }
  }
@@ -774,7 +774,7 @@ index 0000000..3f409e9
 +if __name__ == "__main__":
 +    unittest.main()
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 548bb63..1bc990f 100644
+index 268cabd..3ddf53b 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -78,7 +78,7 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre

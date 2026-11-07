@@ -526,7 +526,7 @@ index a2d527c..2f5b1ad 100644
  
  @unittest.skipUnless(HAS_TOOLS and font_python(), 'needs macOS, XcodeGen, an iPhoneOS SDK and a python with fontTools')
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index eec7ee4..9f67e73 100755
+index 2d313ca..e081698 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -214,9 +214,10 @@ if [ "$FRAMEWORK" = 1 ]; then
