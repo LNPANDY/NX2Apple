@@ -3706,5 +3706,168 @@ class WindowsBuildFixesTest(unittest.TestCase):
         self.assertTrue(dlg.back_btn.enabled)
 
 
+class UnrealInlineShadersWinTest(unittest.TestCase):
+    """Issue #831: Unreal inline-shader games (OCTOPATH TRAVELER I & II, Yoshi's Crafted World)
+    must not fail upfront on `build_mac_host` or abort on false-positive `oodle_supposed` probes."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from nspb_qt.win import driver as _drv
+        cls.driver = _drv
+        cls.repo = QT.parent / 'engine'
+        cls.mod = _drv.load_upstream(cls.repo)
+        _drv.patch(cls.mod, cls.repo)
+
+    def test_split_shaders_defers_oodle_for_ue_legacy_and_keeps_for_oodle_packs(self) -> None:
+        recorded: list[tuple] = []
+        orig_under = self.mod._nspb_orig_split_shaders
+        had_pg = hasattr(self.mod, 'pg')
+        orig_pg = getattr(self.mod, 'pg', None)
+
+        class FakePG:
+            oodle_packs = staticmethod(lambda _r: ([], ''))
+
+        def fake_orig(py_, repo_, roms, mains, pkg, env, logs, g,
+                      provisional=False, oodle=None, *a, **kw):
+            recorded.append((oodle, dict(env), provisional))
+            if oodle is not None:
+                oodle()
+            return 'pkg-key'
+
+        self.mod.pg = FakePG
+        self.mod._nspb_orig_split_shaders = fake_orig
+        self.driver.patch(self.mod, self.repo)
+        try:
+            # 1) ue_legacy game (oodle_packs is empty): oodle callback must be dropped so
+            #    build_mac_host is not called upfront, and DM_EXPERIMENTAL_BUILDER is cleared.
+            FakePG.oodle_packs = staticmethod(lambda _r: ([], ''))
+            called = False
+
+            def boom_oodle():
+                nonlocal called
+                called = True
+                return {'DM_OODLE_HOST': str(self.mod.build_mac_host(
+                    self.repo, Path('out'), {}, Path('logs'), None))}
+
+            res = self.mod.split_shaders(
+                Path(sys.executable), self.repo, [Path('romfs')], [Path('main')],
+                Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
+                provisional=False, oodle=boom_oodle)
+            self.assertEqual(res, 'pkg-key')
+            self.assertFalse(called, 'ue_legacy must not call oodle() before shader_split.py runs')
+            self.assertIsNone(recorded[-1][0])
+            self.assertNotIn('DM_EXPERIMENTAL_BUILDER', recorded[-1][1])
+
+            # 2) Non-Unreal Oodle archive game (oodle_packs non-empty): keeps oodle and fails fast.
+            FakePG.oodle_packs = staticmethod(lambda _r: ([Path('arc/data.trpfs')], 'Trinity'))
+            with self.assertRaises(self.mod.BuildError) as ctx:
+                self.mod.split_shaders(
+                    Path(sys.executable), self.repo, [Path('romfs')], [Path('main')],
+                    Path('pkg'), {}, Path('logs'), None,
+                    provisional=False, oodle=boom_oodle)
+            self.assertTrue(called)
+            self.assertIn('arm64', str(ctx.exception))
+        finally:
+            self.mod._nspb_orig_split_shaders = orig_under
+            if had_pg:
+                self.mod.pg = orig_pg
+            else:
+                delattr(self.mod, 'pg')
+            self.driver.patch(self.mod, self.repo)
+
+    def test_run_ipa_aborts_on_oodle_log_even_when_provisional_and_cleans_partial(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            partial = root / 'pkg.partial'
+            (partial / 'pkg').mkdir(parents=True)
+            (partial / 'tables').mkdir(parents=True)
+            log = root / 'shader_split.log'
+            script = root / 'fake_split.py'
+            script.write_text(
+                'import sys\n'
+                'print("[RED] /pakchunk0-Switch.pak#a.uexp: Oodle- or LZ5-compressed game files: '
+                'set DM_OODLE_HOST (the Mac host) and DM_OODLE_MODULES (its shaders are left out)", '
+                'flush=True)\n'
+                'print("[RED] 1 file(s) could not be read, their shaders are left out", flush=True)\n'
+                'print("shaders: 12 (vertex 6, pixel 6); sources main 12; compute shader answers 0 rows", '
+                'flush=True)\n',
+                encoding='utf-8')
+
+            orig_up = self.driver._UPSTREAM_RUN
+
+            def fake_upstream_run(cmd, log_path, *a, **kw):
+                # Run the stand-in script while keeping `dm/gfx/tools/shader_split.py` in cmd[1]
+                return orig_up([sys.executable, str(script), *cmd[2:]], log_path, *a, **kw)
+
+            self.driver._UPSTREAM_RUN = fake_upstream_run
+            try:
+                with self.assertRaises(self.mod.BuildError) as ctx:
+                    self.mod.run(
+                        [sys.executable, str(self.repo / 'dm/gfx/tools/shader_split.py'),
+                         'romfs', 'main', str(partial / 'pkg'), str(partial / 'tables/shader_map.tsv')],
+                        log)
+                self.assertIn('Oodle or LZ5 compression', str(ctx.exception))
+                self.assertIn('Mac host', str(ctx.exception))
+                self.assertFalse(partial.exists(), 'pkg.partial must be cleaned up on Oodle failure')
+            finally:
+                self.driver._UPSTREAM_RUN = orig_up
+
+    def test_octopath2_inline_shaders_ignore_false_positive_oodle_probe_without_host(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            old_local = os.environ.get('LOCALAPPDATA')
+            os.environ['LOCALAPPDATA'] = td
+            try:
+                env = shim.build_env(python_exe=sys.executable)
+                sd = shim.shim_dir()
+                sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                    "if os.name == 'nt'", "if True", 1)
+                (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+                env.pop('DM_OODLE_HOST', None)
+                env.pop('DM_OODLE_MODULES', None)
+                env['DM_GAME'] = '0100A3501946E000'
+                probe = (
+                    'import os, runpy, struct, sys, zlib\n'
+                    f'repo = {str(self.repo)!r}\n'
+                    'sys.path.insert(0, os.path.join(repo, "dm/gfx/tools"))\n'
+                    'import uepak\n'
+                    # Build a valid NVN graphics vertex shader + LSLG record
+                    'code = bytes.fromhex("78563412") + bytes(0x2c) + struct.pack("<I", 1 << 10) + bytes(0x4c)\n'
+                    'ctl = bytearray(0x880)\n'
+                    'ctl[:4] = bytes.fromhex("34127698")\n'
+                    'struct.pack_into("<I", ctl, 0x20, 0x880)\n'
+                    'struct.pack_into("<I", ctl, 0x704, len(code))\n'
+                    'lslg = (b"LSLGSV" + bytes(10) + struct.pack("<I", len(code)) + code '
+                    '+ struct.pack("<I", len(ctl)) + bytes(ctl) + bytes(24))\n'
+                    'z = zlib.compress(lslg)\n'
+                    # OCTOPATH TRAVELER II export-list false positive for uepak.shader_map_entries:
+                    # count=1, 20-byte hash, count=1, length=8, Oodle Selkie header 0x8c 0x0b, raw=30650, freq=0
+                    'fp = (struct.pack("<I", 1) + b"\\x11" * 20 + struct.pack("<I", 1) '
+                    '+ struct.pack("<I", 8) + b"\\x8c\\x0b\\x00\\x00\\x01\\x02\\x03\\x04" '
+                    '+ struct.pack("<IB", 30650, 0))\n'
+                    'uexp = b"\\x00" * 16 + struct.pack("<I", len(z)) + z + b"\\x00" * 16 + fp\n'
+                    'assert len(uepak.shader_map_entries(uexp)) == 1\n'
+                    # 1) Test via runpy.run_path (where shader_split.py is not imported by module name)
+                    'ns = runpy.run_path(os.path.join(repo, "dm/gfx/tools/shader_split.py"), run_name="not_main")\n'
+                    'out_ns = []\n'
+                    'ns["ue_inline_shaders"](uexp, "/Majesty-Switch.pak#Test.uexp", out_ns)\n'
+                    'assert len(out_ns) == 1 and out_ns[0][1] == "vs", out_ns\n'
+                    # 2) Test via regular import shader_split
+                    'import shader_split\n'
+                    'out = []\n'
+                    'shader_split.ue_inline_shaders(uexp, "/Majesty-Switch.pak#Test.uexp", out)\n'
+                    'assert len(out) == 1 and out[0][1] == "vs", out\n'
+                    'print("OK", len(out_ns), len(out))\n'
+                )
+                r = subprocess.run([sys.executable, '-c', probe],
+                                   env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0, f'stdout={r.stdout}\nstderr={r.stderr}')
+                self.assertIn('OK 1 1', r.stdout)
+            finally:
+                if old_local is None:
+                    os.environ.pop('LOCALAPPDATA', None)
+                else:
+                    os.environ['LOCALAPPDATA'] = old_local
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)
