@@ -1336,4 +1336,114 @@ import NXModel
                                                 withIntermediateDirectories: true)
         XCTAssertEqual(RomFSArchive.extractedVersion(in: extract.path), "v1")
     }
+
+    func testSharedShellInstallAndSyncPropagateToAllShellGames() throws {
+        let shellRoot = temporary.appendingPathComponent("shell")
+        let shellApp = shellRoot.appendingPathComponent("derived-data/Build/Products/Release-iphoneos/DmShell.app")
+        try FileManager.default.createDirectory(at: shellApp, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: shellApp.appendingPathComponent("Info.plist"))
+        try Data("profile".utf8).write(to: shellApp.appendingPathComponent("embedded.mobileprovision"))
+        try ShellLibrary(games: [
+            ShellLibrary.Game(titleID: "0100CD801CE5E000", name: "Balatro", framework: "DmGame0100CD801CE5E000.framework"),
+            ShellLibrary.Game(titleID: "0100E65002BB8000", name: "Stardew Valley", framework: "DmGame0100E65002BB8000.framework"),
+        ]).save(root: shellRoot.path)
+
+        let file = temporary.appendingPathComponent("library.json")
+        let g1 = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        let g2 = LibraryGame(titleID: "0100E65002BB8000", name: "Stardew Valley")
+        let g3 = LibraryGame(titleID: "01007EF00011E000", name: "Breath of the Wild")
+        try JSONEncoder().encode([g1, g2, g3]).write(to: file)
+
+        let library = GameLibrary(file: file)
+        library.recordCompletedIOS(archive: "", app: shellApp.path, device: "00008150-TESTDEVICE", for: g1.id)
+        XCTAssertEqual(library.games[0].iosAppPath, shellApp.path)
+        XCTAssertEqual(library.games[0].installedDevice, "00008150-TESTDEVICE")
+        XCTAssertEqual(library.games[1].iosAppPath, shellApp.path, "other games in shell.json share DmShell.app")
+        XCTAssertEqual(library.games[1].installedDevice, "00008150-TESTDEVICE")
+        XCTAssertEqual(library.games[2].iosAppPath, "", "a game outside shell.json is untouched")
+
+        library.recordSharedAppInstalled(app: shellApp.path, device: "00008150-SECOND")
+        XCTAssertEqual(library.games[0].installedDevice, "00008150-SECOND")
+        XCTAssertEqual(library.games[1].installedDevice, "00008150-SECOND")
+
+        // If an external tool cleared iosAppPath on one of the shared-shell games while a peer entry kept its provenance, syncSharedApp restores it.
+        var cleared = library.games
+        cleared[1].iosAppPath = ""
+        cleared[1].installedDevice = ""
+        try JSONEncoder().encode(cleared).write(to: file)
+        let reloaded = GameLibrary(file: file)
+        XCTAssertFalse(reloaded.games[1].onDevice)
+        reloaded.syncSharedApp(root: shellRoot.path)
+        XCTAssertTrue(reloaded.games[1].onDevice)
+        XCTAssertEqual(reloaded.games[1].iosAppPath, shellApp.path)
+        XCTAssertEqual(reloaded.games[1].installedDevice, "00008150-SECOND")
+    }
+
+    func testSyncSharedAppDoesNotInferInstallFromSignedLocalAppAfterFailedInstall() throws {
+        let shellRoot = temporary.appendingPathComponent("shell-failed-install")
+        let shellApp = shellRoot.appendingPathComponent("derived-data/Build/Products/Release-iphoneos/DmShell.app")
+        try FileManager.default.createDirectory(at: shellApp, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: shellApp.appendingPathComponent("Info.plist"))
+        // Signing succeeded and shell.json was saved before devicectl failed, leaving embedded.mobileprovision on disk.
+        try Data("profile".utf8).write(to: shellApp.appendingPathComponent("embedded.mobileprovision"))
+        try ShellLibrary(games: [
+            ShellLibrary.Game(titleID: "0100CD801CE5E000", name: "Balatro", framework: "DmGame0100CD801CE5E000.framework"),
+        ]).save(root: shellRoot.path)
+
+        let ipa = temporary.appendingPathComponent("Balatro.ipa")
+        try Data("ipa".utf8).write(to: ipa)
+
+        let file = temporary.appendingPathComponent("library.json")
+        var uninstalled = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        uninstalled.ipaPath = ipa.path
+        try JSONEncoder().encode([uninstalled]).write(to: file)
+
+        let library = GameLibrary(file: file)
+        library.syncSharedApp(root: shellRoot.path)
+        XCTAssertFalse(library.games[0].onDevice, "a signed local DmShell.app without recorded install provenance must not mark the game as installed")
+        XCTAssertEqual(library.games[0].installedDevice, "")
+        XCTAssertEqual(library.games[0].iosAppPath, "")
+        XCTAssertEqual(library.games[0].ipaPath, ipa.path, "remembered IPA path must not be cleared when the shared app was never installed")
+    }
+
+    func testSyncSharedAppDoesNotMarkNewGameInstalledWhenItsDeviceInstallFailedAfterEarlierPeerSucceeded() throws {
+        let shellRoot = temporary.appendingPathComponent("shell-partial-install")
+        let shellApp = shellRoot.appendingPathComponent("derived-data/Build/Products/Release-iphoneos/DmShell.app")
+        try FileManager.default.createDirectory(at: shellApp, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: shellApp.appendingPathComponent("Info.plist"))
+        try Data("profile".utf8).write(to: shellApp.appendingPathComponent("embedded.mobileprovision"))
+
+        let ipaB = temporary.appendingPathComponent("Stardew.ipa")
+        try Data("ipa".utf8).write(to: ipaB)
+
+        let file = temporary.appendingPathComponent("library.json")
+        let gameA = LibraryGame(titleID: "0100CD801CE5E000", name: "Balatro")
+        var gameB = LibraryGame(titleID: "0100E65002BB8000", name: "Stardew Valley")
+        gameB.ipaPath = ipaB.path
+        try JSONEncoder().encode([gameA, gameB]).write(to: file)
+
+        // 1. Install game A successfully.
+        let entryA = ShellLibrary.Game(titleID: "0100CD801CE5E000", name: "Balatro", framework: "DmGame0100CD801CE5E000.framework")
+        let entryB = ShellLibrary.Game(titleID: "0100E65002BB8000", name: "Stardew Valley", framework: "DmGame0100E65002BB8000.framework")
+        try ShellLibrary(games: [entryA]).save(root: shellRoot.path)
+        let library = GameLibrary(file: file)
+        library.recordCompletedIOS(archive: "", app: shellApp.path, device: "EXISTING-DEVICE", for: gameA.id)
+        XCTAssertTrue(library.games[0].onDevice)
+        XCTAssertFalse(library.games[1].onDevice)
+        XCTAssertEqual(library.games[1].ipaPath, ipaB.path)
+
+        // 2. Build B so the current shared shell.json contains A and B, but let B's device install fail.
+        try ShellLibrary(games: [entryA, entryB]).save(root: shellRoot.path)
+
+        // 3. Restart the launcher.
+        let relaunched = GameLibrary(file: file)
+        relaunched.syncSharedApp(root: shellRoot.path)
+        XCTAssertTrue(relaunched.games[0].onDevice)
+        XCTAssertEqual(relaunched.games[0].installedDevice, "EXISTING-DEVICE")
+        XCTAssertEqual(relaunched.games[0].iosAppPath, shellApp.path)
+        XCTAssertFalse(relaunched.games[1].onDevice, "B's failed device install must not be marked installed from A's earlier receipt")
+        XCTAssertEqual(relaunched.games[1].installedDevice, "")
+        XCTAssertEqual(relaunched.games[1].iosAppPath, "")
+        XCTAssertEqual(relaunched.games[1].ipaPath, ipaB.path, "B's remembered IPA must stay intact after a failed device install")
+    }
 }

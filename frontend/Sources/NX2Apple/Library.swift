@@ -617,6 +617,44 @@ final class GameLibrary: ObservableObject {
         game.installedDevice = device
         game.toolsCommit = commit
         upsert(game)
+        recordSharedAppInstalled(app: app, device: device)
+    }
+
+    /// Every game in the shared app's shell.json is inside `app` on `device` once the shared app is signed and installed there.
+    func recordSharedAppInstalled(app: String, device: String) {
+        guard !device.isEmpty,
+              FileManager.default.fileExists(atPath: app + "/Info.plist"),
+              let shell = ShellInstall.paths(ofApp: app) else { return }
+        applySharedAppInstalled(titles: ShellLibrary.recordInstalled(root: shell.root), app: app, device: device)
+    }
+
+    private func applySharedAppInstalled(titles: Set<String>, app: String, device: String) {
+        guard !device.isEmpty, !titles.isEmpty else { return }
+        var changed = false
+        for i in games.indices where titles.contains(games[i].titleID.uppercased()) {
+            if games[i].iosAppPath != app || games[i].installedDevice != device || !games[i].ipaPath.isEmpty {
+                games[i].ipaPath = ""
+                games[i].iosAppPath = app
+                games[i].installedDevice = device
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
+    /// Restores the shared app's games from the last successful install receipt when `DmShell.app` is signed on disk
+    /// (`embedded.mobileprovision` is present) and at least one receipt member still has recorded shared-app install provenance.
+    func syncSharedApp(root: String) {
+        let app = ShellInstall.appPath(root: root)
+        guard FileManager.default.fileExists(atPath: app + "/" + AppSignature.profileName) else { return }
+        let receipt = ShellLibrary.installedReceipt(root: root)
+        guard !receipt.isEmpty,
+              let device = games.first(where: {
+                  receipt.contains($0.titleID.uppercased())
+                      && !$0.installedDevice.isEmpty
+                      && ShellInstall.paths(ofApp: $0.iosAppPath) != nil
+              })?.installedDevice else { return }
+        applySharedAppInstalled(titles: receipt, app: app, device: device)
     }
 
     /// Only a choice that differs from the game's default is kept, so a setting left at its default follows a later build's.
