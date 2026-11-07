@@ -30,7 +30,7 @@ index 71f5be5..757d875 100644
  #include "front.h"
  #include "romfs_image.h"
  #include "DataBookmark.h"
-@@ -212,7 +211,7 @@ static void aoc_locate(void) {
+@@ -212,7 +211,7 @@ const char *front_ios_device_check(void) {
      static char msg[320]; static int done;
      if (done++) return msg[0] ? msg : NULL;
      id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();   // the system default device, the one the graphics layers take (mtl_init repeats this check for the other routes)

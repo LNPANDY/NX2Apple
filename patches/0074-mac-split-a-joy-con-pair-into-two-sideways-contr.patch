@@ -236,7 +236,7 @@ diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
 index ba849d0..ca0414f 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
-@@ -39,6 +39,7 @@ - (void)stop;
+@@ -39,6 +39,7 @@
  static dispatch_queue_t queue;
  static NSMutableArray<DmRumbleChannel *> *channels[DM_PLAYERS];
  static GCController *controllers[DM_PLAYERS];
@@ -579,10 +579,10 @@ index 0000000..a995be7
 +    }
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index c6add38..a35ca5e 100644
+index 944b23e..0434e48 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -365,7 +365,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
+@@ -370,7 +370,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
  	$(B)/t_altstack
  	DM_QOS_MAP=1 $(B)/t_notify_sched
  	DM_QOS_MAP=1 $(B)/t_notify_sched --all-peers
@@ -730,7 +730,7 @@ diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sourc
 index 2b64998..500e86f 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -103,6 +103,7 @@ void dm_motion_clear(int player) {
+@@ -103,6 +103,7 @@ void dm_haptics_set_enabled(int on) { g_rumble = on; }
  int duo_harness_rumble(void) { return g_rumble; }
  void dm_haptics_apple_init(void) {}
  void dm_haptics_apple_controller(int player, GCController *controller) { (void)player; (void)controller; }
@@ -739,7 +739,7 @@ index 2b64998..500e86f 100644
  int front_ios_boot_ok(void) { return 1; }
  void front_ios_boot(void) {}
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index b934480..d25e9e3 100644
+index 19cb3c3..125152b 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -90,6 +90,7 @@ DM_JIT_CAPTURE	path	Folder the Mac host writes what a game's `nn::jit` plugin ma

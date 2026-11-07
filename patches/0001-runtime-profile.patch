@@ -586,10 +586,10 @@ index 26d6882..c12d21b 100644
      float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
      // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880): 1.0 keeps the game's own size and dynamic resolution;
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index a316bb2..057f13a 100644
+index cda3845..f495794 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -71,7 +71,7 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
+@@ -72,7 +72,7 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
  run: $(B)/t_nro
  run: $(B)/t_symbols
  $(B)/t_symbols: t_symbols.c ../hle.c ../loader.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -598,7 +598,7 @@ index a316bb2..057f13a 100644
  .PHONY: symbols
  symbols: $(B)/t_symbols
  	$(B)/t_symbols
-@@ -89,12 +89,12 @@ $(B)/t_audren_layout: t_audren_layout.c ../hle_audren.c ../hle.h ../dm.h $(GAME_
+@@ -90,12 +90,12 @@ $(B)/t_audren_layout: t_audren_layout.c ../hle_audren.c ../hle.h ../dm.h $(GAME_
  audren-layout: $(B)/t_audren_layout
  	$(B)/t_audren_layout
  $(B)/t_system_event: t_system_event.c ../hle_thread.c ../hle_sdk16.c ../hle_misc.c ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -613,7 +613,7 @@ index a316bb2..057f13a 100644
  .PHONY: nro
  nro: $(B)/t_nro
  	$(B)/t_nro
-@@ -108,7 +108,7 @@ cheats: $(B)/t_cheats
+@@ -109,7 +109,7 @@ cheats: $(B)/t_cheats
  $(GAME_H): FORCE
  	$(MAKE) -C .. game_profile GAME=$(GAME)
  $(B)/t_heap_size: t_heap_size.c ../hle_svc.c ../dm.h $(GAME_H) | $(B)
@@ -622,7 +622,7 @@ index a316bb2..057f13a 100644
  .PHONY: heap_size
  heap_size: $(B)/t_heap_size
  	$(B)/t_heap_size
-@@ -118,27 +118,27 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
+@@ -119,27 +119,27 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_gesture.c ../hle_touch.c
  $(B)/t_thread_leak: t_thread_leak.c ../thread.c ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_thread_leak.c
@@ -662,7 +662,7 @@ index a316bb2..057f13a 100644
  $(B)/t_save_sync_metadata: t_save_sync_metadata.c ../save_sync.c ../save_sync.h | $(B)
  	$(CLANG) -O1 -Wall -Wno-unused-function -I.. -o $@ t_save_sync_metadata.c
  .PHONY: save-sync
-@@ -164,7 +164,7 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle_bigstack.c ../hle.h
+@@ -165,7 +165,7 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle_bigstack.c ../hle.h
  	$(CLANG) -O1 -g -O1 -fsanitize=thread -Wno-unused-function -I.. $(GINC) -o $@ t_audio_spsc.c ../hle_bigstack.c -framework AudioToolbox
  run: $(B)/t_fpslock
  $(B)/t_fpslock: t_fpslock.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -671,14 +671,16 @@ index a316bb2..057f13a 100644
  run: $(B)/t_ue_heap_span
  $(B)/t_ue_heap_span: t_ue_heap_span.c ../hle_uemalloc.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function $(GINC) -o $@ t_ue_heap_span.c
-@@ -192,19 +192,19 @@ $(B)/t_pctl: t_pctl.c ../hle_misc.c ../hle.h ../dm.h $(GAME_H) | $(B)
+@@ -193,7 +193,7 @@ $(B)/t_pctl: t_pctl.c ../hle_misc.c ../hle.h ../dm.h $(GAME_H) | $(B)
  $(B)/t_sf: t_sf.c ../hle_sf.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_sf.c
  $(B)/t_shared_font: t_shared_font.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
 -	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -Wno-frame-address -I.. $(GINC) -o $@ t_shared_font.c
 +	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -Wno-frame-address -I.. $(GINC) -o $@ t_shared_font.c ../hle_profile.c
- run: $(B)/t_nv
- $(B)/t_nv: t_nv.c ../../gfx/hle_nv.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ # nn::vi::ListFrameHistory: the SDK's FrameInfo, newest first, from the present queue's progress
+ run: $(B)/t_vi_history
+ $(B)/t_vi_history: t_vi_history.c ../../gfx/hle_vi.c ../hle.h ../dm.h $(GAME_H) | $(B)
+@@ -203,13 +203,13 @@ $(B)/t_nv: t_nv.c ../../gfx/hle_nv.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_nv.c
  # nn::nfc answered without nfc:user (NFC disabled), beside the nfp no-tag answers
  run: $(B)/t_nfc
@@ -695,7 +697,7 @@ index a316bb2..057f13a 100644
  $(B)/t_motion: t_motion.c ../motion_fusion.h | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -o $@ t_motion.c -lm
  run: $(B)/t_motion_apple
-@@ -234,15 +234,15 @@ $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ..
+@@ -239,15 +239,15 @@ $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ..
  $(B)/t_time: t_time.c ../hle_time.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_time.c
  $(B)/t_oe: t_oe.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -716,7 +718,7 @@ index a316bb2..057f13a 100644
  .PHONY: preempt
  preempt: $(B)/t_preempt
  	$(B)/t_preempt
-@@ -274,7 +274,7 @@ $(B):
+@@ -279,7 +279,7 @@ $(B):
  	mkdir -p $@
  .PHONY: run tsan
  $(B)/t_resolution: t_resolution.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -725,7 +727,7 @@ index a316bb2..057f13a 100644
  .PHONY: resolution
  run: resolution
  resolution: $(B)/t_resolution
-@@ -287,17 +287,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
+@@ -292,17 +292,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
  	TMPDIR="$(abspath $(B))" $(B)/t_hid_tsan
  
  MEM_FLAGS = -O1 -Wall -Werror -Wno-unused-function -Imemory_profile -I..
@@ -749,7 +751,7 @@ index a316bb2..057f13a 100644
  .PHONY: memory memory-tsan memory-dirty memory-profile
  memory: $(B)/t_svc_memory $(B)/t_svc_memory_unlimited $(B)/t_svc_memory_16k
  	$(B)/t_svc_memory
-@@ -321,7 +321,7 @@ run: memory memory-dirty memory-profile memory-file
+@@ -326,7 +326,7 @@ run: memory memory-dirty memory-profile memory-file
  
  # A native blocking notification wait must release the thread's guest core.
  $(B)/t_notify_sched: t_notify_sched.c t_condvar_stub.c ../hle_thread.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -871,7 +873,7 @@ diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
 index d251b0d..c33176a 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -217,7 +217,7 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -217,7 +217,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
          [_menu addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weakSelf reset]; }] forControlEvents:UIControlEventMenuActionTriggered];   // the menu opens: release every key and touch first
          [self addSubview:_menu];
          NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
@@ -881,10 +883,10 @@ index d251b0d..c33176a 100644
          _full = l == 1; _tap = l == 2;
          [self applyLayout];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 71a1887..4fd4ef6 100644
+index 3b1f01c..3b3ceae 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -255,6 +255,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav
+@@ -256,6 +256,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav
  DM_PROBE_POLL	diagnostic	`=<address>[+<length>]` (hex, 4 bytes by default, up to 8): a host thread spins on the bytes and on each change snapshots every thread's pc, lr and frames, for writes the watch misses
  DM_PROBE_WATCH	diagnostic	`=<address>[+<length>]` (hex, 8 bytes by default): write-protects that host page and reports who writes these bytes, without a debugger
  DM_PROBE_X2	diagnostic	`=<bytes>` (hex): probe hits also dump that many bytes of the memory x2 points to

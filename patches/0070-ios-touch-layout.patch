@@ -86,7 +86,7 @@ index fc375cb..167cc49 100644
      K_RSTICK_R = 60,                                // right stick (not drawn): radius around its centre, the touch-down point
      K_RSWIPE = 1.0 / 3;                             // right stick area: this fraction of the screen width from the right edge (not in u)
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
-@@ -163,8 +162,10 @@ @implementation DmGamepad {
+@@ -163,8 +162,10 @@ static void pads_start(void);   // Physical controllers, below
      CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
      BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
      DmLayout _layout;
@@ -98,7 +98,7 @@ index fc375cb..167cc49 100644
      UITouch *_game[16];                           // touches on the game's touch screen by finger slot
  }
  
-@@ -191,6 +192,10 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -191,6 +192,10 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
          const char *stick = getenv("DM_TOUCH_STICK");
          _opts.stick = dm_pad_stick_place(stick);
          if (stick && *stick) LOG("front end: left stick %s (DM_TOUCH_STICK)", _opts.stick == DM_PAD_STICK_HIGHER ? "higher" : _opts.stick == DM_PAD_STICK_INWARD ? "inward" : "in the corner");
@@ -109,7 +109,7 @@ index fc375cb..167cc49 100644
          [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
              [(UIView *)environment setNeedsLayout];
          }];
-@@ -280,6 +285,12 @@ - (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the boun
+@@ -280,6 +285,12 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
      if (!_geoValid || !CGRectEqualToRect(b, _geoBounds) || !UIEdgeInsetsEqualToEdgeInsets(i, _geoInsets) || _geoFull != _full) {
          _geo = dm_pad_geo(b, i, _layout, _full, _opts);
          _geoBounds = b; _geoInsets = i; _geoFull = _full; _geoValid = YES;
@@ -122,7 +122,7 @@ index fc375cb..167cc49 100644
      }
      return &_geo;
  }
-@@ -305,33 +316,14 @@ - (CGRect)pillRect:(int)b { return self.geo->pill[b == B_PLUS ? DM_PAD_PLUS : DM
+@@ -305,33 +316,14 @@ static int dropIndex(int b) { return b == B_ZL ? DM_PAD_ZL : b == B_L ? DM_PAD_L
  - (CGPoint)menuCenter { return self.geo->swap; }
  
  static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
@@ -161,7 +161,7 @@ index fc375cb..167cc49 100644
  }
  - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
      uint64_t m = 0; CGFloat r = self.faceHitR;
-@@ -407,10 +399,7 @@ - (BOOL)gameBegin:(UITouch *)t {
+@@ -407,10 +399,7 @@ int front_web_touch(void);
  - (BOOL)controlAt:(CGPoint)p {
      if (_padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return NO;
      if (_tap) return NO;
@@ -173,7 +173,7 @@ index fc375cb..167cc49 100644
      return _full && !_stick[1] && [self inRightArea:p];
  }
  - (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {
-@@ -423,14 +412,10 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+@@ -423,14 +412,10 @@ int front_web_touch(void);
          if (_padOff) { game |= [self gameBegin:t]; continue; }
          CGPoint p = [t locationInView:self];
          if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }
