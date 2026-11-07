@@ -21,11 +21,7 @@ public struct GameStateView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            Button(action: perform) { Label(game.state.actionTitle, systemImage: game.state.actionSymbol) }
-                .buttonStyle(PrimaryPillStyle())
-                .accessibilityIdentifier("state.action")
-                .accessibilityLabel(game.state.actionTitle + ", " + game.title)
-                .shellTarget("set.play", radius: 25, action: perform)
+            GameLaunchActions(game: game, primary: perform, focusPrefix: "set.")
         }
         .sheet(isPresented: $localHelp) {
             StateHelpView(game: game, actions: actions) { localHelp = false }
@@ -50,6 +46,7 @@ public struct GameStateView: View {
 /// How to fix a broken game or update the app: both happen on the Mac, so this says so in two sentences and offers
 /// what can be done here. The log stays available for a bug report.
 public struct StateHelpView: View {
+    @Environment(\.shellNativeBars) private var nativeBars
     public let game: GameTile
     public var actions: ShellActions
     public var onClose: () -> Void
@@ -75,10 +72,12 @@ public struct StateHelpView: View {
                 }
             }
             VStack(spacing: 10) {
-                Button(action: onClose) { Text(ShellStrings.text("Done")).frame(maxWidth: .infinity) }
-                    .buttonStyle(PrimaryPillStyle(expands: true))
-                    .accessibilityIdentifier("help.done")
-                    .shellTarget("help.done", radius: 25, action: onClose)
+                if !nativeBars {
+                    Button(action: onClose) { Text(ShellStrings.text("Close")).frame(maxWidth: .infinity) }
+                        .buttonStyle(ShellButtonStyle(fills: true))
+                        .accessibilityIdentifier("help.done")
+                        .shellTarget("help.done", radius: 25, action: onClose)
+                }
                 switch game.state {
                 case .broken:
                     Button(ShellStrings.text("Show log")) { actions.onShowLog(game.id) }

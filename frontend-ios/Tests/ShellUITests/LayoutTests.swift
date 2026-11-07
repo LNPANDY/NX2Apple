@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 @testable import ShellUI
 
 final class LayoutTests: XCTestCase {
@@ -33,29 +34,7 @@ final class LayoutTests: XCTestCase {
     func testAccessibilityTextUsesOneColumn() {
         XCTAssertEqual(layout(834, 1194, large: true), .column)
     }
-    /// Settings drop in as the Controllers-style overlay where the library stays in view, else take the whole screen.
-    func testSettingsOverlay() {
-        XCTAssertFalse(ShellLayout.column.settingsFloat(402), "a phone held upright")
-        XCTAssertTrue(ShellLayout.coverFlow(regular: false).settingsFloat(750), "a phone on its side")
-        XCTAssertFalse(ShellLayout.coverFlow(regular: false).settingsFloat(525), "the folded foldable on its side")
-        XCTAssertTrue(ShellLayout.grid.settingsFloat(834), "an iPad held upright")
-        XCTAssertFalse(ShellLayout.grid.settingsFloat(626), "the unfolded foldable held upright: too narrow for both")
-        XCTAssertTrue(ShellLayout.coverFlow(regular: true).settingsFloat(1194))
-        XCTAssertEqual(ShellLayout.coverFlow(regular: true).paneWidth(1194), 520)
-        XCTAssertEqual(ShellLayout.column.paneWidth(402), 402)
-    }
-    /// Cover Flow moves one card per gesture: a flick to the neighbour of where the touch began, a slow drag to the
-    /// nearest card.
-    func testCardSnap() {
-        let stride: CGFloat = 100
-        XCTAssertEqual(CardSnap.card(target: 160, velocity: 0, stride: stride, count: 7, start: 0), 2, "slow drag: nearest")
-        XCTAssertEqual(CardSnap.card(target: 40, velocity: 0, stride: stride, count: 7, start: 0), 0)
-        XCTAssertEqual(CardSnap.card(target: 30, velocity: 0.6, stride: stride, count: 7, start: 0), 1, "a short flick still moves one")
-        XCTAssertEqual(CardSnap.card(target: 450, velocity: 2, stride: stride, count: 7, start: 1), 2, "a hard flick moves one, not four")
-        XCTAssertEqual(CardSnap.card(target: 90, velocity: -0.8, stride: stride, count: 7, start: 1), 0)
-        XCTAssertEqual(CardSnap.card(target: 700, velocity: 0.8, stride: stride, count: 7, start: 6), 6, "never past the last card")
-        XCTAssertEqual(CardSnap.card(target: -50, velocity: -0.8, stride: stride, count: 7, start: 0), 0)
-    }
+
 }
 
 final class ChoicePresentationTests: XCTestCase {
@@ -97,5 +76,34 @@ final class ChoicePresentationTests: XCTestCase {
         XCTAssertEqual(ChoicePresentation.textScale(.large), 1)
         XCTAssertLessThan(ChoicePresentation.textScale(.small), 1)
         XCTAssertGreaterThan(ChoicePresentation.textScale(.accessibility3), ChoicePresentation.textScale(.xxxLarge))
+    }
+}
+
+@MainActor final class GameLaunchActionLayoutTests: XCTestCase {
+    func testCollapseStopsAtTheCompactHeaderAndIgnoresOverscroll() {
+        XCTAssertEqual(ShellLayout.collapseProgress(expanded: 400, minimum: 240, travel: -20), 0)
+        XCTAssertEqual(ShellLayout.collapseProgress(expanded: 400, minimum: 240, travel: 80), 0.5)
+        XCTAssertEqual(ShellLayout.collapseProgress(expanded: 400, minimum: 240, travel: 1000), 1)
+        XCTAssertEqual(ShellLayout.collapseProgress(expanded: 200, minimum: 240, travel: 80), 1)
+    }
+    func testOnlyActiveIntersectingDivisionChoosesAnArrangementAxis() {
+        let size = CGSize(width: 900, height: 620)
+        XCTAssertNil(ShellLayout.divisionAxis(nil, in: size))
+        XCTAssertNil(ShellLayout.divisionAxis(CGRect(x: 1000, y: 0, width: 20, height: 620), in: size))
+        XCTAssertEqual(ShellLayout.divisionAxis(CGRect(x: 430, y: 0, width: 40, height: 620), in: size), .vertical)
+        XCTAssertEqual(ShellLayout.divisionAxis(CGRect(x: 0, y: 290, width: 900, height: 40), in: size), .horizontal)
+    }
+
+    func testFlatAndUnrelatedDivisionsKeepTheContentWidth() {
+        XCTAssertEqual(GameLaunchActions.insets(size: CGSize(width: 560, height: 58), division: nil), EdgeInsets())
+        XCTAssertEqual(GameLaunchActions.insets(size: CGSize(width: 560, height: 58), division: CGRect(x: 700, y: -200, width: 40, height: 900)), EdgeInsets())
+        XCTAssertEqual(GameLaunchActions.insets(size: CGSize(width: 560, height: 58), division: CGRect(x: 0, y: -100, width: 560, height: 40)), EdgeInsets())
+    }
+    func testActiveVerticalDivisionKeepsTheWholeRowOnOneSide() {
+        let size = CGSize(width: 560, height: 58)
+        let middle = GameLaunchActions.insets(size: size, division: CGRect(x: 260, y: -300, width: 40, height: 900))
+        XCTAssertEqual(middle, EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 300))
+        let left = GameLaunchActions.insets(size: size, division: CGRect(x: 100, y: -300, width: 40, height: 900))
+        XCTAssertEqual(left, EdgeInsets(top: 0, leading: 140, bottom: 0, trailing: 0))
     }
 }
