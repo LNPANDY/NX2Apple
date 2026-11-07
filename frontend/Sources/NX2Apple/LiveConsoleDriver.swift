@@ -67,6 +67,7 @@ struct ConsolePadSnapshot: Equatable {
     private let lang: () -> Lang
     private let labels: (String) -> String
     private let pads: () -> [ConsolePadSnapshot]
+    private let steamPads: () -> [ConsolePadSnapshot]
     private let launch: (LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void
     private let artwork: (LibraryGame, String) -> NSImage?
     private let startingTimeout: TimeInterval
@@ -82,13 +83,14 @@ struct ConsolePadSnapshot: Equatable {
     private var devices: [String: GCController] = [:]
 
     init(library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
-         pads: (() -> [ConsolePadSnapshot])? = nil,
+         pads: (() -> [ConsolePadSnapshot])? = nil, steamPads: (() -> [ConsolePadSnapshot])? = nil,
          launch: ((LibraryGame, [String: String], @escaping (Int32?, Error?) -> Void) -> Void)? = nil,
          artwork: ((LibraryGame, String) -> NSImage?)? = nil, startingTimeout: TimeInterval = 20, observeSystem: Bool = true, playerOutput: ((String, Int) -> Void)? = nil) {
         self.sendPlayerOutput = playerOutput
         self.library = library; self.controls = controls; self.repo = repo; self.lang = lang; self.labels = labels
         self.startingTimeout = startingTimeout
         self.pads = pads ?? { [] }
+        self.steamPads = steamPads ?? { pads == nil ? SteamLinkGamepads.shared.snapshots : [] }
         self.launch = launch ?? Self.openApplication
         self.artwork = artwork ?? { [banners = library.artworkDirectory] game, repo in
             GameLibrary.artwork(for: game, slot: .thumbnail, repo: repo, banners: banners, maxPixel: ArtworkImages.cardPixels)
@@ -111,6 +113,9 @@ struct ConsolePadSnapshot: Equatable {
         guard observeSystem else { return }
         let center = NotificationCenter.default
         observers = [
+            center.addObserver(forName: .steamLinkPadsChanged, object: SteamLinkGamepads.shared, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refreshControllers(announce: false) }
+            },
             center.addObserver(forName: .GCControllerDidConnect, object: nil, queue: .main) { [weak self] note in
                 MainActor.assumeIsolated { self?.padsChanged(connected: true, note: note) }
             },
@@ -692,6 +697,7 @@ struct ConsolePadSnapshot: Equatable {
                                           charging: reading?.charging ?? false, canIdentify: !Self.identifyActions(c).isEmpty)
             }
         }
+        snapshots += steamPads()
         snapshots = Self.splitJoyConSnapshots(snapshots, enabled: controls.joyconSplit)
         if devicePads, controls.joyconSplit {
             for snap in snapshots where snap.id.hasSuffix(".L") || snap.id.hasSuffix(".R") {

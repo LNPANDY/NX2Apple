@@ -37,6 +37,7 @@ struct Diagnostics {
         var lastCommand: [String] = []       // the last build's, this session
         var log = ""                         // the build log the Builds page shows
         var home = NSHomeDirectory()
+        var controllers: [String] = []
     }
 
     /// What Xcode and its compilers say, for the build-problem form. A nil is a tool that did not answer.
@@ -96,6 +97,11 @@ struct Diagnostics {
         out.append("- Metal compiler (iOS): " + metal(t.metalIOS, pin: t.metalPinIOS))
         out.append("- iOS SDK: " + (t.iosSDK ?? "not installed"))
         out.append("")
+        if !i.controllers.isEmpty {
+            out.append("#### Launcher controllers")
+            out.append(contentsOf: i.controllers.map { "- " + $0 })
+            out.append("")
+        }
         out.append("#### Last build")
         out.append("")
         if i.lastCommand.isEmpty {
@@ -299,6 +305,7 @@ extension LauncherStores {
     func diagnostics(game: LibraryGame? = nil, _ done: @escaping (String) -> Void) {
         let repo = self.repo.isRepo ? self.repo.path : "", python = dependencies.pythonPath.isEmpty ? Toolchain.findPython().path : dependencies.pythonPath, dotnet = dependencies.dotnetPath
         let checked = dependencies.checked, rows = checked ? dependencies.deps.map(Diagnostics.dependency) : []
+        let controllers = SteamLinkGamepads.shared.diagnostics
         let command = build.lastBuildCommand, log = build.logTail, xcrun = deviceStore.xcrun
         let (sel, usesEngineStore) = (engineSync.selection, engineSync.usesEngineStore)
         let engine = usesEngineStore && !sel.engineID.isEmpty ? "\(sel.channel.rawValue) \(sel.version) (\(sel.engineID))" : nil
@@ -325,7 +332,7 @@ extension LauncherStores {
                 forkPatches: repo.isEmpty ? nil : read("dm/fork_patches.txt").map(Diagnostics.patchList),
                 toolchain: Diagnostics.toolchain(xcrun: xcrun, pins: pins, run: Diagnostics.probe(env: env)),
                 game: game.map { Diagnostics.gameInfo($0) },
-                lastCommand: command, log: log)
+                lastCommand: command, log: log, controllers: controllers)
             let report = Diagnostics.report(inputs)
             DispatchQueue.main.async { done(report) }
         }

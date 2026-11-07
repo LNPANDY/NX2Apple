@@ -94,7 +94,7 @@ enum ConsoleInput {
         .onChange(of: state.exited) { exited in if exited, let onExit { onExit() } else { resetFocus() } }
         .onAppear { gamepad.capture = { [driver] id, action in driver.consumePress(controllerID: id, isBack: action == .b) }
             gamepad.perform = { [self] action in if let input = ConsoleInput(action) { glyphs = .current(); handle(input) } }; resetFocus() }
-        .onDisappear { gamepad.perform = { _ in }; gamepad.capture = nil }
+        .onDisappear { gamepad.deactivate() }
         .onChange(of: pad.focused) { id in
             if let id, id.hasPrefix("console.game.") { driver.focus(String(id.dropFirst("console.game.".count))) }
         }
