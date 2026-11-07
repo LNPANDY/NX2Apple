@@ -54,11 +54,13 @@ Issue: LNPANDY/NX2Apple#769
  dm/gfx/vk/hle_vk.m                     | 198 ++++++++++++++++++++++++-
  dm/host/hle_ro.c                       |   6 +
  dm/host/tests/t_nro.c                  |   5 +-
+ dm/tools/tests/test_regress.py         |   2 +
  dm/tools/tests/test_vk_renderdragon.py |  54 +++++++
  docs/reference/rendering.md            |  24 +++
  docs/reference/shaders.md              |   8 +
  scripts/build_ipa_from_nsp.py          |  12 +-
- 11 files changed, 489 insertions(+), 34 deletions(-)
+ scripts/regress.py                     |   2 +
+ 13 files changed, 493 insertions(+), 34 deletions(-)
  create mode 100644 dm/gfx/tests/t_vk_blit.m
  create mode 100644 dm/tools/tests/test_vk_renderdragon.py
 
@@ -165,10 +167,10 @@ index f5444929..30f61d0d 100644
  
  def va_heap(sysres, imports):   # virtual address memory (an NPDM system resource) and a heap: the alias / heap split is a starting point the heap check corrects (Wonder, Tears of the Kingdom; Engage's pool is its own measurement)
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 6796c5ed..37697542 100644
+index 7495f8e2..17cdc771 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -470,6 +470,10 @@ check_t_gl_imports: t_gl_imports
+@@ -476,6 +476,10 @@ check_t_gl_imports: t_gl_imports
  	./t_gl_imports --stubs
  gl-imports: check_t_gl_imports
  check_t_vk_desc: RUN_ENV = MTL_DEBUG_LAYER=1
@@ -774,6 +776,19 @@ index 85137584..37550857 100644
      assert(h_ro_LoadModule(&handles[0], raw[0], NULL, 32, 1) != 0);
  
      unload(2);
+diff --git a/dm/tools/tests/test_regress.py b/dm/tools/tests/test_regress.py
+index 66bb010d..1170c7f2 100644
+--- a/dm/tools/tests/test_regress.py
++++ b/dm/tools/tests/test_regress.py
+@@ -620,6 +620,8 @@ class Regress(unittest.TestCase):
+             capture = romfs.parent / 'vk_capture'; capture.mkdir()
+             g = regress.Game(root, build)
+             self.assertEqual(g.shader_roots(), [romfs, capture])
++            main = romfs.parent / 'ExeFS/main'; main.parent.mkdir(); main.write_bytes(b'NSO0')   # RenderDragon's bgfx shaders are in main, as the NSP script reads them
++            self.assertEqual(g.shader_roots(), [romfs, main, capture])
+ 
+     def test_rewriter_uses_original_registered_profile_and_keeps_provisional(self):
+         with tempfile.TemporaryDirectory() as td:
 diff --git a/dm/tools/tests/test_vk_renderdragon.py b/dm/tools/tests/test_vk_renderdragon.py
 new file mode 100644
 index 00000000..5a6635db
@@ -835,10 +850,10 @@ index 00000000..5a6635db
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index e0c66364..f63c11f2 100644
+index 17e2eef9..6c39eab3 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -1363,6 +1363,30 @@ The Vulkan layer (`dm/gfx/vk/hle_vk.m`) was written for Hades; Super Mario Galax
+@@ -1393,6 +1393,30 @@ The Vulkan layer (`dm/gfx/vk/hle_vk.m`) was written for Hades; Super Mario Galax
  - **Cause:** two geometry shaders (GX points and lines expanded to quads) are not translated (Metal has no geometry stage).
  - **Found on:** [Super Mario Galaxy](../../dm/games/010099C022B96000/README.md).
  
@@ -870,7 +885,7 @@ index e0c66364..f63c11f2 100644
  
  Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.4.0) and Balatro (LÖVE 11.4, "love-nx", with SDL and LuaJIT) render with **NVIDIA's desktop OpenGL 4.5 core profile through EGL**, not NVN. The host implements GL itself on Metal (`dm/gfx/gl/hle_gl.m`), as it does Vulkan for Hades; NVIDIA's GL driver (`subsdk0`) is not loaded. Balatro's graphics module is LÖVE's own OpenGL backend, so its choices follow what the context reports.
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 1814c11c..d172ccea 100644
+index 5f2aae97..9151920d 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
 @@ -4,6 +4,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
@@ -889,10 +904,10 @@ index 1814c11c..d172ccea 100644
  
  - **Symptom:** the split finds no shaders, and the RomFS is one huge file with a short name (`42`) whose bytes look random past a table at its start (magic `CRA.`).
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 2e14ed94..0abe6651 100755
+index 71dc95dd..87bf4c77 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1036,10 +1036,10 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
+@@ -1043,10 +1043,10 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
      keep = G['modules'][0].split()   # how the build will get the shaders (decided again from the extraction at build time; the survey has only a RomFS manifest, so Unreal paks are guessed from main's markers)
      nros = {p.name: p for p in sorted((ex / 'romfs_nro').rglob('*.nro'))}   # the manifest pass writes the NROs (their imports decide the API and the modules: Portal 2's main is SDL with EGL, its Source engine NROs draw with NVN)
      nro_add = pg.nro_modules(ex / 'ExeFS', nros, keep) if nros else {}
@@ -905,7 +920,7 @@ index 2e14ed94..0abe6651 100755
      vulkan, gl = S['graphics'][0] == 'vulkan', S['graphics'][0] == 'gl'
      notes = []
      if not vulkan and not gl and 'nvnBootstrapLoader' not in mods['main']['imports']: notes.append('main imports neither nvnBootstrapLoader nor Vulkan functions nor OpenGL through EGL: the host implements only NVN, Vulkan and OpenGL')
-@@ -2770,10 +2770,10 @@ def layer_shaders(py, repo, api, name, roots, sh, key, logs, env, mac):
+@@ -2800,10 +2800,10 @@ def layer_shaders(py, repo, api, name, roots, sh, key, logs, env, mac):
  
  
  def build_vk_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, provisional=False):
@@ -918,7 +933,7 @@ index 2e14ed94..0abe6651 100755
      return layer_shaders(py, repo, 'vk', 'Vulkan', roots, sh, key, logs, env, mac)
  
  
-@@ -3418,9 +3418,9 @@ def main(args=None):
+@@ -3448,9 +3448,9 @@ def main(args=None):
      observed_glslc = capture_glslc(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g) if glslc else None
      if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
      sh = work / 'shader'
@@ -930,3 +945,16 @@ index 2e14ed94..0abe6651 100755
      elif gfx == 'gl':   # the GLSL sources in the packed version's archives and in its main (the game compiles them at run time; the host finds each by the hash of its text), and a capture of those it puts together
          cap = capture_shaders(repo, game, patched, work, env, logs, g, 'gl') if glcap else None
          ios = build_gl_shaders(py, repo, [rfs.source(game), game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else []), sh, env, logs, g, reuse=not ALLOW_DAMAGED, mac=mac, provisional=bool(provisional or derived))
+diff --git a/scripts/regress.py b/scripts/regress.py
+index 14555796..de813045 100644
+--- a/scripts/regress.py
++++ b/scripts/regress.py
+@@ -287,6 +287,8 @@ class Game:
+ 
+     def shader_roots(self):
+         roots = [self.romfs()]
++        main = self.build / 'extract' / self.ver / 'ExeFS/main'   # the NSP script's roots: RenderDragon's built-in bgfx shaders are in main (an older vk_shaders.py walks no file root)
++        if main.is_file(): roots.append(main)
+         capture = self.build / 'extract' / self.ver / 'vk_capture'
+         if capture.is_dir(): roots.append(capture)
+         return roots
