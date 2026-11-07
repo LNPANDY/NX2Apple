@@ -16,7 +16,7 @@ Issue: LNPANDY/NX2Apple#144
  1 file changed, 8 insertions(+)
 
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index d2710a0..6808d05 100644
+index 7ea5443..45785bb 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -40,9 +40,12 @@ DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and t
@@ -40,7 +40,7 @@ index d2710a0..6808d05 100644
  DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
  DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
  DM_JIT_CAPTURE	path	Folder the Mac host writes what a game's `nn::jit` plugin makes to, one `<key>.jit` per request, for `dm/tools/jit_capture.py`; the NSP script sets it
-@@ -322,6 +326,10 @@ DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client ses
+@@ -326,6 +330,10 @@ DM_SF_TRACE	diagnostic	`=1` logs every request on the game's own HIPC client ses
  DM_SHAKE_G	switch	`=<G>`: on iOS, the acceleration beyond gravity above which a flick of the phone shakes the controller's six-axis sensor (default 1.5)
  DM_SHARED_FONT	path	Font file served for every shared-font type except the Nintendo extension (default `$DM_FONT_DIR/standard.ttf`, then macOS's Arial Unicode)
  DM_SHARED_FONT_EXT	path	Font file served for shared-font type 5, the Nintendo extension with the button icons (default `$DM_FONT_DIR/nintendo_ext.ttf`, made by `make_ext_font.py`)

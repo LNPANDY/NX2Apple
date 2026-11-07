@@ -15,12 +15,14 @@ import tempfile
 import threading
 import time
 import urllib.request
+import uuid
 import zipfile
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
+from . import inputs as _inputs
 from . import platform_util as pu
 
 
@@ -245,7 +247,12 @@ class GameFolderContents:
 
     @property
     def base_path(self) -> str:
-        return self.nup or os.path.join(self.folder, 'base')
+        if self.nup:
+            return self.nup
+        base = os.path.join(self.folder, 'base')
+        if os.path.isfile(os.path.join(base, 'exefs', 'main.npdm')):
+            return base
+        return self.updates[-1][1] if self.updates else base
 
     @property
     def script_input(self) -> str:
@@ -283,19 +290,16 @@ class GameFolder:
         return out
 
     @staticmethod
+    def is_direct_candidate(path: str) -> bool:
+        if not path:
+            return False
+        return _inputs.is_direct_game_folder_candidate(path)
+
+    @staticmethod
     def is_candidate(path: str) -> bool:
         if not path:
             return False
-        if path.lower().endswith('.nup') and os.path.isfile(path):
-            return True
-        if os.path.isfile(os.path.join(path, 'base', 'exefs', 'main.npdm')):
-            return True
-        if GameFolder.nup_files(path):
-            return True
-        return (
-            os.path.isfile(os.path.join(path, 'exefs', 'main.npdm'))
-            and not os.path.exists(os.path.join(path, 'base'))
-        )
+        return _inputs.is_game_folder_candidate(path)
 
     @staticmethod
     def program_id(npdm_bytes: bytes) -> int | None:
@@ -360,7 +364,8 @@ class GameFolder:
         )
 
     @staticmethod
-    def scan(folder: str) -> GameFolderContents | GameFolderProblem:
+    def scan(raw_folder: str) -> GameFolderContents | GameFolderProblem:
+        folder = _inputs.resolve_game_folder(raw_folder)
         if folder.lower().endswith('.nup') and os.path.isfile(folder):
             return GameFolder.read_nup(folder)
         try:
@@ -379,12 +384,6 @@ class GameFolder:
         if len(nups) == 1:
             return GameFolder.read_nup(os.path.join(folder, nups[0]))
 
-        npdm_path = os.path.join(folder, 'base', 'exefs', 'main.npdm')
-        if not os.path.isfile(npdm_path):
-            if os.path.isfile(os.path.join(folder, 'exefs', 'main.npdm')) and not os.path.exists(os.path.join(folder, 'base')):
-                return GameFolderProblem('noBaseFolder')
-            return GameFolderProblem('missing', 'base/exefs/main.npdm')
-
         def subdirs(p: str) -> list[str]:
             if not os.path.isdir(p):
                 return []
@@ -394,12 +393,27 @@ class GameFolder:
                 return []
 
         updates_dir = os.path.join(folder, 'updates')
-        versions = [v for v in subdirs(updates_dir) if v.isdigit()]
-        has_romfs = os.path.isdir(os.path.join(folder, 'base', 'romfs')) or any(
-            os.path.isdir(os.path.join(updates_dir, v, 'romfs')) for v in versions
-        )
-        if not has_romfs:
-            return GameFolderProblem('missing', 'base/romfs')
+        versions = [v for v in subdirs(updates_dir) if v.isascii() and v.isdigit()]
+        updates = sorted((int(v), os.path.join(updates_dir, v)) for v in versions)
+        base_npdm = os.path.join(folder, 'base', 'exefs', 'main.npdm')
+        if os.path.isfile(base_npdm):
+            has_romfs = os.path.isdir(os.path.join(folder, 'base', 'romfs')) or any(
+                os.path.isdir(os.path.join(u_path, 'romfs')) for _, u_path in updates
+            )
+            if not has_romfs:
+                return GameFolderProblem('missing', 'base/romfs')
+            npdm_path = base_npdm
+        else:
+            code_updates = [(ver, u_path) for ver, u_path in updates if os.path.isfile(os.path.join(u_path, 'exefs', 'main.npdm'))]
+            if code_updates:
+                full_updates = [(ver, u_path) for ver, u_path in code_updates if os.path.isdir(os.path.join(u_path, 'romfs'))]
+                if not full_updates:
+                    return GameFolderProblem('missing', f'updates/{code_updates[-1][0]}/romfs')
+                npdm_path = os.path.join(full_updates[-1][1], 'exefs', 'main.npdm')
+            else:
+                if os.path.isfile(os.path.join(folder, 'exefs', 'main.npdm')) and not os.path.exists(os.path.join(folder, 'base')):
+                    return GameFolderProblem('noBaseFolder')
+                return GameFolderProblem('missing', 'base/exefs/main.npdm')
 
         try:
             with open(npdm_path, 'rb') as f:
@@ -495,11 +509,13 @@ class LibraryGame:
     ipa_path: str = ''
     archive_path: str = ''
     ios_app_path: str = ''
+    installed_device: str = ''
     output_dir: str = ''
     inputs: dict[str, list[str]] = field(default_factory=dict)
     added_at: float = field(default_factory=time.time)
     last_built_at: float | None = None
     built_chain_tag: str = ''
+    _extra: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def id(self) -> str:
@@ -555,23 +571,35 @@ class LibraryGame:
         return GameFolder.profile_is_switch2(self.title_id, repo_path)
 
     def to_dict(self) -> dict:
-        return {
+        out = dict(self._extra)
+        if not out.get('id'):
+            out['id'] = str(uuid.uuid4()).upper()
+            self._extra['id'] = out['id']
+        out.update({
             'titleID': self.title_id,
             'name': self.name,
             'appPath': self.app_path,
             'ipaPath': self.ipa_path,
             'archivePath': self.archive_path,
             'iosAppPath': self.ios_app_path,
+            'installedDevice': self.installed_device,
             'outputDir': self.output_dir,
             'inputs': self.inputs,
             'addedAt': self.added_at,
             'lastBuiltAt': self.last_built_at,
             'builtChainTag': self.built_chain_tag,
-        }
+        })
+        return out
 
     @classmethod
     def from_dict(cls, d: dict) -> LibraryGame:
         app_path = str(d.get('appPath') or '')
+        known = {
+            'titleID', 'title_id', 'name', 'appPath', 'ipaPath', 'archivePath',
+            'iosAppPath', 'installedDevice', 'outputDir', 'inputs', 'addedAt',
+            'lastBuiltAt', 'builtChainTag',
+        }
+        extra = {k: v for k, v in d.items() if k not in known}
         return cls(
             title_id=str(d.get('titleID') or d.get('title_id') or '').upper(),
             name=str(d.get('name') or ''),
@@ -579,11 +607,13 @@ class LibraryGame:
             ipa_path=str(d.get('ipaPath') or ''),
             archive_path=str(d.get('archivePath') or ''),
             ios_app_path=str(d.get('iosAppPath') or ''),
-            output_dir=str(d.get('outputDir') or ''),
+            installed_device=str(d.get('installedDevice') or ''),
+            output_dir=str(d.get('outputDir') or d.get('outputDirectory') or ''),
             inputs=dict(d.get('inputs') or {}),
             added_at=float(d.get('addedAt') or time.time()),
             last_built_at=float(d['lastBuiltAt']) if d.get('lastBuiltAt') is not None else None,
             built_chain_tag=str(d.get('builtChainTag') or ''),
+            _extra=extra,
         )
 
 
@@ -594,6 +624,7 @@ class GameLibrary:
         self.games: list[LibraryGame] = []
         self.selected_id: str | None = None
         self.games_folder: str = ''
+        self._extra_top: dict = {}
         self.load()
 
     @property
@@ -616,8 +647,12 @@ class GameLibrary:
                 self.games = [LibraryGame.from_dict(x) for x in raw if isinstance(x, dict)]
             elif isinstance(raw, dict):
                 self.games = [LibraryGame.from_dict(x) for x in raw.get('games', []) if isinstance(x, dict)]
-                self.games_folder = str(raw.get('gamesFolder') or '')
+                self.games_folder = str(raw.get('gamesFolder') or raw.get('folder') or '')
                 self.selected_id = raw.get('selectedID')
+                self._extra_top = {
+                    k: v for k, v in raw.items()
+                    if k not in ('games', 'gamesFolder', 'selectedID')
+                }
             if self.games and not self.selected_id:
                 self.selected_id = self.games[0].title_id
         except Exception:
@@ -626,11 +661,14 @@ class GameLibrary:
     def save(self) -> None:
         try:
             self.state_dir.mkdir(parents=True, exist_ok=True)
-            payload = {
+            payload = dict(self._extra_top)
+            if 'folder' in payload or self.games_folder:
+                payload['folder'] = self.games_folder or payload.get('folder', '')
+            payload.update({
                 'gamesFolder': self.games_folder,
                 'selectedID': self.selected_id,
                 'games': [g.to_dict() for g in self.games],
-            }
+            })
             self.file_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding='utf-8')
         except OSError:
             pass
@@ -661,12 +699,20 @@ class GameLibrary:
                     game.ipa_path = existing.ipa_path
                 if not game.archive_path:
                     game.archive_path = existing.archive_path
+                if not game.ios_app_path:
+                    game.ios_app_path = existing.ios_app_path
+                if not game.installed_device:
+                    game.installed_device = existing.installed_device
                 if not game.output_dir:
                     game.output_dir = existing.output_dir
                 if not game.inputs:
                     game.inputs = existing.inputs
                 if game.last_built_at is None:
                     game.last_built_at = existing.last_built_at
+                if existing._extra:
+                    merged_extra = dict(existing._extra)
+                    merged_extra.update(game._extra)
+                    game._extra = merged_extra
                 self.games[i] = game
                 self.save()
                 return game
@@ -813,7 +859,7 @@ class GameLibrary:
             nonlocal found_keys
             if depth > 3:
                 return
-            if GameFolder.is_candidate(curr):
+            if _inputs.is_dump_directory(curr) if depth == 0 else GameFolder.is_direct_candidate(curr):
                 res = GameFolder.scan(curr)
                 if isinstance(res, GameFolderContents) and res.has_title_id:
                     tid = res.title_id_hex
@@ -822,7 +868,7 @@ class GameLibrary:
                         families[tid]['update'] = [res.newest_update[1]]
                     if res.dlc:
                         families[tid]['dlc'] = [p for _, p in res.dlc]
-                    names[tid] = GameFolder.profile_name(tid, repo_path) or clean_game_name(curr)
+                    names[tid] = GameFolder.profile_name(tid, repo_path) or clean_game_name(res.folder)
                 return
 
             try:

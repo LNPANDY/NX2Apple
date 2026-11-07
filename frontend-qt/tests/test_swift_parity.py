@@ -1,4 +1,4 @@
-﻿"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
+"""Unit tests for Mac Swift parity features in the Windows/Qt front end:
 KeyCheck (AES-128-XTS NCA header verification), CheatFiles, GameLibrary,
 BuildFolder (FreeSpace), GameDeletion, DriveCopy, Diagnostics, and the 3-page UI.
 """
@@ -609,6 +609,261 @@ class SharedShellParityTests(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertTrue((fb_out / 'DmShell').is_file())
 
+    def test_pso_archive_progress_and_pinned_emitter_stage_lifecycle(self) -> None:
+        """Exercise pso_archive_progress and Model._on_line with the pinned engine's Progress emitter in a headless job."""
+        import ast
+        import collections
+        import json
+        import shutil
+        import threading
+        import time
+        import types
+        from unittest import mock
+
+        model_mod = self._model_mod
+        eng_script = Path(os.environ.get('NSPB_ENGINE_DIR') or (ROOT / 'engine')) / 'scripts' / 'build_ipa_from_nsp.py'
+        self.assertTrue(eng_script.is_file(), f'engine script missing at {eng_script}')
+
+        # Load the pinned engine's actual Progress class and helpers directly from build_ipa_from_nsp.py
+        src = eng_script.read_text(encoding='utf-8')
+        mod_ast = ast.parse(src, filename=str(eng_script))
+        wanted_names = {'BEAT', 'clock', 'hms', 'size_unit', 'amount', 'Progress'}
+        selected_nodes: list[ast.stmt] = []
+        for node in mod_ast.body:
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in wanted_names:
+                selected_nodes.append(node)
+            elif isinstance(node, ast.Assign):
+                if any(isinstance(t, ast.Name) and t.id in wanted_names for t in node.targets):
+                    selected_nodes.append(node)
+        emitter_ns: dict[str, object] = {
+            'collections': collections,
+            'json': json,
+            'shutil': shutil,
+            'sys': sys,
+            'threading': threading,
+            'time': time,
+            'types': types,
+            'in_ipython': lambda: False,
+        }
+        exec(compile(ast.Module(body=selected_nodes, type_ignores=[]), str(eng_script), 'exec'), emitter_ns)
+        ProgressCls = emitter_ns['Progress']
+        clock_fn = emitter_ns['clock']
+        assert isinstance(ProgressCls, type) and callable(clock_fn)
+
+        def emit_heartbeat(p) -> None:
+            with p.lock:
+                st = p.cur
+                assert st is not None
+                head, frac, count, note, times = p._fields(st)
+                p._out(
+                    f'[{clock_fn()}] {head}: '
+                    + ', '.join(x for x in (f'{frac * 100:.0f}%' if frac is not None else '', count, note, times) if x)
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            mac_work = Path(tmp, 'pso', 'mac-work')
+            mac_work.mkdir(parents=True)
+            entry = '{"vertex_function_descriptor":"v"}'
+            (mac_work / 'bases.mtl4-json').write_text('[' + ','.join([entry] * 2500) + ']\n', encoding='utf-8')
+            # Without any `batches.<arch>` directory or batch log lines, return None (no misleading 0% bar)
+            self.assertIsNone(model_mod.pso_archive_progress(tmp))
+
+            with mock.patch.object(model_mod.Model, 'check_deps', lambda self: None):
+                m = model_mod.Model()
+            m.lang = Lang('en')
+            m.effective_work_dir = tmp
+
+            emitted: list[str] = []
+            prog = ProgressCls('lines')
+            prog._out = lambda text: (emitted.append(text), m._on_line(text))
+
+            try:
+                # 1. Start stage [6/7] Pipeline archive from the pinned emitter, then feed an uncounted heartbeat and end
+                prog.plan(7)
+                prog.k = 5
+                prog.stage('Pipeline archive')
+                if prog.tstop:
+                    prog.tstop.set()
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].id, 6)
+                self.assertEqual(m.stages[0].name, 'Pipeline archive')
+                self.assertEqual(m.stages[0].state, 'running')
+                self.assertIsNotNone(m._pso_poll_stop)
+                self.assertFalse(m._pso_poll_stop.is_set())
+
+                # Uncounted heartbeat "[HH:MM:SS] [6/7] Pipeline archive: 0:00" updates the existing row in place
+                emit_heartbeat(prog)
+                self.assertTrue(emitted[-1].endswith('[6/7] Pipeline archive: 0:00'), emitted[-1])
+                self.assertEqual(len(m.stages), 1, 'uncounted heartbeat must not add a duplicate stage row')
+                self.assertEqual(m.stages[0].state, 'running')
+                self.assertEqual(m.stages[0].detail, '0:00')
+
+                # Completion line "[HH:MM:SS] ✓ [6/7] Pipeline archive (0:00)" puts ✓ before [6/7], marks row done, stops poller
+                prog.end()
+                self.assertIn('✓ [6/7] Pipeline archive (', emitted[-1])
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'done')
+                self.assertIsNone(m._pso_poll_stop)
+
+                # 2. Verify warning ("⚠ [6/7] ...") and failure ("✗ [6/7] ...") prefixes from the pinned emitter
+                m.stages.clear()
+                prog.k = 5
+                prog.stage('Pipeline archive')
+                if prog.tstop:
+                    prog.tstop.set()
+                self.assertIsNotNone(m._pso_poll_stop)
+                prog.end('skipped', warn=True)
+                self.assertIn('⚠ [6/7] Pipeline archive (', emitted[-1])
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'done')
+                self.assertEqual(m.stages[0].detail, 'skipped')
+                self.assertIsNone(m._pso_poll_stop)
+
+                m.stages.clear()
+                prog.k = 5
+                prog.stage('Pipeline archive')
+                if prog.tstop:
+                    prog.tstop.set()
+                self.assertIsNotNone(m._pso_poll_stop)
+                prog.end('metal-tt failed', ok=False)
+                self.assertIn('✗ [6/7] Pipeline archive (', emitted[-1])
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'failed')
+                self.assertEqual(m.stages[0].detail, 'metal-tt failed')
+                self.assertIsNone(m._pso_poll_stop)
+
+                # 3. Populate batch directories and verify polling, uncounted heartbeat preservation, localization, and native takeover
+                arch = 'applegpu_g13s'
+                for idx in (1, 2, 3):
+                    (mac_work / f'batches.{arch}' / f'{idx:05d}').mkdir(parents=True)
+                b1 = mac_work / f'batches.{arch}' / '00001'
+                (b1 / 'bases.mtl4-json').write_text('{}', encoding='utf-8')
+                (b1 / f'{arch}.mtl4a').write_bytes(b'arch')
+                (b1 / f'key.{arch}').write_text('k\n', encoding='utf-8')
+                (mac_work / f'batches.{arch}' / '00002' / 'bases.mtl4-json').write_text('{}', encoding='utf-8')
+                self.assertEqual(model_mod.pso_archive_progress(tmp), (1, 3, False))
+
+                m.stages.clear()
+                prog.k = 5
+                prog.stage('Pipeline archive', step='applegpu_g13s (metal-tt)')
+                if prog.tstop:
+                    prog.tstop.set()
+                self.assertEqual(len(m.stages), 1)
+                self.assertIsNotNone(m._pso_poll_stop)
+                self.assertAlmostEqual(m.stages[0].percent, 100.0 / 3.0, places=1)
+                self.assertIn('1 / 3 batches', m.stages[0].detail)
+
+                # An uncounted heartbeat while batch polling is active keeps the single row and preserves batch progress
+                emit_heartbeat(prog)
+                self.assertEqual(len(m.stages), 1)
+                self.assertAlmostEqual(m.stages[0].percent, 100.0 / 3.0, places=1)
+                self.assertIn('1 / 3 batches', m.stages[0].detail)
+
+                for idx in (2, 3):
+                    b = mac_work / f'batches.{arch}' / f'{idx:05d}'
+                    (b / 'bases.mtl4-json').write_text('{}', encoding='utf-8')
+                    (b / f'{arch}.mtl4a').write_bytes(b'arch')
+                    (b / f'key.{arch}').write_text('k\n', encoding='utf-8')
+                (mac_work / f'metal-pack.{arch}.log').write_text('', encoding='utf-8')
+                self.assertEqual(model_mod.pso_archive_progress(tmp), (3, 3, True))
+
+                # Chinese localization for batches and merging
+                m.lang = Lang('zh')
+                m._on_line('pso_offline: applegpu_g13s: merging 3 batches')
+                self.assertAlmostEqual(m.stages[0].percent, 99.0, places=1)
+                self.assertIn('3 / 3 批 · 正在合并', m.stages[0].detail)
+                m.lang = Lang('en')
+
+                # Native percentage heartbeat from the pinned emitter stops directory polling and takes over
+                prog.set(done=2, total=3, unit='batches')
+                emit_heartbeat(prog)
+                self.assertTrue(m._pso_native_progress)
+                self.assertIsNone(m._pso_poll_stop)
+                self.assertEqual(len(m.stages), 1)
+                self.assertAlmostEqual(m.stages[0].percent, 67.0, places=1)
+                self.assertIn('2/3 batches', m.stages[0].detail)
+
+                prog.end()
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'done')
+                self.assertEqual(m.stages[0].percent, 100.0)
+                self.assertIsNone(m._pso_poll_stop)
+
+                # Race 1: a fallback disk scan paused in-flight while a pinned native heartbeat (2/3 = 67%) arrives
+                # must not overwrite the 67% native progress with stale 1/3 (33.3%) upon completion.
+                m.stages.clear()
+                m._stop_pso_poll()
+                m._pso_native_progress = False
+                prog.k = 5
+                with mock.patch.object(model_mod, 'pso_archive_progress', return_value=None):
+                    prog.stage('Pipeline archive')
+                    if prog.tstop:
+                        prog.tstop.set()
+                self.assertEqual(len(m.stages), 1)
+                self.assertEqual(m.stages[0].state, 'running')
+                m._stop_pso_poll()
+                m._pso_native_progress = False
+
+                scan_entered = threading.Event()
+                release_scan = threading.Event()
+
+                def paused_scan(_work: str):
+                    scan_entered.set()
+                    release_scan.wait(timeout=5.0)
+                    return (1, 3, False)
+
+                with mock.patch.object(model_mod, 'pso_archive_progress', side_effect=paused_scan):
+                    t_poll = threading.Thread(target=m.poll_pso_archive)
+                    t_poll.start()
+                    self.assertTrue(scan_entered.wait(timeout=5.0))
+                    prog.set(done=2, total=3, unit='batches')
+                    emit_heartbeat(prog)
+                    self.assertTrue(m._pso_native_progress)
+                    self.assertAlmostEqual(m.stages[0].percent, 67.0, places=1)
+                    release_scan.set()
+                    t_poll.join(timeout=5.0)
+
+                self.assertAlmostEqual(m.stages[0].percent, 67.0, places=1)
+                self.assertIn('2/3 batches', m.stages[0].detail)
+                prog.end()
+
+                # Race 2: a fallback disk scan paused in-flight while the stage ends (done / 100%)
+                # must not overwrite done / 100% with stale 1/3 (33.3%) upon completion.
+                m.stages.clear()
+                m._stop_pso_poll()
+                m._pso_native_progress = False
+                prog.k = 5
+                with mock.patch.object(model_mod, 'pso_archive_progress', return_value=(1, 3, False)):
+                    prog.stage('Pipeline archive')
+                    if prog.tstop:
+                        prog.tstop.set()
+                self.assertAlmostEqual(m.stages[0].percent, 100.0 / 3.0, places=1)
+
+                scan_entered2 = threading.Event()
+                release_scan2 = threading.Event()
+
+                def paused_scan2(_work: str):
+                    scan_entered2.set()
+                    release_scan2.wait(timeout=5.0)
+                    return (1, 3, False)
+
+                with mock.patch.object(model_mod, 'pso_archive_progress', side_effect=paused_scan2):
+                    t_poll2 = threading.Thread(target=m.poll_pso_archive)
+                    t_poll2.start()
+                    self.assertTrue(scan_entered2.wait(timeout=5.0))
+                    prog.end('3 batches')
+                    self.assertEqual(m.stages[0].state, 'done')
+                    self.assertEqual(m.stages[0].percent, 100.0)
+                    release_scan2.set()
+                    t_poll2.join(timeout=5.0)
+
+                self.assertEqual(m.stages[0].state, 'done')
+                self.assertEqual(m.stages[0].percent, 100.0)
+                self.assertEqual(m.stages[0].detail, '3 batches')
+            finally:
+                prog.close()
+                m._stop_pso_poll()
+
 
 class KeyCheckTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -798,6 +1053,157 @@ class LibraryAndSpaceTests(unittest.TestCase):
             store.image_path('040074A01BF12000'),
             str(store.banners_dir / '040074A01BF12000.jpg'),
         )
+
+    def test_library_preserves_swift_fields_and_win_shader_helpers(self) -> None:
+        import json
+        import re
+        from nspb_qt.win import build_app, shim, xcrun_shim
+
+        # 1. Verify GameLibrary preserves Swift's UUID id, installedDevice, iosAppPath, and top-level folder
+        state_dir = self.dir / 'swift_state'
+        state_dir.mkdir(parents=True, exist_ok=True)
+        swift_uuid = 'B6F6DB62-D0D5-47A2-941D-BA37A1CFCA0C'
+        swift_payload = {
+            'folder': '/Users/test/Games',
+            'games': [
+                {
+                    'id': swift_uuid,
+                    'titleID': '0100E65002BB8000',
+                    'name': 'Stardew Valley',
+                    'iosAppPath': '/Users/test/DmShell.app',
+                    'installedDevice': '00008150-000660C01447801C',
+                    'archivePath': '/Users/test/Games/0100E65002BB8000',
+                    'lastTarget': 'iPhone / iPad',
+                    'toolsCommit': 'b2d46b86d03f',
+                    'mods': [{'name': 'ModA', 'enabled': True}],
+                }
+            ],
+        }
+        (state_dir / 'library.json').write_text(json.dumps(swift_payload), encoding='utf-8')
+        gl = lib.GameLibrary(state_dir=state_dir)
+        self.assertEqual(gl.games_folder, '/Users/test/Games')
+        self.assertEqual(len(gl.games), 1)
+        self.assertEqual(gl.games[0].installed_device, '00008150-000660C01447801C')
+        self.assertEqual(gl.games[0].ios_app_path, '/Users/test/DmShell.app')
+
+        # Upsert an updated entry and verify Swift fields survive round-trip save
+        updated_game = lib.LibraryGame(title_id='0100E65002BB8000', name='Stardew Valley')
+        gl.upsert(updated_game)
+        saved = json.loads((state_dir / 'library.json').read_text(encoding='utf-8'))
+        self.assertEqual(saved.get('folder'), '/Users/test/Games')
+        saved_g = saved['games'][0]
+        self.assertEqual(saved_g['id'], swift_uuid)
+        self.assertEqual(saved_g['installedDevice'], '00008150-000660C01447801C')
+        self.assertEqual(saved_g['iosAppPath'], '/Users/test/DmShell.app')
+        self.assertEqual(saved_g['lastTarget'], 'iPhone / iPad')
+        self.assertEqual(saved_g['toolsCommit'], 'b2d46b86d03f')
+
+        # 2. Verify REQUIRED_DYLIB_SYMBOLS against real C/ObjC sources in engine/ and win/ios/Launcher.m
+        eng = ROOT / 'engine'
+        marker_file = eng / 'dm' / 'ios' / 'framework' / 'DmGameMarker.m'
+        glue_file = eng / 'dm' / 'ios' / 'framework' / 'ShellGlue.m'
+        main_file = eng / 'dm' / 'ios' / 'Shell' / 'ShellMain.m'
+        boot_hdr_file = eng / 'dm' / 'ios' / 'Sources' / 'FrameworkBootstrap.h'
+        for required_src in (marker_file, glue_file, main_file, boot_hdr_file):
+            self.assertTrue(required_src.is_file(), f'missing synced engine source: {required_src}')
+        marker_src = marker_file.read_text(encoding='utf-8')
+        glue_src = glue_file.read_text(encoding='utf-8')
+        main_src = main_file.read_text(encoding='utf-8')
+        boot_hdr = boot_hdr_file.read_text(encoding='utf-8')
+        launcher_src = (ROOT / 'frontend-qt' / 'nspb_qt' / 'win' / 'ios' / 'Launcher.m').read_text(encoding='utf-8')
+        combined_src = '\n'.join([marker_src, glue_src, launcher_src])
+        for sym in build_app.REQUIRED_DYLIB_SYMBOLS:
+            c_name = sym.lstrip('_')
+            self.assertRegex(combined_src, rf'\b{re.escape(c_name)}\b')
+        for sym in re.findall(r'dlsym\([^,]+,\s*"([^"]+)"\)', main_src + '\n' + boot_hdr):
+            self.assertIn(f'_{sym}', build_app.REQUIRED_DYLIB_SYMBOLS)
+
+        # Verify shader_lib_real_path uses the synced engine's shader_lib.view(lib) for both .img and folder
+        self.assertIsNotNone(build_app._shader_lib_module(eng))
+        sh_parent = self.dir / 'sh_test'
+        sh_dir = sh_parent / 'b-adec7d81d970'
+        sh_dir.mkdir(parents=True)
+        sh_img = sh_parent / 'b-adec7d81d970.img'
+        sh_img.write_bytes(b'IMG')
+        resolved_img = build_app.shader_lib_real_path(eng, sh_dir)
+        self.assertIsInstance(resolved_img, Path)
+        self.assertEqual(resolved_img, sh_img)
+        (sh_dir / 'inputs.tsv').write_text('game\t0100E65002BB8000\n', encoding='utf-8')
+        resolved_dir = build_app.shader_lib_real_path(eng, sh_dir)
+        self.assertIsInstance(resolved_dir, Path)
+        self.assertEqual(resolved_dir, sh_dir)
+
+        # 3. Verify xcrun_shim._safe_suffix handles .metallib.tmp-<pid>-<tid> and .air.tmp
+        self.assertEqual(
+            xcrun_shim._safe_suffix(Path('E:/game/Fire Emblem/0123_b.metallib.tmp-123-456'), '.out'),
+            '.metallib',
+        )
+        self.assertEqual(
+            xcrun_shim._safe_suffix(Path('E:/game/Fire Emblem/0123_bf.ios.air.tmp'), '.out'),
+            '.air',
+        )
+        self.assertIn('def _win_cache_compile', shim._SITECUSTOMIZE_SRC)
+        self.assertIn('def _patch_ios_metal_module', shim._SITECUSTOMIZE_SRC)
+        self.assertIn('def _patch_game_module', shim._SITECUSTOMIZE_SRC)
+
+        # 4. Verify Windows DM_GAMES_DIR drive-letter colons are preserved for derived profiles (e.g. Pokemon Sword v0)
+        if (eng / 'dm' / 'games' / 'game.py').is_file():
+            import importlib.util
+            from unittest import mock
+
+            spec = importlib.util.spec_from_file_location('test_upstream_game', eng / 'dm' / 'games' / 'game.py')
+            assert spec is not None and spec.loader is not None
+            gm = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(gm)
+
+            # Create a fake Windows drive folder 'D/games/SWORD/0100ABF008968000_build/profile'
+            # and map 'D:\\...' to it via a Path wrapper so the test runs on macOS/Linux/Windows alike
+            derived_root = self.dir / 'win_d_drive' / 'games' / 'SWORD' / '0100ABF008968000_build' / 'profile'
+            sword_derived = derived_root / '0100ABF008968000'
+            sword_derived.mkdir(parents=True, exist_ok=True)
+            reg_tsv = (eng / 'dm' / 'games' / '0100ABF008968000' / 'game.tsv').read_text(encoding='utf-8')
+            derived_tsv = re.sub(
+                r'^build\tv458752\t.*$',
+                'build\tv0\t1.0.0\tmain=00112233445566778899aabbccddeeff',
+                reg_tsv,
+                flags=re.M,
+            )
+            (sword_derived / 'game.tsv').write_text(derived_tsv, encoding='utf-8')
+
+            win_dm_games_dir = r'D:\games\SWORD\0100ABF008968000_build\profile;E:\other\profiles'
+
+            def map_win_path(p: str) -> Path:
+                s = str(p).replace('\\', '/')
+                if s.startswith('D:/'):
+                    return self.dir / 'win_d_drive' / s[3:]
+                return Path(s)
+
+            gm.Path = map_win_path  # type: ignore[attr-defined]
+            # Without the fix, game.py's .split(':') splits 'D:\...' into 'D' and '\games\...', falling back to dm/games (KeyError: 'v0')
+            with mock.patch.dict(os.environ, {'DM_GAMES_DIR': win_dm_games_dir, 'DM_GAMES_FIRST': '1'}):
+                fallback_g = gm.load('0100ABF008968000')
+                self.assertNotIn('v0', fallback_g.builds())
+
+                # Apply the shim's _split_dm_games_dir and _patch_game_module logic
+                ns: dict = {'os': os}
+                shim_chunk = shim._SITECUSTOMIZE_SRC[
+                    shim._SITECUSTOMIZE_SRC.index('    def _split_dm_games_dir'):
+                    shim._SITECUSTOMIZE_SRC.index('    import importlib.machinery as _machinery')
+                ]
+                import textwrap
+                exec(textwrap.dedent(shim_chunk), ns)
+                self.assertEqual(
+                    ns['_split_dm_games_dir'](win_dm_games_dir),
+                    [r'D:\games\SWORD\0100ABF008968000_build\profile', r'E:\other\profiles'],
+                )
+                self.assertEqual(
+                    ns['_GamesDirStr'](win_dm_games_dir).split(':'),
+                    [r'D:\games\SWORD\0100ABF008968000_build\profile', r'E:\other\profiles'],
+                )
+                ns['_patch_game_module'](gm)
+                derived_g = gm.load('0100ABF008968000')
+                self.assertIn('v0', derived_g.builds())
+                self.assertEqual(derived_g.builds()['v0']['display'], '1.0.0')
 
 
 class ParityWindowTests(unittest.TestCase):

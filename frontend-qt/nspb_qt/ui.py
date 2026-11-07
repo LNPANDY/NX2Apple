@@ -138,6 +138,7 @@ class MainWindow(QMainWindow):
             self, title, str(Path.home())
         )
         self.m.ask_file = self._ask_metal_archive
+        self.m.ask_sdk_archive = self._ask_sdk_archive
         self.setWindowTitle(f'NX2Apple v{APP_VERSION}')
         self.setWindowFlags(
             Qt.Window
@@ -2080,7 +2081,7 @@ class MainWindow(QMainWindow):
                 QUrl('macappstore://apps.apple.com/app/id497799835')))
             r.addWidget(b)
         if d.pick_key:
-            label_key = 'dep.pick.metal' if d.pick_key == 'metal_dir' else 'dep.pick'
+            label_key = 'dep.pick.metal' if d.pick_key in ('metal_dir', 'ios_sdk') else 'dep.pick'
             pb = QPushButton(t(label_key))
             pb.setEnabled(not d.installing)
             pb.clicked.connect(lambda _=False, dep=d: self.m.pick_dep_folder(dep))
@@ -2446,7 +2447,15 @@ class MainWindow(QMainWindow):
     def _ask_metal_archive(self, title: str) -> str:
         picked, _ = QFileDialog.getOpenFileName(
             self, title, str(Path.home() / 'Downloads'),
-            'Metal Developer Tools (*.zip *.exe *.msi);;All files (*)')
+            'Metal Developer Tools (metal.exe metallib.exe *.zip *.exe *.msi);;All files (*)')
+        if picked:
+            return picked
+        return QFileDialog.getExistingDirectory(self, title, str(Path.home()))
+
+    def _ask_sdk_archive(self, title: str) -> str:
+        picked, _ = QFileDialog.getOpenFileName(
+            self, title, str(Path.home() / 'Downloads'),
+            'iPhoneOS SDK (*.zip *.xip SDKSettings.json SDKSettings.plist);;All files (*)')
         if picked:
             return picked
         return QFileDialog.getExistingDirectory(self, title, str(Path.home()))
