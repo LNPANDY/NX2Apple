@@ -345,6 +345,42 @@ import XCTest
         XCTAssertTrue(store.log.text.contains("✓ extract (\(BuildProgress.duration(3))): 10 files"))
     }
 
+    func testPipelineArchiveStageFallsBackToWorkDirAndYieldsToNativeJSONProgress() throws {
+        let fm = FileManager.default
+        let macWork = temporary.appendingPathComponent("pso/mac-work")
+        try fm.createDirectory(at: macWork, withIntermediateDirectories: true)
+        let entry = #"{"vertex_function_descriptor":"v"}"#
+        let jsText = "{\"pipelines\":[" + Array(repeating: entry, count: 2500).joined(separator: ",") + "]}\n"
+        try Data(jsText.utf8).write(to: macWork.appendingPathComponent("bases.mtl4-json"))
+        let arch = "applegpu_g13s"
+        let b1 = macWork.appendingPathComponent("batches.\(arch)/00001")
+        try fm.createDirectory(at: b1, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: b1.appendingPathComponent("bases.mtl4-json"))
+        try Data("archive".utf8).write(to: b1.appendingPathComponent("\(arch).mtl4a"))
+        try Data("k\n".utf8).write(to: b1.appendingPathComponent("key.\(arch)"))
+
+        let store = makeStore()
+        store.effectiveWorkDir = temporary.path
+        store.handleEvent("stage", ["k": 6, "n": 7, "name": "Pipeline archive", "step": "applegpu_g13s (metal-tt)"])
+        store.pollPSOArchive()
+        XCTAssertEqual(store.stages[0].percent ?? 0, 100.0 / 3.0, accuracy: 0.1)
+        XCTAssertTrue(store.stages[0].detail.contains("1 / 3 batches"))
+
+        // Verify localized unit and merging note in Chinese
+        store.lang = .zh
+        store.stages[0].detail = ""
+        store.pollPSOArchive()
+        XCTAssertTrue(store.stages[0].detail.contains("1 / 3 批"), store.stages[0].detail)
+        store.lang = .en
+
+        // Once the script sends native progress, polling stops overriding it
+        store.handleEvent("progress", ["k": 6, "name": "Pipeline archive", "step": "applegpu_g13s (metal-tt)",
+                                       "done": 2, "total": 3, "unit": "batches", "frac": 0.66])
+        store.pollPSOArchive()
+        XCTAssertEqual(store.stages[0].percent ?? 0, 66.0, accuracy: 0.1)
+        XCTAssertTrue(store.stages[0].detail.contains("2 / 3 batches"))
+    }
+
     func testAChunkThatEndsInTheMiddleOfALineWaitsForTheRest() {
         let store = makeStore()
         store.ingest("{\"ev\":\"stage\",\"k\":2,\"n\":3,\"na")
