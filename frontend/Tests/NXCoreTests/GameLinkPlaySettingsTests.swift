@@ -70,6 +70,33 @@ final class GameLinkPlaySettingsTests: XCTestCase {
         XCTAssertTrue(try String(contentsOf: settings.playerEnv, encoding: .utf8).contains("DM_COOP=off"))
     }
 
+    func testLinkPlayCapabilityFollowsBundleMetadataNotTitleID() throws {
+        let app = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".app")
+        defer { try? FileManager.default.removeItem(at: app) }
+        let contents = app.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+        XCTAssertFalse(LinkPlayCapability.supportedByApp(app.path), "a missing marker never enables Link Play")
+        let plist = contents.appendingPathComponent("Info.plist")
+        for (marker, expected) in [(1, true), (0, false)] {
+            let data = try PropertyListSerialization.data(fromPropertyList: ["DMLinkPlay": marker, "DMTitleID": "0100000000000000"], format: .xml, options: 0)
+            try data.write(to: plist)
+            XCTAssertEqual(LinkPlayCapability.supportedByApp(app.path), expected, "the flag, not a particular title ID, governs support")
+        }
+    }
+
+    func testLinkPlayProfileDeclarationOffersRebuildWithoutTitleIDHardcoding() throws {
+        let repo = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: repo) }
+        let profile = repo.appendingPathComponent("dm/games/0100000000000000")
+        try FileManager.default.createDirectory(at: profile, withIntermediateDirectories: true)
+        let game = profile.appendingPathComponent("game.tsv")
+        try "title_id\t0100000000000000\nlink_play\tldn\n".write(to: game, atomically: true, encoding: .utf8)
+        XCTAssertTrue(LinkPlayCapability.declaredInProfile(titleID: "0100000000000000", repo: repo.path))
+        XCTAssertFalse(LinkPlayCapability.declaredInProfile(titleID: "0200000000000000", repo: repo.path))
+        try "title_id\t0100000000000000\n".write(to: game, atomically: true, encoding: .utf8)
+        XCTAssertFalse(LinkPlayCapability.declaredInProfile(titleID: "0100000000000000", repo: repo.path))
+    }
+
     func testLegacyJoinModeLoadsIntoAutoSettings() {
         let old = GameLinkPlaySettings.parse(["DM_COOP": "join:172.16.0.9:47600"])
         XCTAssertTrue(old.enabled)

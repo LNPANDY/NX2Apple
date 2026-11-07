@@ -1,5 +1,26 @@
 import Foundation
 
+/// A generated game's Link Play entitlement is advertised by its bundle. The game profile also
+/// declares which titles can gain the feature after a rebuild; neither check belongs in the UI.
+package enum LinkPlayCapability {
+    package static func supportedByApp(_ appPath: String) -> Bool {
+        guard !appPath.isEmpty else { return false }
+        let plist = URL(fileURLWithPath: appPath).appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: plist),
+              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let marker = info["DMLinkPlay"] as? NSNumber else { return false }
+        return marker.intValue == 1
+    }
+
+    package static func declaredInProfile(titleID: String, repo: String) -> Bool {
+        guard !repo.isEmpty else { return false }
+        let root = EngineLayout.root(repo)
+        let path = root + "/dm/games/" + titleID.uppercased() + "/game.tsv"
+        guard let contents = try? String(contentsOfFile: path, encoding: .utf8) else { return false }
+        return contents.split(separator: "\n").contains { $0.trimmingCharacters(in: .whitespaces) == "link_play\tldn" }
+    }
+}
+
 /// Settings for Pokopia's experimental nn::ldn LAN transport. No network activity happens in the frontend.
 package struct LinkPlayConfiguration: Equatable {
     package var enabled = false

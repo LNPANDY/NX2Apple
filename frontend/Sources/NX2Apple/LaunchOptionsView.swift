@@ -25,6 +25,10 @@ struct LaunchOptionsView: View {
     @EnvironmentObject private var focus: PadFocus
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
+    private func showsLinkPlay(for game: LibraryGame) -> Bool {
+        LinkPlayCapability.supportedByApp(game.appPath)
+            || LinkPlayCapability.declaredInProfile(titleID: game.titleID, repo: m.repo.path)
+    }
     private var settings: [LaunchSetting]? {
         game.flatMap { LaunchSetting.forMac(app: $0.appPath, titleID: $0.titleID, repo: m.repo.path, labels: loc.t) }
     }
@@ -66,7 +70,7 @@ struct LaunchOptionsView: View {
                         groups(settings.filter(\.isBasic), game, all: settings)
                         modsSection(game)
                         frameTimesSection(game)
-                        if game.titleID.uppercased() == "0400A3A01EE4C000" {
+                        if showsLinkPlay(for: game) {
                             LinkPlayCard(game: game).id(game.titleID)
                         }
                         CloudSavesCard(game: game)
@@ -93,7 +97,7 @@ struct LaunchOptionsView: View {
                 }
                 .onChange(of: focus.focused) { id in if let id { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } } }
                 }
-            } else if let game, game.titleID.uppercased() == "0400A3A01EE4C000" {
+            } else if let game, showsLinkPlay(for: game) {
                 ScrollView {
                     LinkPlayCard(game: game).id(game.titleID)
                         .padding(.horizontal, 30).padding(.bottom, 24)

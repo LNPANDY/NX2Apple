@@ -17,13 +17,7 @@ import NXLauncher
         _link = StateObject(wrappedValue: LinkPlayStore(titleID: game.titleID, appPath: game.appPath))
     }
 
-    private var supported: Bool {
-        let plist = URL(fileURLWithPath: game.appPath).appendingPathComponent("Contents/Info.plist")
-        guard let data = try? Data(contentsOf: plist),
-              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
-              let marker = info["DMLinkPlay"] as? NSNumber else { return false }
-        return marker.intValue == 1
-    }
+    private var supported: Bool { LinkPlayCapability.supportedByApp(game.appPath) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
