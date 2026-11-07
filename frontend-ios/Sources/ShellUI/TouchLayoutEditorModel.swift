@@ -190,7 +190,7 @@ import UIKit
         store.storeTouchSize(editing.size)
         store.storeTouchStick(editing.stick)
         store.storeTouchLayout(editing.layout)
-        store.storeTouchMode(editing.kind.full ? "3d" : "2d")
+        if editing.kind.full != initialFull { store.storeTouchMode(editing.kind.full ? "3d" : "2d") }
     }
 }
 

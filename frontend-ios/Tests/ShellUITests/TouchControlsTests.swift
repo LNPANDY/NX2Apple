@@ -26,6 +26,73 @@ import Testing
         #expect(store.touchMode == "3d")
     }
 
+    @MainActor @Test(arguments: ["noop", "size", "stick", "arrangement", "pose"])
+    func savingOtherEditorStateKeepsAnUnsetModeUnset(edit: String) {
+        let store = store()
+        let model = TouchLayoutEditorModel(store: store, upright: edit == "pose" ? .duoUpright : nil)
+        switch edit {
+        case "size": model.setSize("large")
+        case "stick": model.setStick("higher")
+        case "arrangement":
+            model.select(.stick)
+            #expect(model.nudge(dx: 1, dy: 0) == .moved)
+        case "pose": model.setKind(.threeDSplit)
+        default: break
+        }
+
+        model.commit()
+
+        #expect(store.defaults.object(forKey: ShellSettingsStore.touchModeKey) == nil)
+        #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == nil)
+        if edit == "size" { #expect(store.touchSize == "large") }
+        if edit == "stick" { #expect(store.touchStick == "higher") }
+        if edit == "arrangement" { #expect(!store.touchLayout.isEmpty) }
+    }
+
+    @MainActor @Test func changingModeBackToItsInitialValueLeavesThePreferenceUnchanged() {
+        let unset = store()
+        let model = TouchLayoutEditorModel(store: unset)
+        model.setKind(.twoD)
+        model.setKind(.threeD)
+        #expect(!model.hasChanges)
+        model.commit()
+        #expect(unset.defaults.object(forKey: ShellSettingsStore.touchModeKey) == nil)
+
+        for initial in ["2d", "3d"] {
+            let saved = store()
+            saved.storeTouchMode(initial)
+            let editor = TouchLayoutEditorModel(store: saved)
+            editor.setKind(initial == "2d" ? .threeD : .twoD)
+            editor.setKind(initial == "2d" ? .twoD : .threeD)
+            #expect(!editor.hasChanges)
+            editor.commit()
+            #expect(saved.defaults.string(forKey: ShellSettingsStore.touchModeKey) == initial)
+        }
+    }
+
+    @MainActor @Test func discardingAChangedModeDoesNotStoreIt() {
+        let store = store()
+        let model = TouchLayoutEditorModel(store: store)
+        model.setKind(.twoD)
+        #expect(!model.requestExit() && model.confirmingExit)
+        #expect(store.defaults.object(forKey: ShellSettingsStore.touchModeKey) == nil)
+        #expect(store.gameDefaults["DM_PROF_PAD_LAYOUT"] == nil)
+    }
+
+    @MainActor @Test(arguments: ["2d", "3d"])
+    func unrelatedSavePreservesAnExplicitMode(mode: String) {
+        let store = store()
+        store.storeTouchMode(mode)
+        let model = TouchLayoutEditorModel(store: store)
+        model.setSize("large")
+        model.updateScreen(.duoUpright)
+        model.commit()
+        let reopened = ShellSettingsStore(defaults: store.defaults)
+        #expect(reopened.touchSize == "large")
+        #expect(reopened.defaults.string(forKey: ShellSettingsStore.touchModeKey) == mode)
+        #expect(reopened.gameDefaults["DM_PROF_PAD_LAYOUT"] == (mode == "3d" ? "1" : "0"))
+    }
+
     @Test func theSizeRowOffersTheEngineSizesAndStoresThem() {
         let store = store()
         let row = ShellSettingsRows.touchSizeRow(store)

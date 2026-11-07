@@ -51,15 +51,16 @@ class ChecksFor(unittest.TestCase):
         self.assertEqual(names(['frontend-qt/nspb_qt/app.py']), ['Qt front end'])
         self.assertEqual(names(['frontend/Package.swift']), ['Mac launcher (slow)'])
 
-    def test_workflow_files_and_frontend_ios_run_nothing(self):
-        self.assertEqual(names(['.github/workflows/tests.yml', 'frontend-ios/Package.swift']), [])
+    def test_workflow_files_run_nothing_but_frontend_ios_runs_its_check(self):
+        self.assertEqual(names(['.github/workflows/tests.yml']), [])
+        self.assertEqual(names(['frontend-ios/Package.swift']), ['iOS shell (slow)'])
 
     def test_qt_does_not_match_the_mac_launcher(self):
         self.assertNotIn('Mac launcher (slow)', names(['frontend-qt/x.py']))
 
     def test_cheapest_first_and_the_slow_one_last(self):
-        got = names(['frontend/a.swift', 'tools/a.py', 'patches/series', 'frontend-qt/a.py'])
-        self.assertEqual(got, ['patch queue', 'Qt front end', 'tools', 'Mac launcher (slow)'])
+        got = names(['frontend/a.swift', 'frontend-ios/Package.swift', 'tools/a.py', 'patches/series', 'frontend-qt/a.py'])
+        self.assertEqual(got, ['patch queue', 'Qt front end', 'tools', 'Mac launcher (slow)', 'iOS shell (slow)'])
 
     def test_the_commands_are_the_ones_in_ci(self):
         cmds = {c.name: c.command for c in H.CHECKS}
@@ -67,6 +68,8 @@ class ChecksFor(unittest.TestCase):
         self.assertIn('python3 -m unittest discover -s frontend-qt/tests', cmds['Qt front end'])
         self.assertEqual(cmds['triage scripts'], 'python3 -m unittest discover -s .github/scripts/tests')
         self.assertEqual(cmds['Mac launcher (slow)'], 'swift build && swift test')
+        ios = next(c for c in H.CHECKS if c.name == 'iOS shell (slow)')
+        self.assertEqual((ios.command, ios.cwd, ios.sync), ('swift build && swift test', 'frontend-ios', True))
 
 
 def snapshot(repo):

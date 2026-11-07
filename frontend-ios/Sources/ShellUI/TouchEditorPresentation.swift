@@ -14,7 +14,7 @@ struct TouchEditorPresentation: UIViewControllerRepresentable {
         controller.updatePresentation()
     }
 
-    final class Presenter: UIViewController {
+    class Presenter: UIViewController {
         var content: AnyView?
         private var editor: Editor?
         private var transitioning = false
@@ -29,6 +29,8 @@ struct TouchEditorPresentation: UIViewControllerRepresentable {
             updatePresentation()
         }
 
+        func makeEditor() -> Editor { Editor(rootView: AnyView(EmptyView())) }
+
         func updatePresentation() {
             guard !transitioning, editor != nil || viewIfLoaded?.window != nil else { return }
             if let content {
@@ -36,12 +38,14 @@ struct TouchEditorPresentation: UIViewControllerRepresentable {
                     editor.updateContent(content)
                     return
                 }
-                let editor = Editor(rootView: AnyView(EmptyView()))
+                let editor = makeEditor()
                 editor.updateContent(content)
-                editor.onDismiss = { [weak self] in
-                    self?.editor = nil
-                    self?.transitioning = false
-                    self?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                editor.onDismiss = { [weak self, weak editor] in
+                    guard let self, let editor, self.editor === editor else { return }
+                    self.editor = nil
+                    self.transitioning = false
+                    self.setNeedsUpdateOfSupportedInterfaceOrientations()
+                    self.updatePresentation()
                 }
                 editor.modalPresentationStyle = .fullScreen
                 editor.isModalInPresentation = true
@@ -60,11 +64,12 @@ struct TouchEditorPresentation: UIViewControllerRepresentable {
         }
     }
 
-    final class Editor: UIHostingController<AnyView> {
+    class Editor: UIHostingController<AnyView> {
         var onDismiss: (() -> Void)?
         private var closing = false
 
         func updateContent(_ content: AnyView) {
+            guard !closing else { return }
             rootView = AnyView(content.environment(\.shellDismissTouchEditor, { [weak self] in self?.closeEditor() }))
         }
 

@@ -141,10 +141,11 @@ import Testing
         }.joined(separator: "\n")
         let literal = try Regex(#"ShellStrings\.text\("((?:[^"\\]|\\\([^)]*\))*)"\)"#)
         let interpolation = try Regex(#"\\\([^)]*\)"#)
-        var keys = Set(source.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }.map { $0.replacing(interpolation, with: "%@") })
+        let sourceKeys = Set(source.matches(of: literal).compactMap { $0.output[1].substring.map(String.init) }.map { $0.replacing(interpolation, with: "%@") })
+        #expect(sourceKeys.contains("Save") && sourceKeys.contains("Exit"), "editor strings were not found in the source")
+        var keys = sourceKeys
         // Passed on as LocalizationValue: the arrows' names and the two resets.
         keys.formUnion(["Move up", "Move down", "Move left", "Move right", "Reset this control", "Reset all controls", "Moved", "In its place"])
-        #expect(!keys.isEmpty)
         let strings = try table("Localizable", in: "ShellUI")
         for key in keys.sorted() {
             let localizations = ((strings[key] as? [String: Any])?["localizations"] as? [String: Any]) ?? [:]
