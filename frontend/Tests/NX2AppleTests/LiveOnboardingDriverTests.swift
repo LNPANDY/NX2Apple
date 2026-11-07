@@ -30,9 +30,7 @@ import NXModel
 
     override func setUp() {
         OnboardingDefaults.sessionPlatform = nil
-        let suite = "onboarding.tests." + UUID().uuidString
-        defaults = UserDefaults(suiteName: suite)
-        addTeardownBlock { UserDefaults().removePersistentDomain(forName: suite) }
+        defaults = TestDefaults.make("onboarding.tests")
         home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         addTeardownBlock { [home] in try? FileManager.default.removeItem(at: home!) }

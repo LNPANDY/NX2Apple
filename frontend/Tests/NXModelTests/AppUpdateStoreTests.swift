@@ -7,7 +7,6 @@ import CryptoKit
 /// bundles are folders in a temporary directory. This is the pattern for the tests of a store (frontend/ARCHITECTURE.md).
 @MainActor final class AppUpdateStoreTests: XCTestCase {
     private var temporary: URL!
-    private var suite: String!
     private var defaults: UserDefaults!
     private let runner = FakeProcessRunner()
     private let source = FakeReleaseSource()
@@ -17,8 +16,7 @@ import CryptoKit
     override func setUpWithError() throws {
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxmodel-update-tests-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-        suite = "nxmodel-update-tests-" + UUID().uuidString
-        defaults = UserDefaults(suiteName: suite)
+        defaults = TestDefaults.make("nxmodel-update-tests")
         // ditto: the fake unpacks a launcher bundle of the version the test names (its tag without the "v") into the last argument
         runner.answer = { [bundleID] launch in
             guard launch.executable.hasSuffix("ditto"), let dir = launch.arguments.last else { return ProcessResult() }
@@ -36,7 +34,6 @@ import CryptoKit
 
     override func tearDownWithError() throws {
         try FileManager.default.removeItem(at: temporary)
-        defaults.removePersistentDomain(forName: suite)
     }
 
     private func digest(_ data: Data) -> String { "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
