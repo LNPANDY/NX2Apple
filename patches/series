@@ -50,7 +50,6 @@
 0080-keep-the-selected-python-when-generating-the-mac.patch
 0081-support-steam-controller-and-shared-mac-control.patch
 0082-ios-shell-copy-a-game-s-packed-shader-image-into.patch
-0083-test-table-of-uniform-handles-expects-the-pool-m.patch
 0085-tests-update-fixtures-for-shader-progress-and-romfs-validation.patch
 0086-ios-shell-declare-japanese-in-cfbundlelocalizati.patch
 0087-build-ipa-from-nsp-reuse-the-other-platform-s-ro.patch
