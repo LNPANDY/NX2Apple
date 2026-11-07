@@ -301,6 +301,9 @@ import NXModel
         open(STATE + '/calls.txt', 'a').write(' '.join(a) + '\\n')
         def val(flag): return a[a.index(flag) + 1] if flag in a else None
         if a[0] == 'xcodebuild':
+            if os.path.exists(STATE + '/xcodebuild-error'):
+                sys.stderr.write(open(STATE + '/xcodebuild-error').read())
+                sys.exit(70)
             bundle = [x.split('=', 1)[1] for x in a if x.startswith('PRODUCT_BUNDLE_IDENTIFIER=')][0]
             if os.path.exists(STATE + '/taken') and bundle == 'org.nxnative.shell':
                 print('error: The app identifier "' + bundle + '" cannot be registered to your development team because it is not available. Change your bundle identifier to a unique string to try again.', flush=True)
@@ -740,6 +743,44 @@ import NXModel
     }
 
     // ---- the connection ----
+
+    func testUnavailableDestinationShowsThePrimaryXcodeError() throws {
+        let f = try makeFixture()
+        let error = "xcodebuild: error: Unable to find a destination matching the provided destination specifier:"
+        try write(state + "/xcodebuild-error", """
+        \(error)
+            { id:\(device) }
+
+        Destinations incompatible with the "DmShell" scheme:
+            { platform:macOS, arch:arm64e, id:MAC, name:My Mac, error:My Mac’s macOS platform doesn’t match DmShell.app’s supported platforms. }
+        """)
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let stores = try makeModel(f)
+        let model = stores.build
+        stores.localizer.lang = .en
+        stores.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "")] }
+
+        let stopped = expectation(description: "The sign step failed")
+        let token = model.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in stopped.fulfill() }
+        model.installShell(framework: f.framework, titleID: titleID, name: "Test Game", archive: f.archive)
+        wait(for: [stopped], timeout: 30)
+        withExtendedLifetime(token) {}
+
+        XCTAssertEqual(model.doneNote, "Signing failed: \(error)")
+        XCTAssertEqual(model.stages.first(where: { $0.id == ShellInstaller.signStageID })?.detail, error)
+    }
+
+    func testOtherXcodeFailuresStillShowTheLastError() throws {
+        let f = try makeFixture()
+        try write(state + "/xcodebuild-error", """
+        /fixture/Shell.swift:4:12: error: cannot find 'ShellConfig' in scope
+        /fixture/Shell.swift:8:12: error: cannot find 'startShell' in scope
+        ** BUILD FAILED **
+        """)
+        let result = install(installer(f), f)
+        XCTAssertFalse(result.ok)
+        XCTAssertEqual(result.message, "Signing failed: /fixture/Shell.swift:8:12: error: cannot find 'startShell' in scope")
+    }
 
     func testConnectionFromTheRealDeviceList() throws {
         let real = """
