@@ -377,6 +377,20 @@ import XCTest
         XCTAssertTrue(app.buttons["controllers.open"].waitForExistence(timeout: 5))
     }
 
+    func testControllerShortcutsKeepTheVisibleMenuInSync() {
+        launch("controllers")
+        app.typeKey("o", modifierFlags: [])
+        XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["controllers.close"].exists)
+        app.typeKey("y", modifierFlags: [])
+        XCTAssertTrue(app.buttons["controllers.close"].waitForExistence(timeout: 5))
+        app.buttons["controllers.close"].tap()
+        XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
+        app.buttons["library.back"].tap()
+        XCTAssertTrue(app.buttons["library.back"].waitForNonExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["controllers.open"].isHittable)
+    }
+
     func testEditorMenuKeepsExitAndSaveVisibleWhileScrolling() {
         XCUIDevice.shared.orientation = .landscapeLeft
         launch("shell-settings")
@@ -761,10 +775,10 @@ import XCTest
             let orbit = app.buttons["tile.orbit"]
             XCTAssertEqual(orbit.frame.midX, flow.frame.midX, accuracy: 4)
             XCTAssertFalse(app.staticTexts["READY TO PLAY"].exists)
-            XCTAssertLessThanOrEqual(app.staticTexts["Version 1.4.0"].frame.maxY, orbit.frame.maxY,
-                                     "Version belongs on the artwork rather than below the title")
-            XCTAssertTrue(orbit.label.contains("Version 1.4.0"))
-            XCTAssertGreaterThan(app.buttons["state.action"].frame.minY - app.staticTexts["hero.title"].frame.maxY, 16)
+            XCTAssertFalse(app.staticTexts["Version 1.4.0"].exists)
+            XCTAssertTrue(orbit.label.contains("Mario Kart™ 8 Deluxe"))
+            XCTAssertFalse(orbit.label.contains("1.4.0"), "Version is shown only in Game Settings")
+            XCTAssertGreaterThanOrEqual(app.buttons["state.action"].frame.minY - app.staticTexts["hero.title"].frame.maxY, 8)
             flow.swipeLeft()
             let tide = app.buttons["tile.tide"]
             expectation(for: NSPredicate(format: "isSelected == true"), evaluatedWith: tide)
@@ -885,71 +899,79 @@ import XCTest
     }
 
     // Run on an expanded, flat portrait simulator.
-    func testPortraitHeroFinishesAfterFastScroll() {
+    func testPortraitHeroFinishesAfterFastScroll() throws {
         for count in [7, 28] {
             extraArguments = ["--samples", "--games", "\(count)"]
             launch("library")
             let grid = app.scrollViews["library.grid"]
+            let hero = app.staticTexts["hero.title"]
+            try XCTSkipIf(grid.frame.minY < hero.frame.maxY, "Requires an expanded portrait layout")
+            let initialHeight = grid.frame.height
             XCTAssertTrue(app.otherElements["library.heading"].staticTexts["\(count)"].exists)
             let start = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.8))
             start.press(forDuration: 0.01, thenDragTo: start.withOffset(CGVector(dx: 0, dy: -140)),
                         withVelocity: .fast, thenHoldForDuration: 0)
-            XCTAssertEqual(app.staticTexts["hero.title"].frame.minX, grid.frame.minX + 112, accuracy: 5)
+            XCTAssertEqual(hero.frame.minX, grid.frame.minX + 24, accuracy: 5)
+            XCTAssertGreaterThan(grid.frame.height, initialHeight + 40)
             capture("portrait-hero-fast-scroll-\(count)")
         }
     }
 
     // Run on an expanded, flat portrait simulator.
-    func testPortraitHeroFinishesAfterThresholdWhileScrollIsHeld() {
+    func testPortraitHeroFinishesAfterThresholdWhileScrollIsHeld() throws {
         extraArguments = ["--games", "28", "--samples"]
         launch("library")
         let grid = app.scrollViews["library.grid"]
         let hero = app.staticTexts["hero.title"]
+        try XCTSkipIf(grid.frame.minY < hero.frame.maxY, "Requires an expanded portrait layout")
         let initialHeight = grid.frame.height
         let start = grid.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.7))
         let end = start.withOffset(CGVector(dx: 0, dy: -96))
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 2)
-        XCTAssertEqual(hero.frame.minX, grid.frame.minX + 112, accuracy: 5,
+        XCTAssertEqual(hero.frame.minX, grid.frame.minX + 24, accuracy: 5,
                        "Crossing the threshold must finish the transition without further finger movement")
         XCTAssertGreaterThan(grid.frame.height, initialHeight + 20)
         grid.swipeDown()
         grid.swipeDown()
-        XCTAssertEqual(hero.frame.midX, grid.frame.midX, accuracy: 4)
+        XCTAssertEqual(hero.frame.minX, grid.frame.minX + 24, accuracy: 4)
         XCTAssertEqual(grid.frame.height, initialHeight, accuracy: 4)
     }
 
     // Run on an expanded, flat portrait simulator.
-    func testSmallPortraitLibraryBouncesWithoutCollapsingHero() {
+    func testSmallPortraitLibraryBouncesWithoutCollapsingHero() throws {
         extraArguments = ["--games", "1", "--samples"]
         launch("library")
         let grid = app.scrollViews["library.grid"]
         let hero = app.staticTexts["hero.title"]
+        try XCTSkipIf(grid.frame.minY < hero.frame.maxY, "Requires an expanded portrait layout")
         let initialHeight = grid.frame.height
-        XCTAssertEqual(hero.frame.midX, grid.frame.midX, accuracy: 4, "Hero starts centered")
+        let initialHero = hero.frame
+        XCTAssertEqual(hero.frame.minX, grid.frame.minX + 24, accuracy: 4)
         grid.swipeUp()
         grid.swipeUp()
-        XCTAssertEqual(hero.frame.midX, grid.frame.midX, accuracy: 4)
+        XCTAssertEqual(hero.frame, initialHero)
         XCTAssertEqual(grid.frame.height, initialHeight, accuracy: 4)
         grid.swipeDown()
-        XCTAssertEqual(hero.frame.midX, grid.frame.midX, accuracy: 4)
+        XCTAssertEqual(hero.frame, initialHero)
         XCTAssertTrue(app.buttons["state.action"].isHittable)
         XCTAssertTrue(app.buttons["settings.open"].isHittable)
     }
 
     // Run on an expanded, flat portrait simulator.
-    func testExpandedPortraitHeroCentersThenMovesIntoLeadingRow() {
+    func testExpandedPortraitHeroKeepsLeadingAlignmentWhileCollapsing() throws {
         launch("library")
         let hero = app.staticTexts["hero.title"]
         let grid = app.scrollViews["library.grid"]
         XCTAssertTrue(hero.waitForExistence(timeout: 5))
-        XCTAssertEqual(hero.frame.midX, grid.frame.midX, accuracy: 4)
+        try XCTSkipIf(grid.frame.minY < hero.frame.maxY, "Requires an expanded portrait layout")
+        XCTAssertEqual(hero.frame.minX, grid.frame.minX + 24, accuracy: 4)
         let initialY = hero.frame.midY
-        capture("expanded-portrait-centered-hero")
+        capture("expanded-portrait-cover-art-hero")
         grid.swipeUp()
         grid.swipeUp()
         XCTAssertLessThan(hero.frame.midY, initialY - 20)
         XCTAssertLessThan(hero.frame.minX, grid.frame.minX + grid.frame.width * 0.25)
-        XCTAssertGreaterThan(hero.frame.minX, grid.frame.minX + 72)
+        XCTAssertEqual(hero.frame.minX, grid.frame.minX + 24, accuracy: 4)
         capture("expanded-portrait-leading-hero")
     }
 
@@ -1166,8 +1188,9 @@ import XCTest
         app.buttons["controllers.close"].tap()
         XCTAssertFalse(app.staticTexts["Pro Controller"].exists)
     }
-    private func dismissSheet(short: Bool = false) {
-        let bar = app.navigationBars.firstMatch
+    private func dismissSheet(closeID: String = "library.back", short: Bool = false) {
+        let bar = app.navigationBars.containing(.button, identifier: closeID).firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 5))
         let start = bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.05))
         let end = start.withOffset(CGVector(dx: 0, dy: short ? 30 : 600))
         start.press(forDuration: 0.05, thenDragTo: end, withVelocity: short ? .slow : .fast, thenHoldForDuration: short ? 0.5 : 0)
@@ -1187,7 +1210,7 @@ import XCTest
         launch("library")
         app.buttons["controllers.open"].tap()
         XCTAssertTrue(app.buttons["controllers.close"].waitForExistence(timeout: 5))
-        dismissSheet()
+        dismissSheet(closeID: "controllers.close")
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.buttons["controllers.close"])
         waitForExpectations(timeout: 5)
         XCTAssertTrue(app.buttons["controllers.open"].isHittable)

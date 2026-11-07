@@ -7,6 +7,18 @@ enum RecentRow {
     static let minHeight: CGFloat = 60
 }
 
+enum PortraitScrollDecoration: Equatable {
+    case fade(CGFloat)
+    case pullDown(CGFloat)
+    case inactive
+
+    static func value(offset: CGFloat, tabletop: Bool, includesHero: Bool) -> Self {
+        if tabletop { return .fade(min(1, max(0, offset / 48))) }
+        if includesHero { return .pullDown(max(0, -offset)) }
+        return .inactive
+    }
+}
+
 /// The library when it is taller than it is wide: the chosen game's banner as the hero with the title under it,
 /// then the collection, then recently played. In one column the primary action sits at the bottom for the thumb.
 /// With regular width (an iPad or an unfolded foldable held upright) the collection becomes a grid of wide cards and
@@ -154,7 +166,7 @@ struct PortraitLibrary: View, Equatable {
 
     private var expandedHero: some View {
         let height = heroHeight - collapseDistance * collapse
-        return heroContent(height: heroHeight - topInset, compact: collapse)
+        return heroContent(compact: collapse)
             .padding(.horizontal, 24)
             .padding(.top, topInset)
             .padding(.bottom, 16)
@@ -162,7 +174,7 @@ struct PortraitLibrary: View, Equatable {
             .background { PortraitHeroBackdrop(game: selected.game).ignoresSafeArea(.container, edges: .top) }
     }
 
-    private func heroContent(height: CGFloat, compact: CGFloat) -> some View {
+    private func heroContent(compact: CGFloat) -> some View {
         HeroText(status: selected.game.state, title: selected.game.title,
                  explanation: selected.game.state == .playable ? "" : selected.game.state.explanation,
                  titleSize: 44 - compact * 12,
@@ -211,9 +223,15 @@ struct PortraitLibrary: View, Equatable {
                     .accessibilityHidden(true)
             }
         }
-        .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, offset in
-            gridFade = min(1, max(0, offset / 48))
-            heroPullDown = includesHero ? max(0, -offset) : 0
+        .onScrollGeometryChange(for: PortraitScrollDecoration.self) {
+            PortraitScrollDecoration.value(offset: $0.contentOffset.y + $0.contentInsets.top,
+                                           tabletop: tabletop, includesHero: includesHero)
+        } action: { _, decoration in
+            switch decoration {
+            case .fade(let opacity): gridFade = opacity
+            case .pullDown(let distance): heroPullDown = distance
+            case .inactive: gridFade = 0; heroPullDown = 0
+            }
         }
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { oldOffset, offset in
             guard expanded, !tabletop, scrolling, collapseDistance > 0,
@@ -468,42 +486,6 @@ struct HeroView<Accessory: View>: View {
                 }
                 .allowsHitTesting(false)
         }
-    }
-}
-
-/// One pair of views moves continuously from the centered presentation into the compact leading row.
-private struct PortraitHeroLayout: Layout {
-    var collapse: CGFloat
-    var artworkSide: CGFloat
-    var animatableData: CGFloat {
-        get { collapse }
-        set { collapse = newValue }
-    }
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let width = proposal.width ?? 0
-        let side = artworkSide + (72 - artworkSide) * collapse
-        let textWidth = max(0, width - (side + 16) * collapse)
-        let details = subviews[1].sizeThatFits(.init(width: textWidth, height: nil))
-        let naturalHeight = side + 20 + details.height
-        return CGSize(width: width, height: proposal.height ?? naturalHeight)
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        let side = artworkSide + (72 - artworkSide) * collapse
-        let textWidth = max(0, bounds.width - (side + 16) * collapse)
-        let details = subviews[1].sizeThatFits(.init(width: textWidth, height: nil))
-        let centeredTop = max(0, (bounds.height - side - 20 - details.height) / 2)
-        let rowTop = max(0, bounds.height - max(side, details.height))
-        let artworkX = (bounds.width - side) / 2 * (1 - collapse)
-        let artworkY = centeredTop + (rowTop - centeredTop) * collapse
-        let textX = (side + 16) * collapse
-        let textY = (centeredTop + side + 20) * (1 - collapse)
-            + (rowTop + max(0, side - details.height)) * collapse
-        subviews[0].place(at: CGPoint(x: bounds.minX + artworkX, y: bounds.minY + artworkY),
-                          anchor: .topLeading, proposal: .init(width: side, height: side))
-        subviews[1].place(at: CGPoint(x: bounds.minX + textX, y: bounds.minY + textY),
-                          anchor: .topLeading, proposal: .init(width: textWidth, height: details.height))
     }
 }
 

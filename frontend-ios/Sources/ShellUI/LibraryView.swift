@@ -676,6 +676,7 @@ public struct LibraryView: View {
     private func openSettings() {
         guard !shellSettingsOpen else { return }
         guard noteTouch() else { return }
+        controllersOpen = false
         settingsOpen = true
         focus.id = "set.back"
     }
@@ -793,7 +794,7 @@ public struct LibraryView: View {
         }
         else if helpGameID != nil { closeHelp() }
         else if deleteGameID != nil { closeDelete() }
-        else if controllersOpen { controllersOpen = false; focus.id = "lib.controllers" }
+        else if controllersOpen { controllersOpen = false; focus.id = settingsOpen ? "set.back" : "lib.controllers" }
         else if shellSettingsOpen { closeShellSettings() }
         else if settingsOpen { closeSettings() }
         else { actions.onBack() }
