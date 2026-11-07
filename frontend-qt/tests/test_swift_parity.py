@@ -404,6 +404,16 @@ class SharedShellParityTests(unittest.TestCase):
                 def wait(self):
                     return 0
 
+            # Verify supports_shell_framework succeeds on case-sensitive filesystems (dm/ios/Shell and dm/ios/framework)
+            real_is_dir = Path.is_dir
+            with mock.patch.object(
+                Path,
+                'is_dir',
+                autospec=True,
+                side_effect=lambda p: False if p.parts[-3:] == ('dm', 'ios', 'shell') else real_is_dir(p),
+            ):
+                self.assertTrue(m.supports_shell_framework())
+
             # Verify start_build stops early if DmShell.app template is missing
             missing_outcomes: list[tuple[bool, str]] = []
             m.base_path = str(base1)

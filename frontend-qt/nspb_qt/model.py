@@ -401,7 +401,9 @@ class Model(QObject):
         return "'--work-dir'" in text or '"--work-dir"' in text
 
     def supports_shell_framework(self) -> bool:
-        return Path(self.engine_path, 'dm', 'ios', 'shell').is_dir()
+        return (Path(self.engine_path, 'dm', 'ios', 'Shell').is_dir()
+                or Path(self.engine_path, 'dm', 'ios', 'framework').is_dir()
+                or Path(self.engine_path, 'dm', 'ios', 'shell').is_dir())
 
     # ---- dependencies
 
