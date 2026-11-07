@@ -11,7 +11,7 @@ Issue: LNPANDY/NX2Apple#494
  1 file changed, 6 insertions(+)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index c33176a..9de7201 100644
+index c3d6c9e..f849056 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -28,6 +28,7 @@
@@ -22,23 +22,23 @@ index c33176a..9de7201 100644
  #include <stdatomic.h>
  #import "DmLayout.h"
  #import "DmGameMenu.h"
-@@ -563,6 +564,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+@@ -564,6 +565,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
  static pad_slots g_slots;
  static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
- static int g_merge;
+ static int g_merge, g_press_to_join;
 +static pad_map g_padmap;   // DM_PAD_MAP affects physical controllers only
  static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 32767); }
- static void read_pad(GCExtendedGamepad *g) {
-     int p = g_merge ? 0 : pad_slot_of(&g_slots, (__bridge const void *)g.controller); if (p < 0) return;
-@@ -575,6 +577,7 @@ static void read_pad(GCExtendedGamepad *g) {
-     if (g.leftThumbstickButton) K(g.leftThumbstickButton, B_LS); if (g.rightThumbstickButton) K(g.rightThumbstickButton, B_RS);
-     K(g.dpad.left, B_LEFT); K(g.dpad.up, B_UP); K(g.dpad.right, B_RIGHT); K(g.dpad.down, B_DOWN);
-     #undef K
+ static const char *pad_name(GCController *c);
+ static void npad_name(int p, char *out, size_t cap);
+@@ -585,6 +587,7 @@ static void read_pad(GCExtendedGamepad *g) {
+         npad_name(p, nb, sizeof nb); LOG("controller '%s': a button pressed: player %d (npad %s)", pad_name(c), p + 1, nb);
+     }
+     dm_haptics_apple_controller(p, g.controller);
 +    m = pad_map_apply(&g_padmap, m);
      dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
  }
  // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
-@@ -582,6 +585,9 @@ static void pad_keep_system_buttons(GCController *c) { for (NSString *b in @[GCI
+@@ -592,6 +595,9 @@ static void pad_keep_system_buttons(GCController *c) { for (NSString *b in @[GCI
  static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
  static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
  static void pads_start(void) {
@@ -46,5 +46,5 @@ index c33176a..9de7201 100644
 +    const char *pm = getenv("DM_PAD_MAP");
 +    if (pm && *pm) { int bad = pad_map_parse(&g_padmap, pm); LOG("front end: controller buttons from DM_PAD_MAP (%s)%s", pm, bad ? ", malformed entries left out" : ""); }
      const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
+     e = getenv("DM_PAD_PRESS_TO_JOIN"); g_press_to_join = !g_merge && e && atoi(e);
      LOG("front end: %s", g_merge ? "every controller is player 1 (DM_PAD_MERGE)" : "each controller is a player of its own, the touch gamepad plays with player 1");
- }

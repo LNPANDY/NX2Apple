@@ -14,7 +14,7 @@ Issue: LNPANDY/NX2Apple#10
  1 file changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 1a83afc..7bd9170 100755
+index 2f5bbd8..37c808d 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,7 +33,7 @@
@@ -26,9 +26,9 @@ index 1a83afc..7bd9170 100755
  from pathlib import Path
  sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
  import romfs as rfs
-@@ -2948,6 +2948,24 @@ def main(args=None):
+@@ -2978,6 +2978,24 @@ def main(args=None):
      if not want_lang: raise BuildError(f'unknown game language {lang_in!r}; give one of {language_list([c for c, _ in nacp.LANGUAGES])}, by code or by name')
-     env = dict(os.environ, PATH=os.pathsep.join(TOOL_PATHS + [os.environ.get('PATH', '/usr/bin:/bin:/usr/sbin:/sbin')]))
+     env = tool_env()
      env.setdefault('USER', getpass.getuser())   # xcodegen fails without USER (Couldn't find current username)
 +    # HOME and DOTNET_CLI_HOME for every child: a GUI launch (LaunchServices) can hand the app a
 +    # process environment with HOME missing or empty, and .NET's first-run configure then builds a
