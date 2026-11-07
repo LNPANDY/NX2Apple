@@ -694,6 +694,7 @@ static NSArray<UIMenuElement *> *nspb_game_menu_items(void) {
     return items;
 }
 
+__attribute__((used, visibility("default")))
 void *dm_game_menu(void) {
     NSString *title = g_game_menu_model ? @"More settings on the start screen" : @"";
     UIDeferredMenuElement *def = [UIDeferredMenuElement elementWithUncachedProvider:^(void (^done)(NSArray<UIMenuElement *> *)) {
@@ -703,6 +704,7 @@ void *dm_game_menu(void) {
     return (void *)CFBridgingRetain(menu);
 }
 
+#ifndef DM_SHELL_FRAMEWORK
 #pragma mark - entry point
 
 // A capture IPA (the run-time shader capture done on the device instead of a Mac) sets
@@ -758,3 +760,4 @@ bool dm_show_launcher(void *view_controller, void (*done)(void)) {
     fprintf(stderr, "launcher: %lu settings shown\n", (unsigned long)settings.count);
     return true;
 }
+#endif

@@ -677,11 +677,16 @@ class GameLibrary:
         inputs: dict[str, list[str]],
         repo_path: str = '',
         title_id: str | None = None,
+        name: str = '',
     ) -> LibraryGame | None:
-        tid = title_id or ''
+        tid = ''
+        if title_id and re.fullmatch(r'[0-9A-Fa-f]{16}', title_id.strip()):
+            tid = title_id.strip().upper()
+        elif title_id:
+            tid = title_id.strip()
         if not tid and archive_path:
             bn = os.path.basename(archive_path.rstrip('/\\'))
-            if len(bn) == 16:
+            if re.fullmatch(r'[0-9A-Fa-f]{16}', bn):
                 tid = bn.upper()
         if not tid and base_path:
             if GameFolder.is_candidate(base_path):
@@ -699,18 +704,18 @@ class GameLibrary:
         if not tid:
             tid = '0100000000000000'
 
-        name = GameFolder.profile_name(tid, repo_path)
-        if not name:
-            if ipa_path:
-                name = clean_game_name(ipa_path)
+        resolved_name = name.strip() or GameFolder.profile_name(tid, repo_path)
+        if not resolved_name:
+            if ipa_path and os.path.basename(ipa_path).lower() != 'nx2apple.ipa':
+                resolved_name = clean_game_name(ipa_path)
             elif base_path:
-                name = clean_game_name(base_path)
+                resolved_name = clean_game_name(base_path)
             else:
-                name = tid
+                resolved_name = tid
 
         game = LibraryGame(
             title_id=tid,
-            name=name,
+            name=resolved_name,
             ipa_path=ipa_path if (ipa_path and os.path.isfile(ipa_path)) else '',
             archive_path=archive_path if (archive_path and os.path.isdir(archive_path)) else '',
             output_dir=output_dir,
@@ -1195,7 +1200,7 @@ class GameDeletionPlan:
         items: list[GameDeletionItem] = []
         if game.has_app:
             items.append(GameDeletionItem('macApp', [game.app_path]))
-        if game.has_ipa:
+        if game.has_ipa and os.path.basename(game.ipa_path).lower() != 'nx2apple.ipa':
             items.append(GameDeletionItem('ipa', [game.ipa_path]))
         if game.has_archive and os.path.basename(game.archive_path.rstrip('/\\')).upper() == game.title_id.upper():
             items.append(GameDeletionItem('archive', [game.archive_path]))
@@ -1300,16 +1305,24 @@ class DriveCopy:
         done = 0
         if progress_cb:
             progress_cb(0, total)
+        partial = ''
         try:
             for rel, sz in sorted(files.items()):
                 src = os.path.join(archive_dir, rel)
                 dst = os.path.join(dest_dir, rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 if os.path.isfile(dst) and os.path.getsize(dst) == sz:
-                    done += sz
-                    if progress_cb:
-                        progress_cb(done, total)
-                    continue
+                    same = abs(os.path.getmtime(src) - os.path.getmtime(dst)) < 0.001
+                    if same and sz <= 1024 * 1024:
+                        try:
+                            same = Path(src).read_bytes() == Path(dst).read_bytes()
+                        except OSError:
+                            same = False
+                    if same:
+                        done += sz
+                        if progress_cb:
+                            progress_cb(done, total)
+                        continue
                 partial = dst + '.partial'
                 with open(src, 'rb') as fin, open(partial, 'wb') as fout:
                     while True:
@@ -1323,6 +1336,16 @@ class DriveCopy:
                 if os.path.exists(dst):
                     os.remove(dst)
                 os.replace(partial, dst)
+                partial = ''
+                try:
+                    shutil.copystat(src, dst)
+                except OSError:
+                    pass
             return True, dest_dir
         except OSError as e:
+            if partial and os.path.exists(partial):
+                try:
+                    os.remove(partial)
+                except OSError:
+                    pass
             return False, str(e)

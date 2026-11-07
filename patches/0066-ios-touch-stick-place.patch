@@ -39,7 +39,7 @@ index d4f6e57..29cb19c 100644
  //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
  //   The virtual gamepad (all but the menu button) hides while a physical controller is connected and comes back when it is removed; unclaimed touches go to the game only when a local game viewport exists. Physical controllers keep every button (D-pad and right stick included) and map by position: bottom = B, right = A, left = Y, top = X (same positions as on a Switch controller); a Nintendo pad maps by its labels (pad_apple.h).
  //   Each physical controller is a player of its own (local co-op), as on the Mac: the first one connected is player 1, together with the touch gamepad, the next player 2, and so on up to 8; see "Physical controllers" below.
-@@ -157,7 +157,7 @@ @implementation DmGamepad {
+@@ -157,7 +157,7 @@ static void pads_start(void);   // Physical controllers, below
      CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
      BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
      DmLayout _layout;
@@ -48,7 +48,7 @@ index d4f6e57..29cb19c 100644
      DmPadGeo _geo; CGRect _geoBounds; UIEdgeInsets _geoInsets; BOOL _geoFull, _geoValid;   // where the controls are, and what it was computed for
      UITouch *_game[16];                           // touches on the game's touch screen by finger slot
  }
-@@ -182,6 +182,9 @@ - (instancetype)initWithFrame:(CGRect)f {
+@@ -182,6 +182,9 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
          const char *size = getenv("DM_TOUCH_SIZE");
          _opts.scale = dm_pad_size_scale(size);
          if (size && *size) LOG("front end: touch controls size %s (DM_TOUCH_SIZE)", _opts.scale < 1 ? "small" : _opts.scale > 1 ? "large" : "medium");

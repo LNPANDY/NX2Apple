@@ -1522,7 +1522,7 @@ index cfb6dcb..041bf07 100644
  // Mouse as a single-point touchscreen (front.h dm_touch_set): left button down / drag = finger 0, release = lifted. The content view takes the clicks,
  // not a window-wide event monitor, so clicks on the title bar, the window buttons and the resize edges still reach AppKit.
  // The picture's width / height (front.h front_picture_shape; 16:9 until the first present), which the present fits into the view
-@@ -507,9 +273,9 @@ - (void)mouseDragged:(NSEvent *)e {
+@@ -507,9 +273,9 @@ void front_picture_shape(int w, int h) { if (w > 0 && h > 0) g_picture_aspect =
      double a = g_picture_aspect; if (w / h > a) w = h * a; else h = w / a;   // the centered picture the present fits into the view (16:9, or a taller one under DM_SCREEN_ASPECT)
      double x0 = (b.width - w) / 2, y0 = (b.height - h) / 2;
      dm_touch t = {0, (float)fmin(fmax((p.x - x0) / w, 0), 0.999), (float)fmin(fmax(1 - (p.y - y0) / h, 0), 0.999)};   // The AppKit view origin is at bottom left, the touchscreen origin is at top left
@@ -1610,7 +1610,7 @@ diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
 index ca0414f..849af06 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
-@@ -40,6 +40,9 @@ - (void)stop;
+@@ -40,6 +40,9 @@ static dispatch_queue_t queue;
  static NSMutableArray<DmRumbleChannel *> *channels[DM_PLAYERS];
  static GCController *controllers[DM_PLAYERS];
  static GCHapticsLocality controllerLocalities[DM_PLAYERS];
@@ -1620,7 +1620,7 @@ index ca0414f..849af06 100644
  #if TARGET_OS_IPHONE
  static BOOL phoneSupported;
  #endif
-@@ -71,7 +74,7 @@ static NSTimeInterval now(void) {
+@@ -71,7 +74,7 @@ static CHHapticPattern *simple_pattern(dm_haptic_level level, NSError **error) {
  // low band at 0.1-0.4 all race long: 0.45 leaves crashes and drifts). The mapping stays linear by default: the opposite need, low levels that
  // rotating motors do not render at all (Breath of the Wild's charged attack on an Xbox controller), is open (docs/reference/services.md)
  static float rumble_min;
@@ -1629,7 +1629,7 @@ index ca0414f..849af06 100644
      x = isfinite(x) ? fmaxf(0, fminf(1, x)) : 0;
      return x <= rumble_min ? 0 : (x - rumble_min) / (1 - rumble_min);
  }
-@@ -161,7 +164,7 @@ - (BOOL)startEngine {
+@@ -161,7 +164,7 @@ static void report(NSError *e, NSString *target, const char *stage) {
      return YES;
  }
  - (void)apply:(dm_haptic_level)level {
@@ -2437,10 +2437,10 @@ index 0000000..a252573
 +    memset(out, 0, 64); out[0] = 1; out[1] = 0x87; out[2] = 3; out[3] = 48; out[4] = enabled ? 0x18 : 0;
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index a35ca5e..cac33f6 100644
+index 0434e48..6a00f57 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -71,6 +71,9 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
+@@ -72,6 +72,9 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
  	TMPDIR="$(abspath $(B))" $(B)/t_cheats $(QUIET)
  	$(B)/t_nro
  	$(B)/t_symbols
@@ -2450,7 +2450,7 @@ index a35ca5e..cac33f6 100644
  run: $(B)/t_nro
  run: $(B)/t_symbols
  $(B)/t_symbols: t_symbols.c ../hle.c ../loader.c ../hle.h ../dm.h $(GAME_H) | $(B)
-@@ -383,3 +386,11 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
+@@ -388,3 +391,11 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
  .PHONY: profile-runtime
  profile-runtime: $(B)/t_profile_runtime
  	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
@@ -3537,7 +3537,7 @@ diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
 index f7a5dfb..40fdeb7 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
-@@ -99,7 +99,7 @@ @interface TestEngine : NSObject
+@@ -99,7 +99,7 @@ static void test_dispatch_after(dispatch_time_t when, dispatch_queue_t target, d
  @property(copy) void (^startingReset)(void);
  @end
  @implementation TestEngine
@@ -4403,7 +4403,7 @@ index 47ada51..7304908 100644
          for target in (self.app, self.app / 'Contents/MacOS/dmhost'):
              subprocess.run(['codesign', '--verify', '--strict', target], check=True, capture_output=True)
 diff --git a/docs/development.md b/docs/development.md
-index 4d70499..07010f3 100644
+index f1277e9..8f5d71b 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -601,6 +601,10 @@ Why the host is a child process: macOS privacy checks (TCC) cover files on remov
@@ -4418,7 +4418,7 @@ index 4d70499..07010f3 100644
  
  With an Apple developer account, Xcode can sign and install the app itself:
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 08e9eec..3f37f7b 100644
+index 4fa07e2..6f98b9e 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -93,7 +93,7 @@ DM_JIT_SERVE	path	Folder of a `nn::jit` image (`jit.img`, `jit.tsv`, `jit.out`):
@@ -4439,7 +4439,7 @@ index 08e9eec..3f37f7b 100644
  DM_PAD_MERGE	switch	`=1` merges every controller into player 1, as before, instead of giving each controller a player of its own (Mac and iOS)
  DM_PATCH_FRONT	switch	`=<bytes>`: the size of the patch area right before the module base for a long text (`BIG_TEXT`); set only by the rewriter's own rerun with the size it needs
  DM_PHONE_MOTION	switch	On iOS, whether the phone's own device motion drives player 1's six-axis sensor: `auto` (default) while no controller supplies fresh motion, `1` phone only, `0` never; each source keeps its own orientation
-@@ -337,6 +337,8 @@ DM_SLOWFRAME	diagnostic	`=1` writes the per-frame timing breakdown to the log on
+@@ -338,6 +338,8 @@ DM_SLOWFRAME	diagnostic	`=1` writes the per-frame timing breakdown to the log on
  DM_SPIN	switch	`0` makes the rewriter's spin gate return at once, so guest poll loops spin with no sleep; the gate stays (on by default)
  DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it found and sends through a spin gate
  DM_SPIN_POLL	switch	`=<µs>`: how long a spin-gate wait polls before it sleeps with the yield back-off (default 2000; `0` yields on every pass)
@@ -4448,7 +4448,7 @@ index 08e9eec..3f37f7b 100644
  DM_SVC	diagnostic	`=1` logs memory SVCs (`SetHeapSize`, `MapMemory`, `Map`/`UnmapPhysicalMemory`) with their addresses and sizes
  DM_SYMCHECK	diagnostic	`=1` checks every hashed module symbol lookup against a linear search and logs a red line for each mismatch
  DM_TBUF_ALIGN	diagnostic	`=<bytes>` uses that value as the linear-texture alignment when it is larger than the device's `minimumLinearTextureAlignmentForPixelFormat`, for buffer textures and for linear textures on a pool's buffer: a Mac can then reproduce a phone's larger alignment (a 64-byte one fails the buffers and linear textures a device with 64 bytes cannot view), to check `tbuf_as_2d`'s aligned-row copy and the upload of unaligned linear textures (`linear_fit`)
-@@ -373,6 +375,7 @@ DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or
+@@ -374,6 +376,7 @@ DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or
  DM_UDC_SELFTEST	diagnostic	`=1` runs a start-up check of DontCare load and store on private depth-stencil and RGBA8 textures (clear, Load + DontCare, read back) and logs one result line
  DM_UE_SHADERS	path	Folder of the Unreal shader code archives decoded by `uepak.py`, for `shader_split.py` (default `ue_shaders` beside the RomFS); needed when the RomFS has Unreal paks
  DM_UE_TEXTURE_POOL	switch	Megabytes Unreal's texture streaming pool (`r.Streaming.PoolSize`) is raised to, overriding the profile's `ue_texture_pool`; `0` keeps the game's own pool. On iOS only this switch turns it on (`Documents/env.txt`)
@@ -4766,7 +4766,7 @@ index 0000000..e633df5
 +first. For repeated development builds, the packer's existing `--mac-sign`
 +option can use a stable signing identity, see [Mac app signing](development.md#a-mac-app).
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index 8a97476..813b5b0 100644
+index 309d69a..96e9986 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
 @@ -277,6 +277,27 @@ Most service calls can be found before they crash, before the first boot or the

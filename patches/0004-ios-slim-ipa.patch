@@ -148,7 +148,7 @@ index a832ad5..0f5485d 100644
              raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 4fd4ef6..6f3b3ef 100644
+index 3b3ceae..848e67d 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -47,6 +47,7 @@ DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since bo
