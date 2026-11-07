@@ -72,7 +72,7 @@ import NXModel
         XCTAssertEqual(game.displayName(.zh), "伊苏 起源")
         XCTAssertEqual(game.displayName(Lang("ja")), "イース・オリジン")
         XCTAssertEqual(game.displayName(.en), "Ys Origin")
-        XCTAssertEqual(game.displayName(Lang("sv")), "Ys Origin")   // no Swedish title: the bundle name
+        XCTAssertEqual(game.displayName(Lang("sv")), "Ys Origin")   // no Swedish title: the English one
         XCTAssertEqual(LibraryFilter.owned.visibleGames(library.games, matching: "伊苏", lang: .zh).map(\.id), [id])
         XCTAssertEqual(LibraryFilter.owned.visibleGames(library.games, matching: "ys orig", lang: .zh).map(\.id), [id])
 

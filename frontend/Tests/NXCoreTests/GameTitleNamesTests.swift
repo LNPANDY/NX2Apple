@@ -23,11 +23,13 @@ final class GameTitleNamesTests: XCTestCase {
         for system in ["zh-Hant-TW", "zh-TW", "zh-HK", "zh-Hant"] {
             XCTAssertEqual(GameTitleNames.pick(names, for: .zh, preferred: [system]), "傳說", system)
         }
-        XCTAssertEqual(GameTitleNames.pick(["en-US": "The Legend", "ko": "전설"], for: .zh, preferred: []), nil)   // no Chinese name: the caller shows the bundle name
+        XCTAssertEqual(GameTitleNames.pick(["en-US": "The Legend", "ko": "전설"], for: .zh, preferred: []), "The Legend")   // no Chinese name: the English one
     }
 
     func testLanguageWithoutTitleFallsBack() {
-        XCTAssertNil(GameTitleNames.pick(names, for: Lang("sv"), preferred: []))   // Horizon has no Swedish
+        XCTAssertEqual(GameTitleNames.pick(names, for: Lang("sv"), preferred: []), "The Legend")   // Horizon has no Swedish: English
+        XCTAssertEqual(GameTitleNames.pick(["en-GB": "Xenoblade Chronicles 3", "ko": "제노블레이드 크로니클스 3"], for: Lang("ja"), preferred: []), "Xenoblade Chronicles 3")
+        XCTAssertNil(GameTitleNames.pick(["ko": "13기병방위권", "zh-Hans": "十三机兵防卫圈"], for: Lang("ja"), preferred: []))   // neither Japanese nor English: the bundle name
         XCTAssertNil(GameTitleNames.pick([:], for: .en, preferred: []))
     }
 

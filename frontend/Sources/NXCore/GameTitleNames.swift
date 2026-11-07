@@ -67,10 +67,10 @@ package enum GameTitleNames {
         return all.filter { $0.lowercased() == code } + all.filter { $0.lowercased().hasPrefix(code + "-") }
     }
 
-    /// The name to show in `lang`: the first of its codes that `names` has, nil when it has none of them (the caller shows the
-    /// bundle name, as before).
+    /// The name to show in `lang`: the first of its codes that `names` has, else the English one (a Japanese launcher shows a
+    /// Korean cartridge's English name rather than its Korean one), nil when it has neither (the caller shows the bundle name).
     package static func pick(_ names: [String: String], for lang: Lang, preferred: [String] = systemLanguages) -> String? {
         guard !names.isEmpty else { return nil }
-        return codes(for: lang, preferred: preferred).lazy.compactMap { names[$0] }.first
+        return (codes(for: lang, preferred: preferred) + codes(for: .en, preferred: preferred)).lazy.compactMap { names[$0] }.first
     }
 }
