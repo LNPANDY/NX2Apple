@@ -1091,6 +1091,7 @@
   "library.scrollBack": "Faire défiler vers l’arrière",
   "library.scrollForward": "Faire défiler vers l’avant",
   "library.search": "Rechercher des jeux…",
+  "library.setUpBuild": "Compiler ce jeu…",
   "library.setupHint": "Avant votre première compilation, terminez la configuration ci-dessous.",
   "library.showLog": "Afficher le journal du jeu",
   "library.showLog.none": "Pas encore de journal du jeu. Lancez le jeu une fois pour le créer",

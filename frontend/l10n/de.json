@@ -1078,6 +1078,7 @@
   "library.scrollBack": "Zurückblättern",
   "library.scrollForward": "Weiterblättern",
   "library.search": "Spiele suchen …",
+  "library.setUpBuild": "Bauen vorbereiten",
   "library.setupHint": "Beende vor deinem ersten Build die Einrichtung weiter unten.",
   "library.showLog": "Spielprotokoll zeigen",
   "library.showLog.none": "Noch kein Spielprotokoll. Spiele das Spiel einmal, um eines zu erzeugen",

@@ -576,7 +576,7 @@ class MainWindow(QMainWindow):
             else:
                 st_text = self.m.t('library.notBuilt')
                 st_color = style.NEUTRAL_DOT
-                p_label = self.m.t('build.startGame')
+                p_label = self.m.t('library.setUpBuild')
                 p_en = not self.m.running
 
             sub_parts = [sel.title_id]

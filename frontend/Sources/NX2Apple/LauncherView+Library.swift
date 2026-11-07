@@ -107,7 +107,7 @@ extension LauncherView {
                         LauncherHeroActionLabel(
                             title: game.primary == .play ? loc.t("library.play")
                                 : (game.primary == .openOnDevice ? String(format: loc.t("dev.open"), devices.deviceName(game.installedDevice))
-                                   : loc.t("library.newBuild")),
+                                   : loc.t("library.setUpBuild")),
                             symbol: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
                     }
                     .buttonStyle(.plain).disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
