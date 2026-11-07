@@ -864,6 +864,144 @@ class SharedShellParityTests(unittest.TestCase):
                 prog.close()
                 m._stop_pso_poll()
 
+    def test_onboarding_install_all_missing_tracks_sub_stages_and_pip_packages(self) -> None:
+        """Verify Model.install_all_missing, _stage_progress_logger, and _make_venv update per-item
+        sub-stages (Python interpreter download -> venv -> pip packages, download -> unpack) and overall progress.
+        """
+        import io
+        import time
+        from unittest import mock
+
+        model_mod = self._model_mod
+        Model = model_mod.Model
+        Dep = model_mod.Dep
+        DepState = model_mod.DepState
+
+        with mock.patch.object(Model, 'check_deps', lambda self: None):
+            m = Model()
+
+        py_dep = Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING, install=['__win__:python'])
+        dn_dep = Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint', DepState.MISSING, install=['__win__:dotnet'])
+        llvm_dep = Dep('llvm', 'dep.llvm', 'dep.llvm.hint', DepState.MISSING, install=['__win__:llvm'])
+        lld_dep = Dep('lld', 'dep.lld', 'dep.lld.hint', DepState.MISSING, install=[])
+        sdk_dep = Dep('ios_sdk', 'dep.iossdk', 'dep.iossdk.hint', DepState.MISSING, install=['__win__:ios_sdk'])
+        m.deps = [py_dep, dn_dep, llvm_dep, lld_dep, sdk_dep]
+        m.deps_checked = True
+
+        # 1. Verify _stage_progress_logger updates py_download, download, and unpack percentages
+        m._install_all_running = True
+        m.install_all_step = 1
+        m.install_all_total = 4
+        m.install_all_pct = 0
+
+        py_cb = m._stage_progress_logger(
+            py_dep, m.t('dep.phase.download'), 'python-3.12.8-amd64.exe',
+            phase='py_download', py_version='3.12.8',
+        )
+        py_cb(13 * 1048576, 26 * 1048576)
+        self.assertEqual(py_dep.install_pct, 50)
+        self.assertIn('50%', py_dep.install_stage)
+        self.assertIn('3.12.8', py_dep.install_detail)
+        self.assertGreater(m.install_all_pct, 0)
+
+        dl_cb = m._stage_progress_logger(
+            llvm_dep, m.t('dep.phase.download'), 'llvm-mingw.zip', phase='download'
+        )
+        dl_cb(160 * 1048576, 250 * 1048576)
+        self.assertEqual(llvm_dep.install_pct, 64)
+        self.assertIn('64%', llvm_dep.install_stage)
+        self.assertIn('160 / 250 MB', llvm_dep.install_detail)
+
+        up_cb = m._stage_progress_logger(
+            llvm_dep, m.t('dep.phase.unpack'), 'llvm-mingw.zip', phase='unpack'
+        )
+        up_cb(180 * 1048576, 250 * 1048576)
+        self.assertEqual(llvm_dep.install_pct, 72)
+        self.assertIn('72%', llvm_dep.install_stage)
+        m._install_all_running = False
+
+        # 2. Verify _make_venv tracks pip package progress across all 6 packages
+        seen_stages: list[tuple[str, str, int | None]] = []
+        orig_set = m._set_dep_progress
+
+        def spy_set(dep, stage='', detail='', pct=None, **kw):
+            orig_set(dep, stage, detail, pct, **kw)
+            seen_stages.append((stage, detail, dep.install_pct))
+
+        class FakePipPopen:
+            def __init__(self, *_a, **_kw) -> None:
+                self.stdout = io.StringIO(
+                    'Processing ./wheels/lz4-4.3.3.whl\n'
+                    'Processing ./wheels/capstone-5.0.3.whl\n'
+                    'Processing ./wheels/fonttools-4.55.0.whl\n'
+                    'Processing ./wheels/zbic-0.1.0.whl\n'
+                    'Processing ./wheels/backports_zstd-1.0.0.whl\n'
+                    'Processing ./wheels/nsz-4.6.1.whl\n'
+                    'Successfully installed lz4 capstone fonttools zbic backports.zstd nsz\n'
+                )
+                self.returncode = 0
+
+            def wait(self) -> int:
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            vdir = Path(td) / 'venv'
+            vpy = vdir / 'bin' / 'python3'
+            base_py = Path(td) / 'base_python3'
+            base_py.write_text('', encoding='utf-8')
+
+            def fake_runs(exe, args):
+                if args[:2] == ['-m', 'venv']:
+                    vpy.parent.mkdir(parents=True, exist_ok=True)
+                    vpy.write_text('', encoding='utf-8')
+                return True
+
+            py_dep.installing = True
+            with mock.patch.object(model_mod.pu, 'venv_dir', return_value=vdir), \
+                 mock.patch.object(model_mod.pu, 'venv_python', return_value=str(vpy)), \
+                 mock.patch.object(model_mod.pu, 'venv_base', return_value=str(base_py)), \
+                 mock.patch.object(model_mod.pu, '_python_version', return_value='3.12.8'), \
+                 mock.patch.object(model_mod.pu, '_runs', side_effect=fake_runs), \
+                 mock.patch.object(model_mod.subprocess, 'Popen', FakePipPopen), \
+                 mock.patch.object(m, '_set_dep_progress', side_effect=spy_set):
+                ok = m._make_venv(str(base_py))
+            py_dep.installing = False
+        self.assertTrue(ok)
+        self.assertTrue(any(pct == 100 for _s, _d, pct in seen_stages), seen_stages)
+        self.assertTrue(any('fonttools' in d for _s, d, _p in seen_stages), seen_stages)
+
+        # 3. Verify install_all_missing assigns queue_index, advances install_all_step, and clears state at end
+        snapshots: list[tuple[int, int, list[int]]] = []
+
+        def fake_install_dep(dep: Dep) -> None:
+            snapshots.append((
+                m.install_all_step,
+                m.install_all_total,
+                [r.queue_index for r in m.deps],
+            ))
+            dep.installing = False
+            dep._install_done = True  # type: ignore[attr-defined]
+            dep.state = DepState.OK
+            if dep.id == 'llvm':
+                lld_dep.state = DepState.OK
+
+        with mock.patch.object(m, 'install_dep', side_effect=fake_install_dep), \
+             mock.patch.object(m, 'check_deps', lambda: None):
+            m.install_all_missing()
+            deadline = time.time() + 5.0
+            while m._install_all_running and time.time() < deadline:
+                time.sleep(0.02)
+
+        self.assertFalse(m._install_all_running)
+        self.assertEqual(m.install_all_step, 0)
+        self.assertEqual(len(snapshots), 4)
+        self.assertEqual([s[0] for s in snapshots], [1, 2, 3, 4])
+        self.assertTrue(all(s[1] == 4 for s in snapshots))
+        # At step 1, dotnet/llvm/ios_sdk are queued as #2, #3, #4
+        self.assertEqual(snapshots[0][2], [1, 2, 3, 0, 4])
+        self.assertTrue(all(r.ok for r in m.deps))
+        self.assertTrue(all(r.queue_index == 0 for r in m.deps))
+
 
 class KeyCheckTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -1862,6 +2000,92 @@ class ParityWindowTests(unittest.TestCase):
         self.assertIn('tools/build_shell_template.py', wf)
         self.assertIn('--hidden-import nspb_qt.win.shell_export', wf)
         self.assertIn('--add-data "shell_template${PATHSEP}shell_template"', wf)
+
+    def test_real_onboarding_dialog_step2_live_progress_and_button_lock(self) -> None:
+        """Instantiate the real OnboardingDialog with a real Model and verify live signal-driven
+        progress updates, in-place QProgressBar updates, button locking, and signal disconnect on close.
+        """
+        from unittest import mock
+        from nspb_qt.model import Dep, DepState, Model
+        from nspb_qt.sheets import OnboardingDialog
+
+        with mock.patch.object(Model, 'check_deps', lambda self: None):
+            m = Model()
+        py_dep = Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING, install=['__win__:python'])
+        dn_dep = Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint', DepState.MISSING, install=['__win__:dotnet'])
+        llvm_dep = Dep('llvm', 'dep.llvm', 'dep.llvm.hint', DepState.MISSING, install=['__win__:llvm'])
+        lld_dep = Dep('lld', 'dep.lld', 'dep.lld.hint', DepState.MISSING, install=[])
+        sdk_dep = Dep('ios_sdk', 'dep.iossdk', 'dep.iossdk.hint', DepState.MISSING, install=['__win__:ios_sdk'])
+        m.deps = [py_dep, dn_dep, llvm_dep, lld_dep, sdk_dep]
+        m.deps_checked = True
+
+        dlg = OnboardingDialog(m)
+        self.addCleanup(self._delete, m, dlg)
+        dlg.next_btn.click()
+        self.app.processEvents()
+
+        self.assertTrue(dlg.next_btn.isEnabled())
+        self.assertTrue(dlg.back_btn.isEnabled())
+        self.assertTrue(dlg.later_btn.isEnabled())
+        self.assertTrue(dlg.task_pill.isHidden())
+        self.assertTrue(dlg.overall_pct_lbl.isHidden())
+
+        # Start install-all step 1/4 and emit real progress signal via _set_dep_progress
+        m._install_all_running = True
+        m.install_all_step = 1
+        m.install_all_total = 4
+        py_dep.installing = True
+        dn_dep.queue_index = 2
+        llvm_dep.queue_index = 3
+        sdk_dep.queue_index = 4
+        m._set_dep_progress(
+            py_dep,
+            m.t('dep.stage.pyDownload', 45),
+            m.t('dep.detail.pyDownload', '3.12.8', 12, 26, 45),
+            45,
+            item_overall_pct=18,
+            force=True,
+        )
+        self.app.processEvents()
+
+        self.assertFalse(dlg.next_btn.isEnabled())
+        self.assertFalse(dlg.back_btn.isEnabled())
+        self.assertTrue(dlg.later_btn.isEnabled())
+        self.assertFalse(dlg.task_pill.isHidden())
+        self.assertFalse(dlg.overall_pct_lbl.isHidden())
+        bar1 = dlg._step1_widgets['rows']['python']['bar']
+        self.assertEqual(bar1.value(), 45)
+        self.assertFalse(dlg._step1_widgets['ibtn'].isEnabled())
+
+        # Advance Python to pip packages at 83% and verify in-place QProgressBar update
+        m._set_dep_progress(
+            py_dep,
+            m.t('dep.stage.pyPkgs', 83),
+            m.t('dep.detail.pyPkgs', 5, 6, 'backports.zstd'),
+            83,
+            item_overall_pct=88,
+        )
+        self.app.processEvents()
+        self.assertIs(dlg._step1_widgets['rows']['python']['bar'], bar1)
+        self.assertEqual(bar1.value(), 83)
+
+        # Finish all installs -> buttons re-enable
+        for d in m.deps:
+            d.installing = False
+            d.state = DepState.OK
+            d.queue_index = 0
+        m._install_all_running = False
+        m.depsChanged.emit()
+        self.app.processEvents()
+        self.assertTrue(dlg.next_btn.isEnabled())
+        self.assertTrue(dlg.back_btn.isEnabled())
+
+        # Close dialog via done(0) and verify depsChanged no longer calls _render_step
+        dlg.done(0)
+        with mock.patch.object(dlg, '_render_step') as spy_render:
+            m.depsChanged.emit()
+            self.app.processEvents()
+            spy_render.assert_not_called()
 
 
 if __name__ == '__main__':

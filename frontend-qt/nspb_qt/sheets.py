@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -498,27 +499,47 @@ class OnboardingDialog(QDialog):
         super().__init__(parent)
         self.m = model
         self.step = 0
+        self._step1_sig: tuple | None = None
+        self._step1_widgets: dict = {}
         self.setWindowTitle('NX2Apple Setup')
-        self.setMinimumSize(640, 480)
+        self.setMinimumSize(640, 520)
         self.setStyleSheet(style.STYLESHEET)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(32, 28, 32, 24)
         lay.setSpacing(16)
 
+        top_row = QHBoxLayout()
         self.step_badge = QLabel('')
         self.step_badge.setObjectName('muted')
-        lay.addWidget(self.step_badge)
+        top_row.addWidget(self.step_badge)
+        top_row.addStretch(1)
+        self.task_pill = QLabel('')
+        self.task_pill.setStyleSheet(
+            f'color: {style.ACCENT}; background: rgba(255, 240, 214, 0.10); '
+            'border: 1px solid rgba(255, 240, 214, 0.22); border-radius: 10px; '
+            'padding: 3px 10px; font-size: 11.5px; font-weight: 600;'
+        )
+        self.task_pill.hide()
+        top_row.addWidget(self.task_pill)
+        lay.addLayout(top_row)
 
         self.head_title = QLabel('')
         self.head_title.setStyleSheet('font-size: 28px; font-weight: 800;')
         self.head_title.setWordWrap(True)
         lay.addWidget(self.head_title)
 
+        note_row = QHBoxLayout()
         self.head_note = QLabel('')
         self.head_note.setObjectName('pageNote')
         self.head_note.setWordWrap(True)
-        lay.addWidget(self.head_note)
+        note_row.addWidget(self.head_note, 1)
+        self.overall_pct_lbl = QLabel('')
+        self.overall_pct_lbl.setObjectName('mono')
+        self.overall_pct_lbl.setStyleSheet(f'color: {style.ACCENT}; font-size: 12px; font-weight: 700;')
+        self.overall_pct_lbl.hide()
+        note_row.addWidget(self.overall_pct_lbl)
+        lay.addLayout(note_row)
 
         self.body_host = QWidget()
         self.body_layout = QVBoxLayout(self.body_host)
@@ -547,22 +568,71 @@ class OnboardingDialog(QDialog):
         self.m.repoChanged.connect(self._render_step)
         self._render_step()
 
+    def done(self, result: int) -> None:
+        try:
+            self.m.depsChanged.disconnect(self._render_step)
+        except (RuntimeError, TypeError):
+            pass
+        try:
+            self.m.repoChanged.disconnect(self._render_step)
+        except (RuntimeError, TypeError):
+            pass
+        super().done(result)
+
     def _on_later(self) -> None:
         self.m.settings_set('onboardingComplete', True)
         self.reject()
 
     def _clear_body(self) -> None:
+        self._step1_sig = None
+        self._step1_widgets = {}
         while self.body_layout.count():
             it = self.body_layout.takeAt(0)
-            if it.widget():
-                it.widget().deleteLater()
+            w = it.widget()
+            if w is not None:
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
+
+    def _step1_row_meta(self, d, llvm_dep, any_busy: bool) -> tuple[str, str, str, str, str, int | None]:
+        """Compute (dot_color, status_text, status_color, detail_text, detail_color, pct) for step 2."""
+        if d.ok:
+            return (style.GREEN, self.m.t('onboarding.ready'), style.GREEN, '', '', None)
+        if getattr(d, 'installing', False):
+            stage = getattr(d, 'install_stage', '') or self.m.t('dep.installing')
+            detail = getattr(d, 'install_detail', '')
+            pct_raw = getattr(d, 'install_pct', None)
+            pct = max(0, min(100, int(pct_raw))) if pct_raw is not None else 0
+            return (style.AMBER, stage, style.ACCENT, detail, style.MUTED, pct)
+        if d.id == 'lld' and llvm_dep is not None and not llvm_dep.ok:
+            if getattr(llvm_dep, 'installing', False):
+                return (style.AMBER, self.m.t('onboarding.progress.waitingLlvm'), style.MUTED, '', '', None)
+            if getattr(llvm_dep, 'queue_index', 0) > 0 or any_busy:
+                return (style.NEUTRAL_DOT, self.m.t('onboarding.progress.withLlvm'), style.MUTED, '', '', None)
+        q_idx = int(getattr(d, 'queue_index', 0) or 0)
+        if q_idx > 0:
+            return (style.NEUTRAL_DOT, self.m.t('onboarding.progress.queuePos', q_idx), style.MUTED, '', '', None)
+        dot = style.AMBER if not d.required else style.RED
+        err = getattr(d, 'last_error', '')
+        fix = getattr(d, 'fix_hint', '')
+        detail = (err + (' — ' + self.m.t(fix) if fix else '')) if err else ''
+        return (dot, self.m.t('onboarding.failed'), '', detail, style.AMBER if detail else '', None)
 
     def _render_step(self) -> None:
-        self._clear_body()
         self.step_badge.setText(self.m.t('onboarding.stepCount', self.step + 1, 4))
         self.back_btn.setVisible(self.step > 0)
+        any_busy = (
+            any(getattr(d, 'installing', False) for d in self.m.deps)
+            or bool(getattr(self.m, '_install_all_running', False))
+        )
+        if self.step != 1:
+            self.task_pill.hide()
+            self.overall_pct_lbl.hide()
+            self.next_btn.setEnabled(True)
+            self.back_btn.setEnabled(True)
 
         if self.step == 0:
+            self._clear_body()
             self.head_title.setText(self.m.t('onboarding.welcome.title'))
             self.head_note.setText(self.m.t('onboarding.welcome.note'))
             self.next_btn.setText(self.m.t('onboarding.start'))
@@ -603,30 +673,142 @@ class OnboardingDialog(QDialog):
             self.head_title.setText(self.m.t('onboarding.background.title'))
             self.head_note.setText(self.m.t('dep.title'))
             self.next_btn.setText(self.m.t('onboarding.continue'))
+            self.next_btn.setEnabled(not any_busy)
+            self.back_btn.setEnabled(not any_busy)
+
+            active_dep = next((x for x in self.m.deps if getattr(x, 'installing', False)), None)
+            if getattr(self.m, '_install_all_running', False) and getattr(self.m, 'install_all_total', 0) > 0:
+                curr_step = max(1, int(self.m.install_all_step or 1))
+                total_tasks = max(curr_step, int(self.m.install_all_total or 1))
+                overall_pct = max(0, min(100, int(getattr(self.m, 'install_all_pct', 0) or 0)))
+            elif any_busy:
+                curr_step = 1
+                total_tasks = 1
+                overall_pct = max(0, min(100, int(getattr(active_dep, 'install_pct', 0) or 0)))
+            else:
+                curr_step = total_tasks = overall_pct = 0
+
+            if any_busy:
+                self.task_pill.setText(self.m.t('onboarding.progress.taskBadge', curr_step, total_tasks))
+                self.task_pill.show()
+                self.overall_pct_lbl.setText(self.m.t('onboarding.progress.overallPct', overall_pct))
+                self.overall_pct_lbl.show()
+            else:
+                self.task_pill.hide()
+                self.overall_pct_lbl.hide()
+
+            visible_deps = list(self.m.deps[:5])
+            for extra in self.m.deps[5:]:
+                if getattr(extra, 'installing', False) and extra not in visible_deps:
+                    visible_deps.append(extra)
+
+            llvm_dep = next((x for x in self.m.deps if x.id == 'llvm'), None)
+            metas = [self._step1_row_meta(d, llvm_dep, any_busy) for d in visible_deps]
+            show_ibtn = any_busy or any(not d.ok and d.install for d in self.m.deps)
+            if any_busy:
+                active_stage = (
+                    (getattr(active_dep, 'install_stage', '') if active_dep else '')
+                    or self.m.t('dep.installing')
+                )
+                ibtn_text = self.m.t('onboarding.progress.installingBtn', curr_step, total_tasks, active_stage)
+            else:
+                ibtn_text = self.m.t('dep.installAll')
+
+            sig = (
+                1,
+                any_busy,
+                show_ibtn,
+                tuple(
+                    (d.id, m[0], bool(m[3]), m[5] is not None)
+                    for d, m in zip(visible_deps, metas)
+                ),
+            )
+            if sig == self._step1_sig and self._step1_widgets:
+                row_map = self._step1_widgets.get('rows', {})
+                for d, meta in zip(visible_deps, metas):
+                    w = row_map.get(d.id)
+                    if not w:
+                        continue
+                    _dot, st_text, st_color, dt_text, dt_color, pct_val = meta
+                    w['status'].setText(st_text)
+                    w['status'].setStyleSheet(
+                        f'color: {st_color}; font-size: 12px; font-weight: 600;' if st_color else ''
+                    )
+                    if w.get('detail') is not None and dt_text:
+                        w['detail'].setText(dt_text)
+                        w['detail'].setStyleSheet(f'color: {dt_color}; font-size: 11.5px;' if dt_color else '')
+                    if w.get('bar') is not None and pct_val is not None:
+                        w['bar'].setValue(pct_val)
+                ibtn_w = self._step1_widgets.get('ibtn')
+                if ibtn_w is not None:
+                    ibtn_w.setText(ibtn_text)
+                    ibtn_w.setEnabled(not any_busy)
+                return
+
+            self._clear_body()
+            self._step1_sig = sig
+            row_widgets: dict = {}
 
             grp = CardGroup()
-            for idx, d in enumerate(self.m.deps[:5]):
+            for idx, (d, meta) in enumerate(zip(visible_deps, metas)):
                 if idx > 0:
                     grp.add_divider()
+                dot_color, st_text, st_color, dt_text, dt_color, pct_val = meta
                 r = QWidget()
-                rl = QHBoxLayout(r)
-                rl.setContentsMargins(18, 10, 18, 10)
-                rl.addWidget(StatusDot(style.GREEN if d.ok else (style.AMBER if not d.required else style.RED)))
+                v = QVBoxLayout(r)
+                v.setContentsMargins(18, 10, 18, 10)
+                v.setSpacing(6)
+
+                rl = QHBoxLayout()
+                rl.setSpacing(10)
+                dot_w = StatusDot(dot_color)
+                rl.addWidget(dot_w)
                 tl = QLabel(self.m.t(d.title_key))
                 tl.setObjectName('rowTitle')
                 rl.addWidget(tl, 1)
-                st = QLabel(self.m.t('onboarding.ready') if d.ok else self.m.t('onboarding.failed'))
+                st = QLabel(st_text)
                 st.setObjectName('muted')
+                if st_color:
+                    st.setStyleSheet(f'color: {st_color}; font-size: 12px; font-weight: 600;')
                 rl.addWidget(st)
+                v.addLayout(rl)
+
+                dl = None
+                if dt_text:
+                    dl = QLabel(dt_text)
+                    dl.setObjectName('mono')
+                    dl.setWordWrap(True)
+                    dl.setContentsMargins(18, 0, 0, 0)
+                    if dt_color:
+                        dl.setStyleSheet(f'color: {dt_color}; font-size: 11.5px;')
+                    v.addWidget(dl)
+
+                bar = None
+                if pct_val is not None:
+                    bar_wrap = QHBoxLayout()
+                    bar_wrap.setContentsMargins(18, 2, 0, 2)
+                    bar = QProgressBar()
+                    bar.setRange(0, 100)
+                    bar.setValue(pct_val)
+                    bar.setTextVisible(False)
+                    bar_wrap.addWidget(bar)
+                    v.addLayout(bar_wrap)
+
+                row_widgets[d.id] = {'dot': dot_w, 'status': st, 'detail': dl, 'bar': bar}
                 grp.add_row(r)
             self.body_layout.addWidget(grp)
 
-            if any(not d.ok and d.install for d in self.m.deps):
-                ibtn = QPushButton(self.m.t('dep.installAll'))
+            ibtn = None
+            if show_ibtn:
+                ibtn = QPushButton(ibtn_text)
+                ibtn.setEnabled(not any_busy)
                 ibtn.clicked.connect(self.m.install_all_missing)
                 self.body_layout.addWidget(ibtn)
 
+            self._step1_widgets = {'rows': row_widgets, 'ibtn': ibtn}
+
         elif self.step == 2:
+            self._clear_body()
             self.head_title.setText(self.m.t('onboarding.keys.title'))
             self.head_note.setText(self.m.t('onboarding.keys.note'))
             self.next_btn.setText(self.m.t('onboarding.continue'))
@@ -653,6 +835,7 @@ class OnboardingDialog(QDialog):
             self.body_layout.addWidget(grp)
 
         elif self.step == 3:
+            self._clear_body()
             self.head_title.setText(self.m.t('onboarding.games.title'))
             self.head_note.setText(self.m.t('onboarding.games.note'))
             self.next_btn.setText(self.m.t('onboarding.openLibrary'))
