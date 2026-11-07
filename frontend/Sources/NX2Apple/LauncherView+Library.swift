@@ -113,6 +113,10 @@ extension LauncherView {
                     .buttonStyle(.plain).disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
                     .keyboardShortcut(.return, modifiers: [])
                     .padTarget("hero.play", scope: "main", radius: 30) { if !launching { primaryAction(game) } }
+                    if let version = game.playVersion {
+                        Text(String(format: loc.t("console.version"), version))
+                            .font(.manrope(13)).foregroundStyle(.secondary).lineLimit(1)
+                    }
                     if game.isReady {
                         Button { optionsFor = game.id } label: {
                             Image(systemName: "slider.horizontal.3").font(.system(size: 17))
