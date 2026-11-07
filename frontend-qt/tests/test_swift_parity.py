@@ -974,15 +974,46 @@ class ParityWindowTests(unittest.TestCase):
             self.assertFalse(w.act_progress.isTextVisible())
 
             # 6d. sdk_fetch._win_path and mp_worker multi-process helpers work
-            from nspb_qt.win import sdk_fetch, mp_worker
+            import types
+            from nspb_qt.win import sdk_fetch
             self.assertTrue(callable(sdk_fetch._win_path))
-            img_tmp = td_path / 'test_x18.bin'
-            img_tmp.write_bytes(b'\xe0\x03\x12\xaa' * 16)
-            mp_worker.init_x18(str(img_tmp))
+            injected_cs = False
             try:
-                self.assertEqual(len(mp_worker.run_x18_job((0, 64))), 16)
+                import capstone  # noqa: F401
+            except ModuleNotFoundError:
+                class _StubCs:
+                    def __init__(self, *_a, **_kw) -> None:
+                        self.detail = False
+
+                    def disasm_lite(self, buf: bytes, base: int):
+                        for off in range(0, len(buf), 4):
+                            yield (base + off, 4, 'mov', 'x0, x18')
+
+                cs_mod = types.ModuleType('capstone')
+                cs_mod.CS_ARCH_ARM64 = 1
+                cs_mod.CS_MODE_ARM = 0
+                cs_mod.Cs = _StubCs
+                cs_arm64 = types.ModuleType('capstone.arm64')
+                cs_arm64.ARM64_OP_IMM = 1
+                cs_arm64.ARM64_OP_MEM = 2
+                cs_arm64.ARM64_OP_REG = 3
+                sys.modules['capstone'] = cs_mod
+                sys.modules['capstone.arm64'] = cs_arm64
+                injected_cs = True
+            try:
+                from nspb_qt.win import mp_worker
+                img_tmp = td_path / 'test_x18.bin'
+                img_tmp.write_bytes(b'\xe0\x03\x12\xaa' * 16)
+                mp_worker.init_x18(str(img_tmp))
+                try:
+                    self.assertEqual(len(mp_worker.run_x18_job((0, 64))), 16)
+                finally:
+                    mp_worker._close_mmap()
             finally:
-                mp_worker._close_mmap()
+                if injected_cs:
+                    sys.modules.pop('nspb_qt.win.mp_worker', None)
+                    sys.modules.pop('capstone.arm64', None)
+                    sys.modules.pop('capstone', None)
 
             # 8. Stage completion marks running stage 'done' (green) instead of staying 'running' (orange)
             m.stages.clear()
