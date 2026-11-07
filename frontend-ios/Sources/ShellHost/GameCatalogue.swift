@@ -185,6 +185,8 @@ public struct DataResolution: Equatable, Sendable {
     public var source: DataSource?
     /// A bookmark exists but no longer resolves (the app is signed differently now).
     public var pickedIsStale: Bool
+    /// The image or tree selected within the data folder.
+    var romfsURL: URL? = nil
     public var found: Bool { url != nil }
     public static let missing = DataResolution(url: nil, source: nil, pickedIsStale: false)
 }
@@ -193,58 +195,81 @@ public struct DataResolution: Equatable, Sendable {
 /// app's `Documents/games/<title ID>/`, each accepted only when it holds the game's image or marker. It differs by the
 /// shell-level folder, which the per-game app has no counterpart for: one folder serves every game. The order is the game's
 /// own pick, then in the shell folder `shellMatch` (the folder of the image with the game's identity, found by
-/// `ShellDataIndex` whatever the folder is called), `<folder>/<title ID>/` by name (instant, no scan), the folder itself
+/// `ShellDataIndex` whatever the folder is called), `<folder>/<title ID>/` by name, the folder itself
 /// (the layout for a single game), and last the app's folder. All shell folder cases say `.shell`.
 public enum DataLocator {
     public static func locate(manifest: GameManifest, picked: BookmarkResolution, appFolder: URL, fileManager fm: FileManager = .default,
                               global: BookmarkResolution = .none, shellMatch: URL? = nil) -> DataResolution {
+        locate(manifest: manifest, picked: picked, appFolder: appFolder, fileManager: fm, global: global, shellMatch: shellMatch) {
+            RomfsIdentity.ofImage(at: $0) == $1
+        }
+    }
+
+    static func locate(manifest: GameManifest, picked: BookmarkResolution, appFolder: URL, fileManager fm: FileManager = .default,
+                       global: BookmarkResolution, shellMatch: URL?, matchesIdentity: (URL, RomfsIdentity) -> Bool) -> DataResolution {
         var result = DataResolution.missing
+        let expectedIdentity = RomfsIdentity.parse(manifest.romfsIdentity)
+        func select(_ url: URL, source: DataSource) -> Bool {
+            guard let candidate = romfs(in: url, manifest: manifest, fm, allowPickedFile: source == .picked, acceptsImage: { image in
+                guard source != .app, let expectedIdentity else { return true }
+                return matchesIdentity(image, expectedIdentity)
+            }) else { return false }
+            result.url = candidate.folder
+            result.romfsURL = candidate.romfs
+            result.source = source
+            return true
+        }
         switch picked {
         case .stale: result.pickedIsStale = true
         case .url(let url):
-            if let dir = holder(of: url, manifest: manifest, fm) { result.url = dir; result.source = .picked; return result }
+            if select(url, source: .picked) { return result }
         case .none: break
         }
         switch global {   // the shell-level data folder: the game's own bookmark wins, this backs it up
         case .url(let url):
-            // `shellMatch`: the folder whose image has this game's identity (`ShellDataIndex`), whatever the folder is called.
-            if let match = shellMatch, let dir = holder(of: match, manifest: manifest, fm) { result.url = dir; result.source = .shell; return result }
+            if let match = shellMatch, select(match, source: .shell) { return result }
             let titleFolder = url.appendingPathComponent(manifest.titleID, isDirectory: true)
-            if let dir = holder(of: titleFolder, manifest: manifest, fm) ?? holder(of: url, manifest: manifest, fm) {
-                result.url = dir; result.source = .shell; return result
-            }
+            if select(titleFolder, source: .shell) || select(url, source: .shell) { return result }
         case .stale, .none: break
         }
-        if let dir = holder(of: appFolder, manifest: manifest, fm) { result.url = dir; result.source = .app }
+        _ = select(appFolder, source: .app)
         return result
     }
 
-    /// The folder in `url` (or `url` itself) that holds the game: an image, or a tree with the marker.
-    static func holder(of url: URL, manifest: GameManifest, _ fm: FileManager) -> URL? {
+    /// The exact image or tree and its data folder, where add-on content lives.
+    static func romfs(in url: URL, manifest: GameManifest, _ fm: FileManager, allowPickedFile: Bool = false,
+                      acceptsImage: (URL) -> Bool = { _ in true }) -> (folder: URL, romfs: URL)? {
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
-        if !isDir.boolValue { return url.pathExtension == "img" && isComplete(url, manifest: manifest, fm) ? url.deletingLastPathComponent() : nil }
-        if isComplete(url.appendingPathComponent("romfs.img"), manifest: manifest, fm) { return url }
-        for tree in [url, url.appendingPathComponent("romfs", isDirectory: true)]
-        where fm.fileExists(atPath: tree.appendingPathComponent(manifest.romfsMarker).path) { return url }
+        if !isDir.boolValue {
+            guard allowPickedFile, url.pathExtension.lowercased() == "img", isComplete(url, manifest: manifest, fm), acceptsImage(url)
+            else { return nil }
+            return (url.deletingLastPathComponent(), url)
+        }
+        let canonicalImage = url.appendingPathComponent("romfs.img")
+        if isComplete(canonicalImage, manifest: manifest, fm), acceptsImage(canonicalImage) { return (url, canonicalImage) }
+        let names = ((try? fm.contentsOfDirectory(atPath: url.path)) ?? []).filter { $0 != "romfs.img" && $0.lowercased() == "romfs.img" }
+        for name in names.sorted() {
+            let image = url.appendingPathComponent(name)
+            if isComplete(image, manifest: manifest, fm), acceptsImage(image) { return (url, image) }
+        }
+        for tree in [url.appendingPathComponent("romfs", isDirectory: true), url]
+        where fm.fileExists(atPath: tree.appendingPathComponent(manifest.romfsMarker).path) { return (url, tree) }
         return nil
     }
 
     /// A non-empty image, and when the manifest names the image it was built for (`romfs_identity`, `size=<bytes>`), exactly that
     /// size: a copy cut off partway (the device locked or was unplugged during the Mac launcher's copy) is not game data yet.
     static func isComplete(_ url: URL, manifest: GameManifest, _ fm: FileManager) -> Bool {
-        guard isNonEmpty(url, fm) else { return false }
-        guard let want = expectedImageSize(manifest) else { return true }
-        return ((try? fm.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.int64Value == want
+        guard let attributes = try? fm.attributesOfItem(atPath: url.path),
+              attributes[.type] as? FileAttributeType != .typeDirectory,
+              let size = (attributes[.size] as? NSNumber)?.int64Value, size > 0 else { return false }
+        return expectedImageSize(manifest).map { $0 == size } ?? true
     }
 
     /// `size=<bytes>` of the manifest's `romfs_identity` line (`DMROMFSID1 title=… size=… index=…`), nil without one.
     static func expectedImageSize(_ manifest: GameManifest) -> Int64? {
         manifest.romfsIdentity.split(separator: " ").first { $0.hasPrefix("size=") }.flatMap { Int64($0.dropFirst(5)) }
-    }
-
-    private static func isNonEmpty(_ url: URL, _ fm: FileManager) -> Bool {
-        ((try? fm.attributesOfItem(atPath: url.path)[.size]) as? NSNumber)?.intValue ?? 0 > 0
     }
 }
 

@@ -13,11 +13,6 @@ import ShellUI
         return try GameManifest.parse(Data(text.utf8))
     }
 
-    func image(_ size: Int, at url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Data(count: size).write(to: url)
-    }
-
     /// A DMROMFS1 image: header, 16 bytes of game data, then `index` (13 bytes here, so the hash pads to a multiple of 8).
     static func dmromfs(_ index: [UInt8], data: [UInt8] = [UInt8](repeating: 0x41, count: 16)) -> Data {
         func le(_ v: UInt64) -> [UInt8] { (0..<8).map { UInt8((v >> (8 * UInt64($0))) & 0xff) } }
@@ -99,6 +94,30 @@ import ShellUI
         #expect(found(try ident(Self.indexA), in: shared) == nil)
     }
 
+    @Test func aPickedImageWithTheWrongIdentityFallsBackToTheAppFolder() throws {
+        let box = try Sandbox()
+        let manifest = try manifest(title: Fixtures.orbit, size: 61, index: "90b5abb4d1ea10d2")
+        let picked = box.root.appendingPathComponent("Drive/Picked")
+        let app = box.appData.appendingPathComponent(manifest.titleID)
+        try place(Self.dmromfs(Self.indexB), at: picked.appendingPathComponent("romfs.img"))
+        try place(Self.dmromfs(Self.indexA), at: app.appendingPathComponent("romfs.img"))
+
+        let result = DataLocator.locate(manifest: manifest, picked: .url(picked), appFolder: app)
+        #expect(result.source == .app && result.url == app)
+    }
+
+    @Test func aSharedTitleFolderWithTheWrongIdentityFallsBackToTheAppFolder() throws {
+        let box = try Sandbox()
+        let manifest = try manifest(title: Fixtures.orbit, size: 61, index: "90b5abb4d1ea10d2")
+        let shared = box.root.appendingPathComponent("Drive")
+        let app = box.appData.appendingPathComponent(manifest.titleID)
+        try place(Self.dmromfs(Self.indexB), at: shared.appendingPathComponent(manifest.titleID + "/romfs.img"))
+        try place(Self.dmromfs(Self.indexA), at: app.appendingPathComponent("romfs.img"))
+
+        let result = DataLocator.locate(manifest: manifest, picked: .none, appFolder: app, global: .url(shared))
+        #expect(result.source == .app && result.url == app)
+    }
+
     @Test func theScanIsBounded() throws {
         let box = try Sandbox()
         let shared = box.root.appendingPathComponent("Drive", isDirectory: true)
@@ -124,9 +143,10 @@ import ShellUI
     @Test func oneFolderHoldsSeveralGames() throws {
         let box = try Sandbox()
         let shared = box.root.appendingPathComponent("Drive/All", isDirectory: true)
-        let a = try manifest(title: Fixtures.orbit, size: 12), b = try manifest(title: Fixtures.chain, size: 20)
-        try image(12, at: shared.appendingPathComponent(Fixtures.orbit).appendingPathComponent("romfs.img"))
-        try image(20, at: shared.appendingPathComponent(Fixtures.chain).appendingPathComponent("romfs.img"))
+        let a = try manifest(title: Fixtures.orbit, size: 61, index: "90b5abb4d1ea10d2")
+        let b = try manifest(title: Fixtures.chain, size: 61, index: "9da33c3b161c746a")
+        try place(Self.dmromfs(Self.indexA), at: shared.appendingPathComponent(Fixtures.orbit + "/romfs.img"))
+        try place(Self.dmromfs(Self.indexB), at: shared.appendingPathComponent(Fixtures.chain + "/romfs.img"))
         let ra = DataLocator.locate(manifest: a, picked: .none, appFolder: box.appData.appendingPathComponent(a.titleID), global: .url(shared))
         let rb = DataLocator.locate(manifest: b, picked: .none, appFolder: box.appData.appendingPathComponent(b.titleID), global: .url(shared))
         #expect(ra.source == .shell && ra.url == shared.appendingPathComponent(Fixtures.orbit))
@@ -136,27 +156,29 @@ import ShellUI
     @Test func aCutOffImageInTheTitleFolderFallsBackToTheAppFolder() throws {
         let box = try Sandbox()
         let shared = box.root.appendingPathComponent("Drive/All", isDirectory: true)
-        let m = try manifest(title: Fixtures.orbit, size: 12)
-        try image(5, at: shared.appendingPathComponent(Fixtures.orbit).appendingPathComponent("romfs.img"))
+        let m = try manifest(title: Fixtures.orbit, size: 61, index: "90b5abb4d1ea10d2")
+        let image = Self.dmromfs(Self.indexA)
+        try place(image.prefix(5), at: shared.appendingPathComponent(Fixtures.orbit + "/romfs.img"))
         let app = box.appData.appendingPathComponent(Fixtures.orbit)
         #expect(!DataLocator.locate(manifest: m, picked: .none, appFolder: app, global: .url(shared)).found)
-        try image(12, at: app.appendingPathComponent("romfs.img"))
+        try place(image, at: app.appendingPathComponent("romfs.img"))
         #expect(DataLocator.locate(manifest: m, picked: .none, appFolder: app, global: .url(shared)).source == .app)
     }
 
     @Test func theSingleGameLayoutAndTheGamesOwnFolderStillWork() throws {
         let box = try Sandbox()
         let shared = box.root.appendingPathComponent("Drive/One", isDirectory: true)
-        let m = try manifest(title: Fixtures.orbit, size: 12)
+        let m = try manifest(title: Fixtures.orbit, size: 61, index: "90b5abb4d1ea10d2")
         let app = box.appData.appendingPathComponent(Fixtures.orbit)
-        try image(12, at: shared.appendingPathComponent("romfs.img"))
+        let image = Self.dmromfs(Self.indexA)
+        try place(image, at: shared.appendingPathComponent("romfs.img"))
         let single = DataLocator.locate(manifest: m, picked: .none, appFolder: app, global: .url(shared))
         #expect(single.source == .shell && single.url == shared)
         // The title folder is tried before the folder itself, and the game's own pick before both.
-        try image(12, at: shared.appendingPathComponent(Fixtures.orbit).appendingPathComponent("romfs.img"))
+        try place(image, at: shared.appendingPathComponent(Fixtures.orbit + "/romfs.img"))
         #expect(DataLocator.locate(manifest: m, picked: .none, appFolder: app, global: .url(shared)).url == shared.appendingPathComponent(Fixtures.orbit))
         let own = box.root.appendingPathComponent("Drive/Own", isDirectory: true)
-        try image(12, at: own.appendingPathComponent("romfs.img"))
+        try place(image, at: own.appendingPathComponent("romfs.img"))
         let r = DataLocator.locate(manifest: m, picked: .url(own), appFolder: app, global: .url(shared))
         #expect(r.source == .picked && r.url == own)
     }
@@ -164,10 +186,10 @@ import ShellUI
     @Test func dlcSitsBesideTheTitleFolderImage() throws {
         let box = try Sandbox()
         let shared = box.root.appendingPathComponent("Drive/All", isDirectory: true)
-        let m = try manifest(title: Fixtures.orbit, size: 12)
+        let m = try manifest(title: Fixtures.orbit, size: 61, index: "90b5abb4d1ea10d2")
         let folder = shared.appendingPathComponent(Fixtures.orbit, isDirectory: true)
-        try image(12, at: folder.appendingPathComponent("romfs.img"))
-        try image(3, at: folder.appendingPathComponent("aoc/0.img"))
+        try place(Self.dmromfs(Self.indexA), at: folder.appendingPathComponent("romfs.img"))
+        try place(Data(count: 3), at: folder.appendingPathComponent("aoc/0.img"))
         let r = DataLocator.locate(manifest: m, picked: .none, appFolder: box.appData.appendingPathComponent(m.titleID), global: .url(shared))
         // The launch plan takes `aoc/` from the folder the locator returns.
         #expect(FileManager.default.fileExists(atPath: try #require(r.url).appendingPathComponent("aoc/0.img").path))
@@ -228,12 +250,154 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
                        shellSettings: ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!))
     }
 
-    @Test func theScanFindsTheGameThenANewFolderDropsIt() async throws {
-        let box = try Sandbox()
-        let manifestURL = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("game.manifest.json")
+    private func giveOrbitAnIdentity(in box: Sandbox) throws {
+        let manifestURL = box.games.appendingPathComponent(Fixtures.orbit + "/game.manifest.json")
         let text = try String(contentsOf: manifestURL, encoding: .utf8)
             .replacingOccurrences(of: "\"DMROMFSID1 fixture\"", with: "\"DMROMFSID1 title=\(Fixtures.orbit) version=1.0 build=v0 size=61 index=90b5abb4d1ea10d2\"")
         try text.write(to: manifestURL, atomically: true, encoding: .utf8)
+    }
+
+    @Test func playWaitsForThePickedIdentityAndRejectsAReplacement() async throws {
+        let box = try Sandbox()
+        let images = ShellDataFolderTests()
+        let title = Fixtures.orbit
+        try giveOrbitAnIdentity(in: box)
+        let picked = box.root.appendingPathComponent("Drive/Picked", isDirectory: true)
+        let local = box.appData.appendingPathComponent(title, isDirectory: true)
+        let image = picked.appendingPathComponent("romfs.img")
+        let good = ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA)
+        try images.place(good, at: image)
+        try images.place(good, at: local.appendingPathComponent("romfs.img"))
+        let fm = FileManager.default
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        try fm.setAttributes([.modificationDate: date], ofItemAtPath: image.path)
+        let bookmark = BookmarkStore(defaults: box.defaults(title), key: BookmarkStore.gameDataKey)
+        try #require(bookmark.store(picked))
+
+        let launcher = RecordingLauncher()
+        let settings = ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!)
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: settings)
+        await model.playNow(title)
+        #expect(launcher.launched.last?.dataURL.resolvingSymlinksInPath() == picked.resolvingSymlinksInPath())
+
+        // A copy in place can change the index without changing anything in the library cache's file stamp.
+        let before = try fm.attributesOfItem(atPath: image.path)
+        let wrong = ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexB)
+        let handle = try FileHandle(forWritingTo: image)
+        try handle.write(contentsOf: wrong)
+        try handle.close()
+        try fm.setAttributes([.modificationDate: date], ofItemAtPath: image.path)
+        let after = try fm.attributesOfItem(atPath: image.path)
+        #expect(after[.size] as? NSNumber == before[.size] as? NSNumber)
+        #expect(after[.systemFileNumber] as? NSNumber == before[.systemFileNumber] as? NSNumber)
+        #expect(after[.modificationDate] as? Date == date)
+        await model.playNow(title)
+        #expect(launcher.launched.last?.dataURL == local)
+
+        // An atomic replacement can preserve both the size and the modification date.
+        try wrong.write(to: image, options: .atomic)
+        try fm.setAttributes([.modificationDate: date], ofItemAtPath: image.path)
+        await model.playNow(title)
+        let game = try #require(launcher.launched.last)
+        #expect(game.dataURL == local)
+        let plan = EngineLaunchPlan.make(game: game, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(plan.environment["DM_ROMFS"] == local.appendingPathComponent("romfs.img").path)
+
+        // An unpacked tree beside the rejected image is still usable. The engine must use the selected tree.
+        let tree = picked.appendingPathComponent("romfs", isDirectory: true)
+        try box.write("", to: tree.appendingPathComponent("fixture.marker"))
+        await model.playNow(title)
+        let treeGame = try #require(launcher.launched.last)
+        let treePlan = EngineLaunchPlan.make(game: treeGame, appResources: box.root, documents: box.root, envFileText: nil)
+        let selected = try #require(treePlan.environment["DM_ROMFS"])
+        #expect(URL(fileURLWithPath: selected).resolvingSymlinksInPath().path == tree.resolvingSymlinksInPath().path)
+
+        // A directly picked image can have a different name, even when romfs.img is also in its folder.
+        let alternate = picked.appendingPathComponent("Selected.img")
+        try images.place(good, at: alternate)
+        try #require(bookmark.store(alternate))
+        await model.playNow(title)
+        let imageGame = try #require(launcher.launched.last)
+        let imagePlan = EngineLaunchPlan.make(game: imageGame, appResources: box.root, documents: box.root, envFileText: nil)
+        let selectedImage = try #require(imagePlan.environment["DM_ROMFS"])
+        #expect(URL(fileURLWithPath: selectedImage).resolvingSymlinksInPath().path == alternate.resolvingSymlinksInPath().path)
+    }
+
+    @Test func theLibraryWaitsForAnExternalImageBeforeShowingItAsPlayable() async throws {
+        let box = try Sandbox()
+        try giveOrbitAnIdentity(in: box)
+        let picked = box.root.appendingPathComponent("Drive/OnlyCopy", isDirectory: true)
+        let image = picked.appendingPathComponent("romfs.img")
+        let images = ShellDataFolderTests()
+        try images.place(ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA), at: image)
+        let title = Fixtures.orbit
+        try #require(BookmarkStore(defaults: box.defaults(title), key: BookmarkStore.gameDataKey).store(picked))
+
+        let host = model(box, picker: MutablePicker(nil))
+        #expect(host.details.first { $0.id == title }?.game.state == .needsGameData)
+        await host.waitForDataChecks()
+        #expect(host.details.first { $0.id == title }?.game.state == .playable)
+
+        try ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexB).write(to: image, options: .atomic)
+        host.refreshAll()
+        await host.waitForDataChecks()
+        #expect(host.details.first { $0.id == title }?.game.state == .needsGameData)
+    }
+
+    enum Recovery: CaseIterable {
+        case reload, repickGame, repickShared
+    }
+
+    @Test(arguments: Recovery.allCases)
+    func aCorrectedExternalImageIsRetriedOnReloadOrRepick(recovery: Recovery) async throws {
+        let box = try Sandbox()
+        try giveOrbitAnIdentity(in: box)
+        let shared = box.root.appendingPathComponent("Drive", isDirectory: true)
+        let picked = shared.appendingPathComponent("OnlyCopy", isDirectory: true)
+        let image = picked.appendingPathComponent("romfs.img")
+        let images = ShellDataFolderTests()
+        let fm = FileManager.default
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        try images.place(ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexB), at: image)
+        try fm.setAttributes([.modificationDate: date], ofItemAtPath: image.path)
+        let title = Fixtures.orbit
+        let host: ShellHostModel
+        if recovery == .repickShared {
+            host = model(box, picker: MutablePicker(shared))
+            await host.pickShellDataNow()
+        } else {
+            try #require(BookmarkStore(defaults: box.defaults(title), key: BookmarkStore.gameDataKey).store(picked))
+            host = model(box, picker: MutablePicker(picked))
+        }
+        await host.waitForDataChecks()
+        #expect(host.details.first { $0.id == title }?.game.state == .needsGameData)
+
+        let before = try fm.attributesOfItem(atPath: image.path)
+        let handle = try FileHandle(forWritingTo: image)
+        try handle.write(contentsOf: ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA))
+        try handle.close()
+        try fm.setAttributes([.modificationDate: date], ofItemAtPath: image.path)
+        let after = try fm.attributesOfItem(atPath: image.path)
+        #expect(after[.size] as? NSNumber == before[.size] as? NSNumber)
+        #expect(after[.systemFileNumber] as? NSNumber == before[.systemFileNumber] as? NSNumber)
+        #expect(after[.modificationDate] as? Date == date)
+
+        switch recovery {
+        case .repickGame:
+            await host.pickGameDataNow(title)
+        case .repickShared:
+            await host.pickShellDataNow()
+            await host.waitForDataChecks()
+        case .reload:
+            host.reload()
+            await host.waitForDataChecks()
+        }
+        #expect(host.details.first { $0.id == title }?.game.state == .playable)
+    }
+
+    @Test func theScanFindsTheGameThenANewFolderDropsIt() async throws {
+        let box = try Sandbox()
+        try giveOrbitAnIdentity(in: box)
         let drive = box.root.appendingPathComponent("Drive", isDirectory: true)
         try FileManager.default.createDirectory(at: drive.appendingPathComponent("Some name"), withIntermediateDirectories: true)
         try ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA).write(to: drive.appendingPathComponent("Some name/romfs.img"))
@@ -243,7 +407,7 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
         let picker = MutablePicker(drive)
         let m = model(box, picker: picker)
         await m.pickShellDataNow()
-        await m.waitForShellScan()
+        await m.waitForDataChecks()
         var orbit = try #require(m.details.first { $0.id == Fixtures.orbit })
         #expect(orbit.game.state == .playable && orbit.dataFromShell)
         #expect(orbit.dataSource.hasSuffix("(from Settings)"))
@@ -251,7 +415,7 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
         // A new folder: the old matches are gone and the new folder is scanned.
         picker.url = empty
         await m.pickShellDataNow()
-        await m.waitForShellScan()
+        await m.waitForDataChecks()
         orbit = try #require(m.details.first { $0.id == Fixtures.orbit })
         #expect(orbit.game.state == .needsGameData)
     }
