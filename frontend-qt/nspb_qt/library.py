@@ -932,7 +932,7 @@ class GameLibrary:
             if found_keys and 'keys' not in slots:
                 slots['keys'] = [found_keys]
             if 'update' in slots and len(slots['update']) > 1:
-                slots['update'] = [sorted(slots['update'])[-1]]
+                slots['update'] = [sorted(slots['update'], key=lambda p: (_inputs.update_version(os.path.basename(p)), p))[-1]]
             gname = names.get(tid) or GameFolder.profile_name(tid, repo_path) or tid
             base_dir = os.path.dirname(slots['base'][0])
             other_files = slots.get('update', []) + slots.get('dlc', [])
