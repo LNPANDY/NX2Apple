@@ -342,7 +342,7 @@ struct LauncherView: View {
                                     in: RoundedRectangle(cornerRadius: 9))
                         .contentShape(RoundedRectangle(cornerRadius: 9))   // the whole pill takes the click, not only its text
                 }
-                .buttonStyle(.plain).help(loc.t("nav." + destination.rawValue))
+                .buttonStyle(.plain).launcherHover().help(loc.t("nav." + destination.rawValue))
                 .accessibilityAddTraits(page == destination ? .isSelected : [])
                 .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
             }
@@ -379,7 +379,7 @@ struct LauncherView: View {
                     .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
                     .contentShape(RoundedRectangle(cornerRadius: 8))
             }
-            .buttonStyle(.plain).disabled(m.running).help(loc.t("library.newBuild")).accessibilityLabel(loc.t("library.newBuild"))
+            .buttonStyle(.plain).launcherHover().disabled(m.running).help(loc.t("library.newBuild")).accessibilityLabel(loc.t("library.newBuild"))
             .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
             .padding(.leading, 12)
             // A newer release is out: a small icon, last in the bar, opens the update sheet. Without one the bar
@@ -392,7 +392,7 @@ struct LauncherView: View {
                         .foregroundStyle(readOnly ? LauncherPalette.building : LauncherPalette.ready)
                         .frame(width: 34, height: 34).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).launcherHover()
                 .padTarget("top.update", scope: "main", radius: 17) { updates.showUpdateSheet = true }
                 .padding(.leading, 16.5).padding(.trailing, -7.5)
                 .help(String(format: loc.t("update.pill"), update.tag) + "\n" + loc.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
@@ -417,7 +417,7 @@ struct LauncherView: View {
                     .frame(width: searching ? 16 : 40, height: searching ? 16 : 40).contentShape(Rectangle())
             }
             .keyboardShortcut("f", modifiers: .command)
-            .buttonStyle(.plain).help(loc.t("library.search")).accessibilityLabel(loc.t("library.search"))
+            .buttonStyle(.plain).launcherHover().help(loc.t("library.search")).accessibilityLabel(loc.t("library.search"))
             if searching {
                 TextField(loc.t("library.search"), text: $search)
                     .textFieldStyle(.plain).font(.manrope(14))
@@ -430,7 +430,7 @@ struct LauncherView: View {
                 Button { closeSearch() } label: {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain).help(loc.t("library.clearSearch")).accessibilityLabel(loc.t("library.clearSearch"))
+                .buttonStyle(.plain).launcherHover().help(loc.t("library.clearSearch")).accessibilityLabel(loc.t("library.clearSearch"))
             }
         }
         .padding(.horizontal, searching ? 12 : 0)

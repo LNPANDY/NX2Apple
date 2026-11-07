@@ -57,11 +57,11 @@ extension LauncherView {
                     .padding(.horizontal, 24).padding(.vertical, 15)
                     .foregroundStyle(.black).background(LauncherPalette.cream, in: Capsule())
             }
-            .buttonStyle(.plain).padding(.top, 8)
+            .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).padding(.top, 8)
             Button(action: chooseLibraryFolder) {
                 Label(loc.t("library.chooseFolder"), systemImage: "folder")
                     .font(.manrope(14)).foregroundStyle(.secondary)
-            }.buttonStyle(.plain)
+            }.buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
             Spacer()
             Text(loc.t("library.localNote")).font(.manrope(12)).foregroundStyle(.secondary)
         }
@@ -95,7 +95,7 @@ extension LauncherView {
                                 .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
                                 .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain).disabled(m.running || game.inputs["base", default: []].isEmpty)
+                        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(m.running || game.inputs["base", default: []].isEmpty)
                         .help(loc.t("library.olderToolsHelp"))
                         .padTarget("hero.rebuild", scope: "main", radius: 12) { if !m.running { configureBuild(game) } }
                     }
@@ -110,7 +110,7 @@ extension LauncherView {
                                    : loc.t("library.newBuild")),
                             symbol: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
                     }
-                    .buttonStyle(.plain).disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
+                    .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
                     .keyboardShortcut(.return, modifiers: [])
                     .padTarget("hero.play", scope: "main", radius: 30) { if !launching { primaryAction(game) } }
                     if game.isReady {
@@ -120,11 +120,11 @@ extension LauncherView {
                                 .background(Color.white.opacity(0.10), in: Circle())
                                 .overlay(Circle().strokeBorder(Color.white.opacity(0.14)))
                         }
-                        .buttonStyle(.plain).help(loc.t("launch.title")).accessibilityLabel(loc.t("launch.title"))
+                        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).help(loc.t("launch.title")).accessibilityLabel(loc.t("launch.title"))
                         .padTarget("hero.options", scope: "main", radius: 24) { optionsFor = game.id }
                     }
                     Button { manageOpenFor = manageOpenFor == nil ? game.id : nil } label: { ManageButtonLabel(title: loc.t("library.manage")) }
-                        .buttonStyle(.plain).accessibilityLabel(loc.t("library.manage"))
+                        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).accessibilityLabel(loc.t("library.manage"))
                         .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
                         .padTarget("hero.manage", scope: "main", radius: 12) { manageOpenFor = game.id }
                 }
@@ -145,7 +145,7 @@ extension LauncherView {
                                 .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
                                 .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain).disabled(m.running)
+                        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(m.running)
                         .help(loc.t("dev.resignHelp"))
                         .padTarget("hero.resign", scope: "main", radius: 12) { if !m.running { resign(game) } }
                     }
@@ -207,7 +207,7 @@ extension LauncherView {
                                     }
                                     .frame(width: cardWidth, alignment: .leading).contentShape(Rectangle())
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
                                 .accessibilityAddTraits(game.id == heroID ? .isSelected : [])
                                 .padTarget("card." + game.id.uuidString, scope: "main", radius: 7) { if !launching { primaryAction(game) } }
                             }
@@ -248,7 +248,7 @@ extension LauncherView {
                 .shadow(color: .black.opacity(0.4), radius: 10)
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
         .frame(height: height)
         .accessibilityLabel(loc.t(symbol == "chevron.left" ? "library.scrollBack" : "library.scrollForward"))
         .transition(.opacity)
