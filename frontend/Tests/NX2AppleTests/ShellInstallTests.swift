@@ -1006,11 +1006,32 @@ import NXModel
         XCTAssertEqual(plans.count, 1)
         XCTAssertEqual(plans.first?.connection, .wired)
 
+        // A failed automatic install offers the export's Finder recovery too (#899).
+        // Use that install's folder, even if the selected build archive has since changed.
+        var revealed: [URL] = []
+        model.revealItem = { revealed.append($0) }
+        model.archivePath = temporary.appendingPathComponent("another-game").path
+        let beforeFinder = calls
+        model.copyWithFinder(oneGame: false)
+        XCTAssertEqual(revealed.map(\.path), [f.archive])
+        XCTAssertTrue(model.finderShown)
+        XCTAssertEqual(calls, beforeFinder, "Finder recovery does not start another copy or build")
+        XCTAssertFalse(model.done, "showing the manual instructions does not claim a successful transfer")
+        XCTAssertEqual(model.failure?.kind, .shellDataIncomplete)
+        model.running = true
+        model.copyWithFinder(oneGame: false)
+        model.running = false
+        model.copyWithFinder(oneGame: true)
+        XCTAssertEqual(revealed.count, 1, "no recovery during a transfer or for a single-game IPA")
+
         try fm.removeItem(atPath: state + "/fail-on")
         let signs = calls.filter { $0.hasPrefix("xcodebuild") }.count
         finish { model.fixBuildFailure(.shellDataIncomplete) }
         withExtendedLifetime(asked) {}
         XCTAssertNil(model.failure)
+        XCTAssertFalse(model.finderShown, "retrying the install clears the previous manual instructions")
+        model.copyWithFinder(oneGame: false)
+        XCTAssertEqual(revealed.count, 1, "a successful install does not offer the failure fallback")
         XCTAssertTrue(model.done, model.doneNote)
         XCTAssertEqual(model.installedOn, device)
         XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, signs)

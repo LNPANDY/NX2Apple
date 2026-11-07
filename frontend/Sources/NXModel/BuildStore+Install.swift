@@ -41,6 +41,7 @@ extension BuildStore {
     /// shell's project, signing, the install over the app that is already there, and the game data the device lacks.
     package func installShell(framework: String, titleID: String, name: String, archive: String, dataOnly: Bool = false) {
         running = true
+        finderShown = false
         if dataOnly { failure = nil; done = false; doneNote = "" }
         shellRetry = (framework, titleID, name, archive)
         let installer = makeInstaller()

@@ -42,6 +42,9 @@ package struct BuildFailureCard: View {
                     } else {
                         buttons(f.kind).padding(.leading, 17).padding(.top, 2)
                     }
+                    if f.kind == .shellDataIncomplete, m.finderShown, let archive = m.finderArchive {
+                        FinderCopySteps(archive: archive).padding(.leading, 17)
+                    }
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -80,6 +83,11 @@ package struct BuildFailureCard: View {
                 fix(kind, "fail.retry")
             case .shellDataIncomplete:
                 fix(kind, "shell.retry")
+                if m.finderArchive != nil {
+                    Button(loc.t("shell.sendFinder")) {
+                        withAnimation(.easeInOut(duration: 0.18)) { m.copyWithFinder(oneGame: false) }
+                    }.disabled(m.running)
+                }
             case .engineOffline, .engineSync:
                 Button(loc.t("fail.retry")) { engine?.retrySync() }.disabled(engine?.syncing ?? false)
             default: EmptyView()
