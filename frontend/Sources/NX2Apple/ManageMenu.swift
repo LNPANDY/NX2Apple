@@ -6,11 +6,11 @@ import NXLauncher
 /// reach into the launcher's state.
 struct ManageActions {
     var rebuild: () -> Void = {}
+    var openOnDevice: () -> Void = {}
     var options: () -> Void = {}
     var saves: () -> Void = {}
     var cheats: () -> Void = {}
     var changeArtwork: () -> Void = {}
-    var resetArtwork: () -> Void = {}
     var reveal: () -> Void = {}
     var showLog: () -> Void = {}
     var freeSpace: () -> Void = {}
@@ -32,14 +32,19 @@ struct ManageItem: Identifiable {
     /// The menu's rows, in order, built in one place: a new item is one line here. The rules are the ones the system menu had:
     /// Build again is off while a build runs or with no recorded inputs, Remove while this game is the one building.
     static func list(game: LibraryGame, labels t: (String) -> String, running: Bool, olderTools: Bool, activeBuildID: UUID?,
-                     hasBuildFolder: Bool, hasLog: Bool = false, actions a: ManageActions) -> [ManageItem] {
+                     hasBuildFolder: Bool, hasLog: Bool = false, deviceName: String, launching: Bool = false, actions a: ManageActions) -> [ManageItem] {
         var items = [ManageItem(id: "rebuild", symbol: "arrow.clockwise", title: t(olderTools ? "library.rebuild" : "library.buildAgain"),
                                 enabled: !running && !game.inputs["base", default: []].isEmpty, run: a.rebuild)]
-        if game.isReady { items.append(.init(id: "options", symbol: "slider.horizontal.3", title: t("launch.title"), run: a.options)) }
+        if game.isReady {
+            if game.onDevice {
+                items.append(.init(id: "device", symbol: "iphone", title: String(format: t("dev.open"), deviceName),
+                                   enabled: !launching, run: a.openOnDevice))
+            }
+            items.append(.init(id: "options", symbol: "slider.horizontal.3", title: t("launch.title"), run: a.options))
+        }
         items.append(.init(id: "saves", symbol: "tray.and.arrow.down", title: t("saves.menu"), run: a.saves))
         items.append(.init(id: "cheats", symbol: "wand.and.stars", title: t("cheats.menu"), run: a.cheats))
         items.append(.init(id: "artwork", symbol: "photo", title: t("library.changeArtwork"), run: a.changeArtwork))
-        if !game.artworkPath.isEmpty { items.append(.init(id: "resetArtwork", symbol: "arrow.uturn.backward", title: t("library.resetArtwork"), run: a.resetArtwork)) }
         if game.revealTarget != nil { items.append(.init(id: "reveal", symbol: "folder", title: t("install.reveal"), run: a.reveal)) }
         if game.isReady {
             items.append(.init(id: "log", symbol: "doc.text.magnifyingglass", title: t("library.showLog"), enabled: hasLog,
@@ -162,7 +167,7 @@ struct ManageMenuPanel: View {
     }
 
     private func row(_ item: ManageItem, index: Int) -> some View {
-        let tint = item.destructive ? Color(red: 1, green: 0.42, blue: 0.40) : Color.white.opacity(0.92)
+        let tint = item.destructive ? LauncherPalette.danger : Color.white.opacity(0.92)
         return Button { activate(item) } label: {
             HStack(spacing: 11) {
                 Image(systemName: item.symbol).font(.system(size: 13, weight: .medium)).frame(width: 18)

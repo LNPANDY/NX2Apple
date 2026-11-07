@@ -29,6 +29,8 @@ import NXCore
     @Published package var update: AppUpdate.Release?
     /// A check or a download is running.
     @Published package private(set) var busy = false
+    /// Fraction of the update archive downloaded (`0...1`) while `stage` runs, nil otherwise.
+    @Published package var downloadProgress: Double?
     /// Whether the "a new version is out" sheet is up: opened by the launch check and by Check for updates, so a user learns
     /// what changed before deciding, not after downloading.
     @Published package var showUpdateSheet = false
@@ -160,6 +162,7 @@ import NXCore
     package func stage(_ release: AppUpdate.Release, automatic: Bool, then: ((AppUpdate.Staged) -> Void)? = nil) -> Task<Void, Never> {
         guard !busy, installability == .ok, let url = URL(string: release.url) else { return Task {} }
         busy = true
+        downloadProgress = 0
         blocked = nil
         status = String(format: t(automatic ? "app.staging" : "app.downloading"), release.tag)
         let expectedID = bundleIdentifier, runner = runner, runningOS = runningOS
@@ -167,7 +170,21 @@ import NXCore
             let root = AppUpdate.freshStagingRoot()
             let zip = root.appendingPathComponent("update.zip")
             let result: Result<AppUpdate.Staged, AppUpdate.StageFailure>
-            if await releases.download(url, to: zip) {
+            let downloaded = await releases.download(url, to: zip) { [weak store = self] fraction in
+                let clamped = min(max(fraction, 0), 1)
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated {
+                        guard let store, store.busy, store.downloadProgress != nil else { return }
+                        store.downloadProgress = clamped
+                    }
+                } else {
+                    Task { @MainActor in
+                        guard let store, store.busy, store.downloadProgress != nil else { return }
+                        store.downloadProgress = clamped
+                    }
+                }
+            }
+            if downloaded {
                 result = await Task.detached {
                     AppUpdate.stage(zip: zip, release: release, in: root, expectedID: expectedID, requireDigest: automatic,
                                     runningOS: runningOS, runner: runner)
@@ -182,6 +199,7 @@ import NXCore
     private func finishStaging(_ result: Result<AppUpdate.Staged, AppUpdate.StageFailure>, release: AppUpdate.Release,
                                then: ((AppUpdate.Staged) -> Void)?) {
         busy = false
+        downloadProgress = nil
         switch result {
         case .success(let s):
             staged = s

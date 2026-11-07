@@ -85,8 +85,12 @@ import NXModel
                 'deviceProperties': {'name': 'Z', 'osVersionNumber': '27.0'},
                 'connectionProperties': {'pairingState': 'paired', 'tunnelState': 'connected', 'transportType': 'wired'}}]}}, open(val('--json-output'), 'w'))
         elif a[:4] == ['devicectl', 'device', 'info', 'files']:
-            json.dump({'error': {'code': 6}, 'info': {'outcome': 'failed'}}, open(val('--json-output'), 'w'))   # nothing on the device yet
-            sys.exit(1)
+            listing = '\(state)/files.json'
+            if os.path.exists(listing):
+                open(val('--json-output'), 'w').write(open(listing).read())
+            else:
+                json.dump({'error': {'code': 6}, 'info': {'outcome': 'failed'}}, open(val('--json-output'), 'w'))
+                sys.exit(1)
         elif a[:4] == ['devicectl', 'device', 'copy', 'from']:
             sys.exit(1)   # no shell log
         elif a[:4] == ['devicectl', 'device', 'copy', 'to']:
@@ -563,6 +567,23 @@ import NXModel
         XCTAssertEqual(progress.last?.0, 14)
         XCTAssertEqual(progress.last?.1, 14)
         XCTAssertFalse(calls.contains { $0.hasPrefix("xcodebuild") }, "nothing is built or signed")
+    }
+
+    func testSendingAnUnchangedImageKeepsTheSendCompletionMessage() throws {
+        let f = try makeFixture()
+        let archive = try makeArchive()
+        let bundle = "org.nxnative.shell"
+        try write(f.repo + "/" + RepoLayout.romfsImageTool, "print('DMROMFSID1 same-image')")
+        var i = sender(f)
+        i.defaults = testDefaults
+        XCTAssertEqual(i.sendData(titleID: titleID, archive: archive, bundleID: bundle).copied, 2)
+        let listing = #"{"result":{"files":[{"relativePath":"romfs.img","metadata":{"size":10}},{"relativePath":"aoc/1.img","metadata":{"size":4}}]}}"#
+        try write(state + "/files.json", listing)
+        i.decideCopy = { _ in XCTFail("the matching image needs no copy"); return .skip }
+        let outcome = i.sendData(titleID: titleID, archive: archive, bundleID: bundle)
+        XCTAssertTrue(outcome.ok, outcome.message)
+        XCTAssertEqual(outcome.copied, 0)
+        XCTAssertEqual(outcome.message, L10n.string("shell.sendDone", .en))
     }
 
     func testSeveralAppsAreAskedAboutAndNoneSaysToInstallFirst() throws {

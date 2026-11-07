@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -49,6 +50,7 @@ class BuildFailure(unittest.TestCase):
         from nspb_qt.model import Model
         from nspb_qt.ui import MainWindow
         m = Model()
+        m.repo_path = ''  # A failure-view fixture never starts a process in a detected checkout.
         m.lang = Lang('en')   # these assertions read English whatever the device language is
         w = MainWindow(m)
         # Delete while the app exists: PySide destroys leftovers after it at exit and segfaults.
@@ -58,6 +60,38 @@ class BuildFailure(unittest.TestCase):
         for _ in range(3):
             self.app.processEvents()
         return m, w
+
+    def test_running_build_folds_inputs_and_keeps_one_progress_view(self):
+        m, w = self._window(730)
+        m.running = True
+        m.runningChanged.emit(m.running)
+        self.assertFalse(w.activity_bar.isVisible())
+        self.assertFalse(w.files_group.isVisible())
+        self.assertFalse(w.target_group.isVisible())
+        self.assertTrue(w.stages_card.isVisible(), 'also while preparing the first stage')
+        self.assertTrue(w.build_btn.isEnabled())
+        self.assertTrue(w.log_group.isVisible())
+        w.running_setup.click()
+        self.assertTrue(w.files_group.isVisible())
+        self.assertFalse(w.files_group.isEnabled())
+        w.running_setup.click()
+        self.assertFalse(w.files_group.isVisible())
+        with tempfile.TemporaryDirectory() as archive:
+            m.archive_path = archive
+            w._refresh_install_card()
+            w._refresh_running()
+            self.assertTrue(w.install_group.isVisible())
+            self.assertTrue(w.drive_copy_btn.isEnabled())
+        w._switch_page('settings')
+        self.assertTrue(w.activity_bar.isVisible())
+        w.act_view_btn.click()
+        self.assertFalse(w.activity_bar.isVisible())
+        m.running = False
+        m.runningChanged.emit(m.running)
+        w._on_finished(False, 'example failure')
+        self.assertTrue(w.files_group.isVisible())
+        self.assertTrue(w.target_group.isVisible())
+        self.assertTrue(w.log_group.isVisible())
 
     def test_the_log_is_below_the_fold_on_a_short_window(self):
         """The precondition for the bug: at this height the log is not on screen."""

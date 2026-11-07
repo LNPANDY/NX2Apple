@@ -32,17 +32,39 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
     }
 
     private func items(_ game: LibraryGame, running: Bool = false, older: Bool = false, active: UUID? = nil, folder: Bool = false, log: Bool = false,
-                       actions: ManageActions = ManageActions()) -> [ManageItem] {
+                       launching: Bool = false, actions: ManageActions = ManageActions()) -> [ManageItem] {
         ManageItem.list(game: game, labels: { L10n.string($0, .en) }, running: running, olderTools: older, activeBuildID: active,
-                        hasBuildFolder: folder, hasLog: log, actions: actions)
+                        hasBuildFolder: folder, hasLog: log, deviceName: "iPad mini", launching: launching, actions: actions)
+    }
+
+    func testGameReadyOnMacAndDeviceOffersBothLaunchDestinations() throws {
+        var game = try readyGame()
+        let app = temporary.appendingPathComponent("Shell.app")
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        try Data().write(to: app.appendingPathComponent("Info.plist"))
+        game.iosAppPath = app.path
+        XCTAssertFalse(items(game).contains { $0.id == "device" }, "an exported app has no installed device")
+        game.installedDevice = "DEVICE"
+        XCTAssertEqual(game.primary, .play)
+        var launches = 0
+        let actions = ManageActions(openOnDevice: { launches += 1 })
+        let item = try XCTUnwrap(items(game, actions: actions).first { $0.id == "device" })
+        XCTAssertEqual(item.title, "Open on iPad mini")
+        XCTAssertTrue(item.enabled)
+        item.run()
+        XCTAssertEqual(launches, 1)
+        XCTAssertEqual(items(game, launching: true).first { $0.id == "device" }?.enabled, false)
+        game.appPath = ""
+        XCTAssertEqual(game.primary, .openOnDevice)
+        XCTAssertFalse(items(game).contains { $0.id == "device" }, "the hero already opens this game on its device")
     }
 
     func testAReadyGameHasEveryRowInTheOldOrderAndRemoveAndDeleteLastInRed() throws {
         var game = try readyGame()
-        game.artworkPath = "/art.png"
+        game.artwork.hero = ArtworkChoice(source: .banner)
         let list = items(game, folder: true, log: true)
-        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "resetArtwork", "reveal", "log", "freeSpace", "remove", "delete"])
-        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "cheats.menu", "library.changeArtwork", "library.resetArtwork", "install.reveal", "library.showLog", "free.menu", "library.remove", "delete.menu"]
+        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "reveal", "log", "freeSpace", "remove", "delete"])
+        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "cheats.menu", "library.changeArtwork", "install.reveal", "library.showLog", "free.menu", "library.remove", "delete.menu"]
             .map { L10n.string($0, .en) })
         XCTAssertTrue(list.allSatisfy(\.enabled))
         XCTAssertEqual(list.last?.destructive, true)
@@ -98,10 +120,21 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
         let game = try readyGame()
         var log: [String] = []
         let actions = ManageActions(rebuild: { log.append("rebuild") }, options: { log.append("options") }, saves: { log.append("saves") },
-                                    cheats: { log.append("cheats") }, changeArtwork: { log.append("artwork") }, resetArtwork: { log.append("reset") }, reveal: { log.append("reveal") }, showLog: { log.append("log") },
+                                    cheats: { log.append("cheats") }, changeArtwork: { log.append("artwork") }, reveal: { log.append("reveal") }, showLog: { log.append("log") },
                                     freeSpace: { log.append("free") }, remove: { log.append("remove") }, delete: { log.append("delete") })
         for item in items(game, folder: true, log: true, actions: actions) { item.run() }
         XCTAssertEqual(log, ["rebuild", "options", "saves", "cheats", "artwork", "reveal", "log", "free", "remove", "delete"])
+    }
+
+    func testChangeArtworkOpensThePanel() throws {
+        var game = try readyGame()
+        game.artwork = GameArtwork(hero: ArtworkChoice(source: .banner), thumbnail: ArtworkChoice(source: .screenshot(1)))
+        var log: [String] = []
+        let list = items(game, actions: ManageActions(changeArtwork: { log.append("panel") }))
+        try XCTUnwrap(list.first { $0.id == "artwork" }).run()
+        XCTAssertEqual(log, ["panel"], "the row opens the panel: it no longer asks for a file")
+        XCTAssertEqual(list.first { $0.id == "artwork" }?.title, L10n.string("library.changeArtwork", .en))
+        XCTAssertNil(list.first { $0.id == "resetArtwork" }, "each slot resets in the panel: the menu has no reset row")
     }
 
     func testTheControllerLandsOnTheFirstUsableRow() throws {

@@ -109,7 +109,7 @@ enum ConsoleInput {
             LauncherPalette.background
             if let game = state.startingGame ?? state.focusedGame {
                 Group {
-                    if let image = game.artwork { image.resizable().scaledToFill() }
+                    if let image = game.artwork { Image(nsImage: image).resizable().scaledToFill() }
                     else { LinearGradient(colors: ConsolePlaceholder.colors(for: game.title), startPoint: .topLeading, endPoint: .bottomTrailing) }
                 }
                 .frame(width: size.width, height: size.height)
@@ -486,11 +486,12 @@ enum ConsolePlaceholder {
 }
 
 struct ConsoleArtwork: View {
-    let image: Image?
+    let image: NSImage?
     var title = ""
+    var focus = UnitPoint.center
     var body: some View {
         GeometryReader { geometry in
-            if let image { image.resizable().scaledToFill().frame(width: geometry.size.width, height: geometry.size.height).clipped() }
+            if let image { ArtworkFill(image: image, focus: focus).frame(width: geometry.size.width, height: geometry.size.height) }
             else {
                 ZStack(alignment: .bottomLeading) {
                     LinearGradient(colors: ConsolePlaceholder.colors(for: title), startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -525,7 +526,7 @@ struct ConsoleGameTile: View {
     var captionVisible = true
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ConsoleArtwork(image: game.artwork, title: game.title).aspectRatio(1.8, contentMode: .fit)
+            ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus).aspectRatio(1.8, contentMode: .fit)
                 .opacity(game.status == .ready ? 1 : 0.45)   // not playable on this Mac: dimmed, its status on top
                 .overlay(alignment: .bottomLeading) {
                     if game.status != .ready {

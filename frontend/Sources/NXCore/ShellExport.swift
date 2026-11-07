@@ -243,7 +243,7 @@ extension ShellInstaller {
         var outcome = copyGameData(titleID: titleID, archive: archive, app: "", bundleID: chosen!,
                                    outcome: Outcome(ok: true, message: "", bundleID: chosen!))
         outcome.appName = name
-        if outcome.ok, !outcome.copySkipped, outcome.message.isEmpty || outcome.message == fmt("shell.dataAlready", deviceName) {
+        if outcome.ok, !outcome.copySkipped {
             outcome.message = t("shell.sendDone")
         }
         if !outcome.ok, outcome.failure == .shellDataIncomplete {

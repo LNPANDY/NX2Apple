@@ -11,7 +11,7 @@ import NXModel
 /// test drives it with the gamepad: the three tab switches, Options, Manage and a plain redraw of the library.
 ///
 /// The first guard counts work on the main thread per interaction (LauncherWork): game cards built, Manrope fonts made,
-/// Info.plist reads and frame time recordings parsed. The counts do not depend on the machine, so they catch work that grows
+/// Info.plist reads, artwork decoded and frame time recordings parsed. The counts do not depend on the machine, so they catch work that grows
 /// with the library long before a stopwatch would. The second guard is the time the main thread is busy, the median of
 /// several rounds, with budgets far above what main needs on CI. See "Launcher performance test" in frontend/README.md.
 @MainActor final class LauncherPerformanceTests: IsolatedDefaultsTestCase {
@@ -120,6 +120,7 @@ import NXModel
         let action: () -> Void
         var undo: (() -> Void)? = nil
         let cards: Int, fonts: Int, plistReads: Int, busyMs: Double
+        var artworkDecodes = 0   // the artwork is decoded once and cached: after the warm-up main decodes none
     }
 
     private struct Sample { var busyMs: Double; var counts: [LauncherWork.Kind: Int] }
@@ -184,9 +185,9 @@ import NXModel
         for (step, runs) in zip(interactions, samples) {
             let busy = Self.median(runs.map(\.busyMs))
             func count(_ kind: LauncherWork.Kind) -> Int { Int(Self.median(runs.map { Double($0.counts[kind, default: 0]) })) }
-            let cards = count(.card), fonts = count(.font), plists = count(.infoPlistRead), parses = count(.frameTimesParse)
-            report.append("  " + step.name.padding(toLength: 24, withPad: " ", startingAt: 0) + String(format: "busy %6.0f ms (%4.0f)  cards %4d (%3d)  fonts %5d (%3d)  Info.plist reads %4d (%3d)  parses %d (0)",
-                                 busy, step.busyMs, cards, step.cards, fonts, step.fonts, plists, step.plistReads, parses))
+            let cards = count(.card), fonts = count(.font), plists = count(.infoPlistRead), decodes = count(.artworkDecode), parses = count(.frameTimesParse)
+            report.append("  " + step.name.padding(toLength: 24, withPad: " ", startingAt: 0) + String(format: "busy %6.0f ms (%4.0f)  cards %4d (%3d)  fonts %5d (%3d)  Info.plist reads %4d (%3d)  artwork decodes %d (%d)  parses %d (0)",
+                                 busy, step.busyMs, cards, step.cards, fonts, step.fonts, plists, step.plistReads, decodes, step.artworkDecodes, parses))
             if cards > step.cards {
                 failures.append("\(step.name): \(cards) game cards built, budget \(step.cards). The library row builds every card on each "
                     + "redraw, so the work grows with the number of games. Use a LazyHStack or cut the cards that are shown.")
@@ -198,6 +199,11 @@ import NXModel
             if plists > step.plistReads {
                 failures.append("\(step.name): \(plists) Info.plist reads, budget \(step.plistReads). LibraryGame.isReady and "
                     + "LauncherView.status read the app bundle on every call. Call them less often per redraw or cache the result.")
+            }
+            if decodes > step.artworkDecodes {
+                failures.append("\(step.name): \(decodes) artwork decodes on the main thread, budget \(step.artworkDecodes). ArtworkImages keeps each "
+                    + "image it decoded. An image decoded again on every redraw bypasses that cache. Get it through GameLibrary.artwork "
+                    + "when the library changes, not in a view's body.")
             }
             if parses > 0 {
                 failures.append("\(step.name): \(parses) frame time recordings parsed on the main thread, budget 0. "

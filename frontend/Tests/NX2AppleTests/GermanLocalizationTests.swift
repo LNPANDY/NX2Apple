@@ -17,7 +17,7 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "dep.glslang", "dep.xcode", "dep.metal", "dep.brew", "dep.xcodegen", "dep.zstd", "dep.spirv.win",
         "dep.zstd.win", "dep.spirv", "dep.dotnet", "dep.phase.download", "dep.python.hint",
         "controls.fn.A", "controls.fn.B", "controls.fn.X", "controls.fn.Y", "controls.fn.L", "controls.fn.R",
-        "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
+        "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods", "artwork.screenshot",
         "update.pill", "launch.opt.DM_OPMODE.0", "launch.opt.DM_PRESENT_UPSCALE.off",
         "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_FPS_TARGET.120", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx",
         "launch.opt.DM_SCREEN_ASPECT.0",   // 16:9 (Switch) reads the same in every language

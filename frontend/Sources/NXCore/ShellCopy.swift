@@ -14,6 +14,8 @@ package struct ShellCopyPlan: Equatable {
     package var bytes: Int64
     package var connection: ShellConnection
     package var deviceName: String
+    /// Set only when this Mac remembers a successful copy of a different image for this game and device.
+    package var versionNote: String?
     /// "15 GB in 2 files."
     package var sizeText: String
     /// The cable note, or the Wi-Fi hint with its estimate.

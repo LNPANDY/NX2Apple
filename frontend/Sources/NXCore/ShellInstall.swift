@@ -598,7 +598,7 @@ package struct ShellInstaller {
         let missing = ShellInstall.filesToCopy(local: local, device: comparable)
         end(Self.checkStageID, checkName, ok: true)
         guard !missing.isEmpty else {
-            outcome.message = fmt("shell.dataAlready", deviceName)
+            outcome.message = fmt(identity != nil && identity == previous ? "shell.dataCurrent" : "shell.dataAlready", deviceName)
             return outcome
         }
         // Free space first: the shell writes it to its log at every start (ShellMain.m), and a game's data is many GB. Without a log
@@ -616,6 +616,11 @@ package struct ShellInstaller {
         // The size and the connection first: a cable needs the device unlocked, Wi-Fi takes long enough that a cable may be worth it
         var link = connection()
         var plan = copyPlan(files: missing.count, bytes: needed, connection: link)
+        if let identity, let previous, identity != previous {
+            let note = t("shell.dataChanged")
+            plan.versionNote = note
+            log(note + "\n")
+        }
         log(plan.sizeText + "\n" + plan.connectionText + "\n")
         var decision = decideCopy(plan)
         if decision == .waitForCable {
