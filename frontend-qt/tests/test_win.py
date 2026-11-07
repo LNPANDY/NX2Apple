@@ -3419,6 +3419,292 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 self.assertNotIn('PYTHONHOME', cenv_frozen)
                 self.assertNotIn('_MEIPASS', cenv_frozen)
 
+    def test_onboarding_step2_install_all_progress_and_button_lock(self) -> None:
+        """Verify OnboardingDialog step 2 renders sub-stage percentages, progress bars, queue positions,
+        lld linked status, in-place updates, and disables Continue/Back while installing.
+        """
+        import ast
+        from nspb_qt import i18n, l10n, style
+
+        sheets_src = (QT / 'nspb_qt' / 'sheets.py').read_text(encoding='utf-8')
+        sheets_tree = ast.parse(sheets_src)
+        ob_cls = next(n for n in ast.walk(sheets_tree)
+                      if isinstance(n, ast.ClassDef) and n.name == 'OnboardingDialog')
+        fn_map = {n.name: n for n in ob_cls.body if isinstance(n, ast.FunctionDef)}
+        for req in ('_clear_body', '_step1_row_meta', '_render_step', 'done'):
+            self.assertIn(req, fn_map)
+
+        class FakeWidget:
+            def __init__(self, text=''):
+                self.text = str(text)
+                self.visible = True
+                self.enabled = True
+                self.style_sheet = ''
+                self.obj_name = ''
+                self.value = 0
+                self.range = (0, 100)
+                self.clicked_cbs = []
+                self.deleted = False
+
+            def setText(self, s):
+                self.text = str(s)
+
+            def setVisible(self, v):
+                self.visible = bool(v)
+
+            def show(self):
+                self.visible = True
+
+            def hide(self):
+                self.visible = False
+
+            def setEnabled(self, e):
+                self.enabled = bool(e)
+
+            def setStyleSheet(self, s):
+                self.style_sheet = s
+
+            def setObjectName(self, s):
+                self.obj_name = s
+
+            def setWordWrap(self, _w):
+                pass
+
+            def setContentsMargins(self, *_a):
+                pass
+
+            def setRange(self, lo, hi):
+                self.range = (lo, hi)
+
+            def setValue(self, v):
+                self.value = int(v)
+
+            def setTextVisible(self, _v):
+                pass
+
+            def setParent(self, _p):
+                pass
+
+            def deleteLater(self):
+                self.deleted = True
+
+            @property
+            def clicked(self):
+                cbs = self.clicked_cbs
+
+                class _Sig:
+                    @staticmethod
+                    def connect(cb):
+                        cbs.append(cb)
+                return _Sig()
+
+        class FakeLayout:
+            def __init__(self, _parent=None):
+                self.items = []
+
+            def setContentsMargins(self, *_a):
+                pass
+
+            def setSpacing(self, *_a):
+                pass
+
+            def addWidget(self, w, *_a):
+                self.items.append(w)
+
+            def addLayout(self, l, *_a):
+                self.items.append(l)
+
+            def addStretch(self, *_a):
+                self.items.append(None)
+
+            def count(self):
+                return len(self.items)
+
+            def takeAt(self, idx):
+                w = self.items.pop(idx)
+
+                class _Item:
+                    @staticmethod
+                    def widget():
+                        return w if isinstance(w, FakeWidget) else None
+                return _Item()
+
+        class FakeCardGroup(FakeWidget):
+            def __init__(self, footer=''):
+                super().__init__(footer)
+                self.rows = []
+                self.dividers = 0
+
+            def add_row(self, r):
+                self.rows.append(r)
+
+            def add_divider(self):
+                self.dividers += 1
+
+        ns: dict = {
+            'Path': Path,
+            'shutil': shutil,
+            'style': style,
+            'QWidget': FakeWidget,
+            'QLabel': FakeWidget,
+            'QPushButton': FakeWidget,
+            'QProgressBar': FakeWidget,
+            'QHBoxLayout': FakeLayout,
+            'QVBoxLayout': FakeLayout,
+            'CardGroup': FakeCardGroup,
+            'StatusDot': FakeWidget,
+        }
+        for name in ('_clear_body', '_step1_row_meta', '_render_step'):
+            fn = fn_map[name]
+            for n in ast.walk(fn):
+                ast.fix_missing_locations(n)
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[fn], type_ignores=[])),
+                         '<sheets>', 'exec'), ns)
+
+        class FakeDep:
+            def __init__(self, dep_id, title_key, ok=False, install=None, required=True):
+                self.id = dep_id
+                self.title_key = title_key
+                self.ok = ok
+                self.install = list(install or [])
+                self.required = required
+                self.installing = False
+                self.install_stage = ''
+                self.install_detail = ''
+                self.install_pct = None
+                self.queue_index = 0
+                self.last_error = ''
+                self.fix_hint = ''
+
+        class FakeModel:
+            def __init__(self):
+                self.lang = i18n.Lang('zh')
+                self.deps = [
+                    FakeDep('python', 'dep.python', False, ['__win__:python']),
+                    FakeDep('dotnet', 'dep.dotnet', False, ['__win__:dotnet']),
+                    FakeDep('llvm', 'dep.llvm', False, ['__win__:llvm']),
+                    FakeDep('lld', 'dep.lld', False, []),
+                    FakeDep('ios_sdk', 'dep.iossdk', False, ['__win__:ios_sdk']),
+                ]
+                self._install_all_running = False
+                self.install_all_step = 0
+                self.install_all_total = 0
+                self.install_all_pct = 0
+
+            def t(self, key, *args):
+                return l10n.t(key, self.lang, *args)
+
+            def install_all_missing(self):
+                self._install_all_running = True
+
+        class FakeOnboarding:
+            _clear_body = ns['_clear_body']
+            _step1_row_meta = ns['_step1_row_meta']
+            _render_step = ns['_render_step']
+
+            def __init__(self, model):
+                self.m = model
+                self.step = 1
+                self._step1_sig = None
+                self._step1_widgets = {}
+                self.step_badge = FakeWidget()
+                self.task_pill = FakeWidget()
+                self.task_pill.hide()
+                self.head_title = FakeWidget()
+                self.head_note = FakeWidget()
+                self.overall_pct_lbl = FakeWidget()
+                self.overall_pct_lbl.hide()
+                self.body_layout = FakeLayout()
+                self.later_btn = FakeWidget('Later')
+                self.back_btn = FakeWidget('Back')
+                self.next_btn = FakeWidget('Continue')
+
+        m = FakeModel()
+        dlg = FakeOnboarding(m)
+
+        # Before clicking Install all: Continue & Back enabled, task_pill hidden, ibtn enabled
+        dlg._render_step()
+        self.assertFalse(dlg.task_pill.visible)
+        self.assertFalse(dlg.overall_pct_lbl.visible)
+        self.assertTrue(dlg.next_btn.enabled)
+        self.assertTrue(dlg.back_btn.enabled)
+        ibtn = dlg._step1_widgets['ibtn']
+        self.assertIsNotNone(ibtn)
+        self.assertTrue(ibtn.enabled)
+        self.assertEqual(ibtn.text, m.t('dep.installAll'))
+
+        # Simulate clicking Install all -> step 1/4: Python downloading at 45%, others queued
+        m._install_all_running = True
+        m.install_all_step = 1
+        m.install_all_total = 4
+        m.install_all_pct = 18
+        m.deps[0].installing = True
+        m.deps[0].install_stage = m.t('dep.stage.pyDownload', 45)
+        m.deps[0].install_detail = m.t('dep.detail.pyDownload', '3.12.8', 12, 26, 45)
+        m.deps[0].install_pct = 45
+        m.deps[1].queue_index = 2
+        m.deps[2].queue_index = 3
+        m.deps[4].queue_index = 4
+
+        dlg._render_step()
+        self.assertTrue(dlg.task_pill.visible)
+        self.assertIn('1 / 4', dlg.task_pill.text)
+        self.assertTrue(dlg.overall_pct_lbl.visible)
+        self.assertIn('18%', dlg.overall_pct_lbl.text)
+        self.assertFalse(dlg.next_btn.enabled, 'Continue must be disabled during installation')
+        self.assertFalse(dlg.back_btn.enabled, 'Back must be disabled during installation')
+        self.assertTrue(dlg.later_btn.enabled, 'Set up later must remain enabled')
+
+        rows = dlg._step1_widgets['rows']
+        py_bar = rows['python']['bar']
+        self.assertIsNotNone(py_bar)
+        self.assertEqual(py_bar.value, 45)
+        self.assertIn('45%', rows['python']['status'].text)
+        self.assertIn('3.12.8', rows['python']['detail'].text)
+        self.assertEqual(rows['dotnet']['status'].text, m.t('onboarding.progress.queuePos', 2))
+        self.assertEqual(rows['lld']['status'].text, m.t('onboarding.progress.withLlvm'))
+        self.assertFalse(dlg._step1_widgets['ibtn'].enabled)
+
+        # In-place update when Python advances to Step 3/3 (installing packages 67%): same widget instance!
+        m.deps[0].install_stage = m.t('dep.stage.pyPkgs', 67)
+        m.deps[0].install_detail = m.t('dep.detail.pyPkgs', 4, 6, 'fonttools')
+        m.deps[0].install_pct = 67
+        m.install_all_pct = 24
+        dlg._render_step()
+        self.assertIs(dlg._step1_widgets['rows']['python']['bar'], py_bar, 'must update progress bar in-place without rebuilding widgets')
+        self.assertEqual(py_bar.value, 67)
+        self.assertIn('67%', rows['python']['status'].text)
+        self.assertIn('fonttools', rows['python']['detail'].text)
+        self.assertIn('24%', dlg.overall_pct_lbl.text)
+
+        # When LLVM is installing, lld row says waiting for LLVM unpack
+        m.deps[0].installing = False
+        m.deps[0].ok = True
+        m.deps[1].ok = True
+        m.deps[1].queue_index = 0
+        m.deps[2].installing = True
+        m.deps[2].queue_index = 0
+        m.deps[2].install_stage = m.t('dep.stage.download', 64)
+        m.deps[2].install_detail = m.t('dep.detail.download', 'llvm.zip', 160, 250, 64)
+        m.deps[2].install_pct = 64
+        m.install_all_step = 3
+        m.install_all_pct = 64
+        dlg._render_step()
+        self.assertEqual(dlg._step1_widgets['rows']['lld']['status'].text, m.t('onboarding.progress.waitingLlvm'))
+        self.assertEqual(dlg._step1_widgets['rows']['llvm']['bar'].value, 64)
+
+        # All finished: Continue re-enabled, pills hidden
+        for d in m.deps:
+            d.installing = False
+            d.ok = True
+            d.queue_index = 0
+        m._install_all_running = False
+        dlg._render_step()
+        self.assertFalse(dlg.task_pill.visible)
+        self.assertFalse(dlg.overall_pct_lbl.visible)
+        self.assertTrue(dlg.next_btn.enabled)
+        self.assertTrue(dlg.back_btn.enabled)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
