@@ -27,10 +27,11 @@ import NXModel
     ///   - xcrun: runs xcodebuild and devicectl: a test points it at a stand-in.
     ///   - volumesRoot: where external drives are mounted.
     ///   - defaults: where the stores keep their settings: a test passes its own suite, so it neither reads nor writes the shared ones.
-    init(localizer: Localizer = Localizer(), runner: ProcessRunner = SystemProcessRunner(), gitCheckout: GitCheckout? = nil,
+    init(localizer: Localizer = Localizer(), runner: ProcessRunner? = nil, gitCheckout: GitCheckout? = nil,
          releases: ReleaseSource = GitHubReleases(), xcrun: String = "/usr/bin/xcrun", volumesRoot: String = "/Volumes",
          defaults: UserDefaults = .standard) {
         _ = Self.endGroupsWhenQuitting
+        let runner = runner ?? SystemProcessRunner(defaults: defaults)
         let git = gitCheckout ?? SystemGitCheckout(runner: runner)
         self.localizer = localizer; self.runner = runner; self.gitCheckout = git; self.releases = releases
         let log = BuildLog()

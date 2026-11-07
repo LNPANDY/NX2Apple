@@ -233,6 +233,37 @@ import NXModel
         XCTAssertTrue(fake.adminCalls.isEmpty, "Xcode was already set up: no prompt")
     }
 
+    func testLauncherOnlyXcodeNeverRunsTheSystemSelectionCommandForFirstLaunch() async {
+        let app = "/Volumes/External Drive/Xcode.app"
+        testDefaults.set(app, forKey: XcodeSelection.key)
+        let fake = Fake()
+        fake.probe = XcodeProbe(appPath: app, selectedIsXcode: true, licenseAccepted: false, firstLaunchDone: false)
+        let (driver, _) = make(fake, deps: [dep("metal", present: true)], step: .xcode, platform: .mac)
+        await driver.refreshXcode()
+        driver.finishXcodeSetup()
+        await driver.settle()
+        XCTAssertTrue(fake.adminCalls.isEmpty)
+        guard case .failed(let failure) = driver.state.xcode else { return XCTFail("Expected first-launch instructions") }
+        XCTAssertEqual(failure.details, app)
+    }
+
+    func testUnavailableSelectedXcodeOffersRetryAndDetectsTheReconnectedDrive() async {
+        let fake = Fake()
+        fake.probe = XcodeProbe(selectedAppUnavailable: true)
+        let (driver, _) = make(fake, deps: [dep("metal", present: false)], step: .xcode, platform: .mac)
+        await driver.refreshXcode()
+        XCTAssertEqual(driver.state.xcode, .disconnected)
+        XCTAssertEqual(driver.state.primary, .retry)
+        driver.getXcode()
+        XCTAssertTrue(fake.opened.isEmpty)
+        fake.probe = XcodeProbe(appPath: "/Volumes/Example/Xcode.app", selectedIsXcode: true, licenseAccepted: true, firstLaunchDone: true)
+        fake.onDetect = { $0.deps = [self.dep("metal", present: true)] }
+        driver.retry(.xcode)
+        await driver.settle()
+        XCTAssertEqual(driver.state.xcode, .ready)
+        XCTAssertTrue(fake.adminCalls.isEmpty)
+    }
+
     func testGetXcodeOpensTheAppStoreAndPollsUntilItAppears() async {
         let fake = Fake(); fake.probe = XcodeProbe()
         let (driver, _) = make(fake, deps: [dep("metal", present: true)], step: .xcode, platform: .mac)

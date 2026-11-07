@@ -1246,6 +1246,7 @@
   "onboarding.welcome.title": "Make yourself at home.",
   "onboarding.xcode.checking": "Checking Xcode…",
   "onboarding.xcode.checkingNote": "Looking for the tools your games need.",
+  "onboarding.xcode.disconnected": "The selected Xcode is unavailable.",
   "onboarding.xcode.downloadNote": "Leave the App Store download running. We will continue automatically when Xcode is installed.",
   "onboarding.xcode.downloading": "Waiting for Xcode…",
   "onboarding.xcode.missing": "First, get Xcode.",
@@ -1548,5 +1549,13 @@
   "update.pill": "Update %@",
   "update.pillHelp": "See what changed in this release and download it.",
   "update.readOnlyHint": "This copy cannot update where it is. Move NX2Apple.app into Applications first.",
-  "update.title": "A new version is out"
+  "update.title": "A new version is out",
+  "xcodeChoice.choose": "Choose Xcode…",
+  "xcodeChoice.finishSetup": "Finish setup in the selected Xcode, then click Retry.",
+  "xcodeChoice.invalid": "Choose an Xcode app that contains the developer tools.",
+  "xcodeChoice.message": "Choose the Xcode app NX2Apple will use for builds and device installs.",
+  "xcodeChoice.reset": "Use system Xcode",
+  "xcodeChoice.system": "Use the Xcode selected in macOS.",
+  "xcodeChoice.title": "Xcode for NX2Apple",
+  "xcodeChoice.unavailable": "Reconnect the drive containing the selected Xcode or choose another copy."
 }

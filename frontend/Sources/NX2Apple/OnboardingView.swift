@@ -250,6 +250,7 @@ import NXLauncher
                 switch state.xcode {
                 case .checking: Text(t("onboarding.xcode.checkingNote")).foregroundStyle(.secondary)
                 case .missing: Text(t("onboarding.xcode.missingNote")).foregroundStyle(.secondary)
+                case .disconnected: Text(t("xcodeChoice.unavailable")).foregroundStyle(.secondary)
                 case .downloading:
                     Text(t("onboarding.xcode.downloadNote")).foregroundStyle(.secondary)
                     waitingBar

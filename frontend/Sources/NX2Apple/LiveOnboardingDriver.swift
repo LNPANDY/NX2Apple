@@ -18,6 +18,7 @@ enum OnboardingDefaults {
 /// other state. License and first launch only count while an Xcode (not the Command Line Tools) is selected.
 struct XcodeProbe: Equatable {
     var appPath: String?            // an Xcode.app: the selected one, else the first in /Applications
+    var selectedAppUnavailable = false
     var selectedIsXcode = false     // `xcode-select -p` points into an Xcode.app, not the Command Line Tools
     var licenseAccepted = false
     var firstLaunchDone = false
@@ -38,7 +39,7 @@ struct OnboardingEnvironment {
     /// because the App Store creates Xcode.app while it is still downloading. Runs off the main thread.
     var xcodeInstalled: () async -> Bool = { await Task.detached { OnboardingEnvironment.xcodeApps().first != nil }.value }
     /// Only whether an Xcode*.app folder exists (no process): the Welcome estimate reads it.
-    var xcodeFolderExists: () -> Bool = { OnboardingEnvironment.xcodeFolders().first != nil }
+    var xcodeFolderExists: () -> Bool = { XcodeSelection.app().map(XcodeSelection.isXcode) ?? (OnboardingEnvironment.xcodeFolders().first != nil) }
     var xcodeProbe: () async -> XcodeProbe = { await OnboardingEnvironment.liveProbe() }
     /// One administrator prompt around the whole script (`OnboardingAdmin.source`).
     var runAdmin: (_ developerDir: String) async -> AdminResult = { await OnboardingAdmin.run(developerDir: $0) }
@@ -83,23 +84,27 @@ struct OnboardingEnvironment {
         xcodeFolders(in: directory).filter { Toolchain.runOK($0 + "/Contents/Developer/usr/bin/xcodebuild", ["-version"]) }
     }
 
-    static func liveProbe() async -> XcodeProbe {
+    static func liveProbe(defaults: UserDefaults = .standard) async -> XcodeProbe {
         await Task.detached {
             var probe = XcodeProbe()
-            let runner = SystemProcessRunner()
+            if let app = XcodeSelection.app(in: defaults), !XcodeSelection.isXcode(app) {
+                probe.selectedAppUnavailable = true
+                return probe
+            }
+            let runner = SystemProcessRunner(defaults: defaults)
             let selected = runner.output("/usr/bin/xcode-select", ["-p"])?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if let r = selected.range(of: ".app/Contents/Developer") {
+            if selected.hasSuffix(".app/Contents/Developer") {
                 probe.selectedIsXcode = true
-                probe.appPath = String(selected[..<r.lowerBound]) + ".app"
-            } else { probe.appPath = xcodeApps().first }
+                probe.appPath = String(selected.dropLast("/Contents/Developer".count))
+            } else if XcodeSelection.app(in: defaults) == nil { probe.appPath = xcodeApps().first }
             if let dir = probe.developerDir {
                 if let text = runner.output("/usr/bin/xcodebuild", ["-version"], env: ["DEVELOPER_DIR": dir, "PATH": "/usr/bin:/bin"]) {
                     probe.version = OnboardingNVN.xcodeVersion(from: text)
                 }
             }
             if probe.selectedIsXcode {
-                probe.licenseAccepted = Toolchain.runOK("/usr/bin/xcodebuild", ["-license", "check"])
-                probe.firstLaunchDone = Toolchain.runOK("/usr/bin/xcodebuild", ["-checkFirstLaunchStatus"])
+                probe.licenseAccepted = runner.runOK("/usr/bin/xcodebuild", ["-license", "check"])
+                probe.firstLaunchDone = runner.runOK("/usr/bin/xcodebuild", ["-checkFirstLaunchStatus"])
             }
             return probe
         }.value
@@ -313,7 +318,10 @@ enum OnboardingLaunch {
             failedDeps.removeAll()
             if case .failed = state.xcode { state.xcode = .needsSetup }
             xcodeBusy = false
-            spawn("retry") { d in await d.modelDidRefresh() }
+            spawn("retry") { d in
+                if d.state.xcode == .disconnected { await d.env.detectDeps(d.stores.dependencies) }
+                await d.modelDidRefresh()
+            }
         case .keys: enter(.keys)
         case .games: state.games = .empty; enter(.games)
         default: break
@@ -476,7 +484,7 @@ enum OnboardingLaunch {
         let (xcode, setup) = OnboardingXcode.evaluate(probe: probe, metalReady: dep("metal")?.present ?? false,
                                                       iosReady: dep("xcode")?.present ?? false, includesIOS: includesIOS)
         state.setup = setup
-        if case .failed = state.xcode, xcode != .ready { return }   // a failure stays until Retry
+        if case .failed = state.xcode, xcode != .ready && xcode != .disconnected { return }   // a failure stays until Retry
         if xcode == .missing {
             state.xcode = waitingForXcode ? .downloading : .missing
         } else {
@@ -509,6 +517,11 @@ enum OnboardingLaunch {
             state.xcode = .failed(OnboardingFailure(message: t(key), details: Self.tail(details)))
         }
         if probe.needsAdmin {
+            // The normal admin script switches the system Xcode. Let a launcher-only Xcode finish its own first launch.
+            if let app = stores.dependencies.xcodeApp {
+                if XcodeSelection.isXcode(app) { env.openURL(URL(fileURLWithPath: app)) }
+                return fail("xcodeChoice.finishSetup", app)
+            }
             guard let dir = probe.developerDir else { return fail("onboarding.error.xcode", "No Xcode.app was found.") }
             for task in [OnboardingSetupTask.selected, .license, .firstLaunch] where state.setup[task] != .done { state.setup[task] = .running(nil) }
             switch await env.runAdmin(dir) {
@@ -706,6 +719,7 @@ enum OnboardingLaunch {
 enum OnboardingXcode {
     static func evaluate(probe: XcodeProbe, metalReady: Bool, iosReady: Bool, includesIOS: Bool)
         -> (xcode: OnboardingState.Xcode, setup: [OnboardingSetupTask: OnboardingTaskState]) {
+        if probe.selectedAppUnavailable { return (.disconnected, [:]) }
         guard probe.appPath != nil else { return (.missing, [:]) }
         var setup: [OnboardingSetupTask: OnboardingTaskState] = [
             .selected: probe.selectedIsXcode ? .done : .queued,
