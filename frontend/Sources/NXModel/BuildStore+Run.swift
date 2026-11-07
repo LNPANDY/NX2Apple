@@ -162,16 +162,15 @@ extension BuildStore {
             for image in RomFSArchive.reusableImages(root: outDir.isEmpty ? baseDir : outDir, key: tidHex) { args += ["--romfs-from", image] }
         }
         let macApp = target == BuildTarget.mac
+        let macOutput = macApp ? MacAppOutput(workDir: URL(fileURLWithPath: workDir), key: tidHex, titleID: gameTitleID, preferred: macAppPath) : nil
         oneGameIPAPath = ""
         if exportsOneGame {
             // One game's own IPA with its game data inside (BuildStore+OneGame.swift, #540)
             oneGameIPAPath = OneGameIPA.path(folder: outDir.isEmpty ? baseDir : outDir, titleID: tidHex)
             args += OneGameIPA.arguments(ipa: oneGameIPAPath)
-        } else if macApp {
-            // -o names the .app; the RomFS goes inside it, so the archive step is skipped below.
-            args += ["--platform", "mac-app"]
-            macAppPath = (outDir.isEmpty ? baseDir : outDir) + "/" + tidHex + ".app"
-            args += ["-o", macAppPath]
+        } else if let macOutput {
+            macAppPath = ""
+            args += ["--platform", "mac-app", "-o", macOutput.builderURL.path]
         } else {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
             args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
@@ -200,8 +199,13 @@ extension BuildStore {
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             hop {
                 guard let self else { return }
-                self.running = false
                 self.flushLines()
+                if status == 0, !self.stopping, let macOutput {
+                    self.markAllDone()
+                    self.finishMacApp(macOutput)
+                    return
+                }
+                self.running = false
                 if self.stopping {
                     self.stopping = false
                     self.resetProgress()
@@ -213,23 +217,6 @@ extension BuildStore {
                     self.markAllDone()
                     if !self.oneGameIPAPath.isEmpty {
                         self.finishOneGameIPA()
-                    } else if self.target == BuildTarget.mac {
-                        // The .app is self-contained (its RomFS is inside), and the marker file
-                        // beside it (.nx2apple-library, a dot file the Finder hides) tells the
-                        // game's launcher that this folder is a library: its saves and log live
-                        // here, and they follow the folder if it moves. No image copy — the .app
-                        // already carries one, and a second multi-GB file was pure duplication.
-                        let made = !self.macAppPath.isEmpty &&
-                                   FileManager.default.fileExists(atPath: self.macAppPath)
-                        self.done = made
-                        self.doneNote = self.t(made ? "msg.macAppDone" : "msg.macAppMissing")
-                        if made {
-                            try? Data().write(to: URL(fileURLWithPath:
-                                (self.macAppPath as NSString).deletingLastPathComponent +
-                                "/.nx2apple-library"))
-                        }
-                        self.running = false
-                        self.cleanupStaging()
                     } else {
                         // The game's archive, then its framework into the one shared app on the device
                         // The framework the build wrote, and the title ID in its name: the script names it after the game
@@ -275,6 +262,24 @@ extension BuildStore {
                 hop { self?.ingest(s) }
             }, onExit: onExit)
         } catch { fail(String(format: t("msg.launchFailed"), error.localizedDescription)) }
+    }
+
+    private func finishMacApp(_ output: MacAppOutput) {
+        Task {
+            do {
+                let app = try await Task.detached { try output.finish() }.value
+                macAppPath = app.path
+                say("✓ " + shortPath(app.path))
+                done = true
+                doneNote = t("msg.macAppDone")
+                running = false
+                cleanupStaging()
+            } catch MacAppOutput.FinishError.retainedApp(let app, let cause) {
+                fail(app.path + "\n" + cause.localizedDescription)
+            } catch {
+                fail(t("msg.macAppMissing"))
+            }
+        }
     }
 
     /// Looks the device up in `devicectl list devices` (in the background), then starts the build, or says how to pair it.

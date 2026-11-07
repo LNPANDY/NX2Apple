@@ -88,7 +88,7 @@ extension BuildStore {
     /// The base game and the keys are there, or a game folder that needs no keys.
     package var inputsReady: Bool { gameFolder != nil ? slot("base").ok : slot("base").ok && slot("keys").ok }
 
-    /// The key of the build folder and the app (`<key>_build`, `<key>.app`): the folder's title ID, else the base package's (TitleID.buildKey).
+    /// The key of the work folder (`<key>_build`): the folder's title ID, else the base package's (TitleID.buildKey).
     package var buildKey: String {
         if let selectedTitleID { return selectedTitleID }
         guard let f = gameFolder else { return TitleID.buildKey(basePath) }
