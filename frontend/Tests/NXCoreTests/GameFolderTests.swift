@@ -247,13 +247,24 @@ extension GameFolderTests {
             XCTAssertEqual(c.dlc.map(\.titleID), [0x040074A01BF13001])
         }
 
-        // An outer folder that also holds an NSP or a second game folder is not unwrapped.
+        // An outer folder that also holds an NSP or a second game folder (at the same level or a mixed depth) is not unwrapped.
         write("Outer/Other [010015100B514000][v0].nsp")
         XCTAssertFalse(GameFolder.isCandidate(root + "/Outer"))
         try? FileManager.default.removeItem(atPath: root + "/Outer/Other [010015100B514000][v0].nsp")
         write("Outer/SecondGame/base/exefs/main.npdm", Self.npdm(programID: 0x0400C3F00006E000))
         mkdir("Outer/SecondGame/base/romfs")
         XCTAssertFalse(GameFolder.isCandidate(root + "/Outer"))
+
+        // Mixed-depth collection: GameA at Collection/GameA/base (level 1) and GameB at Collection/Wrapper/GameB/base (level 2).
+        let collection = root + "/Collection"
+        write("Collection/GameA/base/exefs/main.npdm", Self.npdm(programID: 0x040074A01BF12000))
+        mkdir("Collection/GameA/base/romfs")
+        write("Collection/Wrapper/GameB/base/exefs/main.npdm", Self.npdm(programID: 0x0400A3A01EE4C000))
+        mkdir("Collection/Wrapper/GameB/base/romfs")
+        XCTAssertEqual(GameFolder.resolve(collection), collection, "a mixed-depth collection of two games must not pick GameA")
+        XCTAssertFalse(GameFolder.isCandidate(collection))
+        XCTAssertEqual(GameFolder.scan(collection).failureValue, .missing("base/exefs/main.npdm"))
+        XCTAssertEqual(GameFolder.resolve(collection + "/Wrapper"), collection + "/Wrapper/GameB", "the single-game wrapper inside the collection still resolves")
     }
 
     func testAnUpdateOnlyDumpWithoutABaseFolderIsAccepted() throws {

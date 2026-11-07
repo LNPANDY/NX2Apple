@@ -163,16 +163,15 @@ package enum GameFolder {
         let level1 = wrapperSubdirs(in: path)
         if level1.contains(where: { hasPackages(in: $0) }) { return nil }
         let direct1 = level1.filter { isDirectCandidate($0) }
-        if direct1.count == 1 { return direct1[0] }
         if direct1.count > 1 { return nil }
         var level2: [String] = []
-        for sub in level1 {
+        for sub in level1 where !isDirectCandidate(sub) {
             let children = wrapperSubdirs(in: sub)
             if children.contains(where: { hasPackages(in: $0) }) { return nil }
             level2.append(contentsOf: children)
         }
-        let direct2 = level2.filter { isDirectCandidate($0) }
-        return direct2.count == 1 ? direct2[0] : nil
+        let candidates = direct1 + level2.filter { isDirectCandidate($0) }
+        return candidates.count == 1 ? candidates[0] : nil
     }
 
     /// Whether the path is meant as a game folder or a NUP: a `.nup` file, a folder with a `.nup` at its top, a folder with

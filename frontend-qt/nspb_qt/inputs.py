@@ -261,18 +261,18 @@ def _unwrapped_game_folder(path: str) -> str | None:
     if any(_has_packages(sub) for sub in level1):
         return None
     direct1 = [sub for sub in level1 if is_direct_game_folder_candidate(sub)]
-    if len(direct1) == 1:
-        return direct1[0]
     if len(direct1) > 1:
         return None
     level2: list[str] = []
     for sub in level1:
+        if is_direct_game_folder_candidate(sub):
+            continue
         children = _wrapper_subdirs(sub)
         if any(_has_packages(c) for c in children):
             return None
         level2.extend(children)
-    direct2 = [sub for sub in level2 if is_direct_game_folder_candidate(sub)]
-    return direct2[0] if len(direct2) == 1 else None
+    candidates = direct1 + [sub for sub in level2 if is_direct_game_folder_candidate(sub)]
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def resolve_game_folder(path: str) -> str:

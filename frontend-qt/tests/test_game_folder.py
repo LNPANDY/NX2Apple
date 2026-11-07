@@ -256,6 +256,27 @@ class FolderTests(unittest.TestCase):
         (self.dir / 'Outer' / 'Second' / 'base/exefs/main.npdm').write_bytes(npdm(TID))
         self.assertFalse(inputs.is_game_folder_candidate(str(self.dir / 'Outer')))
 
+        # Mixed-depth collection: GameA at Collection/GameA/base (level 1) and GameB at Collection/Wrapper/GameB/base (level 2)
+        from nspb_qt import library as lib
+        coll = self.dir / 'Collection'
+        game_a = coll / 'GameA'
+        game_b = coll / 'Wrapper' / 'GameB'
+        tid_b = 0x0400A3A01EE4C000
+        for gdir, gtid in ((game_a, TID), (game_b, tid_b)):
+            (gdir / 'base/exefs').mkdir(parents=True)
+            (gdir / 'base/exefs/main.npdm').write_bytes(npdm(gtid))
+            (gdir / 'base/romfs').mkdir(parents=True)
+        self.assertEqual(inputs.resolve_game_folder(str(coll)), str(coll))
+        self.assertFalse(inputs.is_game_folder_candidate(str(coll)))
+        self.assertFalse(lib.GameFolder.is_candidate(str(coll)))
+        self.assertEqual(inputs.scan_game_folder(str(coll)), inputs.GameFolderProblem('missing', ('base/exefs/main.npdm',)))
+        self.assertEqual(inputs.resolve_game_folder(str(coll / 'Wrapper')), str(game_b))
+        found = lib.GameLibrary.discover_in_folder(str(coll))
+        by_tid = {g.title_id: g for g in found}
+        self.assertEqual(set(by_tid), {f'{TID:016X}', f'{tid_b:016X}'})
+        self.assertEqual(by_tid[f'{TID:016X}'].inputs['base'], [str(game_a)])
+        self.assertEqual(by_tid[f'{tid_b:016X}'].inputs['base'], [str(game_b)])
+
     def test_update_only_dump_without_base_folder(self):
         self.make('updates/131072/exefs/main.npdm', npdm(TID))
         self.assertTrue(inputs.is_game_folder_candidate(str(self.dir)))
