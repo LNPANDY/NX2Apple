@@ -266,7 +266,6 @@ extension LibraryGame {
     }
 }
 
-
 final class GameLibrary: ObservableObject {
     /// The key of `LibraryGame.inputs` that holds a game folder (a Switch 2 game's base/, updates/, dlc/), read again on Build.
     static let folderInput = "folder"
@@ -554,8 +553,9 @@ final class GameLibrary: ObservableObject {
         game.lastTarget = model.target
         // An existing output is linked only after validating its metadata and executables.
         let dir = model.outDir.isEmpty ? model.inputFolder : model.outDir
-        let expected = URL(fileURLWithPath: dir).appendingPathComponent(titleID + ".app")
-        if let app = try? MacGameBundle.read(expected), app.titleID == titleID { game.appPath = expected.path }
+        if let existing = MacAppOutput.existing(in: URL(fileURLWithPath: dir), titleID: model.gameTitleID, preferred: game.appPath) {
+            game.appPath = existing.path
+        }
         upsert(game)
         selectedID = game.id
         return game.id

@@ -563,6 +563,7 @@ struct LauncherView: View {
             // scan, or from the last build. Falling back to the base's folder would put the update and DLC out of reach.
             m.gameDir = game.sourceFolder.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : game.sourceFolder
         }
+        m.macAppPath = game.appPath
         m.outDir = game.outputDirectory
         m.done = false; m.doneNote = ""; m.stages = []
         m.target = game.lastTarget

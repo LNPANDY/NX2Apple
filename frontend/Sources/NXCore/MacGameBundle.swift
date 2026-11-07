@@ -1,18 +1,18 @@
 import Foundation
-import NXCore
 
 /// A game's Mac app as the library reads it: its title ID, its bundle name and its names by language (`DMTitleNames`).
-struct MacGameBundle {
-    let titleID: String
-    let name: String
-    var titleNames: [String: String] = [:]
+package struct MacGameBundle {
+    package let titleID: String
+    package let name: String
+    let displayName: String?
+    package var titleNames: [String: String] = [:]
 
     enum Invalid: LocalizedError {
         case notGame
         var errorDescription: String? { L10n.string("library.notGame", Lang.initial()) }
     }
 
-    static func read(_ url: URL) throws -> MacGameBundle {
+    package static func read(_ url: URL) throws -> MacGameBundle {
         guard url.pathExtension.lowercased() == "app" else { throw Invalid.notGame }
         LauncherWork.count(.infoPlistRead)
         guard let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
@@ -24,8 +24,10 @@ struct MacGameBundle {
               FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/" + executable).path),
               FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/dmhost").path)
         else { throw Invalid.notGame }
-        return MacGameBundle(titleID: rawID.uppercased(),
-                             name: info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? url.deletingPathExtension().lastPathComponent,
+        let title = [info["CFBundleDisplayName"], info["CFBundleName"]]
+            .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        return MacGameBundle(titleID: rawID.uppercased(), name: title ?? url.deletingPathExtension().lastPathComponent, displayName: title,
                              titleNames: GameTitleNames.read(info))
     }
 }
