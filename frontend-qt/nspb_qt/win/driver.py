@@ -438,6 +438,56 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.capture_jit = capture_jit
 
     # ---------------------------------------------------------------- Unreal inline shaders
+    pg = getattr(mod, 'pg', None)
+    if pg is None:
+        for sub in ('tools', 'games'):
+            d = str(Path(repo) / 'dm' / sub)
+            if d not in sys.path:
+                sys.path.insert(0, d)
+        try:
+            import importlib
+            pg = importlib.import_module('profile_guess')
+            mod.pg = pg
+        except Exception:
+            pg = None
+
+    if pg is not None:
+        if not hasattr(pg, '_nspb_orig_build_sources') and hasattr(pg, 'build_sources'):
+            pg._nspb_orig_build_sources = pg.build_sources
+        if hasattr(pg, '_nspb_orig_build_sources'):
+            _orig_build_sources = pg._nspb_orig_build_sources
+
+            def build_sources(exefs, romfs, modules=('main',), *a, **kw):
+                res = _orig_build_sources(exefs, romfs, modules, *a, **kw)
+                if isinstance(res, dict) and 'oodle_packs' in res:
+                    cache = getattr(mod, '_nspb_build_sources_oodle', None)
+                    if not isinstance(cache, dict):
+                        cache = {}
+                        mod._nspb_build_sources_oodle = cache
+                    cache[str(romfs)] = bool(res['oodle_packs'][0])
+                return res
+
+            pg.build_sources = build_sources
+
+    def _rom_has_oodle_packs(pg_mod, romfs, main_path) -> bool:
+        if pg_mod is None or main_path is None or not callable(getattr(pg_mod, 'build_sources', None)):
+            return False
+        mp = Path(main_path)
+        if not mp.is_file():
+            return False
+        try:
+            with open(mp, 'rb') as f:
+                if f.read(4) != b'NSO0':
+                    return False
+            nso_fn = getattr(pg_mod, 'nso_files', None)
+            mods = [p.name for p in nso_fn(mp.parent)] if callable(nso_fn) else [mp.name]
+            res = pg_mod.build_sources(mp.parent, romfs, mods or [mp.name])
+            if isinstance(res, dict) and 'oodle_packs' in res:
+                return bool(res['oodle_packs'][0])
+        except Exception:
+            pass
+        return False
+
     if not hasattr(mod, '_nspb_orig_split_shaders') and hasattr(mod, 'split_shaders'):
         mod._nspb_orig_split_shaders = mod.split_shaders
 
@@ -460,19 +510,22 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
             tables or cache keys are written.
             """
             if oodle is not None:
-                pg = getattr(mod, 'pg', None)
-                if pg is None:
-                    games_dir = str(Path(repo_) / 'dm' / 'games')
-                    if games_dir not in sys.path:
-                        sys.path.insert(0, games_dir)
-                    try:
-                        import importlib
-                        pg = importlib.import_module('profile_guess')
-                    except Exception:
-                        pg = None
-                has_oodle_packs = pg is not None and any(
-                    pg.oodle_packs(r)[0] for r in roms
-                )
+                cur_pg = getattr(mod, 'pg', None) or pg
+                cache = getattr(mod, '_nspb_build_sources_oodle', None)
+                recorded = cache if isinstance(cache, dict) else {}
+                pairs = [
+                    (r, mains[i] if mains and i < len(mains) else None)
+                    for i, r in enumerate(roms)
+                ]
+                has_oodle_packs = False
+                for r, m in pairs:
+                    key = str(r)
+                    if key in recorded:
+                        val = bool(recorded.pop(key))
+                    else:
+                        val = _rom_has_oodle_packs(cur_pg, r, m)
+                    if val:
+                        has_oodle_packs = True
                 if not has_oodle_packs:
                     oodle = None
                     if env.get('DM_EXPERIMENTAL_BUILDER') == '1':
