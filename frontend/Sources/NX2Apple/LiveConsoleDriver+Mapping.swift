@@ -106,7 +106,7 @@ extension LiveConsoleDriver {
             preferences.refresh()
             layout = ConsolePadLayout(mode: .custom, gameTitle: game.name, baseline: globalSends, sends: ControllerMap.pad(preferences.map("DM_PAD_MAP")))
         } else {
-            layout = ConsolePadLayout(mode: controls.padMode, sends: globalSends)
+            layout = ConsolePadLayout(mode: controls.padMode, sends: globalSends, custom: controls.pad)
         }
         if layout != state.padLayout { state.padLayout = layout }
         let swap = UserDefaults.standard.bool(forKey: Self.menuSwapKey)

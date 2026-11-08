@@ -194,6 +194,9 @@ struct ConsolePadLayout: Equatable {
     /// What each button sends in the layout chosen (for Auto, the one it picks for the controller connected now): only the
     /// buttons that send another, "none" for nothing.
     var sends: [String: String] = [:]
+    /// The Custom layout's buttons as stored, whichever layout is chosen: an edit there is kept at once (ControlLayout.setSends), so
+    /// going back to another layout does not undo it, and the mapping page asks about it on leaving.
+    var custom: [String: String] = [:]
     func output(_ button: String) -> String { sends[button] ?? button }
     func changed(_ button: String) -> Bool { output(button) != (baseline[button] ?? button) }
     /// Whether anything differs from what Reset goes back to: the standard layout, or for a game the mapping of all games.
@@ -231,7 +234,8 @@ struct ConsoleState {
     /// Whether the mapping page has anything to save: the layout or its buttons, or the swap in menus.
     var mappingChanged: Bool {
         guard let origin = mappingOrigin else { return false }
-        return origin.mode != padLayout.mode || origin.sends != padLayout.sends || shownMenuSwapAB != menuSwapAB
+        let customEdited = mappingGameID == nil && mappingUndo.map { $0.pad != padLayout.custom } == true
+        return origin.mode != padLayout.mode || origin.sends != padLayout.sends || customEdited || shownMenuSwapAB != menuSwapAB
     }
     /// The cloud saves page's rows, read when it opens (ConsoleCloudSaves).
     var saveRows: [ConsoleSaveRow] = []

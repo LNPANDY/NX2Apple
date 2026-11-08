@@ -54,6 +54,20 @@ import NXModel
         XCTAssertNil(layout.environment["DM_JOYCON_SPLIT"])
     }
 
+    /// An edit to the Custom layout is kept at once; going back to the layout the page opened with does not undo it, so leaving
+    /// still asks to save or discard it.
+    @MainActor func testACustomEditStillAsksAfterGoingBackToStandard() {
+        let driver = MockConsoleDriver(scenario: .full, animated: false)
+        driver.openMenu(); driver.openMapping()
+        XCTAssertFalse(driver.state.mappingChanged)
+        driver.setPadMode(.custom)
+        driver.setPadSends(button: "A", to: "B")
+        driver.setPadMode(.standard)
+        XCTAssertTrue(driver.state.mappingChanged, "the Custom buttons differ from when the page opened")
+        driver.back()
+        XCTAssertEqual(driver.state.presentedSheet, .confirmMapping)
+    }
+
     func testGamepadActionsMapToConsoleInputs() {
         let expected: [(LauncherGamepad.Action, ConsoleInput?)] = [
             (.left, .left), (.right, .right), (.up, .up), (.down, .down), (.a, .activate), (.b, .back),
