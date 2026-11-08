@@ -129,4 +129,58 @@ final class ArtworkPanelTests: XCTestCase {
         shown.artwork = editor.draft
         return shown
     }
+
+    @MainActor private func bitmap<V: View>(size: NSSize, _ view: V) throws -> NSBitmapImageRep {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let host = NSHostingView(rootView: view)
+        let window = OffscreenWindow(size: size)
+        window.contentView = host
+        window.orderFront(nil)
+        defer {
+            window.contentView = nil
+            window.orderOut(nil)
+            window.close()
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        host.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return rep
+    }
+
+    @MainActor func testHeroBottomEdgeFadesCleanlyWithoutBrightSeam() async throws {
+        fixture = try ArtworkFixture()
+        let banner = fixture.artwork.appendingPathComponent(fixture.titleID + ".jpg")
+        let white = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 1920, pixelsHigh: 1080, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                   isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: white)
+        NSColor.white.setFill()
+        NSRect(x: 0, y: 0, width: 1920, height: 1080).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        try XCTUnwrap(white.representation(using: .jpeg, properties: [:])).write(to: banner)
+
+        let stores = LauncherStores(defaults: TestDefaults.make("nxnative-hero-seam"))
+        stores.build.outDir = fixture.temporary.path
+        fixture.library.selectedID = fixture.gameID
+        let store = ArtworkStore(directory: fixture.artwork, titleList: fixture.temporary.appendingPathComponent("none.json"), allowsFileURLs: true)
+        let editor = fixture.editor()
+        await editor.load()
+
+        let size = NSSize(width: 1280, height: 667)
+        let rep = try bitmap(size: size, LauncherView(stores: stores, library: fixture.library, performStartupChecks: false, artworkEditor: editor, artworkStore: store))
+
+        let scaleY = CGFloat(rep.pixelsHigh) / size.height
+        let sampleX = Int(CGFloat(rep.pixelsWide) * 0.25)
+        var reachedBackground = false
+        for y in Int(240 * scaleY)..<Int(375 * scaleY) {
+            guard let color = rep.colorAt(x: sampleX, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+            let peak = Int(round(max(color.redComponent, color.greenComponent, color.blueComponent) * 255))
+            if peak <= 16 { reachedBackground = true }
+            if reachedBackground {
+                XCTAssertLessThanOrEqual(peak, 20, "Bright 1px seam leaked at hero bottom edge y=\(y): peak=\(peak)")
+            }
+        }
+        XCTAssertTrue(reachedBackground, "Hero gradient should fade to background before collection header")
+    }
 }
