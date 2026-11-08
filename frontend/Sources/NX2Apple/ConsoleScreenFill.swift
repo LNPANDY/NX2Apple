@@ -70,6 +70,7 @@ import ObjectiveC
         window.titlebarAppearsTransparent = true
         window.isMovable = false
         for b in buttons { window.standardWindowButton(b)?.isHidden = true }
+        titlebar(of: window)?.isHidden = true   // the band at the top takes no clicks, drags or double-clicks (which would zoom the window)
         let target = screen.frame
         window.setFrame(target, display: true)
         let snap: (Notification) -> Void = { [weak window] _ in
@@ -94,12 +95,16 @@ import ObjectiveC
         window.titlebarAppearsTransparent = s.titlebarTransparent
         window.isMovable = s.movable
         for b in buttons { window.standardWindowButton(b)?.isHidden = false }
+        titlebar(of: window)?.isHidden = false
         window.setFrame(s.frame, display: true, animate: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + window.animationResizeTime(s.frame)) {
             reconstrain(window)
             if s.wasFullScreen { ConsoleCoordinator.toggleFullScreen(window, true, done) } else { done() }
         }
     }
+
+    /// The view that holds the title bar (the close button's view's view), hidden while filling so the console gets the whole top.
+    private static func titlebar(of window: NSWindow) -> NSView? { window.standardWindowButton(.closeButton)?.superview?.superview }
 
     /// The windows that skip AppKit's frame constraint now (read from the patched method, which AppKit calls on the main thread).
     nonisolated(unsafe) private static var unconstrained: Set<ObjectIdentifier> = []
