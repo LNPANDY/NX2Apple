@@ -1,6 +1,7 @@
 """frontend/tools/nxbuild.py and frontend/nxbuild.pin (LNPANDY/NX2Apple#749): the pin's form, the digest check before anything is unpacked, and a
 release's SHA256SUMS. No network: zips are made in a temporary folder."""
-import hashlib, importlib.util, tempfile, unittest, zipfile
+import hashlib, importlib.util, io, tempfile, unittest, urllib.error, zipfile
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -86,6 +87,33 @@ class RewriterPins(unittest.TestCase):
         pin = {'version': '0.9.1', 'sha256': None, 'url': 'https://github.com/v0lumehi/nxkit/releases/download/v0.9.1/nxb-v0.9.1-macos-arm64.zip'}
         self.assertEqual(nxbuild.rewrite_source(pin), 'https://raw.githubusercontent.com/v0lumehi/nxkit/v0.9.1/crates/nxb-build/src/rewrite.rs')
         with self.assertRaises(SystemExit): nxbuild.rewrite_source(dict(pin, url='https://example.com/nxb.zip'))
+
+
+
+class Download(unittest.TestCase):
+    """A release download that answers a server error is tried again; a 404 is not. No network: urlopen is replaced."""
+    def opener(self, answers):
+        calls = []
+        def urlopen(url, timeout=None):
+            calls.append(url); a = answers.pop(0)
+            if isinstance(a, Exception): raise a
+            return io.BytesIO(a)
+        return urlopen, calls
+
+    def error(self, code): return urllib.error.HTTPError('u', code, 'x', None, None)
+
+    def test_a_504_is_tried_again(self):
+        urlopen, calls = self.opener([self.error(504), urllib.error.URLError('reset'), b'zip'])
+        with mock.patch.object(nxbuild.urllib.request, 'urlopen', urlopen), mock.patch.object(nxbuild.time, 'sleep'):
+            self.assertEqual(nxbuild.download('u'), b'zip')
+        self.assertEqual(len(calls), 3)
+
+    def test_a_404_and_the_last_try_raise(self):
+        for answers, n in (([self.error(404)], 1), ([self.error(503)] * 5, 5)):
+            urlopen, calls = self.opener(list(answers))
+            with mock.patch.object(nxbuild.urllib.request, 'urlopen', urlopen), mock.patch.object(nxbuild.time, 'sleep'):
+                with self.assertRaises(urllib.error.HTTPError): nxbuild.download('u')
+            self.assertEqual(len(calls), n)
 
 
 if __name__ == '__main__':

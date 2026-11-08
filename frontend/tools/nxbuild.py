@@ -8,7 +8,7 @@
                                                 file against the engine's (#942). Exit code 1 lists the files that differ: `nxb build` stops at the
                                                 rewrite with such an engine, and the launcher builds with the NSP script instead.
 Nothing here runs nxb: a zip whose digest differs is deleted and the step fails."""
-import hashlib, os, re, subprocess, sys, urllib.request, zipfile
+import hashlib, os, re, subprocess, sys, time, urllib.error, urllib.request, zipfile
 from pathlib import Path
 
 PIN = Path(__file__).resolve().parents[1] / 'nxbuild.pin'
@@ -21,6 +21,19 @@ def read(pin=PIN):
         raise SystemExit(f'{pin}: needs version (x.y.z), sha256 and url lines')
     sha = kv['sha256'].strip().lower()
     return {'version': kv['version'], 'url': kv['url'].replace('{version}', kv['version']), 'sha256': sha if re.fullmatch(r'[0-9a-f]{64}', sha) else None}
+
+
+def download(url, tries=5, wait=10):
+    """The bytes at url. A GitHub release download can answer 502 to 504 for minutes: a server error or a lost connection is tried again, a 404 is not"""
+    for n in range(1, tries + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as r: return r.read()
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or n == tries: raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if n == tries: raise
+        print(f'{url}: try {n} of {tries} failed, again in {wait * n} s', file=sys.stderr)
+        time.sleep(wait * n)
 
 
 def digest(path):
@@ -63,7 +76,7 @@ def fetch(resources, work):
         return None
     work.mkdir(parents=True, exist_ok=True)
     z = work / Path(pin['url']).name
-    urllib.request.urlretrieve(pin['url'], z)
+    z.write_bytes(download(pin['url']))
     nxb = unpack(z, pin['sha256'], resources / 'nxbuild')
     subprocess.run(['codesign', '--force', '--sign', '-', str(nxb)], check=True)
     print(f'nxbuild {pin["version"]}: {nxb} ({pin["sha256"]})')
@@ -80,7 +93,7 @@ def sums_digest(text, name):   # the digest of name in a SHA256SUMS text ("<hex>
 def bump(version, pin=PIN):
     old = pin.read_text()
     url = read(pin)['url'].replace(read(pin)['version'], version)
-    with urllib.request.urlopen(url.rsplit('/', 1)[0] + '/SHA256SUMS') as r: sums = r.read().decode()
+    sums = download(url.rsplit('/', 1)[0] + '/SHA256SUMS').decode()
     sha = sums_digest(sums, Path(url).name)
     new = re.sub(r'^version\t.*$', f'version\t{version}', old, flags=re.M)
     pin.write_text(re.sub(r'^sha256\t.*$', f'sha256\t{sha}', new, flags=re.M))
@@ -115,7 +128,7 @@ def mismatches(pinned, tools):
 def check(engine):
     pin = read()
     url = rewrite_source(pin)
-    with urllib.request.urlopen(url) as r: rust = r.read().decode()
+    rust = download(url).decode()
     pinned = pins(rust)
     bad = mismatches(pinned, Path(engine) / 'dm' / 'tools')
     if not bad:
