@@ -62,6 +62,32 @@ class SwiftTestJobs(unittest.TestCase):
                 result, _ = self.run_step(step, 0, broken_log=True)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_changes_skips_mac_launcher_for_qt_and_l10n_only_prs(self):
+        script = step_script('changes', 'Which areas changed')
+        with tempfile.TemporaryDirectory(prefix='nx-changes-ci-') as folder:
+            out_file = Path(folder) / 'out'
+            for files, want_engine, want_launcher in (
+                ('frontend-qt/nspb_qt/sheets.py\nfrontend/l10n/zh.json', 'false', 'false'),
+                ('frontend/Sources/NXApp/LauncherView.swift', 'false', 'true'),
+                ('patches/0001-x.patch', 'true', 'true'),
+                ('README.md', 'false', 'false'),
+            ):
+                out_file.write_text('')
+                fake_gh = f'gh() {{ printf "%s\\n" "{files}"; }}\n'
+                env = {
+                    'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
+                    'EVENT': 'pull_request',
+                    'REPO': 'LNPANDY/NX2Apple',
+                    'DEFAULT_BRANCH': 'main',
+                    'HEAD_SHA': 'deadbeef',
+                    'GITHUB_OUTPUT': str(out_file),
+                }
+                res = subprocess.run(['/bin/bash', '-e', '-c', fake_gh + script], env=env, capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+                outputs = dict(line.split('=', 1) for line in out_file.read_text().splitlines() if '=' in line)
+                self.assertEqual(outputs.get('engine'), want_engine, files)
+                self.assertEqual(outputs.get('launcher'), want_launcher, files)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -70,6 +70,7 @@ extension EnvironmentValues {
 /// The list of a choice's options with a checkmark on the current one. A card in the shell's style over the dimmed
 /// settings. D-pad and keys move through `pick.<option>` targets, A or Return picks, B or Escape closes.
 struct ChoicePickerView: View {
+    @Environment(\.shellNativeBars) private var nativeBars
     let request: ChoiceRequest
     let pick: (String) -> Void
     let close: () -> Void
@@ -101,14 +102,16 @@ struct ChoicePickerView: View {
                     }
                 }
                 Spacer(minLength: 8)
-                Button(action: close) {
-                    Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).frame(width: 44, height: 44)
-                        .background(.white.opacity(0.08), in: Circle()).contentShape(Circle())
+                if !nativeBars {
+                    Button(action: close) {
+                        Image(systemName: "xmark").font(.system(size: 14, weight: .semibold)).frame(width: 44, height: 44)
+                            .background(.white.opacity(0.08), in: Circle()).contentShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(ShellStrings.text("Close"))
                 .accessibilityIdentifier("choice.close")
                 .shellTarget("pick.close", radius: 22, action: close)
+                }
             }
             .padding(.horizontal, 20).padding(.top, 14).padding(.bottom, 8)
             Rectangle().fill(ShellPalette.hairline).frame(height: 1)

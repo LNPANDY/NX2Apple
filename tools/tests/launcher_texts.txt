@@ -35,6 +35,7 @@ Japanese
 Keeps a pipeline archive; uses more memory.
 Korean
 Latin American Spanish
+Match screen
 Metal 4 pipelines
 MetalFX
 Performance
@@ -43,6 +44,7 @@ Picture
 Picture shape
 Pipeline prebuild
 Portuguese
+Press a button to join
 Render scale
 Renders about a quarter more pixels: a little slower and warmer.
 Rumble cutoff

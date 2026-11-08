@@ -1,0 +1,155 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sat, 7 Nov 2026 19:52:29 +0100
+Subject: [PATCH] Split mesh draws with no task shader into grids of at most
+ 1024
+
+Metal allows at most 1024 threadgroups in a mesh grid. A mesh draw
+with no task shader dispatches its workgroup count as the mesh grid.
+Ocarina of Time issues indirect mesh draws of up to 1,771 workgroups
+(grass and foliage). The oversized grid reads out of bounds and the
+GPU page faults (BIF0 read) 30 to 40 seconds after the save loads.
+
+The mesh shader computes its workgroup as first + threadgroup id, so
+a draw splits cleanly. Direct draws are split on the CPU in parts of
+1024. For indirect draws mdx_mask writes 8 part records on the GPU,
+each with its own count and first, and counts above 8192 are reported
+once as RED 156. Draws with a task shader are unchanged, the
+translator already clamps the grid they emit.
+
+Upstream-Status: forwarded seedds/nxnative#1708
+Reason: Ocarina of Time page faults the GPU 30 to 40 seconds after loading a save without it, a mesh draw with no task shader exceeds Metal's 1024 threadgroup mesh grid
+Issue: seedds/nxnative#1326
+
+---
+ dm/gfx/msl/mdx.metal        | 13 +++++++++++--
+ dm/gfx/nvn/nvn_geometry.inc | 30 ++++++++++++++++++++++--------
+ dm/gfx/nvn/nvn_mtl.m        | 23 ++++++++++++++++-------
+ 3 files changed, 49 insertions(+), 17 deletions(-)
+
+diff --git a/dm/gfx/msl/mdx.metal b/dm/gfx/msl/mdx.metal
+index e5d4754..0ab2de2 100644
+--- a/dm/gfx/msl/mdx.metal
++++ b/dm/gfx/msl/mdx.metal
+@@ -2,8 +2,17 @@
+ #include <metal_stdlib>
+ using namespace metal;
+ struct mjob { device const uint *rec; device const uint *cnt; device uint *out; uint i, words; };
+-kernel void mdx_mask(device const mjob *j [[buffer(0)]], uint t [[thread_position_in_grid]]) {
++// An indirect mesh draw (words 0): NVN's {count, first} as Metal's threadgroups {count, 1, 1}, then MDX_MESH_PARTS draws of at most MDX_MESH_GRID workgroups each as {x, 1, 1, first}
++// for a mesh shader with no task shader, whose threadgroups are the mesh grid (nvn_geometry.inc mtk_encode). bad[0] counts the draws with more workgroups than the parts hold
++#define MDX_MESH_PARTS 8u
++#define MDX_MESH_GRID 1024u
++kernel void mdx_mask(device const mjob *j [[buffer(0)]], device atomic_uint *bad [[buffer(1)]], uint t [[thread_position_in_grid]]) {
+   mjob m = j[t]; if (!m.out) return;
+-  if (!m.words) { m.out[0] = m.rec[0]; m.out[1] = 1u; m.out[2] = 1u; return; }   // an indirect mesh draw: NVN's {count, first} as Metal's threadgroups {x, y, z} (nvn_geometry.inc mesh_tasks_draw)
++  if (!m.words) { uint c = m.rec[0], f = m.rec[1];
++    m.out[0] = c; m.out[1] = 1u; m.out[2] = 1u; m.out[3] = 0u;
++    for (uint k = 0; k < MDX_MESH_PARTS; k++) { uint o = k * MDX_MESH_GRID; device uint *p = m.out + 4u + 4u * k;
++      p[0] = c > o ? min(c - o, MDX_MESH_GRID) : 0u; p[1] = 1u; p[2] = 1u; p[3] = f + o; }
++    if (c > MDX_MESH_PARTS * MDX_MESH_GRID) atomic_fetch_add_explicit(&bad[0], 1u, memory_order_relaxed);
++    return; }
+   bool live = m.i < *m.cnt;
+   for (uint k = 0; k < m.words; k++) m.out[k] = live ? m.rec[k] : 0u; }
+diff --git a/dm/gfx/nvn/nvn_geometry.inc b/dm/gfx/nvn/nvn_geometry.inc
+index dbb12d7..5631e41 100644
+--- a/dm/gfx/nvn/nvn_geometry.inc
++++ b/dm/gfx/nvn/nvn_geometry.inc
+@@ -591,17 +591,31 @@ static id<MTLRenderPipelineState> mtk_pso(NvProg *raster) {
+ static void mtk_encode(id<MTLRenderCommandEncoder> en_) {
+     id<MTL4RenderCommandEncoder> en = (id<MTL4RenderCommandEncoder>)en_; NvShader *ts = g_mtk.ts, *ms = g_mtk.ms;
+     [en setArgumentTable:g_vt atStages:MTLRenderStageMesh];
+-    uint64_t first_gpu = g_mtk.ind_first;
+-    if (!g_mtk.ind) { id<MTLBuffer> b; size_t o = arena_alloc(16, &b); memcpy((uint8_t *)b.contents + o, &g_mtk.first, 4); first_gpu = b.gpuAddress + o; }
+-    if (ts) { [en setArgumentTable:g_ot atStages:MTLRenderStageObject]; g_args_dirty[3] = 1; encode_args(en, ts, 3, 0);
+-              if (rec_on()) rec_table_op(RO_T_ADDR, g_ot, first_gpu, DMSH_MESH_FIRST_SLOT); else [g_ot setAddress:first_gpu atIndex:DMSH_MESH_FIRST_SLOT]; }
++    MTLSize to = MTLSizeMake(ts ? ts->mesh_threads : 1, 1, 1), tm = MTLSizeMake(ms->mesh_threads, 1, 1);
++    if (ts) { uint64_t first_gpu = g_mtk.ind_first;
++              if (!g_mtk.ind) { id<MTLBuffer> b; size_t o = arena_alloc(16, &b); memcpy((uint8_t *)b.contents + o, &g_mtk.first, 4); first_gpu = b.gpuAddress + o; }
++              [en setArgumentTable:g_ot atStages:MTLRenderStageObject]; g_args_dirty[3] = 1; encode_args(en, ts, 3, 0);
++              if (rec_on()) rec_table_op(RO_T_ADDR, g_ot, first_gpu, DMSH_MESH_FIRST_SLOT); else [g_ot setAddress:first_gpu atIndex:DMSH_MESH_FIRST_SLOT];
++              g_args_dirty[4] = 1; encode_args(en, ms, 4, 1);
++              enc_r_vbuf(en, DMSH_MESH_FIRST_SLOT, first_gpu);
++              if (g_mtk.ind) [en drawMeshThreadgroupsWithIndirectBuffer:g_mtk.ind threadsPerObjectThreadgroup:to threadsPerMeshThreadgroup:tm];
++              else [en drawMeshThreadgroups:MTLSizeMake(g_mtk.count, 1, 1) threadsPerObjectThreadgroup:to threadsPerMeshThreadgroup:tm];
++              return; }
++    // With no task shader the threadgroups are the mesh grid, which Metal holds to MDX_MESH_GRID: past it the GPU read out of bounds and the command buffer failed with a page fault
++    // (Ocarina of Time: indirect mesh draws of up to 1,771 workgroups). The draw goes in parts, each with its own first workgroup; an indirect draw's parts are written by mdx_mask
+     g_args_dirty[4] = 1; encode_args(en, ms, 4, 1);
+-    enc_r_vbuf(en, DMSH_MESH_FIRST_SLOT, first_gpu);
+-    if (g_mtk.ind) [en drawMeshThreadgroupsWithIndirectBuffer:g_mtk.ind threadsPerObjectThreadgroup:MTLSizeMake(ts ? ts->mesh_threads : 1, 1, 1) threadsPerMeshThreadgroup:MTLSizeMake(ms->mesh_threads, 1, 1)];
+-    else [en drawMeshThreadgroups:MTLSizeMake(g_mtk.count, 1, 1) threadsPerObjectThreadgroup:MTLSizeMake(ts ? ts->mesh_threads : 1, 1, 1) threadsPerMeshThreadgroup:MTLSizeMake(ms->mesh_threads, 1, 1)];
++    if (g_mtk.ind) {
++        for (int k = 0; k < MDX_MESH_PARTS; k++) { uint64_t part = g_mtk.ind + 16 + 16 * (uint64_t)k;
++            enc_r_vbuf(en, DMSH_MESH_FIRST_SLOT, part + 12);
++            [en drawMeshThreadgroupsWithIndirectBuffer:part threadsPerObjectThreadgroup:to threadsPerMeshThreadgroup:tm]; }
++        return; }
++    for (uint32_t o = 0; o < g_mtk.count; o += MDX_MESH_GRID) {
++        id<MTLBuffer> b; size_t bo = arena_alloc(16, &b); uint32_t first = g_mtk.first + o; memcpy((uint8_t *)b.contents + bo, &first, 4);
++        enc_r_vbuf(en, DMSH_MESH_FIRST_SLOT, b.gpuAddress + bo);
++        [en drawMeshThreadgroups:MTLSizeMake(MIN(g_mtk.count - o, MDX_MESH_GRID), 1, 1) threadsPerObjectThreadgroup:to threadsPerMeshThreadgroup:tm]; }
+ }
+ // DrawMeshTasksIndirect: {count, first}, which the game's culling writes earlier in the submission, while Metal's indirect mesh draw takes {x, y, z}. mdx_run copies the count to a {count, 1, 1} on the
+-// GPU, before the render pass and for every such draw up to the next write, and the shader reads first from the record. Reading the record on the CPU instead took a wait for the GPU at each hazard:
++// GPU, before the render pass and for every such draw up to the next write, and the shader reads first from the record (with no task shader: parts of at most MDX_MESH_GRID, mtk_encode). Reading the record on the CPU instead took a wait for the GPU at each hazard:
+ // 73 % of the submit thread in Ocarina of Time's Kokiri Forest, frames of 90 ms and more against 25 ms of GPU work
+ static void mesh_tasks_draw(const p_draw *dw) {
+     if (!S.prog || (!dw->ind && dw->count <= 0)) return;
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index b8e2766..4fcc8c2 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -2070,7 +2070,7 @@ static void mtl_finish_gpu_at(int site) {
+ 
+ // ================= Render replay =================
+ #include "../../host/front.h"
+-static int g_red_once[156];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
++static int g_red_once[157];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
+ #define RED_ONCE(k, ...) do { _Static_assert((k) < sizeof g_red_once / sizeof *g_red_once, "a RED_ONCE key past g_red_once: raise its size"); if (!g_red_once[k]++) MLOG("[RED] " __VA_ARGS__); } while (0)
+ // NVN vertex streams 0–15 → Metal vertex buffer slots: 0–13 go to 16–29 (30 is the constant fallback buffer), 14 and 15 to 14 and 15. Metal has only the 31 slots 0–30; translated shaders use only buffer(0) (the argument buffer),
+ // and the host's own vertex functions read no vertex buffers. 13 Sentinels uses stream 15, and the old 16 + stream went out of range (Metal assertion: buffer index (31) must be < 31)
+@@ -11800,6 +11800,9 @@ static uint32_t mdi_count(uint64_t cnt) {
+ typedef struct { uint64_t ind, cnt, out, tag; } mdx_ent;   // out: GPU address of the copy, 0 when the record or count is in no Metal buffer (those draws wait, mdi_live)
+ static mdx_ent g_mdx[MDX_SLOTS]; static int g_mdx_n; static uint64_t g_mdx_tag = 1, g_mdx_ep = ~0ull, g_mdx_sub, g_mdx_runs, g_mdx_splits, g_mdx_draws, g_mdx_fast; static const uint8_t *g_mdx_stop;
+ // The kernel mdx_mask: dm/gfx/msl/mdx.metal
++#define MDX_MESH_PARTS 8      // as in mdx.metal: an indirect mesh draw with no task shader is drawn as this many parts of at most MDX_MESH_GRID workgroups
++#define MDX_MESH_GRID 1024    // Metal's limit of threadgroups in a mesh grid (dmsh_meshstage.py METAL_MAX_GRID)
++#define MDX_MESH_OUT (16 + 16 * MDX_MESH_PARTS)   // {count, 1, 1, 0}, then each part's {x, 1, 1, first}
+ static int mdx_wanted(const p_draw *dw, const p_draw_idx *di) { return dw ? dw->mdi_cnt && !ixc_wanted(dw, NULL) : di->mdi_cnt && !ixc_wanted(NULL, di); }
+ static mdx_ent *mdx_slot(uint64_t ind, uint64_t cnt) {   // its entry in this tag, or the free slot for it
+     for (uint64_t h = ((ind ^ cnt * 0xD6E8FEB86659FD93ull) * 0x9E3779B97F4A7C15ull) >> 50;; h = (h + 1) & (MDX_SLOTS - 1)) { mdx_ent *e = &g_mdx[h]; if (e->tag != g_mdx_tag || (e->ind == ind && e->cnt == cnt)) return e; }
+@@ -11814,7 +11817,7 @@ static void mdx_run(const p_draw *dw, const p_draw_idx *di) {
+     if (failed) return;
+     if (!at) { NSError *e = nil; id<MTLLibrary> lib = host_lib("mdx", &e); id<MTLFunction> f = [lib newFunctionWithName:@"mdx_mask"];
+         ps = f ? [g_dev newComputePipelineStateWithFunction:f error:&e] : nil;
+-        MTL4ArgumentTableDescriptor *ad = [MTL4ArgumentTableDescriptor new]; ad.maxBufferBindCount = 1; at = ps ? rec_table([g_dev newArgumentTableWithDescriptor:ad error:&e]) : nil;
++        MTL4ArgumentTableDescriptor *ad = [MTL4ArgumentTableDescriptor new]; ad.maxBufferBindCount = 2; at = ps ? rec_table([g_dev newArgumentTableWithDescriptor:ad error:&e]) : nil;
+         if (!at) { failed = 1; MLOG("[RED] indirect-count multi-draw masking: cannot create the compute pipeline %s (those draws wait for the GPU)", e.localizedDescription.UTF8String); return; } }
+     if (g_mdx_ep != g_mdx_epoch || g_mdx_sub != g_sub_serial || g_mdx_n > MDX_SLOTS / 4) { g_mdx_tag++; g_mdx_n = 0; g_mdx_ep = g_mdx_epoch; g_mdx_sub = g_sub_serial; }
+     enum { QMAX = MDX_SLOTS / 4 };
+@@ -11848,14 +11851,20 @@ static void mdx_run(const p_draw *dw, const p_draw_idx *di) {
+     if (g_enc) { g_mdx_splits++; PD("M %llu indirect-count multi-draw masking: render pass split here", g_stat_pass); rp_end(); }
+     if (g_blit) { enc_b_end(g_blit); g_blit = nil; }
+     typedef struct { uint64_t rec, cnt, out; uint32_t i, words; } mjob;
+-    int nj = (nq + 63) & ~63;
+-    id<MTLBuffer> ab; size_t ao = arena_alloc((size_t)nj * sizeof(mjob) + (size_t)nq * 32, &ab);   // the jobs (padded to whole threadgroups), then the copies 32 bytes apart
++    int nj = (nq + 63) & ~63; size_t outn = 0;
++    for (int k = 0; k < nq; k++) outn += q[k].words ? 32 : MDX_MESH_OUT;   // a copy 32 bytes, an indirect mesh draw's threadgroups and parts MDX_MESH_OUT (mdx.metal)
++    id<MTLBuffer> ab; size_t ao = arena_alloc((size_t)nj * sizeof(mjob) + outn, &ab);   // the jobs (padded to whole threadgroups), then the copies
+     mjob *j = (mjob *)((uint8_t *)ab.contents + ao); uint64_t og = ab.gpuAddress + ao + (uint64_t)nj * sizeof(mjob);
+     memset(j, 0, (size_t)nj * sizeof(mjob));
+-    for (int k = 0; k < nq; k++) { mdx_ent *e = q[k].e; void *mb; uint64_t mo, rg, cg;
++    for (int k = 0; k < nq; k++) { mdx_ent *e = q[k].e; void *mb; uint64_t mo, rg, cg; uint64_t o = og; og += q[k].words ? 32 : MDX_MESH_OUT;
+         if (!mtl_gpu_addr(e->ind, 4 * (q[k].words ? q[k].words : 2), &mb, &mo, &rg) || !mtl_gpu_addr(e->cnt, 4, &mb, &mo, &cg)) continue;
+-        e->out = og + 32 * (uint64_t)k; j[k] = (mjob){rg, cg, e->out, q[k].i, q[k].words}; }
+-    id<MTL4ComputeCommandEncoder> ce = enc_c_begin(NULL); [ce setArgumentTable:at]; [at setAddress:ab.gpuAddress + ao atIndex:0]; [ce setComputePipelineState:ps];
++        e->out = o; j[k] = (mjob){rg, cg, e->out, q[k].i, q[k].words}; }
++    static id<MTLBuffer> bad; static uint32_t bad_seen;   // indirect mesh draws with more workgroups than MDX_MESH_PARTS parts hold (mdx.metal)
++    if (!bad) { bad = [g_dev newBufferWithLength:16 options:MTLResourceStorageModeShared]; memset(bad.contents, 0, 16); res_add(bad); res_commit(); }
++    { uint32_t v = *(const volatile uint32_t *)bad.contents; if (v != bad_seen) { bad_seen = v;
++        RED_ONCE(156, "an indirect mesh draw with no task shader asked for more than %d workgroups: the rest are not drawn (%u such draws so far)", MDX_MESH_PARTS * MDX_MESH_GRID, v); } }
++    id<MTL4ComputeCommandEncoder> ce = enc_c_begin(NULL);
++    [ce setArgumentTable:at]; [at setAddress:ab.gpuAddress + ao atIndex:0]; [at setAddress:bad.gpuAddress atIndex:1]; [ce setComputePipelineState:ps];
+     [ce dispatchThreadgroups:MTLSizeMake((NSUInteger)nj / 64, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];
+     enc_c_end(ce);
+     args_dirty_all();

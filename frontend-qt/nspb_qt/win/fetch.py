@@ -442,13 +442,17 @@ def install_zstd(dest: Path | None = None,
     staging.mkdir(parents=True)
     try:
         with zipfile.ZipFile(zpath) as z:
-            for info in z.infolist():
-                if info.is_dir():
-                    continue
+            members = [m for m in z.infolist() if not m.is_dir()]
+            grand = sum(m.file_size for m in members) or 1
+            done = 0
+            for info in members:
                 out = staging / _strip_root(info.filename)
                 out.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(info) as src, open(out, 'wb') as dst:
                     shutil.copyfileobj(src, dst, 1 << 20)
+                done += info.file_size
+                if unpack_progress:
+                    unpack_progress(done, grand)
     except zipfile.BadZipFile as e:
         shutil.rmtree(staging, ignore_errors=True)
         raise DownloadError(f'{zpath.name} is not a valid zip: {e}') from e

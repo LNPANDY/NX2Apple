@@ -4,10 +4,8 @@ import SwiftUI
 import XCTest
 @testable import ShellUI
 
-/// #511: on the iPhone Duo outer screen the system keeps a strip at the trailing edge (the status bar sits there), so
-/// the library gets a trailing safe-area inset. The row of covers is sized for the width inside the safe area, but a
-/// scroll view draws its content under the insets, so the third card showed in the strip, cut at the screen edge.
-/// These tests render the upright library with such a strip and look at the pixels in it.
+/// Native horizontal library bars let the compact collection extend beneath horizontal container insets.
+/// Keep the former side column usable by scroll content instead of reinstating the custom empty strip.
 @MainActor
 final class RowEdgeTests: XCTestCase {
     private let screen = CGSize(width: 440, height: 520)
@@ -63,13 +61,9 @@ final class RowEdgeTests: XCTestCase {
         return count
     }
 
-    func testTwoGamesLeaveTheStripEmpty() throws {
-        XCTAssertEqual(drawnInStrip(try render(2)), 0)
-    }
-
-    /// The bug: with a third game its card was drawn in the strip and cut at the screen edge.
-    func testMoreThanTwoGamesDrawNoCardInTheStrip() throws {
-        XCTAssertEqual(drawnInStrip(try render(4)), 0, "a card is drawn under the trailing inset and cut at the screen edge")
+    func testScrollableCollectionUsesFormerSideColumn() throws {
+        XCTAssertGreaterThan(drawnInStrip(try render(4)), 100,
+                             "Horizontal native bars must not leave a custom empty column beside the collection")
     }
 }
 #endif

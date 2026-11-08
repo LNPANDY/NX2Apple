@@ -75,6 +75,7 @@ struct OnboardingGame: Identifiable, Equatable {
     var version: String
     /// Decoded artwork is supplied by the driver. The view never reads or fetches a file.
     var cover: NSImage? = nil
+    var needsKeys = true
 }
 
 struct OnboardingState: Equatable {
@@ -100,7 +101,7 @@ struct OnboardingState: Equatable {
         }
     }
     enum Keys: Equatable {
-        case searching, found(URL), validating, valid, invalid(String), empty
+        case searching, found(URL), validating, valid, invalid(String), empty, skipped
         var statusKey: String {
             switch self {
             case .searching: return "onboarding.keys.searching"
@@ -109,6 +110,7 @@ struct OnboardingState: Equatable {
             case .valid: return "onboarding.keys.valid"
             case .invalid: return "onboarding.keys.invalid"
             case .empty: return "onboarding.keys.empty"
+            case .skipped: return "onboarding.keys.skipped"
             }
         }
     }
@@ -142,13 +144,20 @@ struct OnboardingState: Equatable {
     var backgroundFailed: Bool {
         background.values.contains { if case .failed = $0 { return true }; return false }
     }
+    var canSkipKeys: Bool {
+        step == .keys && exit == nil && keys != .valid && keys != .validating && keys != .skipped
+    }
+    var gamesNeedKeys: Bool {
+        guard keys == .skipped, case let .found(games) = self.games, !games.isEmpty else { return false }
+        return games.allSatisfy(\.needsKeys)
+    }
     var canAdvance: Bool {
         switch step {
         case .welcome: return welcome.hasSpace
         case .platform: return selectedPlatform != nil
         case .xcode: return xcode == .ready && backgroundReady
-        case .keys: return keys == .valid
-        case .games: if case let .found(games) = games { return !games.isEmpty }; return false
+        case .keys: return keys == .valid || keys == .skipped
+        case .games: if case let .found(games) = games { return !games.isEmpty && !gamesNeedKeys }; return false
         case .done: return false
         }
     }
@@ -211,6 +220,7 @@ struct OnboardingState: Equatable {
     func retry(_ step: OnboardingStep)
     func chooseKeys(_ url: URL)
     func confirmKeys()
+    func skipKeys()
     func chooseGames(_ url: URL)
     func back()
     func next()

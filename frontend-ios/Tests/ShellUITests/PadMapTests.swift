@@ -49,7 +49,7 @@ import Testing
         let rows = [SettingRow(id: "pad.swapAB", label: "Swap A and B", kind: .choice([]), value: "follow", fromShell: true),
                     SettingRow(id: "pad.A", label: "A", kind: .choice([]), value: "follow", fromShell: true),
                     SettingRow(id: "pad.B", label: "B", kind: .choice([]), value: "follow", fromShell: true)]
-        #expect(PadMappingRows.summary(rows, game: true) == "Same as all games")
+        #expect(PadMappingRows.summary(rows, game: true) == "Default")
         var custom = rows
         custom[1].fromShell = false
         #expect(PadMappingRows.summary(custom, game: true) == "Custom")
@@ -161,7 +161,7 @@ import Testing
         let path = try #require(ShellStrings.bundle.path(forResource: "zh-Hans", ofType: "lproj"))
         let zh = try #require(Bundle(path: path))
         let english = PadMap.groups.map(\.title) + PadMap.buttons.map(PadMap.place)
-            + ["Button mapping", "Swap A and B", "Same as all games", "Reset", "Changed", "Button test", "Hold B to close", "Close"]
+            + ["Button mapping", "Swap A and B", "Default", "Reset", "Changed", "Button test", "Hold B to close", "Close"]
         for text in english {
             let chinese = zh.localizedString(forKey: text, value: "", table: nil)
             #expect(chinese.unicodeScalars.contains { $0.value >= 0x4E00 }, "\(text): \(chinese)")

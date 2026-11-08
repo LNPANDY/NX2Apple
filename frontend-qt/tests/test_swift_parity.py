@@ -864,6 +864,144 @@ class SharedShellParityTests(unittest.TestCase):
                 prog.close()
                 m._stop_pso_poll()
 
+    def test_onboarding_install_all_missing_tracks_sub_stages_and_pip_packages(self) -> None:
+        """Verify Model.install_all_missing, _stage_progress_logger, and _make_venv update per-item
+        sub-stages (Python interpreter download -> venv -> pip packages, download -> unpack) and overall progress.
+        """
+        import io
+        import time
+        from unittest import mock
+
+        model_mod = self._model_mod
+        Model = model_mod.Model
+        Dep = model_mod.Dep
+        DepState = model_mod.DepState
+
+        with mock.patch.object(Model, 'check_deps', lambda self: None):
+            m = Model()
+
+        py_dep = Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING, install=['__win__:python'])
+        dn_dep = Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint', DepState.MISSING, install=['__win__:dotnet'])
+        llvm_dep = Dep('llvm', 'dep.llvm', 'dep.llvm.hint', DepState.MISSING, install=['__win__:llvm'])
+        lld_dep = Dep('lld', 'dep.lld', 'dep.lld.hint', DepState.MISSING, install=[])
+        sdk_dep = Dep('ios_sdk', 'dep.iossdk', 'dep.iossdk.hint', DepState.MISSING, install=['__win__:ios_sdk'])
+        m.deps = [py_dep, dn_dep, llvm_dep, lld_dep, sdk_dep]
+        m.deps_checked = True
+
+        # 1. Verify _stage_progress_logger updates py_download, download, and unpack percentages
+        m._install_all_running = True
+        m.install_all_step = 1
+        m.install_all_total = 4
+        m.install_all_pct = 0
+
+        py_cb = m._stage_progress_logger(
+            py_dep, m.t('dep.phase.download'), 'python-3.12.8-amd64.exe',
+            phase='py_download', py_version='3.12.8',
+        )
+        py_cb(13 * 1048576, 26 * 1048576)
+        self.assertEqual(py_dep.install_pct, 50)
+        self.assertIn('50%', py_dep.install_stage)
+        self.assertIn('3.12.8', py_dep.install_detail)
+        self.assertGreater(m.install_all_pct, 0)
+
+        dl_cb = m._stage_progress_logger(
+            llvm_dep, m.t('dep.phase.download'), 'llvm-mingw.zip', phase='download'
+        )
+        dl_cb(160 * 1048576, 250 * 1048576)
+        self.assertEqual(llvm_dep.install_pct, 64)
+        self.assertIn('64%', llvm_dep.install_stage)
+        self.assertIn('160 / 250 MB', llvm_dep.install_detail)
+
+        up_cb = m._stage_progress_logger(
+            llvm_dep, m.t('dep.phase.unpack'), 'llvm-mingw.zip', phase='unpack'
+        )
+        up_cb(180 * 1048576, 250 * 1048576)
+        self.assertEqual(llvm_dep.install_pct, 72)
+        self.assertIn('72%', llvm_dep.install_stage)
+        m._install_all_running = False
+
+        # 2. Verify _make_venv tracks pip package progress across all 6 packages
+        seen_stages: list[tuple[str, str, int | None]] = []
+        orig_set = m._set_dep_progress
+
+        def spy_set(dep, stage='', detail='', pct=None, **kw):
+            orig_set(dep, stage, detail, pct, **kw)
+            seen_stages.append((stage, detail, dep.install_pct))
+
+        class FakePipPopen:
+            def __init__(self, *_a, **_kw) -> None:
+                self.stdout = io.StringIO(
+                    'Processing ./wheels/lz4-4.3.3.whl\n'
+                    'Processing ./wheels/capstone-5.0.3.whl\n'
+                    'Processing ./wheels/fonttools-4.55.0.whl\n'
+                    'Processing ./wheels/zbic-0.1.0.whl\n'
+                    'Processing ./wheels/backports_zstd-1.0.0.whl\n'
+                    'Processing ./wheels/nsz-4.6.1.whl\n'
+                    'Successfully installed lz4 capstone fonttools zbic backports.zstd nsz\n'
+                )
+                self.returncode = 0
+
+            def wait(self) -> int:
+                return 0
+
+        with tempfile.TemporaryDirectory() as td:
+            vdir = Path(td) / 'venv'
+            vpy = vdir / 'bin' / 'python3'
+            base_py = Path(td) / 'base_python3'
+            base_py.write_text('', encoding='utf-8')
+
+            def fake_runs(exe, args):
+                if args[:2] == ['-m', 'venv']:
+                    vpy.parent.mkdir(parents=True, exist_ok=True)
+                    vpy.write_text('', encoding='utf-8')
+                return True
+
+            py_dep.installing = True
+            with mock.patch.object(model_mod.pu, 'venv_dir', return_value=vdir), \
+                 mock.patch.object(model_mod.pu, 'venv_python', return_value=str(vpy)), \
+                 mock.patch.object(model_mod.pu, 'venv_base', return_value=str(base_py)), \
+                 mock.patch.object(model_mod.pu, '_python_version', return_value='3.12.8'), \
+                 mock.patch.object(model_mod.pu, '_runs', side_effect=fake_runs), \
+                 mock.patch.object(model_mod.subprocess, 'Popen', FakePipPopen), \
+                 mock.patch.object(m, '_set_dep_progress', side_effect=spy_set):
+                ok = m._make_venv(str(base_py))
+            py_dep.installing = False
+        self.assertTrue(ok)
+        self.assertTrue(any(pct == 100 for _s, _d, pct in seen_stages), seen_stages)
+        self.assertTrue(any('fonttools' in d for _s, d, _p in seen_stages), seen_stages)
+
+        # 3. Verify install_all_missing assigns queue_index, advances install_all_step, and clears state at end
+        snapshots: list[tuple[int, int, list[int]]] = []
+
+        def fake_install_dep(dep: Dep) -> None:
+            snapshots.append((
+                m.install_all_step,
+                m.install_all_total,
+                [r.queue_index for r in m.deps],
+            ))
+            dep.installing = False
+            dep._install_done = True  # type: ignore[attr-defined]
+            dep.state = DepState.OK
+            if dep.id == 'llvm':
+                lld_dep.state = DepState.OK
+
+        with mock.patch.object(m, 'install_dep', side_effect=fake_install_dep), \
+             mock.patch.object(m, 'check_deps', lambda: None):
+            m.install_all_missing()
+            deadline = time.time() + 5.0
+            while m._install_all_running and time.time() < deadline:
+                time.sleep(0.02)
+
+        self.assertFalse(m._install_all_running)
+        self.assertEqual(m.install_all_step, 0)
+        self.assertEqual(len(snapshots), 4)
+        self.assertEqual([s[0] for s in snapshots], [1, 2, 3, 4])
+        self.assertTrue(all(s[1] == 4 for s in snapshots))
+        # At step 1, dotnet/llvm/ios_sdk are queued as #2, #3, #4
+        self.assertEqual(snapshots[0][2], [1, 2, 3, 0, 4])
+        self.assertTrue(all(r.ok for r in m.deps))
+        self.assertTrue(all(r.queue_index == 0 for r in m.deps))
+
 
 class KeyCheckTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -1053,6 +1191,158 @@ class LibraryAndSpaceTests(unittest.TestCase):
             store.image_path('040074A01BF12000'),
             str(store.banners_dir / '040074A01BF12000.jpg'),
         )
+
+    def test_library_preserves_swift_fields_and_win_shader_helpers(self) -> None:
+        import json
+        import re
+        from nspb_qt.win import build_app, shim, xcrun_shim
+
+        # 1. Verify GameLibrary preserves Swift's UUID id, installedDevice, iosAppPath, and top-level folder
+        state_dir = self.dir / 'swift_state'
+        state_dir.mkdir(parents=True, exist_ok=True)
+        swift_uuid = 'B6F6DB62-D0D5-47A2-941D-BA37A1CFCA0C'
+        swift_payload = {
+            'folder': '/Users/test/Games',
+            'games': [
+                {
+                    'id': swift_uuid,
+                    'titleID': '0100E65002BB8000',
+                    'name': 'Stardew Valley',
+                    'iosAppPath': '/Users/test/DmShell.app',
+                    'installedDevice': '00008150-000660C01447801C',
+                    'archivePath': '/Users/test/Games/0100E65002BB8000',
+                    'lastTarget': 'iPhone / iPad',
+                    'toolsCommit': 'b2d46b86d03f',
+                    'mods': [{'name': 'ModA', 'enabled': True}],
+                }
+            ],
+        }
+        (state_dir / 'library.json').write_text(json.dumps(swift_payload), encoding='utf-8')
+        gl = lib.GameLibrary(state_dir=state_dir)
+        self.assertEqual(gl.games_folder, '/Users/test/Games')
+        self.assertEqual(len(gl.games), 1)
+        self.assertEqual(gl.games[0].installed_device, '00008150-000660C01447801C')
+        self.assertEqual(gl.games[0].ios_app_path, '/Users/test/DmShell.app')
+
+        # Upsert an updated entry and verify Swift fields survive round-trip save
+        updated_game = lib.LibraryGame(title_id='0100E65002BB8000', name='Stardew Valley')
+        gl.upsert(updated_game)
+        saved = json.loads((state_dir / 'library.json').read_text(encoding='utf-8'))
+        self.assertEqual(saved.get('folder'), '/Users/test/Games')
+        saved_g = saved['games'][0]
+        self.assertEqual(saved_g['id'], swift_uuid)
+        self.assertEqual(saved_g['installedDevice'], '00008150-000660C01447801C')
+        self.assertEqual(saved_g['iosAppPath'], '/Users/test/DmShell.app')
+        self.assertEqual(saved_g['lastTarget'], 'iPhone / iPad')
+        self.assertEqual(saved_g['toolsCommit'], 'b2d46b86d03f')
+
+        # 2. Verify REQUIRED_DYLIB_SYMBOLS against real C/ObjC sources in engine/ and win/ios/Launcher.m
+        eng = ROOT / 'engine'
+        marker_file = eng / 'dm' / 'ios' / 'framework' / 'DmGameMarker.m'
+        glue_file = eng / 'dm' / 'ios' / 'framework' / 'ShellGlue.m'
+        main_file = eng / 'dm' / 'ios' / 'Shell' / 'ShellMain.m'
+        boot_hdr_file = eng / 'dm' / 'ios' / 'Sources' / 'FrameworkBootstrap.h'
+        for required_src in (marker_file, glue_file, main_file, boot_hdr_file):
+            self.assertTrue(required_src.is_file(), f'missing synced engine source: {required_src}')
+        marker_src = marker_file.read_text(encoding='utf-8')
+        glue_src = glue_file.read_text(encoding='utf-8')
+        main_src = main_file.read_text(encoding='utf-8')
+        boot_hdr = boot_hdr_file.read_text(encoding='utf-8')
+        launcher_src = (ROOT / 'frontend-qt' / 'nspb_qt' / 'win' / 'ios' / 'Launcher.m').read_text(encoding='utf-8')
+        combined_src = '\n'.join([marker_src, glue_src, launcher_src])
+        for sym in build_app.REQUIRED_DYLIB_SYMBOLS:
+            c_name = sym.lstrip('_')
+            self.assertRegex(combined_src, rf'\b{re.escape(c_name)}\b')
+        for sym in re.findall(r'dlsym\([^,]+,\s*"([^"]+)"\)', main_src + '\n' + boot_hdr):
+            self.assertIn(f'_{sym}', build_app.REQUIRED_DYLIB_SYMBOLS)
+
+        # Verify shader_lib_real_path uses the synced engine's shader_lib.view(lib) for both .img and folder
+        self.assertIsNotNone(build_app._shader_lib_module(eng))
+        sh_parent = self.dir / 'sh_test'
+        sh_dir = sh_parent / 'b-adec7d81d970'
+        sh_dir.mkdir(parents=True)
+        sh_img = sh_parent / 'b-adec7d81d970.img'
+        sh_img.write_bytes(b'IMG')
+        resolved_img = build_app.shader_lib_real_path(eng, sh_dir)
+        self.assertIsInstance(resolved_img, Path)
+        self.assertEqual(resolved_img, sh_img)
+        (sh_dir / 'inputs.tsv').write_text('game\t0100E65002BB8000\n', encoding='utf-8')
+        resolved_dir = build_app.shader_lib_real_path(eng, sh_dir)
+        self.assertIsInstance(resolved_dir, Path)
+        self.assertEqual(resolved_dir, sh_dir)
+
+        # 3. Verify xcrun_shim._safe_suffix handles .metallib.tmp-<pid>-<tid> and .air.tmp
+        self.assertEqual(
+            xcrun_shim._safe_suffix(Path('E:/game/Fire Emblem/0123_b.metallib.tmp-123-456'), '.out'),
+            '.metallib',
+        )
+        self.assertEqual(
+            xcrun_shim._safe_suffix(Path('E:/game/Fire Emblem/0123_bf.ios.air.tmp'), '.out'),
+            '.air',
+        )
+        self.assertIn('def _win_cache_compile', shim._SITECUSTOMIZE_SRC)
+        self.assertIn('def _patch_ios_metal_module', shim._SITECUSTOMIZE_SRC)
+        self.assertIn('def _patch_game_module', shim._SITECUSTOMIZE_SRC)
+
+        # 4. Verify Windows DM_GAMES_DIR drive-letter colons are preserved for derived profiles (e.g. Pokemon Sword v0)
+        if (eng / 'dm' / 'games' / 'game.py').is_file():
+            import importlib.util
+            from unittest import mock
+
+            spec = importlib.util.spec_from_file_location('test_upstream_game', eng / 'dm' / 'games' / 'game.py')
+            assert spec is not None and spec.loader is not None
+            gm = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(gm)
+
+            # Create a fake Windows drive folder 'D/games/SWORD/0100ABF008968000_build/profile'
+            # and map 'D:\\...' to it via a Path wrapper so the test runs on macOS/Linux/Windows alike
+            derived_root = self.dir / 'win_d_drive' / 'games' / 'SWORD' / '0100ABF008968000_build' / 'profile'
+            sword_derived = derived_root / '0100ABF008968000'
+            sword_derived.mkdir(parents=True, exist_ok=True)
+            reg_tsv = (eng / 'dm' / 'games' / '0100ABF008968000' / 'game.tsv').read_text(encoding='utf-8')
+            derived_tsv = re.sub(
+                r'^build\tv458752\t.*$',
+                'build\tv0\t1.0.0\tmain=00112233445566778899aabbccddeeff',
+                reg_tsv,
+                flags=re.M,
+            )
+            (sword_derived / 'game.tsv').write_text(derived_tsv, encoding='utf-8')
+
+            win_dm_games_dir = r'D:\games\SWORD\0100ABF008968000_build\profile;E:\other\profiles'
+
+            # Only the fake profile folder is mapped. The CI runner keeps the repository on D: too.
+            def map_win_path(p: str) -> Path:
+                s = str(p).replace('\\', '/')
+                if s.startswith('D:/games/'):
+                    return self.dir / 'win_d_drive' / s[3:]
+                return Path(s)
+
+            gm.Path = map_win_path  # type: ignore[attr-defined]
+            # Without the fix, game.py's .split(':') splits 'D:\...' into 'D' and '\games\...', falling back to dm/games (KeyError: 'v0')
+            with mock.patch.dict(os.environ, {'DM_GAMES_DIR': win_dm_games_dir, 'DM_GAMES_FIRST': '1'}):
+                fallback_g = gm.load('0100ABF008968000')
+                self.assertNotIn('v0', fallback_g.builds())
+
+                # Apply the shim's _split_dm_games_dir and _patch_game_module logic
+                ns: dict = {'os': os}
+                shim_chunk = shim._SITECUSTOMIZE_SRC[
+                    shim._SITECUSTOMIZE_SRC.index('    def _split_dm_games_dir'):
+                    shim._SITECUSTOMIZE_SRC.index('    import importlib.machinery as _machinery')
+                ]
+                import textwrap
+                exec(textwrap.dedent(shim_chunk), ns)
+                self.assertEqual(
+                    ns['_split_dm_games_dir'](win_dm_games_dir),
+                    [r'D:\games\SWORD\0100ABF008968000_build\profile', r'E:\other\profiles'],
+                )
+                self.assertEqual(
+                    ns['_GamesDirStr'](win_dm_games_dir).split(':'),
+                    [r'D:\games\SWORD\0100ABF008968000_build\profile', r'E:\other\profiles'],
+                )
+                ns['_patch_game_module'](gm)
+                derived_g = gm.load('0100ABF008968000')
+                self.assertIn('v0', derived_g.builds())
+                self.assertEqual(derived_g.builds()['v0']['display'], '1.0.0')
 
 
 class ParityWindowTests(unittest.TestCase):
@@ -1710,6 +2000,92 @@ class ParityWindowTests(unittest.TestCase):
         self.assertIn('tools/build_shell_template.py', wf)
         self.assertIn('--hidden-import nspb_qt.win.shell_export', wf)
         self.assertIn('--add-data "shell_template${PATHSEP}shell_template"', wf)
+
+    def test_real_onboarding_dialog_step2_live_progress_and_button_lock(self) -> None:
+        """Instantiate the real OnboardingDialog with a real Model and verify live signal-driven
+        progress updates, in-place QProgressBar updates, button locking, and signal disconnect on close.
+        """
+        from unittest import mock
+        from nspb_qt.model import Dep, DepState, Model
+        from nspb_qt.sheets import OnboardingDialog
+
+        with mock.patch.object(Model, 'check_deps', lambda self: None):
+            m = Model()
+        py_dep = Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING, install=['__win__:python'])
+        dn_dep = Dep('dotnet', 'dep.dotnet', 'dep.dotnet.hint', DepState.MISSING, install=['__win__:dotnet'])
+        llvm_dep = Dep('llvm', 'dep.llvm', 'dep.llvm.hint', DepState.MISSING, install=['__win__:llvm'])
+        lld_dep = Dep('lld', 'dep.lld', 'dep.lld.hint', DepState.MISSING, install=[])
+        sdk_dep = Dep('ios_sdk', 'dep.iossdk', 'dep.iossdk.hint', DepState.MISSING, install=['__win__:ios_sdk'])
+        m.deps = [py_dep, dn_dep, llvm_dep, lld_dep, sdk_dep]
+        m.deps_checked = True
+
+        dlg = OnboardingDialog(m)
+        self.addCleanup(self._delete, m, dlg)
+        dlg.next_btn.click()
+        self.app.processEvents()
+
+        self.assertTrue(dlg.next_btn.isEnabled())
+        self.assertTrue(dlg.back_btn.isEnabled())
+        self.assertTrue(dlg.later_btn.isEnabled())
+        self.assertTrue(dlg.task_pill.isHidden())
+        self.assertTrue(dlg.overall_pct_lbl.isHidden())
+
+        # Start install-all step 1/4 and emit real progress signal via _set_dep_progress
+        m._install_all_running = True
+        m.install_all_step = 1
+        m.install_all_total = 4
+        py_dep.installing = True
+        dn_dep.queue_index = 2
+        llvm_dep.queue_index = 3
+        sdk_dep.queue_index = 4
+        m._set_dep_progress(
+            py_dep,
+            m.t('dep.stage.pyDownload', 45),
+            m.t('dep.detail.pyDownload', '3.12.8', 12, 26, 45),
+            45,
+            item_overall_pct=18,
+            force=True,
+        )
+        self.app.processEvents()
+
+        self.assertFalse(dlg.next_btn.isEnabled())
+        self.assertFalse(dlg.back_btn.isEnabled())
+        self.assertTrue(dlg.later_btn.isEnabled())
+        self.assertFalse(dlg.task_pill.isHidden())
+        self.assertFalse(dlg.overall_pct_lbl.isHidden())
+        bar1 = dlg._step1_widgets['rows']['python']['bar']
+        self.assertEqual(bar1.value(), 45)
+        self.assertFalse(dlg._step1_widgets['ibtn'].isEnabled())
+
+        # Advance Python to pip packages at 83% and verify in-place QProgressBar update
+        m._set_dep_progress(
+            py_dep,
+            m.t('dep.stage.pyPkgs', 83),
+            m.t('dep.detail.pyPkgs', 5, 6, 'backports.zstd'),
+            83,
+            item_overall_pct=88,
+        )
+        self.app.processEvents()
+        self.assertIs(dlg._step1_widgets['rows']['python']['bar'], bar1)
+        self.assertEqual(bar1.value(), 83)
+
+        # Finish all installs -> buttons re-enable
+        for d in m.deps:
+            d.installing = False
+            d.state = DepState.OK
+            d.queue_index = 0
+        m._install_all_running = False
+        m.depsChanged.emit()
+        self.app.processEvents()
+        self.assertTrue(dlg.next_btn.isEnabled())
+        self.assertTrue(dlg.back_btn.isEnabled())
+
+        # Close dialog via done(0) and verify depsChanged no longer calls _render_step
+        dlg.done(0)
+        with mock.patch.object(dlg, '_render_step') as spy_render:
+            m.depsChanged.emit()
+            self.app.processEvents()
+            spy_render.assert_not_called()
 
 
 if __name__ == '__main__':

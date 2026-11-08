@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sat, 7 Nov 2026 17:32:53 +0100
+Subject: [PATCH] Keep the Mac game in focus while its window is up by default
+
+Tears of the Kingdom and Ocarina of Time stop presenting and go silent once
+they are out of focus. On the Mac, clicking into another app took the key
+window, so the game froze until its window was clicked again. A player
+reads that as a hang: Ocarina's log showed 'oe focus state -> 2' and no
+frame after it.
+
+DM_FOCUS_KEEP is now on by default. DM_FOCUS_KEEP=0 restores the focus
+changes. Minimizing still counts as leaving the game.
+
+Upstream-Status: fork-only
+Reason: a Mac game should keep running when another app is active, as a player expects from a window
+Issue: LNPANDY/NX2Apple#911
+---
+ dm/host/front_mac.m   | 6 +++---
+ docs/env_switches.tsv | 2 +-
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 792eda42..a8f19f60 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -1298,9 +1298,9 @@ void front_run(void (*guest)(void)) {
+         // content view by itself; only the scale factor has to be carried over to the screen the window ended up on. The screen's rate is matched in fullscreen only (screen_match_apply)
+         [nc addObserverForName:NSWindowDidEnterFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; screen_refresh(win.screen); g_fullscreen = 1; g_layer.contentsScale = win.backingScaleFactor; screen_match_apply(); }];
+         [nc addObserverForName:NSWindowDidExitFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; g_fullscreen = 0; screen_refresh(win.screen); g_layer.contentsScale = win.backingScaleFactor; screen_match_apply(); }];
+-        // DM_FOCUS_KEEP=1 (scripts/regress.py): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom stops presenting out of focus, so
+-        // another app taking the key window during an unattended run read as a hang (no frame after the last focus change)
+-        static int keep = -1; if (keep < 0) keep = getenv("DM_FOCUS_KEEP") && atoi(getenv("DM_FOCUS_KEEP"));
++        // DM_FOCUS_KEEP (on by default, =0 turns it off): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom and Ocarina of Time
++        // stop presenting out of focus, so clicking into another app read as a hang (no frame and no sound after the last focus change)
++        static int keep = -1; if (keep < 0) keep = !getenv("DM_FOCUS_KEEP") || atoi(getenv("DM_FOCUS_KEEP"));
+         [nc addObserverForName:NSWindowDidResignKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); if (!win.miniaturized && !g_text_box && !keep) dm_focus_set(2); }];
+         [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_resume(); dm_focus_set(1); }];
+         [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1); }];
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index e1d163f2..33ba1115 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -39,7 +39,7 @@ DM_EXEC_OUT	path	File `oe::ExecuteProgram` records the next program and its para
+ DM_EXPERIMENTAL_BUILDER	switch	`1` makes the NSP script run the extraction and the shader split through nxbuild's binaries beside `NXB_BIN` (the path of its `nxb` binary) where nxbuild supports the case, with the same outputs; any other case, an unsupported stage or an output that fails the checks runs the standard way (the Mac launcher's Use experimental builder setting)
+ DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and kinds of file descriptors the process has open
+ DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
+-DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
++DM_FOCUS_KEEP	switch	On by default: the game stays in focus while its Mac window is up, whichever app is active (minimizing still counts). `=0` sends focus changes when another app takes the key window; `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
+ DM_FONT_DIR	path	Folder of the shared-font stand-ins (`standard.ttf`, `nintendo_ext.ttf` with the button icons); the app, the Mac launcher and the NSP script set it
+ DM_FORCE_STRICT	diagnostic	`=1` makes the loader fail on forced-hook entries no module references, instead of only noting them (for checking a mistyped list)
+ DM_FORK_PATCHES	path	the fork patches a build carries, comma separated (build_ipa.sh and build_shell.sh read dm/fork_patches.txt into it): `DMForkPatches` in the app's Info.plist and the first log line

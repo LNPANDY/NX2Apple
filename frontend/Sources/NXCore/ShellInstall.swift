@@ -41,6 +41,7 @@ package struct ShellLibrary: Codable, Equatable {
     }
 
     package static func stateFile(root: String) -> String { root + "/shell.json" }
+    private static func receiptFile(root: String) -> String { ShellInstall.derivedData(root: root) + "/.installed-games.json" }
 
     /// The file's library, or a fresh one when there is none (or it cannot be read: the next save writes a valid one).
     package static func load(root: String) -> ShellLibrary {
@@ -54,6 +55,29 @@ package struct ShellLibrary: Codable, Equatable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(self).write(to: URL(fileURLWithPath: Self.stateFile(root: root)), options: .atomic)
+    }
+
+    /// Records that the current `shell.json` game set has been installed onto a device, returning those uppercased title IDs.
+    /// Stored under `derived-data/.installed-games.json` (outside `DmShell.app` so code-signature resources stay untouched, and
+    /// separate from `shell.json` so a subsequent build that adds a game to `shell.json` before failing device install does not
+    /// overwrite the last successful install receipt).
+    @discardableResult
+    package static func recordInstalled(root: String) -> Set<String> {
+        let titles = load(root: root).games.map { $0.titleID.uppercased() }
+        guard !titles.isEmpty else { return [] }
+        let receipt = receiptFile(root: root)
+        try? FileManager.default.createDirectory(atPath: (receipt as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(titles).write(to: URL(fileURLWithPath: receipt), options: .atomic)
+        return Set(titles)
+    }
+
+    /// The uppercased title IDs from the last successful device install that are still present in `shell.json`.
+    package static func installedReceipt(root: String) -> Set<String> {
+        let current = Set(load(root: root).games.map { $0.titleID.uppercased() })
+        guard !current.isEmpty,
+              let data = FileManager.default.contents(atPath: receiptFile(root: root)),
+              let installed = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return Set(installed.map { $0.uppercased() }).intersection(current)
     }
 
     /// The folder a shell root may live in: an absolute path that is not the root of a volume. `""` (no game or output
@@ -527,7 +551,11 @@ package struct ShellInstaller {
             log("signing: the team's provisioning profile cannot carry the Increased Memory Limit capability; signing without it (a large game may run out of memory)\n")
             var plain = env; plain["DM_ENTITLEMENTS"] = ""
             let again = run(ShellInstall.projectCommand(repo: repo), env: plain, label: projectName, step: { _ in nil })
-            if again.status == 0 { noMemoryCapability = true; built = sign(bundleID) }
+            if again.status == 0 {
+                ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
+                noMemoryCapability = true
+                built = sign(bundleID)
+            }
         }
         if built.status != 0 {
             let why = built.lastError ?? fmt("msg.exitCode", built.status)
@@ -549,6 +577,7 @@ package struct ShellInstaller {
             end(Self.installStageID, installName, ok: false, detail: why)
             return Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install)
         }
+        ShellLibrary.recordInstalled(root: root)
         end(Self.installStageID, installName, ok: true)
 
         // 7: the game data, only what the device does not have yet

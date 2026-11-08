@@ -1,7 +1,7 @@
 import Foundation
 import NXCore
 
-// The experimental builder (#749): Settings' switch and the nxb binary it uses. With the switch on, the build is `nxb build` and the script is not run.
+// The nxb builder (#749): Settings' switch and the nxb binary it uses. With the switch on (the default), the build is `nxb build`. Exit code 4 runs the script.
 // The rules (where nxb comes from, the command line, the exit codes) are ExperimentalBuilder in NXCore.
 
 extension BuildStore {
@@ -10,10 +10,16 @@ extension BuildStore {
         ExperimentalBuilder.resolve(customPath: experimentalBuilderPath, bundled: bundledBuilder)
     }
 
-    /// Why the build cannot start as `nxb build`: no nxb found, or one that is older than the command line needs. The player's text, nil when it can start (or the switch is off).
-    /// A game or a target nxb does not take is not checked here: nxb says so itself (exit code 4) and the launcher shows it.
+    /// Whether the next build is `nxb build`: the switch is on, and there is an nxb or the player chose a path. With no chosen path and no copy in the app
+    /// (a launcher built without a pinned release), the script builds.
+    package var usesNxb: Bool {
+        experimentalBuilder && (!experimentalBuilderPath.isEmpty || experimentalBuilderBinary != nil)
+    }
+
+    /// Why the build cannot start as `nxb build`: a chosen nxb that is not found, or one that is older than the command line needs. The player's text, nil when it can start (or the script builds).
+    /// A game or a target nxb does not take is not checked here: nxb says so itself (exit code 4) and the script builds it.
     func experimentalBuilderProblem() -> String? {
-        guard experimentalBuilder else { return nil }
+        guard usesNxb else { return nil }
         guard let nxb = experimentalBuilderBinary, let version = runner.output(nxb, ["version"]) else { return t("msg.builderMissingError") }
         return ExperimentalBuilder.isNewEnough(version) ? nil : String(format: t("nxb.tooOld"), version.trimmingCharacters(in: .whitespacesAndNewlines), ExperimentalBuilder.minimumVersion)
     }
@@ -24,6 +30,11 @@ extension BuildStore {
         say(String(format: t("msg.builderOn"), nxb) + " " + args.joined(separator: " "))
         lastBuildCommand = [nxb] + args
         return ProcessLaunch(executable: nxb, arguments: args, environment: environment.merging(ExperimentalBuilder.environment(engine: engine)) { $1 }, directory: engine, groupPython: python)
+    }
+
+    /// Whether a run that ended with `status` is built again by the script: nxb's exit code 4, "not supported yet", and only for a run of nxb.
+    func fallsBackToScript(status: Int32) -> Bool {
+        nxbRun && ExperimentalBuilder.fallsBackToScript(status: status)
     }
 
     /// What a failed `nxb build` says: its exit code in words and the last error line it printed.

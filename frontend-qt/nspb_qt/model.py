@@ -23,6 +23,7 @@ from . import input_staging
 from . import inputs
 from . import library as lib
 from . import platform_util as pu
+from . import romfs_languages
 from .i18n import Lang
 from .l10n import t
 
@@ -50,6 +51,10 @@ class Dep:
                                 # the panel grows a Choose button; the pick is validated and remembered
     fix_hint: str = ''          # an L10n key set when this row's install failed: what to do next
     last_error: str = ''        # the tool's own last error line, shown under the row (Mac parity)
+    install_stage: str = ''     # short localized stage summary (e.g. "Step 1/3 · Downloading Python 45%")
+    install_detail: str = ''    # detailed progress line (e.g. "Downloading python-3.12.8 — 12 / 26 MB (45%)")
+    install_pct: int | None = None  # current sub-stage percentage (0..100), None when indeterminate
+    queue_index: int = 0        # 1-based queue position during install_all_missing (0 = not queued)
 
     @property
     def ok(self) -> bool:
@@ -242,6 +247,10 @@ class Model(QObject):
         self.dotnet_path, self.dotnet_ok = pu.find_dotnet()
         self.deps: list[Dep] = []
         self.deps_checked = False
+        self._install_all_running = False
+        self.install_all_step = 0
+        self.install_all_total = 0
+        self.install_all_pct = 0
         self.stages: list[Stage] = []
         self.running = False
         self.log_tail = ''
@@ -657,13 +666,19 @@ class Model(QObject):
         for d in deps:
             if d.id in running:
                 d.installing = True
-        # The failure note belongs to the row, and a check (which rebuilds every row) must not
-        # wipe it: it clears when that row installs successfully instead.
+        # The failure note and live progress belong to the row, and a check (which rebuilds every
+        # row) must not wipe them: they clear when that row finishes or installs successfully.
         previous = {d.id: d for d in self.deps}
         for d in deps:
             p = previous.get(d.id)
-            if p is not None and not d.ok:
-                d.last_error, d.fix_hint = p.last_error, p.fix_hint
+            if p is not None:
+                if p.installing:
+                    d.install_stage = p.install_stage
+                    d.install_detail = p.install_detail
+                    d.install_pct = p.install_pct
+                if not d.ok:
+                    d.queue_index = p.queue_index
+                    d.last_error, d.fix_hint = p.last_error, p.fix_hint
 
         self.deps = deps
         # The panel can only show one row at a time; the log keeps every detail, so a report sent
@@ -1206,32 +1221,47 @@ class Model(QObject):
             self._install_win(dep, dep.install[0].split(':', 1)[1])
             return
         dep.installing = True
-        self.depsChanged.emit()
+        dep._install_done = False  # type: ignore[attr-defined]
+        dep.queue_index = 0
+        if dep.id == 'python':
+            self._set_dep_progress(
+                dep,
+                self.t('dep.stage.pyInstall'),
+                self.t('dep.detail.pyInstall', self.python_ver or '3.12'),
+                10,
+                item_overall_pct=40,
+                force=True,
+            )
+        else:
+            self._set_dep_progress(dep, self.t('dep.installing'), '', 0, item_overall_pct=0, force=True)
 
         def work() -> None:
             ok = True
-            if dep.id == 'python':
-                ok = self._make_venv(self.python_path)
-            else:
-                self.log('$ ' + ' '.join(dep.install) + '\n')
-                try:
-                    p = subprocess.Popen(dep.install, stdout=subprocess.PIPE,
-                                         stderr=subprocess.STDOUT, text=True,
-                                         encoding='utf-8', errors='replace', env=pu.child_env(),
-                                         **pu.no_window_kwargs())
-                    assert p.stdout is not None
-                    for line in p.stdout:
-                        self.log(line)
-                    p.wait()
-                    ok = p.returncode == 0
-                except OSError as e:
-                    self.log(f'{e}\n')
-                    ok = False
-            if not ok:
-                self.log(self.t('dep.install.fail', '-') + '\n')
-            self._clear_installing(dep)
-            self.depsChanged.emit()
-            self.check_deps()
+            try:
+                if dep.id == 'python':
+                    ok = self._make_venv(self.python_path, dep=dep)
+                else:
+                    self.log('$ ' + ' '.join(dep.install) + '\n')
+                    try:
+                        p = subprocess.Popen(dep.install, stdout=subprocess.PIPE,
+                                             stderr=subprocess.STDOUT, text=True,
+                                             encoding='utf-8', errors='replace', env=pu.child_env(),
+                                             **pu.no_window_kwargs())
+                        assert p.stdout is not None
+                        for line in p.stdout:
+                            self.log(line)
+                        p.wait()
+                        ok = p.returncode == 0
+                    except OSError as e:
+                        self.log(f'{e}\n')
+                        ok = False
+                if not ok:
+                    self.log(self.t('dep.install.fail', '-') + '\n')
+            finally:
+                self._clear_installing(dep)
+                self.depsChanged.emit()
+                self.check_deps()
+                dep._install_done = True  # type: ignore[attr-defined]
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1257,7 +1287,7 @@ class Model(QObject):
         return detail
 
     def _clear_installing(self, dep: Dep) -> None:
-        """Drop `installing` on every row with this id, wherever it currently lives.
+        """Drop `installing` and transient progress on every row with this id, wherever it lives.
 
         `check_deps` may have rebuilt the rows mid-install (the user pressing Check again, or the
         end-of-install refresh racing the panel): the flag was carried forward onto the NEW
@@ -1265,23 +1295,122 @@ class Model(QObject):
         disabled) forever. The screenshot's LLVM row, grey with its install already failed, was
         exactly that.
         """
-        dep.installing = False
-        for r in self.deps:
-            if r.id == dep.id:
-                r.installing = False
+        for target in [dep] + [r for r in getattr(self, 'deps', []) if r.id == dep.id]:
+            target.installing = False
+            target.install_stage = ''
+            target.install_detail = ''
+            target.install_pct = None
+            target.queue_index = 0
+
+    def _set_dep_progress(self, dep: Dep, stage: str = '', detail: str = '',
+                          pct: int | None = None, *,
+                          item_overall_pct: int | None = None,
+                          force: bool = False) -> None:
+        """Update live stage text, detail line, and progress bar percentage for `dep` and emit `depsChanged`."""
+        if pct is not None:
+            pct = max(0, min(100, int(pct)))
+        changed = (
+            dep.install_stage != stage
+            or dep.install_detail != detail
+            or dep.install_pct != pct
+        )
+        for target in [dep] + [r for r in getattr(self, 'deps', []) if r.id == dep.id]:
+            target.install_stage = stage
+            target.install_detail = detail
+            target.install_pct = pct
+        if getattr(self, '_install_all_running', False):
+            total_steps = max(1, int(getattr(self, 'install_all_total', 1) or 1))
+            curr_step = max(1, min(total_steps, int(getattr(self, 'install_all_step', 1) or 1)))
+            sub = item_overall_pct if item_overall_pct is not None else (pct if pct is not None else 0)
+            sub = max(0, min(100, int(sub)))
+            new_overall = ((curr_step - 1) * 100 + sub) // total_steps
+            if new_overall > getattr(self, 'install_all_pct', 0):
+                self.install_all_pct = min(100, new_overall)
+                changed = True
+        if changed or force:
+            sig = getattr(self, 'depsChanged', None)
+            if sig is not None and hasattr(sig, 'emit'):
+                try:
+                    sig.emit()
+                except RuntimeError:
+                    pass
+
+    def _stage_progress_logger(self, dep: Dep, label: str, artifact_name: str, *,
+                               phase: str = 'download',
+                               py_version: str = ''):
+        """Wrap `_progress_logger(label)` so every 1% step also updates `dep`'s UI progress bar."""
+        base_log = self._progress_logger(label)
+        ui_seen = {'pct': -1}
+
+        def report(done: int, total: int) -> None:
+            base_log(done, total)
+            if not total:
+                return
+            pct = max(0, min(100, done * 100 // total))
+            if pct == ui_seen['pct'] and pct not in (0, 100):
+                return
+            ui_seen['pct'] = pct
+            done_mb = done // 1048576
+            total_mb = max(1, total // 1048576)
+            if phase == 'py_download':
+                stage = self.t('dep.stage.pyDownload', pct)
+                detail = self.t('dep.detail.pyDownload', py_version or '3.12', done_mb, total_mb, pct)
+                overall_sub = pct * 40 // 100
+            elif phase == 'unpack':
+                stage = self.t('dep.stage.unpack', pct)
+                detail = self.t('dep.detail.unpack', artifact_name, done_mb, total_mb, pct)
+                overall_sub = 55 + pct * 45 // 100
+            else:
+                stage = self.t('dep.stage.download', pct)
+                detail = self.t('dep.detail.download', artifact_name, done_mb, total_mb, pct)
+                overall_sub = pct * 55 // 100
+            self._set_dep_progress(dep, stage, detail, pct, item_overall_pct=overall_sub)
+
+        return report
 
     def _install_win(self, dep: Dep, what: str) -> None:
-        """Download and unpack a Windows toolchain piece, with progress in the log.
+        """Download and unpack a Windows toolchain piece, with progress in the log and UI.
 
         Every step logs before and after itself: the report that prompted this said only
         '--- LLVM-MinGW ---' and then nothing, which gave no clue whether the download had
         started, finished, or thrown.
         """
         dep.installing = True
-        self.depsChanged.emit()
-
-        def progress_logger(label: str):
-            return self._progress_logger(label)
+        dep._install_done = False  # type: ignore[attr-defined]
+        dep.queue_index = 0
+        for r in getattr(self, 'deps', []):
+            if r.id == dep.id:
+                r.installing = True
+                r.queue_index = 0
+        if what == 'python':
+            self._set_dep_progress(
+                dep,
+                self.t('dep.stage.pyDownload', 0),
+                self.t('dep.python.downloading'),
+                0,
+                item_overall_pct=0,
+                force=True,
+            )
+        elif what in ('ios_sdk_archive', 'metal_zip'):
+            arc_Obj = self._sdk_archive if what == 'ios_sdk_archive' else self._metal_zip
+            arc_name = arc_Obj.name if arc_Obj else what
+            self._set_dep_progress(
+                dep,
+                self.t('dep.stage.unpack', 0),
+                self.t('dep.metal.unpacking', arc_name),
+                0,
+                item_overall_pct=55,
+                force=True,
+            )
+        else:
+            self._set_dep_progress(
+                dep,
+                self.t('dep.stage.download', 0),
+                self.t(dep.title_key),
+                0,
+                item_overall_pct=0,
+                force=True,
+            )
 
         def work() -> None:
             ok = False
@@ -1290,17 +1419,38 @@ class Model(QObject):
                 self.log(self.t('dep.install.begin', dep.id) + '\n')
                 if what == 'dotnet':
                     self.log(self.t('dep.dotnet.downloading') + '\n')
+                    name = wtc.DOTNET_ASSET['name']
                     path = wf.install_dotnet(
                         log=lambda s: self.log(str(s) + '\n'),
-                        progress=progress_logger(self.t('dep.phase.download')),
-                        unpack_progress=progress_logger(self.t('dep.phase.unpack')))
+                        progress=self._stage_progress_logger(
+                            dep, self.t('dep.phase.download'), name, phase='download'),
+                        unpack_progress=self._stage_progress_logger(
+                            dep, self.t('dep.phase.unpack'), name, phase='unpack'))
                     self.log(self.t('dep.dotnet.done', str(path)) + '\n')
                     ok = True
                 elif what == 'python':
                     self.log(self.t('dep.python.downloading') + '\n')
+                    py_ver = wtc.PYTHON_VERSION
+
+                    def py_log(s: object) -> None:
+                        msg = str(s)
+                        self.log(msg + '\n')
+                        if 'installing Python' in msg:
+                            self._set_dep_progress(
+                                dep,
+                                self.t('dep.stage.pyInstall'),
+                                self.t('dep.detail.pyInstall', py_ver),
+                                50,
+                                item_overall_pct=45,
+                                force=True,
+                            )
+
                     path = wf.install_python(
-                        log=lambda s: self.log(str(s) + '\n'),
-                        progress=progress_logger(self.t('dep.phase.download')))
+                        log=py_log,
+                        progress=self._stage_progress_logger(
+                            dep, self.t('dep.phase.download'),
+                            wtc.PYTHON_ASSET['name'],
+                            phase='py_download', py_version=py_ver))
                     self.log(self.t('dep.python.done', str(path)) + '\n')
                     py_exe = Path(path) / 'python.exe' if Path(path).is_dir() else Path(path)
                     self.python_path = str(py_exe)
@@ -1311,27 +1461,36 @@ class Model(QObject):
                         self._record_install_failure(dep, detail)
                 elif what == 'llvm':
                     self.log(self.t('dep.llvm.downloading') + '\n')
+                    name = wtc.LLVM_ASSETS.get('AMD64', {}).get('name', 'LLVM-MinGW')
                     path = wf.install_llvm(
                         log=lambda s: self.log(str(s) + '\n'),
-                        progress=progress_logger(self.t('dep.phase.download')),
-                        unpack_progress=progress_logger(self.t('dep.phase.unpack')))
+                        progress=self._stage_progress_logger(
+                            dep, self.t('dep.phase.download'), name, phase='download'),
+                        unpack_progress=self._stage_progress_logger(
+                            dep, self.t('dep.phase.unpack'), name, phase='unpack'))
                     self.log(self.t('dep.llvm.done', str(path)) + '\n')
                     ok = True
                 elif what == 'zstd':
+                    name = wtc.ZSTD_ASSET['name']
                     path = wf.install_zstd(
                         log=lambda s: self.log(str(s) + '\n'),
-                        progress=progress_logger(self.t('dep.phase.download')),
-                        unpack_progress=progress_logger(self.t('dep.phase.unpack')))
+                        progress=self._stage_progress_logger(
+                            dep, self.t('dep.phase.download'), name, phase='download'),
+                        unpack_progress=self._stage_progress_logger(
+                            dep, self.t('dep.phase.unpack'), name, phase='unpack'))
                     self.log(f'zstd installed: {path}\n')
                     ok = True
                 elif what == 'ios_sdk':
                     self.log(self.t('dep.iossdk.downloading') + '\n')
                     from .win import sdk_fetch as sf
+                    sdk_name = f'{wtc.SDK_PINNED}.zip'
                     try:
                         path = sf.install_sdk(
                             log=lambda s: self.log(str(s) + '\n'),
-                            progress=progress_logger(self.t('dep.phase.download')),
-                            unpack_progress=progress_logger(self.t('dep.phase.unpack')),
+                            progress=self._stage_progress_logger(
+                                dep, self.t('dep.phase.download'), sdk_name, phase='download'),
+                            unpack_progress=self._stage_progress_logger(
+                                dep, self.t('dep.phase.unpack'), sdk_name, phase='unpack'),
                             fallback_git=False)
                     except Exception as zip_err:
                         self.log(f'{zip_err}\n')
@@ -1339,7 +1498,8 @@ class Model(QObject):
                             self.log(self.t('dep.git.downloading') + '\n')
                             gpath = wf.install_git(
                                 log=lambda s: self.log(str(s) + '\n'),
-                                progress=progress_logger(self.t('dep.phase.download')))
+                                progress=self._stage_progress_logger(
+                                    dep, self.t('dep.phase.download'), 'PortableGit', phase='download'))
                             self.log(self.t('dep.git.done', str(gpath)) + '\n')
                         path = sf.clone_sdk(log=lambda s: self.log(str(s) + '\n'))
                     self.log(self.t('dep.iossdk.done', str(path)) + '\n')
@@ -1354,7 +1514,8 @@ class Model(QObject):
                         dest = sf.install_sdk_from_zip(
                             arc,
                             log=lambda s: self.log(str(s) + '\n'),
-                            unpack_progress=progress_logger(self.t('dep.phase.unpack')))
+                            unpack_progress=self._stage_progress_logger(
+                                dep, self.t('dep.phase.unpack'), arc.name, phase='unpack'))
                     wtc.save_config('ios_sdk', str(dest))
                     self.log(self.t('dep.iossdk.done', str(dest)) + '\n')
                     ok = True
@@ -1381,6 +1542,7 @@ class Model(QObject):
             self._clear_installing(dep)
             self.depsChanged.emit()
             self.check_deps()
+            dep._install_done = True  # type: ignore[attr-defined]
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1548,8 +1710,11 @@ class Model(QObject):
             return ['install', '--no-index', '--find-links', str(wheels)] + pkgs
         return ['install'] + pkgs
 
-    def _make_venv(self, base: str) -> bool:
+    def _make_venv(self, base: str, dep: Dep | None = None) -> bool:
         """Create or reuse the app's venv and install the build packages into it."""
+        if dep is None:
+            dep = next((d for d in getattr(self, 'deps', []) if d.id == 'python' and d.installing), None)
+        can_prog = dep is not None and hasattr(self, '_set_dep_progress') and hasattr(self, 't')
         vpy = pu.venv_python()
         if Path(vpy).is_file():
             ver = pu._python_version(vpy)
@@ -1578,30 +1743,78 @@ class Model(QObject):
                 self.log(f'no Python {pu.MIN_PYTHON[0]}.{pu.MIN_PYTHON[1]} or newer to create '
                          f'{pu.venv_dir()} from\n')
                 return False
+            if can_prog and dep is not None:
+                bver = pu._python_version(base) or '3.12'
+                self._set_dep_progress(
+                    dep,
+                    self.t('dep.stage.pyInstall'),
+                    self.t('dep.detail.pyInstall', bver),
+                    75,
+                    item_overall_pct=55,
+                    force=True,
+                )
             vdir = pu.venv_dir()
             vdir.parent.mkdir(parents=True, exist_ok=True)
             self.log(f'$ {base} -m venv {vdir}\n')
             if not pu._runs(base, ['-m', 'venv', str(vdir)]):
                 self.log('venv creation failed\n')
                 return False
-        ver = pu._ver_tuple(pu._python_version(vpy))
+        ver_str = pu._python_version(vpy)
+        ver = pu._ver_tuple(ver_str)
         pkgs = ['lz4', 'capstone', 'fonttools', 'zbic', 'nsz']
         if ver < (3, 14):
             pkgs.insert(4, 'backports.zstd')
-        wheels = self.bundled_wheels()
+        wheels_fn = getattr(self, 'bundled_wheels', Model.bundled_wheels)
+        wheels = wheels_fn()
         for attempt_wheels in ([wheels, None] if wheels else [None]):
             args = self._pip_args(pkgs, attempt_wheels)
             self.log(f'$ {vpy} -m pip {" ".join(args)}'
                      + ('' if attempt_wheels else '  (from PyPI)') + '\n')
+            if can_prog and dep is not None:
+                self._set_dep_progress(
+                    dep,
+                    self.t('dep.stage.pyPkgs', 0),
+                    self.t('dep.detail.pyPkgs', 0, len(pkgs), pkgs[0]),
+                    0,
+                    item_overall_pct=60,
+                    force=True,
+                )
             try:
                 p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, text=True, encoding='utf-8',
                                      errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
                 assert p.stdout is not None
+                seen_pkgs: list[str] = []
                 for line in p.stdout:
                     self.log(line)
+                    if can_prog and dep is not None:
+                        low = line.lower()
+                        for pk in pkgs:
+                            pk_low = pk.lower()
+                            pk_norm = pk_low.replace('.', '_').replace('-', '_')
+                            if (pk_low in low or pk_norm in low) and pk not in seen_pkgs:
+                                seen_pkgs.append(pk)
+                                cnt = len(seen_pkgs)
+                                pct = min(95, max(10, cnt * 100 // len(pkgs)))
+                                summary = f"{pk} ({', '.join(seen_pkgs)})" if cnt > 1 else pk
+                                self._set_dep_progress(
+                                    dep,
+                                    self.t('dep.stage.pyPkgs', pct),
+                                    self.t('dep.detail.pyPkgs', cnt, len(pkgs), summary),
+                                    pct,
+                                    item_overall_pct=60 + pct * 40 // 100,
+                                )
                 p.wait()
                 if p.returncode == 0:
+                    if can_prog and dep is not None:
+                        self._set_dep_progress(
+                            dep,
+                            self.t('dep.stage.pyPkgs', 100),
+                            self.t('dep.detail.pyPkgs', len(pkgs), len(pkgs), ', '.join(pkgs)),
+                            100,
+                            item_overall_pct=100,
+                            force=True,
+                        )
                     return True
             except OSError as e:
                 self.log(f'{e}\n')
@@ -1630,7 +1843,19 @@ class Model(QObject):
         """
         if not self.deps_checked or getattr(self, '_install_all_running', False):
             return
+        initial_rows = [d for d in self.deps if not d.ok and d.install]
+        if not initial_rows:
+            return
+        for idx, d in enumerate(initial_rows, 1):
+            d.queue_index = idx
         self._install_all_running = True
+        self.install_all_step = 1
+        self.install_all_total = len(initial_rows)
+        self.install_all_pct = 0
+        try:
+            self.depsChanged.emit()
+        except RuntimeError:
+            pass
 
         def run_all() -> None:
             try:
@@ -1640,6 +1865,7 @@ class Model(QObject):
                 # then run (the report: only the interpreter was installed, the packages step
                 # needed a second click on the row).
                 attempted: dict[str, tuple] = {}
+                started_ids: list[str] = []
                 while True:
                     def pending(d) -> bool:
                         if d.ok or not d.install:
@@ -1656,20 +1882,55 @@ class Model(QObject):
                         if attempted.get(live.id) == tuple(live.install):
                             continue
                         attempted[live.id] = tuple(live.install)
+                        if live.id not in started_ids:
+                            started_ids.append(live.id)
+                        if len(started_ids) > self.install_all_total:
+                            self.install_all_total = len(started_ids)
+                        self.install_all_step = started_ids.index(live.id) + 1
+                        base_pct = ((self.install_all_step - 1) * 100) // max(self.install_all_total, 1)
+                        if base_pct > self.install_all_pct:
+                            self.install_all_pct = base_pct
                         self.log(f'--- {self.t(live.title_key)} ---\n')
                         self.install_dep(live)
                         progressed = True
                         waited = 0.0
-                        while live.installing and waited < 1800:
-                            time.sleep(0.25)
-                            waited += 0.25
-                        if live.installing:
+                        while (
+                            not getattr(live, '_install_done', True)
+                            or live.installing
+                            or any(r.id == live.id and r.installing for r in self.deps)
+                        ) and waited < 1800:
+                            time.sleep(0.1)
+                            waited += 0.1
+                        if live.installing or any(r.id == live.id and r.installing for r in self.deps):
                             self.log(self.t('dep.installTimeout') + '\n')
+                        # Wait for the post-install check_deps() worker thread so the next step or
+                        # pass sees the refreshed self.deps rows (e.g. lld green after llvm, or a
+                        # second-stage python fix).
+                        check_wait = 0.0
+                        while not self.deps_checked and check_wait < 60.0:
+                            time.sleep(0.05)
+                            check_wait += 0.05
+                        done_pct = (self.install_all_step * 100) // max(self.install_all_total, 1)
+                        if done_pct > self.install_all_pct:
+                            self.install_all_pct = min(100, done_pct)
                     if not progressed:
                         break
                 self.check_deps()      # one refresh at the end, with everything in place
+                end_wait = 0.0
+                while not self.deps_checked and end_wait < 60.0:
+                    time.sleep(0.05)
+                    end_wait += 0.05
             finally:
+                for r in getattr(self, 'deps', []):
+                    r.queue_index = 0
                 self._install_all_running = False
+                self.install_all_step = 0
+                self.install_all_total = 0
+                self.install_all_pct = 0
+                try:
+                    self.depsChanged.emit()
+                except RuntimeError:
+                    pass
 
         threading.Thread(target=run_all, daemon=True).start()
 
@@ -1743,12 +2004,13 @@ class Model(QObject):
 
     def take_game_folder(self, path: str) -> None:
         """Fill the rows from a game folder or a NUP file, or show the reason it cannot be built on the base row."""
-        self.game_dir = str(Path(path).parent) if path.lower().endswith('.nup') else path
+        resolved = inputs.resolve_game_folder(path)
+        self.game_dir = str(Path(resolved).parent) if resolved.lower().endswith('.nup') else resolved
         self.game_folder = None
         self.game_folder_problem = ''
         self.base_path = self.update_path = ''
         self.dlc_paths = []
-        found = inputs.scan_game_folder(path)
+        found = inputs.scan_game_folder(resolved)
         if isinstance(found, inputs.GameFolderProblem):
             self.game_folder_problem = self.t(found.l10n_key, *found.args)
         else:
@@ -1855,26 +2117,68 @@ class Model(QObject):
                 return
         base_dir = folder.folder if folder is not None else str(Path(self.base_path).parent)
         # a game folder or a NUP goes to the script as it is: nothing is staged and no file is a package
-        all_files = [] if folder is not None else [self.base_path, self.update_path] + self.dlc_paths
-        dirs = {str(Path(f).parent) for f in all_files if f}
+        all_files = [] if folder is not None else [f for f in ([self.base_path, self.update_path] + list(self.dlc_paths)) if f]
+        dirs = {str(Path(f).parent) for f in all_files}
+        picked = {Path(f).name for f in all_files}
+        unpicked: list[str] = []
+        if folder is None:
+            try:
+                unpicked = sorted(
+                    n for n in os.listdir(base_dir)
+                    if not n.startswith('._')
+                    and Path(n).suffix.lower() in inputs.GAME_SUFFIXES
+                    and n not in picked
+                    and Path(base_dir, n).is_file()
+                )
+            except OSError:
+                unpicked = []
+        staged = list(all_files)
+        if folder is None:
+            base_tid = int(title_id, 16) if title_id else inputs.title_id(Path(self.base_path).name)
+            if base_tid is not None:
+                app = base_tid & ~0xFFF
+                upd_candidates: list[str] = []
+                for f in unpicked:
+                    ftid = inputs.title_id(f)
+                    if ftid is None or inputs.owner(ftid) != app:
+                        continue
+                    low = ftid & 0xFFF
+                    if low == 0:
+                        continue
+                    if low == 0x800:
+                        if not self.update_path:
+                            upd_candidates.append(f)
+                        continue
+                    if ftid <= app:
+                        continue
+                    staged.append(str(Path(base_dir, f)))
+                if upd_candidates:
+                    best_upd = max(upd_candidates, key=lambda n: (inputs.update_version(n), n))
+                    staged.append(str(Path(base_dir, best_upd)))
 
         self._last_build_inputs = self._package_inputs()
         tid_hex = title_id or self.build_key
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
         input_dir = folder.script_input if folder is not None else base_dir
-        if len(dirs) > 1 or any(input_staging.needs_lowercase_name(f) for f in all_files if f):
+        if folder is None and (
+            len(dirs) > 1
+            or bool(unpicked)
+            or any(input_staging.needs_lowercase_name(f) for f in staged if f)
+        ):
             # (a .NSP or .Xci file goes through it too, under a lowercase extension: the script's glob misses it, #554)
-            # files from different folders: a stable folder of links per game, so the script sees one
-            # folder and its fingerprints match on the next build (#132)
+            # files from different folders or a shared ROMs folder: a stable folder of links per game, so the script sees
+            # one game and its fingerprints match on the next build (#58, #132)
             staging = input_staging.folder(work_dir)
-            if input_staging.sync(all_files, staging, hard_links=not pu.IS_WIN) == 0:
+            if input_staging.sync(staged, staging, hard_links=not pu.IS_WIN) == 0:
                 self.finished.emit(False, self.t('msg.stagingFailed'))
                 return
             input_dir = staging
+            if unpicked:
+                self.log(self.t('msg.stagedFromSharedFolder', Path(self.base_path).name) + '\n')
 
         compressed = any(Path(f).suffix.lower() in ('.nsz', '.xcz')
-                         for f in all_files if f)
+                         for f in staged if f)
         if compressed and not pu._runs(py, ['-c', 'import nsz']):
             self.log(self.t('msg.installingNsz') + '\n')
             if not pu._runs(py, ['-m', 'pip', 'install', 'nsz']):
@@ -2369,7 +2673,7 @@ class Model(QObject):
             if lp.is_file():
                 try:
                     data = json.loads(lp.read_text(encoding='utf-8'))
-                    ltid = str(data.get('title_id') or '').strip() if isinstance(data, dict) else ''
+                    ltid = str((data.get('title_id') or data.get('game')) or '').strip() if isinstance(data, dict) else ''
                     if re.fullmatch(r'[0-9A-Fa-f]{16}', ltid):
                         return ltid.upper()
                 except Exception:
@@ -2463,6 +2767,7 @@ class Model(QObject):
                         versions.append((int(d.name[1:]), d))
                     except ValueError:
                         pass
+            versions.sort(key=lambda x: x[0])
         if not versions:
             if export_shell:
                 return self._export_shell_after_archive(True, self.t('msg.archiveSkipped', str(extract)))
@@ -2481,6 +2786,8 @@ class Model(QObject):
 
         ok = True
         out_img = Path(dest, 'romfs.img')
+        id_src = Path(f'{romfs_img}.id')
+        id_dst = Path(f'{out_img}.id')
         try:
             Path(dest).mkdir(parents=True, exist_ok=True)
             if romfs_img.is_file():
@@ -2498,6 +2805,9 @@ class Model(QObject):
                         os.link(romfs_img, out_img)
                     except OSError:
                         shutil.copy2(romfs_img, out_img)
+                id_dst.unlink(missing_ok=True)
+                if id_src.is_file():
+                    shutil.copy2(id_src, id_dst)
             else:
                 py_exe = self.python_path
                 if not py_exe:
@@ -2515,12 +2825,22 @@ class Model(QObject):
                     self.log(line)
                 p.wait()
                 ok = p.returncode == 0
+                id_dst.unlink(missing_ok=True)
+                if ok and id_src.is_file():
+                    shutil.copy2(id_src, id_dst)
             aoc_dst = Path(dest, 'aoc')
             aoc_src = Path(work, 'aoc')
             if ok:
                 shutil.rmtree(aoc_dst, ignore_errors=True)
                 if aoc_src.is_dir() and any(aoc_src.iterdir()):
                     shutil.copytree(aoc_src, aoc_dst)
+                try:
+                    from .win import shell_export as se
+                    fw = se.built_framework(work)
+                    if fw is not None:
+                        romfs_languages.apply_to_launcher_json(fw / 'dm' / 'launcher.json', dest)
+                except Exception:
+                    pass
         except OSError as e:
             self.log(f'{e}\n')
             ok = False
