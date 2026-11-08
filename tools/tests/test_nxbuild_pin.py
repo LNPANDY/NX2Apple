@@ -79,6 +79,19 @@ class Pin(unittest.TestCase):
                 with self.assertRaises(urllib.error.HTTPError):
                     nxbuild.download('https://x/nxb.zip', dest, retries=2, delay=0)
             self.assertEqual(m.call_count, 2)
+            # A GitHub release URL uses `gh release download` when available and falls back to urlopen otherwise
+            gh_url = 'https://github.com/v0lumehi/nxkit/releases/download/v0.9.1/nxb-v0.9.1-macos-arm64.zip'
+            def fake_run(cmd, **_):
+                Path(cmd[cmd.index('-O') + 1]).write_bytes(b'from-gh')
+                return mock.Mock(returncode=0)
+            with mock.patch.object(nxbuild.shutil, 'which', return_value='/usr/bin/gh'), \
+                 mock.patch.object(nxbuild.subprocess, 'run', side_effect=fake_run) as run_mock, \
+                 mock.patch('urllib.request.urlopen') as url_mock:
+                data = nxbuild.download(gh_url, dest, retries=2, delay=0)
+            self.assertEqual(data, b'from-gh')
+            self.assertEqual(dest.read_bytes(), b'from-gh')
+            self.assertEqual(run_mock.call_count, 1)
+            self.assertEqual(url_mock.call_count, 0)
 
 
 if __name__ == '__main__':

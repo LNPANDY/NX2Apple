@@ -49,14 +49,27 @@ export MACOSX_DEPLOYMENT_TARGET=13.0
 [ "$(uname -m)" = arm64 ] || { echo "[RED] this builds the arm64 app: run it on an Apple-silicon Mac" >&2; exit 1; }
 
 fetch() {   # fetch <url> <sha256> -> the file in $WORK/dl
-    local f="$WORK/dl/$(basename "$1")"
-    # --retry-all-errors: a GitHub release download that answers 504 ends as curl error 56, which --retry alone does not retry
-    if [ ! -f "$f" ]; then curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "$f.part" "$1"; mv "$f.part" "$f"; fi
+    local f="$WORK/dl/$(basename "$1")" url="$1"
+    if [ ! -f "$f" ]; then
+        rm -f "$f.part"
+        # Direct codeload URLs and authenticated `gh release download` (api.github.com) bypass github.com's web redirector, which intermittently answers 504 on runners.
+        if [[ "$url" =~ ^https://github\.com/([^/]+/[^/]+)/archive/refs/tags/(.+)\.tar\.gz$ ]]; then
+            curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "$f.part" "https://codeload.github.com/${BASH_REMATCH[1]}/tar.gz/refs/tags/${BASH_REMATCH[2]}" \
+                || curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "$f.part" "$url" || { rm -f "$f.part"; exit 1; }
+        elif [[ "$url" =~ ^https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+)/([^/]+)$ ]] && command -v gh >/dev/null 2>&1; then
+            gh release download "${BASH_REMATCH[2]}" -R "${BASH_REMATCH[1]}" -p "${BASH_REMATCH[3]}" -O "$f.part" --clobber >&2 \
+                || curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "$f.part" "$url" || { rm -f "$f.part"; exit 1; }
+        else
+            curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "$f.part" "$url" || { rm -f "$f.part"; exit 1; }
+        fi
+        mv "$f.part" "$f" || exit 1
+    fi
     local got; got=$(shasum -a 256 "$f" | cut -c1-64)
     [ "$got" = "$2" ] || { echo "[RED] $1: sha256 $got, pinned $2" >&2; rm -f "$f"; exit 1; }
     echo "$f"
 }
 unpack() {  # unpack <tarball> <dest> -> a fresh source folder
+    [ -n "$1" ] && [ -f "$1" ] || exit 1
     rm -rf "$2"; mkdir -p "$2"; tar -xzf "$1" -C "$2" --strip-components=1
 }
 
@@ -93,8 +106,9 @@ mkdir -p "$LIC/spirv-cross-LICENSES"; cp "$WORK/spirv-cross/LICENSES/"* "$LIC/sp
 
 # xcodegen: the release's bin/xcodegen and share/xcodegen (SettingPresets), which it finds at ../share/xcodegen from its own folder
 echo "== xcodegen $XCODEGEN_VERSION"
+XGTAR=$(fetch "$XCODEGEN_URL" "$XCODEGEN_SHA256")
 rm -rf "$WORK/xcodegen"; mkdir -p "$WORK/xcodegen"
-ditto -x -k "$(fetch "$XCODEGEN_URL" "$XCODEGEN_SHA256")" "$WORK/xcodegen"
+ditto -x -k "$XGTAR" "$WORK/xcodegen"
 XG=$(find "$WORK/xcodegen" -name xcodegen -type f -perm -u+x -path '*/bin/*' | head -1)
 [ -n "$XG" ] || { echo "[RED] no bin/xcodegen in the release zip" >&2; exit 1; }
 XGROOT=$(dirname "$(dirname "$XG")")

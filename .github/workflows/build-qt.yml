@@ -110,6 +110,8 @@ jobs:
 
       - name: Build Windows shader tools for the bundled engine
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           # The engine tree ships a macOS Mach-O spirv-cross binary in dm/gfx/tools/spirv_cross_bin/.
           # Build the Windows executable from the exact commit build.sh pins, and bundle Khronos's
@@ -130,7 +132,8 @@ jobs:
 
           GLSLANG_URL="https://github.com/KhronosGroup/glslang/releases/download/16.6.0/glslang-16.6.0-windows-x86_64-release.zip"
           GLSLANG_SHA="82bf434e69b9bb4829de7e2b4bc2c5e7a7861e53d66cf75e5cc70f5f694a8d9b"
-          curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "$GLSLANG_URL" -o glslang.zip
+          gh release download 16.6.0 -R KhronosGroup/glslang -p glslang-16.6.0-windows-x86_64-release.zip -O glslang.zip --clobber \
+            || curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "$GLSLANG_URL" -o glslang.zip
           got_sha=$(sha256sum glslang.zip | awk '{print $1}')
           [ "$got_sha" = "$GLSLANG_SHA" ] || { echo "glslang.zip sha256 is $got_sha, expected $GLSLANG_SHA" >&2; exit 1; }
           unzip -q glslang.zip bin/glslang.exe
