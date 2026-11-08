@@ -75,6 +75,10 @@ struct ConsolePadSnapshot: Equatable {
     private var refreshQueued = false
     private var covers: [UUID: (path: String, image: NSImage?)] = [:]
     private var launchedPID: Int32?
+    /// The check of the cloud's save before a start, and the game it is for (LiveConsoleDriver+CloudSave.swift). Tests give it a fake download.
+    var cloudGate = CloudSaveGate() { didSet { watchCloudGate() } }
+    var cloudGameID: String?
+    var cloudWatch: AnyCancellable?
     private var timeoutTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var clock: Timer?
@@ -104,6 +108,7 @@ struct ConsolePadSnapshot: Equatable {
             self.resetPairedDevicePlayerIndices()
             self.refreshControllers(announce: false)
         }.store(in: &cancellables)
+        watchCloudGate()
         refresh()
         refreshControllers(announce: false)
         announced = Set(state.controllers.map(\.id))   // controllers there at launch are not announced again by a repeated notification
@@ -241,11 +246,16 @@ struct ConsolePadSnapshot: Equatable {
             .merging(pointerHidden() ? ["DM_CURSOR_HIDDEN": "1"] : [:]) { $1 }   // the game is a new process: without this its pointer shows until its own idle wait ends
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
-        prepareLaunch { [weak self] in
-            guard let self else { return }
-            guard self.state.startingGameID == gameID else { self.gameEnded(); return }
-            self.openGame(game, environment: environment, gameID: gameID)
-        }
+        cloudGameID = gameID
+        cloudGate.begin(game, proceed: { [weak self] choice in   // the cloud's save first (LiveConsoleDriver+CloudSave.swift, #957)
+            guard let self, self.state.startingGameID == gameID else { return }
+            self.state.starting = .preparing
+            self.prepareLaunch { [weak self] in
+                guard let self else { return }
+                guard self.state.startingGameID == gameID else { self.gameEnded(); return }
+                self.openGame(game, environment: environment.merging(choice) { $1 }, gameID: gameID)
+            }
+        }, ended: { [weak self] in self?.state.returnFromGame() })
     }
 
     private func openGame(_ game: LibraryGame, environment: [String: String], gameID: String) {
@@ -724,7 +734,7 @@ struct ConsolePadSnapshot: Equatable {
     // MARK: Navigation
 
     func dismissToast() { toastTask?.cancel(); state.toast = nil; state.identifyingControllerID = nil }
-    func back() { state.back() }
+    func back() { if cloudGate.isActive { cloudGate.cancel() } else { state.back() } }
     func exitToDesktop() { state.exitToDesktop() }
     func returnFromGame() { state.returnFromGame() }
 

@@ -1,0 +1,451 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sun, 8 Nov 2026 19:02:45 +0900
+Subject: [PATCH] Save sync: never replace a cloud save that was not compared,
+ and let the player choose when both changed
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Three ways the cloud's save could be lost:
+
+- When the cloud's save did not arrive within FETCH_MS (an iCloud download that takes longer than 10 s), the game played on with this device's save, and the sender then moved the cloud's save into a local backup and replaced it with this device's at the next Commit.
+- On the first play on a device, with no save there and a slow download, the game's first save replaced the cloud's progress the same way.
+- When both sides had changed since the last sync, the newer save time won without asking.
+
+send_save now replaces only what it compared against: no save, the save last synced (<save>.sync), or a damaged file, which is kept in the backups first. A cloud save that changed since this device's last sync, or one a device that never synced finds, is not replaced: the save is not sent, and the log says so once.
+
+ss_decide returns SS_ASK when both changed (or a device's first sync finds a save on both sides) instead of comparing times. The mount then plays on with this device's save and sends nothing.
+
+A front end that compared the two saves before the start passes the player's choice in DM_SAVE_SYNC_CHOICE: cloud:<hash> brings in the cloud's save with that hash, local:<hash> (or local:none) lets this device's replace it, keeping the cloud's in <save>-backups/<date> cloud, and offline skips the wait for a cloud that could not be read. A choice holds only for the cloud save it names. Mac apps say they read it with DMSaveSyncChoice=1 in Info.plist.
+
+t_save_sync covers: both changed with no choice, a choice of either side, a choice made on an older cloud save, the cloud unreadable at the start and readable at the next Commit, the Mac launcher's send after the host, an offline start, the first play on a new device and a damaged cloud file.
+
+Front-ends: new: DM_SAVE_SYNC_CHOICE (cloud:<hash>, local:<hash>, local:none, offline) carries the player's choice when the cloud's save and this device's both changed; Mac apps advertise it with DMSaveSyncChoice=1 in Info.plist
+Front-ends: interface: a save that changed on both sides is no longer replaced by the newer one; it stays on both sides until a front end passes the player's choice (the log says "both changed: …")
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: A cloud save that was not compared is never replaced, and the player chooses when both sides changed (#957)
+Issue: LNPANDY/NX2Apple#957
+
+---
+ dm/host/save_sync.c                |  79 +++++++++++++++++++----
+ dm/host/save_sync.h                |  10 ++-
+ dm/host/tests/t_save_sync.c        | 100 +++++++++++++++++++++++++----
+ dm/mac/pack_app.py                 |   2 +-
+ dm/tools/tests/test_nsp_mac_app.py |   1 +
+ docs/env_switches.tsv              |   1 +
+ docs/frontends.md                  |   1 +
+ docs/settings.md                   |   4 +-
+ 8 files changed, 164 insertions(+), 34 deletions(-)
+
+diff --git a/dm/host/save_sync.c b/dm/host/save_sync.c
+index 9e46d9f..ac27ee3 100644
+--- a/dm/host/save_sync.c
++++ b/dm/host/save_sync.c
+@@ -29,7 +29,7 @@
+ #define SRED(...) do { fprintf(stderr, "[dm] [RED] save sync: " __VA_ARGS__); fputc('\n', stderr); } while (0)
+ #define GUEST_NAME "org.d2rmobile.guest-name"   // hle_fs.c FS_GUEST_NAME: a file's guest name when its host name had to differ (a case collision); part of the save
+ #define QUIET_MS 3000    // a game often commits several times in a row: the sender waits until it has been quiet this long
+-#define FETCH_MS 10000   // the longest the game waits at its first save mount for the cloud's copy (a download); then it plays on with this device's save
++#define FETCH_MS 10000   // the longest the game waits for the cloud's copy (a download); then it plays on with this device's save, which is not sent until the two have been compared
+ #define KEEP_BACKUPS 10  // backups kept of each side (local, cloud); older ones are removed when a new one is made
+ enum { HDR = 8 + 4 + 4 + SS_HASH + 8 + 24 + 64, ENT = 24, CHUNK = 1 << 16 };   // header bytes, entry header bytes, the copy buffer
+ static const char MAGIC[8] __attribute__((nonstring)) = "DMSYNC1\n", END[8] __attribute__((nonstring)) = "DMSYNCE\n";
+@@ -257,6 +257,7 @@ done:
+ }
+ 
+ ss_way ss_decide(const char *local, const char *base, const char *remote, int64_t local_saved, int64_t remote_saved, int *both) {
++    (void)local_saved; (void)remote_saved;   // a save's time is shown to the player, it never picks one: a clock can be wrong, and the older save may be the one with the progress
+     *both = 0;
+     if (!*remote) return *local ? SS_PUSH : SS_KEEP;           // nothing in the cloud
+     if (!strcmp(local, remote)) return SS_KEEP;                 // already the same
+@@ -264,7 +265,23 @@ ss_way ss_decide(const char *local, const char *base, const char *remote, int64_
+     if (*base && !strcmp(local, base)) return SS_PULL;          // only the cloud's changed
+     if (*base && !strcmp(remote, base)) return SS_PUSH;         // only this one changed
+     *both = 1;                                                  // both changed, or this device's first sync with a save of its own
+-    return remote_saved > local_saved ? SS_PULL : SS_PUSH;
++    return SS_ASK;
++}
++
++// DM_SAVE_SYNC_CHOICE: what the player chose before the start, after a front end compared the two saves (docs/frontends.md, The cloud saves folder).
++// "cloud:<hash>" brings in the cloud's save with that hash, "local:<hash>" lets this device's replace the cloud's save with that hash ("local:none": the cloud had none),
++// "offline": the cloud could not be read before the start. A choice holds only for the save it was made on: when the cloud's has changed since, nothing is replaced
++typedef enum { CH_NONE, CH_CLOUD, CH_LOCAL, CH_OFFLINE } choice_kind;
++static choice_kind read_choice(char *hash) {
++    const char *v = getenv("DM_SAVE_SYNC_CHOICE"); hash[0] = 0;
++    if (!v || !*v) return CH_NONE;
++    if (!strcmp(v, "offline")) return CH_OFFLINE;
++    choice_kind k = !strncmp(v, "cloud:", 6) ? CH_CLOUD : !strncmp(v, "local:", 6) ? CH_LOCAL : CH_NONE;
++    const char *h = v + 6;
++    if (k == CH_LOCAL && !strcmp(h, "none")) return k;
++    if (k != CH_NONE && strlen(h) == SS_HASH && strspn(h, "0123456789abcdef") == SS_HASH) { memcpy(hash, h, SS_HASH + 1); return k; }
++    SRED("DM_SAVE_SYNC_CHOICE=%s is not a choice (cloud:<hash>, local:<hash>, local:none, offline): ignored", v);
++    return CH_NONE;
+ }
+ 
+ // ---------- the sync state, backups, the cloud's file ----------
+@@ -409,8 +426,10 @@ static int pull(const char *save, const char *bundle, ss_meta *r, char *kept, si
+     return 0;
+ }
+ 
+-// What this device committed goes to the cloud, unless the cloud already has it. A cloud save changed since this device's last sync (another device sent it) is kept first.
+-// 1 = in step with the cloud, 0 = not: the cloud cannot be read or written now (the next Commit, a flush or the Mac launcher tries again)
++// What this device committed goes to the cloud, unless the cloud already has it. It replaces only what it was compared against: no save, the save last synced
++// (<save>.sync), or a damaged file (kept first). A cloud save that changed since this device's last sync (another device sent it, or this device never synced) is
++// not replaced: the player chooses between the two at the next start (DM_SAVE_SYNC_CHOICE).
++// 1 = in step with the cloud, 0 = not: the cloud cannot be read or written now (the next Commit, a flush or the Mac launcher tries again), or it waits for the choice
+ static int send_save(const char *save, const char *title, const char *cloud) {
+     char tmp[PATH_MAX], snap[PATH_MAX], packed[PATH_MAX], theirs[PATH_MAX], base[SS_HASH + 1], dir[PATH_MAX], kept[PATH_MAX], t[32];
+     ss_meta mine, other; int ok = 0, got;
+@@ -426,12 +445,17 @@ static int send_save(const char *save, const char *title, const char *cloud) {
+     read_base(save, base);
+     if (!mine.files || !strcmp(mine.hash, base)) { ok = 1; goto done; }   // no save yet, or the one already in step
+     if ((got = fetch_timed(cloud, theirs, FETCH_MS)) < 0) { SLOG("the cloud's save %s cannot be read now; sending later", cloud); goto done; }
+-    if (got && ss_read(theirs, NULL, &other)) SRED("the cloud's save %s is damaged; this device's replaces it", cloud);
++    if (got && ss_read(theirs, NULL, &other)) {   // no save can be read from it, so no progress is lost: the file itself is kept, then replaced
++        char raw[PATH_MAX + 16];
++        if (backup_dir(save, "cloud", kept, sizeof kept) || snprintf(raw, sizeof raw, "%s/save.dmsync", kept) >= (int)sizeof raw || rename(theirs, raw)) { SRED("cannot keep the cloud's damaged save before replacing it (errno=%d); not sent", errno); goto done; }
++        SRED("the cloud's save %s is damaged; this device's replaces it, and the damaged file is kept in %s", cloud, kept);
++    }
+     else if (got && !strcmp(other.hash, mine.hash)) { write_base(save, mine.hash); ok = 1; goto done; }
+     else if (got && other.files && strcmp(other.hash, base)) {
+-        if (backup_dir(save, "cloud", kept, sizeof kept) || ss_read(theirs, kept, &other)) { SRED("cannot keep the cloud's save before replacing it (errno=%d); not sent", errno); goto done; }
++        static _Atomic int told;   // once a session: the sender comes here after every Commit
+         when(other.saved, t, sizeof t);
+-        SLOG("the cloud's save (from %s, saved %s) changed since this device's last sync; this device's newer one replaces it, and it is kept in %s", other.device, t, kept);
++        if (!atomic_exchange(&told, 1)) SLOG("not sent: the cloud's save (from %s, saved %s) changed since this device's last sync, and so did this one; neither replaces the other until the player chooses at the next start", other.device, t);
++        goto done;
+     }
+     snprintf(dir, sizeof dir, "%s", cloud); *strrchr(dir, '/') = 0;
+     if (mkdirs(dir) || front_save_sync_store(packed, cloud) != 1) { SRED("sending to %s failed (errno=%d)", cloud, errno); goto done; }
+@@ -474,7 +498,7 @@ static void *sender(void *arg) {
+ }
+ 
+ static void mount_once(const char *save, const char *title) {
+-    char cloud[PATH_MAX], tmp[PATH_MAX], theirs[PATH_MAX], base[SS_HASH + 1], kept[PATH_MAX], t[32];
++    char cloud[PATH_MAX], tmp[PATH_MAX], theirs[PATH_MAX], base[SS_HASH + 1], kept[PATH_MAX], t[32], t2[32], chosen[SS_HASH + 1];
+     ss_meta mine, other; memset(&other, 0, sizeof other);
+     if (!cloud_file(title, cloud, sizeof cloud)) return;
+     SLOG("on: %s", cloud);
+@@ -482,27 +506,54 @@ static void mount_once(const char *save, const char *title) {
+     if (rm_tree(tmp) || mkdirs(tmp)) { SRED("cannot make %s (errno=%d): off", tmp, errno); return; }   // rm_tree: what an earlier session left
+     if (ss_scan(save, &mine)) { SRED("this device's save %s cannot be read (errno=%d): off", save, errno); return; }
+     read_base(save, base);
+-    int got = fetch_timed(cloud, theirs, FETCH_MS), both = 0, failed = 0;
+-    if (got > 0 && ss_read(theirs, NULL, &other)) { SRED("the cloud's save %s is damaged: playing on with this device's, which replaces it", cloud); got = 0; }
++    choice_kind choice = read_choice(chosen);
++    int got = choice == CH_OFFLINE ? -1 : fetch_timed(cloud, theirs, FETCH_MS), both = 0, failed = 0;
++    if (got > 0 && ss_read(theirs, NULL, &other)) { SRED("the cloud's save %s is damaged: playing on with this device's, which replaces it (the damaged file is kept)", cloud); got = 0; }
+     else if (got > 0 && strcasecmp(other.title, title)) { SRED("the cloud's save %s is %s's, not %s's: not used", cloud, other.title, title); got = -1; }
+-    if (got < 0) { SLOG("playing on with this device's save; it is sent after the game saves, unless the cloud's has changed meanwhile (then that one is kept)"); failed = 1; }
+-    switch (got < 0 ? SS_KEEP : ss_decide(mine.hash, base, got ? other.hash : "", mine.saved, other.saved, &both)) {
++    if (got < 0) { SLOG("playing on with this device's save; it is not sent until it has been compared with the cloud's"); failed = 1; }
++    ss_way way = got < 0 ? SS_KEEP : ss_decide(mine.hash, base, got ? other.hash : "", mine.saved, other.saved, &both);
++    // The player's choice, for the save it was made on (the cloud's may have changed between the check and this mount)
++    const char *now = got > 0 && other.files ? other.hash : "none";
++    if ((choice == CH_CLOUD || choice == CH_LOCAL) && got >= 0 && way != SS_KEEP) {
++        if (strcmp(choice == CH_CLOUD ? chosen : (*chosen ? chosen : "none"), now)) {
++            SRED("the cloud's save changed after the player chose (now %s): nothing is replaced; the player chooses again at the next start", now);
++            way = SS_ASK;
++        } else if (choice == CH_CLOUD) way = SS_PULL;
++        else if (got > 0 && other.files && (backup_dir(save, "cloud", kept, sizeof kept) || ss_read(theirs, kept, &other))) {
++            SRED("cannot keep the cloud's save before replacing it (errno=%d): nothing is replaced", errno);
++            way = SS_ASK;
++        } else {
++            if (got > 0 && other.files) {   // the cloud's counts as the one last synced: this device's is the only change, and goes out
++                write_base(save, other.hash); snprintf(base, sizeof base, "%s", other.hash);
++                when(other.saved, t, sizeof t);
++                SLOG("the player chose this device's save over the cloud's (from %s, saved %s), which is kept in %s", other.device, t, kept);
++            }
++            way = SS_PUSH;
++        }
++    } else if (choice == CH_OFFLINE) SLOG("the player chose to play with this device's save without the cloud's");
++    switch (way) {
+     case SS_PULL:
+         when(other.saved, t, sizeof t);
+         if (pull(save, theirs, &other, kept, sizeof kept)) { SRED("bringing the cloud's save in failed (errno=%d): playing on with this device's", errno); failed = 1; break; }
+         write_base(save, other.hash);
+-        SLOG("brought in the cloud's save (from %s, saved %s%s)%s%s", other.device, t, both ? ", the newer of two that both changed" : "", *kept ? "; this device's is kept in " : "", kept);
++        SLOG("brought in the cloud's save (from %s, saved %s%s)%s%s", other.device, t, choice == CH_CLOUD ? ", the player's choice" : "", *kept ? "; this device's is kept in " : "", kept);
+         break;
+     case SS_PUSH:
+         when(mine.saved, t, sizeof t);
+-        SLOG("this device's save (saved %s) %s: it goes to the cloud", t, !got ? "is not in the cloud yet" : both ? "is the newer of two that both changed" : "changed since the last sync");
++        SLOG("this device's save (saved %s) %s: it goes to the cloud", t, !got || !other.files ? "is not in the cloud yet" : choice == CH_LOCAL ? "is the player's choice" : "changed since the last sync");
+         g_want = 1;
+         break;
++    case SS_ASK:
++        when(other.saved, t, sizeof t); when(mine.saved, t2, sizeof t2);
++        SLOG("both changed: the cloud's save (from %s, saved %s) and this device's (saved %s); playing on with this device's, and neither replaces the other until the player chooses at the next start", other.device, t, t2);
++        failed = 1;
++        break;
+     case SS_KEEP:
+         if (got > 0 && mine.files) { write_base(save, mine.hash); SLOG("in step with the cloud"); }
+         else if (!got) SLOG("no save here or in the cloud yet");
+         break;
+     }
++    (void)both;
+     rm_tree(tmp);
+     snprintf(g_save, sizeof g_save, "%s", save); upper_title(title, g_title, sizeof g_title); snprintf(g_cloud, sizeof g_cloud, "%s", cloud);
+     g_failed = failed;
+diff --git a/dm/host/save_sync.h b/dm/host/save_sync.h
+index f05c367..c363631 100644
+--- a/dm/host/save_sync.h
++++ b/dm/host/save_sync.h
+@@ -5,7 +5,10 @@
+ // When: the cloud's copy comes in at the game's first save mount (hle_fs.c, before the work directory is cloned from the committed save); the committed save goes out a few
+ // seconds after a Commit, on a thread of its own (the game never waits), when the iPhone app goes to the background, and from the Mac launcher once the host has exited.
+ // Which way: <DM_SAVE>.sync keeps the hash of the save last known to be the same here and in the cloud. Only the cloud's changed: it comes in; only this one changed: it goes out;
+-// both changed (played on both without syncing in between, or the first sync of a device that has a save of its own): the newer one wins and the other is kept.
++// both changed (played on both without syncing in between, or the first sync of a device that has a save of its own): neither replaces the other. The game plays on
++// with this device's, nothing is sent, and the player chooses at the next start: a front end compares the two before it starts the game and passes the choice in
++// DM_SAVE_SYNC_CHOICE (save_sync.c, read_choice). A cloud save is replaced only by a send that compared it: when it is no save, the one last synced or damaged, or
++// when the player chose this device's over it. A cloud that cannot be read (offline, a download that does not come) replaces nothing and is replaced by nothing.
+ // Every save this replaces, here or in the cloud, is kept first in <DM_SAVE>-backups/<date> <side>; the newest 10 of each side stay.
+ #pragma once
+ #include <stdint.h>
+@@ -27,8 +30,9 @@ int ss_pack(const char *save, const char *title, const char *out, ss_meta *m);
+ // Reads a packed save and checks all of it (the header, every entry, the hash, the end marker); with `into`, unpacks it there as into/save and into/save_device.
+ // 0 on success; a damaged or cut-off file, or a path that leaves the save, fails
+ int ss_read(const char *bundle, const char *into, ss_meta *m);
+-typedef enum { SS_KEEP, SS_PULL, SS_PUSH } ss_way;
+-// Which way, from the three hashes ("" for none: no save here, no sync yet, nothing in the cloud) and, when both sides changed, their times. *both = both changed
++typedef enum { SS_KEEP, SS_PULL, SS_PUSH, SS_ASK } ss_way;
++// Which way, from the three hashes ("" for none: no save here, no sync yet, nothing in the cloud). SS_ASK: both changed (*both = 1), the player chooses.
++// The times are not used: a save's time is shown to the player, it never picks one
+ ss_way ss_decide(const char *local, const char *base, const char *remote, int64_t local_saved, int64_t remote_saved, int *both);
+ 
+ // ---- the host ----
+diff --git a/dm/host/tests/t_save_sync.c b/dm/host/tests/t_save_sync.c
+index 001a88e..0bb9999 100644
+--- a/dm/host/tests/t_save_sync.c
++++ b/dm/host/tests/t_save_sync.c
+@@ -3,15 +3,22 @@
+ // in its save, its backups and the cloud. All expected values are written by hand from the semantics in save_sync.h:
+ //   (1) packing: a save with folders, a guest name and a device save comes back the same (contents, guest name, dates); the hash ignores dates and .DS_Store and sees contents;
+ //       a file cut short, a flipped byte, a byte too many and a path out of the save are refused
+-//   (2) ss_decide's table
++//   (2) ss_decide's table: both changed asks, whatever the times say
+ //   (3) Mac A has a save and the cloud none: A's session sends it; iPhone B has none: B's session brings it in; B saves: the cloud has B's
+ //   (4) A starts again: only the cloud's changed: it comes in, and A's old save is kept in A's backups ("local")
+-//   (5) both changed, the cloud's newer: B played without sync, A sent a newer save; B starts with sync: A's comes in, B's is kept
+-//   (6) both changed, this one newer: A played without sync later than B sent; A starts with sync: A's goes out, B's is kept in A's backups ("cloud")
++//   (5) both changed, the cloud's newer: B played without sync, A sent a newer save; B starts with sync and no choice: neither replaces the other; with the player's
++//       choice of the cloud's (DM_SAVE_SYNC_CHOICE): A's comes in, B's is kept
++//   (6) both changed, this one newer: A played without sync later than B sent; A starts with no choice, then with a choice made on another cloud save: nothing is
++//       replaced; with the player's choice of this one: A's goes out, B's is kept in A's backups ("cloud")
+ //   (7) the Mac launcher's send after the host exited: a save the host committed and did not send goes out
+ //   (8) the game's own folder (<folder>/<title ID>) chosen as the folder
+ //   (9) a new backup removes the oldest of its side beyond 10, and leaves the other side's and the player's own folders
+ //   (10) the launcher's DM_SAVE with a trailing slash: the same <save>.sync as the host's
++//   (11) the cloud cannot be read at the start (a download that does not come in time), and can when the game saves: the cloud's changed save is not replaced,
++//        neither by the sender nor by the Mac launcher after the host; the player's "offline" choice with the cloud unreadable all along sends nothing
++//   (12) the first play on a new Mac, the cloud's save not read at the start: the new save does not replace the cloud's progress; the next start asks; the
++//        player's choice of the cloud's brings it in and keeps the new one
++//   (13) a damaged file in the cloud: no save to lose, this device's replaces it and the file is kept in the backups ("cloud")
+ #include "../hle_fs.c"
+ #include <ctype.h>
+ #include <sys/wait.h>
+@@ -56,20 +63,42 @@ static Result write_save(const char *path, const char *s) {           // create
+     r = h_fs_WriteFile(h, 0, s, strlen(s), NULL); h_fs_CloseFile(h); return r;
+ }
+ 
++enum { NOT_SENT = 64 };   // run(): the flush did not leave the save in step with the cloud
++enum { READABLE, LATE, UNREADABLE };   // run(): the cloud's file all along, only after the save mount (a download that did not come in time), never
+ // One start of the game on a device: the save mount (the cloud's save comes in), then, with a file, the game writing it and committing, then a flush (the iPhone app
+-// going to the background). cloud NULL: sync off. Returns the child's failed steps
+-static int session(const char *save, const char *cloud, const char *file, const char *value) {
++// going to the background). cloud NULL: sync off; choice: DM_SAVE_SYNC_CHOICE; cf: the cloud's file, made unreadable as `reach` says.
++// Returns the child's failed steps, plus NOT_SENT when the flush did not leave the save in step with the cloud
++static int run(const char *save, const char *cloud, const char *file, const char *value, const char *choice, const char *cf, int reach) {
+     fflush(stdout); fflush(stderr);
++    if (reach != READABLE) chmod(cf, 0);
+     pid_t p = fork();
+     if (!p) {
+         setenv("DM_SAVE", save, 1);
+         if (cloud) setenv("DM_SAVE_SYNC", cloud, 1); else unsetenv("DM_SAVE_SYNC");
++        if (choice) setenv("DM_SAVE_SYNC_CHOICE", choice, 1); else unsetenv("DM_SAVE_SYNC_CHOICE");
+         int bad = h_fs_MountSave("save", NULL) != RES_OK;
++        if (reach == LATE) chmod(cf, 0644);
+         if (file) { char gp[256]; snprintf(gp, sizeof gp, "save:/%s", file); bad += write_save(gp, value) != RES_OK; bad += h_fs_Commit("save") != RES_OK; }
+-        if (cloud) bad += save_sync_flush(10000) != 1;
++        if (cloud && save_sync_flush(10000) != 1) bad += NOT_SENT;
+         fflush(stdout); fflush(stderr); _exit(bad);
+     }
+-    int st; waitpid(p, &st, 0); return WIFEXITED(st) ? WEXITSTATUS(st) : 99;
++    int st; waitpid(p, &st, 0);
++    if (reach != READABLE) chmod(cf, 0644);
++    return WIFEXITED(st) ? WEXITSTATUS(st) : 99;
++}
++static int session(const char *save, const char *cloud, const char *file, const char *value) { return run(save, cloud, file, value, NULL, NULL, READABLE); }
++// DM_SAVE_SYNC_CHOICE for the cloud's save as it is now: "<side>:<its hash>"
++static const char *choice_of(const char *side, const char *cf) {
++    static char c[64]; ss_meta m;
++    if (ss_read(cf, NULL, &m)) snprintf(c, sizeof c, "%s:none", side); else snprintf(c, sizeof c, "%s:%s", side, m.hash);
++    return c;
++}
++static int backups(const char *save, const char *side) {   // how many backups of that side
++    char dir[1200]; snprintf(dir, sizeof dir, "%s-backups", save);
++    int k = 0; DIR *d = opendir(dir); struct dirent *e; size_t sl = strlen(side);
++    while (d && (e = readdir(d))) { size_t l = strlen(e->d_name); k += l > sl && e->d_name[l - sl - 1] == ' ' && !strcmp(e->d_name + l - sl, side); }
++    if (d) closedir(d);
++    return k;
+ }
+ 
+ int main(void) {
+@@ -130,10 +159,10 @@ int main(void) {
+     CHECK(ss_decide("X", "B", "X", 0, 0, &both) == SS_KEEP && !both, "the same here and in the cloud: keep");
+     CHECK(ss_decide("B", "B", "R", 9, 1, &both) == SS_PULL && !both, "only the cloud's changed: bring in, even with an older date");
+     CHECK(ss_decide("L", "B", "B", 1, 9, &both) == SS_PUSH && !both, "only this one changed: send, even with an older date");
+-    CHECK(ss_decide("L", "B", "R", 10, 20, &both) == SS_PULL && both, "both changed, the cloud's newer: bring in");
+-    CHECK(ss_decide("L", "B", "R", 20, 10, &both) == SS_PUSH && both, "both changed, this one newer: send");
+-    CHECK(ss_decide("L", "", "R", 20, 10, &both) == SS_PUSH && both, "a first sync with a save of its own counts as both changed");
+-    CHECK(ss_decide("L", "B", "R", 10, 10, &both) == SS_PUSH && both, "the same date: this device's is kept");
++    CHECK(ss_decide("L", "B", "R", 10, 20, &both) == SS_ASK && both, "both changed, the cloud's newer: ask");
++    CHECK(ss_decide("L", "B", "R", 20, 10, &both) == SS_ASK && both, "both changed, this one newer: ask");
++    CHECK(ss_decide("L", "", "R", 20, 10, &both) == SS_ASK && both, "a first sync with a save of its own counts as both changed: ask");
++    CHECK(ss_decide("L", "B", "R", 10, 10, &both) == SS_ASK && both, "the same date: ask");
+ 
+     char A[1200], B[1200], cloud[1200], cf[1400], id[24], back[1400];
+     snprintf(A, sizeof A, "%s/mac/save", root); snprintf(B, sizeof B, "%s/iphone/save", root); snprintf(cloud, sizeof cloud, "%s/iCloud Drive/nxnative Saves", root);
+@@ -162,7 +191,9 @@ int main(void) {
+     CHECK(session(B, NULL, "game.dat", "v4") == 0 && same(p, "v4"), "the iPhone plays with sync off");
+     set_mtime(p, time(NULL) - 100);
+     CHECK(session(A, cloud, "game.dat", "v5") == 0 && cloud_has(cf, root, "game.dat", "v5"), "then the Mac saves and sends");
+-    CHECK(session(B, cloud, NULL, NULL) == 0 && same(p, "v5"), "the iPhone starts with sync: the newer Mac save comes in");
++    CHECK(session(B, cloud, NULL, NULL) == NOT_SENT && same(p, "v4") && cloud_has(cf, root, "game.dat", "v5") && !backups(B, "local") && !backups(B, "cloud"),
++          "the iPhone starts with sync and no choice: it plays with its own, nothing is sent, the newer Mac save stays in the cloud");
++    CHECK(run(B, cloud, NULL, NULL, choice_of("cloud", cf), NULL, READABLE) == 0 && same(p, "v5"), "the player chooses the cloud's: the Mac save comes in");
+     backup_of(B, "local", back, sizeof back); snprintf(q, sizeof q, "%s/save/game.dat", back);
+     CHECK(*back && same(q, "v4"), "the iPhone's own is kept (%s)", back);
+ 
+@@ -171,9 +202,16 @@ int main(void) {
+     CHECK(session(A, NULL, "game.dat", "v6") == 0, "the Mac plays with sync off");
+     set_mtime(p, time(NULL) + 100);
+     CHECK(session(B, cloud, "game.dat", "v7") == 0 && cloud_has(cf, root, "game.dat", "v7"), "the iPhone saves and sends");
+-    CHECK(session(A, cloud, NULL, NULL) == 0 && same(p, "v6") && cloud_has(cf, root, "game.dat", "v6"), "the Mac starts with sync: its newer save stays and goes out");
++    char old_choice[64]; snprintf(old_choice, sizeof old_choice, "%s", choice_of("local", cf));
++    CHECK(session(A, cloud, NULL, NULL) == NOT_SENT && same(p, "v6") && cloud_has(cf, root, "game.dat", "v7") && !backups(A, "cloud"),
++          "the Mac starts with sync and no choice: its newer save stays here and is not sent, the iPhone's stays in the cloud");
++    CHECK(session(B, cloud, "game.dat", "v7b") == 0 && cloud_has(cf, root, "game.dat", "v7b"), "the iPhone saves again");
++    CHECK(run(A, cloud, NULL, NULL, old_choice, NULL, READABLE) == NOT_SENT && same(p, "v6") && cloud_has(cf, root, "game.dat", "v7b"),
++          "a choice made on the cloud's save before that one replaces nothing");
++    CHECK(run(A, cloud, NULL, NULL, choice_of("local", cf), NULL, READABLE) == 0 && same(p, "v6") && cloud_has(cf, root, "game.dat", "v6"),
++          "the player chooses this one: it goes out");
+     backup_of(A, "cloud", back, sizeof back); snprintf(q, sizeof q, "%s/save/game.dat", back);
+-    CHECK(*back && same(q, "v7"), "the iPhone's save it replaced in the cloud is kept on the Mac (%s)", back);
++    CHECK(*back && same(q, "v7b"), "the iPhone's save it replaced in the cloud is kept on the Mac (%s)", back);
+ 
+     printf("(7) the Mac launcher after the host\n");
+     snprintf(p, sizeof p, "%s/game.dat", A); put(p, "v8");
+@@ -217,6 +255,40 @@ int main(void) {
+     snprintf(p, sizeof p, "%s/.sync", C); CHECK(!exists(p), "and the sync state is beside the save, not inside it");
+     unsetenv("DM_SAVE_SYNC");
+ 
++    printf("(11) the cloud cannot be read at the start\n");
++    char M[1200], N[1200], P2[1200], cloud2[1200], cf2[1400];
++    snprintf(M, sizeof M, "%s/mac3/save", root); snprintf(N, sizeof N, "%s/mac4/save", root); snprintf(P2, sizeof P2, "%s/iphone2/save", root);
++    snprintf(cloud2, sizeof cloud2, "%s/iCloud Drive/Other Saves", root); mkd(M); mkd(N); mkd(P2); mkd(cloud2);
++    snprintf(cf2, sizeof cf2, "%s/%s/save.dmsync", cloud2, id);
++    snprintf(p, sizeof p, "%s/game.dat", M); put(p, "m1");
++    CHECK(session(M, cloud2, NULL, NULL) == 0 && session(P2, cloud2, "game.dat", "p1") == 0 && cloud_has(cf2, root, "game.dat", "p1"), "the Mac sends m1, the iPhone brings it in and sends p1");
++    CHECK(run(M, cloud2, "game.dat", "m2", NULL, cf2, LATE) == NOT_SENT && same(p, "m2") && cloud_has(cf2, root, "game.dat", "p1") && !backups(M, "cloud"),
++          "the Mac starts before the cloud's save can be read and saves m2: the iPhone's p1 stays in the cloud, nothing is moved into the Mac's backups");
++    setenv("DM_SAVE_SYNC", cloud2, 1);
++    CHECK(save_sync_after_exit(M, DM_GAME_ID) == 0 && cloud_has(cf2, root, "game.dat", "p1"), "nor does the Mac launcher's send after the host replace it");
++    unsetenv("DM_SAVE_SYNC");
++    CHECK(run(M, cloud2, "game.dat", "m3", "offline", cf2, UNREADABLE) == NOT_SENT && same(p, "m3") && cloud_has(cf2, root, "game.dat", "p1"),
++          "the player plays offline with the cloud unreadable all along: m3 is played, nothing is sent");
++    CHECK(run(M, cloud2, NULL, NULL, choice_of("cloud", cf2), NULL, READABLE) == 0 && same(p, "p1"), "with the cloud back, the player chooses the iPhone's: it comes in");
++    backup_of(M, "local", back, sizeof back); snprintf(q, sizeof q, "%s/save/game.dat", back);
++    CHECK(*back && same(q, "m3"), "and the Mac's m3 is kept (%s)", back);
++
++    printf("(12) the first play on a new Mac\n");
++    snprintf(p, sizeof p, "%s/game.dat", N);
++    CHECK(run(N, cloud2, "game.dat", "n1", NULL, cf2, LATE) == NOT_SENT && same(p, "n1") && cloud_has(cf2, root, "game.dat", "p1"),
++          "the new Mac starts before the cloud's save can be read and the game makes a new save: the cloud's progress stays");
++    CHECK(session(N, cloud2, NULL, NULL) == NOT_SENT && same(p, "n1") && cloud_has(cf2, root, "game.dat", "p1"), "its next start, with no choice, replaces nothing");
++    CHECK(run(N, cloud2, NULL, NULL, choice_of("cloud", cf2), NULL, READABLE) == 0 && same(p, "p1"), "the player chooses the cloud's: it comes in");
++    backup_of(N, "local", back, sizeof back); snprintf(q, sizeof q, "%s/save/game.dat", back);
++    CHECK(*back && same(q, "n1"), "and the new save is kept (%s)", back);
++    CHECK(session(N, cloud2, "game.dat", "n2") == 0 && cloud_has(cf2, root, "game.dat", "n2"), "from then on its saves go out");
++
++    printf("(13) a damaged file in the cloud\n");
++    put(cf2, "DMSYNC1\nnot a save");
++    CHECK(session(N, cloud2, "game.dat", "n3") == 0 && cloud_has(cf2, root, "game.dat", "n3"), "this device's save replaces it");
++    backup_of(N, "cloud", back, sizeof back); snprintf(q, sizeof q, "%s/save.dmsync", back);
++    CHECK(*back && same(q, "DMSYNC1\nnot a save"), "the damaged file is kept (%s)", back);
++
+     printf("== save sync: %d checks, %d failed ==\n", checks, fails);
+     if (!fails) { char c[1200]; snprintf(c, sizeof c, "rm -rf '%s'", root); system(c); }
+     return fails != 0;
+diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
+index 96b6119..bc89e04 100755
+--- a/dm/mac/pack_app.py
++++ b/dm/mac/pack_app.py
+@@ -130,7 +130,7 @@ def info_plist(a, minos, icon):
+          'CFBundleVersion': a.version or '1.0', 'CFBundleShortVersionString': a.version or '1.0', 'CFBundlePackageType': 'APPL', 'CFBundleExecutable': EXE,
+          'CFBundleInfoDictionaryVersion': '6.0', 'LSMinimumSystemVersion': minos, 'LSArchitecturePriority': ['arm64'], 'NSHighResolutionCapable': True,
+          'LSApplicationCategoryType': a.category or 'public.app-category.games', 'LSSupportsGameMode': False, 'DMTitleID': a.title_id.upper(), 'DMRomfsMarker': a.marker or '', 'DMLanguage': a.lang or 'en-US',
+-         'DMForkPatches': fork_patches(), 'DMControllerMappings': 1}
++         'DMForkPatches': fork_patches(), 'DMControllerMappings': 1, 'DMSaveSyncChoice': 1}
+     if icon: p['CFBundleIconFile'] = 'AppIcon'
+     if a.settings:
+         listed = json.loads(Path(a.settings).read_text(encoding='utf-8'))['settings']
+diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
+index 40096e8..f4491e2 100644
+--- a/dm/tools/tests/test_nsp_mac_app.py
++++ b/dm/tools/tests/test_nsp_mac_app.py
+@@ -182,6 +182,7 @@ class PackReuse(unittest.TestCase):
+         self.assertNotIn('DMSettings', info)
+         self.assertIs(type(info['DMControllerMappings']), int)
+         self.assertEqual(info['DMControllerMappings'], 1)
++        self.assertEqual(info['DMSaveSyncChoice'], 1)   # the host follows DM_SAVE_SYNC_CHOICE (docs/frontends.md, The cloud saves folder)
+ 
+     def test_retargeted_input_symlink_repacks(self):
+         msl = self.tmp / 'msl'
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 33ba111..f9be145 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -323,6 +323,7 @@ DM_RUMBLE_MIN	player	`=0..0.9`: controller rumble levels below it stay silent an
+ DM_SAVE	path	This run's save folder (must be set); the device save is `<DM_SAVE>_device`, and `pso_user.tsv` goes in its parent folder; the Mac launcher, the iOS app and the NSP script set it
+ DM_SAVED_CHOICES	switch	`0` ignores the player's saved choices (launcher.<VAR> in the app's preferences) and leaves them saved; the Mac launcher and the iOS settings screen
+ DM_SAVE_SYNC	player	Cloud saves: the folder whose `<title ID>/save.dmsync` the save is synced through, `icloud` for iCloud Drive/nxnative Saves (the Mac); `0` or unset, off. The Mac launcher sets the folder chosen in its settings window's Cloud saves, the iPhone app the one picked in its launcher (dm/host/save_sync.h)
++DM_SAVE_SYNC_CHOICE	switch	Cloud saves: the player's choice when the cloud's save and this device's both changed, set by a front end that compared them before the start: `cloud:<hash>` brings in the cloud's save with that hash, `local:<hash>` sends this device's over it (`local:none`: the cloud had none), `offline`: the cloud could not be read, so nothing is sent until compared; unset, a save that changed on both sides is replaced on neither (dm/host/save_sync.c, docs/frontends.md)
+ DM_SCHEME_NAME	switch	Set by `build_ipa.sh` itself for xcodegen's `project.yml`: the Xcode scheme name, `DmIOS`, or `<display name> (<title ID>)` for a project prepared with `--prepare-xcode`
+ DM_SCREEN	player	`=<number>` opens the Mac window on the connected screen with that `NSScreenNumber` (`CGDirectDisplayID`), centred, before any `DM_FULLSCREEN` request; an unknown number is logged and ignored. The NX2Apple launcher sets it to its own window's screen
+ DM_SCREEN_ASPECT	player	`=<width/height>` (1.3 to 1.77, e.g. `1.43` for the iPhone Duo) renders a game whose profile has `screen_aspect on` in that shape: output 1920 wide, 1280-wide layout space, the HUD at the taller edges and 16:9's sides in view; `auto` (iOS) the app window's own shape when it is taller than 16:9, else 16:9; `0` or unset is 16:9; launcher setting
+diff --git a/docs/frontends.md b/docs/frontends.md
+index 85a1920..8ea87c4 100644
+--- a/docs/frontends.md
++++ b/docs/frontends.md
+@@ -118,6 +118,7 @@ The folder a Mac app's save is synced through ([Cloud saves](settings.md#cloud-s
+ - **The order** is that of the saved choices: `DM_SAVE_SYNC` in the launch environment wins (a folder for this start only, or `0` to start without cloud saves), then an `env.txt`, then this key. `DM_SAVE_SYNC=icloud` is iCloud Drive › nxnative Saves.
+ - **One folder serves every game.** Each game keeps its own `<title ID>/save.dmsync` in it, so a front end can write the same path into each app's domain to give its whole library one cloud folder. A path that already ends in the game's title ID is taken as that game's own folder.
+ - **The iPhone app** keeps its folder as a security-scoped bookmark that only its own folder picker can make, so it is chosen there.
++- **The player's choice.** When the cloud's save and this device's both changed since the last sync (or the device has never synced and both have a save), the host replaces neither: it plays with this device's and sends nothing. A front end compares them before the start (the header of `save.dmsync` has the cloud's hash, save time and device; `<DM_SAVE>.sync` has the hash last synced, in a `base` line; `dm/host/save_sync.c` has both formats) and passes what the player chose in `DM_SAVE_SYNC_CHOICE` (a Mac app whose `Info.plist` has the integer `DMSaveSyncChoice=1` reads it): `cloud:<hash>` brings in the cloud's save with that hash, `local:<hash>` lets this device's replace it (`local:none` when the cloud had none), and the one not chosen is kept in `<DM_SAVE>-backups`. A choice holds only for the cloud save it names: if that save changed after the check, nothing is replaced. `offline` says the cloud could not be read before the start: the host does not wait for it, and sends nothing until a later send has compared the two.
+ 
+ ## Cheats
+ 
+diff --git a/docs/settings.md b/docs/settings.md
+index f19ca21..391d3a4 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -233,11 +233,11 @@ Turn off **Show this window at launch** to start the game at once with your choi
+ 
+ The Mac app and the iPhone app of one game can share a save through iCloud Drive. Choose the same iCloud Drive folder on both: **Cloud saves** › **Choose a folder…** in the Mac settings window, and **Cloud saves** in the iPhone launcher (any folder, for instance one named **nxnative Saves**). Each game keeps one file there, `<title ID>/save.dmsync`, which holds the whole save.
+ 
+-When the game starts, it brings the save from iCloud Drive in if that one is the one to keep; a few seconds after the game saves, it sends its save. The iPhone app also sends when it goes to the background, and the Mac app once the game has quit. If you played on both without the save getting across in between, the newer save wins.
++When the game starts, it brings the save from iCloud Drive in if only that one changed since the last sync; a few seconds after the game saves, it sends its save if only this one changed. The iPhone app also sends when it goes to the background, and the Mac app once the game has quit. If you played on both without the save getting across in between, neither replaces the other: the game plays on with the save on this device and sends nothing, and the launcher asks which one to keep before the next start (on the Mac, NX2Apple's launcher does).
+ 
+ A save that is replaced, on the device or in iCloud Drive, is kept first, beside the save in a folder named after it with `-backups` (on the iPhone `save-backups` in the Files app, under the app's name; on the Mac `~/Library/Application Support/nxnative/<title ID>/save-backups`): `<date> local` holds this device's save, `<date> cloud` the one that was in iCloud Drive. The newest 10 of each kind stay, and older ones are removed; other folders you put there are left alone.
+ 
+-iCloud Drive takes a moment to carry a file from one device to the other. Quit the game on one device and give it a few seconds before you start it on the other. Without a connection the game plays on with the save it has and sends it later. The game log says what came in and what went out (lines starting with `save sync:`).
++iCloud Drive takes a moment to carry a file from one device to the other. Quit the game on one device and give it a few seconds before you start it on the other. Without a connection, or when the save in iCloud Drive has not arrived yet, the game plays on with the save it has and sends it only once it has been compared with the one in iCloud Drive: a save in iCloud Drive that changed meanwhile is never replaced without your choice. The game log says what came in and what went out (lines starting with `save sync:`).
+ 
+ ## In-game menu
+ 

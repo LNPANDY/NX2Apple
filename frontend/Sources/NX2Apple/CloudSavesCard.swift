@@ -125,8 +125,21 @@ struct CloudSavesCard: View {
                 }
             }
             Spacer(minLength: 0)
+            if let backups = backupsFolder {   // the save a sync or a choice replaced (#957): <DM_SAVE>-backups
+                Button(loc.t("cloud.showBackups")) { NSWorkspace.shared.activateFileViewerSelecting([backups]) }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .padTarget("cloud.backups", scope: "launch") { NSWorkspace.shared.activateFileViewerSelecting([backups]) }
+            }
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
+    }
+
+    /// The game's save backups on this Mac, when there are any.
+    private var backupsFolder: URL? {
+        guard preview == nil, !game.appPath.isEmpty else { return nil }
+        let save = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
+        let folder = URL(fileURLWithPath: save.path + "-backups")
+        return FileManager.default.fileExists(atPath: folder.path) ? folder : nil
     }
 
     private func stateText(_ last: (state: CloudSaveSync.LogState?, date: Date?)?) -> String {
@@ -137,6 +150,7 @@ struct CloudSavesCard: View {
         case .sent: return loc.t("cloud.state.sent")
         case .broughtIn(let device): return String(format: loc.t("cloud.state.broughtIn"), device)
         case .waitingToSend: return loc.t("cloud.state.waiting")
+        case .waitingForChoice: return loc.t("cloud.state.choose")
         case .offline: return loc.t("cloud.state.offline")
         case .nothingYet: return loc.t("cloud.state.nothingYet")
         case .off(let why): return String(format: loc.t("cloud.state.off"), why)
@@ -147,7 +161,7 @@ struct CloudSavesCard: View {
     private func color(_ state: CloudSaveSync.LogState?) -> Color {
         switch state {
         case .inStep, .sent, .broughtIn: return Color(red: 0.25, green: 0.84, blue: 0.47)
-        case .waitingToSend, .offline, .off: return Self.attention
+        case .waitingToSend, .waitingForChoice, .offline, .off: return Self.attention
         case .failed: return Color(red: 1, green: 0.42, blue: 0.40)
         case .nothingYet, nil: return Color.white.opacity(0.3)
         }
