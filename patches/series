@@ -62,3 +62,5 @@
 0094-turn-the-direct-ndve-movie-scaling-on-by-default.patch
 0095-keep-the-mac-game-in-focus-while-its-window-is-u.patch
 0096-split-mesh-draws-with-no-task-shader-into-grids.patch
+0097-mac-one-pro-controller-is-one-pad.patch
+0098-test-one-pro-controller-is-one-pad.patch
