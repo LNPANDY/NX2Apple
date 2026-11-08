@@ -11,18 +11,18 @@ Issue: LNPANDY/NX2Apple#494
  1 file changed, 6 insertions(+)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index c3d6c9e..f849056 100644
+index 46a33d5..3a1b524 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -28,6 +28,7 @@
- #include "motion_fusion.h"
+@@ -29,6 +29,7 @@
  #include "pad_apple.h"
  #include "pad_slots.h"
+ #include "ctrl_prompt.h"
 +#include "input_map.h"
  #include <stdatomic.h>
  #import "DmLayout.h"
  #import "DmGameMenu.h"
-@@ -564,6 +565,7 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
+@@ -565,6 +566,7 @@ - (void)refresh {   // pressed state → fill, sticks → knob position
  static pad_slots g_slots;
  static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
  static int g_merge, g_press_to_join;
@@ -30,15 +30,15 @@ index c3d6c9e..f849056 100644
  static int32_t axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * 32767); }
  static const char *pad_name(GCController *c);
  static void npad_name(int p, char *out, size_t cap);
-@@ -585,6 +587,7 @@ static void read_pad(GCExtendedGamepad *g) {
-         npad_name(p, nb, sizeof nb); LOG("controller '%s': a button pressed: player %d (npad %s)", pad_name(c), p + 1, nb);
+@@ -588,6 +590,7 @@ static void read_pad(GCExtendedGamepad *g) {
      }
+     if (cp_poll()) return;   // the controller applet's prompt has the controllers (front_ctrl_support)
      dm_haptics_apple_controller(p, g.controller);
 +    m = pad_map_apply(&g_padmap, m);
      dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
  }
  // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
-@@ -592,6 +595,9 @@ static void pad_keep_system_buttons(GCController *c) { for (NSString *b in @[GCI
+@@ -595,6 +598,9 @@ static void read_pad(GCExtendedGamepad *g) {
  static const char *pad_name(GCController *c) { return c.vendorName.UTF8String ?: "?"; }
  static void npad_name(int p, char *out, size_t cap) { uint32_t id = dm_player_npad(p); if (id == 0x20) snprintf(out, cap, "handheld"); else snprintf(out, cap, "%u", id); }
  static void pads_start(void) {

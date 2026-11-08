@@ -1087,7 +1087,7 @@
   "launch.section.Game": "Game",
   "launch.section.Performance": "Performance",
   "launch.set.DM_DYNAMIC_RESOLUTION": "Dynamic resolution",
-  "launch.set.DM_DYNAMIC_RESOLUTION.note": "Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode.",
+  "launch.set.DM_DYNAMIC_RESOLUTION.note": "Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode.",
   "launch.set.DM_FPS_HOLD": "Hold frames when late",
   "launch.set.DM_FPS_TARGET": "Frame rate",
   "launch.set.DM_FULLSCREEN": "Display mode",

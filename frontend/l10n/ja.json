@@ -1087,7 +1087,7 @@
   "launch.section.Game": "ゲーム",
   "launch.section.Performance": "パフォーマンス",
   "launch.set.DM_DYNAMIC_RESOLUTION": "動的解像度",
-  "launch.set.DM_DYNAMIC_RESOLUTION.note": "負荷に応じて解像度を 70% から 100% の間で調整します。オフにすると、選択したモードのフル解像度を維持します。",
+  "launch.set.DM_DYNAMIC_RESOLUTION.note": "負荷が高いとき、ゲームが解像度を下げることを許可します。オフにすると、選択したモードのフル解像度を維持します。",
   "launch.set.DM_FPS_HOLD": "遅れたフレームを保持",
   "launch.set.DM_FPS_TARGET": "フレームレート",
   "launch.set.DM_FULLSCREEN": "表示モード",

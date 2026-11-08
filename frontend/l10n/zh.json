@@ -1088,7 +1088,7 @@
   "launch.section.Game": "游戏",
   "launch.section.Performance": "性能",
   "launch.set.DM_DYNAMIC_RESOLUTION": "动态分辨率",
-  "launch.set.DM_DYNAMIC_RESOLUTION.note": "负载较高时在 70% 到 100% 之间调整分辨率。关闭后保持所选主机模式的完整分辨率。",
+  "launch.set.DM_DYNAMIC_RESOLUTION.note": "允许游戏在负载较高时降低分辨率。关闭后保持所选主机模式的完整分辨率。",
   "launch.set.DM_FPS_HOLD": "帧延迟时保持",
   "launch.set.DM_FPS_TARGET": "帧率",
   "launch.set.DM_FULLSCREEN": "显示模式",

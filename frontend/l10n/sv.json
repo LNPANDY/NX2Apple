@@ -937,7 +937,7 @@
   "launch.section.Game": "Spel",
   "launch.section.Performance": "Prestanda",
   "launch.set.DM_DYNAMIC_RESOLUTION": "Dynamisk upplösning",
-  "launch.set.DM_DYNAMIC_RESOLUTION.note": "Anpassar upplösningen mellan 70 % och 100 % under belastning. Stäng av för att behålla full upplösning för det valda konsolläget.",
+  "launch.set.DM_DYNAMIC_RESOLUTION.note": "Låter spelet sänka upplösningen under belastning. Stäng av för att behålla full upplösning för det valda konsolläget.",
   "launch.set.DM_FPS_HOLD": "Håll bilder när de är sena",
   "launch.set.DM_FPS_TARGET": "Bildfrekvens",
   "launch.set.DM_FULLSCREEN": "Visningsläge",

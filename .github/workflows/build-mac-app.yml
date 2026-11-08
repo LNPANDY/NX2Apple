@@ -326,6 +326,8 @@ jobs:
       - name: Assemble the bundle
         working-directory: frontend
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # The .app is in .gitignore (it is a build product), so a fresh checkout has none: the
