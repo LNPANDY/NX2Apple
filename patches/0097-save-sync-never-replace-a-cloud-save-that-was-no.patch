@@ -26,7 +26,7 @@ Front-ends: interface: a save that changed on both sides is no longer replaced b
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1785
 Reason: A cloud save that was not compared is never replaced, and the player chooses when both sides changed (#957)
 Issue: LNPANDY/NX2Apple#957
 
