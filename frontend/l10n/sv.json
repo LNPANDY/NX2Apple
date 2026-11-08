@@ -225,7 +225,7 @@
   "console.mapping.sendsInGames": "Skickar i spel",
   "console.mapping.swap": "Byt A och B",
   "console.mapping.swapNote": "Lägger A på den nedre knappen i spel, där Xbox- och PlayStation-handkontroller bekräftar.",
-  "console.mapping.tapHint": "Klicka på en knapp på handkontrollen för att ändra vad den skickar.",
+  "console.mapping.tapHint": "Välj en rad, eller klicka på en knapp på ritningen, för att ändra vad den skickar.",
   "console.menu": "Meny",
   "console.menu.controllersNote": "Spelare, batterier, identifiering och knapptilldelning.",
   "console.menu.exit": "Lämna konsolläget",

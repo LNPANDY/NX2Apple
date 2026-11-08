@@ -278,7 +278,7 @@
   "console.mapping.sendsInGames": "在游戏中对应",
   "console.mapping.swap": "交换 A 和 B",
   "console.mapping.swapNote": "在游戏中把 A 放到下方按键，也就是 Xbox 和 PlayStation 手柄确认键的位置。",
-  "console.mapping.tapHint": "点击示意图上的按键即可修改它发送的按键。",
+  "console.mapping.tapHint": "选中一行，或点击示意图上的按键，即可修改它发送的按键。",
   "console.menu": "菜单",
   "console.menu.controllersNote": "玩家、电量、识别手柄和按键映射。",
   "console.menu.exit": "退出手柄模式",

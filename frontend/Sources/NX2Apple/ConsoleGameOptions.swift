@@ -188,7 +188,7 @@ struct ConsoleSwitchRow: View {
         }
         .padding(.horizontal, 20).padding(.vertical, compact ? 14 : 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+        .background(LauncherPalette.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))   // read only: quieter than the rows the focus can land on
         .padding(.top, 14)
         .accessibilityElement(children: .combine)
     }

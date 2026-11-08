@@ -277,7 +277,7 @@
   "console.mapping.sendsInGames": "ゲーム内での入力",
   "console.mapping.swap": "A と B を入れ替える",
   "console.mapping.swapNote": "ゲーム内で A を下のボタンに置きます。Xbox や PlayStation のコントローラーで決定する位置です。",
-  "console.mapping.tapHint": "コントローラーの図のボタンをクリックすると、送るボタンを変更できます。",
+  "console.mapping.tapHint": "行を選ぶか、図のボタンをクリックすると、送るボタンを変更できます。",
   "console.menu": "メニュー",
   "console.menu.controllersNote": "プレイヤー、バッテリー、コントローラーの確認、ボタンの割り当て。",
   "console.menu.exit": "コンソールモードを終了",

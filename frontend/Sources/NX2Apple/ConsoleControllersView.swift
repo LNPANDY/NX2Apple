@@ -283,6 +283,7 @@ struct ConsoleToastView: View {
                 }
                 .padding(.horizontal, compact ? 24 : 40).padding(.vertical, 12)
             }
+            .consoleScrollFade()
             .onChange(of: pad.focused) { id in
                 if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } }
             }

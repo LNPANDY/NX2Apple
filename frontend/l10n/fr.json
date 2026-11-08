@@ -272,7 +272,7 @@
   "console.mapping.sendsInGames": "Envoie dans les jeux",
   "console.mapping.swap": "Inverser A et B",
   "console.mapping.swapNote": "Place A sur le bouton du bas dans les jeux, là où les manettes Xbox et PlayStation valident.",
-  "console.mapping.tapHint": "Cliquez sur un bouton de la manette pour changer ce qu’il envoie.",
+  "console.mapping.tapHint": "Choisissez une ligne, ou cliquez sur un bouton du dessin, pour changer ce qu’il envoie.",
   "console.menu": "Menu",
   "console.menu.controllersNote": "Joueurs, batteries, Identifier et l’attribution des boutons.",
   "console.menu.exit": "Quitter le mode console",

@@ -51,7 +51,7 @@ import NXLauncher
                 panel
             } else {
                 HStack(alignment: .top, spacing: 56) {
-                    drawing.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    drawing.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)   // the drawing sits in the middle of its column, not above an empty half
                     panel.frame(maxWidth: 680)
                 }
                 .padding(.leading, inset)
@@ -111,6 +111,7 @@ import NXLauncher
                     }
                     .padding(.horizontal, compact ? inset : 0).padding(.trailing, compact ? 0 : inset).padding(.top, 4).padding(.bottom, 20)
                 }
+                .consoleScrollFade()
                 .onChange(of: pad.focused) { id in
                     guard let id, id.hasPrefix("console.map.") else { return }
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }

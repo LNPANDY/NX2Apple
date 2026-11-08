@@ -277,7 +277,7 @@
   "console.mapping.sendsInGames": "Sends in games",
   "console.mapping.swap": "Swap A and B",
   "console.mapping.swapNote": "Puts A on the bottom button in games, where Xbox and PlayStation controllers confirm.",
-  "console.mapping.tapHint": "Click a button on the controller to change what it sends.",
+  "console.mapping.tapHint": "Pick a row, or click a button on the drawing, to change what it sends.",
   "console.menu": "Menu",
   "console.menu.controllersNote": "Players, batteries, Identify and the button mapping.",
   "console.menu.exit": "Leave console mode",

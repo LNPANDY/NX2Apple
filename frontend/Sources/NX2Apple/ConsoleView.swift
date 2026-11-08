@@ -106,7 +106,8 @@ enum ConsoleInput {
                 }
             }
             .overlay(alignment: .top) {
-                if let toast = state.toast { ConsoleToastView(toast: toast).id(toast.id).transition(.opacity) }
+                // below the top bar, so it never covers a controller chip (and on a notched screen, never sits under the housing)
+                if let toast = state.toast { ConsoleToastView(toast: toast).id(toast.id).transition(.opacity).padding(.top, compact ? 56 : 88) }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()
@@ -324,10 +325,11 @@ enum ConsoleInput {
                     ConsoleGameOptionsList(driver: driver, game: game, lang: lang, compact: compact, editing: $editingOption)
                         .padding(.horizontal, compact ? 24 : 40).padding(.vertical, 8)
                 }
+                .consoleScrollFade()
                 .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
             }
             VStack(alignment: .leading, spacing: 18) {
-                Text(t("console.adjustHintSlider")).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary)
+                Text(t(adjustHint(game.basicSettings))).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary)
                 primaryButton(t("console.play"), id: "console.options.play", scope: "console.options") { driver.play(game.id) }
             }
             .padding(compact ? 24 : 40)
@@ -344,10 +346,16 @@ enum ConsoleInput {
                     ConsoleAdvancedList(driver: driver, game: game, lang: lang, compact: compact, editing: $editingOption)
                         .padding(.horizontal, compact ? 24 : 40).padding(.vertical, 8)
                 }
+                .consoleScrollFade()
                 .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
             }
-            Text(t("console.adjustHintSlider")).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary).padding(compact ? 24 : 40)
+            Text(t(adjustHint(game.advancedSettings))).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary).padding(compact ? 24 : 40)
         }
+    }
+
+    /// The hint under a list of options: the slider's two-step way only where there is a slider.
+    private func adjustHint(_ settings: [LaunchSetting]) -> String {
+        settings.contains { $0.kind == "range" } ? "console.adjustHintSlider" : "console.adjustHint"
     }
 
     /// The question on top: leaving console mode, saving the button mapping's changes, resetting a game's options, the app's update.
@@ -428,6 +436,7 @@ enum ConsoleInput {
                 ConsoleLibraryList(driver: driver, lang: lang, compact: compact)
                     .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
             }
+            .consoleScrollFade()
             .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
         }
     }
@@ -439,6 +448,7 @@ enum ConsoleInput {
                 ConsoleSettingsList(driver: driver, lang: lang, compact: compact, languageName: languageName(languageCode))
                     .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
             }
+            .consoleScrollFade()
             .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
         }
     }
@@ -471,6 +481,7 @@ enum ConsoleInput {
                 }
                 .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
             }
+            .consoleScrollFade()
             .onChange(of: pad.focused) { id in
                 guard let id, id.hasPrefix("console.language.") else { return }
                 withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
@@ -613,7 +624,7 @@ enum ConsoleInput {
         case .explanation: pad.focused = "console.explanation.desktop"
         case .homeButtonHint: pad.focused = "console.homeHint.open"
         case .menu: pad.focused = "console.menu.library"
-        case .cloudSaves: pad.focused = state.saveRows.first.map { "console.saves.row." + $0.id } ?? "console.saves.close"
+        case .cloudSaves: pad.focused = ConsoleCloudSaves.sorted(state.saveRows).first.map { "console.saves.row." + $0.id } ?? "console.saves.close"   // the first row as the page sorts them
         case .library: pad.focused = ConsolePref.onLibrary.first.map { "console.pref." + $0.rawValue } ?? "console.library.saves"
         case .settings: pad.focused = "console.settings.language"
         case .language: pad.focused = "console.language." + (languageCode.isEmpty ? "system" : languageCode)

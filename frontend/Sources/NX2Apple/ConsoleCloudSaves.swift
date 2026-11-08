@@ -151,7 +151,8 @@ enum ConsoleCloudSaves {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            ConsolePageHeader(title: t("console.saves.title"), note: t("console.saves.note"), compact: compact, closeLabel: t("console.close"),
+                              closeID: "console.saves.close", scope: Self.scope, close: close)
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: compact ? 12 : 14) {
@@ -163,9 +164,9 @@ enum ConsoleCloudSaves {
                         }
                     }
                     .padding(.horizontal, inset).padding(.top, 8).padding(.bottom, compact ? 24 : 48)
-                    .frame(maxWidth: 1100, alignment: .leading)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: 1100 + 2 * inset, alignment: .leading)   // lined up with the title, as the other pages are
                 }
+                .consoleScrollFade()
                 .onChange(of: pad.focused) { id in
                     guard let id, id.hasPrefix("console.saves.row.") else { return }
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
@@ -174,24 +175,6 @@ enum ConsoleCloudSaves {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LauncherPalette.background)
-    }
-
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            VStack(alignment: .leading, spacing: compact ? 8 : 10) {
-                Text(t("console.saves.title")).font(.manrope(compact ? 30 : 44, .bold)).tracking(-0.8).accessibilityAddTraits(.isHeader)
-                Text(t("console.saves.note")).font(.manrope(compact ? 15 : 19)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 12)
-            Button(action: close) {
-                Image(systemName: "xmark").font(.system(size: 20)).frame(width: 52, height: 52)
-                    .background(.white.opacity(0.075), in: Circle()).contentShape(Circle())
-            }
-            .buttonStyle(.plain).accessibilityLabel(t("console.close"))
-            .padTarget("console.saves.close", scope: Self.scope, radius: 26, activate: close)
-        }
-        .padding(.horizontal, inset).padding(.top, compact ? 28 : 48).padding(.bottom, compact ? 20 : 28)
     }
 
     private func message(_ text: String) -> some View {
