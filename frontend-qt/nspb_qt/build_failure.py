@@ -47,7 +47,7 @@ TABLE: list[tuple[str, str, str]] = [
     ('keys.missing', KEYS, r'(?m)^\[RED\] no such file: '),
     ('keys.old', KEYS_OLD, r'the keys are older than the game'),
     ('games.several', SEVERAL_GAMES, r'more than one game in the folder'),
-    ('games.noTitleID', NO_TITLE_ID, r'no NSP with a readable title ID in '),
+    ('games.noTitleID', NO_TITLE_ID, r'no (?:NSP|game package) with a readable (?:title ID|content meta) in '),
     ('disk.low', DISK_FULL, r'less than [0-9]+ GB free on the volume of '),
     ('pso.low', PSO_DISK_FULL, r'pso_offline: [0-9.]+ GB free on the volume of [^\n]+, metal-tt needs about [0-9.]+ GB for [0-9]+ bases:'),
     ('pso.merge', PSO_DISK_FULL, r'pso_offline: [0-9.]+ GB free before merging; need at least [0-9.]+ GB'),
@@ -103,8 +103,8 @@ def _detail(kind: str, log: str) -> str | None:
     if kind == PSO_DISK_FULL:
         m = re.search(r'pso_offline: [^\n]+(?:metal-tt needs about|before merging; need at least) ([0-9.]+) GB', log)
         return m.group(1) if m else None
-    if kind == NO_TITLE_ID:   # "no NSP with a readable title ID in /path"
-        m = re.search(r'(?m)no NSP with a readable title ID in (.+)$', log)
+    if kind == NO_TITLE_ID:   # "no game package with a readable content meta in /path" (engines before c78d7375: "no NSP with a readable title ID in /path")
+        m = re.search(r'(?m)no (?:NSP|game package) with a readable (?:title ID|content meta) in (.+)$', log)
         return m.group(1).strip() if m else None
     return None
 
