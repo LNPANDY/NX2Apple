@@ -4161,11 +4161,13 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 return ''
 
             pack_calls: list[list[str]] = []
+            identity_line = (b'DMROMFSID1 title=010015100B514000 version=1.0 '
+                             b'build=v0 size=123 index=0123456789abcdef')
 
             def fake_subproc_run(cmd, *_a, **_kw):
                 cmd_list = [str(c) for c in cmd]
                 if any(c.endswith('romfs_image.py') for c in cmd_list):
-                    return subprocess.CompletedProcess(cmd_list, 0, b'id_line\n', b'')
+                    return subprocess.CompletedProcess(cmd_list, 0, identity_line + identity_eol, b'')
                 if any(c.endswith('pack_ipa.py') for c in cmd_list):
                     pack_calls.append(cmd_list)
                     Path(cmd_list[2]).write_bytes(b'ipa')
@@ -4186,7 +4188,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 'DM_FRAMEWORK_ONLY': '',
             }
 
-            for full_val in ('', '1'):
+            for full_val, identity_eol in (('', b'\r\n'), ('', b'\n'), ('1', b'\r\n')):
                 pack_calls.clear()
                 env_cur = dict(base_env, DM_FULL_ROMFS=full_val)
                 with (
@@ -4221,6 +4223,12 @@ class WindowsBuildFixesTest(unittest.TestCase):
                     self.assertIn(f'Payload/DmIOS.app/aoc={aoc}', pack_cmd)
                 else:
                     self.assertFalse(any(arg.startswith('Payload/DmIOS.app/aoc=') for arg in pack_cmd))
+                    identity_map = next(arg for arg in pack_cmd
+                                        if arg.startswith('Payload/DmIOS.app/romfs.id='))
+                    identity_file = Path(identity_map.split('=', 1)[1])
+                    # iOS's romfs_id_parse stops at LF, so a trailing CR makes
+                    # strtoull reject the index and reports ROMFS_ID_BAD (2).
+                    self.assertEqual(identity_file.read_bytes(), identity_line + b'\n')
 
 
 class UnrealInlineShadersWinTest(unittest.TestCase):
