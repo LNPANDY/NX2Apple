@@ -23,11 +23,18 @@ Upstream-Status: pending
 Reason: preserve editor and gameplay geometry parity when customizing Duo outer controls
 Issue: LNPANDY/NX2Apple#695
 ---
+ dm/ios/Sources/DmGamepad.m                    |  3 +-
+ dm/ios/Sources/DmLayout.h                     | 10 +++--
+ dm/ios/Sources/DmPadGeometry.h                | 23 +++++++-----
+ dm/ios/Sources/front_ios.m                    |  5 +++
+ .../tests/pad_geometry/pad_geometry_check.m   | 37 +++++++++++++++++++
+ 5 files changed, 64 insertions(+), 14 deletions(-)
+
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 167cc49..43bd72a 100644
+index 7a5f7cb..d36c4ce 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
-@@ -275,7 +275,8 @@ - (void)setTouchFeedback:(BOOL)on {
+@@ -276,7 +276,8 @@ - (void)setTouchFeedback:(BOOL)on {
  
  // ---- Layout (points; computed inside the safe area) ----
  - (void)arrange:(DmLayout)layout {
@@ -130,10 +137,10 @@ index df8eebf..d2efd77 100644
      return g;
  }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index fad49fd..1989148 100644
+index 9666d9e..3400f69 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -205,6 +205,11 @@ - (void)viewDidLayoutSubviews {
+@@ -215,6 +215,11 @@ - (void)viewDidLayoutSubviews {
      DmLayout layout = onTV ? dm_layout_pad_only(b) : dm_layout_picture(dm_layout(b, gameInsets, self.partiallyOpen, division, g_picture_aspect), b, self.fill, g_picture_aspect);
      if (!onTV) self.game.frame = layout.game;
      layout.topSafeOnly = duoPortrait;

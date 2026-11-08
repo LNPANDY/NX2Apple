@@ -88,8 +88,8 @@
   "id": "games.noTitleID",
   "kind": "noTitleID",
   "source": "scripts/build_ipa_from_nsp.py",
-  "fragment": "no NSP with a readable title ID in",
-  "text": "[RED] no NSP with a readable title ID in /Users/x/Games/Zelda",
+  "fragment": "no game package with a readable content meta in",
+  "text": "[RED] no game package with a readable content meta in /Users/x/Games/Zelda",
   "folder": "/Users/x/Games/Zelda"
  },
  {

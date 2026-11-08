@@ -14,10 +14,10 @@ Issue: LNPANDY/NX2Apple#221
  4 files changed, 14 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 5a32744..9142aad 100644
+index 77e144f..8965228 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1385,6 +1385,17 @@ void front_run(void (*guest)(void)) {
+@@ -1457,6 +1457,17 @@ void front_run(void (*guest)(void)) {
          if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) LOG("front end: Metal performance HUD on (DM_METAL_HUD)");
          v.layer = g_layer; [(DmGameView *)v fitDrawable];
          [win center];
@@ -36,7 +36,7 @@ index 5a32744..9142aad 100644
          screen_refresh(win.screen ?: NSScreen.mainScreen);
          g_win = win;
 diff --git a/docs/development.md b/docs/development.md
-index 6de68ee..6498580 100644
+index 2750b42..9fbf399 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -49,10 +49,10 @@ index 6de68ee..6498580 100644
  | Known gaps | Conditional render is always drawn; [indirect-count multi-draws](reference/rendering.md#indirect-count-multi-draws) can wait for a GPU-written count when the records need conversion, cannot be GPU-masked, or exceed the mask table capacity; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 5f50d5f..fcd1f51 100644
+index 2af1a61..96d3252 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -315,6 +315,7 @@ DM_SAVE	path	This run's save folder (must be set); the device save is `<DM_SAVE>
+@@ -316,6 +316,7 @@ DM_SAVE	path	This run's save folder (must be set); the device save is `<DM_SAVE>
  DM_SAVED_CHOICES	switch	`0` ignores the player's saved choices (launcher.<VAR> in the app's preferences) and leaves them saved; the Mac launcher and the iOS settings screen
  DM_SAVE_SYNC	player	Cloud saves: the folder whose `<title ID>/save.dmsync` the save is synced through, `icloud` for iCloud Drive/nxnative Saves (the Mac); `0` or unset, off. The Mac launcher sets the folder chosen in its settings window's Cloud saves, the iPhone app the one picked in its launcher (dm/host/save_sync.h)
  DM_SCHEME_NAME	switch	Set by `build_ipa.sh` itself for xcodegen's `project.yml`: the Xcode scheme name, `DmIOS`, or `<display name> (<title ID>)` for a project prepared with `--prepare-xcode`
@@ -61,10 +61,10 @@ index 5f50d5f..fcd1f51 100644
  DM_SCREEN_ASPECT_SITES	diagnostic	`=<mask>` with DM_SCREEN_ASPECT: which of the profile's layout-size conversion stubs follow the taller layout, one bit each (default all)
  DM_SCREEN_FOV	diagnostic	`off` with DM_SCREEN_ASPECT: the scene keeps the game's vertical angle (narrower sides) instead of 16:9's sides with more above and below
 diff --git a/docs/frontends.md b/docs/frontends.md
-index f95c430..3188960 100644
+index f71f00b..84225ec 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
-@@ -75,6 +75,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID
+@@ -76,6 +76,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID
    5. the tested defaults (the host's own, from the game's profile).
  - **Launch overrides are temporary.** A front end that starts the game with a variable in its environment overrides the saved choice for that start only. It writes the store only when the player means to keep the choice.
  - **`DM_SAVED_CHOICES=0`** (in the environment or an `env.txt`) starts with the tested defaults and leaves the saved choices as they are. **`DM_LAUNCHER=0`** only skips the settings screen (the iPhone's, or a Mac app's window): the saved choices still apply.
