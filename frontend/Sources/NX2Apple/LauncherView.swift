@@ -231,6 +231,7 @@ struct LauncherView: View {
             if let id = route.game { library.selectedID = id }
             DispatchQueue.main.async { BuildNotifier.shared.route = nil }
         }
+        .onChange(of: loc.lang) { _ in if performStartupChecks { fetchArtwork() } }   // the banners in the new language
         .onChange(of: library.games) { _ in
             if performStartupChecks { library.syncSharedApp(root: m.shellCachePath) }
             refreshArtwork()
