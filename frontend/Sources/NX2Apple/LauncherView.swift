@@ -24,7 +24,8 @@ struct LauncherView: View {
     @FocusState private var searchFocused: Bool
     @State var artwork: [UUID: NSImage] = [:]   // card size
     @State var heroArtwork: (id: UUID, image: NSImage)?   // the hero game's, at the size the hero needs
-    @State var activeBuildID: UUID?
+    @StateObject private var recorder: BuildRecorder   // writes the builds into the library: the session's, so a build that ends in console mode is recorded too
+    var activeBuildID: UUID? { recorder.activeBuildID }
     @State var launching = false
     @State private var launchError: String?
     @State private var removing: LibraryGame?
@@ -47,7 +48,6 @@ struct LauncherView: View {
     @StateObject var padFocus: PadFocus
     @StateObject var row = RowScroller()
     @StateObject var toolsAge: ToolsAge
-    @State private var buildCommit = ""   // the engine's commit when the running build started (ToolsAge)
     @State var signatureExpiry: [UUID: Date] = [:]   // installed apps' provisioning-profile expiry, per game
     @State var resignNote: String?   // the last re-sign's outcome, shown under the hero's expiry line
     private var performStartupChecks: Bool
@@ -60,7 +60,7 @@ struct LauncherView: View {
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
-         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, qaPrompt: Bool = false,
+         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false,
          gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared) {
         _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
@@ -83,8 +83,10 @@ struct LauncherView: View {
         _m = StateObject(wrappedValue: stores.build); _loc = ObservedObject(wrappedValue: stores.localizer)
         _updates = ObservedObject(wrappedValue: stores.appUpdates); _devices = ObservedObject(wrappedValue: stores.deviceStore)
         _repo = ObservedObject(wrappedValue: stores.repo); _engine = ObservedObject(wrappedValue: stores.engineSync)
-        _library = StateObject(wrappedValue: library ?? GameLibrary())
-        _page = State(initialValue: initialPage); _activeBuildID = State(initialValue: activeBuildID)
+        let library = library ?? GameLibrary()
+        _library = StateObject(wrappedValue: library)
+        _recorder = StateObject(wrappedValue: recorder ?? BuildRecorder(stores: stores, library: library, activeBuildID: activeBuildID))
+        _page = State(initialValue: initialPage)
         self.performStartupChecks = performStartupChecks
     }
 
@@ -247,29 +249,10 @@ struct LauncherView: View {
         .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
         .onChange(of: library.selectedID) { _ in resignNote = nil }   // the last re-sign's note belongs to its game
         .onChange(of: heroGame?.id) { _ in refreshHeroArtwork() }
-        .onChange(of: buildProgress) { progress in if m.running { DockProgress.update(progress) } }
-        .onReceive(m.$running.removeDuplicates()) { running in
-            if !running { DockProgress.update(nil) }
-            if running && activeBuildID == nil { activeBuildID = library.rememberInputs(m) }
-            if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (RepoStore.pull, autoPull)
-                buildCommit = ""
-                let dir = repo.path
-                DispatchQueue.global(qos: .utility).async {
-                    let commit = ToolsAge.head(repo: dir) ?? ""
-                    DispatchQueue.main.async { buildCommit = commit }
-                }
-            }
-            if !running {
-                DispatchQueue.main.async {
-                    guard !m.running else { return }   // a build may have started since the idle notification
-                    if m.done { recordBuild() }
-                    activeBuildID = nil
-                    engine.applyPendingEngine()   // an engine installed during the build takes over once it is recorded
-                }
-            }
-        }
-        .onReceive(m.$done.removeDuplicates()) { done in
-            if done { DispatchQueue.main.async { recordBuild() } }
+        .onReceive(recorder.recorded) {   // a build was written into the library (BuildRecorder); a window opened since reads it in onAppear
+            refreshArtwork()
+            if m.target != BuildTarget.mac { readSignatures() }
+            if performStartupChecks { checkTools() }
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active { library.objectWillChange.send() }
@@ -717,17 +700,6 @@ struct LauncherView: View {
             if !m.installedOn.isEmpty { library.recordSharedAppInstalled(app: m.installedAppPath, device: m.installedOn) }
             readSignatures()
         }
-    }
-
-    private func recordBuild() {
-        guard m.done, let id = activeBuildID else { return }
-        if m.target == BuildTarget.mac { library.recordCompletedApp(path: m.macAppPath, commit: buildCommit, for: id) }
-        else {
-            library.recordCompletedIOS(archive: m.archivePath, app: m.installedAppPath, device: m.installedOn, commit: buildCommit, for: id)
-            readSignatures()
-        }
-        refreshArtwork()
-        if performStartupChecks { checkTools() }
     }
 
     private func checkTools() { toolsAge.check(games: library.games, repo: stores.repo.path) }
