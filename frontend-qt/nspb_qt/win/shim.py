@@ -597,6 +597,41 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
             mod.find_dir = _win_find_dir
 
+    def _patch_shader_split_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'oodle_supposed'):
+            return
+        mod._nspb_patched = True
+        _orig_oodle_supposed = mod.oodle_supposed
+
+        def _win_oodle_supposed(comp, n):
+            if not os.environ.get('DM_OODLE_HOST') or not os.environ.get('DM_OODLE_MODULES'):
+                return None
+            return _orig_oodle_supposed(comp, n)
+
+        _win_oodle_supposed._nspb_patched = True
+        mod.oodle_supposed = _win_oodle_supposed
+
+    def _patch_uepak_module(mod):
+        if getattr(mod, '_nspb_patched', False) or not hasattr(mod, 'shader_map_entries'):
+            return
+        mod._nspb_patched = True
+        _orig_shader_map_entries = mod.shader_map_entries
+
+        def _win_shader_map_entries(d, proved=lambda _: True):
+            g = getattr(proved, '__globals__', None)
+            if isinstance(g, dict) and 'oodle_supposed' in g:
+                orig_fn = g['oodle_supposed']
+                if not getattr(orig_fn, '_nspb_patched', False):
+                    def _win_oodle_supposed(comp, n, _orig=orig_fn):
+                        if not os.environ.get('DM_OODLE_HOST') or not os.environ.get('DM_OODLE_MODULES'):
+                            return None
+                        return _orig(comp, n)
+                    _win_oodle_supposed._nspb_patched = True
+                    g['oodle_supposed'] = _win_oodle_supposed
+            return _orig_shader_map_entries(d, proved)
+
+        mod.shader_map_entries = _win_shader_map_entries
+
     import importlib.machinery as _machinery
     _exec_module = _machinery.SourceFileLoader.exec_module
 
@@ -621,6 +656,10 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             _patch_ios_metal_module(module)
         elif name == 'game' or name.endswith('.game'):
             _patch_game_module(module)
+        elif name == 'shader_split' or name.endswith('.shader_split'):
+            _patch_shader_split_module(module)
+        elif name == 'uepak' or name.endswith('.uepak'):
+            _patch_uepak_module(module)
 
     _machinery.SourceFileLoader.exec_module = _win_exec_module
 
@@ -635,6 +674,10 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
     type(os.environ).get = _win_env_get
     if 'game' in sys.modules:
         _patch_game_module(sys.modules['game'])
+    if 'shader_split' in sys.modules:
+        _patch_shader_split_module(sys.modules['shader_split'])
+    if 'uepak' in sys.modules:
+        _patch_uepak_module(sys.modules['uepak'])
 
     # ---- os.replace as on a Mac
     # Windows refuses to replace a file another thread has open. The shader caches are

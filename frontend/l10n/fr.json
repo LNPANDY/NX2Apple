@@ -1061,7 +1061,7 @@
   "launch.section.Game": "Jeu",
   "launch.section.Performance": "Performances",
   "launch.set.DM_DYNAMIC_RESOLUTION": "Résolution dynamique",
-  "launch.set.DM_DYNAMIC_RESOLUTION.note": "Ajuste la résolution entre 70 % et 100 % selon la charge. Désactivez pour garder la pleine résolution du mode choisi.",
+  "launch.set.DM_DYNAMIC_RESOLUTION.note": "Permet au jeu de baisser sa résolution sous charge. Désactivez pour garder la pleine résolution du mode choisi.",
   "launch.set.DM_FPS_HOLD": "Maintenir l’image en cas de retard",
   "launch.set.DM_FPS_TARGET": "Fréquence d’images",
   "launch.set.DM_FULLSCREEN": "Mode d’affichage",

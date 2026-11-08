@@ -23,22 +23,22 @@ Issue: LNPANDY/NX2Apple#895
  1 file changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/dm/tools/nx_extract/Program.cs b/dm/tools/nx_extract/Program.cs
-index e348910..5bbdbf5 100644
+index 6b80d1c..bfeed43 100644
 --- a/dm/tools/nx_extract/Program.cs
 +++ b/dm/tools/nx_extract/Program.cs
-@@ -64,8 +64,9 @@ static class P {
+@@ -65,8 +65,9 @@ static class P {
+         ulong? app = null; int ai = Array.IndexOf(a, "--app");
          if (ai >= 0 && ai + 1 < a.Length) { app = Convert.ToUInt64(a[ai + 1], 16); var rest = new List<string>(a); rest.RemoveRange(ai, 2); a = rest.ToArray(); }
-         if (a.Length == 3 && a[1] == "--title") return Title(ExternalKeyReader.ReadKeyFile(a[0]), a[2]);
-         if (a.Length == 3 && a[1] == "--contents") return Contents(ExternalKeyReader.ReadKeyFile(a[0]), a[2]);
+         if (a.Length >= 3 && a[1] == "--contents") return Contents(ExternalKeyReader.ReadKeyFile(a[0]), a[2..]);
 +        if (a.Length == 4 && a[1] == "--control") return Control(ExternalKeyReader.ReadKeyFile(a[0]), a[2], a[3], app);
          if (a.Length >= 3 && a[1] == "--keys") return Keys(ExternalKeyReader.ReadKeyFile(a[0]), a[2..]);
--        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--program=<title ID>] [--list] [--html] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --title <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --keys <nsp|nsz|xci|xcz>..."); return 2; }
-+        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--program=<title ID>] [--list] [--html] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --title <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>\n       nx_extract <prod.keys> --control <nsp|nsz|xci|xcz> <control.nacp> [--app <title ID>]\n       nx_extract <prod.keys> --keys <nsp|nsz|xci|xcz>..."); return 2; }
+-        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--program=<title ID>] [--list] [--html] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>...\n       nx_extract <prod.keys> --keys <nsp|nsz|xci|xcz>..."); return 2; }
++        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--program=<title ID>] [--list] [--html] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>...\n       nx_extract <prod.keys> --control <nsp|nsz|xci|xcz> <control.nacp> [--app <title ID>]\n       nx_extract <prod.keys> --keys <nsp|nsz|xci|xcz>..."); return 2; }
          KeySet ks = ExternalKeyReader.ReadKeyFile(a[0]);
          if (a[1] == "--aoc") return Aoc(ks, a[2], a[3], image, a.Length > 4 ? Convert.ToUInt64(a[4], 16) : null);
          // each by its own content meta: a merged package (base game + update + DLC in one NSP, a cartridge dump with its update) is given as both the base game and the update,
-@@ -168,6 +169,23 @@ static class P {
-         return 0;
+@@ -175,6 +176,23 @@ static class P {
+         return bad > 0 ? 5 : 0;
      }
  
 +    // The base game's control data alone (control.nacp) written to dst, without extracting the game: a front end reads the game's name in each of its languages from it

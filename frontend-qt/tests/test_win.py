@@ -3601,6 +3601,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
             _clear_body = ns['_clear_body']
             _step1_row_meta = ns['_step1_row_meta']
             _render_step = ns['_render_step']
+            _fit_dialog_height = lambda self: None
 
             def __init__(self, model):
                 self.m = model
@@ -4161,11 +4162,13 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 return ''
 
             pack_calls: list[list[str]] = []
+            identity_line = (b'DMROMFSID1 title=010015100B514000 version=1.0 '
+                             b'build=v0 size=123 index=0123456789abcdef')
 
             def fake_subproc_run(cmd, *_a, **_kw):
                 cmd_list = [str(c) for c in cmd]
                 if any(c.endswith('romfs_image.py') for c in cmd_list):
-                    return subprocess.CompletedProcess(cmd_list, 0, b'id_line\n', b'')
+                    return subprocess.CompletedProcess(cmd_list, 0, identity_line + identity_eol, b'')
                 if any(c.endswith('pack_ipa.py') for c in cmd_list):
                     pack_calls.append(cmd_list)
                     Path(cmd_list[2]).write_bytes(b'ipa')
@@ -4186,7 +4189,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 'DM_FRAMEWORK_ONLY': '',
             }
 
-            for full_val in ('', '1'):
+            for full_val, identity_eol in (('', b'\r\n'), ('', b'\n'), ('1', b'\r\n')):
                 pack_calls.clear()
                 env_cur = dict(base_env, DM_FULL_ROMFS=full_val)
                 with (
@@ -4221,6 +4224,337 @@ class WindowsBuildFixesTest(unittest.TestCase):
                     self.assertIn(f'Payload/DmIOS.app/aoc={aoc}', pack_cmd)
                 else:
                     self.assertFalse(any(arg.startswith('Payload/DmIOS.app/aoc=') for arg in pack_cmd))
+                    identity_map = next(arg for arg in pack_cmd
+                                        if arg.startswith('Payload/DmIOS.app/romfs.id='))
+                    identity_file = Path(identity_map.split('=', 1)[1])
+                    # iOS's romfs_id_parse stops at LF, so a trailing CR makes
+                    # strtoull reject the index and reports ROMFS_ID_BAD (2).
+                    self.assertEqual(identity_file.read_bytes(), identity_line + b'\n')
+
+
+class UnrealInlineShadersWinTest(unittest.TestCase):
+    """Issue #831: Unreal inline-shader games (OCTOPATH TRAVELER I & II, Yoshi's Crafted World)
+    must not fail upfront on `build_mac_host` or abort on false-positive `oodle_supposed` probes."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from nspb_qt.win import driver as _drv
+        cls.driver = _drv
+        cls.repo = QT.parent / 'engine'
+        cls.mod = _drv.load_upstream(cls.repo)
+        _drv.patch(cls.mod, cls.repo)
+
+    def test_split_shaders_defers_oodle_for_ue_legacy_and_keeps_for_oodle_packs(self) -> None:
+        recorded: list[tuple] = []
+        orig_under = self.mod._nspb_orig_split_shaders
+        had_pg = hasattr(self.mod, 'pg')
+        orig_pg = getattr(self.mod, 'pg', None)
+
+        class FakePG:
+            oodle_packs = staticmethod(lambda _r: ([], ''))
+
+        def fake_orig(py_, repo_, roms, mains, pkg, env, logs, g,
+                      provisional=False, oodle=None, *a, **kw):
+            recorded.append((oodle, dict(env), provisional))
+            if oodle is not None:
+                oodle()
+            return 'pkg-key'
+
+        self.mod.pg = FakePG
+        self.mod._nspb_orig_split_shaders = fake_orig
+        self.driver.patch(self.mod, self.repo)
+        try:
+            # 1) ue_legacy game (oodle_packs is empty): oodle callback must be dropped so
+            #    build_mac_host is not called upfront, and DM_EXPERIMENTAL_BUILDER is cleared.
+            FakePG.oodle_packs = staticmethod(lambda _r: ([], ''))
+            called = False
+
+            def boom_oodle():
+                nonlocal called
+                called = True
+                return {'DM_OODLE_HOST': str(self.mod.build_mac_host(
+                    self.repo, Path('out'), {}, Path('logs'), None))}
+
+            res = self.mod.split_shaders(
+                Path(sys.executable), self.repo, [Path('romfs')], [Path('main')],
+                Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
+                provisional=False, oodle=boom_oodle)
+            self.assertEqual(res, 'pkg-key')
+            self.assertFalse(called, 'ue_legacy must not call oodle() before shader_split.py runs')
+            self.assertIsNone(recorded[-1][0])
+            self.assertNotIn('DM_EXPERIMENTAL_BUILDER', recorded[-1][1])
+
+            # 2) Non-Unreal Oodle archive game (oodle_packs non-empty): keeps oodle and fails fast.
+            FakePG.oodle_packs = staticmethod(lambda _r: ([Path('arc/data.trpfs')], 'Trinity'))
+            with self.assertRaises(self.mod.BuildError) as ctx:
+                self.mod.split_shaders(
+                    Path(sys.executable), self.repo, [Path('romfs')], [Path('main')],
+                    Path('pkg'), {}, Path('logs'), None,
+                    provisional=False, oodle=boom_oodle)
+            self.assertTrue(called)
+            self.assertIn('arm64', str(ctx.exception))
+        finally:
+            self.mod._nspb_orig_split_shaders = orig_under
+            if had_pg:
+                self.mod.pg = orig_pg
+            else:
+                delattr(self.mod, 'pg')
+            self.driver.patch(self.mod, self.repo)
+
+    def test_run_ipa_aborts_on_oodle_log_even_when_provisional_and_cleans_partial(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            partial = root / 'pkg.partial'
+            (partial / 'pkg').mkdir(parents=True)
+            (partial / 'tables').mkdir(parents=True)
+            log = root / 'shader_split.log'
+            script = root / 'fake_split.py'
+            script.write_text(
+                'import sys\n'
+                'print("[RED] /pakchunk0-Switch.pak#a.uexp: Oodle- or LZ5-compressed game files: '
+                'set DM_OODLE_HOST (the Mac host) and DM_OODLE_MODULES (its shaders are left out)", '
+                'flush=True)\n'
+                'print("[RED] 1 file(s) could not be read, their shaders are left out", flush=True)\n'
+                'print("shaders: 12 (vertex 6, pixel 6); sources main 12; compute shader answers 0 rows", '
+                'flush=True)\n',
+                encoding='utf-8')
+
+            orig_up = self.driver._UPSTREAM_RUN
+
+            def fake_upstream_run(cmd, log_path, *a, **kw):
+                # Run the stand-in script while keeping `dm/gfx/tools/shader_split.py` in cmd[1]
+                return orig_up([sys.executable, str(script), *cmd[2:]], log_path, *a, **kw)
+
+            self.driver._UPSTREAM_RUN = fake_upstream_run
+            try:
+                with self.assertRaises(self.mod.BuildError) as ctx:
+                    self.mod.run(
+                        [sys.executable, str(self.repo / 'dm/gfx/tools/shader_split.py'),
+                         'romfs', 'main', str(partial / 'pkg'), str(partial / 'tables/shader_map.tsv')],
+                        log)
+                self.assertIn('Oodle or LZ5 compression', str(ctx.exception))
+                self.assertIn('Mac host', str(ctx.exception))
+                self.assertFalse(partial.exists(), 'pkg.partial must be cleaned up on Oodle failure')
+            finally:
+                self.driver._UPSTREAM_RUN = orig_up
+
+    def test_octopath2_inline_shaders_ignore_false_positive_oodle_probe_without_host(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            old_local = os.environ.get('LOCALAPPDATA')
+            os.environ['LOCALAPPDATA'] = td
+            try:
+                env = shim.build_env(python_exe=sys.executable)
+                sd = shim.shim_dir()
+                sc = (sd / 'sitecustomize.py').read_text(encoding='utf-8').replace(
+                    "if os.name == 'nt'", "if True", 1)
+                (sd / 'sitecustomize.py').write_text(sc, encoding='utf-8')
+                env.pop('DM_OODLE_HOST', None)
+                env.pop('DM_OODLE_MODULES', None)
+                env['DM_GAME'] = '0100A3501946E000'
+                probe = (
+                    'import os, runpy, struct, sys, types, zlib\n'
+                    'try:\n'
+                    '    import lz4.block\n'
+                    'except ModuleNotFoundError:\n'
+                    '    _m = types.ModuleType("lz4"); _b = types.ModuleType("lz4.block")\n'
+                    '    _b.decompress = lambda *a, **kw: b""; _m.block = _b\n'
+                    '    sys.modules["lz4"] = _m; sys.modules["lz4.block"] = _b\n'
+                    f'repo = {str(self.repo)!r}\n'
+                    'sys.path.insert(0, os.path.join(repo, "dm/gfx/tools"))\n'
+                    'import uepak\n'
+                    # Build a valid NVN graphics vertex shader + LSLG record
+                    'code = bytes.fromhex("78563412") + bytes(0x2c) + struct.pack("<I", 1 << 10) + bytes(0x4c)\n'
+                    'ctl = bytearray(0x880)\n'
+                    'ctl[:4] = bytes.fromhex("34127698")\n'
+                    'struct.pack_into("<I", ctl, 0x20, 0x880)\n'
+                    'struct.pack_into("<I", ctl, 0x704, len(code))\n'
+                    'lslg = (b"LSLGSV" + bytes(10) + struct.pack("<I", len(code)) + code '
+                    '+ struct.pack("<I", len(ctl)) + bytes(ctl) + bytes(24))\n'
+                    'z = zlib.compress(lslg)\n'
+                    # OCTOPATH TRAVELER II export-list false positive for uepak.shader_map_entries:
+                    # count=1, 20-byte hash, count=1, length=8, Oodle Selkie header 0x8c 0x0b, raw=30650, freq=0
+                    'fp = (struct.pack("<I", 1) + b"\\x11" * 20 + struct.pack("<I", 1) '
+                    '+ struct.pack("<I", 8) + b"\\x8c\\x0b\\x00\\x00\\x01\\x02\\x03\\x04" '
+                    '+ struct.pack("<IB", 30650, 0))\n'
+                    'uexp = b"\\x00" * 16 + struct.pack("<I", len(z)) + z + b"\\x00" * 16 + fp\n'
+                    'assert len(uepak.shader_map_entries(uexp)) == 1\n'
+                    # 1) Test via runpy.run_path (where shader_split.py is not imported by module name)
+                    'ns = runpy.run_path(os.path.join(repo, "dm/gfx/tools/shader_split.py"), run_name="not_main")\n'
+                    'out_ns = []\n'
+                    'ns["ue_inline_shaders"](uexp, "/Majesty-Switch.pak#Test.uexp", out_ns)\n'
+                    'assert len(out_ns) == 1 and out_ns[0][1] == "vs", out_ns\n'
+                    # 2) Test via regular import shader_split
+                    'import shader_split\n'
+                    'out = []\n'
+                    'shader_split.ue_inline_shaders(uexp, "/Majesty-Switch.pak#Test.uexp", out)\n'
+                    'assert len(out) == 1 and out[0][1] == "vs", out\n'
+                    'print("OK", len(out_ns), len(out))\n'
+                )
+                r = subprocess.run([sys.executable, '-c', probe],
+                                   env=env, capture_output=True, text=True, timeout=60)
+                self.assertEqual(r.returncode, 0, f'stdout={r.stdout}\nstderr={r.stderr}')
+                self.assertIn('OK 1 1', r.stdout)
+            finally:
+                if old_local is None:
+                    os.environ.pop('LOCALAPPDATA', None)
+                else:
+                    os.environ['LOCALAPPDATA'] = old_local
+
+
+class WinToolchainInstallWiringTest(unittest.TestCase):
+    """End-to-end wiring of Model._install_win against nspb_qt.win.toolchain and fetch.
+
+    Regression for the LLVM-MinGW onboarding crash where Model._install_win referenced
+    `wtc.LLVM_ASSETS` instead of `wtc.LLVM_MINGW_ASSETS`, raising AttributeError before
+    `fetch.install_llvm` could start. Runs with or without PySide6 installed in CI.
+    """
+
+    def test_every_wtc_attribute_in_model_exists_on_win_toolchain(self) -> None:
+        import ast
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        tree = ast.parse(src)
+        attrs = {
+            node.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == 'wtc'
+        }
+        self.assertIn('LLVM_MINGW_ASSETS', attrs)
+        self.assertNotIn('LLVM_ASSETS', attrs)
+        for attr in sorted(attrs):
+            self.assertTrue(
+                hasattr(tc, attr),
+                f'model.py accesses wtc.{attr}, which does not exist in nspb_qt.win.toolchain',
+            )
+
+    def test_install_win_llvm_and_siblings_run_without_attribute_error(self) -> None:
+        import ast
+        from nspb_qt.i18n import Lang
+        from nspb_qt.l10n import t as l10n_t
+        from nspb_qt.win import fetch as wf, sdk_fetch as sf
+
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        tree = ast.parse(src)
+        cls_node = next(
+            n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Model'
+        )
+        wanted = {
+            '_install_win',
+            '_stage_progress_logger',
+            '_progress_logger',
+            '_set_dep_progress',
+            '_clear_installing',
+            '_record_install_failure',
+            '_classify_install_failure',
+        }
+        methods = [
+            n for n in cls_node.body
+            if isinstance(n, ast.FunctionDef) and n.name in wanted
+        ]
+        mod_node = ast.fix_missing_locations(ast.Module(body=methods, type_ignores=[]))
+
+        class _SyncThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+
+            def start(self):
+                if self._target:
+                    self._target()
+
+        class _Sig:
+            def emit(self):
+                pass
+
+        ns: dict = {
+            'Path': Path,
+            'shutil': shutil,
+            'threading': type('T', (), {'Thread': _SyncThread}),
+            '__package__': 'nspb_qt',
+        }
+        exec(compile(mod_node, str(QT / 'nspb_qt' / 'model.py'), 'exec'), ns)
+
+        class _Harness:
+            _install_win = ns['_install_win']
+            _stage_progress_logger = ns['_stage_progress_logger']
+            _progress_logger = ns['_progress_logger']
+            _set_dep_progress = ns['_set_dep_progress']
+            _clear_installing = ns['_clear_installing']
+            _record_install_failure = ns['_record_install_failure']
+            _classify_install_failure = ns['_classify_install_failure']
+
+            def __init__(self):
+                self.lang = Lang('en')
+                self.logs: list[str] = []
+                self.deps: list = []
+                self.depsChanged = _Sig()
+                self.python_path = ''
+
+            def log(self, msg: str) -> None:
+                self.logs.append(str(msg))
+
+            def t(self, key: str, *args: object) -> str:
+                return l10n_t(key, self.lang, *args)
+
+            def check_deps(self) -> None:
+                pass
+
+            def _make_venv(self, py: str, dep=None) -> bool:
+                return True
+
+        class _Dep:
+            def __init__(self, dep_id: str, title_key: str):
+                self.id = dep_id
+                self.title_key = title_key
+                self.installing = False
+                self.install_stage = ''
+                self.install_detail = ''
+                self.install_pct = None
+                self.queue_index = 0
+                self.last_error = ''
+                self.fix_hint = ''
+
+        h = _Harness()
+        llvm_dep = _Dep('llvm', 'dep.llvm')
+        dotnet_dep = _Dep('dotnet', 'dep.dotnet')
+        py_dep = _Dep('python', 'dep.python')
+        zstd_dep = _Dep('zstd', 'dep.zstd')
+        sdk_dep = _Dep('ios_sdk', 'dep.iossdk')
+        h.deps = [llvm_dep, dotnet_dep, py_dep, zstd_dep, sdk_dep]
+
+        seen_llvm_details: list[str] = []
+
+        def fake_install_llvm(log=None, progress=None, unpack_progress=None, **_kw):
+            if progress:
+                progress(50 * 1048576, 181 * 1048576)
+                seen_llvm_details.append(llvm_dep.install_detail)
+            if unpack_progress:
+                unpack_progress(500 * 1048576, 1000 * 1048576)
+                seen_llvm_details.append(llvm_dep.install_detail)
+            return Path('C:/tools/llvm-mingw-20261020')
+
+        with (
+            mock.patch.object(wf, 'install_llvm', side_effect=fake_install_llvm) as spy_llvm,
+            mock.patch.object(wf, 'install_dotnet', return_value=Path('C:/tools/dotnet')),
+            mock.patch.object(wf, 'install_python', return_value=Path('C:/tools/python')),
+            mock.patch.object(wf, 'install_zstd', return_value=Path('C:/tools/zstd/zstd.exe')),
+            mock.patch.object(sf, 'install_sdk', return_value=Path('C:/sdks/iPhoneOS27.2.sdk')),
+        ):
+            for dep, target in (
+                (llvm_dep, 'llvm'),
+                (dotnet_dep, 'dotnet'),
+                (py_dep, 'python'),
+                (zstd_dep, 'zstd'),
+                (sdk_dep, 'ios_sdk'),
+            ):
+                h._install_win(dep, target)
+                self.assertEqual(dep.last_error, '', f'{target} failed with {dep.last_error}')
+                self.assertFalse(dep.installing)
+
+        spy_llvm.assert_called_once()
+        expected_zip = tc.LLVM_MINGW_ASSETS['AMD64']['name']
+        self.assertEqual(len(seen_llvm_details), 2)
+        self.assertTrue(all(expected_zip in d for d in seen_llvm_details), seen_llvm_details)
 
 
 if __name__ == '__main__':

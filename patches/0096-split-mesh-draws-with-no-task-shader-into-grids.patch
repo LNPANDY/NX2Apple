@@ -20,7 +20,6 @@ translator already clamps the grid they emit.
 Upstream-Status: forwarded seedds/nxnative#1708
 Reason: Ocarina of Time page faults the GPU 30 to 40 seconds after loading a save without it, a mesh draw with no task shader exceeds Metal's 1024 threadgroup mesh grid
 Issue: seedds/nxnative#1326
-
 ---
  dm/gfx/msl/mdx.metal        | 13 +++++++++++--
  dm/gfx/nvn/nvn_geometry.inc | 30 ++++++++++++++++++++++--------
@@ -52,10 +51,10 @@ index e5d4754..0ab2de2 100644
    bool live = m.i < *m.cnt;
    for (uint k = 0; k < m.words; k++) m.out[k] = live ? m.rec[k] : 0u; }
 diff --git a/dm/gfx/nvn/nvn_geometry.inc b/dm/gfx/nvn/nvn_geometry.inc
-index dbb12d7..5631e41 100644
+index 37dfbd0..c66b3b6 100644
 --- a/dm/gfx/nvn/nvn_geometry.inc
 +++ b/dm/gfx/nvn/nvn_geometry.inc
-@@ -591,17 +591,31 @@ static id<MTLRenderPipelineState> mtk_pso(NvProg *raster) {
+@@ -585,17 +585,31 @@ static id<MTLRenderPipelineState> mtk_pso(NvProg *raster) {
  static void mtk_encode(id<MTLRenderCommandEncoder> en_) {
      id<MTL4RenderCommandEncoder> en = (id<MTL4RenderCommandEncoder>)en_; NvShader *ts = g_mtk.ts, *ms = g_mtk.ms;
      [en setArgumentTable:g_vt atStages:MTLRenderStageMesh];
@@ -96,19 +95,19 @@ index dbb12d7..5631e41 100644
  static void mesh_tasks_draw(const p_draw *dw) {
      if (!S.prog || (!dw->ind && dw->count <= 0)) return;
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index b8e2766..4fcc8c2 100644
+index e380d78..ad3424b 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -2070,7 +2070,7 @@ static void mtl_finish_gpu_at(int site) {
+@@ -2278,7 +2278,7 @@ static void mtl_finish_gpu_at(int site) {
  
  // ================= Render replay =================
  #include "../../host/front.h"
--static int g_red_once[156];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
-+static int g_red_once[157];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
+-static int g_red_once[158];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
++static int g_red_once[159];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
  #define RED_ONCE(k, ...) do { _Static_assert((k) < sizeof g_red_once / sizeof *g_red_once, "a RED_ONCE key past g_red_once: raise its size"); if (!g_red_once[k]++) MLOG("[RED] " __VA_ARGS__); } while (0)
  // NVN vertex streams 0–15 → Metal vertex buffer slots: 0–13 go to 16–29 (30 is the constant fallback buffer), 14 and 15 to 14 and 15. Metal has only the 31 slots 0–30; translated shaders use only buffer(0) (the argument buffer),
  // and the host's own vertex functions read no vertex buffers. 13 Sentinels uses stream 15, and the old 16 + stream went out of range (Metal assertion: buffer index (31) must be < 31)
-@@ -11800,6 +11800,9 @@ static uint32_t mdi_count(uint64_t cnt) {
+@@ -12163,6 +12163,9 @@ static uint32_t mdi_count(uint64_t cnt) {
  typedef struct { uint64_t ind, cnt, out, tag; } mdx_ent;   // out: GPU address of the copy, 0 when the record or count is in no Metal buffer (those draws wait, mdi_live)
  static mdx_ent g_mdx[MDX_SLOTS]; static int g_mdx_n; static uint64_t g_mdx_tag = 1, g_mdx_ep = ~0ull, g_mdx_sub, g_mdx_runs, g_mdx_splits, g_mdx_draws, g_mdx_fast; static const uint8_t *g_mdx_stop;
  // The kernel mdx_mask: dm/gfx/msl/mdx.metal
@@ -118,7 +117,7 @@ index b8e2766..4fcc8c2 100644
  static int mdx_wanted(const p_draw *dw, const p_draw_idx *di) { return dw ? dw->mdi_cnt && !ixc_wanted(dw, NULL) : di->mdi_cnt && !ixc_wanted(NULL, di); }
  static mdx_ent *mdx_slot(uint64_t ind, uint64_t cnt) {   // its entry in this tag, or the free slot for it
      for (uint64_t h = ((ind ^ cnt * 0xD6E8FEB86659FD93ull) * 0x9E3779B97F4A7C15ull) >> 50;; h = (h + 1) & (MDX_SLOTS - 1)) { mdx_ent *e = &g_mdx[h]; if (e->tag != g_mdx_tag || (e->ind == ind && e->cnt == cnt)) return e; }
-@@ -11814,7 +11817,7 @@ static void mdx_run(const p_draw *dw, const p_draw_idx *di) {
+@@ -12177,7 +12180,7 @@ static void mdx_run(const p_draw *dw, const p_draw_idx *di) {
      if (failed) return;
      if (!at) { NSError *e = nil; id<MTLLibrary> lib = host_lib("mdx", &e); id<MTLFunction> f = [lib newFunctionWithName:@"mdx_mask"];
          ps = f ? [g_dev newComputePipelineStateWithFunction:f error:&e] : nil;
@@ -127,7 +126,7 @@ index b8e2766..4fcc8c2 100644
          if (!at) { failed = 1; MLOG("[RED] indirect-count multi-draw masking: cannot create the compute pipeline %s (those draws wait for the GPU)", e.localizedDescription.UTF8String); return; } }
      if (g_mdx_ep != g_mdx_epoch || g_mdx_sub != g_sub_serial || g_mdx_n > MDX_SLOTS / 4) { g_mdx_tag++; g_mdx_n = 0; g_mdx_ep = g_mdx_epoch; g_mdx_sub = g_sub_serial; }
      enum { QMAX = MDX_SLOTS / 4 };
-@@ -11848,14 +11851,20 @@ static void mdx_run(const p_draw *dw, const p_draw_idx *di) {
+@@ -12211,14 +12214,20 @@ static void mdx_run(const p_draw *dw, const p_draw_idx *di) {
      if (g_enc) { g_mdx_splits++; PD("M %llu indirect-count multi-draw masking: render pass split here", g_stat_pass); rp_end(); }
      if (g_blit) { enc_b_end(g_blit); g_blit = nil; }
      typedef struct { uint64_t rec, cnt, out; uint32_t i, words; } mjob;
@@ -147,7 +146,7 @@ index b8e2766..4fcc8c2 100644
 +    static id<MTLBuffer> bad; static uint32_t bad_seen;   // indirect mesh draws with more workgroups than MDX_MESH_PARTS parts hold (mdx.metal)
 +    if (!bad) { bad = [g_dev newBufferWithLength:16 options:MTLResourceStorageModeShared]; memset(bad.contents, 0, 16); res_add(bad); res_commit(); }
 +    { uint32_t v = *(const volatile uint32_t *)bad.contents; if (v != bad_seen) { bad_seen = v;
-+        RED_ONCE(156, "an indirect mesh draw with no task shader asked for more than %d workgroups: the rest are not drawn (%u such draws so far)", MDX_MESH_PARTS * MDX_MESH_GRID, v); } }
++        RED_ONCE(158, "an indirect mesh draw with no task shader asked for more than %d workgroups: the rest are not drawn (%u such draws so far)", MDX_MESH_PARTS * MDX_MESH_GRID, v); } }
 +    id<MTL4ComputeCommandEncoder> ce = enc_c_begin(NULL);
 +    [ce setArgumentTable:at]; [at setAddress:ab.gpuAddress + ao atIndex:0]; [at setAddress:bad.gpuAddress atIndex:1]; [ce setComputePipelineState:ps];
      [ce dispatchThreadgroups:MTLSizeMake((NSUInteger)nj / 64, 1, 1) threadsPerThreadgroup:MTLSizeMake(64, 1, 1)];

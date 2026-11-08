@@ -1048,7 +1048,7 @@
   "launch.section.Game": "Spiel",
   "launch.section.Performance": "Leistung",
   "launch.set.DM_DYNAMIC_RESOLUTION": "Dynamische Auflösung",
-  "launch.set.DM_DYNAMIC_RESOLUTION.note": "Passt die Auflösung unter Last zwischen 70 % und 100 % an. Ausschalten, um die volle Auflösung des gewählten Konsolenmodus zu behalten.",
+  "launch.set.DM_DYNAMIC_RESOLUTION.note": "Erlaubt dem Spiel, die Auflösung unter Last zu senken. Ausschalten, um die volle Auflösung des gewählten Konsolenmodus zu behalten.",
   "launch.set.DM_FPS_HOLD": "Bilder halten, wenn sie zu spät sind",
   "launch.set.DM_FPS_TARGET": "Bildrate",
   "launch.set.DM_FULLSCREEN": "Anzeigemodus",

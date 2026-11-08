@@ -1,7 +1,8 @@
 """frontend/tools/nxbuild.py and frontend/nxbuild.pin (LNPANDY/NX2Apple#749): the pin's form, the digest check before anything is unpacked, and a
 release's SHA256SUMS. No network: zips are made in a temporary folder."""
-import hashlib, importlib.util, tempfile, unittest, zipfile
+import hashlib, importlib.util, io, tempfile, unittest, urllib.error, zipfile
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location('nxbuild', ROOT / 'frontend/tools/nxbuild.py')
@@ -58,6 +59,39 @@ class Pin(unittest.TestCase):
         self.assertEqual(nxbuild.sums_digest(text, 'nxb-v0.1.0-macos-arm64.zip'), 'a' * 64)
         self.assertEqual(nxbuild.sums_digest(text, 'other.zip'), 'b' * 64)
         with self.assertRaises(SystemExit): nxbuild.sums_digest(text, 'missing.zip')
+
+    def test_download_retries_transient_gateway_errors(self):
+        err504 = urllib.error.HTTPError('https://x/nxb.zip', 504, 'Gateway Time-out', {}, None)
+        err404 = urllib.error.HTTPError('https://x/nxb.zip', 404, 'Not Found', {}, None)
+        with tempfile.TemporaryDirectory() as t:
+            dest = Path(t, 'nxb.zip')
+            with mock.patch('urllib.request.urlopen', side_effect=[err504, urllib.error.URLError('reset'), io.BytesIO(b'zip-bytes')]) as m:
+                data = nxbuild.download('https://x/nxb.zip', dest, retries=4, delay=0)
+            self.assertEqual(m.call_count, 3)
+            self.assertEqual(data, b'zip-bytes')
+            self.assertEqual(dest.read_bytes(), b'zip-bytes')
+            self.assertFalse(Path(f'{dest}.part').exists())
+            with mock.patch('urllib.request.urlopen', side_effect=[err404]) as m:
+                with self.assertRaises(urllib.error.HTTPError):
+                    nxbuild.download('https://x/nxb.zip', dest, retries=4, delay=0)
+            self.assertEqual(m.call_count, 1)
+            with mock.patch('urllib.request.urlopen', side_effect=[err504, err504]) as m:
+                with self.assertRaises(urllib.error.HTTPError):
+                    nxbuild.download('https://x/nxb.zip', dest, retries=2, delay=0)
+            self.assertEqual(m.call_count, 2)
+            # A GitHub release URL uses `gh release download` when available and falls back to urlopen otherwise
+            gh_url = 'https://github.com/v0lumehi/nxkit/releases/download/v0.9.1/nxb-v0.9.1-macos-arm64.zip'
+            def fake_run(cmd, **_):
+                Path(cmd[cmd.index('-O') + 1]).write_bytes(b'from-gh')
+                return mock.Mock(returncode=0)
+            with mock.patch.object(nxbuild.shutil, 'which', return_value='/usr/bin/gh'), \
+                 mock.patch.object(nxbuild.subprocess, 'run', side_effect=fake_run) as run_mock, \
+                 mock.patch('urllib.request.urlopen') as url_mock:
+                data = nxbuild.download(gh_url, dest, retries=2, delay=0)
+            self.assertEqual(data, b'from-gh')
+            self.assertEqual(dest.read_bytes(), b'from-gh')
+            self.assertEqual(run_mock.call_count, 1)
+            self.assertEqual(url_mock.call_count, 0)
 
 
 if __name__ == '__main__':

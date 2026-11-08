@@ -12,8 +12,7 @@ Issue: LNPANDY/NX2Apple#861
 ---
  dm/gfx/tests/test_dmsh_pairs.py     | 15 ++++++++++++---
  dm/ios/tests/test_xcode_workflow.py |  4 +++-
- dm/tools/tests/test_nsp_mac_app.py  | 19 ++++++++++++++++---
- 3 files changed, 31 insertions(+), 7 deletions(-)
+ 2 files changed, 15 insertions(+), 4 deletions(-)
 
 diff --git a/dm/gfx/tests/test_dmsh_pairs.py b/dm/gfx/tests/test_dmsh_pairs.py
 index e19075c..ca3358a 100644
@@ -92,33 +91,3 @@ index 7a71dc4..3181f88 100644
              events = [json.loads(line) for line in output.getvalue().splitlines()]
              self.assertTrue(any(event.get('name') == 'prepare Xcode' for event in events))
              self.assertFalse(any(event.get('name') == 'app build' for event in events))
-diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 7304908..ebfab7e 100644
---- a/dm/tools/tests/test_nsp_mac_app.py
-+++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -1012,9 +1012,22 @@ class SeenShaders(unittest.TestCase):   # --seen-shaders: the keys, the partial
-             self.build()
-         self.assertFalse(any('--seen-shaders' in m for m in self.said))
- 
--    def test_shader_watch_counts_the_list(self):
--        self.assertEqual(nsp.ShaderWatch(self.g, self.tmp, self.tmp).n, 4)
--        self.assertEqual(nsp.ShaderWatch(self.g, self.tmp, self.tmp, seen=self.keys('a', 'b')).n, 2)
-+    def test_shader_watch_reads_full_and_partial_build_progress(self):
-+        path = self.tmp / 'progress.json'
-+        watch = nsp.ShaderWatch(path)
-+        for total in (4, 2):  # a full build and a --seen-shaders build report their own totals
-+            with self.subTest(total=total):
-+                path.write_text(json.dumps({'step': 'cache check', 'done': 1, 'total': total, 'cached': 1}))
-+                self.assertEqual(watch(), {'step': 'cache check', 'done': 1, 'total': total, 'unit': 'shaders', 'note': '1 cached'})
-+                path.write_text(json.dumps({'step': 'compiling', 'done': total, 'total': total, 'misses': 1}))
-+                self.assertEqual(watch(), {'step': 'compiling', 'done': total, 'total': total, 'unit': 'shaders', 'note': '1 not cached'})
-+
-+    def test_shader_watch_waits_for_readable_progress(self):
-+        path = self.tmp / 'progress.json'
-+        watch = nsp.ShaderWatch(path)
-+        self.assertIsNone(watch())
-+        path.write_text('{')
-+        self.assertIsNone(watch())
- 
-     def run_cmd(self, **kw):
-         game = self.tmp / 'ex'; game.mkdir(exist_ok=True); (game / 'RomFS').mkdir(exist_ok=True)
