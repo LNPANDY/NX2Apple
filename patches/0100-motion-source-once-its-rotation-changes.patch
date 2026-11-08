@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sun, 8 Nov 2026 22:19:23 +0900
+Subject: [PATCH] Motion: a controller is a source once its rotation rate
+ changes, so one with no gyroscope leaves the phone's
+
+The GameSir X5 Lite, a controller an iPhone mounts in, has no gyroscope, but
+GameController lists it with a rotation rate. A few seconds after it connected,
+the phone's gyro stopped driving player 1's six-axis sensor (NX2Apple issue #971):
+the Apple adapter took any report that is not all zeroes as live motion, and a
+fresh controller source wins over the phone's.
+
+The adapter now takes a controller as a source once its rotation rate changes
+from its first report. A real gyroscope's noise changes it within a few reports;
+a missing one never does, and the zero-only reports of #296 are the same case.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#1877
+Reason: On an iPhone, a controller that advertises a gyroscope it does not have (GameSir X5 Lite) kept the phone's gyro from driving the game
+Issue: LNPANDY/NX2Apple#971
+
+---
+ dm/host/motion_apple.h         |  9 ++++++---
+ dm/host/tests/t_motion_apple.m | 11 ++++++++++-
+ docs/reference/services.md     |  1 +
+ 3 files changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/dm/host/motion_apple.h b/dm/host/motion_apple.h
+index 24fb16a..1ce24d0 100644
+--- a/dm/host/motion_apple.h
++++ b/dm/host/motion_apple.h
+@@ -12,16 +12,19 @@ static inline void dm_motion_attach(GCController *c, int player) {
+     GCMotion *mo = c.motion;
+     if (!mo || !mo.hasRotationRate) return;
+     if (mo.sensorsRequireManualActivation) mo.sensorsActive = YES;   // DualSense / DualShock 4: off until asked for
+-    __block int live = 0;
++    __block int live = 0, primed = 0; __block GCRotationRate first;
+     mo.valueChangedHandler = ^(GCMotion *m) {
+         float acc[3], rot[3];
+         if (m.hasGravityAndUserAcceleration) {
+             acc[0] = (float)(m.gravity.x + m.userAcceleration.x); acc[1] = (float)(m.gravity.y + m.userAcceleration.y); acc[2] = (float)(m.gravity.z + m.userAcceleration.z);
+         } else { acc[0] = (float)m.acceleration.x; acc[1] = (float)m.acceleration.y; acc[2] = (float)m.acceleration.z; }
+         rot[0] = (float)m.rotationRate.x; rot[1] = (float)m.rotationRate.y; rot[2] = (float)m.rotationRate.z;
+-        // Some macOS controller drivers advertise motion but send only zeroes (#296). Those are no source until data arrives; later zeroes can be a real free-fall sample.
++        // A controller can advertise a gyroscope it does not have: some macOS drivers send only zeroes (#296), and the GameSir X5 Lite on an iPhone, a controller the phone
++        // mounts in, is listed with a rotation rate and its reports kept the phone's gyro out (NX2Apple issue #971). So a controller is no source until its rotation rate
++        // changes from its first report: a real gyroscope's noise changes it within a few reports. After that, a still or zero sample is real (a pad held still, free fall)
+         if (!live) {
+-            if (acc[0] == 0 && acc[1] == 0 && acc[2] == 0 && rot[0] == 0 && rot[1] == 0 && rot[2] == 0) return;
++            if (!primed) { primed = 1; first = m.rotationRate; return; }
++            if (m.rotationRate.x == first.x && m.rotationRate.y == first.y && m.rotationRate.z == first.z) return;
+             live = 1;
+         }
+         dm_motion_set(player, acc, rot);
+diff --git a/dm/host/tests/t_motion_apple.m b/dm/host/tests/t_motion_apple.m
+index 3110647..0f3444f 100644
+--- a/dm/host/tests/t_motion_apple.m
++++ b/dm/host/tests/t_motion_apple.m
+@@ -32,16 +32,25 @@ int main(void) { @autoreleasepool {
+     assert(!m.sensorsActive && !m.valueChangedHandler);
+     unsetenv("DM_MOTION"); dm_motion_attach((id)c, 2);
+     assert(m.sensorsActive && m.valueChangedHandler);
+-    m.valueChangedHandler((id)m);
++    m.valueChangedHandler((id)m); m.valueChangedHandler((id)m);
+     assert(!samples);   // An advertised sensor with zero-only reports must not suppress the phone or the flat pose.
+     m.hasGravityAndUserAcceleration = YES;
+     m.gravity = (GCAcceleration){0, 0, -1}; m.userAcceleration = (GCAcceleration){0.25, 0, 0};
++    for (int i = 0; i < 4; i++) m.valueChangedHandler((id)m);
++    assert(!samples);   // Nor one with a moving accelerometer and a rotation rate that never changes (NX2Apple #971)
+     m.rotationRate = (GCRotationRate){0, 1, 0}; m.valueChangedHandler((id)m);
+     assert(samples == 1 && player == 2 && acc[0] == 0.25f && acc[2] == -1 && rot[1] == 1);
+     m.hasGravityAndUserAcceleration = NO; m.rotationRate = (GCRotationRate){0};
+     m.valueChangedHandler((id)m);
+     assert(samples == 2 && acc[2] == 0);   // Once real data arrives, a zero acceleration can be free fall.
+     dm_motion_detach((id)c, 2);
++    // A constant rotation that is not zero is no gyroscope either; a real one's first reports already differ
++    samples = 0; dm_motion_attach((id)c, 1);
++    m.rotationRate = (GCRotationRate){0.5, 0, 0}; for (int i = 0; i < 4; i++) m.valueChangedHandler((id)m);
++    assert(!samples);
++    m.rotationRate = (GCRotationRate){0.5, 0.001, 0}; m.valueChangedHandler((id)m);
++    assert(samples == 1 && player == 1 && rot[1] == 0.001f);
++    dm_motion_detach((id)c, 2);
+     assert(!m.sensorsActive && !m.valueChangedHandler && cleared == 2);
+     puts("t_motion_apple: passed");
+     return 0;
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index 7c95705..6de0a80 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -334,6 +334,7 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Cause:** the host's six-axis sensor had no source of motion: flat at rest, apart from the `DM_BTN_SHAKE` shake ([Six-axis sensors](#six-axis-sensors)).
+ - **Fix:** a controller with a gyroscope drives its player's sensor on the Mac and iOS (`GCMotion`, `motion_apple.h` → `dm_motion_set`, `hle_hid.c`); on iOS the phone's own device motion drives player 1's while no controller supplies fresh motion (`DmGamepad.m`). The orientation is integrated from the gyro with tilt correction toward the measured gravity (`motion_fusion.h`), in `SixAxisSensorState`'s units (G, revolutions/s, revolutions). After 300 ms without a sample the source expires; without another source the sensor lies flat again. A shake still adds on top. The switches are in [development.md, How it works](../development.md#how-it-works) (Input).
+ - **Source routing (resolved, review of PR #351):** sharing one integrator let phone and controller callbacks mix orientations, including with `DM_PHONE_MOTION=1`; checking only `hasRotationRate` also let zero-only controller reports suppress the phone. Each source now has its own orientation and timestamp: auto prefers fresh controller data, forced mode selects only the phone, and the Apple adapter waits for actual data before publishing. One-player games merge motion from the same controller slots as buttons. Motion settings initialize once with `pthread_once`; per-source locks also protect diagnostic timestamps. `t_hid` covers routing, expiry and concurrent startup under ThreadSanitizer; `t_motion_apple` covers activation, zero-only reports and detachment.
++- **A gyroscope advertised but not there (iOS):** the GameSir X5 Lite, a controller an iPhone mounts in, is listed with a rotation rate, and a few seconds after it connected the phone's gyro stopped driving player 1 (NX2Apple issue #971). The Apple adapter (`motion_apple.h`) waited only for a report that is not all zeroes. A controller is now a source once its rotation rate changes from its first report: a real gyroscope's noise changes it within a few reports, a missing one never does, zero-only reports (#296) included. `t_motion_apple` covers a moving accelerometer with a constant rotation, zero or not.
+ - **Upright initialization (resolved, review of PR #351):** the heading reference was parallel to gravity when the phone started upright, so projection produced a zero vector and silently left the orientation flat. A nonparallel reference now primes the orientation on the first sample; `t_motion` covers all six axis-aligned starting poses.
+ - **Back from the background (iOS):** iOS turns a manual-activation controller's sensors (DualSense, DualShock 4) off while the app is in the background and leaves them off, so the gyro stayed dead until the controller reconnected (reported by MacNativeGames on the iPad). Becoming active again sets `sensorsActive` once more for every attached controller (`dm_motion_rearm`, `front_ios.m`); not tested on a device here.
+ - **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md) (1.9.0): motion aiming on a Mac with a DualSense. The iOS paths have not been tested on a device.

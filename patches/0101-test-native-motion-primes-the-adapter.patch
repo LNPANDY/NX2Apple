@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sun, 8 Nov 2026 22:19:23 +0900
+Subject: [PATCH] Test: native controller motion primes the adapter before its
+ first sample
+
+motion_apple.h now takes a controller as a motion source once its rotation rate
+changes from its first report. test_native_motion_integration sent one report and
+expected it published; it now sends a priming report first.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: fork-only (t_controllers_mac.m comes with patch 0081, forwarded seedds/nxnative#221)
+Reason: test_native_motion_integration in the fork's t_controllers_mac.m needs a priming report since patch 0100
+Issue: LNPANDY/NX2Apple#971
+
+---
+ dm/host/tests/t_controllers_mac.m | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
+index 4423db2..5d1f1e9 100644
+--- a/dm/host/tests/t_controllers_mac.m
++++ b/dm/host/tests/t_controllers_mac.m
+@@ -317,6 +317,11 @@ static void test_nintendo_labels(void) {
+     controller_disconnect(d); [g_devices removeObject:d]; controller_pro_changed();
+     g_slots = (pad_slots){0};
+ }
++// A first report only primes the adapter (motion_apple.h): a controller is a motion source once its rotation rate changes
++static void native_motion_report(TestNativeMotion *m) {
++    GCRotationRate r = m.rotationRate; m.rotationRate = (GCRotationRate){0}; m.valueChangedHandler((id)m);
++    m.rotationRate = r; m.valueChangedHandler((id)m);
++}
+ static void test_native_motion_integration(void) {
+     for (int merged = 0; merged < 2; merged++) {
+         g_merge = merged; g_slots = (pad_slots){0};
+@@ -329,10 +334,10 @@ static void test_native_motion_integration(void) {
+         int player = merged ? 0 : 1;
+         assert(d->slot == player && m.sensorsActive && m.valueChangedHandler);
+         assert(g_pro_controllers == 1 && g_pro_slot == player);
+-        m.valueChangedHandler((id)m); assert(native_motion_player == player && native_motion_samples);
++        native_motion_report(m); assert(native_motion_player == player && native_motion_samples);
+         front_controllers_focus(0); assert(!m.sensorsActive && !m.valueChangedHandler && native_motion_cleared == player && !g_pro_active);
+         front_controllers_focus(1); assert(m.sensorsActive && m.valueChangedHandler && g_pro_active);
+-        m.valueChangedHandler((id)m); assert(native_motion_player == player);
++        native_motion_report(m); assert(native_motion_player == player);
+         controller_disconnect(d); assert(!m.valueChangedHandler && !m.sensorsActive && g_pro_slot == -1);
+         [g_devices removeObject:d]; controller_pro_changed(); assert(g_pro_controllers == 0);
+     }

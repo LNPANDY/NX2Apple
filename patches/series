@@ -63,3 +63,5 @@
 0096-split-mesh-draws-with-no-task-shader-into-grids.patch
 0097-docs-env-switches-row-for-dm-nvn-bc-alias.patch
 0098-nsp-script-package-names-which-upstream-dropped.patch
+0100-motion-source-once-its-rotation-changes.patch
+0101-test-native-motion-primes-the-adapter.patch
