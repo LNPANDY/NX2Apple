@@ -30,6 +30,8 @@ import AppKit
     private let window: () -> NSWindow?
     /// Changes the window's full screen state and calls `done` when that animation has finished.
     private let setFullScreen: @MainActor (NSWindow, Bool, @escaping () -> Void) -> Void
+    /// A window already full screen that entering still changes: the system's full screen on a notched screen.
+    private let takesOver: @MainActor (NSWindow) -> Bool
     private let fadeSeconds: TimeInterval
     /// The pointer hides while the console is idle (ConsolePointer.swift).
     private let pointer: ConsolePointer
@@ -40,7 +42,7 @@ import AppKit
     nonisolated static let transitionSeconds: TimeInterval = 0.4
 
     init(window: @escaping () -> NSWindow? = { NSApp.keyWindow ?? NSApp.windows.first { $0.canBecomeMain } },
-         setFullScreen: @escaping @MainActor (NSWindow, Bool, @escaping () -> Void) -> Void = ConsoleScreenFill.set,
+         setFullScreen: (@MainActor (NSWindow, Bool, @escaping () -> Void) -> Void)? = nil,
          fadeSeconds: TimeInterval = ConsoleCoordinator.transitionSeconds + 0.05,
          pointer: ConsolePointer? = nil,
          appIsActive: @escaping () -> Bool = { NSApp?.isActive ?? true },
@@ -49,7 +51,10 @@ import AppKit
         self.appIsActive = appIsActive
         self.window = window
         self.pointer = pointer ?? ConsolePointer(window: window)
-        self.setFullScreen = setFullScreen
+        // the app's own full screen covers a notched screen and takes a window already in the system's full screen out of it
+        // (ConsoleScreenFill); a test's full screen is its own
+        self.setFullScreen = setFullScreen ?? ConsoleScreenFill.set
+        self.takesOver = setFullScreen == nil ? ConsoleScreenFill.wantsFill : { _ in false }
         self.fadeSeconds = fadeSeconds
     }
 
@@ -66,7 +71,7 @@ import AppKit
 
     func enter() {
         guard available, !active, !entering else { return }
-        if let w = window(), !ConsoleScreenFill.isFull(w) {
+        if let w = window(), !ConsoleScreenFill.isFull(w) || takesOver(w) {
             entering = true
             enteredFullScreen = true
             setFullScreen(w, true) { [weak self] in self?.entering = false; self?.active = true }   // the content follows the window
