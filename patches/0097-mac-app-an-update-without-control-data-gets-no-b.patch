@@ -21,7 +21,7 @@ data (docs/frontends.md).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1784
 Reason: An update packed from a dump or a NUP named the base game's version, or 1.0, in the Mac app; the launcher shows the version that runs
 Issue: LNPANDY/NX2Apple#953
 
