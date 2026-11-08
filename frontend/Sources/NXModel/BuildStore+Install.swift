@@ -126,30 +126,71 @@ extension BuildStore {
             then?(); return
         }
         let xcrun = devices.xcrun, team = devices.signingTeam, name = devices.deviceName(device)
-        let bundle = ShellLibrary.load(root: shell.root).bundleID
-        ShellInstall.refreshProjectLinks(root: shell.root, resources: Bundle.main.resourceURL?.path, repo: repo.path)
+        let loaded = ShellLibrary.load(root: shell.root)
+        var library = loaded
+        library.dropMissing()
+        library.games.removeAll { ShellInstall.missingFile(inFramework: $0.framework, titleID: $0.titleID) != nil }
+        if library != loaded { try? library.save(root: shell.root) }
+        ShellInstall.pruneEmbeddedFrameworks(root: shell.root, keeping: library.games)
+        let needsProjectUpdate = ShellInstall.projectNeedsUpdate(root: shell.root, games: library.games)
+        if needsProjectUpdate, library.games.isEmpty {
+            doneNote = String(format: t("dev.resignNoProject"), shortPath(shell.project))
+            then?(); return
+        }
+        let bundle = library.bundleID
+        let resources = Bundle.main.resourceURL?.path, repoPath = repo.path
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
         let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
-        runTool(id: 1006, name: String(format: t("dev.resignStage"), name),
-                command, step: BuildProgress.xcodeStep) { error in
-            if let error, !error.isEmpty {
+        let signAndInstall = {
+            ShellInstall.refreshProjectLinks(root: shell.root, resources: resources, repo: repoPath)
+            self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
+                         command, step: BuildProgress.xcodeStep) { error in
+                if let error, !error.isEmpty {
+                    self.running = false
+                    self.doneNote = String(format: self.t("dev.resignFailed"), error)
+                    then?(); return
+                }
+                self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
+                             BuildCommands.reinstallCommand(xcrun: xcrun, device: device, app: app), step: BuildProgress.installStep) { installError in
+                    self.running = false
+                    if let installError {
+                        self.doneNote = String(format: self.t("dev.installFailed"), installError)
+                    } else {
+                        self.installedOn = device
+                        self.installedAppPath = app
+                        self.doneNote = String(format: self.t("dev.resigned"), name)
+                    }
+                    then?()
+                }
+            }
+        }
+        guard needsProjectUpdate else {
+            signAndInstall()
+            return
+        }
+        let engineRoot = EngineLayout.root(repoPath)
+        let python = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
+        let toolPath = BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
+        let package = ShellInstall.shellPackage(resources: resources, repo: repoPath)
+        var env = ShellInstall.projectEnvironment(root: shell.root, frameworks: library.games.map(\.framework), bundleID: bundle,
+                                                  team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
+                                                  tmp: NSTemporaryDirectory(), package: package)
+        env.merge(BundledTools.environment(for: python)) { $1 }
+        let xcconfig = shell.root + "/project/Gen/dm.xcconfig"
+        if (try? String(contentsOfFile: xcconfig, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
+            || FileManager.default.fileExists(atPath: shell.root + "/project/entitlements-empty") {
+            env["DM_ENTITLEMENTS"] = ""
+        }
+        runTool(id: ShellInstaller.projectStageID, name: t("shell.projectStage"),
+                ShellInstall.projectCommand(repo: engineRoot), environment: env, step: { _ in nil }) { projectError in
+            if let projectError, !projectError.isEmpty {
                 self.running = false
-                self.doneNote = String(format: self.t("dev.resignFailed"), error)
+                self.doneNote = String(format: self.t("shell.projectFailed"), projectError)
                 then?(); return
             }
-            self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
-                         BuildCommands.reinstallCommand(xcrun: xcrun, device: device, app: app), step: BuildProgress.installStep) { installError in
-                self.running = false
-                if let installError {
-                    self.doneNote = String(format: self.t("dev.installFailed"), installError)
-                } else {
-                    self.installedOn = device
-                    self.installedAppPath = app
-                    self.doneNote = String(format: self.t("dev.resigned"), name)
-                }
-                then?()
-            }
+            ShellInstall.writeProjectFrameworks(root: shell.root, games: library.games)
+            signAndInstall()
         }
     }
 
@@ -198,7 +239,8 @@ extension BuildStore {
 
     /// One of Xcode's tools as a stage of the build: in its own process group (Stop ends it), its output in the log,
     /// its progress in the stage. `then` gets nil on success, else the last error line.
-    package func runTool(id: Int, name: String, _ command: [String], step: @escaping (String) -> (detail: String, percent: Double?)?,
+    package func runTool(id: Int, name: String, _ command: [String], environment: [String: String]? = nil,
+                         step: @escaping (String) -> (detail: String, percent: Double?)?,
                          then: @escaping (String?) -> Void) {
         // A stage that runs again (the team-variant signing retry uses the same id) keeps its row:
         // a second row with that id would never see an update again — every lookup takes the first
@@ -209,7 +251,8 @@ extension BuildStore {
             stages.append(Stage(id: id, name: name, state: .running, started: Date()))
         }
         append("[\(name)] \(command.joined(separator: " "))\n")
-        let launch = ProcessLaunch(command, environment: ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"],
+        let env = environment ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"]
+        let launch = ProcessLaunch(command, environment: env,
                                    groupPython: deps.pythonPath.isEmpty ? "/usr/bin/python3" : deps.pythonPath)
         var buffer = "", lastError = ""
         let onOutput: @Sendable (Data) -> Void = { [weak self] d in
