@@ -8,7 +8,7 @@ import ObjectiveC
 ///
 /// Two things kept the window below the notch at first. AppKit constrains a titled window's frame whenever its size changes
 /// (`constrainFrameRect(_:to:)`), and on a notched screen that keeps it out of the band even with the menu bar hidden: while filling,
-/// the window's class is a subclass made at run time that returns the frame unchanged, and the original class comes back on leaving.
+/// that method returns the frame unchanged for this window (`unconstrain`).
 /// And a window already in the system's full screen was left there: it now leaves it first, and goes back to it on leaving.
 @MainActor enum ConsoleScreenFill {
     private struct Saved {
@@ -21,7 +21,9 @@ import ObjectiveC
         let wasFullScreen: Bool
     }
     private static var saved: [ObjectIdentifier: Saved] = [:]
-    private static var originalClass: [ObjectIdentifier: AnyClass] = [:]
+    /// While filling, the window is put back over the whole screen whenever something moves or resizes it: SwiftUI sizes the window
+    /// for the console's content when it comes in, and with AppKit's constraint off that pushed the window off the screen.
+    private static var guards: [ObjectIdentifier: [NSObjectProtocol]] = [:]
     private static let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
 
     /// The screen has a camera housing: the top of its safe area is inset.
@@ -68,14 +70,24 @@ import ObjectiveC
         window.titlebarAppearsTransparent = true
         window.isMovable = false
         for b in buttons { window.standardWindowButton(b)?.isHidden = true }
-        window.setFrame(screen.frame, display: true, animate: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + window.animationResizeTime(screen.frame)) {
-            if window.frame != screen.frame { window.setFrame(screen.frame, display: true) }   // once more, should the animation have stopped short
-            done()
+        let target = screen.frame
+        window.setFrame(target, display: true)
+        let snap: (Notification) -> Void = { [weak window] _ in
+            DispatchQueue.main.async {   // after whatever moved it has finished
+                MainActor.assumeIsolated {
+                    guard let window, isFilling(window), window.frame != target else { return }
+                    window.setFrame(target, display: true)
+                }
+            }
         }
+        let center = NotificationCenter.default
+        guards[ObjectIdentifier(window)] = [center.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main, using: snap),
+                                            center.addObserver(forName: NSWindow.didMoveNotification, object: window, queue: .main, using: snap)]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { done() }
     }
 
     private static func restore(_ window: NSWindow, _ s: Saved, done: @escaping () -> Void) {
+        for token in guards.removeValue(forKey: ObjectIdentifier(window)) ?? [] { NotificationCenter.default.removeObserver(token) }
         NSApp.presentationOptions = s.options
         window.styleMask = s.style
         window.titleVisibility = s.titleVisibility
@@ -89,31 +101,30 @@ import ObjectiveC
         }
     }
 
-    /// The window's class becomes a subclass of it, made once per class at run time, whose `constrainFrameRect(_:to:)` returns the
-    /// frame as given, so AppKit lets the window reach the top of a notched screen. The SwiftUI window's own class stays its superclass,
-    /// so nothing else changes.
+    /// The windows that skip AppKit's frame constraint now (read from the patched method, which AppKit calls on the main thread).
+    nonisolated(unsafe) private static var unconstrained: Set<ObjectIdentifier> = []
+    nonisolated(unsafe) private static var patchedClasses: Set<ObjectIdentifier> = []
+
+    /// `constrainFrameRect(_:to:)` returns the frame as given for this window, so AppKit lets it reach the top of a notched screen.
+    /// The window's class keeps its identity: changing a SwiftUI window's class to a subclass made at run time broke its Swift
+    /// methods (the window came out 0 x 0). Instead the class's own method is replaced once by one that checks `unconstrained` and
+    /// otherwise calls what the class had before, its own or the inherited one, so every other window behaves as it did.
     private static func unconstrain(_ window: NSWindow) {
-        guard let original = object_getClass(window), originalClass[ObjectIdentifier(window)] == nil else { return }
-        let name = "NXConsoleFill_" + NSStringFromClass(original)
-        var sub: AnyClass? = NSClassFromString(name)
-        if sub == nil, let made = objc_allocateClassPair(original, name, 0) {
+        guard let cls = object_getClass(window) else { return }
+        if !patchedClasses.contains(ObjectIdentifier(cls)) {
+            typealias Constrain = @convention(c) (AnyObject, Selector, NSRect, NSScreen?) -> NSRect
             let sel = #selector(NSWindow.constrainFrameRect(_:to:))
-            let block: @convention(block) (AnyObject, NSRect, NSScreen?) -> NSRect = { _, rect, _ in rect }
-            if let method = class_getInstanceMethod(NSWindow.self, sel) {
-                class_addMethod(made, sel, imp_implementationWithBlock(block), method_getTypeEncoding(method))
+            guard let method = class_getInstanceMethod(cls, sel) else { return }
+            let previous = unsafeBitCast(method_getImplementation(method), to: Constrain.self)
+            let block: @convention(block) (AnyObject, NSRect, NSScreen?) -> NSRect = { window, rect, screen in
+                unconstrained.contains(ObjectIdentifier(window)) ? rect : previous(window, sel, rect, screen)
             }
-            objc_registerClassPair(made)
-            sub = made
+            let imp = imp_implementationWithBlock(block)
+            if !class_addMethod(cls, sel, imp, method_getTypeEncoding(method)) { method_setImplementation(method, imp) }
+            patchedClasses.insert(ObjectIdentifier(cls))
         }
-        guard let sub else { return }
-        originalClass[ObjectIdentifier(window)] = original
-        object_setClass(window, sub)
+        unconstrained.insert(ObjectIdentifier(window))
     }
 
-    /// The window's own class again. Left as it is if something else has changed the class since (key-value observing makes a
-    /// subclass of its own): the override then stays, which only lets the window keep the frame it is given.
-    private static func reconstrain(_ window: NSWindow) {
-        guard let original = originalClass.removeValue(forKey: ObjectIdentifier(window)) else { return }
-        if let now = object_getClass(window), NSStringFromClass(now).hasPrefix("NXConsoleFill_") { object_setClass(window, original) }
-    }
+    private static func reconstrain(_ window: NSWindow) { unconstrained.remove(ObjectIdentifier(window)) }
 }
