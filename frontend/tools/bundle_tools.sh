@@ -50,7 +50,8 @@ export MACOSX_DEPLOYMENT_TARGET=13.0
 
 fetch() {   # fetch <url> <sha256> -> the file in $WORK/dl
     local f="$WORK/dl/$(basename "$1")"
-    if [ ! -f "$f" ]; then curl -fsSL --retry 3 -o "$f.part" "$1"; mv "$f.part" "$f"; fi
+    # --retry-all-errors: a GitHub release download that answers 504 ends as curl error 56, which --retry alone does not retry
+    if [ ! -f "$f" ]; then curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "$f.part" "$1"; mv "$f.part" "$f"; fi
     local got; got=$(shasum -a 256 "$f" | cut -c1-64)
     [ "$got" = "$2" ] || { echo "[RED] $1: sha256 $got, pinned $2" >&2; rm -f "$f"; exit 1; }
     echo "$f"
