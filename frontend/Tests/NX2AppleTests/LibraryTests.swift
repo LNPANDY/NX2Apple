@@ -276,6 +276,25 @@ import NXModel
         XCTAssertFalse(FileManager.default.fileExists(atPath: from.path))
     }
 
+    /// #895: a build that merges a path-keyed entry into the game's existing one keeps the player's name for it and the names it
+    /// had in other languages when the new app carries none.
+    func testBuildOfPathKeyedEntryKeepsTheGamesNames() throws {
+        let app = try makeApp(titleID)
+        let file = temporary.appendingPathComponent("library.json")
+        var existing = LibraryGame(titleID: titleID, name: "Hades")
+        existing.appPath = app.path
+        existing.customName = "My Hades"
+        existing.titleNames = ["ja": "ハデス"]
+        var pending = LibraryGame(titleID: "/games/Hades.nsp", name: "Hades")
+        pending.inputs = ["base": ["/games/Hades.nsp"]]
+        try JSONEncoder().encode([existing, pending]).write(to: file)
+        let library = GameLibrary(file: file)
+        library.recordCompletedApp(path: app.path, for: pending.id)
+        XCTAssertEqual(library.games.count, 1)
+        XCTAssertEqual(library.games[0].customName, "My Hades")
+        XCTAssertEqual(library.games[0].titleNames, ["ja": "ハデス"])
+    }
+
     func testRebuildingSameGameKeepsOneEntryAndCustomArtwork() throws {
         let app = try makeApp(titleID)
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))

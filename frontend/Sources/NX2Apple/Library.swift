@@ -577,6 +577,8 @@ final class GameLibrary: ObservableObject {
             game.installedDevice = old.installedDevice
             game.ipaPath = old.ipaPath
             game.archivePath = old.archivePath
+            if game.customName.isEmpty { game.customName = old.customName }   // the player's name for it (Manage > Rename)
+            if game.titleNames.isEmpty { game.titleNames = old.titleNames }   // until the new app's own names replace them below
             games.removeAll { $0.id == old.id }
         }
         game.titleID = app.titleID
