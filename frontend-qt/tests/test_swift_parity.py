@@ -2261,6 +2261,46 @@ class ParityWindowTests(unittest.TestCase):
             '_clear_body must not transfer QWidget ownership back to Python GC via setParent(None)',
         )
 
+    def test_hero_banner_bottom_edge_fades_cleanly_without_bright_seam(self) -> None:
+        """Verify HeroBannerWidget leaves no 1px bright artwork seam at its bottom edge across fractional HiDPI scales."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QColor, QImage, QPixmap
+        from nspb_qt.widgets import HeroBannerWidget
+
+        hero = HeroBannerWidget()
+        try:
+            pm = QPixmap(1920, 1080)
+            pm.fill(QColor(255, 255, 255))
+            hero._pixmap = pm
+
+            for height in (610, 611):
+                hero.resize(1478, height)
+                for dpr in (1.0, 1.25, 1.5, 1.75, 2.0):
+                    pw = int(hero.width() * dpr) + 4
+                    ph = int(hero.height() * dpr) + 4
+                    img = QImage(pw, ph, QImage.Format_ARGB32_Premultiplied)
+                    img.setDevicePixelRatio(dpr)
+                    img.fill(QColor(0, 0, 0))
+                    hero.render(img)
+                    bottom_y = int(round(hero.height() * dpr))
+                    tail = [
+                        max(
+                            QColor(img.pixel(pw // 2, y)).red(),
+                            QColor(img.pixel(pw // 2, y)).green(),
+                            QColor(img.pixel(pw // 2, y)).blue(),
+                        )
+                        for y in range(max(0, bottom_y - 4), min(ph, bottom_y + 2))
+                    ]
+                    self.assertLessEqual(
+                        max(tail),
+                        4,
+                        f'Bright bottom seam leaked at height={height}, dpr={dpr}: tail={tail}',
+                    )
+        finally:
+            hero.deleteLater()
+            self.app.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
+
 
 if __name__ == '__main__':
     unittest.main()
