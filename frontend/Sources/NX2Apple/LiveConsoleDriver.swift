@@ -183,7 +183,7 @@ struct ConsolePadSnapshot: Equatable {
 
     private var versions: [String: String] = [:]
 
-    /// The version of the build the library knows: the Mac app's Info.plist (pack_app.py writes CFBundleShortVersionString), else the
+    /// The version of the build the library knows: the Mac app's Info.plist (pack_app.py writes it, version(plist:)), else the
     /// iPhone app's, else the one inside the IPA. Empty only when none of them states one.
     private func version(of game: LibraryGame) -> String {
         for path in [game.appPath, game.iosAppPath, game.ipaPath] where !path.isEmpty {
@@ -214,10 +214,19 @@ struct ConsolePadSnapshot: Equatable {
         return ""
     }
 
+    /// A Mac app packed with DMPackageVersion states its version in DMDisplayVersion, else (an update packed from a dump or a NUP without control data) only as the
+    /// packed version, v458752: its CFBundleShortVersionString is then 1.0, not what runs (#953). The base game packed without a display version (v0) states none.
+    /// Other builds state it in CFBundleShortVersionString.
     static func version(plist data: Data) -> String {
         guard let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return "" }
-        let v = (info["CFBundleShortVersionString"] as? String) ?? (info["CFBundleVersion"] as? String) ?? ""
-        return v.trimmingCharacters(in: .whitespaces)
+        let trimmed = { (key: String) in ((info[key] as? String) ?? "").trimmingCharacters(in: .whitespaces) }
+        let package = trimmed("DMPackageVersion")
+        if !package.isEmpty {
+            let display = trimmed("DMDisplayVersion")
+            return !display.isEmpty ? display : package == "v0" ? "" : package
+        }
+        let short = trimmed("CFBundleShortVersionString")
+        return short.isEmpty ? trimmed("CFBundleVersion") : short
     }
 
     /// Covers through the launcher's own lookup, decoded once per image path.
