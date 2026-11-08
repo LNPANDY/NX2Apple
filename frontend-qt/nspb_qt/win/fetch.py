@@ -442,13 +442,17 @@ def install_zstd(dest: Path | None = None,
     staging.mkdir(parents=True)
     try:
         with zipfile.ZipFile(zpath) as z:
-            for info in z.infolist():
-                if info.is_dir():
-                    continue
+            members = [m for m in z.infolist() if not m.is_dir()]
+            grand = sum(m.file_size for m in members) or 1
+            done = 0
+            for info in members:
                 out = staging / _strip_root(info.filename)
                 out.parent.mkdir(parents=True, exist_ok=True)
                 with z.open(info) as src, open(out, 'wb') as dst:
                     shutil.copyfileobj(src, dst, 1 << 20)
+                done += info.file_size
+                if unpack_progress:
+                    unpack_progress(done, grand)
     except zipfile.BadZipFile as e:
         shutil.rmtree(staging, ignore_errors=True)
         raise DownloadError(f'{zpath.name} is not a valid zip: {e}') from e
@@ -496,8 +500,7 @@ def install_git(arch: str | None = None, dest: Path | None = None,
     if exe.is_file():
         log(f'git is already installed: {exe}')
         return exe
-    base = Path(__file__).resolve().parents[2]
-    cache = base / '.tools' / 'downloads'
+    cache = tc.tools_dir() / 'downloads'
     cache.mkdir(parents=True, exist_ok=True)
     url = f'{tc.GIT_RELEASE_URL}/{asset["name"]}'
     log(f'downloading {asset["name"]} ({asset["size"] // 1048576 if asset["size"] else "~57"} MB)')
@@ -591,11 +594,7 @@ def install_metal_from_zip(zip_path: Path, dest: Path | None = None,
         shutil.rmtree(staging, ignore_errors=True)
         raise DownloadError(f'{src.name} is not a zip file ({e})') from e
 
-    def has_metal(root: Path) -> bool:
-        return (root / 'bin' / 'metal.exe').is_file() or (root / 'ios' / 'bin' / 'metal.exe').is_file()
-
-    roots = [staging] + [p for p in staging.iterdir() if p.is_dir()]   # zip may or may not carry a top folder
-    hit = next((r for r in roots if has_metal(r)), None)
+    hit = tc.resolve_metal_dir(staging)
     if hit is None:
         shutil.rmtree(staging, ignore_errors=True)
         raise DownloadError(f'{src.name} does not look like Metal Developer Tools '

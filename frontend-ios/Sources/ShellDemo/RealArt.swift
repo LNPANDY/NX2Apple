@@ -1,62 +1,59 @@
 import Foundation
 import ShellUI
 
-/// A real game a sample entry stands for when its art is on this machine: its name, title ID and the file name of
-/// its picture in the repository's docs/images.
-struct RealTitle {
-    let title: String
-    let titleID: String
-    let docsImage: String
-    init(_ title: String, _ titleID: String, _ docsImage: String) {
-        self.title = title
-        self.titleID = titleID
-        self.docsImage = docsImage
-    }
-}
-
-/// Real Switch art for the demo, read at runtime from where the Mac launcher keeps it and never from this package:
-/// the eShop banner cache (`<TITLEID>.jpg`) and the repository's docs/images. Nothing is copied into the app.
-///
-/// `--art-dir <folder>` (repeatable) names the folders. `--real-art` uses the Mac launcher's cache in the host's home
-/// and this checkout's docs/images, which the Simulator can read. Without either, every sample stays fictional.
+/// The test launcher's Nintendo catalogue. Readiness, installed versions and recency are simulated.
 enum RealArt {
-    static let folders: [URL] = {
+    static func tiles() -> [GameTile] {
         let args = ProcessInfo.processInfo.arguments
-        var folders = args.indices.filter { args[$0] == "--art-dir" && args.indices.contains($0 + 1) }.map { URL(fileURLWithPath: args[$0 + 1]) }
-        // On a device there are no launch arguments: a `DemoArt` folder inside the app bundle works like `--art-dir`.
-        if let bundled = Bundle.main.url(forResource: "DemoArt", withExtension: nil) { folders.append(bundled) }
-        if args.contains("--real-art") {
-            let env = ProcessInfo.processInfo.environment
-            let home = env["SIMULATOR_HOST_HOME"] ?? NSHomeDirectory()
-            folders.append(URL(fileURLWithPath: home).appendingPathComponent("Library/Application Support/NS Port Builder/artwork"))
-            // This file is frontend-ios/Sources/ShellDemo/RealArt.swift: four levels up is the checkout.
-            let repo = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-                .deletingLastPathComponent().deletingLastPathComponent()
-            folders.append(repo.appendingPathComponent("docs/images"))
-        }
-        return folders
-    }()
-
-    /// The title's banner, else its docs/images picture, from the first folder that has one.
-    static func banner(for title: RealTitle) -> Artwork? {
-        for name in [title.titleID.uppercased() + ".jpg", title.docsImage] {
-            for folder in folders {
-                let url = folder.appendingPathComponent(name)
-                if let data = try? Data(contentsOf: url), let art = Artwork(id: "real.\(name)", data: data) { return art }
+        let bundled = Bundle.main.url(forResource: "catalog", withExtension: "json", subdirectory: "ReviewCatalog")
+        #if SWIFT_PACKAGE
+        let metadata = Bundle.module.url(forResource: "catalog", withExtension: "json")
+        #else
+        let metadata = Bundle.main.url(forResource: "catalog", withExtension: "json")
+        #endif
+        let file: URL?
+        if let flag = args.firstIndex(of: "--review-catalog"), args.indices.contains(flag + 1) {
+            file = URL(fileURLWithPath: args[flag + 1])
+        } else { file = bundled ?? metadata }
+        guard let file else { return [] }
+        do {
+            let catalog = try JSONDecoder().decode(Catalog.self, from: Data(contentsOf: file))
+            guard !catalog.games.isEmpty, Set(catalog.games.map(\.id)).count == catalog.games.count else {
+                throw CocoaError(.fileReadCorruptFile)
             }
+            return try catalog.games.map { entry in
+                guard !entry.title.isEmpty else { throw CocoaError(.fileReadCorruptFile) }
+                func artwork(_ name: String?) throws -> Artwork? {
+                    guard let name else { return nil }
+                    let image = file.deletingLastPathComponent().appendingPathComponent(name).standardizedFileURL
+                    guard image.deletingLastPathComponent() == file.deletingLastPathComponent().standardizedFileURL else {
+                        throw CocoaError(.fileReadCorruptFile)
+                    }
+                    // Public image files stay local; metadata-only builds use the standard title placeholder.
+                    guard FileManager.default.fileExists(atPath: image.path) else { return nil }
+                    guard let art = Artwork(id: name, data: try Data(contentsOf: image)) else { throw CocoaError(.fileReadCorruptFile) }
+                    return art
+                }
+                let state: GameState = switch entry.demoState {
+                case "missingData": .needsGameData
+                case "updateRequired": .needsAppUpdate
+                case "broken": .broken(reason: demoText("Game files damaged"), detail: demoText("Some of this game's bundled files could not be verified."))
+                default: .playable
+                }
+                return GameTile(id: entry.id, title: entry.title, banner: try artwork(entry.artwork), icon: try artwork(entry.icon),
+                                state: state, recentlyPlayed: entry.demoLastPlayedDaysAgo.map { ShellFormat.played(Date().addingTimeInterval(-Double($0) * 86_400)) },
+                                version: entry.demoVersion ?? "")
+            }
+        } catch {
+            fputs("Nintendo demo catalog: \(error.localizedDescription)\n", stderr)
+            return []
         }
-        return nil
     }
-}
-
-extension SampleArt {
-    /// A sample game: the real title with its banner when the art is found, else the fictional one with its drawn icon.
-    static func tile(_ id: String, title: String, version: String, real: RealTitle?, state: GameState = .playable,
-                     recentlyPlayed: String? = nil) -> GameTile {
-        let subtitle = ShellFormat.version(version)
-        if let real, let banner = RealArt.banner(for: real) {
-            return GameTile(id: id, title: real.title, subtitle: subtitle, banner: banner, state: state, recentlyPlayed: recentlyPlayed)
+    private struct Catalog: Decodable {
+        struct Entry: Decodable {
+            let id: String; let title: String; let artwork: String?; let icon: String?
+            let demoState: String?; let demoVersion: String?; let demoLastPlayedDaysAgo: Int?
         }
-        return GameTile(id: id, title: title, subtitle: subtitle, icon: icon(id), state: state, recentlyPlayed: recentlyPlayed)
+        let games: [Entry]
     }
 }

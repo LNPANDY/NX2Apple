@@ -12,6 +12,19 @@ package struct ProgressCard: View {
     package var body: some View {
         if build.running || !build.stages.isEmpty {
             CardGroup(loc.t("section.progress")) {
+                if let message = build.staleShadersMessageKey {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "info.circle").foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(loc.t("msg.shadersStale.title")).font(.manrope(14, .semibold))
+                            Text(loc.t(message)).font(.manrope(13)).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    CardDivider()
+                }
                 ForEach(Array(build.stages.enumerated()), id: \.element.id) { index, s in
                     if index > 0 { CardDivider() }
                     HStack(spacing: 12) {
@@ -32,6 +45,10 @@ package struct ProgressCard: View {
                         }
                     }
                     .padding(.horizontal, 18).padding(.vertical, 12)
+                    if s.state == .running && s.isScanningLastShaderFiles {
+                        Text(loc.t("prog.lastShaderFiles")).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 18).padding(.bottom, 12)
+                    }
                 }
                 if build.stages.isEmpty && build.running {
                     CardRow(loc.t("library.preparing")) { ProgressView().controlSize(.small) }

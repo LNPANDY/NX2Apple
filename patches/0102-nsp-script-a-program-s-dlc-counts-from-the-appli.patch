@@ -25,7 +25,7 @@ Issue: LNPANDY/NX2Apple#483
  1 file changed, 5 insertions(+), 2 deletions(-)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 3355a930..83df9435 100755
+index 22be70f..29d48f4 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -38,6 +38,7 @@ import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, impor
@@ -36,7 +36,7 @@ index 3355a930..83df9435 100755
  import nso   # the code module loader: nso.Error is a damaged module (its file cut short or not what its header says)
  import tree_tar   # one file in place of a build's folders of many small files
  import shader_lib   # the shader libraries as one file, read in place
-@@ -3308,7 +3309,7 @@ def main(args=None):
+@@ -3412,7 +3413,7 @@ def main(args=None):
      for on, k in ((glslc, 'glslc_capture'), (vkcap, 'vk_capture'), (glcap, 'gl_capture'), (uedec, 'ue_decode'), (gfx == 'nvn' and src['oodle_packs'][0], 'oodle_packs'), (gfx == 'nvn' and src['ue_legacy'][0], 'ue_legacy')):
          if on: say(src[k][1])
      PROG.add(glslc + vkcap + glcap + uedec + (gfx == 'nvn'))
@@ -45,7 +45,7 @@ index 3355a930..83df9435 100755
      dlc_roms = sorted(p for p in aoc.iterdir() if p.is_dir() or p.suffix == '.img') if aoc else []
      base = next((dirs[v] for v in versions if picks[v][1] is None), dirs[versions[0]])   # the folder the base game was extracted to alone
      # the app name and bundle ID both come from the base NSP: the game name in its control data, and a bundle ID from its title ID; a setting / the command line overrides them
-@@ -3353,7 +3354,9 @@ def main(args=None):
+@@ -3457,7 +3458,9 @@ def main(args=None):
          ios = build_gl_shaders(py, repo, [rfs.source(game), game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else []), sh, env, logs, g, reuse=not ALLOW_DAMAGED, mac=mac, provisional=bool(provisional or derived))
      else:
          # Trinity packs and legacy Unreal paks: the split decodes them with the packed version's own decoder (Oodle, LZ5), in the Mac host built for the profile

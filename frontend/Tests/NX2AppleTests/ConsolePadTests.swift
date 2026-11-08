@@ -9,12 +9,7 @@ import NXModel
 /// The player-mode setting's plumbing and the controller path into console mode (the same LauncherGamepad.perform
 /// closure the desktop launcher and the onboarding use). A real controller still needs a manual check.
 @MainActor final class ConsolePadTests: IsolatedDefaultsTestCase {
-    private func freshDefaults() -> UserDefaults {
-        let name = "ConsolePadTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
-        return defaults
-    }
+    private func freshDefaults() -> UserDefaults { TestDefaults.make("ConsolePadTests") }
 
     func testPadMergeIsOffByDefaultAndPassesNothing() {
         let layout = ControlLayout(defaults: freshDefaults())

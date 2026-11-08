@@ -42,6 +42,15 @@ class AsciiTempDir(unittest.TestCase):
                 self.assertTrue(ascii_only(str(d)), f'{d} is not ASCII')
                 self.assertNotIn('中文', str(d))
 
+    def test_a_temp_with_spaces_is_skipped_when_a_space_free_ascii_one_exists(self):
+        """metal.exe splits paths on spaces; ascii_temp_dir prefers a space-free ASCII folder."""
+        with mock.patch.object(tempfile, 'gettempdir', return_value='/tmp/My User'), \
+             mock.patch.object(toolchain.os, 'name', 'nt'), \
+             mock.patch.dict(os.environ, {'PUBLIC': '/tmp'}):
+            with toolchain.ascii_temp_dir('probe-') as d:
+                self.assertTrue(ascii_only(str(d)), f'{d} is not ASCII')
+                self.assertNotIn(' ', str(d))
+
     def test_it_still_yields_a_directory_when_nothing_is_ascii(self):
         """No ASCII option: a directory is still created, so the tool can fail on its own terms."""
         with mock.patch.object(tempfile, 'gettempdir', return_value='/tmp/中文名'), \

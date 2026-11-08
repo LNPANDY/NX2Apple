@@ -3,7 +3,7 @@ import XCTest
 @testable import NXCore
 
 /// `BuildStore` without SwiftUI: the other stores are fakes behind the narrow protocols (`RepoLocation`, `DependencyInstalling`,
-/// `EngineSyncing`, `InstallTarget`), the panels and the alert are closures that record, the defaults are a suite of their own and
+/// `EngineSyncing`, `InstallTarget`), the panels are closures that record, the defaults are a suite of their own and
 /// the files are in a temporary folder. No process starts and nothing is built: these tests drive the inputs, the script's events,
 /// the failure, "Build anyway" and the conditions that stop a build before it starts.
 @MainActor final class BuildStoreTests: XCTestCase {
@@ -46,7 +46,6 @@ import XCTest
         func copyEnded() {}
     }
 
-    private var suite: String!
     private var defaults: UserDefaults!
     private var temporary: URL!
     private let repo = FakeRepo()
@@ -56,14 +55,12 @@ import XCTest
     private let localizer = Localizer(.en)
 
     override func setUpWithError() throws {
-        suite = "nxmodel-build-tests-" + UUID().uuidString
-        defaults = UserDefaults(suiteName: suite)
+        defaults = TestDefaults.make("nxmodel-build-tests")
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
-        defaults.removePersistentDomain(forName: suite)
         try? FileManager.default.removeItem(at: temporary)
     }
 
@@ -147,11 +144,14 @@ import XCTest
 
     // MARK: The experimental builder (#749)
 
-    func testTheExperimentalBuilderIsOffByDefaultAndItsSettingIsSaved() {
+    func testNxbIsOnByDefaultAndAChoiceThePlayerSavedStays() {
         let store = makeStore()
-        XCTAssertFalse(store.experimentalBuilder)
-        XCTAssertEqual(store.builderEnvironment(), [:], "off: the build gets nothing")
-        XCTAssertFalse(store.log.text.contains(store.t("msg.builderMissing")), "and the log says nothing")
+        XCTAssertTrue(store.experimentalBuilder, "nxb builds unless the player turned it off")
+        store.bundledBuilder = nil
+        XCTAssertFalse(store.usesNxb, "no nxb in the app and none chosen: the script builds")
+        XCTAssertNil(store.experimentalBuilderProblem(), "the script builds: nothing to say")
+        store.experimentalBuilder = false
+        XCTAssertFalse(makeStore().experimentalBuilder, "off stays off")
         store.experimentalBuilder = true; store.experimentalBuilderPath = "/opt/nxbuild"
         XCTAssertTrue(defaults.bool(forKey: BuildStore.experimentalBuilderKey))
         XCTAssertEqual(defaults.string(forKey: BuildStore.experimentalBuilderPathKey), "/opt/nxbuild")
@@ -160,22 +160,74 @@ import XCTest
         XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
     }
 
-    func testTheBuildGetsTheChosenNxbOrANoteThatTheStandardBuilderRuns() throws {
-        let store = makeStore()
+    /// nxb's exit code 4 ("not supported yet") builds the same game again with the script, in the same build. Any other exit code is a failure.
+    func testNxbsExitCode4BuildsWithTheScriptAndOtherCodesFail() throws {
+        for (status, fallsBack) in [(Int32(4), true), (Int32(1), false)] {
+            let runner = FakeProcessRunner()
+            runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.9.0\n") }
+            runner.startExit = { $0.arguments.first == "build" ? status : 0 }
+            let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+            for path in [EngineLayout.marker] + RepoLayout.requiredTools {
+                let url = temporary.appendingPathComponent(path)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try "'--work-dir'".write(to: url, atomically: true, encoding: .utf8)
+            }
+            repo.path = temporary.path
+            store.take(picked: [try file("Game [0100000000010000].nsp")], kind: .base)
+            store.take(picked: [try file("test.keys")], kind: .keys)
+            store.outDir = temporary.path
+            store.target = BuildTarget.mac
+            let nxb = temporary.path + "/nxbuild/nxb"
+            try FileManager.default.createDirectory(atPath: (nxb as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+            try Data([0]).write(to: URL(fileURLWithPath: nxb))
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+            store.bundledBuilder = nxb
+            store.startBuild()
+            let ran = expectation(description: "the build ends (\(status))")
+            DispatchQueue.main.async { DispatchQueue.main.async { ran.fulfill() } }
+            wait(for: [ran], timeout: 5)
+            let builds = runner.launches.filter { $0.executable == nxb ? $0.arguments.first == "build" : $0.executable == deps.pythonPath }
+            XCTAssertEqual(builds.first?.executable, nxb, "nxb builds first (\(status))")
+            XCTAssertEqual(builds.count, fallsBack ? 2 : 1, "exit code \(status)")
+            if fallsBack {
+                XCTAssertEqual(builds.last?.executable, deps.pythonPath, "then the script")
+                XCTAssertEqual(Array(builds.last!.arguments.dropFirst()), Array(builds.first!.arguments.dropFirst()), "with the same options")
+                XCTAssertTrue(store.log.text.contains(store.t("msg.builderFallback")), "the log says why, below nxb's lines")
+                XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
+                XCTAssertFalse(store.scriptFallback, "the next build is nxb again")
+            } else {
+                XCTAssertFalse(store.log.text.contains(store.t("msg.builderFallback")))
+            }
+        }
+    }
+
+    func testTheExperimentalBuilderStopsWithoutANewEnoughNxbAndNeverRunsTheScript() throws {
+        let runner = FakeProcessRunner()
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults, targetChanged: {})
         store.bundledBuilder = nil
+        XCTAssertNil(store.experimentalBuilderProblem(), "off: nothing to say")
         store.experimentalBuilder = true
         store.experimentalBuilderPath = temporary.path + "/gone/nxb"
         XCTAssertNil(store.experimentalBuilderBinary)
-        XCTAssertEqual(store.builderEnvironment(), [:])
-        XCTAssertTrue(store.log.text.contains(store.t("msg.builderMissing")))
+        XCTAssertEqual(store.experimentalBuilderProblem(), store.t("msg.builderMissingError"), "no nxb is an error, not a build by the script")
         let nxb = try file("nxb")
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
         store.experimentalBuilderPath = temporary.path   // the folder that holds it
         XCTAssertEqual(store.experimentalBuilderBinary, nxb)
-        XCTAssertEqual(store.builderEnvironment(), ["DM_EXPERIMENTAL_BUILDER": "1", "NXB_BIN": nxb])
-        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.4.0\n") }
+        XCTAssertEqual(store.experimentalBuilderProblem(), String(format: store.t("nxb.tooOld"), "nxb 0.4.0", ExperimentalBuilder.minimumVersion))
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.3\n") }
+        XCTAssertNil(store.experimentalBuilderProblem(), "a game or a step nxb does not take ends with its own exit code 4")
+        XCTAssertTrue(runner.commands.contains("nxb version"))
         store.experimentalBuilder = false
-        XCTAssertEqual(store.builderEnvironment(), [:], "off again: nothing, whatever the path")
+        XCTAssertNil(store.experimentalBuilderProblem())
+    }
+
+    func testAFailedNxbBuildSaysItsExitCodeAndItsLastErrorLine() {
+        let store = makeStore()
+        store.append("{\"ev\": \"say\", \"msg\": \"[RED] no key master_key_0f in prod.keys\", \"severity\": \"error\"}\n")
+        XCTAssertEqual(store.experimentalFailureNote(status: 6), String(format: store.t("nxb.exit.6"), 6) + " no key master_key_0f in prod.keys")
+        XCTAssertTrue(store.experimentalFailureNote(status: 4).contains("exit code 4"))
     }
 
     func testTakingFilesFillsTheRowAndNamesTheFirstFileThatDoesNotFit() {
@@ -205,7 +257,124 @@ import XCTest
         XCTAssertEqual(store.updatePath, "", "a cancelled panel changes nothing")
     }
 
+    /// #708: an image a previous build left is named to the script with --romfs-from, for each target. The experimental builder
+    /// gets the script's arguments, and `nxb build` has no such option: with it on, the option is left out.
+    func testAReusableImageIsNamedToTheScriptButNotToNxbBuild() throws {
+        let runner = FakeProcessRunner()
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.3\n") }
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        for path in [EngineLayout.marker] + RepoLayout.requiredTools {
+            let url = temporary.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "'--work-dir' '--romfs-from'".write(to: url, atomically: true, encoding: .utf8)
+        }
+        repo.path = temporary.path
+        let key = "0100000000010000"
+        store.take(picked: [try file("Cartridge [\(key)].xci")], kind: .base)
+        store.take(picked: [try file("test.keys")], kind: .keys)
+        store.outDir = temporary.path
+        defaults.set(temporary.appendingPathComponent("shell").path, forKey: "shellRoot")
+        devices.exportIPA = true
+        let image = temporary.path + "/games/\(key)/romfs.img"
+        try FileManager.default.createDirectory(atPath: (image as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        for path in [image, image + ".id"] { try Data([0]).write(to: URL(fileURLWithPath: path)) }
+        let nxb = temporary.path + "/nxbuild/nxb"
+        try FileManager.default.createDirectory(atPath: (nxb as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try Data([0]).write(to: URL(fileURLWithPath: nxb))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+        store.experimentalBuilderPath = nxb
+        for target in [BuildTarget.mac, BuildTarget.ios] {
+            store.target = target
+            store.experimentalBuilder = false
+            store.startBuild()
+            var args = store.lastBuildCommand
+            XCTAssertEqual(args.first, deps.pythonPath, "the script runs (\(target))")
+            XCTAssertEqual(args.firstIndex(of: "--romfs-from").map { args[$0 + 1] }, image, "the script is offered the image (\(target))")
+            store.experimentalBuilder = true
+            store.startBuild()
+            args = store.lastBuildCommand
+            XCTAssertEqual(Array(args.prefix(2)), [nxb, "build"], "nxb build runs (\(target))")
+            XCTAssertFalse(args.contains("--romfs-from"), "nxb build is not given an option it rejects (\(target))")
+        }
+    }
+
+    func testRetryBuildsTheChosenTitleAndKeepsItsOutputsSeparate() throws {
+        let store = makeStore()
+        for path in [EngineLayout.marker] + RepoLayout.requiredTools {
+            let url = temporary.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "'--work-dir'".write(to: url, atomically: true, encoding: .utf8)
+        }
+        repo.path = temporary.path
+        store.take(picked: [try file("Cartridge [0100000000010000].xci")], kind: .base)
+        store.take(picked: [try file("test.keys")], kind: .keys)
+        store.outDir = temporary.path
+        defaults.set(temporary.appendingPathComponent("shell").path, forKey: "shellRoot")
+        devices.exportIPA = true
+        let second = "01006F8002326000"
+        let diagnostic = "[RED] more than one game in the folder: 0100000000010000, \(second); keep one game per folder, or name the one to pack with --title-id / TITLE_ID (a cartridge dump that holds two games)"
+        for target in [BuildTarget.mac, BuildTarget.ios] {
+            store.target = target
+            store.startBuild()
+            XCTAssertFalse(store.lastBuildCommand.contains("--title-id"))
+            store.logTail = diagnostic
+            store.noteFailure()
+            store.buildTitle("0100000000090000")  // not in the engine's list
+            XCTAssertFalse(store.lastBuildCommand.contains("--title-id"))
+            store.buildTitle(second)
+            let args = store.lastBuildCommand
+            XCTAssertEqual(args.firstIndex(of: "--title-id").map { args[$0 + 1] }, second)
+            let work = temporary.path + "/" + second + "_build"
+            XCTAssertEqual(args.firstIndex(of: "--work-dir").map { args[$0 + 1] }, work)
+            XCTAssertEqual(store.gameTitleID, second, "the library remembers the selected game")
+            if target == BuildTarget.mac {
+                XCTAssertEqual(args.firstIndex(of: "-o").map { args[$0 + 1] }, work + "/" + second + ".app")
+            } else {
+                XCTAssertEqual(args.firstIndex(of: "--shell-framework").map { args[$0 + 1] }, work + "/shell-framework")
+            }
+        }
+        store.logTail = diagnostic
+        store.noteFailure()
+        store.take(picked: [try file("Another.xci")], kind: .base)
+        XCTAssertNil(store.failure, "choices from the previous input no longer apply")
+        XCTAssertNil(store.gameTitleID)
+    }
+
     // MARK: The script's events
+
+    func testLastShaderFileHintFollowsTheReportedBatch() {
+        let store = makeStore()
+        func progress(_ done: Int, _ total: Int, name: String = "shader split", step: String = "splitting",
+                      unit: String = "files", estimated: Bool = false) {
+            store.handleEvent("progress", ["k": 2, "name": name, "step": step, "unit": unit,
+                                           "done": done, "total": total, "est": estimated, "frac": 0.99])
+        }
+
+        progress(304_227, 304_243)
+        XCTAssertTrue(store.stages[0].isScanningLastShaderFiles)
+        XCTAssertEqual(store.stages[0].percent, 99)
+        XCTAssertEqual(store.stages[0].detail, BuildProgress.progressDetail(["step": "splitting", "unit": "files",
+                                                                             "done": 304_227, "total": 304_243]))
+        progress(48_145, 48_146)
+        XCTAssertTrue(store.stages[0].isScanningLastShaderFiles)
+        store.handleEvent("step", ["k": 2, "name": "shader split", "step": "checking the outputs"])
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        for done in [0, 48_129, 48_146] {
+            progress(done, 48_146)
+            XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        }
+        progress(48_130, 48_146, name: "extract")
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146, step: "checking the inputs")
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146, unit: "B")
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146, estimated: true)
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+        progress(48_130, 48_146)
+        store.handleEvent("stage_end", ["k": 2, "name": "shader split", "ok": false])
+        XCTAssertFalse(store.stages[0].isScanningLastShaderFiles)
+    }
 
     func testTheScriptsJSONEventsBecomeStagesAndLogLines() {
         let store = makeStore()
@@ -221,6 +390,42 @@ import XCTest
         XCTAssertTrue(store.log.text.contains("✓ extract (\(BuildProgress.duration(3))): 10 files"))
     }
 
+    func testPipelineArchiveStageFallsBackToWorkDirAndYieldsToNativeJSONProgress() throws {
+        let fm = FileManager.default
+        let macWork = temporary.appendingPathComponent("pso/mac-work")
+        try fm.createDirectory(at: macWork, withIntermediateDirectories: true)
+        let entry = #"{"vertex_function_descriptor":"v"}"#
+        let jsText = "{\"pipelines\":[" + Array(repeating: entry, count: 2500).joined(separator: ",") + "]}\n"
+        try Data(jsText.utf8).write(to: macWork.appendingPathComponent("bases.mtl4-json"))
+        let arch = "applegpu_g13s"
+        let b1 = macWork.appendingPathComponent("batches.\(arch)/00001")
+        try fm.createDirectory(at: b1, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: b1.appendingPathComponent("bases.mtl4-json"))
+        try Data("archive".utf8).write(to: b1.appendingPathComponent("\(arch).mtl4a"))
+        try Data("k\n".utf8).write(to: b1.appendingPathComponent("key.\(arch)"))
+
+        let store = makeStore()
+        store.effectiveWorkDir = temporary.path
+        store.handleEvent("stage", ["k": 6, "n": 7, "name": "Pipeline archive", "step": "applegpu_g13s (metal-tt)"])
+        store.pollPSOArchive()
+        XCTAssertEqual(store.stages[0].percent ?? 0, 100.0 / 3.0, accuracy: 0.1)
+        XCTAssertTrue(store.stages[0].detail.contains("1 / 3 batches"))
+
+        // Verify localized unit and merging note in Chinese
+        store.lang = .zh
+        store.stages[0].detail = ""
+        store.pollPSOArchive()
+        XCTAssertTrue(store.stages[0].detail.contains("1 / 3 批"), store.stages[0].detail)
+        store.lang = .en
+
+        // Once the script sends native progress, polling stops overriding it
+        store.handleEvent("progress", ["k": 6, "name": "Pipeline archive", "step": "applegpu_g13s (metal-tt)",
+                                       "done": 2, "total": 3, "unit": "batches", "frac": 0.66])
+        store.pollPSOArchive()
+        XCTAssertEqual(store.stages[0].percent ?? 0, 66.0, accuracy: 0.1)
+        XCTAssertTrue(store.stages[0].detail.contains("2 / 3 batches"))
+    }
+
     func testAChunkThatEndsInTheMiddleOfALineWaitsForTheRest() {
         let store = makeStore()
         store.ingest("{\"ev\":\"stage\",\"k\":2,\"n\":3,\"na")
@@ -230,26 +435,43 @@ import XCTest
         XCTAssertTrue(store.log.text.contains("plain line from a tool\n"), "what is not an event is log text")
     }
 
+    func testStaleShaderEventsDoNotAskForAcknowledgementBeforeTheNextProgressEvent() {
+        let store = makeStore()
+        store.ingest("{\"ev\":\"shaders_stale\",\"reason\":\"chain\"}\n{\"ev\":\"progress\",\"k\":2,\"name\":\"mac shaders\",\"frac\":0.5,\"done\":5,\"total\":10}\n")
+        XCTAssertEqual(store.staleShadersMessageKey.map(store.t), store.t("msg.shadersStale.chain"))
+        XCTAssertEqual(store.stages.first?.percent, 50)
+    }
+
     func testTheStaleShadersNoticeShowsOncePerBuildForEachReason() {
         for (reason, text) in [("chain", "msg.shadersStale.chain"), ("inputs", "msg.shadersStale.inputs")] {
             let store = makeStore()
-            var notices: [[String]] = []
-            store.showNotice = { notices.append([$0, $1]) }
             let event = "{\"ev\":\"shaders_stale\",\"reason\":\"\(reason)\",\"old\":\"b-4e0dd2535996\",\"new\":\"b-b7cd656abd7c\",\"count\":65}\n"
             store.ingest(event)
             store.ingest(event)   // the next shader step of the same build
-            XCTAssertEqual(notices, [[store.t("msg.shadersStale.title"), store.t(text)]], reason)
+            store.noteStaleShaders(reason: reason == "chain" ? "inputs" : "chain")
+            XCTAssertEqual(store.staleShadersMessageKey.map(store.t), store.t(text), reason)
         }
     }
 
     func testTheNoteLineAndAnUnknownReasonShowNoNotice() {
         let store = makeStore()
-        var notices: [String] = []
-        store.showNotice = { title, _ in notices.append(title) }
         store.ingest("{\"ev\":\"say\",\"msg\":\"[NOTE] cached shader libraries cannot be reused (a -> b): the translation chain changed\"}\n")
-        XCTAssertEqual(notices, [], "the event shows the notice, the note that follows it is a log line")
+        XCTAssertNil(store.staleShadersMessageKey, "the event shows the notice, the note that follows it is a log line")
         store.ingest("{\"ev\":\"shaders_stale\",\"reason\":\"newer\",\"old\":\"a\",\"new\":\"b\",\"count\":1}\n")
-        XCTAssertEqual(notices, [], "no text explains a reason a newer script adds")
+        XCTAssertNil(store.staleShadersMessageKey, "no text explains a reason a newer script adds")
+        store.noteStaleShaders(reason: "chain")
+        XCTAssertNotNil(store.staleShadersMessageKey, "an unknown reason does not hide a later known reason")
+    }
+
+    func testANewBuildClearsThePreviousShaderRebuildNotice() {
+        let store = makeStore()
+        store.noteStaleShaders(reason: "chain")
+        store.target = BuildTarget.mac
+        repo.isRepo = false   // stop before starting any external tools
+        store.startBuild()
+        XCTAssertNil(store.staleShadersMessageKey)
+        store.noteStaleShaders(reason: "inputs")
+        XCTAssertEqual(store.staleShadersMessageKey.map(store.t), store.t("msg.shadersStale.inputs"))
     }
 
     // MARK: The failure

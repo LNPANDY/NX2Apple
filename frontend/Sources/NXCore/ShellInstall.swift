@@ -41,6 +41,7 @@ package struct ShellLibrary: Codable, Equatable {
     }
 
     package static func stateFile(root: String) -> String { root + "/shell.json" }
+    private static func receiptFile(root: String) -> String { ShellInstall.derivedData(root: root) + "/.installed-games.json" }
 
     /// The file's library, or a fresh one when there is none (or it cannot be read: the next save writes a valid one).
     package static func load(root: String) -> ShellLibrary {
@@ -54,6 +55,29 @@ package struct ShellLibrary: Codable, Equatable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try encoder.encode(self).write(to: URL(fileURLWithPath: Self.stateFile(root: root)), options: .atomic)
+    }
+
+    /// Records that the current `shell.json` game set has been installed onto a device, returning those uppercased title IDs.
+    /// Stored under `derived-data/.installed-games.json` (outside `DmShell.app` so code-signature resources stay untouched, and
+    /// separate from `shell.json` so a subsequent build that adds a game to `shell.json` before failing device install does not
+    /// overwrite the last successful install receipt).
+    @discardableResult
+    package static func recordInstalled(root: String) -> Set<String> {
+        let titles = load(root: root).games.map { $0.titleID.uppercased() }
+        guard !titles.isEmpty else { return [] }
+        let receipt = receiptFile(root: root)
+        try? FileManager.default.createDirectory(atPath: (receipt as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(titles).write(to: URL(fileURLWithPath: receipt), options: .atomic)
+        return Set(titles)
+    }
+
+    /// The uppercased title IDs from the last successful device install that are still present in `shell.json`.
+    package static func installedReceipt(root: String) -> Set<String> {
+        let current = Set(load(root: root).games.map { $0.titleID.uppercased() })
+        guard !current.isEmpty,
+              let data = FileManager.default.contents(atPath: receiptFile(root: root)),
+              let installed = try? JSONDecoder().decode([String].self, from: data) else { return [] }
+        return Set(installed.map { $0.uppercased() }).intersection(current)
     }
 
     /// The folder a shell root may live in: an absolute path that is not the root of a volume. `""` (no game or output
@@ -312,8 +336,7 @@ package enum ShellInstall {
     }
 
     /// The local files to copy: missing on the device, or of another size. Sorted, so the copies run in a stable order.
-    /// Path and size only: a file with the same size and other content stays. A hash comparison (a manifest the device keeps next to
-    /// the game's folder) can close that gap later.
+    /// The caller also checks the last RomFS transfer before treating a same-size device image as a match.
     package static func filesToCopy(local: [String: Int64], device: [String: Int64]) -> [String] {
         local.filter { device[$0.key] != $0.value }.map(\.key).sorted()
     }
@@ -394,6 +417,7 @@ package struct ShellInstaller {
     package var team: String
     package var deviceName = "iPhone"
     package var lang: Lang = .en
+    package var defaults = UserDefaults.standard
     /// Run tools in a process group of their own (the model's Stop ends the group). The terminal does not need it.
     package var ownGroup = false
     package var toolPath = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -527,7 +551,11 @@ package struct ShellInstaller {
             log("signing: the team's provisioning profile cannot carry the Increased Memory Limit capability; signing without it (a large game may run out of memory)\n")
             var plain = env; plain["DM_ENTITLEMENTS"] = ""
             let again = run(ShellInstall.projectCommand(repo: repo), env: plain, label: projectName, step: { _ in nil })
-            if again.status == 0 { noMemoryCapability = true; built = sign(bundleID) }
+            if again.status == 0 {
+                ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
+                noMemoryCapability = true
+                built = sign(bundleID)
+            }
         }
         if built.status != 0 {
             let why = built.lastError ?? fmt("msg.exitCode", built.status)
@@ -549,6 +577,7 @@ package struct ShellInstaller {
             end(Self.installStageID, installName, ok: false, detail: why)
             return Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install)
         }
+        ShellLibrary.recordInstalled(root: root)
         end(Self.installStageID, installName, ok: true)
 
         // 7: the game data, only what the device does not have yet
@@ -589,10 +618,16 @@ package struct ShellInstaller {
                 env: nil, label: checkName, step: { _ in nil })
         let onDevice = ShellInstall.parseListing(FileManager.default.contents(atPath: listing))
         let local = ShellInstall.localFiles(in: archive)
-        let missing = ShellInstall.filesToCopy(local: local, device: onDevice)
+        // The listing still catches missing and interrupted copies. Two releases can also have the same image size.
+        let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)"
+        let previous = defaults.string(forKey: receipt)
+        let identity = local["romfs.img"] == nil ? nil : imageIdentity(archive: archive, titleID: titleID)
+        var comparable = onDevice
+        if identity != previous { comparable.removeValue(forKey: "romfs.img") }
+        let missing = ShellInstall.filesToCopy(local: local, device: comparable)
         end(Self.checkStageID, checkName, ok: true)
         guard !missing.isEmpty else {
-            outcome.message = fmt("shell.dataAlready", deviceName)
+            outcome.message = fmt(identity != nil && identity == previous ? "shell.dataCurrent" : "shell.dataAlready", deviceName)
             return outcome
         }
         // Free space first: the shell writes it to its log at every start (ShellMain.m), and a game's data is many GB. Without a log
@@ -610,6 +645,11 @@ package struct ShellInstaller {
         // The size and the connection first: a cable needs the device unlocked, Wi-Fi takes long enough that a cable may be worth it
         var link = connection()
         var plan = copyPlan(files: missing.count, bytes: needed, connection: link)
+        if let identity, let previous, identity != previous {
+            let note = t("shell.dataChanged")
+            plan.versionNote = note
+            log(note + "\n")
+        }
         log(plan.sizeText + "\n" + plan.connectionText + "\n")
         var decision = decideCopy(plan)
         if decision == .waitForCable {
@@ -635,6 +675,8 @@ package struct ShellInstaller {
             copyProgress(copiedBytes, needed)
             stage(ShellStage(id: Self.copyStageID, name: copyName, state: .running, detail: "\(i + 1)/\(missing.count)",
                              percent: Double(i) / Double(missing.count) * 100))
+            // Once an overwrite begins, the old receipt cannot vouch for what a failed copy leaves behind.
+            if path == "romfs.img", previous != nil { defaults.removeObject(forKey: receipt) }
             let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID,
                                                  source: archive + "/" + path, relativePath: path),
                         env: nil, label: copyName, step: BuildProgress.installStep)
@@ -651,6 +693,7 @@ package struct ShellInstaller {
             outcome.copied = i + 1
             copiedBytes += local[path] ?? 0
         }
+        if let identity, missing.contains("romfs.img") { defaults.set(identity, forKey: receipt) }
         copyProgress(needed, needed)
         end(Self.copyStageID, copyName, ok: true)
         return outcome

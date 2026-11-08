@@ -12,6 +12,7 @@ extension BuildStore {
         let python = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
         var installer = ShellInstaller(xcrun: devices.xcrun, repo: repo.path, python: python, root: shellRoot, device: devices.installDevice, team: devices.signingTeam)
         installer.deviceName = devices.deviceName(devices.installDevice)
+        installer.defaults = defaults
         installer.lang = localizer.lang
         installer.ownGroup = true
         installer.toolPath = BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
@@ -126,6 +127,7 @@ extension BuildStore {
         }
         let xcrun = devices.xcrun, team = devices.signingTeam, name = devices.deviceName(device)
         let bundle = ShellLibrary.load(root: shell.root).bundleID
+        ShellInstall.refreshProjectLinks(root: shell.root, resources: Bundle.main.resourceURL?.path, repo: repo.path)
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
         let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)

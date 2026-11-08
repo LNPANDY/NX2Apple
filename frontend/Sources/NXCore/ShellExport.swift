@@ -42,6 +42,47 @@ extension ShellInstall {
     package static func zipCommand(root: String) -> [String] {
         BuildCommands.ipaCommand(payload: exportStage(root: root) + "/Payload", ipa: ipaPath(root: root))
     }
+
+    /// The symlink inside `project/` that points to the current `frontend-ios` package, so `DmShell.xcodeproj` stays valid
+    /// after a Gatekeeper AppTranslocation mount is unmounted or the launcher is moved to another folder.
+    package static func linkedShellPackage(root: String) -> String { projectFolder(root: root) + "/frontend-ios" }
+
+    /// Point `<root>/project/frontend-ios` (and any dangling engine symlinks in `<root>/project/`) at the running launcher's
+    /// paths, and rewrite `DmShell.xcodeproj/project.pbxproj` to reference `frontend-ios` inside `<root>/project/`.
+    package static func refreshProjectLinks(root: String, resources: String? = Bundle.main.resourceURL?.path, repo: String,
+                                            fm: FileManager = .default) {
+        let proj = projectFolder(root: root)
+        guard fm.fileExists(atPath: proj) else { return }
+        let link = linkedShellPackage(root: root)
+        if let pkg = shellPackage(resources: resources, repo: repo, fm: fm), pkg != link {
+            let attrs = try? fm.attributesOfItem(atPath: link)
+            let isSymlink = (attrs?[.type] as? FileAttributeType) == .typeSymbolicLink
+            if isSymlink || attrs == nil, (try? fm.destinationOfSymbolicLink(atPath: link)) != pkg {
+                if isSymlink { try? fm.removeItem(atPath: link) }
+                try? fm.createSymbolicLink(atPath: link, withDestinationPath: pkg)
+            }
+        }
+        let engine = EngineLayout.root(repo)
+        for item in ["Sources", "Shell", "tools"] {
+            let itemLink = proj + "/" + item, target = engine + "/dm/ios/" + item
+            guard !fm.fileExists(atPath: itemLink), fm.fileExists(atPath: target) else { continue }
+            let attrs = try? fm.attributesOfItem(atPath: itemLink)
+            let isSymlink = (attrs?[.type] as? FileAttributeType) == .typeSymbolicLink
+            if isSymlink || attrs == nil {
+                if isSymlink { try? fm.removeItem(atPath: itemLink) }
+                try? fm.createSymbolicLink(atPath: itemLink, withDestinationPath: target)
+            }
+        }
+        let pbxPath = proj + "/" + projectName + "/project.pbxproj"
+        guard fm.fileExists(atPath: link + "/Package.swift"),
+              let pbx = try? String(contentsOfFile: pbxPath, encoding: .utf8),
+              let re = try? NSRegularExpression(pattern: #"(path|relativePath) = "?(?:[^";\n]*/)?frontend-ios"?;"#) else { return }
+        let updated = re.stringByReplacingMatches(in: pbx, range: NSRange(pbx.startIndex..., in: pbx),
+                                                  withTemplate: #"$1 = "frontend-ios";"#)
+        if updated != pbx {
+            try? updated.write(toFile: pbxPath, atomically: true, encoding: .utf8)
+        }
+    }
 }
 
 extension ShellInstaller {
@@ -94,6 +135,7 @@ extension ShellInstaller {
             end(Self.projectStageID, projectName, ok: false, detail: why)
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
         }
+        ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
         end(Self.projectStageID, projectName, ok: true)
         return (library, env, nil, checked.notes)
     }
@@ -243,7 +285,7 @@ extension ShellInstaller {
         var outcome = copyGameData(titleID: titleID, archive: archive, app: "", bundleID: chosen!,
                                    outcome: Outcome(ok: true, message: "", bundleID: chosen!))
         outcome.appName = name
-        if outcome.ok, !outcome.copySkipped, outcome.message.isEmpty || outcome.message == fmt("shell.dataAlready", deviceName) {
+        if outcome.ok, !outcome.copySkipped {
             outcome.message = t("shell.sendDone")
         }
         if !outcome.ok, outcome.failure == .shellDataIncomplete {

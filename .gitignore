@@ -46,3 +46,7 @@ frontend/NX2Apple.app/
 /scripts/
 /docs/
 /ref/
+
+# Local public artwork for the Nintendo screenshot demo.
+/frontend-ios/Demo/ReviewCatalog/*
+!/frontend-ios/Demo/ReviewCatalog/README.md

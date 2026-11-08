@@ -8,11 +8,12 @@ import NXCore
 extension BuildStore {
     /// The folder's rows, or the reason on the base row. Called by `scan(folder:)` when `GameFolder.isCandidate` says so.
     package func takeGameFolder(_ folder: String) {
-        gameDir = (folder as NSString).pathExtension.lowercased() == "nup" ? (folder as NSString).deletingLastPathComponent : folder   // a NUP: its folder
+        let resolved = GameFolder.resolve(folder)
+        gameDir = (resolved as NSString).pathExtension.lowercased() == "nup" ? (resolved as NSString).deletingLastPathComponent : resolved   // a NUP: its folder
         gameFolder = nil
         gameFolderRefused = false
         for i in slots.indices { slots[i].paths = []; slots[i].problem = ""; slots[i].note = "" }
-        switch GameFolder.scan(folder) {
+        switch GameFolder.scan(resolved) {
         case .failure(let problem):
             refuseGameFolder(gameFolderProblemText(problem))
         case .success(let contents):
@@ -88,8 +89,9 @@ extension BuildStore {
     /// The base game and the keys are there, or a game folder that needs no keys.
     package var inputsReady: Bool { gameFolder != nil ? slot("base").ok : slot("base").ok && slot("keys").ok }
 
-    /// The key of the build folder and the app (`<key>_build`, `<key>.app`): the folder's title ID, else the base package's (TitleID.buildKey).
+    /// The key of the work folder (`<key>_build`): the folder's title ID, else the base package's (TitleID.buildKey).
     package var buildKey: String {
+        if let selectedTitleID { return selectedTitleID }
         guard let f = gameFolder else { return TitleID.buildKey(basePath) }
         return f.hasTitleID ? f.titleIDHex : TitleID.buildKey(f.scriptInput)
     }
@@ -99,6 +101,7 @@ extension BuildStore {
 
     /// The game's title ID as 16 hex digits, when the inputs tell it.
     package var gameTitleID: String? {
+        if let selectedTitleID { return selectedTitleID }
         if let f = gameFolder { return f.hasTitleID ? f.titleIDHex : nil }
         return TitleID.parse(basePath).map { String(format: "%016llX", $0) }
     }
@@ -111,6 +114,9 @@ extension BuildStore {
 
     /// A name for the game in messages and the shared app: the profile's for a game folder (it has no control data), else the base package's file name.
     package var gameName: String {
+        if let selectedTitleID, let tid = UInt64(selectedTitleID, radix: 16) {
+            return GameFolder.profileName(tid, engineRoot: EngineLayout.root(repo.path)) ?? selectedTitleID
+        }
         if let f = gameFolder {
             let fallback = f.nup.map { (($0 as NSString).lastPathComponent as NSString).deletingPathExtension } ?? (f.folder as NSString).lastPathComponent
             return f.hasTitleID ? GameFolder.profileName(f.titleID, engineRoot: EngineLayout.root(repo.path)) ?? fallback : fallback

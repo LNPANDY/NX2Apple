@@ -23,7 +23,7 @@ Issue: LNPANDY/NX2Apple#123
  6 files changed, 16 insertions(+), 2 deletions(-)
 
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 23e71a0..c11b457 100644
+index 56267e1..076d4ef 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -234,6 +234,9 @@ static int boot_env(void) {
@@ -49,7 +49,7 @@ index e542cf1..8964dbb 100644
          GCSupportsControllerUserInteraction: true   # Physical controllers (GameController)
          GCSupportedGameControllers:
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index ad5b881..3448d38 100755
+index ba07df9..3eae818 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -44,6 +44,7 @@ VNACP=${CONTROL:-$VNACP}   # from here on, the file that lists the game's langua

@@ -17,9 +17,12 @@ public struct PadScreen: Equatable, Sendable {
     public var division: CGRect?
     /// iPhone Duo's inner display upright: the picture keeps only the top inset (front_ios.m's duoPortrait).
     public var topSafeOnly = false
+    /// Only custom controls on Duo outer landscape may extend beyond safe insets.
+    public var customControlsFullBounds = false
 
-    public init(size: CGSize, insets: Insets = Insets(), partiallyOpen: Bool = false, division: CGRect? = nil, topSafeOnly: Bool = false) {
+    public init(size: CGSize, insets: Insets = Insets(), partiallyOpen: Bool = false, division: CGRect? = nil, topSafeOnly: Bool = false, customControlsFullBounds: Bool = false) {
         self.size = size; self.insets = insets; self.partiallyOpen = partiallyOpen; self.division = division; self.topSafeOnly = topSafeOnly
+        self.customControlsFullBounds = customControlsFullBounds
     }
 
     /// iPhone Pro Max held sideways, the screen the settings preview has always shown.
@@ -56,6 +59,7 @@ struct PadGeo: Equatable {
 
     var u: CGFloat = 0
     var safe: CGRect = .null, corner: CGRect = .null
+    var customBounds: CGRect?
     var portrait = false
     var face: CGPoint = .zero, faceGap: CGFloat = 0, faceR: CGFloat = 0, faceHitR: CGFloat = 0
     var stick: CGPoint = .zero, stickR: CGFloat = 0, knobR: CGFloat = 0
@@ -167,16 +171,16 @@ struct PadGeo: Equatable {
 
     var shapes: [Shape] {
         var out: [Shape] = []
-        for i in 0..<4 { out.append(Shape(c: faceKey[i], r: faceR, within: corner, id: Self.shapeFace + i)) }
-        out.append(Shape(c: stick, r: stickR, within: corner, id: Self.shapeStick))
-        if full { out.append(Shape(c: dpad, r: hypot(dpadR, armW), within: corner, id: Self.shapeDpad)) }
+        for i in 0..<4 { out.append(Shape(c: faceKey[i], r: faceR, within: customBounds ?? corner, id: Self.shapeFace + i)) }
+        out.append(Shape(c: stick, r: stickR, within: customBounds ?? corner, id: Self.shapeStick))
+        if full { out.append(Shape(c: dpad, r: hypot(dpadR, armW), within: customBounds ?? corner, id: Self.shapeDpad)) }
         for i in 0..<4 {
-            out.append(Shape(c: drop[i], r: dropR[i], within: safe, id: Self.shapeDrop + i))
-            out.append(Shape(c: dropTip(i), r: 0, within: safe, id: Self.shapeTip + i))
+            out.append(Shape(c: drop[i], r: dropR[i], within: customBounds ?? safe, id: Self.shapeDrop + i))
+            out.append(Shape(c: dropTip(i), r: 0, within: customBounds ?? safe, id: Self.shapeTip + i))
         }
-        if full { for i in 0..<2 { out.append(Shape(c: click[i], r: clickR, within: safe, id: Self.shapeClick + i)) } }
-        for i in 0..<2 { out.append(Shape(rect: pill[i], isRect: true, within: safe, id: Self.shapePill + i)) }
-        out.append(Shape(c: swap, r: swapR, within: safe, id: Self.shapeSwap))
+        if full { for i in 0..<2 { out.append(Shape(c: click[i], r: clickR, within: customBounds ?? safe, id: Self.shapeClick + i)) } }
+        for i in 0..<2 { out.append(Shape(rect: pill[i], isRect: true, within: customBounds ?? safe, id: Self.shapePill + i)) }
+        out.append(Shape(c: swap, r: swapR, within: customBounds ?? safe, id: Self.shapeSwap))
         return out
     }
     static func inside(_ s: Shape) -> Bool {
@@ -342,6 +346,9 @@ struct PadGeo: Equatable {
     /// What the engine draws for this layout: `dm_pad_geo` with the player's options.
     static func make(_ screen: PadScreen, full: Bool, size: String = "medium", stick: String = "corner", layout: TouchLayout = TouchLayout()) -> PadGeo {
         var g = placed(screen, full: full, size: size, stick: stick)
+        if screen.customControlsFullBounds && screen.size.width > screen.size.height && !g.region.separated {
+            g.customBounds = CGRect(origin: .zero, size: screen.size)
+        }
         let kind = TouchLayout.Kind.of(full: full, split: g.region.separated)
         if !layout.isEmpty(kind) { g.arrange(layout.moved(kind)) }
         return g

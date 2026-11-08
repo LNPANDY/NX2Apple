@@ -19,10 +19,12 @@ package enum Uninstall {
         package var checkouts: [String] = []
         /// The UserDefaults domain with the launcher's settings, nil when there is none to remove.
         package var defaultsDomain: String?
-        /// Where the app lives now (goes to the Trash, not deleted).
-        package var app: String = Bundle.main.bundlePath
+        /// Where the app lives now (goes to the Trash, not deleted): the copy it was started from, not a read-only
+        /// translocated one (#873).
+        package var app: String = AppUpdate.untranslocated(Bundle.main.bundleURL).path
 
-        package init(stateFolders: [String] = [], checkouts: [String] = [], defaultsDomain: String? = nil, app: String = Bundle.main.bundlePath) {
+        package init(stateFolders: [String] = [], checkouts: [String] = [], defaultsDomain: String? = nil,
+                     app: String = AppUpdate.untranslocated(Bundle.main.bundleURL).path) {
             self.stateFolders = stateFolders; self.checkouts = checkouts; self.defaultsDomain = defaultsDomain; self.app = app
         }
     }

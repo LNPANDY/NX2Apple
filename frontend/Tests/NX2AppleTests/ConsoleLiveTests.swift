@@ -40,7 +40,7 @@ import SwiftUI
         -> (LiveConsoleDriver, GameLibrary, ControlLayout) {
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
         _ = try library.addApp(try makeApp())
-        let layout = controls ?? ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!)
+        let layout = controls ?? ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests"))
         let driver = LiveConsoleDriver(library: library, controls: layout, repo: { "" }, lang: { .en }, labels: { L10n.string($0, .en) },
                                        pads: { pads }, launch: { game, env, done in launched(Launch(game: game, environment: env)); done(4242, nil) },
                                        artwork: { _, _ in nil }, startingTimeout: 0.2, observeSystem: false)
@@ -139,7 +139,7 @@ import SwiftUI
     /// #336: a game that found the system keeping the Home button for itself gets the hint once, after it quit, in console mode.
     func testHomeButtonHintShowsOnceWhenTheSystemKeepsHome() async throws {
         let (driver, _, _) = try makeDriver()
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: "ConsoleLiveTests-home-" + UUID().uuidString))
+        let defaults = TestDefaults.make("ConsoleLiveTests-home")
         var reported: String? = "system", opened = 0
         driver.homeButtonReported = { _ in reported }
         driver.homeHintDefaults = defaults
@@ -265,22 +265,25 @@ import SwiftUI
     func testAGameStartsFromAWindowThatLeftFullScreenAndFullScreenReturnsAfterIt() throws {
         var calls: [Bool] = []
         var active = true
-        final class FakeWindow: NSWindow {
-            var isFull = true
-            override var styleMask: NSWindow.StyleMask {
-                get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
-                set { super.styleMask = newValue.subtracting(.fullScreen) }
-            }
-        }
-        let window = FakeWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        var hideBalance = 0
+        let pointer = ConsolePointer(window: { window }, hide: { hideBalance += 1 }, show: { hideBalance -= 1 })
+        var finishReturn: (() -> Void)?
         let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
             calls.append(on)
-            window.isFull = on
-            done()
-        }, fadeSeconds: 0.05, appIsActive: { active })
+            if on {
+                finishReturn = { window.isFull = true; done() }
+            } else {
+                window.isFull = false
+                done()
+            }
+        }, fadeSeconds: 0.05, pointer: pointer, appIsActive: { active })
         coordinator.available = true
         coordinator.enter()
         XCTAssertTrue(coordinator.active, "the window was full screen already")
+        pointer.poll(now: 0, location: .zero, buttonDown: false, over: true)
+        pointer.poll(now: 2, location: .zero, buttonDown: false, over: true)
+        XCTAssertEqual(hideBalance, 1)
         var launched = 0
         coordinator.leaveFullScreenForGame { launched += 1 }
         XCTAssertEqual(calls, [false], "the window leaves full screen first")
@@ -288,8 +291,17 @@ import SwiftUI
         active = false
         coordinator.resumeFullScreenAfterGame()
         XCTAssertEqual(calls, [false], "a launcher behind another app waits")
+        pointer.poll(now: 3, location: .zero, buttonDown: false, over: false)
+        XCTAssertEqual(hideBalance, 1, "keep the stationary cursor hidden while waiting for activation")
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: nil)
         XCTAssertEqual(calls, [false, true], "full screen is back once the launcher is active")
+        pointer.poll(now: 4, location: .zero, buttonDown: false, over: false)
+        XCTAssertEqual(hideBalance, 1, "keep it hidden until the return animation actually finishes")
+        try XCTUnwrap(finishReturn)()
+        pointer.poll(now: 5, location: .zero, buttonDown: false, over: true)
+        XCTAssertEqual(hideBalance, 1, "the cursor is still idle over the restored window")
+        pointer.poll(now: 6, location: .zero, buttonDown: false, over: false)
+        XCTAssertEqual(hideBalance, 0, "outside the restored window the normal cursor rule resumes")
         coordinator.leaveFullScreenForGame { launched += 1 }
         coordinator.exit()
         coordinator.resumeFullScreenAfterGame()
@@ -301,16 +313,9 @@ import SwiftUI
     }
 
     func testFullScreenIsAskedAgainWhenTheSystemDroppedTheFirstRequest() throws {
-        final class FakeWindow: NSWindow {
-            var isFull = true
-            override var styleMask: NSWindow.StyleMask {
-                get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
-                set { super.styleMask = newValue.subtracting(.fullScreen) }
-            }
-        }
         var calls: [Bool] = []
         var dropped = 2
-        let window = FakeWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
         let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
             calls.append(on)
             if on, dropped > 0 { dropped -= 1 } else { window.isFull = on }
@@ -322,6 +327,35 @@ import SwiftUI
         coordinator.resumeFullScreenAfterGame()
         XCTAssertEqual(calls, [false, true, true, true], "two requests were dropped, the third one worked")
         XCTAssertTrue(window.isFull)
+    }
+
+    func testStaleReturnCannotReleaseTheNextGamesPointer() throws {
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        let pointer = ConsolePointer(window: { window }, hide: {}, show: {})
+        var returns: [() -> Void] = []
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in
+            if on { returns.append(done) } else { window.isFull = false; done() }
+        }, pointer: pointer, appIsActive: { true })
+        coordinator.available = true
+        coordinator.enter()
+        defer { coordinator.exit() }
+        pointer.poll(now: 0, location: .zero, buttonDown: false, over: true)
+        pointer.poll(now: 2, location: .zero, buttonDown: false, over: true)
+        coordinator.leaveFullScreenForGame {}
+        coordinator.resumeFullScreenAfterGame()
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(returns.count, 1, "a duplicate end notification cannot start another return")
+        coordinator.leaveFullScreenForGame {}
+        try XCTUnwrap(returns.first)()
+        XCTAssertEqual(returns.count, 1, "an old completion cannot retry during the next game")
+        pointer.poll(now: 3, location: .zero, buttonDown: false, over: false)
+        XCTAssertTrue(pointer.isHidden)
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(returns.count, 2, "the new game can restore the window")
+        window.isFull = true
+        try XCTUnwrap(returns.last)()
+        pointer.poll(now: 4, location: .zero, buttonDown: false, over: false)
+        XCTAssertFalse(pointer.isHidden)
     }
 
     func testPlayWaitsForTheLaunchHookAndReportsTheEnd() async throws {
@@ -476,7 +510,7 @@ import SwiftUI
     func testConnectNotificationPublishesTheNewControllerAtOnce() async throws {
         var current = [ConsolePadSnapshot(id: "first", name: "First", category: "DualShock 4", playerIndex: nil)]
         let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
-        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+        let driver = LiveConsoleDriver(library: library, controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { current }, artwork: { _, _ in nil }, observeSystem: true)
         XCTAssertEqual(driver.state.controllers.map(\.id), ["first"])
         XCTAssertEqual(driver.state.controllers.map(\.player), [1])
@@ -523,7 +557,7 @@ import SwiftUI
     // MARK: Player assignment
 
     private func twoPadDriver(merge: Bool) -> (LiveConsoleDriver, ControlLayout) {
-        let layout = ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!)
+        let layout = ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests"))
         layout.padMerge = merge
         let pads = [ConsolePadSnapshot(id: "xbox", name: "Xbox Wireless Controller", category: "Xbox One", playerIndex: nil),
                     ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4", category: "DualShock 4", playerIndex: nil)]
@@ -579,7 +613,7 @@ import SwiftUI
 
     private func liveDriver(pads: @escaping () -> [ConsolePadSnapshot]) -> LiveConsoleDriver {
         LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                          controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                          controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                           repo: { "" }, lang: { .en }, labels: { $0 }, pads: pads, artwork: { _, _ in nil }, observeSystem: false)
     }
 
@@ -621,7 +655,7 @@ import SwiftUI
         var list = [ConsolePadSnapshot(id: "ds4", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: nil),
                     ConsolePadSnapshot(id: "xbox", name: "Xbox Wireless Controller", category: "Xbox One", playerIndex: nil, battery: 0.8)]
         let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false)
         XCTAssertEqual(driver.state.controllers.map(\.id), ["ds4", "xbox"], "both appear together")
         XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
@@ -700,7 +734,7 @@ import SwiftUI
         var wroteOutput = false
         var sent: [(String, Int)] = []
         let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 },
                                        pads: { [ConsolePadSnapshot(id: "g7", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil, battery: wroteOutput ? 0.72 : nil)] },
                                        artwork: { _, _ in nil }, observeSystem: false,
@@ -721,7 +755,7 @@ import SwiftUI
         var list: [ConsolePadSnapshot] = []
         var writes: [(String, Int)] = []
         let driver = LiveConsoleDriver(library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
-                                       controls: ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!),
+                                       controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false,
                                        playerOutput: { writes.append(($0, $1)) })
         list = [ConsolePadSnapshot(id: "pad", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil)]
@@ -748,7 +782,7 @@ import SwiftUI
     func testSplitJoyConPairDoesNotPingPongSharedHardwarePlayerIndex() {
         var hardwarePlayerIndex: Int? = 1
         var writes: [(String, Int)] = []
-        let layout = ControlLayout(defaults: UserDefaults(suiteName: "ConsoleLiveTests-" + UUID().uuidString)!)
+        let layout = ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests"))
         let driver = LiveConsoleDriver(
             library: GameLibrary(file: temporary.appendingPathComponent("library.json")),
             controls: layout, repo: { "" }, lang: { .en }, labels: { $0 },
@@ -774,5 +808,13 @@ import SwiftUI
             XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2], "P1 and P2 must not ping-pong across rereads")
             XCTAssertEqual(writes.count, countAfterSplit, "no new player output writes when nothing changed")
         }
+    }
+}
+
+private final class ConsoleFullScreenTestWindow: NSWindow {
+    var isFull = true
+    override var styleMask: NSWindow.StyleMask {
+        get { isFull ? super.styleMask.union(.fullScreen) : super.styleMask }
+        set { super.styleMask = newValue.subtracting(.fullScreen) }
     }
 }

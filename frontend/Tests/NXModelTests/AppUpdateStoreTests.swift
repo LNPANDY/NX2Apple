@@ -7,7 +7,6 @@ import CryptoKit
 /// bundles are folders in a temporary directory. This is the pattern for the tests of a store (frontend/ARCHITECTURE.md).
 @MainActor final class AppUpdateStoreTests: XCTestCase {
     private var temporary: URL!
-    private var suite: String!
     private var defaults: UserDefaults!
     private let runner = FakeProcessRunner()
     private let source = FakeReleaseSource()
@@ -17,8 +16,7 @@ import CryptoKit
     override func setUpWithError() throws {
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent("nxmodel-update-tests-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-        suite = "nxmodel-update-tests-" + UUID().uuidString
-        defaults = UserDefaults(suiteName: suite)
+        defaults = TestDefaults.make("nxmodel-update-tests")
         // ditto: the fake unpacks a launcher bundle of the version the test names (its tag without the "v") into the last argument
         runner.answer = { [bundleID] launch in
             guard launch.executable.hasSuffix("ditto"), let dir = launch.arguments.last else { return ProcessResult() }
@@ -36,7 +34,6 @@ import CryptoKit
 
     override func tearDownWithError() throws {
         try FileManager.default.removeItem(at: temporary)
-        defaults.removePersistentDomain(forName: suite)
     }
 
     private func digest(_ data: Data) -> String { "sha256:" + SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
@@ -194,7 +191,20 @@ import CryptoKit
         await store.stage(release, automatic: false).value
         XCTAssertEqual(store.status, text("app.stageNetFail", "v0.4.8"))
         XCTAssertEqual(store.blocked, store.status)
+        XCTAssertNil(store.downloadProgress)
         XCTAssertTrue(runner.launches.isEmpty, "nothing to unpack")
+    }
+
+    func testStagingReportsAndClearsDownloadProgress() async {
+        source.progressSteps = [0.25, 0.62, 1.5]
+        let release = AppUpdate.Release(tag: "v0.4.8", url: "https://example.invalid/NX2Apple-macOS-arm64.zip", digest: nil)
+        let store = makeStore()
+        var observed: [Double?] = []
+        let sub = store.$downloadProgress.sink { observed.append($0) }
+        await store.stage(release, automatic: false).value
+        _ = sub
+        XCTAssertEqual(observed, [nil, 0, 0.25, 0.62, 1.0, nil])
+        XCTAssertNil(store.downloadProgress, "cleared when staging finishes")
     }
 
     func testOnlyAReleasedCopyStages() async {
@@ -232,6 +242,28 @@ import CryptoKit
         let store = makeStore(installability, automatic: automatic, buildRunning: buildRunning, relaunch: relaunch, terminate: terminate)
         store.staged = AppUpdate.Staged(release: AppUpdate.Release(tag: "v0.4.8", url: "", digest: nil), app: staged)
         return (store, current)
+    }
+
+    /// #873: started from a read-only translocated copy, the store replaces and relaunches the copy in Applications.
+    func testATranslocatedLauncherUpdatesTheCopyItWasStartedFrom() throws {
+        let original = try makeApp("NX2Apple", in: temporary.appendingPathComponent("Applications"), marker: "old")
+        let info: [String: Any] = ["CFBundleIdentifier": bundleID, "CFBundleExecutable": "NSPortBuilder", "CFBundleShortVersionString": "0.4.6"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: original.appendingPathComponent("Contents/Info.plist"))
+        let translocated = temporary.appendingPathComponent("AppTranslocation/8B24E873-DC49-4FFE-808C-9E2A2385F70A/d/NX2Apple.app")
+        var relaunched: URL?
+        let updates = AppUpdateStore(localizer: Localizer(.en), runner: runner, releases: source, version: "0.4.6",
+                                     bundle: translocated, bundleIdentifier: bundleID, defaults: defaults, buildRunning: { false },
+                                     relaunch: { relaunched = $0; return true }, trashOldApp: false,
+                                     translocationOriginal: { _ in original })
+        XCTAssertEqual(updates.installability, .ok)
+        let staged = try makeApp("NX2Apple", in: temporary.appendingPathComponent("staged"), marker: "new")
+        updates.staged = AppUpdate.Staged(release: AppUpdate.Release(tag: "v0.4.8", url: "", digest: nil), app: staged)
+        XCTAssertTrue(updates.install(relaunch: true))
+        XCTAssertEqual(try marker(original), "new")
+        XCTAssertEqual(relaunched, original)
+        XCTAssertTrue(runner.commands.contains("xattr -dr com.apple.quarantine " + original.path),
+                      "the new copy loses the quarantine flag, so the next launch is not translocated")
     }
 
     func testTheStoreWaitsForTheBuild() throws {

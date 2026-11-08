@@ -11,7 +11,16 @@ enum OnboardingDefaults {
     static let completed = "onboarding.completed"
     static let step = "onboarding.step"
     static let platform = "onboarding.platform"
+    static let keysSkipped = "onboarding.keysSkipped"
     static let inProgress = "onboarding.inProgress"
+
+    /// A selection made in the main window supersedes an earlier skip, even if its drive is currently disconnected.
+    static func resumeKeysSkip(in defaults: UserDefaults, keysSlotIsEmpty: Bool) -> Bool {
+        guard defaults.bool(forKey: keysSkipped) else { return false }
+        if keysSlotIsEmpty { return true }
+        defaults.removeObject(forKey: keysSkipped)
+        return false
+    }
 }
 
 /// What `xcode-select`, `xcodebuild -license check` and `-checkFirstLaunchStatus` say, without anything of the machine's
@@ -170,8 +179,20 @@ enum OnboardingLaunch {
     /// Setup counts as complete when the tools are all present, a keys file is known and a games folder is set. A player
     /// who has built a game already has all three in effect.
     static func setupComplete(depsPresent: Bool, keysKnown: Bool, gamesKnown: Bool) -> Bool { depsPresent && keysKnown && gamesKnown }
-    /// `force` (NSPB_ONBOARDING_FORCE=1) shows it whatever the state.
-    static func shouldShow(completed: Bool, setupComplete: Bool, force: Bool = false) -> Bool { force || (!completed && !setupComplete) }
+    enum Destination { case launcher, onboarding, forced }
+
+    @MainActor static func decide(defaults: UserDefaults, force: Bool, keysSlotIsEmpty: Bool, setupComplete: () async -> Bool) async -> Destination {
+        if force { return .forced }
+        if defaults.bool(forKey: OnboardingDefaults.completed) { return .launcher }
+        // A discovered file must not complete an explicitly keyless setup behind the player's back.
+        if defaults.bool(forKey: OnboardingDefaults.inProgress), OnboardingDefaults.resumeKeysSkip(in: defaults, keysSlotIsEmpty: keysSlotIsEmpty) {
+            return .onboarding
+        }
+        guard await setupComplete() else { return .onboarding }
+        defaults.set(true, forKey: OnboardingDefaults.completed)
+        defaults.set(false, forKey: OnboardingDefaults.inProgress)
+        return .launcher
+    }
     static func forced(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool { environment["NSPB_ONBOARDING_FORCE"] == "1" }
 }
 
@@ -233,11 +254,13 @@ enum OnboardingLaunch {
         installApproved = !ephemeral
         let d = env.defaults
         if ephemeral {
+            store(nil, OnboardingDefaults.keysSkipped)
             updateWelcome()
             return
         }
         if fresh {
             d.removeObject(forKey: OnboardingDefaults.step); d.removeObject(forKey: OnboardingDefaults.platform)
+            d.removeObject(forKey: OnboardingDefaults.keysSkipped)
             d.set(false, forKey: OnboardingDefaults.inProgress)
         }
         if let raw = d.string(forKey: OnboardingDefaults.platform), let platform = OnboardingPlatform(rawValue: raw) {
@@ -245,8 +268,15 @@ enum OnboardingLaunch {
         }
         if d.bool(forKey: OnboardingDefaults.inProgress), let raw = d.string(forKey: OnboardingDefaults.step),
            let step = OnboardingStep(rawValue: raw) {
+            state.step = step
+            if OnboardingDefaults.resumeKeysSkip(in: d, keysSlotIsEmpty: model.keysPath.isEmpty) {
+                state.keys = .skipped
+            } else if step.index > OnboardingStep.keys.index {
+                if model.slot("keys").ok { state.keys = .valid }
+                else { state.step = .keys }
+            }
             // A stored step beyond Platform without a platform cannot be right; start from the choice.
-            state.step = (step.index > OnboardingStep.platform.index && state.selectedPlatform == nil) ? .platform : step
+            if step.index > OnboardingStep.platform.index && state.selectedPlatform == nil { state.step = .platform }
         }
         updateWelcome()
     }
@@ -330,6 +360,15 @@ enum OnboardingLaunch {
         validateKeys(url)
     }
 
+    func skipKeys() {
+        guard state.canSkipKeys else { return }
+        model.updateSlot("keys") { $0.paths = []; $0.problem = "" }
+        state.keys = .skipped
+        store(true, OnboardingDefaults.keysSkipped)
+        state.games = .empty   // rescan a previously visited folder for a build input that works without keys
+        next()
+    }
+
     func chooseGames(_ url: URL) {
         guard state.step == .games, state.exit == nil else { return }
         state.games = .scanning
@@ -365,6 +404,7 @@ enum OnboardingLaunch {
         store(true, OnboardingDefaults.completed)
         store(false, OnboardingDefaults.inProgress)
         store(nil, OnboardingDefaults.step)
+        store(nil, OnboardingDefaults.keysSkipped)
         flush()
         if library.selectedID == nil { library.selectedID = library.games.first?.id }
         close(.library)
@@ -409,6 +449,7 @@ enum OnboardingLaunch {
                 await d.modelDidRefresh()
             }
         case .keys:
+            guard state.keys != .skipped else { return }
             state.keys = .searching
             spawn("enter.keys") { d in await d.searchKeys() }
         case .games:
@@ -621,6 +662,7 @@ enum OnboardingLaunch {
     // MARK: Keys
 
     func searchKeys() async {
+        guard state.step == .keys, state.exit == nil, state.keys != .validating, state.keys != .skipped else { return }
         let known = model.keysPath
         let candidates = ([known].filter { !$0.isEmpty && FileManager.default.fileExists(atPath: $0) })
             + env.keyCandidates(gamesFolder: library.folder.isEmpty ? model.gameDir : library.folder)
@@ -628,12 +670,14 @@ enum OnboardingLaunch {
     }
 
     private func validateKeys(_ url: URL) {
+        store(nil, OnboardingDefaults.keysSkipped)
         state.keys = .validating
+        state.games = .empty
         spawn("keys") { d in
             let scoped = url.startAccessingSecurityScopedResource()   // a no-op outside a sandbox
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let outcome = await d.env.keyCheck(url.path, d.model.basePath)
-            guard d.state.exit == nil else { return }
+            guard !Task.isCancelled, d.state.exit == nil, d.state.step == .keys, d.state.keys == .validating else { return }
             switch outcome {
             case .fits, .cannotCheck:
                 d.model.updateSlot("keys") { $0.paths = [url.path]; $0.problem = "" }
@@ -658,27 +702,31 @@ enum OnboardingLaunch {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
         let found = await env.scanGames(url, stores.repo.path)
-        guard state.exit == nil else { return }
+        guard !Task.isCancelled, state.step == .games, state.exit == nil else { return }
         guard !found.isEmpty else { state.games = .none; return }
         // The same slots and folder the main UI sets: the Builds page's inputs and the library's games folder.
-        let keys = model.keysPath
-        model.scan(folder: url.path)
-        if !keys.isEmpty { model.updateSlot("keys") { $0.paths = [keys]; $0.problem = "" } }   // the keys the player confirmed stay
+        let keys = state.keys == .skipped ? "" : model.keysPath
+        let keylessInput = state.keys == .skipped ? found.lazy.compactMap { $0.inputs[GameLibrary.folderInput]?.first }.first : nil
+        model.scan(folder: keylessInput ?? url.path)
+        if state.keys == .skipped || !keys.isEmpty {   // skipping never adopts a keys file discovered during the folder scan
+            model.updateSlot("keys") { $0.paths = keys.isEmpty ? [] : [keys]; $0.problem = "" }
+        }
         library.setFolder(url)
         if !model.running { model.outDir = url.path }
         state.games = .found(found.map { OnboardingGame(id: $0.titleID, title: $0.name, version: "",
-                                                         cover: GameLibrary.artwork(for: $0, repo: stores.repo.path)) })
+                                                         cover: GameLibrary.artwork(for: $0, slot: .thumbnail, repo: stores.repo.path, maxPixel: ArtworkImages.cardPixels),
+                                                         needsKeys: $0.inputs[GameLibrary.folderInput]?.first == nil) })
         let ids = found.map(\.titleID)
         spawn("covers") { d in
             await d.env.fetchArtwork(ids)
             guard case .found(var games) = d.state.games else { return }
             for i in games.indices where games[i].cover == nil {
-                if let g = found.first(where: { $0.titleID == games[i].id }) { games[i].cover = GameLibrary.artwork(for: g, repo: d.stores.repo.path) }
+                if let g = found.first(where: { $0.titleID == games[i].id }) { games[i].cover = GameLibrary.artwork(for: g, slot: .thumbnail, repo: d.stores.repo.path, maxPixel: ArtworkImages.cardPixels) }
             }
             d.state.games = .found(games)
         }
         // The keys against the game they will open: a mismatch sends the player back to the keys, with the reason.
-        if !model.keysPath.isEmpty, !model.basePath.isEmpty {
+        if state.keys != .skipped, !model.keysPath.isEmpty, !model.basePath.isEmpty {
             let outcome = await env.keyCheck(model.keysPath, model.basePath)
             switch outcome {
             case .fits, .cannotCheck: break

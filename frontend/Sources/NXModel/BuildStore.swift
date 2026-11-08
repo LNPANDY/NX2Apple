@@ -64,8 +64,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 ///   stores: `RepoLocation` (where the checkout is), `DependencyInstalling` (the tools: `DependencyStatus` and the install the fix
 ///   buttons run), `EngineSyncing` (the sync a stale `engine/` needs before a build) and `InstallTarget` (the device, the team and
 ///   the copy flow). The app wires them.
-/// - AppKit reaches it as closures: the file and folder pickers (`choosePaths`, `chooseFolder`, `chooseSaveLocation`), the notice
-///   (`showNotice`), the Finder (`revealFolder`, `openApp`), and `targetChanged`, which the app answers with a new dependency check.
+/// - AppKit reaches it as closures: the file and folder pickers (`choosePaths`, `chooseFolder`, `chooseSaveLocation`), the Finder
+///   (`revealFolder`, `openApp`), and `targetChanged`, which the app answers with a new dependency check.
 /// - It checks the conditions for its own actions: `canBuild` and the start of a build (`startBuild`).
 /// - The pieces live in the `BuildStore+` files: `Inputs`, `Run`, `Failure`, `Archive`, `Install`, `Stale`, `DropFiles`.
 @MainActor package final class BuildStore: ObservableObject {
@@ -81,7 +81,16 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         Slot(id: "update", kind: .update, title: "data.update", optional: true),
         Slot(id: "dlc", kind: .dlc, title: "data.dlc", optional: true),
         Slot(id: "keys", kind: .keys, title: "data.keys", optional: false),
-    ]
+    ] {
+        didSet {
+            if (selectedTitleID != nil || failure?.kind == .severalGames), slots.map(\.paths) != oldValue.map(\.paths) {
+                selectedTitleID = nil
+                if failure?.kind == .severalGames { failure = nil; doneNote = "" }
+            }
+        }
+    }
+    /// The program the player chose for this build, including its device checks and retries.
+    var selectedTitleID: String?
     /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
     @Published package var gameFolder: GameFolder.Contents?
     /// A folder meant as a game folder was refused: the base row says why.
@@ -90,7 +99,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         didSet { defaults.set(outDir, forKey: Self.outputKey) }
     }
     @Published package var stages: [Stage] = []
-    var staleShadersShown = false   // the stale-shaders notice shows once per build
+    /// The first shader rebuild explanation of this build. The view localizes it without pausing progress ingestion.
+    @Published package var staleShadersMessageKey: String?
     @Published package var running = false
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
@@ -128,8 +138,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var bcOnCPU: Bool {
         didSet { defaults.set(bcOnCPU, forKey: Self.bcOnCPUKey) }
     }
-    /// Settings, "Use experimental builder" (#749): the NSP script hands the stages nxbuild supports to it, and runs the rest the standard way.
-    /// Off by default. BuildStore+Builder.swift passes it to the build.
+    /// Settings, "Build with nxb" (#749): the build is `nxb build`. A game or a step nxb does not take (exit code 4) is built again by the NSP script.
+    /// On by default. Off, every build is the NSP script. BuildStore+Builder.swift passes it to the build.
     @Published package var experimentalBuilder: Bool {
         didSet { defaults.set(experimentalBuilder, forKey: Self.experimentalBuilderKey) }
     }
@@ -139,6 +149,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
     package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
+    package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
+    package var scriptFallback = false   // the next run is the script, because nxb ended with exit code 4 for this build
     @Published package var archivePath = ""  // the romfs folder the pack wrote
     /// Where this build's folder actually is: --work-dir when the checkout has it, else the script's
     /// default under the input folder (issue #5 — an upstream checkout has no --work-dir).
@@ -175,8 +187,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var chooseFolder: () -> String? = { nil }
     /// The save panel of "Save IPA" (title, the name offered): where to write, nil when they cancelled.
     package var chooseSaveLocation: (String, String) -> URL? = { _, _ in nil }
-    /// A notice the player must see (the shaders are rebuilt): an alert with a title and a text.
-    package var showNotice: (_ title: String, _ text: String) -> Void = { _, _ in }
     package var revealFolder: (URL) -> Void = { _ in }
     /// A Finder window with this file or folder selected (`activateFileViewerSelecting`).
     package var revealItem: (URL) -> Void = { _ in }
@@ -200,6 +210,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     var proc: RunningProcess?
     var staging: String?
+    var psoStageID: Int?
+    var psoStep = ""
+    var psoNativeProgress = false
+    var psoPollGeneration = 0
+    var psoPollTask: Task<Void, Never>?
 
     /// - Parameters:
     ///   - volumesRoot: where external drives are mounted (the failure classifier reads it).
@@ -220,7 +235,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         outDir = defaults.string(forKey: Self.outputKey) ?? ""
         target = BuildTarget.saved(defaults)
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
-        experimentalBuilder = defaults.bool(forKey: Self.experimentalBuilderKey)
+        experimentalBuilder = defaults.object(forKey: Self.experimentalBuilderKey) as? Bool ?? true   // a choice the player saved stays
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
     }
 
@@ -257,12 +272,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     // MARK: Ending a build
 
-    package func fail(_ why: String) { running = false; doneNote = why; say("✗ " + why); cleanupStaging() }
+    package func fail(_ why: String) { stopPSOPoll(); running = false; doneNote = why; say("✗ " + why); cleanupStaging() }
 
     package func stop() {
         if case .moving = shellMove { stopShellMove(); return }
         guard running, !stopping, let proc, proc.isRunning else { return }
         stopping = true
+        stopPSOPoll()
         ProcessGroups.endGroup(proc.processIdentifier)   // the script and every tool it started
     }
 
@@ -271,9 +287,84 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
 
     /// A stopped build leaves no half-finished stages behind: the progress starts empty again.
-    package func resetProgress() { stages = []; log.clear() }
+    package func resetProgress() { stopPSOPoll(); stages = []; log.clear() }
 
-    package func markAllDone() { for i in stages.indices where stages[i].state != .failed { stages[i].state = .done } }
+    package func markAllDone() { stopPSOPoll(); for i in stages.indices where stages[i].state != .failed { stages[i].state = .done } }
+
+    func startPSOPoll(stageID: Int, step: String) {
+        psoPollTask?.cancel()
+        psoPollGeneration &+= 1
+        let generation = psoPollGeneration
+        psoStageID = stageID
+        psoStep = step
+        psoNativeProgress = false
+        let workDir = effectiveWorkDir
+        psoPollTask = Task { [weak store = self] in
+            while !Task.isCancelled {
+                if !workDir.isEmpty {
+                    let progress = await Task.detached(priority: .utility) {
+                        BuildProgress.psoArchiveProgress(workDir: workDir)
+                    }.value
+                    guard !Task.isCancelled else { break }
+                    if let progress {
+                        await MainActor.run {
+                            guard let store,
+                                  store.psoPollGeneration == generation,
+                                  store.psoStageID == stageID,
+                                  !store.psoNativeProgress,
+                                  store.effectiveWorkDir == workDir else { return }
+                            store.applyPSOArchiveProgress(progress, stageID: stageID, generation: generation)
+                        }
+                    }
+                }
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled else { break }
+                let keepGoing = await MainActor.run { [weak store] in
+                    guard let store else { return false }
+                    return store.psoPollGeneration == generation && store.psoStageID == stageID && !store.psoNativeProgress
+                }
+                if !keepGoing { break }
+            }
+        }
+    }
+
+    func stopPSOPoll() {
+        psoPollGeneration &+= 1
+        psoPollTask?.cancel()
+        psoPollTask = nil
+        psoStageID = nil
+        psoStep = ""
+        psoNativeProgress = false
+    }
+
+    /// Inspect `<workDir>/pso/mac-work` (or the iOS work directory / logs) for completed `pso_offline.py` batches while the
+    /// `Pipeline archive` stage runs without native JSON counts from the script.
+    package func pollPSOArchive() {
+        guard !psoNativeProgress, let id = psoStageID, !effectiveWorkDir.isEmpty else { return }
+        let generation = psoPollGeneration
+        let workDir = effectiveWorkDir
+        guard let p = BuildProgress.psoArchiveProgress(workDir: workDir),
+              psoPollGeneration == generation,
+              effectiveWorkDir == workDir else { return }
+        applyPSOArchiveProgress(p, stageID: id, generation: generation)
+    }
+
+    private func applyPSOArchiveProgress(_ p: PSOArchiveProgress, stageID: Int, generation: Int) {
+        guard !psoNativeProgress, psoPollGeneration == generation, psoStageID == stageID,
+              let i = stages.firstIndex(where: { $0.id == stageID && $0.state == .running }) else { return }
+        let pct = min(Double(p.done) / Double(p.total) * 100.0, 99.0)
+        let detail = BuildProgress.progressDetail([
+            "step": psoStep,
+            "done": p.done,
+            "total": p.total,
+            "unit": t("prog.unit.batches"),
+            "note": p.merging ? t("prog.note.merging") : "",
+        ])
+        if stages[i].percent != pct || stages[i].detail != detail {
+            stages[i].percent = pct
+            stages[i].detail = detail
+        }
+    }
 
     // MARK: Output parsing
 
@@ -301,11 +392,30 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         }
         append(line + "\n")
         guard let s = BuildProgress.parseStage(line) else { return }
+        if s.state == .running {
+            if s.name == "Pipeline archive" {
+                if s.percent != nil {
+                    psoPollGeneration &+= 1
+                    psoNativeProgress = true
+                    psoPollTask?.cancel()
+                    psoPollTask = nil
+                } else if psoStageID != s.k {
+                    startPSOPoll(stageID: s.k, step: "")
+                }
+            } else if psoStageID == s.k {
+                stopPSOPoll()
+            }
+        } else if psoStageID == s.k {
+            stopPSOPoll()
+        }
         if let i = stages.firstIndex(where: { $0.id == s.k }) {
             if !s.name.isEmpty { stages[i].name = Stage.localizedName(s.name, t) }
             if s.state != .pending { stages[i].state = s.state }
-            if !s.detail.isEmpty { stages[i].detail = s.detail }
-            stages[i].percent = s.percent
+            let keepPSOPoll = (s.state == .running && s.percent == nil && psoStageID == s.k && !psoNativeProgress && stages[i].percent != nil)
+            if !keepPSOPoll {
+                if !s.detail.isEmpty { stages[i].detail = s.detail }
+                stages[i].percent = s.percent
+            }
         } else if s.state != .pending {
             stages.append(Stage(id: s.k, name: Stage.localizedName(s.name, t), state: s.state, detail: s.detail, percent: s.percent, started: Date()))
             stages.sort { $0.id < $1.id }
@@ -314,12 +424,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     /// The `shaders_stale` event: the cached shader libraries cannot be reused and this build rebuilds them, because the
     /// shader translator changed (`reason` "chain") or the game profile's shader inputs did ("inputs").
-    /// An alert, not a log line: a report asked why the shaders were building again, because the log line went unnoticed.
+    /// The progress card keeps the explanation visible without waiting for an acknowledgment (#862).
     /// Once per build: the script sends the event once per shader step. A reason a newer script adds shows nothing: no text explains it.
     package func noteStaleShaders(reason: String) {
-        guard let text = ["chain": "msg.shadersStale.chain", "inputs": "msg.shadersStale.inputs"][reason], !staleShadersShown else { return }
-        staleShadersShown = true
-        showNotice(t("msg.shadersStale.title"), t(text))
+        guard let text = ["chain": "msg.shadersStale.chain", "inputs": "msg.shadersStale.inputs"][reason], staleShadersMessageKey == nil else { return }
+        staleShadersMessageKey = text
     }
 
     /// One event of `--progress json`: the stage list follows it, and the log gets a readable line (no count updates).
@@ -334,21 +443,58 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             let name = e["name"] as? String ?? "", step = e["step"] as? String ?? ""
             let n = (e["n"] as? NSNumber)?.intValue ?? 0
             append("[\(k)/\(n)] \(name)" + (step.isEmpty ? "" : " · \(step)") + " …\n")
-            stage { $0.name = Stage.localizedName(name, t); $0.state = .running; $0.detail = step; $0.percent = nil; $0.started = Date(); $0.eta = nil }
+            stage {
+                $0.name = Stage.localizedName(name, t)
+                $0.state = .running
+                $0.started = Date()
+                $0.detail = step
+                $0.percent = nil
+                $0.eta = nil
+                $0.isScanningLastShaderFiles = false
+            }
+            if name == "Pipeline archive" { startPSOPoll(stageID: k, step: step) }
+            else if psoStageID == k { stopPSOPoll() }
         case "step":
             let step = e["step"] as? String ?? ""
             append("    · \(step)\n")
-            stage { $0.detail = step; $0.percent = nil; $0.eta = nil }
+            stage {
+                $0.detail = step
+                $0.percent = nil
+                $0.eta = nil
+                $0.isScanningLastShaderFiles = false
+            }
+            if step.hasPrefix("pipeline archive") { startPSOPoll(stageID: k, step: step) }
+            else if psoStageID == k { stopPSOPoll() }
         case "progress":
             let fraction = (e["frac"] as? NSNumber)?.doubleValue
+            let done = (e["done"] as? NSNumber)?.intValue
+            if psoStageID == k, fraction != nil || done != nil {
+                psoPollGeneration &+= 1
+                psoNativeProgress = true
+                psoPollTask?.cancel()
+                psoPollTask = nil
+            }
             let detail = BuildProgress.progressDetail(e)
             let eta = (e["eta"] as? NSNumber)?.doubleValue
-            stage { $0.percent = fraction.map { $0 * 100 }; $0.detail = detail; $0.eta = eta; $0.etaAt = eta == nil ? nil : Date() }
+            stage {
+                $0.percent = fraction.map { $0 * 100 }
+                $0.detail = detail
+                $0.eta = eta
+                $0.etaAt = eta == nil ? nil : Date()
+                $0.isScanningLastShaderFiles = BuildProgress.isScanningLastShaderFiles(e)
+            }
         case "stage_end":
+            if psoStageID == k { stopPSOPoll() }
             let ok = e["ok"] as? Bool ?? true, summary = e["summary"] as? String ?? ""
             let elapsed = BuildProgress.duration((e["elapsed"] as? NSNumber)?.doubleValue ?? 0)
             append("\(ok ? "✓" : "✗") \(e["name"] as? String ?? "") (\(elapsed))" + (summary.isEmpty ? "" : ": \(summary)") + "\n")
-            stage { $0.state = ok ? .done : .failed; $0.detail = summary; $0.percent = ok ? 100 : $0.percent; $0.eta = nil }
+            stage {
+                $0.state = ok ? .done : .failed
+                $0.detail = summary
+                $0.percent = ok ? 100 : $0.percent
+                $0.eta = nil
+                $0.isScanningLastShaderFiles = false
+            }
         case "say":
             let msg = e["msg"] as? String ?? ""
             append(msg + "\n")

@@ -15,7 +15,7 @@ What gets replaced, and why:
 ========================  ==========================================================
 `check_prereqs`           Xcode/xcodegen/make are absent; the Windows toolchain is checked
                           instead, with the same "what is missing and how to get it" shape.
-`build_nx_extract`        on Windows the .NET build emits `nx_extract.exe`, not `nx_extract`
+`build_nx_extract`        use the packaged extractor, or build the Windows executable from source
 `can_clone`               no APFS: plain copies (`nx_extract` spends the disk, not the build)
 `apple_silicon`           no `sysctl`
 `heap_check`              boots the game in the Mac host; replaced by an estimate
@@ -100,6 +100,27 @@ def load_upstream(repo: Path) -> ModuleType:
     if hasattr(mod, 'tree_tar'):
         mod.tree_tar._lock = lambda folder, say=None: True
         mod.tree_tar._unlock = lambda folder: None
+    if hasattr(mod, 'gamemod'):
+        gm = mod.gamemod
+        _Path = getattr(gm, 'Path', Path)
+
+        def _split_games_dir(raw: str) -> list[str]:
+            out: list[str] = []
+            for semi in str(raw or '').split(';'):
+                parts = semi.split(':')
+                i = 0
+                while i < len(parts):
+                    cur = parts[i]
+                    if len(cur) == 1 and cur.isalpha() and i + 1 < len(parts) and parts[i + 1][:1] in ('\\', '/'):
+                        out.append(cur + ':' + parts[i + 1])
+                        i += 2
+                    else:
+                        if cur:
+                            out.append(cur)
+                        i += 1
+            return out
+
+        gm.extra_dirs = lambda: [_Path(p) for p in _split_games_dir(os.environ.get('DM_GAMES_DIR', ''))]
     return mod
 
 
@@ -197,7 +218,11 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
 
     # ---------------------------------------------------------------- nx_extract
     def build_nx_extract(repo_: Path, work: Path, logs: Path, env, *a, **kw):
-        """The .NET build, but on Windows the output is `nx_extract.exe`."""
+        """Use the executable shipped with this engine, or build it for a source checkout."""
+        bundled = repo_ / 'dm/tools/nx_extract_bin/nx_extract.exe'
+        if bundled.is_file():
+            return bundled
+
         import tempfile
         nx = work / 'tools/nx_extract/nx_extract'
         # An absolute path: `dotnet` by name relies on PATH, and a toolchain this app downloaded
@@ -219,6 +244,8 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
 
     # ---------------------------------------------------------------- APFS clones
     mod.can_clone = lambda *a, **kw: False
+    if hasattr(mod, 'pack_dump'):
+        mod.pack_dump.clone = shutil.copy2
     mod.apple_silicon = lambda *a, **kw: True     # only the heap estimate below asks
     mod.ALLOW_OTHER_METAL = True                  # Windows Metal Tools version differs from Xcode's
 
