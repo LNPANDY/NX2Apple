@@ -101,7 +101,7 @@ import NXModel
         gamepad.perform(.plus); settle()
         XCTAssertEqual(driver.state.presentedSheet, .menu, "the menu button opens the menu")
         gamepad.perform(.a); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .general, "the menu's first row is General")
+        XCTAssertEqual(driver.state.presentedSheet, .library, "the menu's first row is Library")
         gamepad.perform(.b); settle()
         XCTAssertEqual(driver.state.presentedSheet, .menu, "B goes back to the menu")
         gamepad.perform(.plus); settle()
@@ -184,9 +184,9 @@ import NXModel
         XCTAssertNotEqual(notMapped.presentedSheet, .mapping, "a game whose build keeps no mapping of its own has none")
     }
 
-    /// The menu's General page opens the Language page, which lists the display languages, the one in use first in focus, and A hands
+    /// The menu's Settings page opens the Language page, which lists the display languages, the one in use first in focus, and A hands
     /// the one picked to the launcher.
-    @MainActor func testGeneralPagePicksTheDisplayLanguage() {
+    @MainActor func testSettingsPagePicksTheDisplayLanguage() {
         let driver = MockConsoleDriver(scenario: .full, animated: false)
                 let gamepad = LauncherGamepad()
         var picked: [String] = []
@@ -198,8 +198,8 @@ import NXModel
         func settle() { RunLoop.main.run(until: Date().addingTimeInterval(0.15)); host.layoutSubtreeIfNeeded() }
         settle()
         driver.openMenu(); settle()
-        driver.openGeneral(); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .general)
+        driver.openSettings(); settle()
+        XCTAssertEqual(driver.state.presentedSheet, .settings)
         gamepad.perform(.a); settle()
         XCTAssertEqual(driver.state.presentedSheet, .language, "A on Language opens its list")
         let codes = AppCard.languageCodes
@@ -209,7 +209,7 @@ import NXModel
         gamepad.perform(.a); settle()
         XCTAssertEqual(picked, [next], "A picks the language below the one in use")
         gamepad.perform(.b); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .general, "B goes back to General")
+        XCTAssertEqual(driver.state.presentedSheet, .settings, "B goes back to Settings")
     }
 
     /// The button mapping keeps its changes only on Save: leaving after a change asks first, B goes on editing, Discard puts the
@@ -243,8 +243,8 @@ import NXModel
     }
 
     /// A game's options bring the desktop's over: the common options on the page and the rest behind Advanced, mods and cheats
-    /// switched here, Reset asked first. The General page's switches and the app's update ask before installing.
-    @MainActor func testGameOptionsAndGeneralFromTheDesktop() {
+    /// switched here, Reset asked first. The Settings page's switches and the app's update ask before installing.
+    @MainActor func testGameOptionsAndSettingsFromTheDesktop() {
         let driver = MockConsoleDriver(scenario: .full, animated: false)
         driver.openOptions("demo.0")
         var game = driver.state.games.first { $0.id == "demo.0" }!
@@ -271,7 +271,7 @@ import NXModel
         XCTAssertEqual(driver.state.presentedSheet, .options("demo.0"))
         XCTAssertTrue(driver.state.games.first { $0.id == "demo.0" }!.values.isEmpty, "the options are back to the defaults")
         driver.back()
-        driver.openMenu(); driver.openGeneral()
+        driver.openMenu(); driver.openSettings()
         XCTAssertFalse(driver.state.prefs[.startInConsole])
         driver.setPref(.startInConsole, on: true)
         XCTAssertTrue(driver.state.prefs[.startInConsole])
@@ -279,7 +279,7 @@ import NXModel
         XCTAssertEqual(driver.state.presentedSheet, .confirmUpdate, "updating asks first")
         driver.confirmAppUpdate()
         XCTAssertEqual(driver.state.prefs.update, .ready)
-        XCTAssertEqual(driver.state.presentedSheet, .general)
+        XCTAssertEqual(driver.state.presentedSheet, .settings)
     }
 
     /// Console mode's own buttons go by their printed letters, whatever the games' mapping: A confirms, B goes back, Y opens a game's
@@ -314,7 +314,7 @@ import NXModel
         for (sizeName, width, height) in [("1920", CGFloat(1920), CGFloat(1080)), ("compact", 390, 844)] {
             for (name, scenario, family) in [("home", MockConsoleDriver.Scenario.full, ConsoleGlyphs.Family.xbox), ("home-dualsense", .full, .playStation), ("home-keyboard", .full, .keyboard),
                                              ("controllers", .controllersMixed, .xbox), ("home-4pads", .controllersMixed, .xbox), ("controllers-wired", .controllers, .xbox), ("options", .full, .xbox), ("empty", .empty, .xbox), ("starting", .starting, .xbox),
-                                             ("menu", .full, .xbox), ("general", .full, .xbox), ("update", .full, .xbox), ("leave", .full, .xbox),
+                                             ("menu", .full, .xbox), ("library", .full, .xbox), ("general", .full, .xbox), ("update", .full, .xbox), ("leave", .full, .xbox),
                                              ("mapping", .full, .xbox), ("mapping-button", .full, .xbox), ("mapping-save", .full, .xbox),
                                              ("game-controller", .full, .xbox), ("game-mapping", .full, .xbox), ("advanced", .full, .xbox),
                                              ("reset", .full, .xbox), ("cloud-saves", .full, .xbox), ("not-built", .full, .xbox)] {
@@ -323,8 +323,9 @@ import NXModel
                 if name == "home-4pads" { driver.back() }
                 switch name {
                 case "menu": driver.openMenu()
-                case "general": driver.openMenu(); driver.openGeneral()
-                case "update": driver.openMenu(); driver.openGeneral(); driver.appUpdateAction()
+                case "library": driver.openMenu(); driver.openLibrary()
+                case "general": driver.openMenu(); driver.openSettings()
+                case "update": driver.openMenu(); driver.openSettings(); driver.appUpdateAction()
                 case "leave": driver.back()
                 case "mapping": driver.openMenu(); driver.openMapping()
                 case "mapping-button": driver.openMenu(); driver.openMapping(); driver.setPadSends(button: "A", to: "B"); driver.openMappingRow("A")
@@ -333,7 +334,7 @@ import NXModel
                 case "game-mapping": driver.openOptions("demo.0"); driver.openGamePad("demo.0"); driver.openGameMapping("demo.0"); driver.setPadSends(button: "ZR", to: "none")
                 case "advanced": driver.openOptions("demo.0"); driver.openAdvanced("demo.0")
                 case "reset": driver.openOptions("demo.0"); driver.setOption(gameID: "demo.0", setting: "DM_VSYNC", value: "0"); driver.askResetOptions("demo.0")
-                case "cloud-saves": driver.openMenu(); driver.openGeneral(); driver.openCloudSaves()
+                case "cloud-saves": driver.openMenu(); driver.openLibrary(); driver.openCloudSaves()
                 case "not-built": driver.focus("demo.3"); driver.play("demo.3")
                 default: break
                 }

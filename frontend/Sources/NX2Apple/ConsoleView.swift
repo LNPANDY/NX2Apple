@@ -31,7 +31,7 @@ enum ConsoleInput {
     var inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher()
     /// Set by the real launcher: leaving the mode calls it instead of showing the preview's "Back on desktop" screen.
     var onExit: (() -> Void)?
-    /// The General page's language choice: "" follows the system, else a language code (Localizer.choose). Nil: the page shows it only.
+    /// The Settings page's language choice: "" follows the system, else a language code (Localizer.choose). Nil: the page shows it only.
     var chooseLanguage: ((String) -> Void)?
     /// The language picked here, shown checked (Lang.saved, read when the page opens).
     @State private var languageCode = Lang.saved?.code ?? ""
@@ -304,7 +304,8 @@ enum ConsoleInput {
                 if let game = state.games.first(where: { $0.id == id }) { explanation(game, compact: compact) }
             case .homeButtonHint: homeButtonHint(compact: compact)
             case .menu: menu(compact: compact)
-            case .general: general(compact: compact)
+            case .library: library(compact: compact)
+            case .settings: settings(compact: compact)
             case .language: language(compact: compact)
             case let .advanced(id):
                 if let game = state.games.first(where: { $0.id == id }) { advanced(game, compact: compact) }
@@ -395,15 +396,16 @@ enum ConsoleInput {
         }
     }
 
-    /// The console's own menu: General (the language, the cloud saves), Controllers, the button mapping, and the way back to the desktop.
+    /// The console's own menu, as the desktop's Settings groups things: Library (the library's switch, the cloud saves), Controllers
+    /// (players, the button mapping, the ways into console mode), Settings (the language, the app's update), and the way back to the desktop.
     private func menu(compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            menuRow("console.menu.general", symbol: "gearshape", title: t("console.menu.general"), note: t("console.menu.generalNote"),
-                    compact: compact) { driver.openGeneral() }
+            menuRow("console.menu.library", symbol: "square.grid.2x2", title: t("console.menu.library"), note: t("console.menu.libraryNote"),
+                    compact: compact) { driver.openLibrary() }
             menuRow("console.menu.controllers", symbol: "gamecontroller", title: t("console.controllers"), note: t("console.menu.controllersNote"),
                     compact: compact) { driver.openControllers() }
-            menuRow("console.menu.mapping", symbol: "arrow.left.arrow.right", title: t("console.mapping"),
-                    note: t("console.menu.mappingNote"), value: t("controls.mode." + state.padLayout.mode.rawValue), compact: compact) { driver.openMapping() }
+            menuRow("console.menu.settings", symbol: "gearshape", title: t("console.menu.settings"), note: t("console.menu.settingsNote"),
+                    compact: compact) { driver.openSettings() }
             Spacer(minLength: 24)
             menuRow("console.menu.exit", symbol: "rectangle.portrait.and.arrow.right", title: t("console.menu.exit"), note: t("console.menu.exitNote"),
                     compact: compact) { driver.confirmExit() }
@@ -419,11 +421,22 @@ enum ConsoleInput {
     /// "Follow the system" by its name in the launcher's language, every other language by its own name (as Settings lists them).
     private func languageName(_ code: String) -> String { code.isEmpty ? t("settings.language.system") : (Lang.find(code)?.name ?? code) }
 
-    /// The General page (ConsoleGeneralList): the language, the cloud saves, the app's update and the launcher's switches.
-    private func general(compact: Bool) -> some View {
+    /// The Library page (ConsoleLibraryList): the library's switch and the cloud saves.
+    private func library(compact: Bool) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
-                ConsoleGeneralList(driver: driver, lang: lang, compact: compact, languageName: languageName(languageCode))
+                ConsoleLibraryList(driver: driver, lang: lang, compact: compact)
+                    .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+            }
+            .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
+        }
+    }
+
+    /// The Settings page (ConsoleSettingsList): the language, the app's update and the launcher after a game.
+    private func settings(compact: Bool) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                ConsoleSettingsList(driver: driver, lang: lang, compact: compact, languageName: languageName(languageCode))
                     .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
             }
             .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
@@ -570,7 +583,8 @@ enum ConsoleInput {
         case .menu: return "console.menu"
         case .mapping: return state.mappingGameID == nil ? "console.mapping" : "console.mapping.game"
         case .gamePad: return "console.gamePad"
-        case .general: return "console.menu.general"
+        case .library: return "console.menu.library"
+        case .settings: return "console.menu.settings"
         case .language: return "console.language.title"
         case .cloudSaves: return "console.saves.title"
         case .confirmExit: return "console.exit.title"
@@ -598,9 +612,10 @@ enum ConsoleInput {
         case .controllers: pad.focused = "console.player.\(state.assigningPlayer ?? 1)"
         case .explanation: pad.focused = "console.explanation.desktop"
         case .homeButtonHint: pad.focused = "console.homeHint.open"
-        case .menu: pad.focused = "console.menu.general"
+        case .menu: pad.focused = "console.menu.library"
         case .cloudSaves: pad.focused = state.saveRows.first.map { "console.saves.row." + $0.id } ?? "console.saves.close"
-        case .general: pad.focused = "console.general.language"
+        case .library: pad.focused = ConsolePref.onLibrary.first.map { "console.pref." + $0.rawValue } ?? "console.library.saves"
+        case .settings: pad.focused = "console.settings.language"
         case .language: pad.focused = "console.language." + (languageCode.isEmpty ? "system" : languageCode)
         case .confirmExit: pad.focused = "console.confirmExit.leave"
         case .confirmMapping: pad.focused = "console.confirmMapping.save"

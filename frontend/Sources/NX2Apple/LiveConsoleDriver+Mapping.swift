@@ -13,7 +13,8 @@ extension LiveConsoleDriver {
     }
     func openMenu() { state.openMenu() }
     /// The switches are read again first: Settings on the desktop may have changed them since.
-    func openGeneral() { refreshDesktop(); state.openGeneral() }
+    func openLibrary() { refreshDesktop(); state.openLibrary() }
+    func openSettings() { refreshDesktop(); state.openSettings() }
     func openLanguage() { state.openLanguage() }
     /// Kept in the launcher's defaults, read again with the layout (refreshPadLayout), so it lasts from one console session to the next.
     static let menuSwapKey = "console.menuSwapAB"

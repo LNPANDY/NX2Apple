@@ -122,15 +122,16 @@ enum ConsoleStarting: Equatable {
 
 enum ConsoleSheet: Equatable {
     /// homeButtonHint: the system keeps the controller's Home button, so a game cannot be quit with it (#336, shown once).
-    /// menu: the console's own menu (Controllers, Button mapping, leaving console mode), on the Select-type button.
+    /// menu: the console's own menu (Library, Controllers, Settings, leaving console mode), on the Select-type button.
     /// mapping: what each controller button sends in games, for all games (the Controls page's controller layout).
     /// gamePad: a game's controller settings (its Controls rows: rumble, and its own button mapping), opened from its options.
-    /// general: the menu's General page, language: its display language list.
+    /// library: the menu's Library page (the library's switch, the way to the cloud saves). settings: its Settings page (the display
+    /// language, the app's update, the launcher after a game), language: the display language list.
     /// cloudSaves: each game's cloud save state and time, as a page of its own over the whole screen.
     /// confirmExit: "Leave console mode?", over what is open (the menu's Exit, or B on the home screen).
     /// confirmMapping: "Save changes?", leaving the button mapping after something on it changed.
     /// advanced: a game's advanced options. confirmReset: "Reset this game's options?". confirmUpdate: install the app's update, or restart into it.
-    case options(String), controllers, explanation(String), homeButtonHint, menu, mapping, gamePad(String), general, language, cloudSaves, confirmExit, confirmMapping
+    case options(String), controllers, explanation(String), homeButtonHint, menu, mapping, gamePad(String), library, settings, language, cloudSaves, confirmExit, confirmMapping
     case advanced(String), confirmReset(String), confirmUpdate
     /// The questions drawn in the middle of the screen, over what they were asked from.
     var isQuestion: Bool {
@@ -155,7 +156,8 @@ enum ConsoleSheet: Equatable {
         case .confirmReset: return "console.confirmReset"
         case .confirmUpdate: return "console.confirmUpdate"
         case .cloudSaves: return "console.saves"   // ConsoleCloudSavesPage.scope
-        case .general: return "console.general"
+        case .library: return "console.library"
+        case .settings: return "console.settings"
         case .options: return "console.options"
         case .gamePad: return "console.gamePad"
         case .controllers: return "console.controllers"
@@ -220,7 +222,7 @@ struct ConsoleState {
     /// B confirms and A goes back in console mode's menus, as on a Switch (ConsoleButtons). Off: A confirms, as printed on Xbox and
     /// PlayStation controllers.
     var menuSwapAB = false
-    /// The General page's switches and the app's update, a build the desktop is running, and whether this Mac has the Home button setting.
+    /// The Settings page's switches and the app's update, a build the desktop is running, and whether this Mac has the Home button setting.
     var prefs = ConsolePrefs()
     var build: ConsoleBuild?
     var homeButtonAvailable = false
@@ -278,11 +280,15 @@ struct ConsoleState {
         saveRows = rows
         sheets.append(.cloudSaves)
     }
-    mutating func openGeneral() {
-        guard !exited, startingGameID == nil, presentedSheet != .general else { return }
-        sheets.append(.general)
+    mutating func openLibrary() {
+        guard !exited, startingGameID == nil, presentedSheet != .library else { return }
+        sheets.append(.library)
     }
-    /// Pages and questions over a game's options or the General page, each once.
+    mutating func openSettings() {
+        guard !exited, startingGameID == nil, presentedSheet != .settings else { return }
+        sheets.append(.settings)
+    }
+    /// Pages and questions over a game's options or the Settings page, each once.
     mutating func push(_ sheet: ConsoleSheet) {
         guard !exited, startingGameID == nil, presentedSheet != sheet else { return }
         sheets.append(sheet)
@@ -377,10 +383,11 @@ struct ConsoleState {
     func openControllers()
     /// The console's menu (the Select-type button, or the menu button in the top bar).
     func openMenu()
-    /// The menu's General page, and its cloud saves page.
-    func openGeneral()
+    /// The menu's Library and Settings pages, and the cloud saves page (from Library).
+    func openLibrary()
+    func openSettings()
     func openCloudSaves()
-    /// The General page's display language list.
+    /// The Settings page's display language list.
     func openLanguage()
     /// "Leave console mode?": the menu's Exit asks first (B on the home screen does too, through `back`).
     func confirmExit()
@@ -395,7 +402,7 @@ struct ConsoleState {
     func askResetOptions(_ gameID: String)
     func resetOptions(_ gameID: String)
     func openOnDesktop(_ gameID: String)
-    /// The General page: a launcher switch, and the app's update (checked, or asked about and then installed or restarted into).
+    /// A launcher switch (on the Library, Controllers or Settings page), and the app's update (checked, or asked about and then installed or restarted into).
     func setPref(_ pref: ConsolePref, on: Bool)
     func appUpdateAction()
     func confirmAppUpdate()
@@ -440,7 +447,8 @@ extension ConsoleDriver {
     func setMenuSwapAB(_ on: Bool) {}
     func finishMapping(save: Bool) {}
     func openGameMapping(_ gameID: String) {}
-    func openGeneral() {}
+    func openLibrary() {}
+    func openSettings() {}
     func openCloudSaves() {}
     func openLanguage() {}
     func confirmExit() {}

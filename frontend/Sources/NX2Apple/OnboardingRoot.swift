@@ -62,7 +62,7 @@ struct RootView: View {
             shared.console.prepareLaunch = { [console] launch in console.startGameInFullScreen(then: launch) }   // the console stays full screen into the game
             shared.console.pointerHidden = { [console] in console.pointerHidden }
             shared.console.gameEnded = { [console] in console.resumeFullScreenAfterGame() }
-            shared.console.attach(updates: stores.appUpdates, builds: stores.build)   // the General page's update row and the build chip
+            shared.console.attach(updates: stores.appUpdates, builds: stores.build)   // the Settings page's update row and the build chip
             await decide()
         }
         .onChange(of: mode) { console.available = $0 == .launcher }
@@ -96,7 +96,7 @@ struct RootView: View {
     private func runSetupAgain() { show(fresh: true) }
 }
 
-/// The console mode redrawn in the language its General page picks (the root view itself does not observe the localizer).
+/// The console mode redrawn in the language its Settings page picks (the root view itself does not observe the localizer).
 private struct ConsoleInLanguage<Content: View>: View {
     @ObservedObject var localizer: Localizer
     let content: (Lang) -> Content

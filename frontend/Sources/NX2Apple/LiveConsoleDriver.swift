@@ -499,7 +499,7 @@ struct ConsolePadSnapshot: Equatable {
     /// How long one Identify rumbles. The pattern is stopped by hand after it, whatever the controller does with the pattern's end.
     static let rumbleSeconds = 0.6
 
-    /// The launcher's app updates and builds, for the General page and the build chip (LiveConsoleDriver+Desktop). Set by the session.
+    /// The launcher's app updates and builds, for the Settings page and the build chip (LiveConsoleDriver+Desktop). Set by the session.
     weak var appUpdates: AppUpdateStore?
     weak var builds: BuildStore?
 

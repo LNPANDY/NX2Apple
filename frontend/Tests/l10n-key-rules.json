@@ -8,7 +8,7 @@
     {"prefix": "console.kind.", "suffix": "", "why": "the controller kinds, ConsoleState.swift"},
     {"prefix": "console.mapping.place.", "suffix": "", "why": "where each controller button sits, by its DM_PAD_MAP name, ConsolePadMappingView.swift"},
     {"prefix": "console.platform.", "suffix": "", "why": "the platforms of a game, ConsoleState.swift"},
-    {"prefix": "console.pref.", "suffix": "", "why": "the General page's launcher switches and their notes, ConsoleExtras.swift"},
+    {"prefix": "console.pref.", "suffix": "", "why": "the launcher's switches on the console menu's pages and their notes, ConsoleExtras.swift"},
     {"prefix": "console.saves.status.", "suffix": "", "why": "the sync state of each game's save, ConsoleCloudSaves.swift"},
     {"prefix": "console.saves.updated.", "suffix": "", "why": "which time a save row shows, ConsoleCloudSaves.swift"},
     {"prefix": "controls.fn.", "suffix": "", "why": "the label of each controller button, Controls.swift"},

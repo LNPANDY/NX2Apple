@@ -171,7 +171,8 @@ import NXLauncher
         showToast(String(format: L10n.string("console.identifyingName", lang), controller.name))
     }
     func openMenu() { state.openMenu() }
-    func openGeneral() { state.openGeneral() }
+    func openLibrary() { state.openLibrary() }
+    func openSettings() { state.openSettings() }
     func openLanguage() { state.openLanguage() }
     func setMenuSwapAB(_ on: Bool) {
         if state.mappingOrigin != nil { state.pendingMenuSwapAB = on } else { state.menuSwapAB = on }

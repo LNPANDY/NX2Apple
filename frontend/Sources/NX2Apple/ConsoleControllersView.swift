@@ -23,7 +23,8 @@ import NXLauncher
     func requestAssignment(controllerID: String) { base.requestAssignment(controllerID: controllerID) }
     func identify(controllerID: String) { base.identify(controllerID: controllerID) }
     func openMenu() { base.openMenu() }
-    func openGeneral() { base.openGeneral() }
+    func openLibrary() { base.openLibrary() }
+    func openSettings() { base.openSettings() }
     func openCloudSaves() { base.openCloudSaves() }
     func openLanguage() { base.openLanguage() }
     func confirmExit() { base.confirmExit() }
@@ -259,6 +260,7 @@ struct ConsoleToastView: View {
                     if showsJoyconSplit { joyconSplitToggle }
                     if showsMapping { mappingEntry }
                     if showsMapping && state.homeButtonAvailable { homeEntry }
+                    if showsMapping { ForEach(ConsolePref.onControllers, id: \.self) { prefToggle($0) } }   // the ways into console mode, as the desktop's Controls card has them
                     Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(.secondary)
                     HStack(spacing: 12) {
                         ForEach(1...4, id: \.self) { player in
@@ -326,6 +328,28 @@ struct ConsoleToastView: View {
         .padTarget("console.controller.mapping", scope: scope, radius: 10, activate: open)
         .accessibilityLabel(t("console.mapping")).accessibilityValue(value)
         .accessibilityHint(t("console.menu.mappingNote"))
+    }
+
+    /// A launcher switch about controllers (ConsolePref.onControllers: start in console mode, offer it when a controller connects), as
+    /// a switch with what it does under it. Console mode only: the desktop's Controls card has the same switches.
+    private func prefToggle(_ pref: ConsolePref) -> some View {
+        let on = state.prefs[pref]
+        let flip = { driver.setPref(pref, on: !on) }
+        return Button(action: flip) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(t(pref.titleKey)).font(.manrope(compact ? 16 : 18, .semibold))
+                    Text(t(pref.noteKey)).font(.manrope(compact ? 14 : 16)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Toggle("", isOn: Binding(get: { on }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.pref." + pref.rawValue, scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
+        .accessibilityLabel(t(pref.titleKey)).accessibilityHint(t(pref.noteKey)).accessibilityValue(t(on ? "console.on" : "console.off"))
     }
 
     /// "Quit games with the Home button": the system's setting on macOS 27 (HomeButtonSettings), opened as the desktop's Controls page does.

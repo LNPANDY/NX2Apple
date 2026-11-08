@@ -213,27 +213,46 @@ struct ConsoleSwitchRow: View {
     }
 }
 
-/// The General page: the display language and the cloud saves (pages of their own), the app's update, then the launcher's switches.
-@MainActor struct ConsoleGeneralList<Driver: ConsoleDriver>: View {
+/// The Library page: the library's switch (only built games), and the way to the cloud saves page.
+@MainActor struct ConsoleLibraryList<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
     let lang: Lang
     let compact: Bool
-    let languageName: String
-    static var scope: String { "console.general" }
+    static var scope: String { "console.library" }
     private var scope: String { Self.scope }
     private func t(_ key: String) -> String { L10n.string(key, lang) }
     private var prefs: ConsolePrefs { driver.state.prefs }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ConsoleMenuRow(id: "console.general.language", scope: scope, symbol: "globe", title: t("console.language.title"),
-                           note: t("console.language.note"), value: languageName, compact: compact) { driver.openLanguage() }
-            ConsoleMenuRow(id: "console.general.saves", scope: scope, symbol: "icloud", title: t(ConsoleCloudSaves.menuKey),
+            ForEach(ConsolePref.onLibrary, id: \.self) { pref in
+                ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t(pref.noteKey),
+                                 isOn: prefs[pref], compact: compact) { driver.setPref(pref, on: !prefs[pref]) }
+            }
+            ConsoleMenuRow(id: "console.library.saves", scope: scope, symbol: "icloud", title: t(ConsoleCloudSaves.menuKey),
                            note: t(ConsoleCloudSaves.menuNoteKey), compact: compact) { driver.openCloudSaves() }
-            ConsoleMenuRow(id: "console.general.update", scope: scope, symbol: "arrow.down.app", title: t("console.update.title"),
+        }
+    }
+}
+
+/// The Settings page: the display language (a page of its own), the app's update, and the launcher's switch for after a game quits.
+@MainActor struct ConsoleSettingsList<Driver: ConsoleDriver>: View {
+    @ObservedObject var driver: Driver
+    let lang: Lang
+    let compact: Bool
+    let languageName: String
+    static var scope: String { "console.settings" }
+    private var scope: String { Self.scope }
+    private func t(_ key: String) -> String { L10n.string(key, lang) }
+    private var prefs: ConsolePrefs { driver.state.prefs }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ConsoleMenuRow(id: "console.settings.language", scope: scope, symbol: "globe", title: t("console.language.title"),
+                           note: t("console.language.note"), value: languageName, compact: compact) { driver.openLanguage() }
+            ConsoleMenuRow(id: "console.settings.update", scope: scope, symbol: "arrow.down.app", title: t("console.update.title"),
                            note: updateNote, value: updateValue, compact: compact) { driver.appUpdateAction() }
-            ConsoleSectionHeading(title: t("console.general.launcher"), compact: compact).padding(.top, 14)
-            ForEach(ConsolePref.allCases, id: \.self) { pref in
+            ForEach(ConsolePref.onSettings, id: \.self) { pref in
                 ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t(pref.noteKey),
                                  isOn: prefs[pref], compact: compact) { driver.setPref(pref, on: !prefs[pref]) }
             }
