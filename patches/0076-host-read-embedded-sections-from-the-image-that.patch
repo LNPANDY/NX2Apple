@@ -35,7 +35,7 @@ index f3e38a1..dc6edac 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -2025,7 +2024,7 @@ EGL(eglSwapBuffers, EGLBoolean, EGLDisplay d, EGLSurface s) {
+@@ -2025,7 +2024,7 @@ static void frame_end(void) {
  // eglGetProcAddress: GL names from the same table as direct imports; anything else is null (the game's loader asks for every GL name it knows)
  static void *gl_lookup(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
@@ -45,7 +45,7 @@ index f3e38a1..dc6edac 100644
      return NULL;
  }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 8015ced..92b2934 100644
+index a6e0bf4..c1e4673 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -38,8 +38,7 @@
@@ -94,7 +94,7 @@ index 6b25664..9d141a4 100644
  #include <math.h>
  #include <stdatomic.h>
  #include <time.h>
-@@ -1743,7 +1742,7 @@ VKB(vkQueuePresentKHR, VkResult, VkQueue q, const VkPresentInfoKHR *pi) {
+@@ -1743,7 +1742,7 @@ static void frame_end(void) {
  static void *vk_lookup(const char *name) {
      static const hle_ent *sec; static unsigned long sz;
      if (!name || strncmp(name, "vk", 2)) return NULL;
@@ -162,7 +162,7 @@ index 0000000..9dde850
 +extern const struct mach_header_64 __dso_handle;
 +#define DM_HOST_IMAGE (&__dso_handle)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index a81d7da..8e623ec 100644
+index a23aa79..99a910b 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -8,9 +8,8 @@
@@ -185,7 +185,7 @@ index a81d7da..8e623ec 100644
      g_nforce = g_force ? (unsigned)(sz / sizeof *g_force) : 0;
      g_force_hits = calloc(g_nforce + 1, sizeof *g_force_hits);
      unsigned cap = 16; while (cap < g_nforce * 2) cap <<= 1;
-@@ -708,7 +707,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
+@@ -722,7 +721,7 @@ static void remap_at(module_t *m, vm_address_t to, const void *from, unsigned lo
  }
  // The image the module sections are read from (front.h dm_set_game_image_header). getsectiondata takes any loaded image's header and applies its slide
  #include "front.h"

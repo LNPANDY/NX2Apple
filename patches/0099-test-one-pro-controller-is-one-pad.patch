@@ -5,8 +5,8 @@ Subject: [PATCH] Test: a HID device reported under two references is one pad,
  and one Pro Controller is not twins
 
 IOHIDManager reports a device once for each matching dictionary it meets, each
-time under a new IOHIDDeviceRef. The backport of seedds/nxnative a00f03b makes
-pad_hid_mac.h know a pad by its registry entry. This test reports a generic pad
+time under a new IOHIDDeviceRef. seedds/nxnative a00f03b, in the pin since
+c78d7375, makes pad_hid_mac.h know a pad by its registry entry. This test reports a generic pad
 and a Pro Controller twice each: one pad and one player for the first, and for
 the second no twins, so GameController keeps reading it with its motion. Without
 a00f03b it fails on the Pro Controller's second reference.
@@ -14,7 +14,7 @@ a00f03b it fails on the Pro Controller's second reference.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
 Upstream-Status: fork-only (t_controllers_mac.m comes with patch 0081, forwarded seedds/nxnative#221)
-Reason: The regression test for the backport of a00f03b lives in t_controllers_mac.m, which upstream gets with seedds/nxnative#221
+Reason: The regression test for upstream's a00f03b lives in t_controllers_mac.m, which upstream gets with seedds/nxnative#221
 Issue: LNPANDY/NX2Apple#971
 
 ---

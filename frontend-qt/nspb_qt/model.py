@@ -1461,7 +1461,7 @@ class Model(QObject):
                         self._record_install_failure(dep, detail)
                 elif what == 'llvm':
                     self.log(self.t('dep.llvm.downloading') + '\n')
-                    name = wtc.LLVM_ASSETS.get('AMD64', {}).get('name', 'LLVM-MinGW')
+                    name = wtc.LLVM_MINGW_ASSETS.get('AMD64', {}).get('name', 'LLVM-MinGW')
                     path = wf.install_llvm(
                         log=lambda s: self.log(str(s) + '\n'),
                         progress=self._stage_progress_logger(
