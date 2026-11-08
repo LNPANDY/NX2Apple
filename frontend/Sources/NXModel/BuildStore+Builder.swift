@@ -13,7 +13,7 @@ extension BuildStore {
     /// Why the build cannot start as `nxb build`: no nxb found, or one that is older than the command line needs. The player's text, nil when it can start (or the switch is off).
     /// A game or a target nxb does not take is not checked here: nxb says so itself (exit code 4) and the launcher shows it.
     func experimentalBuilderProblem() -> String? {
-        guard experimentalBuilder else { return nil }
+        guard ExperimentalBuilder.featureEnabled, experimentalBuilder else { return nil }
         guard let nxb = experimentalBuilderBinary, let version = runner.output(nxb, ["version"]) else { return t("msg.builderMissingError") }
         return ExperimentalBuilder.isNewEnough(version) ? nil : String(format: t("nxb.tooOld"), version.trimmingCharacters(in: .whitespacesAndNewlines), ExperimentalBuilder.minimumVersion)
     }

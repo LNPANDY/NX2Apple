@@ -31,7 +31,7 @@ extension BuildStore {
             return
         }
         // The experimental builder runs `nxb build` and never the script: no nxb, or one too old, stops here (#749). A game nxb does not take ends with its own exit code 4
-        nxbRun = experimentalBuilder
+        nxbRun = ExperimentalBuilder.featureEnabled && experimentalBuilder
         if let why = experimentalBuilderProblem() { fail(why); return }
         // Resolve the interpreter here if the dependency check has not landed yet. checkDeps()
         // runs on a background queue and startBuild() can beat it — for a moment deps.pythonPath is

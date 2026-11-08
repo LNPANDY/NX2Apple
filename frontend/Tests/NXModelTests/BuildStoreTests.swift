@@ -55,12 +55,14 @@ import XCTest
     private let localizer = Localizer(.en)
 
     override func setUpWithError() throws {
+        ExperimentalBuilder.featureEnabled = true   // the toggle is off in the app for now, these tests are about the builder
         defaults = TestDefaults.make("nxmodel-build-tests")
         temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
+        ExperimentalBuilder.featureEnabled = false
         try? FileManager.default.removeItem(at: temporary)
     }
 
@@ -154,6 +156,18 @@ import XCTest
         let again = makeStore()
         XCTAssertTrue(again.experimentalBuilder)
         XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
+    }
+
+    func testWithTheToggleOffASavedExperimentalBuilderIsIgnoredAndComesBackWhenItIsOn() {
+        let store = makeStore()
+        store.experimentalBuilder = true; store.experimentalBuilderPath = "/opt/nxbuild"
+        ExperimentalBuilder.featureEnabled = false
+        let off = makeStore()
+        XCTAssertFalse(off.experimentalBuilder, "toggle off: the saved choice does not apply")
+        XCTAssertNil(off.experimentalBuilderProblem())
+        XCTAssertTrue(defaults.bool(forKey: BuildStore.experimentalBuilderKey), "and it stays saved")
+        ExperimentalBuilder.featureEnabled = true
+        XCTAssertTrue(makeStore().experimentalBuilder, "toggle on again: the choice is back")
     }
 
     func testTheExperimentalBuilderStopsWithoutANewEnoughNxbAndNeverRunsTheScript() throws {

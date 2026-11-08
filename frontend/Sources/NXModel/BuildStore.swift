@@ -234,7 +234,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         outDir = defaults.string(forKey: Self.outputKey) ?? ""
         target = BuildTarget.saved(defaults)
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
-        experimentalBuilder = defaults.bool(forKey: Self.experimentalBuilderKey)
+        experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
     }
 
