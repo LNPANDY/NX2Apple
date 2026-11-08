@@ -3601,6 +3601,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
             _clear_body = ns['_clear_body']
             _step1_row_meta = ns['_step1_row_meta']
             _render_step = ns['_render_step']
+            _fit_dialog_height = lambda self: None
 
             def __init__(self, model):
                 self.m = model
@@ -4398,6 +4399,162 @@ class UnrealInlineShadersWinTest(unittest.TestCase):
                     os.environ.pop('LOCALAPPDATA', None)
                 else:
                     os.environ['LOCALAPPDATA'] = old_local
+
+
+class WinToolchainInstallWiringTest(unittest.TestCase):
+    """End-to-end wiring of Model._install_win against nspb_qt.win.toolchain and fetch.
+
+    Regression for the LLVM-MinGW onboarding crash where Model._install_win referenced
+    `wtc.LLVM_ASSETS` instead of `wtc.LLVM_MINGW_ASSETS`, raising AttributeError before
+    `fetch.install_llvm` could start. Runs with or without PySide6 installed in CI.
+    """
+
+    def test_every_wtc_attribute_in_model_exists_on_win_toolchain(self) -> None:
+        import ast
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        tree = ast.parse(src)
+        attrs = {
+            node.attr
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id == 'wtc'
+        }
+        self.assertIn('LLVM_MINGW_ASSETS', attrs)
+        self.assertNotIn('LLVM_ASSETS', attrs)
+        for attr in sorted(attrs):
+            self.assertTrue(
+                hasattr(tc, attr),
+                f'model.py accesses wtc.{attr}, which does not exist in nspb_qt.win.toolchain',
+            )
+
+    def test_install_win_llvm_and_siblings_run_without_attribute_error(self) -> None:
+        import ast
+        from nspb_qt.i18n import Lang
+        from nspb_qt.l10n import t as l10n_t
+        from nspb_qt.win import fetch as wf, sdk_fetch as sf
+
+        src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+        tree = ast.parse(src)
+        cls_node = next(
+            n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Model'
+        )
+        wanted = {
+            '_install_win',
+            '_stage_progress_logger',
+            '_progress_logger',
+            '_set_dep_progress',
+            '_clear_installing',
+            '_record_install_failure',
+            '_classify_install_failure',
+        }
+        methods = [
+            n for n in cls_node.body
+            if isinstance(n, ast.FunctionDef) and n.name in wanted
+        ]
+        mod_node = ast.fix_missing_locations(ast.Module(body=methods, type_ignores=[]))
+
+        class _SyncThread:
+            def __init__(self, target=None, daemon=None):
+                self._target = target
+
+            def start(self):
+                if self._target:
+                    self._target()
+
+        class _Sig:
+            def emit(self):
+                pass
+
+        ns: dict = {
+            'Path': Path,
+            'shutil': shutil,
+            'threading': type('T', (), {'Thread': _SyncThread}),
+            '__package__': 'nspb_qt',
+        }
+        exec(compile(mod_node, str(QT / 'nspb_qt' / 'model.py'), 'exec'), ns)
+
+        class _Harness:
+            _install_win = ns['_install_win']
+            _stage_progress_logger = ns['_stage_progress_logger']
+            _progress_logger = ns['_progress_logger']
+            _set_dep_progress = ns['_set_dep_progress']
+            _clear_installing = ns['_clear_installing']
+            _record_install_failure = ns['_record_install_failure']
+            _classify_install_failure = ns['_classify_install_failure']
+
+            def __init__(self):
+                self.lang = Lang('en')
+                self.logs: list[str] = []
+                self.deps: list = []
+                self.depsChanged = _Sig()
+                self.python_path = ''
+
+            def log(self, msg: str) -> None:
+                self.logs.append(str(msg))
+
+            def t(self, key: str, *args: object) -> str:
+                return l10n_t(key, self.lang, *args)
+
+            def check_deps(self) -> None:
+                pass
+
+            def _make_venv(self, py: str, dep=None) -> bool:
+                return True
+
+        class _Dep:
+            def __init__(self, dep_id: str, title_key: str):
+                self.id = dep_id
+                self.title_key = title_key
+                self.installing = False
+                self.install_stage = ''
+                self.install_detail = ''
+                self.install_pct = None
+                self.queue_index = 0
+                self.last_error = ''
+                self.fix_hint = ''
+
+        h = _Harness()
+        llvm_dep = _Dep('llvm', 'dep.llvm')
+        dotnet_dep = _Dep('dotnet', 'dep.dotnet')
+        py_dep = _Dep('python', 'dep.python')
+        zstd_dep = _Dep('zstd', 'dep.zstd')
+        sdk_dep = _Dep('ios_sdk', 'dep.iossdk')
+        h.deps = [llvm_dep, dotnet_dep, py_dep, zstd_dep, sdk_dep]
+
+        seen_llvm_details: list[str] = []
+
+        def fake_install_llvm(log=None, progress=None, unpack_progress=None, **_kw):
+            if progress:
+                progress(50 * 1048576, 181 * 1048576)
+                seen_llvm_details.append(llvm_dep.install_detail)
+            if unpack_progress:
+                unpack_progress(500 * 1048576, 1000 * 1048576)
+                seen_llvm_details.append(llvm_dep.install_detail)
+            return Path('C:/tools/llvm-mingw-20261020')
+
+        with (
+            mock.patch.object(wf, 'install_llvm', side_effect=fake_install_llvm) as spy_llvm,
+            mock.patch.object(wf, 'install_dotnet', return_value=Path('C:/tools/dotnet')),
+            mock.patch.object(wf, 'install_python', return_value=Path('C:/tools/python')),
+            mock.patch.object(wf, 'install_zstd', return_value=Path('C:/tools/zstd/zstd.exe')),
+            mock.patch.object(sf, 'install_sdk', return_value=Path('C:/sdks/iPhoneOS27.2.sdk')),
+        ):
+            for dep, target in (
+                (llvm_dep, 'llvm'),
+                (dotnet_dep, 'dotnet'),
+                (py_dep, 'python'),
+                (zstd_dep, 'zstd'),
+                (sdk_dep, 'ios_sdk'),
+            ):
+                h._install_win(dep, target)
+                self.assertEqual(dep.last_error, '', f'{target} failed with {dep.last_error}')
+                self.assertFalse(dep.installing)
+
+        spy_llvm.assert_called_once()
+        expected_zip = tc.LLVM_MINGW_ASSETS['AMD64']['name']
+        self.assertEqual(len(seen_llvm_details), 2)
+        self.assertTrue(all(expected_zip in d for d in seen_llvm_details), seen_llvm_details)
 
 
 if __name__ == '__main__':

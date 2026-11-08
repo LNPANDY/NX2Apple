@@ -20,7 +20,7 @@ package enum BuildFailureClassifier {
         ("keys.missing", .keys, "(?m)^\\[RED\\] no such file: "),
         ("keys.old", .keysOld, "the keys are older than the game"),
         ("games.several", .severalGames, "more than one game in the folder"),
-        ("games.noTitleID", .noTitleID, "no NSP with a readable title ID in "),
+        ("games.noTitleID", .noTitleID, "no (?:NSP|game package) with a readable (?:title ID|content meta) in "),
         ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
         ("pso.low", .psoDiskFull, "pso_offline: [0-9.]+ GB free on the volume of [^\\n]+, metal-tt needs about [0-9.]+ GB for [0-9]+ bases:"),
         ("pso.merge", .psoDiskFull, "pso_offline: [0-9.]+ GB free before merging; need at least [0-9.]+ GB"),
@@ -81,8 +81,8 @@ package enum BuildFailureClassifier {
         case .psoDiskFull:
             guard let r = log.range(of: #"pso_offline: [^\n]+(?:metal-tt needs about|before merging; need at least) [0-9.]+ GB"#, options: .regularExpression) else { return nil }
             return log[r].split(separator: " ").dropLast().last.map(String.init)
-        case .noTitleID:   // "no NSP with a readable title ID in /path"
-            guard let r = log.range(of: #"(?m)no NSP with a readable title ID in (.+)$"#, options: .regularExpression),
+        case .noTitleID:   // "no game package with a readable content meta in /path" (engines before c78d7375: "no NSP with a readable title ID in /path")
+            guard let r = log.range(of: #"(?m)no (?:NSP|game package) with a readable (?:title ID|content meta) in (.+)$"#, options: .regularExpression),
                   let at = log[r].range(of: " in ") else { return nil }
             return String(log[r][at.upperBound...]).trimmingCharacters(in: .whitespaces)
         default: return nil

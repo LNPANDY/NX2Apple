@@ -2,6 +2,6 @@
 # build-mac-app.yml and tools/try-local run `frontend/tools/nxbuild.py fetch`: download the zip, check its SHA-256 against the line
 # below, unpack nxb and sign it ad hoc. `frontend/tools/nxbuild.py bump <version>` writes a new version with its digest from the
 # release's SHA256SUMS. A sha256 of PLACEHOLDER (no release yet) bundles nothing, and the setting then needs a chosen nxb.
-version	0.9.1
-sha256	a853c9d978e682fa5ca8b84ac4f1c65bd30180e10837bca185fd9d32280414dc
+version	0.9.3
+sha256	7434d704a590de4ef964fc5467b89f8b0f0f8f25f7279d3fdf00503ebc8bc088
 url	https://github.com/v0lumehi/nxkit/releases/download/v{version}/nxb-v{version}-macos-arm64.zip

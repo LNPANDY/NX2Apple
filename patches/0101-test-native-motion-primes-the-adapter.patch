@@ -11,7 +11,7 @@ expected it published; it now sends a priming report first.
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
 Upstream-Status: fork-only (t_controllers_mac.m comes with patch 0081, forwarded seedds/nxnative#221)
-Reason: test_native_motion_integration in the fork's t_controllers_mac.m needs a priming report since patch 0099
+Reason: test_native_motion_integration in the fork's t_controllers_mac.m needs a priming report since patch 0100
 Issue: LNPANDY/NX2Apple#971
 
 ---

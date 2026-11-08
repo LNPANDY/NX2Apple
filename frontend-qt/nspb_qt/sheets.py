@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFileDialog,
     QFrame,
@@ -502,7 +503,8 @@ class OnboardingDialog(QDialog):
         self._step1_sig: tuple | None = None
         self._step1_widgets: dict = {}
         self.setWindowTitle('NX2Apple Setup')
-        self.setMinimumSize(640, 520)
+        self.setMinimumSize(640, 480)
+        self.resize(640, 560)
         self.setStyleSheet(style.STYLESHEET)
 
         lay = QVBoxLayout(self)
@@ -541,11 +543,16 @@ class OnboardingDialog(QDialog):
         note_row.addWidget(self.overall_pct_lbl)
         lay.addLayout(note_row)
 
+        self.body_scroll = QScrollArea()
+        self.body_scroll.setWidgetResizable(True)
+        self.body_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.body_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.body_host = QWidget()
         self.body_layout = QVBoxLayout(self.body_host)
         self.body_layout.setContentsMargins(0, 8, 0, 8)
         self.body_layout.setSpacing(12)
-        lay.addWidget(self.body_host, 1)
+        self.body_scroll.setWidget(self.body_host)
+        lay.addWidget(self.body_scroll, 1)
 
         foot = QHBoxLayout()
         self.later_btn = QPushButton(self.m.t('onboarding.later'))
@@ -743,6 +750,7 @@ class OnboardingDialog(QDialog):
                 if ibtn_w is not None:
                     ibtn_w.setText(ibtn_text)
                     ibtn_w.setEnabled(not any_busy)
+                self._fit_dialog_height()
                 return
 
             self._clear_body()
@@ -775,13 +783,15 @@ class OnboardingDialog(QDialog):
 
                 dl = None
                 if dt_text:
+                    dl_wrap = QHBoxLayout()
+                    dl_wrap.setContentsMargins(18, 0, 0, 2)
                     dl = QLabel(dt_text)
                     dl.setObjectName('mono')
                     dl.setWordWrap(True)
-                    dl.setContentsMargins(18, 0, 0, 0)
                     if dt_color:
                         dl.setStyleSheet(f'color: {dt_color}; font-size: 11.5px;')
-                    v.addWidget(dl)
+                    dl_wrap.addWidget(dl)
+                    v.addLayout(dl_wrap)
 
                 bar = None
                 if pct_val is not None:
@@ -794,7 +804,7 @@ class OnboardingDialog(QDialog):
                     bar_wrap.addWidget(bar)
                     v.addLayout(bar_wrap)
 
-                row_widgets[d.id] = {'dot': dot_w, 'status': st, 'detail': dl, 'bar': bar}
+                row_widgets[d.id] = {'dot': dot_w, 'title': tl, 'status': st, 'detail': dl, 'bar': bar}
                 grp.add_row(r)
             self.body_layout.addWidget(grp)
 
@@ -861,6 +871,29 @@ class OnboardingDialog(QDialog):
             self.body_layout.addWidget(grp)
 
         self.body_layout.addStretch(1)
+        self._fit_dialog_height()
+
+    def _fit_dialog_height(self) -> None:
+        if self.body_host.isVisible():
+            for i in range(self.body_layout.count()):
+                w = self.body_layout.itemAt(i).widget()
+                if w is not None:
+                    w.show()
+        self.body_layout.activate()
+        scr = self.screen() or QApplication.primaryScreen()
+        max_h = int(scr.availableGeometry().height() * 0.9) if scr is not None else 720
+        avail_w = max(self.body_host.width(), self.width() - 64, 520)
+        body_h = self.body_host.heightForWidth(avail_w)
+        if body_h <= 0:
+            body_h = self.body_host.sizeHint().height()
+        chrome_h = self.height() - self.body_scroll.height()
+        if chrome_h < 180:
+            chrome_h = 220
+        target_h = min(max_h, max(self.height(), chrome_h + body_h + 8))
+        if target_h > self.height() and target_h >= self.minimumHeight():
+            self.resize(self.width(), target_h)
+        elif self.height() > max_h and max_h >= self.minimumHeight():
+            self.resize(self.width(), max_h)
 
     def _pick_keys(self) -> None:
         f, _ = QFileDialog.getOpenFileName(self, self.m.t('data.keys'), '', 'Keys (prod.keys *.keys *);;All files (*)')

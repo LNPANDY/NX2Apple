@@ -59,7 +59,7 @@ Issue: LNPANDY/NX2Apple#414
  4 files changed, 456 insertions(+), 51 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 586c46e..363d822 100644
+index c4a318e..7a5f7cb 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -9,8 +9,9 @@
@@ -73,7 +73,7 @@ index 586c46e..363d822 100644
  //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
  //   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium) and the left stick's place through DM_TOUCH_STICK (corner, higher, inward).
  //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
-@@ -118,11 +119,9 @@ static void phone_motion_start(UIView *body) {
+@@ -119,11 +120,9 @@ static void phone_motion_start(UIView *body) {
  // The bottom-corner controls reach halfway into the side safe-area inset (in landscape there is only the rounded screen corner there; the Dynamic Island is mid-edge);
  // the stick's ring is as large as the whole diamond (key distance + key radius), the knob a little larger than a diamond key; the D-pad sits inward of and below the
  // left stick, as on a Pro Controller. The menu button is at the top centre, level with - / +, and takes a touch within 1.6 times its radius (at least 22 points, half of a 44-point target). What stays here is how touches are taken:
@@ -86,7 +86,7 @@ index 586c46e..363d822 100644
      K_RSTICK_R = 60,                                // right stick (not drawn): radius around its centre, the touch-down point
      K_RSWIPE = 1.0 / 3;                             // right stick area: this fraction of the screen width from the right edge (not in u)
  static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
-@@ -163,8 +162,10 @@ static void pads_start(void);   // Physical controllers, below
+@@ -164,8 +163,10 @@ @implementation DmGamepad {
      CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
      BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
      DmLayout _layout;
@@ -98,7 +98,7 @@ index 586c46e..363d822 100644
      UITouch *_game[16];                           // touches on the game's touch screen by finger slot
  }
  
-@@ -191,6 +192,10 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
+@@ -192,6 +193,10 @@ - (instancetype)initWithFrame:(CGRect)f {
          const char *stick = getenv("DM_TOUCH_STICK");
          _opts.stick = dm_pad_stick_place(stick);
          if (stick && *stick) LOG("front end: left stick %s (DM_TOUCH_STICK)", _opts.stick == DM_PAD_STICK_HIGHER ? "higher" : _opts.stick == DM_PAD_STICK_INWARD ? "inward" : "in the corner");
@@ -109,7 +109,7 @@ index 586c46e..363d822 100644
          [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
              [(UIView *)environment setNeedsLayout];
          }];
-@@ -280,6 +285,12 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }
+@@ -281,6 +286,12 @@ - (const DmPadGeo *)geo {   // DmPadGeometry.h, computed again whenever the boun
      if (!_geoValid || !CGRectEqualToRect(b, _geoBounds) || !UIEdgeInsetsEqualToEdgeInsets(i, _geoInsets) || _geoFull != _full) {
          _geo = dm_pad_geo(b, i, _layout, _full, _opts);
          _geoBounds = b; _geoInsets = i; _geoFull = _full; _geoValid = YES;
@@ -122,7 +122,7 @@ index 586c46e..363d822 100644
      }
      return &_geo;
  }
-@@ -305,33 +316,14 @@ static int dropIndex(int b) { return b == B_ZL ? DM_PAD_ZL : b == B_L ? DM_PAD_L
+@@ -306,33 +317,14 @@ - (CGRect)pillRect:(int)b { return self.geo->pill[b == B_PLUS ? DM_PAD_PLUS : DM
  - (CGPoint)menuCenter { return self.geo->swap; }
  
  static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
@@ -161,7 +161,7 @@ index 586c46e..363d822 100644
  }
  - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
      uint64_t m = 0; CGFloat r = self.faceHitR;
-@@ -407,10 +399,7 @@ int front_web_touch(void);
+@@ -408,10 +400,7 @@ - (BOOL)gameBegin:(UITouch *)t {
  - (BOOL)controlAt:(CGPoint)p {
      if (_padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return NO;
      if (_tap) return NO;
@@ -173,7 +173,7 @@ index 586c46e..363d822 100644
      return _full && !_stick[1] && [self inRightArea:p];
  }
  - (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {
-@@ -423,14 +412,10 @@ int front_web_touch(void);
+@@ -424,14 +413,10 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
          if (_padOff) { game |= [self gameBegin:t]; continue; }
          CGPoint p = [t locationInView:self];
          if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }

@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Sun, 8 Nov 2026 14:44:26 +0100
+Subject: [PATCH] NSP script: package_names, which upstream dropped, for the
+ experimental builder and the RomFS reuse
+
+Upstream 5c4dc18f reads every package's content metas with nx_extract --contents and
+removed pfs0_names, hfs0_names, package_names and is_merged. The nxbuild hand-over
+(nxb_extract) and the RomFS reuse of the NX2Apple queue still list the file names of
+a package, so the three readers come back here, as they were.
+
+Upstream-Status: fork-only
+Reason: the nxbuild hand-over and the RomFS reuse read a package's file names in the script itself
+
+Issue: LNPANDY/NX2Apple#976
+
+---
+ scripts/build_ipa_from_nsp.py | 35 +++++++++++++++++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 3d2e98b..2d88a22 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -606,6 +606,41 @@ def dotnet_sdk10_first(env):
+ 
+ 
+ # ---- NSP identification ----
++def pfs0_names(path):   # NSP = PFS0: list the file names inside
++    with open(path, 'rb') as f:
++        h = f.read(16)
++        if h[:4] != b'PFS0': return []
++        if len(h) != 16: raise BuildError(f'truncated PFS0 header: {path.name}')
++        n, st = struct.unpack_from('<II', h, 4)
++        if n * 0x18 + st > os.fstat(f.fileno()).st_size - 16:
++            raise BuildError(f'truncated PFS0 file-name table: {path.name}')
++        ent, strs = f.read(n * 0x18), f.read(st)
++    names = []
++    for i in range(n):
++        o = struct.unpack_from('<I', ent, i * 0x18 + 0x10)[0]
++        if o >= len(strs): raise BuildError(f'PFS0 file-name offset outside the string table: {path.name}')
++        # Older NSZ writers omitted the final NUL: the string table itself still bounds the name.
++        end = strs.find(b'\0', o)
++        names.append(strs[o:end if end >= 0 else len(strs)].decode(errors='replace'))
++    return names
++
++
++def hfs0_names(f, off):   # an XCI's HFS0 partition at off: [(name, offset of its data from the file's start)]
++    f.seek(off); h = f.read(16)
++    if h[:4] != b'HFS0': return []
++    n, st = struct.unpack_from('<II', h, 4)
++    ent, strs = f.read(n * 0x40), f.read(st); data = off + 16 + n * 0x40 + st
++    return [(strs[no:strs.index(b'\0', no)].decode(errors='replace'), data + o) for o, no in (struct.unpack_from('<Q8xI', ent, i * 0x40) for i in range(n))]
++
++
++def package_names(path):   # the file names inside a package: an NSP's PFS0, or an XCI's secure partition (the NCAs nx_extract reads)
++    with open(path, 'rb') as f:
++        h = f.read(0x140)
++        if h[0x100:0x104] != b'HEAD': return pfs0_names(path)
++        secure = dict(hfs0_names(f, struct.unpack_from('<Q', h, 0x130)[0])).get('secure')
++        return [n for n, _ in hfs0_names(f, secure)] if secure else []
++
++
+ def is_package(path):   # what nx_extract's OpenNsp opens: an XCI / XCZ by the card header's magic at 0x100, else a PFS0 (NSP, NSZ)
+     with open(path, 'rb') as f: h = f.read(0x104)
+     return h[:4] == b'PFS0' or h[0x100:] == b'HEAD'
