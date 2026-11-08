@@ -21,8 +21,10 @@ What gets replaced, and why:
 `heap_check`              boots the game in the Mac host; replaced by an estimate
 `build_mac_host`          the Mac host can never run here: refuses with a clear message
 `toolchain`               the shader cache key needs the Windows Metal compiler's version
-`capture_shaders` /       run-time shader capture boots the game in the Mac host: refused,
-`capture_glslc`           with the device-capture workflow explained
+`capture_shaders`         reconstructs LÖVE OpenGL shaders offline via `love_shaders.py` when
+                          every capture-table entry matches, and refuses other captures
+`capture_glslc`           run-time shader capture boots the game in the Mac host: refused,
+                          with the device-capture workflow explained
 `mac_app` / `mac_run`     Mac platforms: refused
 `build_ipa.sh`            replaced by `build_app.py` (through the shim, which also has to cover
                           the child processes the pipeline starts)
@@ -428,7 +430,58 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
                 'build from the same work folder (its shader/ and extract/ are reused).')
         return fn
     mod.capture_glslc = _refuse_capture('this game')
-    mod.capture_shaders = _refuse_capture('this game')
+
+    def capture_shaders(repo_, d, patched, work, env, logs, g, api='gl', *a, **kw):
+        """Reconstruct LÖVE OpenGL shaders offline via `love_shaders.py`, or reuse existing captures."""
+        if d is not None:
+            d_path = Path(d)
+            out = d_path / f'{api}_capture'
+            want = mod.capture_wanted(g, api) if (g is not None and hasattr(mod, 'capture_wanted')) else None
+            if want and hasattr(mod, 'capture_done') and mod.capture_done(out, api) >= want:
+                stage_name = 'Vulkan shader capture' if api == 'vk' else 'GL shader capture'
+                mod.PROG.stage(stage_name)
+                say(f'reusing the captured run-time shaders: {out}')
+                mod.PROG.end('reused')
+                return out
+            if api == 'gl':
+                main_nso = d_path / 'ExeFS' / 'main'
+                if main_nso.is_file():
+                    from . import love_shaders
+                    part = d_path / 'gl_capture.partial'
+                    mod.rmtree(part)
+                    table = None
+                    if g is not None and hasattr(mod, 'CAPTURES'):
+                        try:
+                            table = g.table(mod.CAPTURES['gl']['table'])
+                        except Exception:
+                            table = None
+                    rom_src = mod.rfs.source(d_path) if hasattr(mod, 'rfs') else (d_path / 'RomFS')
+                    try:
+                        res = love_shaders.generate(
+                            main_nso,
+                            rom_src,
+                            part,
+                            table,
+                            log=say,
+                            repo=repo_,
+                            require_table=True,
+                        )
+                    except (love_shaders.LoveShaderError, ValueError) as e:
+                        mod.rmtree(part)
+                        raise BuildError(str(e)) from e
+                    if res is not None:
+                        mod.PROG.stage('GL shader reconstruction (LÖVE)')
+                        if hasattr(mod, 'swap_in'):
+                            mod.swap_in(part, out)
+                        else:
+                            mod.rmtree(out)
+                            part.rename(out)
+                        mod.PROG.end(f'{len(res[0])} shaders')
+                        return out
+                    mod.rmtree(part)
+        return _refuse_capture('this game')(repo_, d, patched, work, env, logs, g, api, *a, **kw)
+
+    mod.capture_shaders = capture_shaders
 
     def capture_jit(py_, repo_, d, patched, work, env, logs, g, *a, **kw):
         if (Path(d) / 'jit' / 'jit.img').is_file():

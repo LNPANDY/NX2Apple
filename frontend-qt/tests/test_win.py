@@ -1762,7 +1762,7 @@ class PlatformIsolationTest(unittest.TestCase):
             code = (
                 'import sys; sys.path.insert(0, %r)\n'
                 'from nspb_qt.win import toolchain, sdk_fetch, shim, fix_ipa_modes, fetch, '
-                'doctor, build_app, driver, xcrun_shim, macho_sign, sdk_auto_cuts\n'
+                'doctor, build_app, driver, xcrun_shim, macho_sign, sdk_auto_cuts, love_shaders\n'
                 'print("ok")\n'
             ) % str(QT)
             r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
@@ -4630,6 +4630,198 @@ class WinToolchainInstallWiringTest(unittest.TestCase):
                 self.assertNotIn('_MEIPASS', cenv)
                 self.assertNotIn('PYTHONHOME', cenv)
                 self.assertEqual(cenv.get('PYTHONPATH'), r'C:\UserLib')
+
+
+class LoveShadersWinTest(unittest.TestCase):
+    """Offline LÖVE GLSL shader reconstruction (`love_shaders.py`) and `driver.capture_shaders`."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from nspb_qt.win import driver as _drv, love_shaders
+        cls.driver = _drv
+        cls.love_shaders = love_shaders
+        cls.repo = QT.parent / 'engine'
+        cls.mod = _drv.load_upstream(cls.repo)
+        _drv.patch(cls.mod, cls.repo)
+
+    @staticmethod
+    def _make_nso0(img: bytes | bytearray, compress: bool = True) -> bytes:
+        import struct
+        import types
+        import zlib
+        try:
+            import lz4.block
+        except ModuleNotFoundError:
+            _m = types.ModuleType('lz4')
+            _b = types.ModuleType('lz4.block')
+            _b.compress = lambda raw, **_kw: zlib.compress(raw)
+            _b.decompress = lambda blob, **_kw: zlib.decompress(blob)
+            _m.block = _b
+            sys.modules['lz4'] = _m
+            sys.modules['lz4.block'] = _b
+            lz4 = _m
+        img_b = bytes(img)
+        assert len(img_b) >= 0x3000
+        segs = [(0x0000, 0x1000), (0x1000, 0x1000), (0x2000, len(img_b) - 0x2000)]
+        hdr = bytearray(0x100)
+        hdr[:4] = b'NSO0'
+        struct.pack_into('<I', hdr, 0x0C, 0b111 if compress else 0)
+        body = bytearray()
+        fo = 0x100
+        for i, (mo, sz) in enumerate(segs):
+            raw = img_b[mo:mo + sz]
+            blob = lz4.block.compress(raw, store_size=False) if compress else raw
+            struct.pack_into('<III', hdr, 0x10 + i * 0x10, fo, mo, sz)
+            struct.pack_into('<I', hdr, 0x60 + i * 4, len(blob))
+            body.extend(blob)
+            fo += len(blob)
+        return bytes(hdr + body)
+
+    def test_love_shaders_offline_reconstruction_completeness_and_driver_errors(self) -> None:
+        lua_src = (
+            'local GLSL = {}\n'
+            'GLSL.VERSION = {\n'
+            '    glsl1 = { [false] = "#version 120", [true] = "#version 100" },\n'
+            '    glsl3 = { [false] = "#version 330 core", [true] = "#version 300 es" },\n'
+            '}\n'
+            'GLSL.SYNTAX = [==[\n#define number float\n]==]\n'
+            'GLSL.UNIFORMS = [==[\nuniform mat4 TransformProjectionMatrix;\n]==]\n'
+            'GLSL.FUNCTIONS = [==[\nvec4 gammaCorrectColor(vec4 c) { return c; }\n]==]\n'
+            'GLSL.VERTEX = {\n'
+            '    HEADER = [==[\n#define LOVE_VERTEX_HEADER 1\n]==],\n'
+            '    FUNCTIONS = [==[\nvoid love_vfn() {}\n]==],\n'
+            '    MAIN = [==[\nvoid main() { gl_Position = position(TransformProjectionMatrix, vec4(0.0)); }\n]==],\n'
+            '}\n'
+            'GLSL.PIXEL = {\n'
+            '    HEADER = [==[\n#define LOVE_PIXEL_HEADER 1\n]==],\n'
+            '    FUNCTIONS = [==[\nvoid love_pfn() {}\n]==],\n'
+            '    MAIN = [==[\nvoid main() { love_PixelColor = effect(vec4(1.0), MainTex, VaryingTexCoord.xy, gl_FragCoord.xy); }\n]==],\n'
+            '    MAIN_CUSTOM = [==[\nvoid main() { effect(); }\n]==],\n'
+            '}\n'
+            'local defaultcode = {\n'
+            '    vertex = [==[\nvec4 position(mat4 m, vec4 p) { return m * p; }\n]==],\n'
+            '    pixel = [==[\nvec4 effect(vec4 c, Image t, vec2 tc, vec2 pc) { return c; }\n]==],\n'
+            '    videopixel = [==[\nvoid effect() { /* video */ }\n]==],\n'
+            '    arraypixel = [==[\nvoid effect() { /* array */ }\n]==],\n'
+            '}\n'
+            'function love.graphics._shaderCodeToGLSL(gles, arg1, arg2)\nend\n'
+        )
+        img = bytearray(0x3000)
+        lua_bytes = b'\x00' + lua_src.encode('utf-8') + b'\x00'
+        img[0x1100:0x1100 + len(lua_bytes)] = lua_bytes
+
+        with tempfile.TemporaryDirectory() as td:
+            game_dir = Path(td) / 'extract' / 'v0'
+            (game_dir / 'ExeFS').mkdir(parents=True)
+            (game_dir / 'ExeFS' / 'main').write_bytes(self._make_nso0(img, compress=True))
+
+            romfs = game_dir / 'RomFS'
+            (romfs / 'resources' / 'shaders').mkdir(parents=True)
+            (romfs / 'conf.lua').write_text('function love.conf(t) t.gammacorrect = false end\n', encoding='utf-8')
+            (romfs / 'resources' / 'shaders' / 'CRT.fs').write_bytes(
+                b'vec4 effect(vec4 c, Image t, vec2 tc, vec2 pc) {\r\n    return c * 0.5;\r\n}\r\n'
+            )
+            (romfs / 'resources' / 'shaders' / 'Vortex.fs').write_bytes(
+                b'vec4 position(mat4 m, vec4 p) { return m * p; }\n'
+                b'void effect() { love_Canvases[0] = vec4(1.0); }\n'
+            )
+
+            # 1) Direct generation without a capture table writes all 7 shaders
+            direct_out = Path(td) / 'direct_cap'
+            res_direct = self.love_shaders.generate(
+                game_dir / 'ExeFS' / 'main', romfs, direct_out, repo=self.repo
+            )
+            self.assertIsNotNone(res_direct)
+            files = sorted(p.name for p in direct_out.iterdir() if p.is_file())
+            self.assertEqual(len(files), 7, f'unexpected shader files: {files}')
+
+            # 2) Without a capture table (`g=None`), `driver.capture_shaders` passes
+            #    `require_table=True` and refuses instead of swapping in an unverified set
+            with self.assertRaises(self.mod.BuildError):
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), None, 'gl'
+                )
+            self.assertFalse((game_dir / 'gl_capture').exists())
+            self.assertFalse((game_dir / 'gl_capture.partial').exists())
+
+            # 3) With a matching `gl_capture.tsv` on the profile, `driver.capture_shaders` succeeds
+            tbl = Path(td) / 'gl_capture.tsv'
+            tbl.write_text('# test capture table\n' + '\n'.join(files) + '\n', encoding='utf-8')
+
+            class FakeProfile:
+                @staticmethod
+                def table(name: str) -> Path:
+                    assert name == 'gl_capture.tsv'
+                    return tbl
+
+            out_cap = self.mod.capture_shaders(
+                self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+            )
+            self.assertEqual(out_cap, game_dir / 'gl_capture')
+            self.assertEqual(sorted(p.name for p in out_cap.iterdir() if p.is_file()), files)
+
+            # 4) When `gl_capture.tsv` lists a key not produced offline (e.g., after a game update),
+            #    `generate` returns `None`, leaves no partial folder, and `capture_shaders` refuses
+            shutil.rmtree(out_cap)
+            tbl.write_text('\n'.join([*files, 'deadbeefcafebabe.frag']) + '\n', encoding='utf-8')
+            partial_out = Path(td) / 'incomplete_cap'
+            self.assertIsNone(
+                self.love_shaders.generate(
+                    game_dir / 'ExeFS' / 'main', romfs, partial_out, table=tbl, repo=self.repo
+                )
+            )
+            self.assertFalse(partial_out.exists(), 'incomplete reconstruction must not write files')
+            with self.assertRaises(self.mod.BuildError) as ctx_inc:
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+                )
+            self.assertIn('booting the game in the Mac host', str(ctx_inc.exception))
+
+            # 5) Unsupported LÖVE template (missing required keys) raises `BuildError`, not `ValueError`
+            bad_img = bytearray(0x3000)
+            bad_lua = b'\x00function love.graphics._shaderCodeToGLSL(gles, a, b)\nend\n\x00'
+            bad_img[0x1100:0x1100 + len(bad_lua)] = bad_lua
+            (game_dir / 'ExeFS' / 'main').write_bytes(self._make_nso0(bad_img, compress=False))
+            with self.assertRaises(self.mod.BuildError) as ctx_bad:
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+                )
+            self.assertIn('unsupported LÖVE version', str(ctx_bad.exception))
+
+            # 6) Non-LÖVE binary falls back to standard capture `BuildError`
+            (game_dir / 'ExeFS' / 'main').write_bytes(self._make_nso0(bytearray(0x3000), compress=False))
+            with self.assertRaises(self.mod.BuildError):
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+                )
+
+            # 7) ZBIC (zstd) compressed NSO and corrupt LZ4 segment error handling
+            import struct
+            import types
+            import zlib
+            zbic_blob = zlib.compress(bytes(img))
+            zbic_hdr = bytearray(0x100)
+            zbic_hdr[:4] = b'NSO0'
+            struct.pack_into('<I', zbic_hdr, 0x0C, (1 << 7) | 1)
+            struct.pack_into('<III', zbic_hdr, 0x10, 0x100, 0, len(img))
+            struct.pack_into('<I', zbic_hdr, 0x60, len(zbic_blob))
+            zbic_nso = Path(td) / 'zbic_main'
+            zbic_nso.write_bytes(bytes(zbic_hdr) + zbic_blob)
+            fake_zbic = types.SimpleNamespace(decompress=zlib.decompress)
+            with mock.patch.dict(sys.modules, {'zbic': fake_zbic}):
+                self.assertEqual(self.love_shaders.nso_image(zbic_nso), bytes(img))
+
+            corrupt_hdr = bytearray(0x100)
+            corrupt_hdr[:4] = b'NSO0'
+            struct.pack_into('<I', corrupt_hdr, 0x0C, 1)
+            struct.pack_into('<III', corrupt_hdr, 0x10, 0x100, 0, 0x1000)
+            struct.pack_into('<I', corrupt_hdr, 0x60, 8)
+            (game_dir / 'ExeFS' / 'main').write_bytes(bytes(corrupt_hdr) + b'bad_lz4!')
+            with self.assertRaises(self.mod.BuildError) as ctx_lz4:
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+                )
+            self.assertIn('failed to decompress LZ4 NSO segment', str(ctx_lz4.exception))
 
 
 if __name__ == '__main__':

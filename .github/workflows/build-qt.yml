@@ -191,6 +191,7 @@ jobs:
             --hidden-import nspb_qt.win.shell_export \
             --hidden-import nspb_qt.win.fix_ipa_modes \
             --hidden-import nspb_qt.win.doctor \
+            --hidden-import nspb_qt.win.love_shaders \
             --collect-data PySide6 \
             --hidden-import PySide6.QtCore \
             --hidden-import PySide6.QtGui \
