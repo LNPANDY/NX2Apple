@@ -50,7 +50,8 @@ export MACOSX_DEPLOYMENT_TARGET=13.0
 
 fetch() {   # fetch <url> <sha256> -> the file in $WORK/dl
     local f="$WORK/dl/$(basename "$1")"
-    if [ ! -f "$f" ]; then curl -fsSL --retry 3 -o "$f.part" "$1"; mv "$f.part" "$f"; fi
+    # --retry-all-errors: a GitHub release download that answers 504 ends as curl error 56, which --retry alone does not retry
+    if [ ! -f "$f" ]; then curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors -o "$f.part" "$1"; mv "$f.part" "$f"; fi
     local got; got=$(shasum -a 256 "$f" | cut -c1-64)
     [ "$got" = "$2" ] || { echo "[RED] $1: sha256 $got, pinned $2" >&2; rm -f "$f"; exit 1; }
     echo "$f"
@@ -99,7 +100,7 @@ XG=$(find "$WORK/xcodegen" -name xcodegen -type f -perm -u+x -path '*/bin/*' | h
 XGROOT=$(dirname "$(dirname "$XG")")
 cp "$XG" "$BIN/xcodegen"; chmod 755 "$BIN/xcodegen"
 cp -R "$XGROOT/share/xcodegen" "$RES/tools/share/xcodegen"
-cp "$XGROOT/LICENSE" "$LIC/xcodegen-LICENSE" 2>/dev/null || curl -fsSL "https://raw.githubusercontent.com/yonaskolb/XcodeGen/$XCODEGEN_VERSION/LICENSE" -o "$LIC/xcodegen-LICENSE"
+cp "$XGROOT/LICENSE" "$LIC/xcodegen-LICENSE" 2>/dev/null || curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors "https://raw.githubusercontent.com/yonaskolb/XcodeGen/$XCODEGEN_VERSION/LICENSE" -o "$LIC/xcodegen-LICENSE"
 
 # Python: python-build-standalone's install_only build runs from wherever it is (its libpython is @executable_path/../lib), and the packages
 # are installed into it now, from the pinned list, so nothing is downloaded on the player's Mac.
