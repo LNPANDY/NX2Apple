@@ -47,12 +47,14 @@ import XCTest
     private let runner = FakeProcessRunner()
 
     override func setUpWithError() throws {
+        ExperimentalBuilder.featureEnabled = true   // the toggle is off in the app for now, these tests are about the builder
         root = NSTemporaryDirectory() + "gamefolder-store-" + UUID().uuidString
         defaults = TestDefaults.make("nxmodel-gamefolder")
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
+        ExperimentalBuilder.featureEnabled = false
         try? FileManager.default.removeItem(atPath: root)
     }
 

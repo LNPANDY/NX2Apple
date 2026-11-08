@@ -9,6 +9,10 @@ import Foundation
 /// 2. the app's own copy, `Contents/Resources/nxbuild/nxb`: the release `frontend/nxbuild.pin` names, downloaded when the app is built, its SHA-256
 ///    checked against the pin before it is unpacked (`frontend/tools/nxbuild.py fetch`). Players download nothing at run time.
 package enum ExperimentalBuilder {
+    /// The feature toggle. It is off for now: the launcher shows no builder row, ignores a saved "on" and builds with the NSP script.
+    /// The player's saved choice stays stored, so turning the toggle on again brings it back. `NX2APPLE_NXBUILD=1` turns it on for one run.
+    package static var featureEnabled = ProcessInfo.processInfo.environment["NX2APPLE_NXBUILD"] == "1"
+
     /// The app's copy of nxb under a Resources folder.
     package static func bundled(resources: String?) -> String? {
         resources.map { ($0 as NSString).appendingPathComponent("nxbuild/nxb") }
