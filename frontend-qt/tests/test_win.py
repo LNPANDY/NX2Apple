@@ -4556,6 +4556,81 @@ class WinToolchainInstallWiringTest(unittest.TestCase):
         self.assertEqual(len(seen_llvm_details), 2)
         self.assertTrue(all(expected_zip in d for d in seen_llvm_details), seen_llvm_details)
 
+        # Verify 0% and 100% are throttled across thousands of small zip entries (no signal storm)
+        emit_count = [0]
+        orig_emit = h.depsChanged.emit
+        h.depsChanged.emit = lambda: (emit_count.__setitem__(0, emit_count[0] + 1), orig_emit())
+        h.logs.clear()
+        up_cb = h._stage_progress_logger(llvm_dep, 'Unpack', expected_zip, phase='unpack')
+        grand = 1000 * 1048576
+        for i in range(500):
+            up_cb(i * 1024, grand)  # all 500 calls are 0%
+        self.assertEqual(emit_count[0], 1, 'repeated 0% callbacks must emit only once')
+        for i in range(50):
+            up_cb(grand, grand)     # all 50 calls are 100%
+        self.assertEqual(emit_count[0], 2, 'repeated 100% callbacks must emit only once')
+        pct100_logs = [ln for ln in h.logs if 'Unpack 100%' in ln]
+        self.assertEqual(len(pct100_logs), 1, pct100_logs)
+
+    def test_install_python_repairs_or_reinstalls_when_msi_already_registered(self) -> None:
+        """When Python 3.12.10 was previously installed and its folder was deleted by hand,
+        the Burn installer exits 0 in Modify mode without writing files; install_python must
+        automatically run /repair (and /uninstall + clean install if TargetDir was elsewhere).
+        """
+        from nspb_qt.win import fetch as wf
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            exe = root / 'downloads' / tc.PYTHON_ASSET['name']
+            exe.parent.mkdir(parents=True)
+            exe.write_bytes(b'MZ')
+
+            # Case 1: initial install exits 0 without creating python.exe -> /repair succeeds
+            cmds_case1: list[list[str]] = []
+
+            def run_case1(cmd, **_kw):
+                cmds_case1.append(list(cmd))
+                return subprocess.CompletedProcess(cmd, 0, '', '')
+
+            # _runs_quiet sequence: [False (initial check), False (after install), True (after /repair)]
+            with mock.patch.object(wf, 'download', return_value=exe), \
+                 mock.patch.object(wf.subprocess, 'run', side_effect=run_case1), \
+                 mock.patch.object(tc, '_runs_quiet', side_effect=[False, False, True]):
+                out1 = wf.install_python(dest=root, log=lambda _s: None)
+            self.assertEqual(out1, root / f'python-{tc.PYTHON_VERSION}')
+            self.assertGreaterEqual(len(cmds_case1), 2)
+            self.assertNotIn('/repair', cmds_case1[0])
+            self.assertIn('/repair', cmds_case1[1])
+
+            # Case 2: /repair still leaves target missing (registered at another path) -> /uninstall + clean install
+            cmds_case2: list[list[str]] = []
+
+            def run_case2(cmd, **_kw):
+                cmds_case2.append(list(cmd))
+                return subprocess.CompletedProcess(cmd, 0, '', '')
+
+            # _runs_quiet sequence: [False (initial), False (after install), False (after /repair), True (after reinstall)]
+            with mock.patch.object(wf, 'download', return_value=exe), \
+                 mock.patch.object(wf.subprocess, 'run', side_effect=run_case2), \
+                 mock.patch.object(tc, '_runs_quiet', side_effect=[False, False, False, True]):
+                out2 = wf.install_python(dest=root, log=lambda _s: None)
+            self.assertEqual(out2, root / f'python-{tc.PYTHON_VERSION}')
+            self.assertTrue(any('/repair' in c for c in cmds_case2), cmds_case2)
+            self.assertTrue(any('/uninstall' in c for c in cmds_case2), cmds_case2)
+
+            # Case 3: _clean_python_env strips PyInstaller _MEIPASS and frozen PYTHONHOME
+            with mock.patch.object(sys, 'frozen', True, create=True), \
+                 mock.patch.object(sys, '_MEIPASS', r'C:\App\_internal', create=True), \
+                 mock.patch.dict(os.environ, {
+                     '_MEIPASS': r'C:\App\_internal',
+                     'PYTHONHOME': r'C:\App\_internal',
+                     'PYTHONPATH': r'C:\App\_internal;C:\UserLib',
+                 }, clear=False):
+                cenv = tc._clean_python_env()
+                self.assertNotIn('_MEIPASS', cenv)
+                self.assertNotIn('PYTHONHOME', cenv)
+                self.assertEqual(cenv.get('PYTHONPATH'), r'C:\UserLib')
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
