@@ -1146,6 +1146,7 @@
   "msg.builderMissingError": "Das gewählte nxb-Programm wurde nicht gefunden. Wähle in den Einstellungen ein anderes oder schalte „Mit nxb bauen“ aus.",
   "msg.builderNotBundled": "Dieser Launcher hat kein nxb-Programm. Das NSP-Skript baut.",
   "msg.builderOn": "nxb-Builder: %@",
+  "msg.builderRewriteFallback": "Der Rewriter von nxb unterstützt diese Umschreibung noch nicht, meist weil die Engine neuer ist als die, mit der er geprüft wurde (Exitcode 1). Das NSP-Skript baut es jetzt.",
   "msg.done": "Fertig",
   "msg.exitCode": "Exit-Code %d",
   "msg.installingNsz": "Der gewählte Dump ist NSZ / XCZ. nsz wird in das Build-Python installiert …",

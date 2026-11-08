@@ -1011,6 +1011,7 @@
   "msg.builderFallback": "nxb stöder inte det här spelet eller steget än (avslutningskod 4). NSP-skriptet bygger det nu.",
   "msg.builderNotBundled": "Det här startprogrammet har inget nxb-program. NSP-skriptet bygger.",
   "msg.builderOn": "nxb-byggare: %@",
+  "msg.builderRewriteFallback": "nxb:s rewriter stöder inte den här omskrivningen än, oftast för att motorn är nyare än den den kontrollerades mot (avslutningskod 1). NSP-skriptet bygger det nu.",
   "msg.done": "Klart",
   "msg.exitCode": "slutkod %d",
   "msg.installingNsz": "Det valda filformatet är komprimerat NSZ/XCZ. Installerar nsz i Python-miljön som används för bygget …",

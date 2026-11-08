@@ -1,7 +1,7 @@
 import Foundation
 import NXCore
 
-// The nxb builder (#749): Settings' switch and the nxb binary it uses. With the switch on (the default), the build is `nxb build`. Exit code 4 runs the script.
+// The nxb builder (#749): Settings' switch and the nxb binary it uses. With the switch on (the default), the build is `nxb build`. Exit code 4 runs the script, and so does a rewrite nxb does not support (#942).
 // The rules (where nxb comes from, the command line, the exit codes) are ExperimentalBuilder in NXCore.
 
 extension BuildStore {
@@ -32,9 +32,15 @@ extension BuildStore {
         return ProcessLaunch(executable: nxb, arguments: args, environment: environment.merging(ExperimentalBuilder.environment(engine: engine)) { $1 }, directory: engine, groupPython: python)
     }
 
-    /// Whether a run that ended with `status` is built again by the script: nxb's exit code 4, "not supported yet", and only for a run of nxb.
+    /// Whether a run that ended with `status` is built again by the script: nxb's exit code 4, "not supported yet", or a rewrite its rewriter does
+    /// not support, such as an engine it was not checked against (#942), and only for a run of nxb.
     func fallsBackToScript(status: Int32) -> Bool {
-        nxbRun && ExperimentalBuilder.fallsBackToScript(status: status)
+        nxbRun && ExperimentalBuilder.fallsBackToScript(status: status, log: logTail)
+    }
+
+    /// What the log says before the script's run: why nxb handed the build over.
+    func fallbackNote(status: Int32) -> String {
+        t(status == 4 ? "msg.builderFallback" : "msg.builderRewriteFallback")
     }
 
     /// What a failed `nxb build` says: its exit code in words and the last error line it printed.

@@ -160,12 +160,16 @@ import XCTest
         XCTAssertEqual(again.experimentalBuilderPath, "/opt/nxbuild")
     }
 
-    /// nxb's exit code 4 ("not supported yet") builds the same game again with the script, in the same build. Any other exit code is a failure.
+    /// nxb's exit code 4 ("not supported yet") builds the same game again with the script, in the same build, and so does exit code 1 when nxb's
+    /// rewriter does not support the rewrite, as with an engine it was not checked against (#942). Any other failure is a failure.
     func testNxbsExitCode4BuildsWithTheScriptAndOtherCodesFail() throws {
-        for (status, fallsBack) in [(Int32(4), true), (Int32(1), false)] {
+        let refused = "\(ExperimentalBuilder.rewriteUnsupportedPrefix)patch_nso.py of the engine (/e/dm/tools) differs from the version this rewriter was checked against (pinned sha256 aa, engine sha256 bb)\n"
+        for (status, output, fallsBack, note) in [(Int32(4), "", true, "msg.builderFallback"), (Int32(1), "", false, ""),
+                                                  (Int32(1), refused, true, "msg.builderRewriteFallback"), (Int32(3), refused, false, "")] {
             let runner = FakeProcessRunner()
             runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.9.0\n") }
             runner.startExit = { $0.arguments.first == "build" ? status : 0 }
+            runner.startOutput = { $0.arguments.first == "build" ? output : "" }
             let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
             for path in [EngineLayout.marker] + RepoLayout.requiredTools {
                 let url = temporary.appendingPathComponent(path)
@@ -192,11 +196,12 @@ import XCTest
             if fallsBack {
                 XCTAssertEqual(builds.last?.executable, deps.pythonPath, "then the script")
                 XCTAssertEqual(Array(builds.last!.arguments.dropFirst()), Array(builds.first!.arguments.dropFirst()), "with the same options")
-                XCTAssertTrue(store.log.text.contains(store.t("msg.builderFallback")), "the log says why, below nxb's lines")
+                XCTAssertTrue(store.log.text.contains(store.t(note)), "the log says why, below nxb's lines (\(status))")
                 XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.builderOn"), nxb)))
                 XCTAssertFalse(store.scriptFallback, "the next build is nxb again")
             } else {
                 XCTAssertFalse(store.log.text.contains(store.t("msg.builderFallback")))
+                XCTAssertFalse(store.log.text.contains(store.t("msg.builderRewriteFallback")))
             }
         }
     }

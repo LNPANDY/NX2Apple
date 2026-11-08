@@ -36,10 +36,13 @@ final class FakeProcessRunner: ProcessRunner, @unchecked Sendable {
 
     /// The exit status of a started build, by launch. nil: the build does not start.
     var startExit: ((ProcessLaunch) -> Int32)?
+    /// What a started build prints before it exits, by launch.
+    var startOutput: ((ProcessLaunch) -> String)?
 
     func start(_ launch: ProcessLaunch, onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) throws -> RunningProcess {
         guard let startExit else { throw CocoaError(.fileNoSuchFile) }
         lock.lock(); recorded.append(launch); lock.unlock()
+        if let out = startOutput?(launch), !out.isEmpty { onOutput(Data(out.utf8)) }
         onExit(startExit(launch))
         return FakeRunningProcess()
     }

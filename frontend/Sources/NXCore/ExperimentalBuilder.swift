@@ -1,8 +1,8 @@
 import Foundation
 
 /// The nxb builder (LNPANDY/NX2Apple#749): nxb of nxkit, a build tool in Rust that reproduces the NSP script's stages byte for byte and faster.
-/// With the switch on (the default), the launcher starts `nxb build` itself. A case `nxb build` cannot do yet (exit code 4) is built again by the NSP script,
-/// in the same build. Any other failure is shown as an error with nxb's own message and its exit code. BUILDING.md has the details.
+/// With the switch on (the default), the launcher starts `nxb build` itself. A case `nxb build` cannot do yet (exit code 4), or a rewrite its rewriter does
+/// not support, such as an engine whose tools it was not checked against (exit code 1, #942), is built again by the NSP script, in the same build. Any other failure is shown as an error with nxb's own message and its exit code. BUILDING.md has the details.
 ///
 /// Where `nxb` comes from:
 /// 1. the path the player chose in Settings (the `nxb` binary, or the folder that holds it), for a local build of nxbuild;
@@ -60,8 +60,20 @@ package enum ExperimentalBuilder {
         return true
     }
 
-    /// Whether the NSP script builds again after `nxb build` ended with `status`: only exit code 4, "not supported yet". Every other code is a real failure.
-    package static func fallsBackToScript(status: Int32) -> Bool { status == 4 }
+    /// Whether the NSP script builds again after `nxb build` ended with `status` and printed `log`: exit code 4, "not supported yet", and exit code 1
+    /// when the build stopped at a rewrite its rewriter does not support (#942). The usual one: the engine pin moved ahead of the bundled nxb, whose
+    /// rewriter pins the SHA-256 of the engine's `dm/tools` files and refuses others; the script is the engine's own builder. Every other code is a real failure.
+    package static func fallsBackToScript(status: Int32, log: String = "") -> Bool {
+        status == 4 || (status == 1 && rewriteUnsupported(log))
+    }
+
+    /// How `nxb build` begins the message of a rewrite it does not support (nxkit's `crates/nxb-build/src/rewrite.rs`, `stopped`): an engine tool
+    /// whose SHA-256 is not the pinned one, a game's `patches.py` that is not in its patch snapshot, an NRO collection or a module outside its contract.
+    /// `nxb rewrite` gives exit code 4 for the same cases, so that its caller runs the script; `nxb build` gives 1, as it cannot go on without the patched modules.
+    package static let rewriteUnsupportedPrefix = "nxb rewrite: unsupported: "
+
+    /// Whether nxb's output says the rewrite is one its rewriter does not support (`rewriteUnsupportedPrefix`).
+    package static func rewriteUnsupported(_ log: String) -> Bool { log.contains(rewriteUnsupportedPrefix) }
 
     /// The string key of what nxb's exit code says (`nxb build`'s: 0 done, 1 error, 2 bad arguments, 3 damaged data, 4 not supported yet, 6 missing key, 130 interrupted).
     package static func exitKey(_ status: Int32) -> String {

@@ -4,6 +4,9 @@
                                                 and sign it ad hoc (the app's codesign --deep does not reach code in Resources). A placeholder digest
                                                 bundles nothing and says so (exit 0): the launcher's setting then needs a chosen nxb.
   nxbuild.py bump <version>                     pin a new release: its digest from the release's SHA256SUMS
+  nxbuild.py check <engine dir>                 whether the pinned release's rewriter takes this engine: the SHA-256 its rewrite.rs pins for each dm/tools
+                                                file against the engine's (#942). Exit code 1 lists the files that differ: `nxb build` stops at the
+                                                rewrite with such an engine, and the launcher builds with the NSP script instead.
 Nothing here runs nxb: a zip whose digest differs is deleted and the step fails."""
 import hashlib, os, re, subprocess, sys, urllib.request, zipfile
 from pathlib import Path
@@ -84,8 +87,50 @@ def bump(version, pin=PIN):
     print(f'pinned nxbuild {version}: {sha}')
 
 
+REWRITE_RS = 'crates/nxb-build/src/rewrite.rs'   # nxkit's rewriter step: its PINNED table is what `nxb build` checks the engine's dm/tools against
+
+
+def rewrite_source(pin):
+    """The raw URL of the pinned release's rewrite.rs: the tag of the release download, in the same repository"""
+    m = re.match(r'https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+)/', pin['url'])
+    if not m: raise SystemExit(f'{PIN.name}: the url is not a GitHub release download, so its rewrite.rs cannot be found')
+    return f'https://raw.githubusercontent.com/{m[1]}/{m[2]}/{REWRITE_RS}'
+
+
+def pins(rust):
+    """[(file, sha256)] of the PINNED table in rewrite.rs, in its order"""
+    m = re.search(r'const PINNED: \[\(&str, &str\); (\d+)\] = \[(.*?)\n\];', rust, re.S)
+    if not m: raise SystemExit(f'{REWRITE_RS} has no PINNED table')
+    found = re.findall(r'\(\s*"([^"]+)",\s*"([0-9a-f]{64})",?\s*\)', m[2])
+    if len(found) != int(m[1]): raise SystemExit(f'{REWRITE_RS}: PINNED declares {m[1]} entries, {len(found)} read')
+    return found
+
+
+def mismatches(pinned, tools):
+    """[(file, pinned sha256, engine sha256 or None when the file is missing)] for each pinned file of tools that differs"""
+    return [(name, want, have) for name, want in pinned
+            if (have := digest(tools / name) if (tools / name).is_file() else None) != want]
+
+
+def check(engine):
+    pin = read()
+    url = rewrite_source(pin)
+    with urllib.request.urlopen(url) as r: rust = r.read().decode()
+    pinned = pins(rust)
+    bad = mismatches(pinned, Path(engine) / 'dm' / 'tools')
+    if not bad:
+        print(f'nxb {pin["version"]}: the {len(pinned)} dm/tools files its rewriter pins are the engine\'s')
+        return 0
+    print(f'nxb {pin["version"]}: its rewriter pins other dm/tools files than this engine has, so `nxb build` stops at the rewrite '
+          f'and the launcher builds with the NSP script (#942). A release of nxkit checked against this engine is needed ({url}):')
+    for name, want, have in bad:
+        print(f'  {name}: nxb pins {want}, the engine has {have or "no such file"}')
+    return 1
+
+
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[:1] == ['fetch'] and len(a) == 3: fetch(Path(a[1]), Path(a[2]))
     elif a[:1] == ['bump'] and len(a) == 2: bump(a[1])
+    elif a[:1] == ['check'] and len(a) == 2: sys.exit(check(Path(a[1])))
     else: raise SystemExit(__doc__)

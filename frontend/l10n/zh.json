@@ -1165,6 +1165,7 @@
   "msg.builderMissingError": "未找到所选的 nxb 程序。请在设置中选择其他程序，或关闭“使用 nxb 构建”。",
   "msg.builderNotBundled": "此启动器没有附带 nxb 程序。将由 NSP 脚本构建。",
   "msg.builderOn": "nxb 构建器：%@",
+  "msg.builderRewriteFallback": "nxb 的 rewriter 暂不支持这次改写，通常是因为引擎比它核对过的版本更新（退出代码 1）。现在由 NSP 脚本构建。",
   "msg.done": "完成",
   "msg.exitCode": "退出码 %d",
   "msg.installingNsz": "选中的是 NSZ / XCZ 压缩格式，正在给构建用的 Python 安装 nsz…",

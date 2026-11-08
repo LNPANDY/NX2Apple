@@ -1164,6 +1164,7 @@
   "msg.builderMissingError": "選択した nxb プログラムが見つかりません。設定で別のものを選択するか、「nxb でビルドする」をオフにしてください。",
   "msg.builderNotBundled": "このランチャーには nxb プログラムが含まれていません。NSP スクリプトでビルドします。",
   "msg.builderOn": "nxb ビルダー：%@",
+  "msg.builderRewriteFallback": "nxb の rewriter は、この書き換えにまだ対応していません。多くの場合、エンジンが rewriter の確認済みバージョンより新しいためです（終了コード 1）。NSP スクリプトでビルドします。",
   "msg.done": "完了",
   "msg.exitCode": "終了コード %d",
   "msg.installingNsz": "選択したダンプは NSZ / XCZ です — ビルド用の Python に nsz をインストール中…",

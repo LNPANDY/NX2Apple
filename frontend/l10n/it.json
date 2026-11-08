@@ -1164,6 +1164,7 @@
   "msg.builderFallback": "nxb non supporta ancora questo gioco o questo passaggio (codice di uscita 4). Ora lo compila lo script NSP.",
   "msg.builderNotBundled": "Questo launcher non include il programma nxb. Compila lo script NSP.",
   "msg.builderOn": "Builder nxb: %@",
+  "msg.builderRewriteFallback": "Il rewriter di nxb non supporta ancora questa riscrittura, di solito perché il motore è più recente di quello con cui è stato verificato (codice di uscita 1). Ora lo compila lo script NSP.",
   "msg.done": "Fatto",
   "msg.exitCode": "codice di uscita %d",
   "msg.installingNsz": "Il dump selezionato è NSZ / XCZ: installazione di nsz nel Python della build…",

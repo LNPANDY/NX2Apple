@@ -47,6 +47,16 @@ final class ExperimentalBuilderTests: XCTestCase {
         XCTAssertTrue(ExperimentalBuilder.isNewEnough("nxb 0.5", minimum: "0.5.0"))
     }
 
+    func testTheScriptBuildsWhatNxbDoesNotTakeOrARewriteItsRewriterDoesNotSupport() {
+        let refused = "{\"ev\": \"say\", \"msg\": \"nxb rewrite: unsupported: patch_nso.py of the engine (/e/dm/tools) differs from the version this rewriter was checked against (pinned sha256 6ca3, engine sha256 d4ad): the engine changed\"}\n"
+        XCTAssertTrue(ExperimentalBuilder.fallsBackToScript(status: 4))
+        XCTAssertTrue(ExperimentalBuilder.fallsBackToScript(status: 1, log: refused), "#942: the engine pin moved ahead of the bundled nxb")
+        XCTAssertTrue(ExperimentalBuilder.fallsBackToScript(status: 1, log: "nxb rewrite: unsupported: ../games/x/patches.py is not in the patch snapshot\n"), "a game upstream added since")
+        XCTAssertFalse(ExperimentalBuilder.fallsBackToScript(status: 1, log: "[RED] rewrite of main: bad branch\n"), "any other error stays an error")
+        XCTAssertFalse(ExperimentalBuilder.fallsBackToScript(status: 3, log: refused), "damaged data is not handed over")
+        XCTAssertFalse(ExperimentalBuilder.fallsBackToScript(status: 0, log: refused))
+    }
+
     func testEveryExitCodeOfNxbHasItsOwnMessage() {
         XCTAssertEqual([1, 2, 3, 4, 6, 130].map { ExperimentalBuilder.exitKey($0) }, ["nxb.exit.1", "nxb.exit.2", "nxb.exit.3", "nxb.exit.4", "nxb.exit.6", "nxb.exit.130"])
         XCTAssertEqual(ExperimentalBuilder.exitKey(7), "nxb.exit.other")

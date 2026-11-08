@@ -60,5 +60,33 @@ class Pin(unittest.TestCase):
         with self.assertRaises(SystemExit): nxbuild.sums_digest(text, 'missing.zip')
 
 
+
+class RewriterPins(unittest.TestCase):
+    """nxbuild.py check (#942): the dm/tools files the pinned nxb's rewriter pins, against an engine's. No network: rewrite.rs is a string here."""
+    RUST = 'const PINNED: [(&str, &str); 2] = [\n    (\n        "patch_nso.py",\n        "%s",\n    ),\n    ("nso.py", "%s"),\n];\n\nconst SOURCES: usize = 1;\n'
+
+    def test_the_table_is_read_in_its_order(self):
+        self.assertEqual(nxbuild.pins(self.RUST % ('a' * 64, 'b' * 64)), [('patch_nso.py', 'a' * 64), ('nso.py', 'b' * 64)])
+        with self.assertRaises(SystemExit): nxbuild.pins('fn main() {}')
+        with self.assertRaises(SystemExit): nxbuild.pins((self.RUST % ('a' * 64, 'b' * 64)).replace('; 2]', '; 3]'))
+
+    def test_a_changed_or_missing_file_is_named(self):
+        with tempfile.TemporaryDirectory() as t:
+            tools = Path(t)
+            (tools / 'patch_nso.py').write_bytes(b'new')
+            (tools / 'nso.py').write_bytes(b'same')
+            same = hashlib.sha256(b'same').hexdigest()
+            pinned = nxbuild.pins(self.RUST % ('0' * 64, same))
+            self.assertEqual(nxbuild.mismatches(pinned, tools), [('patch_nso.py', '0' * 64, hashlib.sha256(b'new').hexdigest())])
+            (tools / 'nso.py').unlink()
+            self.assertEqual([m[0] for m in nxbuild.mismatches(pinned, tools)], ['patch_nso.py', 'nso.py'])
+            self.assertIsNone(nxbuild.mismatches(pinned, tools)[1][2])
+
+    def test_the_source_is_the_release_tag(self):
+        pin = {'version': '0.9.1', 'sha256': None, 'url': 'https://github.com/v0lumehi/nxkit/releases/download/v0.9.1/nxb-v0.9.1-macos-arm64.zip'}
+        self.assertEqual(nxbuild.rewrite_source(pin), 'https://raw.githubusercontent.com/v0lumehi/nxkit/v0.9.1/crates/nxb-build/src/rewrite.rs')
+        with self.assertRaises(SystemExit): nxbuild.rewrite_source(dict(pin, url='https://example.com/nxb.zip'))
+
+
 if __name__ == '__main__':
     unittest.main()

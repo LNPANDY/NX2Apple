@@ -98,6 +98,10 @@ jobs:
           git commit -m "Sync upstream $SHORT"
           git push -u origin "sync/upstream-$SHORT"
           echo "branch=sync/upstream-$SHORT" >> "$GITHUB_OUTPUT"
+          # The bundled nxb's rewriter pins the SHA-256 of the engine's dm/tools files (#942): when the new engine has other ones, nxb build
+          # stops at the rewrite and the launcher builds with the script. Not a reason to hold the bump, but the PR says so.
+          NXB_OK=yes
+          python3 frontend/tools/nxbuild.py check engine > nxb.log 2>&1 || NXB_OK=no
           {
             echo "The patch queue re-applied on upstream \`${NEW:0:12}\` (was \`${OLD:0:12}\`): every patch applied, and \`tools/engine.py check\`, the tests and a macOS host build passed. Merging brings seedds/nxnative to \`$NEW\`."
             echo
@@ -108,6 +112,16 @@ jobs:
             echo '```'
             echo
             echo "Patches listed under dropped landed upstream; their files are deleted from patches/. \`tools/engine.py status\` lists what is still carried."
+            if [ "$NXB_OK" = no ]; then
+              echo
+              echo "## The bundled nxb"
+              echo
+              echo "With this engine, \`nxb build\` stops at the rewrite and every build falls back to the NSP script (#942). Pin an nxkit release checked against it (\`frontend/tools/nxbuild.py bump <version>\`) before a release ships it."
+              echo
+              echo '```'
+              cat nxb.log
+              echo '```'
+            fi
             # The upstream commits that probably matter to the front ends and the players (tools/bump_candidates.py, #464): the section
             # that bump prints last. A PR body holds 65536 characters at most.
             echo

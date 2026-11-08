@@ -236,8 +236,8 @@ extension BuildStore {
                         }
                     }
                 } else if self.fallsBackToScript(status: status) {
-                    // nxb does not take this game or step yet (exit code 4): the script builds it, in the same build, with the same choices
-                    self.say("⟳ " + self.t("msg.builderFallback"))
+                    // nxb does not take this game or step yet (exit code 4), or not this rewrite, as with an engine it was not checked against (#942): the script builds it, in the same build, with the same choices
+                    self.say("⟳ " + self.fallbackNote(status: status))
                     self.cleanupStaging()
                     self.scriptFallback = true
                     self.shellDeviceChecked = true   // the device was checked for this build already
