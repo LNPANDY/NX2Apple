@@ -14,8 +14,8 @@ Rules (RELEASING.md, "Release notes" has the same list):
 - Write the notes before the final tag is pushed or right after it. CI only writes a short body at first.
 -->
 
-<!-- One line: the version and what it is about. It is the English of the release title. CI creates the final release with the tag alone as its title: set the title with `gh release edit <tag> --title "<title>"`, for example "v1.0.0: The iPhone and iPad app / iPhone 和 iPad 版发布". -->
-**vX.Y.Z: the one thing this release is about.**
+<!-- One line: the release title in both languages (English first, ` / `, then Chinese). CI sets the GitHub release title from this line when it has ` / `, for example "v1.0.0: The iPhone and iPad app / iPhone 和 iPad 版发布". -->
+**vX.Y.Z: the one thing this release is about / the same in Chinese**
 
 ## English
 
