@@ -204,7 +204,7 @@ struct ConsoleControllerChips: View {
         Button(action: openControllers) {
             content().font(.manrope(compact ? 12 : 17, .semibold))
                 .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
-                .background(.white.opacity(0.075), in: Capsule()).contentShape(Capsule())
+                .consoleGlass(Capsule()).contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -455,5 +455,14 @@ struct ConsoleToastView: View {
             default: break
             }
         })
+    }
+}
+
+extension View {
+    /// The top bar's controls sit on the game's art, which can be bright: a soft blurred shadow under the control's own fill keeps
+    /// it apart from a light cover, and the control itself looks as before.
+    func consoleGlass<S: InsettableShape>(_ shape: S) -> some View {
+        background(.white.opacity(0.075), in: shape)
+            .background { shape.fill(Color.black.opacity(0.28)).blur(radius: 10).allowsHitTesting(false) }
     }
 }

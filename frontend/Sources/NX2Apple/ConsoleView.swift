@@ -199,7 +199,7 @@ enum ConsoleInput {
             Button { driver.openMenu() } label: {
                 Image(systemName: "line.3.horizontal").font(.system(size: compact ? 16 : 20, weight: .semibold))
                     .frame(width: compact ? 40 : 52, height: compact ? 40 : 52)
-                    .background(.white.opacity(0.075), in: Circle()).contentShape(Circle())
+                    .consoleGlass(Circle()).contentShape(Circle())
             }
             .buttonStyle(.plain).accessibilityLabel(t("console.menu"))
             .padTarget("console.menuButton", scope: "console", radius: 26, activate: { driver.openMenu() })

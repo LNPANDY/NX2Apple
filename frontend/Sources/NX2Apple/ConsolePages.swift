@@ -263,7 +263,7 @@ struct ConsoleBuildChip: View {
         }
         .padding(.horizontal, 14).frame(height: compact ? 40 : 52)
         .frame(maxWidth: compact ? 200 : 360, alignment: .leading)
-        .background(.white.opacity(0.075), in: Capsule())
+        .consoleGlass(Capsule())
         .accessibilityElement(children: .combine)
     }
 }
