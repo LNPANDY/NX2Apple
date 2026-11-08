@@ -16,7 +16,7 @@ a missing one never does, and the zero-only reports of #296 are the same case.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#1877
 Reason: On an iPhone, a controller that advertises a gyroscope it does not have (GameSir X5 Lite) kept the phone's gyro from driving the game
 Issue: LNPANDY/NX2Apple#971
 
