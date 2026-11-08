@@ -459,10 +459,17 @@ struct ConsoleToastView: View {
 }
 
 extension View {
-    /// The top bar's controls sit on the game's art, which can be bright: a soft blurred shadow under the control's own fill keeps
-    /// it apart from a light cover, and the control itself looks as before.
+    /// The top bar's controls sit on the game's art, which can be bright. A shadow under them looked dirty there; instead each is a
+    /// light pane: a little of the art behind it blurred, a faint white fill, and a hairline edge brighter at the top, catching the light.
     func consoleGlass<S: InsettableShape>(_ shape: S) -> some View {
-        background(.white.opacity(0.075), in: shape)
-            .background { shape.fill(Color.black.opacity(0.28)).blur(radius: 10).allowsHitTesting(false) }
+        background {
+            ZStack {
+                shape.fill(.ultraThinMaterial).opacity(0.55)
+                shape.fill(Color.white.opacity(0.06))
+                shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.24), .white.opacity(0.05)], startPoint: .top, endPoint: .bottom),
+                                   lineWidth: 0.75)
+            }
+            .allowsHitTesting(false)
+        }
     }
 }
