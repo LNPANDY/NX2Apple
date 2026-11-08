@@ -2169,6 +2169,98 @@ class ParityWindowTests(unittest.TestCase):
             self.app.processEvents()
             spy_render.assert_not_called()
 
+    def test_mainwindow_refresh_deps_in_place_and_background_gc_safety(self) -> None:
+        """Verify MainWindow._refresh_deps updates rows in place during 0%..100% progress
+        (never destroying/rebuilding QWidgets on 1% ticks), OnboardingDialog._clear_body keeps
+        C++ ownership (ownedByPython == False), and background thread progress + GC never crashes.
+        """
+        import gc
+        import threading
+        import shiboken6
+        from unittest import mock
+        from nspb_qt.model import Dep, DepState, Model
+        from nspb_qt.sheets import OnboardingDialog
+        from nspb_qt.ui import MainWindow
+
+        with mock.patch.object(Model, 'check_deps', lambda self: None):
+            m = Model()
+
+        llvm_dep = Dep('llvm', 'dep.llvm', 'dep.llvm.hint', DepState.MISSING, install=['__win__:llvm'])
+        sdk_dep = Dep('ios_sdk', 'dep.iossdk', 'dep.iossdk.hint', DepState.MISSING,
+                      install=['__win__:ios_sdk'], pick_key='ios_sdk')
+        m.deps = [llvm_dep, sdk_dep]
+        m.deps_checked = True
+
+        with mock.patch.object(MainWindow, '_maybe_show_onboarding', lambda self: None):
+            w = MainWindow(m)
+        dlg = OnboardingDialog(m)
+        self.addCleanup(dlg.deleteLater)
+        self.addCleanup(self._delete, m, w)
+        dlg.next_btn.click()
+        self.app.processEvents()
+
+        # Start LLVM install at 0% (transitions sub label to mono and sets initial _deps_sig)
+        llvm_dep.installing = True
+        m._set_dep_progress(
+            llvm_dep,
+            m.t('dep.stage.download', 0),
+            m.t('dep.detail.download', 'llvm-mingw.zip', 0, 182, 0),
+            0,
+            force=True,
+        )
+        self.app.processEvents()
+
+        initial_frame = w._dep_row_widgets['llvm']['frame']
+        initial_sub = w._dep_row_widgets['llvm']['sub']
+        initial_btn = w._dep_row_widgets['llvm']['install_btn']
+        self.assertIsNotNone(initial_frame)
+        self.assertIsNotNone(initial_btn)
+
+        # Simulate background download 0% -> 100% and unpack 0% -> 100% with forced GC on worker thread
+        dl_cb = m._stage_progress_logger(llvm_dep, 'Download', 'llvm-mingw.zip', phase='download')
+        up_cb = m._stage_progress_logger(llvm_dep, 'Unpack', 'llvm-mingw.zip', phase='unpack')
+        errors: list[Exception] = []
+
+        def worker() -> None:
+            try:
+                total = 182 * 1048576
+                for pct in (0, 1, 25, 50, 75, 100):
+                    dl_cb(pct * total // 100, total)
+                # Simulate opening a 16,000-entry zip that triggers cyclic GC on the worker thread
+                _ = [{i: (i, str(i))} for i in range(2000)]
+                gc.collect()
+                for pct in (0, 0, 0, 10, 50, 100, 100):
+                    up_cb(pct * total // 100, total)
+                gc.collect()
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+
+        th = threading.Thread(target=worker)
+        th.start()
+        while th.is_alive():
+            self.app.processEvents()
+            th.join(timeout=0.01)
+        self.app.processEvents()
+        self.assertEqual(errors, [])
+
+        # Widgets in MainWindow were updated in-place, never destroyed or recreated during progress
+        self.assertIs(w._dep_row_widgets['llvm']['frame'], initial_frame)
+        self.assertIs(w._dep_row_widgets['llvm']['sub'], initial_sub)
+        self.assertIs(w._dep_row_widgets['llvm']['install_btn'], initial_btn)
+        self.assertIn('100%', initial_sub.text())
+        self.assertIn('100%', initial_btn.text())
+
+        # Verify OnboardingDialog._clear_body keeps C++ ownership (ownedByPython == False)
+        body_item = dlg.body_layout.itemAt(0)
+        self.assertIsNotNone(body_item)
+        grp_widget = body_item.widget()
+        self.assertIsNotNone(grp_widget)
+        dlg._clear_body()
+        self.assertFalse(
+            shiboken6.ownedByPython(grp_widget),
+            '_clear_body must not transfer QWidget ownership back to Python GC via setParent(None)',
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
