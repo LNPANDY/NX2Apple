@@ -6,7 +6,8 @@ import AppKit
 /// are sequenced so they do not fight: on entering, the content switches after the window has finished going full screen, and on
 /// leaving, the console fades out first and the window leaves full screen after. A game is started from a window that has left full
 /// screen: a game opened from an app in its own full screen Space can come up as a window, so the window goes back to full screen
-/// once the game has quit. In the console the pointer hides after a few idle seconds.
+/// once the game has quit. In the console the pointer hides after a few idle seconds. On a screen with a notch the window covers the
+/// whole screen instead of the system's full screen, so the console fills the band beside the notch too (ConsoleScreenFill).
 @MainActor final class ConsoleCoordinator: ObservableObject {
     @Published private(set) var active = false { didSet { if active != oldValue { active ? pointer.start() : pointer.stop() } } }
     /// The launcher is showing (not the guided setup), so the mode can be entered. The first time it is, the Settings switch
@@ -39,7 +40,7 @@ import AppKit
     nonisolated static let transitionSeconds: TimeInterval = 0.4
 
     init(window: @escaping () -> NSWindow? = { NSApp.keyWindow ?? NSApp.windows.first { $0.canBecomeMain } },
-         setFullScreen: @escaping @MainActor (NSWindow, Bool, @escaping () -> Void) -> Void = ConsoleCoordinator.toggleFullScreen,
+         setFullScreen: @escaping @MainActor (NSWindow, Bool, @escaping () -> Void) -> Void = ConsoleScreenFill.set,
          fadeSeconds: TimeInterval = ConsoleCoordinator.transitionSeconds + 0.05,
          pointer: ConsolePointer? = nil,
          appIsActive: @escaping () -> Bool = { NSApp?.isActive ?? true },
@@ -65,7 +66,7 @@ import AppKit
 
     func enter() {
         guard available, !active, !entering else { return }
-        if let w = window(), !w.styleMask.contains(.fullScreen) {
+        if let w = window(), !ConsoleScreenFill.isFull(w) {
             entering = true
             enteredFullScreen = true
             setFullScreen(w, true) { [weak self] in self?.entering = false; self?.active = true }   // the content follows the window
@@ -81,7 +82,7 @@ import AppKit
         enteredFullScreen = false
         guard leave else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + fadeSeconds) { [weak self] in
-            if let w = self?.window(), w.styleMask.contains(.fullScreen) { self?.setFullScreen(w, false) {} }
+            if let w = self?.window(), ConsoleScreenFill.isFull(w) { self?.setFullScreen(w, false) {} }
         }
     }
 
@@ -103,7 +104,7 @@ import AppKit
         guard active else { launch(); return }
         cancelPendingReturn()
         pointer.hold(true)
-        guard let w = window(), w.styleMask.contains(.fullScreen) else { launch(); return }
+        guard let w = window(), ConsoleScreenFill.isFull(w) else { launch(); return }
         leftForGame = true
         setFullScreen(w, false) { launch() }
     }
@@ -136,7 +137,7 @@ import AppKit
     private func returnToFullScreen(_ id: UUID, attempts: Int = 3) {
         guard pendingReturn == id else { return }
         stopWaitingForActivation()
-        guard attempts > 0, let w = window(), !w.styleMask.contains(.fullScreen) else {
+        guard attempts > 0, let w = window(), !ConsoleScreenFill.isFull(w) else {
             pendingReturn = nil
             leftForGame = false
             pointer.hold(false)

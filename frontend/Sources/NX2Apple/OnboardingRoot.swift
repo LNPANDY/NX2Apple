@@ -43,6 +43,7 @@ struct RootView: View {
                             ConsoleView(driver: shared.console, lang: lang, onExit: { console.exit(); shared.console.returnFromGame() },
                                         chooseLanguage: { code in stores.localizer.choose(code); shared.console.refresh() })
                         }
+                            .ignoresSafeArea()   // on a notched screen the console covers the band beside the notch too (ConsoleScreenFill)
                             .onAppear { shared.console.reloadCovers() }
                             .transition(CalmTransition.console)
                     } else {
