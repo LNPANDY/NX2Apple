@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QTimer, Qt
 from PySide6.QtWidgets import (
     QDialog,
     QFileDialog,
@@ -502,7 +502,7 @@ class OnboardingDialog(QDialog):
         self._step1_sig: tuple | None = None
         self._step1_widgets: dict = {}
         self.setWindowTitle('NX2Apple Setup')
-        self.setMinimumSize(640, 520)
+        self.setMinimumSize(640, 560)
         self.setStyleSheet(style.STYLESHEET)
 
         lay = QVBoxLayout(self)
@@ -743,6 +743,8 @@ class OnboardingDialog(QDialog):
                 if ibtn_w is not None:
                     ibtn_w.setText(ibtn_text)
                     ibtn_w.setEnabled(not any_busy)
+                if hasattr(self, '_ensure_fits'):
+                    self._ensure_fits()
                 return
 
             self._clear_body()
@@ -775,13 +777,15 @@ class OnboardingDialog(QDialog):
 
                 dl = None
                 if dt_text:
+                    dl_wrap = QHBoxLayout()
+                    dl_wrap.setContentsMargins(18, 0, 0, 2)
                     dl = QLabel(dt_text)
                     dl.setObjectName('mono')
                     dl.setWordWrap(True)
-                    dl.setContentsMargins(18, 0, 0, 0)
                     if dt_color:
                         dl.setStyleSheet(f'color: {dt_color}; font-size: 11.5px;')
-                    v.addWidget(dl)
+                    dl_wrap.addWidget(dl)
+                    v.addLayout(dl_wrap)
 
                 bar = None
                 if pct_val is not None:
@@ -794,7 +798,7 @@ class OnboardingDialog(QDialog):
                     bar_wrap.addWidget(bar)
                     v.addLayout(bar_wrap)
 
-                row_widgets[d.id] = {'dot': dot_w, 'status': st, 'detail': dl, 'bar': bar}
+                row_widgets[d.id] = {'dot': dot_w, 'title': tl, 'status': st, 'detail': dl, 'bar': bar}
                 grp.add_row(r)
             self.body_layout.addWidget(grp)
 
@@ -861,6 +865,49 @@ class OnboardingDialog(QDialog):
             self.body_layout.addWidget(grp)
 
         self.body_layout.addStretch(1)
+        if hasattr(self, '_ensure_fits'):
+            self._ensure_fits(schedule=True)
+
+    def event(self, ev: QEvent) -> bool:
+        res = super().event(ev)
+        if ev.type() == QEvent.Type.LayoutRequest:
+            self._ensure_fits()
+        return res
+
+    def _ensure_fits(self, schedule: bool = False) -> None:
+        if self.body_host.isVisible():
+            for i in range(self.body_layout.count()):
+                w = self.body_layout.itemAt(i).widget()
+                if w is not None and not w.isHidden():
+                    w.show()
+        self.body_layout.activate()
+        changed_min = False
+        for w in self._step1_widgets.get('rows', {}).values():
+            for key in ('title', 'status'):
+                lbl = w.get(key)
+                if lbl is not None:
+                    sh = lbl.sizeHint().height()
+                    if sh > 0 and lbl.minimumHeight() != sh:
+                        lbl.setMinimumHeight(sh)
+                        changed_min = True
+            dl = w.get('detail')
+            if dl is not None:
+                avail_w = dl.width() if dl.width() > 100 else max(self.width() - 120, 460)
+                dh = max(dl.fontMetrics().height(), dl.heightForWidth(avail_w))
+                if dh > 0 and dl.minimumHeight() != dh:
+                    dl.setMinimumHeight(dh)
+                    changed_min = True
+        if changed_min:
+            self.body_layout.activate()
+        self.body_host.updateGeometry()
+        lay = self.layout()
+        if lay is not None:
+            lay.activate()
+        needed_h = max(self.sizeHint().height(), self.minimumSizeHint().height())
+        if needed_h > self.height():
+            self.resize(self.width(), needed_h)
+        if schedule:
+            QTimer.singleShot(0, self._ensure_fits)
 
     def _pick_keys(self) -> None:
         f, _ = QFileDialog.getOpenFileName(self, self.m.t('data.keys'), '', 'Keys (prod.keys *.keys *);;All files (*)')

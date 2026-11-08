@@ -2069,6 +2069,45 @@ class ParityWindowTests(unittest.TestCase):
         self.assertIs(dlg._step1_widgets['rows']['python']['bar'], bar1)
         self.assertEqual(bar1.value(), 83)
 
+        # Multi-row expansion (wrapped error on LLVM + active progress bar on iOS SDK):
+        # dialog height must auto-grow so no row's status or detail label is vertically clipped.
+        py_dep.installing = False
+        py_dep.state = DepState.OK
+        dn_dep.state = DepState.OK
+        dn_dep.queue_index = 0
+        llvm_dep.queue_index = 0
+        llvm_dep.last_error = (
+            'DownloadError: connection timed out while fetching '
+            'llvm-mingw-20261020-ucrt-x86_64.zip'
+        )
+        llvm_dep.fix_hint = 'dep.fix.network'
+        sdk_dep.queue_index = 0
+        sdk_dep.installing = True
+        dlg.show()
+        self.app.processEvents()
+        m._set_dep_progress(
+            sdk_dep,
+            m.t('dep.stage.download', 15),
+            m.t('dep.detail.download', 'iPhoneOS27.2.sdk.zip', 8, 52, 15),
+            15,
+            item_overall_pct=8,
+            force=True,
+        )
+        self.app.processEvents()
+        self.assertGreaterEqual(dlg.height(), dlg.sizeHint().height())
+        for r_id, rw in dlg._step1_widgets['rows'].items():
+            st_lbl = rw['status']
+            self.assertGreaterEqual(
+                st_lbl.height(), st_lbl.sizeHint().height(),
+                f'{r_id} status label clipped: {st_lbl.height()} < {st_lbl.sizeHint().height()}',
+            )
+            dl_lbl = rw['detail']
+            if dl_lbl is not None:
+                self.assertGreaterEqual(
+                    dl_lbl.height(), dl_lbl.heightForWidth(dl_lbl.width()),
+                    f'{r_id} detail label clipped: {dl_lbl.height()} < {dl_lbl.heightForWidth(dl_lbl.width())}',
+                )
+
         # Finish all installs -> buttons re-enable
         for d in m.deps:
             d.installing = False
