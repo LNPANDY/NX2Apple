@@ -2070,7 +2070,12 @@ class ParityWindowTests(unittest.TestCase):
         self.assertEqual(bar1.value(), 83)
 
         # Multi-row expansion (wrapped error on LLVM + active progress bar on iOS SDK):
-        # dialog height must auto-grow so no row's status or detail label is vertically clipped.
+        # body_host sits inside a QScrollArea, no row's status or detail label is vertically
+        # clipped, dialog height is capped at 90% of screen height on huge errors, idle CPU is
+        # zero (no LayoutRequest loop), and the user can still shrink the window back to 480px.
+        import time
+        from PySide6.QtWidgets import QScrollArea
+
         py_dep.installing = False
         py_dep.state = DepState.OK
         dn_dep.state = DepState.OK
@@ -2094,7 +2099,6 @@ class ParityWindowTests(unittest.TestCase):
             force=True,
         )
         self.app.processEvents()
-        self.assertGreaterEqual(dlg.height(), dlg.sizeHint().height())
         for r_id, rw in dlg._step1_widgets['rows'].items():
             st_lbl = rw['status']
             self.assertGreaterEqual(
@@ -2107,6 +2111,45 @@ class ParityWindowTests(unittest.TestCase):
                     dl_lbl.height(), dl_lbl.heightForWidth(dl_lbl.width()),
                     f'{r_id} detail label clipped: {dl_lbl.height()} < {dl_lbl.heightForWidth(dl_lbl.width())}',
                 )
+
+        self.assertIsInstance(dlg.body_scroll, QScrollArea)
+        self.assertIs(dlg.body_scroll.widget(), dlg.body_host)
+
+        # Verify zero idle fit calls (no LayoutRequest -> updateGeometry spin loop)
+        fit_calls = [0]
+        orig_fit = dlg._fit_dialog_height
+
+        def counted_fit(*a, **k):
+            fit_calls[0] += 1
+            return orig_fit(*a, **k)
+
+        dlg._fit_dialog_height = counted_fit
+        try:
+            t0 = time.time()
+            while time.time() - t0 < 0.2:
+                self.app.processEvents()
+            self.assertEqual(fit_calls[0], 0, 'idle event loop must not trigger _fit_dialog_height')
+        finally:
+            dlg._fit_dialog_height = orig_fit
+
+        # Huge multi-line error must cap dialog height at <= 90% of available screen height and scroll
+        llvm_dep.last_error = 'DownloadError: ' + ('very long error text that wraps across lines ' * 50)
+        dlg._step1_sig = None
+        dlg._render_step()
+        self.app.processEvents()
+        scr = dlg.screen() or self.app.primaryScreen()
+        max_h = int(scr.availableGeometry().height() * 0.9) if scr is not None else 720
+        self.assertLessEqual(dlg.height(), max_h)
+        self.assertGreater(dlg.body_scroll.verticalScrollBar().maximum(), 0)
+        for r_id, rw in dlg._step1_widgets['rows'].items():
+            dl_lbl = rw['detail']
+            if dl_lbl is not None:
+                self.assertGreaterEqual(dl_lbl.height(), dl_lbl.heightForWidth(dl_lbl.width()))
+
+        # User can manually shrink the dialog back down to minimumHeight (480)
+        dlg.resize(640, 480)
+        self.app.processEvents()
+        self.assertEqual(dlg.height(), 480)
 
         # Finish all installs -> buttons re-enable
         for d in m.deps:

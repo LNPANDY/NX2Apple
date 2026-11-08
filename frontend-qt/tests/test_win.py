@@ -3601,6 +3601,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
             _clear_body = ns['_clear_body']
             _step1_row_meta = ns['_step1_row_meta']
             _render_step = ns['_render_step']
+            _fit_dialog_height = lambda self: None
 
             def __init__(self, model):
                 self.m = model

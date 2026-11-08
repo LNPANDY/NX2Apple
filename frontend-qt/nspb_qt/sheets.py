@@ -6,8 +6,9 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QApplication,
     QDialog,
     QFileDialog,
     QFrame,
@@ -502,7 +503,8 @@ class OnboardingDialog(QDialog):
         self._step1_sig: tuple | None = None
         self._step1_widgets: dict = {}
         self.setWindowTitle('NX2Apple Setup')
-        self.setMinimumSize(640, 560)
+        self.setMinimumSize(640, 480)
+        self.resize(640, 560)
         self.setStyleSheet(style.STYLESHEET)
 
         lay = QVBoxLayout(self)
@@ -541,11 +543,16 @@ class OnboardingDialog(QDialog):
         note_row.addWidget(self.overall_pct_lbl)
         lay.addLayout(note_row)
 
+        self.body_scroll = QScrollArea()
+        self.body_scroll.setWidgetResizable(True)
+        self.body_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.body_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.body_host = QWidget()
         self.body_layout = QVBoxLayout(self.body_host)
         self.body_layout.setContentsMargins(0, 8, 0, 8)
         self.body_layout.setSpacing(12)
-        lay.addWidget(self.body_host, 1)
+        self.body_scroll.setWidget(self.body_host)
+        lay.addWidget(self.body_scroll, 1)
 
         foot = QHBoxLayout()
         self.later_btn = QPushButton(self.m.t('onboarding.later'))
@@ -743,8 +750,7 @@ class OnboardingDialog(QDialog):
                 if ibtn_w is not None:
                     ibtn_w.setText(ibtn_text)
                     ibtn_w.setEnabled(not any_busy)
-                if hasattr(self, '_ensure_fits'):
-                    self._ensure_fits()
+                self._fit_dialog_height()
                 return
 
             self._clear_body()
@@ -865,49 +871,29 @@ class OnboardingDialog(QDialog):
             self.body_layout.addWidget(grp)
 
         self.body_layout.addStretch(1)
-        if hasattr(self, '_ensure_fits'):
-            self._ensure_fits(schedule=True)
+        self._fit_dialog_height()
 
-    def event(self, ev: QEvent) -> bool:
-        res = super().event(ev)
-        if ev.type() == QEvent.Type.LayoutRequest:
-            self._ensure_fits()
-        return res
-
-    def _ensure_fits(self, schedule: bool = False) -> None:
+    def _fit_dialog_height(self) -> None:
         if self.body_host.isVisible():
             for i in range(self.body_layout.count()):
                 w = self.body_layout.itemAt(i).widget()
-                if w is not None and not w.isHidden():
+                if w is not None:
                     w.show()
         self.body_layout.activate()
-        changed_min = False
-        for w in self._step1_widgets.get('rows', {}).values():
-            for key in ('title', 'status'):
-                lbl = w.get(key)
-                if lbl is not None:
-                    sh = lbl.sizeHint().height()
-                    if sh > 0 and lbl.minimumHeight() != sh:
-                        lbl.setMinimumHeight(sh)
-                        changed_min = True
-            dl = w.get('detail')
-            if dl is not None:
-                avail_w = dl.width() if dl.width() > 100 else max(self.width() - 120, 460)
-                dh = max(dl.fontMetrics().height(), dl.heightForWidth(avail_w))
-                if dh > 0 and dl.minimumHeight() != dh:
-                    dl.setMinimumHeight(dh)
-                    changed_min = True
-        if changed_min:
-            self.body_layout.activate()
-        self.body_host.updateGeometry()
-        lay = self.layout()
-        if lay is not None:
-            lay.activate()
-        needed_h = max(self.sizeHint().height(), self.minimumSizeHint().height())
-        if needed_h > self.height():
-            self.resize(self.width(), needed_h)
-        if schedule:
-            QTimer.singleShot(0, self._ensure_fits)
+        scr = self.screen() or QApplication.primaryScreen()
+        max_h = int(scr.availableGeometry().height() * 0.9) if scr is not None else 720
+        avail_w = max(self.body_host.width(), self.width() - 64, 520)
+        body_h = self.body_host.heightForWidth(avail_w)
+        if body_h <= 0:
+            body_h = self.body_host.sizeHint().height()
+        chrome_h = self.height() - self.body_scroll.height()
+        if chrome_h < 180:
+            chrome_h = 220
+        target_h = min(max_h, max(self.height(), chrome_h + body_h + 8))
+        if target_h > self.height() and target_h >= self.minimumHeight():
+            self.resize(self.width(), target_h)
+        elif self.height() > max_h and max_h >= self.minimumHeight():
+            self.resize(self.width(), max_h)
 
     def _pick_keys(self) -> None:
         f, _ = QFileDialog.getOpenFileName(self, self.m.t('data.keys'), '', 'Keys (prod.keys *.keys *);;All files (*)')
