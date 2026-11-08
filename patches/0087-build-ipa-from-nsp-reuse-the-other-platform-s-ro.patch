@@ -229,7 +229,7 @@ index 0000000..e25226e
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index e0d0b12..ce88a6e 100755
+index 7f0b7b3..3d2e98b 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -81,6 +81,7 @@ SURVEY_ONLY = False                     # a game with no profile in dm/games: on

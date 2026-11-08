@@ -267,7 +267,7 @@ index a498725..0e57cd8 100644
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
  DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 8e236d3..758e11e 100755
+index 8e236d3..0b9e049 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@
@@ -368,7 +368,7 @@ index 8e236d3..758e11e 100755
 +    tool = nxb_tool('extract')
 +    if not tool: return False
 +    def plain(p):
-+        try: return p.suffix.lower() == '.nsp' and is_package(p) and not is_merged(p) and not any(n.lower().endswith('.ncz') for n in package_names(p))
++        try: return p.suffix.lower() == '.nsp' and is_package(p) and not any(n.lower().endswith('.ncz') for n in package_names(p)) and sum(n.lower().endswith('.cnmt.nca') for n in package_names(p)) <= 1   # not a merged package (several content metas)
 +        except (OSError, ValueError, struct.error, BuildError): return False
 +    if PROGRAM_INDEX or ALLOW_DAMAGED or not all(plain(p) for p in (base, upd) if p):
 +        nxb_note(f'extract {name}: an XCI, NSZ or merged package, --program or --allow-damaged is not supported yet, the standard builder runs it'); return False

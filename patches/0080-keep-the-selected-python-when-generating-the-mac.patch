@@ -170,7 +170,7 @@ index 519176f..17c6fc5 100644
  
  - **Symptom:** the first extraction stops with `nx_extract exit code 131` and `.NET location: Not found`, even though `dotnet` is on `PATH`. The shader translator can fail the same way.
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 758e11e..e0d0b12 100755
+index 0b9e049..7f0b7b3 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -1714,8 +1714,8 @@ def build_mac_host(repo, out, env, logs, g):
