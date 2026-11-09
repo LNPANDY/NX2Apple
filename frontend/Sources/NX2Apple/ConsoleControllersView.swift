@@ -261,6 +261,13 @@ struct ConsoleToastView: View {
     var scope = "console.controllers"
     /// The row that opens the button mapping. The desktop's Controllers sheet has the Controls page for that instead.
     var showsMapping = true
+    /// The Joy-Con split only while a Joy-Con is connected (or the split is on, so it can be turned off). The desktop's sheet lists no
+    /// controllers, so it always shows it.
+    var joyconSplitOnlyWithJoyCon = true
+    private var showsJoyconSplit: Bool {
+        !joyconSplitOnlyWithJoyCon || state.joyconSplit
+            || state.controllers.contains { $0.kind == .paired || $0.name.hasPrefix("Joy-Con") }
+    }
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var state: ConsoleState { driver.state }
@@ -271,9 +278,10 @@ struct ConsoleToastView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 22) {
                     mergeToggle
-                    joyconSplitToggle
+                    if showsJoyconSplit { joyconSplitToggle }
                     if showsMapping { mappingEntry }
                     if showsMapping && state.homeButtonAvailable { homeEntry }
                     if showsMapping { ForEach(ConsolePref.onControllers, id: \.self) { prefToggle($0) } }   // the ways into console mode, as the desktop's Controls card has them
@@ -298,7 +306,9 @@ struct ConsoleToastView: View {
                     ForEach(state.controllers) { controller in row(controller) }
                 }
                 .padding(.horizontal, compact ? 24 : 40).padding(.vertical, 12)
+                }.consoleScrollContent()
             }
+            .consoleScrollFade()
             .onChange(of: pad.focused) { id in
                 if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } }
             }
@@ -477,7 +487,7 @@ struct ConsoleToastView: View {
                     .buttonStyle(.plain).accessibilityLabel(L10n.string("console.close", lang))
                     .padTarget("console.sheet.close", scope: "console.controllers", radius: 24, activate: close)
             }.padding(24)
-            ConsoleControllerList(driver: driver, lang: lang, compact: true, showsMapping: false)
+            ConsoleControllerList(driver: driver, lang: lang, compact: true, showsMapping: false, joyconSplitOnlyWithJoyCon: false)
         }
         .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).launcherAppearance()
         .foregroundStyle(.white).padScope("console.controllers", pad)

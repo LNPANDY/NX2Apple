@@ -67,7 +67,7 @@ struct RootView: View {
         .launcherAppearance()
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .task {
-            shared.console.prepareLaunch = { [console] launch in console.leaveFullScreenForGame(then: launch) }
+            shared.console.prepareLaunch = { [console] launch in console.startGameInFullScreen(then: launch) }   // the console stays full screen into the game (seedds/nxnative#665)
             shared.console.pointerHidden = { [console] in console.pointerHidden }
             shared.console.gameEnded = { [console] in console.resumeFullScreenAfterGame() }
             shared.console.attach(updates: stores.appUpdates, builds: stores.build)   // the General page's update row

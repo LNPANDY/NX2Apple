@@ -312,6 +312,23 @@ import SwiftUI
         coordinator.toggle()
     }
 
+    /// Console mode's Play: the launcher stays full screen while the game starts, and nothing changes the window when it quits.
+    func testAGameStartsWithTheConsoleStillFullScreen() {
+        var calls: [Bool] = []
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        window.isFull = true
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in calls.append(on); done() }, fadeSeconds: 0.05)
+        coordinator.available = true
+        coordinator.enter()
+        var launched = 0
+        coordinator.startGameInFullScreen { launched += 1 }
+        XCTAssertEqual(launched, 1, "the game starts at once")
+        XCTAssertEqual(calls, [], "the window stays full screen")
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(calls, [], "and is left alone when the game quits")
+        XCTAssertTrue(coordinator.active)
+    }
+
     func testAGameStartsFromAWindowThatLeftFullScreenAndFullScreenReturnsAfterIt() throws {
         var calls: [Bool] = []
         var active = true

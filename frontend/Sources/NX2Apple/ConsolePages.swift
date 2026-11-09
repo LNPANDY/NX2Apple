@@ -71,7 +71,7 @@ struct ConsoleSectionHeading: View {
 
 /// A question in the middle of the screen over what it was asked from, two answers side by side, the second the cream one, B
 /// closing the question (ConsoleState.back). The focus starts on the safe answer (ConsoleView.resetFocus): Cancel for "Leave console
-/// mode?" and "Reset this game's options?", so A pressed by habit changes nothing. "Save changes?" on leaving the button mapping:
+/// mode?", "Reset this game's options?" and the app's update, so A pressed by habit changes nothing. "Save changes?" on leaving the button mapping:
 /// Discard and Save, the focus on Save, B goes on editing.
 struct ConsoleQuestion: View {
     let compact: Bool
@@ -147,6 +147,7 @@ struct ConsoleQuestion: View {
                               closeID: "console.gamePad.close", scope: Self.scope) { driver.back() }
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
                     Group {
                         if compact || !game.mapsButtons {
                             VStack(alignment: .leading, spacing: 28) { rumble; if game.mapsButtons { buttons } }
@@ -161,7 +162,9 @@ struct ConsoleQuestion: View {
                     }
                     .padding(.horizontal, inset).padding(.bottom, compact ? 24 : 40)
                     .frame(maxWidth: .infinity, alignment: .leading)   // lined up with the title
+                    }.consoleScrollContent()
                 }
+                .consoleScrollFade()
                 .onChange(of: pad.focused) { id in
                     guard let id, id.hasPrefix("console.option.") || id.hasPrefix("console.gamePad.") else { return }
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
@@ -242,4 +245,37 @@ struct ConsoleQuestion: View {
             .id("console.gamePad.mapping")
         }
     }
+}
+
+/// The bottom of a console list that scrolls fades over 24 points into the page's colour, so it does not end in a hard cut. A list
+/// that fits shows no fade. `consoleScrollContent()` goes on the scroll view's content, `consoleScrollFade()` on the scroll view.
+private struct ConsoleScrollContentHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
+private struct ConsoleScrollFade: ViewModifier {
+    @State private var contentHeight: CGFloat = 0
+    @State private var visibleHeight: CGFloat = 0
+    func body(content: Content) -> some View {
+        content
+            .onPreferenceChange(ConsoleScrollContentHeight.self) { contentHeight = $0 }
+            .transformPreference(ConsoleScrollContentHeight.self) { $0 = 0 }   // a list inside another reports to its own fade only
+            .background(GeometryReader { g in
+                Color.clear.onAppear { visibleHeight = g.size.height }.onChange(of: g.size.height) { visibleHeight = $0 }
+            })
+            .overlay(alignment: .bottom) {
+                if contentHeight > visibleHeight + 1 {
+                    LinearGradient(colors: [LauncherPalette.background.opacity(0), LauncherPalette.background], startPoint: .top, endPoint: .bottom)
+                        .frame(height: 24).allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
+    }
+}
+
+extension View {
+    func consoleScrollContent() -> some View {
+        background(GeometryReader { g in Color.clear.preference(key: ConsoleScrollContentHeight.self, value: g.size.height) })
+    }
+    func consoleScrollFade() -> some View { modifier(ConsoleScrollFade()) }
 }

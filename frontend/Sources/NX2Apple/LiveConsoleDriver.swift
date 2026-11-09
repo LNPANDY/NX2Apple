@@ -109,7 +109,7 @@ struct ConsolePadSnapshot: Equatable {
         self.steamPads = steamPads ?? { pads == nil ? SteamLinkGamepads.shared.snapshots : [] }
         self.launch = launch ?? Self.openApplication
         self.artwork = artwork ?? { [banners = library.artworkDirectory] game, repo in
-            GameLibrary.artwork(for: game, slot: .thumbnail, repo: repo, banners: banners, maxPixel: ArtworkImages.cardPixels)
+            GameLibrary.artwork(for: game, slot: .thumbnail, repo: repo, banners: banners, maxPixel: Self.tilePixels)
         }
         if pads == nil { self.devicePads = true }
         state.padMerge = controls.padMerge

@@ -156,6 +156,7 @@ enum ConsoleCloudSaves {
                               closeID: "console.saves.close", scope: Self.scope, close: close)
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: compact ? 12 : 14) {
                         if rows.isEmpty {
                             message(t("console.saves.empty"))
@@ -166,7 +167,9 @@ enum ConsoleCloudSaves {
                     }
                     .padding(.horizontal, inset).padding(.top, 8).padding(.bottom, compact ? 24 : 48)
                     .frame(maxWidth: 1100 + 2 * inset, alignment: .leading)   // lined up with the title, as the other pages are
+                    }.consoleScrollContent()
                 }
+                .consoleScrollFade()
                 .onChange(of: pad.focused) { id in
                     guard let id, id.hasPrefix("console.saves.row.") else { return }
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }

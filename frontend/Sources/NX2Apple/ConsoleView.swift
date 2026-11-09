@@ -200,6 +200,14 @@ enum ConsoleInput {
             ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
             Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.65)).fixedSize()
+            // The menu, as + and − open it: drawn as a controller chip (same capsule, same height), focusable like them.
+            Button { driver.openMenu() } label: {
+                Image(systemName: "line.3.horizontal").font(.system(size: compact ? 12 : 17, weight: .semibold))
+                    .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
+                    .background(.white.opacity(0.075), in: Capsule()).contentShape(Capsule())
+            }
+            .buttonStyle(.plain).accessibilityLabel(t("console.menu"))
+            .padTarget("console.menuButton", scope: "console", radius: 24, activate: { driver.openMenu() })
         }
         .frame(height: compact ? 40 : 52)
         // The banner sits under the bar, so it never covers the controller chips, and it is drawn over the page without moving it (#1004)
@@ -340,9 +348,12 @@ enum ConsoleInput {
                 .padding(.horizontal, compact ? 24 : 40).padding(.bottom, 24)
             ScrollViewReader { proxy in
                 ScrollView {
+                    VStack(spacing: 0) {
                     ConsoleGameOptionsList(driver: driver, game: game, lang: lang, compact: compact, editing: $editingOption)
                         .padding(.horizontal, compact ? 24 : 40).padding(.vertical, 8)
+                    }.consoleScrollContent()
                 }
+                .consoleScrollFade()
                 .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
             }
             VStack(alignment: .leading, spacing: 18) {
@@ -360,9 +371,12 @@ enum ConsoleInput {
                 .padding(.horizontal, compact ? 24 : 40).padding(.bottom, 24)
             ScrollViewReader { proxy in
                 ScrollView {
+                    VStack(spacing: 0) {
                     ConsoleAdvancedList(driver: driver, game: game, lang: lang, compact: compact, editing: $editingOption)
                         .padding(.horizontal, compact ? 24 : 40).padding(.vertical, 8)
+                    }.consoleScrollContent()
                 }
+                .consoleScrollFade()
                 .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
             }
             Text(t(adjustHint(game.advancedSettings))).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText).padding(compact ? 24 : 40)
@@ -449,9 +463,12 @@ enum ConsoleInput {
     private func library(compact: Bool) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
+                VStack(spacing: 0) {
                 ConsoleLibraryList(driver: driver, lang: lang, compact: compact)
                     .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+                }.consoleScrollContent()
             }
+            .consoleScrollFade()
             .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
         }
     }
@@ -460,9 +477,12 @@ enum ConsoleInput {
     private func settings(compact: Bool) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
+                VStack(spacing: 0) {
                 ConsoleSettingsList(driver: driver, lang: lang, compact: compact, languageName: languageName(languageCode))
                     .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+                }.consoleScrollContent()
             }
+            .consoleScrollFade()
             .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
         }
     }
@@ -471,6 +491,7 @@ enum ConsoleInput {
     private func language(compact: Bool) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
+                VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(t("console.language.note")).font(.manrope(compact ? 15 : 18)).foregroundStyle(LauncherPalette.secondaryText)
                         .padding(.leading, 4).padding(.bottom, 6)
@@ -494,7 +515,9 @@ enum ConsoleInput {
                     }
                 }
                 .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+                }.consoleScrollContent()
             }
+            .consoleScrollFade()
             .onChange(of: pad.focused) { id in
                 guard let id, id.hasPrefix("console.language.") else { return }
                 withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
@@ -655,7 +678,7 @@ enum ConsoleInput {
         case .confirmMapping: pad.focused = "console.confirmMapping.save"
         case let .advanced(id): pad.focused = state.games.first { $0.id == id }?.advancedSettings.first.map { "console.option." + $0.env } ?? "console.sheet.close"
         case .confirmReset: pad.focused = "console.confirmReset.cancel"   // the safe choice, as leaving
-        case .confirmUpdate: pad.focused = "console.confirmUpdate.go"
+        case .confirmUpdate: pad.focused = "console.confirmUpdate.cancel"   // the safe choice, as leaving
         case .mapping: pad.focused = state.mappingGameID == nil ? "console.map.menuSwap" : "console.map.swap"
         case nil: pad.focused = state.exited ? "console.return" : state.focusedGame.map { "console.game." + $0.id } ?? "console.empty.desktop"
         }

@@ -106,11 +106,14 @@ import NXLauncher
         VStack(alignment: .leading, spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
                     Group {
                         if let row = driver.state.mappingRow { options(row) } else { list }
                     }
                     .padding(.horizontal, compact ? inset : 0).padding(.trailing, compact ? 0 : inset).padding(.top, 4).padding(.bottom, 20)
+                    }.consoleScrollContent()
                 }
+                .consoleScrollFade()
                 .onChange(of: pad.focused) { id in
                     guard let id, id.hasPrefix("console.map.") else { return }
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
