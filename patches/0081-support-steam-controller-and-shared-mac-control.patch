@@ -18,7 +18,7 @@ Issue: seedds/nxnative#221
  dm/games/0100F2C0115B6000/README.md |    6 +
  dm/host/Makefile                    |    4 +-
  dm/host/controllers_mac.h           |   27 +
- dm/host/controllers_mac.m           | 1082 +++++++++++++++++++++++++++
+ dm/host/controllers_mac.m           | 1081 +++++++++++++++++++++++++++
  dm/host/dm_input.h                  |    6 +-
  dm/host/front_mac.m                 |  465 ++----------
  dm/host/haptics_apple.h             |   10 +
@@ -34,7 +34,7 @@ Issue: seedds/nxnative#221
  dm/host/pad_motion.h                |   36 +
  dm/host/steam_input.h               |   97 +++
  dm/host/tests/Makefile              |   11 +
- dm/host/tests/t_controllers_mac.m   | 1066 ++++++++++++++++++++++++++
+ dm/host/tests/t_controllers_mac.m   | 1071 ++++++++++++++++++++++++++
  dm/host/tests/t_haptics_apple.m     |   49 +-
  dm/host/tests/t_hid.c               |  247 +++++-
  dm/host/tests/t_input_map.c         |   35 +
@@ -49,7 +49,7 @@ Issue: seedds/nxnative#221
  docs/frontends.md                   |   32 +
  docs/mac-controllers.md             |  253 +++++++
  docs/reference/services.md          |   36 +-
- 34 files changed, 3635 insertions(+), 522 deletions(-)
+ 34 files changed, 3639 insertions(+), 522 deletions(-)
  create mode 100644 dm/host/controllers_mac.h
  create mode 100644 dm/host/controllers_mac.m
  create mode 100644 dm/host/input_preferences_mac.h
@@ -142,10 +142,10 @@ index 0000000..bd852c4
 +int front_cp_poll(void);
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
 new file mode 100644
-index 0000000..f1b85cf
+index 0000000..9340ae4
 --- /dev/null
 +++ b/dm/host/controllers_mac.m
-@@ -0,0 +1,1082 @@
+@@ -0,0 +1,1081 @@
 +// Mac controller input: keep the existing eight-player slot policy, with
 +// shared button choices and per-model extras for GameController and Triton HID.
 +#import "controllers_mac.h"
@@ -558,8 +558,7 @@ index 0000000..f1b85cf
 +    pad_slot_free(&g_slots, (__bridge const void *)d); d->slot = -1;
 +    controller_pro_changed();
 +    d->input = (steam_state){0}; d->quit_buttons=0;
-+    if (d->s2) s2_sink(g_merge ? 0 : slot, NO);
-+    if (g_merge) controller_merge_haptics(); else dm_haptics_apple_controller(slot, nil);
++    if (g_merge) controller_merge_haptics(); else { s2_sink(slot, NO); dm_haptics_apple_controller(slot, nil); }
 +    if (g_merge) controller_publish(d); else dm_pad_set_player(slot, 0, 0, 0, 0, 0);
 +    dm_pad_players(g_merge ? (pad_slot_mask(&g_slots) ? 1 : 0) : pad_slot_mask(&g_slots));
 +    controller_touches();
@@ -2867,10 +2866,10 @@ index 133bf4a..6f2c451 100644
 +	$(CLANG) $(GINC) -O1 -fobjc-arc -Wall -Werror -Wno-unused-function -o $@ t_controllers_mac.m -framework Cocoa -framework GameController -framework IOKit
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
 new file mode 100644
-index 0000000..a1daf6f
+index 0000000..2fb595d
 --- /dev/null
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -0,0 +1,1066 @@
+@@ -0,0 +1,1071 @@
 +// GameController snapshots exercise the same read/remap/publish path as hardware.
 +#import <GameController/GameController.h>
 +#import <IOKit/hid/IOHIDManager.h>
@@ -3049,6 +3048,11 @@ index 0000000..a1daf6f
 +void dm_pad_players(uint32_t m) { players = m; }
 +void dm_haptics_apple_controller_locality(int p, GCController *c, GCHapticsLocality locality) { dm_haptics_apple_controller(p,c); rumble_locality[p]=locality; }
 +void dm_haptics_apple_controller(int p, GCController *c) { ++route_changes[p]; rumble[p] = c; raw_output[p]=nil; }
++int dm_switch2_start(const dm_switch2_front *front) { (void)front; return 0; }
++void dm_switch2_active(int on) { (void)on; }
++void dm_switch2_rumble(const dm_haptic_state *state) { (void)state; }
++void dm_joy_set(int pad, int side, uint64_t buttons, int32_t sx, int32_t sy) { (void)pad; (void)side; (void)buttons; (void)sx; (void)sy; }
++void dm_haptics_apple_set_sink(int p, void (*sink)(const dm_haptic_state *state)) { (void)p; (void)sink; }
 +// GameController's newer live-input API is read-only. Adapt real mutable GC
 +// snapshots at the OS boundary and supply event times explicitly.
 +@interface TestButton : NSObject

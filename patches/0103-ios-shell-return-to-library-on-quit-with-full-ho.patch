@@ -58,11 +58,11 @@ Issue: LNPANDY/NX2Apple#809
  dm/ios/Shell/ShellApp.swift         |   2 +-
  dm/ios/Shell/ShellMain.m            | 194 +++++++++++++++-
  dm/ios/Sources/DmGamepad.m          |  28 ++-
- dm/ios/Sources/front_ios.m          |  73 +++++-
+ dm/ios/Sources/front_ios.m          |  74 +++++-
  dm/ios/framework/ShellGlue.m        |   8 +-
  dm/ios/tests/test_framework_link.py |   4 +
  dm/ios/tests/test_shell_build.py    |   6 +
- 46 files changed, 1709 insertions(+), 233 deletions(-)
+ 46 files changed, 1710 insertions(+), 233 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
 index dc6edac..c3db28a 100644
@@ -3366,18 +3366,19 @@ index ca91b77..027fa6c 100644
 +    k_idle = nil; k_on = nil; k_line = nil; k_ringFill = nil; k_text = nil; k_textOn = nil;
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 3400f69..5e453a6 100644
+index 3400f69..312e050 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
-@@ -8,6 +8,7 @@
+@@ -8,6 +8,8 @@
  #import <Metal/Metal.h>
  #import <AVFAudio/AVFAudio.h>
  #include <errno.h>
 +#include <dlfcn.h>
++#include <stdatomic.h>
  #include "front.h"
  #include "hle.h"
  #include "dm.h"
-@@ -20,6 +21,8 @@
+@@ -20,6 +22,8 @@
  
  void dm_gamepad_active(void);
  void dm_gamepad_pads_read(void);
@@ -3386,7 +3387,7 @@ index 3400f69..5e453a6 100644
  static void quit_close(void);
  #import "DmLayout.h"
  #import "DmGameMenu.h"
-@@ -328,15 +331,17 @@ - (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach();
+@@ -328,15 +332,17 @@ - (void)sceneDidDisconnect:(UIScene *)s { if (g_tv == self.window) tv_detach();
  // Thermal state and screen brightness for the power and present rows every 300 frames (hle_nvn.c; its weak defaults return -1 on the Mac). thermalState: 0 nominal, 1 fair, 2 serious, 3 critical.
  // Brightness is read on the main thread at start and on each change; every change of the thermal state and of Low Power Mode (which lowers the CPU clock) is logged with the time since launch
  static _Atomic double g_brightness = -1;
@@ -3407,7 +3408,7 @@ index 3400f69..5e453a6 100644
          (void)n; LOG("front end: Low Power Mode → %s (%.0f s after launch)", dm_low_power_now() ? "on" : "off", (now_ns() - g_t0_ns) / 1e9); }];
      LOG("front end: thermal state %d, brightness %.2f, Low Power Mode %s", dm_thermal_now(), g_brightness, dm_low_power_now() ? "on" : "off");
  }
-@@ -351,7 +356,8 @@ static void front_ios_power_watch(void) {
+@@ -351,7 +357,8 @@ static void front_ios_power_watch(void) {
      l.backgroundColor = [UIColor colorWithWhite:0 alpha:0.45]; l.layer.cornerRadius = 6; l.layer.masksToBounds = YES; l.userInteractionEnabled = NO;
      l.text = @"-- fps";
      __block uint64_t n0 = mtl_present_count(); __block double t0 = CACurrentMediaTime();
@@ -3417,7 +3418,7 @@ index 3400f69..5e453a6 100644
          (void)t; uint64_t n = mtl_present_count(); double now = CACurrentMediaTime();
          if (now - t0 < 1.5) l.text = [NSString stringWithFormat:@"%.0f fps", (n - n0) / (now - t0)];   // a longer span is the time in the background: no reading
          n0 = n; t0 = now;
-@@ -521,7 +527,7 @@ void front_ios_audio_session(void) {
+@@ -521,7 +528,7 @@ void front_ios_audio_session(void) {
  static void front_ios_audio_apply(void) { dm_audio_suspend(g_audio_bg || g_audio_intr); }
  static void front_ios_audio_watch(void) {
      NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
@@ -3426,7 +3427,7 @@ index 3400f69..5e453a6 100644
          NSUInteger type = [n.userInfo[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue], reason = [n.userInfo[AVAudioSessionInterruptionReasonKey] unsignedIntegerValue];
          if (type == AVAudioSessionInterruptionTypeBegan) { LOG("audio session: interrupted (reason %lu)", (unsigned long)reason); g_audio_intr = 1; }
          else {
-@@ -530,7 +536,7 @@ static void front_ios_audio_watch(void) {
+@@ -530,7 +537,7 @@ static void front_ios_audio_watch(void) {
          }
          front_ios_audio_apply();
      }];
@@ -3435,7 +3436,7 @@ index 3400f69..5e453a6 100644
          (void)n; LOG("audio session: the media services were reset; setting the session and the outputs up again");
          front_ios_audio_session(); dm_audio_reset();
      }];
-@@ -550,8 +556,9 @@ static void save_sync_background(void) {
+@@ -550,8 +557,9 @@ static void save_sync_background(void) {
      });
  }
  
@@ -3446,7 +3447,7 @@ index 3400f69..5e453a6 100644
      switch (ev) {
          case 0: quit_close(); dm_gamepad_reset(); dm_focus_set(2); break;
          case 1: UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); save_sync_background(); break;
-@@ -660,14 +667,58 @@ static void quit_show_prompt(GCController *holder) {
+@@ -660,14 +668,58 @@ static void quit_show_prompt(GCController *holder) {
      g_hq_view = v;
      UIAccessibilityPostNotification(UIAccessibilityScreenChangedNotification, v.accessibilityElements.firstObject);
  }
@@ -3507,7 +3508,7 @@ index 3400f69..5e453a6 100644
          dm_host_shutdown("the quit prompt");
      });
  }
-@@ -697,7 +748,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -697,7 +749,7 @@ static void quit_changed(hq_phase was, hq_phase now, GCController *holder) {
  }
  void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and the hold's timer (main queue)
      quit_start();
@@ -3516,7 +3517,7 @@ index 3400f69..5e453a6 100644
      g_hq_busy = 1;
      int home, a, b; GCController *holder = nil; quit_buttons(&home, &a, &b, &holder);
      double now = CACurrentMediaTime();
-@@ -716,7 +767,7 @@ void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and
+@@ -716,7 +768,7 @@ void front_ios_quit_poll(void) {   // DmGamepad.m on a controller's change, and
  }
  static void quit_open(void) {   // the in-game menu's Quit
      quit_start();
