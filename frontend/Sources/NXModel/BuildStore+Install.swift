@@ -111,6 +111,7 @@ extension BuildStore {
     /// again, then devicectl installs the app over itself. PRODUCT_BUNDLE_IDENTIFIER is the one shell.json holds, so the
     /// device keeps the app's Documents (game data, saves).
     package func resignOnDevice(app: String, device: String, then: (() -> Void)? = nil) {
+        installedOn = ""
         guard !device.isEmpty, !app.isEmpty else { then?(); return }
         guard !devices.signingTeam.isEmpty else {
             doneNote = t("dev.resignNoTeam")
@@ -138,30 +139,47 @@ extension BuildStore {
             then?(); return
         }
         let bundle = library.bundleID
-        let resources = Bundle.main.resourceURL?.path, repoPath = repo.path
+        let resources = Bundle.main.resourceURL?.path, repoPath = repo.path, home = self.home, runner = self.runner
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
         let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
         let signAndInstall = {
-            ShellInstall.refreshProjectLinks(root: shell.root, resources: resources, repo: repoPath)
-            self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
-                         command, step: BuildProgress.xcodeStep) { error in
-                if let error, !error.isEmpty {
-                    self.running = false
-                    self.doneNote = String(format: self.t("dev.resignFailed"), error)
-                    then?(); return
-                }
-                self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
-                             BuildCommands.reinstallCommand(xcrun: xcrun, device: device, app: app), step: BuildProgress.installStep) { installError in
-                    self.running = false
-                    if let installError {
-                        self.doneNote = String(format: self.t("dev.installFailed"), installError)
-                    } else {
-                        self.installedOn = device
-                        self.installedAppPath = app
-                        self.doneNote = String(format: self.t("dev.resigned"), name)
+            DispatchQueue.global(qos: .userInitiated).async {
+                ShellInstall.refreshProjectLinks(root: shell.root, resources: resources, repo: repoPath)
+                let stagedProfiles = AppSignature.stageProfilesForResign(
+                    app: app, bundleID: bundle, team: team, home: home, runner: runner
+                )
+                hop {
+                    if self.stopping {
+                        stagedProfiles.rollback()
+                        self.running = false
+                        then?(); return
                     }
-                    then?()
+                    self.stagedResignProfiles = stagedProfiles
+                    self.runTool(id: 1006, name: String(format: self.t("dev.resignStage"), name),
+                                 command, step: BuildProgress.xcodeStep) { error in
+                        if let error, !error.isEmpty {
+                            stagedProfiles.rollback()
+                            self.stagedResignProfiles = nil
+                            self.doneNote = String(format: self.t("dev.resignFailed"), error)
+                            self.running = false
+                            then?(); return
+                        }
+                        stagedProfiles.commit()
+                        self.stagedResignProfiles = nil
+                        self.runTool(id: 1007, name: String(format: self.t("dev.installStage"), name),
+                                     BuildCommands.reinstallCommand(xcrun: xcrun, device: device, app: app), step: BuildProgress.installStep) { installError in
+                            if let installError {
+                                self.doneNote = String(format: self.t("dev.installFailed"), installError)
+                            } else {
+                                self.installedOn = device
+                                self.installedAppPath = app
+                                self.doneNote = String(format: self.t("dev.resigned"), name)
+                            }
+                            self.running = false
+                            then?()
+                        }
+                    }
                 }
             }
         }
