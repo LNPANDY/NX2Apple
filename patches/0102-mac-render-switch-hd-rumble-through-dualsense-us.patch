@@ -1,0 +1,519 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Radium Wang <249038647+radium-wang@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 23:19:13 +0800
+Subject: [PATCH] Mac: render Switch HD rumble through DualSense USB
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Core Haptics folds each grip’s two bands into intensity and sharpness. Send the timed bands as 48 kHz USB waveforms to the left and right grips when one DualSense is unambiguously connected as player 1. Keep the regular haptics route when USB output is unavailable.
+
+Double the base USB synthesis gain and apply the existing strength slider on top, with a per-grip peak limit. Exercise the signal path, strength, cutoff, and reset in t_haptics_apple.
+
+Upstream-Status: forwarded seedds/nxnative#1993
+Reason: Carry Mac DualSense USB HD rumble while the upstream pull request is open.
+Issue: seedds/nxnative#1993
+
+---
+ dm/games/010015100B514000/README.md |   1 +
+ dm/host/Makefile                    |   4 +-
+ dm/host/dualsense_usb.h             | 236 ++++++++++++++++++++++++++++
+ dm/host/haptics_apple.m             |  48 +++++-
+ dm/host/tests/Makefile              |   4 +-
+ dm/host/tests/t_haptics_apple.m     |  43 +++++
+ docs/playing.md                     |   2 +
+ docs/reference/services.md          |   7 +
+ docs/settings.md                    |   2 +
+ 9 files changed, 342 insertions(+), 5 deletions(-)
+ create mode 100644 dm/host/dualsense_usb.h
+
+diff --git a/dm/games/010015100B514000/README.md b/dm/games/010015100B514000/README.md
+index 4baa36f..bd758a4 100644
+--- a/dm/games/010015100B514000/README.md
++++ b/dm/games/010015100B514000/README.md
+@@ -100,6 +100,7 @@ Game-specific findings; the general host changes they led to are listed under [F
+ 
+ ## Found on this game
+ 
++- [DualSense HD rumble over USB on the Mac](../../../docs/reference/services.md#dualsense-hd-rumble-over-usb-on-the-mac): the player felt the pitch changes on the Wiggler Race Mountaineering course in a USB DualSense Edge test of 1.2.1.
+ - [CPU-decoded BC uploads and format views](../../../docs/reference/rendering.md#cpu-decoded-bc-uploads-and-format-views): A15 corruption and invalid format views with the compatibility option enabled.
+ 
+ - [Offline pipeline archive missing for the device GPU](../../../docs/reference/shaders.md#offline-pipeline-archive-missing-for-the-device-gpu): archive targets can follow profile metadata while iOS Metal 4 remains opt-in; [the probe above](#offline-pipeline-archive-probe) records the build evidence and open device checks.
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index 318fe34..4a10220 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -79,8 +79,8 @@ endif
+ endif
+ .PHONY: FORCE
+ FORCE:
+-dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h pad_joycon.h pad_joycon_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
+-	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
++dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h dualsense_usb.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h pad_joycon.h pad_joycon_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
++	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework CoreAudio -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
+ clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
+ 	rm -rf gen dmhost dmhost_* *.dSYM
+ .PHONY: clean
+diff --git a/dm/host/dualsense_usb.h b/dm/host/dualsense_usb.h
+new file mode 100644
+index 0000000..2c683f5
+--- /dev/null
++++ b/dm/host/dualsense_usb.h
+@@ -0,0 +1,236 @@
++// Mac USB output for two independent Switch HD rumble motors.
++// CoreAudio channels 1 and 2 remain silent; channels 3 and 4 drive the grips.
++#pragma once
++#import <AudioToolbox/AudioToolbox.h>
++#import <CoreAudio/CoreAudio.h>
++#import <Foundation/Foundation.h>
++#import <IOKit/IOKitLib.h>
++#import <IOKit/hid/IOHIDDevice.h>
++#include <math.h>
++#include <stdatomic.h>
++#include <time.h>
++#include "hle_haptics.h"
++
++enum { DS_RATE = 48000, DS_CHANNELS = 4, DS_QUEUE = 256, DS_RAMP = 96 };
++typedef struct {
++    uint64_t time;
++    unsigned generation;
++    dm_haptic_state state;
++    float gain, cutoff;
++} DsEvent;
++typedef struct {
++    float amplitude, target, step, frequency, phase;
++    unsigned remaining;
++} DsTone;
++typedef struct {
++    AudioUnit unit;
++    _Atomic unsigned head, tail, generation;
++    DsEvent events[DS_QUEUE];
++    DsTone tone[2][2];
++    unsigned renderGeneration;   // only the audio thread touches these fields
++    uint64_t epoch;               // only the producer touches this field
++    uint64_t delay;
++    bool initialized;
++} DsUsb;
++
++static void ds_usb_clear(DsUsb *d) {
++    atomic_fetch_add(&d->generation, 1);
++}
++static void ds_usb_submit(DsUsb *d, dm_haptic_state s, float gain, float cutoff) {
++    if (s.epoch != d->epoch) { ds_usb_clear(d); d->epoch = s.epoch; }
++    unsigned head = atomic_load_explicit(&d->head, memory_order_relaxed);
++    if (head - atomic_load_explicit(&d->tail, memory_order_acquire) >= DS_QUEUE) {
++        // Cancel queued state so an old sustained vibration cannot get stuck.
++        ds_usb_clear(d);
++        return;
++    }
++    d->events[head % DS_QUEUE] = (DsEvent){
++        clock_gettime_nsec_np(CLOCK_UPTIME_RAW), atomic_load(&d->generation), s, gain, cutoff,
++    };
++    atomic_store_explicit(&d->head, head + 1, memory_order_release);
++}
++static void ds_tone_set(DsTone *t, float a, float f) {
++    if (f > 0) t->frequency = f;
++    if (t->target == a) return;
++    t->target = a;
++    t->step = (a - t->amplitude) / DS_RAMP;
++    t->remaining = DS_RAMP;
++}
++static void ds_set_event(DsUsb *d, const DsEvent *e) {
++    for (int m = 0; m < 2; ++m) {
++        const dm_vibration *v = &e->state.motor[m];
++        // Give both bands headroom, then apply the cutoff and limit their combined peak.
++        // Scaling them together preserves the balance between the two frequencies.
++        float lo = v->amplitude_low * e->gain * .5f, hi = v->amplitude_high * e->gain * .5f;
++        float peak = lo + hi;
++        float scale = peak > e->cutoff ? (fminf(1, peak) - e->cutoff) / ((1 - e->cutoff) * peak) : 0;
++        ds_tone_set(&d->tone[m][0], lo * scale, v->frequency_low);
++        ds_tone_set(&d->tone[m][1], hi * scale, v->frequency_high);
++    }
++}
++static float ds_tone_sample(DsTone *t) {
++    if (t->remaining) {
++        t->amplitude += t->step;
++        if (!--t->remaining) t->amplitude = t->target;
++    }
++    if (!t->amplitude) return 0;
++    float value = t->amplitude * sinf(t->phase);
++    t->phase += t->frequency * (2.f * (float)M_PI / DS_RATE);
++    if (t->phase >= 2.f * (float)M_PI) t->phase -= 2.f * (float)M_PI;
++    return value;
++}
++static void ds_usb_pcm(DsUsb *d, float *out, unsigned frames, uint64_t start) {
++    // Read the published head before its generation so a newly published event
++    // cannot be mistaken for stale data when a route changes mid-callback.
++    unsigned head = atomic_load_explicit(&d->head, memory_order_acquire);
++    unsigned generation = atomic_load(&d->generation);
++    if (d->renderGeneration != generation) {
++        memset(d->tone, 0, sizeof d->tone);
++        d->renderGeneration = generation;
++    }
++    unsigned tail = atomic_load_explicit(&d->tail, memory_order_relaxed);
++    for (unsigned i = 0; i < frames; ++i) {
++        uint64_t time = start + (uint64_t)i * 1000000000 / DS_RATE;
++        while (tail != head) {
++            const DsEvent *e = &d->events[tail % DS_QUEUE];
++            if (e->generation == generation) {
++                if (e->time > time) break;
++                ds_set_event(d, e);
++            }
++            ++tail;
++        }
++        *out++ = 0; *out++ = 0;
++        for (int m = 0; m < 2; ++m)
++            *out++ = ds_tone_sample(&d->tone[m][0]) + ds_tone_sample(&d->tone[m][1]);
++    }
++    atomic_store_explicit(&d->tail, tail, memory_order_release);
++}
++static OSStatus ds_usb_render(void *ctx, AudioUnitRenderActionFlags *flags,
++                              const AudioTimeStamp *time, UInt32 bus, UInt32 frames, AudioBufferList *data) {
++    (void)flags; (void)time; (void)bus;
++    DsUsb *d = ctx;
++    if (data->mNumberBuffers != 1 || data->mBuffers[0].mNumberChannels != DS_CHANNELS ||
++        data->mBuffers[0].mDataByteSize < frames * DS_CHANNELS * sizeof(float) || !data->mBuffers[0].mData) {
++        for (UInt32 i = 0; i < data->mNumberBuffers; ++i)
++            if (data->mBuffers[i].mData) memset(data->mBuffers[i].mData, 0, data->mBuffers[i].mDataByteSize);
++        return kAudioUnitErr_FormatNotSupported;
++    }
++    uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
++    ds_usb_pcm(d, data->mBuffers[0].mData, frames, now > d->delay ? now - d->delay : 0);
++    return noErr;
++}
++static OSStatus ds_property(AudioObjectID id, AudioObjectPropertySelector selector,
++                            AudioObjectPropertyScope scope, UInt32 *size, void *value) {
++    AudioObjectPropertyAddress a = {selector, scope, kAudioObjectPropertyElementMain};
++    return AudioObjectGetPropertyData(id, &a, 0, NULL, size, value);
++}
++static CFStringRef ds_string(AudioDeviceID id, AudioObjectPropertySelector selector) CF_RETURNS_RETAINED {
++    CFStringRef string = NULL;
++    UInt32 size = sizeof(CFStringRef);
++    return ds_property(id, selector, kAudioObjectPropertyScopeGlobal, &size, &string) == noErr ? string : NULL;
++}
++static bool ds_four_outputs(AudioDeviceID id) {
++    AudioObjectPropertyAddress a = {kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyScopeOutput, kAudioObjectPropertyElementMain};
++    UInt32 size = 0;
++    if (AudioObjectGetPropertyDataSize(id, &a, 0, NULL, &size) || !size) return false;
++    AudioBufferList *buffers = calloc(1, size);
++    if (!buffers) return false;
++    UInt32 n = 0;
++    if (!AudioObjectGetPropertyData(id, &a, 0, NULL, &size, buffers))
++        for (UInt32 i = 0; i < buffers->mNumberBuffers; ++i) n += buffers->mBuffers[i].mNumberChannels;
++    free(buffers);
++    return n == DS_CHANNELS;
++}
++static AudioDeviceID ds_usb_device(void) {
++    AudioObjectPropertyAddress a = {kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
++    UInt32 size = 0;
++    if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &a, 0, NULL, &size) || !size) return 0;
++    AudioDeviceID *ids = malloc(size);
++    if (!ids) return 0;
++    AudioDeviceID result = 0;
++    if (!AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &size, ids)) {
++        for (UInt32 i = 0; i < size / sizeof(*ids); ++i) {
++            AudioDeviceID id = ids[i];
++            UInt32 transport = 0, n = sizeof(transport);
++            if (ds_property(id, kAudioDevicePropertyTransportType, kAudioObjectPropertyScopeGlobal, &n, &transport) ||
++                transport != kAudioDeviceTransportTypeUSB || !ds_four_outputs(id)) continue;
++            NSString *name = CFBridgingRelease(ds_string(id, kAudioObjectPropertyName));
++            NSString *maker = CFBridgingRelease(ds_string(id, kAudioObjectPropertyManufacturer));
++            if (![maker hasPrefix:@"Sony"] ||
++                (![name isEqualToString:@"DualSense Wireless Controller"] &&
++                 ![name isEqualToString:@"DualSense Edge Wireless Controller"])) continue;
++            if (result) { result = 0; break; }
++            result = id;
++        }
++    }
++    free(ids);
++    return result;
++}
++static IOReturn ds_usb_enable_pcm(AudioDeviceID audio) {
++    // Match the same USB location before touching a HID output report.
++    NSString *uid = CFBridgingRelease(ds_string(audio, kAudioDevicePropertyDeviceUID));
++    NSArray<NSString *> *parts = [uid componentsSeparatedByString:@":"];
++    if (parts.count < 5 || ![parts[0] isEqualToString:@"AppleUSBAudioEngine"]) return kIOReturnNotFound;
++    unsigned location = 0;
++    if (![[NSScanner scannerWithString:parts[parts.count - 2]] scanHexInt:&location] || !location) return kIOReturnNotFound;
++    CFMutableDictionaryRef match = IOServiceMatching(kIOHIDDeviceKey);
++    if (!match) return kIOReturnNotFound;
++    CFDictionarySetValue(match, CFSTR(kIOHIDVendorIDKey), (__bridge CFNumberRef)@0x054c);
++    io_iterator_t it = 0;
++    if (IOServiceGetMatchingServices(kIOMainPortDefault, match, &it)) return kIOReturnNotFound;
++    IOReturn result = kIOReturnNotFound;
++    for (io_service_t service; (service = IOIteratorNext(it)); IOObjectRelease(service)) {
++        IOHIDDeviceRef dev = IOHIDDeviceCreate(kCFAllocatorDefault, service);
++        if (!dev) continue;
++        unsigned pid = [(__bridge NSNumber *)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductIDKey)) unsignedIntValue];
++        unsigned loc = [(__bridge NSNumber *)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDLocationIDKey)) unsignedIntValue];
++        if ((pid == 0x0ce6 || pid == 0x0df2) && loc == location) {
++            result = IOHIDDeviceOpen(dev, kIOHIDOptionsTypeNone);
++            if (!result) {
++                // Clear emulated rumble flags without requesting LED, trigger, or audio changes.
++                uint8_t report[48] = {2};
++                result = IOHIDDeviceSetReport(dev, kIOHIDReportTypeOutput, report[0], report, sizeof(report));
++                IOHIDDeviceClose(dev, kIOHIDOptionsTypeNone);
++            }
++        }
++        CFRelease(dev);
++        if (!result) { IOObjectRelease(service); break; }
++    }
++    IOObjectRelease(it);
++    return result;
++}
++static void ds_usb_close(DsUsb *d) {
++    if (d->unit) {
++        AudioOutputUnitStop(d->unit);
++        if (d->initialized) AudioUnitUninitialize(d->unit);
++        AudioComponentInstanceDispose(d->unit);
++    }
++    *d = (DsUsb){0};
++}
++static OSStatus ds_usb_open(DsUsb *d, AudioDeviceID id) {
++    if (!id) return kAudioHardwareBadDeviceError;
++    AudioComponentDescription desc = {kAudioUnitType_Output, kAudioUnitSubType_HALOutput, kAudioUnitManufacturer_Apple, 0, 0};
++    AudioComponent component = AudioComponentFindNext(NULL, &desc);
++    if (!component) return kAudioUnitErr_FailedInitialization;
++    OSStatus err = AudioComponentInstanceNew(component, &d->unit);
++    if (err) goto fail;
++    UInt32 off = 0, on = 1, frames = 0, bytes = sizeof(frames);
++    err = AudioUnitSetProperty(d->unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1, &off, sizeof(off));
++    if (!err) err = AudioUnitSetProperty(d->unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0, &on, sizeof(on));
++    if (!err) err = AudioUnitSetProperty(d->unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0, &id, sizeof(id));
++    if (!err) err = ds_property(id, kAudioDevicePropertyBufferFrameSize, kAudioObjectPropertyScopeGlobal, &bytes, &frames);
++    d->delay = 2000000 + (uint64_t)frames * 1000000000 / DS_RATE;
++    AudioStreamBasicDescription format = {DS_RATE, kAudioFormatLinearPCM, kAudioFormatFlagsNativeFloatPacked,
++        DS_CHANNELS * sizeof(float), 1, DS_CHANNELS * sizeof(float), DS_CHANNELS, 32, 0};
++    if (!err) err = AudioUnitSetProperty(d->unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Input, 0, &format, sizeof(format));
++    SInt32 map[DS_CHANNELS] = {0, 1, 2, 3};
++    if (!err) err = AudioUnitSetProperty(d->unit, kAudioOutputUnitProperty_ChannelMap, kAudioUnitScope_Output, 0, map, sizeof(map));
++    AURenderCallbackStruct cb = {ds_usb_render, d};
++    if (!err) err = AudioUnitSetProperty(d->unit, kAudioUnitProperty_SetRenderCallback, kAudioUnitScope_Input, 0, &cb, sizeof(cb));
++    if (!err) { err = AudioUnitInitialize(d->unit); d->initialized = err == noErr; }
++    if (!err) err = AudioOutputUnitStart(d->unit);
++    if (!err) return noErr;
++fail:
++    ds_usb_close(d);
++    return err;
++}
+diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
+index 849af06..362a104 100644
+--- a/dm/host/haptics_apple.m
++++ b/dm/host/haptics_apple.m
+@@ -10,6 +10,7 @@
+ #import <AppKit/AppKit.h>
+ #import <IOKit/IOKitLib.h>
+ #import <IOKit/hid/IOHIDDevice.h>
++#import "dualsense_usb.h"
+ #endif
+ #include <math.h>
+ #include <pthread.h>
+@@ -235,6 +236,35 @@ - (void)apply:(dm_haptic_level)level {
+ // handle engines of a server without advanced players, the report keeps the strong (left) and weak (right) motor apart.
+ typedef struct { IOHIDDeviceRef dev; uint64_t id; BOOL bluetooth; uint8_t motor[2], sent[2]; } ds4_out;   // id: its registry entry
+ static ds4_out ds4[DM_PLAYERS];
++static DsUsb ds_usb;   // one unambiguous USB DualSense in player one's slot
++static bool ds_gc(GCController *controller) {
++    NSString *name = controller.vendorName;
++    return [controller.productCategory isEqualToString:GCProductCategoryDualSense] ||
++           [name isEqualToString:@"DualSense Wireless Controller"] ||
++           [name isEqualToString:@"DualSense Edge Wireless Controller"];
++}
++static bool ds_usb_route(GCController *controller) {
++    const char *opt = getenv("DM_DUALSENSE_USB");
++    if (!controller || !ds_gc(controller) || (opt && !atoi(opt))) return false;
++    unsigned count = 0;
++    for (GCController *c in GCController.controllers) count += ds_gc(c);
++    if (count != 1) return false;
++    AudioDeviceID device = ds_usb_device();
++    if (!device) return false;
++    OSStatus err = ds_usb_open(&ds_usb, device);
++    if (err) {
++        fprintf(stderr, "haptics: DualSense USB audio setup failed (%d); using normal controller haptics\n", err);
++        return false;
++    }
++    IOReturn mode = ds_usb_enable_pcm(device);
++    if (mode != kIOReturnSuccess) {
++        fprintf(stderr, "haptics: DualSense USB HID setup failed (0x%x); using normal controller haptics\n", mode);
++        ds_usb_close(&ds_usb);
++        return false;
++    }
++    fprintf(stderr, "haptics: player 1 DualSense USB PCM, 48000 Hz, grips on channels 3 and 4 (HID mode 0x%x)\n", mode);
++    return true;
++}
+ static uint32_t ds4_crc(const uint8_t *p, size_t n) {
+     uint32_t c = ~0u;
+     while (n--) { c ^= *p++; for (int k = 0; k < 8; k++) c = c >> 1 ^ (0xEDB88320u & -(c & 1)); }
+@@ -328,6 +358,11 @@ static void apply(dm_haptic_state s) {
+         if (nativeOutputs[s.player]) { native_apply(s,++outputGeneration[s.player]); return; }
+         NSArray<DmRumbleChannel *> *out = channels[s.player];
+ #if !TARGET_OS_IPHONE
++        if (s.player == 0 && ds_usb.unit) {
++            // USB PCM is quiet at the original scale. Keep the user's slider relative to this route's 2x base.
++            ds_usb_submit(&ds_usb, s, 2.f * gain, rumble_min);
++            return;
++        }
+         if ([out.firstObject isKindOfClass:DmDs4Channel.class]) { ds4_apply(s); return; }
+ #endif
+         for (NSUInteger i = 0; i < out.count; i++) {
+@@ -350,7 +385,9 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
+     for (DmRumbleChannel *c in channels[p]) [c stop];
+     channels[p] = [NSMutableArray new];
+ #if !TARGET_OS_IPHONE
++    if (!p) ds_usb_close(&ds_usb);
+     ds4_release(p);
++    if (!p && !locality && ds_usb_route(controller)) { dm_haptics_route(p, 1); return; }
+     if (controller && !locality && ds4_route(p, controller)) { dm_haptics_route(p, 1); return; }   // the report first, as SDL drives it
+ #endif
+     if (controller) {
+@@ -430,6 +467,7 @@ void dm_haptics_apple_output(int p, id owner, dm_haptics_output output) {
+             native_stop(p);
+             for (DmRumbleChannel *c in channels[p]) [c stop];
+ #if !TARGET_OS_IPHONE
++            if (!p) ds_usb_close(&ds_usb);
+             ds4_release(p);
+ #endif
+             channels[p]=[NSMutableArray new]; nativeOutputs[p]=[output copy]; dm_haptics_route(p,1);
+@@ -443,13 +481,21 @@ void dm_haptics_apple_controller(int p, GCController *controller) {
+ static void suspend(unsigned reason, BOOL on) {
+     dm_haptics_suspend(reason, on);
+     void (^stop)(void) = ^{
++#if !TARGET_OS_IPHONE
++        if (ds_usb.unit) ds_usb_clear(&ds_usb);
++#endif
+         for (int p = 0; p < DM_PLAYERS; p++) { native_stop(p); for (DmRumbleChannel *c in channels[p]) [c stop]; }
+     };
+     if (on) { if (dispatch_get_specific(&queue)) stop(); else dispatch_sync(queue, stop); }
+ }
+ void dm_haptics_apple_focus(int active) { if(queue) suspend(DM_HAPTICS_UNFOCUSED,!active); }
+ void dm_haptics_apple_shutdown(void) {
+-    if (queue) suspend(DM_HAPTICS_INACTIVE, YES);
++    if (!queue) return;
++    suspend(DM_HAPTICS_INACTIVE, YES);
++#if !TARGET_OS_IPHONE
++    void (^close_usb)(void) = ^{ ds_usb_close(&ds_usb); };
++    if (dispatch_get_specific(&queue)) close_usb(); else dispatch_sync(queue, close_usb);
++#endif
+ }
+ void dm_haptics_apple_init(void) {
+     static dispatch_once_t once;
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 026abd9..d501846 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -256,8 +256,8 @@ $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle
+ 	$(CLANG) -O1 -g -fsanitize=thread -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
+ $(B)/t_haptics: t_haptics.c ../hle_haptics.c ../hle_haptics.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -I.. -o $@ t_haptics.c ../hle_haptics.c
+-$(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ../hle_haptics.c ../hle_haptics.h | $(B)
+-	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_haptics_apple.m ../hle_haptics.c -framework Cocoa -framework GameController -framework CoreHaptics -framework IOKit
++$(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ../dualsense_usb.h ../hle_haptics.c ../hle_haptics.h | $(B)
++	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -I.. -o $@ t_haptics_apple.m ../hle_haptics.c -framework Cocoa -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework CoreAudio
+ $(B)/t_time: t_time.c ../hle_time.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_time.c
+ $(B)/t_oe: t_oe.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
+diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
+index 40fdeb7..cf128bb 100644
+--- a/dm/host/tests/t_haptics_apple.m
++++ b/dm/host/tests/t_haptics_apple.m
+@@ -237,6 +237,48 @@ static IOReturn test_device_report(IOHIDDeviceRef d, IOHIDReportType t, CFIndex
+     return kIOReturnSuccess;
+ }
+ static void drain(void) { dispatch_sync(queue, ^{}); dispatch_sync(queue, ^{}); }
++static void check_dualsense_pcm(void) {
++    // Select the real PCM adapter without opening a hardware AudioUnit.
++    ds_usb.unit = (AudioUnit)(uintptr_t)1;
++    dm_haptic_state state = {
++        .player = 0, .epoch = dm_haptics_epoch(0),
++        .motor = {{.2f, 160, .1f, 320}, {.3f, 200, .1f, 400}},
++    };
++    float pcm[DS_RAMP * DS_CHANNELS];
++    apply(state); drain();
++    ds_usb_pcm(&ds_usb, pcm, DS_RAMP, ds_usb.events[0].time);
++    assert(fabsf(ds_usb.tone[0][0].amplitude - .2f) < 1e-6f);
++    assert(fabsf(ds_usb.tone[0][1].amplitude - .1f) < 1e-6f);
++    assert(ds_usb.tone[1][0].frequency == 200 && ds_usb.tone[1][1].frequency == 400);
++    for (unsigned i = 0; i < DS_RAMP; i++) {
++        assert(pcm[4*i] == 0 && pcm[4*i+1] == 0);
++        assert(isfinite(pcm[4*i+2]) && isfinite(pcm[4*i+3]));
++    }
++    assert(pcm[4*32+2] != pcm[4*32+3]);
++
++    gain = 2;
++    state.motor[1].amplitude_low = .8f;
++    state.motor[1].amplitude_high = .4f;
++    apply(state); drain();
++    ds_usb_pcm(&ds_usb, pcm, DS_RAMP, ds_usb.events[1].time);
++    assert(fabsf(ds_usb.tone[0][0].amplitude - .4f) < 1e-6f);
++    assert(fabsf(ds_usb.tone[0][1].amplitude - .2f) < 1e-6f);
++    assert(fabsf(ds_usb.tone[1][0].amplitude - 2.f/3) < 1e-6f);
++    assert(fabsf(ds_usb.tone[1][1].amplitude - 1.f/3) < 1e-6f);
++    for (unsigned i = 0; i < DS_RAMP * DS_CHANNELS; i++) assert(fabsf(pcm[i]) <= 1.f);
++
++    rumble_min = .65f;
++    apply(state); drain();
++    ds_usb_pcm(&ds_usb, pcm, DS_RAMP, ds_usb.events[2].time);
++    assert(ds_usb.tone[0][0].amplitude == 0 && ds_usb.tone[0][1].amplitude == 0);
++    assert(ds_usb.tone[1][0].amplitude > 0);
++    ds_usb_clear(&ds_usb);
++    ds_usb_pcm(&ds_usb, pcm, DS_RAMP, ds_usb.events[2].time);
++    for (unsigned i = 0; i < DS_RAMP * DS_CHANNELS; i++) assert(pcm[i] == 0);
++    ds_usb = (DsUsb){0};
++    gain = 1;
++    rumble_min = 0;
++}
+ static void advance(NSTimeInterval seconds) {
+     uint64_t end = testTime + (uint64_t)llround(seconds * NSEC_PER_SEC);
+     for (;;) {
+@@ -498,6 +540,7 @@ int main(void) { @autoreleasepool {
+     assert(nativeStops && !outputOwners[0] && !nativeOutputs[0] && channels[0].count==1 && [controllerLocalities[0] isEqual:GCHapticsLocalityLeftHandle]);
+     dm_haptics_apple_controller(0, nil); dm_haptics_apple_controller(1, nil); drain();
+     assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
++    check_dualsense_pcm();
+     dm_haptics_apple_shutdown();
+     puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, level cutoff and the DualShock 4 route passed");
+ } }
+diff --git a/docs/playing.md b/docs/playing.md
+index 2f8851b..b7e2a53 100644
+--- a/docs/playing.md
++++ b/docs/playing.md
+@@ -20,6 +20,8 @@ In portrait (an iPad, an iPhone Duo's inner screen) the picture sits above the c
+ 
+ Game vibration uses the iPhone's haptic engine or a compatible connected controller. Controllers with separate left/right haptic outputs keep those effects separate. The settings screen's **Game rumble** and **Rumble strength** control it independently of **Touch feedback**. Phone rumble approximates the Switch's effects; physical feel and controller compatibility still need device testing.
+ 
++On the Mac, a single USB DualSense or DualSense Edge assigned to player 1 can play the game's low and high frequency bands separately in each grip. When the USB output is unavailable, the controller uses Core Haptics. Set `DM_DUALSENSE_USB=0` in the game's `env.txt` to select Core Haptics over USB.
++
+ ## Motion (gyro)
+ 
+ A controller that supplies gyro data through Apple's controller support (DualSense, DualShock 4) drives the game's motion controls, on the Mac and the iPhone: aiming and tilt puzzles in games that read the controller's motion, such as Breath of the Wild with its Motion Controls option on. A controller without one (Backbone One, Razer Kishi and other controllers the phone mounts in) uses the iPhone's own gyro, as a Switch in handheld. Motion follows the controller in docked mode, the default.
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index 4aedf4e..eafd7fd 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -458,6 +458,13 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Low levels on rotating motors (open).** Controller motors and the Switch's resonant actuators disagree at low amplitudes, in two directions. The Xbox controller's motors showed nothing at intensity 0.05, a faint buzz from about 0.1 and a soft one at 0.3, so Breath of the Wild's charged attack (0.07 for about 3 s, `DM_RUMBLE_LOG=1`) was not felt even at `DM_RUMBLE_GAIN=2.5`. Mario Kart 8 Deluxe holds its low band at 0.1–0.4 all race long (about 30 changes a second, 0.84 peaks every few seconds): a texture on a Joy-Con, rumble that never lets up on a DualShock 4's motors. A floor with a square-root rise (0.15 + 0.85·√x) fixed the first and would make the second much worse, so the mapping stays linear. `DM_RUMBLE_MIN=0..0.9` (default 0) silences controller levels below it and stretches the rest over the full range, on every controller route; 0.45 leaves Mario Kart 8 Deluxe's crashes and drifts, as an emulator gives them on that controller. `t_haptics_apple` covers the cutoff.
+ - **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md) (1.9.0), on macOS 27.0.1 with an Xbox Wireless Controller over Bluetooth and an Xbox 360 USB receiver; [NieR:Automata The End of YoRHa Edition](../../dm/games/010056B015FE8000/README.md) (the Asian release, `0100B8E016F76000`) on an iPhone with a GameSir Super Nova in DualShock 4 mode, which plain players fixed; [Mario Kart 8 Deluxe](../../dm/games/0100152000022000/README.md) (4.0.1) on macOS 27.0.1 with a GameSir Cyclone; the same error in issue #219 (Sifu, provisional profile), controller unnamed.
+ 
++### DualSense HD rumble over USB on the Mac
++
++- **Symptom:** a game sends a sequence of pitches and levels, but the Core Haptics adapter represents the two frequency bands of each motor as one intensity and sharpness. The individual pitches do not reach the controller through that adapter.
++- **Cause:** Core Haptics accepts a perceptual description of an effect. The DualSense and DualSense Edge also expose a four-channel USB audio output, where channels 3 and 4 can drive the two grip actuators with a waveform.
++- **Fix:** match a single player 1 DualSense to its USB audio and HID devices. Open the USB output and clear the emulated-rumble flags in its HID report. Queue the game's timestamped vibration updates and synthesize both bands of each grip at 48 kHz with short amplitude ramps. At the default slider position the USB route applies twice the original synthesis gain. The slider multiplies this gain, with a shared peak limit per grip. The optional controller cutoff operates on the combined peak of each grip. Disconnecting, suspending or changing the route clears the queued effect. If the USB route cannot be opened or `DM_DUALSENSE_USB=0`, fall back to Core Haptics.
++- **Found on:** [Super Mario Bros. Wonder](../../dm/games/010015100B514000/README.md) (1.2.1), where the player reported pitch changes in the DualSense Edge grip vibrations on the Wiggler Race Mountaineering course with the USB prototype. `t_haptics_apple` checks the two grip signals, slider scaling, limiting, cutoff and reset without hardware. A comparison of physical amplitude with a Joy-Con remains open.
++
+ ### DualShock 4 rumble through its effects report
+ 
+ - **Symptom:** on the Mac, a DualShock 4 or a controller that presents itself as one (a GameSir Cyclone over Bluetooth: HID vendor `054C`, product `05C4`, `productCategory` "DualShock 4") does not rumble; Core Haptics failed on every locality with NSCocoaErrorDomain 4097 (issue #363, also in a minimal Swift app), while the same controller rumbles in an SDL-based emulator.
+diff --git a/docs/settings.md b/docs/settings.md
+index 5b83be9..c4fbab7 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -105,6 +105,8 @@ The game's vibration, on the phone or on a connected controller.
+ 
+ How strong the game's vibration is, from 0 to 300 %.
+ 
++On the Mac, the USB DualSense waveform output starts at twice its base amplitude at the default 100 %. The slider multiplies that level, up to the waveform output limit.
++
+ ### Rumble cutoff
+ 
+ A controller's vibration weaker than this stays off, and the rest is spread over the full range. Off (0 %) by default. A controller with rotating motors can rumble all the time in a game that sends a quiet texture: Mario Kart 8 Deluxe needs about 45 % to rumble only on crashes and drifts. The phone's own vibration is not affected.
