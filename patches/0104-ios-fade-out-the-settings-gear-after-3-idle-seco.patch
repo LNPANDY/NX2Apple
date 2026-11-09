@@ -1,0 +1,317 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Mon, 9 Nov 2026 18:48:29 +0800
+Subject: [PATCH] iOS: fade out the settings gear after 3 idle seconds with a
+ controller
+
+When a physical controller is connected on an iPhone or iPad screen, keeping the top-centre settings gear permanently visible distracts from the game picture and risks OLED burn-in on long sessions.
+
+Fade the gear out after 3 idle seconds while a physical controller is connected on the device screen unless VoiceOver is running, skipping the 0.3-second fade animation when Reduce Motion is enabled, and wake it for 3 seconds on any screen touch while keeping it visible whenever the in-game menu is open. Also add the missing dm_players_reported stub to DuoRuntimeStubs.m so the DuoHarness test target links cleanly.
+
+Upstream-Status: forwarded seedds/nxnative#2003
+Reason: Fade out the in-game menu gear after 3 idle seconds while a physical controller is connected on the device screen to prevent visual distraction and OLED burn-in, and wake it for 3 seconds on any screen touch.
+Issue: LNPANDY/NX2Apple#809
+---
+ dm/ios/Sources/DmGamepad.m                 |  61 ++++++++++-
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   1 +
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m   | 112 ++++++++++++++++++++-
+ docs/settings.md                           |   2 +-
+ 4 files changed, 168 insertions(+), 8 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 027fa6c8..9705efbd 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -1,6 +1,6 @@
+ // Virtual gamepad (Nintendo button positions) + physical controllers (GameController), handed to the host through dm_input_set and dm_pad_set_player (hle_hid.c, bit layout in dm_input.h).
+ //   Two layouts, three in handheld mode, picked in the in-game menu (GameMenu.swift) that the menu button at the top centre (a gear) opens; the choice is kept in NSUserDefaults (each game is its own app, so per game); the first launch uses the game profile's pad_layout (DM_GAME_PAD_LAYOUT).
+-//   The menu button hides when a physical controller is in use and the picture is on a TV. Its last item quits the game
++//   The menu button hides when a physical controller is in use and the picture is on a TV. On the device screen it fades out after 3 idle seconds while a physical controller is in use and returns for 3 seconds on any screen touch. Its last item quits the game
+ //     (a prompt, front_ios.m), and so does holding a controller's Home button for 2 seconds.
+ //   Tap (touch): no control but the menu button, every other touch goes to the game's local touch viewport; offered only while the game is in handheld mode, the only one in which it reads the touch screen (Balatro, played by touch).
+ //   2D (simple): top corners ZL above L (one column), ZR above R likewise, teardrops with the tip toward the screen corner; − and + side by side at the top centre; the left stick in the bottom-left corner (fixed ring, tilt measured from the ring centre, small dead zone);
+@@ -124,7 +124,8 @@ static void phone_motion_start(UIView *body) {
+     K_FULL = 0.8,                                   // full tilt at this fraction of the ring radius (the knob still travels to the ring edge)
+     K_DEAD = 0.1,                                   // stick dead zone (times the ring radius)
+     K_RSTICK_R = 60,                                // right stick (not drawn): radius around its centre, the touch-down point
+-    K_RSWIPE = 1.0 / 3;                             // right stick area: this fraction of the screen width from the right edge (not in u)
++    K_RSWIPE = 1.0 / 3,                             // right stick area: this fraction of the screen width from the right edge (not in u)
++    K_MENU_IDLE = 3.0;                              // seconds a connected controller leaves the menu gear visible before fading it out
+ static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
+ static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
+ int dm_opmode(void);   // hle_oe.c: 0 = handheld
+@@ -135,6 +136,11 @@ static void phone_motion_start(UIView *body) {
+ @interface DmGamepad : UIView
+ - (void)arrange:(DmLayout)layout;
+ - (BOOL)menuTakes:(CGPoint)p;
++- (BOOL)webTouchActive;
++- (BOOL)voiceOverRunning;
++- (BOOL)reduceMotionEnabled;
++- (void)wakeMenu;
++- (void)setMenuOpen:(BOOL)open;
+ @end
+ // The menu button: a UIButton whose menu is the in-game menu (UIKit draws it and takes the touches while it is open). Its hit circle is larger than the drawn one, and a key nearer
+ // to the touch wins (− / + sit beside it), so it asks the pad
+@@ -142,6 +148,13 @@ @interface DmMenuButton : UIButton
+ @end
+ @implementation DmMenuButton
+ - (BOOL)pointInside:(CGPoint)p withEvent:(UIEvent *)e { DmGamepad *pad = (DmGamepad *)self.superview; return [pad menuTakes:[self convertPoint:p toView:pad]]; }
++- (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [super touchesBegan:ts withEvent:e]; [(DmGamepad *)self.superview wakeMenu]; }
++- (void)contextMenuInteraction:(UIContextMenuInteraction *)i willDisplayMenuForConfiguration:(UIContextMenuConfiguration *)c animator:(id<UIContextMenuInteractionAnimating>)a {
++    [super contextMenuInteraction:i willDisplayMenuForConfiguration:c animator:a]; [(DmGamepad *)self.superview setMenuOpen:YES];
++}
++- (void)contextMenuInteraction:(UIContextMenuInteraction *)i willEndForConfiguration:(UIContextMenuConfiguration *)c animator:(id<UIContextMenuInteractionAnimating>)a {
++    [super contextMenuInteraction:i willEndForConfiguration:c animator:a]; [(DmGamepad *)self.superview setMenuOpen:NO];
++}
+ @end
+ static __weak DmGamepad *g_view;
+ static void pads_start(void);   // Physical controllers, below
+@@ -156,6 +169,8 @@ @implementation DmGamepad {
+     CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
+     CALayer *_hint; CATextLayer *_hintText; NSString *_hintWords;   // the 3D layout's right-stick hint: words only, once per launch (see "The right-stick hint")
+     DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
++    unsigned _menuGen;                             // generation counter for the controller-idle menu fade timer
++    BOOL _menuOpen;                                // the in-game menu is currently presented
+     UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
+     unsigned _hapticSticks;
+     BOOL _stickShown;                              // the left stick was held at the last refresh
+@@ -243,6 +258,7 @@ - (instancetype)initWithFrame:(CGRect)f {
+         NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
+         [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidConnectNotification object:nil];
+         [nc addObserver:self selector:@selector(padsChanged:) name:GCControllerDidDisconnectNotification object:nil];
++        [nc addObserver:self selector:@selector(updateControlVisibility) name:UIAccessibilityVoiceOverStatusDidChangeNotification object:nil];
+         pads_start();
+         [self padsChanged:nil];
+         motion_start();
+@@ -405,11 +421,19 @@ - (BOOL)controlAt:(CGPoint)p {
+     if (dm_pad_hit(self.geo, _full, _layout.separated, _tap, !_stick[0], p).kind != DM_PAD_HIT_NONE) return YES;   // the geometry touchesBegan hits with (DmPadGeometry.h)
+     return _full && !_stick[1] && [self inRightArea:p];
+ }
++- (BOOL)webTouchActive { return front_web_touch() != 0; }
++- (BOOL)voiceOverRunning { return UIAccessibilityIsVoiceOverRunning(); }
++- (BOOL)reduceMotionEnabled { return UIAccessibilityIsReduceMotionEnabled(); }
+ - (UIView *)hitTest:(CGPoint)p withEvent:(UIEvent *)e {
+     UIView *v = [super hitTest:p withEvent:e];
+-    return v == self && front_web_touch() && ![self controlAt:p] ? nil : v;
++    if (v == self && [self webTouchActive] && ![self controlAt:p]) {
++        if (_padOff && !_layout.onTV && e && e.type == UIEventTypeTouches) [self wakeMenu];
++        return nil;
++    }
++    return v;
+ }
+ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
++    if (_padOff && !_layout.onTV) [self wakeMenu];
+     BOOL game = NO;
+     for (UITouch *t in ts) {
+         if (_padOff) { game |= [self gameBegin:t]; continue; }
+@@ -667,9 +691,38 @@ static BOOL pads_slotted(GCController *gone) {
+     dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
+     return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
+ }
++- (void)wakeMenu {
++    unsigned gen = ++_menuGen;
++    [_menu.layer removeAllAnimations];
++    _menu.hidden = NO; _menu.alpha = 1;
++    if (!_padOff || _layout.onTV || _menuOpen || [self voiceOverRunning]) return;
++    __weak DmGamepad *weak = self;
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(K_MENU_IDLE * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
++        DmGamepad *s = weak;
++        if (!s || s->_menuGen != gen || !s->_padOff || s->_layout.onTV || s->_menuOpen || [s voiceOverRunning]) return;
++        if ([s reduceMotionEnabled]) {
++            s->_menu.alpha = 0; s->_menu.hidden = YES;
++            return;
++        }
++        [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction animations:^{
++            s->_menu.alpha = 0;
++        } completion:^(BOOL finished) {
++            if (finished && s->_menuGen == gen && s->_padOff && !s->_layout.onTV && !s->_menuOpen && ![s voiceOverRunning]) s->_menu.hidden = YES;
++        }];
++    });
++}
++- (void)setMenuOpen:(BOOL)open {
++    _menuOpen = open;
++    if (_padOff && !_layout.onTV) [self wakeMenu];
++}
+ - (void)updateControlVisibility {
+     _controls.hidden = _padOff;
+-    _menu.hidden = _padOff && _layout.onTV;
++    if (_padOff && _layout.onTV) {
++        ++_menuGen; [_menu.layer removeAllAnimations];
++        _menu.alpha = 1; _menu.hidden = YES;
++    } else {
++        [self wakeMenu];
++    }
+ }
+ - (void)padsChanged:(NSNotification *)note {
+     GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 418d0ecb..87b3b104 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -94,6 +94,7 @@ void dm_motion_clear(int player) {
+ }
+ 
+ uint32_t dm_player_npad(int player) { return player == 0 ? 0x20 : (uint32_t)player; }
++int dm_players_reported(void) { return __builtin_popcount(duo_harness_state().connected_players); }
+ 
+ static int g_opmode;   // handheld, until a test or the in-game menu docks it
+ int dm_opmode(void) { return g_opmode; }
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+index 1241c547..7570ca07 100644
+--- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+@@ -47,6 +47,13 @@ @implementation DuoFakeTouch
+ - (CGPoint)locationInView:(UIView *)view { (void)view; return self.point; }
+ @end
+ 
++@interface DuoFakeTouchEvent : UIEvent
++@end
++
++@implementation DuoFakeTouchEvent
++- (UIEventType)type { return UIEventTypeTouches; }
++@end
++
+ #if DUO_HARNESS_HAS_NATIVE_POSE_API
+ @interface DuoFakeHinge : NSObject
+ @property (nonatomic) NSInteger status;
+@@ -103,6 +110,35 @@ static Class DuoHarnessInstallReservedRegionProbe(UIView *view) API_AVAILABLE(io
+ 
+ #endif
+ 
++@interface UIView (DuoHarnessGamepadMenu)
++- (void)setMenuOpen:(BOOL)open;
++- (BOOL)webTouchActive;
++- (BOOL)voiceOverRunning;
++- (BOOL)reduceMotionEnabled;
++- (BOOL)duo_harness_webTouchActive;
++- (BOOL)duo_harness_voiceOverRunning;
++- (BOOL)duo_harness_reduceMotionEnabled;
++@end
++
++static BOOL gDuoHarnessWebTouchActive;
++static BOOL gDuoHarnessVoiceOverRunning;
++static BOOL gDuoHarnessReduceMotionEnabled;
++
++@implementation UIView (DuoHarnessGamepadMenu)
++- (BOOL)duo_harness_webTouchActive {
++    if (gDuoHarnessWebTouchActive) return YES;
++    return [self duo_harness_webTouchActive];
++}
++- (BOOL)duo_harness_voiceOverRunning {
++    if (gDuoHarnessVoiceOverRunning) return YES;
++    return [self duo_harness_voiceOverRunning];
++}
++- (BOOL)duo_harness_reduceMotionEnabled {
++    if (gDuoHarnessReduceMotionEnabled) return YES;
++    return [self duo_harness_reduceMotionEnabled];
++}
++@end
++
+ @interface DuoHarnessTests : XCTestCase
+ @property (nonatomic, strong) id savedLayout;
+ @property (nonatomic) BOOL controllerListOverridden;
+@@ -1254,7 +1290,8 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+     GCController *controller = [GCController controllerWithExtendedGamepad];
+     @try {
+         // The TV scene moves the same game view into its own view hierarchy.
+-        [tv addSubview:game]; [root.view setNeedsLayout]; [root.view layoutIfNeeded];
++        [tv addSubview:game]; [root.view setNeedsLayout]; [root.view layoutIfNeeded]; [pad layoutIfNeeded];
++        [self waitForView:menu hidden:NO];
+         XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"A touch-only player still has the menu on TV");
+         [self setHarnessControllers:@[controller] notification:GCControllerDidConnectNotification];
+         [self waitForView:menu hidden:YES];
+@@ -1262,10 +1299,79 @@ - (void)testMenuButtonFollowsTheGameViewAndTheController {
+         [self deliverSnapshotChangeFor:controller button:controller.extendedGamepad.buttonB value:1];
+         XCTAssertEqual(duo_harness_state().players[0].buttons, DM_BTN_A);
+ 
+-        [root.view insertSubview:game atIndex:0]; [root.view setNeedsLayout]; [root.view layoutIfNeeded];
++        [root.view insertSubview:game atIndex:0]; [root.view setNeedsLayout]; [root.view layoutIfNeeded]; [pad layoutIfNeeded];
+         XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu, @"The gear returns even with the controller still connected");
+         XCTAssertEqual(duo_harness_state().players[0].buttons, DM_BTN_A);
+-        [tv addSubview:game]; [root.view setNeedsLayout]; [root.view layoutIfNeeded];
++        [self waitForView:menu hidden:YES];
++        XCTAssertNotEqual([pad hitTest:menu.center withEvent:nil], menu, @"The gear fades out after idle seconds with a controller connected");
++        DuoFakeTouch *wake = [self touchAt:CGPointMake(CGRectGetMidX(pad.bounds), CGRectGetMidY(pad.bounds)) time:1];
++        [self beginTouches:@[wake] onPad:pad];
++        XCTAssertEqual(duo_harness_input().touch_count, 1, @"The touch that wakes the gear also reaches the game");
++        [self endTouches:@[wake] onPad:pad cancelled:NO];
++        XCTAssertEqual(duo_harness_input().touch_count, 0, @"Ending the wake touch releases the game touch");
++        XCTAssertFalse(menu.hidden, @"Touching the screen wakes the gear while a controller is connected");
++        XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu);
++        UIContextMenuInteraction *menuInteraction = menu.contextMenuInteraction;
++        XCTAssertNotNil(menuInteraction);
++        UIContextMenuConfiguration *menuConfig = [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:nil actionProvider:nil];
++        [menu contextMenuInteraction:menuInteraction willDisplayMenuForConfiguration:menuConfig animator:nil];
++        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:3.5]];
++        XCTAssertFalse(menu.hidden, @"The gear stays visible while the in-game menu is open");
++        XCTAssertEqualWithAccuracy(menu.alpha, 1.0, 0.01);
++        XCTAssertEqual([pad hitTest:menu.center withEvent:nil], menu);
++        [menu contextMenuInteraction:menuInteraction willEndForConfiguration:menuConfig animator:nil];
++        [self waitForView:menu hidden:YES];
++        XCTAssertNotEqual([pad hitTest:menu.center withEvent:nil], menu, @"Closing the in-game menu restarts the idle fade timer");
++
++        Method origWeb = class_getInstanceMethod(pad.class, @selector(webTouchActive));
++        Method swizWeb = class_getInstanceMethod(UIView.class, @selector(duo_harness_webTouchActive));
++        Method origVO = class_getInstanceMethod(pad.class, @selector(voiceOverRunning));
++        Method swizVO = class_getInstanceMethod(UIView.class, @selector(duo_harness_voiceOverRunning));
++        Method origRM = class_getInstanceMethod(pad.class, @selector(reduceMotionEnabled));
++        Method swizRM = class_getInstanceMethod(UIView.class, @selector(duo_harness_reduceMotionEnabled));
++        method_exchangeImplementations(origWeb, swizWeb);
++        method_exchangeImplementations(origVO, swizVO);
++        method_exchangeImplementations(origRM, swizRM);
++        @try {
++            gDuoHarnessWebTouchActive = YES;
++            CGPoint mid = CGPointMake(CGRectGetMidX(pad.bounds), CGRectGetMidY(pad.bounds));
++            XCTAssertNil([pad hitTest:mid withEvent:nil]);
++            XCTAssertTrue(menu.hidden, @"A programmatic nil-event hitTest while web touch is active must not wake the hidden gear");
++            XCTAssertNil([pad hitTest:mid withEvent:[DuoFakeTouchEvent new]]);
++            XCTAssertFalse(menu.hidden, @"A touch-event hitTest passed through to the web view wakes the gear");
++            gDuoHarnessWebTouchActive = NO;
++            [self waitForView:menu hidden:YES];
++
++            gDuoHarnessVoiceOverRunning = YES;
++            [NSNotificationCenter.defaultCenter postNotificationName:UIAccessibilityVoiceOverStatusDidChangeNotification object:nil];
++            XCTAssertFalse(menu.hidden, @"Enabling VoiceOver wakes the gear immediately");
++            [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:3.5]];
++            XCTAssertFalse(menu.hidden, @"The gear never auto-hides while VoiceOver is running");
++            XCTAssertEqualWithAccuracy(menu.alpha, 1.0, 0.01);
++            gDuoHarnessVoiceOverRunning = NO;
++            [NSNotificationCenter.defaultCenter postNotificationName:UIAccessibilityVoiceOverStatusDidChangeNotification object:nil];
++            [self waitForView:menu hidden:YES];
++
++            gDuoHarnessReduceMotionEnabled = YES;
++            DuoFakeTouch *wakeRM = [self touchAt:mid time:2];
++            [self beginTouches:@[wakeRM] onPad:pad];
++            [self endTouches:@[wakeRM] onPad:pad cancelled:NO];
++            XCTAssertFalse(menu.hidden);
++            [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:3.08]];
++            XCTAssertEqual(menu.layer.animationKeys.count, 0u, @"Reduce Motion skips the 0.3s fade animation");
++            XCTAssertTrue(menu.hidden, @"With Reduce Motion enabled, the gear hides immediately at the 3s timeout");
++            XCTAssertEqualWithAccuracy(menu.alpha, 0.0, 0.01);
++            gDuoHarnessReduceMotionEnabled = NO;
++        } @finally {
++            gDuoHarnessWebTouchActive = NO;
++            gDuoHarnessVoiceOverRunning = NO;
++            gDuoHarnessReduceMotionEnabled = NO;
++            method_exchangeImplementations(origWeb, swizWeb);
++            method_exchangeImplementations(origVO, swizVO);
++            method_exchangeImplementations(origRM, swizRM);
++        }
++
++        [tv addSubview:game]; [root.view setNeedsLayout]; [root.view layoutIfNeeded]; [pad layoutIfNeeded];
+         XCTAssertTrue(menu.hidden, @"The TV can also connect after the controller");
+         [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
+         [self waitForView:menu hidden:NO];
+diff --git a/docs/settings.md b/docs/settings.md
+index 5b83be9e..43dd4c23 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -245,7 +245,7 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
+ 
+ ## In-game menu
+ 
+-On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. It holds **Console mode**, **Picture** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
++On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. With a physical controller connected on the device screen, the gear fades out after 3 idle seconds and returns for 3 seconds when you touch the screen. It holds **Console mode**, **Picture** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
+ 
+ Console mode changes as on a Switch put in or taken out of its dock. While a TV shows the game it stays **Docked**, and the mode you pick applies when the TV is disconnected. **Docked** removes the Tap layout, as a docked Switch reads no touch screen.
+ 

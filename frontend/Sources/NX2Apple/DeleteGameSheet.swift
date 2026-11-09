@@ -137,7 +137,7 @@ struct DeleteGameSheet: View {
                 }
                 Spacer(minLength: 12)
                 if let item, item.bytes > 0 { sizeText(item.bytes) }
-                Toggle("", isOn: $saves).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(item == nil || working)
+                Toggle(loc.t("delete.saves"), isOn: $saves).labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(item == nil || working)
             }
             .padding(.horizontal, 18).padding(.vertical, 13)
             .padTarget("delete.saves", scope: "delete", radius: 10, activate: { if item != nil { saves.toggle() } },

@@ -23,10 +23,10 @@ Issue: seedds/nxnative#1375
  3 files changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index f3c459b..e380d78 100644
+index c645611..7e2e045 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -12942,7 +12942,7 @@ static int ndve_direct_role(NvShader *cs) {
+@@ -13546,7 +13546,7 @@ static int ndve_direct_role(NvShader *cs) {
      static int enabled = -1;
      if (enabled < 0) {
          const char *e = getenv("DM_NVN_NDVE_MOVIE_DIRECT");
@@ -36,10 +36,10 @@ index f3c459b..e380d78 100644
      if (!enabled) return 0;
      if (!strcmp(cs->key, "49dff010b9832251_b")) return 1;
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 957e4af..c9f9c9b 100644
+index 5cdba96..043ba44 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -174,7 +174,7 @@ DM_NVN_LAZY_CLEAR	switch	`0` makes clears with no draw after them open a pass of
+@@ -181,7 +181,7 @@ DM_NVN_LAZY_CLEAR	switch	`0` makes clears with no draw after them open a pass of
  DM_NVN_LOADPROBE	diagnostic	`=1`, `2` or `3`: attachments whose load is skipped are cleared to a sentinel colour (`3` NaN; `1` NaN for float formats) and the sentinel pixels left at pass end are counted (should be 0)
  DM_NVN_LOG	diagnostic	`=1` logs the creation of NVN objects
  DM_NVN_MAGSCAN	diagnostic	`=<fs key>[:every[:phase]]`: device self-check that reads each pass's colour attachments every `every` frames (default 30) and logs `[mag]` lines for solid magenta 16×16 blocks or non-finite pixels
@@ -49,10 +49,10 @@ index 957e4af..c9f9c9b 100644
  DM_NVN_PASSDUMP_ALL	diagnostic	`=1` makes `DM_NVN_PASSDUMP` record every draw and binding change, not only the first per pass and stage, including copies and inline uniform updates
  DM_NVN_PASSGPU	diagnostic	`=<file>` writes the GPU time of each render and compute pass from stage-boundary timestamp counters (off under Metal 4); also gives each dispatch its own encoder
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index 7c8c309..6f827d5 100644
+index be31011..140782d 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -1131,7 +1131,7 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
+@@ -1208,7 +1208,7 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
  
  - **Symptom:** Ocarina of Time's title movie shows rectangular colour blocks while the logo, menu and subtitles remain legible.
  - **Cause:** GPU readbacks on an M1 Pro show a clean 1920×1080 RGBA texture after the AV1 frame is converted. Artifacts first appear in the following NDVE intermediate and cover the picture in its 2560×1440 output. The translation error inside NDVE remains open.

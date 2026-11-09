@@ -1,0 +1,133 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jon Page <jon@kaena.io>
+Date: Fri, 6 Nov 2026 01:36:16 -0600
+Subject: [PATCH] Shader split: decompress zstd files in-process, so a worker
+ no longer deadlocks against the zstd command's pipes
+
+Feeding the zstd CLI through stdin while capturing stdout deadlocks on macOS once a frame is larger than the pipe buffers: the worker's blocking write waits for zstd to read, while zstd's output writer waits for the worker to drain stdout. Ocarina of Time's sound archives hit it at 88% of the split (164,256 of 186,587 files), and the build hung for good. compression.zstd (Python 3.14, backports.zstd before) is already used for dictionary frames; it decompresses frames without one too. test_split_zstd.py covers files and bounded RomFS entries.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+(cherry picked from commit 82a24a4068822f783f34147dc4d1659fbe307626)
+
+Upstream-Status: forwarded seedds/nxnative#1463
+Reason: Shader splits of Tears of the Kingdom and Ocarina of Time hang at 99% with every worker blocked writing to an idle zstd child; until upstream merges #1463
+Issue: LNPANDY/NX2Apple#837
+---
+ dm/gfx/tools/shader_split.py      | 12 +++---
+ dm/tools/tests/test_split_zstd.py | 63 +++++++++++++++++++++++++++++++
+ docs/reference/shaders.md         |  8 ++++
+ 3 files changed, 78 insertions(+), 5 deletions(-)
+ create mode 100644 dm/tools/tests/test_split_zstd.py
+
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index 78e2fcd..2bc5b31 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -2557,12 +2557,14 @@ def unzs_dict(d, did, where):
+     return zstd.decompress(d, zstd_dict=_ZD[did])
+ 
+ def unzs(path):
+-    """A zstd file decompressed: frames without a dictionary through the zstd command as before (fed the bytes: inside a RomFS image the path is not a file the command can open),
+-    frames that name one with that dictionary from ZDICTS"""
+-    d = open(path, 'rb').read()
++    """Decompress in-process, with the frame's dictionary when named. Feeding the CLI through stdin while capturing stdout can deadlock on macOS:
++    a worker's blocking pipe write waits for zstd to read, while zstd's output writer waits for that worker to drain stdout (Ocarina's sound archives).
++    The library already used for dictionary frames removes both pipes and also reads bounded RomFS image entries."""
++    with open(path, 'rb') as stream: d = stream.read()
+     did = zs_dict_id(d)
+-    if not did: return subprocess.run(['zstd', '-d', '-c', '-q'], input=d, capture_output=True, check=True).stdout
+-    return unzs_dict(d, did, path)
++    zstd = zstd_mod()
++    try: return unzs_dict(d, did, path) if did else zstd.decompress(d)
++    except zstd.ZstdError as e: red(f'{path}: invalid zstd stream ({e})')
+ 
+ def frame_size(f):
+     """The uncompressed size a zstd or LZ4 frame header records, None when it records none"""
+diff --git a/dm/tools/tests/test_split_zstd.py b/dm/tools/tests/test_split_zstd.py
+new file mode 100644
+index 0000000..9693d56
+--- /dev/null
++++ b/dm/tools/tests/test_split_zstd.py
+@@ -0,0 +1,63 @@
++"""Shader scans decode complete Zstandard streams from files and bounded RomFS entries without a bidirectional subprocess pipe."""
++import os
++from pathlib import Path
++import random
++import sys
++import tempfile
++import unittest
++from unittest.mock import patch
++
++os.environ.setdefault('DM_GAME', '0400486024DEC000')
++sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'gfx/tools'))
++import shader_split as ss
++import romfs_image
++
++
++class ZstdInput(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.zstd = ss.zstd_mod()
++        cls.payload = random.Random(12).randbytes(2 * 1024 * 1024) + b'archive-record\0' * 30000
++
++    def setUp(self):
++        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
++        self.root = Path(self.tmp.name)
++        self.file = self.root / 'archive.zs'
++
++    def test_large_file_and_bounded_image_entry_have_identical_bytes(self):
++        self.file.write_bytes(self.zstd.compress(self.payload))
++        image = self.root / 'RomFS.img'
++        source = self.root / 'files'; source.mkdir()
++        (source / 'archive.zs').write_bytes(self.file.read_bytes())
++        (source / 'following').write_bytes(b'outside the compressed entry')
++        romfs_image.pack(source, image)
++        with patch.object(ss.subprocess, 'run', side_effect=AssertionError('decompression must not spawn a pipe-based child')):
++            self.assertEqual(ss.unzs(self.file), self.payload)
++            self.assertEqual(ss.unzs(str(image / 'archive.zs')), self.payload)
++
++    def test_concatenated_frames_are_all_decoded(self):
++        self.file.write_bytes(self.zstd.compress(b'first') + self.zstd.compress(b'') + self.zstd.compress(b'second'))
++        self.assertEqual(ss.unzs(self.file), b'firstsecond')
++
++    def test_dictionary_frame_uses_its_named_dictionary(self):
++        samples = [b'archive resource texture shader ' * 20 + str(i).encode() for i in range(100)]
++        dictionary = self.zstd.train_dict(samples, 1024)
++        payload = b'archive resource texture shader ' * 10
++        self.file.write_bytes(self.zstd.compress(payload, zstd_dict=dictionary))
++        did = ss.zs_dict_id(self.file.read_bytes())
++        self.assertNotEqual(did, 0)
++        with patch.object(ss, 'ZDICTS', {did: dictionary.dict_content}), patch.object(ss, '_ZD', {}):
++            self.assertEqual(ss.unzs(self.file), payload)
++
++    def test_truncation_and_checksum_corruption_are_rejected(self):
++        compressed = self.zstd.compress(self.payload, options={self.zstd.CompressionParameter.checksum_flag: 1})
++        for data in (compressed[:-1], compressed[:-1] + bytes([compressed[-1] ^ 1])):
++            with self.subTest(length=len(data)):
++                self.file.write_bytes(data)
++                with self.assertRaises(SystemExit) as stopped: ss.unzs(self.file)
++                self.assertIn('invalid zstd stream', str(stopped.exception))
++                self.assertIn(str(self.file), str(stopped.exception))
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index f562418..7bb287b 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -89,6 +89,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **Fix:** it now goes by the zstd magic (`28 b5 2f fd`) whatever the name.
+ - **Found on:** [Paper Mario: The Thousand-Year Door](../../dm/games/0100ECD018EBE000/README.md) (8,726 of the RomFS's 9,959 files, the shader archives among them). Of the other 21 games' RomFS on hand only Super Mario Galaxy's `GDDR3.zst` (a Vulkan game, no NVN split) has such a file.
+ 
++### The split hangs decompressing a large zstd file
++
++- **Symptom:** `build_ipa_from_nsp.py` sits at the shader split with no progress (`splitting: 88%, 164,256/186,587 files` for minutes, then no new line), the worker processes asleep and `zstd -d -c -q` children at 0 % CPU.
++- **Cause:** `unzs` (`shader_split.py`) fed a frame without a dictionary to the `zstd` command on stdin while capturing its stdout. Once the frame is larger than the pipe buffers the two block on each other: the worker's write waits for `zstd` to read, and `zstd`'s output write waits for the worker to drain stdout, which `subprocess.run` does only after the write.
++- **Fix:** `unzs` decompresses in-process with `compression.zstd` (Python 3.14; `backports.zstd` before), which the dictionary frames already used; no pipes, and a bounded RomFS image entry is read the same way. An invalid stream is a red line with the path.
++- **Check:** `dm/tools/tests/test_split_zstd.py`: files and bounded RomFS entries decode without a subprocess, including a frame past the pipe size.
++- **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md): the sound archives, at file 164,256 of the 186,587 (M3 Max, macOS 27.0.1, Python 3.14).
++
+ ### HAL's `.cmp` containers: a size-prefixed frame
+ 
+ - **Symptom:** the game asks for shaders the map does not have (`[RED] shader ... is not in the shader map`, hundreds of lines), and the split finds far fewer shaders than the game uses (121 against 27,288 on Kirby and the Forgotten Land).

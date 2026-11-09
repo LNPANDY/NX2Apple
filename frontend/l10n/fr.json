@@ -1108,6 +1108,8 @@
   "launch.set.DM_SCREEN_ASPECT": "Format de l’image",
   "launch.set.DM_SCREEN_ASPECT.note": "Calcule environ un quart de pixels en plus : un peu plus lent et plus chaud.",
   "launch.set.DM_SHOW_FPS": "Compteur d’images par seconde",
+  "launch.set.DM_SW2": "Manettes Switch 2",
+  "launch.set.DM_SW2.note": "Utilise les Joy-Con 2 et la Pro Controller 2 en Bluetooth : maintenez Sync sur une manette pendant le jeu pour l’associer. macOS demande une seule fois l’accès au Bluetooth.",
   "launch.set.DM_TOUCH_HAPTICS": "Retour tactile",
   "launch.set.DM_UPSCALER": "Upscaler du jeu",
   "launch.title": "Options de lancement",

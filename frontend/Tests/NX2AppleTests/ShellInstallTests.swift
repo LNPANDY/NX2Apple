@@ -317,9 +317,25 @@ import NXModel
             if os.path.exists(STATE + '/nomemory') and not os.path.exists(os.path.dirname(val('-project')) + '/entitlements-empty'):
                 print('error: Provisioning profile iOS Team Provisioning Profile: ' + bundle + ' doesn\\'t include the Increased Memory Limit capability.', flush=True)
                 sys.exit(65)
+            if os.path.exists(STATE + '/fail-xcodebuild'):
+                print('error: Communication with Apple failed: Your device is offline.', flush=True)
+                sys.exit(65)
             app = val('-derivedDataPath') + '/Build/Products/Release-iphoneos/DmShell.app'
+            fwlist = os.path.dirname(val('-project')) + '/frameworks.txt'
+            if os.path.exists(fwlist):
+                for line in open(fwlist).read().splitlines():
+                    if not line.strip(): continue
+                    fw = line.split('\t')[1] if '\t' in line else line.strip()
+                    if not os.path.isdir(fw):
+                        print('error: ' + fw + ': No such file or directory (in target \\'DmShell\\' from project \\'DmShell\\')', flush=True)
+                        sys.exit(65)
+                    os.makedirs(app + '/Frameworks/' + os.path.basename(fw), exist_ok=True)
             os.makedirs(app, exist_ok=True)
             open(app + '/bundle.txt', 'w').write(bundle)
+            if os.path.exists(STATE + '/new-profile'):
+                shutil.copyfile(STATE + '/new-profile', app + '/embedded.mobileprovision')
+                os.makedirs(app + '/_CodeSignature', exist_ok=True)
+                open(app + '/_CodeSignature/CodeResources', 'w').write('new-sig')
             print('CodeSign ' + app, flush=True)
         elif a[:3] == ['devicectl', 'list', 'devices']:
             n = (int(open(STATE + '/list-count').read()) if os.path.exists(STATE + '/list-count') else 0) + 1
@@ -335,6 +351,9 @@ import NXModel
                 sys.exit(1)
             shutil.copyfile(src, val('--destination'))
         elif a[:3] == ['devicectl', 'device', 'install']:
+            if os.path.exists(STATE + '/fail-install'):
+                print('ERROR: The device was disconnected during installation.', flush=True)
+                sys.exit(1)
             app = a[-1]
             bundle = open(app + '/bundle.txt').read()
             os.makedirs(CONT + '/' + bundle + '/Documents', exist_ok=True)   # an existing container is kept as it is
@@ -391,6 +410,13 @@ import NXModel
           exit 1
         fi
         mkdir -p "$SHELL_DIR/DmShell.xcodeproj"
+        : > "$SHELL_DIR/frameworks.txt"
+        while IFS= read -r fw; do
+          [ -n "$fw" ] || continue
+          [ -d "$fw" ] || { echo "[RED] $fw: no readable game.manifest.json"; exit 1; }
+          tid=$(basename "$fw" .framework); tid=${tid#DmGame}
+          printf '%s\t%s\t%s\n' "$tid" "$fw" "$tid" >> "$SHELL_DIR/frameworks.txt"
+        done <<< "$DM_SHELL_FRAMEWORKS"
         cat > "$SHELL_DIR/DmShell.xcodeproj/project.pbxproj" <<EOF
         F96F /* frontend-ios */ = {isa = PBXFileReference; name = "frontend-ios"; path = "$DM_SHELL_PACKAGE"; sourceTree = SOURCE_ROOT; };
         376B /* XCLocalSwiftPackageReference */ = {isa = XCLocalSwiftPackageReference; relativePath = "$DM_SHELL_PACKAGE"; };
@@ -900,6 +926,7 @@ import NXModel
         let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
         model.target = "ios"
+        model.home = path("home")
         model.outDir = path("out")
         modelStores.dependencies.pythonPath = "/usr/bin/python3"
         modelStores.dependencies.dotnetPath = "/usr/bin/true"
@@ -954,10 +981,73 @@ import NXModel
         try fm.createSymbolicLink(atPath: pkgLink, withDestinationPath: translocated)
         try fm.createSymbolicLink(atPath: shellLink, withDestinationPath: "/private/var/folders/xx/T/AppTranslocation/2CFF0344-0DA8/Shell")
         try write(container + "/org.nxnative.shell/Documents/save/slot1.bin", "my save")
+        model.home = path("home")
+        let cachedProfiles = model.home + "/Library/Developer/Xcode/UserData/Provisioning Profiles"
+        try fm.createDirectory(atPath: cachedProfiles, withIntermediateDirectories: true)
+        let staleExpiry = Date(timeIntervalSince1970: 1_900_000_000)
+        let freshExpiry = Date(timeIntervalSince1970: 1_900_604_800)
+        let staleProfile = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "STALE-UUID",
+                "Name": "iOS Team Provisioning Profile: org.nxnative.shell",
+                "TeamIdentifier": [team],
+                "Entitlements": ["application-identifier": "\(team).org.nxnative.shell"],
+                "ExpirationDate": staleExpiry
+            ],
+            format: .xml,
+            options: 0
+        )
+        let freshProfile = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "FRESH-UUID",
+                "Name": "iOS Team Provisioning Profile: org.nxnative.shell",
+                "TeamIdentifier": [team],
+                "Entitlements": ["application-identifier": "\(team).org.nxnative.shell"],
+                "ExpirationDate": freshExpiry
+            ],
+            format: .xml,
+            options: 0
+        )
+        let appPath = model.installedAppPath
+        try staleProfile.write(to: URL(fileURLWithPath: cachedProfiles + "/STALE-UUID.mobileprovision"))
+        try staleProfile.write(to: URL(fileURLWithPath: appPath + "/embedded.mobileprovision"))
+        try fm.createDirectory(atPath: appPath + "/_CodeSignature", withIntermediateDirectories: true)
+        try write(appPath + "/_CodeSignature/CodeResources", "old-sig")
+
+        // 1. If xcodebuild itself fails, staged profiles and _CodeSignature roll back intact.
+        try write(state + "/fail-xcodebuild", "")
+        let failedSign = expectation(description: "Failed xcodebuild")
+        model.resignOnDevice(app: appPath, device: device) { failedSign.fulfill() }
+        wait(for: [failedSign], timeout: 30)
+        try fm.removeItem(atPath: state + "/fail-xcodebuild")
+        XCTAssertTrue(fm.fileExists(atPath: cachedProfiles + "/STALE-UUID.mobileprovision"))
+        XCTAssertEqual(AppSignature.expiration(ofApp: appPath), staleExpiry)
+        XCTAssertEqual(try String(contentsOfFile: appPath + "/_CodeSignature/CodeResources"), "old-sig")
+
+        // 2. Once xcodebuild succeeds and embeds a new 7-day profile + signature, a later devicectl install failure
+        // keeps the newly signed DmShell.app intact rather than rolling the old profile back over the newly signed binary.
+        try freshProfile.write(to: URL(fileURLWithPath: state + "/new-profile"))
+        try write(state + "/fail-install", "")
+        let failedInstall = expectation(description: "Failed devicectl install after xcodebuild succeeded")
+        model.resignOnDevice(app: appPath, device: device) { failedInstall.fulfill() }
+        wait(for: [failedInstall], timeout: 30)
+        try fm.removeItem(atPath: state + "/fail-install")
+        XCTAssertFalse(fm.fileExists(atPath: cachedProfiles + "/STALE-UUID.mobileprovision"),
+                       "stale cached profile is committed as soon as xcodebuild writes the new signature")
+        XCTAssertEqual(AppSignature.expiration(ofApp: appPath), freshExpiry,
+                       "DmShell.app keeps its newly signed 7-day profile when only devicectl install fails")
+        XCTAssertEqual(try String(contentsOfFile: appPath + "/_CodeSignature/CodeResources"), "new-sig")
+
+        // 3. Full re-sign + install succeeds.
+        try staleProfile.write(to: URL(fileURLWithPath: cachedProfiles + "/STALE-UUID.mobileprovision"))
         let before = calls.count
         let resigned = expectation(description: "Re-signed")
-        model.resignOnDevice(app: model.installedAppPath, device: device) { resigned.fulfill() }
+        model.resignOnDevice(app: appPath, device: device) { resigned.fulfill() }
         wait(for: [resigned], timeout: 30)
+        try? fm.removeItem(atPath: state + "/new-profile")
+        XCTAssertFalse(fm.fileExists(atPath: cachedProfiles + "/STALE-UUID.mobileprovision"),
+                       "stale cached profile must be cleared so Xcode requests a fresh 7-day profile")
+        XCTAssertEqual(AppSignature.expiration(ofApp: appPath), freshExpiry)
         let log = Array(calls.dropFirst(before))
         let build = try XCTUnwrap(log.first { $0.hasPrefix("xcodebuild") })
         XCTAssertTrue(build.contains("-project \(f.root)/project/DmShell.xcodeproj -scheme DmShell"), build)
@@ -996,6 +1086,7 @@ import NXModel
         let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
         model.target = "ios"
+        model.home = path("home")
         model.outDir = path("out")
         modelStores.dependencies.pythonPath = "/usr/bin/python3"
         modelStores.dependencies.dotnetPath = "/usr/bin/true"
@@ -1079,5 +1170,59 @@ import NXModel
         model.startBuild()
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.doneNote, model.t("shell.needsDevice"))
+    }
+
+    @MainActor func testResignAfterDeletingAGameRegeneratesTheProjectAndPrunesEmbeddedFrameworks() throws {
+        let f = try makeFixture()
+        let secondID = "0100000000010000"
+        let secondFramework = path("work2/shell-framework/DmGame\(secondID).framework")
+        try write(secondFramework + "/game.manifest.json", "{}")
+        try write(secondFramework + "/DmGame\(secondID)", "executable")
+        let secondArchive = path("out/games", secondID)
+        try write(secondArchive + "/romfs.img", "second")
+
+        var first = installer(f)
+        first.decideCopy = { _ in .skip }
+        XCTAssertTrue(install(first, f).ok)
+        var second = installer(f)
+        second.decideCopy = { _ in .skip }
+        XCTAssertTrue(second.install(framework: secondFramework, titleID: secondID, name: "Second Game", archive: secondArchive).ok)
+
+        let embedded = f.root + "/derived-data/Build/Products/Release-iphoneos/DmShell.app/Frameworks"
+        XCTAssertTrue(fm.fileExists(atPath: embedded + "/DmGame\(titleID).framework"))
+        XCTAssertTrue(fm.fileExists(atPath: embedded + "/DmGame\(secondID).framework"))
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID, secondID])
+
+        // Delete the second game through GameDeletion (removes its mirrored framework and drops it from shell.json,
+        // while DmShell.xcodeproj / frameworks.txt still lists both games).
+        var secondGame = LibraryGame(titleID: secondID, name: "Second Game", archivePath: secondArchive)
+        secondGame.iosAppPath = ShellInstall.appPath(root: f.root)
+        secondGame.outputDirectory = path("out")
+        let deletion = GameDeletion.plan(for: secondGame, shellRoot: f.root, home: path("home"), support: URL(fileURLWithPath: path("support")))
+        XCTAssertEqual(deletion.run(saves: false, trash: { try self.fm.removeItem(at: $0) }), [])
+        XCTAssertFalse(fm.fileExists(atPath: ShellInstall.mirroredFramework(root: f.root, titleID: secondID)))
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID])
+
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let modelStores = try makeModel(f)
+        let model = modelStores.build
+        let resigned = expectation(description: "Re-signed after deletion")
+        model.resignOnDevice(app: ShellInstall.appPath(root: f.root), device: device) { resigned.fulfill() }
+        wait(for: [resigned], timeout: 30)
+
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.resigned"), "iPhone"))
+        XCTAssertTrue(fm.fileExists(atPath: embedded + "/DmGame\(titleID).framework"))
+        XCTAssertFalse(fm.fileExists(atPath: embedded + "/DmGame\(secondID).framework"),
+                       "the deleted game's framework must be pruned from the built DmShell.app")
+        let fwlist = try String(contentsOfFile: f.root + "/project/frameworks.txt", encoding: .utf8)
+        XCTAssertTrue(fwlist.contains("DmGame\(titleID).framework"), fwlist)
+        XCTAssertFalse(fwlist.contains("DmGame\(secondID).framework"), fwlist)
+
+        // When all games' frameworks are gone on disk, re-signing reports the missing project instead of failing in xcodebuild.
+        try fm.removeItem(atPath: ShellInstall.mirroredFramework(root: f.root, titleID: titleID))
+        let empty = expectation(description: "No games left")
+        model.resignOnDevice(app: ShellInstall.appPath(root: f.root), device: device) { empty.fulfill() }
+        wait(for: [empty], timeout: 10)
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.resignNoProject"), model.shortPath(f.root + "/project/DmShell.xcodeproj")))
     }
 }

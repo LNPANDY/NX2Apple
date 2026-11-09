@@ -598,7 +598,6 @@ class OnboardingDialog(QDialog):
             w = it.widget()
             if w is not None:
                 w.hide()
-                w.setParent(None)
                 w.deleteLater()
 
     def _step1_row_meta(self, d, llvm_dep, any_busy: bool) -> tuple[str, str, str, str, str, int | None]:
@@ -750,7 +749,6 @@ class OnboardingDialog(QDialog):
                 if ibtn_w is not None:
                     ibtn_w.setText(ibtn_text)
                     ibtn_w.setEnabled(not any_busy)
-                self._fit_dialog_height()
                 return
 
             self._clear_body()

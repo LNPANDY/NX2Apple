@@ -47,12 +47,14 @@ import XCTest
     private let runner = FakeProcessRunner()
 
     override func setUpWithError() throws {
+        ExperimentalBuilder.featureEnabled = true   // the toggle is off in the app for now, these tests are about the builder
         root = NSTemporaryDirectory() + "gamefolder-store-" + UUID().uuidString
         defaults = TestDefaults.make("nxmodel-gamefolder")
         try FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true)
     }
 
     override func tearDownWithError() throws {
+        ExperimentalBuilder.featureEnabled = false
         try? FileManager.default.removeItem(atPath: root)
     }
 
@@ -120,11 +122,10 @@ import XCTest
         XCTAssertTrue(args.contains("mac-app"))
     }
 
-    /// #749: with nxb on, the same arguments go to `nxb build` and the script is not run.
+    /// #749: with the experimental builder on, the same arguments go to `nxb build` and the script is not run.
     func testTheExperimentalBuilderGivesTheScriptsArgumentsToNxbBuildAndIsNamedInTheLog() {
         let (store, game) = makeStore()
         store.scan(folder: game)
-        store.experimentalBuilder = false
         store.startBuild()
         let standard = store.lastBuildCommand
         XCTAssertFalse(store.log.text.contains("nxb"))

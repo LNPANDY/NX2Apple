@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sun, 8 Nov 2026 21:53:14 +0900
+Subject: [PATCH] Test: a HID device reported under two references is one pad,
+ and one Pro Controller is not twins
+
+IOHIDManager reports a device once for each matching dictionary it meets, each
+time under a new IOHIDDeviceRef. seedds/nxnative a00f03b, in the pin since
+c78d7375, makes pad_hid_mac.h know a pad by its registry entry. This test reports a generic pad
+and a Pro Controller twice each: one pad and one player for the first, and for
+the second no twins, so GameController keeps reading it with its motion. Without
+a00f03b it fails on the Pro Controller's second reference.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: fork-only (t_controllers_mac.m comes with patch 0081, forwarded seedds/nxnative#221)
+Reason: The regression test for upstream's a00f03b lives in t_controllers_mac.m, which upstream gets with seedds/nxnative#221
+Issue: LNPANDY/NX2Apple#971
+---
+ dm/host/tests/t_controllers_mac.m | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
+index a1daf6f..30165a7 100644
+--- a/dm/host/tests/t_controllers_mac.m
++++ b/dm/host/tests/t_controllers_mac.m
+@@ -910,6 +910,32 @@ static void test_generic_unknown_identity(void) {
+     hidpad_removed(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)puck); hid_fixture_finish();
+     puts("Generic HID missing identity and deferred admission recover without duplicate raw routes: OK");
+ }
++// IOHIDManager reports a device once per matching dictionary it meets, with a new reference each time (NX2Apple issue #971): one pad, one player.
++// A Pro Controller over USB meets two of hidpad_start's, and as two pads of its model it became twins, two players without GameController's motion.
++static void test_hid_same_device_twice(void) {
++    hid_fixture_start();
++    NSDictionary *pad=generic_device(912), *again=[pad mutableCopy];
++    hidpad_found(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)pad);
++    hidpad_found(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)again);
++    assert(g_hidpads && !g_hidpads->next && g_devices.count==1 && hid_opened.count==1);
++    hidpad_removed(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)again); assert(g_hidpads); // the reference that was not read
++    hidpad_removed(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)pad); assert(!g_hidpads && !g_devices.count && !hid_opened.count);
++    hid_fixture_finish();
++    hid_fixture_start();
++    MotionController *gc=[MotionController new]; native_devices=@[gc];
++    NSDictionary *pro=@{@"registry":@913, @"native":@YES, @kIOHIDVendorIDKey:@0x057e, @kIOHIDProductIDKey:@0x2009,
++        @kIOHIDProductKey:@"Pro Controller", @kIOHIDLocationIDKey:@0x69b29174, @"elements":@[]};
++    NSDictionary *pro_again=[pro mutableCopy];
++    hidpad_found(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)pro);
++    hidpad_found(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)pro_again);
++    assert(g_hidpads_gc && !g_hidpads_gc->next && !g_hidpads && !hid_opened.count);
++    g_twins_due=1; hidpad_twins_eval(nil); g_twins_due=0;
++    assert(!hidpad_gc_unread(gc)); // GameController reads it, with its motion
++    hidpad_removed(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)pro_again);
++    hidpad_removed(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)pro); assert(!g_hidpads_gc);
++    native_devices=nil; controllers_reconcile(@[]); hid_fixture_finish();
++    puts("HID device reported under two references is one pad, and one Pro Controller is not twins: OK");
++}
+ int main(int argc, char **argv) {
+     @autoreleasepool {
+         g_devices = [NSMutableArray array]; g_maps = [NSMutableDictionary dictionary];
+@@ -938,6 +964,7 @@ int main(int argc, char **argv) {
+         test_home_quit_routing();
+         test_generic_hid_ownership();
+         test_generic_unknown_identity();
++        test_hid_same_device_twice();
+         test_shared_controls();
+         NSString *tmp = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+         [NSFileManager.defaultManager createDirectoryAtPath:tmp withIntermediateDirectories:YES attributes:nil error:nil];

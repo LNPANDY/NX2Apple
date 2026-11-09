@@ -186,12 +186,20 @@ package struct LauncherSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+/// A control's animation under the system's Reduce Motion setting: with it on, the control changes at once.
+package enum LauncherMotion {
+    package static func animation(_ animation: Animation, reduceMotion: Bool) -> Animation? {
+        reduceMotion ? nil : animation
+    }
+}
+
 /// The launcher's switch: a cream track when on, a dim one when off.
 package struct LauncherSwitchStyle: ToggleStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     package init() {}
     @Environment(\.isEnabled) private var enabled
     package func makeBody(configuration: Configuration) -> some View {
-        Button { withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { configuration.isOn.toggle() } } label: {
+        Button { withAnimation(LauncherMotion.animation(.spring(response: 0.25, dampingFraction: 0.8), reduceMotion: reduceMotion)) { configuration.isOn.toggle() } } label: {
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
                 Capsule().fill(configuration.isOn ? LauncherPalette.cream : Color.white.opacity(0.14))
                 Circle().fill(configuration.isOn ? LauncherPalette.background : Color.white.opacity(0.85))
@@ -203,7 +211,9 @@ package struct LauncherSwitchStyle: ToggleStyle {
         }
         .buttonStyle(.plain)
         .opacity(enabled ? 1 : 0.45)
-        .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.switch)
+        }
     }
 }
 
@@ -259,6 +269,7 @@ package enum LaunchControl {
 /// Two or three choices side by side; the chosen one is a cream pill. Each choice takes an equal share of the width
 /// it is given.
 package struct LauncherSegmented: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     package init(options: [(value: String, label: String)], selection: String, choose: @escaping (String) -> Void) {
         self.options = options; self.selection = selection; self.choose = choose
     }
@@ -269,7 +280,7 @@ package struct LauncherSegmented: View {
         HStack(spacing: 2) {
             ForEach(options, id: \.value) { o in
                 let on = o.value == selection
-                Button { withAnimation(.easeOut(duration: 0.15)) { choose(o.value) } } label: {
+                Button { withAnimation(LauncherMotion.animation(.easeOut(duration: 0.15), reduceMotion: reduceMotion)) { choose(o.value) } } label: {
                     Text(o.label).font(.manrope(12.5, on ? .bold : .medium))
                         .foregroundStyle(on ? Color.black : Color.white.opacity(0.75))
                         .lineLimit(1).minimumScaleFactor(0.85)

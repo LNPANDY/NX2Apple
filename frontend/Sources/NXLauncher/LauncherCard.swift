@@ -127,6 +127,7 @@ package struct CardDivider: View {
 
 /// A row that opens the rows under it.
 package struct CardDisclosure: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let title: String
     let detail: String
     let isOpen: Bool
@@ -140,7 +141,7 @@ package struct CardDisclosure: View {
     }
 
     package var body: some View {
-        Button(action: { withAnimation(.easeInOut(duration: 0.18)) { toggle() } }) {
+        Button(action: { withAnimation(LauncherMotion.animation(.easeInOut(duration: 0.18), reduceMotion: reduceMotion)) { toggle() } }) {
             CardRow(title, detail: detail, open: isOpen) { EmptyView() }
                 .contentShape(Rectangle())
         }

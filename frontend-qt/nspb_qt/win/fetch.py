@@ -222,14 +222,16 @@ def install_llvm(arch: str | None = None, dest: Path | None = None,
         staging.mkdir(parents=True)
         try:
             with zipfile.ZipFile(zpath) as z:
-                bad = z.testzip()
-                if bad:
-                    raise DownloadError(f'{zpath.name} is corrupt (first bad member: {bad})')
                 # Unpacking 1 GiB takes long enough to look stuck (reported: "can unpacking also
                 # have progress"). Count uncompressed bytes against the archive's own total, which
                 # is the only measure that advances evenly — a file count stalls on the big files.
                 members = [i for i in z.infolist() if not i.is_dir()]
                 grand = sum(i.file_size for i in members) or 1
+                if unpack_progress:
+                    unpack_progress(0, grand)
+                bad = z.testzip()
+                if bad:
+                    raise DownloadError(f'{zpath.name} is corrupt (first bad member: {bad})')
                 done = 0
                 for info in members:
                     rel = _strip_root(info.filename)
@@ -339,13 +341,15 @@ def install_dotnet(dest: Path | None = None,
     staging.mkdir(parents=True)
     try:
         with zipfile.ZipFile(zpath) as z:
-            bad = z.testzip()
-            if bad:
-                raise DownloadError(f'{zpath.name} is corrupt (first bad member: {bad})')
             # No top-level folder in this zip: members are host/, sdk/, shared/ directly. Every
             # path is taken as-is, which is what makes dotnet.exe land at the root.
             members = [i for i in z.infolist() if not i.is_dir()]
             grand = sum(i.file_size for i in members) or 1
+            if unpack_progress:
+                unpack_progress(0, grand)
+            bad = z.testzip()
+            if bad:
+                raise DownloadError(f'{zpath.name} is corrupt (first bad member: {bad})')
             done = 0
             for info in members:
                 out = staging / info.filename
@@ -398,19 +402,41 @@ def install_python(dest: Path | None = None,
     exe = download(asset['url'], cache / asset['name'], asset['sha256'], asset['size'],
                    log=log, progress=progress)
     log(f'installing Python {tc.PYTHON_VERSION} → {target} (per-user, no administrator rights)')
-    cmd = [str(exe), '/quiet', '/norestart', 'InstallAllUsers=0',
-           f'TargetDir={target}', 'Include_pip=1', 'Include_launcher=0',
-           'AssociateFiles=0', 'Shortcuts=0', 'PrependPath=0', 'Include_doc=0']
+    base_flags = ['/quiet', '/norestart', 'InstallAllUsers=0',
+                  f'TargetDir={target}', 'Include_pip=1', 'Include_launcher=0',
+                  'AssociateFiles=0', 'Shortcuts=0', 'PrependPath=0', 'Include_doc=0']
+    cmd = [str(exe)] + base_flags
     r = subprocess.run(cmd, capture_output=True, text=True, errors='replace',
                        timeout=900, **tc.no_window())
-    if r.returncode != 0 or not tc._runs_quiet(target / 'python.exe'):
+    runs_ok = tc._runs_quiet(target / 'python.exe') if r.returncode == 0 else False
+    if r.returncode == 0 and not runs_ok:
+        # When Python 3.12.10 was installed previously and its folder was deleted by hand without
+        # running the MSI uninstaller, CPython's WiX Burn bootstrapper (`PythonBootstrapperApplication.cpp`)
+        # detects `0 < llInstalled`, converts `BOOTSTRAPPER_ACTION_INSTALL` into `BOOTSTRAPPER_ACTION_MODIFY`,
+        # sees no feature changes, and exits 0 without writing any files. `/repair` restores the missing files;
+        # if a previous install was registered at a different `TargetDirRegistryKey`, `/uninstall` followed by
+        # a clean install places the interpreter into `target`.
+        log(f'Python {tc.PYTHON_VERSION} already registered in Windows Installer; running /repair → {target}')
+        r = subprocess.run([str(exe), '/repair'] + base_flags, capture_output=True, text=True,
+                           errors='replace', timeout=900, **tc.no_window())
+        runs_ok = tc._runs_quiet(target / 'python.exe') if r.returncode == 0 else False
+        if not runs_ok:
+            log(f're-installing Python {tc.PYTHON_VERSION} cleanly into {target} after /uninstall')
+            subprocess.run([str(exe), '/uninstall', '/quiet', '/norestart'],
+                           capture_output=True, text=True, errors='replace',
+                           timeout=900, **tc.no_window())
+            shutil.rmtree(target, ignore_errors=True)
+            r = subprocess.run(cmd, capture_output=True, text=True, errors='replace',
+                               timeout=900, **tc.no_window())
+            runs_ok = tc._runs_quiet(target / 'python.exe') if r.returncode == 0 else False
+    if r.returncode != 0 or not runs_ok:
         log(f'installer exit {r.returncode}: {(r.stdout or r.stderr or "")[:300]}')
         raise DownloadError(
             f'Python {tc.PYTHON_VERSION} did not install (exit {r.returncode}). '
             f'Install it by hand from python.org, or point "python_dir" in toolchain.json at an '
             f'existing interpreter.')
     ver = subprocess.run([str(target / 'python.exe'), '--version'], capture_output=True,
-                         text=True, timeout=60, **tc.no_window())
+                         text=True, timeout=60, env=tc._clean_python_env(), **tc.no_window())
     log(f'Python installed: {(ver.stdout or ver.stderr or "").strip()} at {target}')
     return target
 
@@ -444,6 +470,8 @@ def install_zstd(dest: Path | None = None,
         with zipfile.ZipFile(zpath) as z:
             members = [m for m in z.infolist() if not m.is_dir()]
             grand = sum(m.file_size for m in members) or 1
+            if unpack_progress:
+                unpack_progress(0, grand)
             done = 0
             for info in members:
                 out = staging / _strip_root(info.filename)

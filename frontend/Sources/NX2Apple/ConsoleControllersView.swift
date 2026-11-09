@@ -260,7 +260,7 @@ struct ConsoleToastView: View {
                     Text(t(state.padMerge ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.padMerge ? LauncherPalette.cream : .secondary)
                 }
                 Spacer(minLength: 8)
-                Toggle("", isOn: Binding(get: { state.padMerge }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
+                Toggle(t("console.mergeAll"), isOn: Binding(get: { state.padMerge }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
             .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
@@ -280,7 +280,7 @@ struct ConsoleToastView: View {
                     Text(t(state.joyconSplit ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.joyconSplit ? LauncherPalette.cream : .secondary)
                 }
                 Spacer(minLength: 8)
-                Toggle("", isOn: Binding(get: { state.joyconSplit }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
+                Toggle(t("console.joyconSplit"), isOn: Binding(get: { state.joyconSplit }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
             .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))

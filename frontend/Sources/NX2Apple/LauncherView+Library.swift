@@ -70,17 +70,21 @@ extension LauncherView {
 
     func hero(_ game: LibraryGame, width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
-            if let image = heroArtwork?.id == game.id ? heroArtwork?.image : artwork[game.id] {
-                ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .hero))
-                    .frame(width: width, height: height).clipped()
-            } else {
-                LauncherPalette.surface
-                Image(systemName: "gamecontroller").font(.system(size: 160, weight: .ultraLight))
-                    .foregroundStyle(Color.white.opacity(0.05))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing).padding(60)
+            ZStack {
+                if let image = heroArtwork?.id == game.id ? heroArtwork?.image : artwork[game.id] {
+                    ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .hero))
+                } else {
+                    LauncherPalette.surface
+                    Image(systemName: "gamecontroller").font(.system(size: 160, weight: .ultraLight))
+                        .foregroundStyle(Color.white.opacity(0.05))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing).padding(60)
+                }
             }
+            .frame(width: width, height: max(0, height - 1)).clipped()
+            .frame(width: width, height: height, alignment: .top)
             LinearGradient(stops: [.init(color: .clear, location: 0.25),
                                    .init(color: .black.opacity(0.25), location: 0.45),
+                                   .init(color: LauncherPalette.background, location: 0.98),
                                    .init(color: LauncherPalette.background, location: 1)],
                            startPoint: .top, endPoint: .bottom)
             LinearGradient(colors: [.black.opacity(0.24), .clear], startPoint: .leading, endPoint: .trailing)

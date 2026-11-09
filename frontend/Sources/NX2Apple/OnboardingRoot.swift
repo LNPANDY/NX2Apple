@@ -9,12 +9,15 @@ import NXLauncher
     let stores: LauncherStores
     let library: GameLibrary
     let controls = ControlLayout()
+    /// Records the builds in the library whichever view is up: console mode takes LauncherView down while a build runs on.
+    let recorder: BuildRecorder
     lazy var console = LiveConsoleDriver(library: library, controls: controls, repo: { [stores] in stores.repo.path }, lang: { [stores] in stores.localizer.lang },
                                          labels: { [stores] in stores.localizer.t($0) })
 
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil) {
         self.stores = stores ?? LauncherStores()
         self.library = library ?? GameLibrary()
+        recorder = BuildRecorder(stores: self.stores, library: self.library)
     }
 }
 
@@ -44,7 +47,7 @@ struct RootView: View {
                             .transition(CalmTransition.console)
                     } else {
                         LauncherView(stores: stores, library: library, onRunSetup: runSetupAgain, enterConsole: { console.enter() },
-                                    controllerDriver: AnyConsoleDriver(shared.console), controls: shared.controls)
+                                    controllerDriver: AnyConsoleDriver(shared.console), controls: shared.controls, recorder: shared.recorder)
                             .transition(CalmTransition.desktop)
                     }
                 }

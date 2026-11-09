@@ -31,7 +31,7 @@ Issue: LNPANDY/NX2Apple#144
  create mode 100644 dm/ios/tools/gen_manifest.py
 
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 6688bab..15c0a49 100755
+index dd92a34..008a3ba 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -8,6 +8,9 @@
@@ -130,7 +130,7 @@ index 6688bab..15c0a49 100755
  # the entitlements of the signature they replace; the Xcode project gets them through CODE_SIGN_ENTITLEMENTS, above). The executable gets an ad-hoc signature that carries them: the sideloader
  # replaces the signature and keeps the entitlements. Only the executable is signed: the bundle's resources are packed from elsewhere and the signature is replaced anyway
 diff --git a/dm/ios/tools/compile_check.py b/dm/ios/tools/compile_check.py
-index a7c7b82..f366ecb 100755
+index 4925cc6..b832115 100755
 --- a/dm/ios/tools/compile_check.py
 +++ b/dm/ios/tools/compile_check.py
 @@ -4,7 +4,9 @@
@@ -147,7 +147,7 @@ index a7c7b82..f366ecb 100755
 @@ -29,14 +31,18 @@ srcs = [s for s in dict.fromkeys(srcs) if not os.path.splitext(s)[0].endswith('_
  srcs += sorted(os.path.join(ios_src, f) for f in os.listdir(ios_src) if f.endswith(('.c', '.m')))
  dirs = list(dict.fromkeys(os.path.dirname(s) for s in srcs))
- flags = ['-arch', 'arm64', '-miphoneos-version-min=26.0', '-mcpu=apple-a18', '-fobjc-arc', '-O1', '-w'] + defs + [f'-I{d}' for d in incs + dirs]
+ flags = ['-arch', 'arm64', '-miphoneos-version-min=26.0', '-mcpu=apple-m1', '-fobjc-arc', '-O1', '-w'] + defs + [f'-I{d}' for d in incs + dirs]
 -def one(s):
 -    c = ['xcrun', '-sdk', 'iphoneos', 'clang'] + flags + (['-Dmain=dm_main'] if s == os.path.join(host, 'main.c') else []) + ['-c', s, '-o', '/dev/null']
 +def one(s, extra=()):
@@ -282,10 +282,10 @@ index 0000000..ec2c33b
 +if __name__ == '__main__':
 +    main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index c954b6d..ae58d0d 100755
+index 8d378ab..dc9e383 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2800,6 +2800,7 @@ def parse_args(argv):
+@@ -2807,6 +2807,7 @@ def parse_args(argv):
      ap.add_argument('--shader-files', action=argparse.BooleanOptionalAction, help='an NVN game\'s shader library goes into the IPA as its separate files, not as one file, for install tools that cannot copy '
                      'a large file (AltServer: 2 GiB; the game files then need --romfs separate too) (default: the SHADER_FILES setting, off)')
      ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
@@ -293,7 +293,7 @@ index c954b6d..ae58d0d 100755
      ap.add_argument('--platform', choices=('ios', 'mac', 'mac-app'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
                      'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game; mac-app = what mac builds, then a self-contained, double-clickable '
                      'Mac app of the game (default: <game name>.app in the NSP folder, -o names another) (default: the PLATFORM setting, ios)')
-@@ -2926,6 +2927,7 @@ def main(args=None):
+@@ -2934,6 +2935,7 @@ def main(args=None):
      if seen_shaders and not mac: raise BuildError('--seen-shaders / SEEN_SHADERS builds a partial library of Mac shaders: it needs --platform mac or mac-app')
      if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
      if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
@@ -301,7 +301,7 @@ index c954b6d..ae58d0d 100755
      if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      check_native_python()
      keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
-@@ -3239,6 +3241,7 @@ def main(args=None):
+@@ -3250,6 +3252,7 @@ def main(args=None):
      say('preparing the Xcode project' if prepare_xcode else f'building the IPA → {out_ipa}')
      ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(rfs.source(game)), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang, CONTROL=str(control))
      if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)

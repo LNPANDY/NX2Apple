@@ -8373,6 +8373,52 @@
         }
       }
     },
+    "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielt Joy-Con 2 und Pro Controller 2 über Bluetooth: Halte während des Spiels die Sync-Taste an einem gedrückt, um ihn zu koppeln. macOS fragt einmal nach dem Bluetooth-Zugriff."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilise les Joy-Con 2 et la Pro Controller 2 en Bluetooth : maintenez Sync sur une manette pendant le jeu pour l’associer. macOS demande une seule fois l’accès au Bluetooth."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa Joy-Con 2 e Pro Controller 2 via Bluetooth: tieni premuto Sync su uno durante il gioco per associarlo. macOS chiede una sola volta l’accesso al Bluetooth."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joy-Con 2 と Pro Controller 2 を Bluetooth で使えます。ゲーム中にコントローラーの Sync ボタンを長押しするとペアリングされます。macOS は Bluetooth へのアクセスを一度だけ確認します。"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelar med Joy-Con 2 och Pro Controller 2 över Bluetooth: håll Sync nedtryckt på en under spelet för att para ihop den. macOS frågar en gång om åtkomst till Bluetooth."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过蓝牙使用 Joy-Con 2 和 Pro Controller 2：游戏中按住手柄上的同步键即可配对。macOS 会请求一次蓝牙访问权限。"
+          }
+        }
+      }
+    },
     "Plus": {
       "localizations": {
         "de": {
@@ -10485,6 +10531,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "游戏中交换 A/B"
+          }
+        }
+      }
+    },
+    "Switch 2 controllers": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2-Controller"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2 controllers"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manettes Switch 2"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controller Switch 2"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2 コントローラー"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2-kontroller"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2 手柄"
           }
         }
       }
