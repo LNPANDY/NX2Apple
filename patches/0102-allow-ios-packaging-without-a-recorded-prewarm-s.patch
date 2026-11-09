@@ -1,0 +1,167 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: thehobbit85 <thehobbit85@gmail.com>
+Date: Sat, 7 Nov 2026 10:50:22 -0800
+Subject: [PATCH] Allow iOS packaging without a recorded prewarm seed list
+
+Upstream-Status: forwarded seedds/nxnative#1706
+Reason: Pokopia has no recorded prewarm seeds, which must not block iOS framework packaging
+Issue: https://github.com/LNPANDY/NX2Apple/issues/922
+---
+ dm/games/0400A3A01EE4C000/README.md |  4 +-
+ dm/ios/tools/build_ipa.sh           |  7 ++-
+ dm/tools/tests/test_ipa_tables.py   | 70 +++++++++++++++++++++++++++++
+ docs/development.md                 |  2 +-
+ docs/reference/packing.md           |  7 +++
+ 5 files changed, 86 insertions(+), 4 deletions(-)
+ create mode 100644 dm/tools/tests/test_ipa_tables.py
+
+diff --git a/dm/games/0400A3A01EE4C000/README.md b/dm/games/0400A3A01EE4C000/README.md
+index e4b4a1b..6ce540e 100644
+--- a/dm/games/0400A3A01EE4C000/README.md
++++ b/dm/games/0400A3A01EE4C000/README.md
+@@ -15,7 +15,7 @@ A Switch 2 game: update v655360 (the title screen says Ver. 2.0.1), SDK 20.5.25
+ 
+ - A dump folder whose `updates/<version>/` holds the whole RomFS; [`pack_dump.py`](../../../scripts/pack_dump.py) packs it without a base RomFS. RomFS: the newer RDB (as ROMANCE OF THE THREE KINGDOMS 8 REMAKE's) under `motor_asset_re/KIDS_PLATFORM_OUNCE`, and a `LD_C0_R.BIN` / `LI_C0_R.IDX` LINKDATA pair.
+ - Shaders: 131,426 in [`shader_map.tsv`](shader_map.tsv) ([KTGL on NVN2](../../../docs/reference/shaders.md#ktgl-on-nvn2-switch-2-glslc-outputs-and-ld_--li_-linkdata)). The Mac playtest's library held only the 8,157 that its runs asked for (with their pixel shaders), listed in [`shader_seen.tsv`](shader_seen.tsv); the NSP script's `--seen-shaders` builds those alone ([Building selected Mac shaders](../../../docs/development.md#building-selected-mac-shaders)). Such a library has no stamp and no `c1_full.tsv`, and each start logs that in red. On chain `20b9b1c2e4e4` an M4 Pro with other jobs running took 18 minutes for the 8,158 shaders of the list and the last logs (Metal's compile cache held nearly all of its libraries: 113 compiled), or 16 minutes with all of them cached, then about 5 minutes for the 7.9 GB Mac app. That app boots to walking at about 16.7 ms a frame with no GPU error and no shader reported missing, and later areas are untested on it. The NSP script builds all 131,426: an estimated 2.5 hours on an M4 Pro (from 1,001 shaders; no full build has run) since [the builder stopped keeping the 4.4 GB of packages in memory](../../../docs/reference/shaders.md#a-shader-build-that-keeps-its-packages-in-memory-runs-one-worker-at-a-time) and [its compiles stopped instantiating Metal's texture classes again](../../../docs/reference/shaders.md#each-metal-compile-instantiates-metals-texture-classes-again) and [its Python stopped limiting it](../../../docs/reference/shaders.md#rewrites-that-try-every-character-of-a-large-source) (before all of these, players saw about one shader a second and ETAs of 20 to 200 hours: GitHub issue #1036). The map's 105,534 pixel shaders each have `_ba` and `_bl` libraries, 57% of its compiles before those whose MSL matches another's, while the runs on the 8,157-shader library opened none of them (file access times; 7,985 of its 8,157 `_b` libraries were opened). Those runs only reached the first area (open).
+-- No `pso_manifest.tsv` yet, so each start also logs a red line for the missing seed list. In the runs here no draw waited on it.
++- No `pso_manifest.tsv` yet, so each start also logs a red line for the missing seed list. In the runs here no draw waited on it. The iOS packager now accepts the missing list, as the host does. A complete IPA build and the reported repeated shader compilation remain unverified.
+ 
+ ## Shaders
+ 
+@@ -41,6 +41,8 @@ The first boot shows the language list: `A`, `LUp`, `A` picks English. The chara
+ 
+ ## Found on this game
+ 
++- [An iOS build stops when the profile has no prewarm seed list](../../../docs/reference/packing.md#an-ios-build-stops-when-the-profile-has-no-prewarm-seed-list): the framework packaging step required an optional recorded list (resolved).
++
+ - [One compile for a pixel shader's side entry points](../../../docs/reference/shaders.md#one-compile-for-a-pixel-shaders-side-entry-points): 57% of the map's compiles were `_ba` and `_bl` libraries; a cold build of 1,021 shaders now takes 48% of the CPU on the Mac's flags and 47% on the iPhone's.
+ - [KTGL on NVN2: Switch 2 GLSLC outputs and LD_ / LI_ LINKDATA](../../../docs/reference/shaders.md#ktgl-on-nvn2-switch-2-glslc-outputs-and-ld_--li_-linkdata): the split found almost none of its shaders.
+ - [HADD2 and HMUL2 with an immediate](../../../docs/reference/shaders.md#hadd2-and-hmul2-with-an-immediate): the GPU hang and 88 ms frames.
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index b0e84ae..be74dd6 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -135,11 +135,14 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
+ program_tables() {
+ cp "$PATCHED"/*.fixups.tsv "$PATCHED"/*.gates.tsv "$PATCHED"/*.cuts.tsv "$PATCHED"/*.obs.tsv $TD/ || die "copy rewriter tables"
+ if [ -f "$PATCHED/nro.tsv" ]; then cp "$PATCHED/nro.tsv" $TD/ || die "copy the NRO table"; fi   # the NRO modules the game loads with nn::ro (hle_ro.c), embedded by gen_embed.py
+-if [ "$GFXAPI" = vulkan ] || [ "$GFXAPI" = gl ]; then cp "$GD/shader_map.tsv" "$GD/pso_manifest.tsv" $TD/ || die "copy shader tables"   # empty NVN tables: the NVN layer draws nothing
+-else cp "$GD/shader_map.tsv" "$GD/pso_manifest.tsv" "$GD/c1_full.tsv" $TD/ || die "copy shader tables"
++if [ "$GFXAPI" = vulkan ] || [ "$GFXAPI" = gl ]; then cp "$GD/shader_map.tsv" $TD/ || die "copy shader tables"   # empty NVN table: the NVN layer draws nothing
++else cp "$GD/shader_map.tsv" "$GD/c1_full.tsv" $TD/ || die "copy shader tables"
+   if [ -f "$GD/cb_extent.tsv" ]; then cp "$GD/cb_extent.tsv" $TD/ || die "copy cb_extent.tsv"; else t "no $GD/cb_extent.tsv: the host copies whole uniform bindings"; fi
+   # the shader pairs, beside the shader map where the pipeline prebuild reads them (nvn_mtl.m pso_prebuild): without them the app makes no pulling bases, and a hybrid draw has no stand-in
+   for f in shader_pairs.tsv pso_pairs.tsv; do if [ -f "$GD/$f" ]; then cp "$GD/$f" $TD/ || die "copy $f"; fi; done; fi   # optional
++# A profile may have no recorded prewarm seeds yet (Pokopia). The host also reads the device's own list.
++if [ -f "$GD/pso_manifest.tsv" ]; then cp "$GD/pso_manifest.tsv" $TD/ || die "copy pso_manifest.tsv"
++else t "no $GD/pso_manifest.tsv: no bundled prewarm seed list"; fi
+ # The launcher's settings for this game (Launcher.swift): dm/games/settings.tsv filtered by the profile, main's rewriter table and the game's languages (dm/games/settings.py)
+ L=$(GFXAPI="$GFXAPI" python3 "$DM/games/settings.py" "$GAME" "$PATCHED" "$VNACP" $TD/launcher.json) || die "launcher settings (dm/games/settings.py)"; t "launcher: $L"
+ }
+diff --git a/dm/tools/tests/test_ipa_tables.py b/dm/tools/tests/test_ipa_tables.py
+new file mode 100644
+index 0000000..121294c
+--- /dev/null
++++ b/dm/tools/tests/test_ipa_tables.py
+@@ -0,0 +1,70 @@
++"""The iOS packager's production table-copy step, with synthetic files and no game or SDK."""
++import os
++from pathlib import Path
++import subprocess
++import tempfile
++import unittest
++
++REPO = Path(__file__).resolve().parents[3]
++
++
++class IpaTables(unittest.TestCase):
++    def setUp(self):
++        tmp = tempfile.TemporaryDirectory()
++        self.addCleanup(tmp.cleanup)
++        self.root = Path(tmp.name)
++        self.profile, self.patched, self.tables = [self.root / n for n in ('profile', 'patched', 'tables')]
++        for p in (self.profile, self.patched, self.tables): p.mkdir()
++        for name in ('shader_map.tsv', 'c1_full.tsv'):
++            (self.profile / name).write_text(name + '\n')
++        for suffix in ('fixups', 'gates', 'cuts', 'obs'):
++            (self.patched / f'main.{suffix}.tsv').write_text(suffix + '\n')
++
++    def stage(self, api, setup=''):
++        script = (REPO / 'dm/ios/tools/build_ipa.sh').read_text()
++        start = script.index('program_tables() {')
++        end = script.index('\n}', start) + 2
++        env = dict(os.environ, GD=str(self.profile), PATCHED=str(self.patched), TD=str(self.tables),
++                   GFXAPI=api, DM=str(REPO / 'dm'), GAME='test', VNACP='absent')
++        # Settings generation is outside this test. All table copies use the real cp.
++        helpers = 'set -u\ndie() { echo "FAIL: $*"; exit 1; }\nt() { echo "$*"; }\npython3() { :; }\n'
++        return subprocess.run(['bash', '-c', helpers + setup + script[start:end] + '\nprogram_tables\n'],
++                              env=env, capture_output=True, text=True)
++
++    def test_no_recorded_seed_is_optional_for_every_api(self):
++        for api in ('nvn', 'vulkan', 'gl'):
++            with self.subTest(api=api):
++                result = self.stage(api)
++                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++                self.assertEqual((self.tables / 'shader_map.tsv').read_bytes(), b'shader_map.tsv\n')
++                self.assertFalse((self.tables / 'pso_manifest.tsv').exists())
++                self.assertIn('pso_manifest.tsv', result.stdout)
++
++    def test_recorded_seed_is_preserved_for_every_api(self):
++        seed = b'# recorded list\nS\t1234567890abcdef\tvertex\nC\tabcdef1234567890\n'
++        (self.profile / 'pso_manifest.tsv').write_bytes(seed)
++        for api in ('nvn', 'vulkan', 'gl'):
++            with self.subTest(api=api):
++                result = self.stage(api)
++                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++                self.assertEqual((self.tables / 'pso_manifest.tsv').read_bytes(), seed)
++
++    def test_missing_required_shader_map_still_fails(self):
++        (self.profile / 'shader_map.tsv').unlink()
++        for api in ('nvn', 'vulkan', 'gl'):
++            with self.subTest(api=api):
++                self.assertNotEqual(self.stage(api).returncode, 0)
++
++    def test_missing_required_nvn_constants_still_fails(self):
++        (self.profile / 'c1_full.tsv').unlink()
++        self.assertNotEqual(self.stage('nvn').returncode, 0)
++
++    def test_seed_copy_failure_still_fails(self):
++        (self.profile / 'pso_manifest.tsv').write_text('C\t1234567890abcdef\n')
++        # A present seed must not silently disappear when the destination refuses writes.
++        result = self.stage('nvn', 'cp() { for arg in "$@"; do case "$arg" in */pso_manifest.tsv) return 1;; esac; done; command cp "$@"; }\n')
++        self.assertNotEqual(result.returncode, 0)
++        self.assertIn('FAIL:', result.stdout)
++
++
++if __name__ == '__main__': unittest.main()
+diff --git a/docs/development.md b/docs/development.md
+index 4538163..ae296e0 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -427,7 +427,7 @@ What the script does:
+    Captured `.glslc` and decoded Unreal `.ushaderbytecode` inputs exclude only macOS AppleDouble `._` metadata, including `DM_GLSLC_CAPTURE` and `DM_UE_SHADERS` overrides. Other hidden names remain inputs and malformed shader files still stop the build ([external shader metadata](reference/packing.md#external-shader-directories-contain-appledouble-metadata)).
+ 6. It builds the iOS shader libraries with the in-repo SPIRV-Cross (`dm/gfx/tools/spirv_cross_bin`) and the Metal compiler in `dmsh_chain.lock` (Xcode 27.2). Another Metal compiler stops an NVN game's build before its shader steps; the compiler is the selected Xcode's, so a Mac with a newer Xcode installs 27.2 beside it and selects it ([Metal compiler of a newer Xcode](reference/shaders.md#metal-compiler-of-a-newer-xcode)). Issue #242 reported corruption with an untested compiler; its role remains unconfirmed. `--allow-other-metal` (`ALLOW_OTHER_METAL = True` in Spyder; `DM_ALLOW_OTHER_METAL=1` for `own_compilers.py`) permits it and reports the actual version. If a registered profile's `dmsh_chain.h` does not hold the version the source tree gives (a chain change left it behind), the script writes it again before any host is built, so it shows as changed in the checkout (`dmsh_build.py` would stop otherwise). Then the script makes the profile's `c1_full.tsv` and `cb_extent.tsv` from this build's Mac outputs when they are missing or name another chain. These two tables are not committed and git ignores them; `build_ipa.sh` stops without a current `c1_full.tsv`. Each line in the output names the file.
+    It then compares the build with the game's previous one, the newest other `b-*/` in `<id>_build/shader/cache/` (the one the last chain change left: a build that succeeds removes the older chain folders and their keys, so each game keeps one) (`dm/gfx/tools/shader_regressions.py`, which reads the two `_b_build.json` reports). The translation chain is one for every game, so a translator change is tested only on the games its author owns; shaders that translated before and fail now are listed in `logs/shader_regressions.log` and stop the build ([GitHub issue #272](https://github.com/seedds/nxnative/issues/272)). Report them; `--allow-shader-regressions` (`ALLOW_SHADER_REGRESSIONS = True` in Spyder) packs the app without them.
+-7. It calls `build_ipa.sh`. Xcode builds the app in the game's own build folder (`<id>_build/ipa/build/ios/pkg/dd`: `build_ipa.sh` sets `SYMROOT` and `OBJROOT`, which a custom build location in Xcode's settings does not override), so a repeat build compiles only what changed and two games built at once never write the same app. Then `dm/ios/tools/pack_ipa.py` packs it with the shader libraries, the add-on content and the RomFS straight from where they are. It reads and deflates files on all cores and writes at about the T7's write speed (300 MB/s): Breath of the Wild's 16 GB IPA takes 57 s, Info-ZIP's copy and zip took 2 min 50 s. A repeat pack reuses the previous IPA through `<ipa>.idx`, which records each packed file's size, times and inode: the unchanged leading entries stay in place in an APFS clone of the old IPA, and after the first changed entry, an unchanged file is copied compressed from it (both only when the source folder is on APFS; elsewhere every file is deflated again). `build_ipa.sh` passes the RomFS, the add-on content, the pipeline archive and the shader libraries before the app, so after a host fix only the app is written: Breath of the Wild repacks in 12-23 s instead of 105-163 s.
++7. It calls `build_ipa.sh`. A profile's recorded `pso_manifest.tsv` is copied when present. Without one the build continues with no bundled prewarm seeds, and the host can still use the device's own recorded list. This does not change shader cache or rebuild decisions. Xcode builds the app in the game's own build folder (`<id>_build/ipa/build/ios/pkg/dd`: `build_ipa.sh` sets `SYMROOT` and `OBJROOT`, which a custom build location in Xcode's settings does not override), so a repeat build compiles only what changed and two games built at once never write the same app. Then `dm/ios/tools/pack_ipa.py` packs it with the shader libraries, the add-on content and the RomFS straight from where they are. It reads and deflates files on all cores and writes at about the T7's write speed (300 MB/s): Breath of the Wild's 16 GB IPA takes 57 s, Info-ZIP's copy and zip took 2 min 50 s. A repeat pack reuses the previous IPA through `<ipa>.idx`, which records each packed file's size, times and inode: the unchanged leading entries stay in place in an APFS clone of the old IPA, and after the first changed entry, an unchanged file is copied compressed from it (both only when the source folder is on APFS; elsewhere every file is deflated again). `build_ipa.sh` passes the RomFS, the add-on content, the pipeline archive and the shader libraries before the app, so after a host fix only the app is written: Breath of the Wild repacks in 12-23 s instead of 105-163 s.
+ 
+ A repeat build skips work whose inputs have not changed. The extraction is kept (`extract/`). The DLC, the rewrite, the shader split and the iOS (or Vulkan) shaders each write a key beside their output: a sha256 of their inputs (the game files, the tools, the profile, Xcode's version and the in-repo spirv-cross; for the DLC, the DLC NSPs' names, sizes and times and nx_extract's sources). When the key matches, the stage line says `reused (inputs unchanged)` and the step does not run. Any change to a tool or the profile runs the step again; deleting the `.key` file forces it. The rewrite's key covers the patch files that name one of the modules' builds, the selected game's own, and always `dm/tools/sdk_patches.py`, whose SDK-wide `MATCH_CUTS` apply to builds it does not name (a new reviewed implementation was left out of a reused rewrite of Pokémon Legends: Arceus before). The iOS shaders' inputs are the shader package's content and only the tools `dmsh_build.py` loads (the modules it imports, at any depth): a split that runs again because a reader for another engine changed (a pull that touches `shader_split.py` or `unityfs.py`) writes the same package, and the iOS shaders stay reused.
+ 
+diff --git a/docs/reference/packing.md b/docs/reference/packing.md
+index aaf7af6..3497b85 100644
+--- a/docs/reference/packing.md
++++ b/docs/reference/packing.md
+@@ -2,6 +2,13 @@
+ 
+ ## Game packages
+ 
++### An iOS build stops when the profile has no prewarm seed list
++
++- **Symptom:** after the shader build, `build_ipa.sh` stops at `copy shader tables` because `pso_manifest.tsv` does not exist. This also stops the shell's game-framework build.
++- **Cause:** a profile may have no recorded pipeline prewarm seeds yet. The host supports that state and still reads the device's own list, but the iOS packager required the optional seed file alongside the required shader tables.
++- **Fix:** copy a recorded seed list when present and report its absence otherwise. Required shader tables and a failed copy of an existing seed list still stop the build. No seed records are invented, and shader cache inputs are unchanged. This does not change shader rebuild or resume decisions.
++- **Found on:** [Pokémon Pokopia](../../dm/games/0400A3A01EE4C000/README.md), [NX2Apple issue #922](https://github.com/LNPANDY/NX2Apple/issues/922). The separate report of repeated shader compilation remains open.
++
+ ### PFS0 file-name table missing its final NUL
+ 
+ - **Symptom:** package identification stops with `ValueError: subsection not found` in `pfs0_names`, or LibHac reports `ResultFsPathNotFound` opening the last file of an NSP.

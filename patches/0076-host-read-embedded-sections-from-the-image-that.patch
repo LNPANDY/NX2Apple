@@ -45,7 +45,7 @@ index f3e38a1..dc6edac 100644
      return NULL;
  }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index a6e0bf4..c1e4673 100644
+index b9af2f4..dca0a5a 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -38,8 +38,7 @@

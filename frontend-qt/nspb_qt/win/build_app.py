@@ -30,6 +30,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -148,7 +149,7 @@ def py(*args, env=None, capture=True) -> str:
 #: file to either line, silently missing it here would produce a link error or a subtly
 #: incomplete host.
 WANT_SRC = ('SRC=main.c loader.c hle.c crash.c probe.c thread.c save_sync.c memstat.m '
-            'haptics_apple.m $(sort $(wildcard hle_*.c)) front_mac.m controllers_mac.m web_apple.m entry.S')
+            'haptics_apple.m pad_switch2_apple.m $(sort $(wildcard hle_*.c)) front_mac.m controllers_mac.m web_apple.m entry.S')
 WANT_GFX = ('GFX=$(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/nvn/*.m ../gfx/nvn/*.S '
             '../gfx/tex/*.c ../gfx/tex/*.m ../gfx/vk/*.m ../gfx/gl/*.m))')
 _GFX_PATS = ('../gfx/*.c', '../gfx/nvn/*.c', '../gfx/nvn/*.m', '../gfx/nvn/*.S',
@@ -177,7 +178,7 @@ def host_sources(repo: Path, game_h_dir: Path) -> tuple[list[Path], list[Path]]:
                 f'frontend-qt/nspb_qt/win/build_app.py to match')
 
     src = [host / n for n in 'main.c loader.c hle.c crash.c probe.c thread.c save_sync.c '
-                            'memstat.m haptics_apple.m'.split()]
+                            'memstat.m haptics_apple.m pad_switch2_apple.m'.split()]
     src += sorted(host.glob('hle_*.c'), key=lambda p: p.name)
     src += [host / 'front_mac.m', host / 'controllers_mac.m', host / 'web_apple.m', host / 'entry.S']
     gfx: list[Path] = []
@@ -383,6 +384,28 @@ _HOST_MAIN: Path | None = None
 
 # ---------------------------------------------------------------- link
 
+# CreateProcess takes at most 32767 characters of command line. A link names every object file by
+# its full path, so a long work folder goes over it: WinError 206. Past this size the arguments go
+# into a response file, which clang reads with `@file`.
+MAX_COMMAND_LINE = 24000
+
+
+def response_file_args(args: list[str], rsp: Path, limit: int = MAX_COMMAND_LINE) -> list[str]:
+    """Return `args` as they are, or the program plus `@rsp` when the command line is too long.
+
+    Each argument is double-quoted and written with forward slashes, which both the GNU and the
+    Windows response file readers of clang take the same way.
+    """
+    if sum(len(a) + 1 for a in args) <= limit:
+        return args
+    lines = []
+    for a in args[1:]:
+        a = a.replace('\\', '/').replace('"', '\\"')
+        lines.append(f'"{a}"')
+    rsp.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    return [args[0], f'@{rsp.as_posix()}']
+
+
 def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: Path,
          deployment: str, embed_flags: list[str], rt_obj: Path | None,
          lld_dir: Path, bundle_id: str = 'org.nxnative.app') -> None:
@@ -398,6 +421,7 @@ def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: P
     env = dict(os.environ)
     env['PATH'] = str(lld_dir) + os.pathsep + env.get('PATH', '')
     t(f'link: {len(objs)} objects, {len(frameworks)} frameworks (ld64.lld)')
+    args = response_file_args(args, (objs[0].parent if objs else Path(tempfile.gettempdir())) / f'{out.name}.link.rsp')
     r = subprocess.run(args, capture_output=True, text=True, errors='replace', env=env)
     if r.returncode:
         print((r.stderr or r.stdout)[-6000:], file=sys.stderr)
@@ -443,6 +467,7 @@ def link_framework(clang: Path, sdk: Path, objs: list[Path], frameworks: list[st
     env = dict(os.environ)
     env['PATH'] = str(lld_dir) + os.pathsep + env.get('PATH', '')
     t(f'link framework: {len(objs)} objects, {len(frameworks)} frameworks (ld64.lld)')
+    args = response_file_args(args, (objs[0].parent if objs else Path(tempfile.gettempdir())) / f'{out.name}.link.rsp')
     r = subprocess.run(args, capture_output=True, text=True, errors='replace', env=env)
     if r.returncode:
         print((r.stderr or r.stdout)[-6000:], file=sys.stderr)

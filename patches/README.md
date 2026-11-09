@@ -163,4 +163,4 @@ the tree differs from upstream's (a profile key, a patched host table), so upstr
 carried the file would conflict on every bump. `sync` therefore runs both tools on the patched tree and commits the result in
 `engine/`, and a patch that touches either file is rejected by `check` (`export` leaves them out). Nothing to do by hand: `sync` writes
 them. The badge data of the README is `.github/badges/*.json` in this repository (it was a patch of `fork-docs` before step 2 of #214).
-The games gallery of `GAMES.md` is written by `engine/dm/tools/docs_gallery.py`, with links to nxnative at the pinned commit.
+The games gallery of `GAMES.md` is kept by hand: upstream retired `dm/tools/docs_gallery.py` (seedds/nxnative 6cbb87c9). Its links to nxnative follow the pinned commit (`relink`).

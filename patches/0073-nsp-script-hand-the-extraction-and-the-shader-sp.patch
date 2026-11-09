@@ -255,7 +255,7 @@ index 0000000..444e186
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index a498725..0e57cd8 100644
+index 7b5e9a2..d448bb3 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -37,6 +37,7 @@ DM_ENV_FILE	path	`=<file>` makes `build_ipa.sh` bake its `KEY=VALUE` lines into
@@ -267,7 +267,7 @@ index a498725..0e57cd8 100644
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
  DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 8e236d3..0b9e049 100755
+index 87cd062..9b75ceb 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@
@@ -278,7 +278,7 @@ index 8e236d3..0b9e049 100755
  import ast, collections, contextlib, ctypes, errno, getpass, pwd, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types
  from pathlib import Path
  sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
-@@ -434,6 +435,141 @@ def tool_env(environ=os.environ):
+@@ -435,6 +436,141 @@ def tool_env(environ=os.environ):
      return dict(environ, PATH=os.pathsep.join([environ.get('PATH') or '/usr/bin:/bin:/usr/sbin:/sbin'] + TOOL_PATHS))
  
  
@@ -420,7 +420,7 @@ index 8e236d3..0b9e049 100755
  def configure_dotnet(env):
      """Let standalone .NET apphosts find the runtime used by dotnet (Homebrew installs it outside the registered locations)."""
      if env.get('DOTNET_ROOT'): return
-@@ -1241,7 +1377,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
+@@ -1245,7 +1381,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
      def poll():
          n, b = tree_size(tmp); return {'done': b, 'note': f'{n:,} files'}
      PROG.stage(f'extract {name}', poll=poll, unit='B', total=last[1] if last else base.stat().st_size + (upd.stat().st_size if upd and upd != base else 0), est=not last)
@@ -430,7 +430,7 @@ index 8e236d3..0b9e049 100755
      swap_in(tmp, dst)
      n, b = extracted(log) or (0, 0)
      PROG.end(f'{n:,} files, {amount(b, "B")}')
-@@ -1281,13 +1418,15 @@ def scan_nup(path, want=None):   # a NUP as scan_nsps gives a folder of NSPs, wi
+@@ -1285,13 +1422,15 @@ def scan_nup(path, want=None):   # a NUP as scan_nsps gives a folder of NSPs, wi
      return app, {'base': base, 'updates': sorted(vers.items()), 'dlc': [(tid, None, k) for tid, k in sorted(dlc.items())], 'nup': n}
  
  
@@ -447,7 +447,7 @@ index 8e236d3..0b9e049 100755
          how = pack_nup.pack_version(n, k, base, app, dst, say=lambda s: None, step=lambda s: PROG.set(step=s))
      except pack_nup.Error as e: raise BuildError(str(e)) from e
      PROG.end(amount((dst / 'RomFS.img').stat().st_size, 'B') + {'kept': ', reused (inputs unchanged)', 'verified': ', reused (image checked)'}.get(how, ''))
-@@ -1344,6 +1483,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
+@@ -1349,6 +1488,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
      if not fam['dlc']: return None
      if fam.get('nup'):
          PROG.stage('unpack DLC', step='unpacking')
@@ -459,7 +459,7 @@ index 8e236d3..0b9e049 100755
          try: pack_nup.pack_dlc(fam['nup'], app, {tid: k for tid, _, k in fam['dlc']}, work / 'aoc', say=lambda s: None)
          except pack_nup.Error as e: raise BuildError(str(e)) from e
          PROG.end(f'{len(fam["dlc"])} DLC')
-@@ -2208,9 +2352,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
+@@ -2215,9 +2359,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
      tmp = pkg.with_name(pkg.name + '.partial'); rmtree(tmp); (tmp / 'tables').mkdir(parents=True)
      def counted(ln):   # shader_split.py's 'progress: <done>/<total>'
          if m := re.fullmatch(r'progress: (\d+)/(\d+)', ln): PROG.set(done=int(m[1]), total=int(m[2]), unit='files')
@@ -480,7 +480,7 @@ index 8e236d3..0b9e049 100755
      m = re.search(r'shaders: (\d+) \(', text)
      bad = re.search(r'^\[RED\] (\d+) file\(s\) could not be read.*$', text, re.M)   # the split leaves out a file no reader reads (its own red line per file in the log) and goes on
      if bad and not provisional:   # the profile's tables were split from every file: one that does not read now is a reader change
-@@ -3124,7 +3276,7 @@ def main(args=None):
+@@ -3134,7 +3286,7 @@ def main(args=None):
      dirs = {}
      for ver in versions:   # each merged version streams directly into its own image
          b, u = picks[ver]

@@ -43,6 +43,7 @@ Performance HUD
 Picture
 Picture shape
 Pipeline prebuild
+Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access.
 Portuguese
 Press a button to join
 Render scale
@@ -53,6 +54,7 @@ Russian
 Simplified Chinese
 Spanish
 Standard
+Switch 2 controllers
 The first start waits a few minutes for it, once.
 Touch feedback
 Traditional Chinese

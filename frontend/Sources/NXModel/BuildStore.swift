@@ -209,6 +209,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     var proc: RunningProcess?
     var staging: String?
+    var stagedResignProfiles: AppSignature.StagedProfiles?
     var psoStageID: Int?
     var psoStep = ""
     var psoNativeProgress = false
@@ -283,6 +284,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     package func cleanupStaging() {
         staging = nil   // the folder stays for the next build of this game (#132, InputStaging)
+        stagedResignProfiles?.rollback()
+        stagedResignProfiles = nil
     }
 
     /// A stopped build leaves no half-finished stages behind: the progress starts empty again.
