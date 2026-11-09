@@ -1103,6 +1103,8 @@
   "launch.set.DM_SCREEN_ASPECT": "画面比例",
   "launch.set.DM_SCREEN_ASPECT.note": "渲染的像素约多四分之一：稍慢，发热稍多。",
   "launch.set.DM_SHOW_FPS": "帧率显示",
+  "launch.set.DM_SW2": "Switch 2 手柄",
+  "launch.set.DM_SW2.note": "通过蓝牙使用 Joy-Con 2 和 Pro Controller 2：游戏中按住手柄上的同步键即可配对。macOS 会请求一次蓝牙访问权限。",
   "launch.set.DM_TOUCH_HAPTICS": "触控反馈",
   "launch.set.DM_UPSCALER": "游戏自带超分",
   "launch.title": "启动选项",

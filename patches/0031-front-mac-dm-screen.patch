@@ -14,10 +14,10 @@ Issue: LNPANDY/NX2Apple#221
  4 files changed, 14 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 77e144f..8965228 100644
+index 267fbd3..539757b 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1457,6 +1457,17 @@ void front_run(void (*guest)(void)) {
+@@ -1529,6 +1529,17 @@ void front_run(void (*guest)(void)) {
          if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) LOG("front end: Metal performance HUD on (DM_METAL_HUD)");
          v.layer = g_layer; [(DmGameView *)v fitDrawable];
          [win center];
@@ -36,7 +36,7 @@ index 77e144f..8965228 100644
          screen_refresh(win.screen ?: NSScreen.mainScreen);
          g_win = win;
 diff --git a/docs/development.md b/docs/development.md
-index 2750b42..9fbf399 100644
+index 940f13c..062f576 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -49,19 +49,19 @@ index 2750b42..9fbf399 100644
  | Known gaps | Conditional render is always drawn; [indirect-count multi-draws](reference/rendering.md#indirect-count-multi-draws) can wait for a GPU-written count when the records need conversion, cannot be GPU-masked, or exceed the mask table capacity; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 2af1a61..96d3252 100644
+index 376cf4d..9e83473 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -316,6 +316,7 @@ DM_SAVE	path	This run's save folder (must be set); the device save is `<DM_SAVE>
- DM_SAVED_CHOICES	switch	`0` ignores the player's saved choices (launcher.<VAR> in the app's preferences) and leaves them saved; the Mac launcher and the iOS settings screen
+@@ -325,6 +325,7 @@ DM_SAVED_CHOICES	switch	`0` ignores the player's saved choices (launcher.<VAR> i
  DM_SAVE_SYNC	player	Cloud saves: the folder whose `<title ID>/save.dmsync` the save is synced through, `icloud` for iCloud Drive/nxnative Saves (the Mac); `0` or unset, off. The Mac launcher sets the folder chosen in its settings window's Cloud saves, the iPhone app the one picked in its launcher (dm/host/save_sync.h)
+ DM_SAVE_SYNC_CHOICE	switch	Cloud saves: set by a front end that asks the player when the cloud's save and this device's both changed (any value: a save that changed on both sides is replaced on neither without a choice); `ask`: no choice yet, `cloud:<hash>` brings in the cloud's save with that hash, `local:<hash>` sends this device's over it (`local:none`: the cloud had none), `offline`: the cloud could not be read before the start, so the host does not wait for it; unset, the newer save wins (dm/host/save_sync.c, docs/frontends.md)
  DM_SCHEME_NAME	switch	Set by `build_ipa.sh` itself for xcodegen's `project.yml`: the Xcode scheme name, `DmIOS`, or `<display name> (<title ID>)` for a project prepared with `--prepare-xcode`
 +DM_SCREEN	player	`=<number>` opens the Mac window on the connected screen with that `NSScreenNumber` (`CGDirectDisplayID`), centred, before any `DM_FULLSCREEN` request; an unknown number is logged and ignored. The NX2Apple launcher sets it to its own window's screen
  DM_SCREEN_ASPECT	player	`=<width/height>` (1.3 to 1.77, e.g. `1.43` for the iPhone Duo) renders a game whose profile has `screen_aspect on` in that shape: output 1920 wide, 1280-wide layout space, the HUD at the taller edges and 16:9's sides in view; `auto` (iOS) the app window's own shape when it is taller than 16:9, else 16:9; `0` or unset is 16:9; launcher setting
  DM_SCREEN_ASPECT_SITES	diagnostic	`=<mask>` with DM_SCREEN_ASPECT: which of the profile's layout-size conversion stubs follow the taller layout, one bit each (default all)
  DM_SCREEN_FOV	diagnostic	`off` with DM_SCREEN_ASPECT: the scene keeps the game's vertical angle (narrower sides) instead of 16:9's sides with more above and below
 diff --git a/docs/frontends.md b/docs/frontends.md
-index f71f00b..84225ec 100644
+index 498cbfb..ea1e0e7 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -76,6 +76,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID

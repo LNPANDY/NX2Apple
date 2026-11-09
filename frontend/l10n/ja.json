@@ -1100,6 +1100,8 @@
   "launch.set.DM_SCREEN_ASPECT": "映像の比率",
   "launch.set.DM_SCREEN_ASPECT.note": "描画するピクセルが約 4 分の 1 増えます。少し遅くなり、発熱も少し増えます。",
   "launch.set.DM_SHOW_FPS": "フレームレート表示",
+  "launch.set.DM_SW2": "Switch 2 コントローラー",
+  "launch.set.DM_SW2.note": "Joy-Con 2 と Pro Controller 2 を Bluetooth で使えます。ゲーム中にコントローラーの Sync ボタンを長押しするとペアリングされます。macOS は Bluetooth へのアクセスを一度だけ確認します。",
   "launch.set.DM_TOUCH_HAPTICS": "タッチのフィードバック",
   "launch.set.DM_UPSCALER": "ゲームのアップスケーラー",
   "launch.title": "起動オプション",

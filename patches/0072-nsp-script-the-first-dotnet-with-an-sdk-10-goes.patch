@@ -77,10 +77,10 @@ index f81a641..80cda9e 100644
 +
  if __name__ == '__main__': unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 2c6e8b0..8e236d3 100755
+index e6c048d..87cd062 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -451,6 +451,23 @@ def configure_dotnet(env):
+@@ -452,6 +452,23 @@ def configure_dotnet(env):
              return
  
  
@@ -104,7 +104,7 @@ index 2c6e8b0..8e236d3 100755
  # ---- NSP identification ----
  def is_package(path):   # what nx_extract's OpenNsp opens: an XCI / XCZ by the card header's magic at 0x100, else a PFS0 (NSP, NSZ)
      with open(path, 'rb') as f: h = f.read(0x104)
-@@ -2981,6 +2998,7 @@ def main(args=None):
+@@ -2991,6 +3008,7 @@ def main(args=None):
      # who wants telemetry on keeps it.
      env.setdefault('DOTNET_CLI_TELEMETRY_OPTOUT', '1')
      env.setdefault('DOTNET_NOLOGO', '1')

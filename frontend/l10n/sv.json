@@ -950,6 +950,8 @@
   "launch.set.DM_SCREEN_ASPECT": "Bildformat",
   "launch.set.DM_SCREEN_ASPECT.note": "Renderar ungefär en fjärdedel fler pixlar: lite långsammare och varmare.",
   "launch.set.DM_SHOW_FPS": "Bildfrekvensräknare",
+  "launch.set.DM_SW2": "Switch 2-kontroller",
+  "launch.set.DM_SW2.note": "Spelar med Joy-Con 2 och Pro Controller 2 över Bluetooth: håll Sync nedtryckt på en under spelet för att para ihop den. macOS frågar en gång om åtkomst till Bluetooth.",
   "launch.set.DM_TOUCH_HAPTICS": "Beröringsåterkoppling",
   "launch.set.DM_UPSCALER": "Spelets uppskalare",
   "launch.title": "Startalternativ",
