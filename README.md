@@ -161,7 +161,7 @@ anything extracted from a game.
 
 ## Games
 
-147 games have a profile. Many are reported playable on an iPhone upstream, and most have a
+148 games have a profile. Many are reported playable on an iPhone upstream, and most have a
 profile that has not been tried on a phone yet. A few of them:
 
 | | Game | Where it runs | Status |

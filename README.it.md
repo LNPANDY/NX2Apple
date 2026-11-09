@@ -148,7 +148,7 @@ qualsiasi elemento estratto da un gioco.
 
 ## Giochi
 
-147 giochi dispongono di un profilo. Diversi sono segnalati come giocabili su iPhone nel progetto upstream e la maggior
+148 giochi dispongono di un profilo. Diversi sono segnalati come giocabili su iPhone nel progetto upstream e la maggior
 parte ha un profilo che non è ancora stato provato su un telefono. Eccone alcuni:
 
 | | Gioco | Dove gira | Stato |

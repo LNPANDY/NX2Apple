@@ -158,7 +158,7 @@ angesehen. Hänge niemals Schlüssel, Spieldateien oder etwas aus einem Spiel Ex
 
 ## Spiele
 
-147 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
+148 Spiele haben ein Profil. Einige gelten upstream auf einem iPhone als spielbar, und die meisten haben
 ein Profil, das noch nicht auf einem Handy ausprobiert wurde. Einige davon:
 
 | | Spiel | Wo es läuft | Status |

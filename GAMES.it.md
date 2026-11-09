@@ -239,7 +239,7 @@ La struttura della cartella e i dettagli sono nella [pagina inglese](GAMES.md#sw
 
 ## Profili
 
-Questo repository include 140 profili di gioco. Un profilo è ciò che rende possibile la compilazione —
+Questo repository include 148 profili di gioco. Un profilo è ciò che rende possibile la compilazione —
 i Build ID del gioco, il layout di memoria, le tabelle degli shader e le impostazioni specifiche del titolo — e questo fork vi aggiunge sopra il
 livello di archiviazione RomFS, consentendo di installare anche i giochi di grandi dimensioni.
 
@@ -377,6 +377,7 @@ l'aggiornamento si sovrappone ad essa). "Nessuno (v0)" significa che è sufficie
 | Xenoblade Chronicles 2 | `0100E95004038000` | 2.1.0 (v983040) | Profilo presente, non verificato su telefono |
 | Streets of Rage 4 | `0100EC9010258000` | 1.0.9 (v458752) | Profilo presente, non verificato su telefono |
 | Paper Mario: Il Portale Millenario (The Thousand-Year Door) | `0100ECD018EBE000` | 1.0.1 (v65536) | Profilo presente, non verificato su telefono |
+| Overcooked! All You Can Eat | `0100F28011892000` | 1.0.11 (v720896) | Profilo presente, non verificato su telefono |
 | The Legend of Zelda: Tears of the Kingdom | `0100F2C0115B6000` | 1.4.3 (v720896) | **Verificato qui** — compila, si installa e gira su un iPhone, byte-verified |
 | Leggende Pokémon: Z-A (Pokémon Legends: Z-A) | `0100F43008C44000` | 2.0.2 (v393216) | Profilo presente, non verificato su telefono |
 | Brain Memory Training Academy | `0100F5D01DA3A000` | Nessuno (v0) | Profilo presente, non verificato su telefono |

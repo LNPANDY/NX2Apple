@@ -152,7 +152,7 @@ Bifoga aldrig nycklar, spelfiler eller något som extraherats ur ett spel.
 
 ## Spel
 
-147 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
+148 spel har en profil. Flera rapporteras som spelbara på en iPhone uppströms, och de flesta har en
 profil som ännu inte har prövats på en telefon. Några av dem:
 
 | | Spel | Var det körs | Status |

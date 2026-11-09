@@ -251,7 +251,7 @@ Screenshots, with a note where a game has one (a frame rate, a limit). The block
 <tr>
 <td align="center" valign="top" width="33%"><img src="https://raw.githubusercontent.com/seedds/nxnative/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/images/romance-of-the-three-kingdoms-xiv.jpg" width="256" alt="ROMANCE OF THE THREE KINGDOMS XIV"><br><small><b><a href="https://github.com/seedds/nxnative/blob/c78d7375bea9c862679ec294a6a69ff3e22e18d0/dm/games/0100ED7012DB2000/README.md">ROMANCE OF THE THREE KINGDOMS XIV</a></b></small></td>
 <td align="center" valign="top" width="33%"><img src="https://raw.githubusercontent.com/seedds/nxnative/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/images/the-rogue-prince-of-persia.jpg" width="256" alt="The Rogue Prince of Persia"><br><small><b><a href="https://github.com/seedds/nxnative/blob/c78d7375bea9c862679ec294a6a69ff3e22e18d0/dm/games/01008D9022462000/README.md">The Rogue Prince of Persia</a></b><br>60 fps, up to 120 on the Mac</small></td>
-<td></td>
+<td align="center" valign="top" width="33%"><img src="https://raw.githubusercontent.com/seedds/nxnative/c78d7375bea9c862679ec294a6a69ff3e22e18d0/docs/images/overcooked-all-you-can-eat.jpg" width="256" alt="Overcooked! All You Can Eat"><br><small><b><a href="https://github.com/seedds/nxnative/blob/c78d7375bea9c862679ec294a6a69ff3e22e18d0/dm/games/0100F28011892000/README.md">Overcooked! All You Can Eat</a></b><br>60 fps with 1.0.11</small></td>
 </tr>
 </table>
 <!-- end of gallery -->
@@ -284,7 +284,7 @@ A folder of files has no control data, so the app gets no icon and takes its nam
 
 ## Profiles
 
-140 game profiles ship with this repository. A profile is what makes a build possible —
+148 game profiles ship with this repository. A profile is what makes a build possible —
 the game's build IDs, memory layout, shader tables and per-game switches — and this fork adds the
 RomFS archive layer on top, so a large game can be installed at all.
 
@@ -422,6 +422,7 @@ update layers over it). "无（v0）" = the base game alone is enough.
 | Xenoblade Chronicles 2 | `0100E95004038000` | 2.1.0 (v983040) | Profile present, not verified on a phone |
 | Streets of Rage 4 | `0100EC9010258000` | 1.0.9 (v458752) | Profile present, not verified on a phone |
 | Paper Mario: The Thousand-Year Door | `0100ECD018EBE000` | 1.0.1 (v65536) | Profile present, not verified on a phone |
+| Overcooked! All You Can Eat | `0100F28011892000` | 1.0.11 (v720896) | Profile present, not verified on a phone |
 | The Legend of Zelda: Tears of the Kingdom | `0100F2C0115B6000` | 1.4.3 (v720896) | **Verified here** — builds, installs and runs on an iPhone, byte-verified |
 | Pokémon Legends: Z-A | `0100F43008C44000` | 2.0.2 (v393216) | Profile present, not verified on a phone |
 | Brain Memory Training Academy | `0100F5D01DA3A000` | None (v0) | Profile present, not verified on a phone |

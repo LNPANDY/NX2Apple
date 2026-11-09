@@ -154,7 +154,7 @@ de jeu ni rien d’extrait d’un jeu.
 
 ## Jeux
 
-147 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
+148 jeux ont un profil. Plusieurs sont signalés jouables sur un iPhone en amont, et la plupart ont un
 profil qui n’a pas encore été essayé sur un téléphone. En voici quelques-uns :
 
 | | Jeu | Où il tourne | Statut |
