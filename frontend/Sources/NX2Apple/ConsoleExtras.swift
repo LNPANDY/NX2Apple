@@ -67,8 +67,20 @@ enum ConsoleAppUpdate: Equatable {
     case failed(tag: String, reason: String)
 }
 
+/// How the top bar's controller chips show the battery: the icon and the percentage (the default), one of them, or nothing.
+/// Settings → Appearance; kept in the defaults, read again with the other switches (LiveConsoleDriver.refreshDesktop).
+enum ConsoleBatteryStyle: String, CaseIterable {
+    case both, icon, percent, hidden
+    static let defaultsKey = "consoleBatteryStyle"
+    static var saved: ConsoleBatteryStyle { UserDefaults.standard.string(forKey: defaultsKey).flatMap(ConsoleBatteryStyle.init(rawValue:)) ?? .both }
+    var titleKey: String { "console.battery.style." + rawValue }
+    var showsIcon: Bool { self == .both || self == .icon }
+    var showsPercent: Bool { self == .both || self == .percent }
+}
+
 struct ConsolePrefs: Equatable {
     var values: [ConsolePref: Bool] = [:]
+    var batteryStyle: ConsoleBatteryStyle = .both
     var appVersion = ""
     var update: ConsoleAppUpdate = .upToDate
     /// What the update store says now (downloading, ready, why an install failed), shown under the version.

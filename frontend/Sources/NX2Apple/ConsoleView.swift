@@ -194,7 +194,7 @@ enum ConsoleInput {
     private func topBar(compact: Bool) -> some View {
         HStack(spacing: compact ? 12 : 20) {
             if let build = state.build { ConsoleBuildChip(build: build, lang: lang, compact: compact) }
-            ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
+            ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact, batteryStyle: state.prefs.batteryStyle) { driver.openControllers() }
             Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.65)).fixedSize()
             Button { driver.openMenu() } label: {

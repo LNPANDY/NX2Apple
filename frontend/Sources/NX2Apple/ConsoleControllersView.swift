@@ -37,6 +37,7 @@ import NXLauncher
     func resetOptions(_ gameID: String) { base.resetOptions(gameID) }
     func openOnDesktop(_ gameID: String) { base.openOnDesktop(gameID) }
     func setPref(_ pref: ConsolePref, on: Bool) { base.setPref(pref, on: on) }
+    func setBatteryStyle(_ style: ConsoleBatteryStyle) { base.setBatteryStyle(style) }
     func appUpdateAction() { base.appUpdateAction() }
     func confirmAppUpdate() { base.confirmAppUpdate() }
     func openSystemHomeSettings() { base.openSystemHomeSettings() }
@@ -124,11 +125,15 @@ struct ConsoleBattery: View {
     let controller: ConsoleController
     let lang: Lang
     var compact = false
+    /// What of it the chip shows (Settings → Appearance); the Controllers list always shows both.
+    var style: ConsoleBatteryStyle = .both
     var body: some View {
-        if let percent = controller.batteryPercent {
+        if style == .hidden {
+            EmptyView()
+        } else if let percent = controller.batteryPercent {
             HStack(spacing: 5) {
-                BatteryIcon(level: controller.battery, charging: controller.charging, height: compact ? 10 : 13)
-                Text(String(format: L10n.string("console.batteryPercent", lang), percent))
+                if style.showsIcon { BatteryIcon(level: controller.battery, charging: controller.charging, height: compact ? 10 : 13) }
+                if style.showsPercent { Text(String(format: L10n.string("console.batteryPercent", lang), percent)) }
             }
             .font(.manrope(compact ? 11 : 16, .medium))
             .foregroundStyle(BatteryIcon.isLow(controller.battery) && !controller.charging ? Color.red : .white.opacity(0.7))
@@ -147,6 +152,7 @@ struct ConsoleControllerChips: View {
     let merged: Bool
     let lang: Lang
     var compact = false
+    var batteryStyle: ConsoleBatteryStyle = .both
     var scope = "console"
     let openControllers: () -> Void
     @EnvironmentObject private var pad: PadFocus
@@ -176,7 +182,7 @@ struct ConsoleControllerChips: View {
                     HStack(spacing: compact ? 5 : 8) {
                         Image(systemName: controller.kind.symbol).accessibilityHidden(true)
                         Text((merged ? 1 : controller.player).map { String(format: t("console.playerShort"), $0) } ?? "\u{2014}")   // the full "Unassigned" is in the Controllers list
-                        ConsoleBattery(controller: controller, lang: lang, compact: compact)
+                        ConsoleBattery(controller: controller, lang: lang, compact: compact, style: batteryStyle)
                     }
                 }
             }

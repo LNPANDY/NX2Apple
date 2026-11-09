@@ -404,6 +404,7 @@ struct ConsoleState {
     func openOnDesktop(_ gameID: String)
     /// A launcher switch (on the Library, Controllers or Settings page), and the app's update (checked, or asked about and then installed or restarted into).
     func setPref(_ pref: ConsolePref, on: Bool)
+    func setBatteryStyle(_ style: ConsoleBatteryStyle)
     func appUpdateAction()
     func confirmAppUpdate()
     /// The system's Home button setting (macOS 27), from the Controllers page.
@@ -461,6 +462,7 @@ extension ConsoleDriver {
     func resetOptions(_ gameID: String) {}
     func openOnDesktop(_ gameID: String) { exitToDesktop() }
     func setPref(_ pref: ConsolePref, on: Bool) {}
+    func setBatteryStyle(_ style: ConsoleBatteryStyle) {}
     func appUpdateAction() {}
     func confirmAppUpdate() {}
     func openSystemHomeSettings() {}

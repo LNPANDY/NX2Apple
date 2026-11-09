@@ -352,6 +352,19 @@ import NXModel
         }
     }
 
+    /// Settings → Appearance: the battery style reaches the prefs, an unknown saved value falls back to both, and a hidden style draws nothing.
+    @MainActor func testBatteryStyle() {
+        let driver = MockConsoleDriver(scenario: .controllersMixed, lang: .en, animated: false)
+        XCTAssertEqual(driver.state.prefs.batteryStyle, .both)
+        driver.setBatteryStyle(.hidden)
+        XCTAssertEqual(driver.state.prefs.batteryStyle, .hidden)
+        XCTAssertNil(ConsoleBatteryStyle(rawValue: "bogus"))
+        XCTAssertTrue(ConsoleBatteryStyle.icon.showsIcon); XCTAssertFalse(ConsoleBatteryStyle.icon.showsPercent)
+        XCTAssertTrue(ConsoleBatteryStyle.percent.showsPercent); XCTAssertFalse(ConsoleBatteryStyle.percent.showsIcon)
+        XCTAssertFalse(ConsoleBatteryStyle.hidden.showsIcon || ConsoleBatteryStyle.hidden.showsPercent)
+        for style in ConsoleBatteryStyle.allCases { XCTAssertFalse(L10n.string(style.titleKey, .de).isEmpty) }
+    }
+
     func testGlyphFamiliesFromCategory() {
         let cases: [(String?, ConsoleGlyphs.Family)] = [
             ("DualSense", .playStation), ("DualShock 4", .playStation), ("Xbox One", .xbox), ("Xbox Series X", .xbox),

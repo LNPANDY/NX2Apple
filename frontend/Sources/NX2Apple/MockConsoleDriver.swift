@@ -136,6 +136,7 @@ import NXLauncher
         loadDemoDetails(gameID)
     }
     func setPref(_ pref: ConsolePref, on: Bool) { state.prefs.values[pref] = on }
+    func setBatteryStyle(_ style: ConsoleBatteryStyle) { state.prefs.batteryStyle = style }
     func appUpdateAction() {
         switch state.prefs.update {
         case .available, .ready: state.push(.confirmUpdate)

@@ -38,6 +38,57 @@ struct ConsoleMenuRow: View {
 
 /// A switch on a row of its own: its name, what it does under it, the switch at the right. A (or left and right) flips it. A row that
 /// cannot be switched (a mod that changes the game's code) is dimmed and says why, and takes no focus.
+/// One setting with a few values side by side, the chosen one cream (the mapping page's layout segments): each segment is a pad
+/// target, so left and right move between them and A picks; left and right on the row's title also step through them.
+struct ConsoleChoiceRow: View {
+    let id: String
+    let scope: String
+    let title: String
+    var note = ""
+    /// Each value's key and label, in order.
+    let choices: [(String, String)]
+    let chosen: String
+    let compact: Bool
+    let pick: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title).font(.manrope(compact ? 17 : 20, .semibold)).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) { ForEach(choices, id: \.0) { choice in segment(choice.0, label: choice.1) } }
+            if !note.isEmpty { Text(note).font(.manrope(compact ? 13 : 15)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+        }
+        .padding(.horizontal, 20).padding(.vertical, compact ? 14 : 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+        .id(id)
+    }
+
+    private func segment(_ key: String, label: String) -> some View {
+        let isChosen = key == chosen
+        let choose = { pick(key) }
+        let step: (Int) -> Void = { by in
+            let keys = choices.map(\.0)
+            let at = keys.firstIndex(of: chosen) ?? 0
+            pick(keys[(at + by + keys.count) % keys.count])
+        }
+        return Button(action: choose) {
+            Text(label).font(.manrope(compact ? 14 : 16, isChosen ? .bold : .semibold))
+                .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.75)
+                .padding(.horizontal, 6)
+                .frame(maxWidth: .infinity, minHeight: compact ? 44 : 50)
+                .foregroundStyle(isChosen ? LauncherPalette.background : .white.opacity(0.85))
+                .background(isChosen ? LauncherPalette.cream : .white.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.white.opacity(isChosen ? 0 : 0.08)))
+                .contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title + ", " + label)
+        .accessibilityAddTraits(isChosen ? .isSelected : [])
+        .padTarget(id + "." + key, scope: scope, radius: 10, activate: choose, adjust: step)
+        .id(id + "." + key)
+    }
+}
+
 struct ConsoleSwitchRow: View {
     let id: String
     let scope: String
@@ -255,6 +306,11 @@ struct ConsoleSwitchRow: View {
             ForEach(ConsolePref.onSettings, id: \.self) { pref in
                 ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t(pref.noteKey),
                                  isOn: prefs[pref], compact: compact) { driver.setPref(pref, on: !prefs[pref]) }
+            }
+            ConsoleSectionHeading(title: t("console.settings.appearance"), compact: compact).padding(.top, 8)
+            ConsoleChoiceRow(id: "console.settings.battery", scope: scope, title: t("console.battery.style"), note: t("console.battery.styleNote"),
+                             choices: ConsoleBatteryStyle.allCases.map { ($0.rawValue, t($0.titleKey)) }, chosen: prefs.batteryStyle.rawValue, compact: compact) { raw in
+                if let style = ConsoleBatteryStyle(rawValue: raw) { driver.setBatteryStyle(style) }
             }
         }
     }

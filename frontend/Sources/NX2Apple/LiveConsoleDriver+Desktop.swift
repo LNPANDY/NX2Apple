@@ -28,6 +28,7 @@ extension LiveConsoleDriver {
         var prefs = state.prefs
         prefs.values = [.startInConsole: ConsolePrompt.startInConsole, .promptOnController: ConsolePrompt.enabled,
                         .returnAfterPlay: ReturnAfterPlay.enabled, .onlyBuilt: LibraryFilter.load() == .built]
+        prefs.batteryStyle = ConsoleBatteryStyle.saved
         if let updates = appUpdates {
             prefs.appVersion = updates.version
             prefs.update = Self.update(updates, buildRunning: builds?.running == true)
@@ -172,6 +173,12 @@ extension LiveConsoleDriver {
         }
         refreshDesktop()
         if pref == .onlyBuilt { refresh() }
+    }
+
+    /// Settings → Appearance: how the top bar's chips show the battery.
+    func setBatteryStyle(_ style: ConsoleBatteryStyle) {
+        UserDefaults.standard.set(style.rawValue, forKey: ConsoleBatteryStyle.defaultsKey)
+        refreshDesktop()
     }
 
     /// A on the update row: ask before installing or restarting, else check again.
