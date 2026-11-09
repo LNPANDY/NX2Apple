@@ -16,10 +16,10 @@ Issue: LNPANDY/NX2Apple#380
  1 file changed, 13 insertions(+), 7 deletions(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 6692d65..6d5f484 100644
+index 9b912dd..36865af 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1505,6 +1505,12 @@ void front_run(void (*guest)(void)) {
+@@ -1580,6 +1580,12 @@ void front_run(void (*guest)(void)) {
      if (!getenv("DM_WINDOW")) { guest(); return; }
      @autoreleasepool {
          [NSApplication sharedApplication];
@@ -32,7 +32,7 @@ index 6692d65..6d5f484 100644
          [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
          NSRect r = NSMakeRect(0, 0, 1280, 720);
          NSWindow *win = [[NSWindow alloc] initWithContentRect:r
-@@ -1539,7 +1545,9 @@ void front_run(void (*guest)(void)) {
+@@ -1614,7 +1620,9 @@ void front_run(void (*guest)(void)) {
          [win makeKeyAndOrderFront:nil];
          screen_refresh(win.screen ?: NSScreen.mainScreen);
          g_win = win;
@@ -43,7 +43,7 @@ index 6692d65..6d5f484 100644
          // A host another process starts (scripts/regress.py) is not activated (its focus state stays 2), so its window opened wherever it landed in the window order, and behind
          // another app's window macOS fires its display link about once a second: Breath of the Wild stepped up to 3 vsyncs at boot and never came back (20 fps runs).
          // DM_WINDOW_TOP=1 orders it in front without activation and keeps it above other apps' windows; the log names every change of the window's visibility either way
-@@ -1594,15 +1602,13 @@ void front_run(void (*guest)(void)) {
+@@ -1669,15 +1677,13 @@ void front_run(void (*guest)(void)) {
          // The pointer hides after DM_CURSOR_HIDE seconds (3 by default, 0 keeps it) without movement over the game, and comes back with the next movement, click or scroll. macOS
          // hides it only for a game that asks (a game window does not, and a pointer left over a fullscreen game stays on the picture); it is also shown whenever the window is
          // not key or the pointer is outside the game view, so the title bar and other windows keep theirs

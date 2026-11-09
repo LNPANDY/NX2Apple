@@ -21,10 +21,10 @@ Issue: LNPANDY/NX2Apple#911
  2 files changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 5e11442..9f478e8 100644
+index 052f230..42eac55 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1356,9 +1356,9 @@ void front_run(void (*guest)(void)) {
+@@ -1370,9 +1370,9 @@ void front_run(void (*guest)(void)) {
          // content view by itself; only the scale factor has to be carried over to the screen the window ended up on. The screen's rate is matched in fullscreen only (screen_match_apply)
          [nc addObserverForName:NSWindowDidEnterFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; screen_refresh(win.screen); g_fullscreen = 1; g_layer.contentsScale = win.backingScaleFactor; screen_match_apply(); }];
          [nc addObserverForName:NSWindowDidExitFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; g_fullscreen = 0; screen_refresh(win.screen); g_layer.contentsScale = win.backingScaleFactor; screen_match_apply(); }];
@@ -38,7 +38,7 @@ index 5e11442..9f478e8 100644
          [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_resume(); dm_focus_set(1); }];
          [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1); }];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index c9f9c9b..6c08a73 100644
+index 043ba44..baa97be 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -40,7 +40,7 @@ DM_EXEC_OUT	path	File `oe::ExecuteProgram` records the next program and its para

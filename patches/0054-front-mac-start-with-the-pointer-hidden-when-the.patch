@@ -15,10 +15,10 @@ Issue: LNPANDY/NX2Apple#368
  2 files changed, 8 insertions(+), 2 deletions(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 7c2865c..e09cc5c 100644
+index 0c82bd1..6800260 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1529,14 +1529,19 @@ void front_run(void (*guest)(void)) {
+@@ -1601,14 +1601,19 @@ void front_run(void (*guest)(void)) {
          const char *ch = getenv("DM_CURSOR_HIDE"); double idle = ch && *ch ? atof(ch) : 3.0;
          if (idle > 0) {
              win.acceptsMouseMovedEvents = YES;
@@ -41,7 +41,7 @@ index 7c2865c..e09cc5c 100644
          }
          for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 9a852b4..243230b 100644
+index 20ee604..39fea35 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -23,6 +23,7 @@ DM_COPY_GAME_RESOURCES	switch	`NO` skips the Xcode build phase that copies the g

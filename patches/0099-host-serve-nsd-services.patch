@@ -25,7 +25,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: forwarded seedds/nxnative#1968
 Reason: PATAPON 1+2 REPLAY and Hogwarts Legacy abort at boot when the host does not serve nsd:a / nsd:u
 Issue: LNPANDY/NX2Apple#426, LNPANDY/NX2Apple#475
-
 ---
  dm/host/hle_sf.c           | 101 +++++++++++++++++++++++++++++++++----
  dm/host/tests/t_sf.c       |  56 ++++++++++++++++++++
@@ -281,7 +280,7 @@ index 9d237c8..417276a 100644
      return fails != 0;
  }
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index 552777c..4aedf4e 100644
+index ec49382..ea2aed0 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
 @@ -55,6 +55,13 @@ Most service calls can be found before they crash, before the first boot or the

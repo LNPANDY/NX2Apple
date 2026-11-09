@@ -37,7 +37,7 @@ index 56267e1..076d4ef 100644
      NSMutableArray<NSString *> *from_file = [NSMutableArray array], *from_launch = [NSMutableArray array];
      for (char **e = environ; *e; e++) {   // set at launch (Xcode, devicectl): before the env files, and the launcher keeps them
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
-index e542cf1..8964dbb 100644
+index 4835c62..ad77a60 100644
 --- a/dm/ios/project.yml
 +++ b/dm/ios/project.yml
 @@ -48,6 +48,7 @@ targets:
@@ -49,7 +49,7 @@ index e542cf1..8964dbb 100644
          GCSupportsControllerUserInteraction: true   # Physical controllers (GameController)
          GCSupportedGameControllers:
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index d906cd5..6688bab 100755
+index 8531caa..dd92a34 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -45,6 +45,7 @@ VNACP=${CONTROL:-$VNACP}   # from here on, the file that lists the game's langua
@@ -94,10 +94,10 @@ index 42e8ba7..a80f656 100644
      CFArrayRef rules = setting_rules();   // the settings the launch environment already set: the window shows them, fixed
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 56f82c5..d25c446 100755
+index 64a7dcf..e99cb07 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
-@@ -118,12 +118,19 @@ def settings_rules(listed):   # DMSettings: what the launcher accepts as each se
+@@ -118,13 +118,20 @@ def settings_rules(listed):   # DMSettings: what the launcher accepts as each se
      return rules
  
  
@@ -112,8 +112,9 @@ index 56f82c5..d25c446 100755
      p = {'CFBundleName': a.name, 'CFBundleDisplayName': a.name, 'CFBundleIdentifier': a.bundle_id or f'org.nxnative.{a.title_id.lower()}',
           'CFBundleVersion': a.version or '1.0', 'CFBundleShortVersionString': a.version or '1.0', 'CFBundlePackageType': 'APPL', 'CFBundleExecutable': EXE,
           'CFBundleInfoDictionaryVersion': '6.0', 'LSMinimumSystemVersion': minos, 'LSArchitecturePriority': ['arm64'], 'NSHighResolutionCapable': True,
--         'LSApplicationCategoryType': a.category or 'public.app-category.games', 'LSSupportsGameMode': False, 'DMTitleID': a.title_id.upper(), 'DMRomfsMarker': a.marker or '', 'DMLanguage': a.lang or 'en-US'}
-+         'LSApplicationCategoryType': a.category or 'public.app-category.games', 'LSSupportsGameMode': False, 'DMTitleID': a.title_id.upper(), 'DMRomfsMarker': a.marker or '', 'DMLanguage': a.lang or 'en-US',
+          'NSBluetoothAlwaysUsageDescription': 'Connect Switch 2 Joy-Con and Pro Controllers over Bluetooth.',
+-         'LSApplicationCategoryType': a.category or 'public.app-category.games', 'LSSupportsGameMode': False, 'DMTitleID': a.title_id.upper(), 'DMRomfsMarker': a.marker or '', 'DMLanguage': a.lang or 'en-US', 'DMSaveSyncChoice': 1}
++         'LSApplicationCategoryType': a.category or 'public.app-category.games', 'LSSupportsGameMode': False, 'DMTitleID': a.title_id.upper(), 'DMRomfsMarker': a.marker or '', 'DMLanguage': a.lang or 'en-US', 'DMSaveSyncChoice': 1,
 +         'DMForkPatches': fork_patches()}
      if icon: p['CFBundleIconFile'] = 'AppIcon'
      if a.settings:

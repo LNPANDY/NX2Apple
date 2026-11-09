@@ -16,16 +16,15 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: fork-only (t_controllers_mac.m comes with patch 0081, forwarded seedds/nxnative#221)
 Reason: The regression test for upstream's a00f03b lives in t_controllers_mac.m, which upstream gets with seedds/nxnative#221
 Issue: LNPANDY/NX2Apple#971
-
 ---
  dm/host/tests/t_controllers_mac.m | 27 +++++++++++++++++++++++++++
  1 file changed, 27 insertions(+)
 
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index 4423db2..80def78 100644
+index a1daf6f..30165a7 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -909,6 +909,32 @@ static void test_generic_unknown_identity(void) {
+@@ -910,6 +910,32 @@ static void test_generic_unknown_identity(void) {
      hidpad_removed(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)puck); hid_fixture_finish();
      puts("Generic HID missing identity and deferred admission recover without duplicate raw routes: OK");
  }
@@ -58,7 +57,7 @@ index 4423db2..80def78 100644
  int main(int argc, char **argv) {
      @autoreleasepool {
          g_devices = [NSMutableArray array]; g_maps = [NSMutableDictionary dictionary];
-@@ -937,6 +963,7 @@ int main(int argc, char **argv) {
+@@ -938,6 +964,7 @@ int main(int argc, char **argv) {
          test_home_quit_routing();
          test_generic_hid_ownership();
          test_generic_unknown_identity();

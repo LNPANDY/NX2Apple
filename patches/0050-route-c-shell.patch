@@ -626,7 +626,7 @@ index 0000000..042513f
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 15c0a49..0ac59c4 100755
+index 008a3ba..2069a4e 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -11,6 +11,9 @@
