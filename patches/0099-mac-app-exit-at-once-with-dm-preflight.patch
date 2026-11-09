@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Mon, 9 Nov 2026 09:09:09 +0900
+Subject: [PATCH] Mac app: exit at once with DM_PREFLIGHT, so a front end can
+ let macOS verify a new build
+
+The first open of a freshly packed Mac app through LaunchServices waits for
+syspolicyd to scan the whole ad hoc signed bundle, minutes with a RomFS of
+several GB, and macOS keeps the result only for that cdhash: every rebuild
+brings the wait back to the player's first start. A front end can take it
+off the player by opening the new app once after the build. With
+DM_PREFLIGHT set the launcher returns 0 right after it finds its own path,
+before it reads Info.plist, rolls the log, makes the save folders, shows a
+window or starts dmhost.
+
+Front-ends: new: open a new Mac app once with DM_PREFLIGHT=1 (NSWorkspace.openApplication, hidden) so its first start does not wait for macOS
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#1881
+Reason: the first start of a new Mac app waits minutes for macOS to verify the bundle; the launcher opens it once after the build with DM_PREFLIGHT so the wait happens on the build page
+Issue: LNPANDY/NX2Apple#1005
+
+---
+ dm/mac/launcher.c     | 1 +
+ docs/env_switches.tsv | 1 +
+ docs/frontends.md     | 2 +-
+ 3 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
+index f36f73b..1d258aa 100644
+--- a/dm/mac/launcher.c
++++ b/dm/mac/launcher.c
+@@ -220,6 +220,7 @@ static void programs_table(const char *contents, const char *res, const char *su
+ int main(int argc, char **argv) {
+     char self[PATH_MAX], exe[PATH_MAX]; uint32_t n = sizeof self;
+     if (_NSGetExecutablePath(self, &n) || !realpath(self, exe)) return 1;
++    if (getenv("DM_PREFLIGHT")) return 0;   // the front end opens the app once after a build so that macOS verifies it now, not at the player's first start
+     char contents[PATH_MAX], res[PATH_MAX], host[PATH_MAX], dm[PATH_MAX], romfs[PATH_MAX], p[PATH_MAX];
+     snprintf(contents, sizeof contents, "%s", exe); *strrchr(contents, '/') = 0; *strrchr(contents, '/') = 0;   // .../Contents/MacOS/<launcher> → .../Contents
+     snprintf(res, sizeof res, "%s/Resources", contents); snprintf(host, sizeof host, "%s/MacOS/dmhost", contents);
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 0ccdbfe..3abeaed 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -251,6 +251,7 @@ DM_PATCH_FRONT	switch	`=<bytes>`: the size of the patch area right before the mo
+ DM_PHONE_MOTION	switch	On iOS, whether the phone's own device motion drives player 1's six-axis sensor: `auto` (default) while no controller supplies fresh motion, `1` phone only, `0` never; each source keeps its own orientation
+ DM_PICTURE_FIT	player	`fill` scales the 16:9 picture on the iPhone and iPad until it covers the screen in landscape and crops the edges (a portrait or tabletop split and a TV stay fitted); `fit` or unset, the largest 16:9 rectangle with black bars. Launcher and in-game menu setting
+ DM_PREEMPT	switch	`0` / `1` overrides the profile's `core_preempt`: also check already-runnable higher-priority peers on the caller's core after every thread SVC
++DM_PREFLIGHT	switch	Set: a Mac app exits at once with status 0, before it reads its Info.plist, rolls its log or touches the saves, so a front end can open a new build through LaunchServices and macOS runs its first-start check of the bundle then (`launcher.c`, docs/frontends.md)
+ DM_PRELOAD	diagnostic	Set: on the Mac, runs the host's early background loading (`dm_host_preload_start`) as the iOS app does, to exercise that path
+ DM_PRESENT_FIFO	switch	`0` makes the display link take the newest queued frame each tick, as before; by default it shows frames in order, at most one tick behind
+ DM_PRESENT_HZ	switch	`=<N>`: the frequency of presentation pacing (default 60); `0` means no frame limit and is for performance profiling only
+diff --git a/docs/frontends.md b/docs/frontends.md
+index bdb9107..2a1271c 100644
+--- a/docs/frontends.md
++++ b/docs/frontends.md
+@@ -54,7 +54,7 @@ A built app carries the settings its game supports, as the iPhone app's settings
+ 
+ **A Mac app** is started like any app, or by running its `Contents/MacOS/nxnative` with the chosen settings in its environment (`DM_FPS_TARGET=30`, …). The launcher there runs the host as a child, forwards SIGTERM, SIGINT and SIGHUP to it and exits with its exit code: 0 for a quit (⌘Q, the Home prompt, closing the window), 70 after the alert that macOS stopped running the game's GPU work ([A GPU whose access macOS revoked stops the game](reference/rendering.md#a-gpu-whose-access-macos-revoked-stops-the-game)), 134 for an abort. A variable already in the environment wins; then come `~/Library/Application Support/nxnative/<title ID>/env.txt` and the bundle's `dm/env.txt`, one `KEY=VALUE` per line ([A Mac app](development.md#a-mac-app)). The save is in `save/` in that Application Support folder; the log is `~/Library/Logs/nxnative/<title ID>.log`, the previous run's `<title ID>.prev.log`. The title ID is `DMTitleID` in the app's `Info.plist`.
+ 
+-A Mac app shows its own settings window before the game, drawn from its `launcher.json` and keeping its choices in the same store ([Saved choices](#saved-choices), [The Mac settings window](settings.md#the-mac-settings-window)). It shows a variable the launch environment or an `env.txt` sets as fixed. A front end that draws the settings itself starts the app with `DM_LAUNCHER=0` in its environment (or `--no-launcher` on its command line) to skip the window. The saved choices still apply, so a front end that writes them gets the same game as the window would.
++A Mac app shows its own settings window before the game, drawn from its `launcher.json` and keeping its choices in the same store ([Saved choices](#saved-choices), [The Mac settings window](settings.md#the-mac-settings-window)). It shows a variable the launch environment or an `env.txt` sets as fixed. A front end that draws the settings itself starts the app with `DM_LAUNCHER=0` in its environment (or `--no-launcher` on its command line) to skip the window. The saved choices still apply, so a front end that writes them gets the same game as the window would. With `DM_PREFLIGHT` set in its environment the app exits at once, before it reads anything, rolls its log or touches the saves: a front end opens a new build that way (through LaunchServices, `NSWorkspace.openApplication`), so macOS runs its first-start check of the bundle then, not when the player starts the game. The check scans every file of an ad hoc signed app and takes minutes with a RomFS of several GB, and macOS remembers it until the app changes.
+ 
+ A Mac game quits when the player holds a controller's Home button for 2 seconds and confirms with A ([On the Mac](playing.md#on-the-mac)). Its prompt is in English; a front end that shows the player another language passes the texts in `DM_HOME_QUIT_TEXT`, one per line in this order: the hold indicator ("Keep holding to quit"), the title ("Quit <game>?"), the note ("Unsaved progress will be lost."), the quit button and the cancel button. An empty or missing line keeps the English text. The same goes for the prompt that waits when a game asks for more players than have joined (Mac and iOS): `DM_CTRL_PROMPT_TEXT`, one per line, the title ("{min} players wanted"), the hint ("Press a button on each controller to join."), the count ("Players: {joined} of {min}"), the done button and the cancel button; `{min}`, `{max}` and `{joined}` are replaced by the numbers. Whether macOS lets the game have the Home button is the player's Home button setting for apps, which a front end reads itself on macOS 27 (`GCControllerHomeButtonSettingsManager`, while a controller is connected) to tell the player when the system keeps Home.
+ 
