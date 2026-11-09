@@ -38,7 +38,7 @@ package struct UpdateSheet: View {
                 Text(loc.t("update.title"))
                     .font(.manrope(24, .heavy)).tracking(-0.5)
                 Text(String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
-                    .font(.manrope(13)).foregroundStyle(.secondary)
+                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
             }
             .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
 
@@ -50,7 +50,7 @@ package struct UpdateSheet: View {
                             blockView(block, first: index == 0)
                         }
                     } else {
-                        Text(loc.t("update.noNotes")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("update.noNotes")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                     }
                 }
                 .padding(.horizontal, 28).padding(.bottom, 20)
@@ -92,8 +92,8 @@ package struct UpdateSheet: View {
         }
         .frame(width: 560)
         .background(LauncherPalette.background)
-        .preferredColorScheme(.dark)
-        .tint(LauncherPalette.cream)
+        .launcherAppearance()
+        .tint(LauncherPalette.accent)
     }
 
     @ViewBuilder private var updateButtonLabel: some View {
@@ -114,7 +114,7 @@ package struct UpdateSheet: View {
                 Canvas { canvas, size in
                     let rect = CGRect(origin: .zero, size: size)
                     let capsule = Capsule().path(in: rect)
-                    canvas.fill(capsule, with: .color(Color.white.opacity(0.10)))
+                    canvas.fill(capsule, with: .color(LauncherPalette.ink(0.10)))
                     if clamped > 0 {
                         var inner = canvas
                         inner.clip(to: capsule)
@@ -127,7 +127,7 @@ package struct UpdateSheet: View {
             }
         } else {
             Text(baseTitle)
-                .font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                .font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
                 .padding(.horizontal, 20).padding(.vertical, 9)
                 .background(LauncherPalette.cream, in: Capsule())
         }
@@ -137,14 +137,14 @@ package struct UpdateSheet: View {
         switch block {
         case .heading(let text):
             Text(Self.styled(text, size: 12.5, weight: .bold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(LauncherPalette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, first ? 0 : 14)
         case .bullet(let text):
             // A hanging indent: the bullet is its own column, so wrapped lines align with the text.
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\u{2022}").font(.manrope(13)).foregroundStyle(.secondary).frame(width: 10, alignment: .center)
+                Text("\u{2022}").font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).frame(width: 10, alignment: .center)
                 Text(Self.styled(text, size: 13))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -168,11 +168,11 @@ package struct UpdateSheet: View {
             if intent.contains(.emphasized) { font = font.italic() }
             if intent.contains(.code) {
                 font = .mono(size - 1, intent.contains(.stronglyEmphasized) ? .bold : .regular)
-                out[run.range].backgroundColor = Color.white.opacity(0.10)
+                out[run.range].backgroundColor = LauncherPalette.ink(0.10)
             }
             out[run.range].font = font
             if run.link != nil {
-                out[run.range].foregroundColor = LauncherPalette.cream
+                out[run.range].foregroundColor = LauncherPalette.accent
                 out[run.range].underlineStyle = .single
             }
         }

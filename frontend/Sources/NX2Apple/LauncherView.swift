@@ -31,6 +31,8 @@ struct LauncherView: View {
     @State private var removing: LibraryGame?
     @State private var selectingGames = false   // the Build selected games sheet (BuildSelectedSheet.swift)
     @State private var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
+    @State var supportedGames: [SupportedGame]?   // the Supported games sheet is open when this is set (SupportedGamesSheet.swift)
+    @State private var renaming: LibraryGame?   // the game whose Rename sheet is open (RenameGameSheet.swift)
     @State var optionsFor: UUID?
     @State private var controllerMappingOpen = false
     @State private var freeSpaceFor: UUID?   // the game whose Free space sheet is open
@@ -98,25 +100,33 @@ struct LauncherView: View {
     }
 
     @State var libraryFilter: LibraryFilter = LibraryFilter.load()
+    @State var librarySort: LibrarySort = LibrarySort.load()
+
+    /// Order of the collection. The selection stays whatever it was: the order only moves cards.
+    func setLibrarySort(_ sort: LibrarySort) {
+        guard sort != librarySort else { return }
+        librarySort = sort
+        sort.save()
+    }
 
     func setLibraryFilter(_ filter: LibraryFilter) {
         guard filter != libraryFilter else { return }
         withAnimation(.easeInOut(duration: 0.2)) { libraryFilter = filter }
         filter.save()
-        let after = filter.reconcile(games: library.games, selectedID: library.selectedID, focused: padFocus.focused)
+        let after = filter.reconcile(games: library.games, selectedID: library.selectedID, focused: padFocus.focused, sort: librarySort)
         if after.selectedID != library.selectedID { library.selectedID = after.selectedID }
         if after.focused != padFocus.focused { padFocus.focused = after.focused }
     }
 
     var filteredGames: [LibraryGame] {
-        libraryFilter.visibleGames(library.games, matching: search)
+        libraryFilter.visibleGames(library.games, matching: search, lang: loc.lang, sort: librarySort)
     }
 
     /// The hero's game: the selection, unless the filter hides it, then the first game the filter shows.
     var heroGame: LibraryGame? {
         guard libraryFilter != .owned else { return library.selected }
         if let selected = library.selected, libraryFilter.includes(selected) { return selected }
-        return libraryFilter.visibleGames(library.games).first
+        return libraryFilter.visibleGames(library.games, lang: loc.lang, sort: librarySort).first
     }
 
     var body: some View {
@@ -200,8 +210,8 @@ struct LauncherView: View {
         .background(LauncherPalette.background)
         .background(LauncherWindowChrome())
         .ignoresSafeArea(.container, edges: .top)
-        .preferredColorScheme(.dark)
-        .tint(LauncherPalette.cream)
+        .launcherAppearance()
+        .tint(LauncherPalette.accent)
         .font(.manrope(13))   // the default for text without a font of its own
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .onAppear {
@@ -223,7 +233,7 @@ struct LauncherView: View {
                     .map { TransferSource(titleID: $0.titleID, name: $0.name, archive: $0.archivePath) }
             }
             library.keysFile = { [m] in m.savedKeys }   // the scan reads renamed packages' title IDs with them (#1012)
-            if performStartupChecks { library.discover(); fetchArtwork(); _ = stores.deviceStore.refresh(); checkTools() }
+            if performStartupChecks { library.discover(); fetchArtwork(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)); _ = stores.deviceStore.refresh(); checkTools() }
             if performStartupChecks {
                 _ = stores.dependencies.check()
                 if engine.usesEngineStore { engine.prepareEngine() }   // the release app: its engine store, never git
@@ -239,18 +249,19 @@ struct LauncherView: View {
             if let id = route.game { library.selectedID = id }
             DispatchQueue.main.async { BuildNotifier.shared.route = nil }
         }
+        .onChange(of: loc.lang) { _ in if performStartupChecks { fetchArtwork() } }   // the banners in the new language
         .onChange(of: library.games) { _ in
             if performStartupChecks { library.syncSharedApp(root: m.shellCachePath) }
             refreshArtwork()
             readSignatures()
-            if performStartupChecks { fetchArtwork() }
+            if performStartupChecks { fetchArtwork(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)) }
         }
         .onChange(of: m.savedKeys) { _ in if performStartupChecks { library.discover() } }   // other keys may name other packages (#1012)
         .onReceive(library.$scanning.removeDuplicates().dropFirst()) { scanning in if !scanning && performStartupChecks { checkTools() } }
         .onChange(of: m.shellCachePath) { root in
             if performStartupChecks { library.syncSharedApp(root: root); readSignatures() }
         }
-        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools() } }
+        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)) } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)
@@ -279,7 +290,10 @@ struct LauncherView: View {
             }
         } message: { Text(loc.t("library.removeNote")) }
         .sheet(isPresented: Binding(get: { optionsFor != nil }, set: { if !$0 { optionsFor = nil } })) {
-            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id, globalControls: controls, controllerMappingPresentation: $controllerMappingOpen).environmentObject(padFocus).launcherDropdownHost() }
+            if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id, globalControls: controls, controllerMappingPresentation: $controllerMappingOpen,
+                              onBuild: { game in DispatchQueue.main.async { configureBuild(game) } },
+                              openCheats: { id in optionsFor = nil; DispatchQueue.main.async { cheatsFor = id } },
+                              openSaves: { id in optionsFor = nil; DispatchQueue.main.async { savesFor = id } }).environmentObject(padFocus).launcherDropdownHost() }
         }
         .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
@@ -291,6 +305,14 @@ struct LauncherView: View {
             BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, exportsIPA: devices.exportIPA) { selectingGames = false }
                 .environmentObject(loc)
         }
+        .sheet(isPresented: Binding(get: { supportedGames != nil }, set: { if !$0 { supportedGames = nil } })) {
+            SupportedGamesSheet(games: supportedGames ?? [], owned: { id in library.games.first { $0.titleID.uppercased() == id } },
+                                cover: { id in ArtworkStore.cachedBanner(id, in: library.artworkDirectory).flatMap { ArtworkImages.shared.image(at: $0, maxPixel: 128) } },
+                                showInLibrary: showInLibrary)
+                .environmentObject(padFocus)
+        }
+        .onChange(of: supportedGames == nil) { closed in padFocus.scope = closed ? currentPadScope : "supported" }
+        .renameGameSheet($renaming, library: library, pad: padFocus, scope: { currentPadScope })
         .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates, build: m) }
         .confirmationDialog(loc.t("uninstall.title"), isPresented: Binding(
             get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } }
@@ -340,11 +362,11 @@ struct LauncherView: View {
                         navLabel(destination, compact: compact).font(.manrope(15, page == destination ? .bold : .medium))
                     }
                         .padding(.horizontal, tabInset).padding(.vertical, 10)
-                        .background(page == destination ? Color.white.opacity(0.10) : .clear,
+                        .background(page == destination ? LauncherPalette.ink(0.10) : .clear,
                                     in: RoundedRectangle(cornerRadius: 9))
                         .contentShape(RoundedRectangle(cornerRadius: 9))   // the whole pill takes the click, not only its text
                 }
-                .buttonStyle(.plain).help(loc.t("nav." + destination.rawValue))
+                .buttonStyle(.plain).launcherHover().help(loc.t("nav." + destination.rawValue))
                 .accessibilityAddTraits(page == destination ? .isSelected : [])
                 .padTarget("tab." + destination.rawValue, scope: "main") { page = destination }
             }
@@ -377,11 +399,11 @@ struct LauncherView: View {
                     Image(systemName: "plus")
                 }
                     .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(Color.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
+                    .background(LauncherPalette.ink(0.07), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(LauncherPalette.ink(0.1)))
                     .contentShape(RoundedRectangle(cornerRadius: 8))
             }
-            .buttonStyle(.plain).disabled(m.running).help(loc.t("library.newBuild")).accessibilityLabel(loc.t("library.newBuild"))
+            .buttonStyle(.plain).launcherHover().disabled(m.running).help(loc.t("library.newBuild")).accessibilityLabel(loc.t("library.newBuild"))
             .padTarget("top.build", scope: "main", radius: 8) { if !m.running { newBuild() } }
             .padding(.leading, 12)
             // A newer release is out: a small icon, last in the bar, opens the update sheet. Without one the bar
@@ -394,7 +416,7 @@ struct LauncherView: View {
                         .foregroundStyle(readOnly ? LauncherPalette.building : LauncherPalette.ready)
                         .frame(width: 34, height: 34).contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.plain).launcherHover()
                 .padTarget("top.update", scope: "main", radius: 17) { updates.showUpdateSheet = true }
                 .padding(.leading, 16.5).padding(.trailing, -7.5)
                 .help(String(format: loc.t("update.pill"), update.tag) + "\n" + loc.t(readOnly ? "update.readOnlyHint" : "update.pillHelp"))
@@ -419,7 +441,7 @@ struct LauncherView: View {
                     .frame(width: searching ? 16 : 40, height: searching ? 16 : 40).contentShape(Rectangle())
             }
             .keyboardShortcut("f", modifiers: .command)
-            .buttonStyle(.plain).help(loc.t("library.search")).accessibilityLabel(loc.t("library.search"))
+            .buttonStyle(.plain).launcherHover().help(loc.t("library.search")).accessibilityLabel(loc.t("library.search"))
             if searching {
                 TextField(loc.t("library.search"), text: $search)
                     .textFieldStyle(.plain).font(.manrope(14))
@@ -430,15 +452,15 @@ struct LauncherView: View {
                     .frame(minWidth: 140, idealWidth: 210, maxWidth: 210)
                     .transition(.opacity.combined(with: .move(edge: .trailing)))
                 Button { closeSearch() } label: {
-                    Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary)
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(LauncherPalette.secondaryText)
                 }
-                .buttonStyle(.plain).help(loc.t("library.clearSearch")).accessibilityLabel(loc.t("library.clearSearch"))
+                .buttonStyle(.plain).launcherHover().help(loc.t("library.clearSearch")).accessibilityLabel(loc.t("library.clearSearch"))
             }
         }
         .padding(.horizontal, searching ? 12 : 0)
         .frame(height: 36)
-        .background(searching ? Color.white.opacity(0.07) : .clear, in: Capsule())
-        .overlay(Capsule().strokeBorder(searching ? Color.white.opacity(searchFocused ? 0.22 : 0.10) : .clear))
+        .background(searching ? LauncherPalette.ink(0.07) : .clear, in: Capsule())
+        .overlay(Capsule().strokeBorder(searching ? LauncherPalette.ink(searchFocused ? 0.22 : 0.10) : .clear))
         .onChange(of: searchFocused) { focused in
             if !focused && search.isEmpty { closeSearch() }
         }
@@ -461,7 +483,7 @@ struct LauncherView: View {
             HStack(spacing: 22) {
                 if m.running {
                     let stage = m.stages.last { $0.state == .running }
-                    Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
+                    Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(LauncherPalette.secondaryText)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(m.operationTitle ?? loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
                                  ? "activity.transfer" : (m.runningTarget == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
@@ -470,7 +492,7 @@ struct LauncherView: View {
                             Text(stage
                                     .map { [$0.name, $0.detail, $0.clock(at: context.date, left: loc.t("prog.etaEstimate"))].filter { !$0.isEmpty }.joined(separator: " · ") }
                                  ?? loc.t("library.preparing"))
-                                .font(.manrope(13)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                                .font(.manrope(13)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
                         }
                         if stage?.isScanningLastShaderFiles == true {
                             Text(loc.t("prog.lastShaderFiles")).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
@@ -480,21 +502,21 @@ struct LauncherView: View {
                     LauncherProgressBar(value: buildProgress).frame(maxWidth: 480)
                         .accessibilityLabel(loc.t("prog.stageProgress"))
                     Text(buildProgress.map { "\(Int($0 * 100))%" } ?? "")
-                        .font(.manrope(14, .semibold)).monospacedDigit().foregroundStyle(.secondary).frame(width: 46, alignment: .leading)
+                        .font(.manrope(14, .semibold)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).frame(width: 46, alignment: .leading)
                     Spacer(minLength: 8)
                     Button(loc.t("library.viewBuild")) { page = .builds }.buttonStyle(LauncherSecondaryButtonStyle())
                     Button(loc.t(m.stopping ? "library.stopping" : "btn.stop")) { m.stop() }
                         .buttonStyle(LauncherSecondaryButtonStyle(accent: LauncherPalette.building)).disabled(m.stopping)
                 } else {
-                    Image(systemName: "desktopcomputer").foregroundStyle(.secondary)
-                    Text(loc.t("library.localNote")).font(.manrope(13)).foregroundStyle(.secondary)
+                    Image(systemName: "desktopcomputer").foregroundStyle(LauncherPalette.secondaryText)
+                    Text(loc.t("library.localNote")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                     if let n = repo.autoPulled, n > 0 {   // the automatic update when the app opened (RepoStore.autoPull): the tools are current
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
-                        Text(String(format: loc.t("library.toolsUpdated"), n)).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(String(format: loc.t("library.toolsUpdated"), n)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                     }
                     if repo.autoAdopted {   // a ZIP copy connected and updated when the app opened (RepoStore.adoptAtLaunch)
                         Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6).padding(.leading, 10)
-                        Text(loc.t("library.toolsAdopted")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("library.toolsAdopted")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                     }
                     Spacer()
                     if let staged = updates.staged {
@@ -502,7 +524,7 @@ struct LauncherView: View {
                         // This branch only shows with no build running, and restartNow checks again.
                         HStack(spacing: 10) {
                             Circle().fill(LauncherPalette.ready).frame(width: 6, height: 6)
-                            Text(String(format: loc.t("library.appReady"), staged.release.tag)).font(.manrope(13)).foregroundStyle(.secondary)
+                            Text(String(format: loc.t("library.appReady"), staged.release.tag)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                         }
                         Button(loc.t("app.restartNow")) { updates.restartNow() }.buttonStyle(LauncherSecondaryButtonStyle())
                     }
@@ -524,8 +546,8 @@ struct LauncherView: View {
     /// that really performs the action on a DualSense, an Xbox or a Nintendo-layout controller.
     private func padHint(_ role: ConsoleGlyphs.Role, _ label: String) -> some View {
         HStack(spacing: 7) {
-            ConsoleGlyphView(glyph: ConsoleGlyphs.current().glyph(for: role), size: 18).foregroundStyle(LauncherPalette.cream)
-            Text(label).font(.manrope(13)).foregroundStyle(.secondary)
+            ConsoleGlyphView(glyph: ConsoleGlyphs.current().glyph(for: role), size: 18).foregroundStyle(LauncherPalette.accent)
+            Text(label).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
         }
     }
 
@@ -533,6 +555,22 @@ struct LauncherView: View {
         // The script reports a percentage for the current step, not for all remaining work.
         guard let percent = m.stages.last(where: { $0.state == .running })?.percent else { return nil }
         return percent / 100
+    }
+
+    /// Reads the engine's profiles and opens the Supported games sheet. The profiles are small files, read off the main thread.
+    func openSupportedGames() {
+        let root = EngineLayout.root(repo.path)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let list = SupportedGames.list(engineRoot: root)
+            DispatchQueue.main.async { supportedGames = list }
+        }
+    }
+
+    /// Supported games > Show in library: the page, the filter and the selection go to that game.
+    func showInLibrary(_ id: UUID) {
+        page = .library
+        if let game = library.games.first(where: { $0.id == id }), !libraryFilter.includes(game) { setLibraryFilter(.owned) }
+        library.selectedID = id
     }
 
     func newBuild() {
@@ -585,7 +623,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = controllerSheet || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil || artworkEditor != nil
+        let sheetOpen = controllerSheet || supportedGames != nil || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil || renaming != nil || artworkEditor != nil
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -604,6 +642,8 @@ struct LauncherView: View {
         // The Free space sheet: B closes it, the D-pad and A work in it, X, L and R do nothing behind it
         if freeSpaceFor != nil && [.b, .x, .l, .r].contains(action) { if action == .b { freeSpaceFor = nil }; return }
         if deleting != nil && [.b, .x, .l, .r].contains(action) { if action == .b { deleting = nil }; return }
+        if supportedGames != nil && [.b, .x, .l, .r].contains(action) { if action == .b { supportedGames = nil }; return }
+        if renaming != nil && [.b, .x, .l, .r].contains(action) { if action == .b { renaming = nil }; return }
         if action == .b {
             if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsOpen = false }
             else if searching { searching = false; search = "" } else if page != .library { page = .library }
@@ -642,7 +682,7 @@ struct LauncherView: View {
                         deviceName: devices.deviceName(game.installedDevice), launching: launching,
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
-                            changeArtwork: { openArtwork(game) },
+                            changeArtwork: { openArtwork(game) }, rename: { renaming = game }, supportedGames: openSupportedGames,
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
                             freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }, delete: { deleting = game }))
@@ -652,7 +692,7 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
@@ -677,7 +717,7 @@ struct LauncherView: View {
             // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
             // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
             // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
-            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t)   // GameStart.swift: the console mode starts games with the same
+            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t, lang: loc.lang)   // GameStart.swift: the console mode starts games with the same
             let withRecording = environment.merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // FrameTimes.swift, as console mode does
             if !withRecording.isEmpty { configuration.environment = withRecording }
             NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
@@ -686,7 +726,7 @@ struct LauncherView: View {
                     MainActor.assumeIsolated {
                         launching = false
                         if let error { launchError = error.localizedDescription }
-                        else if let pid { GameReturnWatcher.shared.didStart(pid: pid) }   // ReturnAfterPlay.swift
+                        else { library.recordPlayed(game.id); if let pid { GameReturnWatcher.shared.didStart(pid: pid) } }   // ReturnAfterPlay.swift, and the Recently played order
                     }
                 }
             }
@@ -724,8 +764,9 @@ struct LauncherView: View {
         panel.message = loc.t("library.folderHint")
         if !library.folder.isEmpty { panel.directoryURL = URL(fileURLWithPath: library.folder) }
         if panel.runModal() == .OK, let url = panel.url {
-            library.setFolder(url)
-            if !m.running { m.outDir = url.path }
+            let first = library.folders.isEmpty
+            library.addFolder(url)   // several folders are allowed (#992)
+            if first, !m.running { m.outDir = url.path }   // where a build goes stays the player's explicit choice
         }
     }
 }

@@ -21,7 +21,7 @@ struct FilesCard: View {
                 CardRow(loc.t(build.gameDir.isEmpty ? "build.folderCTA" : "build.folderSelected"),
                     detail: build.gameDir.isEmpty ? loc.t("build.folderNote") : build.shortPath(build.gameDir), help: build.gameDir) {
                     Text(loc.t(build.gameDir.isEmpty ? "data.choose" : "data.change"))
-                        .font(.manrope(13, .semibold)).foregroundStyle(.black)
+                        .font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.onCream)
                         .launcherRowControlFrame()
                         .background(LauncherPalette.cream, in: Capsule())
                 }
@@ -61,7 +61,7 @@ struct FilesCard: View {
             dot: ready ? LauncherPalette.ready : LauncherPalette.unbuilt, help: saved ? build.savedKeys : s.paths.joined(separator: "\n")) {
             if !s.paths.isEmpty && (folderText == nil || s.id == "base") {
                 Button(loc.t("data.clear")) { build.clear(s.id) }.buttonStyle(.plain)
-                    .font(.manrope(13)).foregroundStyle(.secondary)
+                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
             }
             if folderText == nil {
                 Button(s.paths.isEmpty ? loc.t("data.choose") : loc.t("data.change")) { build.pickFiles(kind: s.kind) }

@@ -177,14 +177,14 @@ struct ConsolePadSnapshot: Equatable {
         let store = SavedChoices(app: game.appPath, titleID: game.titleID)
         var values: [String: String] = [:]
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : game.launchValue(s) }
-        return ConsoleGame(id: game.id.uuidString, title: game.name, version: version(of: game),
+        return ConsoleGame(id: game.id.uuidString, title: game.displayName(lang()), version: version(of: game),
                            platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),
                            status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values)
     }
 
     private var versions: [String: String] = [:]
 
-    /// The version of the build the library knows: the Mac app's Info.plist (pack_app.py writes CFBundleShortVersionString), else the
+    /// The version of the build the library knows: the Mac app's Info.plist (pack_app.py writes it, version(plist:)), else the
     /// iPhone app's, else the one inside the IPA. Empty only when none of them states one.
     private func version(of game: LibraryGame) -> String {
         for path in [game.appPath, game.iosAppPath, game.ipaPath] where !path.isEmpty {
@@ -215,10 +215,19 @@ struct ConsolePadSnapshot: Equatable {
         return ""
     }
 
+    /// A Mac app packed with DMPackageVersion states its version in DMDisplayVersion, else (an update packed from a dump or a NUP without control data) only as the
+    /// packed version, v458752: its CFBundleShortVersionString is then 1.0, not what runs (#953). The base game packed without a display version (v0) states none.
+    /// Other builds state it in CFBundleShortVersionString.
     static func version(plist data: Data) -> String {
         guard let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return "" }
-        let v = (info["CFBundleShortVersionString"] as? String) ?? (info["CFBundleVersion"] as? String) ?? ""
-        return v.trimmingCharacters(in: .whitespaces)
+        let trimmed = { (key: String) in ((info[key] as? String) ?? "").trimmingCharacters(in: .whitespaces) }
+        let package = trimmed("DMPackageVersion")
+        if !package.isEmpty {
+            let display = trimmed("DMDisplayVersion")
+            return !display.isEmpty ? display : package == "v0" ? "" : package
+        }
+        let short = trimmed("CFBundleShortVersionString")
+        return short.isEmpty ? trimmed("CFBundleVersion") : short
     }
 
     /// Covers through the launcher's own lookup, decoded once per image path.
@@ -238,7 +247,7 @@ struct ConsolePadSnapshot: Equatable {
     func play(_ gameID: String) {
         state.play(gameID)
         guard state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
-        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, fullscreen: true)
+        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, lang: lang(), fullscreen: true)
             .merging(pointerHidden() ? ["DM_CURSOR_HIDDEN": "1"] : [:]) { $1 }   // the game is a new process: without this its pointer shows until its own idle wait ends
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
@@ -256,6 +265,7 @@ struct ConsolePadSnapshot: Equatable {
                     guard let self, self.state.startingGameID == gameID else { return }
                     if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
                     self.launchedPID = pid
+                    self.library.recordPlayed(game.id)   // the Recently played order (#937)
                     self.launchedGame = game
                     if let pid { GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in self?.gameDidTerminate(pid: pid) } }   // the launcher's one watcher and its switch (ReturnAfterPlay.swift)
                     self.state.starting = .opening

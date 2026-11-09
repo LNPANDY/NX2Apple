@@ -40,7 +40,11 @@
     {"prefix": "onboarding.background.", "suffix": "", "why": "the background tasks of the onboarding, OnboardingState.swift"},
     {"prefix": "onboarding.platform.", "suffix": "", "why": "the platform choices of the onboarding, OnboardingView.swift"},
     {"prefix": "onboarding.setup.", "suffix": "", "why": "the Xcode setup tasks of the onboarding, OnboardingState.swift"},
-    {"prefix": "stage.", "suffix": "", "why": "the name of each build stage, BuildProgress.swift"}
+    {"prefix": "stage.", "suffix": "", "why": "the name of each build stage, BuildProgress.swift"},
+    {"prefix": "appearance.", "suffix": "", "why": "the System, Light and Dark choices, LauncherAppearance.labelKey in LauncherPalette.swift"},
+    {"prefix": "launch.cat.", "suffix": "", "why": "the four parts of the options sheet, LaunchCategory.labelKey in LaunchCategory.swift"},
+    {"prefix": "settings.cat.", "suffix": "", "why": "the four parts of Settings, SettingsCategory.labelKey in SettingsCategory.swift"},
+    {"prefix": "sort.", "suffix": "", "why": "the library order choices, LibrarySort.labelKey in LauncherPage.swift"}
   ],
   "catalogKeys": [
     {"prefix": "ios.ui.", "why": "ShellUI, frontend-ios/Sources/ShellUI/Resources/Localizable.xcstrings"},

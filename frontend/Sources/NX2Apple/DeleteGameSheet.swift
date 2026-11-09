@@ -32,10 +32,10 @@ struct DeleteGameSheet: View {
                 Image(systemName: "trash").font(.system(size: 20, weight: .medium)).foregroundStyle(Self.red)
                     .frame(width: 40, height: 40).background(Self.red.opacity(0.14), in: Circle())
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(String(format: loc.t("delete.question"), game.name)).font(.manrope(22, .heavy)).tracking(-0.4)
+                    Text(String(format: loc.t("delete.question"), game.displayName(loc.lang))).font(.manrope(22, .heavy)).tracking(-0.4)
                         .fixedSize(horizontal: false, vertical: true)
                     if plan.map({ !$0.items.isEmpty || $0.saves != nil }) ?? true {   // nothing goes to the Trash for a game with no files here
-                        Text(loc.t("delete.note")).font(.manrope(13)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        Text(loc.t("delete.note")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -44,7 +44,7 @@ struct DeleteGameSheet: View {
                 if let plan {
                     card {
                         if plan.items.isEmpty {
-                            Text(loc.t("delete.nothing")).font(.manrope(13)).foregroundStyle(.secondary)
+                            Text(loc.t("delete.nothing")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                                 .padding(.horizontal, 18).padding(.vertical, 13)
                         }
                         ForEach(Array(plan.items.enumerated()), id: \.element.id) { index, item in
@@ -54,10 +54,10 @@ struct DeleteGameSheet: View {
                     }
                     savesCard(plan.saves)
                 } else {
-                    HStack(spacing: 10) { ProgressView().controlSize(.small); Text(loc.t("free.measuring")).foregroundStyle(.secondary) }
+                    HStack(spacing: 10) { ProgressView().controlSize(.small); Text(loc.t("free.measuring")).foregroundStyle(LauncherPalette.secondaryText) }
                         .padding(.vertical, 20)
                 }
-                Text(loc.t("delete.sources")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(loc.t("delete.sources")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 2)
             }
             .padding(.horizontal, 28).padding(.bottom, 20)
@@ -85,8 +85,8 @@ struct DeleteGameSheet: View {
         .fixedSize(horizontal: false, vertical: true)
         .background(LauncherPalette.background)
         .font(.manrope(13))
-        .preferredColorScheme(.dark)
-        .tint(LauncherPalette.cream)
+        .launcherAppearance()
+        .tint(LauncherPalette.accent)
         .onAppear { if plan == nil { measure() } }
     }
 
@@ -118,7 +118,7 @@ struct DeleteGameSheet: View {
         HStack(alignment: .firstTextBaseline, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title(item.kind)).font(.manrope(14, .medium))
-                Text(detail(item)).font(.manrope(11.5)).foregroundStyle(.secondary).lineLimit(2).truncationMode(.middle)
+                Text(detail(item)).font(.manrope(11.5)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2).truncationMode(.middle)
             }
             Spacer(minLength: 12)
             if item.bytes > 0 { sizeText(item.bytes) }
@@ -153,7 +153,7 @@ struct DeleteGameSheet: View {
         VStack(alignment: .leading, spacing: 0, content: content)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
     }
 
     private func measure() {

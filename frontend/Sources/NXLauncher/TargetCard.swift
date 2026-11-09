@@ -11,7 +11,7 @@ package struct TargetCard: View {
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(loc.t("section.target")).font(.manrope(15, .semibold)).foregroundStyle(.secondary)
+            Text(loc.t("section.target")).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText)
                 .padding(.leading, 2)
             HStack(spacing: 14) {
                 targetCard(BuildTarget.mac, symbol: "desktopcomputer", title: "build.mac", note: "build.macNote")
@@ -21,12 +21,12 @@ package struct TargetCard: View {
             // builds both, and one Switch 2 game ran on an iPhone, but no target is tested for every game.
             if build.isSwitch2Game {
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: "info.circle").font(.system(size: 13)).foregroundStyle(LauncherPalette.cream.opacity(0.7))
+                    Image(systemName: "info.circle").font(.system(size: 13)).foregroundStyle(LauncherPalette.accent.opacity(0.7))
                     VStack(alignment: .leading, spacing: 4) {
                         Text(loc.t(build.target == BuildTarget.mac ? "switch2.noteMac" : "switch2.noteIOS"))
                         Text(loc.t(build.gameFolder != nil ? "switch2.keysFolder" : "switch2.keysPackage"))   // #696: what the keys row asks for
                     }
-                    .font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 4).padding(.top, 2)
             }
@@ -36,7 +36,7 @@ package struct TargetCard: View {
                     HStack(alignment: .center, spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(loc.t("opt.bc")).font(.manrope(14))
-                            Text(loc.t("opt.bc.note")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                            Text(loc.t("opt.bc.note")).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 12)
@@ -45,7 +45,7 @@ package struct TargetCard: View {
                     .padding(.horizontal, 18).padding(.vertical, 14)
                 }
                 .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
                 .padding(.top, 4)
             }
         }
@@ -57,19 +57,19 @@ package struct TargetCard: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
                     Image(systemName: symbol).font(.system(size: 26, weight: .light))
-                        .foregroundStyle(selected ? LauncherPalette.cream : .secondary)
+                        .foregroundStyle(selected ? LauncherPalette.accent : .secondary)
                     Spacer()
-                    Circle().strokeBorder(selected ? LauncherPalette.cream : Color.white.opacity(0.25), lineWidth: selected ? 5 : 1.5)
+                    Circle().strokeBorder(selected ? LauncherPalette.accent : LauncherPalette.ink(0.25), lineWidth: selected ? 5 : 1.5)
                         .frame(width: 18, height: 18)
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text(loc.t(title)).font(.manrope(16, .semibold))
-                    Text(loc.t(note)).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(loc.t(note)).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(20).frame(maxWidth: .infinity, alignment: .leading)
             .background(selected ? LauncherPalette.cream.opacity(0.05) : LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.cream.opacity(0.7) : Color.white.opacity(0.06), lineWidth: selected ? 1.5 : 1))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.accent.opacity(0.7) : LauncherPalette.ink(0.06), lineWidth: selected ? 1.5 : 1))
             .contentShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain).disabled(build.running)

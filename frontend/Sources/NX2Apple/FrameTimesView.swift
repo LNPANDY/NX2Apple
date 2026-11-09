@@ -18,7 +18,7 @@ struct FrameTimesRecordingView: View {
             if let chart {
                 if let s = chart.summary {
                     Text(String(format: t("launch.frameTimesSummary"), s.frames, s.fps, s.frameP50, s.frameP99, s.frameMax, s.hitches, s.dropped))
-                        .font(.manrope(12)).foregroundStyle(.secondary).monospacedDigit()
+                        .font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).monospacedDigit()
                     Chart {
                         ForEach(chart.line, id: \.number) { f in
                             LineMark(x: .value("s", f.time), y: .value("ms", f.frameMs)).interpolationMethod(.linear)
@@ -32,7 +32,7 @@ struct FrameTimesRecordingView: View {
                     .chartXAxisLabel("s").chartYAxisLabel("ms")
                     .frame(height: 120)
                 } else {
-                    Text(t("launch.frameTimesEmpty")).font(.manrope(12)).foregroundStyle(.secondary)
+                    Text(t("launch.frameTimesEmpty")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                 }
             } else {
                 // While the file is read: the summary line's and the chart's room, so nothing moves when they arrive

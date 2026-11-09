@@ -83,8 +83,8 @@ package struct ExportSteps: View {
     private func step<Trailing: View>(_ number: Int, _ phase: Phase, title: String, sub: String, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(spacing: ExportGrid.gutter) {
             ZStack {
-                Circle().fill(phase == .done ? LauncherPalette.ready : Color.white.opacity(phase == .current ? 0.12 : 0.06))
-                if phase == .done { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.black) }
+                Circle().fill(phase == .done ? LauncherPalette.ready : LauncherPalette.ink(phase == .current ? 0.12 : 0.06))
+                if phase == .done { Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(LauncherPalette.onCream) }
                 else { Text("\(number)").font(.manrope(12.5, .semibold)).foregroundStyle(phase == .current ? .primary : .tertiary) }
             }
             .frame(width: ExportGrid.badge, height: ExportGrid.badge)
@@ -171,14 +171,14 @@ package struct ExportSteps: View {
                         Text(loc.t("shell.sendDetails")).font(.manrope(12.5, .medium))
                         Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).rotationEffect(.degrees(detailsOpen ? 90 : 0))
                     }
-                    .foregroundStyle(.secondary).contentShape(Rectangle())
+                    .foregroundStyle(LauncherPalette.secondaryText).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain).accessibilityAddTraits(detailsOpen ? .isSelected : [])
             }
         }
         if build.finderShown { FinderCopySteps(archive: build.archivePath) }
         if detailsOpen, let words {
-            Text(words).font(.mono(11.5)).foregroundStyle(.secondary).textSelection(.enabled)
+            Text(words).font(.mono(11.5)).foregroundStyle(LauncherPalette.secondaryText).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12).padding(.vertical, 9)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -199,7 +199,7 @@ package struct ExportSteps: View {
                     .padding(.horizontal, 15)
                     .frame(maxWidth: .infinity, minHeight: LauncherControl.height, maxHeight: LauncherControl.height, alignment: .leading)
                     .background(ExportGrid.well, in: RoundedRectangle(cornerRadius: 9))
-                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.white.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(LauncherPalette.ink(0.08)))
                     .opacity(inert ? ExportGrid.quiet : 1)
                     .help(devices.driveFolder)
                 Button(loc.t("shell.driveChoose")) { build.chooseDriveFolder() }.buttonStyle(LauncherSecondaryButtonStyle()).fixedSize()
@@ -283,7 +283,7 @@ package struct ExportSteps: View {
         VStack(alignment: .leading, spacing: 8) {
             LauncherProgressBar(value: total > 0 ? Double(done) / Double(total) : 0, height: 6)
                 .frame(height: 6).accessibilityLabel(text)
-            Text(text).font(.manrope(12.5)).monospacedDigit().foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Text(text).font(.manrope(12.5)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.top, 4)
     }
@@ -320,7 +320,7 @@ enum ExportGrid {
     static let noteGap: CGFloat = 12    // the controls to the notes under them
     static let switchWidth: CGFloat = 330   // the two switches of the card are equally wide and end on one edge
     static let quiet: Double = 0.45     // step 3 before there is an IPA, as a switched-off launcher switch
-    static let well = Color.black.opacity(0.22)   // a field's inside: the folder, devicectl's own text
+    static let well = LauncherPalette.well   // a field's inside: the folder, devicectl's own text
 }
 
 /// Shared manual-transfer instructions for the export and automatic-install failure cards.

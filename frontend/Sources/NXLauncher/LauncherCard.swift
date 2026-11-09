@@ -30,7 +30,7 @@ package struct CardPageHeading: View {
     package var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title).font(.manrope(44, .heavy)).tracking(-1.3)
-            Text(note).font(.manrope(15)).foregroundStyle(.secondary)
+            Text(note).font(.manrope(15)).foregroundStyle(LauncherPalette.secondaryText)
         }
     }
 }
@@ -53,15 +53,15 @@ package struct CardGroup<Content: View>: View {
     package var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(label).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+                Text(label).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
                 Spacer(minLength: 8)
                 if !trailing.isEmpty { Text(trailing).font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.building) }
             }
             VStack(spacing: 0) { content }
                 .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
             if !footnote.isEmpty {
-                Text(footnote).font(.manrope(12)).foregroundStyle(.secondary).padding(.leading, 2)
+                Text(footnote).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -98,7 +98,7 @@ package struct CardRow<Trailing: View>: View {
                 HStack(spacing: 6) {
                     Text(title).font(.manrope(14)).fixedSize(horizontal: false, vertical: true)
                     if let open {
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                             .rotationEffect(.degrees(open ? 90 : 0))
                     }
                 }
@@ -106,15 +106,15 @@ package struct CardRow<Trailing: View>: View {
                     // A path is technical text: the system's monospaced face, on one line, cut in the middle when
                     // too long. Everything else is prose in Manrope and wraps, so no word is ever cut.
                     if detail.hasPrefix("/") || detail.hasPrefix("~") {
-                        Text(detail).font(.mono(12)).foregroundStyle(.secondary)
+                        Text(detail).font(.mono(12)).foregroundStyle(LauncherPalette.secondaryText)
                             .lineLimit(1).truncationMode(.middle).help(help.isEmpty ? detail : help)
                     } else {
-                        Text(detail).font(.manrope(12.5)).foregroundStyle(.secondary)
+                        Text(detail).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
                             .fixedSize(horizontal: false, vertical: true).help(help.isEmpty ? detail : help)
                     }
                 }
                 if !detail2.isEmpty {
-                    Text(detail2).font(.mono(12)).foregroundStyle(.secondary)
+                    Text(detail2).font(.mono(12)).foregroundStyle(LauncherPalette.secondaryText)
                         .lineLimit(1).truncationMode(.middle).help(detail2)
                 }
             }
@@ -158,9 +158,11 @@ package struct CardDisclosure: View {
 /// The scrolling column of a page of cards. A controller's focus on one of its `set.` targets scrolls into view.
 package struct LauncherPageScroll<Content: View>: View {
     let content: Content
+    let memoryKey: String?
     @EnvironmentObject private var padFocus: PadFocus
 
-    package init(@ViewBuilder _ content: () -> Content) { self.content = content() }
+    /// `memoryKey` names the scroll position this page keeps (ScrollMemory): a page with several parts gives each its own.
+    package init(memoryKey: String? = nil, @ViewBuilder _ content: () -> Content) { self.content = content(); self.memoryKey = memoryKey }
 
     package var body: some View {
         ScrollViewReader { proxy in
@@ -169,6 +171,8 @@ package struct LauncherPageScroll<Content: View>: View {
                     .padding(.horizontal, 40).padding(.top, 40).padding(.bottom, 48)
                     .frame(maxWidth: 900)
                     .frame(maxWidth: .infinity)
+                    .background { if let memoryKey { ScrollMemory(key: memoryKey) } }
+                    .environment(\.launcherScrollTo, { id in withAnimation(.easeOut(duration: 0.18)) { proxy.scrollTo(id, anchor: .top) } })
             }
             .onChange(of: padFocus.focused) { id in   // a controller's focus on this page scrolls into view
                 if let id, id.hasPrefix("set.") { withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(id, anchor: .center) } }

@@ -3,13 +3,21 @@ import SwiftUI
 package struct LauncherWindowChrome: NSViewRepresentable {
     package init() {}
     package final class ChromeView: NSView {
+        private func applyBackground() {
+            let light = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua
+            window?.backgroundColor = LauncherPalette.backgroundNSColor(light: light)
+        }
+        package override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            applyBackground()
+        }
         package override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window else { return }
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             window.styleMask.insert(.fullSizeContentView)
-            window.backgroundColor = NSColor(red: 0.055, green: 0.055, blue: 0.06, alpha: 1)
+            applyBackground()
             window.isMovableByWindowBackground = true
         }
     }
@@ -177,12 +185,13 @@ package struct LauncherSecondaryButtonStyle: ButtonStyle {
             .minimumScaleFactor(width == nil ? 1 : LauncherControl.minimumLabelScale)
             .padding(.horizontal, 15).padding(.vertical, 9)
             .frame(width: width, height: width == nil ? nil : LauncherControl.height)
-            .background(Color.white.opacity(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(accent?.opacity(0.75) ?? Color.white.opacity(0.10)))
-            .foregroundStyle(enabled ? (accent ?? Color.white.opacity(0.92)) : .gray)
+            .background(LauncherPalette.ink(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(accent?.opacity(0.75) ?? LauncherPalette.ink(0.10)))
+            .foregroundStyle(enabled ? (accent ?? LauncherPalette.text) : .gray)
             .opacity(enabled ? 1 : 0.55)
             .contentShape(RoundedRectangle(cornerRadius: 9))
             .launcherMeasured(label: configuration.label.font(.manrope(13, .semibold)), room: LauncherControl.buttonLabelWidth)
+            .launcherHover()
     }
 }
 
@@ -201,8 +210,9 @@ package struct LauncherSwitchStyle: ToggleStyle {
     package func makeBody(configuration: Configuration) -> some View {
         Button { withAnimation(LauncherMotion.animation(.spring(response: 0.25, dampingFraction: 0.8), reduceMotion: reduceMotion)) { configuration.isOn.toggle() } } label: {
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                Capsule().fill(configuration.isOn ? LauncherPalette.cream : Color.white.opacity(0.14))
-                Circle().fill(configuration.isOn ? LauncherPalette.background : Color.white.opacity(0.85))
+                Capsule().fill(configuration.isOn ? LauncherPalette.cream : LauncherPalette.ink(0.14))
+                    .overlay(Capsule().strokeBorder(configuration.isOn ? LauncherPalette.actionBorder : .clear))
+                Circle().fill(configuration.isOn ? LauncherPalette.onCream : LauncherPalette.ink(0.85))
                     .padding(3)
                     .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
             }
@@ -240,11 +250,18 @@ package struct LauncherHeroActionLabel: View {
             Text(title).lineLimit(1).minimumScaleFactor(LauncherHeroAction.minimumScale)
         }
         .font(.manrope(18, .bold))
-        .foregroundStyle(.black)
+        .foregroundStyle(LauncherPalette.onCream)
         .padding(.horizontal, LauncherHeroAction.horizontalPadding)
         .frame(width: LauncherHeroAction.width, height: LauncherHeroAction.height)
         .background(LauncherPalette.cream, in: Capsule())
+        .overlay(Capsule().strokeBorder(LauncherPalette.actionBorder))   // Light only: the cream capsule needs an edge on white
     }
+}
+
+/// The height of a sheet of the launcher: at most 720 pt, and 80 pt shorter than the screen it is on.
+package enum LauncherSheet {
+    package static let width: CGFloat = 680
+    package static func maxHeight(screen: CGFloat) -> CGFloat { min(720, max(320, screen - 80)) }
 }
 
 /// The width of a launch option's control (choices, list, slider with its value), so the controls of a card line up
@@ -270,19 +287,23 @@ package enum LaunchControl {
 /// it is given.
 package struct LauncherSegmented: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    package init(options: [(value: String, label: String)], selection: String, choose: @escaping (String) -> Void) {
-        self.options = options; self.selection = selection; self.choose = choose
+    package init(options: [(value: String, label: String)], selection: String, size: CGFloat = 12.5, semibold: Bool = false,
+                 choose: @escaping (String) -> Void) {
+        self.options = options; self.selection = selection; self.size = size; self.semibold = semibold; self.choose = choose
     }
     package let options: [(value: String, label: String)]
     package let selection: String
+    /// 12.5 pt with the chosen one bold, as in a setting row. The category selectors of a sheet use 13 pt semibold for every choice.
+    package let size: CGFloat
+    package let semibold: Bool
     package let choose: (String) -> Void
     package var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.value) { o in
                 let on = o.value == selection
                 Button { withAnimation(LauncherMotion.animation(.easeOut(duration: 0.15), reduceMotion: reduceMotion)) { choose(o.value) } } label: {
-                    Text(o.label).font(.manrope(12.5, on ? .bold : .medium))
-                        .foregroundStyle(on ? Color.black : Color.white.opacity(0.75))
+                    Text(o.label).font(.manrope(size, semibold ? .semibold : (on ? .bold : .medium)))
+                        .foregroundStyle(on ? LauncherPalette.onCream : LauncherPalette.ink(0.75))
                         .lineLimit(1).minimumScaleFactor(0.85)
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .frame(maxWidth: .infinity)
@@ -294,8 +315,8 @@ package struct LauncherSegmented: View {
             }
         }
         .padding(3)
-        .background(Color.white.opacity(0.06), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08)))
+        .background(LauncherPalette.ink(0.06), in: Capsule())
+        .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.08)))
     }
 }
 
@@ -314,9 +335,9 @@ package struct LauncherSlider: View {
             let fraction = span > 0 ? (min(max(value, range.lowerBound), range.upperBound) - range.lowerBound) / span : 0
             let knob: CGFloat = 16, track = g.size.width - knob
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.14)).frame(height: 4).padding(.horizontal, knob / 2)
-                Capsule().fill(LauncherPalette.cream).frame(width: track * fraction + knob / 2, height: 4).padding(.leading, knob / 2)
-                Circle().fill(LauncherPalette.cream).frame(width: knob, height: knob)
+                Capsule().fill(LauncherPalette.ink(0.14)).frame(height: 4).padding(.horizontal, knob / 2)
+                Capsule().fill(LauncherPalette.accent).frame(width: track * fraction + knob / 2, height: 4).padding(.leading, knob / 2)
+                Circle().fill(LauncherPalette.accent).frame(width: knob, height: knob)
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
                     .offset(x: track * fraction)
             }

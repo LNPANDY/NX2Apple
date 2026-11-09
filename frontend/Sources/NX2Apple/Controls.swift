@@ -176,7 +176,7 @@ struct ControlsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(gameName ?? loc.t("controls.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(loc.t(gameName == nil ? "controls.globalNote" : "controls.gameNote")).font(.manrope(14)).foregroundStyle(.secondary)
+                Text(loc.t(gameName == nil ? "controls.globalNote" : "controls.gameNote")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
             ScrollViewReader { proxy in
@@ -201,7 +201,7 @@ struct ControlsView: View {
                 if let mappingStore {
                     ControllerMappingStatus(store: mappingStore)
                 } else {
-                    Text(loc.t("controls.globalApplied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
+                    Text(loc.t("controls.globalApplied")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
                 }
                 Spacer(minLength: 8)
                 if !layout.isDefault {
@@ -210,7 +210,7 @@ struct ControlsView: View {
                         .padTarget("controls.reset", scope: "controls") { stopListening(); layout.resetKeyboard(); layout.resetController() }
                 }
                 Button { stopListening(); dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
                         .padding(.horizontal, 22).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: Capsule())
                 }
@@ -223,14 +223,14 @@ struct ControlsView: View {
         .frame(width: 600, height: 700)
         .background(LauncherPalette.background)
         .font(.manrope(13))
-        .preferredColorScheme(.dark)
-        .tint(LauncherPalette.cream)
+        .launcherAppearance()
+        .tint(LauncherPalette.accent)
         .onDisappear { stopListening() }
     }
 
     private func section<Item, Row: View>(_ title: String, _ items: [Item], note: String = "", @ViewBuilder row: @escaping (Item) -> Row) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+            Text(title).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
             VStack(spacing: 0) {
                 ForEach(items.indices, id: \.self) { i in
                     row(items[i])
@@ -238,9 +238,9 @@ struct ControlsView: View {
                 }
             }
             .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
             if !note.isEmpty {
-                Text(note).font(.manrope(12)).foregroundStyle(.secondary).padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+                Text(note).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -264,7 +264,7 @@ struct ControlsView: View {
             HStack(spacing: 6) {
                 if key != nil && !on {
                     Button { layout.assign(f, key: nil) } label: {
-                        Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                        Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                             .frame(width: 22, height: 22).contentShape(Circle())
                     }
                     .buttonStyle(.plain).help(loc.t("controls.clear"))
@@ -272,10 +272,10 @@ struct ControlsView: View {
                 Button { on ? stopListening() : listen(f) } label: {
                     Text(on ? loc.t("controls.press") : ControlLayout.keyName(key, loc.t) ?? loc.t("controls.none"))
                         .font(.manrope(12.5, on ? .bold : .semibold))
-                        .foregroundStyle(on ? Color.black : key == nil ? Color.white.opacity(0.45) : Color.white.opacity(0.92))
+                        .foregroundStyle(on ? Color.black : key == nil ? LauncherPalette.ink(0.45) : LauncherPalette.text)
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
-                        .background(on ? LauncherPalette.cream : Color.white.opacity(0.06), in: Capsule())
-                        .overlay(Capsule().strokeBorder(Color.white.opacity(on ? 0 : 0.10)))
+                        .background(on ? LauncherPalette.cream : LauncherPalette.ink(0.06), in: Capsule())
+                        .overlay(Capsule().strokeBorder(LauncherPalette.ink(on ? 0 : 0.10)))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)

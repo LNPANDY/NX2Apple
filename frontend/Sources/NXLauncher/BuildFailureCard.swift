@@ -22,14 +22,14 @@ package struct BuildFailureCard: View {
     package var body: some View {
         if let f = failure ?? m.failure {
             VStack(alignment: .leading, spacing: 10) {
-                Text(loc.t("fail.section")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+                Text(loc.t("fail.section")).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Circle().fill(LauncherPalette.building).frame(width: 7, height: 7)
                         Text(m.failureWhat(f)).font(.manrope(14, .semibold)).fixedSize(horizontal: false, vertical: true)
                     }
                     let chooseTitle = !f.titleIDs.isEmpty && !m.experimentalBuilder
-                    Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(.manrope(13)).foregroundStyle(.secondary)
+                    Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true).padding(.leading, 17)
                     if chooseTitle {
                         VStack(alignment: .leading, spacing: 6) {
@@ -49,7 +49,7 @@ package struct BuildFailureCard: View {
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
             }
             .alert(loc.t("fail.confirm.title"), isPresented: Binding(get: { m.confirmingOverride != nil }, set: { if !$0 { m.cancelBuildAnyway() } })) {
                 Button(loc.t("fail.confirm.go")) { m.confirmBuildAnyway() }

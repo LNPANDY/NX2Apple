@@ -72,12 +72,12 @@ struct BatteryIcon: View {
 
     var body: some View {
         let g = Self.geometry(height: height, level: level)
-        let line = Color.white.opacity(level == nil ? 0.3 : 0.55)
+        let line = LauncherPalette.ink(level == nil ? 0.3 : 0.55)
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: g.outerRadius).strokeBorder(line, lineWidth: 1).frame(width: g.outer.width, height: g.outer.height)
             if level != nil {
                 RoundedRectangle(cornerRadius: g.innerRadius)
-                    .fill(Self.isLow(level) && !charging ? Color.red : (charging ? LauncherPalette.ready : Color.white.opacity(0.9)))
+                    .fill(Self.isLow(level) && !charging ? Color.red : (charging ? LauncherPalette.ready : LauncherPalette.ink(0.9)))
                     .frame(width: g.fill.width, height: g.fill.height).offset(x: g.fill.minX, y: g.fill.minY)
                     .animation(.easeInOut(duration: 0.6), value: g.fill.width)   // a charging level grows smoothly between reads
             }
@@ -245,7 +245,7 @@ struct ConsoleToastView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     mergeToggle
                     joyconSplitToggle
-                    Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(.secondary)
+                    Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(LauncherPalette.secondaryText)
                     HStack(spacing: 12) {
                         ForEach(1...4, id: \.self) { player in
                             Button { driver.requestPlayer(player) } label: {
@@ -318,9 +318,9 @@ struct ConsoleToastView: View {
                 Image(systemName: controller.kind.symbol).font(.system(size: compact ? 26 : 34)).frame(width: 42).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(controller.name).font(.manrope(compact ? 18 : 23, .semibold))
-                    do { Text(t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller)).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary) }
+                    do { Text(t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller)).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText) }
                     ConsoleBattery(controller: controller, lang: lang)
-                    if controller.charging { Text(t("console.charging")).font(.manrope(13)).foregroundStyle(.secondary) }
+                    if controller.charging { Text(t("console.charging")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText) }
                 }
                 Spacer(minLength: 0)
             }
@@ -383,7 +383,7 @@ struct ConsoleToastView: View {
             }.padding(24)
             ConsoleControllerList(driver: driver, lang: lang, compact: true)
         }
-        .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).preferredColorScheme(.dark)
+        .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).launcherAppearance()
         .foregroundStyle(.white).padScope("console.controllers", pad)
         .environment(\.padRingStyle, .hug)
         .onAppear { pad.scope = "console.controllers"; pad.focused = "console.controller.merge" }

@@ -21,13 +21,9 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     /// Owned shows every game without reading its build, so the default filter costs nothing per card.
     func includes(_ game: LibraryGame) -> Bool { self == .owned || game.isReady || game.hasIOSBuild }
 
-    /// Use Finder-style ordering on the display title. Different games can have the same title.
-    func visibleGames(_ games: [LibraryGame], matching search: String = "") -> [LibraryGame] {
-        games.filter { (search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)) && includes($0) }
-            .sorted { left, right in
-                let order = left.name.localizedStandardCompare(right.name)
-                return order == .orderedSame ? left.titleID < right.titleID : order == .orderedAscending
-            }
+    /// The games this filter shows that match `search` (any name the game answers to), in `sort` order.
+    func visibleGames(_ games: [LibraryGame], matching search: String = "", lang: Lang = Lang.initial(), sort: LibrarySort = .name) -> [LibraryGame] {
+        sort.ordered(games.filter { $0.matches(search: search, lang: lang) && includes($0) }, lang: lang)
     }
 
     static func load(_ defaults: UserDefaults = .standard) -> LibraryFilter {
@@ -38,10 +34,37 @@ enum LibraryFilter: String, CaseIterable, Identifiable {
     /// The selection and the controller's focus after a switch to this filter. A selected game the filter hides gives way to the
     /// first one it shows, and a focus on a hidden card is dropped, so neither the hero nor the A button reaches a game that is not
     /// on screen.
-    func reconcile(games: [LibraryGame], selectedID: UUID?, focused: String?) -> (selectedID: UUID?, focused: String?) {
-        let shown = visibleGames(games)
+    func reconcile(games: [LibraryGame], selectedID: UUID?, focused: String?, sort: LibrarySort = .name) -> (selectedID: UUID?, focused: String?) {
+        let shown = visibleGames(games, sort: sort)
         let selection = shown.contains { $0.id == selectedID } ? selectedID : shown.first?.id
         guard let focused, focused.hasPrefix("card.") else { return (selection, focused) }
         return (selection, shown.contains { "card." + $0.id.uuidString == focused } ? focused : nil)
     }
+}
+
+/// The library's order: the games played last first (an unplayed game after every played one), or by name. Ties fall to the
+/// name shown, then to the title ID, so the order is stable. Changing it never moves the selection. Remembered between launches.
+enum LibrarySort: String, CaseIterable, Identifiable {
+    case recent, name
+    var id: String { rawValue }
+    var labelKey: String { "sort." + rawValue }
+
+    func ordered(_ games: [LibraryGame], lang: Lang) -> [LibraryGame] {
+        games.sorted { left, right in
+            if self == .recent, left.lastPlayed != right.lastPlayed {
+                switch (left.lastPlayed, right.lastPlayed) {
+                case let (l?, r?): return l > r
+                case (_?, nil): return true
+                default: return false
+                }
+            }
+            let order = left.displayName(lang).localizedStandardCompare(right.displayName(lang))
+            return order == .orderedSame ? left.titleID < right.titleID : order == .orderedAscending
+        }
+    }
+
+    static func load(_ defaults: UserDefaults = .standard) -> LibrarySort {
+        LibrarySort(rawValue: defaults.string(forKey: "librarySort") ?? "") ?? .recent
+    }
+    func save(_ defaults: UserDefaults = .standard) { defaults.set(rawValue, forKey: "librarySort") }
 }

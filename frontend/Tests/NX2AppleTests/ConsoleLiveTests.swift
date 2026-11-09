@@ -456,6 +456,11 @@ import SwiftUI
         XCTAssertEqual(LiveConsoleDriver.version(plist: try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "1.2.3"], format: .xml, options: 0)), "1.2.3")
         XCTAssertEqual(LiveConsoleDriver.version(plist: try PropertyListSerialization.data(fromPropertyList: ["CFBundleVersion": "7"], format: .xml, options: 0)), "7")
         XCTAssertEqual(LiveConsoleDriver.version(plist: Data([0])), "")
+        let plist = { (info: [String: String]) in try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0) }
+        // #953: an update packed from a dump has no display version; its CFBundleShortVersionString is pack_app.py's 1.0, not what runs
+        XCTAssertEqual(LiveConsoleDriver.version(plist: try plist(["CFBundleShortVersionString": "1.0", "DMPackageVersion": "v458752"])), "v458752")
+        XCTAssertEqual(LiveConsoleDriver.version(plist: try plist(["CFBundleShortVersionString": "1.2.1", "DMDisplayVersion": "1.2.1", "DMPackageVersion": "v131072"])), "1.2.1")
+        XCTAssertEqual(LiveConsoleDriver.version(plist: try plist(["CFBundleShortVersionString": "1.0", "DMPackageVersion": "v0"])), "", "the base game without a display version")
         let ios = temporary.appendingPathComponent("ios.app")
         try FileManager.default.createDirectory(at: ios, withIntermediateDirectories: true)
         try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "2.0.1"], format: .xml, options: 0).write(to: ios.appendingPathComponent("Info.plist"))

@@ -65,7 +65,7 @@ struct OnboardingEnvironment {
     var scanGames: (_ folder: URL, _ repo: String, _ keys: String) async -> [LibraryGame] = { folder, repo, keys in
         await Task.detached { GameLibrary.sourceGames(in: folder, repo: repo, headerKey: PackageTitleID.headerKey(keysFile: keys)) }.value
     }
-    var fetchArtwork: (_ titleIDs: [String]) async -> Void = { ids in _ = await ArtworkStore.shared.fetchMissing(ids) }
+    var fetchArtwork: (_ titleIDs: [String]) async -> Void = { ids in _ = await ArtworkStore.shared.fetchMissing(ids, language: Lang.initial().code) }
     var pollInterval = 3.0
     var advanceDelay = 0.7
 

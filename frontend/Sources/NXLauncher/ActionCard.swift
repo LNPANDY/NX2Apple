@@ -26,7 +26,8 @@ package struct ActionCard: View {
                 Label(build.running ? loc.t(build.stopping ? "library.stopping" : "btn.stop") : (build.done ? loc.t("btn.rebuild") : loc.t("build.startGame")),
                       systemImage: build.running ? "stop.fill" : "hammer.fill")
                     .font(.manrope(15, .semibold)).padding(.horizontal, 24).padding(.vertical, 13)
-                    .foregroundStyle(.black).background(build.running ? LauncherPalette.building : LauncherPalette.cream, in: Capsule())
+                    .foregroundStyle(build.running ? LauncherPalette.onBuilding : LauncherPalette.onCream).background(build.running ? LauncherPalette.building : LauncherPalette.cream, in: Capsule())
+                    .overlay(Capsule().strokeBorder(LauncherPalette.actionBorder))
             }
             .buttonStyle(.plain)
             .disabled(build.stopping || (!build.running && !build.canBuild))
@@ -42,18 +43,18 @@ package struct ActionCard: View {
             Text(build.doneNote).font(.manrope(13))
                 .foregroundStyle(build.done ? LauncherPalette.ready : LauncherPalette.building).lineLimit(3)
         } else if !dependencies.checked {
-            Text(loc.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(.secondary)
+            Text(loc.t("status.checkingDeps")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
         } else if !dependencies.allPresent {
             Text(loc.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if !repo.isRepo {
             Text(loc.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if build.gameFolderRefused {
-            Text(loc.t("status.fixFolder")).font(.manrope(13)).foregroundStyle(.secondary)
+            Text(loc.t("status.fixFolder")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
         } else if !build.inputsReady {
-            Text(loc.t("status.needInputs")).font(.manrope(13)).foregroundStyle(.secondary)
+            Text(loc.t("status.needInputs")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
         } else {
             Text(String(format: loc.t("status.output"), build.shortPath(build.outDir.isEmpty ? build.inputFolder : build.outDir)))
-                .font(.manrope(13)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.head)
         }
     }
 }

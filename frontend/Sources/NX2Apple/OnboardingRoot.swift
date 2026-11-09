@@ -59,7 +59,7 @@ struct RootView: View {
             }
         }
         .background(LauncherPalette.background)
-        .preferredColorScheme(.dark)
+        .launcherAppearance()
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .task {
             shared.console.prepareLaunch = { [console] launch in console.leaveFullScreenForGame(then: launch) }

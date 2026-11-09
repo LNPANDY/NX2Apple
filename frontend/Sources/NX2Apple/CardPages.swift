@@ -5,7 +5,7 @@ import NXModel
 
 // The Builds and Settings pages share one scrolling column, so the scroll position, the open log and the open extra rows stay when
 // someone goes from one to the other. This is that column and nothing else: it holds those three things and puts the cards of one
-// page or the other in it. The cards observe the stores they show (NXLauncher, and `FilesCard`, `LibraryCard` in this target).
+// page or the other in it. The cards observe the stores they show (NXLauncher, and `FilesCard`, `LibraryFoldersCard` in this target).
 // A game file dropped on the Builds page goes to the build store (DropFiles.swift).
 
 struct CardPages: View {
@@ -31,14 +31,15 @@ struct CardPages: View {
     var padMerge: Binding<Bool> = .constant(false)   // "All controllers are player 1" (ControlLayout.padMerge)
     @State private var extrasOpen = false
     @State private var logOpen = false
+    @State private var settingsCategory: SettingsCategory = .general
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
-        LauncherPageScroll {
+        LauncherPageScroll(memoryKey: settings ? "settings." + settingsCategory.rawValue : "builds") {
             if settings {
                 SettingsPage(build: build, updates: updates, repo: repo, engine: engine, dependencies: dependencies, library: library,
                              diagnostics: diagnostics, onChooseLibraryFolder: onChooseLibraryFolder, onOpenControls: onOpenControls,
-                             onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge)
+                             onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge, category: $settingsCategory)
             } else {
                 BuildPage(build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, queue: queue, transfers: transfers, onSelectGames: onSelectGames, extrasOpen: $extrasOpen, logOpen: $logOpen,
                           onViewGame: onViewGame, onOpenSettings: onOpenSettings)

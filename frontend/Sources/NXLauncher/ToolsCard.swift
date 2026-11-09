@@ -66,14 +66,14 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                 // GitHub does not load everywhere: the manual route (Code → Download ZIP → unzip →
                 // Choose repository) needs no git at all, and the note says which folder to pick.
                 HStack(spacing: 4) {
-                    Text(loc.t("repo.manualHint")).foregroundStyle(.secondary)
+                    Text(loc.t("repo.manualHint")).foregroundStyle(LauncherPalette.secondaryText)
                     Link("github.com/LNPANDY/NX2Apple", destination: URL(string: RepoStore.url.replacingOccurrences(of: ".git", with: ""))!)
-                    Text(loc.t("repo.manualHint2")).foregroundStyle(.secondary)
+                    Text(loc.t("repo.manualHint2")).foregroundStyle(LauncherPalette.secondaryText)
                 }
                 .font(.manrope(12)).padding(.horizontal, 18).padding(.bottom, 12)
             }
             if repo.isRepo, !repo.isGit {
-                Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(.secondary)
+                Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                     .padding(.horizontal, 18).padding(.bottom, 12)
             }
             if repo.isRepo, !RepoLayout.missingTools(in: repo.path).isEmpty {
@@ -131,7 +131,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                                 Text(d.lastError).font(.mono(11)).foregroundStyle(LauncherPalette.building)
                                     .lineLimit(3).help(d.lastError)
                                 if !d.fixHint.isEmpty {
-                                    Text(loc.t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(.secondary)
+                                    Text(loc.t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(LauncherPalette.secondaryText)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }

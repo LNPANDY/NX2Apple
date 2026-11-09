@@ -69,3 +69,7 @@
 0104-ios-fade-out-the-settings-gear-after-3-idle-seco.patch
 0105-tests-and-a-log-literal-follow-the-uniform-bound.patch
 0106-mac-app-exit-at-once-with-dm-preflight.patch
+0107-pack-app-the-game-s-name-in-each-of-its-language.patch
+0108-nx-extract-control-the-base-game-s-control-data.patch
+0109-mac-app-an-update-without-control-data-gets-no-b.patch
+0110-ios-shell-declare-spanish-korean-and-brazilian-por.patch
