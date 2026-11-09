@@ -94,7 +94,7 @@ def run(hook, todo):
             print(f'{hook}: engine/ could not be synced, {stop} stopped. Reproduce: {SYNC}\n{emergency}', file=sys.stderr)
             return 1
     for c in todo:
-        if c.cwd == 'frontend' and not shutil.which('swift'):
+        if c.cwd in ('frontend', 'frontend-ios') and not shutil.which('swift'):
             print(f'{hook}: {c.name} skipped, swift is not installed. CI runs it.')
             continue
         print(f'{hook}: {c.name}: {c.command}', flush=True)
