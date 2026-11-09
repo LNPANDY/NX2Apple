@@ -31,10 +31,10 @@ Issue: LNPANDY/NX2Apple#483
  7 files changed, 29 insertions(+), 8 deletions(-)
 
 diff --git a/dm/games/README.md b/dm/games/README.md
-index c60270b..8c4d127 100644
+index d0032043..76f315fe 100644
 --- a/dm/games/README.md
 +++ b/dm/games/README.md
-@@ -240,6 +240,7 @@ One row per profile; the notes are each profile's `README.md`.
+@@ -243,6 +243,7 @@ One row per profile; the notes are each profile's `README.md`.
  | `tex_flush_upload` | `on` / `off` (the default): a texture the game fills from the CPU in place (no packaged layout, no `WriteTexels`) and publishes with `nvnMemoryPoolFlushMappedRange` is uploaded from guest memory like a packaged one, and re-uploaded when its pages change (`ft_add` in `hle_nvn.c`). Tears of the Kingdom streams all its textures this way; without it the 3D scene is black. Off by default because a flushed range in another game could cover an image a shader writes, whose GPU content the upload would replace. Without the key, every game still gets a texture's storage once when the game flushed it before the texture's first use (`nvn_flushed` in `hle_nvn.c`: Breath of the Wild's sky tables); the key is for textures the CPU writes again after that |
  | `render_cond` | `on` / `off` (the default): `SetRenderEnableConditional` / `SetRenderEnable` are recorded and evaluated at replay, and a timestamp report's counter field is 0 as on the GPU (`OP_RENDER_COND` in `nvn_mtl.m`). Tears of the Kingdom wraps its clears in conditions that skip clearing a target nothing has drawn into since its last clear; without the key every clear runs and its 3D scene is black. Animal Crossing: New Horizons too: four clear-only passes wiped its composite before the window copy, and every frame was black. Off by default: other games draw everything, as before |
  | `tex_dirty_upload` | `on` / `off` (the default), needs `tex_flush_upload`: a registered texture whose pages the CPU writes after `nvnTextureInitialize` without any NVN flush is uploaded as well (its pages are write-protected at registration, checked on first use; `nvn_ft_written` in `hle_nvn.c`). Tears of the Kingdom fills its ASTC terrain material arrays this way; without it the cave is magenta. FINAL FANTASY TACTICS - The Ivalice Chronicles loads its UI textures straight into CPU-uncached pools, which need no flush, after creating them; without both keys its screen stays black. The Great Ace Attorney Chronicles copies every texture into a CPU-cached pool after creating it and never flushes (its `main` has no cache maintenance at all): black too. The Legend of Zelda: Ocarina of Time writes its terrain tiles' height, blend and hole maps this way, and without the keys has holes in the ground |
@@ -43,7 +43,7 @@ index c60270b..8c4d127 100644
  | `gpu_timestamps` | What a timestamp report (`nvnCommandBufferReportCounter`) records: `submission` (the default) = the time the whole submission completed, the same for every report in it; `segment` = the GPU start (`TIMESTAMP_TOP`) or end (the other types) of the segment the report was encoded in (the host commits a submission in segments of 64 draws, `sub_cut` in `nvn_mtl.m`), so two reports of one submission bracket the GPU time between them, as on hardware. Breath of the Wild needs `segment`: its frame-interval controller and its dynamic resolution read the GPU time between the frame's first and last report, and with one time for both they read 0 (the game kept 60 fps in slow motion when the GPU could not keep up). `DM_NVN_GPU_TS=segment` / `submission` overrides it, also from `Documents/env.txt` |
  | `draw_barriers` | `full` (the default) / `game`: how draw passes are ordered. `full`: each waits for all earlier GPU work. `game`: by the game's own barriers (NVN asks for one before results of rendering are read), so a pass's vertex work overlaps the previous pass's fragments. Ocarina of Time's GPU time 25 → 18 ms, about 180 full barriers a frame halved. Only vertex-stage reads of the previous pass's output without a barrier change order. `DM_NVN_BARRIER` overrides it |
 diff --git a/dm/games/game.py b/dm/games/game.py
-index cb28a9e..ab8b5a3 100644
+index cb28a9e2..ab8b5a33 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
 @@ -195,6 +195,8 @@ def header_one(g):
@@ -73,7 +73,7 @@ index cb28a9e..ab8b5a3 100644
                  ('enc_thread', 'ENC_THREAD'), ('draw_barriers', 'DRAW_BARRIERS_GAME'), ('game_args', 'ARGS'), ('game_env', 'ENV')]
          def val(macro):   # the header's C spelling → the file's plain spelling
 diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
-index 3e4cf88..0ee8e9c 100644
+index 3e4cf88c..0ee8e9c1 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
 @@ -96,6 +96,8 @@ typedef struct {
@@ -119,7 +119,7 @@ index 3e4cf88..0ee8e9c 100644
          if (c <= 3) LOG("audren: renderer %d: no frame rendered before update %llu, rendering a catch-up frame first (%llu so far)", ar_index(a), (unsigned long long)u, (unsigned long long)c);
          uint32_t t = atomic_load(&a->cq_tail);
 diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
-index dd7ef64..bb62bb9 100644
+index dd7ef64a..bb62bb9f 100644
 --- a/dm/host/hle_profile.c
 +++ b/dm/host/hle_profile.c
 @@ -85,6 +85,9 @@ static uint64_t num(const char *v, uint64_t dflt) {
@@ -168,7 +168,7 @@ index dd7ef64..bb62bb9 100644
 +        (unsigned long long)p->stdalloc_cap, p->shader_skip_off, p->shader_skip_len, p->tex_bc_cpu, p->ue_texture_pool, p->enc_thread, p->draw_barriers_game, p->audren_merge);
  }
 diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
-index 9871608..ec8cbfb 100644
+index 98716081..ec8cbfbb 100644
 --- a/dm/host/hle_profile.h
 +++ b/dm/host/hle_profile.h
 @@ -33,6 +33,7 @@ struct dm_profile {
@@ -180,7 +180,7 @@ index 9871608..ec8cbfb 100644
      char source[512];            // DM_PROFILE, or "compiled defaults"
  };
 diff --git a/dm/host/tests/t_audren_layout.c b/dm/host/tests/t_audren_layout.c
-index a291697..96a1bf9 100644
+index a291697c..96a1bf9a 100644
 --- a/dm/host/tests/t_audren_layout.c
 +++ b/dm/host/tests/t_audren_layout.c
 @@ -7,6 +7,8 @@
@@ -193,7 +193,7 @@ index a291697..96a1bf9 100644
  enum { SAMPLES = 240, NMIX = 8, NCMD = 6 };
  // test_renderer_blocks: the renderer each appended block came from; the output holds what it is given and plays none of it
 diff --git a/dm/host/tests/t_audren_work.c b/dm/host/tests/t_audren_work.c
-index e6f80f4..1517c42 100644
+index e6f80f44..1517c421 100644
 --- a/dm/host/tests/t_audren_work.c
 +++ b/dm/host/tests/t_audren_work.c
 @@ -22,6 +22,8 @@ static void work_free(void *p) {

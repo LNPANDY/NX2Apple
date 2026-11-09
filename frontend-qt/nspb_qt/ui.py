@@ -161,6 +161,8 @@ class MainWindow(QMainWindow):
         self._drive_folder = ''
         self._options_expanded = True
         self._deps_expanded = True
+        self._deps_sig: tuple | None = None
+        self._dep_row_widgets: dict[str, dict] = {}
         self._onboarding_checked = False
         self._onboarding_dialog: OnboardingDialog | None = None
 
@@ -1999,20 +2001,27 @@ class MainWindow(QMainWindow):
         self.repo_status_label.setText(self.m.repo_status or (t('repo.ok') if ok else ''))
         self.repo_status_label.setVisible(bool(self.m.repo_status or ok))
 
-    def _refresh_deps(self) -> None:
-        t = self.m.t
+    def _clear_dep_rows(self) -> None:
+        self._deps_sig = None
+        self._dep_row_widgets = {}
         while self.deps_rows.count():
             item = self.deps_rows.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w = item.widget()
+            if w is not None:
+                w.hide()
+                w.deleteLater()
 
+    def _refresh_deps(self) -> None:
+        t = self.m.t
         if not self.m.deps_checked:
+            self._clear_dep_rows()
             _set_dot(self.deps_dot, style.NEUTRAL_DOT)
             self.deps_summary.setText(t('dep.checking'))
             self.install_all_btn.hide()
             self._refresh_running()
             return
         if not self.m.deps:
+            self._clear_dep_rows()
             _set_dot(self.deps_dot, style.RED)
             self.deps_summary.setText(t('dep.checkFailed'))
             self.install_all_btn.hide()
@@ -2038,6 +2047,55 @@ class MainWindow(QMainWindow):
         self.install_all_btn.setVisible(fixable)
         self.install_all_btn.setEnabled(not any_busy)
 
+        sig = (
+            str(getattr(self.m, 'lang', '')),
+            tuple(
+                (
+                    d.id,
+                    bool(d.ok or (getattr(d, 'installing', False) and getattr(d, 'install_detail', ''))),
+                    bool(d.install and (not d.ok or d.id == 'ios_sdk')),
+                    bool(not d.ok and d.id == 'xcode'),
+                    bool(d.pick_key),
+                    bool(not d.ok and d.id in ('ios_sdk', 'metal')),
+                    bool(not d.ok and (getattr(d, 'last_error', '') or getattr(d, 'fix_hint', ''))),
+                )
+                for d in self.m.deps
+            ),
+        )
+        if sig == getattr(self, '_deps_sig', None) and getattr(self, '_dep_row_widgets', None):
+            row_map = self._dep_row_widgets
+            for d in self.m.deps:
+                rw = row_map.get(d.id)
+                if not rw:
+                    continue
+                color = style.GREEN if d.ok else (style.AMBER if getattr(d, 'installing', False) else
+                        (style.NEUTRAL_DOT if not d.required else
+                        (style.AMBER if d.state is DepState.OLD else style.RED)))
+                _set_dot(rw['dot'], color)
+                rw['title'].setText(t(d.title_key))
+                detail = self._format_dep_detail(d)
+                live_detail = getattr(d, 'install_detail', '') if getattr(d, 'installing', False) else ''
+                rw['sub'].setText(live_detail or detail or t(d.hint_key))
+                ib = rw.get('install_btn')
+                if ib is not None:
+                    live_stage = getattr(d, 'install_stage', '') if getattr(d, 'installing', False) else ''
+                    ib.setText((live_stage or t('dep.installing')) if d.installing else t('dep.install'))
+                    ib.setEnabled(not d.installing)
+                pb = rw.get('pick_btn')
+                if pb is not None:
+                    label_key = 'dep.pick.metal' if d.pick_key in ('metal_dir', 'ios_sdk') else 'dep.pick'
+                    pb.setText(t(label_key))
+                    pb.setEnabled(not d.installing)
+                err_lbl = rw.get('err')
+                if err_lbl is not None:
+                    msg = (d.last_error + ' — ' if d.last_error else '') + (t(d.fix_hint) if d.fix_hint else '')
+                    err_lbl.setText(msg)
+            self._refresh_running()
+            self._maybe_show_onboarding()
+            return
+
+        self._clear_dep_rows()
+        self._deps_sig = sig
         for d in self.m.deps:
             self.deps_rows.addWidget(self._make_dep_row(d))
 
@@ -2057,7 +2115,8 @@ class MainWindow(QMainWindow):
         color = style.GREEN if d.ok else (style.AMBER if getattr(d, 'installing', False) else
                 (style.NEUTRAL_DOT if not d.required else
                 (style.AMBER if d.state is DepState.OLD else style.RED)))
-        r.addWidget(_dot(color))
+        dot_w = _dot(color)
+        r.addWidget(dot_w)
         col = QVBoxLayout()
         col.setSpacing(2)
         title = QLabel(t(d.title_key))
@@ -2072,23 +2131,33 @@ class MainWindow(QMainWindow):
         col.addWidget(sub)
         r.addLayout(col, 1)
 
+        install_btn = None
         if d.install and (not d.ok or d.id == 'ios_sdk'):
             live_stage = getattr(d, 'install_stage', '') if getattr(d, 'installing', False) else ''
-            b = QPushButton((live_stage or t('dep.installing')) if d.installing else t('dep.install'))
-            b.setEnabled(not d.installing)
-            b.clicked.connect(lambda _=False, dep=d: self.m.install_dep(dep))
-            r.addWidget(b)
+            install_btn = QPushButton((live_stage or t('dep.installing')) if d.installing else t('dep.install'))
+            install_btn.setEnabled(not d.installing)
+            install_btn.clicked.connect(
+                lambda _=False, dep_id=d.id, fallback=d: self.m.install_dep(
+                    next((x for x in self.m.deps if x.id == dep_id), fallback)
+                )
+            )
+            r.addWidget(install_btn)
         elif not d.ok and d.id == 'xcode':
             b = QPushButton(t('dep.openAppStore'))
             b.clicked.connect(lambda: QDesktopServices.openUrl(
                 QUrl('macappstore://apps.apple.com/app/id497799835')))
             r.addWidget(b)
+        pick_btn = None
         if d.pick_key:
             label_key = 'dep.pick.metal' if d.pick_key in ('metal_dir', 'ios_sdk') else 'dep.pick'
-            pb = QPushButton(t(label_key))
-            pb.setEnabled(not d.installing)
-            pb.clicked.connect(lambda _=False, dep=d: self.m.pick_dep_folder(dep))
-            r.addWidget(pb)
+            pick_btn = QPushButton(t(label_key))
+            pick_btn.setEnabled(not d.installing)
+            pick_btn.clicked.connect(
+                lambda _=False, dep_id=d.id, fallback=d: self.m.pick_dep_folder(
+                    next((x for x in self.m.deps if x.id == dep_id), fallback)
+                )
+            )
+            r.addWidget(pick_btn)
         outer.addLayout(r)
 
         guide_key = {'ios_sdk': 'dep.guide.iossdk', 'metal': 'dep.guide.metal'}.get(d.id)
@@ -2100,6 +2169,7 @@ class MainWindow(QMainWindow):
             guide.setContentsMargins(18, 2, 4, 0)
             outer.addWidget(guide)
 
+        err = None
         if not d.ok and (d.last_error or d.fix_hint):
             msg = (d.last_error + ' — ' if d.last_error else '') + (t(d.fix_hint) if d.fix_hint else '')
             err = QLabel(msg)
@@ -2107,6 +2177,16 @@ class MainWindow(QMainWindow):
             err.setStyleSheet(f'color: {style.AMBER}; font-size: 11px;')
             err.setContentsMargins(18, 2, 4, 0)
             outer.addWidget(err)
+        if hasattr(self, '_dep_row_widgets'):
+            self._dep_row_widgets[d.id] = {
+                'frame': f,
+                'dot': dot_w,
+                'title': title,
+                'sub': sub,
+                'install_btn': install_btn,
+                'pick_btn': pick_btn,
+                'err': err,
+            }
         return f
 
     def _format_dep_detail(self, d: Dep) -> str:

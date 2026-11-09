@@ -29,7 +29,7 @@ Issue: LNPANDY/NX2Apple#483
  create mode 100644 dm/gfx/tools/forge.py
 
 diff --git a/dm/games/profile_guess.py b/dm/games/profile_guess.py
-index f544492..f184eed 100644
+index a26f2e07..db2e82f4 100644
 --- a/dm/games/profile_guess.py
 +++ b/dm/games/profile_guess.py
 @@ -18,8 +18,9 @@ from romfs import Path, os, open, is_image, source
@@ -81,7 +81,7 @@ index f544492..f184eed 100644
 +        for n in names:
 +            if n.endswith('.forge'):
 +                with open(os.path.join(d, n), 'rb') as f: oodle_forge += forge.is_forge(f.read(len(forge.MAGIC)))
-     return shader_sources(imports, glsl_src, glslc_mods, spirv, len(uepak.unreal_paks(str(romfs), inline=False)), trinity, len(uepak.unreal_paks(str(romfs), inline=True)), gl_names, gl_src, gl_files, oodle_pkz, nro_imp,
+     return shader_sources(imports, glsl_src, glslc_mods, spirv, len(uepak.unreal_paks(str(romfs), inline=False, mains=[exefs / 'main'])), trinity, len(uepak.unreal_paks(str(romfs), inline=True, mains=[exefs / 'main'])), gl_names, gl_src, gl_files, oodle_pkz, nro_imp,
 -                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl)
 +                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl, oodle_forge=oodle_forge)
  
@@ -89,7 +89,7 @@ index f544492..f184eed 100644
  def va_heap(sysres, imports):   # virtual address memory (an NPDM system resource) and a heap: the alias / heap split is a starting point the heap check corrects (Wonder, Tears of the Kingdom; Engage's pool is its own measurement)
 diff --git a/dm/gfx/tests/test_forge.py b/dm/gfx/tests/test_forge.py
 new file mode 100644
-index 0000000..893843a
+index 00000000..893843a0
 --- /dev/null
 +++ b/dm/gfx/tests/test_forge.py
 @@ -0,0 +1,84 @@
@@ -179,7 +179,7 @@ index 0000000..893843a
 +    unittest.main()
 diff --git a/dm/gfx/tools/forge.py b/dm/gfx/tools/forge.py
 new file mode 100644
-index 0000000..f70e116
+index 00000000..f70e1160
 --- /dev/null
 +++ b/dm/gfx/tools/forge.py
 @@ -0,0 +1,94 @@
@@ -278,7 +278,7 @@ index 0000000..f70e116
 +        c = b.find(CTL_MAGIC, c + 4)
 +    return out, bad
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index 4a5477a..151664f 100644
+index 30057b39..a62eff10 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
 @@ -45,6 +45,8 @@
@@ -377,7 +377,7 @@ index 4a5477a..151664f 100644
      global _OODLE
      if _OODLE is None:
          import tempfile
-@@ -2787,11 +2832,12 @@ def pixel_input_cover(shaders):
+@@ -2788,11 +2833,12 @@ def pixel_input_cover(shaders):
          k = min(ins, key=lambda k: (-len(ins[k] & left), k)); cover.append(k); left -= ins[k]
      return cover
  
@@ -392,7 +392,7 @@ index 4a5477a..151664f 100644
  def separable_pairs(keys):
      """Single-stage programs (13 Sentinels: each GLSLC output becomes a program with one stage, and BindProgram's stage bits combine vertex and pixel programs per draw; Unreal combines its shaders per draw
      from the pipeline state) have their real pairs only at draw time. vs_pad uses only the union of the locations the paired pixel shaders read, so every single-stage vertex shader is paired with
-@@ -2966,6 +3012,9 @@ def scan_file_in(args):
+@@ -2967,6 +3013,9 @@ def scan_file_in(args):
      if len(args) > 2 and args[2][0] == FB_CAS:   # CompiledBytecode resources of a Frostbite cas file (frostbite_jobs)
          frostbite_shaders(path, rel, args[2][1], found)
          return rel, uniq_keys(found), var_pairs(found), trees
@@ -402,7 +402,7 @@ index 4a5477a..151664f 100644
      if len(args) > 2 and head[:4] == PKZL:   # entries of a PlatinumGames PKZ (pkz_jobs)
          pkz_shaders(path, rel, args[2], found)
          return rel, uniq_keys(found), var_pairs(found), trees
-@@ -3155,8 +3204,9 @@ def main():
+@@ -3156,8 +3205,9 @@ def main():
      ah_jobs, arhs = arh_jobs(files)   # Monolith's ARH1/ARD archives and embedded XBC1/HCPS programs
      fb_jobs, fbs = frostbite_jobs(files)   # EA SPORTS FC 27's Frostbite bundles, Oodle Leviathan decoded by the game's own decoder in the Mac host
      pd_jobs, pdats = pdat_jobs(files)   # Kirby Air Riders' PDAT archives: the PMAP records in byte ranges
@@ -415,7 +415,7 @@ index 4a5477a..151664f 100644
          n = len(big) + len(files)
          results += pooled(ex, big, n) + pooled(ex, files, n, len(big), chunk=16)
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 5f2aae9..1473971 100644
+index 5deb36c3..401a65b7 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
 @@ -265,6 +265,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
@@ -432,7 +432,7 @@ index 5f2aae9..1473971 100644
  ### SPK shader package in an MT Framework ARC
  
  - **How it is stored:** The Great Ace Attorney Chronicles keeps its one shader package, `sc\NX_64\root` (`SPK\0`, type hash `0x02358e1a`) in `nativeNXx64/sa/NX_64/root.arc` ([01](../agents/01-extract.md)). After the package's tables every shader is a code area followed directly by its control section, back to back to the end of the file: 230 vertex shaders, then 230 pixel shaders.
-@@ -688,6 +695,7 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+@@ -702,6 +709,7 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
  - **Cause:** a game that builds one NVN program per GLSLC output and combines vertex and pixel programs per draw with `BindProgram` stage bits has its real pairs only at draw time, so the offline build cannot know which pixel shaders a vertex shader must feed.
  - **Fix:** the composite-program path ([Programs bound per stage](rendering.md#programs-bound-per-stage)) does all the pairing at replay. When every pixel shader input is a plain `float4` at fixed locations, `shader_split.py` pairs every vertex shader with a *cover*: the fewest pixel shaders whose inputs together are every input any pixel shader reads. `vs_pad` then gives each vertex shader all of them, and any vertex / pixel combination links.
  - **Found on:** [13 Sentinels: Aegis Rim](../../dm/games/01003FC01670C000/README.md): 838 `ProgramSetShaders` at startup; every pixel shader input is a plain `float4` at locations 1–9 (the SPH input map, words 6–13, matches the translated MSL inputs for all 375 pixel shaders), so the cover is one shader.
@@ -441,7 +441,7 @@ index 5f2aae9..1473971 100644
  ### Unwritten components of a written output start as (0, 0, 0, 1)
  
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 71dc95d..22be70f 100755
+index 2d88a224..fd30032e 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -1046,7 +1046,7 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):

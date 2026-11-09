@@ -20,10 +20,10 @@ Issue: LNPANDY/NX2Apple#483
  2 files changed, 12 insertions(+), 2 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 8b6621c..159ff64 100644
+index 10c5869e..86d86e39 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -1924,11 +1924,15 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+@@ -2121,11 +2121,15 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
      // MTLBuffer.contents may autorelease its receiver; keep that lifetime inside the completed copy.
      @autoreleasepool {
      int n = r->n; post_op *ops = r->ops; seg_clk *sc = r->sc; uint32_t seg_last = r->seg_last;
@@ -31,7 +31,7 @@ index 8b6621c..159ff64 100644
 +    // a game's occlusion culling from other causes of objects that come and go (Assassin's Creed II's background flicker)
 +    const char *va = getenv("DM_NVN_VIS_ALL"); int vis_all = va && atoi(va);
      for (int i = 0; i < n; i++) {
-         if (ops[i].kind == 1) { if (ops[i].mode == 1) *ops[i].val += ops[i].v; else *ops[i].val = ops[i].v; }
+         if (ops[i].kind == 1) continue;   // A terminal release publishes after every earlier GPU write has landed.
          else if (ops[i].kind == 3) {   // Samples passed: the sum of all slots since the reset
              vis_list *l = ops[i].vis; uint64_t sum = 0;
              for (int k = 0; k < l->n; k++) { sum += ((const uint64_t *)((__bridge id<MTLBuffer>)l->s[k].buf).contents)[l->s[k].slot]; CFRelease(l->s[k].buf); }
@@ -39,7 +39,7 @@ index 8b6621c..159ff64 100644
              free(l); uint64_t rec[2] = {sum, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec);
          }
          else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
-@@ -13959,7 +13963,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
+@@ -14375,7 +14379,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
          c.pools, (unsigned long long)c.pool_adds, c.sview_nonnull, dl, (unsigned long long)da, c.c1_bufs, (unsigned long long)c.c1_alloc, (unsigned long long)c.c1_data);
  }
  // Screenshot on request (used by DM_NVN_SHOT_UI): dm_gfx_shot_at(k, path) = take a screenshot at the kth frame after the current present frame; due requests are checked at every frame's present
@@ -49,7 +49,7 @@ index 8b6621c..159ff64 100644
  static pthread_mutex_t g_shotq_mu = PTHREAD_MUTEX_INITIALIZER;
  static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4]);
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 5351ff9..0bbed63 100644
+index bf50c5b2..6dee6c66 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -215,7 +215,8 @@ void hid_keys_init(void) {

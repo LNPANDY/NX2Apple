@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import shutil
 import sys
 import time
@@ -436,6 +437,52 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         _refuse_capture('this game (nn::jit)')()
     mod.capture_jit = capture_jit
 
+    # ---------------------------------------------------------------- Unreal inline shaders
+    if not hasattr(mod, '_nspb_orig_split_shaders') and hasattr(mod, 'split_shaders'):
+        mod._nspb_orig_split_shaders = mod.split_shaders
+
+    if hasattr(mod, '_nspb_orig_split_shaders'):
+        _orig_split_shaders = mod._nspb_orig_split_shaders
+
+        def split_shaders(py_, repo_, roms, mains, pkg, env, logs, g,
+                          provisional=False, oodle=None, *a, **kw):
+            """Defer the Mac-host Oodle requirement for Unreal inline-shader paks (`ue_legacy`).
+
+            Upstream passes an `oodle` callback whenever `oodle_packs` or `ue_legacy` is non-empty,
+            and `split_shaders` invokes `oodle()` before running `shader_split.py`. Non-Unreal
+            Oodle archives (`oodle_packs`) have already been verified to contain Oodle streams, so
+            they keep `oodle` and stop immediately. Unreal inline-shader paks (`ue_legacy`, such as
+            OCTOPATH TRAVELER I & II or Yoshi's Crafted World) frequently store their pak blocks
+            and inline `LSLG` shaders with Zlib, LZ4, or no compression, which `shader_split.py`
+            decodes in Python without a Mac host. Run `shader_split.py` with `oodle=None`; if a
+            package actually needs the Mac-host Oodle/LZ5 decoder, `run_ipa` catches the
+            `DM_OODLE_HOST` diagnostic in `shader_split.log` and raises `BuildError` before any
+            tables or cache keys are written.
+            """
+            if oodle is not None:
+                pg = getattr(mod, 'pg', None)
+                if pg is None:
+                    games_dir = str(Path(repo_) / 'dm' / 'games')
+                    if games_dir not in sys.path:
+                        sys.path.insert(0, games_dir)
+                    try:
+                        import importlib
+                        pg = importlib.import_module('profile_guess')
+                    except Exception:
+                        pg = None
+                has_oodle_packs = pg is not None and any(
+                    pg.oodle_packs(r)[0] for r in roms
+                )
+                if not has_oodle_packs:
+                    oodle = None
+                    if env.get('DM_EXPERIMENTAL_BUILDER') == '1':
+                        env = dict(env)
+                        env.pop('DM_EXPERIMENTAL_BUILDER', None)
+            return _orig_split_shaders(py_, repo_, roms, mains, pkg, env, logs, g,
+                                       provisional, oodle, *a, **kw)
+
+        mod.split_shaders = split_shaders
+
     # ---------------------------------------------------------------- Mac outputs
     def mac_app(*a, **k):
         raise BuildError('--platform mac-app packs a macOS app: it needs a Mac')
@@ -478,7 +525,21 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
                 raise BuildError('--prepare-xcode needs Xcode and xcodegen: drop it on Windows')
             cmd = [sys.executable, str(Path(__file__).resolve().parent / 'build_app.py'),
                    *cmd[2:]]
-        return _UPSTREAM_RUN(cmd, log, *a, **kw)
+        res = _UPSTREAM_RUN(cmd, log, *a, **kw)
+        if (len(cmd) >= 2 and cmd[1].replace('\\', '/').endswith('dm/gfx/tools/shader_split.py')
+                and log is not None and Path(log).is_file()):
+            text = Path(log).read_text(encoding='utf-8', errors='replace')
+            if ('Oodle- or LZ5-compressed game files: set DM_OODLE_HOST' in text
+                    or 'the game\'s decoder in the Mac host' in text):
+                if len(cmd) >= 5 and Path(cmd[4]).parent.name.endswith('.partial'):
+                    mod.rmtree(Path(cmd[4]).parent)
+                m = re.search(r'^\[RED\] (.+)$', text, re.M)
+                detail = f'{m.group(1)}\n' if m else ''
+                raise BuildError(
+                    f'{detail}this game\'s shader archives use Oodle or LZ5 compression, which '
+                    'must be decoded by booting the game\'s own arm64 code in a Mac host '
+                    f'(each file in {log})')
+        return res
 
     mod.run = run_ipa
 

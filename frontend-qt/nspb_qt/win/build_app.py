@@ -1170,7 +1170,9 @@ def main(argv: list[str] | None = None) -> int:
                                    '--identity', str(romfs), str(game), str(version),
                                    str(pkg or '')], capture_output=True)
             if r_id.returncode == 0 and r_id.stdout:
-                rid_file.write_bytes(r_id.stdout)
+                # iOS parses the final index token up to LF. Windows stdout's
+                # CRLF leaves a trailing CR, so romfs_id_parse rejects it.
+                rid_file.write_bytes(r_id.stdout.replace(b'\r\n', b'\n'))
                 maps.append(f'Payload/DmIOS.app/romfs.id={rid_file}')
         t('packing a slim IPA without the RomFS (the game files come from Documents/romfs)')
     try:

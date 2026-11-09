@@ -369,52 +369,6 @@
         }
       }
     },
-    "Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Passt die Auflösung unter Last zwischen 70 % und 100 % an. Ausschalten, um die volle Auflösung des gewählten Konsolenmodus zu behalten."
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajuste la résolution entre 70 % et 100 % selon la charge. Désactivez pour garder la pleine résolution du mode choisi."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Riduce la risoluzione fino al 70% quando il carico aumenta. Disattivala per mantenere il 100% della risoluzione prevista dalla modalità console selezionata."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "負荷に応じて解像度を 70% から 100% の間で調整します。オフにすると、選択したモードのフル解像度を維持します。"
-          }
-        },
-        "sv": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Anpassar upplösningen mellan 70 % och 100 % under belastning. Stäng av för att behålla full upplösning för det valda konsolläget."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "负载较高时在 70% 到 100% 之间调整分辨率。关闭后保持所选主机模式的完整分辨率。"
-          }
-        }
-      }
-    },
     "All games": {
       "localizations": {
         "de": {
@@ -6253,6 +6207,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "左扳机键"
+          }
+        }
+      }
+    },
+    "Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubt dem Spiel, die Auflösung unter Last zu senken. Ausschalten, um die volle Auflösung des gewählten Konsolenmodus zu behalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet au jeu de baisser sa résolution sous charge. Désactivez pour garder la pleine résolution du mode choisi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permette al gioco di abbassare la risoluzione quando il carico aumenta. Disattivala per mantenere la risoluzione piena della modalità scelta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "負荷が高いとき、ゲームが解像度を下げることを許可します。オフにすると、選択したモードのフル解像度を維持します。"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Låter spelet sänka upplösningen under belastning. Stäng av för att behålla full upplösning för det valda konsolläget."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许游戏在负载较高时降低分辨率。关闭后保持所选主机模式的完整分辨率。"
           }
         }
       }
