@@ -9,7 +9,7 @@ import NXModel
 /// What reaches back from one store to another is wired here as closures and narrow protocols: the repository's `didMove` starts the
 /// engine sync, the engine sync reads the repository and the interpreter, the build reads the repository, the tools, the engine and
 /// the devices, and the stores that need to know whether a build runs ask the build store. What needs AppKit (the file panels, the
-/// alert, the Finder, quitting) is wired here too.
+/// Finder, quitting) is wired here too.
 @MainActor final class LauncherStores {
     let localizer: Localizer
     let runner: ProcessRunner
@@ -86,7 +86,7 @@ import NXModel
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in ProcessGroups.endAll() }
     }()
 
-    /// What the build store asks of AppKit: the open panel, the folder panel, the save panel, the alert and the Finder.
+    /// What the build store asks of AppKit: the open panel, the folder panel, the save panel and the Finder.
     private func wirePanels() {
         build.choosePaths = { pick in
             let p = NSOpenPanel()
@@ -112,14 +112,6 @@ import NXModel
             p.canCreateDirectories = true
             guard p.runModal() == .OK else { return nil }
             return p.url
-        }
-        build.showNotice = { title, text in
-            let a = NSAlert()
-            a.messageText = title
-            a.informativeText = text
-            a.alertStyle = .informational
-            a.addButton(withTitle: "OK")
-            a.runModal()
         }
         build.revealFolder = { NSWorkspace.shared.open($0) }
         build.revealItem = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }

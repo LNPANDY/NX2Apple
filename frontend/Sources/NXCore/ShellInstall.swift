@@ -551,7 +551,11 @@ package struct ShellInstaller {
             log("signing: the team's provisioning profile cannot carry the Increased Memory Limit capability; signing without it (a large game may run out of memory)\n")
             var plain = env; plain["DM_ENTITLEMENTS"] = ""
             let again = run(ShellInstall.projectCommand(repo: repo), env: plain, label: projectName, step: { _ in nil })
-            if again.status == 0 { noMemoryCapability = true; built = sign(bundleID) }
+            if again.status == 0 {
+                ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
+                noMemoryCapability = true
+                built = sign(bundleID)
+            }
         }
         if built.status != 0 {
             let why = built.lastError ?? fmt("msg.exitCode", built.status)

@@ -968,7 +968,7 @@ def main(argv: list[str] | None = None) -> int:
         shutil.copy2(env['DM_ENV_FILE'], dmres / 'env.txt')
 
     framework_only = env.get('DM_FRAMEWORK_ONLY') or ''
-    pso = build_pso_archive(repo, w, game, gd, gp, gfx, msl_ios, v, env) if framework_only else None
+    pso = build_pso_archive(repo, w, game, gd, gp, gfx, msl_ios, v, env)
 
     if not framework_only:
         (dmres / 'font').mkdir()
@@ -1149,10 +1149,16 @@ def main(argv: list[str] | None = None) -> int:
         maps.append(f'Payload/DmIOS.app/html={romfs.parent / "html"}')
     if (romfs.parent / 'jit').is_dir():
         maps.append(f'Payload/DmIOS.app/jit={romfs.parent / "jit"}')
-    if aoc and aoc.is_dir() and any(aoc.iterdir()):
-        maps.append(f'Payload/DmIOS.app/aoc={aoc}')
-        t('add-on content: ' + ' '.join(sorted(p.name for p in aoc.iterdir())))
     full = bool(env.get('DM_FULL_ROMFS'))
+    if aoc and aoc.is_dir() and any(aoc.iterdir()):
+        if full:
+            maps.append(f'Payload/DmIOS.app/aoc={aoc}')
+            t('add-on content packed into the IPA: ' + ' '.join(sorted(p.name for p in aoc.iterdir())))
+        else:
+            t('add-on content alongside the game data (DM_FULL_ROMFS=1 packs it): '
+              + ' '.join(sorted(p.name for p in aoc.iterdir())))
+    if pso and pso.is_dir() and any(pso.iterdir()):
+        maps.append(f'Payload/DmIOS.app/pso={pso}')
     if full:
         resource = romfs_resource(romfs)
         maps.append(f'Payload/DmIOS.app/{resource}={romfs}')
@@ -1164,7 +1170,9 @@ def main(argv: list[str] | None = None) -> int:
                                    '--identity', str(romfs), str(game), str(version),
                                    str(pkg or '')], capture_output=True)
             if r_id.returncode == 0 and r_id.stdout:
-                rid_file.write_bytes(r_id.stdout)
+                # iOS parses the final index token up to LF. Windows stdout's
+                # CRLF leaves a trailing CR, so romfs_id_parse rejects it.
+                rid_file.write_bytes(r_id.stdout.replace(b'\r\n', b'\n'))
                 maps.append(f'Payload/DmIOS.app/romfs.id={rid_file}')
         t('packing a slim IPA without the RomFS (the game files come from Documents/romfs)')
     try:
@@ -1178,7 +1186,7 @@ def main(argv: list[str] | None = None) -> int:
     for skip in PACK_SKIPS:
         pack += ['--skip', skip]
     prof_h = (gen / 'profile/game_profile.h').read_text(encoding='utf-8', errors='replace')
-    if '#define DM_GAME_PSO_MTL4 1' not in prof_h:
+    if not pso and '#define DM_GAME_PSO_MTL4 1' not in prof_h:
         pack += ['--skip-suffix', '_bp.metallib']
     pack += maps
     r = subprocess.run(pack, capture_output=True, text=True, errors='replace')

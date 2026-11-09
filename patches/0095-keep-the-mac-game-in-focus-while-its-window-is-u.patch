@@ -21,10 +21,10 @@ Issue: LNPANDY/NX2Apple#911
  2 files changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 792eda42..a8f19f60 100644
+index 5e11442..9f478e8 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1298,9 +1298,9 @@ void front_run(void (*guest)(void)) {
+@@ -1356,9 +1356,9 @@ void front_run(void (*guest)(void)) {
          // content view by itself; only the scale factor has to be carried over to the screen the window ended up on. The screen's rate is matched in fullscreen only (screen_match_apply)
          [nc addObserverForName:NSWindowDidEnterFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; screen_refresh(win.screen); g_fullscreen = 1; g_layer.contentsScale = win.backingScaleFactor; screen_match_apply(); }];
          [nc addObserverForName:NSWindowDidExitFullScreenNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; g_fullscreen = 0; screen_refresh(win.screen); g_layer.contentsScale = win.backingScaleFactor; screen_match_apply(); }];
@@ -38,10 +38,10 @@ index 792eda42..a8f19f60 100644
          [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_resume(); dm_focus_set(1); }];
          [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1); }];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index e1d163f2..33ba1115 100644
+index c9f9c9b..6c08a73 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -39,7 +39,7 @@ DM_EXEC_OUT	path	File `oe::ExecuteProgram` records the next program and its para
+@@ -40,7 +40,7 @@ DM_EXEC_OUT	path	File `oe::ExecuteProgram` records the next program and its para
  DM_EXPERIMENTAL_BUILDER	switch	`1` makes the NSP script run the extraction and the shader split through nxbuild's binaries beside `NXB_BIN` (the path of its `nxb` binary) where nxbuild supports the case, with the same outputs; any other case, an unsupported stage or an output that fails the checks runs the standard way (the Mac launcher's Use experimental builder setting)
  DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and kinds of file descriptors the process has open
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison

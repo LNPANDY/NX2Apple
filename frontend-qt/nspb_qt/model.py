@@ -23,6 +23,7 @@ from . import input_staging
 from . import inputs
 from . import library as lib
 from . import platform_util as pu
+from . import romfs_languages
 from .i18n import Lang
 from .l10n import t
 
@@ -418,6 +419,26 @@ class Model(QObject):
         except RuntimeError:
             pass
 
+    @Slot()
+    def _emit_deps_changed(self) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.depsChanged.emit()
+            else:
+                QMetaObject.invokeMethod(self, '_emit_deps_changed', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
+    @Slot()
+    def _emit_repo_changed(self) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.repoChanged.emit()
+            else:
+                QMetaObject.invokeMethod(self, '_emit_repo_changed', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
     def load_game_from_library(self, game: lib.LibraryGame) -> None:
         base = (game.inputs.get('base') or [''])[0]
         if base and inputs.is_game_folder_candidate(base):
@@ -488,7 +509,7 @@ class Model(QObject):
                     self._engine_syncing = False
                     self.engine_syncing = False
                     self.engine_failure = bf.Failure(engine.ENGINE_SYNC)
-                    self.repoChanged.emit()
+                    self._emit_repo_changed()
                     if then: then(False)
                     return
                 extra = {'PATH': str(Path(git).parent) + os.pathsep + pu.child_env()['PATH']}
@@ -496,7 +517,7 @@ class Model(QObject):
             self._engine_syncing = False
             self.engine_syncing = False
             self.engine_failure = None if ok else bf.Failure(kind or engine.ENGINE_SYNC)
-            self.repoChanged.emit()
+            self._emit_repo_changed()
             if then: then(ok)
 
         threading.Thread(target=work, daemon=True).start()
@@ -582,10 +603,7 @@ class Model(QObject):
             self.log(traceback.format_exc() + '\n')
             self.deps = []
             self.deps_checked = True
-            try:
-                self.depsChanged.emit()
-            except RuntimeError:
-                pass
+            self._emit_deps_changed()
 
     def _python_row(self, py: str, py_ok: bool, py_ver: str) -> Dep:
         """The interpreter row: fine, missing packages, missing interpreter, or too old.
@@ -699,10 +717,7 @@ class Model(QObject):
             self.python_path, self.python_ok, self.python_ver = py, py_ok, py_ver
             self.dotnet_path, self.dotnet_ok = dn, dn_ok
         self.deps_checked = True
-        try:
-            self.depsChanged.emit()
-        except RuntimeError:
-            pass
+        self._emit_deps_changed()
         if getattr(sys, 'frozen', False) and not self._app_update_checked:
             self._app_update_checked = True
             self.check_app_update(silent=True)
@@ -870,7 +885,7 @@ class Model(QObject):
         try:
             from .win import fetch as wf
             self.log(self.t('repo.gitInstalling') + '\n')
-            self.repoChanged.emit()
+            self._emit_repo_changed()
             wf.install_git(log=lambda s: self.log(str(s) + '\n'))
         except Exception as e:
             self.log(f'git install failed: {e}\n')
@@ -910,7 +925,7 @@ class Model(QObject):
                 except Exception as e:
                     self.log(self.t('repo.gitInstallFail', str(e)) + '\n')
                 self.repo_busy = False
-                self.repoChanged.emit()
+                self._emit_repo_changed()
                 if ok:
                     self.clone_repo(dest)      # now git exists: the normal path
                 else:
@@ -951,7 +966,7 @@ class Model(QObject):
                 self.sync_engine()
             elif not ok:
                 shutil.rmtree(target, ignore_errors=True)   # a failed clone leaves a stub
-            self.repoChanged.emit()
+            self._emit_repo_changed()
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1036,7 +1051,7 @@ class Model(QObject):
                     self.log(self.repo_status + '\n')
                     return
                 self.repo_status = self.t('repo.pulling')
-                self.repoChanged.emit()
+                self._emit_repo_changed()
                 self.log(self.t('repo.pulling') + '\n')
                 if stream(['pull', '--ff-only', 'origin', 'main'], 'pull'):
                     self.repo_behind = 0
@@ -1047,7 +1062,7 @@ class Model(QObject):
                 self.log(self.repo_status + '\n')
             finally:
                 self.repo_busy = False
-                self.repoChanged.emit()
+                self._emit_repo_changed()
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1092,10 +1107,7 @@ class Model(QObject):
                         self.app_update_status = self.t('app.upToDate')
             finally:
                 self.app_update_busy = False
-                try:
-                    self.repoChanged.emit()
-                except RuntimeError:
-                    pass
+                self._emit_repo_changed()
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1134,10 +1146,7 @@ class Model(QObject):
                 self.app_update_progress = frac
                 pct = int(round(frac * 100))
                 self.app_update_status = self.t('app.downloading', f'{pct}%' if pct > 0 else rel.tag)
-                try:
-                    self.repoChanged.emit()
-                except RuntimeError:
-                    pass
+                self._emit_repo_changed()
             self.log(
                 f'  {done_bytes // 1048576} MB'
                 + (f' / {total_bytes // 1048576} MB ({done_bytes * 100 // total_bytes}%)' if total_bytes else '')
@@ -1187,10 +1196,7 @@ class Model(QObject):
             finally:
                 self.app_update_busy = False
                 self.app_update_progress = None
-                try:
-                    self.repoChanged.emit()
-                except RuntimeError:
-                    pass
+                self._emit_repo_changed()
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1258,7 +1264,7 @@ class Model(QObject):
                     self.log(self.t('dep.install.fail', '-') + '\n')
             finally:
                 self._clear_installing(dep)
-                self.depsChanged.emit()
+                self._emit_deps_changed()
                 self.check_deps()
                 dep._install_done = True  # type: ignore[attr-defined]
 
@@ -1327,12 +1333,16 @@ class Model(QObject):
                 self.install_all_pct = min(100, new_overall)
                 changed = True
         if changed or force:
-            sig = getattr(self, 'depsChanged', None)
-            if sig is not None and hasattr(sig, 'emit'):
-                try:
-                    sig.emit()
-                except RuntimeError:
-                    pass
+            emit_fn = getattr(self, '_emit_deps_changed', None)
+            if callable(emit_fn):
+                emit_fn()
+            else:
+                sig = getattr(self, 'depsChanged', None)
+                if sig is not None and hasattr(sig, 'emit'):
+                    try:
+                        sig.emit()
+                    except RuntimeError:
+                        pass
 
     def _stage_progress_logger(self, dep: Dep, label: str, artifact_name: str, *,
                                phase: str = 'download',
@@ -1346,7 +1356,7 @@ class Model(QObject):
             if not total:
                 return
             pct = max(0, min(100, done * 100 // total))
-            if pct == ui_seen['pct'] and pct not in (0, 100):
+            if pct == ui_seen['pct']:
                 return
             ui_seen['pct'] = pct
             done_mb = done // 1048576
@@ -1460,7 +1470,7 @@ class Model(QObject):
                         self._record_install_failure(dep, detail)
                 elif what == 'llvm':
                     self.log(self.t('dep.llvm.downloading') + '\n')
-                    name = wtc.LLVM_ASSETS.get('AMD64', {}).get('name', 'LLVM-MinGW')
+                    name = wtc.LLVM_MINGW_ASSETS.get('AMD64', {}).get('name', 'LLVM-MinGW')
                     path = wf.install_llvm(
                         log=lambda s: self.log(str(s) + '\n'),
                         progress=self._stage_progress_logger(
@@ -1539,7 +1549,11 @@ class Model(QObject):
                 self.log(traceback.format_exc() + '\n')
                 self._record_install_failure(dep, detail)
             self._clear_installing(dep)
-            self.depsChanged.emit()
+            emit_fn = getattr(self, '_emit_deps_changed', None)
+            if callable(emit_fn):
+                emit_fn()
+            else:
+                self.depsChanged.emit()
             self.check_deps()
             dep._install_done = True  # type: ignore[attr-defined]
 
@@ -1674,7 +1688,7 @@ class Model(QObject):
             if not total:
                 return
             pct = done * 100 // total
-            if pct < seen['pct'] + 5 and pct != 100:
+            if pct == seen['pct'] or (pct < seen['pct'] + 5 and pct != 100):
                 return
             seen['pct'] = pct
             self.log(f'  {label} {pct}%  ({done // 1048576} / {total // 1048576} MB)\n')
@@ -1926,10 +1940,7 @@ class Model(QObject):
                 self.install_all_step = 0
                 self.install_all_total = 0
                 self.install_all_pct = 0
-                try:
-                    self.depsChanged.emit()
-                except RuntimeError:
-                    pass
+                self._emit_deps_changed()
 
         threading.Thread(target=run_all, daemon=True).start()
 
@@ -2116,26 +2127,68 @@ class Model(QObject):
                 return
         base_dir = folder.folder if folder is not None else str(Path(self.base_path).parent)
         # a game folder or a NUP goes to the script as it is: nothing is staged and no file is a package
-        all_files = [] if folder is not None else [self.base_path, self.update_path] + self.dlc_paths
-        dirs = {str(Path(f).parent) for f in all_files if f}
+        all_files = [] if folder is not None else [f for f in ([self.base_path, self.update_path] + list(self.dlc_paths)) if f]
+        dirs = {str(Path(f).parent) for f in all_files}
+        picked = {Path(f).name for f in all_files}
+        unpicked: list[str] = []
+        if folder is None:
+            try:
+                unpicked = sorted(
+                    n for n in os.listdir(base_dir)
+                    if not n.startswith('._')
+                    and Path(n).suffix.lower() in inputs.GAME_SUFFIXES
+                    and n not in picked
+                    and Path(base_dir, n).is_file()
+                )
+            except OSError:
+                unpicked = []
+        staged = list(all_files)
+        if folder is None:
+            base_tid = int(title_id, 16) if title_id else inputs.title_id(Path(self.base_path).name)
+            if base_tid is not None:
+                app = base_tid & ~0xFFF
+                upd_candidates: list[str] = []
+                for f in unpicked:
+                    ftid = inputs.title_id(f)
+                    if ftid is None or inputs.owner(ftid) != app:
+                        continue
+                    low = ftid & 0xFFF
+                    if low == 0:
+                        continue
+                    if low == 0x800:
+                        if not self.update_path:
+                            upd_candidates.append(f)
+                        continue
+                    if ftid <= app:
+                        continue
+                    staged.append(str(Path(base_dir, f)))
+                if upd_candidates:
+                    best_upd = max(upd_candidates, key=lambda n: (inputs.update_version(n), n))
+                    staged.append(str(Path(base_dir, best_upd)))
 
         self._last_build_inputs = self._package_inputs()
         tid_hex = title_id or self.build_key
         work_dir = str(Path(self.out_dir or base_dir, f'{tid_hex}_build'))
 
         input_dir = folder.script_input if folder is not None else base_dir
-        if len(dirs) > 1 or any(input_staging.needs_lowercase_name(f) for f in all_files if f):
+        if folder is None and (
+            len(dirs) > 1
+            or bool(unpicked)
+            or any(input_staging.needs_lowercase_name(f) for f in staged if f)
+        ):
             # (a .NSP or .Xci file goes through it too, under a lowercase extension: the script's glob misses it, #554)
-            # files from different folders: a stable folder of links per game, so the script sees one
-            # folder and its fingerprints match on the next build (#132)
+            # files from different folders or a shared ROMs folder: a stable folder of links per game, so the script sees
+            # one game and its fingerprints match on the next build (#58, #132)
             staging = input_staging.folder(work_dir)
-            if input_staging.sync(all_files, staging, hard_links=not pu.IS_WIN) == 0:
+            if input_staging.sync(staged, staging, hard_links=not pu.IS_WIN) == 0:
                 self.finished.emit(False, self.t('msg.stagingFailed'))
                 return
             input_dir = staging
+            if unpicked:
+                self.log(self.t('msg.stagedFromSharedFolder', Path(self.base_path).name) + '\n')
 
         compressed = any(Path(f).suffix.lower() in ('.nsz', '.xcz')
-                         for f in all_files if f)
+                         for f in staged if f)
         if compressed and not pu._runs(py, ['-c', 'import nsz']):
             self.log(self.t('msg.installingNsz') + '\n')
             if not pu._runs(py, ['-m', 'pip', 'install', 'nsz']):
@@ -2630,7 +2683,7 @@ class Model(QObject):
             if lp.is_file():
                 try:
                     data = json.loads(lp.read_text(encoding='utf-8'))
-                    ltid = str(data.get('title_id') or '').strip() if isinstance(data, dict) else ''
+                    ltid = str((data.get('title_id') or data.get('game')) or '').strip() if isinstance(data, dict) else ''
                     if re.fullmatch(r'[0-9A-Fa-f]{16}', ltid):
                         return ltid.upper()
                 except Exception:
@@ -2724,6 +2777,7 @@ class Model(QObject):
                         versions.append((int(d.name[1:]), d))
                     except ValueError:
                         pass
+            versions.sort(key=lambda x: x[0])
         if not versions:
             if export_shell:
                 return self._export_shell_after_archive(True, self.t('msg.archiveSkipped', str(extract)))
@@ -2742,6 +2796,8 @@ class Model(QObject):
 
         ok = True
         out_img = Path(dest, 'romfs.img')
+        id_src = Path(f'{romfs_img}.id')
+        id_dst = Path(f'{out_img}.id')
         try:
             Path(dest).mkdir(parents=True, exist_ok=True)
             if romfs_img.is_file():
@@ -2759,6 +2815,9 @@ class Model(QObject):
                         os.link(romfs_img, out_img)
                     except OSError:
                         shutil.copy2(romfs_img, out_img)
+                id_dst.unlink(missing_ok=True)
+                if id_src.is_file():
+                    shutil.copy2(id_src, id_dst)
             else:
                 py_exe = self.python_path
                 if not py_exe:
@@ -2776,12 +2835,22 @@ class Model(QObject):
                     self.log(line)
                 p.wait()
                 ok = p.returncode == 0
+                id_dst.unlink(missing_ok=True)
+                if ok and id_src.is_file():
+                    shutil.copy2(id_src, id_dst)
             aoc_dst = Path(dest, 'aoc')
             aoc_src = Path(work, 'aoc')
             if ok:
                 shutil.rmtree(aoc_dst, ignore_errors=True)
                 if aoc_src.is_dir() and any(aoc_src.iterdir()):
                     shutil.copytree(aoc_src, aoc_dst)
+                try:
+                    from .win import shell_export as se
+                    fw = se.built_framework(work)
+                    if fw is not None:
+                        romfs_languages.apply_to_launcher_json(fw / 'dm' / 'launcher.json', dest)
+                except Exception:
+                    pass
         except OSError as e:
             self.log(f'{e}\n')
             ok = False

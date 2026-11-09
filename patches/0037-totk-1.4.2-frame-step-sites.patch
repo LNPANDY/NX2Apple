@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#303
  3 files changed, 45 insertions(+), 25 deletions(-)
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index d29d7af..10876cc 100644
+index daace8a..2ef56fd 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -24,6 +24,13 @@ Update 1.4.3 (v720896) over the base game, SDK 20.5.22. Nintendo EPD's engine (s
@@ -70,7 +70,7 @@ index 223a7f7..fb0af7d 100644
  shader_versions	v720896
  
 diff --git a/dm/games/0100F2C0115B6000/patches.py b/dm/games/0100F2C0115B6000/patches.py
-index 42673bc..0b6b7d7 100644
+index 3da200e..b8c9186 100644
 --- a/dm/games/0100F2C0115B6000/patches.py
 +++ b/dm/games/0100F2C0115B6000/patches.py
 @@ -7,11 +7,12 @@ from nso_asm import ADRP, B, NOP, STP_PRE

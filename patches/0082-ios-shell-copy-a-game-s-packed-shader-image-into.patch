@@ -143,10 +143,10 @@ index 0d20b82..cfba21f 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 1af6290..3019b44 100755
+index e9f3555..889811c 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -256,7 +256,7 @@ if [ "$PREPARE_XCODE" = YES ]; then
+@@ -257,7 +257,7 @@ if [ "$PREPARE_XCODE" = YES ]; then
  fi
  
  # DM_FRAMEWORK_ONLY: the framework target alone, unsigned (build_shell.sh's project embeds it and Xcode signs it with the shell), then the
@@ -155,7 +155,7 @@ index 1af6290..3019b44 100755
  # archive (pso/, DM_PSO_BUNDLE) and the icon the shell's library shows. The game files and add-on content stay out (data, Documents/games/<id>/)
  if [ -n "$FRAMEWORK_ONLY" ]; then
    t "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"
-@@ -269,8 +269,17 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
+@@ -270,8 +270,17 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
    [ -f "$BUILT/$FW_NAME" ] || die "no built framework $BUILT"
    OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
    rsync -a --delete --exclude /msl --exclude /pso --exclude /icon.png -- "$BUILT/" "$OUTFW/" || die "copy the framework to $OUTFW"

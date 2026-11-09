@@ -5,10 +5,44 @@
                                                 bundles nothing and says so (exit 0): the launcher's setting then needs a chosen nxb.
   nxbuild.py bump <version>                     pin a new release: its digest from the release's SHA256SUMS
 Nothing here runs nxb: a zip whose digest differs is deleted and the step fails."""
-import hashlib, os, re, subprocess, sys, urllib.request, zipfile
+import hashlib, os, re, shutil, subprocess, sys, time, urllib.error, urllib.request, zipfile
 from pathlib import Path
 
 PIN = Path(__file__).resolve().parents[1] / 'nxbuild.pin'
+RETRY_HTTP = {408, 429, 500, 502, 503, 504}
+GH_RELEASE_RE = re.compile(r'^https://github\.com/([^/]+/[^/]+)/releases/download/([^/]+)/([^/]+)$')
+
+
+def _gh_release_download(url, part):
+    m = GH_RELEASE_RE.match(url)
+    if not m or not shutil.which('gh'):
+        return False
+    repo, tag, asset = m.groups()
+    r = subprocess.run(['gh', 'release', 'download', tag, '-R', repo, '-p', asset, '-O', str(part), '--clobber'])
+    return r.returncode == 0 and part.is_file() and part.stat().st_size > 0
+
+
+def download(url, dest=None, retries=5, delay=10):
+    """Read url (and write dest atomically via dest.part when given), retrying transient HTTP 5xx/429 and network errors."""
+    part = Path(f'{dest}.part') if dest is not None else None
+    if part is not None and _gh_release_download(url, part):
+        part.replace(dest)
+        return Path(dest).read_bytes()
+    for attempt in range(1, retries + 1):
+        try:
+            with urllib.request.urlopen(url, timeout=60) as r:
+                data = r.read()
+            if part is not None:
+                part.write_bytes(data)
+                part.replace(dest)
+            return data
+        except urllib.error.HTTPError as e:
+            if e.code not in RETRY_HTTP or attempt == retries:
+                raise
+        except (urllib.error.URLError, TimeoutError, ConnectionError):
+            if attempt == retries:
+                raise
+        time.sleep(delay)
 
 
 def read(pin=PIN):
@@ -60,7 +94,7 @@ def fetch(resources, work):
         return None
     work.mkdir(parents=True, exist_ok=True)
     z = work / Path(pin['url']).name
-    urllib.request.urlretrieve(pin['url'], z)
+    download(pin['url'], z)
     nxb = unpack(z, pin['sha256'], resources / 'nxbuild')
     subprocess.run(['codesign', '--force', '--sign', '-', str(nxb)], check=True)
     print(f'nxbuild {pin["version"]}: {nxb} ({pin["sha256"]})')
@@ -77,7 +111,7 @@ def sums_digest(text, name):   # the digest of name in a SHA256SUMS text ("<hex>
 def bump(version, pin=PIN):
     old = pin.read_text()
     url = read(pin)['url'].replace(read(pin)['version'], version)
-    with urllib.request.urlopen(url.rsplit('/', 1)[0] + '/SHA256SUMS') as r: sums = r.read().decode()
+    sums = download(url.rsplit('/', 1)[0] + '/SHA256SUMS').decode()
     sha = sums_digest(sums, Path(url).name)
     new = re.sub(r'^version\t.*$', f'version\t{version}', old, flags=re.M)
     pin.write_text(re.sub(r'^sha256\t.*$', f'sha256\t{sha}', new, flags=re.M))
