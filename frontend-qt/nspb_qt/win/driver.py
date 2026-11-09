@@ -25,8 +25,8 @@ What gets replaced, and why:
 `capture_shaders`         reuses existing `gl_capture` / `vk_capture` folders, reconstructs
                           LÖVE (`love_shaders.py`) and GameMaker (`gm_shaders.py`) OpenGL
                           shaders offline, and refuses other uncaptured run-time shaders
-`capture_glslc`           reuses existing `glslc_capture` folders when complete, and refuses
-                          missing captures with the device-capture workflow explained
+`capture_glslc`           reuses existing `glslc_capture` folders or compiles embedded GLSL
+                          sources offline through the game's own `GLSLC` NSO (`glslc_emu.py`)
 `capture_jit` /           reuses `jit/jit.img` or packs existing `jit_capture/` dumps via
 `capture_nro`             `jit_capture.py`, and refuses missing runtime JIT or NRO captures
 `mac_app` / `mac_run`     Mac platforms: refused
@@ -460,7 +460,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         return fn
     def capture_glslc(repo_=None, dirs=None, pkg_ver=None, patched=None, work=None,
                       env=None, logs=None, g=None, *a, **kw):
-        """Reuse complete `glslc_capture` folders across `dirs`, or refuse when missing."""
+        """Reuse existing `glslc_capture` folders or compile embedded GLSL shaders offline."""
         if isinstance(dirs, dict) and dirs and hasattr(mod, 'glslc_done'):
             want = (
                 mod.glslc_wanted(g)
@@ -483,6 +483,66 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
                 )
                 mod.PROG.end('reused')
                 return None
+
+            from . import glslc_emu
+            mod.PROG.stage('GLSLC capture')
+            t0 = time.time()
+            all_ok = True
+            total_got = 0
+            for ver in todo:
+                d_path = Path(dirs[ver])
+                cap = d_path / 'glslc_capture.partial'
+                mod.rmtree(cap)
+                nro_cands: list[Path] = []
+                if patched is not None:
+                    p_path = Path(patched)
+                    nro_cands.append(
+                        p_path.with_name('nro_' + p_path.name.removeprefix('patched_'))
+                    )
+                if work is not None:
+                    nro_cands.append(Path(work) / f'nro_{ver}')
+                mod.PROG.set(
+                    step='compiling run-time shaders offline',
+                    done=0,
+                    total=len(want) if want else None,
+                    unit='shaders',
+                )
+                say(f'compiling run-time GLSLC shaders offline → {d_path / "glslc_capture"}')
+                try:
+                    glslc_emu.compile_for_version(
+                        d_path,
+                        cap,
+                        nro_dirs=nro_cands,
+                        wanted=want,
+                        say=say,
+                        progress=lambda n: mod.PROG.set(done=n),
+                    )
+                except Exception as exc:
+                    say(f'offline GLSLC compilation failed ({exc})')
+                    mod.rmtree(cap)
+                    all_ok = False
+                    break
+                got = mod.glslc_done(cap)
+                if want and got >= want or (not want and got):
+                    mod.swap_in(cap, d_path / 'glslc_capture')
+                    total_got += len(got)
+                else:
+                    if want:
+                        say(f'offline GLSLC compilation incomplete: got {len(got & want)}/{len(want)} shader(s)')
+                    mod.rmtree(cap)
+                    all_ok = False
+                    break
+            if all_ok:
+                dt = time.time() - t0
+                end_msg = (
+                    f'{total_got} shaders in {mod.hms(dt)}'
+                    if hasattr(mod, 'hms')
+                    else f'{total_got} shaders'
+                )
+                mod.PROG.end(end_msg)
+                return None
+            mod.PROG.end(ok=False)
+
         return _refuse_capture('this game')(
             repo_, dirs, pkg_ver, patched, work, env, logs, g, *a, **kw
         )

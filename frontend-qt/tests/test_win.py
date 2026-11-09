@@ -1763,7 +1763,7 @@ class PlatformIsolationTest(unittest.TestCase):
                 'import sys; sys.path.insert(0, %r)\n'
                 'from nspb_qt.win import toolchain, sdk_fetch, shim, fix_ipa_modes, fetch, '
                 'doctor, build_app, driver, xcrun_shim, macho_sign, sdk_auto_cuts, '
-                'love_shaders, arm64_emu, oodle_emu, gm_shaders, nro_emu\n'
+                'love_shaders, arm64_emu, oodle_emu, gm_shaders, nro_emu, glslc_emu\n'
                 'print("ok")\n'
             ) % str(QT)
             r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
