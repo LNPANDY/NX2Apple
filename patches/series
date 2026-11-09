@@ -64,9 +64,10 @@
 0097-docs-env-switches-row-for-dm-nvn-bc-alias.patch
 0098-nsp-script-package-names-which-upstream-dropped.patch
 0099-host-serve-nsd-services.patch
-0100-shader-split-scimitar-forge-archives-and-raw-con.patch
-0101-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0102-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0103-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
-0104-audren-merge-updates-closer-than-a-frame-for-a-r.patch
-0105-nsp-script-a-program-s-dlc-counts-from-the-appli.patch
+0100-test-one-pro-controller-is-one-pad.patch
+0101-shader-split-scimitar-forge-archives-and-raw-con.patch
+0102-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0103-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0104-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0105-audren-merge-updates-closer-than-a-frame-for-a-r.patch
+0106-nsp-script-a-program-s-dlc-counts-from-the-appli.patch
