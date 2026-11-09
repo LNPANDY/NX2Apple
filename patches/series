@@ -66,3 +66,4 @@
 0099-host-serve-nsd-services.patch
 0100-test-one-pro-controller-is-one-pad.patch
 0101-shader-split-zstd-in-process.patch
+0102-mac-render-switch-hd-rumble-through-dualsense-us.patch
