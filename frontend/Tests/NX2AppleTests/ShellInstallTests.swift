@@ -317,6 +317,9 @@ import NXModel
             if os.path.exists(STATE + '/nomemory') and not os.path.exists(os.path.dirname(val('-project')) + '/entitlements-empty'):
                 print('error: Provisioning profile iOS Team Provisioning Profile: ' + bundle + ' doesn\\'t include the Increased Memory Limit capability.', flush=True)
                 sys.exit(65)
+            if os.path.exists(STATE + '/fail-xcodebuild'):
+                print('error: Communication with Apple failed: Your device is offline.', flush=True)
+                sys.exit(65)
             app = val('-derivedDataPath') + '/Build/Products/Release-iphoneos/DmShell.app'
             fwlist = os.path.dirname(val('-project')) + '/frameworks.txt'
             if os.path.exists(fwlist):
@@ -329,6 +332,10 @@ import NXModel
                     os.makedirs(app + '/Frameworks/' + os.path.basename(fw), exist_ok=True)
             os.makedirs(app, exist_ok=True)
             open(app + '/bundle.txt', 'w').write(bundle)
+            if os.path.exists(STATE + '/new-profile'):
+                shutil.copyfile(STATE + '/new-profile', app + '/embedded.mobileprovision')
+                os.makedirs(app + '/_CodeSignature', exist_ok=True)
+                open(app + '/_CodeSignature/CodeResources', 'w').write('new-sig')
             print('CodeSign ' + app, flush=True)
         elif a[:3] == ['devicectl', 'list', 'devices']:
             n = (int(open(STATE + '/list-count').read()) if os.path.exists(STATE + '/list-count') else 0) + 1
@@ -344,6 +351,9 @@ import NXModel
                 sys.exit(1)
             shutil.copyfile(src, val('--destination'))
         elif a[:3] == ['devicectl', 'device', 'install']:
+            if os.path.exists(STATE + '/fail-install'):
+                print('ERROR: The device was disconnected during installation.', flush=True)
+                sys.exit(1)
             app = a[-1]
             bundle = open(app + '/bundle.txt').read()
             os.makedirs(CONT + '/' + bundle + '/Documents', exist_ok=True)   # an existing container is kept as it is
@@ -916,6 +926,7 @@ import NXModel
         let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
         model.target = "ios"
+        model.home = path("home")
         model.outDir = path("out")
         modelStores.dependencies.pythonPath = "/usr/bin/python3"
         modelStores.dependencies.dotnetPath = "/usr/bin/true"
@@ -970,10 +981,73 @@ import NXModel
         try fm.createSymbolicLink(atPath: pkgLink, withDestinationPath: translocated)
         try fm.createSymbolicLink(atPath: shellLink, withDestinationPath: "/private/var/folders/xx/T/AppTranslocation/2CFF0344-0DA8/Shell")
         try write(container + "/org.nxnative.shell/Documents/save/slot1.bin", "my save")
+        model.home = path("home")
+        let cachedProfiles = model.home + "/Library/Developer/Xcode/UserData/Provisioning Profiles"
+        try fm.createDirectory(atPath: cachedProfiles, withIntermediateDirectories: true)
+        let staleExpiry = Date(timeIntervalSince1970: 1_900_000_000)
+        let freshExpiry = Date(timeIntervalSince1970: 1_900_604_800)
+        let staleProfile = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "STALE-UUID",
+                "Name": "iOS Team Provisioning Profile: org.nxnative.shell",
+                "TeamIdentifier": [team],
+                "Entitlements": ["application-identifier": "\(team).org.nxnative.shell"],
+                "ExpirationDate": staleExpiry
+            ],
+            format: .xml,
+            options: 0
+        )
+        let freshProfile = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "FRESH-UUID",
+                "Name": "iOS Team Provisioning Profile: org.nxnative.shell",
+                "TeamIdentifier": [team],
+                "Entitlements": ["application-identifier": "\(team).org.nxnative.shell"],
+                "ExpirationDate": freshExpiry
+            ],
+            format: .xml,
+            options: 0
+        )
+        let appPath = model.installedAppPath
+        try staleProfile.write(to: URL(fileURLWithPath: cachedProfiles + "/STALE-UUID.mobileprovision"))
+        try staleProfile.write(to: URL(fileURLWithPath: appPath + "/embedded.mobileprovision"))
+        try fm.createDirectory(atPath: appPath + "/_CodeSignature", withIntermediateDirectories: true)
+        try write(appPath + "/_CodeSignature/CodeResources", "old-sig")
+
+        // 1. If xcodebuild itself fails, staged profiles and _CodeSignature roll back intact.
+        try write(state + "/fail-xcodebuild", "")
+        let failedSign = expectation(description: "Failed xcodebuild")
+        model.resignOnDevice(app: appPath, device: device) { failedSign.fulfill() }
+        wait(for: [failedSign], timeout: 30)
+        try fm.removeItem(atPath: state + "/fail-xcodebuild")
+        XCTAssertTrue(fm.fileExists(atPath: cachedProfiles + "/STALE-UUID.mobileprovision"))
+        XCTAssertEqual(AppSignature.expiration(ofApp: appPath), staleExpiry)
+        XCTAssertEqual(try String(contentsOfFile: appPath + "/_CodeSignature/CodeResources"), "old-sig")
+
+        // 2. Once xcodebuild succeeds and embeds a new 7-day profile + signature, a later devicectl install failure
+        // keeps the newly signed DmShell.app intact rather than rolling the old profile back over the newly signed binary.
+        try freshProfile.write(to: URL(fileURLWithPath: state + "/new-profile"))
+        try write(state + "/fail-install", "")
+        let failedInstall = expectation(description: "Failed devicectl install after xcodebuild succeeded")
+        model.resignOnDevice(app: appPath, device: device) { failedInstall.fulfill() }
+        wait(for: [failedInstall], timeout: 30)
+        try fm.removeItem(atPath: state + "/fail-install")
+        XCTAssertFalse(fm.fileExists(atPath: cachedProfiles + "/STALE-UUID.mobileprovision"),
+                       "stale cached profile is committed as soon as xcodebuild writes the new signature")
+        XCTAssertEqual(AppSignature.expiration(ofApp: appPath), freshExpiry,
+                       "DmShell.app keeps its newly signed 7-day profile when only devicectl install fails")
+        XCTAssertEqual(try String(contentsOfFile: appPath + "/_CodeSignature/CodeResources"), "new-sig")
+
+        // 3. Full re-sign + install succeeds.
+        try staleProfile.write(to: URL(fileURLWithPath: cachedProfiles + "/STALE-UUID.mobileprovision"))
         let before = calls.count
         let resigned = expectation(description: "Re-signed")
-        model.resignOnDevice(app: model.installedAppPath, device: device) { resigned.fulfill() }
+        model.resignOnDevice(app: appPath, device: device) { resigned.fulfill() }
         wait(for: [resigned], timeout: 30)
+        try? fm.removeItem(atPath: state + "/new-profile")
+        XCTAssertFalse(fm.fileExists(atPath: cachedProfiles + "/STALE-UUID.mobileprovision"),
+                       "stale cached profile must be cleared so Xcode requests a fresh 7-day profile")
+        XCTAssertEqual(AppSignature.expiration(ofApp: appPath), freshExpiry)
         let log = Array(calls.dropFirst(before))
         let build = try XCTUnwrap(log.first { $0.hasPrefix("xcodebuild") })
         XCTAssertTrue(build.contains("-project \(f.root)/project/DmShell.xcodeproj -scheme DmShell"), build)
@@ -1012,6 +1086,7 @@ import NXModel
         let modelStores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = modelStores.build
         modelStores.repo.path = f.repo
         model.target = "ios"
+        model.home = path("home")
         model.outDir = path("out")
         modelStores.dependencies.pythonPath = "/usr/bin/python3"
         modelStores.dependencies.dotnetPath = "/usr/bin/true"
