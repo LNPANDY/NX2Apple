@@ -69,3 +69,4 @@
 0102-allow-ios-packaging-without-a-recorded-prewarm-s.patch
 0103-ios-shell-return-to-library-on-quit-with-full-ho.patch
 0104-ios-fade-out-the-settings-gear-after-3-idle-seco.patch
+0105-mac-app-exit-at-once-with-dm-preflight.patch

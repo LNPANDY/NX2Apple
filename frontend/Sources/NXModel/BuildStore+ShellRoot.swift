@@ -67,6 +67,7 @@ extension BuildStore {
         // Plan again: a build may have written to the cache since the confirmation was shown
         let plan = ShellRootMove.plan(from: shellCachePath, to: shown.destination)
         guard plan.problem == nil else { shellMove = .confirm(plan); return nil }
+        buildingGame = false; runningTarget = BuildTarget.ios
         running = true
         shellMoveStop.set(false)
         shellMove = .moving(phase: .copying, done: 0, total: plan.bytes)

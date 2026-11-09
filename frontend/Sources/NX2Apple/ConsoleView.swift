@@ -75,9 +75,6 @@ enum ConsoleInput {
                     }
                 }
             }
-            .overlay(alignment: .top) {
-                if let toast = state.toast { ConsoleToastView(toast: toast).id(toast.id).transition(.opacity) }
-            }
             .frame(width: geometry.size.width, height: geometry.size.height)
             .clipped()
         }
@@ -167,11 +164,20 @@ enum ConsoleInput {
     /// Its height never changes, so a controller arriving or leaving moves nothing below it.
     private func topBar(compact: Bool) -> some View {
         HStack(spacing: compact ? 12 : 20) {
+            if let activity = state.activity { ConsoleActivityChip(activity: activity, compact: compact) }
             ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
             Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
                 .foregroundStyle(.white.opacity(0.65)).fixedSize()
         }
         .frame(height: compact ? 40 : 52)
+        // The banner sits under the bar, so it never covers the controller chips, and it is drawn over the page without moving it (#1004)
+        .overlay(alignment: .top) {
+            if let toast = state.toast {
+                ConsoleToastView(toast: toast).id(toast.id).transition(.opacity)
+                    .offset(y: (compact ? 40 : 52) - 12)
+            }
+        }
+        .zIndex(1)
     }
 
     /// A caption shows only while its tile is fully inside the row, so a clipped tile never leaves a fragment of text at the margin.

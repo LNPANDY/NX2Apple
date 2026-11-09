@@ -18,6 +18,14 @@ import Testing
         #expect(m.icon == nil)
     }
 
+    /// #696: the console the engine writes, and a manifest from before it did.
+    @Test func readsTheConsoleWhenTheManifestHasOne() throws {
+        let good = String(decoding: try fixture(Fixtures.orbit, "game.manifest.json"), as: UTF8.self)
+        #expect(try GameManifest.parse(Data(good.utf8)).console == nil)
+        let with = good.replacingOccurrences(of: "\"schema\": 1", with: "\"schema\": 1, \"console\": \"switch2\"")
+        #expect(try GameManifest.parse(Data(with.utf8)).console == "switch2")
+    }
+
     @Test func malformedManifestsGiveReadableReasons() throws {
         func problem(_ text: String) -> GameProblem? {
             do { _ = try GameManifest.parse(Data(text.utf8)); return nil } catch { return error }

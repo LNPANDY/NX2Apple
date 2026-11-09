@@ -84,8 +84,17 @@ struct ConsoleController: Identifiable, Equatable {
     var batteryPercent: Int? { battery.map { Int((min(max($0.isFinite ? $0 : 0, 0), 1) * 100).rounded()) } }
 }
 
+/// What the desktop is doing, as the top bar's chip shows it (#1004): the operation line and the current stage's progress, nil when
+/// the stage has no share to report. It is never a whole-build percentage or a time: stages are not equal parts of a build.
+struct ConsoleActivity: Equatable {
+    var title: String
+    var stageProgress: Double?
+    /// "Current stage 40 percent", already localized, for VoiceOver.
+    var spokenProgress = ""
+}
+
 struct ConsoleToast: Equatable, Identifiable {
-    var id = UUID()
+    var id = UUID()   // the notice's own (ConsoleNoticeQueue), so the view animates one change per notice
     /// A button glyph shown after the message (the controller in use), for a toast that names a button.
     var glyph: ConsoleGlyphs.Glyph? = nil
     /// Already localized by the driver, using console connection/identification keys.
@@ -123,6 +132,7 @@ struct ConsoleState {
     var padMerge = false
     var joyconSplit = false
     var toast: ConsoleToast?
+    var activity: ConsoleActivity?
     var identifyingControllerID: String?
     var assigningControllerID: String?
     var starting: ConsoleStarting = .preparing

@@ -11,8 +11,12 @@ import NXLauncher
     let controls = ControlLayout()
     /// Records the builds in the library whichever view is up: console mode takes LauncherView down while a build runs on.
     let recorder: BuildRecorder
-    lazy var console = LiveConsoleDriver(library: library, controls: controls, repo: { [stores] in stores.repo.path }, lang: { [stores] in stores.localizer.lang },
-                                         labels: { [stores] in stores.localizer.t($0) })
+    lazy var console: LiveConsoleDriver = {
+        let driver = LiveConsoleDriver(library: library, controls: controls, repo: { [stores] in stores.repo.path }, lang: { [stores] in stores.localizer.lang },
+                                       labels: { [stores] in stores.localizer.t($0) })
+        driver.bindActivity(stores.build)   // the top bar's chip shows the desktop's build (#1004)
+        return driver
+    }()
 
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil) {
         self.stores = stores ?? LauncherStores()
@@ -72,7 +76,7 @@ struct RootView: View {
         let destination = await OnboardingLaunch.decide(defaults: .standard, force: OnboardingLaunch.forced(), keysSlotIsEmpty: stores.build.keysPath.isEmpty) {
             await stores.dependencies.refreshDepsAndWait()
             let env = OnboardingEnvironment()
-            let keysKnown = stores.build.slot("keys").ok || !env.keyCandidates(gamesFolder: library.folder).isEmpty || library.games.contains(where: \.isReady)
+            let keysKnown = stores.build.keysReady || !env.keyCandidates(gamesFolder: library.folder).isEmpty || library.games.contains(where: \.isReady)
             let gamesKnown = !library.folder.isEmpty || !library.games.isEmpty
             return OnboardingLaunch.setupComplete(depsPresent: stores.dependencies.allPresent, keysKnown: keysKnown, gamesKnown: gamesKnown)
         }

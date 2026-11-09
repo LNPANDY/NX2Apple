@@ -60,14 +60,21 @@ final class ToolsAge: ObservableObject {
         return buildInputs.contains { path.hasPrefix($0) }
     }
 
-    /// The engine's commit (the pin plus the series), for a git engine only (an engine tree has no history to compare against).
+    /// What identifies the engine a build used. A git engine: its commit (the pin plus the series). A release engine tree has no
+    /// history but names itself (`.engine-id`, `<pin>-<12 hex of the series>`): `engine:<id>` then, so a game built with it can
+    /// tell that the engine moved on (LNPANDY/NX2Apple#944). nil when the engine says neither.
     nonisolated static func head(repo: String, git: GitCheckout = SystemGitCheckout()) -> String? {
         let engine = EngineLayout.root(repo)
-        guard !engine.isEmpty, FileManager.default.fileExists(atPath: engine + "/.git"), git.binary != nil else { return nil }
-        let r = git.run(engine, ["rev-parse", "HEAD"])
-        let commit = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
-        return r.ok && !commit.isEmpty ? commit : nil
+        guard !engine.isEmpty else { return nil }
+        if FileManager.default.fileExists(atPath: engine + "/.git"), git.binary != nil {
+            let r = git.run(engine, ["rev-parse", "HEAD"])
+            let commit = r.out.trimmingCharacters(in: .whitespacesAndNewlines)
+            if r.ok && !commit.isEmpty { return commit }
+        }
+        return EngineStore.identity(of: URL(fileURLWithPath: engine)).map { releasePrefix + $0 }
     }
+
+    nonisolated static let releasePrefix = "engine:"
 
     /// The files changed between a recorded commit and the engine's HEAD; nil when git cannot tell (a commit the engine does not
     /// have, as for a game built before step 2 or after engine/ was made anew), which marks nothing rather than everything.
@@ -85,6 +92,9 @@ final class ToolsAge: ObservableObject {
         var diffs: [String: [String]] = [:]
         var marked: Set<UUID> = []
         for build in recorded where build.commit != head {
+            // A release engine tree has no history to diff: any other engine than the one the game was built with counts, and the
+            // note says "different tools", never that a fix is in it. The files that changed are unknown there.
+            if build.commit.hasPrefix(releasePrefix) || head.hasPrefix(releasePrefix) { marked.insert(build.id); continue }
             if diffs[build.commit] == nil { diffs[build.commit] = changedFiles(since: build.commit, repo: repo) ?? [] }
             if diffs[build.commit]!.contains(where: { affects($0, titleID: build.titleID) }) { marked.insert(build.id) }
         }

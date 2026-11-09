@@ -81,6 +81,8 @@ extension BuildStore {
     /// the player chose when the device has several.
     package func sendGameData(bundle: String? = nil) {
         guard canSendToDevice else { return }
+        buildingGame = false; runningTarget = BuildTarget.ios
+        beginOperation(.sendingGameData, game: packedGameName, titleID: packedTitleID, destination: .target)
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         send = .sending(done: 0, total: 0, note: "")
         var installer = makeInstaller()
@@ -122,9 +124,18 @@ extension BuildStore {
         oneGame || archive.isEmpty ? nil : archive
     }
 
+    /// The failed automatic install owns its archive, even if another game has since been selected.
+    /// Export failures use the export's archive. No recovery is offered before a copy fails.
+    package var finderArchive: String? {
+        if failure?.kind == .shellDataIncomplete {
+            return Self.finderItem(archive: shellRetry?.archive ?? "", oneGame: false)
+        }
+        return send.offersFinder ? Self.finderItem(archive: archivePath, oneGame: false) : nil
+    }
+
     /// The Finder way, after the copy to the device did not work: a Finder window with the game's folder selected, ready to drag.
     package func copyWithFinder(oneGame: Bool) {
-        guard send.offersFinder, let item = Self.finderItem(archive: archivePath, oneGame: oneGame) else { return }
+        guard !running, !oneGame, let item = finderArchive else { return }
         revealItem(URL(fileURLWithPath: item))
         finderShown = true
     }
@@ -153,6 +164,8 @@ extension BuildStore {
     package func copyToDrive() {
         refreshDrive()
         guard canCopyToDrive else { return }
+        buildingGame = false; runningTarget = BuildTarget.ios
+        beginOperation(.sendingGameData, game: packedGameName, titleID: packedTitleID, destination: .folder)
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         driveCancel.set(false)
         send = .copying(done: 0, total: drive?.needed ?? 0)

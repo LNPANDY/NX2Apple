@@ -34,7 +34,7 @@ package struct ProgressCard: View {
                         Spacer(minLength: 12)
                         if s.state == .running {
                             TimelineView(.periodic(from: Date(), by: 1)) { context in
-                                Text([s.detail, s.clock(at: context.date, left: loc.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · "))
+                                Text([s.detail, s.clock(at: context.date, left: loc.t("prog.etaEstimate"))].filter { !$0.isEmpty }.joined(separator: " · "))
                                     .font(.manrope(12)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
                             }
                         } else if !s.detail.isEmpty { Text(s.detail).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(1) }

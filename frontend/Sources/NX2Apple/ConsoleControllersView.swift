@@ -188,6 +188,28 @@ struct ConsoleControllerChips: View {
     }
 }
 
+/// The desktop's work in the top bar: its operation line and a bar for the current stage. It takes no focus and has no action.
+struct ConsoleActivityChip: View {
+    let activity: ConsoleActivity
+    let compact: Bool
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "wrench.and.screwdriver")
+            Text(activity.title).lineLimit(1).truncationMode(.tail)
+            LauncherProgressBar(value: activity.stageProgress, height: 5).frame(width: compact ? 48 : 72)
+        }
+        .font(.manrope(compact ? 13 : 15, .semibold)).foregroundStyle(.white.opacity(0.8))
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(LauncherPalette.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
+        .frame(maxWidth: compact ? 260 : 420, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(activity.title)
+        .accessibilityValue(activity.spokenProgress)
+        .allowsHitTesting(false)
+    }
+}
+
 struct ConsoleToastView: View {
     let toast: ConsoleToast
     var body: some View {

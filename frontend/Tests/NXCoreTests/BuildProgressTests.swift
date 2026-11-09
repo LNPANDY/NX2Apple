@@ -13,13 +13,26 @@ final class BuildProgressTests: XCTestCase {
         XCTAssertEqual(BuildProgress.progressDetail(["step": "booting the game"]), "booting the game")
     }
 
-    /// The stage's clock runs on while the count stands still, and the script's estimate counts down from when it came, then goes.
+    /// The stage's clock runs on while the count stands still, and a defensible estimate counts down from when it came, then goes.
     func testStageClockCountsOnAndTheEstimateRunsOut() {
         let t0 = Date()
-        let stage = Stage(id: 1, name: "shader split", started: t0, eta: 71, etaAt: t0.addingTimeInterval(10))
-        XCTAssertEqual(stage.clock(at: t0.addingTimeInterval(42), left: "%@ left"), "0:42 · " + BuildProgress.duration(39) + " left")
+        // 50 % after 40 s projects 40 s more, the script says 71 s from t0 + 10 s: the same order of size, so it is shown.
+        let stage = Stage(id: 1, name: "shader split", percent: 50, started: t0, eta: 71, etaAt: t0.addingTimeInterval(10))
+        XCTAssertEqual(stage.clock(at: t0.addingTimeInterval(40), left: "%@ left"), "0:40 · " + BuildProgress.duration(41) + " left")
         XCTAssertEqual(stage.clock(at: t0.addingTimeInterval(125), left: "%@ left"), "2:05")   // the estimate ran out: no stale "1 min 11 s left"
         XCTAssertEqual(stage.clock(at: t0.addingTimeInterval(3725), left: "%@ left"), "1:02:05")
+    }
+
+    /// #934: an estimate of 18 hours for a stage that is 60 % done after ten minutes is not shown, nor one before the stage reports a share.
+    func testAnEstimateThatDisagreesWithTheStagesOwnProgressIsNotShown() {
+        let t0 = Date()
+        let now = t0.addingTimeInterval(600)
+        XCTAssertNil(Stage(id: 1, name: "shaders", percent: 60, started: t0, eta: 18 * 3600, etaAt: now).remaining(at: now))
+        XCTAssertNil(Stage(id: 1, name: "shaders", started: t0, eta: 120, etaAt: now).remaining(at: now))   // no share of the stage
+        XCTAssertNil(Stage(id: 1, name: "shaders", percent: 2, started: t0, eta: 120, etaAt: now).remaining(at: now))   // too early to project
+        XCTAssertNil(Stage(id: 1, name: "shaders", percent: 50, started: t0, eta: 600, etaAt: t0.addingTimeInterval(10)).remaining(at: t0.addingTimeInterval(20)))   // 20 s in
+        XCTAssertEqual(Stage(id: 1, name: "shaders", percent: 60, started: t0, eta: 400, etaAt: now).remaining(at: now), 400)
+        XCTAssertEqual(Stage(id: 1, name: "shaders", percent: 60, started: t0, eta: 18 * 3600, etaAt: now).clock(at: now, left: "%@ left"), "10:00")
     }
 
     /// Issue #52: the failure note names the last real line, not just the exit code.

@@ -13,6 +13,9 @@ struct BuildPage: View {
     let repo: RepoStore
     let dependencies: DependencyStore
     let devices: DeviceStore
+    let queue: BuildQueueStore
+    let transfers: TransferQueueStore
+    var onSelectGames: () -> Void = {}
     @Binding var extrasOpen: Bool   // the optional input rows of the files card
     @Binding var logOpen: Bool   // the log card's disclosure
     @State private var showRunningSetup = false
@@ -21,7 +24,7 @@ struct BuildPage: View {
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
-        CardPageHeading(loc.t("build.heading"), note: loc.t(running ? (build.target == BuildTarget.mac ? "activity.mac" : "activity.ios") : "build.intro"))
+        CardPageHeading(loc.t("build.heading"), note: loc.t("build.intro"))
         if running {
             ProgressCard(build: build)
             CardDisclosure(loc.t("section.setup"), detail: build.gameName, isOpen: showRunningSetup) { showRunningSetup.toggle() }
@@ -36,6 +39,8 @@ struct BuildPage: View {
             TargetCard(build: build)
         }
         InstallCard(devices: devices, build: build, showLocked: showRunningSetup)
+        BuildQueueCard(queue: queue, onSelectGames: onSelectGames)
+        TransferCard(transfers: transfers) { build.revealTransfer($0) }
         LogCard(log: build.log, devices: devices, isOpen: $logOpen,
                 showRequests: BuildNotifier.shared.$showLog.eraseToAnyPublisher(),   // a clicked notification of a failed build
                 didShow: { BuildNotifier.shared.showLog = false })

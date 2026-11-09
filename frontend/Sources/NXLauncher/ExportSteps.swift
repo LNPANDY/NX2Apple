@@ -41,7 +41,13 @@ package struct ExportSteps: View {
                 if exported {
                     action(loc.t("shell.showInFinder")) { revealInFinder(build.exportedIPAPath) }
                 } else {
-                    action(loc.t("shell.step1Button"), enabled: build.canBuild && !build.running) { build.startBuild() }
+                    HStack(spacing: ExportGrid.gap) {
+                        if build.canExportBuiltGames {   // #994: the IPA of the frameworks already built, no game is built again
+                            action(loc.t("shell.exportBuilt"), enabled: true) { build.exportBuiltGames() }
+                                .help(loc.t("shell.exportBuiltNote"))
+                        }
+                        action(loc.t("shell.step1Button"), enabled: build.canBuild && !build.running) { build.startBuild() }
+                    }
                 }
             }
             CardDivider()
@@ -122,6 +128,8 @@ package struct ExportSteps: View {
                 RefreshDevicesButton(devices: devices)
             }
             action(loc.t("shell.sendButton"), enabled: build.canSendToDevice) { build.sendGameData() }
+            action(loc.t("shell.sendAllButton"), enabled: build.canSendAllGameData) { build.sendAllGameData() }
+                .help(loc.t("shell.sendAllNote"))
         }
     }
 
@@ -168,7 +176,7 @@ package struct ExportSteps: View {
                 .buttonStyle(.plain).accessibilityAddTraits(detailsOpen ? .isSelected : [])
             }
         }
-        if build.finderShown { finderSteps }
+        if build.finderShown { FinderCopySteps(archive: build.archivePath) }
         if detailsOpen, let words {
             Text(words).font(.mono(11.5)).foregroundStyle(.secondary).textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -176,28 +184,6 @@ package struct ExportSteps: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(ExportGrid.well, in: RoundedRectangle(cornerRadius: 9))
         }
-    }
-
-    /// The drag in three steps, numbered as the export's own steps but smaller, in a well under the button. The folder is the one the
-    /// Finder window shows selected. Step 3 names the shell's own button, in the language the shell shows it.
-    private var finderSteps: some View {
-        let folder = (build.archivePath as NSString).lastPathComponent
-        let choose = L10n.string("ios.ui.chooseGameData", loc.lang).trimmingCharacters(in: CharacterSet(charactersIn: "….  "))
-        let lines = [loc.t("shell.sendFinderStep1"), String(format: loc.t("shell.sendFinderStep2"), folder),
-                     String(format: loc.t("shell.sendFinderStep3"), choose, folder)]
-        return VStack(alignment: .leading, spacing: 9) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text("\(index + 1)").font(.manrope(11, .semibold)).monospacedDigit().foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18).background(Circle().fill(Color.white.opacity(0.08)))
-                    Text(line).font(.manrope(12.5)).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
-                }
-            }
-        }
-        .padding(.horizontal, 12).padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(ExportGrid.well, in: RoundedRectangle(cornerRadius: 9))
-        .accessibilityElement(children: .combine)
     }
 
     // MARK: To a drive or folder
@@ -335,4 +321,33 @@ enum ExportGrid {
     static let switchWidth: CGFloat = 330   // the two switches of the card are equally wide and end on one edge
     static let quiet: Double = 0.45     // step 3 before there is an IPA, as a switched-off launcher switch
     static let well = Color.black.opacity(0.22)   // a field's inside: the folder, devicectl's own text
+}
+
+/// Shared manual-transfer instructions for the export and automatic-install failure cards.
+struct FinderCopySteps: View {
+    let archive: String
+    @EnvironmentObject var loc: Localizer
+
+    /// The drag in three steps, numbered as the export's own steps but smaller, in a well under the button. The folder is the one the
+    /// Finder window shows selected. Step 3 names the shell's own button, in the language the shell shows it.
+    var body: some View {
+        let folder = (archive as NSString).lastPathComponent
+        let choose = L10n.string("ios.ui.chooseGameData", loc.lang).trimmingCharacters(in: CharacterSet(charactersIn: "….  "))
+        let lines = [loc.t("shell.sendFinderStep1"), String(format: loc.t("shell.sendFinderStep2"), folder),
+                     String(format: loc.t("shell.sendFinderStep3"), choose, folder)]
+        return VStack(alignment: .leading, spacing: 9) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("\(index + 1)").font(.manrope(11, .semibold)).monospacedDigit().foregroundStyle(.secondary)
+                        .frame(width: 18, height: 18).background(Circle().fill(Color.white.opacity(0.08)))
+                    Text(line).font(.manrope(12.5)).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 11)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(ExportGrid.well, in: RoundedRectangle(cornerRadius: 9))
+        .accessibilityElement(children: .combine)
+    }
+
 }

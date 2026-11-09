@@ -9,6 +9,8 @@ extension BuildStore {
     /// Makes the IPA for a game whose framework is built: the shell's project with the frameworks of the games in its library, built
     /// unsigned, zipped as Payload/<app>.app. The game's data stays where the archive step put it.
     package func exportShell(framework: String, titleID: String, name: String) {
+        buildingGame = true; runningTarget = BuildTarget.ios
+        beginOperation(.exportingIPA, game: name, titleID: titleID, destination: .none)
         running = true
         let installer = makeInstaller()
         DispatchQueue.global(qos: .userInitiated).async {

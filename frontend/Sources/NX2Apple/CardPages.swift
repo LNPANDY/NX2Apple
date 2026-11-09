@@ -16,6 +16,9 @@ struct CardPages: View {
     let engine: EngineSyncStore
     let dependencies: DependencyStore
     let devices: DeviceStore
+    let queue: BuildQueueStore
+    let transfers: TransferQueueStore
+    var onSelectGames: () -> Void = {}
     @ObservedObject var library: GameLibrary
     var diagnostics: (LibraryGame?, @escaping (String) -> Void) -> Void = { _, _ in }   // the report of Copy diagnostics (LauncherStores)
     var onViewGame: () -> Void = {}
@@ -37,7 +40,7 @@ struct CardPages: View {
                              diagnostics: diagnostics, onChooseLibraryFolder: onChooseLibraryFolder, onOpenControls: onOpenControls,
                              onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge)
             } else {
-                BuildPage(build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, extrasOpen: $extrasOpen, logOpen: $logOpen,
+                BuildPage(build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, queue: queue, transfers: transfers, onSelectGames: onSelectGames, extrasOpen: $extrasOpen, logOpen: $logOpen,
                           onViewGame: onViewGame, onOpenSettings: onOpenSettings)
             }
         }

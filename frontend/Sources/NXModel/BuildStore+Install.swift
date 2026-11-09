@@ -40,7 +40,11 @@ extension BuildStore {
     /// Steps 4 to 7 of the shared app (ShellInstall.swift) for a game whose framework is built and whose archive is packed: the
     /// shell's project, signing, the install over the app that is already there, and the game data the device lacks.
     package func installShell(framework: String, titleID: String, name: String, archive: String, dataOnly: Bool = false) {
+        buildingGame = true
+        runningTarget = BuildTarget.ios
+        beginOperation(dataOnly ? .sendingGameData : .installing, game: name, titleID: titleID, destination: .target)
         running = true
+        finderShown = false
         if dataOnly { failure = nil; done = false; doneNote = "" }
         shellRetry = (framework, titleID, name, archive)
         let installer = makeInstaller()
@@ -92,6 +96,8 @@ extension BuildStore {
             doneNote = String(format: t("dev.reinstallMissing"), shortPath(app))
             then?(); return
         }
+        buildingGame = false; runningTarget = BuildTarget.ios
+        beginOperation(.installing, game: nil, titleID: nil, destination: .target)
         running = true
         runTool(id: 1004, name: String(format: t("dev.reinstallStage"), devices.deviceName(device)),
                 BuildCommands.reinstallCommand(xcrun: devices.xcrun, device: device, app: app), step: BuildProgress.installStep) { error in
@@ -100,7 +106,9 @@ extension BuildStore {
                 self.running = false
                 self.doneNote = String(format: self.t("dev.reinstallFailed"), error)
             } else {
-                self.finishInstall(nil, note: String(format: self.t("dev.reinstalled"), self.devices.deviceName(device)))
+                self.running = false
+                self.doneNote = String(format: self.t("dev.reinstalled"), self.devices.deviceName(device))
+                self.cleanupStaging()
             }
             then?()
         }
@@ -140,6 +148,8 @@ extension BuildStore {
         }
         let bundle = library.bundleID
         let resources = Bundle.main.resourceURL?.path, repoPath = repo.path, home = self.home, runner = self.runner
+        buildingGame = false; runningTarget = BuildTarget.ios
+        beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .target)
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
         let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
@@ -237,6 +247,8 @@ extension BuildStore {
             doneNote = String(format: t("dev.saveFailed"), error.localizedDescription)
             then?(); return
         }
+        buildingGame = false; runningTarget = BuildTarget.ios
+        beginOperation(.exportingIPA, game: nil, titleID: nil, destination: .none)
         running = true
         runTool(id: 1005, name: t("dev.saveStage"), BuildCommands.ipaCommand(payload: payload.path, ipa: url.path), step: { _ in nil }) { error in
             try? fm.removeItem(at: stage)

@@ -77,6 +77,7 @@ struct ConsolePadSnapshot: Equatable {
     private var launchedPID: Int32?
     private var timeoutTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
+    private var notices = ConsoleNoticeQueue()
     private var clock: Timer?
     /// Real controllers by id, for Identify and player assignment.
     private var devices: [String: GCController] = [:]
@@ -253,7 +254,7 @@ struct ConsolePadSnapshot: Equatable {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, self.state.startingGameID == gameID else { return }
-                    if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription); return }
+                    if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
                     self.launchedPID = pid
                     self.launchedGame = game
                     if let pid { GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in self?.gameDidTerminate(pid: pid) } }   // the launcher's one watcher and its switch (ReturnAfterPlay.swift)
@@ -354,7 +355,7 @@ struct ConsolePadSnapshot: Equatable {
         guard state.padMerge else { return }
         controls.padMerge = false
         state.padMerge = false
-        showToast(t("console.mergeOff"))
+        showToast(t("console.mergeOff"), kind: "controller")
     }
 
     /// The next press from any controller is taken as the answer, for 8 seconds.
@@ -364,7 +365,7 @@ struct ConsolePadSnapshot: Equatable {
             try? await Task.sleep(nanoseconds: UInt64((self?.captureSeconds ?? 8) * 1_000_000_000))
             guard !Task.isCancelled, let self, self.state.assigningPlayer != nil else { return }
             self.cancelCapture()
-            self.showToast(self.t("console.assignTimeout"))
+            self.showToast(self.t("console.assignTimeout"), kind: "controller")
         }
     }
     var captureSeconds: TimeInterval = 8
@@ -405,7 +406,7 @@ struct ConsolePadSnapshot: Equatable {
         } else {
             resolvedID = controllerID
         }
-        if isBack { cancelCapture(); showToast(t("console.assignCancelled")); return true }
+        if isBack { cancelCapture(); showToast(t("console.assignCancelled"), kind: "controller"); return true }
         assignPlayer(controllerID: resolvedID, player: player)
         return true
     }
@@ -423,7 +424,7 @@ struct ConsolePadSnapshot: Equatable {
             devices[id]?.playerIndex = value == 0 ? .indexUnset : (GCControllerPlayerIndex(rawValue: value - 1) ?? .indexUnset)
         }
         refreshControllers(announce: false)
-        showToast(String(format: t("console.assignedTo"), pad.name, player))
+        showToast(String(format: t("console.assignedTo"), pad.name, player), kind: "controller")
     }
     func setPadMerge(_ enabled: Bool) { controls.padMerge = enabled }
     func setJoyconSplit(_ enabled: Bool) {
@@ -477,7 +478,7 @@ struct ConsolePadSnapshot: Equatable {
     func identify(controllerID: String) {
         guard let c = state.controllers.first(where: { $0.id == controllerID }) else { return }
         state.identifyingControllerID = controllerID
-        showToast(String(format: t("console.identifyingName"), c.name))
+        showToast(String(format: t("console.identifyingName"), c.name), kind: "controller")
         guard let pad = devices[controllerID] else { return }
         let actions = Self.identifyActions(pad)
         Self.log.debug("identify \(c.name, privacy: .public): \(actions.map { "\($0)" }.joined(separator: ","), privacy: .public)")
@@ -522,7 +523,7 @@ struct ConsolePadSnapshot: Equatable {
     }
 
     /// macOS offers apps no way to drop a Bluetooth controller, so this says where to do it instead.
-    func disconnect(controllerID: String) { showToast(t("console.disconnectHint")) }
+    func disconnect(controllerID: String) { showToast(t("console.disconnectHint"), kind: "controller") }
 
     /// Controllers that have no player take the next free one, in the order they are listed, as a console does. A fifth has none.
     static func autoAssigned(_ pads: [ConsolePadSnapshot], remembered: [String: Int] = [:]) -> [ConsolePadSnapshot] {
@@ -632,10 +633,10 @@ struct ConsolePadSnapshot: Equatable {
         let first = connected ? announced.insert(id).inserted : announced.remove(id) != nil
         controllerListChanged(connectedName: connected ? name : nil, disconnectedName: connected ? nil : name, including: including, excluding: excluding)
         guard first else { Self.hidLog.debug("repeated \(connected ? "connect" : "disconnect") for \(id, privacy: .public) ignored"); return false }
-        guard connected else { showToast(String(format: t("console.disconnected"), name)); return true }
+        guard connected else { showToast(String(format: t("console.disconnected"), name), kind: "controller"); return true }
         if let player = state.padMerge ? 1 : state.controllers.first(where: { $0.id == id })?.player {
-            showToast(String(format: t("console.connected"), name, player))
-        } else { showToast(t("console.noFreePlayer"), glyph: ConsoleGlyphs.current().glyph(for: .controllers)) }
+            showToast(String(format: t("console.connected"), name, player), kind: "controller")
+        } else { showToast(t("console.noFreePlayer"), glyph: ConsoleGlyphs.current().glyph(for: .controllers), kind: "controller") }
         scheduleBatteryRereads()
         return true
     }
@@ -723,19 +724,46 @@ struct ConsolePadSnapshot: Equatable {
 
     // MARK: Navigation
 
-    func dismissToast() { toastTask?.cancel(); state.toast = nil; state.identifyingControllerID = nil }
+    func dismissToast() { toastTask?.cancel(); notices.clear(); state.toast = nil; state.identifyingControllerID = nil }
     func back() { state.back() }
     func exitToDesktop() { state.exitToDesktop() }
     func returnFromGame() { state.returnFromGame() }
 
-    private func showToast(_ message: String, glyph: ConsoleGlyphs.Glyph? = nil) {
+    /// A passing message goes through the one queue (ConsoleNotices.swift): one at a time, same kinds replace each other, none while a game starts.
+    /// The top bar's activity chip follows the build store: the operation line and the current stage's share (ConsoleActivity).
+    func bindActivity(_ build: BuildStore) {
+        let update: () -> Void = { [weak self, weak build] in
+            guard let self, let build else { return }
+            guard build.running else { self.state.activity = nil; return }
+            let title = build.operationTitle ?? build.t("library.preparing")
+            let share = build.stages.last { $0.state == .running }?.percent.map { min(max($0 / 100, 0), 1) }
+            self.state.activity = ConsoleActivity(title: title, stageProgress: share,
+                                                  spokenProgress: share.map { String(format: build.t("console.stageProgress"), Int($0 * 100)) } ?? "")
+        }
+        build.$running.sink { _ in DispatchQueue.main.async(execute: update) }.store(in: &cancellables)
+        build.$operation.sink { _ in DispatchQueue.main.async(execute: update) }.store(in: &cancellables)
+        build.$stages.sink { _ in DispatchQueue.main.async(execute: update) }.store(in: &cancellables)
+        update()
+    }
+
+    private func showToast(_ message: String, glyph: ConsoleGlyphs.Glyph? = nil, kind: String = "general") {
+        notices.post(kind: kind, message: message, glyph: glyph, now: Date(), suppressed: state.startingGame != nil)
+        publishNotices()
+    }
+
+    private func publishNotices() {
+        notices.advance(now: Date(), suppressed: state.startingGame != nil)
+        let shown = notices.current
+        if state.toast?.id != shown?.id {
+            state.toast = shown.map { ConsoleToast(id: $0.id, glyph: $0.glyph, message: $0.message) }
+        }
+        if shown == nil { state.identifyingControllerID = nil }
         toastTask?.cancel()
-        state.toast = ConsoleToast(glyph: glyph, message: message)
+        guard let until = notices.until else { return }
         toastTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            try? await Task.sleep(nanoseconds: UInt64(max(0.05, until.timeIntervalSinceNow) * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            self?.state.toast = nil
-            self?.state.identifyingControllerID = nil
+            self?.publishNotices()
         }
     }
 }

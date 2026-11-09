@@ -92,9 +92,19 @@ public struct ShellHostConfig: Sendable {
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
-        // Game files stay out of the iCloud backup (#618), also what an earlier version put there. Off the main actor, it lists folders.
+        // Off the main actor, it lists folders and may write GB: a file the Mac launcher sent in parts is joined first (#899), then
+        // the game files are kept out of the iCloud backup (#618), also what an earlier version put there. A joined file can make a
+        // game playable, so the library is read again.
         let dataRoot = config.appDataRoot
-        Task.detached(priority: .utility) { BackupExclusion.apply(appDataRoot: dataRoot) }
+        Task { [weak self] in
+            let joined = await Task.detached(priority: .utility) { () -> Bool in
+                DataParts.writeFeatures(documents: dataRoot.deletingLastPathComponent())
+                let joined = DataParts.joinAll(appDataRoot: dataRoot)
+                BackupExclusion.apply(appDataRoot: dataRoot)
+                return !joined.isEmpty
+            }.value
+            if joined { self?.reload() }
+        }
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
@@ -237,7 +247,8 @@ public struct ShellHostConfig: Sendable {
         let played = lastPlayed(entry.id)
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
-                            recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "")
+                            recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
+                            isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
             return GameDetail(game: tile, dataNote: dataNote(data, found: false))
         }
@@ -337,12 +348,23 @@ public struct ShellHostConfig: Sendable {
         refresh(id)
     }
 
+    /// The folder the player picked, nil on a cancel. A picker that could not be shown says so in the notice (#1049).
+    private func pickedFolder() async -> URL? {
+        switch await picker.pickFolderOutcome() {
+        case .picked(let url): return url
+        case .cancelled: return nil
+        case .unavailable:
+            notice = hostText("The folder picker could not open here. Open the app on its own and try again.")
+            return nil
+        }
+    }
+
     public func pickGameData(_ id: String) {
         Task { await pickGameDataNow(id) }
     }
 
     func pickGameDataNow(_ id: String) async {
-        guard let url = await picker.pickFolder() else { return }
+        guard let url = await pickedFolder() else { return }
         guard dataStore(id).store(url) else {
             notice = hostText("That location could not be remembered. Try a different one.")
             return
@@ -366,21 +388,21 @@ public struct ShellHostConfig: Sendable {
     }
 
     func pickCloudSavesNow(_ id: String) async {
-        guard let url = await picker.pickFolder() else { return }
+        guard let url = await pickedFolder() else { return }
         if cloudStore(id).store(url) { config.defaults(id).removeObject(forKey: GameDefaults.cloudSavesOffKey) }
         else { notice = hostText("That folder could not be remembered. Try a different one.") }
         refresh(id)
     }
 
     func pickShellDataNow() async {
-        guard let url = await picker.pickFolder() else { return }
+        guard let url = await pickedFolder() else { return }
         guard shellData.store(url) else { notice = hostText("That folder could not be remembered. Try a different one."); return }
         shellSettings.storeDataFolderName(url.lastPathComponent)
         refreshAll()
     }
 
     func pickShellCloudNow() async {
-        guard let url = await picker.pickFolder() else { return }
+        guard let url = await pickedFolder() else { return }
         guard shellCloud.store(url) else { notice = hostText("That folder could not be remembered. Try a different one."); return }
         shellSettings.storeCloudSavesFolderName(url.lastPathComponent)
         refreshAll()

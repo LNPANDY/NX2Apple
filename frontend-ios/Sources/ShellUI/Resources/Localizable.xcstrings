@@ -231,6 +231,52 @@
         }
       }
     },
+    "A Switch 2 game. It needs a lot of memory and may not start on every device.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Switch-2-Spiel. Es braucht viel Speicher und startet vielleicht nicht auf jedem Gerät."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Switch 2 game. It needs a lot of memory and may not start on every device."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un jeu Switch 2. Il demande beaucoup de mémoire et peut ne pas démarrer sur tous les appareils."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un gioco Switch 2. Richiede molta memoria e potrebbe non avviarsi su tutti i dispositivi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2のゲームです。多くのメモリを使うため、すべてのデバイスで起動するとは限りません。"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ett Switch 2-spel. Det kräver mycket minne och startar kanske inte på alla enheter."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这是 Switch 2 游戏。它需要大量内存，可能无法在所有设备上启动。"
+          }
+        }
+      }
+    },
     "A and B not swapped": {
       "localizations": {
         "de": {
@@ -10485,6 +10531,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "游戏中交换 A/B"
+          }
+        }
+      }
+    },
+    "Switch 2": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
           }
         }
       }

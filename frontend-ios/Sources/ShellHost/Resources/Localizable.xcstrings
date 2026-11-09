@@ -2209,6 +2209,52 @@
         }
       }
     },
+    "The folder picker could not open here. Open the app on its own and try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ordnerauswahl konnte hier nicht geöffnet werden. Öffne die App allein und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder picker could not open here. Open the app on its own and try again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le sélecteur de dossier n’a pas pu s’ouvrir ici. Ouvrez l’app seule et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il selettore di cartelle non si è potuto aprire qui. Apri l’app da sola e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここではフォルダ選択を開けませんでした。アプリを単独で開いて、もう一度お試しください。"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappväljaren kunde inte öppnas här. Öppna appen på egen hand och försök igen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此处无法打开文件夹选择器。请单独打开此 App 后再试。"
+          }
+        }
+      }
+    },
     "The folder you chose before is no longer readable. Please choose it again.": {
       "localizations": {
         "de": {

@@ -11,17 +11,19 @@ package struct AppCard: View {
     let notify: Binding<Bool>
     let notifyAvailable: Bool   // false without an app bundle, e.g. under swift run
     let returnAfterPlay: Binding<Bool>
+    let preflightAfterBuild: Binding<Bool>
     let onRunSetup: (() -> Void)?   // the guided first-run setup, again (nil where there is none)
     let uninstallPlan: () -> Uninstall.Plan
     @EnvironmentObject var loc: Localizer
 
     package init(updates: AppUpdateStore, buildRunning: Bool, notify: Binding<Bool>, notifyAvailable: Bool, returnAfterPlay: Binding<Bool>,
-                 onRunSetup: (() -> Void)?, uninstallPlan: @escaping () -> Uninstall.Plan) {
+                 preflightAfterBuild: Binding<Bool>, onRunSetup: (() -> Void)?, uninstallPlan: @escaping () -> Uninstall.Plan) {
         self.updates = updates
         self.buildRunning = buildRunning
         self.notify = notify
         self.notifyAvailable = notifyAvailable
         self.returnAfterPlay = returnAfterPlay
+        self.preflightAfterBuild = preflightAfterBuild
         self.onRunSetup = onRunSetup
         self.uninstallPlan = uninstallPlan
     }
@@ -70,6 +72,12 @@ package struct AppCard: View {
             CardRow(loc.t("settings.returnAfterPlay"), detail: loc.t("settings.returnAfterPlayNote")) {
                 Toggle(loc.t("settings.returnAfterPlay"), isOn: returnAfterPlay).toggleStyle(LauncherSwitchStyle()).labelsHidden()
                     .padTarget("set.returnAfterPlay", scope: "main") { returnAfterPlay.wrappedValue.toggle() }
+            }
+            CardDivider()
+            // A new Mac app's first start checked by macOS as the build's last stage (MacPreflight, #1005)
+            CardRow(loc.t("settings.preflightAfterBuild"), detail: loc.t("settings.preflightAfterBuildNote")) {
+                Toggle("", isOn: preflightAfterBuild).toggleStyle(LauncherSwitchStyle()).labelsHidden()
+                    .padTarget("set.preflightAfterBuild", scope: "main") { preflightAfterBuild.wrappedValue.toggle() }
             }
             CardDivider()
             CardRow("NX2Apple", detail: String(format: loc.t("app.version"), updates.version),

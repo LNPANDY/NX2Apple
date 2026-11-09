@@ -39,18 +39,24 @@ package struct CardPageHeading: View {
 package struct CardGroup<Content: View>: View {
     let label: String
     let footnote: String
+    /// A status at the label's trailing edge (the build queue's "Paused"), empty for none.
+    let trailing: String
     let content: Content
 
-    package init(_ label: String, footnote: String = "", @ViewBuilder _ content: () -> Content) {
+    package init(_ label: String, footnote: String = "", trailing: String = "", @ViewBuilder _ content: () -> Content) {
         self.label = label
         self.footnote = footnote
+        self.trailing = trailing
         self.content = content()
     }
 
     package var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(label).font(.manrope(15, .semibold)).foregroundStyle(.secondary)
-                .padding(.leading, 2)
+            HStack {
+                Text(label).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+                Spacer(minLength: 8)
+                if !trailing.isEmpty { Text(trailing).font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.building) }
+            }
             VStack(spacing: 0) { content }
                 .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))

@@ -22,8 +22,11 @@ package struct TargetCard: View {
             if build.isSwitch2Game {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "info.circle").font(.system(size: 13)).foregroundStyle(LauncherPalette.cream.opacity(0.7))
-                    Text(loc.t(build.target == BuildTarget.mac ? "switch2.noteMac" : "switch2.noteIOS"))
-                        .font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(loc.t(build.target == BuildTarget.mac ? "switch2.noteMac" : "switch2.noteIOS"))
+                        Text(loc.t(build.gameFolder != nil ? "switch2.keysFolder" : "switch2.keysPackage"))   // #696: what the keys row asks for
+                    }
+                    .font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.horizontal, 4).padding(.top, 2)
             }

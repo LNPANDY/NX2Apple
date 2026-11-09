@@ -2364,7 +2364,8 @@ class MainWindow(QMainWindow):
                 elif not self.m.all_deps_ok:
                     why = t('status.installFirst')
                 elif self.m.game_folder_problem:
-                    why = t('status.fixFolder')
+                    # the real reason the folder was refused, not a generic line and never "the base game and keys are missing" (#696)
+                    why = self.m.game_folder_problem
                 else:
                     why = t('status.needInputs')
                 self.footer.setText(why)

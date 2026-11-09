@@ -173,13 +173,19 @@ final class ArtworkPanelTests: XCTestCase {
         let scaleY = CGFloat(rep.pixelsHigh) / size.height
         let sampleX = Int(CGFloat(rep.pixelsWide) * 0.25)
         var reachedBackground = false
+        var previous = 0
         for y in Int(240 * scaleY)..<Int(375 * scaleY) {
             guard let color = rep.colorAt(x: sampleX, y: y)?.usingColorSpace(.deviceRGB) else { continue }
             let peak = Int(round(max(color.redComponent, color.greenComponent, color.blueComponent) * 255))
             if peak <= 16 { reachedBackground = true }
             if reachedBackground {
-                XCTAssertLessThanOrEqual(peak, 20, "Bright 1px seam leaked at hero bottom edge y=\(y): peak=\(peak)")
+                // A seam is a row that jumps up from the one before it (the art leaking over the fade). Rendering differs by a level or
+                // two between macOS versions (one row at 21 on macOS 27.2, #1030), so the ceiling is a fixed small margin over the
+                // background and the jump between neighbouring rows is what must stay flat.
+                XCTAssertLessThanOrEqual(peak, 32, "Bright 1px seam leaked at hero bottom edge y=\(y): peak=\(peak)")
+                XCTAssertLessThanOrEqual(peak, previous + 4, "A row jumps up from its neighbour at hero bottom edge y=\(y): \(previous) to \(peak)")
             }
+            previous = peak
         }
         XCTAssertTrue(reachedBackground, "Hero gradient should fade to background before collection header")
     }

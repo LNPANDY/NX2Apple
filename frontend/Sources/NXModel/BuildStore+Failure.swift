@@ -81,7 +81,9 @@ extension BuildStore {
         case .iosSDK:
             installRow(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Toolchain.iosPlatformCmd))
         case .cltSelected:
-            if let xcode = Toolchain.installedXcode() {
+            if XcodeSelection.app(in: defaults) != nil {
+                openXcode()
+            } else if let xcode = Toolchain.installedXcode(customApp: nil) {
                 installRow(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Toolchain.selectXcodeCmd(xcode)))
             }
         case .zbic:
@@ -115,9 +117,11 @@ extension BuildStore {
         revealFolder(URL(fileURLWithPath: folder))
     }
 
+    package var installedXcode: String? { Toolchain.installedXcode(customApp: XcodeSelection.app(in: defaults)) }
+
     /// Xcode itself: its Settings > Accounts is where a team is signed in, and Xcode has no address that opens that pane.
     package func openXcode() {
-        guard let app = Toolchain.installedXcode() else { return }
+        guard let app = installedXcode else { return }
         openApp(URL(fileURLWithPath: app))
     }
 

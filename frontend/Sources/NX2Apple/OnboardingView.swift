@@ -250,6 +250,7 @@ import NXLauncher
                 switch state.xcode {
                 case .checking: Text(t("onboarding.xcode.checkingNote")).foregroundStyle(.secondary)
                 case .missing: Text(t("onboarding.xcode.missingNote")).foregroundStyle(.secondary)
+                case .disconnected: Text(t("xcodeChoice.unavailable")).foregroundStyle(.secondary)
                 case .downloading:
                     Text(t("onboarding.xcode.downloadNote")).foregroundStyle(.secondary)
                     waitingBar
@@ -374,6 +375,7 @@ import NXLauncher
                 Button(t("onboarding.keys.skip"), action: skipKeys)
                     .buttonStyle(LauncherSecondaryButtonStyle())
                     .padTarget("onboarding.keys.skip", scope: "onboarding", activate: skipKeys)
+                Text(t("onboarding.keys.skipNote")).font(.manrope(12)).foregroundStyle(.secondary)
             }
             Text(t("onboarding.keys.privacy")).font(.manrope(12)).foregroundStyle(.secondary)
         }

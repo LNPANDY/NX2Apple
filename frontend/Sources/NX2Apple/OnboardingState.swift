@@ -87,11 +87,12 @@ struct OnboardingState: Equatable {
     }
     enum Platform: Equatable { case empty, selected(OnboardingPlatform) }
     enum Xcode: Equatable {
-        case checking, missing, downloading, needsSetup, settingUp, ready, failed(OnboardingFailure)
+        case checking, missing, disconnected, downloading, needsSetup, settingUp, ready, failed(OnboardingFailure)
         var statusKey: String {
             switch self {
             case .checking: return "onboarding.xcode.checking"
             case .missing: return "onboarding.xcode.missing"
+            case .disconnected: return "onboarding.xcode.disconnected"
             case .downloading: return "onboarding.xcode.downloading"
             case .needsSetup: return "onboarding.xcode.needsSetup"
             case .settingUp: return "onboarding.xcode.settingUp"
@@ -169,7 +170,7 @@ struct OnboardingState: Equatable {
             switch xcode {
             case .missing: return .getXcode
             case .needsSetup: return .finishXcodeSetup
-            case .failed: return .retry
+            case .failed, .disconnected: return .retry
             default: return backgroundFailed ? .retry : (canAdvance ? .next : .waiting)
             }
         case .keys: if case .found = keys { return .confirmKeys }; return canAdvance ? .next : .waiting

@@ -29,6 +29,7 @@ struct LauncherView: View {
     @State var launching = false
     @State private var launchError: String?
     @State private var removing: LibraryGame?
+    @State private var selectingGames = false   // the Build selected games sheet (BuildSelectedSheet.swift)
     @State private var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
     @State var optionsFor: UUID?
     @State private var controllerMappingOpen = false
@@ -177,7 +178,7 @@ struct LauncherView: View {
                     }
                 }
             } else {
-                CardPages(settings: page == .settings, build: m, updates: updates, repo: repo, engine: engine, dependencies: stores.dependencies, devices: devices,
+                CardPages(settings: page == .settings, build: m, updates: updates, repo: repo, engine: engine, dependencies: stores.dependencies, devices: devices, queue: stores.queue, transfers: stores.transfers, onSelectGames: { selectingGames = true },
                           library: library, diagnostics: stores.diagnostics, onViewGame: { page = .library }, onOpenSettings: { page = .settings },
                           onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                           padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
@@ -217,6 +218,11 @@ struct LauncherView: View {
             }
             refreshArtwork()
             readSignatures()
+            m.sharedAppDataSources = { [library] in   // the games with packed data, for Send all game data (#1036)
+                library.games.filter { !$0.archivePath.isEmpty && FileManager.default.fileExists(atPath: $0.archivePath) }
+                    .map { TransferSource(titleID: $0.titleID, name: $0.name, archive: $0.archivePath) }
+            }
+            library.keysFile = { [m] in m.savedKeys }   // the scan reads renamed packages' title IDs with them (#1012)
             if performStartupChecks { library.discover(); fetchArtwork(); _ = stores.deviceStore.refresh(); checkTools() }
             if performStartupChecks {
                 _ = stores.dependencies.check()
@@ -239,6 +245,7 @@ struct LauncherView: View {
             readSignatures()
             if performStartupChecks { fetchArtwork() }
         }
+        .onChange(of: m.savedKeys) { _ in if performStartupChecks { library.discover() } }   // other keys may name other packages (#1012)
         .onReceive(library.$scanning.removeDuplicates().dropFirst()) { scanning in if !scanning && performStartupChecks { checkTools() } }
         .onChange(of: m.shellCachePath) { root in
             if performStartupChecks { library.syncSharedApp(root: root); readSignatures() }
@@ -251,7 +258,7 @@ struct LauncherView: View {
         .onChange(of: heroGame?.id) { _ in refreshHeroArtwork() }
         .onReceive(recorder.recorded) {   // a build was written into the library (BuildRecorder); a window opened since reads it in onAppear
             refreshArtwork()
-            if m.target != BuildTarget.mac { readSignatures() }
+            if m.runningTarget != BuildTarget.mac { readSignatures() }
             if performStartupChecks { checkTools() }
         }
         .onChange(of: scenePhase) { phase in
@@ -280,7 +287,11 @@ struct LauncherView: View {
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
-        .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates, buildRunning: m.running) }
+        .sheet(isPresented: $selectingGames) {
+            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, exportsIPA: devices.exportIPA) { selectingGames = false }
+                .environmentObject(loc)
+        }
+        .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates, build: m) }
         .confirmationDialog(loc.t("uninstall.title"), isPresented: Binding(
             get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } }
         ), titleVisibility: .visible) {
@@ -452,11 +463,12 @@ struct LauncherView: View {
                     let stage = m.stages.last { $0.state == .running }
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
-                                 ? "activity.transfer" : (m.target == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
+                        Text(m.operationTitle ?? loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
+                                 ? "activity.transfer" : (m.runningTarget == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
+                            .lineLimit(2)
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             Text(stage
-                                    .map { [$0.name, $0.detail, $0.clock(at: context.date, left: loc.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · ") }
+                                    .map { [$0.name, $0.detail, $0.clock(at: context.date, left: loc.t("prog.etaEstimate"))].filter { !$0.isEmpty }.joined(separator: " · ") }
                                  ?? loc.t("library.preparing"))
                                 .font(.manrope(13)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         }
@@ -466,6 +478,7 @@ struct LauncherView: View {
                     }
                     .frame(minWidth: 180, alignment: .leading)
                     LauncherProgressBar(value: buildProgress).frame(maxWidth: 480)
+                        .accessibilityLabel(loc.t("prog.stageProgress"))
                     Text(buildProgress.map { "\(Int($0 * 100))%" } ?? "")
                         .font(.manrope(14, .semibold)).monospacedDigit().foregroundStyle(.secondary).frame(width: 46, alignment: .leading)
                     Spacer(minLength: 8)

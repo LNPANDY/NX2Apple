@@ -78,6 +78,7 @@ extension BuildStore {
             s.problem = problem
         }
         if kind == .base, let first = fitting.first { gameDir = (first as NSString).deletingLastPathComponent }
+        if kind == .keys, let keys = fitting.first { saveKeys(keys) }   // a keys file chosen for the row is kept for every game (#996)
     }
 
     /// Clearing a row of a game folder clears the folder: its rows are one game.
