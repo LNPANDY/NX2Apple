@@ -156,7 +156,7 @@
   "console.assignCancelled": "已取消分配玩家。",
   "console.assignTimeout": "没有按键。请重新选择玩家再试一次。",
   "console.assignedTo": "%@ 是玩家 %d",
-  "console.battery.style": "手柄芯片的电量显示",
+  "console.battery.style": "手柄电量显示",
   "console.battery.style.both": "图标和百分比",
   "console.battery.style.hidden": "隐藏",
   "console.battery.style.icon": "图标",
