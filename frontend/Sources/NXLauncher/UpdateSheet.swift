@@ -14,10 +14,21 @@ import NXLauncher
 /// ReleaseNotes turns them into blocks with links, and this file only styles those.
 package struct UpdateSheet: View {
     @ObservedObject var updates: AppUpdateStore
+    /// A game build runs (the model's flag, as in Settings' AppCard). Nothing installs or relaunches then.
+    let buildRunning: Bool
     @EnvironmentObject var loc: Localizer
     @Environment(\.dismiss) private var dismiss
 
-    package init(updates: AppUpdateStore) { self.updates = updates }
+    package init(updates: AppUpdateStore, buildRunning: Bool = false) {
+        self.updates = updates
+        self.buildRunning = buildRunning
+    }
+
+    /// The orange line above the buttons: a refusal the store reported, or else the reason the main button is off
+    /// while a build runs.
+    static func note(blocked: String?, buildRunning: Bool, waitForBuild: String) -> String? {
+        blocked ?? (buildRunning ? waitForBuild : nil)
+    }
 
     private var update: AppUpdate.Release? { updates.update }
 
@@ -46,7 +57,7 @@ package struct UpdateSheet: View {
             }
             .frame(maxHeight: 340)
 
-            if let blocked = updates.blocked {
+            if let blocked = Self.note(blocked: updates.blocked, buildRunning: buildRunning, waitForBuild: loc.t("app.waitForBuild")) {
                 Text(blocked).font(.manrope(12.5)).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 28).padding(.bottom, 12)
@@ -62,17 +73,18 @@ package struct UpdateSheet: View {
                     .buttonStyle(LauncherSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button {
-                    guard !updates.busy else { return }
+                    guard !updates.busy, !buildRunning else { return }
                     // Automatic mode has already downloaded and staged the release, so the action is
                     // to swap it in now; otherwise this downloads, verifies and installs as before.
                     // The sheet stays up while it downloads, so a refusal (a macOS too old for the release) is seen here.
-                    if updates.staged != nil { updates.install(relaunch: true); dismiss() } else { updates.performUpdate() }
+                    // The sheet closes only when the install went through, so a refusal stays visible here.
+                    if updates.staged != nil { if updates.install(relaunch: true) { dismiss() } } else { updates.performUpdate() }
                 } label: {
                     updateButtonLabel
                 }
                 .buttonStyle(.plain)
-                .disabled(updates.busy && updates.downloadProgress == nil)
-                .allowsHitTesting(!updates.busy)
+                .disabled((updates.busy && updates.downloadProgress == nil) || buildRunning)
+                .allowsHitTesting(!updates.busy && !buildRunning)
                 .accessibilityValue(updates.downloadProgress.map { "\(Int((min(max($0, 0), 1) * 100).rounded()))%" } ?? "")
                 .keyboardShortcut(.defaultAction)
             }
