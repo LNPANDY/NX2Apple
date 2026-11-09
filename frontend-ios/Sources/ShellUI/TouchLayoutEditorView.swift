@@ -345,8 +345,12 @@ struct TouchLayoutEditorView: View {
 
     private func selectedToolbarWidth(for selected: TouchLayout.Control) -> CGFloat {
         let count: CGFloat = selected == .face || selected.isFaceKey ? 2 : 1
-        return count * 44 + (count - 1) * 8 + 12
+        let mode: CGFloat = selected.canToggle ? Self.modeWidth + 8 : 0
+        return count * 44 + (count - 1) * 8 + mode + 12
     }
+
+    /// The Hold / Toggle segments of a single key (#658).
+    static let modeWidth: CGFloat = 160
 
     private func selectedToolbar(for selected: TouchLayout.Control) -> some View {
         GlassEffectContainer(spacing: 12) {
@@ -366,6 +370,8 @@ struct TouchLayoutEditorView: View {
                 .accessibilityIdentifier("touchLayout.together")
                 .shellTarget("lay.row.\(Self.togetherRow)") { model.setTogether(!model.together) }
             }
+
+            if selected.canToggle { selectedMode }
         }
         .padding(6)
         .frame(width: selectedToolbarWidth(for: selected), height: 56)
@@ -524,7 +530,8 @@ struct TouchLayoutEditorView: View {
 
     private func accessibilityElement(_ c: TouchLayout.Control, _ g: PadGeo, k: CGFloat) -> some View {
         let box = g.box(of: c)?.box ?? .zero
-        let value: String = ShellStrings.text(model.editing.isMoved(c) ? "Moved" : "In its place")
+        let toggles: Bool = model.editing.layout.toggles(c)
+        let value: String = Self.accessibilityValue(c, moved: model.editing.isMoved(c), toggles: toggles)
         let traits: AccessibilityTraits = (model.selected.map { model.editing.mover($0) == c } == true) ? [.isButton, .isSelected] : .isButton
         return Color.clear
             .frame(width: max(box.width * k, 30), height: max(box.height * k, 30))
@@ -539,8 +546,16 @@ struct TouchLayoutEditorView: View {
             .accessibilityAction(named: ShellStrings.text("Move left")) { voiceOverMove(c, -1, 0) }
             .accessibilityAction(named: ShellStrings.text("Move right")) { voiceOverMove(c, 1, 0) }
             .accessibilityAction(named: ShellStrings.text("Reset this control")) { model.select(c); model.putBack() }
+            .modifier(TouchModeAction(control: c, toggles: toggles) { model.select(c); model.setToggles(!toggles) })
             .shellTarget("lay.ctl.\(c.rawValue)", radius: max(box.width, box.height) * k / 2) { model.pickUp(c) }
             .allowsHitTesting(false)
+    }
+
+    /// What VoiceOver says of a control: where it is and, for a single key, its mode (#658).
+    static func accessibilityValue(_ c: TouchLayout.Control, moved: Bool, toggles: Bool) -> String {
+        let place = ShellStrings.text(moved ? "Moved" : "In its place")
+        guard c.canToggle else { return place }
+        return place + ", " + ShellStrings.text(toggles ? "Toggle" : "Hold")
     }
 
     private func voiceOverMove(_ c: TouchLayout.Control, _ dx: Int, _ dy: Int) {
@@ -551,6 +566,25 @@ struct TouchLayoutEditorView: View {
     }
 
     // MARK: Contextual controls
+
+    /// Hold (the built-in behavior) or Toggle for the selected key: one tap turns a toggled key on in the game, the next tap off.
+    private var selectedMode: some View {
+        Picker(ShellStrings.text("Button mode"), selection: Binding(get: { model.selectedToggles ? Self.toggleMode : Self.holdMode },
+                                                                    set: { if !ignoresPress() { model.setToggles($0 == Self.toggleMode) } })) {
+            Text(ShellStrings.text("Hold")).tag(Self.holdMode)
+            Text(ShellStrings.text("Toggle")).tag(Self.toggleMode)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .tint(ShellPalette.cream)
+        .frame(width: Self.modeWidth)
+        .disabled(!exactGeometryReady)
+        .accessibilityLabel(ShellStrings.text("Button mode"))
+        .accessibilityIdentifier("touchLayout.mode")
+        .shellTarget("lay.mode", enabled: exactGeometryReady) { model.setToggles(!model.selectedToggles) }
+    }
+
+    static let holdMode = "hold", toggleMode = "toggle"
 
     /// Reset the selected control.
     private var selectedReset: some View {
@@ -624,6 +658,20 @@ extension TouchLayout.Control {
         case .r3: "R3"
         case .minus: ShellStrings.text("Minus")
         case .plus: ShellStrings.text("Plus")
+        }
+    }
+}
+
+/// VoiceOver's action that switches a single key between Hold and Toggle (#658), named after the mode it switches to.
+private struct TouchModeAction: ViewModifier {
+    let control: TouchLayout.Control
+    let toggles: Bool
+    let action: () -> Void
+    func body(content: Content) -> some View {
+        if control.canToggle {
+            content.accessibilityAction(named: ShellStrings.text(toggles ? "Hold" : "Toggle"), action)
+        } else {
+            content
         }
     }
 }

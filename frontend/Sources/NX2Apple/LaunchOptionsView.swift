@@ -21,6 +21,7 @@ struct LaunchOptionsView: View {
     @State private var advancedOpen = false
     @State private var category: LaunchCategory = .game
     @State private var defaultsSaved = false   // Use for new games ran: the note says so until the sheet closes
+    @State private var askingTested = false   // Use tested values asks first (#453)
     /// Build this game…: the launcher closes the sheet and opens the Builds page with this game's form (nil in a test).
     var onBuild: (LibraryGame) -> Void = { _ in }
     /// The cheats and the saves have sheets of their own: the launcher closes this one and opens them (nil: the row does nothing).
@@ -62,6 +63,12 @@ struct LaunchOptionsView: View {
                     if let game { Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText) }
                 }
                 Spacer()
+                // One action at the top while a setting differs from its tested value: it asks first and names how many change (#453)
+                if destination == .mac, let game, let settings, !Self.changed(settings, value: { value($0, game) }).isEmpty {
+                    Button(loc.t("launch.useTested")) { askingTested = true }
+                        .buttonStyle(LauncherSecondaryButtonStyle())
+                        .padTarget("opt.useTested", scope: "launch") { askingTested = true }
+                }
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
             // The selector stays where it is while the content below it scrolls
@@ -85,6 +92,17 @@ struct LaunchOptionsView: View {
             // The launcher owns routing when embedded, while standalone sheets keep the same scope behavior.
             if controllerMappingPresentation == nil { focus.scope = open ? "controls" : "launch" }
         }
+        .sheet(isPresented: $askingTested) {
+            if let game, let settings {
+                let count = Self.changed(settings, value: { value($0, game) }).count
+                LauncherConfirmSheet(title: loc.t("launch.useTested"), subtitle: game.displayName(loc.lang),
+                                     note: count == 1 ? loc.t("launch.useTestedOne") : String(format: loc.t("launch.useTestedMany"), count),
+                                     cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("launch.useTested"), scope: "tested",
+                                     cancel: { askingTested = false }, confirm: { askingTested = false; reset(settings) })
+                    .environmentObject(focus).environmentObject(loc)
+            }
+        }
+        .onChange(of: askingTested) { open in focus.scope = open ? "tested" : "launch" }
         .sheet(isPresented: mappingPresentation) {
             if let game {
                 GameControllerMappingView(game: game, globalControls: globalControls)
@@ -210,8 +228,7 @@ struct LaunchOptionsView: View {
         .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
     }
 
-    /// Reset to tested defaults, Use for new games, Done. Both secondary actions say what they touch: Reset clears this game's choices,
-    /// Use for new games copies this game's language, display and rumble into the defaults other games start from.
+    /// Use for new games and Done (Use tested values is at the top of the sheet). Use for new games copies this game's language, display and rumble into the defaults other games start from.
     private func footer(_ game: LibraryGame?, destination: LaunchDestination, category: LaunchCategory) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(loc.t("launch.applied")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
@@ -222,12 +239,6 @@ struct LaunchOptionsView: View {
                 }
                 Spacer(minLength: 8)
                 if destination == .mac, let game, let settings {
-                    if !game.launchOptions.isEmpty || (store?.hasChoices(settings) ?? false) {
-                        Button(loc.t("launch.reset")) { reset(settings) }
-                            .buttonStyle(LauncherSecondaryButtonStyle())
-                            .launcherRowControls()
-                            .padTarget("opt.reset", scope: "launch") { reset(settings) }
-                    }
                     if category == .game {
                         Button(loc.t("launch.useForNew")) { useForNewGames(game, settings) }
                             .buttonStyle(LauncherSecondaryButtonStyle())
@@ -335,6 +346,13 @@ struct LaunchOptionsView: View {
         choicesRevision += 1
     }
 
+    /// The settings whose value differs from the game profile's tested default, hidden sub-settings included: what Use tested values
+    /// changes (#453). The same test as each row's dot.
+    static func changed(_ settings: [LaunchSetting], value: (LaunchSetting) -> String) -> [LaunchSetting] {
+        settings.filter { !$0.isDefault(value($0)) }
+    }
+
+    /// Use tested values: the per-setting reset of every choice, so each setting takes its tested default again.
     private func reset(_ settings: [LaunchSetting]) {
         store?.reset(settings)
         library.resetLaunchOptions(for: gameID)
@@ -352,7 +370,7 @@ struct LaunchOptionsView: View {
         let pixels = s.kind == "range" ? s.pixels(scale: Double(value) ?? 1, docked: isDocked) : nil
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(label(s)).font(.manrope(14, .medium))
+                ChangedLabel(text: label(s), changed: !s.isDefault(value), hint: loc.t("launch.changedDot"))
                 if let full = s.kind == "range" ? s.pixels(scale: 1, docked: isDocked) : nil {
                     // The render scale in pixels: the share of the game's own size in the console mode chosen
                     Text(String(format: loc.t(isDocked ? "launch.scaleOfDocked" : "launch.scaleOfHandheld"), Int(((Double(value) ?? 1) * 100).rounded()), full))
@@ -585,5 +603,24 @@ enum ResolutionNote {
         default: detail = String(format: t("launch.noResolution.two"), names[0], names[1])
         }
         return Text(title: t("launch.noResolution"), detail: detail)
+    }
+}
+
+/// A setting's label, with a small amber dot before it while its value differs from the game profile's tested default (#453). VoiceOver
+/// reads the dot as "Changed from the tested value" after the label.
+struct ChangedLabel: View {
+    let text: String
+    let changed: Bool
+    let hint: String
+    var body: some View {
+        HStack(spacing: 7) {
+            if changed {
+                Circle().fill(LauncherPalette.building).frame(width: 6, height: 6)
+                    .help(hint)
+                    .accessibilityLabel(hint)
+            }
+            Text(text).font(.manrope(14, .medium))
+        }
+        .accessibilityElement(children: .combine)
     }
 }

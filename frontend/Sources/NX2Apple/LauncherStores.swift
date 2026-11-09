@@ -31,6 +31,8 @@ import NXModel
     let players: PlayerProfileStore
     let saveSettings: SaveSettingsStore
     let sticks: StickDeadzoneStore
+    /// The games' build files (#232), measured and removed by `BuildFiles` (the Free space code).
+    let buildFiles = BuildFilesStore(measure: { BuildFiles.measure($0) }, remove: { try BuildFiles.remove($0) })
     private var quitObserver: NSObjectProtocol?
 
     /// - Parameters:

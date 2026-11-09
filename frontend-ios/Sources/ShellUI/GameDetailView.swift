@@ -319,7 +319,7 @@ struct NativeChoiceControl: View {
                             picker(options).pickerStyle(.menu)
                         }
                     } label: {
-                        Text(row.label).font(.body)
+                        ChangedSettingLabel(row: row)
                     }
                 } else {
                     Text(row.label).shellType(ShellType.settingLabel)

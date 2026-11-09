@@ -15,7 +15,7 @@ struct ManageActions {
     var supportedGames: () -> Void = {}
     var reveal: () -> Void = {}
     var showLog: () -> Void = {}
-    var freeSpace: () -> Void = {}
+    var removeBuildFiles: () -> Void = {}
     var remove: () -> Void = {}
     var delete: () -> Void = {}
 }
@@ -34,7 +34,8 @@ struct ManageItem: Identifiable {
     /// The menu's rows, in order, built in one place: a new item is one line here. The rules are the ones the system menu had:
     /// Build again is off while a build runs or with no recorded inputs, Remove while this game is the one building.
     static func list(game: LibraryGame, labels t: (String) -> String, running: Bool, olderTools: Bool, activeBuildID: UUID?,
-                     hasBuildFolder: Bool, hasLog: Bool = false, deviceName: String, launching: Bool = false, actions a: ManageActions) -> [ManageItem] {
+                     hasBuildFolder: Bool, buildFilesTitle: String? = nil, hasLog: Bool = false, deviceName: String, launching: Bool = false,
+                     actions a: ManageActions) -> [ManageItem] {
         var items = [ManageItem(id: "rebuild", symbol: "arrow.clockwise", title: t(olderTools ? "library.rebuild" : "library.buildAgain"),
                                 enabled: !running && !game.inputs["base", default: []].isEmpty, run: a.rebuild)]
         if game.isReady {
@@ -54,7 +55,13 @@ struct ManageItem: Identifiable {
             items.append(.init(id: "log", symbol: "doc.text.magnifyingglass", title: t("library.showLog"), enabled: hasLog,
                                hint: hasLog ? nil : t("library.showLog.none"), run: a.showLog))
         }
-        if hasBuildFolder { items.append(.init(id: "freeSpace", symbol: "externaldrive", title: t("free.menu"), run: a.freeSpace)) }
+        // Remove build files (#232): the whole build folder's removable files, with their size. Never while this game builds. The per-part
+        // Free space sheet is Details… on the game's row of Settings > Tools > Build files.
+        if hasBuildFolder, let title = buildFilesTitle {
+            let building = running && game.id == activeBuildID
+            items.append(.init(id: "buildFiles", symbol: "externaldrive.badge.minus", title: title, enabled: !building,
+                               hint: building ? t("buildfiles.building") : nil, run: a.removeBuildFiles))
+        }
         items.append(.init(id: "supported", symbol: "list.bullet.rectangle", title: t("supported.menu"), run: a.supportedGames))
         items.append(.init(id: "remove", symbol: "rectangle.stack.badge.minus", title: t("library.remove"), enabled: game.id != activeBuildID,
                            destructive: true, separatorBefore: true, run: a.remove))
