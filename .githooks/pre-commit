@@ -1,3 +1,0 @@
-#!/bin/sh
-# Runs the patch queue check when patches/ or .upstream-ref is staged. The logic is in tools/githooks.py.
-exec python3 "$(dirname "$0")/../tools/githooks.py" pre-commit
