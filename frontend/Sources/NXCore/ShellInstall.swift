@@ -441,6 +441,10 @@ package struct ShellInstaller {
     package var banners: URL = BannerCache.directory
     /// A picture the player chose for the game in the library, which wins over the cached banner (nil: none).
     package var pickedArtwork: String? = nil
+    /// The size of one part of a file sent in parts, and the largest file sent whole to an app that may not join parts
+    /// (`ShellDataParts`). A test makes them small.
+    package var partSize: Int64 = ShellDataParts.partSize
+    package var singleCopyLimit: Int64 = ShellDataParts.singleCopyLimit()
 
     package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {
         self.xcrun = xcrun; self.repo = repo; self.python = python; self.root = root; self.device = device; self.team = team
@@ -583,7 +587,7 @@ package struct ShellInstaller {
         // 7: the game data, only what the device does not have yet
         var outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID)
         outcome.noMemoryCapability = noMemoryCapability
-        var result = copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID, outcome: outcome)
+        var result = copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID, outcome: outcome, appJoinsParts: true)
         if result.ok, !prepared.notes.isEmpty { result.message = ([result.message] + prepared.notes).joined(separator: "\n") }
         return result
     }
@@ -594,7 +598,8 @@ package struct ShellInstaller {
         if let refused = pairingRefusal() { return refused }
         let bundleID = ShellLibrary.load(root: root).bundleID, app = ShellInstall.appPath(root: root)
         return copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID,
-                            outcome: Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID))
+                            outcome: Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID),
+                            appJoinsParts: true)
     }
 
     /// The pairing steps as a failure when this Mac does not know the device, else nil.
@@ -607,7 +612,11 @@ package struct ShellInstaller {
         ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20, runner: runner))
     }
 
-    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome) -> Outcome {
+    /// The game data the device lacks, into the app's `Documents/games/<title ID>/`. `appJoinsParts` says whether the app on the
+    /// device joins parts (`ShellDataParts`): true for the shared app this launcher just built, nil to ask the app (its
+    /// `shell-features.txt`). A file larger than one part goes as parts to an app that joins them; to any other app only a file
+    /// devicectl cannot copy whole (`singleCopyLimit`) does, since the whole copy would stall anyway.
+    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome, appJoinsParts: Bool? = nil) -> Outcome {
         var outcome = start
         let checkName = fmt("shell.checkStage", deviceName)
         begin(Self.checkStageID, checkName)
@@ -622,9 +631,21 @@ package struct ShellInstaller {
         let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)"
         let previous = defaults.string(forKey: receipt)
         let identity = local["romfs.img"] == nil ? nil : imageIdentity(archive: archive, titleID: titleID)
+        // The image's parts on the device count only when they are parts of this image: a send of it that stopped halfway records
+        // the image it was sending (`partsReceipt`), and its parts then need not go again.
+        let partsReceipt = receipt + "/parts"
         var comparable = onDevice
-        if identity != previous { comparable.removeValue(forKey: "romfs.img") }
-        let missing = ShellInstall.filesToCopy(local: local, device: comparable)
+        if identity != previous {
+            comparable.removeValue(forKey: "romfs.img")
+            if identity == nil || defaults.string(forKey: partsReceipt) != identity {
+                comparable = comparable.filter { !ShellDataParts.isPart($0.key, of: "romfs.img") }
+            }
+        }
+        var splitAbove = partSize
+        if local.values.contains(where: { $0 > partSize }), !(appJoinsParts ?? appSaysItJoinsParts(bundleID: bundleID, label: checkName)) {
+            splitAbove = max(partSize, singleCopyLimit)
+        }
+        let missing = ShellDataParts.toCopy(local: local, device: comparable, splitAbove: splitAbove, partSize: partSize)
         end(Self.checkStageID, checkName, ok: true)
         guard !missing.isEmpty else {
             outcome.message = fmt(identity != nil && identity == previous ? "shell.dataCurrent" : "shell.dataAlready", deviceName)
@@ -632,7 +653,7 @@ package struct ShellInstaller {
         }
         // Free space first: the shell writes it to its log at every start (ShellMain.m), and a game's data is many GB. Without a log
         // (a shell never opened yet) the copy goes ahead and devicectl reports a full device itself.
-        let needed = missing.reduce(Int64(0)) { $0 + (local[$1] ?? 0) }
+        let needed = missing.reduce(Int64(0)) { $0 + ShellDataParts.bytes(of: $1, local: local, partSize: partSize) }
         let logCopy = NSTemporaryDirectory() + "nspb-shell-log-\(UUID().uuidString.prefix(8)).txt"
         defer { try? FileManager.default.removeItem(atPath: logCopy) }
         _ = run(ShellInstall.shellLogCommand(xcrun: xcrun, device: device, bundleID: bundleID, destination: logCopy), env: nil, label: checkName, step: { _ in nil })
@@ -644,13 +665,15 @@ package struct ShellInstaller {
         }
         // The size and the connection first: a cable needs the device unlocked, Wi-Fi takes long enough that a cable may be worth it
         var link = connection()
-        var plan = copyPlan(files: missing.count, bytes: needed, connection: link)
+        var plan = copyPlan(files: Set(missing.map(\.file)).count, bytes: needed, connection: link)
         if let identity, let previous, identity != previous {
             let note = t("shell.dataChanged")
             plan.versionNote = note
             log(note + "\n")
         }
         log(plan.sizeText + "\n" + plan.connectionText + "\n")
+        let parts = missing.filter { if case .part = $0 { return true } else { return false } }.count
+        if parts > 0 { log(fmt("shell.dataParts", parts) + "\n") }
         var decision = decideCopy(plan)
         if decision == .waitForCable {
             log(fmt("shell.copyWaiting", deviceName) + "\n")
@@ -671,15 +694,34 @@ package struct ShellInstaller {
         let copyName = fmt("dev.copyStage", deviceName)
         begin(Self.copyStageID, copyName)
         var copiedBytes: Int64 = 0
-        for (i, path) in missing.enumerated() {
+        for (i, item) in missing.enumerated() {
             copyProgress(copiedBytes, needed)
             stage(ShellStage(id: Self.copyStageID, name: copyName, state: .running, detail: "\(i + 1)/\(missing.count)",
                              percent: Double(i) / Double(missing.count) * 100))
             // Once an overwrite begins, the old receipt cannot vouch for what a failed copy leaves behind.
-            if path == "romfs.img", previous != nil { defaults.removeObject(forKey: receipt) }
+            if item.file == "romfs.img", previous != nil { defaults.removeObject(forKey: receipt) }
+            var source = archive + "/" + item.file, destination = item.file, staged: String?
+            if case .part(let file, let index, let count) = item {
+                // The part is cut into a file of its own, which devicectl reads whole, and removed after the copy
+                if file == "romfs.img", let identity { defaults.set(identity, forKey: partsReceipt) }
+                let path = NSTemporaryDirectory() + "nspb-part-\(UUID().uuidString.prefix(8))"
+                do {
+                    try ShellDataParts.writePart(source: source, index: index, size: local[file] ?? 0, partSize: partSize, to: path)
+                } catch {
+                    try? FileManager.default.removeItem(atPath: path)
+                    let why = error.localizedDescription
+                    end(Self.copyStageID, copyName, ok: false, detail: why)
+                    var incomplete = Outcome(ok: false, message: fmt("shell.copyIncomplete", deviceName, why), appPath: app, bundleID: bundleID,
+                                             copied: i, failure: .shellDataIncomplete)
+                    incomplete.detail = why
+                    return incomplete
+                }
+                staged = path; source = path; destination = ShellDataParts.name(of: file, index: index, count: count)
+            }
             let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID,
-                                                 source: archive + "/" + path, relativePath: path),
+                                                 source: source, relativePath: destination),
                         env: nil, label: copyName, step: BuildProgress.installStep)
+            if let staged { try? FileManager.default.removeItem(atPath: staged) }
             if r.status != 0 {
                 let why = r.lastError ?? fmt("msg.exitCode", r.status)
                 end(Self.copyStageID, copyName, ok: false, detail: why)
@@ -691,9 +733,12 @@ package struct ShellInstaller {
                 return incomplete
             }
             outcome.copied = i + 1
-            copiedBytes += local[path] ?? 0
+            copiedBytes += ShellDataParts.bytes(of: item, local: local, partSize: partSize)
         }
-        if let identity, missing.contains("romfs.img") { defaults.set(identity, forKey: receipt) }
+        if let identity, missing.contains(where: { $0.file == "romfs.img" }) {
+            defaults.set(identity, forKey: receipt)
+            defaults.removeObject(forKey: partsReceipt)
+        }
         copyProgress(needed, needed)
         end(Self.copyStageID, copyName, ok: true)
         return outcome

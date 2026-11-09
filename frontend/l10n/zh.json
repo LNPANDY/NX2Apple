@@ -1435,6 +1435,7 @@
   "shell.dataAlready": "已安装到 %@，游戏数据已经在设备上",
   "shell.dataChanged": "游戏数据自上次复制后已更改。",
   "shell.dataCurrent": "%@ 上已有此版本的游戏数据。",
+  "shell.dataParts": "大文件分成 %d 个部分发送，共享 App 下次打开时会把它们拼回原文件。",
   "shell.driveChoose": "选择文件夹",
   "shell.driveCopy": "复制游戏数据",
   "shell.driveDone": "游戏数据已放在 %@。把磁盘连接到 iPhone，并在应用的“%@”下选择这个文件夹。游玩时磁盘必须保持连接。",

@@ -1270,6 +1270,7 @@
   "shell.dataAlready": "Installerad på %@, speldatan fanns redan på enheten",
   "shell.dataChanged": "Speldatan har ändrats sedan den senaste kopieringen.",
   "shell.dataCurrent": "Den här versionen av speldatan finns redan på %@.",
+  "shell.dataParts": "De stora filerna skickas i %d delar. Den delade appen sätter ihop dem nästa gång den öppnas.",
   "shell.driveChoose": "Välj mapp",
   "shell.driveCopy": "Kopiera speldata",
   "shell.driveDone": "Speldata finns i %@. Anslut disken till iPhone och välj den här mappen i appen under %@. Disken måste vara ansluten medan du spelar.",

@@ -908,6 +908,150 @@ import NXModel
         XCTAssertEqual(installer(f).installData(titleID: titleID, archive: f.archive).message, "Installed on Z, the game data was already on the device")
     }
 
+    // ---- a file larger than one part (#899) ----
+
+    func testPartNamesSizesAndWhatToSend() throws {
+        XCTAssertEqual(ShellDataParts.partSize, 512 << 20)
+        XCTAssertEqual(ShellDataParts.name(of: "romfs.img", index: 3, count: 9), "romfs.img.nxpart.0003.0009")
+        XCTAssertEqual(ShellDataParts.name(of: "aoc/1.img", index: 0, count: 2), "aoc/1.img.nxpart.0000.0002")
+        XCTAssertTrue(ShellDataParts.isPart("romfs.img.nxpart.0000.0002", of: "romfs.img"))
+        XCTAssertFalse(ShellDataParts.isPart("romfs.img", of: "romfs.img"))
+        XCTAssertEqual(ShellDataParts.count(size: 10, partSize: 4), 3)
+        XCTAssertEqual(ShellDataParts.count(size: 8, partSize: 4), 2)
+        XCTAssertEqual(ShellDataParts.count(size: 0, partSize: 4), 1)
+        XCTAssertEqual(ShellDataParts.range(index: 2, size: 10, partSize: 4).offset, 8)
+        XCTAssertEqual(ShellDataParts.range(index: 2, size: 10, partSize: 4).length, 2)
+        // 8 GB of memory: up to 2 GB whole, never less than one part
+        XCTAssertEqual(ShellDataParts.singleCopyLimit(physicalMemory: 8 << 30), 2 << 30)
+        XCTAssertEqual(ShellDataParts.singleCopyLimit(physicalMemory: 1 << 30), ShellDataParts.partSize)
+
+        let local: [String: Int64] = ["romfs.img": 10, "aoc/1.img": 4]
+        XCTAssertEqual(ShellDataParts.toCopy(local: local, device: [:], splitAbove: 4, partSize: 4),
+                       [.whole("aoc/1.img"), .part("romfs.img", index: 0, count: 3), .part("romfs.img", index: 1, count: 3),
+                        .part("romfs.img", index: 2, count: 3)])
+        // parts on the device with their size are not sent again, a short one is
+        XCTAssertEqual(ShellDataParts.toCopy(local: local, device: ["aoc/1.img": 4, "romfs.img.nxpart.0000.0003": 4, "romfs.img.nxpart.0001.0003": 3],
+                                             splitAbove: 4, partSize: 4),
+                       [.part("romfs.img", index: 1, count: 3), .part("romfs.img", index: 2, count: 3)])
+        // the whole file on the device needs nothing, parts or not
+        XCTAssertEqual(ShellDataParts.toCopy(local: local, device: ["aoc/1.img": 4, "romfs.img": 10], splitAbove: 4, partSize: 4), [])
+        XCTAssertEqual(ShellDataParts.toCopy(local: local, device: [:], splitAbove: 10, partSize: 4), [.whole("aoc/1.img"), .whole("romfs.img")])
+        XCTAssertEqual(ShellDataParts.bytes(of: .part("romfs.img", index: 2, count: 3), local: local, partSize: 4), 2)
+
+        XCTAssertTrue(ShellDataParts.joinsParts(features: "data-parts 1\n"))
+        XCTAssertFalse(ShellDataParts.joinsParts(features: "data-parts 10\n"))
+        XCTAssertFalse(ShellDataParts.joinsParts(features: nil))
+    }
+
+    func testWritePartCutsTheRightBytes() throws {
+        let source = path("big.bin"), out = path("part.bin")
+        let bytes = Data((0..<250).map { UInt8($0) })
+        try bytes.write(to: URL(fileURLWithPath: source))
+        try ShellDataParts.writePart(source: source, index: 1, size: Int64(bytes.count), partSize: 100, to: out)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: out)), bytes[100..<200])
+        try ShellDataParts.writePart(source: source, index: 2, size: Int64(bytes.count), partSize: 100, to: out)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: out)), bytes[200..<250])
+    }
+
+    /// What the shared app does at its start (frontend-ios `DataParts`), for the fake device: the parts in order, then removed.
+    private func joinOnDevice(_ folder: String, file: String) throws {
+        let names = try fm.contentsOfDirectory(atPath: folder).filter { ShellDataParts.isPart($0, of: file) }.sorted()
+        var whole = Data()
+        for name in names { whole += try Data(contentsOf: URL(fileURLWithPath: folder + "/" + name)); try fm.removeItem(atPath: folder + "/" + name) }
+        try whole.write(to: URL(fileURLWithPath: folder + "/" + file))
+    }
+
+    func testALargeFileGoesInPartsAndAStoppedSendResumes() throws {
+        let f = try makeFixture()
+        let games = container + "/org.nxnative.shell/Documents/games/\(titleID)"
+        var i = installer(f)
+        i.partSize = 4
+        var log = ""
+        i.log = { log += $0 }
+        try write(state + "/fail-on", "romfs.img.nxpart.0001.0003")   // the device locks during the second part
+        var r = install(i, f)
+        XCTAssertEqual(r.failure, .shellDataIncomplete)
+        XCTAssertTrue(log.contains("The large files go over in 3 parts. The shared app joins them when it next opens."), log)
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img.nxpart.0000.0003"), "0123")
+        XCTAssertFalse(fm.fileExists(atPath: games + "/romfs.img"), "the whole file never goes over")
+        XCTAssertEqual(try String(contentsOfFile: games + "/aoc/1.img"), "abcd", "a file of one part goes whole")
+
+        try fm.removeItem(atPath: state + "/fail-on")
+        let before = copies().count
+        r = i.installData(titleID: titleID, archive: f.archive)
+        XCTAssertTrue(r.ok, r.message)
+        XCTAssertEqual(copies().count - before, 2, "the short second part and the third, not the first")
+        XCTAssertEqual(r.copied, 2)
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img.nxpart.0001.0003"), "4567")
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img.nxpart.0002.0003"), "89")
+
+        // before the app has joined them, the parts count as the data
+        XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).copied, 0)
+        // and after
+        try joinOnDevice(games, file: "romfs.img")
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "0123456789")
+        let after = i.installData(titleID: titleID, archive: f.archive)
+        XCTAssertEqual(after.copied, 0)
+        XCTAssertEqual(after.message, "Installed on Z, the game data was already on the device")
+    }
+
+    func testSendingToAnAppThatMayNotJoinPartsSplitsOnlyWhatCannotGoWhole() throws {
+        let f = try makeFixture()
+        let docs = container + "/org.nxnative.shell/Documents"
+        let games = docs + "/games/\(titleID)"
+        try fm.createDirectory(atPath: docs, withIntermediateDirectories: true)
+        var i = installer(f)
+        i.partSize = 4
+        i.singleCopyLimit = 100
+        // an app that never said it joins parts: the 10-byte image fits one copy, so it goes whole
+        XCTAssertEqual(i.copyGameData(titleID: titleID, archive: f.archive, app: "", bundleID: "org.nxnative.shell",
+                                      outcome: .init(ok: true, message: "")).copied, 2)
+        XCTAssertEqual(try String(contentsOfFile: games + "/romfs.img"), "0123456789")
+        XCTAssertTrue(calls.contains { $0.contains("--source Documents/shell-features.txt") })
+
+        // too large for one copy: parts all the same
+        try fm.removeItem(atPath: games)
+        i.singleCopyLimit = 4
+        XCTAssertEqual(i.copyGameData(titleID: titleID, archive: f.archive, app: "", bundleID: "org.nxnative.shell",
+                                      outcome: .init(ok: true, message: "")).copied, 4)
+        XCTAssertTrue(fm.fileExists(atPath: games + "/romfs.img.nxpart.0002.0003"))
+
+        // an app that says it joins parts gets them for any file larger than one part
+        try fm.removeItem(atPath: games)
+        i.singleCopyLimit = 100
+        try write(docs + "/shell-features.txt", "data-parts 1\n")
+        XCTAssertEqual(i.copyGameData(titleID: titleID, archive: f.archive, app: "", bundleID: "org.nxnative.shell",
+                                      outcome: .init(ok: true, message: "")).copied, 4)
+        XCTAssertFalse(fm.fileExists(atPath: games + "/romfs.img"))
+    }
+
+    func testPartsOfAnotherImageAreSentAgain() throws {
+        let f = try fixtureWithRomFSTool()
+        let image = URL(fileURLWithPath: f.archive + "/romfs.img")
+        let games = container + "/org.nxnative.shell/Documents/games/\(titleID)"
+        try romfsImage().write(to: image)   // 58 bytes: 4 parts of 16
+        var i = installer(f)
+        i.partSize = 16
+        try write(state + "/fail-on", "romfs.img.nxpart.0003.0004")
+        XCTAssertEqual(install(i, f).failure, .shellDataIncomplete)
+        try fm.removeItem(atPath: state + "/fail-on")
+
+        // the same image: the three parts that went over stay
+        var before = copies().count
+        XCTAssertTrue(i.installData(titleID: titleID, archive: f.archive).ok)
+        XCTAssertEqual(copies().count - before, 1)
+
+        // another image of the same size: every part goes again
+        let update = romfsImage(index: 1)
+        try update.write(to: image)
+        before = copies().count
+        XCTAssertTrue(i.installData(titleID: titleID, archive: f.archive).ok)
+        XCTAssertEqual(copies().count - before, 4)
+        try joinOnDevice(games, file: "romfs.img")
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: games + "/romfs.img")), update)
+        XCTAssertEqual(i.installData(titleID: titleID, archive: f.archive).message, "Z already has this version of the game data.")
+    }
+
     // ---- through the model: the build with the third target, and the re-sign ----
 
     @MainActor func testBuildWithTheShellTargetInstallsAndResignsTheSharedApp() throws {

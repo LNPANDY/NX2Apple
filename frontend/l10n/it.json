@@ -1426,6 +1426,7 @@
   "shell.dataAlready": "Installato su %@, i dati di gioco erano già sul dispositivo",
   "shell.dataChanged": "I dati del gioco sono cambiati rispetto all’ultima copia.",
   "shell.dataCurrent": "Questa versione dei dati del gioco è già su %@.",
+  "shell.dataParts": "I file grandi vengono copiati in %d parti. L’app condivisa le riunisce alla prossima apertura.",
   "shell.driveChoose": "Scegli cartella",
   "shell.driveCopy": "Copia i dati di gioco",
   "shell.driveDone": "I dati di gioco sono in %@. Collega il disco all’iPhone e scegli questa cartella nell’app in %@. Il disco deve restare collegato mentre giochi.",

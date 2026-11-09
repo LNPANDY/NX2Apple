@@ -92,9 +92,19 @@ public struct ShellHostConfig: Sendable {
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
-        // Game files stay out of the iCloud backup (#618), also what an earlier version put there. Off the main actor, it lists folders.
+        // Off the main actor, it lists folders and may write GB: a file the Mac launcher sent in parts is joined first (#899), then
+        // the game files are kept out of the iCloud backup (#618), also what an earlier version put there. A joined file can make a
+        // game playable, so the library is read again.
         let dataRoot = config.appDataRoot
-        Task.detached(priority: .utility) { BackupExclusion.apply(appDataRoot: dataRoot) }
+        Task { [weak self] in
+            let joined = await Task.detached(priority: .utility) { () -> Bool in
+                DataParts.writeFeatures(documents: dataRoot.deletingLastPathComponent())
+                let joined = DataParts.joinAll(appDataRoot: dataRoot)
+                BackupExclusion.apply(appDataRoot: dataRoot)
+                return !joined.isEmpty
+            }.value
+            if joined { self?.reload() }
+        }
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
