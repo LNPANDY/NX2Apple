@@ -67,6 +67,7 @@ extension Font {
 /// A thick rounded bar on a dark track, the launcher's build progress. Without a value (a step that reports
 /// no percentage) it shows calm diagonal stripes that run steadily to the right: a barber pole, not a bounce.
 package struct LauncherProgressBar: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     package var value: Double?
     package var height: CGFloat = 8
     package var tint: Color = LauncherPalette.building
@@ -81,11 +82,11 @@ package struct LauncherProgressBar: View {
             if let value {
                 GeometryReader { g in
                     Capsule().fill(tint).frame(width: max(height, g.size.width * min(max(value, 0), 1)))
-                        .animation(.easeOut(duration: 0.3), value: value)
+                        .animation(LauncherMotion.animation(.easeOut(duration: 0.3), reduceMotion: reduceMotion), value: value)
                 }
             } else {
                 Capsule().fill(tint.opacity(0.16))   // an amber-tinted track under soft stripes
-                TimelineView(.animation) { context in
+                TimelineView(.animation(paused: reduceMotion)) { context in
                     Canvas { canvas, size in
                         // One stripe and one gap per period; the pattern moves one period every 1.2 s, linearly
                         let period = height * 3, stripe = height * 1.5

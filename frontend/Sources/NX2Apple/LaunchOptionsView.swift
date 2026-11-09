@@ -286,16 +286,21 @@ struct LaunchOptionsView: View {
                         }
                         .buttonStyle(.plain)
                         .help(loc.t("launch.rowReset"))
-                        .accessibilityLabel(loc.t("launch.rowReset"))
+                        .accessibilityLabel(Self.resetLabel(loc, label(s)))
                     }
                 }
                 .frame(width: 16)
             default:
                 Spacer(minLength: 0)
-                Toggle("", isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))
+                Toggle(label(s), isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))
                     .labelsHidden().toggleStyle(LauncherSwitchStyle())
             }
         }
+    }
+
+    /// What VoiceOver says for a row's reset button: the action and the setting it resets.
+    @MainActor static func resetLabel(_ loc: Localizer, _ setting: String) -> String {
+        loc.t("launch.rowReset") + ": " + setting
     }
 
     // ---- mods ----
@@ -326,7 +331,7 @@ struct LaunchOptionsView: View {
                                 }
                             }
                             Spacer(minLength: 12)
-                            Toggle("", isOn: Binding(get: { mod.usable && game.mods.contains(mod.name) },
+                            Toggle(mod.name, isOn: Binding(get: { mod.usable && game.mods.contains(mod.name) },
                                                      set: { library.setMod(mod.name, on: $0, for: gameID) }))
                                 .labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(!mod.usable)
                         }
@@ -370,7 +375,7 @@ struct LaunchOptionsView: View {
                 HStack(spacing: 16) {
                     Text(loc.t("launch.frameTimesRecord")).font(.manrope(14, .medium))
                     Spacer(minLength: 12)
-                    Toggle("", isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    Toggle(loc.t("launch.frameTimesRecord"), isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
                 .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
                 .padTarget("frameTimes.record", scope: "launch", radius: 10,

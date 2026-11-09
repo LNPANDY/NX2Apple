@@ -37,7 +37,7 @@ package struct TargetCard: View {
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         Spacer(minLength: 12)
-                        Toggle("", isOn: $build.bcOnCPU).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(build.running)
+                        Toggle(loc.t("opt.bc"), isOn: $build.bcOnCPU).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(build.running)
                     }
                     .padding(.horizontal, 18).padding(.vertical, 14)
                 }
