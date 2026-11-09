@@ -116,6 +116,32 @@ import NXModel
         build.revealFolder = { NSWorkspace.shared.open($0) }
         build.revealItem = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
         build.openApp = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
+        build.preflightApp = { app, done in Self.preflight(app, done: done) }
+    }
+
+    /// The build's check of a new Mac app's first start (#1005, `MacPreflight`): opened through LaunchServices, as Play
+    /// opens it, since only that open has macOS check the bundle; hidden, in the background, a new instance even if an
+    /// older build of the game runs, kept out of the recent items. Its launcher sees DM_PREFLIGHT and quits at once, once
+    /// macOS lets it start. `done` runs when the process has quit, or with the error that kept it from starting; the
+    /// BuildStore ends the wait itself after its timeout, and the poll stops then too.
+    static func preflight(_ app: URL, done: @escaping @MainActor (Error?) -> Void) {
+        let c = NSWorkspace.OpenConfiguration()
+        c.activates = false
+        c.hides = true
+        c.addsToRecentItems = false
+        c.createsNewApplicationInstance = true
+        c.environment = [MacPreflight.environmentKey: "1"]
+        NSWorkspace.shared.openApplication(at: app, configuration: c) { running, error in
+            DispatchQueue.main.async {
+                guard let running else { done(error); return }
+                let deadline = Date().addingTimeInterval(MacPreflight.timeout)
+                Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+                    guard running.isTerminated || Date() > deadline else { return }
+                    timer.invalidate()
+                    MainActor.assumeIsolated { done(running.isTerminated ? nil : MacPreflight.Failure.timedOut) }
+                }
+            }
+        }
     }
 
     /// The panel of the Build tab's Save to folder. It can make a folder, because the folder for the IPA often does not exist yet.

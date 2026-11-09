@@ -190,6 +190,15 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// A Finder window with this file or folder selected (`activateFileViewerSelecting`).
     package var revealItem: (URL) -> Void = { _ in }
     package var openApp: (URL) -> Void = { _ in }
+    /// Opens a new Mac app once, hidden, with DM_PREFLIGHT set, and calls back on the main actor when it has quit, with the
+    /// error that stopped it, if any (`MacPreflight`, #1005). Nil: no check, as in the tests that do not set it.
+    package var preflightApp: ((URL, @escaping @MainActor (Error?) -> Void) -> Void)?
+    /// Whether this app's launcher knows DM_PREFLIGHT. Tests stand in for the binary's answer.
+    package var preflightSupported: (URL) -> Bool = { MacPreflight.supports($0) }
+    /// How long the check may take. Tests shorten it.
+    package var preflightTimeout = MacPreflight.timeout
+    /// Ends the check's wait now (Stop, or the timeout), while the build's last stage runs it.
+    var endPreflight: (@MainActor (Error) -> Void)?
     /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
     package var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }
     /// Whether the volume of this folder can replace an old Mac app (APFS), nil when unknown. Tests stand in for the system's answer.
@@ -275,6 +284,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     package func stop() {
         if case .moving = shellMove { stopShellMove(); return }
+        if let endPreflight { endPreflight(MacPreflight.Failure.stopped); return }   // the app is built: Stop ends the check only
         guard running, !stopping, let proc, proc.isRunning else { return }
         stopping = true
         stopPSOPoll()

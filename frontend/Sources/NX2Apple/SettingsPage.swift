@@ -4,7 +4,7 @@ import NXLauncher
 import NXModel
 
 // The Settings page: one card per area, in order. The page owns what only the app can give the cards: the switches kept in the app's
-// defaults (the console prompt, build notifications, return after play), the library and the Copy diagnostics report.
+// defaults (the console prompt, build notifications, return after play, the check of a new app's first start), the library and the Copy diagnostics report.
 
 struct SettingsPage: View {
     let build: BuildStore   // whether a build runs turns off the update and pull buttons
@@ -24,6 +24,7 @@ struct SettingsPage: View {
     @AppStorage(ConsolePrompt.startKey) private var startInConsole = false   // ConsoleCoordinator.swift (#336)
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
     @AppStorage(ReturnAfterPlay.defaultsKey) private var returnAfterPlay = true   // ReturnAfterPlay.swift
+    @AppStorage(MacPreflight.defaultsKey) private var preflightAfterBuild = true   // MacPreflight.swift (#1005)
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
@@ -37,7 +38,7 @@ struct SettingsPage: View {
             DiagnosticsButton(report: diagnostics, game: library.selected)
         }
         AppCard(updates: updates, buildRunning: build.running, notify: $notifyBuilds, notifyAvailable: BuildNotice.hasBundleID,
-                returnAfterPlay: $returnAfterPlay, onRunSetup: onRunSetup, uninstallPlan: uninstallPlan)
+                returnAfterPlay: $returnAfterPlay, preflightAfterBuild: $preflightAfterBuild, onRunSetup: onRunSetup, uninstallPlan: uninstallPlan)
     }
 
     private func uninstallPlan() -> Uninstall.Plan {

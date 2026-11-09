@@ -670,4 +670,96 @@ import XCTest
         XCTAssertFalse(store.running)
         XCTAssertNil(defaults.string(forKey: "shellRoot"))
     }
+
+    // MARK: The check of a new Mac app's first start (#1005)
+
+    /// A Mac app build that has run its stages and packed its app, as the script's exit leaves it: `finishMacApp` comes next.
+    /// Each call packs into a folder of its own in the temporary folder, which tearDown removes with everything in it.
+    private func packedMacApp(_ store: BuildStore) throws -> MacAppOutput {
+        let id = "0100000000010000"
+        let folder = temporary.appendingPathComponent(UUID().uuidString)
+        let output = MacAppOutput(workDir: folder.appendingPathComponent(id + "_build"), key: id, titleID: id, preferred: "")
+        let macOS = output.builderURL.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        for (name, content) in [("game", "DM_PREFLIGHT"), ("dmhost", "")] {   // MacGameBundle.read wants both executable
+            let file = macOS.appendingPathComponent(name)
+            try Data(content.utf8).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
+        let info: [String: Any] = ["DMTitleID": id, "CFBundleExecutable": "game", "CFBundleName": "Journey"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .binary, options: 0)
+            .write(to: output.builderURL.appendingPathComponent("Contents/Info.plist"))
+        store.running = true
+        store.stages = [Stage(id: 6, name: "Shaders", state: .done), Stage(id: 7, name: Stage.localizedName("mac app", store.t), state: .done)]
+        return output
+    }
+
+    func testAMacAppBuildEndsWithTheCheckOfItsFirstStart() async throws {
+        let store = makeStore()
+        let output = try packedMacApp(store)
+        var opened: [URL] = []
+        store.preflightApp = { app, done in
+            opened.append(app)
+            XCTAssertTrue(store.running, "the build runs until macOS has checked the app")
+            XCTAssertFalse(store.done)
+            DispatchQueue.main.async { done(nil) }
+        }
+        await store.finishMacApp(output).value
+        XCTAssertTrue(store.macAppPath.hasPrefix(temporary.path), store.doneNote)
+        XCTAssertEqual(opened.map(\.path), [store.macAppPath])
+        let last = try XCTUnwrap(store.stages.last)
+        XCTAssertEqual(last.id, 8)
+        XCTAssertEqual(last.name, "Verify first start")
+        XCTAssertEqual(last.state, .done)
+        XCTAssertFalse(store.running)
+        XCTAssertTrue(store.done)
+        XCTAssertEqual(store.doneNote, store.t("msg.macAppDone"))
+        XCTAssertTrue(store.log.text.contains(store.t("msg.preflight")), store.log.text)
+    }
+
+    func testNoCheckWhenSwitchedOffOrWhenTheLauncherWouldStartTheGame() async throws {
+        for switchedOff in [true, false] {
+            let store = makeStore()
+            let output = try packedMacApp(store)
+            defaults.set(!switchedOff, forKey: MacPreflight.defaultsKey)
+            store.preflightSupported = { _ in switchedOff }   // off: the switch alone; on: a launcher without DM_PREFLIGHT
+            store.preflightApp = { _, _ in XCTFail("the app was opened") }
+            await store.finishMacApp(output).value
+            XCTAssertEqual(store.stages.map(\.id), [6, 7])
+            XCTAssertFalse(store.running)
+            XCTAssertTrue(store.done, store.doneNote)
+        }
+        defaults.removeObject(forKey: MacPreflight.defaultsKey)
+        XCTAssertTrue(MacPreflight.enabled(defaults), "on unless switched off")
+    }
+
+    func testAFailedCheckLeavesTheBuildDone() async throws {
+        let store = makeStore()
+        let output = try packedMacApp(store)
+        store.preflightApp = { _, done in done(NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "no launch"])) }
+        await store.finishMacApp(output).value
+        let last = try XCTUnwrap(store.stages.last)
+        XCTAssertEqual(last.state, .failed)
+        XCTAssertEqual(last.detail, "no launch")
+        XCTAssertFalse(store.running)
+        XCTAssertTrue(store.done)
+        XCTAssertEqual(store.doneNote, store.t("msg.macAppDone"))
+        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.preflightFailed"), "no launch")), store.log.text)
+    }
+
+    func testTheCheckEndsAtItsTimeoutOrAtStop() async throws {
+        for stop in [false, true] {
+            let store = makeStore()
+            let output = try packedMacApp(store)
+            store.preflightTimeout = stop ? 60 : 0.05
+            store.preflightApp = { _, _ in if stop { DispatchQueue.main.async { store.stop() } } }   // the app never quits
+            await store.finishMacApp(output).value
+            let last = try XCTUnwrap(store.stages.last)
+            XCTAssertEqual(last.state, .failed)
+            XCTAssertEqual(last.detail, stop ? store.t("msg.stopped") : String(format: store.t("msg.preflightTimedOut"), 0))
+            XCTAssertNil(store.endPreflight)
+            XCTAssertFalse(store.running)
+            XCTAssertTrue(store.done, store.doneNote)
+        }
+    }
 }
