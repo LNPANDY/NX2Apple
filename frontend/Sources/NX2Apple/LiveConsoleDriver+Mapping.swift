@@ -16,6 +16,7 @@ extension LiveConsoleDriver {
     func openLibrary() { refreshDesktop(); state.openLibrary() }
     func openSettings() { refreshDesktop(); state.openSettings() }
     func openLanguage() { state.openLanguage() }
+    func openAppearance() { refreshDesktop(); state.openAppearance() }
     /// Kept in the launcher's defaults, read again with the layout (refreshPadLayout), so it lasts from one console session to the next.
     static let menuSwapKey = "console.menuSwapAB"
     /// On the mapping page it waits for Save (finishMapping), so the menus keep their buttons while it is open.

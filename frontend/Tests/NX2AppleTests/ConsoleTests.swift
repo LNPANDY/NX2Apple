@@ -244,7 +244,7 @@ import NXModel
         let sizes: [(String, CGFloat, CGFloat)] = [("tv", 1920, 1080), ("mac", 1280, 800), ("compact", 390, 844)]
         for lang in CaptureLanguage.all([.en, .zh]) {
             for (name, width, height) in sizes {
-                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "controllerDesktopSplit", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint", "menu", "mapping", "mappingCustom", "mappingRow", "gamePad", "gameMapping", "cloudSaves", "library", "general", "language", "confirmExit", "menuExit", "confirmMapping", "advanced", "confirmReset", "confirmUpdate"] {
+                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "controllerDesktopSplit", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint", "menu", "mapping", "mappingCustom", "mappingRow", "gamePad", "gameMapping", "cloudSaves", "library", "general", "language", "appearance", "confirmExit", "menuExit", "confirmMapping", "advanced", "confirmReset", "confirmUpdate"] {
                     let driver = MockConsoleDriver(scenario: MockConsoleDriver.Scenario(rawValue: screen) ?? (screen == "mixedHome" || screen == "controllerDesktop" || screen == "controllerDesktopSplit" || screen == "connectedToast" ? .controllersMixed : .full), lang: lang, animated: false)
                     switch screen {
                     case "mixedHome": driver.back()
@@ -267,6 +267,7 @@ import NXModel
                     case "library": driver.openMenu(); driver.openLibrary()
                     case "general": driver.openMenu(); driver.openSettings()
                     case "language": driver.openMenu(); driver.openSettings(); driver.openLanguage()
+                    case "appearance": driver.openMenu(); driver.openSettings(); driver.openAppearance()
                     case "confirmExit": driver.back()
                     case "menuExit": driver.openMenu(); driver.confirmExit()
                     case "confirmMapping": driver.openMenu(); driver.openMapping(); driver.setMenuSwapAB(true); driver.back()

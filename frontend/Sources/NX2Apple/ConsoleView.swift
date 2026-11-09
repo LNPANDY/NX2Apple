@@ -88,8 +88,12 @@ enum ConsoleInput {
                                 .transition(.opacity)
                         } else if let sheet = shown {
                             Color.black.opacity(0.5).ignoresSafeArea().accessibilityHidden(true)
+                            // On a notched Mac the console covers the whole screen, housing included: the panel keeps clear of it, no
+                            // wider than the room beside the housing and its content starting below it (ConsoleNotch).
+                            let notch = ConsoleNotch.current(screenWidth: geometry.size.width)
                             sheetContent(sheet, compact: compact)
-                                .frame(width: compact ? geometry.size.width : min(700, max(520, geometry.size.width * 0.46)))
+                                .padding(.top, notch.inset)
+                                .frame(width: compact ? geometry.size.width : min(700, max(520, min(geometry.size.width * 0.46, notch.panelWidth ?? .infinity))))
                                 .frame(maxHeight: .infinity)
                                 .background(LauncherPalette.background)
                                 .overlay(alignment: .leading) { Rectangle().fill(.white.opacity(0.10)).frame(width: 1) }
@@ -308,6 +312,7 @@ enum ConsoleInput {
             case .library: library(compact: compact)
             case .settings: settings(compact: compact)
             case .language: language(compact: compact)
+            case .appearance: appearance(compact: compact)
             case let .advanced(id):
                 if let game = state.games.first(where: { $0.id == id }) { advanced(game, compact: compact) }
             case .mapping, .gamePad, .cloudSaves, .confirmExit, .confirmMapping, .confirmReset, .confirmUpdate: EmptyView()   // drawn over the whole screen (fullPage, question)
@@ -446,6 +451,18 @@ enum ConsoleInput {
         ScrollViewReader { proxy in
             ScrollView {
                 ConsoleSettingsList(driver: driver, lang: lang, compact: compact, languageName: languageName(languageCode))
+                    .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+            }
+            .consoleScrollFade()
+            .onChange(of: pad.focused) { id in if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } } }
+        }
+    }
+
+    /// The Appearance page (ConsoleAppearanceList): how the chips show the battery, and what else of the look becomes a choice.
+    private func appearance(compact: Bool) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                ConsoleAppearanceList(driver: driver, lang: lang, compact: compact)
                     .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
             }
             .consoleScrollFade()
@@ -596,6 +613,7 @@ enum ConsoleInput {
         case .gamePad: return "console.gamePad"
         case .library: return "console.menu.library"
         case .settings: return "console.menu.settings"
+        case .appearance: return "console.settings.appearance"
         case .language: return "console.language.title"
         case .cloudSaves: return "console.saves.title"
         case .confirmExit: return "console.exit.title"
@@ -627,6 +645,7 @@ enum ConsoleInput {
         case .cloudSaves: pad.focused = ConsoleCloudSaves.sorted(state.saveRows).first.map { "console.saves.row." + $0.id } ?? "console.saves.close"   // the first row as the page sorts them
         case .library: pad.focused = ConsolePref.onLibrary.first.map { "console.pref." + $0.rawValue } ?? "console.library.saves"
         case .settings: pad.focused = "console.settings.language"
+        case .appearance: pad.focused = "console.appearance.battery." + state.prefs.batteryStyle.rawValue
         case .language: pad.focused = "console.language." + (languageCode.isEmpty ? "system" : languageCode)
         case .confirmExit: pad.focused = "console.confirmExit.leave"
         case .confirmMapping: pad.focused = "console.confirmMapping.save"

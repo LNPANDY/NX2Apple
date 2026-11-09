@@ -27,6 +27,7 @@ import NXLauncher
     func openSettings() { base.openSettings() }
     func openCloudSaves() { base.openCloudSaves() }
     func openLanguage() { base.openLanguage() }
+    func openAppearance() { base.openAppearance() }
     func confirmExit() { base.confirmExit() }
     func testRumble(gameID: String) { base.testRumble(gameID: gameID) }
     func setMod(gameID: String, name: String, on: Bool) { base.setMod(gameID: gameID, name: name, on: on) }

@@ -285,3 +285,21 @@ struct ConsoleBuildChip: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+/// The camera housing of a notched Mac, when console mode covers the whole screen: how far down the housing reaches (the screen's
+/// top safe area), and how wide a panel at the trailing edge can be and still start right of it.
+enum ConsoleNotch {
+    struct Room { var inset: CGFloat; var panelWidth: CGFloat? }
+    /// The housing is about 200 pt wide and centred; a panel from the trailing edge stays 24 pt clear of it.
+    static func room(inset: CGFloat, screenWidth: CGFloat, housingWidth: CGFloat = 200) -> Room {
+        guard inset > 0 else { return Room(inset: 0, panelWidth: nil) }
+        return Room(inset: inset, panelWidth: max(360, (screenWidth - housingWidth) / 2 - 24))
+    }
+    @MainActor static func current(screenWidth: CGFloat) -> Room {
+        let screen = NSApp.keyWindow?.screen ?? NSApp.mainWindow?.screen
+        let inset = screen?.safeAreaInsets.top ?? 0
+        // only when the window really covers the housing: a window below the menu bar has nothing above it
+        let covers = (NSApp.keyWindow ?? NSApp.mainWindow).map { w in (screen.map { w.frame.maxY >= $0.frame.maxY - 1 } ?? false) } ?? false
+        return room(inset: covers ? inset : 0, screenWidth: screenWidth)
+    }
+}

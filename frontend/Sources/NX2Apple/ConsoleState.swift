@@ -131,7 +131,7 @@ enum ConsoleSheet: Equatable {
     /// confirmExit: "Leave console mode?", over what is open (the menu's Exit, or B on the home screen).
     /// confirmMapping: "Save changes?", leaving the button mapping after something on it changed.
     /// advanced: a game's advanced options. confirmReset: "Reset this game's options?". confirmUpdate: install the app's update, or restart into it.
-    case options(String), controllers, explanation(String), homeButtonHint, menu, mapping, gamePad(String), library, settings, language, cloudSaves, confirmExit, confirmMapping
+    case options(String), controllers, explanation(String), homeButtonHint, menu, mapping, gamePad(String), library, settings, appearance, language, cloudSaves, confirmExit, confirmMapping
     case advanced(String), confirmReset(String), confirmUpdate
     /// The questions drawn in the middle of the screen, over what they were asked from.
     var isQuestion: Bool {
@@ -150,6 +150,7 @@ enum ConsoleSheet: Equatable {
     var scope: String {
         switch self {
         case .language: return "console.language"
+        case .appearance: return "console.appearance"
         case .confirmExit: return "console.confirmExit"
         case .confirmMapping: return "console.confirmMapping"
         case .advanced: return "console.advanced"
@@ -293,6 +294,11 @@ struct ConsoleState {
         guard !exited, startingGameID == nil, presentedSheet != sheet else { return }
         sheets.append(sheet)
     }
+    /// Settings → Appearance: a page of its own, so the General page stays short as more of the look becomes a choice.
+    mutating func openAppearance() {
+        guard !exited, startingGameID == nil, presentedSheet != .appearance else { return }
+        sheets.append(.appearance)
+    }
     mutating func openLanguage() {
         guard !exited, startingGameID == nil, presentedSheet != .language else { return }
         sheets.append(.language)
@@ -389,6 +395,7 @@ struct ConsoleState {
     func openCloudSaves()
     /// The Settings page's display language list.
     func openLanguage()
+    func openAppearance()
     /// "Leave console mode?": the menu's Exit asks first (B on the home screen does too, through `back`).
     func confirmExit()
     /// A short rumble at a game's rumble strength on every connected controller, from its controller settings.
@@ -452,6 +459,7 @@ extension ConsoleDriver {
     func openSettings() {}
     func openCloudSaves() {}
     func openLanguage() {}
+    func openAppearance() {}
     func confirmExit() {}
     func testRumble(gameID: String) {}
     func setMod(gameID: String, name: String, on: Bool) {}

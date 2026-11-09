@@ -175,6 +175,7 @@ import NXLauncher
     func openLibrary() { state.openLibrary() }
     func openSettings() { state.openSettings() }
     func openLanguage() { state.openLanguage() }
+    func openAppearance() { state.openAppearance() }
     func setMenuSwapAB(_ on: Bool) {
         if state.mappingOrigin != nil { state.pendingMenuSwapAB = on } else { state.menuSwapAB = on }
     }

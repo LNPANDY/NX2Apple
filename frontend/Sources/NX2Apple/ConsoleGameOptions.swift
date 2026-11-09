@@ -38,8 +38,30 @@ struct ConsoleMenuRow: View {
 
 /// A switch on a row of its own: its name, what it does under it, the switch at the right. A (or left and right) flips it. A row that
 /// cannot be switched (a mod that changes the game's code) is dimmed and says why, and takes no focus.
+/// The Appearance page: what console mode shows and how, each a choice of a few values. Its own page, so the General page stays
+/// short as more of the look becomes a choice.
+@MainActor struct ConsoleAppearanceList<Driver: ConsoleDriver>: View {
+    @ObservedObject var driver: Driver
+    let lang: Lang
+    let compact: Bool
+    static var scope: String { "console.appearance" }
+    private var scope: String { Self.scope }
+    private func t(_ key: String) -> String { L10n.string(key, lang) }
+    private var prefs: ConsolePrefs { driver.state.prefs }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            ConsoleChoiceRow(id: "console.appearance.battery", scope: scope, title: t("console.battery.style"), note: t("console.battery.styleNote"),
+                             choices: ConsoleBatteryStyle.allCases.map { ($0.rawValue, t($0.titleKey)) }, chosen: prefs.batteryStyle.rawValue, compact: compact) { raw in
+                if let style = ConsoleBatteryStyle(rawValue: raw) { driver.setBatteryStyle(style) }
+            }
+        }
+    }
+}
+
 /// One setting with a few values side by side, the chosen one cream (the mapping page's layout segments): each segment is a pad
-/// target, so left and right move between them and A picks; left and right on the row's title also step through them.
+/// target, so left and right move the focus between them and A picks the one in focus. No `adjust` on the segments: with it, left
+/// and right changed the value under a focus that stayed put, and the next A put the focused value back.
 struct ConsoleChoiceRow: View {
     let id: String
     let scope: String
@@ -66,11 +88,6 @@ struct ConsoleChoiceRow: View {
     private func segment(_ key: String, label: String) -> some View {
         let isChosen = key == chosen
         let choose = { pick(key) }
-        let step: (Int) -> Void = { by in
-            let keys = choices.map(\.0)
-            let at = keys.firstIndex(of: chosen) ?? 0
-            pick(keys[(at + by + keys.count) % keys.count])
-        }
         return Button(action: choose) {
             Text(label).font(.manrope(compact ? 14 : 16, isChosen ? .bold : .semibold))
                 .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.75)
@@ -84,7 +101,7 @@ struct ConsoleChoiceRow: View {
         .buttonStyle(.plain)
         .accessibilityLabel(title + ", " + label)
         .accessibilityAddTraits(isChosen ? .isSelected : [])
-        .padTarget(id + "." + key, scope: scope, radius: 10, activate: choose, adjust: step)
+        .padTarget(id + "." + key, scope: scope, radius: 10, activate: choose)
         .id(id + "." + key)
     }
 }
@@ -307,11 +324,8 @@ struct ConsoleSwitchRow: View {
                 ConsoleSwitchRow(id: "console.pref." + pref.rawValue, scope: scope, title: t(pref.titleKey), note: t(pref.noteKey),
                                  isOn: prefs[pref], compact: compact) { driver.setPref(pref, on: !prefs[pref]) }
             }
-            ConsoleSectionHeading(title: t("console.settings.appearance"), compact: compact).padding(.top, 8)
-            ConsoleChoiceRow(id: "console.settings.battery", scope: scope, title: t("console.battery.style"), note: t("console.battery.styleNote"),
-                             choices: ConsoleBatteryStyle.allCases.map { ($0.rawValue, t($0.titleKey)) }, chosen: prefs.batteryStyle.rawValue, compact: compact) { raw in
-                if let style = ConsoleBatteryStyle(rawValue: raw) { driver.setBatteryStyle(style) }
-            }
+            ConsoleMenuRow(id: "console.settings.appearance", scope: scope, symbol: "paintpalette", title: t("console.settings.appearance"),
+                           note: t("console.settings.appearanceNote"), compact: compact) { driver.openAppearance() }
         }
     }
 
