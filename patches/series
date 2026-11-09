@@ -67,9 +67,10 @@
 0100-test-one-pro-controller-is-one-pad.patch
 0101-shader-split-zstd-in-process.patch
 0102-allow-ios-packaging-without-a-recorded-prewarm-s.patch
-0103-shader-split-scimitar-forge-archives-and-raw-con.patch
-0104-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0105-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0106-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
-0107-audren-merge-updates-closer-than-a-frame-for-a-r.patch
-0108-nsp-script-a-program-s-dlc-counts-from-the-appli.patch
+0103-ios-shell-return-to-library-on-quit-with-full-ho.patch
+0104-shader-split-scimitar-forge-archives-and-raw-con.patch
+0105-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0106-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0107-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0108-audren-merge-updates-closer-than-a-frame-for-a-r.patch
+0109-nsp-script-a-program-s-dlc-counts-from-the-appli.patch

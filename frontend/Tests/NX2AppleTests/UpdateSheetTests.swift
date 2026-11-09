@@ -57,6 +57,15 @@ final class UpdateSheetTests: IsolatedDefaultsTestCase {
         XCTAssertTrue(en.contains { $0.hasPrefix("- The iOS build is fixed") })
     }
 
+    func testTheSheetSaysWhyTheButtonIsOffWhileABuildRuns() {
+        XCTAssertEqual(UpdateSheet.note(blocked: nil, buildRunning: true, waitForBuild: "wait"), "wait")
+        XCTAssertNil(UpdateSheet.note(blocked: nil, buildRunning: false, waitForBuild: "wait"))
+    }
+
+    func testARefusalFromTheStoreComesBeforeTheBuildNote() {
+        XCTAssertEqual(UpdateSheet.note(blocked: "too old", buildRunning: true, waitForBuild: "wait"), "too old")
+    }
+
     func testAMonolingualBodyComesThroughWhole() {
         let one = "## What changed\n\n- One thing.\n- Another thing."
         XCTAssertEqual(Self.plain(one, for: .zh), ["What changed", "- One thing.", "- Another thing."])

@@ -618,8 +618,8 @@ class Model(QObject):
         if py_ver and pu._ver_tuple(py_ver) >= pu.MIN_PYTHON:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.missing:{py} ({py_ver})',
-                       install=[py, '-m', 'pip', 'install', 'lz4', 'capstone', 'fonttools',
-                                'zbic', 'backports.zstd', 'nsz'])
+                       install=[py, '-m', 'pip', 'install', 'lz4', 'capstone', 'unicorn',
+                                'fonttools', 'zbic', 'backports.zstd', 'nsz'])
         if pu.IS_WIN:
             return Dep('python', 'dep.python', 'dep.python.hint', DepState.MISSING,
                        f'dep.python.none:{py or "python3"}',
@@ -1774,9 +1774,9 @@ class Model(QObject):
                 return False
         ver_str = pu._python_version(vpy)
         ver = pu._ver_tuple(ver_str)
-        pkgs = ['lz4', 'capstone', 'fonttools', 'zbic', 'nsz']
+        pkgs = ['lz4', 'capstone', 'unicorn', 'fonttools', 'zbic', 'nsz']
         if ver < (3, 14):
-            pkgs.insert(4, 'backports.zstd')
+            pkgs.insert(5, 'backports.zstd')
         wheels_fn = getattr(self, 'bundled_wheels', Model.bundled_wheels)
         wheels = wheels_fn()
         for attempt_wheels in ([wheels, None] if wheels else [None]):

@@ -1762,7 +1762,8 @@ class PlatformIsolationTest(unittest.TestCase):
             code = (
                 'import sys; sys.path.insert(0, %r)\n'
                 'from nspb_qt.win import toolchain, sdk_fetch, shim, fix_ipa_modes, fetch, '
-                'doctor, build_app, driver, xcrun_shim, macho_sign, sdk_auto_cuts\n'
+                'doctor, build_app, driver, xcrun_shim, macho_sign, sdk_auto_cuts, '
+                'love_shaders, arm64_emu, oodle_emu, gm_shaders, nro_emu, glslc_emu\n'
                 'print("ok")\n'
             ) % str(QT)
             r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
@@ -4247,11 +4248,6 @@ class UnrealInlineShadersWinTest(unittest.TestCase):
     def test_split_shaders_defers_oodle_for_ue_legacy_and_keeps_for_oodle_packs(self) -> None:
         recorded: list[tuple] = []
         orig_under = self.mod._nspb_orig_split_shaders
-        had_pg = hasattr(self.mod, 'pg')
-        orig_pg = getattr(self.mod, 'pg', None)
-
-        class FakePG:
-            oodle_packs = staticmethod(lambda _r: ([], ''))
 
         def fake_orig(py_, repo_, roms, mains, pkg, env, logs, g,
                       provisional=False, oodle=None, *a, **kw):
@@ -4260,45 +4256,114 @@ class UnrealInlineShadersWinTest(unittest.TestCase):
                 oodle()
             return 'pkg-key'
 
-        self.mod.pg = FakePG
         self.mod._nspb_orig_split_shaders = fake_orig
         self.driver.patch(self.mod, self.repo)
         try:
-            # 1) ue_legacy game (oodle_packs is empty): oodle callback must be dropped so
-            #    build_mac_host is not called upfront, and DM_EXPERIMENTAL_BUILDER is cleared.
-            FakePG.oodle_packs = staticmethod(lambda _r: ([], ''))
-            called = False
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                romfs = root / 'romfs'
+                romfs.mkdir(parents=True)
+                import struct
+                exefs = root / 'ExeFS'
+                exefs.mkdir(parents=True)
+                main_nso = exefs / 'main'
+                nso_buf = bytearray(0x140)
+                nso_buf[:4] = b'NSO0'
+                struct.pack_into('<III', nso_buf, 0x30, 0x100, 0, 0x40)
+                struct.pack_into('<I4siqQqQqQ', nso_buf, 0x104, 8, b'MOD0', 8, 6, 0x40, 5, 0x40, 0, 0)
+                main_nso.write_bytes(bytes(nso_buf))
 
-            def boom_oodle():
-                nonlocal called
-                called = True
-                return {'DM_OODLE_HOST': str(self.mod.build_mac_host(
-                    self.repo, Path('out'), {}, Path('logs'), None))}
+                # 1) ue_legacy game (no non-Unreal Oodle containers in romfs): oodle callback
+                #    must be dropped so build_mac_host is not called upfront, and
+                #    DM_EXPERIMENTAL_BUILDER is cleared.
+                called = False
 
-            res = self.mod.split_shaders(
-                Path(sys.executable), self.repo, [Path('romfs')], [Path('main')],
-                Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
-                provisional=False, oodle=boom_oodle)
-            self.assertEqual(res, 'pkg-key')
-            self.assertFalse(called, 'ue_legacy must not call oodle() before shader_split.py runs')
-            self.assertIsNone(recorded[-1][0])
-            self.assertNotIn('DM_EXPERIMENTAL_BUILDER', recorded[-1][1])
+                def boom_oodle():
+                    nonlocal called
+                    called = True
+                    return {'DM_OODLE_HOST': str(self.mod.build_mac_host(
+                        self.repo, Path('out'), {}, Path('logs'), None))}
 
-            # 2) Non-Unreal Oodle archive game (oodle_packs non-empty): keeps oodle and fails fast.
-            FakePG.oodle_packs = staticmethod(lambda _r: ([Path('arc/data.trpfs')], 'Trinity'))
-            with self.assertRaises(self.mod.BuildError) as ctx:
-                self.mod.split_shaders(
-                    Path(sys.executable), self.repo, [Path('romfs')], [Path('main')],
+                res = self.mod.split_shaders(
+                    Path(sys.executable), self.repo, [romfs], [main_nso],
+                    Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
+                    provisional=False, oodle=boom_oodle)
+                self.assertEqual(res, 'pkg-key')
+                self.assertFalse(called, 'ue_legacy must not call oodle() before shader_split.py runs')
+                self.assertIsNone(recorded[-1][0])
+                self.assertNotIn('DM_EXPERIMENTAL_BUILDER', recorded[-1][1])
+
+                # Verify against the real `dm/games/profile_guess.py` module (`self.mod.pg`),
+                # which has `build_sources` (returning a dict with `'oodle_packs'`) and no
+                # standalone `oodle_packs` function (regression for issue #989).
+                self.assertFalse(hasattr(self.mod.pg, 'oodle_packs'))
+
+                # 2) Same check when `pg.build_sources` ran right before `split_shaders`
+                #    with the matching RomFS path (as in `scripts/build_ipa_from_nsp.py:main`).
+                orig_bs = self.mod.pg._nspb_orig_build_sources
+                self.mod.pg._nspb_orig_build_sources = lambda *_a, **_kw: {
+                    'oodle_packs': (False, ''),
+                    'ue_legacy': (True, '2 Unreal pak(s)'),
+                }
+                self.driver.patch(self.mod, self.repo)
+                try:
+                    src = self.mod.pg.build_sources(exefs, romfs, ['main'])
+                    self.assertTrue(src['ue_legacy'][0])
+                    res2 = self.mod.split_shaders(
+                        Path(sys.executable), self.repo, [romfs], [main_nso],
+                        Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
+                        provisional=False, oodle=boom_oodle)
+                    self.assertEqual(res2, 'pkg-key')
+                    self.assertFalse(called)
+                    self.assertIsNone(recorded[-1][0])
+                finally:
+                    self.mod.pg._nspb_orig_build_sources = orig_bs
+                    self.driver.patch(self.mod, self.repo)
+
+                # 3) Cache key mismatch across games: if an earlier game recorded
+                #    `oodle_packs=True` under `other_romfs`, building a `ue_legacy` game at
+                #    `romfs` must not pick up the other game's cached `True` value.
+                other_romfs = root / 'other_game' / 'romfs'
+                orig_bs = self.mod.pg._nspb_orig_build_sources
+                self.mod.pg._nspb_orig_build_sources = lambda _exe, r, *_a, **_kw: {
+                    'oodle_packs': (Path(r) == other_romfs, ''),
+                    'ue_legacy': (True, '2 Unreal pak(s)'),
+                }
+                self.driver.patch(self.mod, self.repo)
+                try:
+                    other_src = self.mod.pg.build_sources(exefs, other_romfs, ['main'])
+                    self.assertTrue(other_src['oodle_packs'][0])
+                    res_mismatch = self.mod.split_shaders(
+                        Path(sys.executable), self.repo, [romfs], [main_nso],
+                        Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
+                        provisional=False, oodle=boom_oodle)
+                    self.assertEqual(res_mismatch, 'pkg-key')
+                    self.assertFalse(
+                        called,
+                        'A mismatched cache key from another game must not force oodle()',
+                    )
+                    self.assertIsNone(recorded[-1][0])
+                finally:
+                    self.mod._nspb_build_sources_oodle = {}
+                    self.mod.pg._nspb_orig_build_sources = orig_bs
+                    self.driver.patch(self.mod, self.repo)
+
+                # 4) Non-Unreal Oodle archive game (e.g. Trinity `ONEPACK\0` `.trpfs` in romfs):
+                #    `pg.build_sources` reports `oodle_packs=True`, keeping `oodle` and resolving
+                #    `build_mac_host` to `oodle_emu.py` inside the `oodle` callback context.
+                trpfs = romfs / 'arc' / 'data.trpfs'
+                trpfs.parent.mkdir(parents=True, exist_ok=True)
+                trpfs.write_bytes(b'ONEPACK\x00' + b'\x00' * 32)
+                res_oodle = self.mod.split_shaders(
+                    Path(sys.executable), self.repo, [romfs], [main_nso],
                     Path('pkg'), {}, Path('logs'), None,
                     provisional=False, oodle=boom_oodle)
-            self.assertTrue(called)
-            self.assertIn('arm64', str(ctx.exception))
+                self.assertEqual(res_oodle, 'pkg-key')
+                self.assertTrue(called)
+                self.assertIsNotNone(recorded[-1][0])
+                self.assertTrue(recorded[-1][0]()['DM_OODLE_HOST'].endswith('oodle_emu.py'))
         finally:
             self.mod._nspb_orig_split_shaders = orig_under
-            if had_pg:
-                self.mod.pg = orig_pg
-            else:
-                delattr(self.mod, 'pg')
             self.driver.patch(self.mod, self.repo)
 
     def test_run_ipa_aborts_on_oodle_log_even_when_provisional_and_cleans_partial(self) -> None:
@@ -4630,6 +4695,1227 @@ class WinToolchainInstallWiringTest(unittest.TestCase):
                 self.assertNotIn('_MEIPASS', cenv)
                 self.assertNotIn('PYTHONHOME', cenv)
                 self.assertEqual(cenv.get('PYTHONPATH'), r'C:\UserLib')
+
+
+class LoveShadersWinTest(unittest.TestCase):
+    """Offline LÖVE GLSL shader reconstruction (`love_shaders.py`) and `driver.capture_shaders`."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from nspb_qt.win import driver as _drv, love_shaders
+        cls.driver = _drv
+        cls.love_shaders = love_shaders
+        cls.repo = QT.parent / 'engine'
+        cls.mod = _drv.load_upstream(cls.repo)
+        _drv.patch(cls.mod, cls.repo)
+
+    @staticmethod
+    def _make_nso0(img: bytes | bytearray, compress: bool = True) -> bytes:
+        import struct
+        import types
+        import zlib
+        try:
+            import lz4.block
+        except ModuleNotFoundError:
+            _m = types.ModuleType('lz4')
+            _b = types.ModuleType('lz4.block')
+            _b.compress = lambda raw, **_kw: zlib.compress(raw)
+            _b.decompress = lambda blob, **_kw: zlib.decompress(blob)
+            _m.block = _b
+            sys.modules['lz4'] = _m
+            sys.modules['lz4.block'] = _b
+            lz4 = _m
+        img_b = bytes(img)
+        assert len(img_b) >= 0x3000
+        segs = [(0x0000, 0x1000), (0x1000, 0x1000), (0x2000, len(img_b) - 0x2000)]
+        hdr = bytearray(0x100)
+        hdr[:4] = b'NSO0'
+        struct.pack_into('<I', hdr, 0x0C, 0b111 if compress else 0)
+        body = bytearray()
+        fo = 0x100
+        for i, (mo, sz) in enumerate(segs):
+            raw = img_b[mo:mo + sz]
+            blob = lz4.block.compress(raw, store_size=False) if compress else raw
+            struct.pack_into('<III', hdr, 0x10 + i * 0x10, fo, mo, sz)
+            struct.pack_into('<I', hdr, 0x60 + i * 4, len(blob))
+            body.extend(blob)
+            fo += len(blob)
+        return bytes(hdr + body)
+
+    def test_love_shaders_offline_reconstruction_completeness_and_driver_errors(self) -> None:
+        lua_src = (
+            'local GLSL = {}\n'
+            'GLSL.VERSION = {\n'
+            '    glsl1 = { [false] = "#version 120", [true] = "#version 100" },\n'
+            '    glsl3 = { [false] = "#version 330 core", [true] = "#version 300 es" },\n'
+            '}\n'
+            'GLSL.SYNTAX = [==[\n#define number float\n]==]\n'
+            'GLSL.UNIFORMS = [==[\nuniform mat4 TransformProjectionMatrix;\n]==]\n'
+            'GLSL.FUNCTIONS = [==[\nvec4 gammaCorrectColor(vec4 c) { return c; }\n]==]\n'
+            'GLSL.VERTEX = {\n'
+            '    HEADER = [==[\n#define LOVE_VERTEX_HEADER 1\n]==],\n'
+            '    FUNCTIONS = [==[\nvoid love_vfn() {}\n]==],\n'
+            '    MAIN = [==[\nvoid main() { gl_Position = position(TransformProjectionMatrix, vec4(0.0)); }\n]==],\n'
+            '}\n'
+            'GLSL.PIXEL = {\n'
+            '    HEADER = [==[\n#define LOVE_PIXEL_HEADER 1\n]==],\n'
+            '    FUNCTIONS = [==[\nvoid love_pfn() {}\n]==],\n'
+            '    MAIN = [==[\nvoid main() { love_PixelColor = effect(vec4(1.0), MainTex, VaryingTexCoord.xy, gl_FragCoord.xy); }\n]==],\n'
+            '    MAIN_CUSTOM = [==[\nvoid main() { effect(); }\n]==],\n'
+            '}\n'
+            'local defaultcode = {\n'
+            '    vertex = [==[\nvec4 position(mat4 m, vec4 p) { return m * p; }\n]==],\n'
+            '    pixel = [==[\nvec4 effect(vec4 c, Image t, vec2 tc, vec2 pc) { return c; }\n]==],\n'
+            '    videopixel = [==[\nvoid effect() { /* video */ }\n]==],\n'
+            '    arraypixel = [==[\nvoid effect() { /* array */ }\n]==],\n'
+            '}\n'
+            'function love.graphics._shaderCodeToGLSL(gles, arg1, arg2)\nend\n'
+        )
+        img = bytearray(0x3000)
+        lua_bytes = b'\x00' + lua_src.encode('utf-8') + b'\x00'
+        img[0x1100:0x1100 + len(lua_bytes)] = lua_bytes
+
+        with tempfile.TemporaryDirectory() as td:
+            game_dir = Path(td) / 'extract' / 'v0'
+            (game_dir / 'ExeFS').mkdir(parents=True)
+            (game_dir / 'ExeFS' / 'main').write_bytes(self._make_nso0(img, compress=True))
+
+            romfs = game_dir / 'RomFS'
+            (romfs / 'resources' / 'shaders').mkdir(parents=True)
+            (romfs / 'conf.lua').write_text('function love.conf(t) t.gammacorrect = false end\n', encoding='utf-8')
+            (romfs / 'resources' / 'shaders' / 'CRT.fs').write_bytes(
+                b'vec4 effect(vec4 c, Image t, vec2 tc, vec2 pc) {\r\n    return c * 0.5;\r\n}\r\n'
+            )
+            (romfs / 'resources' / 'shaders' / 'Vortex.fs').write_bytes(
+                b'vec4 position(mat4 m, vec4 p) { return m * p; }\n'
+                b'void effect() { love_Canvases[0] = vec4(1.0); }\n'
+            )
+
+            # 1) Direct generation without a capture table writes all 7 shaders
+            direct_out = Path(td) / 'direct_cap'
+            res_direct = self.love_shaders.generate(
+                game_dir / 'ExeFS' / 'main', romfs, direct_out, repo=self.repo
+            )
+            self.assertIsNotNone(res_direct)
+            files = sorted(p.name for p in direct_out.iterdir() if p.is_file())
+            self.assertEqual(len(files), 7, f'unexpected shader files: {files}')
+
+            # 2) Without a capture table (`g=None`), `driver.capture_shaders` passes
+            #    `require_table=True` and refuses instead of swapping in an unverified set
+            with self.assertRaises(self.mod.BuildError):
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), None, 'gl'
+                )
+            self.assertFalse((game_dir / 'gl_capture').exists())
+            self.assertFalse((game_dir / 'gl_capture.partial').exists())
+
+            # 3) With a matching `gl_capture.tsv` on the profile, `driver.capture_shaders` succeeds
+            tbl = Path(td) / 'gl_capture.tsv'
+            tbl.write_text('# test capture table\n' + '\n'.join(files) + '\n', encoding='utf-8')
+
+            class FakeProfile:
+                @staticmethod
+                def table(name: str) -> Path:
+                    assert name == 'gl_capture.tsv'
+                    return tbl
+
+            out_cap = self.mod.capture_shaders(
+                self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+            )
+            self.assertEqual(out_cap, game_dir / 'gl_capture')
+            self.assertEqual(sorted(p.name for p in out_cap.iterdir() if p.is_file()), files)
+
+            # 4) When `gl_capture.tsv` lists a key not produced offline (e.g., after a game update),
+            #    `generate` returns `None`, leaves no partial folder, and `capture_shaders` refuses
+            shutil.rmtree(out_cap)
+            tbl.write_text('\n'.join([*files, 'deadbeefcafebabe.frag']) + '\n', encoding='utf-8')
+            partial_out = Path(td) / 'incomplete_cap'
+            self.assertIsNone(
+                self.love_shaders.generate(
+                    game_dir / 'ExeFS' / 'main', romfs, partial_out, table=tbl, repo=self.repo
+                )
+            )
+            self.assertFalse(partial_out.exists(), 'incomplete reconstruction must not write files')
+            with self.assertRaises(self.mod.BuildError) as ctx_inc:
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+                )
+            self.assertIn('booting the game in the Mac host', str(ctx_inc.exception))
+
+            # 5) Unsupported LÖVE template (missing required keys) raises `BuildError`, not `ValueError`
+            bad_img = bytearray(0x3000)
+            bad_lua = b'\x00function love.graphics._shaderCodeToGLSL(gles, a, b)\nend\n\x00'
+            bad_img[0x1100:0x1100 + len(bad_lua)] = bad_lua
+            (game_dir / 'ExeFS' / 'main').write_bytes(self._make_nso0(bad_img, compress=False))
+            with self.assertRaises(self.mod.BuildError) as ctx_bad:
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+                )
+            self.assertIn('unsupported LÖVE version', str(ctx_bad.exception))
+
+            # 6) Non-LÖVE binary falls back to standard capture `BuildError`
+            (game_dir / 'ExeFS' / 'main').write_bytes(self._make_nso0(bytearray(0x3000), compress=False))
+            with self.assertRaises(self.mod.BuildError):
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+                )
+
+            # 7) ZBIC (zstd) compressed NSO and corrupt LZ4 segment error handling
+            import struct
+            import types
+            import zlib
+            zbic_blob = zlib.compress(bytes(img))
+            zbic_hdr = bytearray(0x100)
+            zbic_hdr[:4] = b'NSO0'
+            struct.pack_into('<I', zbic_hdr, 0x0C, (1 << 7) | 1)
+            struct.pack_into('<III', zbic_hdr, 0x10, 0x100, 0, len(img))
+            struct.pack_into('<I', zbic_hdr, 0x60, len(zbic_blob))
+            zbic_nso = Path(td) / 'zbic_main'
+            zbic_nso.write_bytes(bytes(zbic_hdr) + zbic_blob)
+            fake_zbic = types.SimpleNamespace(decompress=zlib.decompress)
+            with mock.patch.dict(sys.modules, {'zbic': fake_zbic}):
+                self.assertEqual(self.love_shaders.nso_image(zbic_nso), bytes(img))
+
+            corrupt_hdr = bytearray(0x100)
+            corrupt_hdr[:4] = b'NSO0'
+            struct.pack_into('<I', corrupt_hdr, 0x0C, 1)
+            struct.pack_into('<III', corrupt_hdr, 0x10, 0x100, 0, 0x1000)
+            struct.pack_into('<I', corrupt_hdr, 0x60, 8)
+            (game_dir / 'ExeFS' / 'main').write_bytes(bytes(corrupt_hdr) + b'bad_lz4!')
+            with self.assertRaises(self.mod.BuildError) as ctx_lz4:
+                self.mod.capture_shaders(
+                    self.repo, game_dir, Path(td) / 'patched', Path(td), {}, Path(td), FakeProfile(), 'gl'
+                )
+            self.assertIn('failed to decompress LZ4 NSO segment', str(ctx_lz4.exception))
+
+
+class OodleEmuWinTest(unittest.TestCase):
+    """Tests for the Windows Oodle / LZ5 decoder host (`arm64_emu.py` + `oodle_emu.py`)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from nspb_qt.win import arm64_emu, driver as _drv, oodle_emu
+        cls.driver = _drv
+        cls.arm64_emu = arm64_emu
+        cls.oodle_emu = oodle_emu
+        cls.repo = QT.parent / 'engine'
+        cls.mod = _drv.load_upstream(cls.repo)
+        _drv.patch(cls.mod, cls.repo)
+
+    @staticmethod
+    def _make_nso0(img: bytes | bytearray, compress: bool = True) -> bytes:
+        import struct
+        import types
+        import zlib
+        try:
+            import lz4.block
+        except ModuleNotFoundError:
+            _m = types.ModuleType('lz4')
+            _b = types.ModuleType('lz4.block')
+            _b.compress = lambda raw, **_kw: zlib.compress(raw)
+            _b.decompress = lambda blob, **_kw: zlib.decompress(blob)
+            _m.block = _b
+            sys.modules['lz4'] = _m
+            sys.modules['lz4.block'] = _b
+            lz4 = _m
+        img_b = bytes(img)
+        assert len(img_b) >= 0x3000
+        segs = [(0x0000, 0x1000), (0x1000, 0x1000), (0x2000, len(img_b) - 0x2000)]
+        hdr = bytearray(0x100)
+        hdr[:4] = b'NSO0'
+        struct.pack_into('<I', hdr, 0x0C, 0b111 if compress else 0)
+        body = bytearray()
+        fo = 0x100
+        for i, (mo, sz) in enumerate(segs):
+            raw = img_b[mo:mo + sz]
+            blob = lz4.block.compress(raw, store_size=False) if compress else raw
+            struct.pack_into('<III', hdr, 0x10 + i * 0x10, fo, mo, sz)
+            struct.pack_into('<I', hdr, 0x60 + i * 4, len(blob))
+            body.extend(blob)
+            fo += len(blob)
+        return bytes(hdr + body)
+
+    def test_engine_oodle_error_strings_match_driver_detection(self) -> None:
+        tools_dir = self.repo / 'dm' / 'gfx' / 'tools'
+        texts = '\n'.join(
+            p.read_text(encoding='utf-8', errors='replace')
+            for p in sorted(tools_dir.glob('*.py'))
+        )
+        self.assertIn('Oodle- or LZ5-compressed game files: set DM_OODLE_HOST', texts)
+        # In shader_split.py the single-quoted f-string escapes the apostrophe as `game\'s`
+        self.assertTrue(
+            "the game's decoder in the Mac host" in texts
+            or r"the game\'s decoder in the Mac host" in texts
+        )
+
+    def test_find_native_oodle_dll_accepts_only_explicit_locations(self) -> None:
+        OE = self.oodle_emu
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch.dict(os.environ, {}, clear=False), \
+                mock.patch.object(shutil, 'which', side_effect=AssertionError('must not probe PATH')):
+            root = Path(td)
+            os.environ.pop('NSPB_OODLE_DLL', None)
+            os.environ['LOCALAPPDATA'] = str(root / 'local')
+            cfg_path = root / 'toolchain.json'
+            os.environ['NSPB_TOOLCHAIN_JSON'] = str(cfg_path)
+
+            # 1) Nothing configured -> None (and shutil.which is never called)
+            self.assertIsNone(OE.find_native_oodle_dll())
+
+            # 2) App-managed tools_dir() / 'oodle' directory
+            app_oodle = tc.tools_dir() / 'oodle'
+            app_oodle.mkdir(parents=True)
+            dll_7 = app_oodle / 'oo2core_7_win64.dll'
+            dll_9 = app_oodle / 'oo2core_9_win64.dll'
+            dll_7.write_bytes(b'MZ7')
+            dll_9.write_bytes(b'MZ9')
+            self.assertEqual(OE.find_native_oodle_dll(), dll_9)
+
+            # 3) toolchain.json `oodle_dll` overrides tools_dir() / 'oodle'
+            cfg_dll = root / 'custom_oodle.dll'
+            cfg_dll.write_bytes(b'MZC')
+            cfg_path.write_text(json.dumps({'oodle_dll': str(cfg_dll)}), encoding='utf-8')
+            self.assertEqual(OE.find_native_oodle_dll(), cfg_dll)
+
+            # 4) NSPB_OODLE_DLL overrides everything
+            env_dll = root / 'env_oodle.dll'
+            env_dll.write_bytes(b'MZE')
+            os.environ['NSPB_OODLE_DLL'] = str(env_dll)
+            self.assertEqual(OE.find_native_oodle_dll(), env_dll)
+
+    def test_arm64_fast_stubs_disassemble_cleanly_and_cover_hot_imports(self) -> None:
+        import struct
+        E = self.arm64_emu
+        self.assertEqual(len(E.FAST_STUB_BYTES) % 4, 0)
+        words = [w for (w,) in struct.iter_unpack('<I', E.FAST_STUB_BYTES)]
+        self.assertGreater(len(words), 60)
+        self.assertIn(0xD65F03C0, words)
+        from capstone import Cs, CS_ARCH_ARM64, CS_MODE_ARM
+        cs = Cs(CS_ARCH_ARM64, CS_MODE_ARM)
+        insns = list(cs.disasm(E.FAST_STUB_BYTES, E.FAST_BASE))
+        self.assertEqual(len(insns), len(words), 'every 4-byte word must disassemble as a valid ARM64 instruction')
+        for sym, addr in E.FAST_STUB_ADDRS.items():
+            self.assertEqual(addr % 16, 0, f'{sym} at {addr:#x} is not 16-byte aligned')
+            self.assertGreaterEqual(addr, E.FAST_BASE)
+            self.assertLess(addr, E.FAST_BASE + len(E.FAST_STUB_BYTES))
+        for must_have in ('memcpy', 'memmove', 'memset', 'memcmp', 'strlen', 'strcmp', 'strncmp',
+                          'malloc', 'calloc', 'free', '_Znwm', '_ZdlPv', '__errno'):
+            self.assertIn(must_have, E.FAST_STUB_ADDRS)
+
+    def test_arm64_fast_stubs_differential_against_python_in_real_unicorn(self) -> None:
+        import struct
+        E = self.arm64_emu
+        self.assertTrue(E._HAS_UNICORN and E.Uc is not None, 'Unicorn must be installed in CI and local test runs')
+
+        # Build a minimal valid Mod where entry +0x80 is an exported `malloc` that tries to return
+        # 0xDEAD, so we can also verify in-place entry trampoline patching for exported allocators.
+        img = bytearray(0x4000)
+        struct.pack_into('<I', img, 4, 0x1000)
+        # +0x80: movz x0, #0xdead; ret (8 bytes, padded to 16 bytes so trampoline fits)
+        struct.pack_into('<IIII', img, 0x80, 0xD29BD5A0, 0xD65F03C0, 0xD503201F, 0xD503201F)
+        # +0x90: infinite loop `b .` (0x14000000) for timeout verification
+        struct.pack_into('<I', img, 0x90, 0x14000000)
+        img[0x1000:0x1004] = b'MOD0'
+        struct.pack_into('<i', img, 0x1004, 0x40)
+        strs = bytearray(b'\0malloc\0')
+        syms = bytearray(24)
+        # Defined & exported `malloc` at st_value = 0x80 (shndx = 1)
+        syms.extend(struct.pack('<IBBHQQ', 1, 0x12, 0, 1, 0x80, 16))
+        img[0x1100:0x1100 + len(syms)] = syms
+        img[0x1300:0x1300 + len(strs)] = strs
+        for i, (t, v) in enumerate([(6, 0x1100), (5, 0x1300), (7, 0x1500), (8, 0), (0, 0)]):
+            struct.pack_into('<qQ', img, 0x1040 + i * 16, t, v)
+
+        with tempfile.TemporaryDirectory() as mod_td:
+            mod_file = Path(mod_td) / 'test_mod'
+            mod_file.write_bytes(self._make_nso0(img, compress=False))
+            m = E.Machine([('test_mod', mod_file)], use_fast_stubs=True)
+            mod = m.mods[0]
+            scratch = m.malloc(0x4000)
+
+            def call_stub(sym: str, *args: int) -> int:
+                return m.call_fast(E.FAST_STUB_ADDRS[sym], *args)
+
+            # 1) Exported `malloc` at mod.base + 0x80 was patched in-place to jump to the allocator stub
+            ptr_from_export = m.call_fast(mod.base + 0x80, 128)
+            self.assertGreaterEqual(ptr_from_export, E.HEAP_BASE)
+            self.assertNotEqual(ptr_from_export, 0xDEAD)
+
+            # 2) Differential test for memset across sizes 0..40 and unaligned offsets 0..7
+            for n in (0, 1, 7, 8, 15, 16, 17, 31, 32, 33, 40):
+                for align in range(8):
+                    base_buf = bytes((i * 13 + 7) & 0xFF for i in range(64))
+                    m.write(scratch, base_buf)
+                    ret = call_stub('memset', scratch + align, 0x1AB, n)
+                    self.assertEqual(ret, scratch + align)
+                    expected = bytearray(base_buf)
+                    expected[align:align + n] = bytes([0xAB]) * n
+                    self.assertEqual(m.read(scratch, 64), bytes(expected), f'memset failed for n={n}, align={align}')
+
+            # 3) Differential test for memcpy & memmove (disjoint, forward overlap dst < src, backward overlap dst > src)
+            for n in (0, 1, 7, 8, 15, 16, 17, 31, 32, 33, 40):
+                for src_off, dst_off in ((0, 64), (3, 71), (8, 4), (4, 8), (16, 17), (17, 16)):
+                    initial = bytes((i * 29 + 3) & 0xFF for i in range(160))
+                    expected = bytearray(initial)
+                    expected[dst_off:dst_off + n] = initial[src_off:src_off + n]
+                    m.write(scratch, initial)
+                    fn_name = 'memcpy' if abs(dst_off - src_off) >= n else 'memmove'
+                    ret = call_stub(fn_name, scratch + dst_off, scratch + src_off, n)
+                    self.assertEqual(ret, scratch + dst_off)
+                    self.assertEqual(
+                        m.read(scratch, 160), bytes(expected),
+                        f'{fn_name} failed for n={n}, src_off={src_off}, dst_off={dst_off}',
+                    )
+
+            # 4) Differential test for memcmp (including high-bit unsigned byte comparisons >= 0x80)
+            for n in (0, 1, 7, 8, 15, 16, 24, 33):
+                buf_a = bytearray((i * 19 + 1) & 0xFF for i in range(n + 8))
+                buf_b = bytearray(buf_a)
+                m.write(scratch, bytes(buf_a))
+                m.write(scratch + 128, bytes(buf_b))
+                self.assertEqual(call_stub('memcmp', scratch, scratch + 128, n), 0)
+                if n > 0:
+                    for pos in {0, n // 2, n - 1}:
+                        a2 = bytearray(buf_a)
+                        b2 = bytearray(buf_b)
+                        a2[pos] = 0x80
+                        b2[pos] = 0x7F
+                        m.write(scratch, bytes(a2))
+                        m.write(scratch + 128, bytes(b2))
+                        res_gt = struct.unpack('<q', struct.pack('<Q', call_stub('memcmp', scratch, scratch + 128, n)))[0]
+                        res_lt = struct.unpack('<q', struct.pack('<Q', call_stub('memcmp', scratch + 128, scratch, n)))[0]
+                        self.assertGreater(res_gt, 0, f'memcmp unsigned 0x80 > 0x7F failed at pos={pos}, n={n}')
+                        self.assertLess(res_lt, 0, f'memcmp unsigned 0x7F < 0x80 failed at pos={pos}, n={n}')
+
+            # 5) Differential test for strlen, strcmp, strncmp
+            test_strings = [b'', b'a', b'hello', b'0123456789abcdef', b'0123456789abcdef_long_string_xyz']
+            for s in test_strings:
+                m.write(scratch, s + b'\x00\xFF\xFF')
+                self.assertEqual(call_stub('strlen', scratch), len(s))
+            pairs = [
+                (b'', b''),
+                (b'abc', b'abc'),
+                (b'abc', b'abd'),
+                (b'abc', b'ab'),
+                (b'\x80', b'\x7f'),
+                (b'prefix_same_1', b'prefix_same_2'),
+            ]
+            for sa, sb in pairs:
+                m.write(scratch, sa + b'\x00')
+                m.write(scratch + 128, sb + b'\x00')
+                got_cmp = struct.unpack('<q', struct.pack('<Q', call_stub('strcmp', scratch, scratch + 128)))[0]
+                exp_cmp = (1 if sa > sb else (-1 if sa < sb else 0))
+                self.assertEqual((got_cmp > 0) - (got_cmp < 0), exp_cmp, f'strcmp({sa!r}, {sb!r})')
+                for max_n in (0, 1, 3, 12, 20):
+                    got_ncmp = struct.unpack(
+                        '<q', struct.pack('<Q', call_stub('strncmp', scratch, scratch + 128, max_n))
+                    )[0]
+                    pa, pb = sa[:max_n], sb[:max_n]
+                    exp_ncmp = (1 if pa > pb else (-1 if pa < pb else 0))
+                    self.assertEqual((got_ncmp > 0) - (got_ncmp < 0), exp_ncmp, f'strncmp({sa!r}, {sb!r}, {max_n})')
+
+            # 6) calloc after heap_reset must zero dirty memory AND slow-path calloc (>= 64 KB) must not
+            #    multiply x0 * x1 twice!
+            mark = m.heap_mark()
+            p_dirty = call_stub('malloc', 256)
+            call_stub('memset', p_dirty, 0xCC, 256)
+            self.assertEqual(m.read(p_dirty, 256), b'\xCC' * 256)
+            m.heap_reset(mark)
+            p_clean = call_stub('calloc', 16, 16)
+            self.assertEqual(p_clean, p_dirty)
+            self.assertEqual(m.read(p_clean, 256), b'\x00' * 256, 'fast-path calloc must zero reused dirty heap bytes')
+
+            # Slow-path calloc: 2048 * 32 = 65536 (>= 65536 threshold -> traps into Python _calloc)
+            m.heap_reset(mark)
+            p_large = call_stub('calloc', 2048, 32)
+            self.assertEqual(p_large, mark + 16)
+            self.assertEqual(
+                m._vm_heap_top() - p_large, 65536,
+                'slow-path calloc must allocate exactly nmemb * size (65536), not nmemb * size * size',
+            )
+
+            # 7) Timeout enforcement on an infinite loop in call_fast
+            with self.assertRaises(E.EmuError) as ctx:
+                m.call_fast(mod.base + 0x90, timeout_us=50_000)
+            self.assertIn('timed out', str(ctx.exception))
+
+    def test_oodle_emu_work_dir_cache_sharded_job_partial_failure_and_serve(self) -> None:
+        import io
+        import struct
+        E = self.arm64_emu
+        OE = self.oodle_emu
+
+        # Build a synthetic NSO with MOD0, .eh_frame_hdr, and ADRP+ADD referencing "OodleLZ_Decompress\0"
+        img = bytearray(0x4000)
+        struct.pack_into('<I', img, 4, 0x1000)
+        struct.pack_into('<III', img, 0x40, 0xB0000010, 0x91180210, 0xD65F03C0)
+        img[0x1000:0x1004] = b'MOD0'
+        struct.pack_into('<i', img, 0x1004, 0x40)
+        struct.pack_into('<i', img, 0x1010, 0x700)
+        s_oodle = b'OodleLZ_Decompress\0'
+        img[0x1600:0x1600 + len(s_oodle)] = s_oodle
+        struct.pack_into('<BBBBIIII', img, 0x1700, 1, 0x03, 0x03, 0x03, 0, 1, 0x40, 0)
+
+        symtab_off, strtab_off, rela_off = 0x1100, 0x1300, 0x1500
+        strs = bytearray(b'\0malloc\0free\0memcpy\0')
+        syms = bytearray(24)
+        syms.extend(struct.pack('<IBBHQQ', 1, 0x10, 0, 0, 0, 0))
+        relas = struct.pack('<QQq', 0x2000, (1 << 32) | 1025, 0)
+        img[symtab_off:symtab_off + len(syms)] = syms
+        img[strtab_off:strtab_off + len(strs)] = strs
+        img[rela_off:rela_off + len(relas)] = relas
+        for i, (t, v) in enumerate([(6, symtab_off), (5, strtab_off), (7, rela_off), (8, len(relas)), (0, 0)]):
+            struct.pack_into('<qQ', img, 0x1040 + i * 16, t, v)
+
+        class StandInUc:
+            def __init__(self, _arch: int, _mode: int) -> None:
+                self.mem: dict[int, bytearray] = {}
+                self.regs: dict[int, int] = {}
+
+            def mem_map(self, addr: int, size: int, _prot: int = 7) -> None:
+                self.mem[addr] = bytearray(size)
+
+            def _find_seg(self, addr: int) -> tuple[int, bytearray]:
+                for base, buf in self.mem.items():
+                    if base <= addr < base + len(buf):
+                        return base, buf
+                raise RuntimeError(f'unmapped {addr:#x}')
+
+            def mem_write(self, addr: int, data: bytes) -> None:
+                base, buf = self._find_seg(addr)
+                off = addr - base
+                buf[off:off + len(data)] = data
+
+            def mem_read(self, addr: int, size: int) -> bytearray:
+                base, buf = self._find_seg(addr)
+                off = addr - base
+                return bytearray(buf[off:off + size])
+
+            def reg_write(self, reg: int, val: int) -> None:
+                self.regs[reg] = val & 0xFFFFFFFFFFFFFFFF
+
+            def reg_read(self, reg: int) -> int:
+                return self.regs.get(reg, 0)
+
+            def hook_add(self, *_a, **_kw) -> int:
+                return 1
+
+            def emu_start(self, _begin: int, _until: int, **_kw) -> None:
+                c = self.reg_read(E.UC_ARM64_REG_X0)
+                cl = self.reg_read(E.UC_ARM64_REG_X0 + 1)
+                r = self.reg_read(E.UC_ARM64_REG_X0 + 2)
+                rl = self.reg_read(E.UC_ARM64_REG_X0 + 3)
+                comp_data = bytes(self.mem_read(c, cl))
+                if cl == rl and comp_data.startswith(b'OK'):
+                    self.mem_write(r, bytes(b ^ 0xAA for b in comp_data))
+                    self.reg_write(E.UC_ARM64_REG_X0, rl)
+                else:
+                    self.reg_write(E.UC_ARM64_REG_X0, 0)
+                self.reg_write(E.UC_ARM64_REG_PC, E.STOP)
+
+        with tempfile.TemporaryDirectory() as td:
+            work_root = Path(td)
+            exefs = work_root / 'extract' / 'v0' / 'ExeFS'
+            exefs.mkdir(parents=True)
+            (exefs / 'main').write_bytes(self._make_nso0(img, compress=True))
+            patched = work_root / 'patched_v0'
+            patched.mkdir()
+
+            self.assertTrue(OE.has_decoder(exefs))
+            self.assertFalse(OE.has_decoder(patched))
+
+            with mock.patch.object(E, '_HAS_UNICORN', True), \
+                    mock.patch.object(E, 'Uc', StandInUc), \
+                    mock.patch.object(OE, 'find_native_oodle_dll', return_value=None):
+                # 1) Cold Decoder init writes JSON + raw binary cache inside <work>/tools/oodle_cache
+                dec1 = OE.Decoder(patched)
+                self.assertEqual(dec1.kind, 'OodleLZ_Decompress')
+                self.assertEqual(dec1.off, 0x40)
+                meta_p = OE._cache_file_for([('main', str(exefs / 'main'))], exefs=exefs)
+                self.assertIsNotNone(meta_p)
+                bin_p = meta_p.with_suffix('.bin')
+                self.assertTrue(meta_p.is_file() and bin_p.is_file())
+                self.assertEqual(meta_p.parent, work_root / 'tools' / 'oodle_cache')
+                meta_obj = json.loads(meta_p.read_text(encoding='utf-8'))
+                self.assertEqual(meta_obj['format'], 1)
+
+                # 2) Warm Decoder init loads from JSON + .bin cache; corrupted .bin or .json returns None and rebuilds
+                dec2 = OE.Decoder(patched)
+                self.assertEqual(dec2.kind, 'OodleLZ_Decompress')
+                bin_p.write_bytes(b'truncated')
+                self.assertIsNone(OE._read_reloc_cache(meta_p))
+                dec3 = OE.Decoder(patched)
+                self.assertTrue(bin_p.is_file() and bin_p.stat().st_size > 16)
+                meta_p.write_text('{corrupt', encoding='utf-8')
+                self.assertIsNone(OE._read_reloc_cache(meta_p))
+                dec3 = OE.Decoder(patched)
+                self.assertEqual(json.loads(meta_p.read_text(encoding='utf-8'))['format'], 1)
+
+                # 2b) eh_table bounds checks reject out-of-bounds MOD0 / .eh_frame_hdr offsets
+                import types
+                bad_mod = types.SimpleNamespace(img=b'0123456789', mod0=100, name='bad_mod')
+                with self.assertRaises(SystemExit):
+                    OE.eh_table(bad_mod)
+
+                # 3) Multi-worker sharded DM_OODLE_JOB where shard 1 exits with rc=1 (one bad record,
+                #    one good record): parent must preserve all good records, forward [RED] log, and
+                #    return rc=1 without re-running sequentially.
+                job_path = work_root / 'oodle.job'
+                recs = [b'OK_REC_00000000' + bytes([i]) for i in range(60)]
+                recs[45] = b'BAD_REC_00000045'
+                with open(job_path, 'wb') as jf:
+                    jf.write(struct.pack('<II', 0x4A4F4D44, len(recs)))
+                    for rec in recs:
+                        jf.write(struct.pack('<II', len(rec), len(rec)) + rec)
+
+                shard_calls: list[str] = []
+
+                def fake_shard_popen(cmd, env=None, stdout=None, stderr=None, **_kw):
+                    shard_job = env['DM_OODLE_JOB']
+                    shard_calls.append(shard_job)
+                    with mock.patch.dict(os.environ, {'NSPB_OODLE_WORKERS': '1'}, clear=False):
+                        rc_sub = OE.job(dec3, shard_job)
+                    if stdout is not None and rc_sub != 0:
+                        stdout.write('[RED] OodleLZ_Decompress: shard record failed\n')
+                        stdout.flush()
+
+                    class _DoneProc:
+                        def poll(self) -> int:
+                            return rc_sub
+
+                        def wait(self) -> int:
+                            return rc_sub
+
+                    return _DoneProc()
+
+                with mock.patch.dict(os.environ, {'NSPB_OODLE_WORKERS': '2'}, clear=False), \
+                        mock.patch.object(OE.subprocess, 'Popen', side_effect=fake_shard_popen) as spy_popen:
+                    rc = OE.job(dec3, str(job_path))
+                self.assertEqual(rc, 1, 'overall job must return 1 when 1 of 60 records failed')
+                self.assertEqual(spy_popen.call_count, 2)
+                self.assertEqual(len(shard_calls), 2)
+                out_data = Path(str(job_path) + '.out').read_bytes()
+                magic, cnt = struct.unpack_from('<II', out_data, 0)
+                self.assertEqual(magic, 0x524F4D44)
+                self.assertEqual(cnt, 60)
+                pos = 8
+                good_count = 0
+                for idx in range(60):
+                    (sz,) = struct.unpack_from('<I', out_data, pos)
+                    pos += 4
+                    if idx == 45:
+                        self.assertEqual(sz, 0)
+                    else:
+                        self.assertEqual(sz, 16)
+                        self.assertEqual(out_data[pos:pos + sz], bytes(b ^ 0xAA for b in recs[idx]))
+                        pos += sz
+                        good_count += 1
+                self.assertEqual(good_count, 59)
+
+                # 4) NativeOodleDll passthrough vs arm64_emu: decode the same blocks both ways and
+                #    compare byte-for-byte, plus verify automatic fallback to arm64_emu when the DLL
+                #    cannot decode a block (e.g., different Oodle version in the game's embedded decoder).
+                same_blocks = [
+                    b'OK_BLOCK_ALPHA_0',
+                    b'OK_BLOCK_BETA_12',
+                    b'OK_BLOCK_GAMMA_3',
+                ]
+                emu_decoded = [dec3.run(blk, len(blk)) for blk in same_blocks]
+                self.assertTrue(all(out is not None and len(out) == 16 for out in emu_decoded))
+
+                class ComparingNativeDll:
+                    path = Path('/fake/oo2core_9_win64.dll')
+
+                    def decompress(self, comp: bytes, rl: int) -> bytes | None:
+                        # Block 2 simulates a newer/different Oodle bitstream that the host DLL rejects,
+                        # forcing `Decoder.run()` to initialize Unicorn and fall back to `arm64_emu`.
+                        if comp == b'OK_BLOCK_GAMMA_3':
+                            return None
+                        if len(comp) == rl and comp.startswith(b'OK'):
+                            return bytes(b ^ 0xAA for b in comp)
+                        return None
+
+                with mock.patch.object(OE, 'find_native_oodle_dll', return_value=ComparingNativeDll.path), \
+                        mock.patch.object(OE, 'NativeOodleDll', return_value=ComparingNativeDll()):
+                    dec_dll = OE.Decoder(patched)
+                    self.assertIsNone(dec_dll.m, 'Unicorn must stay uninitialized while native DLL succeeds')
+                    self.assertTrue(dec_dll.using_native_dll)
+                    # First two blocks decode through the native DLL and match `arm64_emu` byte-for-byte
+                    dll_out_0 = dec_dll.run(same_blocks[0], len(same_blocks[0]))
+                    dll_out_1 = dec_dll.run(same_blocks[1], len(same_blocks[1]))
+                    self.assertIsNone(dec_dll.m, 'Unicorn must still be uninitialized after DLL hits')
+                    self.assertEqual(dll_out_0, emu_decoded[0])
+                    self.assertEqual(dll_out_1, emu_decoded[1])
+                    # Third block fails in the DLL, triggers lazy `arm64_emu` fallback, and still matches
+                    dll_out_2 = dec_dll.run(same_blocks[2], len(same_blocks[2]))
+                    self.assertIsNotNone(dec_dll.m, 'DLL miss must lazily initialize the ARM64 emulator fallback')
+                    self.assertEqual(dll_out_2, emu_decoded[2])
+                    self.assertEqual([dll_out_0, dll_out_1, dll_out_2], emu_decoded)
+
+                    req_stream = io.BytesIO(
+                        struct.pack('<QQ', 16, 16) + same_blocks[0]
+                        + struct.pack('<QQ', 16, 16) + same_blocks[2]
+                        + struct.pack('<QQ', 0, 0)
+                    )
+                    resp_stream = io.BytesIO()
+                    fake_in = mock.MagicMock(buffer=req_stream)
+                    fake_out = mock.MagicMock(buffer=resp_stream)
+                    with mock.patch.object(sys, 'stdin', fake_in), mock.patch.object(sys, 'stdout', fake_out):
+                        self.assertEqual(OE.serve(dec_dll), 0)
+                    self.assertEqual(
+                        resp_stream.getvalue(),
+                        struct.pack('<Q', 16) + emu_decoded[0]
+                        + struct.pack('<Q', 16) + emu_decoded[2]
+                        + struct.pack('<Q', 0),
+                    )
+
+import struct
+
+
+def _make_fake_gm_main() -> bytes:
+    """Build a synthetic GameMaker Switch Runner rodata table matching ExeFS/main's layout."""
+    parts = [
+        b'\xff' * 16,
+        b'#define LOWPREC lowp\n\x00',
+        b'#define MATRIX_VIEW                    0                               \n'
+        b'uniform mat4 gm_Matrices[5];\n\x00',
+        b'attribute vec3 in_Position;\nattribute vec2 in_TextureCoord;\n'
+        b'attribute LOWPREC vec4 in_Colour;\nvoid main() { gl_Position = vec4(in_Position, 1.0); }\n\x00',
+        b'attribute vec3 in_Position;\nattribute vec3 in_Normal;\n'
+        b'attribute vec2 in_TextureCoord;\nvoid main() { gl_Position = vec4(in_Position + in_Normal, 1.0); }\n\x00',
+        b'attribute vec3 in_Position;\nattribute LOWPREC vec4 in_Colour;\n'
+        b'void main() { gl_Position = vec4(in_Position, 1.0); }\n\x00',
+        b'precision mediump float;\t\t\t\t\t\t\n#define HIGHPREC \n'
+        b'#define LOWPREC lowp                           \n\x00',
+        b'uniform sampler2D gm_BaseTexture;              \n'
+        b'void DoAlphaTest(LOWPREC vec4 c) {}\n\x00',
+        b'varying HIGHPREC vec2 v_vTexcoord;\nvarying LOWPREC vec4 v_vColour;\n'
+        b'void main() { gl_FragColor = v_vColour; }\n\x00',
+        b'varying LOWPREC vec4 v_vColour;\nvarying float v_fFog;\n'
+        b'void main() { gl_FragColor = v_vColour; }\n\x00',
+        b'\xff' * 16,
+    ]
+    return b''.join(parts)
+
+
+def _make_fake_game_win(shaders: list[tuple[bytes, bytes, bytes]]) -> bytes:
+    """Build a valid IFF FORM container with a SHDR and STRG chunk holding `shaders`."""
+    # Layout after 8-byte FORM header:
+    #   chunk SHDR (8-byte hdr + count + ptrs + 16-byte entries)
+    #   chunk STRG (8-byte hdr + length-prefixed strings)
+    count = len(shaders)
+    shdr_data_len = 4 + count * 4 + count * 16
+    shdr_chunk_start = 8
+    shdr_entries_start = shdr_chunk_start + 8 + 4 + count * 4
+    strg_chunk_start = shdr_chunk_start + 8 + shdr_data_len
+    str_cursor = strg_chunk_start + 8
+
+    str_blobs: list[bytes] = []
+    entry_tuples: list[tuple[int, int, int, int]] = []
+    for name_b, vs_b, fs_b in shaders:
+        ptrs = []
+        for s in (name_b, vs_b, fs_b):
+            blob = struct.pack('<I', len(s)) + s + b'\x00'
+            str_ptr = str_cursor + 4
+            ptrs.append(str_ptr)
+            str_blobs.append(blob)
+            str_cursor += len(blob)
+        entry_tuples.append((ptrs[0], 0x80000001, ptrs[1], ptrs[2]))
+
+    strg_payload = b''.join(str_blobs)
+    entry_ptrs = [shdr_entries_start + i * 16 for i in range(count)]
+    shdr_payload = (
+        struct.pack(f'<I{count}I', count, *entry_ptrs)
+        + b''.join(struct.pack('<4I', *t) for t in entry_tuples)
+    )
+    body = (
+        b'SHDR' + struct.pack('<I', len(shdr_payload)) + shdr_payload
+        + b'STRG' + struct.pack('<I', len(strg_payload)) + strg_payload
+    )
+    return b'FORM' + struct.pack('<I', len(body)) + body
+
+
+class GMShadersAndCaptureReuseTest(unittest.TestCase):
+    """Tests for `gm_shaders.py` and `driver.py` capture reuse/reconstruction."""
+
+    def test_gm_shaders_reconstructs_48_builtins_and_shdr_custom_shaders(self) -> None:
+        from nspb_qt.win import gm_shaders
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            main_path = root / 'main'
+            main_path.write_bytes(_make_fake_gm_main())
+            rom_dir = root / 'RomFS'
+            rom_dir.mkdir()
+            custom_vs = b'#define _YY_GLSLES_ 1\nattribute vec3 pos;\nvoid main() {}\n'
+            custom_fs = b'#define _YY_GLSLES_ 1\nprecision mediump float;\nvoid main() {}\n'
+            (rom_dir / 'game.win').write_bytes(
+                _make_fake_game_win([(b'shd_custom', custom_vs, custom_fs)])
+            )
+
+            # Generate first without a table to collect the exact 50 keys (48 built-in + 2 custom)
+            out1 = root / 'out1'
+            res1 = gm_shaders.generate(main_path, rom_dir, out1, log=lambda _s: None)
+            self.assertIsNotNone(res1)
+            made1, want1 = res1
+            self.assertIsNone(want1)
+            self.assertEqual(len(made1), 50)
+            self.assertIn(f'{gm_shaders.key_bytes(custom_vs)}.vert', made1)
+            self.assertIn(f'{gm_shaders.key_bytes(custom_fs)}.frag', made1)
+
+            # Verify table completeness check passes when every key in gl_capture.tsv is present
+            tsv = root / 'gl_capture.tsv'
+            tsv.write_text('\n'.join(sorted(made1)) + '\n', encoding='utf-8')
+            out2 = root / 'out2'
+            res2 = gm_shaders.generate(
+                main_path, rom_dir, out2, tsv, log=lambda _s: None, require_table=True
+            )
+            self.assertIsNotNone(res2)
+            self.assertEqual(len(list(out2.glob('*'))), 50)
+
+    def test_gm_shaders_returns_none_and_writes_no_files_when_incomplete_or_non_gm(self) -> None:
+        from nspb_qt.win import gm_shaders
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            non_gm = root / 'plain_main'
+            non_gm.write_bytes(b'not a gamemaker binary')
+            rom_dir = root / 'RomFS'
+            rom_dir.mkdir()
+            (rom_dir / 'game.win').write_bytes(_make_fake_game_win([]))
+            out = root / 'out_non_gm'
+            self.assertIsNone(gm_shaders.generate(non_gm, rom_dir, out, log=lambda _s: None))
+            self.assertFalse(out.exists())
+
+            gm_main = root / 'gm_main'
+            gm_main.write_bytes(_make_fake_gm_main())
+            # require_table=True without a table must return None and leave out uncreated
+            self.assertIsNone(
+                gm_shaders.generate(gm_main, rom_dir, out, None, log=lambda _s: None, require_table=True)
+            )
+            self.assertFalse(out.exists())
+
+            # A table listing an unknown hash must return None and not write partial files
+            bad_tsv = root / 'bad.tsv'
+            bad_tsv.write_text('deadbeefcafebabe.vert\n', encoding='utf-8')
+            self.assertIsNone(
+                gm_shaders.generate(gm_main, rom_dir, out, bad_tsv, log=lambda _s: None, require_table=True)
+            )
+            self.assertFalse(out.exists())
+
+    def test_gm_shaders_rejects_corrupted_form_and_shdr_bounds(self) -> None:
+        from nspb_qt.win import gm_shaders
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bad = root / 'game.win'
+
+            # 1. File shorter than 8 bytes
+            bad.write_bytes(b'FORM')
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 2. FORM size larger than file
+            bad.write_bytes(b'FORM' + struct.pack('<I', 0x1000))
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 3. Chunk size exceeds FORM boundary
+            bad.write_bytes(b'FORM' + struct.pack('<I', 8) + b'SHDR' + struct.pack('<I', 0x100))
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 4. SHDR entry count exceeds chunk size
+            shdr = struct.pack('<I', 100)
+            body = b'SHDR' + struct.pack('<I', len(shdr)) + shdr
+            bad.write_bytes(b'FORM' + struct.pack('<I', len(body)) + body)
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 5. Out-of-bounds string pointer inside SHDR entry
+            shdr = struct.pack('<II4I', 1, 16, 0xFFFFFFF0, 0x80000001, 0xFFFFFFF0, 0xFFFFFFF0)
+            body = b'SHDR' + struct.pack('<I', len(shdr)) + shdr
+            bad.write_bytes(b'FORM' + struct.pack('<I', len(body)) + body)
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 6. Runner table with fewer than 3 VS templates raises GMShaderError
+            truncated_gm = _make_fake_gm_main().replace(
+                b'attribute vec3 in_Position;\nattribute LOWPREC vec4 in_Colour;\n'
+                b'void main() { gl_Position = vec4(in_Position, 1.0); }\n\x00',
+                b'',
+            )
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.runner_builtins(truncated_gm)
+
+    def test_driver_capture_hooks_reconstruct_and_reuse(self) -> None:
+        from nspb_qt.win import driver, gm_shaders
+
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing: run python3 tools/engine.py sync')
+        mod = driver.load_upstream(repo)
+        driver.patch(mod, repo)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ver_dir = root / 'v0'
+            (ver_dir / 'ExeFS').mkdir(parents=True)
+            (ver_dir / 'RomFS').mkdir(parents=True)
+            (ver_dir / 'ExeFS' / 'main').write_bytes(_make_fake_gm_main())
+            custom_vs = b'#define _YY_GLSLES_ 1\nvoid main() {}\n'
+            custom_fs = b'#define _YY_GLSLES_ 1\nprecision lowp float;\nvoid main() {}\n'
+            (ver_dir / 'RomFS' / 'game.win').write_bytes(
+                _make_fake_game_win([(b's0', custom_vs, custom_fs)])
+            )
+
+            tsv_path = root / 'gl_capture.tsv'
+            tsv_path.write_text(
+                f'{gm_shaders.key_bytes(custom_vs)}.vert\n{gm_shaders.key_bytes(custom_fs)}.frag\n',
+                encoding='utf-8',
+            )
+
+            class FakeProfile:
+                id = '0100217023F6C000'
+
+                def table(self, name):
+                    if name == 'gl_capture.tsv':
+                        return tsv_path
+                    if name == 'vk_capture.tsv':
+                        return root / 'vk_capture.tsv'
+                    if name == 'shader_map.tsv':
+                        return root / 'shader_map.tsv'
+                    raise FileNotFoundError(name)
+
+                def get(self, key, default=''):
+                    return default
+
+            prof = FakeProfile()
+            # 1. Offline GameMaker GL reconstruction via mod.capture_shaders
+            cap_out = mod.capture_shaders(repo, ver_dir, None, root, {}, root, prof, 'gl')
+            self.assertEqual(cap_out, ver_dir / 'gl_capture')
+            self.assertTrue((cap_out / f'{gm_shaders.key_bytes(custom_vs)}.vert').is_file())
+
+            # 2. Reusing an already-populated vk_capture folder
+            (root / 'vk_capture.tsv').write_text('0123456789abcdef\n', encoding='utf-8')
+            vk_dir = ver_dir / 'vk_capture'
+            vk_dir.mkdir(parents=True)
+            (vk_dir / '0123456789abcdef.spv').write_bytes(b'spv')
+            vk_out = mod.capture_shaders(repo, ver_dir, None, root, {}, root, prof, 'vk')
+            self.assertEqual(vk_out, vk_dir)
+
+            # 3. Reusing a complete glslc_capture folder vs refusing when missing
+            sh_Name = 'fedcba9876543210.glslc'
+            (root / 'shader_map.tsv').write_text(
+                f'0\t1\t2\t3\t/glslc_capture/{sh_Name}#GLSLC@0\n', encoding='utf-8'
+            )
+            with self.assertRaises(mod.BuildError):
+                mod.capture_glslc(repo, {'v0': ver_dir}, 'v0', None, root, {}, root, prof)
+            glslc_dir = ver_dir / 'glslc_capture'
+            glslc_dir.mkdir(parents=True)
+            # GLSLC magic 0x19866891 at +0, total size 0x80 at +0x44
+            blob = bytearray(0x80)
+            struct.pack_into('<I', blob, 0, 0x19866891)
+            struct.pack_into('<I', blob, 0x44, 0x80)
+            (glslc_dir / sh_Name).write_bytes(bytes(blob))
+            self.assertIsNone(
+                mod.capture_glslc(repo, {'v0': ver_dir}, 'v0', None, root, {}, root, prof)
+            )
+
+            # 4. capture_jit returns Path(d) / 'jit' when jit.img exists, or packs from jit_capture/
+            jit_dir = ver_dir / 'jit'
+            jit_dir.mkdir(parents=True)
+            (jit_dir / 'jit.img').write_bytes(b'JIT')
+            self.assertEqual(
+                mod.capture_jit(sys.executable, repo, ver_dir, None, root, {}, root, prof),
+                jit_dir,
+            )
+            mod.rmtree(jit_dir)
+            caps_dir = ver_dir / 'jit_capture'
+            for bname in ('boot1', 'boot2'):
+                (caps_dir / bname).mkdir(parents=True)
+                (caps_dir / bname / '0.jit').write_bytes(b'J')
+            patched_dir = root / 'patched_v0'
+            patched_dir.mkdir()
+            (caps_dir / 'stamp.json').write_text(mod.jit_stamp(patched_dir, prof), encoding='utf-8')
+            ran_jit_cmd: list[list[str]] = []
+
+            def fake_jit_run(cmd, log, **_kw):
+                ran_jit_cmd.append([str(c) for c in cmd])
+                out_tmp = Path(cmd[-1])
+                out_tmp.mkdir(parents=True, exist_ok=True)
+                (out_tmp / 'jit.img').write_bytes(b'PACKED_JIT')
+                return 0
+
+            orig_run = mod.run
+            try:
+                mod.run = fake_jit_run
+                packed_jit = mod.capture_jit(
+                    sys.executable, repo, ver_dir, patched_dir, root, {}, root, prof
+                )
+            finally:
+                mod.run = orig_run
+            self.assertEqual(packed_jit, jit_dir)
+            self.assertEqual((jit_dir / 'jit.img').read_bytes(), b'PACKED_JIT')
+            self.assertEqual(len(ran_jit_cmd), 1)
+            self.assertTrue(ran_jit_cmd[0][1].endswith('dm/tools/jit_capture.py'))
+
+            # 5. capture_nro returns profile when missing.tsv is absent or empty, refuses when non-empty
+            nro_dir = root / 'nro_v0'
+            nro_dir.mkdir()
+            self.assertIs(
+                mod.capture_nro(sys.executable, repo, None, None, nro_dir, {}, root, prof, False),
+                prof,
+            )
+            (nro_dir / 'missing.tsv').write_text('', encoding='utf-8')
+            self.assertIs(
+                mod.capture_nro(sys.executable, repo, None, None, nro_dir, {}, root, prof, False),
+                prof,
+            )
+            (nro_dir / 'missing.tsv').write_text('deadbeef\tnro0\n', encoding='utf-8')
+            with self.assertRaises(mod.BuildError):
+                mod.capture_nro(sys.executable, repo, None, None, nro_dir, {}, root, prof, False)
+
+    def test_nxboot_offline_nro_decode_and_driver_capture_nro(self) -> None:
+        """Verify `nro_emu.decode_boot_nro` and `driver.capture_nro` decode `nxboot` NROs in Unicorn."""
+        from nspb_qt.win import arm64_emu as E
+        from nspb_qt.win import driver, nro_emu
+
+        self.assertTrue(E._HAS_UNICORN, 'unicorn is required for offline NRO tests')
+
+        # Build a synthetic ARM64 `nxboot` NSO with `pacibsp` / `retab` instructions:
+        # - PLT stubs at 0x200..0x240 jump via GOT slots in .data (0x2000..0x2020):
+        #     0x200 -> _ZN2nn2os12CreateThreadEPNS0_10ThreadTypeEPFvPvES3_S3_mii (GOT 0x2000)
+        #     0x210 -> _ZN2nn2ro10InitializeEv (GOT 0x2008)
+        #     0x220 -> _ZN2nn2os12AwaitBarrierEPNS0_11BarrierTypeE (GOT 0x2010)
+        #     0x230 -> malloc (GOT 0x2018)
+        # - `nnMain` at 0x020: calls `CreateThread(0, base+0x060, ...)`, `CreateThread(0, base+0x100, ...)`,
+        #   then `nn::ro::Initialize()`, and returns with `retab` (0xD65F0FFF).
+        # - Worker 0 at 0x060: writes `sizes[0] = 0x80`, calls `AwaitBarrier`, sums `sizes[0] + sizes[1]`,
+        #   calls `malloc(total)` and stores to `*out_buf_ptr`, calls `AwaitBarrier`, writes `NRO0` at +0x10
+        #   and `0x100` (256 bytes) at +0x18, and returns with `retab`.
+        # - Worker 1 at 0x100: writes `sizes[1] = 0x80`, calls `AwaitBarrier`, calls `AwaitBarrier`,
+        #   writes `0xCAFEBABE` at `(*out_buf_ptr) + sizes[0]`, and returns with `retab`.
+        text = bytearray(0x1000)
+
+        def put_insns(off: int, words: list[int]) -> None:
+            struct.pack_into(f'<{len(words)}I', text, off, *words)
+
+        def bl_at(pc: int, target: int) -> int:
+            return 0x94000000 | (((target - pc) // 4) & 0x3FFFFFF)
+
+        def adr_x1(pc: int, target: int) -> int:
+            delta = target - pc
+            return 0x10000001 | ((delta & 3) << 29) | (((delta >> 2) & 0x7FFFF) << 5)
+
+        # PLT stubs at 0x200, 0x210, 0x220, 0x230 (adrp x16, #0x2000; ldr x17, [x16, #slot]; br x17)
+        for idx, slot_off in enumerate((0x00, 0x08, 0x10, 0x18)):
+            ldr_imm = (slot_off // 8) << 10
+            put_insns(
+                0x200 + idx * 0x10,
+                [
+                    0xD0000010,                 # adrp x16, #0x2000
+                    0xF9400211 | ldr_imm,       # ldr x17, [x16, #slot_off]
+                    0xD61F0220,                 # br x17
+                    0xD503201F,                 # nop
+                ],
+            )
+
+        # nnMain at 0x020
+        put_insns(
+            0x020,
+            [
+                0xD503237F,                     # 0x020: pacibsp
+                0xA9BF7BFD,                     # 0x024: stp x29, x30, [sp, #-16]!
+                adr_x1(0x028, 0x060),           # 0x028: adr x1, 0x060 (worker 0)
+                bl_at(0x02C, 0x200),            # 0x02c: bl 0x200 (CreateThread)
+                adr_x1(0x030, 0x100),           # 0x030: adr x1, 0x100 (worker 1)
+                bl_at(0x034, 0x200),            # 0x034: bl 0x200 (CreateThread)
+                bl_at(0x038, 0x210),            # 0x038: bl 0x210 (ro::Initialize)
+                0xA8C17BFD,                     # 0x03c: ldp x29, x30, [sp], #16
+                0xD65F0FFF,                     # 0x040: retab
+            ],
+        )
+
+        # Worker 0 at 0x060
+        put_insns(
+            0x060,
+            [
+                0xD503237F,                     # 0x060: pacibsp
+                0xA9BD7BFD,                     # 0x064: stp x29, x30, [sp, #-48]!
+                0xA90153F3,                     # 0x068: stp x19, x20, [sp, #16]
+                0xA9402013,                     # 0x06c: ldp x19, x8, [x0] (x19=out_buf_ptr, x8=sizes_holder)
+                0xF9400114,                     # 0x070: ldr x20, [x8] (x20=sizes_arr)
+                0x52801008,                     # 0x074: mov w8, #0x80
+                0xB9000288,                     # 0x078: str w8, [x20]
+                bl_at(0x07C, 0x220),            # 0x07c: bl 0x220 (AwaitBarrier 1)
+                0x29402688,                     # 0x080: ldp w8, w9, [x20]
+                0x0B090100,                     # 0x084: add w0, w8, w9
+                bl_at(0x088, 0x230),            # 0x088: bl 0x230 (malloc)
+                0xF9000260,                     # 0x08c: str x0, [x19]
+                bl_at(0x090, 0x220),            # 0x090: bl 0x220 (AwaitBarrier 2)
+                0xF9400268,                     # 0x094: ldr x8, [x19]
+                0xB40000C8,                     # 0x098: cbz x8, 0x0b0
+                0x528A49C9,                     # 0x09c: mov w9, #0x524e ('NR' little-endian)
+                0x72A609E9,                     # 0x0a0: movk w9, #0x304f, lsl #16 ('NRO0')
+                0xB9001109,                     # 0x0a4: str w9, [x8, #0x10]
+                0x52802009,                     # 0x0a8: mov w9, #0x100
+                0xB9001909,                     # 0x0ac: str w9, [x8, #0x18]
+                0xA94153F3,                     # 0x0b0: ldp x19, x20, [sp, #16]
+                0xA8C37BFD,                     # 0x0b4: ldp x29, x30, [sp], #48
+                0xD65F0FFF,                     # 0x0b8: retab
+            ],
+        )
+
+        # Worker 1 at 0x100
+        put_insns(
+            0x100,
+            [
+                0xD503237F,                     # 0x100: pacibsp
+                0xA9BD7BFD,                     # 0x104: stp x29, x30, [sp, #-48]!
+                0xA90153F3,                     # 0x108: stp x19, x20, [sp, #16]
+                0xA9402013,                     # 0x10c: ldp x19, x8, [x0]
+                0xF9400114,                     # 0x110: ldr x20, [x8]
+                0x52801008,                     # 0x114: mov w8, #0x80
+                0xB9000688,                     # 0x118: str w8, [x20, #4]
+                bl_at(0x11C, 0x220),            # 0x11c: bl 0x220 (AwaitBarrier 1)
+                bl_at(0x120, 0x220),            # 0x120: bl 0x220 (AwaitBarrier 2)
+                0xF9400268,                     # 0x124: ldr x8, [x19]
+                0xB9800289,                     # 0x128: ldrsw x9, [x20]
+                0x8B090108,                     # 0x12c: add x8, x8, x9
+                0x529757C9,                     # 0x130: mov w9, #0xbabe
+                0x72B95FC9,                     # 0x134: movk w9, #0xcafe, lsl #16
+                0xB9000109,                     # 0x138: str w9, [x8]
+                0xA94153F3,                     # 0x13c: ldp x19, x20, [sp, #16]
+                0xA8C37BFD,                     # 0x140: ldp x29, x30, [sp], #48
+                0xD65F0FFF,                     # 0x144: retab
+            ],
+        )
+
+        # Build .rodata (at 0x1000) with MOD0, dynamic table, strtab, symtab, jmprel
+        ro = bytearray(0x1000)
+        struct.pack_into('<I', text, 4, 0x1000)  # mod0 offset at image+4
+        struct.pack_into('<4sii', ro, 0, b'MOD0', 0x20, 0x2000)  # dynamic at 0x1020
+
+        strtab = bytearray(b'\x00')
+        syms = bytearray(24)  # symbol 0 (STN_UNDEF)
+
+        def add_sym(name: str, shndx: int, val: int) -> int:
+            idx = len(syms) // 24
+            name_off = len(strtab)
+            strtab.extend(name.encode('ascii') + b'\x00')
+            info = (1 << 4) | 2
+            syms.extend(struct.pack('<IBBHQQ', name_off, info, 0, shndx, val, 0))
+            return idx
+
+        add_sym('nnMain', 1, 0x020)
+        s_create = add_sym('_ZN2nn2os12CreateThreadEPNS0_10ThreadTypeEPFvPvES3_S3_mii', 0, 0)
+        s_ro_init = add_sym('_ZN2nn2ro10InitializeEv', 0, 0)
+        s_barrier = add_sym('_ZN2nn2os12AwaitBarrierEPNS0_11BarrierTypeE', 0, 0)
+        s_malloc = add_sym('malloc', 0, 0)
+
+        jmprel = bytearray()
+        for slot_off, sym_i in ((0x00, s_create), (0x08, s_ro_init), (0x10, s_barrier), (0x18, s_malloc)):
+            jmprel.extend(struct.pack('<QQq', 0x2000 + slot_off, (sym_i << 32) | 1026, 0))
+
+        symtab_off = 0x1200
+        strtab_off = symtab_off + len(syms)
+        jmprel_off = 0x1600
+        ro[symtab_off - 0x1000:symtab_off - 0x1000 + len(syms)] = syms
+        ro[strtab_off - 0x1000:strtab_off - 0x1000 + len(strtab)] = strtab
+        ro[jmprel_off - 0x1000:jmprel_off - 0x1000 + len(jmprel)] = jmprel
+
+        dyn_entries = [
+            (5, strtab_off),
+            (6, symtab_off),
+            (10, len(strtab)),
+            (11, 24),
+            (23, jmprel_off),
+            (2, len(jmprel)),
+            (0, 0),
+        ]
+        for i, (tag, val) in enumerate(dyn_entries):
+            struct.pack_into('<QQ', ro, 0x20 + i * 16, tag, val)
+
+        data = bytearray(0x1000)
+        hdr = bytearray(0x100)
+        hdr[:4] = b'NSO0'
+        struct.pack_into('<III', hdr, 0x10, 0x100, 0x0, len(text))
+        struct.pack_into('<III', hdr, 0x20, 0x100 + len(text), 0x1000, len(ro))
+        struct.pack_into('<III', hdr, 0x30, 0x100 + len(text) + len(ro), 0x2000, len(data))
+        struct.pack_into('<I', hdr, 0x3C, 0x100)
+        struct.pack_into('<III', hdr, 0x60, len(text), len(ro), len(data))
+        nso_blob = bytes(hdr + text + ro + data)
+
+        expected_nro = bytearray(0x100)
+        expected_nro[0x10:0x14] = b'NRO0'
+        struct.pack_into('<I', expected_nro, 0x18, 0x100)
+        struct.pack_into('<I', expected_nro, 0x80, 0xCAFEBABE)
+        expected_sha = __import__('hashlib').sha256(expected_nro).hexdigest()
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            exe_dir = root / 'ExeFS'
+            exe_dir.mkdir()
+            main_path = exe_dir / 'main'
+            main_path.write_bytes(nso_blob)
+
+            decoded = nro_emu.decode_boot_nro(main_path, max_workers=2)
+            self.assertEqual(decoded, bytes(expected_nro))
+
+            # Non-nxboot NSO without AwaitBarrier/CreateThread imports is rejected before running nnMain
+            non_nxboot = nso_blob.replace(
+                b'_ZN2nn2os12AwaitBarrierEPNS0_11BarrierTypeE',
+                b'_ZN2nn2os12OtherSymbolEPNS0_11BarrierTypeE_',
+            )
+            non_nxboot_path = exe_dir / 'plain_main'
+            non_nxboot_path.write_bytes(non_nxboot)
+            with mock.patch.object(nro_emu._BootNroMachine, 'call') as m_call:
+                with self.assertRaises(E.EmuError):
+                    nro_emu.decode_boot_nro(non_nxboot_path)
+                m_call.assert_not_called()
+
+            # Verify driver.capture_nro decodes offline, updates nro.tsv/missing.tsv, and triggers rewrite
+            repo = QT.parent / 'engine'
+            if (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+                mod = driver.load_upstream(repo)
+                driver.patch(mod, repo)
+                nro_dir = root / 'nro_v0'
+                nro_dir.mkdir()
+                (nro_dir / 'missing.tsv').write_text(f'{expected_sha}\tnrr.nrr\n', encoding='utf-8')
+                (nro_dir / 'nro.tsv').write_text('# name\tsha256\tsize\tnrr\twhere\n', encoding='utf-8')
+                rewrite_calls: list[Path] = []
+                orig_rewrite = mod.rewrite
+
+                def fake_rewrite(py_, repo_, ed, out_, env_, logs_, g_, prov_=False, *a, **kw):
+                    rewrite_calls.append(Path(out_))
+                    return g_
+
+                try:
+                    mod.rewrite = fake_rewrite
+                    sentinel_g = object()
+                    res = mod.capture_nro(
+                        sys.executable,
+                        repo,
+                        exe_dir,
+                        root / 'patched_v0',
+                        nro_dir,
+                        {},
+                        root,
+                        sentinel_g,
+                        False,
+                    )
+                finally:
+                    mod.rewrite = orig_rewrite
+
+                self.assertIs(res, sentinel_g)
+                self.assertEqual(rewrite_calls, [root / 'patched_v0'])
+                self.assertEqual((nro_dir / 'nro0.nro').read_bytes(), bytes(expected_nro))
+                self.assertEqual((nro_dir / 'missing.tsv').read_text(encoding='utf-8'), '')
+                self.assertIn(
+                    f'nro0\t{expected_sha}\t256\tnrr.nrr\tcapture',
+                    (nro_dir / 'nro.tsv').read_text(encoding='utf-8'),
+                )
 
 
 if __name__ == '__main__':

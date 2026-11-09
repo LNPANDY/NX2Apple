@@ -155,9 +155,9 @@ class Rows(unittest.TestCase):
 
     def test_the_python_probe_and_the_venv_install_name_zbic(self):
         pkg = ROOT / 'frontend-qt/nspb_qt'
-        self.assertIn('import lz4, capstone, fontTools, zbic', (pkg / 'platform_util.py').read_text(encoding='utf-8'))
+        self.assertIn('import lz4, capstone, fontTools, zbic, unicorn', (pkg / 'platform_util.py').read_text(encoding='utf-8'))
         model = (pkg / 'model.py').read_text(encoding='utf-8')
-        self.assertIn("pkgs = ['lz4', 'capstone', 'fonttools', 'zbic', 'nsz']", model)
+        self.assertIn("pkgs = ['lz4', 'capstone', 'unicorn', 'fonttools', 'zbic', 'nsz']", model)
         self.assertIn("'zbic', 'backports.zstd', 'nsz'", model)
 
     @unittest.skipIf(importlib.util.find_spec('PySide6') is None, 'PySide6 is not installed')
