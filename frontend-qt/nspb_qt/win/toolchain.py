@@ -509,10 +509,33 @@ def python_dir() -> Path | None:
     return None
 
 
+def _clean_python_env() -> dict[str, str]:
+    """Environment for probing an external `python.exe` from a frozen PyInstaller process."""
+    env = dict(os.environ)
+    meipass = getattr(sys, '_MEIPASS', None) or env.get('_MEIPASS') or env.get('_MEIPASS2')
+    is_frozen = bool(getattr(sys, 'frozen', False) or meipass)
+    env.pop('_MEIPASS', None)
+    env.pop('_MEIPASS2', None)
+    if is_frozen:
+        env.pop('PYTHONHOME', None)
+    if meipass and 'PYTHONPATH' in env:
+        meipass_norm = os.path.normcase(os.path.normpath(meipass))
+        sep = ';' if (sys.platform.startswith('win') or ';' in env['PYTHONPATH']) else ':'
+        kept = [
+            d for d in env['PYTHONPATH'].split(sep)
+            if d and os.path.normcase(os.path.normpath(d)) != meipass_norm
+        ]
+        if kept:
+            env['PYTHONPATH'] = sep.join(kept)
+        else:
+            env.pop('PYTHONPATH', None)
+    return env
+
+
 def _runs_quiet(exe: Path) -> bool:
     try:
         r = subprocess.run([str(exe), '-c', 'print(1)'], capture_output=True, text=True,
-                           timeout=60, **no_window())
+                           timeout=60, env=_clean_python_env(), **no_window())
     except (OSError, subprocess.SubprocessError):
         return False
     return r.returncode == 0 and (r.stdout or '').strip() == '1'

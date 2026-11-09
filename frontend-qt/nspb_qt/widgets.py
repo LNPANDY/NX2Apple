@@ -433,7 +433,11 @@ class HeroBannerWidget(QWidget):
         p.setRenderHint(QPainter.SmoothPixmapTransform)
         w, h = float(self.width()), float(self.height())
         rect = QRectF(0, 0, w, h)
+        fill_rect = QRectF(0, 0, w + 2.0, h + 2.0)
+        p.fillRect(fill_rect, QColor(style.BG))
 
+        p.save()
+        p.setClipRect(QRectF(0, 0, w, max(0.0, h - 1.0)))
         if self._pixmap and not self._pixmap.isNull():
             pw, ph = float(self._pixmap.width()), float(self._pixmap.height())
             scale = max(w / max(1.0, pw), h / max(1.0, ph))
@@ -457,14 +461,16 @@ class HeroBannerWidget(QWidget):
                 p.setPen(QColor(255, 255, 255, 14))
                 p.drawText(QRectF(w * 0.45, 10, w * 0.5, h - 20), Qt.AlignRight | Qt.AlignVCenter, self._title_text[:2].upper())
                 p.restore()
+        p.restore()
 
         # Vertical gradient (matching LauncherView+Library.swift heroScrim)
         vg = QLinearGradient(0, 0, 0, h)
         vg.setColorAt(0.0, QColor(0, 0, 0, 46))
         vg.setColorAt(0.45, QColor(0, 0, 0, 115))
         vg.setColorAt(0.85, QColor(0, 0, 0, 232))
+        vg.setColorAt(0.98, QColor(0, 0, 0, 255))
         vg.setColorAt(1.0, QColor(0, 0, 0, 255))
-        p.fillRect(rect, vg)
+        p.fillRect(fill_rect, vg)
 
         # Left readability scrim (580px wide)
         hg = QLinearGradient(0, 0, min(w, 620.0), 0)

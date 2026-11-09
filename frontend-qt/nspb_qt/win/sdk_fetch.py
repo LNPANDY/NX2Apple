@@ -369,6 +369,8 @@ def install_sdk_from_zip(zip_path: Path, dest: Path | None = None,
                         f'{src_zip.name} exceeds unpacked size limit ({grand_raw} > {MAX_ZIP_BYTES} bytes)'
                     )
                 grand = grand_raw or 1
+                if unpack_progress:
+                    unpack_progress(0, grand)
                 done = 0
                 written_total = 0
                 for info, rel in cleaned_members:
