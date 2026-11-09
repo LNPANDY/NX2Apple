@@ -196,7 +196,7 @@ struct LauncherView: View {
                           sticks: stores.sticks, saveSettings: stores.saveSettings, players: stores.players,
                           library: library, diagnostics: stores.diagnostics, onViewGame: { page = .library }, onOpenSettings: { page = .settings },
                           onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
-                          padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), settingsCategory: $settingsCategory)
+                          padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), buildFiles: stores.buildFiles, buildingID: m.running ? activeBuildID : nil, settingsCategory: $settingsCategory)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if m.running && page == .settings { activityBar }
@@ -310,6 +310,7 @@ struct LauncherView: View {
             if let game = library.games.first(where: { $0.id == freeSpaceFor }) { FreeSpaceView(m: m, game: game).environmentObject(padFocus) }
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
+        .buildFilesWiring(stores.buildFiles, library: library, recorded: recorder.recorded, buildingID: m.running ? activeBuildID : nil, pad: padFocus, scope: { currentPadScope })
         .cloudSaveSheet(cloudGate, pad: padFocus, scope: { currentPadScope })
         .syncControllerLayouts(library: library, controls: controls)
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
@@ -636,7 +637,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = controllerSheet || supportedGames != nil || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
+        let sheetOpen = controllerSheet || supportedGames != nil || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -692,6 +693,7 @@ struct LauncherView: View {
     private func manageItems(_ game: LibraryGame) -> [ManageItem] {
         ManageItem.list(game: game, labels: loc.t, running: m.running, olderTools: toolsAge.older.contains(game.id), activeBuildID: activeBuildID,
                         hasBuildFolder: BuildFolder.location(for: game) != nil,
+                        buildFilesTitle: BuildFiles.menuTitle(stores.buildFiles, game: game.id, t: loc.t),
                         hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
                         deviceName: devices.deviceName(game.installedDevice), launching: launching,
                         actions: ManageActions(
@@ -699,14 +701,14 @@ struct LauncherView: View {
                             changeArtwork: { openArtwork(game) }, rename: { renaming = game }, supportedGames: openSupportedGames,
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
-                            freeSpace: { freeSpaceFor = game.id }, remove: { removing = game }, delete: { deleting = game }))
+                            freeSpace: { freeSpaceFor = game.id }, removeBuildFiles: { stores.buildFiles.ask(game.id, building: m.running && activeBuildID == game.id) }, remove: { removing = game }, delete: { deleting = game }))
     }
 
     private func manageItems(for game: LibraryGame?) -> [ManageItem] { game.map(manageItems) ?? [] }
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        cloudGate.isActive ? "cloudsave" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        cloudGate.isActive ? "cloudsave" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).

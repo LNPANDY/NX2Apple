@@ -23,6 +23,8 @@ struct SettingsPage: View {
     var onRunSetup: (() -> Void)?   // the guided first-run setup, again (nil where there is none)
     var controlChanges = 0
     var padMerge: Binding<Bool> = .constant(false)   // "All controllers are player 1" (ControlLayout.padMerge)
+    var buildFiles: BuildFilesStore? = nil   // Tools: BuildFilesCard (#232)
+    var buildingID: UUID? = nil   // the game a build runs for: its build files cannot be removed
     @Binding var category: SettingsCategory
     @AppStorage(ConsolePrompt.defaultsKey) private var consolePromptOn = true   // ConsoleCoordinator.swift
     @AppStorage(ConsolePrompt.startKey) private var startInConsole = false   // ConsoleCoordinator.swift (#336)
@@ -92,6 +94,10 @@ struct SettingsPage: View {
             DiagnosticsButton(report: diagnostics, game: library.selected)
         }
         .id("set.deps")
+        if let buildFiles {
+            BuildFilesCard(store: buildFiles, buildingID: buildingID)
+                .onAppear { buildFiles.refresh(BuildFiles.games(library.games, lang: loc.lang)) }
+        }
         appCard(.maintenance)
     }
 

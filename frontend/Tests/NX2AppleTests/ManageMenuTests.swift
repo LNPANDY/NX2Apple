@@ -2,6 +2,7 @@ import XCTest
 @testable import NX2Apple
 @testable import NXCore
 @testable import NXLauncher
+@testable import NXModel
 
 /// The Manage menu: its rows and when they can be used, what a controller's buttons do around it, and that its rows run
 /// the actions the system menu ran.
@@ -32,9 +33,37 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
     }
 
     private func items(_ game: LibraryGame, running: Bool = false, older: Bool = false, active: UUID? = nil, folder: Bool = false, log: Bool = false,
-                       launching: Bool = false, actions: ManageActions = ManageActions()) -> [ManageItem] {
+                       launching: Bool = false, buildFiles: String? = nil, actions: ManageActions = ManageActions()) -> [ManageItem] {
         ManageItem.list(game: game, labels: { L10n.string($0, .en) }, running: running, olderTools: older, activeBuildID: active,
-                        hasBuildFolder: folder, hasLog: log, deviceName: "iPad mini", launching: launching, actions: actions)
+                        hasBuildFolder: folder, buildFilesTitle: buildFiles, hasLog: log, deviceName: "iPad mini", launching: launching, actions: actions)
+    }
+
+    /// #232: Remove build files, with the size, only for a game with a build folder, never while that game builds.
+    func testRemoveBuildFilesShowsTheSizeAndIsOffWhileThatGameBuilds() throws {
+        let game = try readyGame()
+        var asked = 0
+        let actions = ManageActions(removeBuildFiles: { asked += 1 })
+        XCTAssertFalse(items(game, buildFiles: "Remove build files (31 GB)").contains { $0.id == "buildFiles" }, "no folder, no item")
+        XCTAssertFalse(items(game, folder: true).contains { $0.id == "buildFiles" }, "measured with nothing to remove")
+        let item = try XCTUnwrap(items(game, folder: true, buildFiles: "Remove build files (31 GB)", actions: actions).first { $0.id == "buildFiles" })
+        XCTAssertEqual(item.title, "Remove build files (31 GB)")
+        XCTAssertTrue(item.enabled)
+        item.run()
+        XCTAssertEqual(asked, 1)
+        let building = try XCTUnwrap(items(game, running: true, active: game.id, folder: true, buildFiles: "x").first { $0.id == "buildFiles" })
+        XCTAssertFalse(building.enabled)
+        XCTAssertEqual(building.hint, "This game is building")
+        XCTAssertEqual(items(game, running: true, active: UUID(), folder: true, buildFiles: "x").first { $0.id == "buildFiles" }?.enabled, true,
+                       "another game's build does not write into this folder")
+    }
+
+    @MainActor func testTheMenuTitleCarriesTheMeasuredSize() async throws {
+        let id = UUID()
+        let store = BuildFilesStore(measure: { _ in 31_000_000_000 }, remove: { _ in 0 })
+        let t: (String) -> String = { L10n.string($0, .en) }
+        XCTAssertEqual(BuildFiles.menuTitle(store, game: id, t: t), "Remove build files", "not measured yet: the item without a size")
+        await store.refresh([BuildFilesStore.Game(id: id, name: "Zelda", folder: "/x_build")]).value
+        XCTAssertEqual(BuildFiles.menuTitle(store, game: id, t: t), "Remove build files (31 GB)")
     }
 
     func testGameReadyOnMacAndDeviceOffersBothLaunchDestinations() throws {
