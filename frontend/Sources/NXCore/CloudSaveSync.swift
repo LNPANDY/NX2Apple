@@ -126,7 +126,7 @@ package enum CloudSaveSync {
             else if message.hasPrefix("this device's save") && message.hasSuffix("it goes to the cloud") { state = .waitingToSend }
             else if message.hasSuffix("cannot be read now; sending later") || message.hasPrefix("the cloud's save did not come within") { state = .offline }
             else if message == "no save here or in the cloud yet" { state = .nothingYet }
-            else if message.hasPrefix("both changed: ") || (message.hasPrefix("not sent: ") && message.hasSuffix("until the player chooses at the next start")) { state = .waitingForChoice }
+            else if message.hasPrefix("both changed: ") || (message.hasPrefix("not sent: ") && (message.hasSuffix("until the player chooses at the next start") || message.hasSuffix("the next start decides between the two"))) { state = .waitingForChoice }
         }
         return state
     }

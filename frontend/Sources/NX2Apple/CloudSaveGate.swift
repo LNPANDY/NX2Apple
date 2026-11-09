@@ -129,8 +129,10 @@ enum CloudSaveStep: Equatable {
     private func finish(_ found: (outcome: CloudSaveCheck.Outcome, local: CloudSaveCheck.Save?, cloud: CloudSaveCheck.Save?, reason: String?)?) {
         guard let start else { return }
         guard let found else { cancel(); return }
-        // This Mac's save cannot be read (the engine turns cloud saves off for the session), or an older engine that cannot follow a choice: start as before
-        guard found.outcome.asks, let local = found.local, start.takesChoice else { go([:]); return }
+        // An older engine cannot follow a choice: it starts as before. One that can is told at every start (`ask`: nothing to choose), so
+        // that it never lets the newer save win on its own. This Mac's save cannot be read: the engine turns cloud saves off for the session
+        guard start.takesChoice else { go([:]); return }
+        guard found.outcome.asks, let local = found.local else { go(CloudSaveCheck.nothingToChoose); return }
         cloudSave = found.cloud
         step = .asking(CloudSaveQuestion(gameName: start.gameName, outcome: found.outcome, local: local, cloud: found.cloud,
                                          reason: found.reason, backups: start.backups))

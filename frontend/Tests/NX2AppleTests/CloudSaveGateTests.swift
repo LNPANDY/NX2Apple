@@ -90,25 +90,25 @@ private final class FakeFetch: CloudFileFetching, @unchecked Sendable {
     func testTheSameSaveStartsAtOnce() async throws {
         try synced(try local("v1")); try cloud(try local("v1"))
         let started = await run(CloudSaveGate(fetcher: FakeFetch(.ready)))
-        XCTAssertEqual(started, [:], "no choice: the engine finds them in step")
+        XCTAssertEqual(started, ["DM_SAVE_SYNC_CHOICE": "ask"], "no choice: the engine finds them in step")
     }
 
     func testOnlyTheCloudsChangedStartsAndTheEngineBringsItIn() async throws {
         try synced(try local("v1")); try cloud(other)
         let started = await run(CloudSaveGate(fetcher: FakeFetch(.ready)))
-        XCTAssertEqual(started, [:])
+        XCTAssertEqual(started, ["DM_SAVE_SYNC_CHOICE": "ask"], "nothing to choose: the engine is told so")
     }
 
     func testOnlyThisMacsChangedStartsAndTheEngineSendsIt() async throws {
         let v1 = try local("v1"); try synced(v1); try cloud(v1); try local("v2")
         let started = await run(CloudSaveGate(fetcher: FakeFetch(.ready)))
-        XCTAssertEqual(started, [:])
+        XCTAssertEqual(started, ["DM_SAVE_SYNC_CHOICE": "ask"], "nothing to choose: the engine is told so")
     }
 
     func testNoSaveInTheCloudStarts() async throws {
         try local("v1")
         let started = await run(CloudSaveGate(fetcher: FakeFetch(.missing)))
-        XCTAssertEqual(started, [:])
+        XCTAssertEqual(started, ["DM_SAVE_SYNC_CHOICE": "ask"], "nothing to choose: the engine is told so")
     }
 
     func testBothChangedAsksAndStartsWithTheChoice() async throws {
@@ -162,7 +162,7 @@ private final class FakeFetch: CloudFileFetching, @unchecked Sendable {
         XCTAssertNil(started, "no time limit gives up for the player")
         gate.retry()
         await settle(gate) { started != nil }
-        XCTAssertEqual(started, [:], "the second read finds them in step")
+        XCTAssertEqual(started, ["DM_SAVE_SYNC_CHOICE": "ask"], "the second read finds them in step")
         XCTAssertEqual(fetch.calls, 2)
     }
 
@@ -257,6 +257,8 @@ private final class FakeFetch: CloudFileFetching, @unchecked Sendable {
         let log = "[dm] save sync: on: /x/save.dmsync\n[dm] save sync: both changed: the cloud's save (from iPhone17,1, saved 2026-11-08 10:00:00) and this device's (saved 2026-11-08 11:00:00); playing on with this device's, and neither replaces the other until the player chooses at the next start\n"
         XCTAssertEqual(CloudSaveSync.state(fromLog: log), .waitingForChoice)
         XCTAssertEqual(CloudSaveSync.state(fromLog: "[dm] save sync: not sent: the cloud's save (from Mac14,2, saved x) changed since this device's last sync, and so did this one; neither replaces the other until the player chooses at the next start\n"), .waitingForChoice)
+        XCTAssertEqual(CloudSaveSync.state(fromLog: "[dm] save sync: not sent: the cloud's save (from Mac14,2, saved x) changed since this device's last sync, and so did this one; the next start decides between the two\n"), .waitingForChoice,
+                       "the line as nxnative words it")
     }
 
     // ---- the console mode ----

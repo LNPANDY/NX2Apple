@@ -53,6 +53,11 @@ package enum CloudSaveCheck {
         case offline      // the cloud could not be read: play with this Mac's, send nothing until compared
     }
 
+    /// `DM_SAVE_SYNC_CHOICE` when the check found nothing to choose (the same save, or only one side changed): `ask`. The engine
+    /// (nxnative b62b1c54) asks only for a front end that sets the variable at every start; unset, the newer of two changed saves
+    /// wins. With `ask`, a save that changed on both sides between this check and the first save mount is replaced on neither.
+    package static let nothingToChoose = ["DM_SAVE_SYNC_CHOICE": "ask"]
+
     /// `DM_SAVE_SYNC_CHOICE` for the engine (save_sync.c, read_choice): the choice names the cloud save it was made on, so a cloud save
     /// that changes between this check and the game's first save mount is not replaced.
     package static func environment(_ choice: Choice, cloud: Save?) -> [String: String] {

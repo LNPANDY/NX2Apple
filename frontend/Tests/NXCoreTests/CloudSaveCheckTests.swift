@@ -61,6 +61,7 @@ final class CloudSaveCheckTests: XCTestCase {
         XCTAssertEqual(CloudSaveCheck.environment(.local, cloud: .empty), ["DM_SAVE_SYNC_CHOICE": "local:none"])
         XCTAssertEqual(CloudSaveCheck.environment(.offline, cloud: nil), ["DM_SAVE_SYNC_CHOICE": "offline"])
         XCTAssertEqual(CloudSaveCheck.environment(.cloud, cloud: .empty), [:], "no cloud save to bring in: no choice")
+        XCTAssertEqual(CloudSaveCheck.nothingToChoose, ["DM_SAVE_SYNC_CHOICE": "ask"], "a check with nothing to choose still sets the variable")
     }
 
     // ---- reading the three saves ----
