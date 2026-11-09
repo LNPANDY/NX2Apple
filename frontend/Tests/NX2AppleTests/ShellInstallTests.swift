@@ -1153,6 +1153,7 @@ import NXModel
         withExtendedLifetime(asked) {}
         XCTAssertNil(model.failure)
         XCTAssertTrue(model.done, model.doneNote)
+        XCTAssertTrue(model.buildingGame, "retrying the data copy keeps buildingGame true so BuildRecorder and BuildNotifications record the completed iOS build")
         XCTAssertEqual(model.installedOn, device)
         XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, signs)
         XCTAssertEqual(try String(contentsOfFile: container + "/org.nxnative.shell/Documents/games/\(titleID)/romfs.img"), "0123456789")
@@ -1206,10 +1207,23 @@ import NXModel
         testDefaults.set(f.root, forKey: "shellRoot")
         let modelStores = try makeModel(f)
         let model = modelStores.build
+        model.target = BuildTarget.mac
+        XCTAssertEqual(model.runningTarget, BuildTarget.mac)
+        var observedRunningTarget = ""
+        var observedBuildingGame = true
+        let runningProbe = model.$running.filter { $0 }.prefix(1).sink { _ in
+            observedRunningTarget = model.runningTarget
+            observedBuildingGame = model.buildingGame
+        }
         let resigned = expectation(description: "Re-signed after deletion")
         model.resignOnDevice(app: ShellInstall.appPath(root: f.root), device: device) { resigned.fulfill() }
         wait(for: [resigned], timeout: 30)
+        withExtendedLifetime(runningProbe) {}
 
+        XCTAssertEqual(observedRunningTarget, BuildTarget.ios, "re-signing while the Build form sits on mac-app still reports an iPhone activity")
+        XCTAssertFalse(observedBuildingGame, "re-signing does not mark the Build form's game as a running game build")
+        XCTAssertEqual(model.target, BuildTarget.mac, "re-signing leaves the Build form's target choice untouched")
+        XCTAssertEqual(model.runningTarget, BuildTarget.mac, "once the standalone re-sign ends, runningTarget returns to the Build form's target so OutcomeCard is not polluted")
         XCTAssertEqual(model.doneNote, String(format: model.t("dev.resigned"), "iPhone"))
         XCTAssertTrue(fm.fileExists(atPath: embedded + "/DmGame\(titleID).framework"))
         XCTAssertFalse(fm.fileExists(atPath: embedded + "/DmGame\(secondID).framework"),

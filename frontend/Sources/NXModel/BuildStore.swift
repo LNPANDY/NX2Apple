@@ -101,7 +101,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var stages: [Stage] = []
     /// The first shader rebuild explanation of this build. The view localizes it without pausing progress ingestion.
     @Published package var staleShadersMessageKey: String?
-    @Published package var running = false
+    @Published package var running = false {
+        didSet {
+            if !running, !buildingGame { runningTarget = target }
+        }
+    }
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
     @Published package var stopping = false
@@ -128,9 +132,16 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var target: String {
         didSet {
             defaults.set(target, forKey: Self.targetKey)
+            if !running { runningTarget = target }
             if oldValue != target { targetChanged() }
         }
     }
+    /// The target of the operation currently running (or last run), so an iPhone re-sign, reinstall, export or data copy started while
+    /// the Build form's `target` picker sits on `mac-app` still reports itself as an iPhone activity.
+    @Published package var runningTarget: String
+    /// True when `running` is a game build rather than a standalone post-build action (`resignOnDevice`, `reinstallOnDevice`,
+    /// `saveIPA`, `sendGameData`, `copyToDrive`, `confirmShellMove`).
+    package var buildingGame = true
     /// Decode BC-compressed textures on the CPU. Only relevant for GPUs without BC support
     /// (A15/A16 and older): on a device that has it the GPU path is always better, so the switch
     /// is a compatibility option and defaults off. Passed as DM_PROF_TEX_BC_CPU through --env-file,
@@ -233,7 +244,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         self.volumesRoot = volumesRoot
         self.targetChanged = targetChanged
         outDir = defaults.string(forKey: Self.outputKey) ?? ""
-        target = BuildTarget.saved(defaults)
+        let savedTarget = BuildTarget.saved(defaults)
+        target = savedTarget
+        runningTarget = savedTarget
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
         experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""

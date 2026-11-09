@@ -21,7 +21,7 @@ struct BuildPage: View {
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
-        CardPageHeading(loc.t("build.heading"), note: loc.t(running ? (build.target == BuildTarget.mac ? "activity.mac" : "activity.ios") : "build.intro"))
+        CardPageHeading(loc.t("build.heading"), note: loc.t(running ? (build.runningTarget == BuildTarget.mac ? "activity.mac" : "activity.ios") : "build.intro"))
         if running {
             ProgressCard(build: build)
             CardDisclosure(loc.t("section.setup"), detail: build.gameName, isOpen: showRunningSetup) { showRunningSetup.toggle() }
