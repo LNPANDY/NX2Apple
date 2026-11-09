@@ -535,6 +535,35 @@ import NXModel
         XCTAssertTrue(FileManager.default.fileExists(atPath: keys.path))
     }
 
+    /// #996: keys chosen in the setup are saved for every game, and skipping the keys forgets the saved ones.
+    func testChosenKeysAreSavedAndSkippingForgetsThem() async throws {
+        let keys = home.appendingPathComponent("prod.keys")
+        try Data().write(to: keys)
+        let (driver, model) = make(Fake(), deps: [], step: .keys, platform: .mac)
+        driver.chooseKeys(keys)
+        await driver.settle()
+        XCTAssertEqual(driver.state.keys, .valid)
+        XCTAssertEqual(model.savedKeys, keys.path)
+
+        let (again, saved) = make(Fake(), deps: [], step: .keys, platform: .mac)
+        XCTAssertEqual(saved.savedKeys, keys.path, "a new launch reads them")
+        again.skipKeys()
+        XCTAssertEqual(again.state.keys, .skipped)
+        XCTAssertEqual(saved.savedKeys, "")
+        XCTAssertTrue(saved.keysPath.isEmpty, "skipped: no keys stand in for the row")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keys.path), "the file itself stays")
+    }
+
+    func testResumeBeyondKeysAcceptsTheKeysSavedInSettings() throws {
+        let keys = home.appendingPathComponent("saved.keys")
+        try Data().write(to: keys)
+        testDefaults.set(keys.path, forKey: BuildStore.savedKeysKey)
+        let (resumed, model) = make(Fake(), deps: [], step: .done, platform: .mac)
+        XCTAssertTrue(model.keysRowPath.isEmpty)
+        XCTAssertEqual(resumed.state.step, .done)
+        XCTAssertEqual(resumed.state.keys, .valid)
+    }
+
     func testResumeBeyondKeysRequiresAnExistingKeyOrASavedSkip() throws {
         let keys = home.appendingPathComponent("prod.keys")
         let (missing, _) = make(Fake(), deps: [], step: .done, platform: .mac, keysPath: keys.path)

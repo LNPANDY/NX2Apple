@@ -69,7 +69,7 @@ struct RootView: View {
         let destination = await OnboardingLaunch.decide(defaults: .standard, force: OnboardingLaunch.forced(), keysSlotIsEmpty: stores.build.keysPath.isEmpty) {
             await stores.dependencies.refreshDepsAndWait()
             let env = OnboardingEnvironment()
-            let keysKnown = stores.build.slot("keys").ok || !env.keyCandidates(gamesFolder: library.folder).isEmpty || library.games.contains(where: \.isReady)
+            let keysKnown = stores.build.keysReady || !env.keyCandidates(gamesFolder: library.folder).isEmpty || library.games.contains(where: \.isReady)
             let gamesKnown = !library.folder.isEmpty || !library.games.isEmpty
             return OnboardingLaunch.setupComplete(depsPresent: stores.dependencies.allPresent, keysKnown: keysKnown, gamesKnown: gamesKnown)
         }

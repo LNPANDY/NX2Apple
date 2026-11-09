@@ -93,6 +93,82 @@ import XCTest
         XCTAssertFalse(store.canBuild, "a build runs")
     }
 
+    // MARK: The keys saved in Settings (#996)
+
+    func testAnEmptyKeysRowTakesTheSavedKeysAndANewStoreReadsThem() throws {
+        let store = makeStore()
+        let keys = try file("prod.keys")
+        store.updateSlot("base") { $0.paths = [try! file("Game [0100000000001000].nsp")] }
+        XCTAssertFalse(store.canBuild, "no keys yet")
+        store.saveKeys(keys)
+        XCTAssertTrue(store.keysRowPath.isEmpty)
+        XCTAssertTrue(store.keysFromSettings)
+        XCTAssertEqual(store.keysPath, keys)
+        XCTAssertTrue(store.canBuild, "the saved keys stand in for the empty row")
+        XCTAssertEqual(makeStore().savedKeys, keys, "kept in the defaults")
+    }
+
+    func testARowWhoseFileIsGoneTakesTheSavedKeysAndARowWithAFileKeepsIt() throws {
+        let store = makeStore()
+        let saved = try file("saved.keys"), own = try file("prod.keys")
+        store.saveKeys(saved)
+        store.updateSlot("keys") { $0.paths = [own] }
+        XCTAssertFalse(store.keysFromSettings)
+        XCTAssertEqual(store.keysPath, own, "the row's own file wins")
+        try FileManager.default.removeItem(atPath: own)
+        XCTAssertTrue(store.keysFromSettings)
+        XCTAssertEqual(store.keysPath, saved, "the library entry's keys were moved: the saved ones stand in")
+        try FileManager.default.removeItem(atPath: saved)
+        XCTAssertFalse(store.keysFromSettings)
+        XCTAssertFalse(store.savedKeysExist)
+        XCTAssertEqual(store.keysPath, own, "nothing to stand in: the row's missing file, which the build reports")
+        XCTAssertFalse(store.keysReady)
+    }
+
+    func testRemoveEmptiesTheSettingAndKeepsTheRow() throws {
+        let store = makeStore()
+        let keys = try file("prod.keys")
+        store.take(picked: [keys], kind: .keys)
+        XCTAssertEqual(store.savedKeys, keys, "a keys file chosen for the row is saved")
+        store.forgetSavedKeys()
+        XCTAssertEqual(store.savedKeys, "")
+        XCTAssertNil(defaults.string(forKey: BuildStore.savedKeysKey))
+        XCTAssertEqual(store.keysRowPath, keys)
+        store.clear("keys")
+        XCTAssertTrue(store.keysPath.isEmpty)
+    }
+
+    func testSettingsChooseSavesThePickedFileAndACancelChangesNothing() throws {
+        let store = makeStore()
+        let keys = try file("prod.keys")
+        var asked: [FilePick] = []
+        store.choosePaths = { asked.append($0); return [] }
+        store.chooseSavedKeys()
+        XCTAssertEqual(store.savedKeys, "")
+        store.choosePaths = { asked.append($0); return [keys] }
+        store.chooseSavedKeys()
+        XCTAssertEqual(store.savedKeys, keys)
+        XCTAssertEqual(asked.last?.fileTypes, GameInputs.allowedFileTypes(for: .keys))
+        XCTAssertEqual(asked.last?.allowsMultiple, false)
+    }
+
+    func testOnlyAChosenKeysFileIsSavedNeverOneAScanFinds() throws {
+        let store = makeStore()
+        let folder = temporary.appendingPathComponent("Game").path
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let inside = folder + "/prod.keys"
+        try Data([0]).write(to: URL(fileURLWithPath: inside))
+        try Data([0]).write(to: URL(fileURLWithPath: folder + "/Game [0100000000001000][v0].nsp"))
+        store.scan(folder: folder)
+        XCTAssertEqual(store.keysRowPath, inside)
+        XCTAssertEqual(store.savedKeys, "", "a folder scan fills the row and saves nothing")
+        store.take(dropped: [folder])
+        XCTAssertEqual(store.savedKeys, "", "nor does a dropped folder")
+        let dropped = try file("dropped.keys")
+        store.take(dropped: [dropped])
+        XCTAssertEqual(store.savedKeys, dropped, "a keys file dropped itself is a choice")
+    }
+
     /// #416: the export choice is not an install, so the stop for a missing device and team does not apply to it.
     func testTheExportChoiceNeedsNoDeviceAndNoTeam() {
         let store = makeStore()

@@ -227,6 +227,7 @@ enum OnboardingLaunch {
     private var installApproved: Bool       // background installs may start (always, except in an ephemeral run before an install action)
     private var pending: [String: Any] = [:]   // an ephemeral run's preference writes, applied by `flush`
     private var pendingTarget: String?
+    private var pendingKeys: String?   // an ephemeral run's saved keys (#996): a path to save, "" to forget them, applied by `flush`
 
     /// A preference write; an ephemeral run holds it back.
     private func store(_ value: Any?, _ key: String) {
@@ -241,6 +242,16 @@ enum OnboardingLaunch {
         pending.removeAll()
         OnboardingDefaults.sessionPlatform = nil
         if let target = pendingTarget { model.target = target; pendingTarget = nil }
+        if let keys = pendingKeys { applyKeys(keys); pendingKeys = nil }
+    }
+
+    /// The keys of every game (Settings, "Keys", #996): a file chosen here is saved, Skip forgets the saved one. An ephemeral run holds it back.
+    private func keepKeys(_ path: String) {
+        if ephemeral { pendingKeys = path } else { applyKeys(path) }
+    }
+
+    private func applyKeys(_ path: String) {
+        if path.isEmpty { model.forgetSavedKeys() } else { model.saveKeys(path) }
     }
 
     private func t(_ key: String) -> String { L10n.string(key, stores.localizer.lang) }
@@ -272,7 +283,7 @@ enum OnboardingLaunch {
             if OnboardingDefaults.resumeKeysSkip(in: d, keysSlotIsEmpty: model.keysPath.isEmpty) {
                 state.keys = .skipped
             } else if step.index > OnboardingStep.keys.index {
-                if model.slot("keys").ok { state.keys = .valid }
+                if model.keysReady { state.keys = .valid }   // the row's keys, or the ones saved in Settings
                 else { state.step = .keys }
             }
             // A stored step beyond Platform without a platform cannot be right; start from the choice.
@@ -363,6 +374,7 @@ enum OnboardingLaunch {
     func skipKeys() {
         guard state.canSkipKeys else { return }
         model.updateSlot("keys") { $0.paths = []; $0.problem = "" }
+        keepKeys("")   // skipping forgets the saved keys too (#996)
         state.keys = .skipped
         store(true, OnboardingDefaults.keysSkipped)
         state.games = .empty   // rescan a previously visited folder for a build input that works without keys
@@ -681,6 +693,7 @@ enum OnboardingLaunch {
             switch outcome {
             case .fits, .cannotCheck:
                 d.model.updateSlot("keys") { $0.paths = [url.path]; $0.problem = "" }
+                d.keepKeys(url.path)   // chosen in the setup: kept for every game (#996)
                 d.state.keys = .valid
                 d.advanceIfReady()
             default:
@@ -705,7 +718,7 @@ enum OnboardingLaunch {
         guard !Task.isCancelled, state.step == .games, state.exit == nil else { return }
         guard !found.isEmpty else { state.games = .none; return }
         // The same slots and folder the main UI sets: the Builds page's inputs and the library's games folder.
-        let keys = state.keys == .skipped ? "" : model.keysPath
+        let keys = state.keys == .skipped ? "" : model.keysRowPath
         let keylessInput = state.keys == .skipped ? found.lazy.compactMap { $0.inputs[GameLibrary.folderInput]?.first }.first : nil
         model.scan(folder: keylessInput ?? url.path)
         if state.keys == .skipped || !keys.isEmpty {   // skipping never adopts a keys file discovered during the folder scan

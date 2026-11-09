@@ -74,6 +74,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
     nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
     nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
+    nonisolated package static let savedKeysKey = "savedKeysPath"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -146,6 +147,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The `nxb` binary the player chose (or its folder), empty for the app's own copy (ExperimentalBuilder.resolve).
     @Published package var experimentalBuilderPath: String {
         didSet { defaults.set(experimentalBuilderPath, forKey: Self.experimentalBuilderPathKey) }
+    }
+    /// The prod.keys chosen once for every game (Settings, "Keys", #996): a build whose keys row is empty or names a file that is gone
+    /// takes it (BuildStore+SavedKeys.swift). Empty when none is saved.
+    @Published package internal(set) var savedKeys: String {
+        didSet {
+            if savedKeys.isEmpty { defaults.removeObject(forKey: Self.savedKeysKey) } else { defaults.set(savedKeys, forKey: Self.savedKeysKey) }
+        }
     }
     /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
     package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
@@ -236,6 +244,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
         experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
+        savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -253,7 +262,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func shortPath(_ path: String) -> String { RepoLayout.shortPath(path) }
 
     package var basePath: String { slot("base").paths.first ?? "" }
-    package var keysPath: String { slot("keys").paths.first ?? "" }
     package var updatePath: String { slot("update").paths.first ?? "" }
     package var dlcPaths: [String] { slot("dlc").paths }
 

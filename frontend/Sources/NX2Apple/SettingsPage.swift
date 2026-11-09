@@ -29,6 +29,7 @@ struct SettingsPage: View {
     var body: some View {
         CardPageHeading(loc.t("settings.heading"), note: loc.t("settings.note"))
         LibraryCard(library: library, onChooseFolder: onChooseLibraryFolder)
+        KeysCard(build: build)
         ControlsCard(controlChanges: controlChanges, padMerge: padMerge, consolePrompt: $consolePromptOn,
                      startInConsole: $startInConsole, onOpenControls: onOpenControls, onOpenControllers: onOpenControllers,
                      onOpenHomeSettings: HomeButtonSettings.available ? { HomeButtonSettings.open() } : nil)   // HomeButtonSettings.swift (#336)

@@ -86,8 +86,8 @@ extension BuildStore {
         }
     }
 
-    /// The base game and the keys are there, or a game folder that needs no keys.
-    package var inputsReady: Bool { gameFolder != nil ? slot("base").ok : slot("base").ok && slot("keys").ok }
+    /// The base game and the keys are there (the row's, else the saved ones), or a game folder that needs no keys.
+    package var inputsReady: Bool { gameFolder != nil ? slot("base").ok : slot("base").ok && keysReady }
 
     /// The key of the work folder (`<key>_build`): the folder's title ID, else the base package's (TitleID.buildKey).
     package var buildKey: String {

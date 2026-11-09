@@ -31,6 +31,8 @@ extension BuildStore {
         for (kind, text) in rejected { updateSlot(kind == .update ? "update" : "dlc") { $0.problem = text } }
         if found.update != nil { updateSlot("update") { $0.note = updateNote(found) } }
         if let base = found.base { gameDir = (base as NSString).deletingLastPathComponent }
+        // A keys file dropped itself is a choice and is kept for every game (#996). One found inside a dropped folder is not.
+        if let keys = found.keys, paths.contains(keys) { saveKeys(keys) }
     }
 
     /// The slots after a drop of `found`. Nothing usable in it leaves the slots as they were, but says so on an empty base row.
