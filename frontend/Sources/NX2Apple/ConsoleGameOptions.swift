@@ -52,10 +52,32 @@ struct ConsoleMenuRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ConsoleChoiceRow(id: "console.appearance.battery", scope: scope, title: t("console.battery.style"), note: t("console.battery.styleNote"),
-                             choices: ConsoleBatteryStyle.allCases.map { ($0.rawValue, t($0.titleKey)) }, chosen: prefs.batteryStyle.rawValue, compact: compact) { raw in
+                             choices: ConsoleBatteryStyle.allCases.map { ($0.rawValue, t($0.titleKey)) }, chosen: prefs.batteryStyle.rawValue, compact: compact,
+                             preview: AnyView(ConsoleBatteryPreview(style: prefs.batteryStyle, lang: lang, compact: compact))) { raw in
                 if let style = ConsoleBatteryStyle(rawValue: raw) { driver.setBatteryStyle(style) }
             }
         }
+    }
+}
+
+/// The top bar's controller chip as the chosen battery style draws it, over the choice: a controller at 76 %, player 1. A controller
+/// that reports no battery shows none whatever the choice, and the note under the row says so.
+struct ConsoleBatteryPreview: View {
+    let style: ConsoleBatteryStyle
+    let lang: Lang
+    let compact: Bool
+    var body: some View {
+        let demo = ConsoleController(id: "preview", name: L10n.string("console.demoController", lang), player: 1, kind: .paired, battery: 0.76, charging: false)
+        HStack(spacing: compact ? 5 : 8) {
+            Image(systemName: demo.kind.symbol).accessibilityHidden(true)
+            Text(String(format: L10n.string("console.playerShort", lang), 1))
+            ConsoleBattery(controller: demo, lang: lang, compact: compact, style: style)
+        }
+        .font(.manrope(compact ? 12 : 17, .semibold))
+        .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
+        .consoleGlass(Capsule())
+        .animation(.easeOut(duration: 0.15), value: style)
+        .accessibilityLabel(L10n.string("console.battery.stylePreview", lang))
     }
 }
 
@@ -71,11 +93,14 @@ struct ConsoleChoiceRow: View {
     let choices: [(String, String)]
     let chosen: String
     let compact: Bool
+    /// Shown between the title and the segments: what the chosen value looks like.
+    var preview: AnyView? = nil
     let pick: (String) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title).font(.manrope(compact ? 17 : 20, .semibold)).fixedSize(horizontal: false, vertical: true)
+            if let preview { preview.frame(maxWidth: .infinity, alignment: .center).padding(.vertical, compact ? 4 : 8) }
             HStack(spacing: 8) { ForEach(choices, id: \.0) { choice in segment(choice.0, label: choice.1) } }
             if !note.isEmpty { Text(note).font(.manrope(compact ? 13 : 15)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
         }
