@@ -59,7 +59,7 @@ import NXModel
         }
         env.openURL = { fake.opened.append($0) }
         env.keyCheck = { _, _ in fake.keyOutcome }
-        env.scanGames = { _, _ in fake.games }
+        env.scanGames = { _, _, _ in fake.games }
         env.fetchArtwork = { _ in }
         env.pollInterval = 0.01; env.advanceDelay = 0
         let library = GameLibrary(file: home.appendingPathComponent("library.json"))

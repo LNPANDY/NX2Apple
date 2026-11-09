@@ -61,8 +61,8 @@ struct OnboardingEnvironment {
     var keyCheck: (_ keys: String, _ base: String) async -> KeyCheck.Outcome = { keys, base in
         await Task.detached { KeyCheck.run(KeyCheck.Inputs(keys: keys, files: base.isEmpty ? [] : [base])) }.value
     }
-    var scanGames: (_ folder: URL, _ repo: String) async -> [LibraryGame] = { folder, repo in
-        await Task.detached { GameLibrary.sourceGames(in: folder, repo: repo) }.value
+    var scanGames: (_ folder: URL, _ repo: String, _ keys: String) async -> [LibraryGame] = { folder, repo, keys in
+        await Task.detached { GameLibrary.sourceGames(in: folder, repo: repo, headerKey: PackageTitleID.headerKey(keysFile: keys)) }.value
     }
     var fetchArtwork: (_ titleIDs: [String]) async -> Void = { ids in _ = await ArtworkStore.shared.fetchMissing(ids) }
     var pollInterval = 3.0
@@ -714,7 +714,7 @@ enum OnboardingLaunch {
     func scanGames(_ url: URL) async {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        let found = await env.scanGames(url, stores.repo.path)
+        let found = await env.scanGames(url, stores.repo.path, state.keys == .skipped ? "" : model.keysPath)   // renamed packages too (#1012)
         guard !Task.isCancelled, state.step == .games, state.exit == nil else { return }
         guard !found.isEmpty else { state.games = .none; return }
         // The same slots and folder the main UI sets: the Builds page's inputs and the library's games folder.
