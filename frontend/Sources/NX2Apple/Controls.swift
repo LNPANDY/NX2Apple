@@ -114,6 +114,8 @@ final class ControlLayout: ObservableObject {
     }
 
     func setPadMode(_ mode: PadMode) { padMode = mode; save("DM_PAD_MAP") }
+    /// Puts the layout back as it was (console mode's button mapping, when its changes are not saved).
+    func restorePad(mode: PadMode, pad: [String: String]) { self.pad = pad; padMode = mode; save("DM_PAD_MAP") }
 
     /// The layout as the editor opened it, so Cancel can put it back and the editor can tell whether anything changed (#901's save-before-leaving).
     struct Snapshot: Equatable { var keys: [String: Int?]; var pad: [String: String]; var mode: PadMode }

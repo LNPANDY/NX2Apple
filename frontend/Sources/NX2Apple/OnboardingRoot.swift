@@ -48,7 +48,10 @@ struct RootView: View {
             case .launcher:
                 ZStack {
                     if console.active {
-                        ConsoleView(driver: shared.console, lang: stores.localizer.lang, onExit: { console.exit(); shared.console.returnFromGame() })
+                        ConsoleInLanguage(localizer: stores.localizer) { lang in
+                            ConsoleView(driver: shared.console, lang: lang, onExit: { console.exit(); shared.console.returnFromGame() },
+                                        chooseLanguage: { code in stores.localizer.choose(code); shared.console.refresh() })
+                        }
                             .onAppear { shared.console.reloadCovers() }
                             .transition(CalmTransition.console)
                     } else {
@@ -64,9 +67,10 @@ struct RootView: View {
         .launcherAppearance(forceDark: mode == .launcher && console.active)   // the window is Dark while the console shows
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .task {
-            shared.console.prepareLaunch = { [console] launch in console.leaveFullScreenForGame(then: launch) }
+            shared.console.prepareLaunch = { [console] launch in console.startGameInFullScreen(then: launch) }   // the console stays full screen into the game (seedds/nxnative#665)
             shared.console.pointerHidden = { [console] in console.pointerHidden }
             shared.console.gameEnded = { [console] in console.resumeFullScreenAfterGame() }
+            shared.console.attach(updates: stores.appUpdates, builds: stores.build)   // the General page's update row
             await decide()
         }
         .onChange(of: mode) { console.available = $0 == .launcher }
@@ -98,4 +102,11 @@ struct RootView: View {
     }
 
     private func runSetupAgain() { show(fresh: true) }
+}
+
+/// The console mode redrawn in the language its General page picks (the root view itself does not observe the localizer).
+private struct ConsoleInLanguage<Content: View>: View {
+    @ObservedObject var localizer: Localizer
+    let content: (Lang) -> Content
+    var body: some View { content(localizer.lang) }
 }
