@@ -23,6 +23,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "console.mapping.place.Plus", "console.menu", "console.mapping.group.menus",   // the Switch's Plus button, and Menu and Menus, as French writes them
         // Steam Controller names retained in French.
         "controls.steam.title", "controls.steam.L4", "controls.steam.L5", "controls.steam.R4", "controls.steam.R5", "controls.steam.Guide",
+        "buildfiles.total",   // Total reads the same in French
         // Shell words shared by English and French.
         "ios.host.ok", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version", "ios.ui.touchEditorPortrait", "ios.ui.gameVersionLabel",
     ]

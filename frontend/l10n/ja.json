@@ -1845,7 +1845,7 @@
   "shell.projectStage": "共有アプリを準備",
   "shell.retry": "再試行",
   "shell.rootUnwritable": "共有アプリは %@ に保存されますが、そのフォルダに書き込めません（読み出し専用のボリュームか、権限がありません）。先に「保存先」で別のフォルダを選んでください。",
-  "shell.sendAllButton": "すべてのゲームデータを送信",
+  "shell.sendAllButton": "全データを送信",
   "shell.sendAllNote": "パッケージ済みのデータがあるすべてのゲームを転送に追加します。その間もビルドを実行できます。",
   "shell.sendButton": "ゲームデータを送信",
   "shell.sendDetails": "詳細",
