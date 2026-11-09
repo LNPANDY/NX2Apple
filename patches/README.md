@@ -123,7 +123,9 @@ Its public half is `frontend/engine-signing.pub`, which the launcher compiles in
 ### The experimental channel
 
 The pre-release `engine-experimental` is built and published from `main` only, by the `publish-experimental` job of `sync-upstream.yml`.
-The job starts only on the ref `refs/heads/main` and only when the sync job of the nightly run succeeded with a green bump.
+The job starts only on `refs/heads/main`. The latest `tests.yml` run on `main` must have passed for the commit being published.
+The job waits up to five minutes if that run is still pending. If it times out, run the workflow again on `main` once the tests pass.
+Conflicts while preparing the next upstream bump do not hold back the engine already on `main`.
 It builds the engine of `main` and uploads it when its `engine_id` is not the one already published. A bump reaches the channel once its pull request is merged.
 A run on a pull request branch or any other ref never starts the job. The `force_experimental` input of a manual run on `main` uploads again even when the `engine_id` is the same.
 

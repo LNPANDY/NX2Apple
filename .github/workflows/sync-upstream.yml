@@ -11,8 +11,8 @@
 # runs the checks itself before it opens the PR. A repository secret SYNC_TOKEN (a fine-grained token
 # with contents, pull requests and issues write) makes the PR start tests.yml as well.
 #
-# The experimental engine channel (LNPANDY/NX2Apple#227): it is built and published from main only, and only after the nightly bump of the sync
-# job went green (the pin moved and every check passed, or upstream had nothing new). The publish-experimental job runs only on the ref
+# The experimental engine channel (LNPANDY/NX2Apple#227): it is built and published from tested main commits, independently of
+# conflicts while preparing the next upstream bump (#1021). The publish-experimental job runs only on the ref
 # refs/heads/main, so a manual run on a pull request branch or any other ref never builds it and never sees the signing key. It builds
 # the engine tree of main (tools/engine.py tree), writes latest.json with channel "experimental" and "built", and replaces the assets
 # (NX2Apple-engine.zip, latest.json, latest.json.sig) of the pre-release tag engine-experimental, which it creates when missing and keeps a
@@ -41,8 +41,6 @@ permissions:
 jobs:
   sync:
     runs-on: macos-latest   # the host build needs clang + macOS headers
-    outputs:
-      bump: ${{ steps.bump.outputs.changed }}   # yes (a PR was opened), no (already at upstream), conflict
     env:
       GH_TOKEN: ${{ secrets.SYNC_TOKEN || secrets.GITHUB_TOKEN }}
     steps:
@@ -138,14 +136,8 @@ jobs:
           fi
 
   publish-experimental:
-    # Main only, and only after a green bump. The ref test is what keeps a run on another ref (a manual run on a pull request branch) from
-    # building and publishing: the job then never starts. Separate from the sync job so that a publishing problem (a wrong key, no release
-    # permission) does not read as a blocked sync above.
-    needs: sync
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      needs.sync.result == 'success' &&
-      (needs.sync.outputs.bump == 'yes' || needs.sync.outputs.bump == 'no')
+    # Publish the engine already on main even when the next upstream pin cannot be applied.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency: engine-experimental   # two runs must not replace the assets at the same time
@@ -170,9 +162,15 @@ jobs:
 
       - name: "Main's tests must be green"
         run: |
-          c=$(gh run list -R "${{ github.repository }}" --workflow tests.yml --branch "${{ github.event.repository.default_branch }}" --event push --limit 1 --json conclusion --jq '.[0].conclusion')
-          echo "latest tests.yml on main: ${c:-none}"
-          [ "$c" = "success" ] || { echo "::error::tests.yml on main is not green: not publishing"; exit 1; }
+          for attempt in {1..21}; do
+            run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow tests.yml --branch main --event push --limit 1 \
+              --json headSha,conclusion --jq '.[0] // empty | [.headSha, .conclusion] | @tsv')
+            if [[ "$run" == "$GITHUB_SHA"$'\t'success ]]; then exit 0; fi
+            [[ "$run" == "$GITHUB_SHA"$'\t' && "$attempt" -lt 21 ]] || break
+            sleep 15
+          done
+          echo "::error::the latest tests.yml on main must pass for $GITHUB_SHA (found: ${run:-none})"
+          exit 1
 
       - name: Build the engine tree
         run: |
