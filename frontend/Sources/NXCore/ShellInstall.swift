@@ -161,20 +161,33 @@ package enum ShellInstall {
     /// the build folder does not reach it. On another volume it is a real copy. It replaces the previous mirror, so a rebuilt
     /// game's mirror follows. The copy goes to a hidden folder first and is renamed into place when it is whole, so a failed or
     /// interrupted copy never leaves a half mirror where shell.json points (ShellFrameworks.swift).
-    package static func mirrorFramework(framework: String, root: String, titleID: String? = nil) throws {
+    /// With `keepPrevious`, the previous mirror is renamed aside instead of deleted, and its hidden path is returned (nil when there
+    /// was none): the caller puts it back when the new framework is refused, or discards it. A launcher quit in between leaves it to
+    /// `sweepDiscarded`, like any discarded folder.
+    @discardableResult
+    package static func mirrorFramework(framework: String, root: String, titleID: String? = nil, keepPrevious: Bool = false) throws -> String? {
         let fm = FileManager.default
         let mirror = mirroredFramework(root: root, titleID: titleID ?? Self.titleID(ofFramework: framework))
         let folder = (mirror as NSString).deletingLastPathComponent
         try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let copy = folder + "/" + discardPrefix + UUID().uuidString
+        var previous: String? = nil
         do {
             try fm.copyItem(atPath: framework, toPath: copy)
-            guard discard(mirror) else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: mirror]) }
+            if keepPrevious, fm.fileExists(atPath: mirror) {
+                let aside = folder + "/" + discardPrefix + UUID().uuidString
+                try fm.moveItem(atPath: mirror, toPath: aside)
+                previous = aside
+            } else {
+                guard discard(mirror) else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: mirror]) }
+            }
             try fm.moveItem(atPath: copy, toPath: mirror)
         } catch {
             try? fm.removeItem(atPath: copy)
+            if let previous { try? fm.moveItem(atPath: previous, toPath: mirror) }
             throw error
         }
+        return previous
     }
 
     /// The title ID a framework path carries (`DmGame0100…framework`, the build script's name).
@@ -271,6 +284,15 @@ package enum ShellInstall {
             guard line.hasPrefix("shell: free space ") else { return nil }
             return Int64(line.dropFirst("shell: free space ".count).split(separator: " ").first ?? "")
         }.first.flatMap { $0 >= 0 ? $0 : nil }
+    }
+
+    /// Whether a failed sign under `attempted` is retried under the selected team's `variant`: the identifier is registered to another
+    /// team, or Xcode has no profile for it. This is wider than `BuildFailureClassifier.signingTeamTaken`, which picks the failure
+    /// card: an identifier stored under another team's variant (`org.nxnative.shell.<team A>`, with team B selected now) gets only
+    /// "No profiles for" that identifier, and must still be retried under team B's. The variant itself is never retried.
+    package static func retryUnderTeamVariant(_ output: String, attempted: String, variant: String) -> Bool {
+        attempted != variant
+            && (output.contains("cannot be registered to your development team") || output.contains("No profiles for '\(attempted)'"))
     }
 
     /// xcodebuild's words when the provisioning profile lacks the Increased Memory Limit the shell asks for.
@@ -483,15 +505,21 @@ package struct ShellInstaller {
     /// The mirror in the shell folder is the primary copy of a game's framework: shell.json points there. A game whose
     /// framework is in its build folder is mirrored now, so a game built before the mirror existed gets one too. A game whose
     /// build folder is gone plays from the mirror it already has. A failed mirror is logged and the game keeps its build path.
-    func mirrorFrameworks(_ library: inout ShellLibrary) {
+    /// Returns the mirrors it replaced with the hidden path their previous framework was kept at, for `prepareShell` to put back
+    /// when build_shell.sh refuses the new one.
+    func mirrorFrameworks(_ library: inout ShellLibrary) -> [(mirror: String, previous: String)] {
         let fm = FileManager.default
+        var replaced: [(mirror: String, previous: String)] = []
         for i in library.games.indices {
             let game = library.games[i]
             let mirror = ShellInstall.mirroredFramework(root: root, titleID: game.titleID)
             if game.framework == mirror { continue }
             if fm.fileExists(atPath: game.framework) {
                 do {
-                    try ShellInstall.mirrorFramework(framework: game.framework, root: root, titleID: game.titleID)
+                    if let previous = try ShellInstall.mirrorFramework(framework: game.framework, root: root, titleID: game.titleID,
+                                                                       keepPrevious: true) {
+                        replaced.append((mirror, previous))
+                    }
                     library.games[i].framework = mirror
                 } catch {
                     log("library: \(game.titleID)'s framework could not be mirrored at \(mirror), it stays at \(game.framework): \(error.localizedDescription)\n")
@@ -501,6 +529,7 @@ package struct ShellInstaller {
                 library.games[i].framework = mirror
             }
         }
+        return replaced
     }
 
     /// The framework the build should have written is not there: the build steps passed, but a framework deleted by hand, a
@@ -533,7 +562,7 @@ package struct ShellInstaller {
         var bundleID = library.bundleID
         var built = sign(bundleID)
         let variant = ShellLibrary.teamVariant(team: team)
-        if built.status != 0, BuildFailureClassifier.signingTeamTaken(built.output), bundleID != variant {
+        if built.status != 0, ShellInstall.retryUnderTeamVariant(built.output, attempted: bundleID, variant: variant) {
             log("signing: \(bundleID) is registered to another team, retrying as \(variant)\n")
             bundleID = variant
             built = sign(bundleID)

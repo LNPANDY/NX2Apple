@@ -289,7 +289,8 @@ import NXModel
     private var container: String { path("device") }
     private var state: String { path("state") }
 
-    /// xcodebuild and devicectl as one script. `state/taken` makes the plain bundle ID "registered to another team".
+    /// xcodebuild and devicectl as one script. `state/taken` makes the plain bundle ID "registered to another team", `state/noprofile`
+    /// makes the bundle ID it holds have no profile.
     private func makeXcrun() throws -> String {
         try fm.createDirectory(atPath: state, withIntermediateDirectories: true)
         let xcrun = path("xcrun")
@@ -313,6 +314,9 @@ import NXModel
             bundle = [x.split('=', 1)[1] for x in a if x.startswith('PRODUCT_BUNDLE_IDENTIFIER=')][0]
             if os.path.exists(STATE + '/taken') and bundle == 'org.nxnative.shell':
                 print('error: The app identifier "' + bundle + '" cannot be registered to your development team because it is not available. Change your bundle identifier to a unique string to try again.', flush=True)
+                sys.exit(65)
+            if os.path.exists(STATE + '/noprofile') and bundle == open(STATE + '/noprofile').read().strip():
+                print('error: No profiles for \\'' + bundle + '\\' were found: Xcode couldn\\'t find any iOS App Development provisioning profiles matching \\'' + bundle + '\\'.', flush=True)
                 sys.exit(65)
             if os.path.exists(STATE + '/nomemory') and not os.path.exists(os.path.dirname(val('-project')) + '/entitlements-empty'):
                 print('error: Provisioning profile iOS Team Provisioning Profile: ' + bundle + ' doesn\\'t include the Increased Memory Limit capability.', flush=True)
@@ -404,6 +408,7 @@ import NXModel
         while IFS= read -r fw; do
           [ -n "$fw" ] || continue
           [ -d "$fw" ] || { echo "[RED] $fw: no readable game.manifest.json"; exit 1; }
+          [ -f "$fw/refuse-me" ] && { echo "[RED] $fw: built without a host in the framework (loader 'FR')"; exit 1; }
           tid=$(basename "$fw" .framework); tid=${tid#DmGame}
           printf '%s\t%s\t%s\n' "$tid" "$fw" "$tid" >> "$SHELL_DIR/frameworks.txt"
         done <<< "$DM_SHELL_FRAMEWORKS"
@@ -722,6 +727,60 @@ import NXModel
         XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID])
         try fm.removeItem(atPath: state + "/refuse")
         XCTAssertTrue(install(i, f).ok, "the next install of the first game is not blocked by the refused one")
+    }
+
+    func testARefusedReplacementKeepsTheMirrorThatWorked() throws {
+        let f = try makeFixture()
+        let i = installer(f)
+        XCTAssertTrue(install(i, f).ok)
+        let before = try Data(contentsOf: URL(fileURLWithPath: ShellLibrary.stateFile(root: f.root)))
+        // The game is rebuilt into a framework build_shell.sh rejects (an older build without a host in the framework)
+        try write(f.framework + "/refuse-me", "")
+        XCTAssertFalse(install(i, f).ok)
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: ShellLibrary.stateFile(root: f.root))), before)
+        XCTAssertTrue(fm.fileExists(atPath: mirrored(f.root) + "/DmGame\(titleID)"))
+        XCTAssertFalse(fm.fileExists(atPath: mirrored(f.root) + "/refuse-me"), "the mirror is the framework that worked")
+        // Another game installs afterwards, with the first one's framework that worked
+        let other = "0100AAAA00000000"
+        let framework = path("work2/shell-framework/DmGame\(other).framework")
+        try write(framework + "/game.manifest.json", "{}")
+        try write(framework + "/DmGame\(other)", "executable")
+        let r = i.install(framework: framework, titleID: other, name: "Other", archive: f.archive)
+        XCTAssertTrue(r.ok, r.message)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID, other])
+    }
+
+    func testATeamChangeRetriesUnderTheNewTeamsVariant() throws {
+        let f = try makeFixture()
+        try write(state + "/taken", "")
+        // Team A installed first and stored its own variant
+        var a = installer(f)
+        a.team = "AAAAAAAAAA"
+        let variantA = ShellLibrary.teamVariant(team: a.team)
+        XCTAssertTrue(install(a, f).ok)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).bundleID, variantA)
+        // Team B is selected now: Xcode only says it has no profile for team A's variant
+        try write(state + "/noprofile", variantA)
+        let variantB = ShellLibrary.teamVariant(team: team)
+        let r = install(installer(f), f)
+        XCTAssertTrue(r.ok, r.message)
+        XCTAssertEqual(r.bundleID, variantB)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).bundleID, variantB)
+        let builds = calls.filter { $0.hasPrefix("xcodebuild") }
+        XCTAssertTrue(builds[builds.count - 2].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variantA) build"))
+        XCTAssertTrue(builds[builds.count - 1].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variantB) build"))
+    }
+
+    func testTheRetryRuleIsApartFromTheCardRule() {
+        let a = "org.nxnative.shell.AAAAAAAAAA", b = "org.nxnative.shell.BBBBBBBBBB"
+        let noProfileA = "error: No profiles for '\(a)' were found"
+        XCTAssertTrue(ShellInstall.retryUnderTeamVariant(noProfileA, attempted: a, variant: b), "a team change still retries")
+        XCTAssertFalse(BuildFailureClassifier.signingTeamTaken(noProfileA), "but is not carded as registered to another team")
+        XCTAssertFalse(ShellInstall.retryUnderTeamVariant("error: No profiles for '\(b)' were found", attempted: b, variant: b))
+        XCTAssertTrue(ShellInstall.retryUnderTeamVariant("error: No profiles for 'org.nxnative.shell' were found",
+                                                         attempted: "org.nxnative.shell", variant: b))
+        XCTAssertTrue(ShellInstall.retryUnderTeamVariant("cannot be registered to your development team", attempted: a, variant: b))
+        XCTAssertFalse(ShellInstall.retryUnderTeamVariant("error: something else", attempted: a, variant: b))
     }
 
     func testARefusedFirstProjectLeavesNoShellJson() throws {

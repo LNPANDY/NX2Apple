@@ -94,24 +94,41 @@ extension ShellInstaller {
         -> (library: ShellLibrary?, env: [String: String]?, failure: Outcome?, notes: [String]) {
         // 3: the library
         ShellInstall.sweepDiscarded(in: ShellInstall.frameworksMirror(root: root))
-        // shell.json as it was, put back when the project step refuses: a framework build_shell.sh rejects (an older build, a game of
-        // another profile) must not stay in the library, or every later install of any game fails on it
+        // shell.json and the mirrors it points to as they were, put back when the project step refuses: a framework build_shell.sh
+        // rejects (an older build, a game of another profile) must not stay in the library, nor in place of the mirror of a game that
+        // worked, or every later install of any game fails on it
+        let fm = FileManager.default
         let stateFile = ShellLibrary.stateFile(root: root)
-        let before = FileManager.default.contents(atPath: stateFile)
+        let before = fm.contents(atPath: stateFile)
+        var replaced: [(mirror: String, previous: String)] = []
         func restoreLibrary() {
-            if let before { try? before.write(to: URL(fileURLWithPath: stateFile), options: .atomic) }
-            else { try? FileManager.default.removeItem(atPath: stateFile) }
+            do {
+                if let before { try before.write(to: URL(fileURLWithPath: stateFile), options: .atomic) }
+                else if fm.fileExists(atPath: stateFile) { try fm.removeItem(atPath: stateFile) }
+            } catch {
+                log("library: shell.json could not be put back as it was at \(stateFile): \(error.localizedDescription)\n")
+            }
+            for (mirror, previous) in replaced {
+                guard ShellInstall.discard(mirror) else {
+                    log("library: the refused framework at \(mirror) could not be moved away, the previous one stays at \(previous)\n")
+                    continue
+                }
+                do { try fm.moveItem(atPath: previous, toPath: mirror) } catch {
+                    log("library: the previous framework could not be put back at \(mirror) from \(previous): \(error.localizedDescription)\n")
+                }
+            }
         }
         var library = ShellLibrary.load(root: root)
         if !team.isEmpty { library.team = team }   // the export has no team: keep the one an install stored
         library.add(.init(titleID: titleID, name: name, framework: framework))
-        mirrorFrameworks(&library)
+        replaced = mirrorFrameworks(&library)
         library.dropMissing()
         let checked = leaveOutIncomplete(&library, titleID: titleID, name: name)   // ShellFrameworks.swift
         if let why = checked.failure {
             let projectName = t("shell.projectStage")
             begin(Self.projectStageID, projectName)
             end(Self.projectStageID, projectName, ok: false, detail: why)
+            restoreLibrary()
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
         }
         // The 16:9 banner of the shell's library for every game in it (ShellHost reads <framework>/banner.<ext>, the square
@@ -123,6 +140,7 @@ extension ShellInstaller {
             }
         }
         do { try library.save(root: root) } catch {
+            restoreLibrary()
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", error.localizedDescription)), [])
         }
 
@@ -145,6 +163,7 @@ extension ShellInstaller {
             restoreLibrary()
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
         }
+        for (_, previous) in replaced { ShellInstall.discard(previous) }   // the script took the new frameworks
         ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
         ShellInstall.writeProjectFrameworks(root: root, games: library.games)
         ShellInstall.pruneEmbeddedFrameworks(root: root, keeping: library.games)
