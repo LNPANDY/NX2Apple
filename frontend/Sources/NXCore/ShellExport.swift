@@ -136,6 +136,8 @@ extension ShellInstaller {
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
         }
         ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
+        ShellInstall.writeProjectFrameworks(root: root, games: library.games)
+        ShellInstall.pruneEmbeddedFrameworks(root: root, keeping: library.games)
         end(Self.projectStageID, projectName, ok: true)
         return (library, env, nil, checked.notes)
     }

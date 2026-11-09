@@ -419,6 +419,26 @@ class Model(QObject):
         except RuntimeError:
             pass
 
+    @Slot()
+    def _emit_deps_changed(self) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.depsChanged.emit()
+            else:
+                QMetaObject.invokeMethod(self, '_emit_deps_changed', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
+    @Slot()
+    def _emit_repo_changed(self) -> None:
+        try:
+            if QThread.currentThread() is self.thread():
+                self.repoChanged.emit()
+            else:
+                QMetaObject.invokeMethod(self, '_emit_repo_changed', Qt.QueuedConnection)
+        except RuntimeError:
+            pass
+
     def load_game_from_library(self, game: lib.LibraryGame) -> None:
         base = (game.inputs.get('base') or [''])[0]
         if base and inputs.is_game_folder_candidate(base):
@@ -489,7 +509,7 @@ class Model(QObject):
                     self._engine_syncing = False
                     self.engine_syncing = False
                     self.engine_failure = bf.Failure(engine.ENGINE_SYNC)
-                    self.repoChanged.emit()
+                    self._emit_repo_changed()
                     if then: then(False)
                     return
                 extra = {'PATH': str(Path(git).parent) + os.pathsep + pu.child_env()['PATH']}
@@ -497,7 +517,7 @@ class Model(QObject):
             self._engine_syncing = False
             self.engine_syncing = False
             self.engine_failure = None if ok else bf.Failure(kind or engine.ENGINE_SYNC)
-            self.repoChanged.emit()
+            self._emit_repo_changed()
             if then: then(ok)
 
         threading.Thread(target=work, daemon=True).start()
@@ -583,10 +603,7 @@ class Model(QObject):
             self.log(traceback.format_exc() + '\n')
             self.deps = []
             self.deps_checked = True
-            try:
-                self.depsChanged.emit()
-            except RuntimeError:
-                pass
+            self._emit_deps_changed()
 
     def _python_row(self, py: str, py_ok: bool, py_ver: str) -> Dep:
         """The interpreter row: fine, missing packages, missing interpreter, or too old.
@@ -700,10 +717,7 @@ class Model(QObject):
             self.python_path, self.python_ok, self.python_ver = py, py_ok, py_ver
             self.dotnet_path, self.dotnet_ok = dn, dn_ok
         self.deps_checked = True
-        try:
-            self.depsChanged.emit()
-        except RuntimeError:
-            pass
+        self._emit_deps_changed()
         if getattr(sys, 'frozen', False) and not self._app_update_checked:
             self._app_update_checked = True
             self.check_app_update(silent=True)
@@ -871,7 +885,7 @@ class Model(QObject):
         try:
             from .win import fetch as wf
             self.log(self.t('repo.gitInstalling') + '\n')
-            self.repoChanged.emit()
+            self._emit_repo_changed()
             wf.install_git(log=lambda s: self.log(str(s) + '\n'))
         except Exception as e:
             self.log(f'git install failed: {e}\n')
@@ -911,7 +925,7 @@ class Model(QObject):
                 except Exception as e:
                     self.log(self.t('repo.gitInstallFail', str(e)) + '\n')
                 self.repo_busy = False
-                self.repoChanged.emit()
+                self._emit_repo_changed()
                 if ok:
                     self.clone_repo(dest)      # now git exists: the normal path
                 else:
@@ -952,7 +966,7 @@ class Model(QObject):
                 self.sync_engine()
             elif not ok:
                 shutil.rmtree(target, ignore_errors=True)   # a failed clone leaves a stub
-            self.repoChanged.emit()
+            self._emit_repo_changed()
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1037,7 +1051,7 @@ class Model(QObject):
                     self.log(self.repo_status + '\n')
                     return
                 self.repo_status = self.t('repo.pulling')
-                self.repoChanged.emit()
+                self._emit_repo_changed()
                 self.log(self.t('repo.pulling') + '\n')
                 if stream(['pull', '--ff-only', 'origin', 'main'], 'pull'):
                     self.repo_behind = 0
@@ -1048,7 +1062,7 @@ class Model(QObject):
                 self.log(self.repo_status + '\n')
             finally:
                 self.repo_busy = False
-                self.repoChanged.emit()
+                self._emit_repo_changed()
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1093,10 +1107,7 @@ class Model(QObject):
                         self.app_update_status = self.t('app.upToDate')
             finally:
                 self.app_update_busy = False
-                try:
-                    self.repoChanged.emit()
-                except RuntimeError:
-                    pass
+                self._emit_repo_changed()
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1135,10 +1146,7 @@ class Model(QObject):
                 self.app_update_progress = frac
                 pct = int(round(frac * 100))
                 self.app_update_status = self.t('app.downloading', f'{pct}%' if pct > 0 else rel.tag)
-                try:
-                    self.repoChanged.emit()
-                except RuntimeError:
-                    pass
+                self._emit_repo_changed()
             self.log(
                 f'  {done_bytes // 1048576} MB'
                 + (f' / {total_bytes // 1048576} MB ({done_bytes * 100 // total_bytes}%)' if total_bytes else '')
@@ -1188,10 +1196,7 @@ class Model(QObject):
             finally:
                 self.app_update_busy = False
                 self.app_update_progress = None
-                try:
-                    self.repoChanged.emit()
-                except RuntimeError:
-                    pass
+                self._emit_repo_changed()
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -1259,7 +1264,7 @@ class Model(QObject):
                     self.log(self.t('dep.install.fail', '-') + '\n')
             finally:
                 self._clear_installing(dep)
-                self.depsChanged.emit()
+                self._emit_deps_changed()
                 self.check_deps()
                 dep._install_done = True  # type: ignore[attr-defined]
 
@@ -1328,12 +1333,16 @@ class Model(QObject):
                 self.install_all_pct = min(100, new_overall)
                 changed = True
         if changed or force:
-            sig = getattr(self, 'depsChanged', None)
-            if sig is not None and hasattr(sig, 'emit'):
-                try:
-                    sig.emit()
-                except RuntimeError:
-                    pass
+            emit_fn = getattr(self, '_emit_deps_changed', None)
+            if callable(emit_fn):
+                emit_fn()
+            else:
+                sig = getattr(self, 'depsChanged', None)
+                if sig is not None and hasattr(sig, 'emit'):
+                    try:
+                        sig.emit()
+                    except RuntimeError:
+                        pass
 
     def _stage_progress_logger(self, dep: Dep, label: str, artifact_name: str, *,
                                phase: str = 'download',
@@ -1347,7 +1356,7 @@ class Model(QObject):
             if not total:
                 return
             pct = max(0, min(100, done * 100 // total))
-            if pct == ui_seen['pct'] and pct not in (0, 100):
+            if pct == ui_seen['pct']:
                 return
             ui_seen['pct'] = pct
             done_mb = done // 1048576
@@ -1461,7 +1470,7 @@ class Model(QObject):
                         self._record_install_failure(dep, detail)
                 elif what == 'llvm':
                     self.log(self.t('dep.llvm.downloading') + '\n')
-                    name = wtc.LLVM_ASSETS.get('AMD64', {}).get('name', 'LLVM-MinGW')
+                    name = wtc.LLVM_MINGW_ASSETS.get('AMD64', {}).get('name', 'LLVM-MinGW')
                     path = wf.install_llvm(
                         log=lambda s: self.log(str(s) + '\n'),
                         progress=self._stage_progress_logger(
@@ -1540,7 +1549,11 @@ class Model(QObject):
                 self.log(traceback.format_exc() + '\n')
                 self._record_install_failure(dep, detail)
             self._clear_installing(dep)
-            self.depsChanged.emit()
+            emit_fn = getattr(self, '_emit_deps_changed', None)
+            if callable(emit_fn):
+                emit_fn()
+            else:
+                self.depsChanged.emit()
             self.check_deps()
             dep._install_done = True  # type: ignore[attr-defined]
 
@@ -1675,7 +1688,7 @@ class Model(QObject):
             if not total:
                 return
             pct = done * 100 // total
-            if pct < seen['pct'] + 5 and pct != 100:
+            if pct == seen['pct'] or (pct < seen['pct'] + 5 and pct != 100):
                 return
             seen['pct'] = pct
             self.log(f'  {label} {pct}%  ({done // 1048576} / {total // 1048576} MB)\n')
@@ -1927,10 +1940,7 @@ class Model(QObject):
                 self.install_all_step = 0
                 self.install_all_total = 0
                 self.install_all_pct = 0
-                try:
-                    self.depsChanged.emit()
-                except RuntimeError:
-                    pass
+                self._emit_deps_changed()
 
         threading.Thread(target=run_all, daemon=True).start()
 

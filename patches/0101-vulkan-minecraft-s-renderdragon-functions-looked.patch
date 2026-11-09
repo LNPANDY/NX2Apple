@@ -42,10 +42,9 @@ With these the game plays on the Mac (world, mobs, a controller).
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 
-Upstream-Status: forwarded seedds/nxnative#1652
+Upstream-Status: forwarded seedds/nxnative#1652 (open; a Minecraft build also needs seedds/nxnative#1288)
 Reason: Minecraft (RenderDragon on Vulkan) is detected, its shaders translated and its renderer initialized
 Issue: LNPANDY/NX2Apple#769
-
 ---
  dm/games/profile_guess.py              |  35 +++--
  dm/gfx/tests/Makefile                  |   4 +
@@ -65,7 +64,7 @@ Issue: LNPANDY/NX2Apple#769
  create mode 100644 dm/tools/tests/test_vk_renderdragon.py
 
 diff --git a/dm/games/profile_guess.py b/dm/games/profile_guess.py
-index f5444929..30f61d0d 100644
+index a26f2e07b..ca263fecc 100644
 --- a/dm/games/profile_guess.py
 +++ b/dm/games/profile_guess.py
 @@ -18,7 +18,8 @@ from romfs import Path, os, open, is_image, source
@@ -160,17 +159,17 @@ index f5444929..30f61d0d 100644
 @@ -358,7 +371,7 @@ def build_sources(exefs, romfs, modules):
                  oodle_ue3 += h[i + 16 + 8 * nb:i + 17 + 8 * nb] == b'\x8c'
      import frostbite   # Frostbite's superbundles (EA SPORTS FC 27): every item of the cas files is Oodle Leviathan, decoded with the game's own decoder
-     return shader_sources(imports, glsl_src, glslc_mods, spirv, len(uepak.unreal_paks(str(romfs), inline=False)), trinity, len(uepak.unreal_paks(str(romfs), inline=True)), gl_names, gl_src, gl_files, oodle_pkz, nro_imp,
+     return shader_sources(imports, glsl_src, glslc_mods, spirv, len(uepak.unreal_paks(str(romfs), inline=False, mains=[exefs / 'main'])), trinity, len(uepak.unreal_paks(str(romfs), inline=True, mains=[exefs / 'main'])), gl_names, gl_src, gl_files, oodle_pkz, nro_imp,
 -                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl)
 +                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl, vk_lookups=vk_names)
  
  
  def va_heap(sysres, imports):   # virtual address memory (an NPDM system resource) and a heap: the alias / heap split is a starting point the heap check corrects (Wonder, Tears of the Kingdom; Engage's pool is its own measurement)
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 7495f8e2..17cdc771 100644
+index 772c456f1..ab7cf8cf5 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -476,6 +476,10 @@ check_t_gl_imports: t_gl_imports
+@@ -492,6 +492,10 @@ check_t_gl_imports: t_gl_imports
  	./t_gl_imports --stubs
  gl-imports: check_t_gl_imports
  check_t_vk_desc: RUN_ENV = MTL_DEBUG_LAYER=1
@@ -183,7 +182,7 @@ index 7495f8e2..17cdc771 100644
  	clang $(CFLAGS) -fobjc-arc -o $@ t_float_pad.m $(MTL_T_SRC) $(FW)
 diff --git a/dm/gfx/tests/t_vk_blit.m b/dm/gfx/tests/t_vk_blit.m
 new file mode 100644
-index 00000000..a19bf3f4
+index 000000000..a19bf3f40
 --- /dev/null
 +++ b/dm/gfx/tests/t_vk_blit.m
 @@ -0,0 +1,85 @@
@@ -273,7 +272,7 @@ index 00000000..a19bf3f4
 +    return fails != 0;
 +}
 diff --git a/dm/gfx/tools/vk_shaders.py b/dm/gfx/tools/vk_shaders.py
-index 18f18b9d..53d1f696 100644
+index 18f18b9d2..53d1f696d 100644
 --- a/dm/gfx/tools/vk_shaders.py
 +++ b/dm/gfx/tools/vk_shaders.py
 @@ -17,10 +17,15 @@
@@ -416,7 +415,7 @@ index 18f18b9d..53d1f696 100644
 +    try: main()
 +    except nso.Error as e: red(str(e))   # a damaged main
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 9d141a4f..9b258a22 100644
+index 9d141a4fd..9b258a22f 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -133,7 +133,9 @@
@@ -735,7 +734,7 @@ index 9d141a4f..9b258a22 100644
                  const c_cleari *x = c; VkImage im = x->im;
                  if (!im || !im->tex) { RED1("a cleared image was not created"); break; }
 diff --git a/dm/host/hle_ro.c b/dm/host/hle_ro.c
-index 8f113e32..da0c15c7 100644
+index 8f113e329..da0c15c7f 100644
 --- a/dm/host/hle_ro.c
 +++ b/dm/host/hle_ro.c
 @@ -16,8 +16,14 @@ static pthread_mutex_t g_ro_mu = PTHREAD_MUTEX_INITIALIZER;   // the SDK holds g
@@ -754,7 +753,7 @@ index 8f113e32..da0c15c7 100644
      if (!p) { static int red; if (!red++) LOG("[RED] ro::LookupSymbol cannot find %s (first case)", name ? name : "(null)"); return RO_FAIL; }
      if (out) *out = (uintptr_t)p;
 diff --git a/dm/host/tests/t_nro.c b/dm/host/tests/t_nro.c
-index 85137584..37550857 100644
+index 85137584a..375508574 100644
 --- a/dm/host/tests/t_nro.c
 +++ b/dm/host/tests/t_nro.c
 @@ -13,7 +13,7 @@ void hlecount_seal(void) {}
@@ -777,7 +776,7 @@ index 85137584..37550857 100644
  
      unload(2);
 diff --git a/dm/tools/tests/test_regress.py b/dm/tools/tests/test_regress.py
-index 66bb010d..1170c7f2 100644
+index 66bb010d9..1170c7f29 100644
 --- a/dm/tools/tests/test_regress.py
 +++ b/dm/tools/tests/test_regress.py
 @@ -620,6 +620,8 @@ class Regress(unittest.TestCase):
@@ -791,7 +790,7 @@ index 66bb010d..1170c7f2 100644
          with tempfile.TemporaryDirectory() as td:
 diff --git a/dm/tools/tests/test_vk_renderdragon.py b/dm/tools/tests/test_vk_renderdragon.py
 new file mode 100644
-index 00000000..5a6635db
+index 000000000..5a6635db9
 --- /dev/null
 +++ b/dm/tools/tests/test_vk_renderdragon.py
 @@ -0,0 +1,54 @@
@@ -850,10 +849,10 @@ index 00000000..5a6635db
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index 17e2eef9..6c39eab3 100644
+index 6f827d5c7..eb968cfcc 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -1393,6 +1393,30 @@ The Vulkan layer (`dm/gfx/vk/hle_vk.m`) was written for Hades; Super Mario Galax
+@@ -1448,6 +1448,30 @@ The Vulkan layer (`dm/gfx/vk/hle_vk.m`) was written for Hades; Super Mario Galax
  - **Cause:** two geometry shaders (GX points and lines expanded to quads) are not translated (Metal has no geometry stage).
  - **Found on:** [Super Mario Galaxy](../../dm/games/010099C022B96000/README.md).
  
@@ -885,7 +884,7 @@ index 17e2eef9..6c39eab3 100644
  
  Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.4.0) and Balatro (LÖVE 11.4, "love-nx", with SDL and LuaJIT) render with **NVIDIA's desktop OpenGL 4.5 core profile through EGL**, not NVN. The host implements GL itself on Metal (`dm/gfx/gl/hle_gl.m`), as it does Vulkan for Hades; NVIDIA's GL driver (`subsdk0`) is not loaded. Balatro's graphics module is LÖVE's own OpenGL backend, so its choices follow what the context reports.
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 5f2aae97..9151920d 100644
+index 5deb36c36..2c70868f3 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
 @@ -4,6 +4,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
@@ -904,7 +903,7 @@ index 5f2aae97..9151920d 100644
  
  - **Symptom:** the split finds no shaders, and the RomFS is one huge file with a short name (`42`) whose bytes look random past a table at its start (magic `CRA.`).
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 71dc95dd..87bf4c77 100755
+index 2d88a2240..40bdf7c52 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -1043,10 +1043,10 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
@@ -933,7 +932,7 @@ index 71dc95dd..87bf4c77 100755
      return layer_shaders(py, repo, 'vk', 'Vulkan', roots, sh, key, logs, env, mac)
  
  
-@@ -3448,9 +3448,9 @@ def main(args=None):
+@@ -3461,9 +3461,9 @@ def main(args=None):
      observed_glslc = capture_glslc(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g) if glslc else None
      if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
      sh = work / 'shader'
@@ -946,7 +945,7 @@ index 71dc95dd..87bf4c77 100755
          cap = capture_shaders(repo, game, patched, work, env, logs, g, 'gl') if glcap else None
          ios = build_gl_shaders(py, repo, [rfs.source(game), game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else []), sh, env, logs, g, reuse=not ALLOW_DAMAGED, mac=mac, provisional=bool(provisional or derived))
 diff --git a/scripts/regress.py b/scripts/regress.py
-index 14555796..de813045 100644
+index 145557961..de8130454 100644
 --- a/scripts/regress.py
 +++ b/scripts/regress.py
 @@ -287,6 +287,8 @@ class Game:

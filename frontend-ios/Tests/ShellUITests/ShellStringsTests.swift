@@ -92,7 +92,8 @@ import Testing
 
     @Test func aNoteWithAPercentSignIsLookedUpAsItIs() throws {
         let zh = try languageBundle("zh-Hans")
-        let note = "Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode."
+        // No note of the engine has a literal percent sign now (the dynamic resolution note lost its "70% and 100%"), so a catalog text with a format specifier stands for it
+        let note = "Version %@"
         #expect(ShellStrings.setting(note, bundle: zh) != note)
     }
 

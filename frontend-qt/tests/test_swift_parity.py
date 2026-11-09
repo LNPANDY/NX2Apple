@@ -2069,6 +2069,88 @@ class ParityWindowTests(unittest.TestCase):
         self.assertIs(dlg._step1_widgets['rows']['python']['bar'], bar1)
         self.assertEqual(bar1.value(), 83)
 
+        # Multi-row expansion (wrapped error on LLVM + active progress bar on iOS SDK):
+        # body_host sits inside a QScrollArea, no row's status or detail label is vertically
+        # clipped, dialog height is capped at 90% of screen height on huge errors, idle CPU is
+        # zero (no LayoutRequest loop), and the user can still shrink the window back to 480px.
+        import time
+        from PySide6.QtWidgets import QScrollArea
+
+        py_dep.installing = False
+        py_dep.state = DepState.OK
+        dn_dep.state = DepState.OK
+        dn_dep.queue_index = 0
+        llvm_dep.queue_index = 0
+        llvm_dep.last_error = (
+            'DownloadError: connection timed out while fetching '
+            'llvm-mingw-20261020-ucrt-x86_64.zip'
+        )
+        llvm_dep.fix_hint = 'dep.fix.network'
+        sdk_dep.queue_index = 0
+        sdk_dep.installing = True
+        dlg.show()
+        self.app.processEvents()
+        m._set_dep_progress(
+            sdk_dep,
+            m.t('dep.stage.download', 15),
+            m.t('dep.detail.download', 'iPhoneOS27.2.sdk.zip', 8, 52, 15),
+            15,
+            item_overall_pct=8,
+            force=True,
+        )
+        self.app.processEvents()
+        for r_id, rw in dlg._step1_widgets['rows'].items():
+            st_lbl = rw['status']
+            self.assertGreaterEqual(
+                st_lbl.height(), st_lbl.sizeHint().height(),
+                f'{r_id} status label clipped: {st_lbl.height()} < {st_lbl.sizeHint().height()}',
+            )
+            dl_lbl = rw['detail']
+            if dl_lbl is not None:
+                self.assertGreaterEqual(
+                    dl_lbl.height(), dl_lbl.heightForWidth(dl_lbl.width()),
+                    f'{r_id} detail label clipped: {dl_lbl.height()} < {dl_lbl.heightForWidth(dl_lbl.width())}',
+                )
+
+        self.assertIsInstance(dlg.body_scroll, QScrollArea)
+        self.assertIs(dlg.body_scroll.widget(), dlg.body_host)
+
+        # Verify zero idle fit calls (no LayoutRequest -> updateGeometry spin loop)
+        fit_calls = [0]
+        orig_fit = dlg._fit_dialog_height
+
+        def counted_fit(*a, **k):
+            fit_calls[0] += 1
+            return orig_fit(*a, **k)
+
+        dlg._fit_dialog_height = counted_fit
+        try:
+            t0 = time.time()
+            while time.time() - t0 < 0.2:
+                self.app.processEvents()
+            self.assertEqual(fit_calls[0], 0, 'idle event loop must not trigger _fit_dialog_height')
+        finally:
+            dlg._fit_dialog_height = orig_fit
+
+        # Huge multi-line error must cap dialog height at <= 90% of available screen height and scroll
+        llvm_dep.last_error = 'DownloadError: ' + ('very long error text that wraps across lines ' * 50)
+        dlg._step1_sig = None
+        dlg._render_step()
+        self.app.processEvents()
+        scr = dlg.screen() or self.app.primaryScreen()
+        max_h = int(scr.availableGeometry().height() * 0.9) if scr is not None else 720
+        self.assertLessEqual(dlg.height(), max_h)
+        self.assertGreater(dlg.body_scroll.verticalScrollBar().maximum(), 0)
+        for r_id, rw in dlg._step1_widgets['rows'].items():
+            dl_lbl = rw['detail']
+            if dl_lbl is not None:
+                self.assertGreaterEqual(dl_lbl.height(), dl_lbl.heightForWidth(dl_lbl.width()))
+
+        # User can manually shrink the dialog back down to minimumHeight (480)
+        dlg.resize(640, 480)
+        self.app.processEvents()
+        self.assertEqual(dlg.height(), 480)
+
         # Finish all installs -> buttons re-enable
         for d in m.deps:
             d.installing = False
@@ -2086,6 +2168,138 @@ class ParityWindowTests(unittest.TestCase):
             m.depsChanged.emit()
             self.app.processEvents()
             spy_render.assert_not_called()
+
+    def test_mainwindow_refresh_deps_in_place_and_background_gc_safety(self) -> None:
+        """Verify MainWindow._refresh_deps updates rows in place during 0%..100% progress
+        (never destroying/rebuilding QWidgets on 1% ticks), OnboardingDialog._clear_body keeps
+        C++ ownership (ownedByPython == False), and background thread progress + GC never crashes.
+        """
+        import gc
+        import threading
+        import shiboken6
+        from unittest import mock
+        from nspb_qt.model import Dep, DepState, Model
+        from nspb_qt.sheets import OnboardingDialog
+        from nspb_qt.ui import MainWindow
+
+        with mock.patch.object(Model, 'check_deps', lambda self: None):
+            m = Model()
+
+        llvm_dep = Dep('llvm', 'dep.llvm', 'dep.llvm.hint', DepState.MISSING, install=['__win__:llvm'])
+        sdk_dep = Dep('ios_sdk', 'dep.iossdk', 'dep.iossdk.hint', DepState.MISSING,
+                      install=['__win__:ios_sdk'], pick_key='ios_sdk')
+        m.deps = [llvm_dep, sdk_dep]
+        m.deps_checked = True
+
+        with mock.patch.object(MainWindow, '_maybe_show_onboarding', lambda self: None):
+            w = MainWindow(m)
+        dlg = OnboardingDialog(m)
+        self.addCleanup(dlg.deleteLater)
+        self.addCleanup(self._delete, m, w)
+        dlg.next_btn.click()
+        self.app.processEvents()
+
+        # Start LLVM install at 0% (transitions sub label to mono and sets initial _deps_sig)
+        llvm_dep.installing = True
+        m._set_dep_progress(
+            llvm_dep,
+            m.t('dep.stage.download', 0),
+            m.t('dep.detail.download', 'llvm-mingw.zip', 0, 182, 0),
+            0,
+            force=True,
+        )
+        self.app.processEvents()
+
+        initial_frame = w._dep_row_widgets['llvm']['frame']
+        initial_sub = w._dep_row_widgets['llvm']['sub']
+        initial_btn = w._dep_row_widgets['llvm']['install_btn']
+        self.assertIsNotNone(initial_frame)
+        self.assertIsNotNone(initial_btn)
+
+        # Simulate background download 0% -> 100% and unpack 0% -> 100% with forced GC on worker thread
+        dl_cb = m._stage_progress_logger(llvm_dep, 'Download', 'llvm-mingw.zip', phase='download')
+        up_cb = m._stage_progress_logger(llvm_dep, 'Unpack', 'llvm-mingw.zip', phase='unpack')
+        errors: list[Exception] = []
+
+        def worker() -> None:
+            try:
+                total = 182 * 1048576
+                for pct in (0, 1, 25, 50, 75, 100):
+                    dl_cb(pct * total // 100, total)
+                # Simulate opening a 16,000-entry zip that triggers cyclic GC on the worker thread
+                _ = [{i: (i, str(i))} for i in range(2000)]
+                gc.collect()
+                for pct in (0, 0, 0, 10, 50, 100, 100):
+                    up_cb(pct * total // 100, total)
+                gc.collect()
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+
+        th = threading.Thread(target=worker)
+        th.start()
+        while th.is_alive():
+            self.app.processEvents()
+            th.join(timeout=0.01)
+        self.app.processEvents()
+        self.assertEqual(errors, [])
+
+        # Widgets in MainWindow were updated in-place, never destroyed or recreated during progress
+        self.assertIs(w._dep_row_widgets['llvm']['frame'], initial_frame)
+        self.assertIs(w._dep_row_widgets['llvm']['sub'], initial_sub)
+        self.assertIs(w._dep_row_widgets['llvm']['install_btn'], initial_btn)
+        self.assertIn('100%', initial_sub.text())
+        self.assertIn('100%', initial_btn.text())
+
+        # Verify OnboardingDialog._clear_body keeps C++ ownership (ownedByPython == False)
+        body_item = dlg.body_layout.itemAt(0)
+        self.assertIsNotNone(body_item)
+        grp_widget = body_item.widget()
+        self.assertIsNotNone(grp_widget)
+        dlg._clear_body()
+        self.assertFalse(
+            shiboken6.ownedByPython(grp_widget),
+            '_clear_body must not transfer QWidget ownership back to Python GC via setParent(None)',
+        )
+
+    def test_hero_banner_bottom_edge_fades_cleanly_without_bright_seam(self) -> None:
+        """Verify HeroBannerWidget leaves no 1px bright artwork seam at its bottom edge across fractional HiDPI scales."""
+        from PySide6.QtCore import QEvent
+        from PySide6.QtGui import QColor, QImage, QPixmap
+        from nspb_qt.widgets import HeroBannerWidget
+
+        hero = HeroBannerWidget()
+        try:
+            pm = QPixmap(1920, 1080)
+            pm.fill(QColor(255, 255, 255))
+            hero._pixmap = pm
+
+            for height in (610, 611):
+                hero.resize(1478, height)
+                for dpr in (1.0, 1.25, 1.5, 1.75, 2.0):
+                    pw = int(hero.width() * dpr) + 4
+                    ph = int(hero.height() * dpr) + 4
+                    img = QImage(pw, ph, QImage.Format_ARGB32_Premultiplied)
+                    img.setDevicePixelRatio(dpr)
+                    img.fill(QColor(0, 0, 0))
+                    hero.render(img)
+                    bottom_y = int(round(hero.height() * dpr))
+                    tail = [
+                        max(
+                            QColor(img.pixel(pw // 2, y)).red(),
+                            QColor(img.pixel(pw // 2, y)).green(),
+                            QColor(img.pixel(pw // 2, y)).blue(),
+                        )
+                        for y in range(max(0, bottom_y - 4), min(ph, bottom_y + 2))
+                    ]
+                    self.assertLessEqual(
+                        max(tail),
+                        4,
+                        f'Bright bottom seam leaked at height={height}, dpr={dpr}: tail={tail}',
+                    )
+        finally:
+            hero.deleteLater()
+            self.app.sendPostedEvents(None, QEvent.DeferredDelete)
+            self.app.processEvents()
 
 
 if __name__ == '__main__':

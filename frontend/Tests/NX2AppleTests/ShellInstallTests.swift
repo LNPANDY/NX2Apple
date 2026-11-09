@@ -318,6 +318,15 @@ import NXModel
                 print('error: Provisioning profile iOS Team Provisioning Profile: ' + bundle + ' doesn\\'t include the Increased Memory Limit capability.', flush=True)
                 sys.exit(65)
             app = val('-derivedDataPath') + '/Build/Products/Release-iphoneos/DmShell.app'
+            fwlist = os.path.dirname(val('-project')) + '/frameworks.txt'
+            if os.path.exists(fwlist):
+                for line in open(fwlist).read().splitlines():
+                    if not line.strip(): continue
+                    fw = line.split('\t')[1] if '\t' in line else line.strip()
+                    if not os.path.isdir(fw):
+                        print('error: ' + fw + ': No such file or directory (in target \\'DmShell\\' from project \\'DmShell\\')', flush=True)
+                        sys.exit(65)
+                    os.makedirs(app + '/Frameworks/' + os.path.basename(fw), exist_ok=True)
             os.makedirs(app, exist_ok=True)
             open(app + '/bundle.txt', 'w').write(bundle)
             print('CodeSign ' + app, flush=True)
@@ -391,6 +400,13 @@ import NXModel
           exit 1
         fi
         mkdir -p "$SHELL_DIR/DmShell.xcodeproj"
+        : > "$SHELL_DIR/frameworks.txt"
+        while IFS= read -r fw; do
+          [ -n "$fw" ] || continue
+          [ -d "$fw" ] || { echo "[RED] $fw: no readable game.manifest.json"; exit 1; }
+          tid=$(basename "$fw" .framework); tid=${tid#DmGame}
+          printf '%s\t%s\t%s\n' "$tid" "$fw" "$tid" >> "$SHELL_DIR/frameworks.txt"
+        done <<< "$DM_SHELL_FRAMEWORKS"
         cat > "$SHELL_DIR/DmShell.xcodeproj/project.pbxproj" <<EOF
         F96F /* frontend-ios */ = {isa = PBXFileReference; name = "frontend-ios"; path = "$DM_SHELL_PACKAGE"; sourceTree = SOURCE_ROOT; };
         376B /* XCLocalSwiftPackageReference */ = {isa = XCLocalSwiftPackageReference; relativePath = "$DM_SHELL_PACKAGE"; };
@@ -1079,5 +1095,59 @@ import NXModel
         model.startBuild()
         XCTAssertFalse(model.running)
         XCTAssertEqual(model.doneNote, model.t("shell.needsDevice"))
+    }
+
+    @MainActor func testResignAfterDeletingAGameRegeneratesTheProjectAndPrunesEmbeddedFrameworks() throws {
+        let f = try makeFixture()
+        let secondID = "0100000000010000"
+        let secondFramework = path("work2/shell-framework/DmGame\(secondID).framework")
+        try write(secondFramework + "/game.manifest.json", "{}")
+        try write(secondFramework + "/DmGame\(secondID)", "executable")
+        let secondArchive = path("out/games", secondID)
+        try write(secondArchive + "/romfs.img", "second")
+
+        var first = installer(f)
+        first.decideCopy = { _ in .skip }
+        XCTAssertTrue(install(first, f).ok)
+        var second = installer(f)
+        second.decideCopy = { _ in .skip }
+        XCTAssertTrue(second.install(framework: secondFramework, titleID: secondID, name: "Second Game", archive: secondArchive).ok)
+
+        let embedded = f.root + "/derived-data/Build/Products/Release-iphoneos/DmShell.app/Frameworks"
+        XCTAssertTrue(fm.fileExists(atPath: embedded + "/DmGame\(titleID).framework"))
+        XCTAssertTrue(fm.fileExists(atPath: embedded + "/DmGame\(secondID).framework"))
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID, secondID])
+
+        // Delete the second game through GameDeletion (removes its mirrored framework and drops it from shell.json,
+        // while DmShell.xcodeproj / frameworks.txt still lists both games).
+        var secondGame = LibraryGame(titleID: secondID, name: "Second Game", archivePath: secondArchive)
+        secondGame.iosAppPath = ShellInstall.appPath(root: f.root)
+        secondGame.outputDirectory = path("out")
+        let deletion = GameDeletion.plan(for: secondGame, shellRoot: f.root, home: path("home"), support: URL(fileURLWithPath: path("support")))
+        XCTAssertEqual(deletion.run(saves: false, trash: { try self.fm.removeItem(at: $0) }), [])
+        XCTAssertFalse(fm.fileExists(atPath: ShellInstall.mirroredFramework(root: f.root, titleID: secondID)))
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID])
+
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let modelStores = try makeModel(f)
+        let model = modelStores.build
+        let resigned = expectation(description: "Re-signed after deletion")
+        model.resignOnDevice(app: ShellInstall.appPath(root: f.root), device: device) { resigned.fulfill() }
+        wait(for: [resigned], timeout: 30)
+
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.resigned"), "iPhone"))
+        XCTAssertTrue(fm.fileExists(atPath: embedded + "/DmGame\(titleID).framework"))
+        XCTAssertFalse(fm.fileExists(atPath: embedded + "/DmGame\(secondID).framework"),
+                       "the deleted game's framework must be pruned from the built DmShell.app")
+        let fwlist = try String(contentsOfFile: f.root + "/project/frameworks.txt", encoding: .utf8)
+        XCTAssertTrue(fwlist.contains("DmGame\(titleID).framework"), fwlist)
+        XCTAssertFalse(fwlist.contains("DmGame\(secondID).framework"), fwlist)
+
+        // When all games' frameworks are gone on disk, re-signing reports the missing project instead of failing in xcodebuild.
+        try fm.removeItem(atPath: ShellInstall.mirroredFramework(root: f.root, titleID: titleID))
+        let empty = expectation(description: "No games left")
+        model.resignOnDevice(app: ShellInstall.appPath(root: f.root), device: device) { empty.fulfill() }
+        wait(for: [empty], timeout: 10)
+        XCTAssertEqual(model.doneNote, String(format: model.t("dev.resignNoProject"), model.shortPath(f.root + "/project/DmShell.xcodeproj")))
     }
 }

@@ -2,7 +2,6 @@
 16:9 (Switch)
 30 fps
 60 fps
-Adjusts resolution between 70% and 100% under load. Turn off to keep full resolution for the selected console mode.
 American English
 Brazilian Portuguese
 British English
@@ -35,6 +34,7 @@ Japanese
 Keeps a pipeline archive; uses more memory.
 Korean
 Latin American Spanish
+Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode.
 Match screen
 Metal 4 pipelines
 MetalFX

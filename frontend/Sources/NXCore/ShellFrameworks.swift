@@ -40,6 +40,52 @@ extension ShellInstall {
         let executable = (json["framework_executable"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "DmGame\(titleID)"
         return fm.fileExists(atPath: framework + "/" + executable) ? nil : executable
     }
+
+    package static func projectFrameworksFile(root: String) -> String { projectFolder(root: root) + "/frameworks.txt" }
+
+    /// Records the library's framework rows in `<root>/project/frameworks.txt` when a stand-in `build_shell.sh` did not write it.
+    package static func writeProjectFrameworks(root: String, games: [ShellLibrary.Game], fm: FileManager = .default) {
+        let file = projectFrameworksFile(root: root)
+        guard !fm.fileExists(atPath: file), !games.isEmpty else { return }
+        let rows = games.map { "\($0.titleID)\t\($0.framework)\t\($0.name)" }.joined(separator: "\n") + "\n"
+        try? rows.write(toFile: file, atomically: true, encoding: .utf8)
+    }
+
+    /// Whether `<root>/project/DmShell.xcodeproj` embeds a different set of frameworks than `games` (for example after a game was
+    /// deleted or its stale framework was removed), or references a framework folder that is no longer on disk.
+    package static func projectNeedsUpdate(root: String, games: [ShellLibrary.Game], fm: FileManager = .default) -> Bool {
+        let expected = games.map(\.framework)
+        if let text = try? String(contentsOfFile: projectFrameworksFile(root: root), encoding: .utf8) {
+            let recorded = text.split(whereSeparator: \.isNewline).compactMap { line -> String? in
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty else { return nil }
+                let cols = trimmed.split(separator: "\t", omittingEmptySubsequences: false)
+                return cols.count >= 2 ? String(cols[1]) : trimmed
+            }
+            return recorded != expected || recorded.contains { !fm.fileExists(atPath: $0) }
+        }
+        let pbxPath = projectFolder(root: root) + "/" + projectName + "/project.pbxproj"
+        guard let pbx = try? String(contentsOfFile: pbxPath, encoding: .utf8),
+              let re = try? NSRegularExpression(pattern: #"DmGame[0-9A-Fa-f]+\.framework"#) else { return false }
+        let matches = re.matches(in: pbx, range: NSRange(pbx.startIndex..., in: pbx))
+        let referenced = Set(matches.compactMap { Range($0.range, in: pbx).map { String(pbx[$0]) } })
+        guard !referenced.isEmpty else { return false }
+        let currentNames = Set(expected.map { ($0 as NSString).lastPathComponent })
+        return referenced != currentNames || expected.contains { !fm.fileExists(atPath: $0) }
+    }
+
+    /// Removes any `DmGame*.framework` left inside the built `DmShell.app/Frameworks` folders (install and export derived data)
+    /// that is no longer in `games`, so an incremental `xcodebuild` or re-sign never keeps a deleted game's framework in the app.
+    package static func pruneEmbeddedFrameworks(root: String, keeping games: [ShellLibrary.Game], fm: FileManager = .default) {
+        let keep = Set(games.map { ($0.framework as NSString).lastPathComponent })
+        for app in [appPath(root: root), exportAppPath(root: root)] {
+            let folder = app + "/Frameworks"
+            for item in (try? fm.contentsOfDirectory(atPath: folder)) ?? []
+                where item.hasPrefix("DmGame") && item.hasSuffix(".framework") && !keep.contains(item) {
+                try? fm.removeItem(atPath: folder + "/" + item)
+            }
+        }
+    }
 }
 
 extension ShellInstaller {

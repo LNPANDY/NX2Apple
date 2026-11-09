@@ -26,20 +26,20 @@ Issue: LNPANDY/NX2Apple#740
  create mode 100644 dm/host/pad_joycon_mac.h
 
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 8b66f0b..2100b89 100644
+index 3d11391..402f6da 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -76,7 +76,7 @@ endif
  endif
  .PHONY: FORCE
  FORCE:
--dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
-+dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h pad_joycon.h pad_joycon_mac.h home_quit.h home_quit_mac.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
+-dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
++dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h pad_joycon.h pad_joycon_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
  	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
  clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
  	rm -rf gen dmhost dmhost_* *.dSYM
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 04a17ef..04b4092 100644
+index e09cc5c..6692d65 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -25,6 +25,7 @@
@@ -49,8 +49,8 @@ index 04a17ef..04b4092 100644
 +#include "pad_joycon_mac.h"
  #include "home_quit.h"
  #include "home_quit_mac.h"
- #include <signal.h>
-@@ -218,29 +219,44 @@ static int pad_join(const void *owner, const char *name) {
+ #include "ctrl_prompt.h"
+@@ -226,29 +227,44 @@ static int pad_join(const void *owner, const char *name) {
      dm_pad_players(pad_slot_mask(&g_slots));
      return p;
  }
@@ -101,7 +101,7 @@ index 04a17ef..04b4092 100644
          npad_name(p, nb, sizeof nb); LOG("controller '%s' disconnected: player %d (npad %s) is free", pad_name(g_held[p]), p + 1, nb);
          g_held[p].extendedGamepad.valueChangedHandler = nil;
          dm_motion_detach(g_held[p], p);
-@@ -248,7 +264,7 @@ static void pads_changed(GCController *gone) {
+@@ -256,7 +272,7 @@ static void pads_changed(GCController *gone) {
          pad_slot_free(&g_slots, (__bridge const void *)g_held[p]); g_held[p] = nil;
          dm_pad_set_player(p, 0, 0, 0, 0, 0);   // nothing stays pressed
      }
@@ -110,15 +110,15 @@ index 04a17ef..04b4092 100644
          if (hidpad_gc_unread(c)) { pad_keep_system_buttons(c); c.extendedGamepad.valueChangedHandler = nil; continue; }   // its model's pads are read from IOKit; Home and Capture stay out of macOS's hands
          if (g_press_to_join) {   // a player at its first button (pad_read)
              pad_keep_system_buttons(c);
-@@ -266,6 +282,7 @@ static void pads_changed(GCController *gone) {
+@@ -274,6 +290,7 @@ static void pads_changed(GCController *gone) {
      }
      hidpad_twins_take(gone);   // the pads of a model GameController lists fewer of, a player each
      dm_pad_players(pad_slot_mask(&g_slots));
 +    joycon_haptics_sync(gone);
      pro_players_changed(gone);
+     cp_poll();   // a controller came or went while the controller applet's prompt is up
  }
- // Display sleep: macOS counts keyboard and mouse input as user activity, not a controller's, so in controller-only play the display dims and locks; the latency
-@@ -286,15 +303,17 @@ static void pads_release(void) {
+@@ -295,15 +312,17 @@ static void pads_release(void) {
      if (g_merge) { if (merge_pads_left(nil)) dm_pad_set(0, 0, 0, 0, 0); return; }
      for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
      for (hid_pad *d = g_hidpads; d; d = d->next) { int p = pad_slot_of(&g_slots, d); if (p >= 0) dm_pad_set_player(p, 0, 0, 0, 0, 0); }
@@ -137,7 +137,7 @@ index 04a17ef..04b4092 100644
  }
  static void hq_close(void);
  static void input_release(void) {
-@@ -303,6 +322,11 @@ static void input_release(void) {
+@@ -312,6 +331,11 @@ static void input_release(void) {
      display_awake(0);
      g_input_on = 0;
      dm_motion_pro_active(0); hidpad_motion_clear();
@@ -149,9 +149,9 @@ index 04a17ef..04b4092 100644
      g_btn = 0; g_held_fn = 0; memset(g_shift_fn, 0, sizeof g_shift_fn); push();
      if (g_mouse_down) { g_mouse_down = 0; dm_touch_set(NULL, 0); }
      pads_release();
-@@ -349,6 +373,43 @@ static void hidpad_detach(hid_pad *d) {   // d is already off g_hidpads
-     dm_pad_set_player(p, 0, 0, 0, 0, 0);   // nothing stays pressed
+@@ -360,6 +384,43 @@ static void hidpad_detach(hid_pad *d) {   // d is already off g_hidpads
      dm_pad_players(pad_slot_mask(&g_slots));
+     cp_poll();   // one controller fewer to wait for, or one player fewer
  }
 +// Split Joy-Con sideways controllers (pad_joycon_mac.h, DM_JOYCON_SPLIT=1): each half takes a player slot of its own
 +static void joycon_read(joycon_pad *d) {
@@ -193,7 +193,7 @@ index 04a17ef..04b4092 100644
  // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
  // (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
  // Switch's HOME menu does, and gets no controller input or touch; the keyboard and ⌘Q work as always. DM_HOME_QUIT=0 turns it off
-@@ -383,10 +444,16 @@ static void hq_log_setting(void) {
+@@ -394,10 +455,16 @@ static void hq_log_setting(void) {
  static void hq_buttons(int *home, int *a, int *b, GCController **holder) {
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
@@ -210,7 +210,7 @@ index 04a17ef..04b4092 100644
  }
  static void hq_fade(NSView *v, int in) {
      if (!v) return;
-@@ -460,6 +527,7 @@ static void pads_start(void) {
+@@ -532,6 +599,7 @@ static void pads_start(void) {
                                                                             : "each controller is a player of its own, the keyboard plays with player 1");
      if (g_press_to_join) LOG("front end: a controller becomes a player at its first button press, the lowest player free (DM_PAD_PRESS_TO_JOIN)");
      hq_start();
@@ -218,7 +218,7 @@ index 04a17ef..04b4092 100644
      pads_changed(nil);
      hq_log_setting();
      dm_motion_pro_start(pro_devices_changed);
-@@ -1475,6 +1543,7 @@ void front_run(void (*guest)(void)) {
+@@ -1547,6 +1615,7 @@ void front_run(void (*guest)(void)) {
          for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
@@ -240,7 +240,7 @@ diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
 index ba849d0..ca0414f 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
-@@ -39,6 +39,7 @@
+@@ -39,6 +39,7 @@ - (void)stop;
  static dispatch_queue_t queue;
  static NSMutableArray<DmRumbleChannel *> *channels[DM_PLAYERS];
  static GCController *controllers[DM_PLAYERS];
@@ -583,11 +583,11 @@ index 0000000..a995be7
 +    }
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index fea9962..c080308 100644
+index 3767dc1..f3cd13e 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -371,7 +371,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
- 	$(B)/t_altstack
+@@ -383,7 +383,7 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
+ 	$(B)/t_sync_wait
  	DM_QOS_MAP=1 $(B)/t_notify_sched
  	DM_QOS_MAP=1 $(B)/t_notify_sched --all-peers
 -$(B)/t_pad_hid: t_pad_hid.c ../pad_hid.h ../dm_input.h | $(B)
@@ -740,7 +740,7 @@ diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sourc
 index 2b64998..500e86f 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-@@ -103,6 +103,7 @@ void dm_haptics_set_enabled(int on) { g_rumble = on; }
+@@ -103,6 +103,7 @@ void dm_motion_clear(int player) {
  int duo_harness_rumble(void) { return g_rumble; }
  void dm_haptics_apple_init(void) {}
  void dm_haptics_apple_controller(int player, GCController *controller) { (void)player; (void)controller; }
@@ -749,10 +749,10 @@ index 2b64998..500e86f 100644
  int front_ios_boot_ok(void) { return 1; }
  void front_ios_boot(void) {}
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 2c748ab..4a8e6ef 100644
+index 0e57cd8..321783b 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -90,6 +90,7 @@ DM_JIT_CAPTURE	path	Folder the Mac host writes what a game's `nn::jit` plugin ma
+@@ -91,6 +91,7 @@ DM_JIT_CAPTURE	path	Folder the Mac host writes what a game's `nn::jit` plugin ma
  DM_JIT_LOG	diagnostic	`1` logs every `nn::jit` `GenerateCode` request
  DM_JIT_MISS_DUMP	diagnostic	Folder for the input of each `nn::jit` request a served image lacks
  DM_JIT_SERVE	path	Folder of a `nn::jit` image (`jit.img`, `jit.tsv`, `jit.out`): the Mac serves requests from it as the iOS app does, and the plugin does not run
