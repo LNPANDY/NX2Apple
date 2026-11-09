@@ -443,6 +443,8 @@ final class GameLibrary: ObservableObject {
                             }
                         }
                         if existing.ipaPath.isEmpty { existing.ipaPath = source.ipaPath }
+                        // A name an older scan kept (a raw title ID, a size from the file name) gives way to the one the scan reads now
+                        if existing.name != source.name, LibraryGame.needsBetterName(existing) { existing.name = source.name }
                         self.upsert(existing)
                     } else { self.upsert(source) }
                 }
@@ -712,9 +714,6 @@ final class GameLibrary: ObservableObject {
            let row = text.split(separator: "\n").first(where: { $0.hasPrefix("name\t") }) {
             return String(row.dropFirst(5))
         }
-        let filename = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        let name = filename.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? filename : name
+        return LibraryGame.cleanedName(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
     }
 }

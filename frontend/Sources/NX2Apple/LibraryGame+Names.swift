@@ -9,7 +9,41 @@ extension LibraryGame {
     func displayName(_ lang: Lang) -> String { customName.isEmpty ? ownName(lang) : customName }
 
     /// The game's own name in `lang`, ignoring the player's: what Rename offers to go back to.
-    func ownName(_ lang: Lang) -> String { GameTitleNames.pick(titleNames, for: lang) ?? name }
+    func ownName(_ lang: Lang) -> String { GameTitleNames.pick(titleNames, for: lang) ?? fallbackName }
+
+    /// `name` as a name: without a package's decoration, and never a raw title ID while the game's package names it.
+    var fallbackName: String {
+        let cleaned = Self.cleanedName(name)
+        guard Self.isRawName(cleaned, titleID: titleID) else { return cleaned }
+        for path in (inputs["base"] ?? []) + (inputs[GameLibrary.folderInput] ?? []) + [sourceFolder] where !path.isEmpty {
+            let fromFile = Self.cleanedName(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
+            if !Self.isRawName(fromFile, titleID: titleID) { return fromFile }
+        }
+        return name
+    }
+
+    /// An entry without a Mac app whose kept name is a raw title ID or carries a package's decoration (a Mac app's name is its own).
+    static func needsBetterName(_ game: LibraryGame) -> Bool {
+        !game.isReady && (isRawName(game.name, titleID: game.titleID) || cleanedName(game.name) != game.name)
+    }
+
+    /// No name: empty, or a title ID (the game's own or any 16 hex digits).
+    static func isRawName(_ name: String, titleID: String) -> Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty || trimmed.caseInsensitiveCompare(titleID) == .orderedSame
+            || trimmed.range(of: "^[0-9A-Fa-f]{16}$", options: .regularExpression) != nil
+    }
+
+    /// A package's or folder's name without what dump tools add to it: [title ID], [v0], [NSP] and a size such as (0.01 GB).
+    static func cleanedName(_ raw: String) -> String {
+        let name = raw
+            .replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\(\\s*[0-9]+([.,][0-9]+)?\\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB)\\s*\\)", with: "",
+                                  options: [.regularExpression, .caseInsensitive])
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? raw : name
+    }
 }
 
 extension GameLibrary {
