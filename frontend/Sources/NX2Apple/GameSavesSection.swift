@@ -62,8 +62,8 @@ struct GameSavesSection: View {
                 }
             }
             .buttonStyle(LauncherSecondaryButtonStyle())
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if let result {
                 Text(result.text).font(.manrope(12)).foregroundStyle(result.ok ? Color.secondary : CloudSavesCard.attention)
                     .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
@@ -212,7 +212,7 @@ struct SaveImportSheet: View {
                 CardDivider()
                 CardRow(loc.t("savesloc.target"), detail: SaveLocationText.shown(target), help: target) {}
             }
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .padding(.horizontal, 30)
             Text(loc.t("savesloc.importNote")).font(.manrope(12.5)).foregroundStyle(.secondary).padding(.horizontal, 32).padding(.top, 12)
             Divider().opacity(0.3).padding(.top, 20)
@@ -230,7 +230,7 @@ struct SaveImportSheet: View {
         .frame(width: 560)
         .fixedSize(horizontal: false, vertical: true)
         .background(LauncherPalette.background)
-        .preferredColorScheme(.dark)
+        .launcherAppearance()
         .tint(LauncherPalette.cream)
         .onAppear { cancelFocused = true }
     }

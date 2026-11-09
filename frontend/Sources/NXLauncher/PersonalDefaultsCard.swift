@@ -85,7 +85,7 @@ package struct MissingToolRow: View {
                         .padTarget("set.showTools", scope: "main") { showTools() }
                 }
             }
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.building.opacity(0.6)))
         }
     }

@@ -69,7 +69,7 @@ import NXLauncher
         }
         .animation(.easeInOut(duration: reduceMotion ? 0.16 : 0.32), value: state.step)
         .font(.manrope(14))
-        .foregroundStyle(.white)
+        .foregroundStyle(LauncherPalette.textStrong)
         .background(LauncherPalette.background)
         .background(LauncherWindowChrome())
         .launcherAppearance()
@@ -213,7 +213,7 @@ import NXLauncher
                         Spacer(minLength: 0)
                     }
                     .padding(24).frame(maxWidth: .infinity, minHeight: 216, maxHeight: 216, alignment: .topLeading)
-                    .background(selected ? LauncherPalette.cream.opacity(0.07) : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+                    .background(selected ? LauncherPalette.selectedFillStrong : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
                     .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.accent : LauncherPalette.ink(0.10), lineWidth: selected ? 2 : 1))
                     .contentShape(RoundedRectangle(cornerRadius: 14))
                 }

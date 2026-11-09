@@ -224,6 +224,7 @@ struct ConsoleToastView: View {
             .accessibilityElement(children: .combine)
             .allowsHitTesting(false)
             .padding(20)
+            .environment(\.colorScheme, .dark)   // a console notice: dark over the desktop in Light too
     }
 }
 
@@ -252,7 +253,7 @@ struct ConsoleToastView: View {
                                 Text(String(format: t("console.playerShort"), player)).font(.manrope(compact ? 18 : 22, .bold))
                                     .frame(maxWidth: .infinity, minHeight: 56)
                                     .background(state.assigningPlayer == player ? LauncherPalette.cream : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-                                    .foregroundStyle(state.assigningPlayer == player ? LauncherPalette.background : .white)
+                                    .foregroundStyle(state.assigningPlayer == player ? LauncherPalette.background : LauncherPalette.textStrong)
                             }
                             .buttonStyle(.plain).accessibilityLabel(String(format: t("console.player"), player))
                             .accessibilityAddTraits(state.assigningPlayer == player ? .isSelected : [])
@@ -384,7 +385,7 @@ struct ConsoleToastView: View {
             ConsoleControllerList(driver: driver, lang: lang, compact: true)
         }
         .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).launcherAppearance()
-        .foregroundStyle(.white).padScope("console.controllers", pad)
+        .foregroundStyle(LauncherPalette.textStrong).padScope("console.controllers", pad)
         .environment(\.padRingStyle, .hug)
         .onAppear { pad.scope = "console.controllers"; pad.focused = "console.controller.merge" }
         .overlay(alignment: .bottom) { if let toast = driver.state.toast { ConsoleToastView(toast: toast) } }

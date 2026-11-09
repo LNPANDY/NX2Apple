@@ -72,11 +72,10 @@ struct CheatsView: View {
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Button { dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 22).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
                 }
-                .buttonStyle(.plain).keyboardShortcut(.defaultAction).disabled(busy)
+                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction).disabled(busy)
                 .padTarget("cheats.done", scope: "cheats", radius: 20) { if !busy { dismiss() } }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
@@ -95,8 +94,8 @@ struct CheatsView: View {
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0, content: content)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
     }
 
     /// The build the game is, and the master switch.
@@ -181,7 +180,7 @@ struct CheatsView: View {
             Text(file.buildID + ".txt").font(.system(size: 12.5, design: .monospaced))
             Spacer(minLength: 8)
             Text((isCurrent ? loc.t("cheats.thisBuild") : loc.t("cheats.otherBuild")).uppercased()).font(.manrope(10.5, .bold)).tracking(1.1)
-                .foregroundStyle(isCurrent ? .black : .secondary)
+                .foregroundStyle(isCurrent ? LauncherPalette.onCream : LauncherPalette.secondaryText)
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .background(isCurrent ? AnyShapeStyle(LauncherPalette.cream) : AnyShapeStyle(LauncherPalette.ink(0.08)), in: Capsule())
         }
@@ -330,12 +329,14 @@ extension View {
 
 /// An on / off switch that reads the same in a window that is not key (the system's drops its colour there): cream when on, a dim track when off.
 struct CheatSwitchStyle: ToggleStyle {
+    @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
-        Button { configuration.isOn.toggle() } label: {
-            Capsule().fill(configuration.isOn ? LauncherPalette.cream : LauncherPalette.ink(0.16))
+        let light = scheme == .light
+        return Button { configuration.isOn.toggle() } label: {
+            Capsule().fill(configuration.isOn ? LauncherPalette.switchOnTrack : (light ? LauncherPalette.switchOffTrack : LauncherPalette.ink(0.16)))
                 .frame(width: 40, height: 23)
                 .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-                    Circle().fill(configuration.isOn ? Color.black.opacity(0.85) : LauncherPalette.ink(0.85)).frame(width: 17, height: 17).padding(3)
+                    Circle().fill(configuration.isOn ? (light ? LauncherPalette.switchOnKnob : Color.black.opacity(0.85)) : LauncherPalette.switchOffKnob).frame(width: 17, height: 17).padding(3)
                 }
                 .animation(.easeOut(duration: 0.12), value: configuration.isOn)
         }

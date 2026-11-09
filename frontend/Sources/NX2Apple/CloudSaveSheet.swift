@@ -56,7 +56,7 @@ struct CloudSaveSheet: View {
         .fixedSize(horizontal: false, vertical: true)
         .background(LauncherPalette.background)
         .font(.manrope(13))
-        .preferredColorScheme(.dark)
+        .launcherAppearance()
         .tint(LauncherPalette.cream)
     }
 
@@ -151,7 +151,7 @@ struct CloudSaveSheet: View {
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .bold)).opacity(0.6)
             }
-            .foregroundStyle(primary ? LauncherPalette.background : .white)
+            .foregroundStyle(primary ? LauncherPalette.background : LauncherPalette.textStrong)
             .padding(.horizontal, 16).padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(primary ? LauncherPalette.cream : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))

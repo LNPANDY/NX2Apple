@@ -284,11 +284,10 @@ struct FreeSpaceView: View {
                     .disabled(chosen.isEmpty || m.running || working)
                     .padTarget("free.remove", scope: "free") { if !chosen.isEmpty && !m.running && !working { confirming = true } }
                 Button { dismiss() } label: {
-                    Text(loc.t("free.done")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
+                    Text(loc.t("free.done")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 22).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
                 }
-                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
+                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction)
                 .padTarget("free.done", scope: "free", radius: 20) { dismiss() }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
@@ -335,8 +334,8 @@ struct FreeSpaceView: View {
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0, content: content)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
     }
 
     nonisolated static func bytes(_ n: Int64) -> String { ByteCountFormatter.string(fromByteCount: n, countStyle: .file) }

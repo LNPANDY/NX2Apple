@@ -44,8 +44,8 @@ package struct TargetCard: View {
                     }
                     .padding(.horizontal, 18).padding(.vertical, 14)
                 }
-                .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
                 .padding(.top, 4)
             }
         }
@@ -59,7 +59,7 @@ package struct TargetCard: View {
                     Image(systemName: symbol).font(.system(size: 26, weight: .light))
                         .foregroundStyle(selected ? LauncherPalette.accent : .secondary)
                     Spacer()
-                    Circle().strokeBorder(selected ? LauncherPalette.accent : LauncherPalette.ink(0.25), lineWidth: selected ? 5 : 1.5)
+                    Circle().strokeBorder(selected ? LauncherPalette.radioOn : LauncherPalette.radioOff, lineWidth: selected ? 5 : 1.5)
                         .frame(width: 18, height: 18)
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -68,8 +68,8 @@ package struct TargetCard: View {
                 }
             }
             .padding(20).frame(maxWidth: .infinity, alignment: .leading)
-            .background(selected ? LauncherPalette.cream.opacity(0.05) : LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.accent.opacity(0.7) : LauncherPalette.ink(0.06), lineWidth: selected ? 1.5 : 1))
+            .background(selected ? LauncherPalette.selectedFill : LauncherPalette.selectableFill, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.selectedBorder : LauncherPalette.selectableBorder, lineWidth: selected ? 1.5 : 1))
             .contentShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain).disabled(build.running)

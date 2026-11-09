@@ -326,12 +326,10 @@ struct ArtworkPanel: View {
             .keyboardShortcut(.cancelAction)
             .padTarget("artwork.cancel", scope: "artwork", radius: 9, activate: cancel)
         Button(action: save) {
-            Text(t("artwork.save")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
+            Text(t("artwork.save")).font(.manrope(13.5, .bold))
                 .padding(.horizontal, 22).padding(.vertical, 9)
-                .background(LauncherPalette.cream, in: Capsule())
-                .opacity(editor.isDirty ? 1 : 0.4)
         }
-        .buttonStyle(.plain).keyboardShortcut("s", modifiers: .command).disabled(!editor.isDirty)
+        .buttonStyle(LauncherActionButtonStyle()).opacity(editor.isDirty ? 1 : 0.4).keyboardShortcut("s", modifiers: .command).disabled(!editor.isDirty)
         .padTarget("artwork.save", scope: "artwork", radius: 20) { if editor.isDirty { save() } }
     }
 }

@@ -49,9 +49,10 @@ struct BuildSelectedSheet: View {
             HStack(spacing: 12) {
                 Spacer()
                 Button(loc.t("queue.close"), action: close).buttonStyle(LauncherSecondaryButtonStyle()).keyboardShortcut(.cancelAction)
-                Button(loc.t("queue.add")) { add() }
-                    .buttonStyle(.plain).font(.manrope(14, .semibold)).foregroundStyle(.black)
-                    .padding(.horizontal, 20).padding(.vertical, 10).background(LauncherPalette.cream, in: Capsule())
+                Button { add() } label: {
+                    Text(loc.t("queue.add")).font(.manrope(14, .semibold)).padding(.horizontal, 20).padding(.vertical, 10)
+                }
+                    .buttonStyle(LauncherActionButtonStyle())
                     .disabled(checked.isEmpty).opacity(checked.isEmpty ? 0.4 : 1)
                     .keyboardShortcut(.defaultAction)
             }

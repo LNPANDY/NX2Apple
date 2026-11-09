@@ -93,6 +93,7 @@ struct ConsoleConnectionPrompt: View {
         })
         .onAppear { pad.scope = "console.entry"; pad.focused = "console.entry.enter" }
         .accessibilityAddTraits(.isModal)
+        .environment(\.colorScheme, .dark)   // the way into the console mode is drawn as the console is
     }
 }
 

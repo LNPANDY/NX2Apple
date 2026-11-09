@@ -48,8 +48,8 @@ package struct BuildFailureCard: View {
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             }
             .alert(loc.t("fail.confirm.title"), isPresented: Binding(get: { m.confirmingOverride != nil }, set: { if !$0 { m.cancelBuildAnyway() } })) {
                 Button(loc.t("fail.confirm.go")) { m.confirmBuildAnyway() }

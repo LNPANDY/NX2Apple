@@ -272,8 +272,8 @@ package struct LauncherDropdown: View {
         .padding(.horizontal, rounded ? 15 : 14).padding(.vertical, rounded ? 9 : 7)
         .frame(width: width, height: width != nil || (fill && rounded) ? LauncherControl.height : nil)   // a filling button as high as a row's buttons
         .frame(maxWidth: fill ? .infinity : nil)
-        .background(LauncherPalette.ink(open ? 0.13 : (rounded ? 0.055 : 0.06)), in: shape)
-        .overlay(shape.strokeBorder(LauncherPalette.ink(open ? 0.18 : 0.10)))
+        .background(open ? LauncherPalette.secondaryPressed : (rounded ? LauncherPalette.secondaryFill : LauncherPalette.dropdownFill), in: shape)
+        .overlay(shape.strokeBorder(open ? LauncherPalette.dropdownOpenBorder : LauncherPalette.secondaryBorder))
         .foregroundStyle(LauncherPalette.text)
         .contentShape(shape)
         .launcherMeasured(label: Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)), room: LauncherControl.choiceWidth)

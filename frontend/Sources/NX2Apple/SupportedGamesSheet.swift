@@ -48,7 +48,7 @@ struct SupportedGamesSheet: View {
                         .focused($searchFocused).accessibilityLabel(loc.t("supported.search"))
                 }
                 .padding(.horizontal, 12).frame(height: 36)
-                .background(LauncherPalette.ink(0.07), in: Capsule())
+                .background(LauncherPalette.menuFill, in: Capsule())
                 .overlay(Capsule().strokeBorder(LauncherPalette.ink(searchFocused ? 0.22 : 0.10)))
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 16)

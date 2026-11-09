@@ -82,7 +82,7 @@ package struct ShellCacheRow: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(well, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(LauncherPalette.ink(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(LauncherPalette.cardBorder))
     }
 
     @ViewBuilder private func confirmation(_ plan: ShellRootMove.Plan) -> some View {

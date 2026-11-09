@@ -58,8 +58,8 @@ package struct CardGroup<Content: View>: View {
                 if !trailing.isEmpty { Text(trailing).font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.building) }
             }
             VStack(spacing: 0) { content }
-                .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if !footnote.isEmpty {
                 Text(footnote).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
                     .fixedSize(horizontal: false, vertical: true)

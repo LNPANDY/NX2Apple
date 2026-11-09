@@ -47,7 +47,7 @@ package struct ShellCopyCard: View {
         VStack(alignment: .leading, spacing: 8, content: content)
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
     }
 }

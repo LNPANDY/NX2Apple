@@ -68,13 +68,13 @@ final class SettingsAndOptionsStructureTests: IsolatedDefaultsTestCase {
         let dark = resolved(LauncherPalette.surface, .darkAqua), light = resolved(LauncherPalette.surface, .aqua)
         XCTAssertEqual(Double(light.redComponent), 1, accuracy: 0.01)
         XCTAssertEqual(Double(dark.redComponent), 0.10, accuracy: 0.01)
-        XCTAssertEqual(Double(resolved(LauncherPalette.background, .aqua).redComponent), Double(0xF6) / 255, accuracy: 0.01)
+        XCTAssertEqual(Double(resolved(LauncherPalette.background, .aqua).redComponent), Double(0xF2) / 255, accuracy: 0.01)
     }
 
     func testConsoleKeepsItsOwnDarkSurface() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/NX2Apple")
         for file in ["ConsoleView.swift"] {
-            XCTAssertTrue(try String(contentsOf: root.appendingPathComponent(file)).contains(".preferredColorScheme(.dark)"), file)
+            XCTAssertTrue(try String(contentsOf: root.appendingPathComponent(file)).contains(".consoleDarkAppearance()"), file)
         }
     }
 }

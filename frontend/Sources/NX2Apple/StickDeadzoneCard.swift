@@ -114,7 +114,7 @@ struct StickDeadzoneCard: View {
 
     private func legend(filled: Bool, _ text: String) -> some View {
         HStack(spacing: 6) {
-            Circle().fill(filled ? LauncherPalette.cream : .clear).overlay(Circle().strokeBorder(filled ? .clear : Color.white.opacity(0.9), lineWidth: 1.5))
+            Circle().fill(filled ? LauncherPalette.cream : .clear).overlay(Circle().strokeBorder(filled ? .clear : LauncherPalette.ink(0.9), lineWidth: 1.5))
                 .frame(width: 10, height: 10)
             Text(text).font(.manrope(12.5)).foregroundStyle(.secondary)
         }

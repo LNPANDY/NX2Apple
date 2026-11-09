@@ -39,9 +39,10 @@ package struct BuildQueueCard: View {
                 .buttonStyle(LauncherSecondaryButtonStyle()).disabled(queue.queued.isEmpty)
                 Spacer(minLength: 8)
                 if queue.paused {
-                    Button(loc.t("queue.resume")) { queue.resume() }
-                        .buttonStyle(.plain).font(.manrope(14, .semibold)).foregroundStyle(.black)
-                        .padding(.horizontal, 20).padding(.vertical, 10).background(LauncherPalette.cream, in: Capsule())
+                    Button { queue.resume() } label: {
+                        Text(loc.t("queue.resume")).font(.manrope(14, .semibold)).padding(.horizontal, 20).padding(.vertical, 10)
+                    }
+                    .buttonStyle(LauncherActionButtonStyle())
                 }
                 Button(loc.t("queue.select"), action: onSelectGames).buttonStyle(LauncherSecondaryButtonStyle())
             }

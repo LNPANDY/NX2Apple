@@ -237,12 +237,10 @@ struct LaunchOptionsView: View {
                     }
                 }
                 Button { dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 22).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
-                        .overlay(Capsule().strokeBorder(LauncherPalette.actionBorder))
                 }
-                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
+                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction)
                 .padTarget("opt.done", scope: "launch", radius: 20) { dismiss() }
             }
         }
@@ -291,8 +289,8 @@ struct LaunchOptionsView: View {
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0, content: content)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
     }
 
     private var divider: some View { Divider().opacity(0.25).padding(.leading, 18) }
@@ -311,8 +309,8 @@ struct LaunchOptionsView: View {
         }
         .padding(.horizontal, 18).padding(.vertical, 13)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+        .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
         .accessibilityElement(children: .combine)
     }
 

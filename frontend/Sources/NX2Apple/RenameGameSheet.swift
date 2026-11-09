@@ -31,7 +31,7 @@ struct RenameGameSheet: View {
             TextField(game.ownName(loc.lang), text: $text)
                 .textFieldStyle(.plain).font(.manrope(16, .medium))
                 .padding(.horizontal, 14).padding(.vertical, 11)
-                .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 10))
+                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 10))
                 .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(LauncherPalette.ink(fieldFocused ? 0.25 : 0.08)))
                 .focused($fieldFocused)
                 .onSubmit(commit)
@@ -53,11 +53,10 @@ struct RenameGameSheet: View {
                     .keyboardShortcut(.cancelAction)
                     .padTarget("rename.cancel", scope: "rename") { dismiss() }
                 Button(action: commit) {
-                    Text(loc.t("rename.save")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
+                    Text(loc.t("rename.save")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 20).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(LauncherActionButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .padTarget("rename.save", scope: "rename", radius: 20) { commit() }
             }

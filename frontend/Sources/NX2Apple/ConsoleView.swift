@@ -82,7 +82,7 @@ enum ConsoleInput {
         .foregroundStyle(.white)
         .font(.manrope(22))
         .tint(LauncherPalette.cream)
-        .preferredColorScheme(.dark)
+        .consoleDarkAppearance()   // the console stays dark in Light: every token resolves to its Dark value here
         .environmentObject(pad)
         .environment(\.padRingStyle, .hug)
         .background(ConsoleKeyboardInput(perform: { input in glyphs = .keyboard; handle(input) }).frame(width: 0, height: 0))

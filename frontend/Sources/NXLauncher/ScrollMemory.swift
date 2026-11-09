@@ -32,14 +32,21 @@ package struct ScrollMemory: NSViewRepresentable {
             restoring = true
             DispatchQueue.main.async { [weak self] in
                 guard let self, let view = self.scrollView else { return }
-                let top = view.documentView.map { $0.isFlipped ? CGFloat(0) : max(0, $0.bounds.height - view.contentView.bounds.height) } ?? 0
-                let wanted = self.offsets[key] ?? top
+                let wanted = self.offsets[key] ?? ScrollMemory.topOffset(of: view)
                 view.contentView.scroll(to: NSPoint(x: 0, y: wanted))
                 view.reflectScrolledClipView(view.contentView)
                 self.restoring = false
             }
         }
         deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
+    }
+
+    /// The clip view's origin at the page's top. A window with a full-size content view gives its scroll views a top inset (the
+    /// hidden title bar), so the top is at minus that inset, not at 0: scrolling to 0 put the first rows under the top bar.
+    package static func topOffset(of view: NSScrollView) -> CGFloat {
+        guard let document = view.documentView else { return -view.contentView.contentInsets.top }
+        if document.isFlipped { return -view.contentView.contentInsets.top }
+        return max(0, document.bounds.height - view.contentView.bounds.height)
     }
 
     package func makeCoordinator() -> Coordinator { Coordinator() }

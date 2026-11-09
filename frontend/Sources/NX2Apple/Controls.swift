@@ -226,11 +226,10 @@ struct ControlsView: View {
                     .keyboardShortcut(listening == nil ? .cancelAction : nil)
                     .padTarget("controls.cancel", scope: "controls") { cancel() }
                 Button { stopListening(); original = nil; dismiss() } label: {
-                    Text(loc.t("controls.save")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
+                    Text(loc.t("controls.save")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 22).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
                 }
-                .buttonStyle(.plain).keyboardShortcut(listening == nil ? .defaultAction : nil)
+                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(listening == nil ? .defaultAction : nil)
                 .padTarget("controls.done", scope: "controls", radius: 20) { stopListening(); original = nil; dismiss() }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
@@ -277,8 +276,8 @@ struct ControlsView: View {
                     if i < items.count - 1 { Divider().opacity(0.25).padding(.leading, 18) }
                 }
             }
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if !note.isEmpty {
                 Text(note).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
             }
@@ -312,7 +311,7 @@ struct ControlsView: View {
                 Button { on ? stopListening() : listen(f) } label: {
                     Text(on ? loc.t("controls.press") : ControlLayout.keyName(key, loc.t) ?? loc.t("controls.none"))
                         .font(.manrope(12.5, on ? .bold : .semibold))
-                        .foregroundStyle(on ? Color.black : key == nil ? LauncherPalette.ink(0.45) : LauncherPalette.text)
+                        .foregroundStyle(on ? LauncherPalette.onCream : key == nil ? LauncherPalette.ink(0.45) : LauncherPalette.text)
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
                         .background(on ? LauncherPalette.cream : LauncherPalette.ink(0.06), in: Capsule())
                         .overlay(Capsule().strokeBorder(LauncherPalette.ink(on ? 0 : 0.10)))

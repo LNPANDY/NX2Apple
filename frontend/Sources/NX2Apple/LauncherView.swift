@@ -171,7 +171,9 @@ struct LauncherView: View {
     private var launcherBody: some View {
         VStack(spacing: 0) {
             topBar
-            Divider().opacity(0.3)
+                .background(LauncherPalette.background)   // opaque: a scrolled page passes under it, never through it
+                .zIndex(1)
+            LauncherTopBarRule()
             EngineSyncBanner(engine: engine, m: m)
             if page == .library {
                 HStack(spacing: 0) {
@@ -412,8 +414,8 @@ struct LauncherView: View {
                     Image(systemName: "plus")
                 }
                     .padding(.horizontal, 12).padding(.vertical, 8)
-                    .background(LauncherPalette.ink(0.07), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(LauncherPalette.ink(0.1)))
+                    .background(LauncherPalette.menuFill, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(LauncherPalette.secondaryBorder))
                     .contentShape(RoundedRectangle(cornerRadius: 8))
             }
             .buttonStyle(.plain).launcherHover().disabled(m.running).help(loc.t("library.newBuild")).accessibilityLabel(loc.t("library.newBuild"))

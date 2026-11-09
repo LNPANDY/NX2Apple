@@ -71,8 +71,8 @@ struct PadModeSection: View {
             .padding(.horizontal, 18).padding(.vertical, 9)
             .frame(minHeight: 46)
             .padTarget("pad.mode", scope: "controls", radius: 10, activate: { step(1) }, adjust: step)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             Text(loc.t("controls.modeNote." + layout.padMode.rawValue)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }

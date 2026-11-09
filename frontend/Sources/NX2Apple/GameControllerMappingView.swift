@@ -107,8 +107,8 @@ struct SteamControllerSection: View {
                         .labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
             }
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
         }
     }
     private func line<Trailing: View>(_ title: String, id: String, activate: (() -> Void)? = nil, adjust: ((Int) -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) -> some View {

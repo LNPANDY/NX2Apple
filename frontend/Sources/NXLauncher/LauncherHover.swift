@@ -3,20 +3,24 @@ import SwiftUI
 /// Pointer feedback adds no size or movement, and leaves the control's selection and keyboard focus alone.
 private struct LauncherHover: ViewModifier {
     let allowed: Bool
+    /// The change under the pointer in Light: a neutral darkening, none for a control that draws its own hover fill.
+    let lightBrightness: Double
     @Environment(\.isEnabled) private var enabled
     @Environment(\.colorScheme) private var scheme
     @State private var hovered = false
 
     func body(content: Content) -> some View {
         content
-            .brightness(allowed && enabled && hovered ? (scheme == .light ? -0.035 : 0.045) : 0)   // brighter in Dark, a neutral darkening in Light
+            .brightness(allowed && enabled && hovered ? (scheme == .light ? lightBrightness : 0.045) : 0)   // brighter in Dark, a neutral darkening in Light
             .background(LauncherHoverRegion(enabled: allowed && enabled) { hovered = $0 })
             .onDisappear { hovered = false }
     }
 }
 
 extension View {
-    package func launcherHover(enabled: Bool = true) -> some View { modifier(LauncherHover(allowed: enabled)) }
+    package func launcherHover(enabled: Bool = true, lightBrightness: Double = -0.035) -> some View {
+        modifier(LauncherHover(allowed: enabled, lightBrightness: lightBrightness))
+    }
 }
 
 /// AppKit owns the hand cursor's lifetime. Cursor rectangles are discarded when a control is removed or clipped,

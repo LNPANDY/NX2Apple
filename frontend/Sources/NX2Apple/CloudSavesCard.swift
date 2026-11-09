@@ -55,8 +55,8 @@ struct CloudSavesCard: View {
                 Divider().opacity(0.25).padding(.leading, 18)
                 lastRow
             }
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             Text(problem ?? loc.t(setting.isOn ? "cloud.applies" : "cloud.offNote")).font(.manrope(12))
                 .foregroundStyle(problem == nil ? .secondary : Self.attention)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)

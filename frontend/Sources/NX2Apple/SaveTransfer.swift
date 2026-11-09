@@ -436,11 +436,10 @@ struct SavesView: View {
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Button { dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 22).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
                 }
-                .buttonStyle(.plain).keyboardShortcut(asking == nil ? .defaultAction : nil).disabled(busy)
+                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(asking == nil ? .defaultAction : nil).disabled(busy)
                 .padTarget("saves.done", scope: "saves", radius: 20) { if !busy { dismiss() } }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
@@ -456,8 +455,8 @@ struct SavesView: View {
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0, content: content)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
     }
 
     private func sideRow(_ side: SaveTransfer.Side) -> some View {
@@ -530,16 +529,15 @@ struct SavesView: View {
                 Button(loc.t("saves.cancel")) { asking = nil }.buttonStyle(LauncherSecondaryButtonStyle())
                     .padTarget("saves.cancel", scope: "saves") { asking = nil }
                 Button { copy(replacing) } label: {
-                    Text(loc.t("saves.replace")).font(.manrope(13, .bold)).foregroundStyle(LauncherPalette.onCream)
+                    Text(loc.t("saves.replace")).font(.manrope(13, .bold))
                         .padding(.horizontal, 18).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: RoundedRectangle(cornerRadius: 9))
                 }
-                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
+                .buttonStyle(LauncherActionButtonStyle(.rounded(9))).keyboardShortcut(.defaultAction)
                 .padTarget("saves.replace", scope: "saves") { copy(replacing) }
             }
         }
         .padding(18)
-        .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
+        .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.accent.opacity(0.35)))
     }
 
