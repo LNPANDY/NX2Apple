@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E6=B1=AA=E7=86=B9?= <wangxi@wangxideMacBook-Pro.local>
+Date: Mon, 9 Nov 2026 08:13:05 +0800
+Subject: [PATCH] =?UTF-8?q?=E8=A1=A5=E5=85=85=E8=B7=A8=E5=9C=B0=E5=8C=BA?=
+ =?UTF-8?q?=E8=B5=84=E6=BA=90=E6=A0=87=E8=AE=B0=E5=8F=8A=E6=9E=84=E5=BB=BA?=
+ =?UTF-8?q?=E7=BC=93=E5=AD=98=E5=9B=9E=E5=BD=92=E6=B5=8B=E8=AF=95?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+覆盖欧美与亚洲资源布局、目录与镜像输入、重复构建缓存、同标题不替换、空资源保留失败及仅着色器派生；修复前亚洲布局两项失败，修复后七十四项测试通过。
+
+Upstream-Status: forwarded seedds/nxnative#1882
+Reason: Preserve valid regional RomFS markers and repair missing inherited markers when deriving a matched title.
+Issue: seedds/nxnative#1882
+
+---
+ dm/tools/tests/test_nsp_incremental.py | 36 ++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/dm/tools/tests/test_nsp_incremental.py b/dm/tools/tests/test_nsp_incremental.py
+index c7cb222..744d256 100644
+--- a/dm/tools/tests/test_nsp_incremental.py
++++ b/dm/tools/tests/test_nsp_incremental.py
+@@ -84,6 +84,42 @@ class DeriveProfile(Base):
+         self.assertNotIn('mem_used', [k for k, _ in game.Game(self.pdir).rows])
+         self.assertFalse((self.pdir / 'shader_map.tsv').exists())
+ 
++    def test_cross_title_marker_uses_actual_regional_resources(self):
++        import romfs_image
++        for image in (False, True):
++            for present in (True, False):
++                with self.subTest(image=image, original_marker_present=present):
++                    rom = self.ex / 'RomFS'
++                    shutil.rmtree(rom, ignore_errors=True); rom.mkdir()
++                    (self.ex / 'RomFS.img').unlink(missing_ok=True)
++                    (rom / 'CPK').mkdir()
++                    (rom / 'CPK/ALL_ASIA.CPK').write_bytes(b'fixture' * 10)
++                    if present: (rom / 'CPK/ALL_USEU.CPK').write_bytes(b'fixture')
++                    text = (self.src / 'game.tsv').read_text().replace('romfs_marker\ta/b', 'romfs_marker\tCPK/ALL_USEU.CPK')
++                    (self.src / 'game.tsv').write_text(text)
++                    if image:
++                        romfs_image.pack(str(rom), str(self.ex / 'RomFS.img'))
++                        shutil.rmtree(rom)
++                    self.derive(app=TID + 0x1000)
++                    marker = 'CPK/ALL_USEU.CPK' if present else 'CPK/ALL_ASIA.CPK'
++                    self.assertEqual(game.Game(self.pdir).get('romfs_marker'), marker)
++                    self.assertTrue((nsp.rfs.source(self.ex) / marker).is_file())
++                    self.later_stages(); self.derive(app=TID + 0x1000); self.assert_kept()
++                    self.assertEqual(game.Game(self.src).get('romfs_marker'), 'CPK/ALL_USEU.CPK')
++
++    def test_same_title_keeps_missing_marker_for_validation(self):
++        self.derive(app=TID)
++        self.assertEqual(game.Game(self.pdir).get('romfs_marker'), 'a/b')
++
++    def test_cross_title_empty_romfs_keeps_missing_marker_for_validation(self):
++        (self.ex / 'RomFS/a.bin').unlink()
++        self.derive(app=TID + 0x1000)
++        self.assertEqual(game.Game(self.pdir).get('romfs_marker'), 'a/b')
++
++    def test_shader_only_profile_keeps_missing_marker(self):
++        nsp.derive_profile(game.Game(self.src), self.pdir, 'v65536', self.ex, ['main'], app=TID + 0x1000, shader_only=True)
++        self.assertEqual(game.Game(self.pdir).get('romfs_marker'), 'a/b')
++
+     def test_unchanged_inputs_keep_later_stages(self):
+         self.assertEqual(self.derive(), '1.1.0')
+         self.later_stages()
