@@ -1,0 +1,2298 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: DannyBaanks <danny@localhost>
+Date: Mon, 9 Nov 2026 13:20:58 -0600
+Subject: [PATCH] Linux: two runtimes, qemu and native, and an explicit guest
+ frontier
+
+ARCH=aarch64 (the default) and ARCH=x86_64 both build; each writes to gen/lin-<ARCH>/ and
+dmhost_linux-<ARCH>, so one never overwrites the other. dm/host/run-linux runs either:
+--mode qemu runs the ARM64 host under qemu-aarch64-static (or directly on an ARM64
+machine), --mode native runs this machine's own host with no emulator on the path and no
+fallback to one. Its exit codes name their own failures: 3 the emulator is missing, 4 the
+machine has no native binary (or the binary is an ELF for another architecture), 5 the
+binary was never built.
+
+The x86_64 host is a host, not an emulator. It loads, relocates and inspects the game's
+ARM64 modules and answers every Horizon service that does not need to execute them; the
+modules' code cannot run, and the host says so first in the log and then at the boundary
+with exit status 86 (main.c guest_exec_supported). There is no instruction-set translation
+here and none was added: the game's own code runs natively or not at all.
+
+What the x86_64 build needed, given that:
+
+  linux/guest_stub_x86_64.c   the ARM64 assembly the guest enters (the gate stubs, the NVN
+                              counting thunks, the thread entry, the big-stack entry) is
+                              ARM64 instructions; the stub defines those symbols at the
+                              sizes the host declares, and every entry reports and stops.
+  asm_elf.py --names          the NVN name table as C, taken from the thunks file, so the
+                              device resolves its 487 implementations by name identically
+                              on both architectures (a blank table would have died).
+  dm_ucontext.h / linux_compat.c   the register view of a Linux signal handler on x86_64
+                              reads Intel's gregs (RIP, RSP, RBP, flags) and says there is
+                              no link register and no NEON state, which the crash dump
+                              then reports truthfully.
+  hle.h, hle_bigstack.c, hle_offline.c, loader.c   the four places the guest's calling
+                              convention was written down (the take-over stub, the stack
+                              switch, the hidden x8 result, the tpidrro_el0 check) drop out
+                              on x86_64, where there is no guest to apply it to.
+  linux/linux_media_stub.c    the blank native images GameChat uses are anonymous storage,
+                              not guest code, so they exist on x86_64 too.
+
+The compat layer's test passes on both architectures, and linux/tests/adversarial_linux.sh
+covers the ways the run can be asked for the wrong thing: no emulator, an ELF for another
+architecture, a binary that was never built, a profile that does not parse.
+Upstream-Status: fork-only (the Mac is the upstream platform; a Linux build is this fork's work)
+Reason: One source tree, two hosts: the engine's portable C builds for ARM64 (where the guest's own code runs natively) and for x86_64 (where the host runs, loads and relocates the game's modules, and says where its code cannot). The guest-facing ARM64 assembly is not translated; the x86_64 build defines those symbols at the sizes the host declares and reports when one is reached, so the frontier is explicit instead of silent.
+Issue: LNPANDY/NX2Apple#214
+
+---
+ dm/host/Makefile.linux                        | 138 ++-
+ dm/host/hle.h                                 |  12 +-
+ dm/host/hle_bigstack.c                        |   9 +-
+ dm/host/hle_offline.c                         |   4 +
+ dm/host/hle_svc.c                             | 841 ++++++++++++++++++
+ dm/host/hle_thread.c                          |   6 +-
+ dm/host/linux/asm_elf.py                      |  33 +-
+ dm/host/linux/guest_stub_x86_64.c             |  85 ++
+ .../include/CoreFoundation/CoreFoundation.h   |  15 +
+ dm/host/linux/include/dispatch/dispatch.h     |   2 +
+ dm/host/linux/include/dm_linux.h              |  29 +
+ dm/host/linux/include/mach-o/ldsyms.h         |  11 +
+ dm/host/linux/include/malloc/malloc.h         |   1 +
+ dm/host/linux/linux_compat.c                  | 244 +++--
+ dm/host/linux/linux_dispatch.c                |  15 +
+ dm/host/linux/linux_gfx_stub.c                |   7 +
+ dm/host/linux/linux_media_stub.c              |  62 ++
+ dm/host/linux/tests/adversarial_linux.sh      |  80 ++
+ dm/host/linux/tests/t_linux_compat.c          |  23 +-
+ dm/host/loader.c                              |   7 +-
+ dm/host/main.c                                |  43 +-
+ dm/host/run-linux                             | 132 +++
+ 22 files changed, 1658 insertions(+), 141 deletions(-)
+ create mode 100644 dm/host/linux/guest_stub_x86_64.c
+ create mode 100644 dm/host/linux/include/mach-o/ldsyms.h
+ create mode 100755 dm/host/linux/tests/adversarial_linux.sh
+ create mode 100755 dm/host/run-linux
+
+diff --git a/dm/host/Makefile.linux b/dm/host/Makefile.linux
+index 3ced4d6..5998386 100644
+--- a/dm/host/Makefile.linux
++++ b/dm/host/Makefile.linux
+@@ -2,9 +2,11 @@
+ # twins and the Linux stand-ins.
+ #
+ # What changes from dm/host/Makefile:
+-#   target     aarch64 Linux, the arch the guest's code is in (cross-built from any host
+-#              with zig; HOST_TARGET and HOST_CC override). x86_64 does not run the guest:
+-#              the game's code is executed natively, so the host must be an ARM64 process.
++#   target     ARCH=aarch64 (default) is the guest's own architecture: the game's ARM64 code
++#              runs natively on an ARM64 host. ARCH=x86_64 builds the host for an Intel or
++#              AMD machine: the host runs there, and it loads, relocates and inspects ARM64
++#              modules, but their code cannot run (main.c says so and stops at that
++#              boundary with exit status 86). Neither build uses QEMU to start itself.
+ #   toolchain  zig cc by default (static, runs anywhere), or a cross toolchain's gcc
+ #   sources    the ObjC front ends and the Metal / Vulkan / OpenGL backends are not built;
+ #              the front end is linux/front_linux.c and the graphics is
+@@ -12,10 +14,19 @@
+ #   audio      hle_audio.c and the movie decoders need Apple's AudioToolbox / VideoToolbox
+ #              and are not built yet (the host runs, no sound, no movies); their HLE
+ #              entries are stubbed by linux/linux_media_stub.c
++#   x86_64     the ARM64 assembly (the gate stubs the rewriter patches into the game's code,
++#              the NVN counting thunks) is replaced by linux/guest_stub_x86_64.c, whose
++#              entries report that the guest's code cannot run here, plus the name table
++#              asm_elf.py takes from the thunks file
+ #   c locale   the host's messages are English and its error strings are the C locale's,
+ #              as tools/patches.py clean_env asks on every platform
+ #
+ # Same GAME / DM_GAMES_DIR profile rules as the Mac build: there is no default game.
++#
++#   make -f Makefile.linux GAME=<id> [ARCH=aarch64|x86_64] [test]
++#
++# Artifacts are per architecture: gen/lin-<ARCH>/ and dmhost_linux-<ARCH>, so one build
++# never overwrites the other.
+ 
+ PYTHON ?= python3
+ 
+@@ -29,98 +40,133 @@ GAME_DIR :=
+ endif
+ GAME_H = gen/$(GAME)/game_profile.h
+ 
+-# The cross target: aarch64 Linux by default (the guest's arch). HOST_TARGET=aarch64-linux-musl
+-# gives a static binary that runs on any aarch64 Linux; HOST_TARGET=aarch64-linux-gnu links
+-# against a distro's glibc instead.
+-HOST_TARGET ?= aarch64-linux-musl
++# The architecture and the cross target: aarch64 Linux by default (the guest's own).
++# HOST_TARGET=<triple> overrides the compiler's target (aarch64-linux-musl here gives a
++# static binary that runs on any aarch64 Linux, aarch64-linux-gnu links against a distro's
++# glibc instead).
++ARCH ?= aarch64
++HOST_TARGET ?= $(ARCH)-linux-musl
+ HOST_CC ?= zig cc -target $(HOST_TARGET)
+ LDFLAGS ?= -static
+ CFLAGS = -O1 -g -Wall -Wno-unused-function -Wno-format -std=gnu11 -fblocks -D_GNU_SOURCE -DDM_LINUX=1
+ INCLUDES = -Ilinux/include -I. -I../gfx -I../gfx/nvn/include -I$(dir $(GAME_H)) -I../third_party/libvpx \
+-           -I../third_party/dav1d/include -I../third_party/stb_vorbis -I../third_party/vulkan-headers/include
++           -I../third_party/dav1d/include -I../third_party/stb_vorbis -I../third_party/vulkan-headers/include \
++           -I../gfx/nvn
++
++# Per-architecture output, so the two builds never touch each other
++BUILD = gen/lin-$(ARCH)
++BIN = dmhost_linux-$(ARCH)
++TESTBIN = dmhost_linuxtest-$(ARCH)
+ 
+ # The portable host: every *.c of dm/host except the ones that need Apple's frameworks
+ # (hle_audio.c and hle_movie*.c: AudioToolbox / VideoToolbox), plus the Linux stand-ins and
+-# the portable C of the graphics layer. libvpx (the movie codecs) is built from
+-# dm/third_party/libvpx, as the Mac build does.
++# the portable C of the graphics layer. Adding a file needs no change here.
++#
++# hle_codec_video.c (the nn::codec video decoders, over libvpx) is left out on x86_64: its
++# libvpx is built with the vendored ARM64 configuration (NEON), the pictures it produces are
++# only ever asked for by the guest's code, and this host does not run that. On aarch64 it
++# builds as it always did.
++ifeq ($(ARCH),x86_64)
++X86_ONLY_OUT = hle_codec_video.c
++else
++X86_ONLY_OUT =
++endif
+ SRC_C = $(sort $(wildcard *.c) $(wildcard linux/*.c))
+-SRC_C := $(filter-out hle_audio.c hle_movie.c hle_movie_av1.c hle_movie_avc.c,$(SRC_C))
+-HOST_C = $(SRC_C) ../gfx/hle_nv.c ../gfx/hle_vi.c ../gfx/nvn/hle_nvn.c ../gfx/nvn/nvn_capture.c \
+-         ../gfx/nvn/nvn_dirty.c ../gfx/nvn/nvn_tex.c ../gfx/tex/nvn_bcdec.c ../gfx/tex/nvn_deswizzle.c \
+-         ../gfx/tex/nvn_fmt_mtl.c ../third_party/stb_vorbis/stb_vorbis.c
+-
+-# The Mach-O assembly, converted to ELF by linux/asm_elf.py into gen/lin (the macOS build
+-# keeps its own files). The two nvn_* files are the counting thunks and the special entries
+-# of the NVN interface.
++SRC_C := $(filter-out hle_audio.c hle_movie.c hle_movie_av1.c hle_movie_avc.c $(X86_ONLY_OUT),$(SRC_C))
++
++# the name table the x86_64 build needs (no thunk to carry it there): the guest stub itself
++# is in the wildcard above and carries its own guard
++ifeq ($(ARCH),x86_64)
++SRC_C += $(BUILD)/nvn_names_x86.c
++endif
++
++# The portable C of the graphics layer, by wildcard, as dm/host/Makefile takes it: the tree
++# changes what it ships (upstream dropped the BC decoder's own file) and the list follows it
++HOST_C = $(SRC_C) $(sort $(wildcard ../gfx/*.c ../gfx/nvn/*.c ../gfx/tex/*.c)) \
++         ../third_party/stb_vorbis/stb_vorbis.c
++
++# The Mach-O assembly, converted to ELF by linux/asm_elf.py into $(BUILD) (the macOS build
++# keeps the files it always had). On x86_64 it is not assembled at all: it is ARM64.
++HOST_S =
++ifeq ($(ARCH),x86_64)
++else
+ HOST_S = entry.S ../gfx/nvn/nvn_entry.S ../gfx/nvn/nvn_thunks.S
++endif
+ 
+-# libvpx: the VP8 and VP9 decoders the movie player uses (its arm64 configuration is in
+-# dm/third_party/libvpx/config, the one the Mac build uses; the codec's CPU dispatch takes
+-# it from there)
++# libvpx: the VP8 and VP9 decoders (the movie player's). Its vendored configuration is the
++# ARM64 one, so it builds on aarch64 hosts. On x86_64 the file that uses it is out of the
++# build (see X86_ONLY_OUT above) and so is the library.
++ifeq ($(ARCH),x86_64)
++VPX_SRC =
++else
+ VPX = ../third_party/libvpx
+ VPX_SRC = $(sort $(shell find $(VPX) -name '*.c'))
+-VPX_OBJ = $(patsubst $(VPX)/%.c,gen/lin/vpx_%.o,$(VPX_SRC))
++endif
++VPX_OBJ = $(patsubst $(VPX)/%.c,$(BUILD)/vpx_%.o,$(VPX_SRC))
+ 
+-# Objects, one per source, flat under gen/lin (the basenames of the host are unique)
+-TAG = tag
++# Objects, one per source, flat under $(BUILD) (the basenames of the host are unique)
+ ALL_SRC = $(HOST_C) $(HOST_S) $(VPX_SRC)
+-OBJ = $(addprefix gen/lin/,$(notdir $(HOST_C:.c=.o))) $(addprefix gen/lin/asm_,$(notdir $(HOST_S:.S=.o))) $(VPX_OBJ)
+-DEP = $(OBJ:.o=.d)
++OBJ = $(addprefix $(BUILD)/,$(notdir $(HOST_C:.c=.o))) $(addprefix $(BUILD)/asm_,$(notdir $(HOST_S:.S=.o))) $(VPX_OBJ)
+ 
+-.PHONY: host asm
++.PHONY: host all test
+ .DEFAULT_GOAL := host
+ 
++all: host test
++
+ $(GAME_H): $(GAME_DIR)/game.tsv ../games/game.py FORCE
+ 	@mkdir -p $(dir $@)
+ 	"$(PYTHON)" ../games/game.py header $(GAME) $@
+ 
+-gen/lin/asm_entry.S: entry.S linux/asm_elf.py FORCE
++# The ELF twins, and the name table the x86_64 build needs (no thunk to carry it there)
++$(BUILD)/asm_entry.S: entry.S linux/asm_elf.py FORCE
+ 	@mkdir -p $(dir $@)
+ 	"$(PYTHON)" linux/asm_elf.py entry.S $@
+-gen/lin/asm_nvn_entry.S: ../gfx/nvn/nvn_entry.S linux/asm_elf.py FORCE
++$(BUILD)/asm_nvn_entry.S: ../gfx/nvn/nvn_entry.S linux/asm_elf.py FORCE
+ 	@mkdir -p $(dir $@)
+ 	"$(PYTHON)" linux/asm_elf.py ../gfx/nvn/nvn_entry.S $@
+-gen/lin/asm_nvn_thunks.S: ../gfx/nvn/nvn_thunks.S linux/asm_elf.py FORCE
++$(BUILD)/asm_nvn_thunks.S: ../gfx/nvn/nvn_thunks.S linux/asm_elf.py FORCE
+ 	@mkdir -p $(dir $@)
+ 	"$(PYTHON)" linux/asm_elf.py ../gfx/nvn/nvn_thunks.S $@
++$(BUILD)/nvn_names_x86.c: ../gfx/nvn/nvn_thunks.S linux/asm_elf.py FORCE
++	@mkdir -p $(dir $@)
++	"$(PYTHON)" linux/asm_elf.py --names ../gfx/nvn/nvn_thunks.S $@
+ 
+-gen/lin/asm_entry.o: gen/lin/asm_entry.S FORCE
++$(BUILD)/asm_entry.o: $(BUILD)/asm_entry.S FORCE
+ 	$(HOST_CC) $(CFLAGS) -c $< -o $@
+-gen/lin/asm_nvn_entry.o: gen/lin/asm_nvn_entry.S FORCE
++$(BUILD)/asm_nvn_entry.o: $(BUILD)/asm_nvn_entry.S FORCE
+ 	$(HOST_CC) $(CFLAGS) -c $< -o $@
+-gen/lin/asm_nvn_thunks.o: gen/lin/asm_nvn_thunks.S FORCE
++$(BUILD)/asm_nvn_thunks.o: $(BUILD)/asm_nvn_thunks.S FORCE
+ 	$(HOST_CC) $(CFLAGS) -c $< -o $@
+ 
+ # One rule per source, by basename (the files of dm/host have unique basenames)
+ define HOST_C_RULE
+-gen/lin/$(notdir $(1:.c=.o)): $(1) $(GAME_H) FORCE
++$(BUILD)/$(notdir $(1:.c=.o)): $(1) $(GAME_H) FORCE
+ 	@mkdir -p $$(dir $$@)
+ 	$(HOST_CC) $(CFLAGS) $(INCLUDES) -MMD -MP -c $(1) -o $$@
+ endef
+ $(foreach src,$(HOST_C),$(eval $(call HOST_C_RULE,$(src))))
+ 
+-gen/lin/vpx_%.o: $(VPX)/%.c $(GAME_H) FORCE
++$(BUILD)/vpx_%.o: $(VPX)/%.c $(GAME_H) FORCE
+ 	@mkdir -p $(dir $@)
+ 	$(HOST_CC) $(CFLAGS) -I$(VPX) -I$(VPX)/config -MMD -MP -c $< -o $@
+ 
+ host: $(OBJ) $(GAME_H)
+-	$(HOST_CC) $(LDFLAGS) -o dmhost_linux $(OBJ)
++	$(HOST_CC) $(LDFLAGS) -o $(BIN) $(OBJ)
+ 
+-# The compat layer's own test: the behaviour the host depends on. On an x86_64 host it runs
+-# under qemu-user, which the test's arm64 binary needs.
++# The compat layer's own test: the behaviour the host depends on. It runs on the machine it
++# was built for, so on an x86_64 host it needs no QEMU; on an x86_64 host building the
++# aarch64 binary, QEMU is the emulator that runs it (QEMU=<path> names it).
+ QEMU ?= qemu-aarch64-static
+-TEST_OBJ = gen/lin/linux_compat.o gen/lin/linux_dispatch.o gen/lin/linux_blocks.o
+-.PHONY: test
+-test: gen/lin/t_linux_compat.o $(TEST_OBJ)
+-	$(HOST_CC) $(LDFLAGS) -o dmhost_linuxtest $(TEST_OBJ) gen/lin/t_linux_compat.o
+-	$(QEMU) ./dmhost_linuxtest
+-
+-gen/lin/t_linux_compat.o: linux/tests/t_linux_compat.c $(GAME_H) FORCE
++TEST_OBJ = $(BUILD)/linux_compat.o $(BUILD)/linux_dispatch.o $(BUILD)/linux_blocks.o
++$(BUILD)/t_linux_compat.o: linux/tests/t_linux_compat.c $(GAME_H) FORCE
+ 	@mkdir -p $(dir $@)
+ 	$(HOST_CC) $(CFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
++test: $(TEST_OBJ) $(BUILD)/t_linux_compat.o
++	$(HOST_CC) $(LDFLAGS) -o $(TESTBIN) $(TEST_OBJ) $(BUILD)/t_linux_compat.o
++	$(QEMU) ./$(TESTBIN)
+ 
+ clean:
+-	rm -rf gen dmhost_linux dmhost_linuxtest
++	rm -rf gen dmhost_linux-* dmhost_linuxtest-*
+ 
+ .PHONY: FORCE
+ FORCE:
+diff --git a/dm/host/hle.h b/dm/host/hle.h
+index 53c9d42..8244c79 100644
+--- a/dm/host/hle.h
++++ b/dm/host/hle.h
+@@ -42,7 +42,17 @@ typedef struct { const char *name; void *fn; const char *why; } hle_force_ent;
+     static ret cname(__VA_ARGS__)
+ // Same as above, but the implementation runs on this thread's big host stack (hle_bigstack.c): what is registered is a stub generated at compile time (the implementation's address goes into x16, then a jump to dm_bigstack_enter).
+ // For take-overs with large stack use (the file system sizes its buffers by PATH_MAX): a game thread's stack can be as small as 8 KB. Only register arguments are carried over (<= 8 integer, <= 8 floating point); not for variadic functions
+-#ifdef DM_LINUX
++#if defined(DM_LINUX) && defined(__x86_64__)
++// x86_64 Linux: the guest's code is ARM64 and does not run here, so the big-stack entry
++// has nothing to switch for. The take-over registers the implementation itself; the
++// implementation is host C either way, and the registered address is what a host caller
++// would reach. No assembly is written for the guest's calling convention, because there
++// is no guest on this host.
++#define HLE_FORCE_BIG(mangled, why, ret, cname, ...)                                               \
++    static ret cname(__VA_ARGS__) __attribute__((used));                                          \
++    __attribute__((used, section("__DATA,swforce"))) static const hle_force_ent hle_force_##cname = {mangled, (void *)(uintptr_t)cname, why}; \
++    static ret cname(__VA_ARGS__)
++#elif defined(DM_LINUX)
+ // ELF: the symbols have no leading underscore, and an entry point's visibility is set with
+ // .hidden (ELF has no .private_extern)
+ #define HLE_FORCE_BIG(mangled, why, ret, cname, ...)                                               \
+diff --git a/dm/host/hle_bigstack.c b/dm/host/hle_bigstack.c
+index b4ccbd3..902edce 100644
+--- a/dm/host/hle_bigstack.c
++++ b/dm/host/hle_bigstack.c
+@@ -39,6 +39,7 @@ uintptr_t dm_bigstack_top(uintptr_t sp) {
+ }
+ 
+ // x16 = implementation. Frame (on the original stack, 0xa0 bytes): +0x00 x0-x8, x16, +0x50 d0-d7, +0x90 x29 / x30. After the switch the original sp and the game's return address are stored at the new stack top; the sp is restored when the implementation returns
++#if defined(DM_LINUX) && !defined(__x86_64__)
+ #ifdef DM_LINUX
+ // ELF: no leading underscores, and .hidden instead of .private_extern
+ __asm__(
+@@ -90,7 +91,6 @@ __asm__(
+     "    add sp, sp, #0xa0\n"
+     "    br x16\n");
+ #else
+-__asm__(
+ __asm__(
+     ".text\n"
+     ".p2align 2\n"
+@@ -140,12 +140,17 @@ __asm__(
+     "    add sp, sp, #0xa0\n"
+     "    br x16\n");
+ #endif
+-
++#endif
+ 
+ // The return address inside an implementation that came through the switch is _dm_bigstack_ret; the game's own is in the slot the entry stored below this thread's host stack top. Only the outermost
+ // take-over of a thread switches (a nested one already runs off the guest block and is jumped to directly), so that slot belongs to the call in progress
+ void *dm_bigstack_caller(void *ra) {
++#if defined(DM_LINUX) && defined(__x86_64__)
++    (void)ra;
++    return ra;   // no switch on x86_64: the return address is the caller's own
++#else
+     extern const char dm_bigstack_ret[];
+     void **top = ra == (void *)dm_bigstack_ret ? pthread_getspecific(g_bs_key) : NULL;   // set: a switch happened on this thread
+     return top ? top[-1] : ra;
++#endif
+ }
+diff --git a/dm/host/hle_offline.c b/dm/host/hle_offline.c
+index 9aaedd5..d075a94 100644
+--- a/dm/host/hle_offline.c
++++ b/dm/host/hle_offline.c
+@@ -11,7 +11,11 @@ HLE_FORCE("_ZN2nn5prepo10PlayReport4SaveEv", "telemetry report save; nothing is
+ // SDK 22's PlayReport::Send (Ocarina of Time saves one as the first scene starts, main+0x379164c) returns an AsyncContext in x8, which holds a pointer to the service's object. Null is what the SDK's
+ // own default context has: GetCompletionEvent makes a signaled event (sdk+0x5a9298), GetResult answers 0 and the destructor does nothing, so only this call is taken over. Naked because x8 is the
+ // hidden result pointer, 8 bytes on the caller's stack, which no C return type can name
++#if defined(DM_LINUX) && defined(__x86_64__)
++static void h_prepo_Send(void) { }   // x86_64: no AAPCS64 hidden x8 to fill, and no guest to call it
++#else
+ __attribute__((naked)) static void h_prepo_Send(void) { __asm__("str xzr, [x8]\n    ret"); }
++#endif
+ __attribute__((used, section("__DATA,swforce"))) static const hle_force_ent hle_force_h_prepo_Send = {"_ZN2nn5prepo10PlayReport4SendERKNS_7account3UidE", (void *)h_prepo_Send, "telemetry report send; nothing is sent, a default context completes at once with success"};
+ HLE_FORCE("_ZN2nn5prepo10InitializeEv", "telemetry init: the original connects to the prepo service (through sm), the host has no service process; no-op (Engage calls it explicitly)", Result, h_prepo_Init, void) { return RES_OK; }
+ // Add the session ID / connection status to a report: on hardware these first connect to the prepo service for the session (Super Mario 3D World + Bowser's Fury calls them entering the save select); the host adds nothing and reports success
+diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
+index a0ff4da..62a9e3f 100644
+--- a/dm/host/hle_svc.c
++++ b/dm/host/hle_svc.c
+@@ -299,6 +299,9 @@ static void guest_file_init(void) {
+     else if (!confstr(_CS_DARWIN_USER_TEMP_DIR, dir, sizeof dir)) { LOG("[RED] [mem] guest memory: anonymous (DM_GUEST_FILE: no temporary folder, errno %d)", errno); return; }
+     snprintf(g_gf_dir, sizeof g_gf_dir, "%s", dir);
+     if (!guest_files_map(dir, chunk, n, &fs, why, sizeof why)) { LOG("[RED] [mem] guest memory: anonymous (DM_GUEST_FILE: %s)", why); return; }
++    g_gf_n = n; g_gf_chunk = chunk;
++    { const char *pu = getenv("DM_GUEST_FILE_PUNCH"); if (pu && *pu) g_gf_punch = atoi(pu) > 0; }
++    double avail = (double)fs.f_bavail * fs.f_bsize, imp = guest_file_free_important(), most = avail > imp ? avail : imp;
+ #ifdef DM_LINUX
+     (void)fs;   // Linux has no f_fstypename / MNT_LOCAL: the volume's name and localness are not there to report
+     LOG("[mem] guest memory: %d files of %.2f GB in %s (unlinked, sparse, shared), %.2f GB in all, %.1f GB free on it (%.1f with what the system can purge); holes punched where the game gives memory back: %s",
+@@ -307,8 +310,846 @@ static void guest_file_init(void) {
+     LOG("[mem] guest memory: %d files of %.2f GB in %s (unlinked, sparse, shared), %.2f GB in all, on the %s volume, %.1f GB free on it (%.1f with what the system can purge); holes punched where the game gives memory back: %s",
+         n, chunk / G, dir, g_reserve / G, fs.f_fstypename, avail / G, imp / G, g_gf_punch ? "on" : "off (DM_GUEST_FILE_PUNCH=0)");
+ #endif
++    // The files take up to what the game touches, at most about its memory pool while what it gives back is punched out
++    if (g_gf_min_free && most < DM_GAME_APP_POOL + g_gf_min_free)
++        LOG("[RED] [mem] guest file: the files may take up to the memory pool, %.1f GB, and %.1f GB is free: the game is stopped if under %.1f GB is left", DM_GAME_APP_POOL / G, most / G, g_gf_min_free / G);
+ #ifndef DM_LINUX
+     if (strcmp(fs.f_fstypename, "apfs") || !(fs.f_flags & MNT_LOCAL)) LOG("[RED] [mem] guest file: not on a local APFS volume, where it may not be sparse, or be slow");
+ #endif
+     int rc = pthread_create(&g_gf_th, NULL, guest_file_thread, NULL);
+     if (!rc) g_gf_th_on = 1;
++    else LOG("[RED] [mem] guest file: no thread to watch it (error %d): no 10-s line, and nothing stops the game when its disk fills", rc);
++}
++
++static void *alias_windows_thread(void *arg);
++static void *regions_thread(void *arg);
++static void mem_init_once(void) {
++    size_t pg = (size_t)getpagesize();
++    if (RESERVE < 0x10000000 || (dm_profile()->mem_alias) > RESERVE - 0x10000000 ||
++        (dm_profile()->mem_stack) > RESERVE - 0x10000000 - (dm_profile()->mem_alias) ||
++        ((RESERVE | (dm_profile()->mem_alias) | (dm_profile()->mem_stack)) & (pg - 1)))
++        die("guest address-space profile has invalid native boundaries");
++    // The alias region is the Switch's 64 GB on the Mac (or the profile's, when larger): games lay their regions out for that much, and what the profile can give an iPhone (one
++    // reservation of at most 6 GB) crashed Trails in the Sky 1st Chapter at launch and Just Dance within a minute. It is address space, not memory: the application pool bounds
++    // what is mapped. DM_ALIAS_SIZE=<bytes> sets another size, the heap and stacks as they are; the profile's value reproduces an iPhone's address space on the Mac (the NSP script's heap check)
++#if TARGET_OS_IPHONE
++    size_t alias = (dm_profile()->mem_alias);
++#else
++    size_t alias = (dm_profile()->mem_alias) > SWITCH_ALIAS ? (dm_profile()->mem_alias) : SWITCH_ALIAS;
++#endif
++    const char *as = getenv("DM_ALIAS_SIZE");
++    if (as && *as) { alias = (size_t)strtoull(as, NULL, 0); if (alias < 0x10000000 || (alias & (pg - 1))) die("DM_ALIAS_SIZE %s: at least 256 MB, in whole host pages", as); }
++    g_reserve = RESERVE - (dm_profile()->mem_alias) + alias;
++    g_as = mmap(NULL, g_reserve, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
++    if (g_as == MAP_FAILED) die("reserve guest AS");
++    guest_file_init();
++    // Fixed partition (all inside the reserved block): 256 MB in front, the heap, the stacks, then the alias region. Mario: a heap region of 1.625 GB, stack 256 MB, alias 2.875 GB.
++    // The alias region is last because a Switch's addresses stay below 2^39 and a 64 GB alias region cannot: macOS 27 reserves 0x1000000000-0x7000000000, which leaves exactly 64 GB below
++    // 2^39, some of it taken by its own reservations at random addresses, and the block is larger than 64 GB. So the block crosses 2^39, at a place that changes per launch (docs/reference/memory.md,
++    // The Mac's alias region is the Switch's 64 GB); with this order that is usually past the heap and stacks. The block's end stays below 2^40, the GPU's reach.
++    // In newer SDKs the AddressRegionManager always takes 0x3fe00000 (~1 GB) at the start of the alias region as its node area (sdk 0x134728) before handing out regions; with a 512 MB alias region the very first AllocateAddressRegion fails (0x1803).
++    // SMBW also defines a 1792000 KB (1.75 GB) VirtualAddressMemory in HeapDef (System/HeapSize): it is subtracted from the memory pool before the heap is opened (SetHeapSize asks for only 0x5be00000),
++    //   and resource loading then MapPhysicalMemory's into the alias region after the node area on demand. With a 1.25 GB alias region only about 256 MB was left there, and 3 MB-class layout archives (WipeCourseIn / WipeWarp)
++    //   got no address, were skipped, and crashed on a null pointer when used (main +0x373e04). So alias = node area + 1.75 GB + slack; the heap needs only 1.47 GB, and 2.625 GB is plenty.
++    // The alias and stack sizes come from the game profile (mem_alias / mem_stack, the Mac's alias region as above), the heap takes the rest of mem_reserve
++    g_heap  = g_as + 0x10000000; g_heap_cap = RESERVE - (dm_profile()->mem_alias) - (dm_profile()->mem_stack) - 0x10000000;
++    g_stack = g_heap + g_heap_cap; g_stack_cap = (dm_profile()->mem_stack);
++    g_alias = g_stack + g_stack_cap; g_alias_cap = alias;
++    if (!(g_alias_bits = calloc((g_alias_cap >> 18) + 1, sizeof *g_alias_bits))) die("alias region page bitmap calloc");
++    if (!(g_alias_exposed = calloc(g_alias_cap / pg / 64 + 1, sizeof *g_alias_exposed))) die("alias exposure bitmap calloc");
++    if (!(g_alias_rel = calloc(g_alias_cap / pg / 64 + 1, sizeof *g_alias_rel)) || !(g_alias_aged = calloc(g_alias_cap / pg / 64 + 1, sizeof *g_alias_aged))) die("alias release bitmap calloc");
++    LOG("guest AS %p +%#llx  heap %p alias %p stack %p", g_as, (unsigned long long)g_reserve, g_heap, g_alias, g_stack);
++    if ((uint64_t)(uintptr_t)g_alias > UINT64_C(1) << 39) LOG("[mem] the heap and stacks reach past 2^39, which a Switch's addresses never do: a crash on a cut-off pointer points here (DM_ALIAS_SIZE=<profile's mem_alias> keeps them lower)");
++    const char *aw = getenv("DM_ALIAS_WINDOWS");
++    if (aw && atoi(aw) > 0 && !pthread_create(&g_aw_th, NULL, alias_windows_thread, (void *)(uintptr_t)atoi(aw))) g_aw_th_on = 1;
++    const char *rf = getenv("DM_REGIONS");
++    if (rf && *rf && !pthread_create(&g_rf_th, NULL, regions_thread, (void *)rf)) g_rf_th_on = 1;
++}
++static _Atomic int g_mem_ready;
++static pthread_mutex_t g_init_lock = PTHREAD_MUTEX_INITIALIZER;
++static void mem_init(void) {
++    if (__builtin_expect(atomic_load_explicit(&g_mem_ready, memory_order_acquire), 1)) return;
++    pthread_mutex_lock(&g_init_lock);
++    if (!atomic_load_explicit(&g_mem_ready, memory_order_relaxed)) {
++        mem_init_once();
++        atomic_store_explicit(&g_mem_ready, 1, memory_order_release);
++    }
++    pthread_mutex_unlock(&g_init_lock);
++}
++
++// Application memory pool = the 3285 MB the Switch (4 GB model) gives applications. At startup (main+0x1b66160) the game sets the whole total reported by QueryMemoryInfo as the heap, retrying with 2 MB less on failure,
++// and hands the whole block to its own StandardAllocator (main+0x32137a0) -- so heap size = pool − image footprint, it has only as much as the host reports.
++// Previously 3 GB was reported here and SetHeapSize never failed: the heap was about 150 MB smaller than on the real device, at the run entry peak the main heap had only about 18 MB left, and under high local load a timing shift made a 128 KB request return null,
++// which the guest writes to without a null check (CRASH main+0x1b36138, re-verified after merge with inv_tap).
++#define APP_POOL (dm_profile()->app_pool)   // game profile app_pool (Mario 0xCD500000)
++static size_t image_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) if (!g_mod[i].nro) n += g_mod[i].size;   // an NRO lives in memory the game allocated (its image and bss buffers)
++    return (n + 0x1fffff) & ~(size_t)0x1fffff; }
++// Giant bss (modules with the patch area before the base, patch_nso.py FAR): the image bytes beyond the file part. Used memory was reported as "heap + 64 MB", where the 64 MB covers ordinary modules' code and data (Mario's two modules are about 74 MB together,
++// and the heap it opens = pool − 64 MB − 1.75 GB virtual address memory − 1 MB = 0x5be00000, as on hardware); Metroid Dread's main has about 1.8 GB of bss, the engine's static heap, which the Switch counts as used;
++// without it the game asks for pool − 64 MB = 3.15 GB of heap
++// Like image_bytes, exclude NROs: their buffers already belong to the game's heap. Counting every offline-mapped NRO's bss made FFX/X-2's used memory exceed its pool before any LoadModule.
++static size_t big_bss_bytes(void) { size_t n = 0; for (int i = 0; i < g_nmod; i++) if (!g_mod[i].nro && g_mod[i].patch_off < 0) n += g_mod[i].size - g_mod[i].back_len - g_mod[i].file_image_len; return n; }
++
++// For memory accounting (memstat.m): the range of the whole guest address space block (base = NULL when not initialized)
++void svc_guest_range(uint8_t **base, size_t *size) { *base = g_as; *size = g_reserve; }
++void svc_alias_range(uint8_t **base, size_t *size) { *base = g_alias; *size = g_alias_cap; }   // the alias region (GetInfo's), NULL before mem_init
++
++enum { I_CoreMask=0, I_PriorityMask=1, I_AliasAddr=2, I_AliasSize=3, I_HeapAddr=4, I_HeapSize=5,
++       I_TotalMem=6, I_UsedMem=7, I_DebuggerAttached=8, I_ResourceLimit=9, I_IdleTick=10, I_RandomEntropy=11,
++       I_AslrAddr=12, I_AslrSize=13, I_StackAddr=14, I_StackSize=15, I_SysResTotal=16, I_SysResUsed=17,
++       I_ProgramId=18, I_InitProcIdRange=19, I_UserExcAddr=20, I_TotalNonSys=21, I_UsedNonSys=22, I_IsApplication=23, I_FreeThreadCount=24,
++       I_ThreadTickCount=25, I_IsSvcPermitted=26, I_IoRegionHint=27, I_AliasExtraSize=28,
++       I_RemoteAddr=29, I_RemoteSize=30, I_RemoteUsage0=31, I_RemoteUsage1=32, I_PageSize=33 };
++
++static uint8_t g_seen[256];
++
++// Stack destinations and their borrowed sources. Physical alias commits live in
++// g_alias_bits. One lock covers memory validation, protections, copying, budgets
++// and publication; QueryMemory and used-memory queries take the same snapshot.
++// g_map_lock is held over a whole lookup + check + change (and over QueryMemory's reads): map_find's index is only valid under it, since map_del moves the last entry into the freed slot.
++// The lock used to cover only the add and the delete, so two threads unmapping at once (stacks of exiting threads) could delete through a stale index and drop another live mapping
++#define MAX_MAP 4096
++static struct { uint64_t base, size, src; uint32_t state; } g_map[MAX_MAP];
++static int g_nmap;
++static pthread_mutex_t g_map_lock = PTHREAD_MUTEX_INITIALIZER;
++// Punch the alias region's host pages that the game gave back before the last sweep and has not mapped again since (g_alias_aged), then age the ones given back since. Under g_map_lock,
++// so no MapPhysicalMemory opens a page while it is punched. Called by guest_file_thread every 10 s
++static void guest_file_sweep(void) {
++    if (!g_gf_punch || !g_alias_rel) return;
++    size_t pg = (size_t)getpagesize(), nw = g_alias_cap / pg / 64 + 1;
++    pthread_mutex_lock(&g_map_lock);
++    for (size_t w = 0; w < nw; w++) {
++        uint64_t a = g_alias_aged[w];
++        while (a) {   // runs of set bits in the word, each punched as one range
++            unsigned b = (unsigned)__builtin_ctzll(a), e = b; while (e < 64 && (a >> e & 1)) e++;
++            guest_file_punch((uintptr_t)g_alias + (w * 64 + b) * pg, (uintptr_t)g_alias + (w * 64 + e) * pg);
++            a &= e == 64 ? 0 : ~UINT64_C(0) << e;
++        }
++        g_alias_rel[w] &= ~g_alias_aged[w];
++        g_alias_aged[w] = g_alias_rel[w];
++    }
++    pthread_mutex_unlock(&g_map_lock);
++}
++// A hole-free read / write of guest heap bytes for the cheat VM (hle_cheats.c): under g_map_lock no concurrent SetHeapSize
++// can mprotect the span away between the bounds check and the copy (both hold this same lock), so a live heap address cannot
++// turn into a fault while the cheat VM touches it. Both return 0 when every byte was inside the currently opened (readable
++// and writable) span, 1 otherwise. The address is the guest heap address the cheat VM computed (heap base + rel + offset register)
++int dm_guest_heap_write(uint64_t addr, const void *src, size_t len) {
++    pthread_mutex_lock(&g_map_lock);
++    int out = !dm_guest_heap_readable(addr, len);
++    if (!out) { dm_guest_write_prepare((void *)(uintptr_t)addr, len); memcpy((void *)(uintptr_t)addr, src, len); }
++    pthread_mutex_unlock(&g_map_lock);
++    return out;
++}
++int dm_guest_heap_read(uint64_t addr, void *out, size_t len) {
++    pthread_mutex_lock(&g_map_lock);
++    int bad = !dm_guest_heap_readable(addr, len);
++    if (!bad) memcpy(out, (void *)(uintptr_t)addr, len);
++    pthread_mutex_unlock(&g_map_lock);
++    return bad;
++}
++static _Atomic int64_t g_alias_mapped;   // bytes mapped in the alias region (page bitmap)
++static void region_table_clear(void);
++void dm_guest_memory_release(int unmap_as) {
++    pthread_mutex_lock(&g_init_lock);
++    pthread_mutex_lock(&g_map_lock);
++    if (!g_as || !g_reserve) { pthread_mutex_unlock(&g_map_lock); pthread_mutex_unlock(&g_init_lock); return; }
++    if (!unmap_as) {
++        if (g_gf_n > 0) {
++            msync(g_as, g_reserve, MS_ASYNC);
++            madvise(g_as, g_reserve, MADV_DONTNEED);
++        }
++        pthread_mutex_unlock(&g_map_lock);
++        pthread_mutex_unlock(&g_init_lock);
++        return;
++    }
++    atomic_store_explicit(&g_mem_ready, 0, memory_order_release);
++    pthread_mutex_unlock(&g_map_lock);
++    pthread_mutex_lock(&g_bg_lock);
++    atomic_store(&g_gf_stop, 1);
++    pthread_cond_broadcast(&g_bg_cv);
++    pthread_mutex_unlock(&g_bg_lock);
++    if (g_gf_th_on) { pthread_join(g_gf_th, NULL); g_gf_th_on = 0; }
++    if (g_aw_th_on) { pthread_join(g_aw_th, NULL); g_aw_th_on = 0; }
++    if (g_rf_th_on) { pthread_join(g_rf_th, NULL); g_rf_th_on = 0; }
++    pthread_mutex_lock(&g_map_lock);
++    madvise(g_as, g_reserve, MADV_FREE);
++    munmap(g_as, g_reserve);
++    for (int i = 0; i < g_gf_n; i++) {
++        if (g_gf_tab[i] >= 0) close(g_gf_tab[i]);
++        g_gf_tab[i] = -1;
++    }
++    g_gf_n = 0;
++    g_as = g_heap = g_alias = g_stack = NULL;
++    g_reserve = g_heap_cur = g_heap_cap = g_heap_seen = g_alias_cap = g_stack_cap = 0;
++    g_nmap = 0;
++    atomic_store(&g_alias_mapped, 0);
++    free((void *)g_alias_bits); g_alias_bits = NULL;
++    free(g_alias_exposed); g_alias_exposed = NULL;
++    pthread_mutex_unlock(&g_map_lock);
++    pthread_mutex_unlock(&g_init_lock);
++    region_table_clear();
++}
++static int map_find(uint64_t a, uint64_t n) {       // returns a 1-based index, 0 = no overlap; caller holds g_map_lock
++    for (int i = 0; i < g_nmap; i++) if (a < g_map[i].base + g_map[i].size && g_map[i].base < a + n) return i + 1;
++    return 0;
++}
++static void map_add(uint64_t b, uint64_t n, uint64_t src, uint32_t st) {   // caller holds g_map_lock
++    if (g_nmap >= MAX_MAP) die("mapping table full");
++    g_map[g_nmap++] = (typeof(g_map[0])){b, n, src, st};
++}
++static void map_del(int i) { g_map[i] = g_map[--g_nmap]; }   // caller holds g_map_lock
++
++// One bit per 4 KB page of the alias region (mapped = 1): Map sets bits, Unmap clears them; returns the number of pages whose state really changed (signed: positive for Map, negative for Unmap)
++static int64_t alias_pages(uint64_t off, uint64_t n, int map) {
++    int64_t ch = 0;
++    for (uint64_t p = off >> 12, e = (off + n + 0xFFF) >> 12; p < e; ) {
++        uint64_t sh = p & 63, k = 64 - sh < e - p ? 64 - sh : e - p, m = (k == 64 ? ~0ull : (1ull << k) - 1) << sh;
++        uint64_t old = map ? atomic_fetch_or(&g_alias_bits[p >> 6], m) : atomic_fetch_and(&g_alias_bits[p >> 6], ~m);
++        ch += __builtin_popcountll((map ? ~old : old) & m);
++        p += k;
++    }
++    return map ? ch : -ch;
++}
++// Pages of the range not mapped yet (the bitmap is left alone)
++static int64_t alias_unmapped(uint64_t off, uint64_t n) {
++    int64_t c = 0;
++    for (uint64_t p = off >> 12, e = (off + n + 0xFFF) >> 12; p < e; ) {
++        uint64_t sh = p & 63, k = 64 - sh < e - p ? 64 - sh : e - p, m = (k == 64 ? ~0ull : (1ull << k) - 1) << sh;
++        c += __builtin_popcountll(~atomic_load(&g_alias_bits[p >> 6]) & m);
++        p += k;
++    }
++    return c;
++}
++
++// Word-at-a-time boundaries of the bitmap run containing p (guest page index).
++static uint64_t alias_mask(unsigned n) { return n == 64 ? UINT64_MAX : (UINT64_C(1) << n) - 1; }
++static uint64_t alias_run_end(uint64_t p, uint64_t end, int mapped) {
++    for (uint64_t first = p + 1; first < end;) {
++        unsigned shift = first & 63, n = (unsigned)(end - first < 64 - shift ? end - first : 64 - shift);
++        uint64_t bits = atomic_load(&g_alias_bits[first >> 6]);
++        uint64_t different = (mapped ? ~bits : bits) & (alias_mask(n) << shift);
++        if (different) return (first & ~UINT64_C(63)) + __builtin_ctzll(different);
++        first += n;
++    }
++    return end;
++}
++static void alias_query(uint64_t addr, uint64_t *base, uint64_t *size, int *mapped) {
++    uint64_t p = (addr - (uintptr_t)g_alias) >> 12, lo = p;
++    *mapped = (atomic_load(&g_alias_bits[p >> 6]) >> (p & 63)) & 1;
++    while (lo) {
++        uint64_t first = (lo - 1) & ~UINT64_C(63);
++        uint64_t bits = atomic_load(&g_alias_bits[first >> 6]);
++        uint64_t different = (*mapped ? ~bits : bits) & alias_mask((unsigned)(lo - first));
++        if (different) { lo = first + 64 - __builtin_clzll(different); break; }
++        lo = first;
++    }
++    uint64_t hi = alias_run_end(p, g_alias_cap >> 12, *mapped);
++    *base = (uintptr_t)g_alias + (lo << 12); *size = (hi - lo) << 12;
++}
++// Give guest memory back to the system: a fresh inaccessible mapping over [lo, hi), whole host pages. mprotect(PROT_NONE) alone keeps every page resident and dirty, only
++// out of phys_footprint, and madvise(MADV_FREE) does nothing to pages that are not writable, though it returns 0 (1 GiB on the Mac: 1,024 MiB still resident and dirty; this: 0).
++// A memory pool's no-copy buffer over the range keeps the old pages for the GPU work still using it until the buffer goes. Returns 1 when the range now holds zero pages;
++// on failure the range is only inaccessible, with its old bytes.
++// With the guest in files (DM_GUEST_FILE), an anonymous mapping over the range would turn it into anonymous memory, which phys_footprint charges again as soon as the game maps
++// it back, so the files' range goes PROT_NONE and its blocks are punched out (guest_file_punch): the pages are dropped and the disk gets the room back. A wired page can keep its old
++// bytes, so the call returns 0 and alias_initialize zeroes what does not read 0 when they are mapped again
++// alias: the range lies in the alias region, where the game maps and unmaps the same ranges every frame (Zelda: about 0.5 GB a second): punching those at once would make every page fault
++// in again from a hole; they are only marked (g_alias_rel), and guest_file_sweep punches those still given back after a whole sweep interval. The heap's are punched at once
++static int guest_release(uintptr_t lo, uintptr_t hi, int alias) {
++    if (g_gf_n) {
++        if (mprotect((void *)lo, hi - lo, PROT_NONE)) die("guest_release mprotect %#lx+%#lx errno=%d", (unsigned long)lo, (unsigned long)(hi - lo), errno);
++        if (g_gf_punch && !alias) guest_file_punch(lo, hi);
++        else if (g_gf_punch) { size_t pg = (size_t)getpagesize(); for (uint64_t h = (lo - (uintptr_t)g_alias) / pg, e = (hi - (uintptr_t)g_alias) / pg; h < e; h++) g_alias_rel[h >> 6] |= UINT64_C(1) << (h & 63); }
++        return 0;
++    }
++    if (mmap((void *)lo, hi - lo, PROT_NONE, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0) != MAP_FAILED) return 1;
++    static _Atomic int nred; if (atomic_fetch_add(&nred, 1) < 8) LOG("[RED] guest memory %#lx+%#lx not given back (errno %d): it stays resident", (unsigned long)lo, (unsigned long)(hi - lo), errno);
++    if (mprotect((void *)lo, hi - lo, PROT_NONE)) die("guest_release mprotect %#lx+%#lx errno=%d", (unsigned long)lo, (unsigned long)(hi - lo), errno);
++    return 0;
++}
++// Zero the 4 KB pages [a, a + n) over the files: one that reads 0 already is left as it is, since reading a hole maps a clean zero page and dirties nothing, where the memset would dirty it and the
++// kernel then write zeros back, as it would for all of a range the game mapped and unmapped without touching it
++static void guest_zero(uint8_t *a, uint64_t n) {
++    for (uint8_t *e = a + n; a < e; a += 4096) {
++        uint64_t w[8], any = 0;
++        for (size_t i = 0; !any && i < 4096; i += sizeof w) { memcpy(w, a + i, sizeof w); any = w[0] | w[1] | w[2] | w[3] | w[4] | w[5] | w[6] | w[7]; }
++        if (any) memset(a, 0, 4096);
++    }
++}
++static void alias_zero(uint64_t p, uint64_t q) {
++    if (g_gf_n) guest_zero(g_alias + (p << 12), (q - p) << 12);
++    else memset(g_alias + (p << 12), 0, (q - p) << 12);
++}
++// Initialize holes using the OLD commit bitmap. Fresh anonymous host pages stay
++// lazy; after any exposure, even an untouched 4 KiB sibling may hold stale bytes.
++static void alias_initialize(uint64_t off, size_t size) {
++    size_t pg = (size_t)getpagesize(), ratio = pg >> 12;
++    uint64_t end = (off + size) >> 12;
++    for (uint64_t p = off >> 12; p < end;) {
++        int mapped = (atomic_load(&g_alias_bits[p >> 6]) >> (p & 63)) & 1;
++        uint64_t next = alias_run_end(p, end, mapped);
++        if (!mapped) {
++            uint64_t clear = p;
++            for (uint64_t q = p; q < next;) {
++                uint64_t host = q / ratio, stop = (host + 1) * ratio;
++                if (stop > next) stop = next;
++                if (!(g_alias_exposed[host >> 6] & (UINT64_C(1) << (host & 63)))) {
++                    if (clear < q) alias_zero(clear, q);
++                    clear = stop;
++                }
++                q = stop;
++            }
++            if (clear < next) alias_zero(clear, next);
++        }
++        p = next;
++    }
++    for (uint64_t h = off / pg, last = (off + size - 1) / pg; h <= last; ++h)
++        g_alias_exposed[h >> 6] |= UINT64_C(1) << (h & 63);
++}
++
++static int memory_contains(uint64_t base, uint64_t capacity, uint64_t addr, uint64_t size) {
++    return addr >= base && size <= capacity && addr - base <= capacity - size;
++}
++static uint32_t map_arguments(uint64_t dst, uint64_t src, uint64_t size) {
++    if ((dst | src) & 0xfff) return 0xCC01;
++    if (!size || (size & 0xfff)) return 0xCA01;
++    if (size > UINT64_MAX - src || size > UINT64_MAX - dst) return 0xD401;
++    return memory_contains((uintptr_t)g_stack, g_stack_cap, dst, size) ? 0 : 0xDC01;
++}
++static int map_source_busy(uint64_t addr, uint64_t size) { // g_map_lock held; nonwrapping ranges
++    for (int i = 0; i < g_nmap; ++i)
++        if (addr < g_map[i].src + g_map[i].size && g_map[i].src < addr + size) return 1;
++    return 0;
++}
++// Device-shared memory. On Horizon, NVN gives a memory pool's storage to the GPU through nvmap, whose device mapping (svcMapDeviceAddressSpaceAligned, KPageTableBase::LockForMapDeviceAddressSpace)
++// sets KMemoryAttribute_DeviceShared on those pages and counts each mapping. UnmapPhysicalMemory and a SetHeapSize that shrinks refuse any page with an attribute set (ResultInvalidCurrentMemory,
++// 0xD401; Atmosphère's KPageTableBase::UnmapPhysicalMemory and SetHeapSize), so the pages stay mapped until the pool is finalized. Without this, the host gave such pages back (guest_release put
++// fresh pages under them) while the pool's zero-copy Metal buffer still held the old ones: the CPU then wrote one copy and the GPU read the other. PR #1616 found that on Monster Jam Steel Titans 2,
++// whose light-grid compute shaders read stale counts from the pool and hung the GPU. hle_nvn.c registers each pool's storage at nvnMemoryPoolInitialize and removes it at nvnMemoryPoolFinalize;
++// a range registered twice (two pools over the same storage) stays shared until both are gone
++typedef struct { uint64_t lo, hi; uint32_t n; } dshare_t;
++static dshare_t *g_dshare; static int g_ndshare, g_cdshare;
++static pthread_mutex_t g_dshare_mu = PTHREAD_MUTEX_INITIALIZER;   // a leaf: taken under g_map_lock by the checks, alone by dm_device_share
++void dm_device_share(const void *p, uint64_t size, int share) {
++    uint64_t lo = (uintptr_t)p, hi = lo + size;
++    if (!size || hi < lo) return;
++    pthread_mutex_lock(&g_dshare_mu);
++    int i = 0; while (i < g_ndshare && (g_dshare[i].lo != lo || g_dshare[i].hi != hi)) i++;
++    if (share) {
++        if (i == g_ndshare) {
++            if (g_ndshare == g_cdshare) { g_cdshare = g_cdshare ? 2 * g_cdshare : 64; if (!(g_dshare = realloc(g_dshare, (size_t)g_cdshare * sizeof *g_dshare))) die("device-shared range table"); } // NOLINT(bugprone-suspicious-realloc-usage): die aborts on allocation failure
++            g_dshare[g_ndshare++] = (dshare_t){lo, hi, 0};
++        }
++        g_dshare[i].n++;
++    } else if (i < g_ndshare) { if (!--g_dshare[i].n) g_dshare[i] = g_dshare[--g_ndshare]; }
++    else { static int nred; if (nred++ < 8) LOG("[RED] device-shared memory %#llx+%#llx removed but never registered", (unsigned long long)lo, (unsigned long long)size); }
++    pthread_mutex_unlock(&g_dshare_mu);
++}
++// Whether [addr, addr + size) holds a device-shared page; says which (and what refused it) the first few times
++static int device_shared(uint64_t addr, uint64_t size, const char *what) {
++    uint64_t lo = 0, hi = 0;
++    pthread_mutex_lock(&g_dshare_mu);
++    for (int i = 0; i < g_ndshare && !hi; i++) if (addr < g_dshare[i].hi && g_dshare[i].lo < addr + size) { lo = g_dshare[i].lo; hi = g_dshare[i].hi; }
++    pthread_mutex_unlock(&g_dshare_mu);
++    static _Atomic int nlog;
++    if (hi && atomic_fetch_add(&nlog, 1) < 8) LOG("[mem] %s %#llx+%#llx refused: it holds device-shared memory (an NVN memory pool's storage %#llx..%#llx), ResultInvalidCurrentMemory as on Horizon",
++                                                  what, (unsigned long long)addr, (unsigned long long)size, (unsigned long long)lo, (unsigned long long)hi);
++    return hi != 0;
++}
++// Loader text/patch seals use 16 KiB boundaries, independently of host page size.
++static void module_readonly_run(uint64_t off, uint64_t start, uint64_t end,
++                                uint64_t *lo, uint64_t *hi, uint64_t *perm) {
++    if (start >= end) return;
++    if (off < start) { if (start < *hi) *hi = start; }
++    else if (off >= end) { if (end > *lo) *lo = end; }
++    else { if (start > *lo) *lo = start; if (end < *hi) *hi = end; *perm &= ~UINT64_C(2); }
++}
++static void module_data_query(const module_t *m, uint64_t off, uint64_t *lo, uint64_t *hi, uint64_t *perm) {
++    module_readonly_run(off, 0, (m->text_end + 0x3fff) & ~UINT64_C(0x3fff), lo, hi, perm);
++    if (m->patch_off > 0) module_readonly_run(off, (uint64_t)m->patch_off & ~UINT64_C(0x3fff), m->size, lo, hi, perm);
++    if (m->back_len) module_readonly_run(off, m->back_off, m->back_off + m->back_len, lo, hi, perm);
++    module_readonly_run(off, m->key_page_off, m->key_page_off + m->key_page_size, lo, hi, perm);
++}
++static int map_source_backed(uint64_t src, uint64_t size) {
++    if (memory_contains((uintptr_t)g_heap, g_heap_cur, src, size)) return 1;
++    int dm_ue_heap_owns(uint64_t a, uint64_t n);   // Unreal's heap on a host malloc zone outside the guest block (hle_uemalloc.c): Unreal allocates its threads' stacks there
++    if (dm_ue_heap_owns(src, size)) return 1;
++    if (memory_contains((uintptr_t)g_alias, g_alias_cap, src, size))
++        return !alias_unmapped(src - (uintptr_t)g_alias, size);
++    module_t *m = module_of((void *)(uintptr_t)src);
++    // Active NRO data is valid backing too (FFX/X-2's launcher allocates thread stacks from its bss). Deactivation below checks borrowers under this same lock before reload can restore it.
++    if (!m || !m->loaded || !memory_contains((uintptr_t)m->base, m->size, src, size)) return 0;
++    uint64_t lo = m->data_off ? m->data_off : (m->ro_off ? m->ro_off : m->text_end);
++    uint64_t hi = m->patch_off > 0 ? (uint64_t)m->patch_off : m->back_len ? m->back_off : m->size;
++    uint64_t off = src - (uintptr_t)m->base, perm = 3;
++    module_data_query(m, off, &lo, &hi, &perm);
++    return perm == 3 && hi >= lo && memory_contains(lo, hi - lo, off, size);
++}
++int svc_nro_deactivate(module_t *m) {
++    pthread_mutex_lock(&g_map_lock);
++    uint64_t base = (uintptr_t)m->base;
++    for (int i = 0; i < g_nmap; i++)
++        if (g_map[i].src < base + m->size && base < g_map[i].src + g_map[i].size) {
++            pthread_mutex_unlock(&g_map_lock); return 0;
++        }
++    m->loaded = 0;
++    pthread_mutex_unlock(&g_map_lock); return 1;
++}
++static void map_source_query(uint64_t addr, uint64_t *base, uint64_t *size, uint32_t *attr, uint64_t *perm) {
++    uint64_t lo = *base, remaining = *size; // the final free page can end at 2^64
++    for (int i = 0; i < g_nmap; ++i) {
++        uint64_t src = g_map[i].src, end = src + g_map[i].size;
++        uint64_t lower = lo, upper = remaining;
++        if (addr >= src && addr < end) {
++            if (src > lower) lower = src;
++            if (end - lo < upper) upper = end - lo;
++            *attr = 1; *perm = 0; // Locked / IsBorrowed, not PermissionLocked (bit 4)
++        } else if (end <= addr && end > lower) lower = end;
++        else if (src > addr && src - lo < upper) upper = src - lo;
++        remaining = upper - (lower - lo); lo = lower;
++    }
++    *base = lo; *size = remaining;
++}
++
++// Diagnostic DM_ALIAS_WINDOWS=<window MB>: every 30 s, the mapped memory of each window of that size in the alias region (windows aligned to the size in absolute addresses, counted from the page
++// bitmap; windows with nothing mapped are left out). For sizing an allocator that reserves fixed, aligned windows and commits pages from each window's start: Unreal's FMallocBinned3 takes
++// 74 pools of 512 MB (Octopath Traveler 0, main+0x9f748)
++static void *alias_windows_thread(void *arg) {
++    uint64_t win = (uint64_t)(uintptr_t)arg << 20, a0 = (uint64_t)(uintptr_t)g_alias, a1 = a0 + g_alias_cap;
++    while (!bg_sleep(30)) {
++        char line[8192] = {0}; size_t o = 0; uint64_t tot = 0;
++        pthread_mutex_lock(&g_map_lock);
++        if (!g_alias_bits) { pthread_mutex_unlock(&g_map_lock); break; }
++        for (uint64_t w = a0 & ~(win - 1); w < a1 && o < sizeof line - 64; w += win) {
++            uint64_t n = 0, p0 = (w > a0 ? w - a0 : 0) >> 12, p1 = ((w + win < a1 ? w + win : a1) - a0) >> 12;
++            for (uint64_t p = p0; p < p1; p++) n += atomic_load(&g_alias_bits[p >> 6]) >> (p & 63) & 1;
++            if (n) { o += snprintf(line + o, sizeof line - o, " +%#llx:%.1f", (unsigned long long)(w - (a0 & ~(win - 1))), n * 4096 / 1048576.0); tot += n; }
++        }
++        pthread_mutex_unlock(&g_map_lock);
++        LOG("[mem] alias windows of %llu MB (window offset:MB mapped), %.1f MB in all:%s", (unsigned long long)(win >> 20), tot * 4096 / 1048576.0, line);
++    }
++    return NULL;
++}
++
++// ---- Address regions ----
++// The SDK's VammManager hands out the alias region as address regions. The rewriter's observation gates in the sdk (patch_nso.py "Address regions", placed by its symbols in any
++// build) show each one: its size, where the request returns to in the game (the first return address outside the sdk on the frame chain: the function that asked, or its caller
++// when it tail-called the SDK API, whose frame is gone by then), the SDK API it came through (such as StandardAllocator) and its address. With the page bitmaps that gives how much of each region a game uses, which decides how its reservations can fit an iPhone's alias region.
++// A region of 256 MB or more is logged when made; DM_REGIONS=<file> writes the live table every 2 s (the NSP script's heap check reads it, with a Switch-sized DM_ALIAS_SIZE)
++typedef struct { uint64_t off, size, via; char who[40]; } region_t;   // via: the outermost sdk return address on the way (the SDK API the request came through)
++static region_t *g_rgn; static int g_nrgn, g_rgn_cap; static pthread_mutex_t g_rgn_lock = PTHREAD_MUTEX_INITIALIZER;   // grows as needed: Unity 6 takes all its memory as regions
++static void region_table_clear(void) {
++    pthread_mutex_lock(&g_rgn_lock);
++    free(g_rgn); g_rgn = NULL; g_nrgn = g_rgn_cap = 0;
++    pthread_mutex_unlock(&g_rgn_lock);
++}
++static _Thread_local uint64_t t_rgn_size, t_rgn_via; static _Thread_local char t_rgn_who[40];
++// Where a request at an sdk function's entry gate returns to in the game: buf gets "main+0x…", *via the outermost sdk return address on the way (0 = none)
++static void guest_caller(const uint64_t *r, char *buf, size_t n, uint64_t *via) {
++    // at the function's entry the return address is the x30 the gate block pushed (at the block's sp, regs[99]: x29, x30; entry.S), x30 itself holds the gate's own
++    uint64_t lr = ((const uint64_t *)(uintptr_t)r[99])[1], fp = r[29]; module_t *m = module_of((void *)(uintptr_t)lr);
++    *via = 0;
++    for (int i = 0; i < 32 && m && !strcmp(m->name, "sdk"); i++) {
++        *via = lr - (uint64_t)(uintptr_t)m->base;   // AArch64 frame records: [fp] = the caller's fp, [fp + 8] = its return address
++        uint64_t rec[2]; vm_size_t got = 0;   // read safely: static constructors run on the host's main thread, whose stack is outside the guest block
++        if (!fp || (fp & 15) || vm_read_overwrite(mach_task_self(), (vm_address_t)fp, sizeof rec, (vm_address_t)rec, &got) || got != sizeof rec) break;
++        lr = rec[1]; fp = rec[0]; m = module_of((void *)(uintptr_t)lr);
++    }
++    if (m) snprintf(buf, n, "%s+%#llx", m->name, (unsigned long long)(lr - (uint64_t)(uintptr_t)m->base));
++    else snprintf(buf, n, "%#llx", (unsigned long long)lr);
++}
++static void region_ask(uint64_t *r, int param) {
++    (void)param;
++    t_rgn_size = r[2]; guest_caller(r, t_rgn_who, sizeof t_rgn_who, &t_rgn_via);
++}
++static void region_got(uint64_t *r, int param) {
++    mem_init();
++    uint64_t a = param >= 0 && param < 31 ? r[param] : 0, ab = (uint64_t)(uintptr_t)g_alias;
++    if (a < ab || a - ab >= g_alias_cap) return;
++    pthread_mutex_lock(&g_rgn_lock);
++    if (g_nrgn == g_rgn_cap) {
++        region_t *t = realloc(g_rgn, sizeof *t * (size_t)(g_rgn_cap ? 2 * g_rgn_cap : 256));
++        if (t) { g_rgn = t; g_rgn_cap = g_rgn_cap ? 2 * g_rgn_cap : 256; }
++    }
++    int kept = g_nrgn < g_rgn_cap;
++    if (kept) { g_rgn[g_nrgn].off = a - ab; g_rgn[g_nrgn].size = t_rgn_size; g_rgn[g_nrgn].via = t_rgn_via; memcpy(g_rgn[g_nrgn].who, t_rgn_who, sizeof t_rgn_who); g_nrgn++; }
++    pthread_mutex_unlock(&g_rgn_lock);
++    if (!kept) { static _Atomic int once; if (!atomic_fetch_add(&once, 1)) LOG("[RED] address region table: out of memory at %d regions, later ones are not in it", g_nrgn); }
++    if (t_rgn_size >= 0x10000000) LOG("[mem] address region %.2f GB at alias +%.2f GB, returning to %s", t_rgn_size / 1073741824.0, (a - ab) / 1073741824.0, t_rgn_who);
++}
++static void region_free(uint64_t *r, int param) {
++    (void)param;
++    uint64_t off = r[1] - (uint64_t)(uintptr_t)g_alias;
++    pthread_mutex_lock(&g_rgn_lock);
++    for (int i = 0; i < g_nrgn; i++) if (g_rgn[i].off == off) { g_rgn[i] = g_rgn[--g_nrgn]; break; }
++    pthread_mutex_unlock(&g_rgn_lock);
++}
++// ---- StandardAllocator's address space ----
++// With virtual address memory, StandardAllocator::Initialize(nullptr, size) takes a region of size from the alias region and lays its heap out over all of it (CentralHeap), and
++// games pass sizes made for the Switch's 64 GB alias region: Pokémon Legends: Z-A 12 GB, Pokémon Scarlet 12 GB, Paper Mario: The Thousand-Year Door 62 GB, Absolum 40 GB. Where the
++// size is more than the alias region has room for, the request would fail (an nn::diag abort in nninitStartup), so the gate at the function's entry (patch_nso.py) gives it the room
++// instead: the alias region less the regions already made (at least the SDK's 62 MB node area) and 256 MB for regions made later, in 32 MB steps; the profile key stdalloc_cap sets
++// it instead (Absolum's .NET garbage collector takes 1.5 GB after it). The SDK lays the region out from that size, so it holds; the pool, not the region, bounds what the heap
++// can map. A workaround for the iPhone's address space, not the game: with room for the request (the Mac's 64 GB) nothing changes. Found by symbol in every sdk
++#define STDALLOC_LATER 0x10000000ull
++// What the alias region has room for in one more region: past the end of the regions made so far, less STDALLOC_LATER for those made later, in 32 MB steps (0 = none)
++static uint64_t alias_room(void) {
++    mem_init();
++    uint64_t reach = 0x3e00000;   // the node area with the SDK-wide cut (sdk_patches.py); a build without it keeps 1 GB, and a 12 GB request fails there as before
++    pthread_mutex_lock(&g_rgn_lock);
++    for (int i = 0; i < g_nrgn; i++) if (g_rgn[i].off + g_rgn[i].size > reach) reach = g_rgn[i].off + g_rgn[i].size;
++    pthread_mutex_unlock(&g_rgn_lock);
++    return g_alias_cap > reach + STDALLOC_LATER ? (g_alias_cap - reach - STDALLOC_LATER) & ~0x1ffffffull : 0;
++}
++static void stdalloc_init(uint64_t *r, int param) {
++    (void)param;
++    if (r[1]) return;   // a heap over memory the game passes in: no address region
++    uint64_t cap = dm_profile()->stdalloc_cap ? dm_profile()->stdalloc_cap : alias_room();
++    if (!cap || r[2] <= cap) return;
++    char who[40]; uint64_t via; guest_caller(r, who, sizeof who, &via);
++    LOG("[mem] StandardAllocator::Initialize(nullptr, %.2f GB) returning to %s: %.2f GB of address space, %s", r[2] / 1073741824.0, who, cap / 1073741824.0,
++        dm_profile()->stdalloc_cap ? "the profile's stdalloc_cap" : "what the alias region has room for (the profile key stdalloc_cap sets it)");
++    r[2] = cap;
++}
++// ---- Unreal's engine region ----
++// Unreal Engine 4 / 5's nninitStartup reserves one address region for the engine, which the engine hands out itself: 62 GB by default (16 GB in Unreal Engine 4.18), made for the
++// Switch's 64 GB alias region. The rewriter's gate on the store of its size right before the reservation (dm/tools/ue_region.py, in any Unreal main) gives it what the alias region
++// has room for, as StandardAllocator's gate above: the size variable (the register the gate number names) and the request (x1) both take it, so the engine lays the region out from
++// the size it got. -SwitchVirtualAddressSpaceSize= gives a size too, but UE 4.26 then skips the reservation (Pikmin 4); a smaller size given that way stays. A workaround for the
++// iPhone's address space, not the game: with room for the request (the Mac's 64 GB) nothing changes
++static void ue_region(uint64_t *r, int param) {
++    if (param < 1 || param > 28 || param == 18) return;
++    uint64_t cap = alias_room();
++    if (!cap || r[param] <= cap) return;
++    LOG("[mem] Unreal's engine region: %.2f GB asked, %.2f GB of address space, what the alias region has room for", r[param] / 1073741824.0, cap / 1073741824.0);
++    r[param] = r[1] = cap;
++}
++__attribute__((constructor)) static void regions_attach(void) {
++    gate_obs_set(OBS_REGION_ASK, region_ask); gate_obs_set(OBS_REGION_GOT, region_got); gate_obs_set(OBS_REGION_FREE, region_free);
++    gate_obs_set(OBS_STDALLOC_INIT, stdalloc_init); gate_obs_set(OBS_UE_REGION, ue_region);
++}
++// Pages set in a bitmap's bits [lo, hi), a word at a time: a 62 GB region is 16 million pages, counted under g_map_lock, which every MapPhysicalMemory takes
++static uint64_t bits_set(_Atomic uint64_t *b, uint64_t lo, uint64_t hi) {
++    uint64_t n = 0;
++    for (; lo < hi && (lo & 63); lo++) n += atomic_load(&b[lo >> 6]) >> (lo & 63) & 1;
++    for (; lo + 64 <= hi; lo += 64) n += (uint64_t)__builtin_popcountll(atomic_load(&b[lo >> 6]));
++    for (; lo < hi; lo++) n += atomic_load(&b[lo >> 6]) >> (lo & 63) & 1;
++    return n;
++}
++// The first and last bit set in [lo, hi) (-1 when none), skipping empty words
++static void bits_span(const uint64_t *b, uint64_t lo, uint64_t hi, int64_t *first, int64_t *last) {
++    *first = *last = -1;
++    for (uint64_t i = lo; i < hi; ) {
++        uint64_t w = b[i >> 6] >> (i & 63);
++        if (!w) { i = (i | 63) + 1; continue; }
++        i += (uint64_t)__builtin_ctzll(w);
++        if (i >= hi) break;
++        if (*first < 0) *first = (int64_t)i;
++        *last = (int64_t)i; i++;
++    }
++}
++// The table: alias offset, size, where the request returns to, bytes mapped now (4 KB pages), the part ever opened (host pages: from its first to its last, region-relative),
++// the sdk offset it came through
++static void *regions_thread(void *arg) {
++    const char *path = arg; char tmp[1024]; snprintf(tmp, sizeof tmp, "%s.partial", path);
++    uint64_t hpg = (uint64_t)getpagesize();
++    while (!atomic_load(&g_gf_stop)) {
++        FILE *f = fopen(tmp, "w");
++        if (f) {
++            fprintf(f, "# alias region %#llx; offset\tsize\treturns to\tmapped\tfirst opened\tend of the last opened (region-relative; - = none)\tvia (sdk offset)\n", (unsigned long long)g_alias_cap);
++            pthread_mutex_lock(&g_rgn_lock); int n = g_nrgn; region_t *t = malloc(sizeof *t * (size_t)(n ? n : 1)); if (t && n) memcpy(t, g_rgn, sizeof *t * (size_t)n); pthread_mutex_unlock(&g_rgn_lock);
++            pthread_mutex_lock(&g_map_lock);
++            for (int i = 0; t && g_alias_bits && g_alias_exposed && i < n; i++) {
++                uint64_t lo = t[i].off, hi = t[i].off + t[i].size > g_alias_cap ? g_alias_cap : t[i].off + t[i].size, mapped = bits_set(g_alias_bits, lo >> 12, hi >> 12);
++                int64_t first, last; bits_span(g_alias_exposed, lo / hpg, (hi + hpg - 1) / hpg, &first, &last);
++                char fo[24] = "-", lo2[24] = "-";
++                if (first >= 0) { snprintf(fo, sizeof fo, "%#llx", (unsigned long long)((uint64_t)first * hpg > lo ? (uint64_t)first * hpg - lo : 0));
++                                  snprintf(lo2, sizeof lo2, "%#llx", (unsigned long long)((uint64_t)(last + 1) * hpg - lo)); }
++                fprintf(f, "%#llx\t%#llx\t%s\t%#llx\t%s\t%s\t%#llx\n", (unsigned long long)t[i].off, (unsigned long long)t[i].size, t[i].who, (unsigned long long)mapped * 4096, fo, lo2,
++                        (unsigned long long)t[i].via);
++            }
++            pthread_mutex_unlock(&g_map_lock); free(t);
++            fclose(f); rename(tmp, path);
++        }
++        if (bg_sleep(2)) break;
++    }
++    return NULL;
++}
++
++int svc_thread(int num, uint64_t *regs);   // hle_thread.c: thread and synchronization kind
++
++uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
++    { void hlecount_svc(int); hlecount_svc(num); }   // DM_HLECOUNT: svc counts by number
++    mem_init();
++    if (svc_thread(num, regs)) return regs[0];
++    switch (num) {
++    case 0x01: {  // SetHeapSize(out_addr*, size)  → x1 = heap base
++        size_t size = regs[1];
++        // Larger than the heap region: ResultOutOfMemory (0xD001), as Horizon's KPageTable::SetHeapSize returns. nn::os::SetMemoryHeapSize turns only that, 103 and LimitReached into
++        // os::ResultOutOfMemory and aborts on anything else; Donkey Kong Country: Tropical Freeze finds its heap size by a binary search between 3 and 6 GB, which needs the error back
++        if (size > g_heap_cap) { LOG("SetHeapSize OOM: req %#zx > cap %#zx", size, g_heap_cap); regs[0] = 0xD001; return 0; }
++        pthread_mutex_lock(&g_map_lock);
++        size_t previous = g_heap_cur, image = image_bytes();
++        if (size < previous && (map_source_busy((uintptr_t)g_heap + size, previous - size) || device_shared((uintptr_t)g_heap + size, previous - size, "SetHeapSize shrinking over"))) {
++            pthread_mutex_unlock(&g_map_lock); regs[0] = 0xD401; return 0;
++        }
++        if (image > APP_POOL || size > APP_POOL - image) {   // ResultLimitReached; games retry in 2 MB decrements
++            // Logged once (Mario's retries would repeat it): a game that sizes its heap as pool − used memory and does not retry stops here when its modules are larger than the used memory reported
++            // (profile mem_used; the NSP script's probe boot reads this line, and sets mem_used when no SetHeapSize succeeds afterwards)
++            static int once; if (!once++) LOG("[mem] SetHeapSize %#zx + modules %#zx > app pool %#llx (used memory reported %#llx + bss %#zx)", size, image_bytes() - big_bss_bytes(),
++                                              (unsigned long long)APP_POOL, (unsigned long long)(dm_profile()->mem_used), big_bss_bytes());
++            pthread_mutex_unlock(&g_map_lock); regs[0] = 0x10801; return 0;
++        }
++        uint64_t charged = (uint64_t)(dm_profile()->mem_used) + big_bss_bytes() + atomic_load(&g_alias_mapped);
++        if ((dm_profile()->mem_map_limit) && (charged > APP_POOL || size > APP_POOL - charged)) {
++            pthread_mutex_unlock(&g_map_lock); regs[0] = 0x10801; return 0;
++        }
++        int rc = 0;
++        if (size > g_heap_cur) rc = mprotect(g_heap + g_heap_cur, size - g_heap_cur, PROT_READ | PROT_WRITE);
++        else if (size < g_heap_cur) (void)guest_release((uintptr_t)g_heap + size, (uintptr_t)g_heap + g_heap_cur, 0);
++        if (rc) die("SetHeapSize mprotect failed: req=%#zx errno=%d", size, errno);
++        // With the guest in files a heap given back kept its old bytes (guest_release): one that grows back over them reads 0 there, as the fresh mapping reads without the files
++        if (size > g_heap_cur && g_heap_seen > g_heap_cur && g_gf_n) guest_zero(g_heap + g_heap_cur, (size < g_heap_seen ? size : g_heap_seen) - g_heap_cur);
++        if (size > g_heap_seen) g_heap_seen = size;
++        if (g_flag.svc) LOG("SetHeapSize %#zx -> base %p mprotect=%d errno=%d", size, g_heap, rc, errno);
++        else if (size > g_heap_cur) LOG("[mem] heap %.2f GB (heap region %.2f GB)", size / 1073741824.0, g_heap_cap / 1073741824.0);
++        g_heap_cur = size;
++        pthread_mutex_unlock(&g_map_lock);
++        regs[0] = 0; regs[1] = (uint64_t)g_heap; return 0;
++    }
++    case 0x02: case 0x03: { // Permission/attribute stubs must not modify a borrowed source.
++        uint64_t addr = regs[0], size = regs[1];
++        pthread_mutex_lock(&g_map_lock);
++        int busy = size > UINT64_MAX - addr || (size && map_source_busy(addr, size));
++        pthread_mutex_unlock(&g_map_lock);
++        regs[0] = busy ? 0xD401 : 0; return 0;
++    }
++    case 0x04: {  // MapMemory(dst, src, size): when creating a thread the SDK moves the stack on the heap into the stack region
++        uint64_t dst = regs[0], src = regs[1], size = regs[2];
++        uint32_t result = map_arguments(dst, src, size);
++        if (result) { regs[0] = result; return 0; }
++        pthread_mutex_lock(&g_map_lock);
++        if (map_find(dst, size) || map_source_busy(src, size) || !map_source_backed(src, size)) result = 0xD401;
++        else if (g_nmap == MAX_MAP) result = 0xCE01;
++        if (result) { pthread_mutex_unlock(&g_map_lock); regs[0] = result; LOG("[RED] MapMemory refused (%#x): %#llx <- %#llx +%#llx", result, (unsigned long long)dst, (unsigned long long)src, (unsigned long long)size); return 0; }
++        // Apple pages are 16K, Horizon pages 4K: the accessible region is extended to a 16K boundary (the extra pages opened are unused pages of the same region, semantics unaffected)
++        uint64_t mask = (size_t)getpagesize() - 1;
++        uint64_t lo = dst & ~mask, hi = (dst + size + mask) & ~mask;
++        if (mprotect((void *)lo, hi - lo, PROT_READ | PROT_WRITE)) die("MapMemory mprotect errno=%d", errno);
++        dm_guest_write_prepare((void *)lo, hi - lo);
++        memcpy((void *)dst, (void *)src, size);   // move semantics: the source region is not accessed while mapped (Horizon makes it inaccessible)
++        map_add(dst, size, src, 0x0B /*MappedMemory*/);
++        pthread_mutex_unlock(&g_map_lock);
++        if (g_flag.svc) LOG("MapMemory %#llx <- %#llx +%#llx", dst, src, size);
++        regs[0] = 0; return 0;
++    }
++    case 0x05: {  // UnmapMemory(dst, src, size): contents are moved back to the source region; a 16K page may be shared with an adjacent mapping, permissions are not revoked
++        uint64_t dst = regs[0], src = regs[1], size = regs[2];
++        uint32_t result = map_arguments(dst, src, size);
++        if (result) { regs[0] = result; return 0; }
++        pthread_mutex_lock(&g_map_lock);
++        int k = map_find(dst, size);
++        if (!k || g_map[k - 1].base != dst || g_map[k - 1].size != size || g_map[k - 1].src != src) {
++            pthread_mutex_unlock(&g_map_lock); LOG("UnmapMemory does not match a mapping %#llx+%#llx", dst, size); regs[0] = 0xD401; return 0; }
++        dm_guest_write_prepare((void *)src, size);
++        memcpy((void *)src, (void *)dst, size);
++        map_del(k - 1);
++        pthread_mutex_unlock(&g_map_lock);
++        regs[0] = 0; return 0;
++    }
++    case 0x06: {  // QueryMemory(MemoryInfo* out, PageInfo* pout, addr) → x1 = pageinfo
++        uint64_t mi = regs[0], addr = regs[2];
++        // MemoryInfo: base(0) size(8) state(0x10) attr(0x14) perm(0x18) ...
++        uint8_t *a = (uint8_t *)addr;
++        uint64_t base, size, state, perm;
++        uint32_t attr = 0;
++        int k;
++        pthread_mutex_lock(&g_map_lock);   // the registry branches read g_map; the other branches are cheap, so the lock simply spans the whole chain
++        uint64_t ab = (uintptr_t)g_alias, ae = ab + g_alias_cap, rb = 0, rn = 0;
++        int mapped = 0, in_alias = addr >= ab && addr < ae;
++        if (in_alias) alias_query(addr, &rb, &rn, &mapped);
++        if (a >= g_heap && a < g_heap + g_heap_cur) { base=(uint64_t)g_heap; size=g_heap_cur; state=5/*Heap*/; perm=3; }
++        else if ((k = map_find(addr, 1))) { base=g_map[k-1].base; size=g_map[k-1].size; state=g_map[k-1].state; perm=3; }
++        else if (in_alias && mapped) { base=rb; size=rn; state=5; perm=3; }
++        else if (a >= g_as && a < g_as + g_reserve) {   // free: up to the adjacent mapping/heap boundary
++            uint64_t lo = (uint64_t)g_as, hi = (uint64_t)g_as + g_reserve;
++            if (a >= g_heap) lo = (uint64_t)g_heap + g_heap_cur;
++            else if (hi > (uint64_t)g_heap) hi = (uint64_t)g_heap;
++            if (in_alias) {
++                if (rb > ab && rb > lo) lo = rb;
++                if (rb + rn < ae && rb + rn < hi) hi = rb + rn;
++            } else if (g_alias_cap && addr < ab) {
++                alias_query(ab, &rb, &rn, &mapped);
++                uint64_t edge = mapped ? ab : rb + rn;
++                if ((mapped || edge < ae) && edge < hi) hi = edge;
++            } else if (g_alias_cap) {
++                alias_query(ae - 1, &rb, &rn, &mapped);
++                uint64_t edge = mapped ? ae : rb;
++                if ((mapped || edge > ab) && edge > lo) lo = edge;
++            }
++            for (int i = 0; i < g_nmap; i++) {
++                uint64_t e = g_map[i].base + g_map[i].size;
++                if (e <= addr && e > lo) lo = e;
++                if (g_map[i].base > addr && g_map[i].base < hi) hi = g_map[i].base;
++            }
++            base=lo; size=hi-lo; state=0; perm=0; }
++        else if (module_of(a)) {
++            // Loaded module: report the regions in Horizon's layout -- code [0, ro) Code+RX, read-only [ro, data) Code+R, data and bss [data, patch area) CodeData+RW.
++            // The SDK's C++ exception unwinding (nn::ro::detail::GetExceptionInfo) walks back from the PC over "Code+RX" regions to find the module start, forward over Code then CodeData to find its end, then reads MOD0 at the module start for .eh_frame_hdr.
++            // Previously "the 4 KiB page around it, Code+RX" was reported: the backward walk ran on into other memory, found no MOD0 and aborted (Engage's IL2CPP throws a C++ exception for every managed exception).
++            // The rewriter's patch area is reported as CodeData+RX: modules sit back to back in the host, and an executable patch area reported as Code+RX would merge the previous module into the backward walk
++            // Modules with the patch area before the base (patch_off < 0): the patch area is reported alone as CodeData+RX, and data and bss run to the end of the image, or to a back patch area
++            // (patch_nso.py TWO), which is reported as CodeData+RX like a patch area after the image
++            module_t *mm = module_of(a); uint64_t off = (uint64_t)(a - mm->base), mb = (uint64_t)mm->base;
++            uint64_t ro = mm->ro_off ? mm->ro_off : mm->text_end, da = mm->data_off ? mm->data_off : ro, pa = mm->patch_off > 0 ? (uint64_t)mm->patch_off : mm->back_len ? mm->back_off : mm->size;
++            if (a < mm->base)  { base = mb + mm->patch_off; size = mm->patch_len; state = 4/*CodeData*/; perm = 5; }
++            else if (off < ro) { base = mb;      size = ro;            state = 3/*Code*/;     perm = 5; }
++            else if (off < da) { base = mb + ro; size = da - ro;       state = 3/*Code*/;     perm = 1; }
++            else if (off < pa) { base = mb + da; size = pa - da;       state = 4/*CodeData*/; perm = 3; }
++            else               { base = mb + pa; size = mm->size - pa; state = 4/*CodeData*/; perm = 5; }
++            if (state == 4 && perm == 3) {
++                uint64_t lo = base - mb, hi = lo + size;
++                module_data_query(mm, off, &lo, &hi, &perm);
++                base = mb + lo; size = hi - lo;
++            }
++        }
++        else {
++            // The address lies in "the current host thread's stack": report the whole stack (state 0xB = stack). When the SDK initializes the main thread record it queries here with the sp at that moment and takes the reported range as the main thread stack;
++            // later nn::os::GetCurrentStackInfo asserts that sp is still inside that range and aborts if not. Previously every address outside the guest address space was reported as "the 4 KiB page containing it",
++            // so the main thread stack was recorded as one page. Whether the sp at init and a later sp share a page depends on the absolute position of the host stack top, which moves with the total length of environment variables / launch arguments (a different environment occasionally aborts at startup).
++            uint64_t top = (uint64_t)pthread_get_stackaddr_np(pthread_self()), ssz = pthread_get_stacksize_np(pthread_self());
++            if (addr < top && addr >= top - ssz) { base = top - ssz; size = ssz; state = 0xB/*Stack*/; perm = 3; }
++            // Other host memory: report "free, no permissions" (the 4 KiB page around it) as Horizon does for unmapped addresses. It used to report Code+RX, and GetExceptionInfo walking back from main merged on through host memory down to 0
++            else { base=addr & ~0xFFFull; size=0x1000; state=0/*Free*/; perm=0; } }
++        map_source_query(addr, &base, &size, &attr, &perm);
++        pthread_mutex_unlock(&g_map_lock);
++        if (mi) {
++            struct { uint64_t base, size; uint32_t state, attr, perm, ipc, device, reserved; }
++                out = {base, size, (uint32_t)state, attr, (uint32_t)perm, 0, 0, 0};
++            _Static_assert(sizeof out == 40, "MemoryInfo ABI size");
++            memcpy((void *)(uintptr_t)mi, &out, sizeof out);
++        }
++        regs[0] = 0; regs[1] = 0; return 0;
++    }
++    case 0x2C: case 0x2D: {  // MapPhysicalMemory / UnmapPhysicalMemory(addr, size): only allowed inside the alias region (used by the SDK's VammManager)
++        uintptr_t a = regs[0]; size_t size = regs[1];
++        if (!size || ((a | size) & 0xfff) || !memory_contains((uintptr_t)g_alias, g_alias_cap, a, size)) {
++            LOG("SVC %#x outside the alias region %p+%#zx", num, (void *)a, size); regs[0] = 0xD401; return 0;
++        }
++        pthread_mutex_lock(&g_map_lock);
++        // The SDK extends committed windows across borrowed stack sources
++        // (Raging Loop, StandardAllocator). Recommit preserves every live byte;
++        // only decommit can invalidate backing required for eventual copyback.
++        if (num == 0x2D && (map_source_busy(a, size) || device_shared(a, size, "UnmapPhysicalMemory"))) { pthread_mutex_unlock(&g_map_lock); regs[0] = 0xD401; return 0; }
++        uint64_t off = a - (uintptr_t)g_alias;
++        int64_t need = alias_unmapped(off, size) * 4096;
++        // Profile mem_map_limit: a map that would take the process past the application pool fails with ResultLimitReached, as on Horizon (the pool less the used memory GetInfo reports).
++        // Pokémon Legends: Z-A's nninitStartup allocates and frees everything allocatable (pool − 64 MB, mapped at the top of its StandardAllocator region: 12 GB, 4 GB after the cut in its patches.py); the SDK keeps the freed pages mapped
++        // and maps new ones for later allocations, until a map fails: then it unmaps the cached block and retries (measured on the Mac: the refused 4 MB map at +0x43e2c000 was followed by
++        // UnmapPhysicalMemory of the 3.15 GB block and the same map again). Without the limit the mapped total went past the pool in the first minute and the freed block stayed mapped.
++        // Off by default: Ace Attorney Investigations Collection maps a little more than the 1 GB pool its profile reports
++        if ((dm_profile()->mem_map_limit) && num == 0x2C) {
++            int64_t room = (int64_t)APP_POOL - (int64_t)(g_heap_cur + (dm_profile()->mem_used) + big_bss_bytes()) - atomic_load(&g_alias_mapped);
++            if (need && need > room) {
++                pthread_mutex_unlock(&g_map_lock);
++                static _Atomic int nref; if (atomic_fetch_add(&nref, 1) < 8) LOG("[mem] MapPhysicalMemory +%#zx refused: %.2f GB mapped, the application pool is full (ResultLimitReached, the SDK frees cached pages and retries)",
++                                                                       size, atomic_load(&g_alias_mapped) / 1073741824.0);
++                regs[0] = 0x10801; return 0;
++            }
++        }
++        // Host pages are 16 KB, Horizon pages 4 KB: a map is rounded out to host pages (the extra neighboring 4K pages are inside the alias region and merely become writable early, harmless);
++        // An edge host page is reclaimed only when no live logical neighbor remains.
++        uintptr_t pg = (uintptr_t)getpagesize(), lo = (uintptr_t)a, hi = (uintptr_t)a + size;
++        uintptr_t mlo = lo & ~(pg - 1), mhi = (hi + pg - 1) & ~(pg - 1);
++        int commit = num == 0x2C;
++        int64_t changed = commit ? need : (int64_t)size - need;
++        if (!commit) {
++            if ((lo - mlo) / 4096 != (uint64_t)alias_unmapped(mlo - (uintptr_t)g_alias, lo - mlo)) mlo += pg;
++            if ((mhi - hi) / 4096 != (uint64_t)alias_unmapped(hi - (uintptr_t)g_alias, mhi - hi)) mhi -= pg;
++        }
++        if (changed && mhi > mlo) {
++            if (commit) {
++                if (mprotect((void *)mlo, mhi - mlo, PROT_READ | PROT_WRITE))
++                    die("SVC %#x mprotect %p+%#zx errno=%d", num, (void *)a, size, errno);
++                dm_guest_write_prepare((void *)mlo, mhi - mlo);
++                if (g_gf_n) for (uint64_t h = (mlo - (uintptr_t)g_alias) / pg, e = (mhi - (uintptr_t)g_alias) / pg; h < e; h++) {   // in use again: not to be punched
++                    uint64_t m = ~(UINT64_C(1) << (h & 63)); g_alias_rel[h >> 6] &= m; g_alias_aged[h >> 6] &= m; }
++            } else if (guest_release(mlo, mhi, 1)) {   // fresh zero pages: alias_initialize has nothing to clear when they are mapped again
++                for (uint64_t h = (mlo - (uintptr_t)g_alias) / pg, last = (mhi - 1 - (uintptr_t)g_alias) / pg; h <= last; ++h)
++                    g_alias_exposed[h >> 6] &= ~(UINT64_C(1) << (h & 63));
++            }
++        }
++        if (commit && changed) alias_initialize(off, size);
++        if (g_flag.svc) LOG("%sPhysicalMemory %p+%#zx", commit ? "Map" : "Unmap", (void *)a, size);
++        // how deep the alias region is used (one line per 256 MB crossed): for sizing the reservation and alias region (iOS caps a single reservation at 6 GB)
++        if (num == 0x2C) { _Atomic uint64_t *hw = &g_alias_hw; uint64_t end = off + size, old = atomic_load(hw);
++            while (end > old && !atomic_compare_exchange_weak(hw, &old, end)) {}
++            if (end > old && end >> 28 != old >> 28) LOG("[mem] alias region mapped up to +%.2f GB (alias region %.2f GB)", end / 1073741824.0, g_alias_cap / 1073741824.0); }
++        // Total actually mapped in the alias region (one line per 256 MB crossed, up or down): how much physical memory the game uses and whether it keeps growing. Counted with a page bitmap, only pages whose state really changed --
++        // the SDK maps pages that are already mapped and unmaps ranges larger than what it mapped (Engage unmaps 0x1000000 and then 0x103f000 at the same address), so counting requested sizes went negative
++        { int64_t d = alias_pages(off, size, commit) * 4096, before = atomic_fetch_add(&g_alias_mapped, d), after = before + d;
++          pthread_mutex_unlock(&g_map_lock);
++          if (before >> 28 != after >> 28) LOG("[mem] alias region mapped %.2f GB (application pool %.2f GB)", after / 1073741824.0, APP_POOL / 1073741824.0); }
++        regs[0] = 0; return 0;
++    }
++    case 0x26: {  // Break(reason, ptr, size): SDK fatal abort
++        uint32_t res = (regs[1] && regs[2] >= 4) ? *(uint32_t *)regs[1] : 0;
++        module_t *mm = module_of((void *)regs[30]);
++        static int nb;
++        LOG("Break#%d reason=%#llx Result=%#x svc at %s+%#llx", ++nb, regs[0], res, mm ? mm->name : "?", orig_addr);
++        dm_backtrace(regs[29]);
++        if (regs[0] & 0x80000000ull) return 0;   // notification only, can continue
++        _exit(42);
++    }
++    case 0x1E: guest_clock_read_wait(); regs[0] = 0; regs[1] = guest_ticks(); return 0;   // GetSystemTick
++    case 0x27: {  // OutputDebugString(str, len)
++        if (g_flag.dbg) fprintf(stderr, "[guest] %.*s\n", (int)regs[1], (char *)regs[0]);
++        regs[0] = 0; return 0;
++    }
++    case 0x29: {  // GetInfo(out*, id, handle, subid) → x1 = value
++        uint64_t id = regs[1], v = 0;
++        switch (id) {
++        case I_CoreMask: v = 7; break;
++        case I_PriorityMask: v = 0; break;
++        case I_AliasAddr: v = (uint64_t)g_alias; break;   case I_AliasSize: v = g_alias_cap; break;
++        case I_HeapAddr:  v = (uint64_t)g_heap;  break;   case I_HeapSize:  v = g_heap_cap;  break;
++        case I_AslrAddr:  v = (uint64_t)g_as;    break;   case I_AslrSize:  v = g_reserve;   break;
++        case I_StackAddr: v = (uint64_t)g_stack; break;   case I_StackSize: v = g_stack_cap; break;
++        case I_TotalMem: case I_TotalNonSys: v = APP_POOL; break;
++        case I_UsedMem:  case I_UsedNonSys:  pthread_mutex_lock(&g_map_lock);
++                                             v = g_heap_cur + (dm_profile()->mem_used) + big_bss_bytes();   // profile mem_used, 64 MB unless the game needs more (see mem_used in dm/games/README.md)
++                                             // with mem_map_limit, the pages mapped in the alias region count too, as on Horizon (the limit in MapPhysicalMemory is the pool less this)
++                                             if ((dm_profile()->mem_map_limit)) v += (uint64_t)atomic_load(&g_alias_mapped);
++                                             pthread_mutex_unlock(&g_map_lock); break;
++        // the system resource the NPDM declares (profile sys_resource; 32 MB without the key). The SDK's IsVirtualAddressMemoryEnabled is "total != 0": Big Brain Academy's nninitStartup
++        // asks StandardAllocator for 60 GB of virtual address memory when it is, and sets a heap only when it is not (its NPDM declares none)
++        case I_SysResTotal: v = (dm_profile()->sys_resource); break; case I_SysResUsed: v = (dm_profile()->sys_resource) ? 0x400000 : 0; break;
++        case I_DebuggerAttached: v = 0; break;
++        case I_RandomEntropy: { uint64_t dm_entropy64(void); v = dm_entropy64(); break; }   // a deterministic stream when DM_DETCLOCK is on (hle_os.c)
++        case I_ProgramId: { static uint64_t pid; if (!pid) { const char *e = getenv("DM_PROGRAM_ID"); pid = e ? strtoull(e, NULL, 16) : (dm_profile()->program_id); } v = pid; break; }   // default from the game profile's program_id; DM_PROGRAM_ID=hex overrides
++        case I_IsApplication: v = 1; break;
++        // nn::os::GetFreeThreadCount (SDK 11+): the thread resource limit less the threads alive, as the kernel answers it (Atmosphère kern_svc_info.cpp). pm gives an application a limit of
++        // 96 threads (pm_spec.cpp BaseApplicationThreads; a boost raises it to 256). Monster Train 2's Unity 2022.3 player creates a thread only when this is at least 1: the 0 it got here
++        // left its main thread waiting at boot for a thread it never created (main+0x3e1ac4)
++        case I_FreeThreadCount: { int thr_limit_used(void); int u = thr_limit_used(); v = u < 96 ? 96 - u : 0; break; }
++        case I_UserExcAddr: { static _Alignas(0x1000) uint8_t ctx[0x1000]; v = (uint64_t)ctx; break; }   // user exception context area: newer SDKs' SetDyingMessageRegion writes to +0x1c0 (0 would write through a null pointer)
++        // The kernel's page size (Switch 2 SDKs): nn::ro::ProtectRelro takes it as the alignment of the RELRO bounds (value − 1 as a mask, 0 aborts), the VammManager maps that much up front.
++        // Horizon's pages are 4 KB, the alignment of every module's segments (Donkey Kong Bananza)
++        case I_PageSize: v = 0x1000; break;
++        // Horizon's other types (Atmosphère kern_svc_info.cpp), answered 0 as before they were named: no thread tick count, no SVC permission bits, no I/O region, and no extra alias
++        // region size (SDK 18 and later ask for it; only a process created with the extra-size flag has one)
++        case I_ThreadTickCount: case I_IsSvcPermitted: case I_IoRegionHint: case I_AliasExtraSize: v = 0; break;
++        // The Switch 2's remote region: nnosInitialize builds nn::os::detail::RemoteRegionManager's address space allocator over [type 29, type 29 + type 30), and
++        // nn::os::GetRemoteMemoryUsage returns types 31 and 32. The SDK's only user is the GPU driver's boot (nv::InitializeGraphics → nn::gs::sdk::BootGraphicsSystem →
++        // BootWithRemoteMemory), which the host's own nv::InitializeGraphics replaces (dm/gfx/hle_nv.c), so the process has no remote region and no remote memory (Donkey Kong Bananza)
++        case I_RemoteAddr: case I_RemoteSize: case I_RemoteUsage0: case I_RemoteUsage1: v = 0; break;
++        default: { static uint8_t seen[64]; if (id < 64 && !seen[id]) { seen[id] = 1; LOG("[RED] svc GetInfo: unknown info type %llu (answered 0)", (unsigned long long)id); } v = 0; break; }
++        }
++        regs[0] = 0; regs[1] = v; return 0;
++    }
++    default:
++        if (!g_seen[num & 0xff]) { g_seen[num & 0xff] = 1; LOG("SVC %#x x0=%#llx x1=%#llx x2=%#llx (placeholder returns success)", num, regs[0], regs[1], regs[2]); }
++        regs[0] = 0; return 0;
++    }
++}
+diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
+index 6d4733d..404cb23 100644
+--- a/dm/host/hle_thread.c
++++ b/dm/host/hle_thread.c
+@@ -460,8 +460,10 @@ static void on_pause_sig(int sig, siginfo_t *si, void *uc_) {
+     if (atomic_load(&g_teardown_park)) {
+         uint64_t gtop = guest_gate_top_self();
+         if (gtop) {
+-            uc->uc_mcontext->__ss.__sp = gtop & ~15ull;
+-            uc->uc_mcontext->__ss.__pc = (uint64_t)(uintptr_t)teardown_from_sig;
++            dm_linux_state_t *ss = dm_uc_ss(uc);   // the register view: on Apple the sigcontext's own
++            ss->__sp = gtop & ~15ull;
++            ss->__pc = (uint64_t)(uintptr_t)teardown_from_sig;
++            dm_linux_ss_stash(uc);
+             return;
+         }
+     }
+diff --git a/dm/host/linux/asm_elf.py b/dm/host/linux/asm_elf.py
+index 767f220..4fe3f14 100644
+--- a/dm/host/linux/asm_elf.py
++++ b/dm/host/linux/asm_elf.py
+@@ -28,6 +28,16 @@ PLAIN = {   # kept for the record: every Mach-O symbol loses its underscore on E
+ }
+ 
+ 
++def elk_names(src_path: str) -> list:
++    """The NVN names in a thunks file, in order: `Ln<k>: .asciz "<name>"`."""
++    out = []
++    for line in open(src_path, "r", encoding="utf-8"):
++        m = re.match(r'\s*Ln(\d+):\s*\.asciz\s+"([^"]*)"', line)
++        if m:
++            out.append(m.group(2))
++    return out
++
++
+ def asm_to_elf(src: str) -> str:
+     t = src
+ 
+@@ -61,10 +71,29 @@ def asm_to_elf(src: str) -> str:
+ 
+ 
+ def main():
+-    if len(sys.argv) != 3:
++    args = sys.argv[1:]
++    if args[:1] == ['--names']:
++        if len(args) != 3:
++            print(__doc__)
++            return 2
++        # The NVN name table, as C: the guest's names the counting thunks carry. A host
++        # whose guest does not run (x86_64) still needs the names, because the device's
++        # first call resolves its implementations by them.
++        names = elk_names(args[1])
++        with open(args[2], 'w', encoding='utf-8') as f:
++            f.write("// Generated by linux/asm_elf.py --names from %s: do not edit.\n" % args[1])
++            f.write("// NVN's name table for a host whose guest does not run (x86_64), where the\n")
++            f.write("// thunks that carry it are ARM64 instructions and cannot be assembled.\n")
++            f.write('#include "nvn_count.h"   // NVN_NFUNC\n\n')
++            f.write("const char *nvn_names[NVN_NFUNC] = {\n")
++            for i, n in enumerate(names):
++                f.write('    "%s",%s' % (n, "\n" if i % 4 == 3 else " "))
++            f.write("\n};\n")
++        return 0
++    if len(args) != 2:
+         print(__doc__)
+         return 2
+-    src, out = sys.argv[1], sys.argv[2]
++    src, out = args
+     t = open(src, "r", encoding="utf-8").read()
+     open(out, "w", encoding="utf-8").write(asm_to_elf(t))
+     return 0
+diff --git a/dm/host/linux/guest_stub_x86_64.c b/dm/host/linux/guest_stub_x86_64.c
+new file mode 100644
+index 0000000..1b80bbc
+--- /dev/null
++++ b/dm/host/linux/guest_stub_x86_64.c
+@@ -0,0 +1,85 @@
++// x86_64 Linux: the guest's ARM64 code has no place to run here.
++//
++// The host is portable C, but three of the interfaces it presents to the guest are written
++// in ARM64 assembly (dm/host/entry.S and dm/gfx/nvn/nvn_thunks.S, converted for Linux by
++// asm_elf.py): the gate stubs the rewriter patches into the game's code, the NVN counting
++// thunks the game calls through, and the big-stack entry of the take-overs. They are ARM64
++// instructions, and no C reimplements them: they exist to be entered by ARM64 code.
++//
++// On an x86_64 host the guest never enters them, so this file defines the symbols the
++// portable code references, at the sizes the host declares, and any code that reached one
++// anyway stops with a line that says what happened and why. The tables stay empty: a
++// filled table would claim a capability the host does not have.
++//
++// What this host *can* do: load, relocate and inspect an ARM64 module (the loader is C and
++// its ELF reader is architecture-agnostic) and answer every Horizon service that does not
++// require executing the guest. What it cannot: run the guest, draw or make sound.
++#if defined(DM_LINUX) && defined(__x86_64__)
++
++#include "hle.h"
++
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include "../gfx/nvn/nvn_count.h"
++
++#define GUEST_UNSUPPORTED_MSG \
++    "[dm] [RED] the guest's code is ARM64 and this host is x86_64: guest execution is not supported"
++
++// The one line every entry point prints. It is an exit, not a warning: reaching one of
++// these means something believed the guest could run here, and that belief is the bug.
++static void guest_unsupported(const char *what) {
++    fprintf(stderr, "%s (%s)\n", GUEST_UNSUPPORTED_MSG, what);
++    exit(86);
++}
++
++// ---- the sizes the host declares elsewhere (the entries of the symbols below)
++//
++// entry.S's .rept 4096 (hle.c MAX_STUB) and thread.c GATE_SLOTS x 16 bytes of stub per
++// slot. They are repeated here because those two files keep their counts to themselves;
++// a change there needs the same change here, and the swap is checked by the build.
++#define GUEST_MAX_STUB 4096          // = hle.c MAX_STUB = entry.S's .rept count
++#define GUEST_GATE_SLOTS 1024        // = thread.c GATE_SLOTS = entry.S's .rept count
++#define GUEST_GATE_STUB 16           // = entry.S's stub size (a 16-byte aligned block)
++
++// ---- the entry.S stubs the loader hands out and the thread entry uses
++
++// One word per unimplemented import stub (hle.c takes &unimpl_stubs[k] as a function
++// address): host-visible size only, because the guest that would call it does not run.
++uint64_t unimpl_stubs[GUEST_MAX_STUB];
++
++// The gate stubs, one per slot: the rewriter writes a slot's address into the guest's SVC
++// sites. Empty of instructions here; the size is what the pointers are drawn from.
++const uint8_t dm_gate_stubs[GUEST_GATE_SLOTS * GUEST_GATE_STUB];
++
++// The gate stacks' tops (thread.c dm_gate_top): the stub k reads its slot's top here.
++uint64_t dm_gate_top[GUEST_GATE_SLOTS];
++
++// A guest thread's entry: the SDK switches to the guest stack and calls it. There is no
++// guest stack on this host, so the call reports and stops.
++void dm_thread_enter(void (*entry)(void *), void *arg, void *stack_top) {
++    (void)entry;
++    (void)arg;
++    (void)stack_top;
++    guest_unsupported("a guest thread entry was reached");
++}
++
++// ---- the NVN counting thunks and the reporting entries
++
++void nvn_unimpl_entry(void) { guest_unsupported("an NVN thunk was reached"); }
++void nvn_prof_entry(void) { guest_unsupported("an NVN thunk was reached"); }
++void nvn_big_entry(void) { guest_unsupported("an NVN thunk was reached"); }
++
++// The thunk tables: the counting and the plain one, one address per NVN function.
++void *nvn_thunk[NVN_NFUNC];
++void *nvn_thunk_fast[NVN_NFUNC];
++
++// The names the thunks carry. They are the guest's function names, taken from
++// dm/gfx/nvn/nvn_thunks.S by asm_elf.py --names, because the names decide which of the
++// NVN implementations the host has (hle_nvn.c nvn_init_slots resolves by them) and that
++// resolution has to be the same on every host.
++extern const char *nvn_names[NVN_NFUNC];
++
++
++
++#endif
+\ No newline at end of file
+diff --git a/dm/host/linux/include/CoreFoundation/CoreFoundation.h b/dm/host/linux/include/CoreFoundation/CoreFoundation.h
+index 31e016a..d054fd9 100644
+--- a/dm/host/linux/include/CoreFoundation/CoreFoundation.h
++++ b/dm/host/linux/include/CoreFoundation/CoreFoundation.h
+@@ -10,6 +10,9 @@
+ #include <stdint.h>
+ 
+ typedef signed long CFIndex;
++typedef unsigned char UInt8;
++typedef unsigned int UInt32;
++typedef signed long long SInt64;
+ typedef unsigned long CFTypeID;
+ typedef unsigned char Boolean;
+ typedef const void *CFTypeRef;
+@@ -40,6 +43,9 @@ extern const CFTypeID kCFDataTypeID;
+ 
+ CFTypeID CFGetTypeID(CFTypeRef cf);
+ CFTypeID CFStringGetTypeID(void);
++CFTypeID CFNumberGetTypeID(void);
++Boolean CFNumberGetValue(CFNumberRef number, CFIndex theType, void *valuePtr);
++extern const CFIndex kCFNumberSInt64Type;
+ CFStringRef CFStringCreateWithCString(CFAllocatorRef alloc, const char *cStr, unsigned int encoding);
+ Boolean CFStringGetCString(CFStringRef theString, char *buffer, CFIndex bufferSize, unsigned int encoding);
+ CFIndex CFStringGetLength(CFStringRef theString);
+@@ -47,6 +53,14 @@ Boolean CFEqual(CFTypeRef cf1, CFTypeRef cf2);
+ void CFRelease(CFTypeRef cf);
+ CFTypeRef CFRetain(CFTypeRef cf);
+ 
++typedef const struct __CFURL *CFURLRef;
++extern const CFStringRef kCFURLVolumeAvailableCapacityForImportantUsageKey;
++extern const CFStringRef kCFURLVolumeAvailableCapacityKey;
++
++CFURLRef CFURLCreateFromFileSystemRepresentation(CFAllocatorRef allocator, const UInt8 *buffer,
++                                                  CFIndex bufLen, Boolean isDirectory);
++Boolean CFURLCopyResourcePropertyForKey(CFURLRef url, CFStringRef key, void *value, CFStringRef *error);
++
+ CFBundleRef CFBundleGetMainBundle(void);
+ CFTypeRef CFBundleGetValueForInfoDictionaryKey(CFBundleRef bundle, CFStringRef key);
+ 
+@@ -58,6 +72,7 @@ CFMutableDictionaryRef CFDictionaryCreateMutable(CFAllocatorRef allocator, CFInd
+ const void *CFDictionaryGetValue(CFDictionaryRef dict, const void *key);
+ void CFDictionarySetValue(CFDictionaryRef dict, const void *key, const void *value);
+ CFIndex CFDictionaryGetCount(CFDictionaryRef dict);
++void CFDictionaryApplyFunction(CFDictionaryRef dict, void (*applier)(const void *key, const void *value, void *context), void *context);
+ 
+ // The encoding constant of Apple's CoreFoundation (the value is the same, so a caller
+ // that prints it or compares it behaves the same).
+diff --git a/dm/host/linux/include/dispatch/dispatch.h b/dm/host/linux/include/dispatch/dispatch.h
+index 3784788..0df59a7 100644
+--- a/dm/host/linux/include/dispatch/dispatch.h
++++ b/dm/host/linux/include/dispatch/dispatch.h
+@@ -60,6 +60,8 @@ dispatch_source_t dispatch_source_create(dispatch_source_type_t type, uintptr_t
+ void dispatch_source_set_event_handler(dispatch_source_t source, dispatch_block_t handler);
+ void dispatch_resume(dispatch_source_t source);
+ void dispatch_suspend(dispatch_source_t source);
++void dispatch_source_cancel(dispatch_source_t source);   // drops the source's handler (Linux: the shim's)
++
+ void dispatch_release(void *object);
+ void dispatch_retain(void *object);
+ void dispatch_queue_set_specific(dispatch_queue_t queue, const void *key, void *context,
+diff --git a/dm/host/linux/include/dm_linux.h b/dm/host/linux/include/dm_linux.h
+index 8ccbc2f..723113a 100644
+--- a/dm/host/linux/include/dm_linux.h
++++ b/dm/host/linux/include/dm_linux.h
+@@ -13,7 +13,9 @@
+ #include <sys/stat.h>
+ #include <stdint.h>
+ #include <sys/mman.h>
++#include <fcntl.h>
+ #include <sys/statfs.h>
++#include <pthread/qos.h>   // the quality-of-service classes and their calls
+ #include <time.h>
+ 
+ #define DM_LINUX 1
+@@ -57,3 +59,30 @@ int renamex_np(const char *from, const char *to, unsigned int flags);
+ void mergesort(void *base, size_t nmemb, size_t size, int (*compar)(const void *, const void *));
+ unsigned int arc4random(void);
+ void arc4random_buf(void *buf, size_t nbytes);
++
++// Linux stand-in for Darwin's hole punching (hle_svc.c guest_file_punch): the host gives
++// back the disk blocks a released range held. macOS does it with
++// fcntl(F_PUNCHHOLE, {offset, length}); Linux has the same operation with the same numbers
++// under a different name, F_PUNCH_HOLE (4 on every arch this builds for), and a struct the
++// kernel reads the same way. Where the kernel has no hole punching the call answers an
++// error, and the caller reports that as it does any failed punch.
++#ifndef F_PUNCH_HOLE
++#define F_PUNCH_HOLE 4
++#endif
++typedef struct {
++    off_t fp_offset;
++    off_t fp_length;
++} fpunchhole_t;
++
++// The host's guest-file size figures: Darwin asks the system's purge service through
++// CoreFoundation, which Linux has no equivalent of. The answer is -1 (that is what the
++// caller takes the failure path for), and the guest-file optimisation is off on Linux
++// anyway (host_preload says so: the anonymous path is the right one where the kernel swaps).
++#ifndef F_PUNCHHOLE
++#define F_PUNCHHOLE F_PUNCH_HOLE
++#endif
++// mincore's "dirty" bit: Darwin's mincore reports MINCORE_MODIFIED, Linux reports the
++// page's presence (1 = in RAM) and has no per-page dirty bit for anonymous or file pages.
++// The count of dirty pages therefore reads 0 here, and the DM_GUEST_FILE_SCAN diagnostic
++// says what it cannot see instead of guessing.
++#define MINCORE_MODIFIED 2
+diff --git a/dm/host/linux/include/mach-o/ldsyms.h b/dm/host/linux/include/mach-o/ldsyms.h
+new file mode 100644
+index 0000000..2157f1a
+--- /dev/null
++++ b/dm/host/linux/include/mach-o/ldsyms.h
+@@ -0,0 +1,11 @@
++// Linux stand-in for <mach-o/ldsyms.h>: the linker's own symbols.
++//
++// The host names the running executable's image through it (hle.c, loader.c), only to
++// hand it to getsectiondata. On Linux the section lookup does not need the image at all
++// (it reads the running executable's own section headers), so the symbol exists, is the
++// same address as any other empty object, and is ignored.
++#pragma once
++
++#include <mach-o/getsect.h>
++
++extern const struct mach_header_64 _mh_execute_header;
+diff --git a/dm/host/linux/include/malloc/malloc.h b/dm/host/linux/include/malloc/malloc.h
+index 0717b40..587d915 100644
+--- a/dm/host/linux/include/malloc/malloc.h
++++ b/dm/host/linux/include/malloc/malloc.h
+@@ -10,6 +10,7 @@
+ typedef struct malloc_zone *malloc_zone_t;
+ 
+ malloc_zone_t malloc_create_zone(size_t size, void *start);
++void malloc_destroy_zone(malloc_zone_t zone);
+ void malloc_set_zone_name(malloc_zone_t zone, const char *name);
+ const char *malloc_zone_name(malloc_zone_t zone);
+ void *malloc_zone_malloc(malloc_zone_t zone, size_t size);
+diff --git a/dm/host/linux/linux_compat.c b/dm/host/linux/linux_compat.c
+index 3988213..9eb021b 100644
+--- a/dm/host/linux/linux_compat.c
++++ b/dm/host/linux/linux_compat.c
+@@ -27,7 +27,7 @@
+ #include <dirent.h>
+ #include <errno.h>
+ #include <fcntl.h>
+-#include "dm_linux.h"
++#include <dm_linux.h>
+ #include <link.h>
+ #include <CommonCrypto/CommonDigest.h>
+ #include <CoreFoundation/CoreFoundation.h>
+@@ -661,6 +661,14 @@ void CFDictionarySetValue(CFDictionaryRef dict, const void *key, const void *val
+     d->n++;
+ }
+ 
++void CFDictionaryApplyFunction(CFDictionaryRef dict,
++                              void (*applier)(const void *key, const void *value, void *context),
++                              void *context) {
++    if (!dict || !applier) return;
++    cf_dict *d = (cf_dict *)dict;
++    for (int i = 0; i < d->n; i++) applier(d->keys[i], d->values[i], context);
++}
++
+ CFIndex CFDictionaryGetCount(CFDictionaryRef dict) {
+     return dict ? ((cf_dict *)dict)->n : 0;
+ }
+@@ -990,6 +998,12 @@ malloc_zone_t malloc_create_zone(size_t size, void *start) {
+     return z;
+ }
+ 
++void malloc_destroy_zone(malloc_zone_t zone) {
++    // The zone is a name and the allocations belong to the C library: destroying it frees
++    // the name, not the allocations.
++    free(zone);
++}
++
+ void malloc_set_zone_name(malloc_zone_t zone, const char *name) {
+     if (!zone || !name) return;
+     snprintf(zone->name, sizeof zone->name, "%s", name);
+@@ -1228,98 +1242,101 @@ void dm_thread_set_name(const char *name) {
+ 
+ // ---- the registers a signal handler is handed
+ //
+-// The integer registers are in the sigcontext; the NEON registers and their control live
+-// in the fpsimd extension the kernel chains after them (both musl and glibc's aarch64
+-// layouts are this shape).
++// The host's handlers (crash.c on_crash, probe.c probe_hit, hle_thread.c thr_pause_sig)
++// read and write the thread state through `uc->uc_mcontext->__ss`. Linux's sigcontext
++// holds the same registers in a different order, so the view is filled from it once per
++// handler invocation and written back when the handler asks for it.
++//
++// Where the host is ARM64, the registers are the guest's own and the view is exact. Where
++// it is x86_64, the guest's ARM64 code cannot run (see linux/README), so the view names
++// the host's own Intel registers instead: pc = RIP, sp = RSP, fp = RBP, lr = 0 (x86_64 has
++// no link register) and no NEON state at all. A crash dump on x86_64 therefore points at
++// the host's own code, which is the truthful answer for a host that is not emulating the
++// guest.
++
++#if defined(DM_LINUX) && defined(__x86_64__)
++#define DM_UC_GREGS(uc) ((uc)->uc_mcontext.gregs)
++#define DM_UC_FREG(uc) ((uc)->uc_mcontext.fpregs)
++#define DM_UC_FAULT(uc) ((uc)->uc_mcontext.gregs[REG_CR2])
++#else
++#define DM_UC_GREGS(uc) (&(uc)->uc_mcontext.regs[0])
++#define DM_UC_FAULT(uc) ((uc)->uc_mcontext.fault_address)
++#define DM_UC_SP(uc) ((uc)->uc_mcontext.sp)
++#define DM_UC_PC(uc) ((uc)->uc_mcontext.pc)
++#define DM_UC_PSTATE(uc) ((uc)->uc_mcontext.pstate)
++#define DM_UC_FPSR(uc) (t_ns.__fpsr)
++#define DM_UC_FPCR(uc) (t_ns.__fpcr)
++#endif
+ 
+-void dm_linux_ctx_read(void *uc, dm_linux_ctx_t *out) {
+-    memset(out, 0, sizeof *out);
++static __thread dm_linux_state_t t_ss;
++static __thread dm_linux_neon_t t_ns;
++static __thread ucontext_t *t_ss_uc;
++
++static void uc_view_fill(ucontext_t *uc, dm_linux_state_t *ss, dm_linux_neon_t *ns) {
++    memset(ss, 0, sizeof *ss);
++    memset(ns, 0, sizeof *ns);
+     if (!uc) return;
+-    ucontext_t *u = (ucontext_t *)uc;
+-    for (int i = 0; i < 29; i++) out->x[i] = (uint64_t)u->uc_mcontext.regs[i];
+-    out->fp = (uint64_t)u->uc_mcontext.regs[29];
+-    out->lr = (uint64_t)u->uc_mcontext.regs[30];
+-    out->sp = (uint64_t)u->uc_mcontext.sp;
+-    out->pc = (uint64_t)u->uc_mcontext.pc;
+-    out->pstate = (uint32_t)u->uc_mcontext.pstate;
+-    // The fpsimd record: the sigcontext's __reserved is where the kernel chains it
+-    struct dm_linux_ctx_head *head = (struct dm_linux_ctx_head *)(void *)&u->uc_mcontext.__reserved[0];
++#if defined(DM_LINUX) && defined(__x86_64__)
++    // Intel: 23 gregs, in the kernel's order (R8..R15, RDI, RSI, RBP, RBX, RDX, RAX, RCX,
++    // RSP, RIP, EFL, ...). The host's x0..x22 read them; there is nothing beyond them.
++    for (int i = 0; i < 23; i++) ss->__x[i] = (uint64_t)DM_UC_GREGS(uc)[i];
++    for (int i = 23; i < 29; i++) ss->__x[i] = 0;
++    ss->__fp = (uint64_t)DM_UC_GREGS(uc)[REG_RBP];
++    ss->__lr = 0;   // no link register on x86_64
++    ss->__sp = (uint64_t)DM_UC_GREGS(uc)[REG_RSP];
++    ss->__pc = (uint64_t)DM_UC_GREGS(uc)[REG_RIP];
++    ss->__cpsr = (uint32_t)DM_UC_GREGS(uc)[REG_EFL];
++#else
++    for (int i = 0; i < 29; i++) ss->__x[i] = (uint64_t)DM_UC_GREGS(uc)[i];
++    ss->__fp = (uint64_t)DM_UC_GREGS(uc)[29];
++    ss->__lr = (uint64_t)DM_UC_GREGS(uc)[30];
++    ss->__sp = (uint64_t)DM_UC_SP(uc);
++    ss->__pc = (uint64_t)DM_UC_PC(uc);
++    ss->__cpsr = (uint32_t)DM_UC_PSTATE(uc);
++    // The NEON registers: in the fpsimd extension the kernel chains after the sigcontext
++    struct dm_linux_ctx_head *head =
++        (struct dm_linux_ctx_head *)(void *)&uc->uc_mcontext.__reserved[0];
+     for (int guard = 0; head && guard < 16; guard++) {
+         if (!head->magic) break;
+-        if (head->magic == 0x46508001u) {   // FPSIMD_MAGIC: the NEON registers and their control
++        if (head->magic == 0x46508001u) {   // FPSIMD_MAGIC
+             char *base = (char *)head;
+             uint32_t fpsr = 0, fpcr = 0;
+             memcpy(&fpsr, base + 8, sizeof fpsr);
+             memcpy(&fpcr, base + 12, sizeof fpcr);
+-            out->fpsr = fpsr;
+-            out->fpcr = fpcr;
+-            memcpy(out->v, base + 16, sizeof out->v);
+-            return;
++            ns->__fpsr = fpsr;
++            ns->__fpcr = fpcr;
++            memcpy(ns->__v, base + 16, sizeof ns->__v);
++            break;
+         }
+         char *next = (char *)head + head->size;
+         if (next <= (char *)head) break;
+         head = (struct dm_linux_ctx_head *)(void *)next;
+     }
++#endif
+ }
+ 
+-// The fault address and the write bit of a memory fault. Darwin holds both in the
+-// exception state of the ucontext; Linux gives the address in the sigcontext and the
+-// write bit in si_addr's siginfo (a SIGSEGV's si_code SEGV_ACCERR with the page's
+-// protection is the read / write answer, which the handler below reads from the code).
+-uint64_t dm_linux_ctx_fault(void *uc) {
+-    if (!uc) return 0;
+-    return (uint64_t)((ucontext_t *)uc)->uc_mcontext.fault_address;
+-}
+-
+-int dm_linux_ctx_is_write(void *uc) {
+-    (void)uc;
+-    return 0;
++static void uc_view_stash(ucontext_t *uc, const dm_linux_state_t *ss) {
++    if (!uc) return;
++#if defined(DM_LINUX) && defined(__x86_64__)
++    for (int i = 0; i < 23; i++) DM_UC_GREGS(uc)[i] = (long)ss->__x[i];
++    DM_UC_GREGS(uc)[REG_RBP] = (long)ss->__fp;
++    DM_UC_GREGS(uc)[REG_RSP] = (long)ss->__sp;
++    DM_UC_GREGS(uc)[REG_RIP] = (long)ss->__pc;   // the probe's trampoline slot
++    DM_UC_GREGS(uc)[REG_EFL] = (long)ss->__cpsr;
++#else
++    for (int i = 0; i < 29; i++) uc->uc_mcontext.regs[i] = (unsigned long)ss->__x[i];
++    uc->uc_mcontext.regs[29] = (unsigned long)ss->__fp;
++    uc->uc_mcontext.regs[30] = (unsigned long)ss->__lr;
++    uc->uc_mcontext.sp = (unsigned long)ss->__sp;
++    uc->uc_mcontext.pc = (unsigned long)ss->__pc;
++    uc->uc_mcontext.pstate = (unsigned long)ss->__cpsr;
++#endif
+ }
+ 
+-// ---- the register view of a ucontext, in Darwin's member names
+-//
+-// The host's handlers (crash.c on_crash, probe.c probe_hit, hle_thread.c thr_pause_sig)
+-// read and write the thread state through `uc->uc_mcontext->__ss`. Linux's sigcontext
+-// holds the same registers in a different order, so the view is filled from it once per
+-// handler invocation and written back when the handler asks for it.
+-
+-static __thread dm_linux_state_t t_ss;
+-static __thread dm_linux_neon_t t_ns;
+-static __thread ucontext_t *t_ss_uc;
+-static __thread int t_ss_dirty;
+-
+ dm_linux_state_t *dm_uc_ss(ucontext_t *uc) {
+-    if (!uc) return &t_ss;
+     if (uc != t_ss_uc) {
+-        memset(&t_ss, 0, sizeof t_ss);
+-        memset(&t_ns, 0, sizeof t_ns);
+-        for (int i = 0; i < 29; i++) t_ss.__x[i] = (uint64_t)uc->uc_mcontext.regs[i];
+-        t_ss.__fp = (uint64_t)uc->uc_mcontext.regs[29];
+-        t_ss.__lr = (uint64_t)uc->uc_mcontext.regs[30];
+-        t_ss.__sp = (uint64_t)uc->uc_mcontext.sp;
+-        t_ss.__pc = (uint64_t)uc->uc_mcontext.pc;
+-        t_ss.__cpsr = (uint32_t)uc->uc_mcontext.pstate;
++        uc_view_fill(uc, &t_ss, &t_ns);
+         t_ss_uc = uc;
+-        t_ss_dirty = 0;
+-        // The NEON registers: in the fpsimd extension of the sigcontext
+-        struct dm_linux_ctx_head *head =
+-            (struct dm_linux_ctx_head *)(void *)&uc->uc_mcontext.__reserved[0];
+-        for (int guard = 0; head && guard < 16; guard++) {
+-            if (!head->magic) break;
+-            if (head->magic == 0x46508001u) {   // FPSIMD_MAGIC
+-                char *base = (char *)head;
+-                uint32_t fpsr = 0, fpcr = 0;
+-                memcpy(&fpsr, base + 8, sizeof fpsr);
+-                memcpy(&fpcr, base + 12, sizeof fpcr);
+-                t_ns.__fpsr = fpsr;
+-                t_ns.__fpcr = fpcr;
+-                memcpy(t_ns.__v, base + 16, sizeof t_ns.__v);
+-                break;
+-            }
+-            char *next = (char *)head + head->size;
+-            if (next <= (char *)head) break;
+-            head = (struct dm_linux_ctx_head *)(void *)next;
+-        }
+     }
+     return &t_ss;
+ }
+@@ -1331,13 +1348,40 @@ dm_linux_neon_t *dm_uc_ns(ucontext_t *uc) {
+ 
+ void dm_linux_ss_stash(ucontext_t *uc) {
+     if (!uc || uc != t_ss_uc) return;
+-    for (int i = 0; i < 29; i++) uc->uc_mcontext.regs[i] = (unsigned long)t_ss.__x[i];
+-    uc->uc_mcontext.regs[29] = (unsigned long)t_ss.__fp;
+-    uc->uc_mcontext.regs[30] = (unsigned long)t_ss.__lr;
+-    uc->uc_mcontext.sp = (unsigned long)t_ss.__sp;
+-    uc->uc_mcontext.pc = (unsigned long)t_ss.__pc;
+-    uc->uc_mcontext.pstate = (unsigned long)t_ss.__cpsr;
+-    t_ss_dirty = 0;
++    uc_view_stash(uc, &t_ss);
++}
++
++void dm_linux_ctx_read(void *uc, dm_linux_ctx_t *out) {
++    dm_linux_state_t ss;
++    dm_linux_neon_t ns;
++    memset(out, 0, sizeof *out);
++    uc_view_fill((ucontext_t *)uc, &ss, &ns);
++    for (int i = 0; i < 29; i++) out->x[i] = ss.__x[i];
++    out->fp = ss.__fp;
++    out->lr = ss.__lr;
++    out->sp = ss.__sp;
++    out->pc = ss.__pc;
++    out->pstate = ss.__cpsr;
++    memcpy(out->v, ns.__v, sizeof out->v);
++    out->fpcr = ns.__fpcr;
++    out->fpsr = ns.__fpsr;
++}
++
++// The fault address of a memory fault. Darwin holds it in the exception state of the
++// ucontext; Linux gives it in the sigcontext (arm64: fault_address, x86_64: CR2).
++
++// The write / read bit of that fault. Darwin reads it from the ESR; Linux's siginfo has no
++// such bit in a form that is stable across architectures (an x86_64 SEGV_ACCERR does not
++// say read or write either), so the host's crash line reports the address and leaves the
++// direction out rather than guessing it.
++int dm_linux_ctx_is_write(void *uc) {
++    (void)uc;
++    return 0;
++}
++
++uint64_t dm_linux_ctx_fault(void *uc) {
++    if (!uc) return 0;
++    return (uint64_t)DM_UC_FAULT((ucontext_t *)uc);
+ }
+ 
+ // ---- the scheduler interfaces of Darwin's pthread
+@@ -1423,3 +1467,43 @@ size_t compression_decode_buffer(void *dst, size_t dst_size, const void *src, si
+ static int g_pool_dummy;
+ void *objc_autoreleasePoolPush(void) { return &g_pool_dummy; }
+ void objc_autoreleasePoolPop(void *pool) { (void)pool; }
++
++// ---- the linker's own symbol
++//
++// hle.c and loader.c name the running image through the Mach-O symbol _mh_execute_header.
++// On Linux the section lookup reads the executable's own headers (see getsectiondata
++// above), so the symbol exists for the two files that take its address and is otherwise
++// unused: an empty object whose address no code inspects.
++const struct mach_header_64 _mh_execute_header;
++
++// The CoreFoundation the guest-file path uses: a URL for the files' folder and the
++// system's purge-service answer. Linux has no purge service, so the property answers
++// false and the caller takes its "not known" answer (-1), which it already has.
++const CFStringRef kCFURLVolumeAvailableCapacityForImportantUsageKey = (CFStringRef)"important";
++const CFStringRef kCFURLVolumeAvailableCapacityKey = (CFStringRef)"available";
++
++CFURLRef CFURLCreateFromFileSystemRepresentation(CFAllocatorRef allocator, const UInt8 *buffer,
++                                                 CFIndex bufLen, Boolean isDirectory) {
++    (void)allocator;
++    (void)buffer;
++    (void)bufLen;
++    (void)isDirectory;
++    return NULL;   // no URL for it: the caller asks the property of nothing
++}
++
++CFTypeID CFNumberGetTypeID(void) { return 2; }
++Boolean CFNumberGetValue(CFNumberRef number, CFIndex theType, void *valuePtr) {
++    (void)number;
++    (void)theType;
++    (void)valuePtr;
++    return 0;   // no numbers in the shim: the caller reads nothing and takes -1
++}
++const CFIndex kCFNumberSInt64Type = 4;
++
++Boolean CFURLCopyResourcePropertyForKey(CFURLRef url, CFStringRef key, void *value, CFStringRef *error) {
++    (void)url;
++    (void)key;
++    (void)error;
++    if (value) *(const void **)value = NULL;
++    return 0;
++}
+diff --git a/dm/host/linux/linux_dispatch.c b/dm/host/linux/linux_dispatch.c
+index 8905220..c6ebc54 100644
+--- a/dm/host/linux/linux_dispatch.c
++++ b/dm/host/linux/linux_dispatch.c
+@@ -369,6 +369,21 @@ void dispatch_suspend(dispatch_source_t source) {
+     pthread_mutex_unlock(&g_sig_mu);
+ }
+ 
++// Cancel a source: it runs no further handlers. The shim leaves the thread reading its
++// pipe alone (it wakes for the next signal and finds no active source), which is the same
++// effect for a single-shot signal source as the host's (dm_term_install re-arms a new one
++// every time it is called).
++void dispatch_source_cancel(dispatch_source_t source) {
++    if (!source) return;
++    pthread_mutex_lock(&g_sig_mu);
++    source->active = 0;
++    if (source->handler) {
++        _Block_release(source->handler);
++        source->handler = NULL;
++    }
++    pthread_mutex_unlock(&g_sig_mu);
++}
++
+ void dispatch_release(void *object) {
+     (void)object;
+ }
+diff --git a/dm/host/linux/linux_gfx_stub.c b/dm/host/linux/linux_gfx_stub.c
+index b650c51..1b3c384 100644
+--- a/dm/host/linux/linux_gfx_stub.c
++++ b/dm/host/linux/linux_gfx_stub.c
+@@ -200,6 +200,13 @@ void mtl_tex_gpu_written(const tex_t *t) { (void)t; }
+ int mtl_tex_gpu_owned(uint64_t serial) { (void)serial; return 1; }
+ int mtl_tex_cpu_rewritten(const tex_t *t) { (void)t; return MTL_REWRITE_GPU; }
+ 
++// ---- the pipeline archive
++//
++// The archive is the replay layer's cache, and the stub has no pipelines: there is nothing
++// to write, so the call answers at once whether it is asked to wait or the process is
++// ending.
++void mtl_arch_save(int wait_ms, int ending) { (void)wait_ms; (void)ending; }
++
+ // ---- the diagnostic counters of the power line and the NVN report
+ //
+ // Every one reads zero: the stub draws nothing, so there is nothing to count. The host's
+diff --git a/dm/host/linux/linux_media_stub.c b/dm/host/linux/linux_media_stub.c
+index dbbb312..72d71ed 100644
+--- a/dm/host/linux/linux_media_stub.c
++++ b/dm/host/linux/linux_media_stub.c
+@@ -61,3 +61,65 @@ int md_rgba(const void *src, size_t n, int w, int h, void *dst, size_t dn) {
+ 
+ // ---- the offline pipeline prebuild (main.c DM_PSO_PREBUILD=tool)
+ int mtl_pso_prebuild_tool(void) { return 0; }
++
++#if defined(DM_LINUX) && defined(__x86_64__)
++// ---- blank native images
++//
++// dm_native_image_blank / _blank_free are the pictures the host fills when it has no source
++// (GameChat's camera pictures, hle_misc.c). They are anonymous storage, not guest code and
++// not device output, so they exist on every host: the decoder that owns the rest of the
++// native-image table (hle_codec_video.c, over libvpx and the ARM64 configuration) is out of
++// the x86_64 build, and hle_nvn.c's dm_native_image stays weak and answers "no picture" for
++// the handles that belong to it.
++#include <pthread.h>
++#include <sys/mman.h>
++#include <stdint.h>
++
++#define BLANK_MAX_X86 32
++#define CV_NATIVE_ALIGN_X86 0x4000ull   // = hle_codec_video.c CV_NATIVE_ALIGN
++static struct { uint32_t w, h; uint8_t *mem; uint64_t size; } g_blank_x86[BLANK_MAX_X86];
++static pthread_mutex_t g_blank_x86_mu = PTHREAD_MUTEX_INITIALIZER;
++static uint32_t blank_stride_x86(uint32_t w) { return (w * 16 + 63) & ~63u; }
++
++uint32_t dm_native_image_blank(uint32_t w, uint32_t h) {
++    uint64_t size = ((uint64_t)blank_stride_x86(w) * h + CV_NATIVE_ALIGN_X86 - 1) & ~(CV_NATIVE_ALIGN_X86 - 1);
++    void *mem = size ? mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0) : MAP_FAILED;
++    if (mem == MAP_FAILED) return 0;
++    pthread_mutex_lock(&g_blank_x86_mu);
++    uint32_t k = 0;
++    while (k < BLANK_MAX_X86 && g_blank_x86[k].mem) k++;
++    if (k < BLANK_MAX_X86) {
++        g_blank_x86[k].w = w;
++        g_blank_x86[k].h = h;
++        g_blank_x86[k].mem = mem;
++        g_blank_x86[k].size = size;
++    }
++    pthread_mutex_unlock(&g_blank_x86_mu);
++    if (k == BLANK_MAX_X86) {
++        munmap(mem, size);
++        return 0;
++    }
++    return 0x80000000u | (k + 1);
++}
++
++void dm_native_image_blank_free(uint32_t handle) {
++    uint32_t k = (handle & 0x7fffffffu) - 1;
++    if (!(handle >> 31) || k >= BLANK_MAX_X86) return;
++    pthread_mutex_lock(&g_blank_x86_mu);
++    uint8_t *mem = g_blank_x86[k].mem;
++    uint64_t size = g_blank_x86[k].size;
++    memset(&g_blank_x86[k], 0, sizeof g_blank_x86[k]);
++    pthread_mutex_unlock(&g_blank_x86_mu);
++    if (mem) munmap(mem, size);
++}
++#endif
++
++// ---- the graceful shutdown's release steps the host takes
++//
++// dm_host_shutdown (hle_lifecycle.c) stops the audio, the movie and the audit, releases
++// guest memory, tears down the allocator zone and unloads the modules. On a Linux build
++// without the audio and movie layers those steps are not there, so the stub answers them:
++// audio is not there to stop, and the guest's memory and modules belong to the portable
++// layer (loader.c, hle_svc.c) which the fork's teardown covers.
++void dm_audio_stop_all(void) {}
++
+diff --git a/dm/host/linux/tests/adversarial_linux.sh b/dm/host/linux/tests/adversarial_linux.sh
+new file mode 100755
+index 0000000..accae0b
+--- /dev/null
++++ b/dm/host/linux/tests/adversarial_linux.sh
+@@ -0,0 +1,80 @@
++#!/usr/bin/env bash
++# The Linux modes' adversarial checks: each one is a way the run can be asked for the wrong
++# thing, and each has one expected answer. They exist so the failure modes are properties
++# the build keeps, not behaviour someone remembered.
++#
++#   engine/dm/host/linux/tests/adversarial_linux.sh
++#
++# Run from anywhere; it builds nothing and uses the binaries beside the host's Makefile.
++set -u
++
++HERE="$(cd "$(dirname "$0")/../.." && pwd)"       # dm/host
++QEMU="${QEMU_AARCH64:-qemu-aarch64-static}"
++MODS="${M3_TEST_MODS:-/tmp/nx2-no-mods}"     # a folder with no game in it
++pass=0
++fail=0
++
++say() { printf '%s\n' "$*"; }
++check() { # check <name> <expected exit> <actual exit>
++    if [ "$2" = "$3" ]; then pass=$((pass + 1)); say "ok: $1 (exit $3)";
++    else fail=$((fail + 1)); say "[RED] $1: expected exit $2, got $3"; fi
++}
++
++# 1. the native mode needs no QEMU on the path
++PATH=/usr/bin:/bin QEMU_AARCH64= "$HERE/run-linux" --mode native "$MODS" >/dev/null 2>&1
++check "native without QEMU on the path still runs the host" 134 $?
++
++# 2. the qemu mode without QEMU says so and stops
++out=$(PATH=/usr/bin:/bin QEMU_AARCH64= "$HERE/run-linux" --mode qemu "$MODS" 2>&1)
++rc=$?
++check "qemu mode without QEMU fails cleanly" 3 $rc
++case "$out" in
++    *"needs qemu-aarch64-static"*) pass=$((pass + 1)); say "ok: the qemu failure names the emulator";;
++    *) fail=$((fail + 1)); say "[RED] the qemu failure does not name the emulator";;
++esac
++
++# 3. a missing binary is not a silent success
++tmp=$(mktemp -d)
++cp "$HERE/run-linux" "$tmp/"
++(cd "$tmp" && ./run-linux --mode native "$MODS" >/dev/null 2>&1)
++check "a mode whose binary is not built fails" 5 $?
++rm -rf "$tmp"
++
++# 4. the wrong ELF for the machine is caught before it runs
++tmp=$(mktemp -d)
++cp "$HERE/run-linux" "$tmp/"
++cp "$HERE/dmhost_linux-aarch64" "$tmp/dmhost_linux-x86_64" 2>/dev/null || true
++if [ -f "$tmp/dmhost_linux-x86_64" ]; then
++    (cd "$tmp" && ./run-linux --mode native "$MODS" >/dev/null 2>&1)
++    check "the native mode refuses an ELF built for another architecture" 4 $?
++fi
++rm -rf "$tmp"
++
++# 5. a game folder that is not there
++"$HERE/dmhost_linux-x86_64" /tmp/nx2-no-such-modules >/dev/null 2>&1
++check "a module folder that does not exist fails" 134 $?
++
++# 6. an unreadable runtime profile, and a profile with no rows
++DM_PROFILE=/tmp/nx2-no-such-profile "$HERE/dmhost_linux-x86_64" "$MODS" >/dev/null 2>&1
++check "a runtime profile that cannot be read fails" 134 $?
++echo garbage > /tmp/nx2-bad-profile
++DM_PROFILE=/tmp/nx2-bad-profile "$HERE/dmhost_linux-x86_64" "$MODS" >/dev/null 2>&1
++check "a runtime profile with no rows fails" 134 $?
++
++# 7. the native mode must never fall back to qemu: with qemu on the path and the native
++#    binary present, the process is the host itself, not an emulator
++if "$HERE/run-linux" --mode native "$MODS" 2>&1 | grep -q "\[dm\] host x86_64 Linux"; then
++    pass=$((pass + 1)); say "ok: the native mode runs the host binary itself"
++else
++    fail=$((fail + 1)); say "[RED] the native mode did not show the host's own banner"
++fi
++# and the qemu mode's host is the ARM64 one, under the emulator (the same banner says aarch64)
++if "$HERE/run-linux" --mode qemu --qemu "${QEMU}" "$MODS" 2>&1 | grep -q "\[dm\] host aarch64 Linux"; then
++    pass=$((pass + 1)); say "ok: the qemu mode runs the ARM64 host under the emulator"
++else
++    fail=$((fail + 1)); say "[RED] the qemu mode did not run the ARM64 host"
++fi
++
++say ""
++say "adversarial: $pass ok, $fail failed"
++[ "$fail" = 0 ]
+diff --git a/dm/host/linux/tests/t_linux_compat.c b/dm/host/linux/tests/t_linux_compat.c
+index 7d0e848..67ca4f4 100644
+--- a/dm/host/linux/tests/t_linux_compat.c
++++ b/dm/host/linux/tests/t_linux_compat.c
+@@ -140,7 +140,7 @@ static void test_mapping(void) {
+ // The host's thread bookkeeping: its own port, the task's threads, and the CPU time
+ static void test_threads(void) {
+     ok(mach_thread_self() != MACH_PORT_NULL, "mach_thread_self");
+-    ok(mach_thread_self() == (mach_port_t)syscall(178 /* gettid, arm64 */),
++    ok(mach_thread_self() == (mach_port_t)syscall(__NR_gettid),
+        "mach_thread_self is this thread's id");
+     thread_act_array_t ta = NULL;
+     mach_msg_type_number_t nth = 0;
+@@ -160,15 +160,28 @@ static void test_threads(void) {
+ // reads on Apple
+ static int module_of_stub(void);
+ 
++#if defined(DM_LINUX) && defined(__x86_64__)
++// x86_64: pc is RIP and sp is RSP, and there is no link register. A handler's own frame
++// gives a non-zero RIP and a stack far above the first page, which is what the crash dump
++// prints on a x86_64 host.
+ static void handler(int sig, siginfo_t *si, void *uc) {
+     (void)sig;
+     (void)si;
+     dm_linux_state_t *ss = dm_uc_ss((ucontext_t *)uc);
+-    ok(ss->__pc != 0 || ss->__x[0] != 0 || 1, "a handler reads the register view");
+-
+-    // the stub's own check: the pc of this frame is where the handler was entered
+-    if (ss->__pc < 0x1000) fails++;
++    ok(ss->__pc > 0x1000, "a handler reads RIP from the register view");
++    ok(ss->__sp > 0x10000, "a handler reads RSP from the register view");
++    ok(ss->__lr == 0, "no link register on x86_64: lr reads 0");
++}
++#else
++static void handler(int sig, siginfo_t *si, void *uc) {
++    (void)sig;
++    (void)si;
++    dm_linux_state_t *ss = dm_uc_ss((ucontext_t *)uc);
++    ok(ss->__pc > 0x1000, "a handler reads the program counter");
++    ok(ss->__lr > 0x1000, "a handler reads the link register");
++    ok(ss->__sp > 0x10000, "a handler reads the stack pointer");
+ }
++#endif
+ 
+ static int module_of_stub(void) { return 0; }
+ 
+diff --git a/dm/host/loader.c b/dm/host/loader.c
+index 7076981..6819b66 100644
+--- a/dm/host/loader.c
++++ b/dm/host/loader.c
+@@ -43,8 +43,13 @@ static void create_keys(void) {
+     LOG("key numbers K18=%lu KTLS=%lu KTLR=%lu KGATE=%lu", g_key18, g_keytls, g_keytlr, g_keygate);
+ }
+ 
+-// K slot check: the pthread TSD layout is fixed, slot = tpidrro_el0 + 8*key
++// K slot check: the pthread TSD layout is fixed, slot = tpidrro_el0 + 8*key. The platform
++// register and the guest's K slots both exist only where the guest runs, so the check is
++// an ARM64-host one (see the x86_64 branch at the end of this file).
+ static void tsd_check(void) {
++#if defined(DM_LINUX) && defined(__x86_64__)
++    return;   // no tpidrro_el0 and no guest on x86_64: nothing to verify against
++#endif
+     pthread_setspecific(g_key18, (void *)0x1234);
+     uint64_t base; __asm__ volatile("mrs %0, tpidrro_el0" : "=r"(base));
+     uint64_t off = *(uint64_t *)(g_mod[0].base + g_mod[0].key_page_off + g_mod[0].key_idx[KEY_K18] * 8);
+diff --git a/dm/host/main.c b/dm/host/main.c
+index 959430e..80bd5e1 100644
+--- a/dm/host/main.c
++++ b/dm/host/main.c
+@@ -171,7 +171,40 @@ void dm_host_preload_start(int argc, char **argv) {
+     pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setstacksize(&a, 8 << 20);
+     if (pthread_create(&g_pre.th, &a, preload_thread, NULL)) die("dm_host_preload_start: cannot start the thread");
+ }
++// ---- the host's architecture and what it can run
++//
++// The game's code is ARM64. A host of the same architecture runs it natively, which is the
++// whole point of this engine (there is no instruction-set translation in it). A host of a
++// different architecture loads, relocates and inspects the game's modules, and answers
++// every Horizon service that does not need to execute them, but the modules' code cannot
++// run: the host stops at that boundary with an explicit exit status rather than reaching
++// ARM64 instructions on a foreign CPU.
++#if defined(__x86_64__)
++#define DM_HOST_ARCH_NAME "x86_64"
++#elif defined(__aarch64__)
++#define DM_HOST_ARCH_NAME "aarch64"
++#elif defined(__arm__)
++#define DM_HOST_ARCH_NAME "arm"
++#else
++#define DM_HOST_ARCH_NAME "unknown"
++#endif
++
++static inline int guest_exec_supported(void) {
++#if defined(__aarch64__)
++    return 1;
++#else
++    return 0;
++#endif
++}
++
+ int main(int argc, char **argv) {
++#ifdef DM_LINUX
++    // What this Linux host can run, said before anything else: the game's code is ARM64, and
++    // a host of a different architecture loads the modules but cannot execute them (the
++    // boundary is below, with exit status 86). A reader of the log sees it in every run.
++    LOG("host " DM_HOST_ARCH_NAME " Linux, guest execution %s",
++        guest_exec_supported() ? "supported" : "unsupported (the modules' code is ARM64)");
++#endif
+     { int mtl_pso_prebuild_tool(void); if (mtl_pso_prebuild_tool()) return 0; }   // DM_PSO_PREBUILD=tool: the pipeline archive's prebuild alone, no game (nvn_mtl.m)
+     if (getenv("DM_PRELOAD")) dm_host_preload_start(argc, argv);   // Exercise the early-start path on Mac (on iOS it is called from the App's main())
+     if (atomic_load(&g_pre.started)) {
+@@ -183,7 +216,13 @@ int main(int argc, char **argv) {
+         void crash_thread_init(void); crash_thread_init();   // The signal alternate stack is per thread: loading installed it on another thread, so add it for this thread
+         LOG("host loading already finished early in the background (dm_host_preload_start)");
+     } else host_preload(argc, argv);
+-    { void dm_fps_state_apply(void); dm_fps_state_apply(); }   // frame rate and render scale into the frame step state page (loader.c): the iOS launcher sets them after the loading began
+-    front_run(guest_main);
++    LOG("host " DM_HOST_ARCH_NAME " Linux, guest execution %s", guest_exec_supported() ? "supported" : "unsupported (the modules' code is ARM64)");
++    if (!guest_exec_supported()) {
++        // Not a die(): the host did its work, and the reason is the architecture, not a
++        // fault. The exit status says so, so a caller can tell the two apart.
++        LOG("[RED] the game's ARM64 modules cannot run on a " DM_HOST_ARCH_NAME " host: they were loaded and relocated, and the host stops at the boundary where the game's code would start");
++        return 86;
++    }
++    { void dm_fps_state_apply(void); dm_fps_state_apply(); }   // frame rate and render scale into the frame step state page (loader.c): the iOS launcher sets them after the loading began    front_run(guest_main);
+     return 0;
+ }
+diff --git a/dm/host/run-linux b/dm/host/run-linux
+new file mode 100755
+index 0000000..e7bc1b0
+--- /dev/null
++++ b/dm/host/run-linux
+@@ -0,0 +1,132 @@
++#!/usr/bin/env python3
++"""Run the Linux host in one of two modes: qemu or native.
++
++    ./run-linux [--mode qemu|native] [--game <title ID>] [-- <host arguments>]
++
++qemu    The ARM64 host binary, run under an emulator. It is the differential reference: the
++        guest's ARM64 code runs (slowly) and the whole engine is exercised. Needs
++        qemu-aarch64-static (QEMU_AARCH64 or --qemu names it) on an x86_64 machine, and
++        nothing on an ARM64 one, where it runs the same binary as the native mode.
++
++native  The host binary for this machine's own architecture, run directly: no emulator, no
++        binfmt_misc, no QEMU on the path. On an ARM64 machine that is the ARM64 binary and
++        the guest's code runs as it does under the qemu mode. On an x86_64 machine it is the
++        x86_64 binary, and the host says so and stops where the guest's code would start
++        (exit status 86), because the game's modules are ARM64 and this engine has no
++        instruction-set translation.
++
++The native mode never falls back to qemu: a missing binary, a wrong architecture or a
++missing emulator are three different failures with three different exit codes.
++"""
++import argparse
++import os
++import platform
++import shutil
++import subprocess
++import sys
++from pathlib import Path
++
++HERE = Path(__file__).resolve().parent
++BIN = lambda arch: HERE / ("dmhost_linux-" + arch)
++QEMU_EXIT = 3          # the emulator the qemu mode needs is not there
++NATIVE_ARCH_EXIT = 4   # no native binary for this machine's architecture
++BIN_MISSING_EXIT = 5   # the mode's binary has not been built
++GUEST_UNSUPPORTED_EXIT = 86   # the host loaded the modules and cannot run their code
++
++EXIT_CODES = {
++    0: "ok",
++    1: "the host reported a failure",
++    2: "usage",
++    QEMU_EXIT: "qemu is not available",
++    NATIVE_ARCH_EXIT: "no native binary for this architecture",
++    BIN_MISSING_EXIT: "the binary for this mode has not been built",
++    GUEST_UNSUPPORTED_EXIT: "the guest's code cannot run on this host",
++    70: "the GPU was lost",
++    86: "the guest's code cannot run on this host",
++    87: "the disk is full",
++    128 + 6: "the host aborted",
++}
++
++
++def machine() -> str:
++    """This machine's architecture, in the names the build uses."""
++    m = platform.machine()
++    return {"x86_64": "x86_64", "AMD64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}.get(m, m)
++
++
++def elf_arch(path: Path) -> str:
++    """The architecture an ELF file was built for, from its header (no external tools)."""
++    import struct
++    with open(path, "rb") as f:
++        head = f.read(20)
++    if head[:4] != b"\x7fELF":
++        return "not an ELF file"
++    # e_machine is the second 16-bit word of the header (byte 18)
++    f = open(path, "rb")
++    f.seek(18)
++    e_machine = struct.unpack("<H", f.read(2))[0]
++    f.close()
++    return {0xB7: "aarch64", 0x3E: "x86_64"}.get(e_machine, "unknown (%d)" % e_machine)
++
++
++def find_qemu(name=None) -> str:
++    """The emulator the qemu mode runs the ARM64 binary with."""
++    for cand in [name or os.environ.get("QEMU_AARCH64"), "qemu-aarch64-static", "qemu-aarch64"]:
++        if cand and (Path(cand).exists() or shutil.which(cand)):
++            return cand
++    return ""
++
++
++def run(argv, env=None):
++    """Run a process, print its output, and give back its exit status."""
++    p = subprocess.run(argv, env=env)
++    return p.returncode
++
++
++def main():
++    ap = argparse.ArgumentParser(add_help=False)
++    ap.add_argument("--mode", choices=["qemu", "native"], default=None)
++    ap.add_argument("--game", default=os.environ.get("DM_GAME", ""))
++    ap.add_argument("--qemu", default=None)
++    ap.add_argument("args", nargs=argparse.REMAINDER)
++    a = ap.parse_args()
++
++    mode = a.mode or ("qemu" if machine() == "x86_64" and BIN("aarch64").exists() else "native")
++    host_args = [x for x in a.args if x != "--"]
++
++    print("run-linux: host %s, mode %s" % (machine(), mode), file=sys.stderr)
++
++    if mode == "native":
++        arch = machine()
++        binary = BIN(arch)
++        if not binary.exists():
++            print("run-linux: no native binary for %s (dmhost_linux-%s): build it with "
++                  "make -f Makefile.linux GAME=<id> ARCH=%s" % (arch, arch, arch), file=sys.stderr)
++            return BIN_MISSING_EXIT
++        if elf_arch(binary) != arch:
++            print("run-linux: dmhost_linux-%s is an ELF for %s, not for this machine's %s"
++                  % (arch, elf_arch(binary), arch), file=sys.stderr)
++            return NATIVE_ARCH_EXIT
++        # The native mode runs the host itself. Nothing else is on the path: no qemu, no
++        # binfmt, no fallback of any kind.
++        return run([str(binary)] + host_args)
++
++    # qemu: the ARM64 binary under an emulator (on an ARM64 machine it is the same binary,
++    # run directly, which is what the mode's fallthrough does)
++    binary = BIN("aarch64")
++    if not binary.exists():
++        print("run-linux: dmhost_linux-aarch64 is not built: make -f Makefile.linux "
++              "GAME=<id> ARCH=aarch64", file=sys.stderr)
++        return BIN_MISSING_EXIT
++    if machine() == "aarch64":
++        return run([str(binary)] + host_args)
++    q = find_qemu(a.qemu)
++    if not q:
++        print("run-linux: the qemu mode needs qemu-aarch64-static (QEMU_AARCH64 or --qemu "
++              "names it) and it is not on the path", file=sys.stderr)
++        return QEMU_EXIT
++    return run([q, str(binary)] + host_args)
++
++
++if __name__ == "__main__":
++    sys.exit(main())

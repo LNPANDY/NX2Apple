@@ -26,6 +26,25 @@ from nspb_qt.i18n import Lang  # noqa: E402
 from nspb_qt.l10n import TABLE  # noqa: E402
 
 FIXTURES = json.loads((ROOT / 'frontend/Tests/Fixtures/build_failures.json').read_text(encoding='utf-8'))
+
+
+def c_strerror(err: int) -> str:
+    """The system's message for an errno in the C locale.
+
+    The fixtures hold the English text, because that is what the engine prints: the launcher
+    runs its children with LC_ALL=C (nspb_qt/platform_util.py, child_env). The test process
+    may run under any locale though (Qt sets the C library's locale from the environment when
+    it starts), and then os.strerror answers in that language. The comparison is about the
+    English text, so it asks for the C locale explicitly.
+    """
+    import locale
+    old = locale.setlocale(locale.LC_ALL)
+    try:
+        locale.setlocale(locale.LC_ALL, 'C')
+        return os.strerror(err)
+    finally:
+        locale.setlocale(locale.LC_ALL, old)
+
 # the table is the classifier's (the app target), the kinds and their override flags are NXCore's
 SWIFT = ''.join((ROOT / 'frontend/Sources' / f).read_text(encoding='utf-8')
                 for f in ('NXCore/BuildFailureClassifier.swift', 'NXCore/BuildFailureKind.swift'))
@@ -53,10 +72,10 @@ class Classifier(unittest.TestCase):
         for f in FIXTURES:
             with self.subTest(pattern=f['id']):
                 if f['source'] == 'errno':   # the system's own text, not the script's
-                    self.assertEqual(os.strerror(errno.ENOSPC), f['fragment'])
+                    self.assertEqual(c_strerror(errno.ENOSPC), f['fragment'])
                     continue
                 if f['source'] == 'errno45':   # the system's text for ENOTSUP, which renamex_np answers on a volume without RENAME_SWAP
-                    self.assertEqual(os.strerror(errno.ENOTSUP), f['fragment'])
+                    self.assertEqual(c_strerror(errno.ENOTSUP), f['fragment'])
                     continue
                 if f['source'] == 'codesign':   # Apple's text, from a tool the script runs
                     continue

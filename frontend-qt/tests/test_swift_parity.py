@@ -2183,6 +2183,15 @@ class ParityWindowTests(unittest.TestCase):
         from nspb_qt.sheets import OnboardingDialog
         from nspb_qt.ui import MainWindow
 
+        # The window's deferred first check (a 50 ms single-shot timer, ui.py _init_timer)
+        # rebuilds the rows from the machine's own tools, which is what the panel is for.
+        # This test puts its own rows there, so the check is off for the whole test and the
+        # timer is stopped: otherwise the two race, and whether the rows survived to the
+        # assertion at the end depended on when the timer happened to fire.
+        p_check = mock.patch.object(Model, 'check_deps', lambda self: None)
+        p_check.start()
+        self.addCleanup(p_check.stop)
+
         with mock.patch.object(Model, 'check_deps', lambda self: None):
             m = Model()
 
@@ -2194,6 +2203,7 @@ class ParityWindowTests(unittest.TestCase):
 
         with mock.patch.object(MainWindow, '_maybe_show_onboarding', lambda self: None):
             w = MainWindow(m)
+        w._init_timer.stop()   # the deferred first check's timer: stopped, so it cannot race this test
         dlg = OnboardingDialog(m)
         self.addCleanup(dlg.deleteLater)
         self.addCleanup(self._delete, m, w)

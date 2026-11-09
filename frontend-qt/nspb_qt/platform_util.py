@@ -14,6 +14,7 @@ from pathlib import Path
 
 IS_WIN = sys.platform.startswith('win')
 IS_MAC = sys.platform == 'darwin'
+IS_LINUX = sys.platform.startswith('linux')
 
 #: The build script's own floor: `build_ipa_from_nsp.py` raises below 3.12 for a direct RomFS
 #: image build, and its f-strings do not parse on 3.9. `/usr/bin/python3` is 3.9 on a stock Mac,
@@ -239,6 +240,8 @@ def _runs(exe: str, args: list[str]) -> bool:
 def venv_dir() -> Path:
     if IS_WIN:
         base = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local'))
+    elif IS_LINUX:
+        base = Path.home() / '.local' / 'share'
     else:
         base = Path.home() / 'Library' / 'Application Support'
     return base / 'NS Port Builder' / 'venv'
@@ -301,15 +304,26 @@ def find_tool(name: str) -> str | None:
         extra = [rf'C:\Program Files\{name}\{name}.exe',
                  rf'C:\ProgramData\chocolatey\bin\{name}.exe']
         return _which(name + '.exe', extra)
+    if IS_LINUX:
+        return _which(name, [f'/usr/bin/{name}', f'/usr/local/bin/{name}', f'/snap/bin/{name}'])
     return _which(name, [f'/opt/homebrew/bin/{name}', f'/usr/local/bin/{name}'])
 
 
 def metal_toolchain_ok() -> bool:
     """Whether a Metal compiler answers. On Windows that is Apple's Metal Developer Tools
-    (metal.exe + metallib.exe); on macOS it is xcrun's."""
+    (metal.exe + metallib.exe); on macOS it is xcrun's. Linux has no Metal compiler: its
+    shader chain is Vulkan (see vulkan_shader_tools)."""
     if IS_WIN:
         return find_tool('metal') is not None and find_tool('metallib') is not None
+    if IS_LINUX:
+        return False
     return _runs('/usr/bin/xcrun', ['-sdk', 'macosx', 'metal', '--version'])
+
+
+def vulkan_shader_tools() -> tuple[str | None, str | None]:
+    """The Linux shader chain's two tools: spirv-cross (SPIR-V to GLSL for Vulkan) and
+    glslangValidator (that GLSL to SPIR-V). Both are in the distributions' repositories."""
+    return find_tool('spirv-cross'), find_tool('glslangValidator')
 
 
 def ios_sdk_ok() -> bool:
@@ -395,6 +409,13 @@ def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env.setdefault('DOTNET_NOLOGO', '1')
     env.setdefault('PYTHONUTF8', '1')
     env.setdefault('PYTHONIOENCODING', 'utf-8')
+    # The C locale for every child. The engine's own messages are English and the panel's
+    # patterns match them, but the system's text (strerror) follows the machine's locale: a
+    # child that runs with a Spanish or a German locale prints "No space left on device" in
+    # that language, and the panel loses the hint it has for that case. LC_ALL=C keeps every
+    # message the patterns know. The UTF-8 settings above keep the output readable.
+    env['LC_ALL'] = 'C'
+    env['LANG'] = 'C'
     if extra:
         env.update(extra)
     return env
@@ -479,6 +500,24 @@ def reveal(path: str | Path | None) -> bool:
         try:
             cmd = ['/usr/bin/open', '-R', str(target)] if is_file else ['/usr/bin/open', str(target)]
             subprocess.Popen(cmd)
+            return True
+        except OSError:
+            pass
+    elif IS_LINUX:
+        # A file manager that can put the cursor on the file answers the desktop's
+        # FileManager1 call (Nautilus and the others that implement it). Without one the
+        # folder is opened, which is the most a headless machine can do.
+        if is_file:
+            try:
+                subprocess.Popen(['dbus-send', '--session', '--dest=org.freedesktop.FileManager1',
+                                  '--type=method_call', '/org/freedesktop/FileManager1',
+                                  'org.freedesktop.FileManager1.ShowItems',
+                                  f'string:{target.resolve().as_uri()}', 'array:string:file:///'])
+                return True
+            except OSError:
+                pass
+        try:
+            subprocess.Popen(['xdg-open', str(target.parent if is_file else target)])
             return True
         except OSError:
             pass
