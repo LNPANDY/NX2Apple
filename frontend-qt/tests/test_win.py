@@ -2554,7 +2554,15 @@ class WindowsBuildFixesTest(unittest.TestCase):
         if not patch_nso.is_file():
             self.skipTest('engine/ is missing')
 
-        ins_words = [0x910003FD] * (300 * 1024)
+        # One in every 16 words carries its own immediate, so the text compresses within
+        # what an LZ4 block can produce: nso.py checks the stored size against a ratio of
+        # 255 bytes per stored byte, and 300 Ki words of one same instruction compressed to
+        # far past that (0x12c000 claims from 0x511 stored) with the current lz4, which the
+        # rewriter rightly refused. The varied words are all `add x29, sp, #imm`, real
+        # instructions the rewriter leaves alone, and the sites the test writes below keep
+        # their own words.
+        ins_words = [0x910003FD | ((i // 16 & 0xFFF) << 10) if i % 16 == 15 else 0x910003FD
+                     for i in range(300 * 1024)]
         ins_words[100] = 0xF9400252     # ldr x18, [x18] in chunk 0
         ins_words[270000] = 0x91000652  # add x18, x18, #1 in chunk 1
         ins_words[200] = 0xB9400109     # ldr w9, [x8]

@@ -43,8 +43,14 @@ class Fail(Exception):
 
 
 def clean_env(**extra):
-    """The environment without the variables that point git at a repository."""
-    return {**{k: v for k, v in os.environ.items() if k not in REPO_ENV}, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8', **extra}
+    """The environment without the variables that point git at a repository.
+
+    The C locale: the tools match git's own English messages (a patch that does not apply
+    says "Patch failed"), and git speaks the machine's language when the locale says so. On
+    a Spanish or a German machine the message arrives translated and the match is lost.
+    """
+    return {**{k: v for k, v in os.environ.items() if k not in REPO_ENV}, 'PYTHONUTF8': '1', 'PYTHONIOENCODING': 'utf-8',
+            'LC_ALL': 'C', 'LANG': 'C', **extra}
 
 
 def git(*a, cwd=None, check=True, inp=None, binary=False):

@@ -1122,7 +1122,7 @@ def probe_compile(sdk: Path, clang: Path | None = None) -> tuple[bool, str]:
         return True, f'arm64 Mach-O object, {o.stat().st_size} bytes'
 
 
-def ascii_temp_dir(prefix: str = 'nspb-'):
+def ascii_temp_dir(prefix: str = 'nspb-', extra: list[str] | None = None):
     """A temporary directory whose path is pure ASCII, for tools that cannot open anything else.
 
     Apple's Windows ports of metal.exe and metallib.exe (LLVM-based) fail with
@@ -1132,9 +1132,12 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
     screenshots: everything green, Metal Toolchain found, then "metallib failed: LLVM ERROR").
     clang and ld64.lld handle the same path fine, which is why only this probe broke.
 
-    Order: the normal TEMP when it is ASCII (the common case), then the public temp folder, then
-    the drive root. The caller gets a TemporaryDirectory that it must keep open for the tool's
-    lifetime; the fallbacks are only used when the default really cannot work.
+    Order: the normal TEMP when it is ASCII (the common case), then the folders the caller
+    names in `extra`, then the public temp folder, then the drive root on Windows. The caller
+    gets a TemporaryDirectory that it must keep open for the tool's lifetime; the fallbacks are
+    only used when the default really cannot work. The Windows folders are Windows folders: on
+    another system they are names, not paths, and making one leaves a stray directory in the
+    working folder.
     """
     import tempfile as _tf
     def ok(p: str) -> bool:
@@ -1144,9 +1147,14 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
         except UnicodeEncodeError:
             return False
     candidates = [tempfile.gettempdir()]
-    if os.name == 'nt' or 'PUBLIC' in os.environ:
-        candidates += [os.environ.get('PUBLIC', r'C:\Users\Public') + (r'\Temp' if os.name == 'nt' else '/Temp'),
-                       r'C:\Windows\Temp', 'C:\\Temp']
+    if extra:
+        candidates += list(extra)
+    if os.name == 'nt':
+        candidates += [os.environ.get('PUBLIC', r'C:\Users\Public') + r'\Temp', r'C:\Windows\Temp', 'C:\\Temp']
+    else:
+        public = os.environ.get('PUBLIC')
+        if public:
+            candidates.append(public + '/Temp')
     for allow_space in (False, True):
         for base in candidates:
             if not base or not ok(base) or (not allow_space and ' ' in base):

@@ -34,20 +34,16 @@ class AsciiTempDir(unittest.TestCase):
                 self.assertTrue(ascii_only(str(d)))
 
     def test_a_non_ascii_temp_is_skipped_when_an_ascii_one_exists(self):
-        """The reported case: TEMP is C:\\Users\\<中文名>\\… and PUBLIC is available."""
-        with mock.patch.object(tempfile, 'gettempdir', return_value='/tmp/中文名'), \
-             mock.patch.object(toolchain.os, 'name', 'nt'), \
-             mock.patch.dict(os.environ, {'PUBLIC': '/tmp'}):
-            with toolchain.ascii_temp_dir('probe-') as d:
+        """The reported case: TEMP is C:\\Users\\<中文名>\\… and another ASCII folder is known."""
+        with mock.patch.object(tempfile, 'gettempdir', return_value='/tmp/中文名'):
+            with toolchain.ascii_temp_dir('probe-', extra=['/tmp']) as d:
                 self.assertTrue(ascii_only(str(d)), f'{d} is not ASCII')
                 self.assertNotIn('中文', str(d))
 
     def test_a_temp_with_spaces_is_skipped_when_a_space_free_ascii_one_exists(self):
         """metal.exe splits paths on spaces; ascii_temp_dir prefers a space-free ASCII folder."""
-        with mock.patch.object(tempfile, 'gettempdir', return_value='/tmp/My User'), \
-             mock.patch.object(toolchain.os, 'name', 'nt'), \
-             mock.patch.dict(os.environ, {'PUBLIC': '/tmp'}):
-            with toolchain.ascii_temp_dir('probe-') as d:
+        with mock.patch.object(tempfile, 'gettempdir', return_value='/tmp/My User'):
+            with toolchain.ascii_temp_dir('probe-', extra=['/tmp']) as d:
                 self.assertTrue(ascii_only(str(d)), f'{d} is not ASCII')
                 self.assertNotIn(' ', str(d))
 
