@@ -34,6 +34,7 @@ struct CardPages: View {
     var padMerge: Binding<Bool> = .constant(false)   // "All controllers are player 1" (ControlLayout.padMerge)
     var buildFiles: BuildFilesStore? = nil   // Settings > Tools > Build files (#232)
     var buildingID: UUID? = nil   // the game a build runs for
+    var onBuildFileDetails: (UUID) -> Void = { _ in }   // the game's Free space sheet
     @Binding var settingsCategory: SettingsCategory   // the part of Settings shown (kept by the launcher, so a test opens any of them)
     @State private var extrasOpen = false
     @State private var logOpen = false
@@ -44,7 +45,7 @@ struct CardPages: View {
             if settings {
                 SettingsPage(build: build, updates: updates, repo: repo, engine: engine, dependencies: dependencies, library: library, players: players, sticks: sticks, saveSettings: saveSettings,
                              diagnostics: diagnostics, onChooseLibraryFolder: onChooseLibraryFolder, onOpenControls: onOpenControls,
-                             onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge, buildFiles: buildFiles, buildingID: buildingID, category: $settingsCategory)
+                             onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge, buildFiles: buildFiles, buildingID: buildingID, onBuildFileDetails: onBuildFileDetails, category: $settingsCategory)
             } else {
                 BuildPage(build: build, running: build.running, repo: repo, dependencies: dependencies, devices: devices, queue: queue, transfers: transfers, onSelectGames: onSelectGames, extrasOpen: $extrasOpen, logOpen: $logOpen,
                           onViewGame: onViewGame, onOpenSettings: onOpenSettings)

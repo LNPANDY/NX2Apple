@@ -196,7 +196,7 @@ struct LauncherView: View {
                           sticks: stores.sticks, saveSettings: stores.saveSettings, players: stores.players,
                           library: library, diagnostics: stores.diagnostics, onViewGame: { page = .library }, onOpenSettings: { page = .settings },
                           onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
-                          padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), buildFiles: stores.buildFiles, buildingID: m.running ? activeBuildID : nil, settingsCategory: $settingsCategory)
+                          padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), buildFiles: stores.buildFiles, buildingID: m.running ? activeBuildID : nil, onBuildFileDetails: { freeSpaceFor = $0 }, settingsCategory: $settingsCategory)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if m.running && page == .settings { activityBar }
@@ -309,7 +309,10 @@ struct LauncherView: View {
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
             if let game = library.games.first(where: { $0.id == freeSpaceFor }) { FreeSpaceView(m: m, game: game).environmentObject(padFocus) }
         }
-        .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
+        .onChange(of: freeSpaceFor) { id in
+            padFocus.scope = id != nil ? "free" : currentPadScope
+            if id == nil { stores.buildFiles.refresh(BuildFiles.games(library.games, lang: loc.lang)) }   // Details… may have freed some
+        }
         .buildFilesWiring(stores.buildFiles, library: library, recorded: recorder.recorded, buildingID: m.running ? activeBuildID : nil, pad: padFocus, scope: { currentPadScope })
         .cloudSaveSheet(cloudGate, pad: padFocus, scope: { currentPadScope })
         .syncControllerLayouts(library: library, controls: controls)
@@ -701,7 +704,7 @@ struct LauncherView: View {
                             changeArtwork: { openArtwork(game) }, rename: { renaming = game }, supportedGames: openSupportedGames,
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
-                            freeSpace: { freeSpaceFor = game.id }, removeBuildFiles: { stores.buildFiles.ask(game.id, building: m.running && activeBuildID == game.id) }, remove: { removing = game }, delete: { deleting = game }))
+                            removeBuildFiles: { stores.buildFiles.ask(game.id, building: m.running && activeBuildID == game.id) }, remove: { removing = game }, delete: { deleting = game }))
     }
 
     private func manageItems(for game: LibraryGame?) -> [ManageItem] { game.map(manageItems) ?? [] }

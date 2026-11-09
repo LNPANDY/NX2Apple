@@ -2,16 +2,19 @@ import SwiftUI
 import NXModel
 
 /// Settings > Tools, "Build files" (#232): every game with build files, largest first, its size and Remove (after the same question
-/// as the Manage menu's), then the total. Nothing is removed on its own. Remove is off for the game that builds.
+/// as the Manage menu's) and Details… (the per-part Free space sheet), then the total. Nothing is removed on its own. Remove is off for the
+/// game that builds.
 package struct BuildFilesCard: View {
     @ObservedObject var store: BuildFilesStore
     /// The game a build runs for, if any.
     let buildingID: UUID?
+    let details: (UUID) -> Void
     @EnvironmentObject var loc: Localizer
 
-    package init(store: BuildFilesStore, buildingID: UUID?) {
+    package init(store: BuildFilesStore, buildingID: UUID?, details: @escaping (UUID) -> Void = { _ in }) {
         self.store = store
         self.buildingID = buildingID
+        self.details = details
     }
 
     package static func bytes(_ n: Int64) -> String { ByteCountFormatter.string(fromByteCount: n, countStyle: .file) }
@@ -43,6 +46,10 @@ package struct BuildFilesCard: View {
         let detail = building ? loc.t("buildfiles.building") : removing ? loc.t("buildfiles.removing") : Self.bytes(entry.bytes)
         return CardRow(entry.name, detail: detail, help: entry.folder) {
             if removing { ProgressView().controlSize(.small) }
+            Button(loc.t("buildfiles.details")) { details(entry.id) }
+                .disabled(removing)
+                .accessibilityLabel(String(format: loc.t("buildfiles.detailsNamed"), entry.name))
+                .padTarget("set.buildfiles.details.\(index)", scope: "main") { if !removing { details(entry.id) } }
             Button(loc.t("buildfiles.remove")) { store.ask(entry.id, building: building) }
                 .disabled(building || store.removing != nil)
                 .accessibilityLabel(String(format: loc.t("buildfiles.removeNamed"), entry.name))
@@ -70,9 +77,8 @@ package struct BuildFilesRemoveSheet: View {
                              cancelTitle: loc.t("saves.cancel"), confirmTitle: loc.t("buildfiles.remove"), destructive: true,
                              scope: "buildfiles", cancel: cancel, confirm: confirm) {
             VStack(spacing: 0) {
-                CardRow(loc.t("buildfiles.size"), detail: (entry.folder as NSString).abbreviatingWithTildeInPath, help: entry.folder) {
-                    Text(BuildFilesCard.bytes(entry.bytes)).font(.manrope(13, .semibold)).monospacedDigit()
-                }
+                CardRow(String(format: loc.t("buildfiles.frees"), BuildFilesCard.bytes(entry.bytes)), detail: loc.t("buildfiles.stays"),
+                        detail2: (entry.folder as NSString).abbreviatingWithTildeInPath, help: entry.folder) { EmptyView() }
             }
             .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.06)))

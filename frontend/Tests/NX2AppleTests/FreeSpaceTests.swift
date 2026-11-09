@@ -74,13 +74,16 @@ final class FreeSpaceTests: IsolatedDefaultsTestCase {
     func testBuildFilesTextsAreInEnglishGermanAndChineseWithoutSemicolons() {
         for lang in [Lang.en, Lang("de"), Lang.zh] {
             for key in ["buildfiles.title", "buildfiles.note", "buildfiles.menu", "buildfiles.card", "buildfiles.cardNote", "buildfiles.remove",
-                        "buildfiles.total", "buildfiles.building", "buildfiles.removeNamed"] {
+                        "buildfiles.total", "buildfiles.building", "buildfiles.removeNamed", "buildfiles.frees", "buildfiles.stays",
+                        "buildfiles.details", "buildfiles.detailsNamed"] {
                 let text = L10n.string(key, lang)
                 XCTAssertNotEqual(text, key, "\(lang.code) \(key)")
                 XCTAssertFalse(text.contains(";") || text.contains("；"), "\(lang.code) \(key)")
             }
         }
         XCTAssertEqual(L10n.string("buildfiles.note", .en), "The game keeps working. The next build of this game starts over and takes longer.")
+        XCTAssertEqual(String(format: L10n.string("buildfiles.frees", .en), "31 GB") + " " + L10n.string("buildfiles.stays", .en),
+                       "Frees 31 GB. Logs, saves of development builds and converted game files stay.")
     }
 
     func testTheFolderIsFoundInTheOutputFolderOrBesideTheNSPs() throws {

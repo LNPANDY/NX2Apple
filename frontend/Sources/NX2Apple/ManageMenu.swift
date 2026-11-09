@@ -15,7 +15,6 @@ struct ManageActions {
     var supportedGames: () -> Void = {}
     var reveal: () -> Void = {}
     var showLog: () -> Void = {}
-    var freeSpace: () -> Void = {}
     var removeBuildFiles: () -> Void = {}
     var remove: () -> Void = {}
     var delete: () -> Void = {}
@@ -56,8 +55,8 @@ struct ManageItem: Identifiable {
             items.append(.init(id: "log", symbol: "doc.text.magnifyingglass", title: t("library.showLog"), enabled: hasLog,
                                hint: hasLog ? nil : t("library.showLog.none"), run: a.showLog))
         }
-        if hasBuildFolder { items.append(.init(id: "freeSpace", symbol: "externaldrive", title: t("free.menu"), run: a.freeSpace)) }
-        // Remove build files (#232): the whole build folder's removable files, with their size. Never while this game builds.
+        // Remove build files (#232): the whole build folder's removable files, with their size. Never while this game builds. The per-part
+        // Free space sheet is Details… on the game's row of Settings > Tools > Build files.
         if hasBuildFolder, let title = buildFilesTitle {
             let building = running && game.id == activeBuildID
             items.append(.init(id: "buildFiles", symbol: "externaldrive.badge.minus", title: title, enabled: !building,

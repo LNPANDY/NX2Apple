@@ -92,8 +92,8 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
         var game = try readyGame()
         game.artwork.hero = ArtworkChoice(source: .banner)
         let list = items(game, folder: true, log: true)
-        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "rename", "reveal", "log", "freeSpace", "supported", "remove", "delete"])
-        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "cheats.menu", "library.changeArtwork", "library.rename", "install.reveal", "library.showLog", "free.menu", "supported.menu", "library.remove", "delete.menu"]
+        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "rename", "reveal", "log", "supported", "remove", "delete"])
+        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "cheats.menu", "library.changeArtwork", "library.rename", "install.reveal", "library.showLog", "supported.menu", "library.remove", "delete.menu"]
             .map { L10n.string($0, .en) })
         XCTAssertTrue(list.allSatisfy(\.enabled))
         XCTAssertEqual(list.last?.destructive, true)
@@ -150,9 +150,9 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
         var log: [String] = []
         let actions = ManageActions(rebuild: { log.append("rebuild") }, options: { log.append("options") }, saves: { log.append("saves") },
                                     cheats: { log.append("cheats") }, changeArtwork: { log.append("artwork") }, rename: { log.append("rename") }, supportedGames: { log.append("supported") }, reveal: { log.append("reveal") }, showLog: { log.append("log") },
-                                    freeSpace: { log.append("free") }, remove: { log.append("remove") }, delete: { log.append("delete") })
-        for item in items(game, folder: true, log: true, actions: actions) { item.run() }
-        XCTAssertEqual(log, ["rebuild", "options", "saves", "cheats", "artwork", "rename", "reveal", "log", "free", "supported", "remove", "delete"])
+                                    removeBuildFiles: { log.append("buildFiles") }, remove: { log.append("remove") }, delete: { log.append("delete") })
+        for item in items(game, folder: true, log: true, buildFiles: "Remove build files", actions: actions) { item.run() }
+        XCTAssertEqual(log, ["rebuild", "options", "saves", "cheats", "artwork", "rename", "reveal", "log", "buildFiles", "supported", "remove", "delete"])
     }
 
     func testChangeArtworkOpensThePanel() throws {
