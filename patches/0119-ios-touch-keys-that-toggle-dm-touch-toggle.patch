@@ -198,7 +198,7 @@ index 44fe595..cf66148 100644
  DM_TOUCH_LOG	diagnostic	`=1` logs each touch-screen read with touch points (sample, finger, position, attributes) and each gesture entry, up to 500 lines
  DM_TOUCH_SIZE	player	iOS touch-control size: small, medium (default) or large. Controls move toward medium when the requested size does not fit
  DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or inward
-+DM_TOUCH_TOGGLE	player	iOS touch keys set to Toggle in the shell's touch layout editor, as control names joined by commas (for example `zl,zr,a`): a tap turns the key on, the next tap off. Unset, every key is held
++DM_TOUCH_TOGGLE	player	iOS touch keys set to Toggle in the shell's touch layout editor, as control names joined by commas (for example `zl,zr,a`): a tap turns the key on, the next tap off. Also set by the in-game menu of a game's own app (the Touch keys that toggle row), which has no layout editor. Unset, every key is held
  DM_UDC_SELFTEST	diagnostic	`=1` runs a start-up check of DontCare load and store on private depth-stencil and RGBA8 textures (clear, Load + DontCare, read back) and logs one result line
  DM_UE_SHADERS	path	Folder of the Unreal shader code archives decoded by `uepak.py`, for `shader_split.py` (default `ue_shaders` beside the RomFS); needed when the RomFS has Unreal paks
  DM_UE_TEXTURE_POOL	switch	Megabytes Unreal's texture streaming pool (`r.Streaming.PoolSize`) is raised to, overriding the profile's `ue_texture_pool`; `0` keeps the game's own pool. On iOS only this switch turns it on (`Documents/env.txt`)
