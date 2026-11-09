@@ -3,6 +3,7 @@
   "dynamicKeys": [
     {"prefix": "op.", "suffix": "", "why": "the name of each operation of the activity line, ActiveOperation.Kind.key"},
     {"prefix": "queue.status.", "suffix": "", "why": "the status text of each build queue row, BuildQueueCard.swift"},
+    {"prefix": "transfer.status.", "suffix": "", "why": "the status text of each game data transfer row, TransferCard.swift"},
     {"prefix": "artwork.dropHint.", "suffix": "", "why": "the drop hint of each artwork tab, ArtworkPanel.swift"},
     {"prefix": "artwork.grid.", "suffix": "", "why": "the VoiceOver label of each artwork tab's grid, ArtworkEditor.swift"},
     {"prefix": "artwork.reset.", "suffix": "", "why": "the Reset button of each artwork tab, ArtworkPanel.swift"},

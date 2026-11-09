@@ -145,7 +145,7 @@ final class SaveArchiveTests: XCTestCase {
     func testPreviewReadsAnExportOrAFlatFolder() throws {
         try write("exp/save/a.bin", "1"); try write("exp/save_device/b.bin", "2"); try write("flat/slot.bin", "3"); try write("flat/._slot.bin", "x")
         XCTAssertEqual(SaveArchive.preview(root.appendingPathComponent("exp"))?.fileCount, 2)
-        XCTAssertEqual(Set(SaveArchive.preview(root.appendingPathComponent("exp"))?.folders.keys ?? []), ["save", "save_device"])
+        XCTAssertEqual(Set(SaveArchive.preview(root.appendingPathComponent("exp"))?.folders.keys.map { $0 } ?? []), ["save", "save_device"])
         let flat = SaveArchive.preview(root.appendingPathComponent("flat"))
         XCTAssertEqual(flat?.fileCount, 1)
         XCTAssertEqual(flat?.folders["save"], root.appendingPathComponent("flat"))
