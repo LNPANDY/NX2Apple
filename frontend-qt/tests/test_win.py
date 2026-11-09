@@ -4247,11 +4247,6 @@ class UnrealInlineShadersWinTest(unittest.TestCase):
     def test_split_shaders_defers_oodle_for_ue_legacy_and_keeps_for_oodle_packs(self) -> None:
         recorded: list[tuple] = []
         orig_under = self.mod._nspb_orig_split_shaders
-        had_pg = hasattr(self.mod, 'pg')
-        orig_pg = getattr(self.mod, 'pg', None)
-
-        class FakePG:
-            oodle_packs = staticmethod(lambda _r: ([], ''))
 
         def fake_orig(py_, repo_, roms, mains, pkg, env, logs, g,
                       provisional=False, oodle=None, *a, **kw):
@@ -4260,45 +4255,112 @@ class UnrealInlineShadersWinTest(unittest.TestCase):
                 oodle()
             return 'pkg-key'
 
-        self.mod.pg = FakePG
         self.mod._nspb_orig_split_shaders = fake_orig
         self.driver.patch(self.mod, self.repo)
         try:
-            # 1) ue_legacy game (oodle_packs is empty): oodle callback must be dropped so
-            #    build_mac_host is not called upfront, and DM_EXPERIMENTAL_BUILDER is cleared.
-            FakePG.oodle_packs = staticmethod(lambda _r: ([], ''))
-            called = False
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                romfs = root / 'romfs'
+                romfs.mkdir(parents=True)
+                import struct
+                exefs = root / 'ExeFS'
+                exefs.mkdir(parents=True)
+                main_nso = exefs / 'main'
+                nso_buf = bytearray(0x140)
+                nso_buf[:4] = b'NSO0'
+                struct.pack_into('<III', nso_buf, 0x30, 0x100, 0, 0x40)
+                struct.pack_into('<I4siqQqQqQ', nso_buf, 0x104, 8, b'MOD0', 8, 6, 0x40, 5, 0x40, 0, 0)
+                main_nso.write_bytes(bytes(nso_buf))
 
-            def boom_oodle():
-                nonlocal called
-                called = True
-                return {'DM_OODLE_HOST': str(self.mod.build_mac_host(
-                    self.repo, Path('out'), {}, Path('logs'), None))}
+                # 1) ue_legacy game (no non-Unreal Oodle containers in romfs): oodle callback
+                #    must be dropped so build_mac_host is not called upfront, and
+                #    DM_EXPERIMENTAL_BUILDER is cleared.
+                called = False
 
-            res = self.mod.split_shaders(
-                Path(sys.executable), self.repo, [Path('romfs')], [Path('main')],
-                Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
-                provisional=False, oodle=boom_oodle)
-            self.assertEqual(res, 'pkg-key')
-            self.assertFalse(called, 'ue_legacy must not call oodle() before shader_split.py runs')
-            self.assertIsNone(recorded[-1][0])
-            self.assertNotIn('DM_EXPERIMENTAL_BUILDER', recorded[-1][1])
+                def boom_oodle():
+                    nonlocal called
+                    called = True
+                    return {'DM_OODLE_HOST': str(self.mod.build_mac_host(
+                        self.repo, Path('out'), {}, Path('logs'), None))}
 
-            # 2) Non-Unreal Oodle archive game (oodle_packs non-empty): keeps oodle and fails fast.
-            FakePG.oodle_packs = staticmethod(lambda _r: ([Path('arc/data.trpfs')], 'Trinity'))
-            with self.assertRaises(self.mod.BuildError) as ctx:
-                self.mod.split_shaders(
-                    Path(sys.executable), self.repo, [Path('romfs')], [Path('main')],
-                    Path('pkg'), {}, Path('logs'), None,
+                res = self.mod.split_shaders(
+                    Path(sys.executable), self.repo, [romfs], [main_nso],
+                    Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
                     provisional=False, oodle=boom_oodle)
-            self.assertTrue(called)
-            self.assertIn('arm64', str(ctx.exception))
+                self.assertEqual(res, 'pkg-key')
+                self.assertFalse(called, 'ue_legacy must not call oodle() before shader_split.py runs')
+                self.assertIsNone(recorded[-1][0])
+                self.assertNotIn('DM_EXPERIMENTAL_BUILDER', recorded[-1][1])
+
+                # Verify against the real `dm/games/profile_guess.py` module (`self.mod.pg`),
+                # which has `build_sources` (returning a dict with `'oodle_packs'`) and no
+                # standalone `oodle_packs` function (regression for issue #989).
+                self.assertFalse(hasattr(self.mod.pg, 'oodle_packs'))
+
+                # 2) Same check when `pg.build_sources` ran right before `split_shaders`
+                #    with the matching RomFS path (as in `scripts/build_ipa_from_nsp.py:main`).
+                orig_bs = self.mod.pg._nspb_orig_build_sources
+                self.mod.pg._nspb_orig_build_sources = lambda *_a, **_kw: {
+                    'oodle_packs': (False, ''),
+                    'ue_legacy': (True, '2 Unreal pak(s)'),
+                }
+                self.driver.patch(self.mod, self.repo)
+                try:
+                    src = self.mod.pg.build_sources(exefs, romfs, ['main'])
+                    self.assertTrue(src['ue_legacy'][0])
+                    res2 = self.mod.split_shaders(
+                        Path(sys.executable), self.repo, [romfs], [main_nso],
+                        Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
+                        provisional=False, oodle=boom_oodle)
+                    self.assertEqual(res2, 'pkg-key')
+                    self.assertFalse(called)
+                    self.assertIsNone(recorded[-1][0])
+                finally:
+                    self.mod.pg._nspb_orig_build_sources = orig_bs
+                    self.driver.patch(self.mod, self.repo)
+
+                # 3) Cache key mismatch across games: if an earlier game recorded
+                #    `oodle_packs=True` under `other_romfs`, building a `ue_legacy` game at
+                #    `romfs` must not pick up the other game's cached `True` value.
+                other_romfs = root / 'other_game' / 'romfs'
+                orig_bs = self.mod.pg._nspb_orig_build_sources
+                self.mod.pg._nspb_orig_build_sources = lambda _exe, r, *_a, **_kw: {
+                    'oodle_packs': (Path(r) == other_romfs, ''),
+                    'ue_legacy': (True, '2 Unreal pak(s)'),
+                }
+                self.driver.patch(self.mod, self.repo)
+                try:
+                    other_src = self.mod.pg.build_sources(exefs, other_romfs, ['main'])
+                    self.assertTrue(other_src['oodle_packs'][0])
+                    res_mismatch = self.mod.split_shaders(
+                        Path(sys.executable), self.repo, [romfs], [main_nso],
+                        Path('pkg'), {'DM_EXPERIMENTAL_BUILDER': '1'}, Path('logs'), None,
+                        provisional=False, oodle=boom_oodle)
+                    self.assertEqual(res_mismatch, 'pkg-key')
+                    self.assertFalse(
+                        called,
+                        'A mismatched cache key from another game must not force oodle()',
+                    )
+                    self.assertIsNone(recorded[-1][0])
+                finally:
+                    self.mod._nspb_build_sources_oodle = {}
+                    self.mod.pg._nspb_orig_build_sources = orig_bs
+                    self.driver.patch(self.mod, self.repo)
+
+                # 4) Non-Unreal Oodle archive game (e.g. Trinity `ONEPACK\0` `.trpfs` in romfs):
+                #    `pg.build_sources` reports `oodle_packs=True`, keeping `oodle` and failing fast.
+                trpfs = romfs / 'arc' / 'data.trpfs'
+                trpfs.parent.mkdir(parents=True, exist_ok=True)
+                trpfs.write_bytes(b'ONEPACK\x00' + b'\x00' * 32)
+                with self.assertRaises(self.mod.BuildError) as ctx:
+                    self.mod.split_shaders(
+                        Path(sys.executable), self.repo, [romfs], [main_nso],
+                        Path('pkg'), {}, Path('logs'), None,
+                        provisional=False, oodle=boom_oodle)
+                self.assertTrue(called)
+                self.assertIn('arm64', str(ctx.exception))
         finally:
             self.mod._nspb_orig_split_shaders = orig_under
-            if had_pg:
-                self.mod.pg = orig_pg
-            else:
-                delattr(self.mod, 'pg')
             self.driver.patch(self.mod, self.repo)
 
     def test_run_ipa_aborts_on_oodle_log_even_when_provisional_and_cleans_partial(self) -> None:
