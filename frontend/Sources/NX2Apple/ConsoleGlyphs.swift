@@ -2,8 +2,8 @@ import GameController
 import SwiftUI
 
 /// The button glyphs the console mode shows, for the input used last. The launcher reads the face buttons by label
-/// (`LauncherGamepad.face`): Play is GameController's buttonA, Back is buttonB, Controllers is buttonY and options is
-/// buttonMenu. GameController documents the diamond as A at the bottom, B right, X left, Y top (GCExtendedGamepad.h), so on a
+/// (`LauncherGamepad.face`): Play is GameController's buttonA, Back is buttonB, a game's options are buttonY and the
+/// console's menu is buttonMenu. GameController documents the diamond as A at the bottom, B right, X left, Y top (GCExtendedGamepad.h), so on a
 /// DualSense A is the cross, B the circle, X the square and Y the triangle. The glyph is the element's own `sfSymbolsName`
 /// (input remapping included), a per-family table when it reports none, a key cap for the keyboard, and our own neutral letter
 /// when nothing is known. The Controls page's layout (By label) only changes what a game receives (DM_PAD_MAP), so it does not
@@ -24,18 +24,20 @@ struct ConsoleGlyphs: Equatable {
     /// A button as GameController names it.
     enum Element: Hashable { case a, b, x, y, menu, select }
     enum Role {
-        case activate, back, options, controllers
+        /// options: Y, the focused game's options. menu: the menu button (+, Menu, Options), the console's menu (Controllers, Button
+        /// mapping, leaving console mode).
+        case activate, back, options, menu
         /// The desktop launcher's own: X opens a game's launch options and Y its Manage menu (LauncherView.padAction).
         case launchOptions, manage
-        /// The Select-type button (Share, Create, View, Minus): opens console mode from the desktop.
+        /// The Select-type button (Share, Create, View, Minus): opens console mode from the desktop (and the menu in console mode).
         case select
         var element: Element {
             switch self {
             case .activate: return Self.element(of: .a)
             case .back: return Self.element(of: .b)
-            case .options: return .menu
+            case .menu: return .menu
             case .select: return .select
-            case .controllers, .manage: return Self.element(of: .y)
+            case .options, .manage: return Self.element(of: .y)
             case .launchOptions: return Self.element(of: .x)
             }
         }
@@ -49,14 +51,14 @@ struct ConsoleGlyphs: Equatable {
             }
         }
         var keyCap: String {
-            switch self { case .activate: return "return"; case .back: return "escape"; case .options, .launchOptions: return "O"; case .controllers, .manage: return "Y"; case .select: return "\u{2325}\u{2318}K" }
+            switch self { case .activate: return "return"; case .back: return "escape"; case .options: return "Y"; case .launchOptions: return "O"; case .menu: return "M"; case .manage: return "Y"; case .select: return "\u{2325}\u{2318}K" }
         }
         /// Keys drawn as an SF Symbol in their cap (Return, Escape) instead of a word.
         var keySymbol: Bool {
             switch self { case .activate, .back: return true; default: return false }
         }
         var letter: String {
-            switch self { case .activate: return "A"; case .back: return "B"; case .options: return "+"; case .launchOptions: return "X"; case .controllers, .manage: return "Y"; case .select: return "\u{2212}" }
+            switch self { case .activate: return "A"; case .back: return "B"; case .menu: return "+"; case .launchOptions: return "X"; case .options, .manage: return "Y"; case .select: return "\u{2212}" }
         }
     }
     enum Glyph: Equatable { case symbol(String), key(String), keySymbol(String), letter(String) }

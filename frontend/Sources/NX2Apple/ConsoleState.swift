@@ -35,12 +35,23 @@ struct ConsoleGame: Identifiable {
     var version: String
     var platforms: [Platform]
     var artwork: NSImage?
+    /// The game's large artwork (the hero slot, at screen size), for the home screen's backdrop: loaded for the focused game only.
+    var hero: NSImage?
+    var heroFocus = UnitPoint.center
     /// The part of the cover the card keeps when it crops it (the thumbnail's focus point).
     var artworkFocus = UnitPoint.center
     var status: Status
     /// The exact launcher's model, already decoded and localized by the driver.
     var settings: [LaunchSetting] = []
     var values: [String: String] = [:]
+    /// Whether this build keeps a button mapping of its own (DMControllerMappings, saved choices on): its options offer it.
+    var mapsButtons = false
+    /// Read when its options open (the driver's loadDetails): its mods, its cheats, whether anything differs from the defaults, and
+    /// where its cloud save stands.
+    var mods: [ConsoleMod] = []
+    var cheats: ConsoleCheats?
+    var canReset = false
+    var save: ConsoleSaveRow?
 
     /// The console's order: the games this Mac can play first, then the rest, each group in the order it came in.
     static func readyFirst(_ games: [ConsoleGame]) -> [ConsoleGame] {
@@ -48,6 +59,15 @@ struct ConsoleGame: Identifiable {
     }
 
     func value(_ setting: LaunchSetting) -> String { values[setting.env] ?? setting.def }
+    /// The engine's section of a game's controller rows (settings.tsv: Game rumble, its strength and its cutoff): they are shown in the
+    /// controller settings, not among the options.
+    static let controlsSection = "Controls"
+    var optionSettings: [LaunchSetting] { visibleSettings.filter { $0.section != Self.controlsSection } }
+    /// The options as the desktop splits them (LaunchSetting.isBasic): the common ones on the options page, the rest behind Advanced.
+    var basicSettings: [LaunchSetting] { optionSettings.filter(\.isBasic) }
+    var advancedSettings: [LaunchSetting] { optionSettings.filter { !$0.isBasic } }
+    var controllerSettings: [LaunchSetting] { visibleSettings.filter { $0.section == Self.controlsSection } }
+    var hasControllerSettings: Bool { mapsButtons || !controllerSettings.isEmpty }
     var visibleSettings: [LaunchSetting] {
         settings.filter { setting in
             // Console mode launches fullscreen whatever Display says (GameStart's fullscreen), so the sheet does not offer it.
@@ -111,18 +131,90 @@ enum ConsoleStarting: Equatable {
 }
 
 enum ConsoleSheet: Equatable {
-    /// homeButtonHint: the system keeps the controller's Home button, so a game cannot be quit with it (#336, shown once)
-    /// cloudSave: the cloud's save and this Mac's both changed, or the cloud's cannot be read: the player chooses before the start (#957)
-    case options(String), controllers, explanation(String), homeButtonHint, cloudSave(CloudSaveQuestion)
+    /// homeButtonHint: the system keeps the controller's Home button, so a game cannot be quit with it (#336, shown once).
+    /// menu: the console's own menu (Library, Controllers, General, leaving console mode), on the Select-type button.
+    /// mapping: what each controller button sends in games, for all games (the Controls page's controller layout).
+    /// gamePad: a game's controller settings (its Controls rows: rumble, and its own button mapping), opened from its options.
+    /// library: the menu's Library page (the library's switch, the way to the cloud saves). settings: its General page (the display
+    /// language, the app's update, the launcher after a game), language: the display language list.
+    /// cloudSaves: each game's cloud save state and time, as a page of its own over the whole screen.
+    /// confirmExit: "Leave console mode?", over what is open (the menu's Exit, or B on the home screen).
+    /// confirmMapping: "Save changes?", leaving the button mapping after something on it changed.
+    /// cloudSave: the cloud's save and this Mac's both changed, or the cloud's cannot be read: the player chooses before the start (#957).
+    /// advanced: a game's advanced options. confirmReset: "Reset this game's options?". confirmUpdate: install the app's update, or restart into it.
+    case options(String), controllers, explanation(String), homeButtonHint, menu, mapping, gamePad(String), library, settings, language, cloudSaves, confirmExit, confirmMapping
+    case advanced(String), confirmReset(String), confirmUpdate, cloudSave(CloudSaveQuestion)
+    /// The questions drawn in the middle of the screen, over what they were asked from.
+    var isQuestion: Bool {
+        switch self {
+        case .confirmExit, .confirmMapping, .confirmReset, .confirmUpdate: return true
+        default: return false
+        }
+    }
+    /// Pages over the whole screen rather than a panel at the side: the cloud saves, a game's controller settings, the button mapping.
+    var isFullScreen: Bool {
+        switch self {
+        case .cloudSaves, .gamePad, .mapping: return true
+        default: return false
+        }
+    }
     var scope: String {
         switch self {
+        case .language: return "console.language"
         case .cloudSave: return "console.cloudSave"
+        case .confirmExit: return "console.confirmExit"
+        case .confirmMapping: return "console.confirmMapping"
+        case .advanced: return "console.advanced"
+        case .confirmReset: return "console.confirmReset"
+        case .confirmUpdate: return "console.confirmUpdate"
+        case .cloudSaves: return "console.saves"   // ConsoleCloudSavesPage.scope
+        case .library: return "console.library"
+        case .settings: return "console.settings"
         case .options: return "console.options"
+        case .gamePad: return "console.gamePad"
         case .controllers: return "console.controllers"
         case .explanation: return "console.explanation"
         case .homeButtonHint: return "console.homeHint"
+        case .menu: return "console.menu"
+        case .mapping: return "console.mapping"
         }
     }
+}
+
+/// What the mapping page puts back on Discard: all games' layout (its mode and its Custom buttons) or a game's DM_PAD_MAP.
+struct ConsoleMappingUndo: Equatable {
+    var mode: PadMode = .standard
+    var pad: [String: String] = [:]
+    var gameMap: String?
+}
+
+/// The controller layout for all games as the mapping sheet shows it: the Controls page's (`ControlLayout`), read by the driver.
+/// The buttons are the host's DM_PAD_MAP names (input_map.h), named as on a Switch controller by where they sit.
+struct ConsolePadLayout: Equatable {
+    /// The 16 buttons in the four groups the sheet shows, each with the key of its heading. The D-pad reads up, down, left, right.
+    static let groups: [(key: String, buttons: [String])] = [
+        ("console.mapping.group.face", ["A", "B", "X", "Y"]),
+        ("console.mapping.group.shoulders", ["L", "R", "ZL", "ZR"]),
+        ("console.mapping.group.dpad", ["Up", "Down", "Left", "Right"]),
+        ("console.mapping.group.more", ["LS", "RS", "Plus", "Minus"]),
+    ]
+    static var buttons: [String] { groups.flatMap(\.buttons) }
+    var mode: PadMode = .standard
+    /// The game whose own mapping this is, nil for all games. A game's mapping has no layouts, only its buttons.
+    var gameTitle: String? = nil
+    /// What Reset goes back to and what a changed button is told from: nothing for all games (the standard layout), the mapping of
+    /// all games for a game's own.
+    var baseline: [String: String] = [:]
+    /// What each button sends in the layout chosen (for Auto, the one it picks for the controller connected now): only the
+    /// buttons that send another, "none" for nothing.
+    var sends: [String: String] = [:]
+    /// The Custom layout's buttons as stored, whichever layout is chosen: an edit there is kept at once (ControlLayout.setSends), so
+    /// going back to another layout does not undo it, and the mapping page asks about it on leaving.
+    var custom: [String: String] = [:]
+    func output(_ button: String) -> String { sends[button] ?? button }
+    func changed(_ button: String) -> Bool { output(button) != (baseline[button] ?? button) }
+    /// Whether anything differs from what Reset goes back to: the standard layout, or for a game the mapping of all games.
+    var isDefault: Bool { gameTitle == nil ? mode == .standard && sends.isEmpty : sends == baseline }
 }
 
 struct ConsoleState {
@@ -134,6 +226,32 @@ struct ConsoleState {
     var isPreview = false
     var padMerge = false
     var joyconSplit = false
+    var padLayout = ConsolePadLayout()
+    /// The button whose choices the mapping sheet shows, nil for the list of buttons.
+    var mappingRow: String?
+    /// The game whose own mapping the mapping sheet shows, nil for all games.
+    var mappingGameID: String?
+    /// B confirms and A goes back in console mode's menus, as on a Switch (ConsoleButtons). Off: A confirms, as printed on Xbox and
+    /// PlayStation controllers.
+    var menuSwapAB = false
+    /// The General page's switches and the app's update, and whether this Mac has the Home button setting.
+    var prefs = ConsolePrefs()
+    var homeButtonAvailable = false
+    /// The button mapping page's changes are kept only when it is left with Save: the layout it opened with, Swap A and B in menus
+    /// as changed there (it applies on Save, so the menus keep their buttons while it is open), and what the driver puts back on Discard.
+    var mappingOrigin: ConsolePadLayout?
+    var pendingMenuSwapAB: Bool?
+    var mappingUndo: ConsoleMappingUndo?
+    /// Swap A and B in menus as the mapping page shows it.
+    var shownMenuSwapAB: Bool { pendingMenuSwapAB ?? menuSwapAB }
+    /// Whether the mapping page has anything to save: the layout or its buttons, or the swap in menus.
+    var mappingChanged: Bool {
+        guard let origin = mappingOrigin else { return false }
+        let customEdited = mappingGameID == nil && mappingUndo.map { $0.pad != padLayout.custom } == true
+        return origin.mode != padLayout.mode || origin.sends != padLayout.sends || customEdited || shownMenuSwapAB != menuSwapAB
+    }
+    /// The cloud saves page's rows, read when it opens (ConsoleCloudSaves).
+    var saveRows: [ConsoleSaveRow] = []
     var toast: ConsoleToast?
     var activity: ConsoleActivity?
     var identifyingControllerID: String?
@@ -169,6 +287,67 @@ struct ConsoleState {
         guard !exited, startingGameID == nil, presentedSheet != .controllers else { return }
         sheets.append(.controllers)
     }
+    mutating func openCloudSaves(_ rows: [ConsoleSaveRow]) {
+        guard !exited, startingGameID == nil, presentedSheet != .cloudSaves else { return }
+        saveRows = rows
+        sheets.append(.cloudSaves)
+    }
+    mutating func openLibrary() {
+        guard !exited, startingGameID == nil, presentedSheet != .library else { return }
+        sheets.append(.library)
+    }
+    mutating func openSettings() {
+        guard !exited, startingGameID == nil, presentedSheet != .settings else { return }
+        sheets.append(.settings)
+    }
+    /// Pages and questions over a game's options or the Settings page, each once.
+    mutating func push(_ sheet: ConsoleSheet) {
+        guard !exited, startingGameID == nil, presentedSheet != sheet else { return }
+        sheets.append(sheet)
+    }
+    mutating func openLanguage() {
+        guard !exited, startingGameID == nil, presentedSheet != .language else { return }
+        sheets.append(.language)
+    }
+    /// Asks before leaving console mode: Leave goes to the desktop (exitToDesktop), B or Cancel closes the question.
+    mutating func confirmExit() {
+        guard !exited, startingGameID == nil, presentedSheet != .confirmExit else { return }
+        sheets.append(.confirmExit)
+    }
+    mutating func openMenu() {
+        guard !exited, startingGameID == nil, presentedSheet != .menu else { return }
+        sheets.append(.menu)
+    }
+    /// The button mapping of all games (nil) or of one game.
+    mutating func openMapping(game id: String? = nil) {
+        guard !exited, startingGameID == nil, presentedSheet != .mapping else { return }
+        if let id { guard games.first(where: { $0.id == id })?.mapsButtons == true else { return } }
+        mappingRow = nil
+        mappingGameID = id
+        sheets.append(.mapping)
+    }
+    /// The driver calls it once the page's layout is read: what Discard goes back to.
+    mutating func beginMappingEdit(undo: ConsoleMappingUndo) {
+        mappingOrigin = padLayout
+        pendingMenuSwapAB = nil
+        mappingUndo = undo
+    }
+    /// After Save or Discard: the question and the page close together, back to what the page was opened from.
+    mutating func endMappingEdit() {
+        if presentedSheet == .confirmMapping { sheets.removeLast() }
+        if presentedSheet == .mapping { sheets.removeLast() }
+        mappingOrigin = nil; pendingMenuSwapAB = nil; mappingUndo = nil; mappingRow = nil; mappingGameID = nil
+    }
+    /// A game's controller settings, over its options.
+    mutating func openGamePad(_ id: String) {
+        guard !exited, startingGameID == nil, presentedSheet != .gamePad(id), let game = games.first(where: { $0.id == id }), game.hasControllerSettings else { return }
+        sheets.append(.gamePad(id))
+    }
+    /// A button's choices in the mapping sheet, or nil for the list again.
+    mutating func openMappingRow(_ button: String?) {
+        guard presentedSheet == .mapping, button.map(ConsolePadLayout.buttons.contains) ?? true else { return }
+        mappingRow = button
+    }
     /// The Home button hint (HomeButtonHint.swift), over the home screen after a game quit.
     mutating func showHomeButtonHint() {
         guard !exited, startingGameID == nil, presentedSheet != .homeButtonHint else { return }
@@ -183,11 +362,17 @@ struct ConsoleState {
     mutating func back() {
         guard !exited else { return }
         if startingGameID != nil { return } // the driver ends Starting when the game window appears
-        if !sheets.isEmpty { sheets.removeLast(); assigningPlayer = nil; assigningControllerID = nil }
-        else { exitToDesktop() }
+        if presentedSheet == .mapping, mappingRow != nil { mappingRow = nil; return }   // B in a button's choices goes back to the list
+        if presentedSheet == .mapping, mappingChanged { sheets.append(.confirmMapping); return }   // asks before leaving changes
+        if presentedSheet == .mapping { mappingOrigin = nil; pendingMenuSwapAB = nil; mappingUndo = nil }
+        if !sheets.isEmpty {
+            if presentedSheet == .mapping { mappingGameID = nil }
+            sheets.removeLast(); assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil
+        }
+        else { confirmExit() }   // B on the home screen asks before leaving
     }
-    mutating func exitToDesktop() { exited = true; sheets = []; startingGameID = nil; assigningPlayer = nil; assigningControllerID = nil }
-    mutating func returnFromGame() { exited = false; startingGameID = nil; sheets = []; assigningPlayer = nil; assigningControllerID = nil }
+    mutating func exitToDesktop() { exited = true; sheets = []; startingGameID = nil; assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil; mappingGameID = nil; mappingOrigin = nil; pendingMenuSwapAB = nil; mappingUndo = nil }
+    mutating func returnFromGame() { exited = false; startingGameID = nil; sheets = []; assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil; mappingGameID = nil }
     mutating func setOption(game id: String, setting env: String, value: String) {
         guard !exited, startingGameID == nil, let i = games.firstIndex(where: { $0.id == id }),
               let setting = games[i].visibleSettings.first(where: { $0.env == env }), setting.accepts(value) else { return }
@@ -214,6 +399,48 @@ struct ConsoleState {
     func openOptions(_ gameID: String)
     func setOption(gameID: String, setting: String, value: String)
     func openControllers()
+    /// The console's menu (the Select-type button, or the menu button in the top bar).
+    func openMenu()
+    /// The menu's Library and Settings pages, and the cloud saves page (from Library).
+    func openLibrary()
+    func openSettings()
+    func openCloudSaves()
+    /// The Settings page's display language list.
+    func openLanguage()
+    /// "Leave console mode?": the menu's Exit asks first (B on the home screen does too, through `back`).
+    func confirmExit()
+    /// A short rumble at a game's rumble strength on every connected controller, from its controller settings.
+    func testRumble(gameID: String)
+    /// A game's options brought over from the desktop: a mod or its cheats on or off, its advanced options, its options back to the
+    /// defaults (asked first), and the way to the desktop with the game selected (a build, files or a folder to choose).
+    func setMod(gameID: String, name: String, on: Bool)
+    func setCheatsMaster(gameID: String, on: Bool)
+    func setCheat(gameID: String, key: String, on: Bool)
+    func openAdvanced(_ gameID: String)
+    func askResetOptions(_ gameID: String)
+    func resetOptions(_ gameID: String)
+    func openOnDesktop(_ gameID: String)
+    /// A launcher switch (on the Library, Controllers or Settings page), and the app's update (checked, or asked about and then installed or restarted into).
+    func setPref(_ pref: ConsolePref, on: Bool)
+    func appUpdateAction()
+    func confirmAppUpdate()
+    /// The system's Home button setting (macOS 27), from the Controllers page.
+    func openSystemHomeSettings()
+    /// The button mapping for all games, and a button's choices in it (nil: back to the list).
+    func openMapping()
+    /// A game's own button mapping, and its controller settings (rumble and the way to that mapping).
+    func openGameMapping(_ gameID: String)
+    func openGamePad(_ gameID: String)
+    func openMappingRow(_ button: String?)
+    /// The layout (Auto, Standard, By label, Custom), what one button sends ("none" for nothing; changing one makes the layout Custom)
+    /// and Reset, which goes back to the standard layout. They change the Controls page's layout, which Play passes as DM_PAD_MAP.
+    func setPadMode(_ mode: PadMode)
+    func setPadSends(button: String, to output: String)
+    func resetPadMapping()
+    /// Swap A and B in console mode's menus (kept in the launcher's defaults).
+    func setMenuSwapAB(_ on: Bool)
+    /// The answer to "Save changes?": keep what the mapping page changed (and apply Swap A and B in menus), or put it all back.
+    func finishMapping(save: Bool)
     func identify(controllerID: String)
     func disconnect(controllerID: String)
     func requestAssignment(controllerID: String)
@@ -237,6 +464,30 @@ struct ConsoleState {
 
 extension ConsoleDriver {
     func setJoyconSplit(_ enabled: Bool) {}
+    func setPadMode(_ mode: PadMode) {}
+    func setPadSends(button: String, to output: String) {}
+    func resetPadMapping() {}
+    func setMenuSwapAB(_ on: Bool) {}
+    func finishMapping(save: Bool) {}
+    func openGameMapping(_ gameID: String) {}
+    func openLibrary() {}
+    func openSettings() {}
+    func openCloudSaves() {}
+    func openLanguage() {}
+    func confirmExit() {}
+    func testRumble(gameID: String) {}
+    func setMod(gameID: String, name: String, on: Bool) {}
+    func setCheatsMaster(gameID: String, on: Bool) {}
+    func setCheat(gameID: String, key: String, on: Bool) {}
+    func openAdvanced(_ gameID: String) {}
+    func askResetOptions(_ gameID: String) {}
+    func resetOptions(_ gameID: String) {}
+    func openOnDesktop(_ gameID: String) { exitToDesktop() }
+    func setPref(_ pref: ConsolePref, on: Bool) {}
+    func appUpdateAction() {}
+    func confirmAppUpdate() {}
+    func openSystemHomeSettings() {}
+    func openGamePad(_ gameID: String) {}
     func consumePress(controllerID: String, isBack: Bool) -> Bool { false }
     func openHomeButtonSettings() { back() }
     func chooseCloudSave(_ choice: CloudSaveCheck.Choice) { back() }
