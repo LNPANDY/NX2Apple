@@ -212,6 +212,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     // ---- The app's side: AppKit and the wiring, as closures ----
     /// The games whose data can go to a device: the app fills it from the library (title ID, name, the packed data folder).
     package var sharedAppDataSources: () -> [TransferSource] = { [] }
+    /// Extra environment for a Mac app build of a game (title ID in, variables out): the app adds the stand-in icon of #784.
+    package var macBuildEnvironment: (String) -> [String: String] = { _ in [:] }
     /// The transfer queue (#1036), which the app wires. Sending data goes through it so that a build can run beside it.
     package weak var transfers: TransferQueueStore?
     /// The running send of each transfer asks this flag whether it was cancelled.

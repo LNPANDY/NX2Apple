@@ -33,18 +33,16 @@ extension GameLibrary {
     /// Gives every game that has not had them yet the personal defaults, then marks it. A game whose app has no settings list yet waits.
     /// The Display mode is the launcher's own setting (not a saved choice): it goes into the game's launch options.
     func applyPersonalDefaults(_ personal: PersonalDefaults = .load()) {
-        var changed = false
-        for index in games.indices where !games[index].defaultsApplied && !games[index].appPath.isEmpty {
-            guard let settings = LaunchSetting.read(app: games[index].appPath) else { continue }
+        for var game in games where !game.defaultsApplied && !game.appPath.isEmpty {
+            guard let settings = LaunchSetting.read(app: game.appPath) else { continue }
             if !personal.isEmpty {
-                SavedChoices(app: games[index].appPath, titleID: games[index].titleID).applyPersonal(personal, to: settings)
-                if let display = personal.value(for: "DM_FULLSCREEN"), display != "0", games[index].launchOptions["DM_FULLSCREEN"] == nil {
-                    games[index].launchOptions["DM_FULLSCREEN"] = display
+                SavedChoices(app: game.appPath, titleID: game.titleID).applyPersonal(personal, to: settings)
+                if let display = personal.value(for: "DM_FULLSCREEN"), display != "0", game.launchOptions["DM_FULLSCREEN"] == nil {
+                    game.launchOptions["DM_FULLSCREEN"] = display
                 }
             }
-            games[index].defaultsApplied = true
-            changed = true
+            game.defaultsApplied = true
+            upsert(game)   // saves the library
         }
-        if changed { save() }
     }
 }

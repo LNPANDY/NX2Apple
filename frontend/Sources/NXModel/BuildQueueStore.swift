@@ -31,13 +31,14 @@ import NXCore
                  engineChangedReason: @escaping () -> String = { "The engine changed since this game was queued" }) {
         self.file = file; self.engineID = engineID; self.busy = busy; self.start = start; self.packageBatch = packageBatch
         self.engineChangedReason = engineChangedReason
-        let stored = file.map(BuildQueueFile.load) ?? ([], false)
+        let stored = file.map(BuildQueueFile.load) ?? (entries: [QueueEntry](), paused: false)
         var loaded = stored.entries
         // A build that was running when the app quit goes first again. Its folder keeps the finished stages.
         for index in loaded.indices where loaded[index].status == .running { loaded[index].status = .queued }
+        let waiting = loaded.contains { $0.status == .queued }
         entries = loaded
-        paused = stored.paused && loaded.contains { $0.status == .queued }
-        awaitingResume = !paused && loaded.contains { $0.status == .queued }
+        paused = stored.paused && waiting
+        awaitingResume = !stored.paused && waiting
     }
 
     package var queued: [QueueEntry] { entries.filter { $0.status == .queued } }

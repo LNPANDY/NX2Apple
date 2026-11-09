@@ -1,5 +1,6 @@
 import Charts
 import SwiftUI
+import NXLauncher
 
 /// One recording (FrameTimes.swift): its numbers in a line and its frame times over the session, the hitches marked.
 /// A recording can be several MB, so it is read and counted off the main thread (FrameTimesChart): the launch options

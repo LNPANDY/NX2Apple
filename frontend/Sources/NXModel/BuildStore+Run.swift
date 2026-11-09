@@ -196,6 +196,7 @@ extension BuildStore {
         // is the per-user temp folder whether or not the app's own environment carries one.
         var denv = toolEnvironment(python: py)
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
+        if macApp { denv.merge(macBuildEnvironment(tidHex)) { $1 } }   // NX_FALLBACK_ICON for a game with no control data (#784)
         let launch = nxbRun
             ? experimentalLaunch(nxb: experimentalBuilderBinary ?? "", scriptArguments: args, engine: engine, environment: denv, python: py)   // BuildStore+Builder.swift (#749)
             : ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)

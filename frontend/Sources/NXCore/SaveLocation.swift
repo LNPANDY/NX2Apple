@@ -111,7 +111,7 @@ package enum VolumeSaves {
         while !FileManager.default.fileExists(atPath: probe.path), probe.pathComponents.count > 1 { probe.deleteLastPathComponent() }
         var list = attrlist()
         list.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
-        list.volattr = attrgroup_t(ATTR_VOL_INFO | ATTR_VOL_CAPABILITIES)
+        list.volattr = attrgroup_t(ATTR_VOL_INFO) | attrgroup_t(ATTR_VOL_CAPABILITIES)
         struct Buffer { var length: UInt32 = 0; var caps = vol_capabilities_attr_t() }
         var buffer = Buffer()
         guard getattrlist(probe.path, &list, &buffer, MemoryLayout<Buffer>.size, 0) == 0 else { return nil }

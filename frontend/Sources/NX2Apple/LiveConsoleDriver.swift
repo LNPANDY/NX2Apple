@@ -6,6 +6,7 @@ import CoreHaptics
 import os
 import NXCore
 import NXLauncher
+import NXModel
 
 /// A controller as GameController reports it, reduced to what the console mode shows. Tests build these instead of hardware.
 /// What a controller reports about its battery.
