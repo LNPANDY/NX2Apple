@@ -52,4 +52,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    /// The Dock icon once the last window was closed. The app stays running on purpose (a build and its log outlive the window
+    /// that started them), but on macOS 27.2 SwiftUI's own reopen makes no window for this app: it comes forward with no window
+    /// at all, so the app looked dead from the Dock. The File menu's New Window does open one, so the reopen performs that item
+    /// unless SwiftUI made a window by itself in the meantime.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag else { return true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            guard !NSApp.windows.contains(where: { $0.isVisible && $0.canBecomeMain }), let main = NSApp.mainMenu else { return }
+            Self.performNewWindow(in: main)
+        }
+        return true
+    }
+
+    /// Performs the first menu item with the Command-N key equivalent that has an action: SwiftUI's New Window of the launcher's
+    /// WindowGroup, whose title follows the interface language and so cannot be matched by its text. Returns whether one was found.
+    @discardableResult
+    static func performNewWindow(in menu: NSMenu) -> Bool {
+        for top in menu.items {
+            guard let submenu = top.submenu else { continue }
+            for (index, item) in submenu.items.enumerated() where item.keyEquivalent == "n" && item.action != nil {
+                submenu.performActionForItem(at: index)
+                return true
+            }
+        }
+        return false
+    }
 }
