@@ -1558,7 +1558,7 @@
   "shell.sendSeveral": "Este dispositivo tiene varias copias de la app. Elige una.",
   "shell.sendStage": "Buscar la app en el dispositivo",
   "shell.showInFinder": "Mostrar en el Finder",
-  "shell.step1Button": "Compilar y exportar",
+  "shell.step1Button": "Crear y exportar",
   "shell.step1Done": "%@, sin firmar. Los datos del juego no van dentro.",
   "shell.step1Sub": "Empaqueta la app compartida con los juegos que compilaste. No hace falta dispositivo ni equipo.",
   "shell.step1Title": "Exportar el IPA",

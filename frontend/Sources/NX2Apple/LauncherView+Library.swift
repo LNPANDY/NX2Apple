@@ -269,7 +269,7 @@ extension LauncherView {
     /// An amber-outlined pill that adds games to the build queue: one game, or all that were built with older tools. It starts nothing itself.
     func heroRebuildButton(_ title: String, id: String, games: [LibraryGame]) -> some View {
         let add = {
-            if !m.running { stores.queue.enqueue(games.map { QueueEntry(game: $0, engineID: engine.selection.engineID) }) }
+            if !m.running { stores.queue.enqueue(games.map { QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID) }) }
         }
         return Button(action: add) {
             Label(title, systemImage: "arrow.clockwise")
