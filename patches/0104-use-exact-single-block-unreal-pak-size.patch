@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ProfDrLuigi <schreibs-einfach@web.de>
+Date: Mon, 09 Nov 2026 17:23:30 +0100
+Subject: [PATCH] uepak: use the exact size of single-block entries
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The uncompressed entry size is authoritative when the entry contains one
+block. Cover a non-aligned compressed file with a synthetic regression
+test.
+
+Upstream-Status: pending
+Reason: Decode Unreal pak files whose index rounds the single block size down to a 2 KiB boundary.
+Issue: unfiled (local Hot Wheels Unleashed macOS build)
+
+---
+ dm/gfx/tools/uepak.py                |  4 +++-
+ dm/tools/tests/test_uepak_iostore.py | 18 ++++++++++++++++++
+ 2 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/dm/gfx/tools/uepak.py b/dm/gfx/tools/uepak.py
+index 8af600d0d4dcaff5c98e825dc326b7c9b77b2640..ce022c7cc450c5c6d0b529129b6d83db7e3aa944 100644
+--- a/dm/gfx/tools/uepak.py
++++ b/dm/gfx/tools/uepak.py
+@@ -293,7 +293,9 @@ class Pak:
+         off = r.take('<I' if v >> 31 & 1 else '<Q'); raw = r.take('<I' if v >> 30 & 1 else '<Q')
+         size = r.take('<I' if v >> 29 & 1 else '<Q') if meth else raw
+         cur, blocks = 53 + (4 + 16 * nblk if meth else 0), []
+-        if nblk == 1 and not bsz: bsz = raw   # FINAL FANTASY RESONANCE's pak (UE 5.6) stores block size 0 for a file of one block
++        # The index may store the block size rounded down to a 2 KiB unit.
++        # A single block always contains the exact uncompressed file size.
++        if nblk == 1: bsz = raw
+         if nblk == 1 and not enc: blocks = [(cur, size)]
+         else:
+             for _ in range(nblk): s = r.take('<I'); blocks.append((cur, s)); cur += (s + 15) & ~15 if enc else s
+diff --git a/dm/tools/tests/test_uepak_iostore.py b/dm/tools/tests/test_uepak_iostore.py
+index 14255e8155bf9e6d62d0226c2a51f6474d127997..342d87cc3646f60e2325b6ba61112e190cfee2aa 100644
+--- a/dm/tools/tests/test_uepak_iostore.py
++++ b/dm/tools/tests/test_uepak_iostore.py
+@@ -104,6 +104,24 @@ def pak11_encrypted(path, names, key, mount='../../../'):
+     path.write_bytes(aes_encrypt(key, d) + aes_encrypt(key, index) + bytes(16) + b'\1' + struct.pack('<IIQQ', uepak.PAK_MAGIC, 11, len(d), len(index)) + bytes(20) + bytes(32 * 5))
+ 
+ 
++class EncodedPakEntry(unittest.TestCase):
++    def test_single_block_uses_exact_uncompressed_length(self):
++        import zlib
++        data = b'x' * 3073
++        compressed = zlib.compress(data)
++        pak = uepak.Pak.__new__(uepak.Pak)
++        pak.path, pak.key, pak.version = 'synthetic.pak', None, 11
++        pak.methods, pak.files = ['Zlib'], {'asset': 0}
++        # One compressed block. The encoded block size is one 2 KiB unit.
++        pak.enc = struct.pack('<4I', 0xe0000000 | (1 << 23) | (1 << 6) | 1, 0, len(data), len(compressed))
++        with tempfile.TemporaryDirectory() as folder:
++            path = Path(folder) / 'synthetic.pak'
++            path.write_bytes(bytes(53 + 4 + 16) + compressed)
++            with path.open('rb') as stream:
++                pak.f = stream
++                self.assertEqual(pak.read('asset'), data)
++
++
+ class IoStore(unittest.TestCase):
+     def setUp(self):
+         tmp = tempfile.TemporaryDirectory(); self.addCleanup(tmp.cleanup)
