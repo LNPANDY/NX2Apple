@@ -68,9 +68,10 @@
 0103-ios-shell-return-to-library-on-quit-with-full-ho.patch
 0104-ios-fade-out-the-settings-gear-after-3-idle-seco.patch
 0105-tests-and-a-log-literal-follow-the-uniform-bound.patch
-0106-shader-split-scimitar-forge-archives-and-raw-con.patch
-0107-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0108-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0109-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
-0110-audren-merge-updates-closer-than-a-frame-for-a-r.patch
-0111-nsp-script-a-program-s-dlc-counts-from-the-appli.patch
+0106-hid-report-vibration-device-info-for-startup-han.patch
+0107-shader-split-scimitar-forge-archives-and-raw-con.patch
+0108-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0109-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0110-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0111-audren-merge-updates-closer-than-a-frame-for-a-r.patch
+0112-nsp-script-a-program-s-dlc-counts-from-the-appli.patch
