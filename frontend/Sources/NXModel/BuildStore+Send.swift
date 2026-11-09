@@ -81,6 +81,7 @@ extension BuildStore {
     /// the player chose when the device has several.
     package func sendGameData(bundle: String? = nil) {
         guard canSendToDevice else { return }
+        buildingGame = false; runningTarget = BuildTarget.ios
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         send = .sending(done: 0, total: 0, note: "")
         var installer = makeInstaller()
@@ -153,6 +154,7 @@ extension BuildStore {
     package func copyToDrive() {
         refreshDrive()
         guard canCopyToDrive else { return }
+        buildingGame = false; runningTarget = BuildTarget.ios
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         driveCancel.set(false)
         send = .copying(done: 0, total: drive?.needed ?? 0)

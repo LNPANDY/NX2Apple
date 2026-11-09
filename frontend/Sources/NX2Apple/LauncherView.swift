@@ -251,7 +251,7 @@ struct LauncherView: View {
         .onChange(of: heroGame?.id) { _ in refreshHeroArtwork() }
         .onReceive(recorder.recorded) {   // a build was written into the library (BuildRecorder); a window opened since reads it in onAppear
             refreshArtwork()
-            if m.target != BuildTarget.mac { readSignatures() }
+            if m.runningTarget != BuildTarget.mac { readSignatures() }
             if performStartupChecks { checkTools() }
         }
         .onChange(of: scenePhase) { phase in
@@ -453,7 +453,7 @@ struct LauncherView: View {
                     Image(systemName: "wrench.and.screwdriver").font(.system(size: 22, weight: .light)).foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(loc.t(devices.shellCopy != nil || devices.shellWaiting || m.stages.contains { $0.id == 1003 && $0.state == .running }
-                                 ? "activity.transfer" : (m.target == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
+                                 ? "activity.transfer" : (m.runningTarget == BuildTarget.mac ? "activity.mac" : "activity.ios"))).font(.manrope(15, .bold))
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             Text(stage
                                     .map { [$0.name, $0.detail, $0.clock(at: context.date, left: loc.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · ") }

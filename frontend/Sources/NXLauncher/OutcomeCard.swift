@@ -17,7 +17,7 @@ package struct OutcomeCard: View {
     }
 
     package var body: some View {
-        if build.done && build.target == BuildTarget.mac {
+        if build.done && build.runningTarget == BuildTarget.mac {
             CardGroup(loc.t("section.done")) {
                 CardRow(loc.t("library.ready"), detail: build.shortPath(build.macAppPath), dot: LauncherPalette.ready, help: build.macAppPath) {
                     Button(loc.t("install.reveal")) { revealInFinder(build.macAppPath) }
@@ -25,7 +25,7 @@ package struct OutcomeCard: View {
                 }
             }
         }
-        if build.done && !build.installedOn.isEmpty {
+        if build.done && build.runningTarget != BuildTarget.mac && !build.installedOn.isEmpty {
             CardGroup(String(format: loc.t("dev.installed"), devices.deviceName(build.installedOn))) {
                 CardRow(loc.t("dev.installedNote"), dot: LauncherPalette.ready) {
                     Button(String(format: loc.t("dev.open"), devices.deviceName(build.installedOn))) {

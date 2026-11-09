@@ -25,6 +25,7 @@ extension BuildStore {
     /// `then` continues the build with the archive's folder (installing on a device).
     /// `titleID` names the folder (the framework's title ID); the build key when it is not given.
     package func packArchive(workDir: String, titleID: String? = nil, then: @escaping (String) -> Void) {
+        buildingGame = true; runningTarget = BuildTarget.ios
         running = true
         let fm = FileManager.default
         let extract = workDir + "/extract"
