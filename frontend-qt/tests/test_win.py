@@ -1763,7 +1763,7 @@ class PlatformIsolationTest(unittest.TestCase):
                 'import sys; sys.path.insert(0, %r)\n'
                 'from nspb_qt.win import toolchain, sdk_fetch, shim, fix_ipa_modes, fetch, '
                 'doctor, build_app, driver, xcrun_shim, macho_sign, sdk_auto_cuts, '
-                'love_shaders, arm64_emu, oodle_emu\n'
+                'love_shaders, arm64_emu, oodle_emu, gm_shaders, nro_emu\n'
                 'print("ok")\n'
             ) % str(QT)
             r = subprocess.run([sys.executable, '-c', code], capture_output=True, text=True,
@@ -5368,6 +5368,554 @@ class OodleEmuWinTest(unittest.TestCase):
                         + struct.pack('<Q', 16) + emu_decoded[2]
                         + struct.pack('<Q', 0),
                     )
+
+import struct
+
+
+def _make_fake_gm_main() -> bytes:
+    """Build a synthetic GameMaker Switch Runner rodata table matching ExeFS/main's layout."""
+    parts = [
+        b'\xff' * 16,
+        b'#define LOWPREC lowp\n\x00',
+        b'#define MATRIX_VIEW                    0                               \n'
+        b'uniform mat4 gm_Matrices[5];\n\x00',
+        b'attribute vec3 in_Position;\nattribute vec2 in_TextureCoord;\n'
+        b'attribute LOWPREC vec4 in_Colour;\nvoid main() { gl_Position = vec4(in_Position, 1.0); }\n\x00',
+        b'attribute vec3 in_Position;\nattribute vec3 in_Normal;\n'
+        b'attribute vec2 in_TextureCoord;\nvoid main() { gl_Position = vec4(in_Position + in_Normal, 1.0); }\n\x00',
+        b'attribute vec3 in_Position;\nattribute LOWPREC vec4 in_Colour;\n'
+        b'void main() { gl_Position = vec4(in_Position, 1.0); }\n\x00',
+        b'precision mediump float;\t\t\t\t\t\t\n#define HIGHPREC \n'
+        b'#define LOWPREC lowp                           \n\x00',
+        b'uniform sampler2D gm_BaseTexture;              \n'
+        b'void DoAlphaTest(LOWPREC vec4 c) {}\n\x00',
+        b'varying HIGHPREC vec2 v_vTexcoord;\nvarying LOWPREC vec4 v_vColour;\n'
+        b'void main() { gl_FragColor = v_vColour; }\n\x00',
+        b'varying LOWPREC vec4 v_vColour;\nvarying float v_fFog;\n'
+        b'void main() { gl_FragColor = v_vColour; }\n\x00',
+        b'\xff' * 16,
+    ]
+    return b''.join(parts)
+
+
+def _make_fake_game_win(shaders: list[tuple[bytes, bytes, bytes]]) -> bytes:
+    """Build a valid IFF FORM container with a SHDR and STRG chunk holding `shaders`."""
+    # Layout after 8-byte FORM header:
+    #   chunk SHDR (8-byte hdr + count + ptrs + 16-byte entries)
+    #   chunk STRG (8-byte hdr + length-prefixed strings)
+    count = len(shaders)
+    shdr_data_len = 4 + count * 4 + count * 16
+    shdr_chunk_start = 8
+    shdr_entries_start = shdr_chunk_start + 8 + 4 + count * 4
+    strg_chunk_start = shdr_chunk_start + 8 + shdr_data_len
+    str_cursor = strg_chunk_start + 8
+
+    str_blobs: list[bytes] = []
+    entry_tuples: list[tuple[int, int, int, int]] = []
+    for name_b, vs_b, fs_b in shaders:
+        ptrs = []
+        for s in (name_b, vs_b, fs_b):
+            blob = struct.pack('<I', len(s)) + s + b'\x00'
+            str_ptr = str_cursor + 4
+            ptrs.append(str_ptr)
+            str_blobs.append(blob)
+            str_cursor += len(blob)
+        entry_tuples.append((ptrs[0], 0x80000001, ptrs[1], ptrs[2]))
+
+    strg_payload = b''.join(str_blobs)
+    entry_ptrs = [shdr_entries_start + i * 16 for i in range(count)]
+    shdr_payload = (
+        struct.pack(f'<I{count}I', count, *entry_ptrs)
+        + b''.join(struct.pack('<4I', *t) for t in entry_tuples)
+    )
+    body = (
+        b'SHDR' + struct.pack('<I', len(shdr_payload)) + shdr_payload
+        + b'STRG' + struct.pack('<I', len(strg_payload)) + strg_payload
+    )
+    return b'FORM' + struct.pack('<I', len(body)) + body
+
+
+class GMShadersAndCaptureReuseTest(unittest.TestCase):
+    """Tests for `gm_shaders.py` and `driver.py` capture reuse/reconstruction."""
+
+    def test_gm_shaders_reconstructs_48_builtins_and_shdr_custom_shaders(self) -> None:
+        from nspb_qt.win import gm_shaders
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            main_path = root / 'main'
+            main_path.write_bytes(_make_fake_gm_main())
+            rom_dir = root / 'RomFS'
+            rom_dir.mkdir()
+            custom_vs = b'#define _YY_GLSLES_ 1\nattribute vec3 pos;\nvoid main() {}\n'
+            custom_fs = b'#define _YY_GLSLES_ 1\nprecision mediump float;\nvoid main() {}\n'
+            (rom_dir / 'game.win').write_bytes(
+                _make_fake_game_win([(b'shd_custom', custom_vs, custom_fs)])
+            )
+
+            # Generate first without a table to collect the exact 50 keys (48 built-in + 2 custom)
+            out1 = root / 'out1'
+            res1 = gm_shaders.generate(main_path, rom_dir, out1, log=lambda _s: None)
+            self.assertIsNotNone(res1)
+            made1, want1 = res1
+            self.assertIsNone(want1)
+            self.assertEqual(len(made1), 50)
+            self.assertIn(f'{gm_shaders.key_bytes(custom_vs)}.vert', made1)
+            self.assertIn(f'{gm_shaders.key_bytes(custom_fs)}.frag', made1)
+
+            # Verify table completeness check passes when every key in gl_capture.tsv is present
+            tsv = root / 'gl_capture.tsv'
+            tsv.write_text('\n'.join(sorted(made1)) + '\n', encoding='utf-8')
+            out2 = root / 'out2'
+            res2 = gm_shaders.generate(
+                main_path, rom_dir, out2, tsv, log=lambda _s: None, require_table=True
+            )
+            self.assertIsNotNone(res2)
+            self.assertEqual(len(list(out2.glob('*'))), 50)
+
+    def test_gm_shaders_returns_none_and_writes_no_files_when_incomplete_or_non_gm(self) -> None:
+        from nspb_qt.win import gm_shaders
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            non_gm = root / 'plain_main'
+            non_gm.write_bytes(b'not a gamemaker binary')
+            rom_dir = root / 'RomFS'
+            rom_dir.mkdir()
+            (rom_dir / 'game.win').write_bytes(_make_fake_game_win([]))
+            out = root / 'out_non_gm'
+            self.assertIsNone(gm_shaders.generate(non_gm, rom_dir, out, log=lambda _s: None))
+            self.assertFalse(out.exists())
+
+            gm_main = root / 'gm_main'
+            gm_main.write_bytes(_make_fake_gm_main())
+            # require_table=True without a table must return None and leave out uncreated
+            self.assertIsNone(
+                gm_shaders.generate(gm_main, rom_dir, out, None, log=lambda _s: None, require_table=True)
+            )
+            self.assertFalse(out.exists())
+
+            # A table listing an unknown hash must return None and not write partial files
+            bad_tsv = root / 'bad.tsv'
+            bad_tsv.write_text('deadbeefcafebabe.vert\n', encoding='utf-8')
+            self.assertIsNone(
+                gm_shaders.generate(gm_main, rom_dir, out, bad_tsv, log=lambda _s: None, require_table=True)
+            )
+            self.assertFalse(out.exists())
+
+    def test_gm_shaders_rejects_corrupted_form_and_shdr_bounds(self) -> None:
+        from nspb_qt.win import gm_shaders
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bad = root / 'game.win'
+
+            # 1. File shorter than 8 bytes
+            bad.write_bytes(b'FORM')
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 2. FORM size larger than file
+            bad.write_bytes(b'FORM' + struct.pack('<I', 0x1000))
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 3. Chunk size exceeds FORM boundary
+            bad.write_bytes(b'FORM' + struct.pack('<I', 8) + b'SHDR' + struct.pack('<I', 0x100))
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 4. SHDR entry count exceeds chunk size
+            shdr = struct.pack('<I', 100)
+            body = b'SHDR' + struct.pack('<I', len(shdr)) + shdr
+            bad.write_bytes(b'FORM' + struct.pack('<I', len(body)) + body)
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 5. Out-of-bounds string pointer inside SHDR entry
+            shdr = struct.pack('<II4I', 1, 16, 0xFFFFFFF0, 0x80000001, 0xFFFFFFF0, 0xFFFFFFF0)
+            body = b'SHDR' + struct.pack('<I', len(shdr)) + shdr
+            bad.write_bytes(b'FORM' + struct.pack('<I', len(body)) + body)
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.shdr_chunk_shaders(bad)
+
+            # 6. Runner table with fewer than 3 VS templates raises GMShaderError
+            truncated_gm = _make_fake_gm_main().replace(
+                b'attribute vec3 in_Position;\nattribute LOWPREC vec4 in_Colour;\n'
+                b'void main() { gl_Position = vec4(in_Position, 1.0); }\n\x00',
+                b'',
+            )
+            with self.assertRaises(gm_shaders.GMShaderError):
+                gm_shaders.runner_builtins(truncated_gm)
+
+    def test_driver_capture_hooks_reconstruct_and_reuse(self) -> None:
+        from nspb_qt.win import driver, gm_shaders
+
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing: run python3 tools/engine.py sync')
+        mod = driver.load_upstream(repo)
+        driver.patch(mod, repo)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ver_dir = root / 'v0'
+            (ver_dir / 'ExeFS').mkdir(parents=True)
+            (ver_dir / 'RomFS').mkdir(parents=True)
+            (ver_dir / 'ExeFS' / 'main').write_bytes(_make_fake_gm_main())
+            custom_vs = b'#define _YY_GLSLES_ 1\nvoid main() {}\n'
+            custom_fs = b'#define _YY_GLSLES_ 1\nprecision lowp float;\nvoid main() {}\n'
+            (ver_dir / 'RomFS' / 'game.win').write_bytes(
+                _make_fake_game_win([(b's0', custom_vs, custom_fs)])
+            )
+
+            tsv_path = root / 'gl_capture.tsv'
+            tsv_path.write_text(
+                f'{gm_shaders.key_bytes(custom_vs)}.vert\n{gm_shaders.key_bytes(custom_fs)}.frag\n',
+                encoding='utf-8',
+            )
+
+            class FakeProfile:
+                id = '0100217023F6C000'
+
+                def table(self, name):
+                    if name == 'gl_capture.tsv':
+                        return tsv_path
+                    if name == 'vk_capture.tsv':
+                        return root / 'vk_capture.tsv'
+                    if name == 'shader_map.tsv':
+                        return root / 'shader_map.tsv'
+                    raise FileNotFoundError(name)
+
+                def get(self, key, default=''):
+                    return default
+
+            prof = FakeProfile()
+            # 1. Offline GameMaker GL reconstruction via mod.capture_shaders
+            cap_out = mod.capture_shaders(repo, ver_dir, None, root, {}, root, prof, 'gl')
+            self.assertEqual(cap_out, ver_dir / 'gl_capture')
+            self.assertTrue((cap_out / f'{gm_shaders.key_bytes(custom_vs)}.vert').is_file())
+
+            # 2. Reusing an already-populated vk_capture folder
+            (root / 'vk_capture.tsv').write_text('0123456789abcdef\n', encoding='utf-8')
+            vk_dir = ver_dir / 'vk_capture'
+            vk_dir.mkdir(parents=True)
+            (vk_dir / '0123456789abcdef.spv').write_bytes(b'spv')
+            vk_out = mod.capture_shaders(repo, ver_dir, None, root, {}, root, prof, 'vk')
+            self.assertEqual(vk_out, vk_dir)
+
+            # 3. Reusing a complete glslc_capture folder vs refusing when missing
+            sh_Name = 'fedcba9876543210.glslc'
+            (root / 'shader_map.tsv').write_text(
+                f'0\t1\t2\t3\t/glslc_capture/{sh_Name}#GLSLC@0\n', encoding='utf-8'
+            )
+            with self.assertRaises(mod.BuildError):
+                mod.capture_glslc(repo, {'v0': ver_dir}, 'v0', None, root, {}, root, prof)
+            glslc_dir = ver_dir / 'glslc_capture'
+            glslc_dir.mkdir(parents=True)
+            # GLSLC magic 0x19866891 at +0, total size 0x80 at +0x44
+            blob = bytearray(0x80)
+            struct.pack_into('<I', blob, 0, 0x19866891)
+            struct.pack_into('<I', blob, 0x44, 0x80)
+            (glslc_dir / sh_Name).write_bytes(bytes(blob))
+            self.assertIsNone(
+                mod.capture_glslc(repo, {'v0': ver_dir}, 'v0', None, root, {}, root, prof)
+            )
+
+            # 4. capture_jit returns Path(d) / 'jit' when jit.img exists, or packs from jit_capture/
+            jit_dir = ver_dir / 'jit'
+            jit_dir.mkdir(parents=True)
+            (jit_dir / 'jit.img').write_bytes(b'JIT')
+            self.assertEqual(
+                mod.capture_jit(sys.executable, repo, ver_dir, None, root, {}, root, prof),
+                jit_dir,
+            )
+            mod.rmtree(jit_dir)
+            caps_dir = ver_dir / 'jit_capture'
+            for bname in ('boot1', 'boot2'):
+                (caps_dir / bname).mkdir(parents=True)
+                (caps_dir / bname / '0.jit').write_bytes(b'J')
+            patched_dir = root / 'patched_v0'
+            patched_dir.mkdir()
+            (caps_dir / 'stamp.json').write_text(mod.jit_stamp(patched_dir, prof), encoding='utf-8')
+            ran_jit_cmd: list[list[str]] = []
+
+            def fake_jit_run(cmd, log, **_kw):
+                ran_jit_cmd.append([str(c) for c in cmd])
+                out_tmp = Path(cmd[-1])
+                out_tmp.mkdir(parents=True, exist_ok=True)
+                (out_tmp / 'jit.img').write_bytes(b'PACKED_JIT')
+                return 0
+
+            orig_run = mod.run
+            try:
+                mod.run = fake_jit_run
+                packed_jit = mod.capture_jit(
+                    sys.executable, repo, ver_dir, patched_dir, root, {}, root, prof
+                )
+            finally:
+                mod.run = orig_run
+            self.assertEqual(packed_jit, jit_dir)
+            self.assertEqual((jit_dir / 'jit.img').read_bytes(), b'PACKED_JIT')
+            self.assertEqual(len(ran_jit_cmd), 1)
+            self.assertTrue(ran_jit_cmd[0][1].endswith('dm/tools/jit_capture.py'))
+
+            # 5. capture_nro returns profile when missing.tsv is absent or empty, refuses when non-empty
+            nro_dir = root / 'nro_v0'
+            nro_dir.mkdir()
+            self.assertIs(
+                mod.capture_nro(sys.executable, repo, None, None, nro_dir, {}, root, prof, False),
+                prof,
+            )
+            (nro_dir / 'missing.tsv').write_text('', encoding='utf-8')
+            self.assertIs(
+                mod.capture_nro(sys.executable, repo, None, None, nro_dir, {}, root, prof, False),
+                prof,
+            )
+            (nro_dir / 'missing.tsv').write_text('deadbeef\tnro0\n', encoding='utf-8')
+            with self.assertRaises(mod.BuildError):
+                mod.capture_nro(sys.executable, repo, None, None, nro_dir, {}, root, prof, False)
+
+    def test_nxboot_offline_nro_decode_and_driver_capture_nro(self) -> None:
+        """Verify `nro_emu.decode_boot_nro` and `driver.capture_nro` decode `nxboot` NROs in Unicorn."""
+        from nspb_qt.win import arm64_emu as E
+        from nspb_qt.win import driver, nro_emu
+
+        self.assertTrue(E._HAS_UNICORN, 'unicorn is required for offline NRO tests')
+
+        # Build a synthetic ARM64 `nxboot` NSO with `pacibsp` / `retab` instructions:
+        # - PLT stubs at 0x200..0x240 jump via GOT slots in .data (0x2000..0x2020):
+        #     0x200 -> _ZN2nn2os12CreateThreadEPNS0_10ThreadTypeEPFvPvES3_S3_mii (GOT 0x2000)
+        #     0x210 -> _ZN2nn2ro10InitializeEv (GOT 0x2008)
+        #     0x220 -> _ZN2nn2os12AwaitBarrierEPNS0_11BarrierTypeE (GOT 0x2010)
+        #     0x230 -> malloc (GOT 0x2018)
+        # - `nnMain` at 0x020: calls `CreateThread(0, base+0x060, ...)`, `CreateThread(0, base+0x100, ...)`,
+        #   then `nn::ro::Initialize()`, and returns with `retab` (0xD65F0FFF).
+        # - Worker 0 at 0x060: writes `sizes[0] = 0x80`, calls `AwaitBarrier`, sums `sizes[0] + sizes[1]`,
+        #   calls `malloc(total)` and stores to `*out_buf_ptr`, calls `AwaitBarrier`, writes `NRO0` at +0x10
+        #   and `0x100` (256 bytes) at +0x18, and returns with `retab`.
+        # - Worker 1 at 0x100: writes `sizes[1] = 0x80`, calls `AwaitBarrier`, calls `AwaitBarrier`,
+        #   writes `0xCAFEBABE` at `(*out_buf_ptr) + sizes[0]`, and returns with `retab`.
+        text = bytearray(0x1000)
+
+        def put_insns(off: int, words: list[int]) -> None:
+            struct.pack_into(f'<{len(words)}I', text, off, *words)
+
+        def bl_at(pc: int, target: int) -> int:
+            return 0x94000000 | (((target - pc) // 4) & 0x3FFFFFF)
+
+        def adr_x1(pc: int, target: int) -> int:
+            delta = target - pc
+            return 0x10000001 | ((delta & 3) << 29) | (((delta >> 2) & 0x7FFFF) << 5)
+
+        # PLT stubs at 0x200, 0x210, 0x220, 0x230 (adrp x16, #0x2000; ldr x17, [x16, #slot]; br x17)
+        for idx, slot_off in enumerate((0x00, 0x08, 0x10, 0x18)):
+            ldr_imm = (slot_off // 8) << 10
+            put_insns(
+                0x200 + idx * 0x10,
+                [
+                    0xD0000010,                 # adrp x16, #0x2000
+                    0xF9400211 | ldr_imm,       # ldr x17, [x16, #slot_off]
+                    0xD61F0220,                 # br x17
+                    0xD503201F,                 # nop
+                ],
+            )
+
+        # nnMain at 0x020
+        put_insns(
+            0x020,
+            [
+                0xD503237F,                     # 0x020: pacibsp
+                0xA9BF7BFD,                     # 0x024: stp x29, x30, [sp, #-16]!
+                adr_x1(0x028, 0x060),           # 0x028: adr x1, 0x060 (worker 0)
+                bl_at(0x02C, 0x200),            # 0x02c: bl 0x200 (CreateThread)
+                adr_x1(0x030, 0x100),           # 0x030: adr x1, 0x100 (worker 1)
+                bl_at(0x034, 0x200),            # 0x034: bl 0x200 (CreateThread)
+                bl_at(0x038, 0x210),            # 0x038: bl 0x210 (ro::Initialize)
+                0xA8C17BFD,                     # 0x03c: ldp x29, x30, [sp], #16
+                0xD65F0FFF,                     # 0x040: retab
+            ],
+        )
+
+        # Worker 0 at 0x060
+        put_insns(
+            0x060,
+            [
+                0xD503237F,                     # 0x060: pacibsp
+                0xA9BD7BFD,                     # 0x064: stp x29, x30, [sp, #-48]!
+                0xA90153F3,                     # 0x068: stp x19, x20, [sp, #16]
+                0xA9402013,                     # 0x06c: ldp x19, x8, [x0] (x19=out_buf_ptr, x8=sizes_holder)
+                0xF9400114,                     # 0x070: ldr x20, [x8] (x20=sizes_arr)
+                0x52801008,                     # 0x074: mov w8, #0x80
+                0xB9000288,                     # 0x078: str w8, [x20]
+                bl_at(0x07C, 0x220),            # 0x07c: bl 0x220 (AwaitBarrier 1)
+                0x29402688,                     # 0x080: ldp w8, w9, [x20]
+                0x0B090100,                     # 0x084: add w0, w8, w9
+                bl_at(0x088, 0x230),            # 0x088: bl 0x230 (malloc)
+                0xF9000260,                     # 0x08c: str x0, [x19]
+                bl_at(0x090, 0x220),            # 0x090: bl 0x220 (AwaitBarrier 2)
+                0xF9400268,                     # 0x094: ldr x8, [x19]
+                0xB40000C8,                     # 0x098: cbz x8, 0x0b0
+                0x528A49C9,                     # 0x09c: mov w9, #0x524e ('NR' little-endian)
+                0x72A609E9,                     # 0x0a0: movk w9, #0x304f, lsl #16 ('NRO0')
+                0xB9001109,                     # 0x0a4: str w9, [x8, #0x10]
+                0x52802009,                     # 0x0a8: mov w9, #0x100
+                0xB9001909,                     # 0x0ac: str w9, [x8, #0x18]
+                0xA94153F3,                     # 0x0b0: ldp x19, x20, [sp, #16]
+                0xA8C37BFD,                     # 0x0b4: ldp x29, x30, [sp], #48
+                0xD65F0FFF,                     # 0x0b8: retab
+            ],
+        )
+
+        # Worker 1 at 0x100
+        put_insns(
+            0x100,
+            [
+                0xD503237F,                     # 0x100: pacibsp
+                0xA9BD7BFD,                     # 0x104: stp x29, x30, [sp, #-48]!
+                0xA90153F3,                     # 0x108: stp x19, x20, [sp, #16]
+                0xA9402013,                     # 0x10c: ldp x19, x8, [x0]
+                0xF9400114,                     # 0x110: ldr x20, [x8]
+                0x52801008,                     # 0x114: mov w8, #0x80
+                0xB9000688,                     # 0x118: str w8, [x20, #4]
+                bl_at(0x11C, 0x220),            # 0x11c: bl 0x220 (AwaitBarrier 1)
+                bl_at(0x120, 0x220),            # 0x120: bl 0x220 (AwaitBarrier 2)
+                0xF9400268,                     # 0x124: ldr x8, [x19]
+                0xB9800289,                     # 0x128: ldrsw x9, [x20]
+                0x8B090108,                     # 0x12c: add x8, x8, x9
+                0x529757C9,                     # 0x130: mov w9, #0xbabe
+                0x72B95FC9,                     # 0x134: movk w9, #0xcafe, lsl #16
+                0xB9000109,                     # 0x138: str w9, [x8]
+                0xA94153F3,                     # 0x13c: ldp x19, x20, [sp, #16]
+                0xA8C37BFD,                     # 0x140: ldp x29, x30, [sp], #48
+                0xD65F0FFF,                     # 0x144: retab
+            ],
+        )
+
+        # Build .rodata (at 0x1000) with MOD0, dynamic table, strtab, symtab, jmprel
+        ro = bytearray(0x1000)
+        struct.pack_into('<I', text, 4, 0x1000)  # mod0 offset at image+4
+        struct.pack_into('<4sii', ro, 0, b'MOD0', 0x20, 0x2000)  # dynamic at 0x1020
+
+        strtab = bytearray(b'\x00')
+        syms = bytearray(24)  # symbol 0 (STN_UNDEF)
+
+        def add_sym(name: str, shndx: int, val: int) -> int:
+            idx = len(syms) // 24
+            name_off = len(strtab)
+            strtab.extend(name.encode('ascii') + b'\x00')
+            info = (1 << 4) | 2
+            syms.extend(struct.pack('<IBBHQQ', name_off, info, 0, shndx, val, 0))
+            return idx
+
+        add_sym('nnMain', 1, 0x020)
+        s_create = add_sym('_ZN2nn2os12CreateThreadEPNS0_10ThreadTypeEPFvPvES3_S3_mii', 0, 0)
+        s_ro_init = add_sym('_ZN2nn2ro10InitializeEv', 0, 0)
+        s_barrier = add_sym('_ZN2nn2os12AwaitBarrierEPNS0_11BarrierTypeE', 0, 0)
+        s_malloc = add_sym('malloc', 0, 0)
+
+        jmprel = bytearray()
+        for slot_off, sym_i in ((0x00, s_create), (0x08, s_ro_init), (0x10, s_barrier), (0x18, s_malloc)):
+            jmprel.extend(struct.pack('<QQq', 0x2000 + slot_off, (sym_i << 32) | 1026, 0))
+
+        symtab_off = 0x1200
+        strtab_off = symtab_off + len(syms)
+        jmprel_off = 0x1600
+        ro[symtab_off - 0x1000:symtab_off - 0x1000 + len(syms)] = syms
+        ro[strtab_off - 0x1000:strtab_off - 0x1000 + len(strtab)] = strtab
+        ro[jmprel_off - 0x1000:jmprel_off - 0x1000 + len(jmprel)] = jmprel
+
+        dyn_entries = [
+            (5, strtab_off),
+            (6, symtab_off),
+            (10, len(strtab)),
+            (11, 24),
+            (23, jmprel_off),
+            (2, len(jmprel)),
+            (0, 0),
+        ]
+        for i, (tag, val) in enumerate(dyn_entries):
+            struct.pack_into('<QQ', ro, 0x20 + i * 16, tag, val)
+
+        data = bytearray(0x1000)
+        hdr = bytearray(0x100)
+        hdr[:4] = b'NSO0'
+        struct.pack_into('<III', hdr, 0x10, 0x100, 0x0, len(text))
+        struct.pack_into('<III', hdr, 0x20, 0x100 + len(text), 0x1000, len(ro))
+        struct.pack_into('<III', hdr, 0x30, 0x100 + len(text) + len(ro), 0x2000, len(data))
+        struct.pack_into('<I', hdr, 0x3C, 0x100)
+        struct.pack_into('<III', hdr, 0x60, len(text), len(ro), len(data))
+        nso_blob = bytes(hdr + text + ro + data)
+
+        expected_nro = bytearray(0x100)
+        expected_nro[0x10:0x14] = b'NRO0'
+        struct.pack_into('<I', expected_nro, 0x18, 0x100)
+        struct.pack_into('<I', expected_nro, 0x80, 0xCAFEBABE)
+        expected_sha = __import__('hashlib').sha256(expected_nro).hexdigest()
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            exe_dir = root / 'ExeFS'
+            exe_dir.mkdir()
+            main_path = exe_dir / 'main'
+            main_path.write_bytes(nso_blob)
+
+            decoded = nro_emu.decode_boot_nro(main_path, max_workers=2)
+            self.assertEqual(decoded, bytes(expected_nro))
+
+            # Non-nxboot NSO without AwaitBarrier/CreateThread imports is rejected before running nnMain
+            non_nxboot = nso_blob.replace(
+                b'_ZN2nn2os12AwaitBarrierEPNS0_11BarrierTypeE',
+                b'_ZN2nn2os12OtherSymbolEPNS0_11BarrierTypeE_',
+            )
+            non_nxboot_path = exe_dir / 'plain_main'
+            non_nxboot_path.write_bytes(non_nxboot)
+            with mock.patch.object(nro_emu._BootNroMachine, 'call') as m_call:
+                with self.assertRaises(E.EmuError):
+                    nro_emu.decode_boot_nro(non_nxboot_path)
+                m_call.assert_not_called()
+
+            # Verify driver.capture_nro decodes offline, updates nro.tsv/missing.tsv, and triggers rewrite
+            repo = QT.parent / 'engine'
+            if (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+                mod = driver.load_upstream(repo)
+                driver.patch(mod, repo)
+                nro_dir = root / 'nro_v0'
+                nro_dir.mkdir()
+                (nro_dir / 'missing.tsv').write_text(f'{expected_sha}\tnrr.nrr\n', encoding='utf-8')
+                (nro_dir / 'nro.tsv').write_text('# name\tsha256\tsize\tnrr\twhere\n', encoding='utf-8')
+                rewrite_calls: list[Path] = []
+                orig_rewrite = mod.rewrite
+
+                def fake_rewrite(py_, repo_, ed, out_, env_, logs_, g_, prov_=False, *a, **kw):
+                    rewrite_calls.append(Path(out_))
+                    return g_
+
+                try:
+                    mod.rewrite = fake_rewrite
+                    sentinel_g = object()
+                    res = mod.capture_nro(
+                        sys.executable,
+                        repo,
+                        exe_dir,
+                        root / 'patched_v0',
+                        nro_dir,
+                        {},
+                        root,
+                        sentinel_g,
+                        False,
+                    )
+                finally:
+                    mod.rewrite = orig_rewrite
+
+                self.assertIs(res, sentinel_g)
+                self.assertEqual(rewrite_calls, [root / 'patched_v0'])
+                self.assertEqual((nro_dir / 'nro0.nro').read_bytes(), bytes(expected_nro))
+                self.assertEqual((nro_dir / 'missing.tsv').read_text(encoding='utf-8'), '')
+                self.assertIn(
+                    f'nro0\t{expected_sha}\t256\tnrr.nrr\tcapture',
+                    (nro_dir / 'nro.tsv').read_text(encoding='utf-8'),
+                )
 
 
 if __name__ == '__main__':

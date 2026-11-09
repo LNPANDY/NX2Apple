@@ -22,10 +22,13 @@ What gets replaced, and why:
 `build_mac_host`          points decoder tool-mode steps (`DM_OODLE_SERVE` / `DM_OODLE_JOB`) at
                           `oodle_emu.py` (native x64 Oodle DLL passthrough or emulated ARM64)
 `toolchain`               the shader cache key needs the Windows Metal compiler's version
-`capture_shaders`         reconstructs LÖVE OpenGL shaders offline via `love_shaders.py` when
-                          every capture-table entry matches, and refuses other captures
-`capture_glslc`           run-time shader capture boots the game in the Mac host: refused,
-                          with the device-capture workflow explained
+`capture_shaders`         reuses existing `gl_capture` / `vk_capture` folders, reconstructs
+                          LÖVE (`love_shaders.py`) and GameMaker (`gm_shaders.py`) OpenGL
+                          shaders offline, and refuses other uncaptured run-time shaders
+`capture_glslc`           reuses existing `glslc_capture` folders when complete, and refuses
+                          missing captures with the device-capture workflow explained
+`capture_jit` /           reuses `jit/jit.img` or packs existing `jit_capture/` dumps via
+`capture_nro`             `jit_capture.py`, and refuses missing runtime JIT or NRO captures
 `mac_app` / `mac_run`     Mac platforms: refused
 `build_ipa.sh`            replaced by `build_app.py` (through the shim, which also has to cover
                           the child processes the pipeline starts)
@@ -455,66 +458,209 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
                 'machine on this PC. The game\'s files are extracted, so a Mac can finish the '
                 'build from the same work folder (its shader/ and extract/ are reused).')
         return fn
-    mod.capture_glslc = _refuse_capture('this game')
+    def capture_glslc(repo_=None, dirs=None, pkg_ver=None, patched=None, work=None,
+                      env=None, logs=None, g=None, *a, **kw):
+        """Reuse complete `glslc_capture` folders across `dirs`, or refuse when missing."""
+        if isinstance(dirs, dict) and dirs and hasattr(mod, 'glslc_done'):
+            want = (
+                mod.glslc_wanted(g)
+                if (g is not None and hasattr(mod, 'glslc_wanted'))
+                else None
+            )
+            todo = [
+                v for v, d in dirs.items()
+                if not (
+                    mod.glslc_done(Path(d) / 'glslc_capture') >= want
+                    if want
+                    else mod.glslc_done(Path(d) / 'glslc_capture')
+                )
+            ]
+            if not todo:
+                mod.PROG.stage('GLSLC capture')
+                say(
+                    'reusing the captured run-time shaders: '
+                    + ', '.join(str(Path(d) / 'glslc_capture') for d in dirs.values())
+                )
+                mod.PROG.end('reused')
+                return None
+        return _refuse_capture('this game')(
+            repo_, dirs, pkg_ver, patched, work, env, logs, g, *a, **kw
+        )
 
-    def capture_shaders(repo_, d, patched, work, env, logs, g, api='gl', *a, **kw):
-        """Reconstruct LÖVE OpenGL shaders offline via `love_shaders.py`, or reuse existing captures."""
+    mod.capture_glslc = capture_glslc
+
+    def capture_shaders(repo_=None, d=None, patched=None, work=None, env=None,
+                        logs=None, g=None, api='gl', *a, **kw):
+        """Reuse existing `gl_capture`/`vk_capture` or reconstruct LÖVE / GameMaker GL shaders offline."""
         if d is not None:
             d_path = Path(d)
             out = d_path / f'{api}_capture'
-            want = mod.capture_wanted(g, api) if (g is not None and hasattr(mod, 'capture_wanted')) else None
+            want = (
+                mod.capture_wanted(g, api)
+                if (g is not None and hasattr(mod, 'capture_wanted'))
+                else None
+            )
             if want and hasattr(mod, 'capture_done') and mod.capture_done(out, api) >= want:
-                stage_name = 'Vulkan shader capture' if api == 'vk' else 'GL shader capture'
-                mod.PROG.stage(stage_name)
+                c_name = (
+                    mod.CAPTURES[api]['name']
+                    if (hasattr(mod, 'CAPTURES') and api in mod.CAPTURES)
+                    else ('Vulkan' if api == 'vk' else api.upper())
+                )
+                mod.PROG.stage(f'{c_name} shader capture')
                 say(f'reusing the captured run-time shaders: {out}')
                 mod.PROG.end('reused')
                 return out
             if api == 'gl':
                 main_nso = d_path / 'ExeFS' / 'main'
                 if main_nso.is_file():
-                    from . import love_shaders
+                    from . import gm_shaders, love_shaders
                     part = d_path / 'gl_capture.partial'
-                    mod.rmtree(part)
                     table = None
                     if g is not None and hasattr(mod, 'CAPTURES'):
                         try:
                             table = g.table(mod.CAPTURES['gl']['table'])
                         except Exception:
                             table = None
-                    rom_src = mod.rfs.source(d_path) if hasattr(mod, 'rfs') else (d_path / 'RomFS')
-                    try:
-                        res = love_shaders.generate(
-                            main_nso,
-                            rom_src,
-                            part,
-                            table,
-                            log=say,
-                            repo=repo_,
-                            require_table=True,
-                        )
-                    except (love_shaders.LoveShaderError, ValueError) as e:
+                    rom_src = (
+                        mod.rfs.source(d_path)
+                        if hasattr(mod, 'rfs')
+                        else (d_path / 'RomFS')
+                    )
+                    for eng_label, sh_mod, err_cls in (
+                        ('LÖVE', love_shaders, love_shaders.LoveShaderError),
+                        ('GameMaker', gm_shaders, gm_shaders.GMShaderError),
+                    ):
                         mod.rmtree(part)
-                        raise BuildError(str(e)) from e
-                    if res is not None:
-                        mod.PROG.stage('GL shader reconstruction (LÖVE)')
-                        if hasattr(mod, 'swap_in'):
-                            mod.swap_in(part, out)
-                        else:
-                            mod.rmtree(out)
-                            part.rename(out)
-                        mod.PROG.end(f'{len(res[0])} shaders')
-                        return out
-                    mod.rmtree(part)
-        return _refuse_capture('this game')(repo_, d, patched, work, env, logs, g, api, *a, **kw)
+                        try:
+                            res = sh_mod.generate(
+                                main_nso,
+                                rom_src,
+                                part,
+                                table,
+                                log=say,
+                                repo=repo_,
+                                require_table=True,
+                            )
+                        except (err_cls, ValueError) as e:
+                            mod.rmtree(part)
+                            raise BuildError(str(e)) from e
+                        if res is not None:
+                            mod.PROG.stage(f'GL shader reconstruction ({eng_label})')
+                            if hasattr(mod, 'swap_in'):
+                                mod.swap_in(part, out)
+                            else:
+                                mod.rmtree(out)
+                                part.rename(out)
+                            mod.PROG.end(f'{len(res[0])} shaders')
+                            return out
+                        mod.rmtree(part)
+        return _refuse_capture('this game')(
+            repo_, d, patched, work, env, logs, g, api, *a, **kw
+        )
 
     mod.capture_shaders = capture_shaders
 
-    def capture_jit(py_, repo_, d, patched, work, env, logs, g, *a, **kw):
-        if (Path(d) / 'jit' / 'jit.img').is_file():
-            say(f'reusing the captured JIT image: {Path(d) / "jit/jit.img"}')
-            return
+    def capture_jit(py_=None, repo_=None, d=None, patched=None, work=None,
+                    env=None, logs=None, g=None, *a, **kw):
+        """Reuse `jit/jit.img` or pack existing `jit_capture/` dumps via `jit_capture.py`."""
+        if d is not None:
+            d_path = Path(d)
+            out = d_path / 'jit'
+            if (out / 'jit.img').is_file():
+                say(f'reusing the captured JIT image: {out / "jit.img"}')
+                return out
+            caps = d_path / 'jit_capture'
+            if caps.is_dir():
+                stamp_ok = True
+                if patched is not None and g is not None and hasattr(mod, 'jit_stamp'):
+                    sf = caps / 'stamp.json'
+                    stamp_ok = (
+                        sf.is_file()
+                        and sf.read_text(encoding='utf-8', errors='replace') == mod.jit_stamp(patched, g)
+                    )
+                route = (
+                    g.get('jit_route', '')
+                    if (g is not None and hasattr(g, 'get'))
+                    else ''
+                )
+                req = ('boot1', 'boot2') + (('route',) if route else ())
+                if stamp_ok and all(any((caps / n).glob('*.jit')) for n in req):
+                    mod.PROG.stage('JIT capture', step='image')
+                    tmp = d_path / 'jit.partial'
+                    mod.rmtree(tmp)
+                    log_path = (Path(logs) / 'jit_capture.log') if logs is not None else None
+                    dirs_arg = sorted(
+                        str(x) for x in caps.iterdir()
+                        if x.is_dir() and not x.name.endswith('.partial')
+                    )
+                    gid = getattr(g, 'id', '') if g is not None else ''
+                    mod.run(
+                        [py_ or sys.executable, Path(repo_) / 'dm/tools/jit_capture.py', '--profile', gid]
+                        + dirs_arg
+                        + [tmp],
+                        log_path,
+                        env=env,
+                    )
+                    if hasattr(mod, 'swap_in'):
+                        mod.swap_in(tmp, out)
+                    else:
+                        mod.rmtree(out)
+                        tmp.rename(out)
+                    summary = 'reused captures'
+                    if log_path is not None and log_path.is_file():
+                        lines = log_path.read_text(encoding='utf-8', errors='replace').strip().splitlines()
+                        if lines:
+                            summary = lines[-1][:120]
+                    mod.PROG.end(summary)
+                    return out
         _refuse_capture('this game (nn::jit)')()
+
     mod.capture_jit = capture_jit
+
+    def capture_nro(py_=None, repo_=None, exe_dir=None, out=None, nro_dir=None,
+                    env=None, logs=None, g=None, provisional=False, *a, **kw):
+        """Return `g` when no runtime NRO is missing, decode `nxboot` NROs offline, or refuse."""
+        if nro_dir is not None:
+            missing = Path(nro_dir) / 'missing.tsv'
+            if not missing.is_file():
+                return g
+            want = dict(
+                line.split('\t', 1)
+                for line in missing.read_text(encoding='utf-8', errors='replace').splitlines()
+                if line and '\t' in line
+            )
+            if not want:
+                return g
+            if exe_dir is not None and (Path(exe_dir) / 'main').is_file():
+                from . import nro_emu
+                if hasattr(mod.PROG, 'add'):
+                    mod.PROG.add(2)
+                mod.PROG.stage('NRO capture')
+                mod.PROG.set(step='decoding runtime NRO offline')
+                try:
+                    captured = nro_emu.capture_missing_nros(exe_dir, nro_dir, say=say)
+                except Exception as exc:
+                    say(f'offline NRO decode failed ({exc})')
+                    captured = []
+                rem = (
+                    [
+                        ln
+                        for ln in missing.read_text(encoding='utf-8', errors='replace').splitlines()
+                        if ln and '\t' in ln
+                    ]
+                    if missing.is_file()
+                    else []
+                )
+                if captured and not rem:
+                    name, _sha, sz = captured[-1]
+                    mod.PROG.end(f'{name}, {sz / 2**20:.1f} MB')
+                    if hasattr(mod, 'rewrite') and out is not None:
+                        return mod.rewrite(py_, repo_, exe_dir, out, env, logs, g, provisional)
+                    return g
+                mod.PROG.end(ok=False)
+        _refuse_capture('this game (runtime NRO)')()
+
+    mod.capture_nro = capture_nro
 
     # ---------------------------------------------------------------- Unreal inline & Oodle/LZ5 shaders
     pg = getattr(mod, 'pg', None)
