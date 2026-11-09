@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E6=B1=AA=E7=86=B9?= <wangxi@wangxideMacBook-Pro.local>
+Date: Mon, 9 Nov 2026 08:13:05 +0800
+Subject: [PATCH] =?UTF-8?q?=E8=AE=B0=E5=BD=95=E7=9A=87=E5=AE=B6=E7=89=88?=
+ =?UTF-8?q?=E4=BA=9A=E6=B4=B2=E8=B5=84=E6=BA=90=E5=B7=AE=E5=BC=82=E4=B8=8E?=
+ =?UTF-8?q?=E9=AA=8C=E8=AF=81=E8=8C=83=E5=9B=B4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+说明亚洲标题与欧美配置共享主程序构建但资源名不同，记录自动派生标记机制及已完成的打包验证，并明确未验证亚洲版游玩和苹果移动设备运行。
+
+Upstream-Status: forwarded seedds/nxnative#1882
+Reason: Preserve valid regional RomFS markers and repair missing inherited markers when deriving a matched title.
+Issue: seedds/nxnative#1882
+
+---
+ dm/games/01005CA01580E000/README.md | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/dm/games/01005CA01580E000/README.md b/dm/games/01005CA01580E000/README.md
+index 9c4100c..c7295b7 100644
+--- a/dm/games/01005CA01580E000/README.md
++++ b/dm/games/01005CA01580E000/README.md
+@@ -51,3 +51,16 @@ Choose offline mode at the network prompt, then New Game and English voices. Adv
+ - Test battles, later story scenes and save/load over a longer playthrough.
+ - `SetRenderEnableConditional` still reports that the host draws unconditionally. No visual failure was identified in the tested opening; conditional rendering remains unvalidated.
+ - Device validation remains for the user after sideloading.
++
++## Regional resource marker
++
++The Asian title `01004B10157F2000` v65536 (1.0.2) shares main build
++`d4b150b29a931cd381e2a30318fc299f` with this profile but ships
++`CPK/ALL_ASIA.CPK` instead of `CPK/ALL_USEU.CPK`. Inheriting the latter
++caused final Mac packaging to reject an otherwise extracted RomFS.
++Cross-title derived profiles now retain an existing resource marker or,
++when it is absent, select the largest actual file from that version's RomFS.
++The registered profile and same-title builds remain unchanged. Synthetic
++folder and image tests cover both layouts and repeated-build reuse. Asian
++Mac packaging with the corrected marker has passed locally; Asian gameplay
++and iOS execution remain untested.
