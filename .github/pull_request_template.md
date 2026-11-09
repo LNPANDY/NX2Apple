@@ -10,11 +10,15 @@ Feature from outside: the issue in a milestone is linked.
 
 ## What and why
 
-<!-- The symptom or the need, the cause, and the change. Link the issue (Fixes #...). -->
+<!-- Three short lines a maintainer reads in 30 seconds, one or two sentences each. Link the issue (Fixes #...).
+**Problem.** What goes wrong, or what is needed.
+**Cause.** Why. Leave out for a feature.
+**Change.** What this PR does.
+Put the long analysis, logs and traces in a <details> block below. See CONTRIBUTING.md, "Short and plain texts". -->
 
 ## Checked
 
-<!-- Delete what does not apply. Say what was not checked too. -->
+<!-- Delete what does not apply. One line each. Say what was not checked too. Long output goes in a <details> block. -->
 - Tests: <!-- `cd frontend && swift test`, frontend-qt tests if you changed it, `python3 tools/engine.py check` when `patches/` changed -->
 - Test for a fix: <!-- the test for the bug, or why none can exist (it needs a real device, iCloud or a real game) -->
 - Visual QA: <!-- `NX_LAUNCHER_CAPTURE_DIR=<dir> swift test` captures the views, for a UI change -->

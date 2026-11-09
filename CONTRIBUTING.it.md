@@ -98,6 +98,13 @@ I manutentori lavorano spesso per stack: una PR per ogni passo, ciascuna basata 
 
 I moduli delle issue e il template delle PR funzionano automaticamente solo nel browser. `gh issue create`, le API e gli strumenti MCP saltano i moduli, perciò devono seguirne la struttura manualmente:
 
+- **Testi brevi e semplici.** Un maintainer deve capire una issue o una PR in 30 secondi. Vale per ogni testo e commento che scrivi, e viene prima degli altri suggerimenti del modulo.
+  - Inizia con un riassunto di al massimo tre righe: cosa non va, perché, e cosa fa la PR o cosa chiede la issue. Chi si ferma lì ha già capito il punto.
+  - Una sola idea per frase, al massimo 20 parole. Nessun paragrafo oltre tre frasi. Usa elenchi puntati, non testo continuo.
+  - Scrivi con parole semplici. Niente cronaca dei tuoi tentativi, niente note su tempi o carico della macchina, niente lunghe catene di cause nel testo principale.
+  - Tieni il testo principale sotto le 150 parole. Metti le prove in `<details><summary>Details</summary> ... </details>` sotto di esso: l'analisi completa della causa, log e trace, l'elenco dei test eseguiti, i comandi.
+  - Di' una volta sola e chiaramente cosa non hai controllato o non hai potuto eseguire.
+  - Una PR non ripete la sua issue. La collega e aggiunge solo ciò che è nuovo.
 - **Segnalazioni di problemi.** Scrivi il corpo del testo usando intestazioni `###` con gli stessi nomi dei campi del modulo (ad esempio `### Game and title ID`, `### Copy diagnostics`, `### The game's log`) e compila tutti i campi obbligatori definiti in [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). Chiedi all'utente i dati che non puoi leggere autonomamente: l'output di Copia diagnostica, il log e le versioni. Se manca un campo obbligatorio, non aprire la issue.
 - **Idee e piani.** Non hanno un modulo fisso. Scrivi sezioni chiare e adatte al contenuto, ad esempio `### Idea`, `### Plan` e `### Done when`. Ometti i campi specifici dei bug (`This is`, `NX2Apple version`, `Computer and OS`, `Copy diagnostics`). Apri la issue con le etichette `idea` e `no-triage`.
 - **Prima di scrivere codice.** Se operi per conto di un collaboratore esterno, una nuova funzionalità o una proposta richiede una issue inserita in una milestone (vedi "Correzioni, nuove funzionalità e idee"). Verifica che esista o chiedi all'utente. Il profilo di un nuovo gioco o una correzione al motore vanno inviati prima a seedds/nxnative (vedi "Aiutare con i giochi").

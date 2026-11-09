@@ -112,6 +112,13 @@ The maintainers work in stacks: one PR per step, each based on the head branch o
 
 Issue forms and the PR template apply in the browser only. `gh issue create`, the API and MCP tools skip the forms, so follow them yourself:
 
+- **Short and plain texts.** A maintainer must understand an issue or a PR in 30 seconds. This holds for every body and comment you write, and it comes before the form's other hints.
+  - Start with a summary of at most three lines: what is wrong, why, and what the PR does or the issue asks for. A reader who stops there still knows the point.
+  - One idea per sentence, at most 20 words. No paragraph over three sentences. Use bullets for lists, not run-on text.
+  - Say it in plain words. No history of your attempts, no remarks on timing or machine load, no long causal chains in the main text.
+  - Keep the main text under 150 words. Put evidence in `<details><summary>Details</summary> ... </details>` below it: the full cause analysis, logs and traces, the list of tests run, the commands.
+  - Say once and plainly what you did not check or could not run.
+  - A PR does not repeat its issue. Link it and add only what is new.
 - **Problem reports.** Write the body as `###` headings with the same names as the form's fields (for example `### Game and title ID`, `### Copy diagnostics`, `### The game's log`) and fill every required field from [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). Ask the user for what you cannot read yourself: the Copy diagnostics output, the log, the versions. If a required field is missing, do not open the issue.
 - **Ideas and plans.** These have no form. Write plain sections that fit the content, for example `### Idea`, `### Plan` and `### Done when`. Leave out the problem fields (`This is`, `NX2Apple version`, `Computer and OS`, `Copy diagnostics`). Open it with the labels `idea` and `no-triage`.
 - **Before you build.** If you work for an outside contributor, a feature or a proposal needs an issue in a milestone (see "Fixes, features and ideas"). Check that it exists or ask the user. A new game profile or an engine fix goes to seedds/nxnative first (see "Helping with games").
