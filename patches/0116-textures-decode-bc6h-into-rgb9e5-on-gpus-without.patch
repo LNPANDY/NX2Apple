@@ -1,0 +1,252 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Mon, 9 Nov 2026 21:21:13 +0100
+Subject: [PATCH] Textures: decode BC6H into RGB9E5 on GPUs without BC support
+ (DM_BC6H_RGB9E5)
+
+On an iPhone or iPad before the A17 Pro the GPU does not read BC textures, so a profile with tex_bc_cpu
+decodes them on the CPU. BC6H (HDR) went to RGBA16Float, 8 bytes a pixel, and a scene with many of them can
+pass the process's memory limit. DM_BC6H_RGB9E5=1 decodes BC6H into RGB9E5Float, 4 bytes a pixel: half the
+memory, with negative values clamped to 0 and a 9-bit mantissa. It is off by default so the tested decode
+stays, and only takes effect when g_bc_cpu is on. The shader chain is untouched.
+
+nvn_bcdec.c: nvn_bc_set_bc6h_rgb9e5 / nvn_bc_bc6h_rgb9e5 choose what nvn_bc_unpacked answers for 0x4f / 0x50,
+nvn_rgb9e5_pack is the reference shared-exponent packing, the block decode packs each half-float pixel.
+nvn_mtl.m reads the switch where g_bc_cpu is set. The upload path already sizes its staging from the
+unpacked bytes per pixel. settings.tsv has a Performance row for iOS games with tex_bc_cpu, docs/settings.md
+and docs/env_switches.tsv describe it. The iOS shell hides the row on a GPU with BC support.
+
+Tests: t_bcdec.c (the packing against an independent decode, the format map with the switch on and off, the
+RGB9E5 pixels equal the RGBA16F pixels packed, edge blocks) and test_launcher_settings.py (who sees the row).
+
+Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Reason: HDR textures on a phone without BC support can pass the memory limit, a front end needs a switch for the smaller format
+Issue: LNPANDY/NX2Apple#544
+---
+ dm/games/settings.tsv                    |  1 +
+ dm/gfx/nvn/nvn_mtl.m                     |  2 ++
+ dm/gfx/tex/nvn_bcdec.c                   | 34 +++++++++++++++++--
+ dm/gfx/tex/nvn_bcdec.h                   |  7 ++++
+ dm/gfx/tex/tests/t_bcdec.c               | 43 ++++++++++++++++++++++++
+ dm/tools/tests/test_launcher_settings.py |  8 +++++
+ docs/env_switches.tsv                    |  1 +
+ docs/settings.md                         |  9 ++++-
+ 8 files changed, 102 insertions(+), 3 deletions(-)
+
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index bed9160b..141b0d86 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -37,5 +37,6 @@ DM_PSO_MTL4	toggle	-	DM_GAME_PSO_MTL4|1	gfxapi:nvn	Performance	Metal 4 pipelines
+ DM_PSO_PREBUILD	toggle	-	1	gfxapi:nvn	Performance	Pipeline prebuild	The first start waits a few minutes for it, once.	needs=DM_PSO_MTL4=1
+ DM_NVN_ENC_THREAD	toggle	-	1|DM_GAME_ENC_THREAD	gfxapi:nvn	Performance	Encode thread
+ DM_NVN_PREFETCH	toggle	-	DM_GAME_NVN_PREFETCH|1	gfxapi:nvn	Performance	Shader prefetch	Loads each program's shader libraries in the background, whether a draw uses them or not.
++DM_BC6H_RGB9E5	toggle	-	0	DM_GAME_TEX_BC_CPU==1&platform:ios&gfxapi:nvn	Performance	Downsample HDR textures	Saves memory on devices without hardware BC textures, with slightly less precise HDR textures.
+ DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	DM_GAME_FPS_TARGET!=0	Performance	Hold frames when late
+ DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 5e56a8b8..d33cffd6 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -662,6 +662,8 @@ void mtl_init(void) {
+     g_bc_gpu = [g_dev supportsBCTextureCompression];
+     g_bc_cpu = !g_bc_gpu && dm_prof()->tex_bc_cpu;
+     if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
++    // DM_BC6H_RGB9E5=1: BC6H (HDR) textures decode into RGB9E5Float, 4 bytes per pixel instead of RGBA16Float's 8. Off unless asked: it costs a little precision and negative values.
++    { const char *e = getenv("DM_BC6H_RGB9E5"); nvn_bc_set_bc6h_rgb9e5(g_bc_cpu && e && !strcmp(e, "1")); if (nvn_bc_bc6h_rgb9e5()) MLOG("BC6H textures decode to RGB9E5 (DM_BC6H_RGB9E5=1): half the memory of RGBA16F"); }
+     g_q = [g_dev newCommandQueue];
+     // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
+     // Vulkan layers draw on classic queues of their own and need only the device (mtl_device_classic): there the classic part starts and presents are dropped, which is all a
+diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
+index 7b2d83c9..21fc7fcc 100644
+--- a/dm/gfx/tex/nvn_bcdec.c
++++ b/dm/gfx/tex/nvn_bcdec.c
+@@ -4,9 +4,32 @@
+ #define BCDEC_BC4BC5_PRECISE   // BC4 / BC5 带有符号版本的接口 | interface with signed variants of BC4 / BC5
+ #include "../../third_party/bcdec/bcdec.h"
+ #include "nvn_bcdec.h"
++#include <math.h>
+ #include <string.h>
+ 
+-enum { R8Unorm = 10, R8Snorm = 12, RG8Unorm = 30, RG8Snorm = 32, RGBA8Unorm = 70, RGBA8Unorm_sRGB = 71, RGBA16Float = 115 };
++enum { R8Unorm = 10, R8Snorm = 12, RG8Unorm = 30, RG8Snorm = 32, RGBA8Unorm = 70, RGBA8Unorm_sRGB = 71, RGB9E5Float = 93, RGBA16Float = 115 };
++static int g_bc6h_rgb9e5;   // BC6H into RGB9E5Float, 4 bytes per pixel instead of 8 (nvn_bcdec.h)
++void nvn_bc_set_bc6h_rgb9e5(int on) { g_bc6h_rgb9e5 = on != 0; }
++int nvn_bc_bc6h_rgb9e5(void) { return g_bc6h_rgb9e5; }
++
++uint32_t nvn_rgb9e5_pack(float r, float g, float b) {   // the reference packing of EXT_texture_shared_exponent
++    const float max_value = 65408.0f;   // (511 / 512) * 2^15
++    float c[3] = {r, g, b};
++    for (int i = 0; i < 3; i++) c[i] = c[i] > 0 ? (c[i] < max_value ? c[i] : max_value) : 0;   // negative and NaN fail the test and become 0
++    float peak = fmaxf(c[0], fmaxf(c[1], c[2]));
++    int e = peak > 0 ? (int)fmaxf(-16.0f, floorf(log2f(peak))) + 16 : 0;
++    float denom = exp2f((float)(e - 24));
++    if ((int)floorf(peak / denom + 0.5f) == 512) { e++; denom *= 2; }
++    uint32_t m[3];
++    for (int i = 0; i < 3; i++) { float q = floorf(c[i] / denom + 0.5f); m[i] = q > 511 ? 511 : (uint32_t)q; }
++    return m[0] | (m[1] << 9) | (m[2] << 18) | ((uint32_t)e << 27);
++}
++
++static float half_to_float(uint16_t h) {
++    int s = (h >> 15) & 1, e = (h >> 10) & 31, m = h & 1023;
++    float v = e == 0 ? ldexpf((float)m, -24) : e == 31 ? (m ? NAN : INFINITY) : ldexpf((float)(m | 1024), e - 25);
++    return s ? -v : v;
++}
+ // NVN：0x41 RGB_DXT1、0x42 RGBA_DXT1、0x43 DXT3、0x44 DXT5、0x45–0x48 同上 sRGB、0x49 / 0x4a BC4 无 / 有符号、0x4b / 0x4c BC5、0x4d / 0x4e BC7（sRGB）、0x4f / 0x50 BC6H 有 / 无符号
+ // NVN: 0x41 RGB_DXT1, 0x42 RGBA_DXT1, 0x43 DXT3, 0x44 DXT5, 0x45–0x48 the same in sRGB, 0x49 / 0x4a BC4 unsigned / signed, 0x4b / 0x4c BC5, 0x4d / 0x4e BC7 (sRGB), 0x4f / 0x50 BC6H signed / unsigned
+ int nvn_bc_unpacked(uint32_t f, uint32_t *pf, int *bpp) {
+@@ -17,7 +40,7 @@ int nvn_bc_unpacked(uint32_t f, uint32_t *pf, int *bpp) {
+     case 0x4a: *pf = R8Snorm; *bpp = 1; return 1;
+     case 0x4b: *pf = RG8Unorm; *bpp = 2; return 1;
+     case 0x4c: *pf = RG8Snorm; *bpp = 2; return 1;
+-    case 0x4f: case 0x50: *pf = RGBA16Float; *bpp = 8; return 1;
++    case 0x4f: case 0x50: if (g_bc6h_rgb9e5) { *pf = RGB9E5Float; *bpp = 4; } else { *pf = RGBA16Float; *bpp = 8; } return 1;
+     default: return 0;
+     }
+ }
+@@ -34,6 +57,13 @@ static void block(uint32_t f, const uint8_t *b, uint8_t *o, int op) {   // 一
+     case 0x4d: case 0x4e: bcdec_bc7(b, o, op); break;
+     case 0x4f: case 0x50: {   // bcdec 出 RGB 半精度，补 alpha = 1.0 | bcdec outputs RGB half-float; add alpha = 1.0
+         uint16_t rgb[16 * 3]; bcdec_bc6h_half(b, rgb, 4 * 3, f == 0x4f);
++        if (g_bc6h_rgb9e5) {   // alpha is 1.0 in a sampled RGB9E5 texture
++            for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
++                const uint16_t *s = rgb + (y * 4 + x) * 3;
++                *((uint32_t *)(o + y * op) + x) = nvn_rgb9e5_pack(half_to_float(s[0]), half_to_float(s[1]), half_to_float(s[2]));
++            }
++            break;
++        }
+         for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
+             uint16_t *d = (uint16_t *)(o + y * op) + x * 4; const uint16_t *s = rgb + (y * 4 + x) * 3;
+             d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 0x3c00;
+diff --git a/dm/gfx/tex/nvn_bcdec.h b/dm/gfx/tex/nvn_bcdec.h
+index abf3d2d1..ac82a275 100644
+--- a/dm/gfx/tex/nvn_bcdec.h
++++ b/dm/gfx/tex/nvn_bcdec.h
+@@ -12,3 +12,10 @@ int nvn_bc_unpacked(uint32_t nvn_fmt, uint32_t *mtl_pf, int *bpp);
+ // 解一片 w×h 像素：src 按块行排（每块行 pitch 字节），dst 每像素行 dpitch 字节。成功 0
+ // Decode a w×h pixel region: src is laid out by block rows (pitch bytes per block row), dst has dpitch bytes per pixel row. Returns 0 on success
+ int nvn_bc_decode(uint32_t nvn_fmt, const uint8_t *src, size_t pitch, uint32_t w, uint32_t h, uint8_t *dst, size_t dpitch);
++// BC6H 的 HDR 贴图：默认解成 RGBA16Float（每像素 8 字节）；打开后解成 RGB9E5Float（每像素 4 字节），内存减半，代价是：无符号 5 位指数 9 位尾数的共享指数，负值截为 0，精度略低。DM_BC6H_RGB9E5=1 打开。
++// BC6H (HDR) textures decode into RGBA16Float by default (8 bytes per pixel). Switched on they decode into RGB9E5Float (4 bytes per pixel), which halves their memory: the exponent is shared and unsigned,
++// so negative values become 0 and the mantissa is 9 bits. Set before the first texture is made (DM_BC6H_RGB9E5=1); it changes what nvn_bc_unpacked answers for 0x4f / 0x50.
++void nvn_bc_set_bc6h_rgb9e5(int on);
++int nvn_bc_bc6h_rgb9e5(void);
++// One RGB triple packed as RGB9E5 (the shared-exponent format of Metal's RGB9E5Float): negative, NaN and out-of-range inputs clamp.
++uint32_t nvn_rgb9e5_pack(float r, float g, float b);
+diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
+index 5fd5efe4..ad495fd5 100644
+--- a/dm/gfx/tex/tests/t_bcdec.c
++++ b/dm/gfx/tex/tests/t_bcdec.c
+@@ -126,11 +126,54 @@ static void test_bc4_single_channel(void) {
+     check(out[1 + 4] == 255, "bc4 writes every row (not just the first)");
+ }
+ 
++
++// ---- BC6H into RGB9E5 (DM_BC6H_RGB9E5): the same block through both paths, and the packing against an independent decode ----
++#include <math.h>
++static float ref_half(unsigned short h) {   // textbook half to float
++    int s = h >> 15, e = (h >> 10) & 31, m = h & 1023;
++    float v = e == 0 ? m / 1024.0f / 16384.0f : (1 + m / 1024.0f) * powf(2, (float)(e - 15));
++    return s ? -v : v;
++}
++static float ref_rgb9e5(unsigned v, int ch) { return (float)((v >> (9 * ch)) & 511) * powf(2, (float)((int)(v >> 27) - 24)); }
++static void test_rgb9e5_pack(void) {
++    unsigned one = nvn_rgb9e5_pack(1, 1, 1);
++    check(ref_rgb9e5(one, 0) == 1 && ref_rgb9e5(one, 1) == 1 && ref_rgb9e5(one, 2) == 1, "1.0 round-trips");
++    unsigned v = nvn_rgb9e5_pack(0.5f, 0.25f, 4.0f);
++    check(fabsf(ref_rgb9e5(v, 0) - 0.5f) < 0.5f / 256 && fabsf(ref_rgb9e5(v, 1) - 0.25f) < 0.25f / 256 && fabsf(ref_rgb9e5(v, 2) - 4.0f) < 4.0f / 256, "values round-trip inside the 9-bit mantissa");
++    check(nvn_rgb9e5_pack(-1, NAN, 0) == 0, "negative, NaN and zero pack as zero");
++    unsigned big = nvn_rgb9e5_pack(1e9f, 0, 0);
++    check(ref_rgb9e5(big, 0) <= 65408.0f && ref_rgb9e5(big, 0) > 65000.0f, "out-of-range clamps to the largest value");
++}
++static void test_bc6h_rgb9e5_switch(void) {
++    unsigned pf; int bpp;
++    unsigned char blk[16] = { 0x03, 0x20, 0x40, 0x61, 0x82, 0xA3, 0xC4, 0xE5, 0x16, 0x27, 0x38, 0x49, 0x5A, 0x6B, 0x7C, 0x8D };
++    unsigned short half[16 * 4]; unsigned wide[16];
++    nvn_bc_set_bc6h_rgb9e5(0);
++    check(nvn_bc_unpacked(0x50, &pf, &bpp) == 1 && pf == 115 && bpp == 8, "off: RGBA16Float, 8 bytes per pixel (the tested default)");
++    check(nvn_bc_decode(0x50, blk, 16, 4, 4, (unsigned char *)half, 4 * 8) == 0, "RGBA16F decode");
++    nvn_bc_set_bc6h_rgb9e5(1);
++    check(nvn_bc_bc6h_rgb9e5() == 1, "the switch reads back");
++    check(nvn_bc_unpacked(0x50, &pf, &bpp) == 1 && pf == 93 && bpp == 4, "on: RGB9E5Float, 4 bytes per pixel");
++    check(nvn_bc_unpacked(0x4f, &pf, &bpp) == 1 && pf == 93 && bpp == 4, "signed BC6H too");
++    check(nvn_bc_unpacked(0x41, &pf, &bpp) == 1 && pf == 70 && bpp == 4, "other BC formats are untouched");
++    check(nvn_bc_decode(0x50, blk, 16, 4, 4, (unsigned char *)wide, 4 * 4) == 0, "RGB9E5 decode");
++    for (int i = 0; i < 16; i++) {
++        unsigned want = nvn_rgb9e5_pack(ref_half(half[i * 4]), ref_half(half[i * 4 + 1]), ref_half(half[i * 4 + 2]));
++        check(wide[i] == want, "each pixel is the RGBA16F pixel packed as RGB9E5");
++    }
++    unsigned char edge[3 * 3 * 4 + 16]; memset(edge, 0xAB, sizeof edge);
++    check(nvn_bc_decode(0x50, blk, 16, 3, 3, edge, 3 * 4) == 0, "an edge block");
++    for (unsigned i = 3 * 3 * 4; i < sizeof edge; i++) check(edge[i] == 0xAB, "nothing is written past the trimmed block");
++    nvn_bc_set_bc6h_rgb9e5(0);
++}
++
+ int main(void) {
+     test_bc1_matches_reference();
+     test_formats_map();
+     test_edge_blocks_trimmed();
+     test_bc4_single_channel();
++    test_rgb9e5_pack();
++    test_bc6h_rgb9e5_switch();
+     if (failures) { printf("%d check(s) failed\n", failures); return 1; }
+     printf("bc decode: BC1 matches an independent DXT1 decoder, format map, edge trimming, BC4 - all OK\n");
+     return 0;
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index 6d74593a..411b74bb 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -84,6 +84,14 @@ class LauncherSettingsTests(unittest.TestCase):
+         self.assertFalse({'DM_FPS_TARGET', 'DM_PRESENT_INTERVAL'} & set(wonder))
+ 
+ 
++    def test_hdr_texture_downsample_is_for_games_that_decode_bc_on_the_cpu_on_the_iphone(self):   # DM_BC6H_RGB9E5, #544
++        totk = build('0100F2C0115B6000', 'nvn')   # tex_bc_cpu on in its profile
++        s = totk['DM_BC6H_RGB9E5']
++        self.assertEqual((s['kind'], s['section'], s['default'], s['label']), ('toggle', 'Performance', '0', 'Downsample HDR textures'))   # off: the tested decode stays
++        self.assertNotIn('DM_BC6H_RGB9E5', build('0100F2C0115B6000', 'nvn', 'mac'))   # a Mac GPU has BC support
++        self.assertNotIn('DM_BC6H_RGB9E5', build(BOTW, 'nvn'))   # no tex_bc_cpu in its profile
++        self.assertNotIn('DM_BC6H_RGB9E5', build('0100F2C0115B6000', 'vulkan'))
++
+     def test_hold_frames_takes_on_and_off(self):   # the host reads DM_FPS_HOLD as on / off (hle_nvn.c), not 1 / 0
+         s = build(BOTW, 'nvn')['DM_FPS_HOLD']
+         self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index c4616aac..4b075826 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -12,6 +12,7 @@ DM_AUDIO_DUMP	diagnostic	`=<file>` writes every PCM block the game appends as is
+ DM_AUDIO_MUTE	switch	`=1` runs the real Core Audio output path (callback pacing, background take-over) with the output silenced, for lifecycle tests on the Mac without noise
+ DM_AUDREN_TRACE	diagnostic	When set, the CPU audio renderer logs every update with the number of frames rendered since the previous one
+ DM_AV1_DAV1D	switch	`=1` decodes AV1 movies with dav1d even where VideoToolbox decodes AV1 (Apple M3 and A17 Pro on), to compare the two or to check the path older chips take (`hle_movie_av1.c`)
++DM_BC6H_RGB9E5	switch	`=1` decodes BC6H (HDR) textures into RGB9E5Float, 4 bytes per pixel, instead of RGBA16Float, 8 bytes, when the BC textures are decoded on the CPU (profile `tex_bc_cpu` on a GPU without BC support): half the memory, negative values become 0 and each colour keeps 9 bits of mantissa. Off by default. The launcher's Downsample HDR textures sets it
+ DM_BOOTPROF	diagnostic	When set, logs boot timing: the loader's breakdown (mapping, relocation, probes), Metal library loading, pipeline creation, texture uploads and the first present
+ DM_BUNDLE_ID	switch	Overrides the iOS app's bundle ID in `build_ipa.sh` (default `org.nxnative.<title ID in lowercase>`)
+ DM_CHEATS	path	Folder of Atmosphère cheat files: `<folder>/<build ID>.txt` or an SD-card layout (`atmosphere/contents/<title ID>/cheats/`) under it (default `<DM_ROOT>/cheats`); the Mac menu lists and toggles them
+diff --git a/docs/settings.md b/docs/settings.md
+index 261a58e3..762201a1 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -5,7 +5,7 @@ The screen before the game starts shows the settings the game supports. A settin
+ - [Tested defaults](#tested-defaults)
+ - [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game's upscaler](#games-upscaler), [Game language](#game-language), [Picture](#picture), [Frame-rate counter](#frame-rate-counter)
+ - [Controls](#controls): [Touch feedback](#touch-feedback), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength), [Rumble cutoff](#rumble-cutoff), [Press a button to join](#press-a-button-to-join)
+-- [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
++- [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Downsample HDR textures](#downsample-hdr-textures), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
+ - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
+ - [In-game menu](#in-game-menu)
+ - [TV](#tv)
+@@ -195,6 +195,13 @@ When the game makes a program, the app loads its shader libraries in the backgro
+ - **When to change it:** off for a game that iOS ends after a few minutes of play. Each library is then loaded at its first draw, which costs a short stall there instead.
+ - **Tests:** off, Persona 5 Royal held 30 fps for 34 minutes on an iPhone 17 Pro (61,200 frames, no crash, 1,773 MiB), against 5 minutes 33 seconds with it on.
+ 
++### Downsample HDR textures
++
++On an iPhone or iPad whose GPU does not read block-compressed (BC) textures itself (before the A17 Pro and the M1), a game whose profile decodes BC textures on the CPU (`tex_bc_cpu`) expands each BC6H HDR texture into 16-bit floats, 8 bytes a pixel. A scene with many of them can pass the memory the system allows and end the app. This setting decodes them into the shared-exponent format RGB9E5 instead, 4 bytes a pixel, half the memory. It is off by default and the row is only shown for such games on such devices.
++
++- **Cost:** negative values (signed BC6H) become 0 and each colour keeps 9 bits of mantissa, so HDR gradients can show slight banding.
++- **When to change it:** turn it on only for a game that the system ends for lack of memory in scenes with many HDR textures.
++
+ ### Hold frames when late
+ 
+ For games whose frame rate the app controls ([Frame rate](#frame-rate)). With 60 fps chosen, each frame is meant to stay on screen for one refresh. When a frame comes late, the app can either slow the game down to 30 fps for a while, or keep 60 and show late frames as they come.

@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Mon, 9 Nov 2026 21:21:31 +0100
+Subject: [PATCH] Launcher: Touch controls size and Left stick rows for a
+ game's own iOS app
+
+The shell's settings choose the size of the on-screen controls (DM_TOUCH_SIZE) and where the left stick sits
+(DM_TOUCH_STICK), and the engine reads both. A game's own app, shown with launcher.json, had only Touch
+feedback, so a standalone IPA had no way to make its touch controls larger or move the stick. Two Controls
+rows, platform:ios, with the shell's values and defaults (medium, corner). The arrangement of single controls
+(DM_TOUCH_LAYOUT) stays in the shell, and the controller layout stays in the in-game menu. docs/settings.md
+describes the rows. Apply after engine-544.diff (they touch the same lines of settings.tsv and settings.md).
+
+Tests: test_launcher_settings.py (the rows, their options and defaults, none on a Mac, the iPhone-only set).
+
+Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Reason: A standalone game app offers the same touch-control size and left stick choices as the shared shell
+Issue: LNPANDY/NX2Apple#991
+---
+ dm/games/settings.tsv                    | 2 ++
+ dm/tools/tests/test_launcher_settings.py | 9 ++++++++-
+ docs/settings.md                         | 8 +++++++-
+ 3 files changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index 141b0d86..89c69f17 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -26,6 +26,8 @@ DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		lev
+ DM_PICTURE_FIT	choice	fit=Fit,fill=Fill	fit	platform:ios	Game	Picture	Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
+ DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	platform:ios	Game	Frame-rate counter
+ DM_TOUCH_HAPTICS	toggle	-	1	platform:ios	Controls	Touch feedback
++DM_TOUCH_SIZE	choice	small=Small,medium=Medium,large=Large	medium	platform:ios	Controls	Size	The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.
++DM_TOUCH_STICK	choice	corner=Corner,higher=Higher,inward=Inward	corner	platform:ios	Controls	Left stick	Where the left stick of the on-screen controls sits.
+ DM_RUMBLE	toggle	-	1	always	Controls	Game rumble		level=basic
+ DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1
+ DM_RUMBLE_MIN	range	0:0.9:0.05	0	always	Controls	Rumble cutoff
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index 411b74bb..eb718119 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -92,6 +92,13 @@ class LauncherSettingsTests(unittest.TestCase):
+         self.assertNotIn('DM_BC6H_RGB9E5', build(BOTW, 'nvn'))   # no tex_bc_cpu in its profile
+         self.assertNotIn('DM_BC6H_RGB9E5', build('0100F2C0115B6000', 'vulkan'))
+ 
++    def test_touch_controls_size_and_stick_are_rows_of_a_standalone_app(self):   # #991: the shell's two touch-control choices, in a game's own app
++        rows = build(BOTW, 'nvn')
++        size, stick = rows['DM_TOUCH_SIZE'], rows['DM_TOUCH_STICK']
++        self.assertEqual((size['section'], size['default'], size['options']), ('Controls', 'medium', [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']]))
++        self.assertEqual((stick['section'], stick['default'], stick['options']), ('Controls', 'corner', [['corner', 'Corner'], ['higher', 'Higher'], ['inward', 'Inward']]))
++        self.assertFalse({'DM_TOUCH_SIZE', 'DM_TOUCH_STICK'} & set(build(BOTW, 'nvn', 'mac')))   # a Mac has no touch controls
++
+     def test_hold_frames_takes_on_and_off(self):   # the host reads DM_FPS_HOLD as on / off (hle_nvn.c), not 1 / 0
+         s = build(BOTW, 'nvn')['DM_FPS_HOLD']
+         self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
+@@ -101,7 +108,7 @@ class LauncherSettingsTests(unittest.TestCase):
+     def test_iphone_switches_only_on_the_iphone(self):   # the frame-rate counter and touch feedback are the iOS front end's (front_ios.m, DmGamepad.m)
+         ios, mac = build(BOTW, 'nvn'), build(BOTW, 'nvn', 'mac')
+         self.assertEqual(build(BOTW, 'nvn', 'ios').keys(), ios.keys())   # ios when unset
+-        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_PICTURE_FIT'})
++        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_PICTURE_FIT', 'DM_TOUCH_SIZE', 'DM_TOUCH_STICK'})
+         self.assertIn('DM_RUMBLE', mac); self.assertIn('DM_METAL_HUD', mac)
+         self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
+         s = mac['DM_FULLSCREEN']
+diff --git a/docs/settings.md b/docs/settings.md
+index 762201a1..b135b367 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -4,7 +4,7 @@ The screen before the game starts shows the settings the game supports. A settin
+ 
+ - [Tested defaults](#tested-defaults)
+ - [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game's upscaler](#games-upscaler), [Game language](#game-language), [Picture](#picture), [Frame-rate counter](#frame-rate-counter)
+-- [Controls](#controls): [Touch feedback](#touch-feedback), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength), [Rumble cutoff](#rumble-cutoff), [Press a button to join](#press-a-button-to-join)
++- [Controls](#controls): [Touch feedback](#touch-feedback), [Touch controls size and left stick](#touch-controls-size-and-left-stick), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength), [Rumble cutoff](#rumble-cutoff), [Press a button to join](#press-a-button-to-join)
+ - [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Downsample HDR textures](#downsample-hdr-textures), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
+ - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
+ - [In-game menu](#in-game-menu)
+@@ -97,6 +97,10 @@ Shows the frames per second at the top left.
+ 
+ A light tap from the phone when you press an on-screen button.
+ 
++### Touch controls size and left stick
++
++**Size** (small, medium or large) sets the size of the on-screen controls, and **Left stick** (corner, higher or inward) where the left stick sits. They are the same two choices as in the shell's settings, for a game's own app. A size that does not fit the screen moves toward medium, and the player's arrangement of single controls in the shell (`DM_TOUCH_LAYOUT`) is not edited here. The controller layout (2D, 3D, Tap) stays in the in-game menu.
++
+ ### Game rumble
+ 
+ The game's vibration, on the phone or on a connected controller.
+@@ -289,6 +293,8 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+ | Picture shape | `DM_SCREEN_ASPECT` | `auto` the app window's own shape where it is taller than 16:9 (iPad 4:3, iPhone Duo 1.43:1), else 16:9 (iOS only); `1.43` the iPhone Duo's shape, `0` 16:9 |
+ | Frame-rate counter | `DM_SHOW_FPS` | `1`, `0` |
+ | Touch feedback | `DM_TOUCH_HAPTICS` | `1`, `0` |
++| Touch controls size | `DM_TOUCH_SIZE` | `small`, `medium`, `large` |
++| Left stick of the touch controls | `DM_TOUCH_STICK` | `corner`, `higher`, `inward` |
+ | Game rumble | `DM_RUMBLE` | `1`, `0` |
+ | Rumble strength | `DM_RUMBLE_GAIN` | `0` to `3` |
+ | Rumble cutoff | `DM_RUMBLE_MIN` | `0` to `0.9` |

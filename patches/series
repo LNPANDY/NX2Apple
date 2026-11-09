@@ -76,3 +76,8 @@
 0111-mac-launcher-keep-saves-in-library-when-the-game.patch
 0112-shader-prefetch-a-launcher-setting-and-a-profile.patch
 0113-launcher-a-frame-rate-choice-for-games-shown-at.patch
+0114-ios-write-the-game-s-console-into-game-manifest.patch
+0115-build-ipa-from-nsp-a-front-end-s-stand-in-icon-f.patch
+0116-textures-decode-bc6h-into-rgb9e5-on-gpus-without.patch
+0117-launcher-touch-controls-size-and-left-stick-rows.patch
+0118-controllers-a-radial-deadzone-for-each-stick.patch
