@@ -211,7 +211,9 @@ package struct LauncherSwitchStyle: ToggleStyle {
         }
         .buttonStyle(.plain)
         .opacity(enabled ? 1 : 0.45)
-        .accessibilityAddTraits(configuration.isOn ? .isSelected : [])
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.switch)
+        }
     }
 }
 

@@ -82,7 +82,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
             if repo.isRepo {   // a ZIP copy too: its adoption at launch follows this switch
                 CardDivider()
                 CardRow(loc.t("repo.auto"), detail: loc.t("repo.autoNote")) {
-                    Toggle("", isOn: $repo.autoUpdate).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    Toggle(loc.t("repo.auto"), isOn: $repo.autoUpdate).labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
             }
             }
@@ -175,7 +175,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         shellCache
         CardDivider()
         CardRow(loc.t("repo.auto"), detail: loc.t("engine.autoNote")) {
-            Toggle("", isOn: $repo.autoUpdate).labelsHidden().toggleStyle(LauncherSwitchStyle())
+            Toggle(loc.t("repo.auto"), isOn: $repo.autoUpdate).labelsHidden().toggleStyle(LauncherSwitchStyle())
         }
     }
 

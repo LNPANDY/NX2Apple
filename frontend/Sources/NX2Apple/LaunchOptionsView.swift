@@ -292,7 +292,7 @@ struct LaunchOptionsView: View {
                 .frame(width: 16)
             default:
                 Spacer(minLength: 0)
-                Toggle("", isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))
+                Toggle(label(s), isOn: Binding(get: { value == s.onValue }, set: { set(s, $0 ? s.onValue : s.offValue) }))
                     .labelsHidden().toggleStyle(LauncherSwitchStyle())
             }
         }
@@ -331,7 +331,7 @@ struct LaunchOptionsView: View {
                                 }
                             }
                             Spacer(minLength: 12)
-                            Toggle("", isOn: Binding(get: { mod.usable && game.mods.contains(mod.name) },
+                            Toggle(mod.name, isOn: Binding(get: { mod.usable && game.mods.contains(mod.name) },
                                                      set: { library.setMod(mod.name, on: $0, for: gameID) }))
                                 .labelsHidden().toggleStyle(LauncherSwitchStyle()).disabled(!mod.usable)
                         }
@@ -375,7 +375,7 @@ struct LaunchOptionsView: View {
                 HStack(spacing: 16) {
                     Text(loc.t("launch.frameTimesRecord")).font(.manrope(14, .medium))
                     Spacer(minLength: 12)
-                    Toggle("", isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                    Toggle(loc.t("launch.frameTimesRecord"), isOn: on).labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
                 .padding(.horizontal, 18).padding(.vertical, 13).frame(minHeight: 52)
                 .padTarget("frameTimes.record", scope: "launch", radius: 10,

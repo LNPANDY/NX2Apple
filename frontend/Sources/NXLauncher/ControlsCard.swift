@@ -34,7 +34,7 @@ package struct ControlsCard: View {
             }
             CardDivider()
             CardRow(loc.t("console.mergeAll"), detail: loc.t("console.mergeNote")) {
-                Toggle("", isOn: padMerge).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                Toggle(loc.t("console.mergeAll"), isOn: padMerge).labelsHidden().toggleStyle(LauncherSwitchStyle())
                     .padTarget("set.padMerge", scope: "main") { padMerge.wrappedValue.toggle() }
             }
             CardDivider()
@@ -44,12 +44,12 @@ package struct ControlsCard: View {
             }
             CardDivider()
             CardRow(loc.t("console.promptSetting"), detail: loc.t("console.promptSettingNote")) {
-                Toggle("", isOn: consolePrompt).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                Toggle(loc.t("console.promptSetting"), isOn: consolePrompt).labelsHidden().toggleStyle(LauncherSwitchStyle())
                     .padTarget("set.consolePrompt", scope: "main") { consolePrompt.wrappedValue.toggle() }
             }
             CardDivider()
             CardRow(loc.t("console.startInConsole"), detail: loc.t("console.startInConsoleNote")) {
-                Toggle("", isOn: startInConsole).labelsHidden().toggleStyle(LauncherSwitchStyle())
+                Toggle(loc.t("console.startInConsole"), isOn: startInConsole).labelsHidden().toggleStyle(LauncherSwitchStyle())
                     .padTarget("set.consoleStart", scope: "main") { startInConsole.wrappedValue.toggle() }
             }
             CardDivider()
