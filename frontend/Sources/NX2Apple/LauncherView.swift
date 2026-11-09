@@ -280,7 +280,7 @@ struct LauncherView: View {
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
-        .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates) }
+        .sheet(isPresented: $updates.showUpdateSheet) { UpdateSheet(updates: updates, buildRunning: m.running) }
         .confirmationDialog(loc.t("uninstall.title"), isPresented: Binding(
             get: { updates.uninstallPlan != nil }, set: { if !$0 { updates.uninstallPlan = nil } }
         ), titleVisibility: .visible) {
