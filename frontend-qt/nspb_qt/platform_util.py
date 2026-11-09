@@ -141,7 +141,7 @@ def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, s
     every python on the machine (see python_candidates for the order).
     """
     probe = (
-        "import lz4, capstone, fontTools, zbic\n"
+        "import lz4, capstone, fontTools, zbic, unicorn\n"
         "try:\n"
         "    from compression import zstd\n"
         "except ImportError:\n"
