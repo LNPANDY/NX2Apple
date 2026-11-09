@@ -673,8 +673,10 @@ package struct ShellInstaller {
         var copiedBytes: Int64 = 0
         for (i, path) in missing.enumerated() {
             copyProgress(copiedBytes, needed)
+            // devicectl reports per file, not per byte. Before the first file is whole there is nothing true to show, and a single
+            // 17 GB image would read 0% for its whole run. So the bar stays indeterminate until bytes are done (LNPANDY/NX2Apple#967).
             stage(ShellStage(id: Self.copyStageID, name: copyName, state: .running, detail: "\(i + 1)/\(missing.count)",
-                             percent: Double(i) / Double(missing.count) * 100))
+                             percent: copiedBytes > 0 && needed > 0 ? Double(copiedBytes) / Double(needed) * 100 : nil))
             // Once an overwrite begins, the old receipt cannot vouch for what a failed copy leaves behind.
             if path == "romfs.img", previous != nil { defaults.removeObject(forKey: receipt) }
             let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID,
