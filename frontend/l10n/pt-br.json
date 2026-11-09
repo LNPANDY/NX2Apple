@@ -815,7 +815,7 @@
   "ios.host.shellName": "Shell",
   "ios.host.subjectManifest": "O manifesto do jogo",
   "ios.host.subjectSettings": "A lista de ajustes",
-  "ios.host.touchHint": "Analógico direito: arraste aqui",
+  "ios.host.touchHint": "Analógico dir.: arraste aqui",
   "ios.host.unknownGame": "Jogo desconhecido",
   "ios.host.unknownKind": "%@ tem o tipo desconhecido “%@”.",
   "ios.host.valueFromSettings": "%@ (dos Ajustes)",

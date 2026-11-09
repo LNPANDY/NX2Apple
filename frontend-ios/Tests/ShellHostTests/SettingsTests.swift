@@ -99,7 +99,7 @@ import ShellUI
 
     /// #544: the HDR texture downsample only changes the CPU decode of BC textures, so a device that samples them itself does not see the row.
     @Test func theHDRTextureRowIsOnlyOnDevicesWithoutBCSupport() throws {
-        let json = #"{"schema":1,"game":"x","settings":[{"env":"DM_BC6H_RGB9E5","kind":"toggle","label":"Downsample HDR textures","note":"Saves memory","default":"0","section":"Performance"},{"env":"DM_SHOW_FPS","kind":"toggle","label":"FPS","note":"","default":"0","section":"Performance"}]}"#
+        let json = #"{"schema":1,"game":"0100F2C0115B6000","settings":[{"env":"DM_BC6H_RGB9E5","kind":"toggle","label":"Downsample HDR textures","note":"Saves memory","default":"0","section":"Performance"},{"env":"DM_SHOW_FPS","kind":"toggle","label":"FPS","note":"","default":"0","section":"Performance"}]}"#
         let p = try LauncherProfile.parse(Data(json.utf8))
         let without = SettingsPresenter.sections(profile: p, values: [:], capabilities: DeviceCapabilities(supportsBCTextureCompression: false))
         #expect(without[0].rows.map(\.id) == ["DM_BC6H_RGB9E5", "DM_SHOW_FPS"])
