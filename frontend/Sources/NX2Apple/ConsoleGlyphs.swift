@@ -101,7 +101,11 @@ struct ConsoleGlyphs: Equatable {
     static func current() -> ConsoleGlyphs {
         let pads = GCController.controllers().filter { $0.extendedGamepad != nil }
         if let pad = GCController.current.flatMap({ c in pads.contains(c) ? c : nil }) ?? pads.first { return ConsoleGlyphs(controller: pad) }
-        return .keyboard
+        return fallback(steamConnected: !SteamLinkGamepads.shared.snapshots.isEmpty)
+    }
+
+    static func fallback(steamConnected: Bool) -> ConsoleGlyphs {
+        steamConnected ? ConsoleGlyphs(family: .xbox) : .keyboard
     }
 }
 

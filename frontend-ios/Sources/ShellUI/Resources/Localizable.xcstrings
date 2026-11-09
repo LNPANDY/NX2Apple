@@ -4591,6 +4591,52 @@
         }
       }
     },
+    "Downsample HDR textures": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDR-Texturen verkleinern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downsample HDR textures"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réduire les textures HDR"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riduci le texture HDR"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDRテクスチャを縮小"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Förminska HDR-texturer"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "降采样 HDR 贴图"
+          }
+        }
+      }
+    },
     "Drag a control to move it. Tap one to choose it, then move it step by step with the arrows. Where a control would cover another or leave the screen, it goes back. For every game.": {
       "localizations": {
         "de": {
@@ -8811,6 +8857,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "游戏库"
+          }
+        }
+      }
+    },
+    "Loads each program's shader libraries in the background, whether a draw uses them or not.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lädt die Shader-Bibliotheken jedes Programms im Hintergrund, ob ein Draw Call sie nutzt oder nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loads each program's shader libraries in the background, whether a draw uses them or not."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Charge en arrière-plan les bibliothèques de shaders de chaque programme, qu’un draw call les utilise ou non."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carica in background le librerie di shader di ogni programma, che una draw call le usi o no."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "描画で使うかどうかに関わらず、各プログラムのシェーダーライブラリをバックグラウンドで読み込みます。"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laddar varje programs shaderbibliotek i bakgrunden, oavsett om en draw call använder dem."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在后台加载每个程序的着色器库，无论是否有绘制用到它们。"
           }
         }
       }
@@ -13661,6 +13753,52 @@
         }
       }
     },
+    "Saves memory on devices without hardware BC textures, with slightly less precise HDR textures.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spart Speicher auf Geräten ohne Hardware-BC-Texturen, mit etwas weniger genauen HDR-Texturen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saves memory on devices without hardware BC textures, with slightly less precise HDR textures."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économise de la mémoire sur les appareils sans textures BC matérielles, avec des textures HDR un peu moins précises."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risparmia memoria sui dispositivi senza texture BC hardware, con texture HDR un po' meno precise."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハードウェアBCテクスチャのない端末でメモリを節約します。HDRテクスチャの精度は少し下がります。"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparar minne på enheter utan hårdvaru-BC-texturer, med något mindre exakta HDR-texturer."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在不支持硬件 BC 贴图的设备上节省内存，HDR 贴图的精度会略有下降。"
+          }
+        }
+      }
+    },
     "Saves stay unless you choose to delete them too.": {
       "localizations": {
         "de": {
@@ -14041,6 +14179,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "设置"
+          }
+        }
+      }
+    },
+    "Shader prefetch": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader-Prefetch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader prefetch"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préchargement des shaders"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precaricamento degli shader"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェーダーのプリフェッチ"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Förhämtning av shaders"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "着色器预取"
           }
         }
       }
@@ -15093,6 +15277,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "这台设备上的游戏数据会被删除，游戏也会从列表中移除。你自己选择的文件夹不受影响。从 Mac 再次发送游戏数据即可恢复。"
+          }
+        }
+      }
+    },
+    "The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Größe der Steuerelemente auf dem Bildschirm. Passt eine Größe nicht auf den Bildschirm, rücken sie zur mittleren Größe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The size of the on-screen controls. Controls move toward medium when a size does not fit the screen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La taille des commandes à l'écran. Elles se rapprochent de la taille moyenne quand une taille ne tient pas à l'écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La dimensione dei comandi sullo schermo. Si avvicinano alla dimensione media quando una dimensione non sta nello schermo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面上のコントロールの大きさです。画面に収まらない大きさは、中くらいに近づきます。"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Storleken på kontrollerna på skärmen. De flyttas mot medelstorlek när en storlek inte får plats på skärmen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕控件的大小。尺寸放不下时，控件会向中等尺寸靠拢。"
           }
         }
       }
@@ -16565,6 +16795,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "每个按键在游戏中对应的键。"
+          }
+        }
+      }
+    },
+    "Where the left stick of the on-screen controls sits.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo der linke Stick der Bildschirmsteuerung sitzt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Where the left stick of the on-screen controls sits."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'emplacement du stick gauche des commandes à l'écran."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove si trova lo stick sinistro dei comandi sullo schermo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面上のコントロールの左スティックの位置です。"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Var den vänstra spaken bland kontrollerna på skärmen sitter."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "屏幕控件中左摇杆所在的位置。"
           }
         }
       }

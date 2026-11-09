@@ -90,7 +90,7 @@ extension BuildStore {
             installRow("python")   // the venv install, which now names zbic
         case .keys, .keysOld:
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
-        case .severalGames, .noTitleID, .diskFull:
+        case .severalGames, .noTitleID, .diskFull, .staleProfile:
             showFailureFolder()
         case .cloudFolder, .volumeFormat:
             chooseBuildFolder()

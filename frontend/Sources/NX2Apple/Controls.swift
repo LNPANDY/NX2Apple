@@ -115,6 +115,14 @@ final class ControlLayout: ObservableObject {
 
     func setPadMode(_ mode: PadMode) { padMode = mode; save("DM_PAD_MAP") }
 
+    /// The layout as the editor opened it, so Cancel can put it back and the editor can tell whether anything changed (#901's save-before-leaving).
+    struct Snapshot: Equatable { var keys: [String: Int?]; var pad: [String: String]; var mode: PadMode }
+    var snapshot: Snapshot { Snapshot(keys: keys, pad: pad, mode: padMode) }
+    func restore(_ snapshot: Snapshot) {
+        keys = snapshot.keys; pad = snapshot.pad; padMode = snapshot.mode
+        save("DM_KEYMAP"); save("DM_PAD_MAP")
+    }
+
     private var activePad: [String: String] { padMap(for: padMode, category: padMode == .auto ? controllerCategory() : nil) }
 
     func resetKeyboard() { keys = [:]; save("DM_KEYMAP") }
@@ -167,7 +175,11 @@ struct ControlsView: View {
     var gameName: String? = nil
     var mappingStore: ControllerMappingStore? = nil
     var copyGlobal: (() -> Void)? = nil
+    /// A counter the launcher raises for the controller's B, which asks to leave like the Cancel button.
+    var cancelRequest = 0
     @Environment(\.dismiss) private var dismiss
+    @State private var original: ControlLayout.Snapshot?
+    @State private var confirmingDiscard = false
     @State private var listening: String?
     @State private var monitor: Any?
     @EnvironmentObject private var focus: PadFocus
@@ -209,13 +221,17 @@ struct ControlsView: View {
                         .buttonStyle(LauncherSecondaryButtonStyle())
                         .padTarget("controls.reset", scope: "controls") { stopListening(); layout.resetKeyboard(); layout.resetController() }
                 }
-                Button { stopListening(); dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
+                Button(loc.t("controls.cancel")) { cancel() }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .keyboardShortcut(listening == nil ? .cancelAction : nil)
+                    .padTarget("controls.cancel", scope: "controls") { cancel() }
+                Button { stopListening(); original = nil; dismiss() } label: {
+                    Text(loc.t("controls.save")).font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
                         .padding(.horizontal, 22).padding(.vertical, 9)
                         .background(LauncherPalette.cream, in: Capsule())
                 }
                 .buttonStyle(.plain).keyboardShortcut(listening == nil ? .defaultAction : nil)
-                .padTarget("controls.done", scope: "controls", radius: 20) { stopListening(); dismiss() }
+                .padTarget("controls.done", scope: "controls", radius: 20) { stopListening(); original = nil; dismiss() }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
         }
@@ -226,6 +242,30 @@ struct ControlsView: View {
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onDisappear { stopListening() }
+        .onAppear { if original == nil { original = layout.snapshot } }
+        .onChange(of: cancelRequest) { _ in cancel() }
+        .interactiveDismissDisabled(hasEdits)
+        .confirmationDialog(loc.t("controls.discardTitle"), isPresented: $confirmingDiscard, titleVisibility: .visible) {
+            Button(loc.t("controls.discard"), role: .destructive) { discard() }
+            Button(loc.t("controls.keepEditing"), role: .cancel) { }
+        } message: {
+            Text(loc.t("controls.discardNote"))
+        }
+    }
+
+    /// Whether the keys or buttons differ from how the editor opened.
+    private var hasEdits: Bool { original.map { $0 != layout.snapshot } ?? false }
+
+    /// Cancel leaves at once when nothing changed, and asks before throwing edits away.
+    private func cancel() {
+        stopListening()
+        if hasEdits { confirmingDiscard = true } else { dismiss() }
+    }
+
+    private func discard() {
+        if let original { layout.restore(original) }
+        self.original = nil
+        dismiss()
     }
 
     private func section<Item, Row: View>(_ title: String, _ items: [Item], note: String = "", @ViewBuilder row: @escaping (Item) -> Row) -> some View {

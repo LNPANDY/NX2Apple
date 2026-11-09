@@ -28,6 +28,9 @@ import NXModel
     let transfers: TransferQueueStore
     private var transferWatch: AnyCancellable?
     private var queueWatch: AnyCancellable?
+    let players: PlayerProfileStore
+    let saveSettings: SaveSettingsStore
+    let sticks: StickDeadzoneStore
     private var quitObserver: NSObjectProtocol?
 
     /// - Parameters:
@@ -116,6 +119,9 @@ import NXModel
                 }
             }
         }
+        self.saveSettings = SaveSettingsStore(defaults: defaults)
+        self.sticks = StickDeadzoneStore(defaults: defaults)
+        self.players = PlayerProfileStore(defaults: defaults, defaultName: { localizer.t("players.default") })
 
         // The staged update goes in as the app quits, so the next launch is the new version without interrupting anyone.
         quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak updates] _ in

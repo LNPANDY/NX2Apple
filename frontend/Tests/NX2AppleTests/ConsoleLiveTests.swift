@@ -479,7 +479,7 @@ import SwiftUI
         XCTAssertEqual(ConsolePadSnapshot.batteryReading(level: 0, state: .charging).level, 0, "charging reports its real level, even a low one")
         let full = ConsolePadSnapshot.batteryReading(level: 0, state: .full)
         XCTAssertEqual(full.level, 1, "full: the full battery")
-        XCTAssertTrue(full.charging, "with the bolt")
+        XCTAssertFalse(full.charging, "full does not imply a charging cable (#1033)")
         let topped = ConsolePadSnapshot.batteryReading(level: 1.0, state: .charging)
         XCTAssertEqual(topped.level, 1)
         XCTAssertTrue(topped.charging)

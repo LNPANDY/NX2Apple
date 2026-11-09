@@ -82,7 +82,7 @@ import NXLauncher
             gamepad.perform = padAction
             headingFocused = true
         }
-        .onDisappear { gamepad.perform = { _ in } }
+        .onDisappear { gamepad.deactivate() }
         .onChange(of: state.step) { _ in
             padFocus.focused = nil
             detailsOpen = false

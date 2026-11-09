@@ -11,6 +11,8 @@ struct CloudSavesCard: View {
     let game: LibraryGame
     /// Visual QA: a store with example values and a last session, read instead of the files.
     var saves: GameCloudSaves?
+    /// The global setup and this game's own cloud choice (#864). Without it the card works on the game's env.txt and preferences only, as before.
+    var overrides: SaveSettingsStore?
     var preview: (check: CloudSaveSync.FolderCheck?, last: (state: CloudSaveSync.LogState?, date: Date?)?)?
     var chooseFolder: (URL?) -> URL? = CloudSavesCard.openPanel
     var home = NSHomeDirectory()
@@ -19,12 +21,28 @@ struct CloudSavesCard: View {
     @State private var last: (state: CloudSaveSync.LogState?, date: Date?)?? = nil
     @State private var problem: String?
 
+    /// What counts for this game: its own choice here, else what the game has, else the setup for every game.
+    private var shownSetting: CloudSaveSync.Setting {
+        let own = store.setting
+        guard let overrides else { return own }
+        let effective = SaveLocations.effectiveCloud(global: overrides.global, game: overrides.game(game.titleID), own: own)
+        let source: CloudSaveSync.Source = effective.source == .game && overrides.game(game.titleID).cloud != nil ? .preference : own.source
+        return CloudSaveSync.Setting(source: effective.source == .global ? .none : source, value: effective.folder ?? (effective.isOn ? nil : "0"),
+                                     folder: effective.folder.flatMap { CloudSaveSync.folder(for: $0, home: home) })
+    }
+
+    private var inheritsGlobal: Bool {
+        guard let overrides else { return false }
+        return SaveLocations.effectiveCloud(global: overrides.global, game: overrides.game(game.titleID), own: store.setting).source == .global
+    }
+
     private var store: GameCloudSaves { saves ?? GameCloudSaves(titleID: game.titleID, appPath: game.appPath) }
     static let attention = Color(red: 1, green: 0.78, blue: 0.24)
 
     var body: some View {
         let _ = revision
-        let setting = store.setting
+        let _ = overrides?.revision
+        let setting = shownSetting
         let check = preview?.check ?? setting.folder.map { CloudSaveSync.check(folder: $0, titleID: game.titleID) }
         VStack(alignment: .leading, spacing: 10) {
             Text(loc.t("cloud.title")).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
@@ -62,8 +80,12 @@ struct CloudSavesCard: View {
             }
             Spacer(minLength: 12)
             if setting.isOn {
-                Button(loc.t("cloud.turnOff")) { change { try store.turnOff() } }
-                    .padTarget("cloud.off", scope: "launch") { change { try store.turnOff() } }
+                Button(loc.t("cloud.turnOff")) { change { try turnOff() } }
+                    .padTarget("cloud.off", scope: "launch") { change { try turnOff() } }
+            }
+            if let overrides, overrides.game(game.titleID).cloud != nil {   // back to the setup for every game
+                Button(loc.t("savesloc.useGlobal")) { change { try useGlobal() } }
+                    .padTarget("cloud.global", scope: "launch") { change { try useGlobal() } }
             }
             Button(loc.t("cloud.choose")) { choose(from: setting.folder) }
                 .padTarget("cloud.choose", scope: "launch") { choose(from: setting.folder) }
@@ -76,7 +98,9 @@ struct CloudSavesCard: View {
         switch setting.source {
         case .playerEnv: return loc.t("cloud.fromPlayerEnv")
         case .appEnv: return loc.t("cloud.fromAppEnv")
-        case .preference, .none: return nil
+        case .preference, .none:
+            guard overrides != nil else { return nil }
+            return loc.t(inheritsGlobal ? "savesloc.cloudFromGlobal" : "savesloc.cloudFromGame")
         }
     }
 
@@ -125,8 +149,21 @@ struct CloudSavesCard: View {
                 }
             }
             Spacer(minLength: 0)
+            if let backups = backupsFolder {   // the save a sync or a choice replaced (#957): <DM_SAVE>-backups
+                Button(loc.t("cloud.showBackups")) { NSWorkspace.shared.activateFileViewerSelecting([backups]) }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .padTarget("cloud.backups", scope: "launch") { NSWorkspace.shared.activateFileViewerSelecting([backups]) }
+            }
         }
         .padding(.horizontal, 18).padding(.vertical, 12)
+    }
+
+    /// The game's save backups on this Mac, when there are any.
+    private var backupsFolder: URL? {
+        guard preview == nil, !game.appPath.isEmpty else { return nil }
+        let save = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
+        let folder = URL(fileURLWithPath: save.path + "-backups")
+        return FileManager.default.fileExists(atPath: folder.path) ? folder : nil
     }
 
     private func stateText(_ last: (state: CloudSaveSync.LogState?, date: Date?)?) -> String {
@@ -137,6 +174,7 @@ struct CloudSavesCard: View {
         case .sent: return loc.t("cloud.state.sent")
         case .broughtIn(let device): return String(format: loc.t("cloud.state.broughtIn"), device)
         case .waitingToSend: return loc.t("cloud.state.waiting")
+        case .waitingForChoice: return loc.t("cloud.state.choose")
         case .offline: return loc.t("cloud.state.offline")
         case .nothingYet: return loc.t("cloud.state.nothingYet")
         case .off(let why): return String(format: loc.t("cloud.state.off"), why)
@@ -147,7 +185,7 @@ struct CloudSavesCard: View {
     private func color(_ state: CloudSaveSync.LogState?) -> Color {
         switch state {
         case .inStep, .sent, .broughtIn: return Color(red: 0.25, green: 0.84, blue: 0.47)
-        case .waitingToSend, .offline, .off: return Self.attention
+        case .waitingToSend, .waitingForChoice, .offline, .off: return Self.attention
         case .failed: return Color(red: 1, green: 0.42, blue: 0.40)
         case .nothingYet, nil: return LauncherPalette.ink(0.3)
         }
@@ -169,7 +207,23 @@ struct CloudSavesCard: View {
         let start = folder.map { URL(fileURLWithPath: $0) }
             ?? URL(fileURLWithPath: NSHomeDirectory() + "/Library/Mobile Documents/com~apple~CloudDocs")
         guard let url = chooseFolder(start) else { return }
-        change { try store.choose(url.path) }
+        change {
+            try store.choose(url.path)
+            if let overrides { var value = overrides.game(game.titleID); value.cloud = .folder(url.path); overrides.setGame(game.titleID, value) }
+        }
+    }
+
+    /// Off for this game even when the setup for every game is on: the game's own choice, kept apart from the global one.
+    private func turnOff() throws {
+        try store.turnOff()
+        if let overrides { var value = overrides.game(game.titleID); value.cloud = SaveCloudChoice.off; overrides.setGame(game.titleID, value) }
+    }
+
+    private func useGlobal() throws {
+        guard let overrides else { return }
+        var value = overrides.game(game.titleID)
+        value.cloud = nil
+        overrides.setGame(game.titleID, value)
     }
 
     private func change(_ body: () throws -> Void) {

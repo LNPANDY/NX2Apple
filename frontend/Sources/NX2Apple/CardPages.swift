@@ -19,6 +19,9 @@ struct CardPages: View {
     let queue: BuildQueueStore
     let transfers: TransferQueueStore
     var onSelectGames: () -> Void = {}
+    var sticks: StickDeadzoneStore? = nil
+    var saveSettings: SaveSettingsStore? = nil
+    var players: PlayerProfileStore? = nil   // Settings > Library > Players (PlayersCard)
     @ObservedObject var library: GameLibrary
     var diagnostics: (LibraryGame?, @escaping (String) -> Void) -> Void = { _, _ in }   // the report of Copy diagnostics (LauncherStores)
     var onViewGame: () -> Void = {}
@@ -37,7 +40,7 @@ struct CardPages: View {
     var body: some View {
         LauncherPageScroll(memoryKey: settings ? "settings." + settingsCategory.rawValue : "builds") {
             if settings {
-                SettingsPage(build: build, updates: updates, repo: repo, engine: engine, dependencies: dependencies, library: library,
+                SettingsPage(build: build, updates: updates, repo: repo, engine: engine, dependencies: dependencies, library: library, players: players, sticks: sticks, saveSettings: saveSettings,
                              diagnostics: diagnostics, onChooseLibraryFolder: onChooseLibraryFolder, onOpenControls: onOpenControls,
                              onOpenControllers: onOpenControllers, onRunSetup: onRunSetup, controlChanges: controlChanges, padMerge: padMerge, category: $settingsCategory)
             } else {

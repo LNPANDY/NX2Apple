@@ -168,3 +168,25 @@ import Testing
         }
     }
 }
+
+/// #637: the mapping page puts the whole drawing on the left from 700 x 400, else above the rows at most 180 high.
+@Suite struct PadMappingArrangementTests {
+    @Test func wideAndTallEnoughPutsTheDrawingOnTheLeftAt42PercentCappedAt360() {
+        #expect(PadMappingArrangement.resolve(CGSize(width: 700, height: 400)) == .sideBySide(drawingWidth: 294))
+        #expect(PadMappingArrangement.resolve(CGSize(width: 1000, height: 700)) == .sideBySide(drawingWidth: 360))
+        #expect(PadMappingArrangement.resolve(CGSize(width: 1366, height: 1024)) == .sideBySide(drawingWidth: 360))
+    }
+
+    @Test func theRowsKeepAtLeast320() {
+        for width in stride(from: CGFloat(700), through: 1400, by: 25) {
+            guard case .sideBySide(let drawing) = PadMappingArrangement.resolve(CGSize(width: width, height: 500)) else { Issue.record("width \(width)"); return }
+            #expect(width - drawing >= 320, "width \(width)")
+        }
+    }
+
+    @Test func narrowerOrShorterStacksTheDrawingAboveTheRows() {
+        #expect(PadMappingArrangement.resolve(CGSize(width: 699, height: 800)) == .stacked(drawingHeight: 180))
+        #expect(PadMappingArrangement.resolve(CGSize(width: 900, height: 399)) == .stacked(drawingHeight: 180))
+        #expect(PadMappingArrangement.resolve(CGSize(width: 393, height: 852)) == .stacked(drawingHeight: 180))
+    }
+}

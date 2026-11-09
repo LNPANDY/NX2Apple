@@ -1,4 +1,5 @@
 import Foundation
+import ShellUI
 import Testing
 @testable import ShellHost
 
@@ -64,6 +65,29 @@ import Testing
 
     @Test func aRealLayoutImageGivesTheMaskLanguages() throws {
         #expect(try codes(Self.image(mask("JPja USen CNzh TWzh EUfr\n01111\n"))) == ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
+    }
+
+    @MainActor @Test func theLibraryUsesTheSelectedTreeLanguagesInsteadOfARejectedImage() async throws {
+        let box = try Sandbox()
+        let title = Fixtures.orbit
+        let rejected = Self.image(mask("USen JPja\n"))
+        let manifest = box.games.appendingPathComponent(title + "/game.manifest.json")
+        let text = try String(contentsOf: manifest, encoding: .utf8)
+            .replacingOccurrences(of: "\"DMROMFSID1 fixture\"", with: "\"DMROMFSID1 size=\(rejected.count) index=0\"")
+        try text.write(to: manifest, atomically: true, encoding: .utf8)
+        let picked = box.root.appendingPathComponent("Drive/Picked", isDirectory: true)
+        try box.write("", to: picked.appendingPathComponent("romfs/fixture.marker"))
+        try box.write("USen EUfr\n", to: picked.appendingPathComponent("romfs/System/RegionLangMask.txt"))
+        try rejected.write(to: picked.appendingPathComponent("romfs.img"))
+        try #require(BookmarkStore(defaults: box.defaults(title), key: BookmarkStore.gameDataKey).store(picked))
+
+        let settings = ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!)
+        let host = ShellHostModel(config: box.config(), shellSettings: settings)
+        await host.waitForDataChecks()
+        let rows = try #require(host.details.first { $0.id == title }).sections.flatMap(\.rows)
+        let language = try #require(rows.first { $0.id == "DM_LANG" })
+        guard case .choice(let choices) = language.kind else { Issue.record("The language setting has no choices"); return }
+        #expect(choices.map(\.id) == ["en-US", "fr"])
     }
 
     @Test func theMalsFolderIsUsedWhenThereIsNoMask() throws {

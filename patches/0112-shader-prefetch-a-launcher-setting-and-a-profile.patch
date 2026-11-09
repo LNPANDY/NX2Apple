@@ -1,0 +1,203 @@
+From 2c2ff836aae5a3d7144252754b031f63b7d3b780 Mon Sep 17 00:00:00 2001
+From: ZhaowTao <zhaowtao@users.noreply.github.com>
+Date: Fri, 6 Nov 2026 01:01:45 +0800
+Subject: [PATCH] Shader prefetch: a launcher setting, and a profile key that
+ turns it off (Persona 5 Royal)
+
+A program's shader libraries are loaded in the background as soon as the game makes the
+program (nvn_mtl.m mtl_prog_prefetch, from nvnProgramSetShaders), whether or not a draw
+uses them. It had a switch, DM_NVN_PREFETCH=0, but no front end could offer it:
+dm/ios/Sources/player_env.h filters the DM_NVN_ prefix as a diagnostic, so it cannot be
+saved from Documents/env.txt either.
+
+On iOS a loaded library is a mapping the process keeps for good: NvShader holds the
+MTLFunction, the function holds the library, and the shader table keeps the shader by
+key. A game with a very large shader tree fills the process's mapping limit that way and
+is ended with vnode-limit. Persona 5 Royal is 24,826 pipelines, 88,792 metallib and
+30,646 json (119,439 files, 1.3 GB) and was ended after 60-100 s in every configuration
+tried on an iPhone 17 Pro, while Breath of the Wild (4,829 pipelines) and Rhythm Heaven
+Groove (100 metallib) run for hours on the same device and build
+(LNPANDY/NX2Apple#665, #666).
+
+Off, one run held 30 fps for 99,600 frames (about 55 minutes) with the switch in
+Documents/env.txt, the path a player takes: no jetsam, no vnode-limit, no argument buffer
+abort. 34 minutes / 61,200 presents was the same switch set as a launch environment; with
+it on the same build aborted in a prefetch worker at 5 min 33 s.
+
+- settings.tsv gains the row for every NVN game, in Performance, with the iOS default
+  from the profile and the Mac default on (the shape DM_PSO_MTL4 has).
+- player_env.h carries the exception DM_NVN_ENC_THREAD already has, so a player build
+  keeps the launcher's value.
+- game.py takes the profile key nvn_prefetch (on / off) and writes DM_GAME_NVN_PREFETCH,
+  which settings.py resolves as the iOS default.
+- Persona 5 Royal's profile sets it off, so a player never has to find the row.
+- docs_patches.py classifies the new key (`game` to `host`, memory), or it exits on a
+  switch it cannot classify and `tools/engine.py sync` fails once the patches apply. The
+  generated docs/agents/game-patches.md is left alone: on this pin the generator's own
+  profile-switch table is down to one row (game.py's header_one split left `switches()`
+  reading the four lines of header()), so a hand-edit would fight the next regeneration.
+- The test covers the row's graphics API, both platforms' defaults and the Mac.
+
+The tests pass (17 in test_launcher_settings.py). Off bounds nothing by itself: the
+mappings still grow, from what is drawn instead of what is in the program, and a long
+session still ends somewhere.
+
+Upstream-Status: forwarded seedds/nxnative#1209
+Reason: Persona 5 Royal fills the iOS mapping limit and is ended after 60-100 s; the prefetch switch existed but no front end could reach it, and the game ships it off in its profile
+Issue: LNPANDY/NX2Apple#665
+---
+ dm/games/01005CA01580E000/game.tsv       |  6 ++++++
+ dm/games/README.md                       |  1 +
+ dm/games/game.py                         |  3 +++
+ dm/games/settings.tsv                    |  1 +
+ dm/ios/Sources/player_env.h              |  3 ++-
+ dm/tools/docs_patches.py                 |  2 ++
+ dm/tools/tests/test_launcher_settings.py | 10 +++++++++-
+ docs/settings.md                         | 10 +++++++++-
+ 8 files changed, 33 insertions(+), 3 deletions(-)
+
+diff --git a/dm/games/01005CA01580E000/game.tsv b/dm/games/01005CA01580E000/game.tsv
+index af50363a..d78fa737 100644
+--- a/dm/games/01005CA01580E000/game.tsv
++++ b/dm/games/01005CA01580E000/game.tsv
+@@ -35,6 +35,12 @@ sys_resource	0x0
+ shader_groups	/CPK/=cpk /app_config/=appconfig
+ shader_note	Persona 5 Royal shaders
+ 
++# ---- Shaders ----
++# 24,826 pipelines: the prefetch maps every library of every program a scene creates, and the
++# iOS process fills its open mapping limit in about ten minutes (NX2Apple #665). Load each at
++# its first draw instead; the Mac keeps the prefetch (the setting's Mac default is on).
++nvn_prefetch	off
++
+ # ---- After the rewrite ----
+ # The rewritten modules require 76 MB, more than the default 64 MB deducted from the pool.
+ mem_used	0x4c00000
+diff --git a/dm/games/README.md b/dm/games/README.md
+index 768c38df..1099da6b 100644
+--- a/dm/games/README.md
++++ b/dm/games/README.md
+@@ -225,6 +225,7 @@ One row per profile; the notes are each profile's `README.md`.
+ | `present_snap` | `on` / `off` (the default): present snapshots by default (`nvn_mtl.m` `mtl_snap_on`, a ring of 2 host textures): each present is copied and the game's swapchain texture is free at once, so the GPU does not idle between frames ([Present snapshots](../../docs/reference/frame-rate.md#present-snapshots-the-games-swapchain-texture-free-at-once)). A setting the game was tested with: the iOS launcher's **Frame buffering** defaults to it, and `DM_PRESENT_SNAP` / `Documents/env.txt` override it. Breath of the Wild sets it on |
+ | `pso_mtl4` | `on` / `off` (the default): on iOS, render pipelines through MTL4Compiler by default, with the pipeline archive, the prepare step, the hybrid pipelines and the prebuild (on by default on the Mac; `DM_PSO_MTL4=1` / `0` overrides). A setting the game was tested with on an iPhone. It also gives the app the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) (`build_ipa.sh` builds it for the `pso_gpu` key's list when present, else for `g18p`, unless `DM_PSO_GPUS` says otherwise). An iOS build carries the pulling libraries (`_bp`) whatever this key says, since the launcher's Metal 4 pipelines toggle can turn the path on. Profiles with `pso_mtl4 off` get no archive unless a build override selects one. Breath of the Wild sets it on |
+ | `pso_gpu` | Optional, whitespace-separated GPU architectures: the ones the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) is made for when the profile also sets `pso_mtl4 on`. The bases are made per GPU family and each family's archive costs its own `metal-tt` run, so a profile names exactly the devices it serves. 1-4 tokens, each alphanumeric, with or without the `applegpu_` prefix (for example `g18p applegpu_g19p`); `none` is not a value. Without this key, `pso_mtl4 on` keeps the A19 / A19 Pro default `g18p`; `pso_mtl4 off` gets no archive. The `DM_PSO_GPUS` switch / the NSP script's `--gpu` overrides the archive selection; this key does not enable Metal 4 pipelines |
++| `nvn_prefetch` | `on` (the default) / `off`: a program's shader libraries loaded in the background when the game makes it (`nvn_mtl.m` `mtl_prog_prefetch`), so a scene's first draws do not stall. `DM_NVN_PREFETCH` and the launcher's Shader prefetch override it. On iOS a program's libraries are then mapped whether a draw uses them or not: a game with a very large shader tree fills the process's mapping limit and the system ends it (Persona 5 Royal, 24,826 pipelines, about ten minutes). Persona 5 Royal sets it off |
+ | `enc_thread` | `on` / `off` (the default): on the Mac, Metal encoding on its own thread by default, as on iOS for every game (`nvn_rec.h` `rec_on`; `DM_NVN_ENC_THREAD=1` / `0` and the launcher's Encode thread override it). For a game that waits on its fence every frame, whose submit thread would otherwise also encode before the wait: Need for Speed: Hot Pursuit Remastered's 60 fps frame took 18.1 ms with encoding on the submit thread and 16.7 on its own |
+ | `fps_target` | Frame rate cap of the rewriter's frame step, for builds that have one (`FRAME_STEP` in the profile's `patches.py`: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0, Hyrule Warriors: Age of Calamity 1.3.0, Paper Mario: The Thousand-Year Door 1.0.1, ASTRAL CHAIN 1.0.1), or the engine's own frame limit the host writes into game memory (`hle_fpslock.c`: Monster Hunter Rise 16.0.2, which also needs `present_interval display`; any Unreal Engine 4.2x / 5 build, its `t.MaxFPS` (or `ue_fps_cvar`) and `rhi.SyncInterval` or `nvn.SyncInterval`, found by name by the rewriter, so the game asks for present interval 1 itself, and its fixed frame rate `GEngine->FixedFrameRate`, found by its reflection entry and written while the engine's `bUseFixedFrameRate` is set (DRAGON BALL: Sparking! ZERO's battles, Pikmin 4); Luigi's Mansion 3 1.4.0, its frame limiter's milliseconds per frame, with `present_interval display`; Pokémon Brilliant Diamond 1.3.0, Unity's integer `Application.targetFrameRate`, also with `present_interval display`; EA SPORTS FC 27, Frostbite's simulation rate, found by name on any build, and on 1.8d.310c its frame regulator, also with `present_interval display`; Fire Emblem Fortune's Weave, a target frame rate the game steps by, found by its readers on any build, so the game asks for present interval 1 itself). `0` (the default): the game's own step. `30` / `60`: the host decides each frame's step in whole vsyncs and keeps the frame on screen that long (`hle_nvn.c` `fstep_tick`, `nvn_fstep.h`): 1 at a 60 cap, 2 when 60 does not hold or at a 30 cap (and while a prerendered movie plays), plus one vsync while the game is behind real time after a late frame. Presents follow that hold instead of the interval the game sets. `DM_FPS_TARGET` overrides it, also from `Documents/env.txt`; the log line `frame step: game time … of real time` checks the game's speed. A derived profile (`derive_profile`) whose `main` has no `FRAME_STEP` stubs, while the profile has them for other builds, gets `fps_target 0`: without the stubs the host would present every vsync and the game would run at double speed. On a main with neither a frame step nor an engine limit the host writes, the host keeps the game's own present interval whatever `fps_target` or `DM_FPS_TARGET` says (`hle_fpslock.c` `dm_fps_lock_engine`) |
+ | `fps_max` | `60` (the default) or `120`: the highest rate `fps_target` and the player's **Frame rate** take. `120` only for a game with an engine limit the host writes and whose speed was measured at 120 against 60 over the same inputs: the target then follows the frames that fit, 120 or 60 ([120 fps follows the frame step](../../docs/reference/frame-rate.md#120-fps-follows-the-frame-step)). |
+diff --git a/dm/games/game.py b/dm/games/game.py
+index cb28a9e2..d1af0a1d 100644
+--- a/dm/games/game.py
++++ b/dm/games/game.py
+@@ -178,6 +178,8 @@ def header_one(g):
+         sys.exit(f"{g.id}: pso_gpu takes 1-4 whitespace-separated GPU architectures such as 'g18p applegpu_g19p' (each an optional applegpu_ prefix then an alphanumeric token; there is no none: omit the key for g18p with pso_mtl4 on, or no archive with pso_mtl4 off): {pg}")
+     et = g.get('enc_thread', 'off')   # Metal encoding on its own thread on the Mac by default (nvn_rec.h rec_on; on iOS it is on for every game; DM_NVN_ENC_THREAD overrides): on / off
+     if et not in ('on', 'off'): sys.exit(f'{g.id}: enc_thread must be on or off: {et}')
++    pf = g.get('nvn_prefetch', 'on')   # a program's shader libraries loaded in the background when the game makes it (nvn_mtl.m mtl_prog_prefetch; DM_NVN_PREFETCH and the iOS launcher's Shader prefetch override it): on / off
++    if pf not in ('on', 'off'): sys.exit(f'{g.id}: nvn_prefetch must be on or off: {pf}')
+     cp = g.get('core_preempt', 'off')   # same-core preemption approximation (hle_thread.c): on / off
+     if cp not in ('on', 'off'): sys.exit(f'{g.id}: core_preempt must be on or off: {cp}')
+     aba = g.get('alloc_big_align', 'off')   # nn::mem::StandardAllocator::Allocate aligns blocks of 64 KB or more to 64 KB (hle_os.c; Vanillaware's memory pool storage): on / off
+@@ -254,6 +256,7 @@ def header_one(g):
+          f'#define DM_GAME_PRESENT_SNAP {int(ps == "on")}',
+          f'#define DM_GAME_PSO_MTL4 {int(p4 == "on")}',
+          f'#define DM_GAME_ENC_THREAD {int(et == "on")}',
++         f'#define DM_GAME_NVN_PREFETCH {int(pf == "on")}',
+          *([f'#define DM_GAME_SHARED_FONT_TTF {int(sf == "ttf")}'] if g.get('shared_font', '') else []),   # without the key the host decides by the SDK version (hle_sdk16.c)
+          f'#define DM_GAME_PAD_LAYOUT {("simple", "full", "touch").index(pl)}',
+          f'#define DM_GAME_OPMODE {int(om == "console")}',
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index 15f48241..7f23186f 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -35,5 +35,6 @@ DM_PRESENT_SNAP	toggle	-	DM_GAME_PRESENT_SNAP	gfxapi:nvn	Performance	Frame buffe
+ DM_PSO_MTL4	toggle	-	DM_GAME_PSO_MTL4|1	gfxapi:nvn	Performance	Metal 4 pipelines	Keeps a pipeline archive; uses more memory.
+ DM_PSO_PREBUILD	toggle	-	1	gfxapi:nvn	Performance	Pipeline prebuild	The first start waits a few minutes for it, once.	needs=DM_PSO_MTL4=1
+ DM_NVN_ENC_THREAD	toggle	-	1|DM_GAME_ENC_THREAD	gfxapi:nvn	Performance	Encode thread
++DM_NVN_PREFETCH	toggle	-	DM_GAME_NVN_PREFETCH|1	gfxapi:nvn	Performance	Shader prefetch	Loads each program's shader libraries in the background, whether a draw uses them or not.
+ DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	DM_GAME_FPS_TARGET!=0	Performance	Hold frames when late
+ DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
+diff --git a/dm/ios/Sources/player_env.h b/dm/ios/Sources/player_env.h
+index f1d53479..129ce470 100644
+--- a/dm/ios/Sources/player_env.h
++++ b/dm/ios/Sources/player_env.h
+@@ -4,8 +4,9 @@
+ #pragma once
+ #include <string.h>
+ static inline int dm_player_diagnostic_key(const char *key) {
+-    // Encoding placement changes scheduling, not diagnostics or launcher state.
++    // Encoding placement and shader prefetch are launcher settings, not diagnostics or launcher state.
+     if(!strcmp(key,"DM_NVN_ENC_THREAD"))return 0;
++    if(!strcmp(key,"DM_NVN_PREFETCH"))return 0;
+     static const char *const prefixes[]={"DM_NVN_","DM_TEST_","MTL_DEBUG_","MTL_SHADER_VALIDATION"};
+     for(unsigned i=0;i<sizeof prefixes/sizeof *prefixes;i++)
+         if(!strncmp(key,prefixes[i],strlen(prefixes[i])))return 1;
+diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
+index 38158dca..7f2dd741 100644
+--- a/dm/tools/docs_patches.py
++++ b/dm/tools/docs_patches.py
+@@ -118,6 +118,8 @@ SWITCH_BINDING = [
+      'why': f'what iOS does for every game: {DEFAULT_SOON}'}),
+     ('present_snap', '', {'what': 'present snapshots', 'now': 'game', 'goal': 'host', 'purpose': 'rendering', 'why': f'a setting the game was tested with: {DEFAULT_SOON}'}),
+     ('pso_mtl4', '', {'what': 'MTL4Compiler pipelines on iOS', 'now': 'game', 'goal': 'host', 'purpose': 'rendering', 'why': f'a setting the game was tested with on an iPhone: {DEFAULT_SOON}'}),
++    ('nvn_prefetch', '', {'what': "a program's shader libraries loaded in the background", 'now': 'game', 'goal': 'host', 'purpose': 'memory',
++     'why': f"the host knows its own mapping limit: on, the iOS process fills it on a large shader tree; off costs a hitch at a pipeline's first draw: {DEFAULT_SOON}"}),
+     ('screen_aspect', '', {'what': 'a picture of a taller screen\'s own shape (DM_SCREEN_ASPECT)', 'now': 'game', 'goal': 'game', 'purpose': 'rendering',
+      'why': "the output size is the host's, but the stubs that follow it (projections, layout panes, screen copies) are this build's code"}),
+     ('game_env', 'DOTNET_GCRegionRange=', {'what': ".NET's garbage-collector region range", 'now': 'game', 'goal': 'game', 'purpose': 'address space', 'why': "measured for the game's regions"}),
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index 42ad3d7b..11ef9098 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -15,7 +15,7 @@ settings = importlib.util.module_from_spec(spec)
+ spec.loader.exec_module(settings)
+ 
+ BOTW, WONDER = '01007EF00011E000', '010015100B514000'
+-PERFORMANCE_NVN = ['DM_PRESENT_SNAP', 'DM_PSO_MTL4', 'DM_PSO_PREBUILD', 'DM_NVN_ENC_THREAD', 'DM_FPS_HOLD', 'DM_METAL_HUD']
++PERFORMANCE_NVN = ['DM_PRESENT_SNAP', 'DM_PSO_MTL4', 'DM_PSO_PREBUILD', 'DM_NVN_ENC_THREAD', 'DM_NVN_PREFETCH', 'DM_FPS_HOLD', 'DM_METAL_HUD']
+ 
+ 
+ def build(gid, api, platform=None):
+@@ -66,6 +66,14 @@ class LauncherSettingsTests(unittest.TestCase):
+         self.assertNotIn('DM_FPS_HOLD', wonder)   # no frame step, as the Frame rate row
+         self.assertIn('first start', botw['DM_PSO_PREBUILD']['note'])   # it runs once in the prepare step, before the first frame
+ 
++    def test_shader_prefetch_follows_the_profile_and_the_iphone_shows_it(self):
++        for api, gid in [('nvn', BOTW), ('vulkan', '0100535012974000'), ('', BOTW)]:
++            with self.subTest(api=api):
++                self.assertEqual('DM_NVN_PREFETCH' in build(gid, api), api == 'nvn')
++        self.assertEqual(build(BOTW, 'nvn')['DM_NVN_PREFETCH']['default'], '1')          # no key in the profile: on
++        self.assertEqual(build('01005CA01580E000', 'nvn')['DM_NVN_PREFETCH']['default'], '0')   # Persona 5 Royal: nvn_prefetch off
++        self.assertEqual(build(BOTW, 'nvn', 'mac')['DM_NVN_PREFETCH']['default'], '1')   # the Mac keeps the prefetch
++
+     def test_hold_frames_takes_on_and_off(self):   # the host reads DM_FPS_HOLD as on / off (hle_nvn.c), not 1 / 0
+         s = build(BOTW, 'nvn')['DM_FPS_HOLD']
+         self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
+diff --git a/docs/settings.md b/docs/settings.md
+index 9b5e4049..01c368b5 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -5,7 +5,7 @@ The screen before the game starts shows the settings the game supports. A settin
+ - [Tested defaults](#tested-defaults)
+ - [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game's upscaler](#games-upscaler), [Game language](#game-language), [Picture](#picture), [Frame-rate counter](#frame-rate-counter)
+ - [Controls](#controls): [Touch feedback](#touch-feedback), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength), [Rumble cutoff](#rumble-cutoff), [Press a button to join](#press-a-button-to-join)
+-- [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
++- [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
+ - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
+ - [In-game menu](#in-game-menu)
+ - [TV](#tv)
+@@ -187,6 +187,14 @@ The app turns the game's graphics commands into Metal commands on a thread of it
+ 
+ - **When to change it:** leave it on unless a game misbehaves with it; turning it off is a diagnostic step.
+ 
++### Shader prefetch
++
++When the game makes a program, the app loads its shader libraries in the background instead of waiting for the first draw that needs them, so a new scene's first frames do not stall while each library is opened (in Donkey Kong Bananza a level's first frames loaded three to seven libraries on the submitting thread, 20-90 ms each with the drive idle). It is on by default.
++
++- **Cost:** every library of the program is opened whether a draw uses it or not. A game whose shader tree is very large fills the phone's limit on open mappings this way, and iOS ends the app after a few minutes (Persona 5 Royal: 24,826 pipelines, about ten minutes, the crash report says `vnode-limit`).
++- **When to change it:** off for a game that iOS ends after a few minutes of play. Each library is then loaded at its first draw, which costs a short stall there instead.
++- **Tests:** off, Persona 5 Royal held 30 fps for 34 minutes on an iPhone 17 Pro (61,200 frames, no crash, 1,773 MiB), against 5 minutes 33 seconds with it on.
++
+ ### Hold frames when late
+ 
+ For games whose frame rate the app controls ([Frame rate](#frame-rate)). With 60 fps chosen, each frame is meant to stay on screen for one refresh. When a frame comes late, the app can either slow the game down to 30 fps for a while, or keep 60 and show late frames as they come.

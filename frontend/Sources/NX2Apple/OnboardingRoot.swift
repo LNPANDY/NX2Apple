@@ -13,7 +13,9 @@ import NXLauncher
     let recorder: BuildRecorder
     lazy var console: LiveConsoleDriver = {
         let driver = LiveConsoleDriver(library: library, controls: controls, repo: { [stores] in stores.repo.path }, lang: { [stores] in stores.localizer.lang },
-                                       labels: { [stores] in stores.localizer.t($0) })
+                                       labels: { [stores] in stores.localizer.t($0) }, player: { [stores] in stores.players.active },
+                                       saves: { [stores] in (stores.saveSettings.global, stores.saveSettings.game($0)) },
+                                       sticks: { [stores] in stores.sticks.settings })
         driver.bindActivity(stores.build)   // the top bar's chip shows the desktop's build (#1004)
         return driver
     }()

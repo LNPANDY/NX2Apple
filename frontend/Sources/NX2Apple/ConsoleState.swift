@@ -102,7 +102,8 @@ struct ConsoleToast: Equatable, Identifiable {
 }
 
 enum ConsoleStarting: Equatable {
-    case preparing, compilingShaders(completed: Int, total: Int), opening
+    /// cloudSave: the cloud's save is being brought onto this Mac before the start (#957); `long` once it has taken a while
+    case preparing, compilingShaders(completed: Int, total: Int), opening, cloudSave(long: Bool)
     var progress: Double? {
         if case let .compilingShaders(completed, total) = self, total > 0 { return min(max(Double(completed) / Double(total), 0), 1) }
         return nil
@@ -111,9 +112,11 @@ enum ConsoleStarting: Equatable {
 
 enum ConsoleSheet: Equatable {
     /// homeButtonHint: the system keeps the controller's Home button, so a game cannot be quit with it (#336, shown once)
-    case options(String), controllers, explanation(String), homeButtonHint
+    /// cloudSave: the cloud's save and this Mac's both changed, or the cloud's cannot be read: the player chooses before the start (#957)
+    case options(String), controllers, explanation(String), homeButtonHint, cloudSave(CloudSaveQuestion)
     var scope: String {
         switch self {
+        case .cloudSave: return "console.cloudSave"
         case .options: return "console.options"
         case .controllers: return "console.controllers"
         case .explanation: return "console.explanation"
@@ -171,6 +174,12 @@ struct ConsoleState {
         guard !exited, startingGameID == nil, presentedSheet != .homeButtonHint else { return }
         sheets.append(.homeButtonHint)
     }
+    /// The question before the start (#957): Starting ends while the player chooses, the sheet holds the question.
+    mutating func askCloudSave(_ question: CloudSaveQuestion) {
+        guard !exited else { return }
+        startingGameID = nil
+        sheets = [.cloudSave(question)]
+    }
     mutating func back() {
         guard !exited else { return }
         if startingGameID != nil { return } // the driver ends Starting when the game window appears
@@ -220,12 +229,18 @@ struct ConsoleState {
     func consumePress(controllerID: String, isBack: Bool) -> Bool
     /// The Home button hint's button: opens the system's Home button settings and closes the hint.
     func openHomeButtonSettings()
+    /// The answer to the cloud save question, or "play with this Mac's save" while the download takes long (#957).
+    func chooseCloudSave(_ choice: CloudSaveCheck.Choice)
+    /// The cloud save question's Try again: the check runs again.
+    func retryCloudSave()
 }
 
 extension ConsoleDriver {
     func setJoyconSplit(_ enabled: Bool) {}
     func consumePress(controllerID: String, isBack: Bool) -> Bool { false }
     func openHomeButtonSettings() { back() }
+    func chooseCloudSave(_ choice: CloudSaveCheck.Choice) { back() }
+    func retryCloudSave() { back() }
 }
 
 /// Shared choice/range/toggle stepping for mouse, d-pad and keyboard. No settings store is touched.

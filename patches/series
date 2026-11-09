@@ -73,3 +73,6 @@
 0108-nx-extract-control-the-base-game-s-control-data.patch
 0109-mac-app-an-update-without-control-data-gets-no-b.patch
 0110-ios-shell-declare-spanish-korean-and-brazilian-por.patch
+0111-mac-launcher-keep-saves-in-library-when-the-game.patch
+0112-shader-prefetch-a-launcher-setting-and-a-profile.patch
+0113-launcher-a-frame-rate-choice-for-games-shown-at.patch

@@ -10,6 +10,9 @@ package enum BuildFailureKind: String, CaseIterable {
     case keys, severalGames, noTitleID, driveMissing
     /// prod.keys lacks the master key the game needs: the keys are older than the game (nx_extract's exit code 6, seedds/nxnative 3104c0a).
     case keysOld
+    /// A provisional profile kept from an earlier build registers other versions than the selected update (scripts/build_ipa_from_nsp.py provisional_version): the script stops
+    /// rather than pack an older version, and keeps the profile. `detail` is the folder it names.
+    case staleProfile
     /// The build's and the install's own steps.
     /// The offline Metal archive ran out of space or stopped at its own space estimate.
     case psoDiskFull

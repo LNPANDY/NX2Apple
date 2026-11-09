@@ -27,11 +27,12 @@ struct LaunchOptionsView: View {
     var openCheats: ((UUID) -> Void)? = nil
     var openSaves: ((UUID) -> Void)? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.settingsSlots) private var slots
     @State private var choicesRevision = 0   // bumped by a change: the values are read from the store again
     @State private var modsRevision = 0   // bumped by Refresh: the folder is read again
     @State private var frameTimesRevision = 0   // bumped by the switch and Refresh: the recordings are read again
     @EnvironmentObject private var focus: PadFocus
+    @EnvironmentObject private var saveSettings: SaveSettingsStore   // the global setup and this game's own choices (SaveLocation.swift)
+    @EnvironmentObject private var players: PlayerProfileStore
 
     private var game: LibraryGame? { library.games.first { $0.id == gameID } }
     private var settings: [LaunchSetting]? {
@@ -185,8 +186,8 @@ struct LaunchOptionsView: View {
 
     /// Saves: the cloud state of a Mac game and the sheet that imports, exports and shows the backups.
     @ViewBuilder private func saves(_ game: LibraryGame, destination: LaunchDestination) -> some View {
-        if let gameSaves = slots.gameSaves { gameSaves(game) }   // the shell stream's GameSavesSection, first
-        if destination == .mac { CloudSavesCard(game: game) }
+        GameSavesSection(game: game, settings: saveSettings, players: players)   // first: the save files, import and export
+        if destination == .mac { CloudSavesCard(game: game, overrides: saveSettings) }
         VStack(alignment: .leading, spacing: 10) {
             heading(loc.t("saves.menu"))
             card {
@@ -405,6 +406,8 @@ struct LaunchOptionsView: View {
                 LauncherSlider(value: Double(value) ?? Double(s.def) ?? lo, range: lo...hi, step: s.step ?? 0.05) {
                     set(s, String(format: "%.2f", $0))
                 }
+                .accessibilityLabel(label(s))
+                .accessibilityValue(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
                 Text(pixels ?? "\(Int(((Double(value) ?? 0) * 100).rounded()))%")
                     .font(.manrope(13, .semibold)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
                     .frame(width: LaunchControl.valueWidth, alignment: .trailing)

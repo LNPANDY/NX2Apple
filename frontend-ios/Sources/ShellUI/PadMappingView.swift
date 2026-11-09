@@ -100,6 +100,25 @@ struct PadMappingEntryRow: View {
 /// sends, a cream dot on a row that differs. Reset stays in a footer under the scrolling list. A row picked shows the
 /// buttons it can send as a grid of glyphs, in the same groups. D-pad and keys move through `map.` targets, A picks, B goes
 /// back to the rows and then closes.
+/// How the mapping page lays out its drawing and rows for the room it has (#637). From 700 wide and 400 high the drawing stands on the left
+/// at 42 percent of the width, at most 360, and the rows keep at least 320 on the right. Smaller, the drawing sits above the rows, at most 180 high.
+enum PadMappingArrangement: Equatable {
+    case sideBySide(drawingWidth: CGFloat)
+    case stacked(drawingHeight: CGFloat)
+
+    static let minimumSideBySide = CGSize(width: 700, height: 400)
+    static let maximumSideDrawing: CGFloat = 360
+    static let minimumRows: CGFloat = 320
+    static let maximumStackedDrawing: CGFloat = 180
+
+    static func resolve(_ size: CGSize) -> PadMappingArrangement {
+        guard size.width >= minimumSideBySide.width, size.height >= minimumSideBySide.height else {
+            return .stacked(drawingHeight: maximumStackedDrawing)
+        }
+        return .sideBySide(drawingWidth: min(maximumSideDrawing, size.width * 0.42, size.width - minimumRows))
+    }
+}
+
 struct PadMappingCard: View {
     @Environment(\.shellNativeBars) private var nativeBars
     /// The game's title, or All games for the shell's map.
@@ -117,7 +136,6 @@ struct PadMappingCard: View {
     var onChoiceInput: ((ShellInput.Action) -> Void)? = nil
     @State private var confirmingReset = false
     @State private var mappingsScrolled = false
-    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.shellFocus) private var focus
 
@@ -142,15 +160,16 @@ struct PadMappingCard: View {
     private var nativePage: some View {
         VStack(spacing: 0) {
             GeometryReader { geometry in
-                if geometry.size.width >= 640 && !typeSize.isAccessibilitySize {
+                switch PadMappingArrangement.resolve(geometry.size) {
+                case .sideBySide(let drawingWidth):
                     HStack(alignment: .top, spacing: 0) {
-                        drawing.frame(width: min(420, geometry.size.width * 0.4)).padding(20)
-                        nativeList
+                        drawing.frame(width: drawingWidth).padding(20)
+                        nativeList.frame(minWidth: PadMappingArrangement.minimumRows)
                     }
-                } else {
+                case .stacked(let drawingHeight):
                     VStack(spacing: 0) {
                         drawing
-                            .frame(height: min(max(0, geometry.size.width - 40) * 220 / 320, geometry.size.height * 0.45))
+                            .frame(height: min(drawingHeight, max(0, geometry.size.width - 40) * 220 / 320))
                             .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
                         nativeList
                             .scrollEdgeEffectHidden(true, for: .top)

@@ -27,6 +27,7 @@ struct LauncherView: View {
     @StateObject private var recorder: BuildRecorder   // writes the builds into the library: the session's, so a build that ends in console mode is recorded too
     var activeBuildID: UUID? { recorder.activeBuildID }
     @State var launching = false
+    @StateObject private var cloudGate = CloudSaveGate()   // the check of the cloud's save before a start (CloudSaveGate.swift, #957)
     @State private var launchError: String?
     @State private var removing: LibraryGame?
     @State private var selectingGames = false   // the Build selected games sheet (BuildSelectedSheet.swift)
@@ -37,6 +38,7 @@ struct LauncherView: View {
     @State private var controllerMappingOpen = false
     @State private var freeSpaceFor: UUID?   // the game whose Free space sheet is open
     @State private var controlsOpen = false
+    @State private var controlsCancelRequest = 0   // the controller's B in the Controls sheet: asks to leave like Cancel
     @State private var savesFor: UUID?   // the game whose Saves sheet is open (SaveTransfer.swift)
     @State private var cheatsFor: UUID?  // the game whose Cheats sheet is open (CheatsView.swift)
     @State var manageOpenFor: UUID?   // the game whose Manage menu is open (ManageMenu.swift)
@@ -189,6 +191,7 @@ struct LauncherView: View {
                 }
             } else {
                 CardPages(settings: page == .settings, build: m, updates: updates, repo: repo, engine: engine, dependencies: stores.dependencies, devices: devices, queue: stores.queue, transfers: stores.transfers, onSelectGames: { selectingGames = true },
+                          sticks: stores.sticks, saveSettings: stores.saveSettings, players: stores.players,
                           library: library, diagnostics: stores.diagnostics, onViewGame: { page = .library }, onOpenSettings: { page = .settings },
                           onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
                           padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
@@ -214,6 +217,7 @@ struct LauncherView: View {
         .tint(LauncherPalette.accent)
         .font(.manrope(13))   // the default for text without a font of its own
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
+        .onDisappear { gamepad.deactivate() }
         .onAppear {
             gamepad.perform = padAction
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
@@ -293,13 +297,15 @@ struct LauncherView: View {
             if let id = optionsFor { LaunchOptionsView(m: m, library: library, gameID: id, globalControls: controls, controllerMappingPresentation: $controllerMappingOpen,
                               onBuild: { game in DispatchQueue.main.async { configureBuild(game) } },
                               openCheats: { id in optionsFor = nil; DispatchQueue.main.async { cheatsFor = id } },
-                              openSaves: { id in optionsFor = nil; DispatchQueue.main.async { savesFor = id } }).environmentObject(padFocus).launcherDropdownHost() }
+                              openSaves: { id in optionsFor = nil; DispatchQueue.main.async { savesFor = id } }).environmentObject(padFocus).environmentObject(stores.saveSettings).environmentObject(stores.players).launcherDropdownHost() }
         }
-        .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls).environmentObject(padFocus).launcherDropdownHost() }
+        .sheet(isPresented: $controlsOpen) { ControlsView(layout: controls, cancelRequest: controlsCancelRequest).environmentObject(padFocus).launcherDropdownHost() }
         .sheet(isPresented: Binding(get: { freeSpaceFor != nil }, set: { if !$0 { freeSpaceFor = nil } })) {
             if let game = library.games.first(where: { $0.id == freeSpaceFor }) { FreeSpaceView(m: m, game: game).environmentObject(padFocus) }
         }
         .onChange(of: freeSpaceFor) { id in padFocus.scope = id != nil ? "free" : currentPadScope }
+        .cloudSaveSheet(cloudGate, pad: padFocus, scope: { currentPadScope })
+        .syncControllerLayouts(library: library, controls: controls)
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .sheet(isPresented: $selectingGames) {
             BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, exportsIPA: devices.exportIPA) { selectingGames = false }
@@ -391,6 +397,7 @@ struct LauncherView: View {
                 navigationTabs(compact: true, tabInset: 14, brandGap: 16)
             }
             Spacer(minLength: 8)
+            PlayerPicker(players: stores.players)   // whose saves Play uses (PlayerPicker.swift)
             searchField
             Button { newBuild() } label: {
                 ViewThatFits(in: .horizontal) {
@@ -623,7 +630,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = controllerSheet || supportedGames != nil || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil || renaming != nil || artworkEditor != nil
+        let sheetOpen = controllerSheet || supportedGames != nil || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || deleting != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -634,6 +641,7 @@ struct LauncherView: View {
             return
         case .pass: break
         }
+        if cloudGate.isActive && [.b, .x, .l, .r].contains(action) { if action == .b { cloudGate.cancel() }; return }
         if action == .b, controllerMappingOpen { controllerMappingOpen = false; return }
         if action == .b, controllerSheet { controllerSheet = false; return }
         if action == .b, artworkEditor != nil { closeArtwork(save: false); return }
@@ -645,7 +653,7 @@ struct LauncherView: View {
         if supportedGames != nil && [.b, .x, .l, .r].contains(action) { if action == .b { supportedGames = nil }; return }
         if renaming != nil && [.b, .x, .l, .r].contains(action) { if action == .b { renaming = nil }; return }
         if action == .b {
-            if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsOpen = false }
+            if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsCancelRequest += 1 }
             else if searching { searching = false; search = "" } else if page != .library { page = .library }
             return
         }
@@ -692,7 +700,7 @@ struct LauncherView: View {
 
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        cloudGate.isActive ? "cloudsave" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : deleting != nil ? "delete" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
@@ -713,24 +721,28 @@ struct LauncherView: View {
         do {
             _ = try MacGameBundle.read(URL(fileURLWithPath: game.appPath))
             launching = true
-            let configuration = NSWorkspace.OpenConfiguration()
-            // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
-            // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
-            // They stay launch overrides (the environment) for now: DM_KEYMAP and DM_PAD_MAP become saved choices only when seedds/nxnative#386 merges.
-            let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t, lang: loc.lang)   // GameStart.swift: the console mode starts games with the same
-            let withRecording = environment.merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // FrameTimes.swift, as console mode does
-            if !withRecording.isEmpty { configuration.environment = withRecording }
-            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
-                let pid = app?.processIdentifier
-                DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        launching = false
-                        if let error { launchError = error.localizedDescription }
-                        else { library.recordPlayed(game.id); if let pid { GameReturnWatcher.shared.didStart(pid: pid) } }   // ReturnAfterPlay.swift, and the Recently played order
-                    }
+            cloudGate.begin(game, proceed: { start(game, cloudChoice: $0) }, ended: { launching = false })   // the cloud's save first, then the start
+        } catch { launchError = error.localizedDescription }
+    }
+
+    private func start(_ game: LibraryGame, cloudChoice: [String: String]) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        // The launch options; the app's launcher (dm/mac/launcher.c) keeps a variable that is already set.
+        // The keyboard and controller layout (Settings → Controls) goes to every game; a build whose host does not read it plays with the default keys.
+        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: stores.repo.path, labels: loc.t, lang: loc.lang, player: stores.players.active,
+                                                 saves: (stores.saveSettings.global, stores.saveSettings.game(game.titleID)), sticks: stores.sticks.settings)   // GameStart.swift: the console mode starts games with the same
+        let withRecording = environment.merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }.merging(cloudChoice) { $1 }   // FrameTimes.swift, as console mode does
+        if !withRecording.isEmpty { configuration.environment = withRecording }
+        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
+            let pid = app?.processIdentifier
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    launching = false
+                    if let error { launchError = error.localizedDescription }
+                    else { library.recordPlayed(game.id); if let pid { GameReturnWatcher.shared.didStart(pid: pid) } }   // ReturnAfterPlay.swift, and the Recently played order
                 }
             }
-        } catch { launchError = error.localizedDescription }
+        }
     }
 
     /// The installed apps' profile expiries, read in the background: `security cms` per unique app path, so not in a view body.

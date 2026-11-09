@@ -73,7 +73,7 @@ package struct BuildFailureCard: View {
                 if m.installedXcode != nil { fix(kind, "fail.cltSelected.button") }
             case .keys, .keysOld:
                 fix(kind, "fail.keys.button")
-            case .severalGames, .noTitleID, .diskFull:
+            case .severalGames, .noTitleID, .diskFull, .staleProfile:
                 fix(kind, "fail.showFolder")
             case .cloudFolder, .volumeFormat:
                 fix(kind, "fail.cloudFolder.button")

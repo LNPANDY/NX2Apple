@@ -72,6 +72,7 @@ public struct LibraryView: View {
     @State private var divisionAxis: Axis?
     private var horizontalDivision: Bool { divisionAxis == .horizontal }
     @State private var pendingMenuAction: (() -> Void)?
+    @State private var retention = PanelRetention()   // a closed panel stays drawn while the sheet slides out (#664)
     @State private var returnFocus: String?
     /// The device that sent the last input, for the glyphs.
     @State private var device: InputDevice = .controller(.neutral)
@@ -258,6 +259,7 @@ public struct LibraryView: View {
     private func runPendingMenuAction() {
         let action = pendingMenuAction
         pendingMenuAction = nil
+        retention.reset()
         action?()
     }
 
@@ -268,9 +270,11 @@ public struct LibraryView: View {
         padMapping = nil
         helpGameID = nil
         deleteGameID = nil
+        let leaving: PanelRetention.Panel? = controllersOpen ? .controllers : shellSettingsOpen ? .shellSettings : nil
         controllersOpen = false
         shellSettingsOpen = false
         settingsOpen = false
+        if let leaving { retention.closed(leaving, sheetStaysOpen: false) }
         focus.id = "lib.tile.\(selected?.id ?? "")"
     }
 
@@ -338,15 +342,17 @@ public struct LibraryView: View {
                     settingsPane(selected, width: geometry.size.width)
                         .accessibilityHidden(controllersOpen || shellSettingsOpen || choice != nil || padMapping != nil || helpGameID != nil || deleteGameID != nil)
                 }
-                if controllersOpen {
+                if retention.draws(.controllers, open: controllersOpen) {
                     ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap)
                         .background(ShellPalette.background)
-                        .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen)
+                        .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen || retention.isLeaving(.controllers, open: controllersOpen))
+                        .allowsHitTesting(!retention.isLeaving(.controllers, open: controllersOpen))
                 }
-                if shellSettingsOpen {
+                if retention.draws(.shellSettings, open: shellSettingsOpen) {
                     ShellSettingsView(actions: menuActions, onClose: closeShellSettings)
                         .background(ShellPalette.background)
-                        .accessibilityHidden(choice != nil)
+                        .accessibilityHidden(choice != nil || retention.isLeaving(.shellSettings, open: shellSettingsOpen))
+                        .allowsHitTesting(!retention.isLeaving(.shellSettings, open: shellSettingsOpen))
                 }
                 if let id = helpGameID, let game = games.first(where: { $0.id == id })?.game {
                     ScrollView { StateHelpView(game: game, actions: menuActions, onClose: closeHelp).padding(24) }
@@ -685,9 +691,9 @@ public struct LibraryView: View {
         settingsOpen = false
         focus.id = "lib.settings"
     }
-    private func openControllers() { guard !shellSettingsOpen else { return }; guard noteTouch() else { return }; controllersOpen = true; focus.id = "ctl.close" }
-    private func openShellSettings() { guard noteTouch() else { return }; shellSettingsOpen = true; focus.id = "shs.close" }
-    private func closeShellSettings() { guard !fromSystemEcho else { return }; shellSettingsOpen = false; focus.id = "lib.shellSettings" }
+    private func openControllers() { guard !shellSettingsOpen else { return }; guard noteTouch() else { return }; retention.reset(); controllersOpen = true; focus.id = "ctl.close" }
+    private func openShellSettings() { guard noteTouch() else { return }; retention.reset(); shellSettingsOpen = true; focus.id = "shs.close" }
+    private func closeShellSettings() { guard !fromSystemEcho else { return }; shellSettingsOpen = false; retention.closed(.shellSettings, sheetStaysOpen: menuPresented); focus.id = "lib.shellSettings" }
     private func openTouchLayout(_ window: CGSize, _ insets: EdgeInsets) {
         guard noteTouch() else { return }
         touchLayout = TouchLayoutEditorModel.forDevice(window: window, insets: insets)
@@ -794,7 +800,7 @@ public struct LibraryView: View {
         }
         else if helpGameID != nil { closeHelp() }
         else if deleteGameID != nil { closeDelete() }
-        else if controllersOpen { controllersOpen = false; focus.id = settingsOpen ? "set.back" : "lib.controllers" }
+        else if controllersOpen { controllersOpen = false; retention.closed(.controllers, sheetStaysOpen: menuPresented); focus.id = settingsOpen ? "set.back" : "lib.controllers" }
         else if shellSettingsOpen { closeShellSettings() }
         else if settingsOpen { closeSettings() }
         else { actions.onBack() }

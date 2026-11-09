@@ -9,7 +9,9 @@ import NXLauncher
 /// `fullscreen`, which forces DM_FULLSCREEN on whatever the game's Display setting says.
 enum GameStart {
     @MainActor static func environment(for game: LibraryGame, library: GameLibrary, controls: ControlLayout, repo: String,
-                                       labels: (String) -> String, lang: Lang = Lang.initial(), fullscreen: Bool = false,
+                                       labels: (String) -> String, lang: Lang = Lang.initial(), fullscreen: Bool = false, player: PlayerProfile? = nil,
+                                       saves: (global: SaveGlobalSettings, game: SaveGameOverride)? = nil,
+                                       sticks: StickDeadzoneSettings? = nil,
                                        screen: NSScreen? = NSApp?.keyWindow?.screen ?? NSScreen.main) -> [String: String] {
         library.migrateLaunchOptions()
         CloudSavesMigration.run()   // before the app reads its env.txt: DM_SAVE_SYNC=icloud keeps the folder the iPhone app uses
@@ -25,6 +27,24 @@ enum GameStart {
         if fullscreen, settings.contains(where: { $0.env == "DM_FULLSCREEN" }) { environment["DM_FULLSCREEN"] = "1" }
         if let id = displayID(of: screen) { environment["DM_SCREEN"] = String(id) }
         environment["DM_HOME_QUIT_TEXT"] = HomeButtonHint.promptText(gameName: game.displayName(lang), labels: labels)   // the game's Home button quit prompt in the launcher's language (#336)
+        if let sticks { environment.merge(sticks.environment) { _, own in own } }   // DM_STICK_DEADZONE_L / _R: off adds nothing
+        // The global setup and this game's own choices (SaveLocation.swift): a save folder and a cloud folder. A game with nothing set adds nothing.
+        var base = SaveTransfer.macSave(titleID: game.titleID, appPath: game.appPath).save
+        if let saves {
+            let own = GameCloudSaves(titleID: game.titleID, appPath: game.appPath).setting
+            let save = SaveLocations.effectiveSave(titleID: game.titleID, appPath: game.appPath, global: saves.global, game: saves.game)
+            let cloud = SaveLocations.effectiveCloud(global: saves.global, game: saves.game, own: own)
+            let saveEnv = SaveLocations.environment(save: save, cloud: cloud)
+            if let folder = saveEnv["DM_SAVE"] { try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true) }
+            environment.merge(saveEnv) { $1 }
+            base = save.path
+        }
+        // The player's own save folder (PlayerProfile.swift); the default player adds nothing, so their saves stay where they were
+        if let player, !player.isDefault {
+            let playerEnv = player.environment(base: base, existing: environment)
+            if let save = playerEnv["DM_SAVE"] { try? FileManager.default.createDirectory(atPath: save, withIntermediateDirectories: true) }
+            environment.merge(playerEnv) { $1 }
+        }
         return environment
     }
 

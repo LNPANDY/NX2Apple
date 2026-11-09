@@ -91,7 +91,7 @@ enum ConsoleInput {
         .onChange(of: state.exited) { exited in if exited, let onExit { onExit() } else { resetFocus() } }
         .onAppear { gamepad.capture = { [driver] id, action in driver.consumePress(controllerID: id, isBack: action == .b) }
             gamepad.perform = { [self] action in if let input = ConsoleInput(action) { glyphs = .current(); handle(input) } }; resetFocus() }
-        .onDisappear { gamepad.perform = { _ in }; gamepad.capture = nil }
+        .onDisappear { gamepad.deactivate() }
         .onChange(of: pad.focused) { id in
             if let id, id.hasPrefix("console.game.") { driver.focus(String(id.dropFirst("console.game.".count))) }
         }
@@ -284,6 +284,9 @@ enum ConsoleInput {
             case let .explanation(id):
                 if let game = state.games.first(where: { $0.id == id }) { explanation(game, compact: compact) }
             case .homeButtonHint: homeButtonHint(compact: compact)
+            case let .cloudSave(question):   // ConsoleCloudSaveView.swift (#957)
+                ConsoleCloudSaveView(question: question, lang: lang, compact: compact, choose: { driver.chooseCloudSave($0) },
+                                     retry: { driver.retryCloudSave() }, cancel: { driver.back() })
             }
         }
         .padScope(sheet.scope, pad)
@@ -407,6 +410,13 @@ enum ConsoleInput {
                         .accessibilityValue(String(format: t("console.batteryPercent"), Int(progress * 100)))
                 }
                 if state.isPreview { Text(t("console.simulatedShaders")).font(.manrope(compact ? 13 : 16)).foregroundStyle(.secondary) }
+                if case let .cloudSave(long) = state.starting {   // the cloud's save on its way (#957): B cancels, A plays without it once it takes long
+                    if long { Text(t("cloudCheck.fetching.long")).font(.manrope(compact ? 15 : 19)).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true) }
+                    HStack(spacing: 24) {
+                        if long { hint(.activate, "cloudCheck.playLocal", "console.cloudSave.offline", primary: true, compact: compact) { driver.chooseCloudSave(.offline) } }
+                        hint(.back, "cloudCheck.cancel", "console.cloudSave.cancel", compact: compact) { driver.back() }
+                    }.padding(.top, 8)
+                }
             }.frame(maxWidth: compact ? 320 : 540)
         }
         .padding(32).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -417,6 +427,7 @@ enum ConsoleInput {
         case .preparing: return t("console.startingNote")
         case let .compilingShaders(completed, total): return String(format: t("console.shadersProgress"), completed, total)
         case .opening: return t("console.openingGame")
+        case .cloudSave: return t("cloudCheck.fetching.title")
         }
     }
 
@@ -444,6 +455,7 @@ enum ConsoleInput {
         case .options: return "console.options"
         case .explanation: return "console.explanationTitle"
         case .homeButtonHint: return "console.homeHint.title"
+        case let .cloudSave(question): return question.outcome == .unreadable ? "cloudCheck.unreadable.title" : "cloudCheck.differ.title"
         }
     }
     private func resetFocus() {
@@ -454,12 +466,17 @@ enum ConsoleInput {
         case .controllers: pad.focused = "console.player.\(state.assigningPlayer ?? 1)"
         case .explanation: pad.focused = "console.explanation.desktop"
         case .homeButtonHint: pad.focused = "console.homeHint.open"
+        case let .cloudSave(question): pad.focused = ConsoleCloudSaveView.firstFocus(question)
         case nil: pad.focused = state.exited ? "console.return" : state.focusedGame.map { "console.game." + $0.id } ?? "console.empty.desktop"
         }
     }
     private func handle(_ input: ConsoleInput) {
         if input == .back { driver.back(); return }
         if state.exited { if input == .activate { driver.returnFromGame() }; return }
+        if case let .cloudSave(long) = state.starting, state.startingGameID != nil {   // the download's wait (#957): A plays without it once it takes long
+            if input == .activate && long { driver.chooseCloudSave(.offline) }
+            return
+        }
         guard state.startingGameID == nil else { return }
         pad.show(default: pad.focused)
         switch input {

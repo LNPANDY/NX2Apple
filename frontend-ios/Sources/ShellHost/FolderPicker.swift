@@ -33,6 +33,22 @@ public struct NoFolderPicker: FolderPicker {
     public func pickFolder() async -> URL? { nil }
 }
 
+/// Answers a picker exactly once. A hosted app (LiveContainer) may report a pick through the older single-document callback, report
+/// nothing but a dismissal, or both, so every path ends here and a later one is ignored. Without it a picker that closes without a
+/// delegate call left the shell waiting for ever (#1049).
+public final class FolderPickAnswer<Value: Sendable> {
+    private var resume: ((Value?) -> Void)?
+    public private(set) var answered = false
+    public init(_ resume: @escaping (Value?) -> Void) { self.resume = resume }
+    /// The first call wins: a pick, or nil for a cancel or a dismissal.
+    public func finish(_ value: Value?) {
+        guard !answered else { return }
+        answered = true
+        resume?(value)
+        resume = nil
+    }
+}
+
 #if canImport(UIKit)
 /// `UIDocumentPickerViewController` for a folder, opened in place (not copied) as the per-game app does, so the
 /// bookmark keeps pointing at the player's drive or iCloud Drive folder.
@@ -49,7 +65,7 @@ public struct DocumentFolderPicker: FolderPicker {
         let url: URL? = await withCheckedContinuation { continuation in
             let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
             picker.allowsMultipleSelection = false
-            let delegate = Delegate(continuation: continuation)
+            let delegate = Delegate(answer: FolderPickAnswer { continuation.resume(returning: $0) })
             picker.delegate = delegate
             picker.presentationController?.delegate = delegate   // a sheet swiped away is a cancel, not a wait that never ends
             // The picker holds its delegate weakly: keep it for as long as the picker lives.
@@ -77,12 +93,12 @@ public struct DocumentFolderPicker: FolderPicker {
 
     private final class Delegate: NSObject, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
         nonisolated(unsafe) static var key = 0
-        private var continuation: CheckedContinuation<URL?, Never>?
-        init(continuation: CheckedContinuation<URL?, Never>) { self.continuation = continuation }
-        private func finish(_ url: URL?) { continuation?.resume(returning: url); continuation = nil }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { finish(urls.first) }
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finish(nil) }
-        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { finish(nil) }
+        private let answer: FolderPickAnswer<URL>
+        init(answer: FolderPickAnswer<URL>) { self.answer = answer }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { answer.finish(urls.first) }
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentAt url: URL) { answer.finish(url) }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { answer.finish(nil) }
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { answer.finish(nil) }
     }
 }
 #endif

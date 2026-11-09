@@ -13,6 +13,9 @@ struct SettingsPage: View {
     let engine: EngineSyncStore
     let dependencies: DependencyStore
     @ObservedObject var library: GameLibrary
+    var players: PlayerProfileStore? = nil
+    var sticks: StickDeadzoneStore? = nil   // Controls: StickDeadzoneCard
+    var saveSettings: SaveSettingsStore? = nil   // the cloud saves and save folder for every game (GlobalSavesCard)
     var diagnostics: (LibraryGame?, @escaping (String) -> Void) -> Void = { _, _ in }   // the report of Copy diagnostics (LauncherStores)
     var onChooseLibraryFolder: () -> Void = {}
     var onOpenControls: () -> Void = {}
@@ -26,7 +29,6 @@ struct SettingsPage: View {
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
     @AppStorage(ReturnAfterPlay.defaultsKey) private var returnAfterPlay = true   // ReturnAfterPlay.swift
     @AppStorage(MacPreflight.defaultsKey) private var preflightAfterBuild = true   // MacPreflight.swift (#1005)
-    @Environment(\.settingsSlots) private var slots
     @Environment(\.launcherScrollTo) private var scrollTo
     @EnvironmentObject var loc: Localizer
 
@@ -72,15 +74,15 @@ struct SettingsPage: View {
 
     @ViewBuilder private var libraryCategory: some View {
         LibraryFoldersCard(library: library, onAddFolder: onChooseLibraryFolder)
-        if let globalSaves = slots.globalSaves { globalSaves }
-        if let players = slots.players { players }
+        if let saveSettings { GlobalSavesCard(settings: saveSettings) }
+        if let players { PlayersCard(players: players) }
     }
 
     @ViewBuilder private var controls: some View {
         ControlsCard(controlChanges: controlChanges, padMerge: padMerge, consolePrompt: $consolePromptOn,
                      startInConsole: $startInConsole, onOpenControls: onOpenControls, onOpenControllers: onOpenControllers,
                      onOpenHomeSettings: HomeButtonSettings.available ? { HomeButtonSettings.open() } : nil)   // HomeButtonSettings.swift (#336)
-        if let stickDeadzones = slots.stickDeadzones { stickDeadzones }
+        if let sticks { StickDeadzoneCard(store: sticks) }
     }
 
     @ViewBuilder private var tools: some View {

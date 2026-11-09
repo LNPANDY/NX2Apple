@@ -340,6 +340,7 @@ struct NativeChoiceControl: View {
             .disabled(!row.enabled)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .accessibilityIdentifier("setting.\(row.id)")
+            .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled) { advance(options) }
         }
     }
 
@@ -349,9 +350,12 @@ struct NativeChoiceControl: View {
         }
         .labelsHidden()
         .accessibilityLabel(row.label)
-        .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled) {
-            if let next = Self.nextValue(options, after: row.value) { change(next) }
-        }
+    }
+
+    /// The whole row is the focus target, whatever the control is (segments, a menu, a long language list): a menu picker did not report a
+    /// frame the focus graph could reach, so the game language was skipped (#1026).
+    private func advance(_ options: [SettingOption]) {
+        if let next = Self.nextValue(options, after: row.value) { change(next) }
     }
 
     // Controller activation advances the native picker without opening a separate page.
