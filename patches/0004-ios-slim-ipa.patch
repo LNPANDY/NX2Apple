@@ -59,7 +59,7 @@ index 028d506..4208688 100644
      def test_slim_ipa_of_a_folder_has_no_identity(self):
          self.assertNotIn('Payload/DmIOS.app/romfs.id', self.pack(DM_COPY_ROMFS='NO'))
 diff --git a/dm/ios/tests/test_profile_pack.py b/dm/ios/tests/test_profile_pack.py
-index b113a28..56a178d 100644
+index 3d84931..6558530 100644
 --- a/dm/ios/tests/test_profile_pack.py
 +++ b/dm/ios/tests/test_profile_pack.py
 @@ -71,7 +71,8 @@ class ProfilePackTests(unittest.TestCase):
@@ -73,7 +73,7 @@ index b113a28..56a178d 100644
  
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 9a184ac..d906cd5 100755
+index 57a16db..8531caa 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -248,6 +248,9 @@ if [ -n "${PROGRAMS_TSV:-}" ]; then   # each program's shader libraries, RomFS,
@@ -148,7 +148,7 @@ index a832ad5..0f5485d 100644
              raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index d0ecf03..d385001 100644
+index 0960928..87f14fd 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -48,6 +48,7 @@ DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since bo

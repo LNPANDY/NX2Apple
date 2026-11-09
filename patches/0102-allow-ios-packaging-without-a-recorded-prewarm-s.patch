@@ -6,7 +6,6 @@ Subject: [PATCH] Allow iOS packaging without a recorded prewarm seed list
 Upstream-Status: forwarded seedds/nxnative#1706
 Reason: Pokopia has no recorded prewarm seeds, which must not block iOS framework packaging
 Issue: https://github.com/LNPANDY/NX2Apple/issues/922
-
 ---
  dm/games/0400A3A01EE4C000/README.md |  4 +-
  dm/ios/tools/build_ipa.sh           |  7 ++-
@@ -39,10 +38,10 @@ index e4b4a1b..6ce540e 100644
  - [KTGL on NVN2: Switch 2 GLSLC outputs and LD_ / LI_ LINKDATA](../../../docs/reference/shaders.md#ktgl-on-nvn2-switch-2-glslc-outputs-and-ld_--li_-linkdata): the split found almost none of its shaders.
  - [HADD2 and HMUL2 with an immediate](../../../docs/reference/shaders.md#hadd2-and-hmul2-with-an-immediate): the GPU hang and 88 ms frames.
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 3019b44..1708fc0 100755
+index b0e84ae..be74dd6 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
-@@ -134,11 +134,14 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
+@@ -135,11 +135,14 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
  program_tables() {
  cp "$PATCHED"/*.fixups.tsv "$PATCHED"/*.gates.tsv "$PATCHED"/*.cuts.tsv "$PATCHED"/*.obs.tsv $TD/ || die "copy rewriter tables"
  if [ -f "$PATCHED/nro.tsv" ]; then cp "$PATCHED/nro.tsv" $TD/ || die "copy the NRO table"; fi   # the NRO modules the game loads with nn::ro (hle_ro.c), embedded by gen_embed.py
@@ -136,7 +135,7 @@ index 0000000..121294c
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/docs/development.md b/docs/development.md
-index 73cea7e..1b58dd5 100644
+index 4538163..ae296e0 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -427,7 +427,7 @@ What the script does:
@@ -149,7 +148,7 @@ index 73cea7e..1b58dd5 100644
  A repeat build skips work whose inputs have not changed. The extraction is kept (`extract/`). The DLC, the rewrite, the shader split and the iOS (or Vulkan) shaders each write a key beside their output: a sha256 of their inputs (the game files, the tools, the profile, Xcode's version and the in-repo spirv-cross; for the DLC, the DLC NSPs' names, sizes and times and nx_extract's sources). When the key matches, the stage line says `reused (inputs unchanged)` and the step does not run. Any change to a tool or the profile runs the step again; deleting the `.key` file forces it. The rewrite's key covers the patch files that name one of the modules' builds, the selected game's own, and always `dm/tools/sdk_patches.py`, whose SDK-wide `MATCH_CUTS` apply to builds it does not name (a new reviewed implementation was left out of a reused rewrite of Pokémon Legends: Arceus before). The iOS shaders' inputs are the shader package's content and only the tools `dmsh_build.py` loads (the modules it imports, at any depth): a split that runs again because a reader for another engine changed (a pull that touches `shader_split.py` or `unityfs.py`) writes the same package, and the iOS shaders stay reused.
  
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index f792acb..bcc9e90 100644
+index aaf7af6..3497b85 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
 @@ -2,6 +2,13 @@
