@@ -569,6 +569,22 @@ import NXModel
         XCTAssertFalse(calls.contains { $0.hasPrefix("xcodebuild") }, "nothing is built or signed")
     }
 
+    func testTheCopyBarStaysIndeterminateUntilBytesAreDone() throws {
+        let f = try makeFixture()
+        let archive = try makeArchive()
+        try listApps([("org.nxnative.shell.ABC123", "NX2Apple")])
+        var stages: [ShellStage] = []
+        var i = sender(f)
+        i.stage = { stages.append($0) }
+        XCTAssertTrue(i.sendData(titleID: titleID, archive: archive).ok)
+        let running = stages.filter { $0.id == ShellInstaller.copyStageID && $0.state == .running && !$0.detail.isEmpty }
+        XCTAssertEqual(running.count, 2)
+        XCTAssertNil(running[0].percent, "the first file has no finished bytes, so 0% would read as a stall")
+        let second = try XCTUnwrap(running[1].percent)
+        XCTAssertGreaterThan(second, 0)
+        XCTAssertLessThan(second, 100)
+    }
+
     func testSendingAnUnchangedImageKeepsTheSendCompletionMessage() throws {
         let f = try makeFixture()
         let archive = try makeArchive()

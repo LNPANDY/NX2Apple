@@ -14,7 +14,7 @@ Issue: LNPANDY/NX2Apple#10
  1 file changed, 19 insertions(+), 1 deletion(-)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index c2128bc..ec6a81b 100755
+index 83f0de2..546f98f 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,7 +33,7 @@
@@ -26,7 +26,7 @@ index c2128bc..ec6a81b 100755
  from pathlib import Path
  sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
  import romfs as rfs
-@@ -2954,6 +2954,24 @@ def main(args=None):
+@@ -2964,6 +2964,24 @@ def main(args=None):
      if not want_lang: raise BuildError(f'unknown game language {lang_in!r}; give one of {language_list([c for c, _ in nacp.LANGUAGES])}, by code or by name')
      env = tool_env()
      env.setdefault('USER', getpass.getuser())   # xcodegen fails without USER (Couldn't find current username)

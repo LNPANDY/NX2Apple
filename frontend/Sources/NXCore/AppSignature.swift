@@ -8,13 +8,11 @@ import Foundation
 package enum AppSignature {
     package static let profileName = "embedded.mobileprovision"
 
-    /// `ExpirationDate` of the app's embedded.mobileprovision, read through `security cms -D` (the profile is a
-    /// CMS-wrapped property list); nil when the app carries no profile or it cannot be read.
+    /// `ExpirationDate` of the app's embedded.mobileprovision, read from the profile's embedded XML plist (or through
+    /// `security cms -D` as a fallback); nil when the app carries no profile or it cannot be read.
     package static func expiration(ofApp app: String, runner: ProcessRunner = SystemProcessRunner()) -> Date? {
         let profile = app + "/" + profileName
-        guard FileManager.default.fileExists(atPath: profile) else { return nil }
-        guard let out = runner.output("/usr/bin/security", ["cms", "-D", "-i", profile]) else { return nil }
-        return expiration(fromProfile: Data(out.utf8))
+        return plist(ofProfile: profile, runner: runner)?["ExpirationDate"] as? Date
     }
 
     /// The profile expiries of several installed games (`(id, iosAppPath)`), reading each distinct app bundle once so a
@@ -36,9 +34,157 @@ package enum AppSignature {
 
     /// The profile plist's ExpirationDate. Split out so the parse is tested without a signed app.
     package static func expiration(fromProfile data: Data) -> Date? {
-        guard let plist = (try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)) as? [String: Any]
-        else { return nil }
-        return plist["ExpirationDate"] as? Date
+        plist(fromProfile: data)?["ExpirationDate"] as? Date
+    }
+
+    /// Decodes the property list of a provisioning profile, whether `data` is already the decoded XML plist (`security cms -D`)
+    /// or the raw CMS-wrapped `.mobileprovision` file containing an embedded `<?xml ... </plist>` payload.
+    package static func plist(fromProfile data: Data) -> [String: Any]? {
+        if let dict = (try? PropertyListSerialization.propertyList(from: data, options: [], format: nil)) as? [String: Any] {
+            return dict
+        }
+        let xmlStart = Data("<?xml".utf8), xmlEnd = Data("</plist>".utf8)
+        guard let start = data.range(of: xmlStart),
+              let end = data.range(of: xmlEnd, in: start.lowerBound..<data.endIndex) else { return nil }
+        let slice = data.subdata(in: start.lowerBound..<end.upperBound)
+        return (try? PropertyListSerialization.propertyList(from: slice, options: [], format: nil)) as? [String: Any]
+    }
+
+    /// Reads the property list of a `.mobileprovision` file on disk, falling back to `security cms -D` when needed.
+    package static func plist(ofProfile path: String, runner: ProcessRunner = SystemProcessRunner()) -> [String: Any]? {
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: path)), let dict = plist(fromProfile: data) {
+            return dict
+        }
+        guard let out = runner.output("/usr/bin/security", ["cms", "-D", "-i", path]) else { return nil }
+        return plist(fromProfile: Data(out.utf8))
+    }
+
+    /// Directories where Xcode caches downloaded team provisioning profiles.
+    package static func profileDirectories(home: String = NSHomeDirectory()) -> [String] {
+        [
+            home + "/Library/Developer/Xcode/UserData/Provisioning Profiles",
+            home + "/Library/MobileDevice/Provisioning Profiles",
+        ]
+    }
+
+    /// Whether a cached provisioning profile plist belongs to the app being re-signed (`bundleID` / `team` or the app's current profile UUID).
+    package static func profileMatches(_ plist: [String: Any], bundleID: String, team: String, embeddedUUID: String? = nil) -> Bool {
+        if let uuid = plist["UUID"] as? String, !uuid.isEmpty, uuid == embeddedUUID { return true }
+        guard !bundleID.isEmpty else { return false }
+        let profileTeams = (plist["TeamIdentifier"] as? [String]) ?? []
+        if !team.isEmpty {
+            guard profileTeams.contains(team) else { return false }
+        }
+        let suffix = ".\(team)"
+        let base = (!team.isEmpty && bundleID.hasSuffix(suffix))
+            ? String(bundleID.dropLast(suffix.count))
+            : bundleID
+        let candidates: Set<String> = team.isEmpty ? [bundleID] : [base, "\(base).\(team)"]
+        let teamsToCheck = !team.isEmpty ? [team] : profileTeams
+        guard let entitlements = plist["Entitlements"] as? [String: Any],
+              let appID = entitlements["application-identifier"] as? String else {
+            return false
+        }
+        for candidate in candidates {
+            if teamsToCheck.isEmpty, appID == candidate { return true }
+            for t in teamsToCheck where appID == "\(t).\(candidate)" { return true }
+        }
+        return false
+    }
+
+    /// Holds cached `.mobileprovision` files moved aside before `xcodebuild -allowProvisioningUpdates` so Xcode requests a fresh 7-day
+    /// profile from Apple instead of reusing a still-unexpired local profile. Restores them automatically if signing fails or stops.
+    package final class StagedProfiles: @unchecked Sendable {
+        private let app: String
+        private let directory: URL
+        private let moved: [(original: String, staged: String)]
+        private var settled = false
+
+        init(app: String, directory: URL, moved: [(original: String, staged: String)]) {
+            self.app = app
+            self.directory = directory
+            self.moved = moved
+        }
+
+        deinit {
+            if !settled { rollback() }
+        }
+
+        /// Call as soon as `xcodebuild` succeeds: discards the old cached profiles once `DmShell.app` has its newly signed binary,
+        /// `embedded.mobileprovision` and `_CodeSignature` (or restores the staged ones in test stand-ins that do not write new ones).
+        /// Committing before `devicectl install` ensures a later install failure never overwrites the newly signed Mach-O binary's
+        /// matching profile and `_CodeSignature` with the old ones.
+        package func commit() {
+            guard !settled else { return }
+            settled = true
+            let fm = FileManager.default
+            for path in [app + "/" + AppSignature.profileName, app + "/_CodeSignature"] {
+                if !fm.fileExists(atPath: path),
+                   let saved = moved.first(where: { $0.original == path }) {
+                    try? fm.moveItem(atPath: saved.staged, toPath: saved.original)
+                }
+            }
+            try? fm.removeItem(at: directory)
+        }
+
+        /// Call when `xcodebuild` itself fails or is stopped before signing completes: puts every staged profile and `_CodeSignature`
+        /// back where it was so a failed signing step never loses the existing working signature on disk.
+        package func rollback() {
+            guard !settled else { return }
+            settled = true
+            let fm = FileManager.default
+            for item in moved {
+                guard fm.fileExists(atPath: item.staged) else { continue }
+                try? fm.createDirectory(atPath: (item.original as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+                if fm.fileExists(atPath: item.original) {
+                    try? fm.removeItem(atPath: item.original)
+                }
+                try? fm.moveItem(atPath: item.staged, toPath: item.original)
+            }
+            try? fm.removeItem(at: directory)
+        }
+    }
+
+    /// Moves the app's `embedded.mobileprovision`, `_CodeSignature`, and any matching cached `.mobileprovision` files in Xcode's
+    /// profile directories into a temporary staging folder so `xcodebuild -allowProvisioningUpdates` requests and embeds a fresh
+    /// 7-day provisioning profile rather than keeping a cached profile that has not expired yet.
+    package static func stageProfilesForResign(app: String, bundleID: String, team: String, home: String = NSHomeDirectory(),
+                                               runner: ProcessRunner = SystemProcessRunner()) -> StagedProfiles {
+        let fm = FileManager.default
+        let staging = fm.temporaryDirectory.appendingPathComponent("nspb-resign-profiles-" + UUID().uuidString, isDirectory: true)
+        try? fm.createDirectory(at: staging, withIntermediateDirectories: true)
+        var moved: [(original: String, staged: String)] = []
+
+        let embedded = app + "/" + profileName
+        let embeddedUUID = plist(ofProfile: embedded, runner: runner)?["UUID"] as? String
+        if fm.fileExists(atPath: embedded) {
+            let dest = staging.appendingPathComponent("embedded.mobileprovision").path
+            if (try? fm.moveItem(atPath: embedded, toPath: dest)) != nil {
+                moved.append((original: embedded, staged: dest))
+            }
+        }
+        let codeSig = app + "/_CodeSignature"
+        if fm.fileExists(atPath: codeSig) {
+            let dest = staging.appendingPathComponent("_CodeSignature").path
+            if (try? fm.moveItem(atPath: codeSig, toPath: dest)) != nil {
+                moved.append((original: codeSig, staged: dest))
+            }
+        }
+
+        for (dirIndex, dir) in profileDirectories(home: home).enumerated() {
+            guard let names = try? fm.contentsOfDirectory(atPath: dir) else { continue }
+            for name in names where name.hasSuffix(".mobileprovision") || name.hasSuffix(".provisionprofile") {
+                let full = dir + "/" + name
+                guard let dict = plist(ofProfile: full, runner: runner),
+                      profileMatches(dict, bundleID: bundleID, team: team, embeddedUUID: embeddedUUID) else { continue }
+                let dest = staging.appendingPathComponent("\(dirIndex)-\(name)").path
+                if (try? fm.moveItem(atPath: full, toPath: dest)) != nil {
+                    moved.append((original: full, staged: dest))
+                }
+            }
+        }
+        return StagedProfiles(app: app, directory: staging, moved: moved)
     }
 
     /// Whole days from today to the date, counted in calendar days (0 = today, negative = past): the day the profile

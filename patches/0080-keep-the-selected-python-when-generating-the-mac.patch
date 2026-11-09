@@ -40,7 +40,7 @@ index 33ba8bf..1365fd5 100644
  
  - **The host's shaders compiled when the host is built** (`dm/gfx/msl`, `host_msl_lib`): the HUD's `Compiled 2 shaders … 102.70ms` in play on an iPhone 17 Pro Max came from clear-triangle libraries compiled from source when a new room first issued a scissored clear; [The host's own shaders compiled from source at run time](../../../docs/reference/shaders.md#the-hosts-own-shaders-compiled-from-source-at-run-time).
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 402f6da..f27c7c5 100644
+index 3b91311..385563a 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -1,14 +1,17 @@
@@ -152,7 +152,7 @@ index 6175a81..6ce3573 100644
          nsp = script('build_ipa_from_nsp')
          self.host_dirs(nsp.HOST_DIRS)
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index 519176f..17c6fc5 100644
+index 34b50e2..aaf7af6 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
 @@ -40,6 +40,13 @@
@@ -170,10 +170,10 @@ index 519176f..17c6fc5 100644
  
  - **Symptom:** the first extraction stops with `nx_extract exit code 131` and `.NET location: Not found`, even though `dotnet` is on `PATH`. The shader translator can fail the same way.
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 0b9e049..7f0b7b3 100755
+index 9b75ceb..529214a 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1714,8 +1714,8 @@ def build_mac_host(repo, out, env, logs, g):
+@@ -1721,8 +1721,8 @@ def build_mac_host(repo, out, env, logs, g):
      and the macOS SDK) are as at the last build into out. The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
      if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      host = repo / 'dm/host'

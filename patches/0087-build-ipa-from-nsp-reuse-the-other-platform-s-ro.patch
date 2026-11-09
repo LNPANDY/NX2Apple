@@ -35,10 +35,10 @@ Issue: LNPANDY/NX2Apple#708
  create mode 100644 dm/tools/tests/test_nsp_romfs_reuse.py
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index b506f17..96b6119 100755
+index b0f2a77..0ecb3ee 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
-@@ -295,7 +295,7 @@ def pack(a):
+@@ -296,7 +296,7 @@ def pack(a):
          minos = min_os(a.host)
          sources = [Path(__file__).resolve(), HERE / 'launcher.c', HERE.parent / 'host/romfs_image.h', HERE.parent / 'host/input_map.h', HERE.parent / 'host/dm_input.h', HERE.parent / 'host/save_sync.c', HERE.parent / 'host/save_sync.h', HERE.parent / 'tools/romfs.py'] + swift_sources()
          inputs = {'options': vars(a), 'files': [(str(p), p.stat().st_mode, digest(p), os.readlink(p) if p.is_symlink() else None) for p in files + sources],
@@ -47,7 +47,7 @@ index b506f17..96b6119 100755
                    'tools': [[str(c), c.stat().st_mode, c.stat().st_size, c.stat().st_mtime_ns, c.stat().st_ctime_ns, run([c, '--version']).strip()] for c in (clang, swiftc)] + [
                              str(sdk), run(['xcrun', '--sdk', 'macosx', '--show-sdk-version']).strip(),
                              str(codesign), codesign.stat().st_mode, digest(codesign), minos]}
-@@ -333,6 +333,8 @@ def pack(a):
+@@ -334,6 +334,8 @@ def pack(a):
      if aoc: step('add-on content'); copy([aoc], res / 'aoc', clone['aoc'])
      if pso: step('pipeline archive'); (res / 'pso').mkdir(); copy(pso, res / 'pso', clone['pso'])
      step('game files'); copy([romfs], res / ('romfs.img' if romfs.is_file() else 'romfs'), clone['romfs'])
@@ -57,10 +57,10 @@ index b506f17..96b6119 100755
      # The other programs: p<N>/ (RomFS, offline pages), msl/p<N>/<library>, dm/p<N>/ (modules, tables), and the table of them all, which the launcher makes DM_PROGRAMS (launcher.c, hle_oe.c): @R@ Resources, @C@ Contents, @S@ the app's Application Support folder
      if programs:
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index c834c21..9b489b7 100644
+index 4dd866a..48ba155 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -235,6 +235,18 @@ class PackReuse(unittest.TestCase):
+@@ -241,6 +241,18 @@ class PackReuse(unittest.TestCase):
          (source / 'marker').write_text('new bytes'); romfs_image.pack(source, image)
          self.assert_repacked()
  
@@ -229,10 +229,10 @@ index 0000000..e25226e
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 7f0b7b3..3d2e98b 100755
+index 529214a..aeb2ae7 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -81,6 +81,7 @@ SURVEY_ONLY = False                     # a game with no profile in dm/games: on
+@@ -82,6 +82,7 @@ SURVEY_ONLY = False                     # a game with no profile in dm/games: on
  PROFILE_OUT = ''                        # where a provisional profile goes (empty = <build folder>/profile, i.e. <NSP folder>/<title ID>_build/profile unless WORK_DIR is set; the profile is <this>/<title ID>/)
  PROGRAM_INDEX = 0                       # a multi-program application (Super Mario 3D All-Stars: a launcher and one program per game): which program to pack, 0 = the application's own; its title ID is the application's + the index.
                                          #   A game of several programs (its profile's key programs) is packed as one from program 0: this setting packs one of them alone, for bring-up
@@ -240,7 +240,7 @@ index 7f0b7b3..3d2e98b 100755
  ALLOW_DAMAGED = False                   # a damaged NSP (files failing the NCA's hash check: an incomplete copy or a broken download), or files whose bytes do not start as their names promise (a .zs that is no zstd stream: a NUP or a dump has no hashes), stop the build; True writes those files as read and goes on
  ALLOW_SHADER_REGRESSIONS = False        # shaders that translated in this game's previous build and fail with the current translation chain stop the build (logs/shader_regressions.log lists them);
                                          #   True packs the app without them
-@@ -1363,6 +1364,77 @@ def extracted(log):   # (files, bytes) from the summary lines nx_extract wrote t
+@@ -1367,6 +1368,77 @@ def extracted(log):   # (files, bytes) from the summary lines nx_extract wrote t
      return (sum(int(n) for n, _ in rows), int(sum(float(mb) for _, mb in rows) * 2**20)) if rows else None
  
  
@@ -318,7 +318,7 @@ index 7f0b7b3..3d2e98b 100755
  def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build IDs are checked by the caller (build_mismatch); app: the application read from the packages (--app)
      dst, marker, log = ex / name, g.get('romfs_marker'), logs / f'extract_{name}.log'
      try: reusable = (dst / 'ExeFS' / 'main').exists() and (dst / 'RomFS.img').is_file() and not (dst / 'RomFS').exists() and (rfs.source(dst) / marker).exists()
-@@ -1377,11 +1449,13 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
+@@ -1381,11 +1453,13 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
      def poll():
          n, b = tree_size(tmp); return {'done': b, 'note': f'{n:,} files'}
      PROG.stage(f'extract {name}', poll=poll, unit='B', total=last[1] if last else base.stat().st_size + (upd.stat().st_size if upd and upd != base else 0), est=not last)
@@ -334,7 +334,7 @@ index 7f0b7b3..3d2e98b 100755
      return dst
  
  
-@@ -2981,6 +3055,8 @@ def parse_args(argv):
+@@ -2989,6 +3063,8 @@ def parse_args(argv):
      ap.add_argument('--xcode-workspace', help='workspace collecting prepared games (default: NxNative.xcworkspace beside the NSP folder; use with --prepare-xcode)')
      ap.add_argument('-l', '--language', help='game language, a code or a name: ja, fr, de, es, it, nl, pt, ru, ko, zh-Hans, zh-Hant, en-GB, fr-CA, es-419, pt-BR, Japanese, ... (default: the LANGUAGE setting, else English); '
                      'it must be one the game supports, which the console lists')
@@ -343,7 +343,7 @@ index 7f0b7b3..3d2e98b 100755
      ap.add_argument('--keep-extracted', action=argparse.BooleanOptionalAction, help='keep the extracted game files after the IPA is built, for the next build (default: the KEEP_EXTRACTED setting, on)')
      ap.add_argument('--work-dir', help='the game\'s build folder, used as it is (default: the WORK_DIR setting, else <title ID>_build in the NSP folder); the extracted files, shader cache and temporary files live there, and the IPA or Mac app defaults to the folder holding it')
      ap.add_argument('--env-file', help='environment switches for a diagnostic build (one KEY=VALUE per line)')
-@@ -3085,6 +3161,7 @@ def main(args=None):
+@@ -3093,6 +3169,7 @@ def main(args=None):
      PROG.mode = progress_mode(args.progress or PROGRESS)
      global ALLOW_DAMAGED; ALLOW_DAMAGED = args.allow_damaged or ALLOW_DAMAGED
      global PROGRAM_INDEX; PROGRAM_INDEX = args.program if args.program is not None else PROGRAM_INDEX

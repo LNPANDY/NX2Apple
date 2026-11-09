@@ -12,7 +12,6 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
 Upstream-Status: forwarded seedds/nxnative#1463
 Reason: Shader splits of Tears of the Kingdom and Ocarina of Time hang at 99% with every worker blocked writing to an idle zstd child; until upstream merges #1463
 Issue: LNPANDY/NX2Apple#837
-
 ---
  dm/gfx/tools/shader_split.py      | 12 +++---
  dm/tools/tests/test_split_zstd.py | 63 +++++++++++++++++++++++++++++++
@@ -21,10 +20,10 @@ Issue: LNPANDY/NX2Apple#837
  create mode 100644 dm/tools/tests/test_split_zstd.py
 
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index 30057b39..86716e1b 100644
+index 78e2fcd..2bc5b31 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
-@@ -2549,12 +2549,14 @@ def unzs_dict(d, did, where):
+@@ -2557,12 +2557,14 @@ def unzs_dict(d, did, where):
      return zstd.decompress(d, zstd_dict=_ZD[did])
  
  def unzs(path):
@@ -46,7 +45,7 @@ index 30057b39..86716e1b 100644
      """The uncompressed size a zstd or LZ4 frame header records, None when it records none"""
 diff --git a/dm/tools/tests/test_split_zstd.py b/dm/tools/tests/test_split_zstd.py
 new file mode 100644
-index 00000000..9693d568
+index 0000000..9693d56
 --- /dev/null
 +++ b/dm/tools/tests/test_split_zstd.py
 @@ -0,0 +1,63 @@
@@ -114,7 +113,7 @@ index 00000000..9693d568
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 5deb36c3..ac66691b 100644
+index f562418..7bb287b 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
 @@ -89,6 +89,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b

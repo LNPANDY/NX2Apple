@@ -517,11 +517,11 @@ index 7cd198e..bd3bafa 100644
  }
  static int g_boot_ok;
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
-index 323b5f6..e542cf1 100644
+index d89d0ae..4835c62 100644
 --- a/dm/ios/project.yml
 +++ b/dm/ios/project.yml
 @@ -83,7 +83,7 @@ targets:
-       OTHER_CFLAGS: $(inherited) -mcpu=apple-a18   # The host assembly contains LSE atomic instructions, which the default baseline does not accept
+       OTHER_CFLAGS: $(inherited) -mcpu=apple-m1   # the oldest chip the app supports (an M1 iPad; iPhones from the A17 Pro, as the games need BC textures), the Mac build's default too: it has the LSE atomics the host assembly uses, which the default baseline does not accept. Not newer: dav1d turns on every feature the target promises, and the A18 target (its I8MM) stopped an M1 iPad with SIGILL in the AV1 decoder (dm/ios/tests/test_cpu_target.py)
        CLANG_ENABLE_OBJC_ARC: YES
        SWIFT_VERSION: "5.0"                         # Launcher.swift (SwiftUI)
 -      SWIFT_OBJC_BRIDGING_HEADER: Sources/DmIOS-Bridging-Header.h   # CloudSaves.h (the cloud-save folder pick)

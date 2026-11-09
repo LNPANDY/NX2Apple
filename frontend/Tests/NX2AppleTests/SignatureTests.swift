@@ -99,4 +99,158 @@ final class SignatureTests: IsolatedDefaultsTestCase {
         XCTAssertNil(found[g3])
         XCTAssertEqual(runner.count, 1, "games sharing one DmShell.app should invoke security cms only once")
     }
+
+    private func teamProfileData(uuid: String, name: String, appID: String, team: String, expires: Date, cmsWrapped: Bool = false) throws -> Data {
+        let plist: [String: Any] = [
+            "UUID": uuid,
+            "Name": name,
+            "TeamIdentifier": [team],
+            "Entitlements": ["application-identifier": appID],
+            "ExpirationDate": expires,
+        ]
+        let xml = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+        guard cmsWrapped else { return xml }
+        var wrapped = Data([0x30, 0x82, 0x01, 0x00, 0x06, 0x09])
+        wrapped.append(xml)
+        wrapped.append(Data([0x31, 0x00, 0x00]))
+        return wrapped
+    }
+
+    func testStageProfilesForResignRemovesStaleCachedProfilesAndRestoresOnRollback() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("resign-stage-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        let home = root.appendingPathComponent("home").path
+        let xcodeProfiles = home + "/Library/Developer/Xcode/UserData/Provisioning Profiles"
+        let legacyProfiles = home + "/Library/MobileDevice/Provisioning Profiles"
+        let app = root.appendingPathComponent("DmShell.app").path
+        try fm.createDirectory(atPath: xcodeProfiles, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: legacyProfiles, withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: app + "/_CodeSignature", withIntermediateDirectories: true)
+        try Data("sig".utf8).write(to: URL(fileURLWithPath: app + "/_CodeSignature/CodeResources"))
+
+        let oldExpiry = Date(timeIntervalSince1970: 1_794_000_000)
+        let newExpiry = Date(timeIntervalSince1970: 1_794_604_800)
+        let matching = try teamProfileData(
+            uuid: "OLD-UUID-1",
+            name: "iOS Team Provisioning Profile: org.nxnative.shell.TEAM123456",
+            appID: "TEAM123456.org.nxnative.shell.TEAM123456",
+            team: "TEAM123456",
+            expires: oldExpiry,
+            cmsWrapped: true
+        )
+        let unrelated = try teamProfileData(
+            uuid: "OTHER-UUID-2",
+            name: "iOS Team Provisioning Profile: com.example.other",
+            appID: "TEAM123456.com.example.other",
+            team: "TEAM123456",
+            expires: oldExpiry,
+            cmsWrapped: true
+        )
+        let matchingBase = try teamProfileData(
+            uuid: "OLD-UUID-BASE",
+            name: "iOS Team Provisioning Profile: org.nxnative.shell",
+            appID: "TEAM123456.org.nxnative.shell",
+            team: "TEAM123456",
+            expires: oldExpiry,
+            cmsWrapped: true
+        )
+        let unrelatedSuffix = try teamProfileData(
+            uuid: "OTHER-SUFFIX-UUID",
+            name: "iOS Team Provisioning Profile: com.example.org.nxnative.shell",
+            appID: "TEAM123456.com.example.org.nxnative.shell",
+            team: "TEAM123456",
+            expires: oldExpiry,
+            cmsWrapped: true
+        )
+        let otherTeam = try teamProfileData(
+            uuid: "OTHER-TEAM-UUID",
+            name: "iOS Team Provisioning Profile: org.nxnative.shell",
+            appID: "OTHERTEAM9.org.nxnative.shell",
+            team: "OTHERTEAM9",
+            expires: oldExpiry,
+            cmsWrapped: true
+        )
+        let missingTeamSameName = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "MISSING-TEAM-UUID",
+                "Name": "iOS Team Provisioning Profile: org.nxnative.shell",
+                "Entitlements": ["application-identifier": "OTHERTEAM9.org.nxnative.shell"],
+                "ExpirationDate": oldExpiry,
+            ],
+            format: .xml,
+            options: 0
+        )
+        let nameOnlyNoEntitlements = try PropertyListSerialization.data(
+            fromPropertyList: [
+                "UUID": "NAME-ONLY-UUID",
+                "Name": "iOS Team Provisioning Profile: org.nxnative.shell",
+                "TeamIdentifier": ["TEAM123456"],
+                "ExpirationDate": oldExpiry,
+            ],
+            format: .xml,
+            options: 0
+        )
+        let cachedMatch = xcodeProfiles + "/OLD-UUID-1.mobileprovision"
+        let legacyMatch = legacyProfiles + "/OLD-UUID-BASE.mobileprovision"
+        let cachedOther = xcodeProfiles + "/OTHER-UUID-2.mobileprovision"
+        let cachedSuffix = xcodeProfiles + "/OTHER-SUFFIX-UUID.mobileprovision"
+        let cachedOtherTeam = xcodeProfiles + "/OTHER-TEAM-UUID.mobileprovision"
+        let cachedMissingTeam = xcodeProfiles + "/MISSING-TEAM-UUID.mobileprovision"
+        let cachedNameOnly = xcodeProfiles + "/NAME-ONLY-UUID.mobileprovision"
+        let embedded = app + "/embedded.mobileprovision"
+        try matching.write(to: URL(fileURLWithPath: cachedMatch))
+        try matchingBase.write(to: URL(fileURLWithPath: legacyMatch))
+        try unrelated.write(to: URL(fileURLWithPath: cachedOther))
+        try unrelatedSuffix.write(to: URL(fileURLWithPath: cachedSuffix))
+        try otherTeam.write(to: URL(fileURLWithPath: cachedOtherTeam))
+        try missingTeamSameName.write(to: URL(fileURLWithPath: cachedMissingTeam))
+        try nameOnlyNoEntitlements.write(to: URL(fileURLWithPath: cachedNameOnly))
+        try matching.write(to: URL(fileURLWithPath: embedded))
+
+        // 1. Rollback path (e.g. offline xcodebuild failure): every moved profile and _CodeSignature is restored intact.
+        let stagedFail = AppSignature.stageProfilesForResign(
+            app: app, bundleID: "org.nxnative.shell.TEAM123456", team: "TEAM123456", home: home
+        )
+        XCTAssertFalse(fm.fileExists(atPath: cachedMatch))
+        XCTAssertFalse(fm.fileExists(atPath: legacyMatch), "base bundleID profile must also be staged when bundleID already carries .TEAM suffix")
+        XCTAssertFalse(fm.fileExists(atPath: embedded))
+        XCTAssertFalse(fm.fileExists(atPath: app + "/_CodeSignature"))
+        XCTAssertTrue(fm.fileExists(atPath: cachedOther), "unrelated app profiles must never be touched")
+        XCTAssertTrue(fm.fileExists(atPath: cachedSuffix), "another app whose bundleID merely ends with .org.nxnative.shell must never be touched")
+        XCTAssertTrue(fm.fileExists(atPath: cachedOtherTeam), "another team's profile must never be touched")
+        XCTAssertTrue(fm.fileExists(atPath: cachedMissingTeam), "a profile without TeamIdentifier must never be matched by Name")
+        XCTAssertTrue(fm.fileExists(atPath: cachedNameOnly), "a profile without Entitlements.application-identifier must never be matched by Name")
+
+        stagedFail.rollback()
+        XCTAssertTrue(fm.fileExists(atPath: cachedMatch))
+        XCTAssertTrue(fm.fileExists(atPath: legacyMatch))
+        XCTAssertTrue(fm.fileExists(atPath: embedded))
+        XCTAssertTrue(fm.fileExists(atPath: app + "/_CodeSignature/CodeResources"), "_CodeSignature must be restored on rollback")
+        XCTAssertEqual(AppSignature.expiration(ofApp: app), oldExpiry)
+
+        // 2. Commit path after xcodebuild writes a new 7-day profile: stale cached profiles are discarded and the new 7-day expiry wins.
+        let stagedOK = AppSignature.stageProfilesForResign(
+            app: app, bundleID: "org.nxnative.shell.TEAM123456", team: "TEAM123456", home: home
+        )
+        let renewed = try teamProfileData(
+            uuid: "NEW-UUID-7DAY",
+            name: "iOS Team Provisioning Profile: org.nxnative.shell.TEAM123456",
+            appID: "TEAM123456.org.nxnative.shell.TEAM123456",
+            team: "TEAM123456",
+            expires: newExpiry,
+            cmsWrapped: true
+        )
+        try renewed.write(to: URL(fileURLWithPath: embedded))
+        stagedOK.commit()
+        XCTAssertFalse(fm.fileExists(atPath: cachedMatch))
+        XCTAssertFalse(fm.fileExists(atPath: legacyMatch))
+        XCTAssertTrue(fm.fileExists(atPath: cachedOther))
+        XCTAssertTrue(fm.fileExists(atPath: cachedSuffix))
+        XCTAssertTrue(fm.fileExists(atPath: cachedOtherTeam))
+        XCTAssertTrue(fm.fileExists(atPath: cachedMissingTeam))
+        XCTAssertTrue(fm.fileExists(atPath: cachedNameOnly))
+        XCTAssertTrue(fm.fileExists(atPath: app + "/_CodeSignature/CodeResources"))
+        XCTAssertEqual(AppSignature.expiration(ofApp: app), newExpiry)
+    }
 }

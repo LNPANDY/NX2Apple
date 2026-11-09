@@ -20,7 +20,7 @@ Issue: seedds/nxnative#1375
  3 files changed, 173 insertions(+), 36 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 27270a5..f3c459b 100644
+index 8f29624..c645611 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -3,6 +3,13 @@
@@ -37,7 +37,7 @@ index 27270a5..f3c459b 100644
  #undef I   // MetalFX brings in <complex.h>, whose I (the imaginary unit) would shadow the local tables named I below
  #import <ImageIO/ImageIO.h>
  #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-@@ -1240,6 +1247,8 @@ static void up_owner_check(const char *where) {
+@@ -1360,6 +1367,8 @@ static void up_owner_check(const char *where) {
  
  static uint64_t g_sub_serial;   // Submission index (used by the parallel precompile's 'predict only once per submission')
  static id<MTLTexture> g_ndve_decoded;   // colour conversion and final movie scale must belong to the same submission
@@ -46,7 +46,7 @@ index 27270a5..f3c459b 100644
  // The first submission: the prepare step (warm_start), before anything of it is encoded. No GPU work: the submit entry (hle_nvn.c) calls it outside the graphics gate
  void mtl_prepare(void) {
      if (!g_warm_started && prepare_on()) { mtl_init(); shmap_load(); }
-@@ -1248,7 +1257,7 @@ void mtl_prepare(void) {
+@@ -1368,7 +1377,7 @@ void mtl_prepare(void) {
  static void gmem_commit_patch(void);   // the raw pool table words of the arguments encoded so far follow the pools (gmem_slot_note)
  void mtl_sub_begin(void) {
      mtl_init(); g_sub_serial++; g_seg = 0; seg_clk_put(g_sclk); g_sclk = NULL;
@@ -54,17 +54,17 @@ index 27270a5..f3c459b 100644
 +    g_ndve_decoded = nil; g_ndve_skip_end = NULL;
      sub_cut_begin();
      defer_drain();
-     defer_reset();
-@@ -12323,7 +12332,7 @@ static int lc_keeps(uint32_t op) {
+     rh_trim();
+@@ -12899,7 +12908,7 @@ static int lc_keeps(uint32_t op) {
      }
  }
  
 -static void dispatch(const p_dispatch *dp);
 +static void dispatch(const p_dispatch *dp, const uint8_t *next);
  static int up_mfx_wanted(NvShader *cs); static int up_mfx_encode(NvShader *cs);   // a game's upscaler through MetalFX (see up_mfx_encode)
+ static int ndve_engine_dispatch(NvShader *cs, const p_dispatch *dp);   // nn::ndve's movie network as the host's kernels (DM_NDVE_ENGINE=1, nvn_ndve.inc)
  // ---------- Compute dispatches moved ahead of the render pass they would split (DM_NVN_CS_HOIST) ----------
- // Metal cannot run a compute dispatch inside a render pass, so a dispatch between two draws of one pass ends it, and on a tile-based GPU every attachment is stored and loaded again:
-@@ -12447,7 +12456,7 @@ static void cs_hoist_try(NvProg *pr0, const p_draw *dw0, const p_draw_idx *di0)
+@@ -13024,7 +13033,7 @@ static void cs_hoist_try(NvProg *pr0, const p_draw *dw0, const p_draw_idx *di0)
              if (csh_hit(wr, nwr, rd, nrd)) { g_csh_stop[3]++; break; }   // the draws before it read what it writes
              if (g_csh_n >= CSH_MAX) { g_csh_stop[4]++; break; }
              PD("H %llu dispatch %s moved ahead of the pass%s", g_stat_pass + 1, cs->key, depth ? " (samples the pass's depth, which no draw before it wrote)" : "");
@@ -73,7 +73,7 @@ index 27270a5..f3c459b 100644
              continue; }
          if (hq.op == OP_TF_STATE) { g_csh_stop[5]++; break; }   // saves/restores counters in GPU memory
          if (state_op(hq.op, aq)) continue;
-@@ -12928,6 +12937,7 @@ static int dispatch_own(void) {
+@@ -13532,6 +13541,7 @@ static int dispatch_own(void) {
  // Ocarina's NDVE movie path converts NV12 to RGBA before reconstruction. The final
  // movie dispatch can scale that clean image directly into its normal output.
  static int ndve_direct_draw(NvShader *cs);
@@ -81,7 +81,7 @@ index 27270a5..f3c459b 100644
  static int ndve_direct_role(NvShader *cs) {
      static int enabled = -1;
      if (enabled < 0) {
-@@ -12939,23 +12949,23 @@ static int ndve_direct_role(NvShader *cs) {
+@@ -13543,23 +13553,23 @@ static int ndve_direct_role(NvShader *cs) {
      if (!strcmp(cs->key, "4f41ccf24f163e0d_b")) return 2;
      return 0;
  }
@@ -114,7 +114,7 @@ index 27270a5..f3c459b 100644
          if (!real) result = nil;
          if (result && desc) *desc = g_treg[tid].t;
      }
-@@ -12963,7 +12973,60 @@ static int ndve_direct_role(NvShader *cs) {
+@@ -13567,7 +13577,60 @@ static int ndve_direct_role(NvShader *cs) {
      if (result.textureType != MTLTextureType2D || result.pixelFormat != MTLPixelFormatRGBA8Unorm || result.sampleCount != 1) return nil;
      return result;
  }
@@ -176,7 +176,7 @@ index 27270a5..f3c459b 100644
      zskip_clear();
      g_wr_epoch++; g_mdx_epoch++;
      if (!S.cprog) { RED_ONCE(27, "no program bound before the dispatch"); return; }
-@@ -12976,11 +13039,7 @@ static void dispatch(const p_dispatch *dp) {
+@@ -13580,11 +13643,7 @@ static void dispatch(const p_dispatch *dp) {
      if (!cs) { RED_ONCE(28, "the dispatched program has no compute shader (or it is not mapped)"); return; }
      int ndve = !dp->ind && dp->x && dp->y && dp->z == 1 ? ndve_direct_role(cs) : 0;
      if (ndve == 1) g_ndve_decoded = nil;
@@ -189,7 +189,7 @@ index 27270a5..f3c459b 100644
      const void *k = (__bridge const void *)cs;
      id<MTLComputePipelineState> ps = hm_get_id(&g_cps, &k);
      if (!ps) {
-@@ -13037,7 +13096,11 @@ static void dispatch(const p_dispatch *dp) {
+@@ -13657,7 +13716,11 @@ static void dispatch(const p_dispatch *dp) {
          enc_c_dispatch_indirect(ce, ig, MTLSizeMake(tg[0], tg[1], tg[2]));
      } else enc_c_dispatch(ce, MTLSizeMake(dp->x, dp->y, dp->z), MTLSizeMake(tg[0], tg[1], tg[2]));
      if (own) enc_c_end(ce);
@@ -202,7 +202,7 @@ index 27270a5..f3c459b 100644
  }
  // GPU: texture -> buffer (row stride taken from SetCopyRowStride, layer stride from SetCopyImageStride, 0 = tightly packed)
  // A copy at a level the host texture lacks (more levels declared than its size holds, tex_desc) is skipped: Metal does not check the level of a blit
-@@ -13380,12 +13443,18 @@ static int copy_t2t_draw(id<MTLTexture> s, id<MTLTexture> d, unsigned sl, unsign
+@@ -14003,12 +14066,18 @@ static int copy_t2t_draw(id<MTLTexture> s, id<MTLTexture> d, unsigned sl, unsign
  static int ndve_direct_draw(NvShader *cs) {
      id<MTLTexture> in = g_ndve_decoded;
      g_ndve_decoded = nil;
@@ -224,7 +224,7 @@ index 27270a5..f3c459b 100644
      rp_end();
      if (g_blit) { enc_b_end(g_blit); g_blit = nil; }
      ubd_land_compute();
-@@ -13695,10 +13764,11 @@ static void dlss_eval(const p_dlss *c) {
+@@ -14318,10 +14387,11 @@ static void dlss_eval(const p_dlss *c) {
          sc.colorTexture = col; sc.depthTexture = dep; sc.motionTexture = mot; sc.outputTexture = out; sc.exposureTexture = expo;
          sc.inputContentWidth = iw; sc.inputContentHeight = ih;
          if (@available(macOS 27.0, iOS 27.0, *)) {   // the rectangles' corners: all at the origin on the game seen, so an older system loses nothing there
@@ -240,7 +240,7 @@ index 27270a5..f3c459b 100644
          }
          sc.motionVectorScaleX = a.mv[0]; sc.motionVectorScaleY = a.mv[1];
          sc.jitterOffsetX = a.jitter[0]; sc.jitterOffsetY = a.jitter[1];
-@@ -14144,8 +14214,13 @@ void mtl_exec(const uint8_t *p) {
+@@ -14771,8 +14841,13 @@ void mtl_exec(const uint8_t *p) {
              case OP_DRAW_TEX: draw_tex(a); break;
              case OP_CLEAR_TEX: clear_tex(a); break;
              case OP_DLSS: dlss_eval(a); break;
@@ -369,10 +369,10 @@ index 831855e..fa4f500 100644
      return 0;
  } }
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index e22b36d..7c8c309 100644
+index 710fcc4..be31011 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -1131,7 +1131,7 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
+@@ -1208,7 +1208,7 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
  
  - **Symptom:** Ocarina of Time's title movie shows rectangular colour blocks while the logo, menu and subtitles remain legible.
  - **Cause:** GPU readbacks on an M1 Pro show a clean 1920×1080 RGBA texture after the AV1 frame is converted. Artifacts first appear in the following NDVE intermediate and cover the picture in its 2560×1440 output. The translation error inside NDVE remains open.

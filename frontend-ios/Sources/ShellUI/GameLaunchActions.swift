@@ -50,7 +50,7 @@ struct GameLaunchActions: View {
             .glassEffectTransition(reduceMotion ? .identity : .matchedGeometry)
             .accessibilityLabel(game.state.actionTitle + ", " + game.title)
             .accessibilityIdentifier("state.action")
-            .shellTarget(focusPrefix + "play", radius: 16, action: primary)
+            .shellTarget(focusPrefix + "play", radius: 100, action: primary)
             if game.state == .playable, let settings {
                 Button(action: settings) {
                     Label(ShellStrings.text("Game settings"), systemImage: "slider.horizontal.3")
@@ -64,7 +64,7 @@ struct GameLaunchActions: View {
                 .glassEffectTransition(reduceMotion ? .identity : .matchedGeometry)
                 .accessibilityLabel(ShellStrings.text("Game settings") + ", " + game.title)
                 .accessibilityIdentifier("settings.open")
-                .shellTarget(focusPrefix + "settings", radius: 16, action: settings)
+                .shellTarget(focusPrefix + "settings", radius: 100, action: settings)
             }
         }
     }

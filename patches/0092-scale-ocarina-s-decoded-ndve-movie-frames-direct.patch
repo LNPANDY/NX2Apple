@@ -28,10 +28,10 @@ Issue: seedds/nxnative#1375
  create mode 100644 dm/gfx/tests/t_ndve_movie.m
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index d2e015a..27270a5 100644
+index 8e5ae88..8f29624 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -1239,6 +1239,7 @@ static void up_owner_check(const char *where) {
+@@ -1359,6 +1359,7 @@ static void up_owner_check(const char *where) {
  static void treg_finish_submission(void);
  
  static uint64_t g_sub_serial;   // Submission index (used by the parallel precompile's 'predict only once per submission')
@@ -39,15 +39,15 @@ index d2e015a..27270a5 100644
  // The first submission: the prepare step (warm_start), before anything of it is encoded. No GPU work: the submit entry (hle_nvn.c) calls it outside the graphics gate
  void mtl_prepare(void) {
      if (!g_warm_started && prepare_on()) { mtl_init(); shmap_load(); }
-@@ -1247,6 +1248,7 @@ void mtl_prepare(void) {
+@@ -1367,6 +1368,7 @@ void mtl_prepare(void) {
  static void gmem_commit_patch(void);   // the raw pool table words of the arguments encoded so far follow the pools (gmem_slot_note)
  void mtl_sub_begin(void) {
      mtl_init(); g_sub_serial++; g_seg = 0; seg_clk_put(g_sclk); g_sclk = NULL;
 +    g_ndve_decoded = nil;
      sub_cut_begin();
      defer_drain();
-     defer_reset();
-@@ -12922,6 +12924,45 @@ static int dispatch_own(void) {
+     rh_trim();
+@@ -13526,6 +13528,45 @@ static int dispatch_own(void) {
      args_dirty_all();
      return e;
  }
@@ -93,7 +93,7 @@ index d2e015a..27270a5 100644
  static void dispatch(const p_dispatch *dp) {
      zskip_clear();
      g_wr_epoch++; g_mdx_epoch++;
-@@ -12930,8 +12971,16 @@ static void dispatch(const p_dispatch *dp) {
+@@ -13534,8 +13575,16 @@ static void dispatch(const p_dispatch *dp) {
      void *ib = NULL; uint64_t io = 0, ig = 0;
      if (dp->ind && !mtl_gpu_addr(dp->ind, 12, &ib, &io, &ig)) { RED_ONCE(94, "indirect dispatch skipped: argument address %#llx is in no memory pool", (unsigned long long)dp->ind); return; }
      if (dp->ind) { static int once; if (!once++) MLOG("indirect dispatch: first time (the GPU reads the threadgroup counts from %#llx)", (unsigned long long)dp->ind); }
@@ -111,16 +111,16 @@ index d2e015a..27270a5 100644
      const void *k = (__bridge const void *)cs;
      id<MTLComputePipelineState> ps = hm_get_id(&g_cps, &k);
      if (!ps) {
-@@ -12966,7 +13015,7 @@ static void dispatch(const p_dispatch *dp) {
+@@ -13570,7 +13619,7 @@ static void dispatch(const p_dispatch *dp) {
      if (dp->ind || (dp->x && dp->y && dp->z)) for (int i = 0; i < cs->rf.nfirst; i++) { const p_bind_buf *u = &S.ssbo[5][cs->rf.first[i].reg]; if (u->addr) mtl_sub_fill(u->addr + 4ull * cs->rf.first[i].word, 4, cs->rf.first[i].value); }
      if (g_nubd && ubd_conflict_cs(cs, dp->ind)) { g_ubd_conflicts++; ubd_land(); }   // see ubd_conflict_cs
      rp_flush();   // A full clear with no draw after it waits for the next pass on its targets, but it comes before this dispatch, which may read or write them as images: land it first, as copy_t2t does
 -    image_prepare(prog_get(S.cprog), 0x20);
 +    image_prepare(program, 0x20);
+     if (ndve_engine_dispatch(cs, dp)) return;   // nn::ndve's movie network as the host's kernels (DM_NDVE_ENGINE=1)
      if (up_mfx_wanted(cs) && !dp->ind && up_mfx_encode(cs)) return;   // the game's upscaler, drawn by MetalFX instead (DM_UPSCALER=metalfx)
-     int own = dispatch_own();
-     if (own && g_blit) { enc_b_end(g_blit); g_blit = nil; }
-@@ -12988,6 +13037,7 @@ static void dispatch(const p_dispatch *dp) {
+     // Threadgroup memory past Metal's 32 KB, in a device buffer (dmsh_build.py tg_spill): a slice for every workgroup of the grid. An indirect dispatch's grid is in GPU memory, written earlier
+@@ -13608,6 +13657,7 @@ static void dispatch(const p_dispatch *dp) {
          enc_c_dispatch_indirect(ce, ig, MTLSizeMake(tg[0], tg[1], tg[2]));
      } else enc_c_dispatch(ce, MTLSizeMake(dp->x, dp->y, dp->z), MTLSizeMake(tg[0], tg[1], tg[2]));
      if (own) enc_c_end(ce);
@@ -128,7 +128,7 @@ index d2e015a..27270a5 100644
  }
  // GPU: texture -> buffer (row stride taken from SetCopyRowStride, layer stride from SetCopyImageStride, 0 = tightly packed)
  // A copy at a level the host texture lacks (more levels declared than its size holds, tex_desc) is skipped: Metal does not check the level of a blit
-@@ -13327,6 +13377,24 @@ static int copy_t2t_draw(id<MTLTexture> s, id<MTLTexture> d, unsigned sl, unsign
+@@ -13950,6 +14000,24 @@ static int copy_t2t_draw(id<MTLTexture> s, id<MTLTexture> d, unsigned sl, unsign
                                                      linear && !depth ? " (bilinear)" : "", stencil ? (scopy ? " (depth + stencil)" : " (no stencil view possible, cleared to 0)") : ""); }
      return 1;
  }
@@ -154,10 +154,10 @@ index d2e015a..27270a5 100644
  // coordinates, which are the targets' own rows in either window origin, since the host keeps the Switch's memory layout). Streets of Rage 4 draws each movie frame (the intro, the
  // title's flames) into its 1920x1080 scene target this way, from a second texture pool; without it the screen stayed black. The handle's IDs are the host table's (moved to the
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index b099bef..772c456 100644
+index 9a5729a..70454aa 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
-@@ -456,6 +456,9 @@ check_t_image_alias: t_image_alias
+@@ -479,6 +479,9 @@ check_t_rt_recycle: t_rt_recycle
  # A game's upscaler drawn by MetalFX (any profile; the profile's upscaler shaders, from its shader map, when it has some); with and without the switch, and on the encoding thread
  t_upscaler_mfx: t_upscaler_mfx.m $(MTL_T_DEP)
  	clang $(CFLAGS) -fobjc-arc -o $@ t_upscaler_mfx.m $(MTL_T_SRC) $(FW)
@@ -244,10 +244,10 @@ index 0000000..831855e
 +    return 0;
 +} }
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index ae36414..957e4af 100644
+index 312678a..5cdba96 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -174,6 +174,7 @@ DM_NVN_LAZY_CLEAR	switch	`0` makes clears with no draw after them open a pass of
+@@ -181,6 +181,7 @@ DM_NVN_LAZY_CLEAR	switch	`0` makes clears with no draw after them open a pass of
  DM_NVN_LOADPROBE	diagnostic	`=1`, `2` or `3`: attachments whose load is skipped are cleared to a sentinel colour (`3` NaN; `1` NaN for float formats) and the sentinel pixels left at pass end are counted (should be 0)
  DM_NVN_LOG	diagnostic	`=1` logs the creation of NVN objects
  DM_NVN_MAGSCAN	diagnostic	`=<fs key>[:every[:phase]]`: device self-check that reads each pass's colour attachments every `every` frames (default 30) and logs `[mag]` lines for solid magenta 16×16 blocks or non-finite pixels
@@ -256,10 +256,10 @@ index ae36414..957e4af 100644
  DM_NVN_PASSDUMP_ALL	diagnostic	`=1` makes `DM_NVN_PASSDUMP` record every draw and binding change, not only the first per pass and stage, including copies and inline uniform updates
  DM_NVN_PASSGPU	diagnostic	`=<file>` writes the GPU time of each render and compute pass from stage-boundary timestamp counters (off under Metal 4); also gives each dispatch its own encoder
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index 5f284cf..e22b36d 100644
+index 7a03c73..710fcc4 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
-@@ -1127,6 +1127,14 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
+@@ -1204,6 +1204,14 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
  - **Check:** `make -C dm/gfx/tests GAME=040074A01BF12000 check_t_upscaler_mfx`: a named shader's 960x540 → 1920x1080 dispatch fills the image through MetalFX. A second dispatch converts a cropped R11G11B10F input with a highlight above 1.0 and checks every pixel inside and outside an offset output rectangle. It runs with the encoding thread off and on. Equal sizes and an unnamed shader keep the shader, and without `DM_UPSCALER=metalfx` nothing changes (Metal validation stops MetalFX's Metal 4 scaler on a barrier setting of its own with no public API, so that run is without it). `test_game_profile.py` checks the keys taken from a shader map and `test_settings.py` that the launcher offers the choice to Bananza and not to a game without the network. **Open:** a standalone Metal 4 MetalFX HDR test on M1 intermittently returned non-finite pixels at small input sizes (64x36 and 320x180). The packed-format regression also saw an intermittent colour error at handheld resolution. Check picture quality and frame time against the game's network in a heavy area. The network's own cost is the translator's LDSM / MOVM emulation, open in [Ampere HMMA through simdgroup_matrix](shaders.md#ampere-hmma-through-simdgroup_matrix).
  - **Found on:** [Donkey Kong Bananza](../../dm/games/040074A01BF12000/README.md): NDSR `7629d857a0a93833` in the heavy areas, 1676x943 → 2304x1296 docked (after three passes of its own at the render resolution, which stay), 960x540 → 1920x1080 handheld.
  
