@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?=E6=B1=AA=E7=86=B9?= <wangxi@wangxideMacBook-Pro.local>
+Date: Mon, 9 Nov 2026 08:13:05 +0800
+Subject: [PATCH] =?UTF-8?q?=E4=BF=AE=E5=A4=8D=E8=B7=A8=E5=9C=B0=E5=8C=BA?=
+ =?UTF-8?q?=E6=B4=BE=E7=94=9F=E9=85=8D=E7=BD=AE=E6=B2=BF=E7=94=A8=E5=A4=B1?=
+ =?UTF-8?q?=E6=95=88=E8=B5=84=E6=BA=90=E6=A0=87=E8=AE=B0=E7=9A=84=E9=97=AE?=
+ =?UTF-8?q?=E9=A2=98?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+仅在跨标题派生且原资源标记不存在时，从实际 RomFS 文件中确定标记；保留有效标记、同标题和仅着色器派生行为，并将选择纳入既有缓存指纹。已通过七十四项增量构建测试及真实亚洲版资源检查。
+
+Upstream-Status: forwarded seedds/nxnative#1882
+Reason: Preserve valid regional RomFS markers and repair missing inherited markers when deriving a matched title.
+Issue: seedds/nxnative#1882
+
+---
+ scripts/build_ipa_from_nsp.py | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 2d88a22..ddb5323 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1225,6 +1225,13 @@ def derive_profile(g, pdir, ver, d, mods, app=None, shader_only=False):
+         if not own_step and line.split(T, 1)[0] == 'fps_target' and line.partition(T)[2].strip() != '0':
+             out += ['# the profile has frame step stubs for other builds only: this version\'s main has none, so it keeps the game\'s own step', f'fps_target{T}0']; continue
+         if line.split(T, 1)[0] in ids: out.append(ids[line.split(T, 1)[0]]); continue
++        if not shader_only and ids and line.split(T, 1)[0] == 'romfs_marker':
++            # A matched main can ship different resource names in another region (Persona 5 Royal: ALL_USEU.CPK / ALL_ASIA.CPK).
++            # Keep a valid inherited marker; otherwise choose an actual file, as provisional profiles do. Empty RomFS still fails packing.
++            rom, marker = rfs.source(d), line.partition(T)[2].strip()
++            if marker and not (rom / marker).exists():
++                found = max(((st.st_size, name) for name, st in files_under(rom) if (rom / name).is_file()), default=None)
++                if found: out.append(f'romfs_marker{T}{found[1]}'); continue
+         if not shader_only and line.split(T, 1)[0] == 'modules' and (d / 'ExeFS').is_dir():
+             want = line.partition(T)[2].split(); have = [m for m in want if (d / 'ExeFS' / m).exists()]
+             if add: have = sorted({*have, *add}, key=pg.load_order)
