@@ -1,0 +1,248 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ProfDrLuigi <schreibs-einfach@web.de>
+Date: Mon, 09 Nov 2026 17:23:30 +0100
+Subject: [PATCH] shader split: read Shin’en and SBPAK NVN shaders
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Pair the Shin’en pixel and vertex controls with their GPU blocks.
+Validate SBPAK and embedded SDK 4 records before accepting their shader
+code.
+
+Upstream-Status: pending
+Reason: Recover shader stages from early NVN containers used by FAST RMX and Giana Sisters.
+Issue: unfiled (local FAST RMX and Giana Sisters macOS builds)
+
+---
+ dm/gfx/tools/shader_split.py                |  82 ++++++++++++++++++++-
+ dm/tools/tests/test_early_nvn_containers.py | 107 ++++++++++++++++++++++++++++
+ 2 files changed, 188 insertions(+), 1 deletion(-)
+
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index 86716e1be89ed5de6d824dd3b24e2643076323c9..1026335ad787b56a718bd8e99d7c6619982e1a60 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -1912,6 +1912,78 @@ def phyre_shaders(d, label):
+     return out
+ 
+ 
++def shn_block(d, off, label):
++    start, stored, size = field(d, '<3I', off, label)
++    if not stored and not size: return b''
++    if start < 0x44 or not 0 < stored <= size <= stored * 255: red(f'{label}: invalid SHN block at {off:#x}')
++    data = span(d, start, stored, label)
++    if stored == size: return data
++    import lz4.block
++    data = lz4.block.decompress(data, uncompressed_size=size)
++    if len(data) != size: red(f'{label}: SHN block at {off:#x} has the wrong decoded length')
++    return data
++
++
++def shn_shaders(d, label):
++    """FAST RMX's Shin'en .shdr and .w3d files. SHN! holds three block descriptors. SHDR/SCEN metadata is at descriptor +4, and GPU data at +0x24.
++    Blocks whose stored and decoded sizes differ use raw LZ4. SDK 1 control sections are ordered pixel, vertex per pass; GPU code follows that order,
++    starting at offset zero and advancing by control +0x704. The GPU block of a scene can hold geometry after the last shader."""
++    meta = shn_block(d, 4, label)
++    if meta[:4] not in (b'SHDR', b'SCEN'): return []
++    offsets = [m.start() for m in re.finditer(re.escape(CTL_MAGIC + struct.pack('<2I', 1, 9)), meta)]
++    if not offsets: return []
++    if len(offsets) % 2: red(f'{label}: SHN shader controls do not form complete pairs')
++    gpu, k, out = shn_block(d, 0x24, label), 0, []
++    for i, c in enumerate(offsets):
++        cn, = field(meta, '<I', c + 0x20, label)
++        kn, = field(meta, '<I', c + 0x704, label)
++        if not 0x708 <= cn <= 0x880 or kn < 0x34: red(f'{label}: invalid SHN shader lengths at {c:#x}')
++        ctl, code = span(meta, c, cn, label), span(gpu, k, kn, label)
++        st = ('ps', 'vs')[i % 2]
++        if glslc_stage(ctl, code) != st or check(label, st, ctl, code):
++            red(f'{label}: SHN shader at {c:#x} does not match its {st} code at {k:#x}')
++        out.append((f'{label}#SHN#var{i // 2}', st, ctl, code))
++        k += kn
++    return out
++
++
++SBPAK = b'SBPAK V 1.0\r\n'
++SBPAK_XOR = bytes(i ^ 0xb6 for i in range(256))
++
++
++def prefixed_nvn(d, c, unmask=None):
++    """SDK 4 GPU code section without an outer GLSLC header (Giana Sisters). A u32 size and 0x90-byte header precede the control bytes; the code begins at their exact end,
++    even at an unaligned address. SBPAK's entries mask these bytes, so decode just the checked record, not the whole archive."""
++    if c < 0x94 or c + 0x708 > len(d): return None
++    h = c - 0x94
++    header = d[h:c + 0x708]
++    if unmask: header = header.translate(unmask)
++    cn = struct.unpack_from('<I', header, 0x94 + 0x20)[0]
++    kn = struct.unpack_from('<I', header, 0x94 + 0x704)[0]
++    payload = cn + kn
++    if cn < 0x760 or kn < 0x34 or c + payload > len(d): return None
++    if struct.unpack_from('<3I', header) != (0x90 + payload, payload, 0x3f0): return None
++    if struct.unpack_from('<4I', header, 0x34) != (0, cn, kn, cn): return None
++    if struct.unpack_from('<I', header, 0x4c)[0] != 1 or struct.unpack_from('<I', header, 0x54)[0] != payload: return None
++    stage = struct.unpack_from('<I', header, 0x30)[0]
++    if stage >= 3: return None
++    data = d[c:c + payload]
++    if unmask: data = data.translate(unmask)
++    ctl, code = data[:cn], data[cn:]
++    st = ('vs', 'ps', 'gs')[stage]
++    return (st, ctl, code) if sph_stage(code) == st and not check('prefixed NVN', st, ctl, code) else None
++
++
++def sbpak_shaders(d, label):
++    """Giana Sisters' SBPAK v1 shader archive. The masked endian marker distinguishes the layout, and each candidate must pass the GPU section header checks."""
++    if d[:len(SBPAK)] != SBPAK or d[20:24].translate(SBPAK_XOR) != b'\x04\x03\x02\x01': return []
++    out = []
++    for m in re.finditer(re.escape(CTL_MAGIC.translate(SBPAK_XOR)), d):
++        c = m.start()
++        if sh := prefixed_nvn(d, c, SBPAK_XOR): out.append((f'{label}#SBPAK@{c:#x}', *sh))
++    return out
++
++
+ def raw_shaders(d, label, known=()):
+     """Control sections in main that are in no GLSLC output and no BNSH file: a shader compiled offline whose control section and code area the code hands to nvnShaderData itself (Advance Wars 1+2:
+     Re-Boot Camp, Unity 2020.2 with Bink 2: the movie player's 32: 2 vertex, 22 pixel and 8 compute shaders; without them its movies drew white). Most are 0x20-byte records in data {code area
+@@ -1933,6 +2005,8 @@ def raw_shaders(d, label, known=()):
+     rel, code_of, cset = rel_targets(d), {}, set(ctls)
+     for s, c in rel.items():
+         if c in cset and s - 8 in rel and c not in code_of and struct.unpack_from('<I', d, s + 8)[0] == struct.unpack_from('<I', d, c + 0x704)[0]: code_of[c] = rel[s - 8]
++    for c in ctls:
++        if c not in code_of and (sh := prefixed_nvn(d, c)): code_of[c] = c + len(sh[1])
+     built = adrp_targets(d, min(ctls) - 0x100000, max(ctls) + 0x100000) if any(c not in code_of for c in ctls) else {}
+     out = []
+     for c in ctls:
+@@ -2790,7 +2864,7 @@ def pixel_input_cover(shaders):
+         k = min(ins, key=lambda k: (-len(ins[k] & left), k)); cover.append(k); left -= ins[k]
+     return cover
+ 
+-SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
++SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@', '#SBPAK@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
+ # Unreal Engine 3's shader caches (ue3_shaders, '#UE3@'); MonoGame's effects, whose passes may name no vertex shader and keep the one bound (Celeste: 10 of its 13 effects draw through SpriteBatch's vertex shader, which is in main); Next Level Games'
+ # archives (Luigi's Mansion 3 makes 5,317 programs of one stage each at boot); PlatinumGames' shader objects (Bayonetta 3: one stage each, pg_shader); control sections loose in main
+ # (Advance Wars 1+2: Re-Boot Camp's Bink shaders, raw_shaders), which no file pairs; YEBIS's effect file (tfxo_shaders); and Sumo's Ninty_NX descriptors and NVNsh records, one stage
+@@ -2945,6 +3019,12 @@ def scan_file_in(args):
+     if len(args) > 2 and args[2][0] == b'ARH1':
+         arh_shaders(path, rel, args[2][1], found)
+         return rel, uniq_keys(found), var_pairs(found), trees
++    if head[:4] == b'SHN!' and ext in ('.shdr', '.w3d'):
++        with open(path, 'rb') as f: found += shn_shaders(f.read(), '/' + rel)
++        return rel, uniq_keys(found), var_pairs(found), trees
++    if head.startswith(SBPAK):
++        with open(path, 'rb') as f: found += sbpak_shaders(f.read(), '/' + rel)
++        return rel, uniq_keys(found), var_pairs(found), trees
+     if head[:4] == NLG_DICT:
+         nlg_shaders(path, '/' + rel, found)
+         return rel, uniq_keys(found), var_pairs(found), trees
+diff --git a/dm/tools/tests/test_early_nvn_containers.py b/dm/tools/tests/test_early_nvn_containers.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..0e5a26466e6f4a3b00309a6f11bf5e20bf7f27aa
+--- /dev/null
++++ b/dm/tools/tests/test_early_nvn_containers.py
+@@ -0,0 +1,107 @@
++"""Shin'en and SBPAK shader records, including compressed blocks and unaligned embedded sections."""
++from pathlib import Path
++import os
++import struct
++import sys
++import tempfile
++import unittest
++import lz4.block
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/gfx/tools'))
++_prior_game = os.environ.get('DM_GAME')
++os.environ['DM_GAME'] = '0100152000022000'
++import shader_split as ss
++if _prior_game is None:
++    del os.environ['DM_GAME']
++else:
++    os.environ['DM_GAME'] = _prior_game
++
++
++def shader(stage):
++    code = bytearray(0x80)
++    code[:4] = ss.GFX_MAGIC
++    struct.pack_into('<I', code, 0x30, {'vs': 1, 'ps': 5}[stage] << 10)
++    control = bytearray(0x780)
++    control[:4] = ss.CTL_MAGIC
++    struct.pack_into('<2I', control, 4, 1, 9)
++    struct.pack_into('<I', control, 0x20, len(control))
++    struct.pack_into('<I', control, 0x704, len(code))
++    return bytes(control), bytes(code)
++
++
++def shn(compressed=False, stages=('ps', 'vs')):
++    pairs = [shader(stage) for stage in stages]
++    blocks = (b'SHDR' + b''.join(control for control, _ in pairs), b''.join(code for _, code in pairs))
++    out = bytearray(0x44)
++    out[:4] = b'SHN!'
++    for descriptor, raw in zip((4, 0x24), blocks):
++        stored = lz4.block.compress(raw, store_size=False) if compressed else raw
++        struct.pack_into('<3I', out, descriptor, len(out), len(stored), len(raw))
++        out.extend(stored)
++    return bytes(out)
++
++
++def prefixed(stage='vs'):
++    control, code = shader(stage)
++    head = bytearray(0x94)
++    payload = len(control) + len(code)
++    struct.pack_into('<3I', head, 0, 0x90 + payload, payload, 0x3f0)
++    struct.pack_into('<I', head, 0x30, ('vs', 'ps', 'gs').index(stage))
++    struct.pack_into('<4I', head, 0x34, 0, len(control), len(code), len(control))
++    struct.pack_into('<I', head, 0x4c, 1)
++    struct.pack_into('<I', head, 0x54, payload)
++    return bytes(head) + control + code
++
++
++class EarlyContainers(unittest.TestCase):
++    def test_shn_stored_and_lz4_pairs(self):
++        for compressed in (False, True):
++            with self.subTest(compressed=compressed):
++                records = ss.shn_shaders(shn(compressed), 'test.shdr')
++                self.assertEqual([row[1] for row in records], ['ps', 'vs'])
++                self.assertEqual(records[0][0], records[1][0])
++                self.assertEqual(len(ss.var_pairs(records)), 1)
++
++    def test_shn_rejects_truncated_gpu_block(self):
++        with self.assertRaises(SystemExit):
++            ss.shn_shaders(shn()[:-1], 'short.shdr')
++
++    def test_shn_rejects_incomplete_or_reversed_pair(self):
++        for stages in (('ps',), ('vs', 'ps')):
++            with self.subTest(stages=stages), self.assertRaises(SystemExit):
++                ss.shn_shaders(shn(stages=stages), 'bad.shdr')
++
++    def test_unaligned_prefixed_control(self):
++        data = b'x' + prefixed()
++        self.assertEqual(ss.prefixed_nvn(data, 0x95), ('vs', *shader('vs')))
++        self.assertIsNone(ss.prefixed_nvn(data[:-1], 0x95))
++
++    def test_masked_sbpak_and_marker_validation(self):
++        head = bytearray(25)
++        head[:len(ss.SBPAK)] = ss.SBPAK
++        head[20:24] = b'\x04\x03\x02\x01'.translate(ss.SBPAK_XOR)
++        data = bytes(head) + prefixed('ps').translate(ss.SBPAK_XOR)
++        self.assertEqual([row[1] for row in ss.sbpak_shaders(data, 'test.sbpak')], ['ps'])
++        corrupt = bytearray(data)
++        corrupt[20] ^= 1
++        self.assertEqual(ss.sbpak_shaders(bytes(corrupt), 'bad.sbpak'), [])
++
++    def test_dispatch_finds_shn_and_sbpak(self):
++        head = bytearray(24)
++        head[:len(ss.SBPAK)] = ss.SBPAK
++        head[20:24] = b'\x04\x03\x02\x01'.translate(ss.SBPAK_XOR)
++        with tempfile.TemporaryDirectory() as folder:
++            for name, data, expected in (
++                ('test.shdr', shn(), 2),
++                ('test.sbpak', bytes(head) + prefixed().translate(ss.SBPAK_XOR), 1),
++            ):
++                path = Path(folder) / name
++                path.write_bytes(data)
++                _, found, _, extra = ss.scan_file((str(path), name))
++                self.assertEqual(len(found), expected)
++                self.assertFalse(extra)
++
++
++if __name__ == '__main__':
++    unittest.main()

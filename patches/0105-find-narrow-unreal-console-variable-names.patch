@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ProfDrLuigi <schreibs-einfach@web.de>
+Date: Mon, 09 Nov 2026 17:23:30 +0100
+Subject: [PATCH] rewriter: find narrow Unreal console variable names
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Search null-terminated ASCII names alongside UTF-16 and UTF-32. Keep the
+registration and writable-object checks, and cover an unaligned narrow
+literal.
+
+Upstream-Status: pending
+Reason: Locate the Unreal FPS controls in Hogwarts Legacy 1.0.5.
+Issue: LNPANDY/NX2Apple#475 (Hogwarts Legacy follow-up)
+
+---
+ dm/tools/tests/test_ue_cvar.py | 8 ++++++++
+ dm/tools/ue_cvar.py            | 5 +++--
+ 2 files changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/dm/tools/tests/test_ue_cvar.py b/dm/tools/tests/test_ue_cvar.py
+index 5eca800b8bf445fadb5c13c8f7d156385d0b1da4..e6506e7c795058d0e0592c2067578eb7b2fdbbd0 100644
+--- a/dm/tools/tests/test_ue_cvar.py
++++ b/dm/tools/tests/test_ue_cvar.py
+@@ -75,6 +75,14 @@ class FindTest(unittest.TestCase):
+         o, why = find(image(lambda a: register_form(a, NAME, OBJ), z=4))
+         self.assertEqual(o, OBJ, why)
+ 
++    def test_ascii_name_at_unaligned_address(self):
++        address = NAME + 3
++        img = image(lambda a: register_form(a, address, OBJ))
++        img[NAME:OTHER] = bytes(OTHER - NAME)
++        img[address:address + 9] = b't.MaxFPS\0'
++        o, why = find(img)
++        self.assertEqual(o, OBJ, why)
++
+     def test_lookup_only_is_not_found(self):
+         o, why = find(image(lambda a: register_form(a, NAME, 0, store=False)))
+         self.assertIsNone(o)
+diff --git a/dm/tools/ue_cvar.py b/dm/tools/ue_cvar.py
+index b3eadc1ba7a26297b4290b7c4d92ee3033f49229..48bd1cba8213cd18b2dae69a97c72e00122ac914 100644
+--- a/dm/tools/ue_cvar.py
++++ b/dm/tools/ue_cvar.py
+@@ -63,8 +63,9 @@ def find(img, text_end, ro_off, data_off, name):
+     """(main's offset of the TAutoConsoleVariable registered under name, reason), or (None, why not); why starts '[RED] ' when the name is registered at more than one object"""
+     word = lambda a: struct.unpack_from('<I', img, a)[0]
+     objs = set()
+-    for z in (2, 4):   # TCHAR: UTF-16 (UE 4.2x and 5), UTF-32 (older Switch builds)
+-        pat = name.encode('utf-16-le' if z == 2 else 'utf-32-le') + b'\0' * z
++    for z, encoding in ((1, 'ascii'), (2, 'utf-16-le'), (4, 'utf-32-le')):
++        # Hogwarts Legacy uses narrow strings for these console variables.
++        pat = name.encode(encoding) + b'\0' * z
+         s = img.find(pat, ro_off, data_off)
+         while s >= 0:
+             if s % z == 0:

@@ -1,0 +1,281 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ProfDrLuigi <schreibs-einfach@web.de>
+Date: Mon, 09 Nov 2026 17:23:30 +0100
+Subject: [PATCH] mac host: add optional libopus for Hogwarts dialogue
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Route the observed HardwareOpusDecoder format through an opt-in static
+libopus build. Fingerprint the external build inputs and copy its
+license into the Mac app.
+
+Upstream-Status: pending
+Reason: Avoid distorted PCM from the SDK fallback for Hogwarts Legacy’s mono 24 kHz Opus dialogue.
+Issue: LNPANDY/NX2Apple#475 (Hogwarts Legacy follow-up)
+
+---
+ dm/host/Makefile                   | 14 ++++++---
+ dm/host/hle_codec.c                | 64 ++++++++++++++++++++++++++++++++++++--
+ dm/mac/pack_app.py                 |  4 ++-
+ dm/tools/tests/test_nsp_mac_app.py | 12 +++++++
+ docs/development.md                |  2 ++
+ scripts/build_ipa_from_nsp.py      | 19 ++++++++++-
+ 6 files changed, 107 insertions(+), 8 deletions(-)
+
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index 318fe345d3627712aadbfdf65daca893c76c3e91..361524fbd1d3bbb8687cccc9f0aa347aecad5213 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -48,6 +48,11 @@ gen/dav1d/%.o: $(DAV1D)/% $(DAV1D_H) ../mac/min_os.mk
+ 	clang -O2 -g -mmacosx-version-min=$(MACOS_MIN) -fvisibility=hidden -fomit-frame-pointer -fno-align-functions -I$(DAV1D) -I$(DAV1D)/include -I$(DAV1D)/config -c $< -o $@
+ $(DAV1D_LIB): $(DAV1D_OBJ)
+ 	rm -f $@; ar rcs $@ $^
++# Optional static libopus for the Mac host's Hogwarts dialogue path.
++ifneq ($(and $(filter 0100F7E00C70E000,$(GAME)),$(HOGWARTS_OPUS_ROOT)),)
++CFLAGS += -DDM_HOGWARTS_NATIVE_OPUS -I"$(HOGWARTS_OPUS_ROOT)/include"
++HOGWARTS_OPUS_LIB := $(HOGWARTS_OPUS_ROOT)/lib/libopus.a
++endif
+ # The host's own Metal shaders (dm/gfx/msl/*.metal) compiled for MSL_SDK into gen/msl-<sdk>/host_msl_gen.h (dm/gfx/tools/host_msl.py; dm/gfx/nvn/host_msl.m loads them), so the host
+ # compiles no MSL at run time. The iOS build (dm/ios/tools/gen_build.py) makes it with MSL_SDK=iphoneos, for the app's deployment target (MSL_MIN_iphoneos, as project.yml)
+ MSL_SDK ?= macosx
+@@ -70,17 +75,18 @@ $(GAME_H): $(GAME_DIR)/game.tsv ../games/game.py FORCE
+ # The game of the last build is also read when the Makefile is parsed, and a different one forces the link: make compares whole seconds, and a stamp written in the same second as
+ # another game's dmhost (two builds in a row) did not count as newer, so that game's host was kept
+ GAME_STAMP = gen/game.stamp
++HOST_BUILD = $(GAME)$(if $(HOGWARTS_OPUS_LIB),+opus=$(HOGWARTS_OPUS_LIB))
+ $(GAME_STAMP): FORCE
+-	@mkdir -p gen; echo $(GAME) | cmp -s - $@ || echo $(GAME) > $@
++	@mkdir -p gen; printf "%s\n" "$(HOST_BUILD)" | cmp -s - $@ || printf "%s\n" "$(HOST_BUILD)" > $@
+ ifneq ($(strip $(GAME)),)
+-ifneq ($(shell cat $(GAME_STAMP) 2>/dev/null),$(GAME))
++ifneq ($(shell cat $(GAME_STAMP) 2>/dev/null),$(HOST_BUILD))
+ dmhost: FORCE
+ endif
+ endif
+ .PHONY: FORCE
+ FORCE:
+-dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h pad_joycon.h pad_joycon_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
+-	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
++dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h pad_joycon.h pad_joycon_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(HOGWARTS_OPUS_LIB) $(MSL_H)
++	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) $(HOGWARTS_OPUS_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
+ clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
+ 	rm -rf gen dmhost dmhost_* *.dSYM
+ .PHONY: clean
+diff --git a/dm/host/hle_codec.c b/dm/host/hle_codec.c
+index c07b8bf9823d54e99ce29d8cba383c791d2a0f44..eafa7807bd5a18b88a8aeebf8462d5e5b742ad3a 100644
+--- a/dm/host/hle_codec.c
++++ b/dm/host/hle_codec.c
+@@ -4,6 +4,34 @@
+ // Initialize, Finalize, GetSampleRate, GetChannelCount, Reset, DecodeInterleaved); the game allocates 0x40 bytes and the software object is 0x30 bytes.
+ #include "hle.h"
+ 
++#ifdef DM_HOGWARTS_NATIVE_OPUS
++#include <opus/opus.h>
++
++// Hogwarts' mono dialogue uses 24 kHz Switch Opus. The SDK fallback produces distorted PCM for these packets on the host.
++#define HOGWARTS_OPUS_RATE 24000
++#define HOGWARTS_OPUS_KEY(hw) ((const char *)(hw) + 2)
++static OpusDecoder *hogwarts_opus(const void *hw) { return objmap_get(HOGWARTS_OPUS_KEY(hw)); }
++
++static int hogwarts_opus_decode(OpusDecoder *decoder, size_t *consumed, int *samples, int16_t *out,
++                                size_t out_size, const void *in, size_t in_size) {
++    if (!consumed || !samples) return 0x3a6f;
++    *consumed = 0;
++    *samples = 0;
++    const uint8_t *packet = in;
++    if (!packet || in_size < 8 || !out) return 0x3a6f;
++    uint32_t size = (uint32_t)packet[0] << 24 | (uint32_t)packet[1] << 16 | (uint32_t)packet[2] << 8 | packet[3];
++    if (!size || size > in_size - 8 || size > INT32_MAX) return 0x3a6f;
++    size_t capacity = out_size / sizeof *out;
++    const int max_frame = HOGWARTS_OPUS_RATE * 120 / 1000;
++    int frames = opus_decode(decoder, packet + 8, (int)size, out,
++                             capacity > (size_t)max_frame ? max_frame : (int)capacity, 0);
++    if (frames < 0) return 0x3a6f;
++    *consumed = (size_t)size + 8;
++    *samples = frames;
++    return 0;
++}
++#endif
++
+ HLE_FORCE("_ZN2nn5codec19HardwareOpusDecoderC1Ei", "hwopus service; replaced by the SDK software OpusDecoder (same IOpusDecoder virtual interface)",
+           void, h_codec_HwOpusCtor, void *self, int option) {
+     (void)option;
+@@ -32,6 +60,17 @@ HLE_FORCE("_ZN2nn5codec36GetHardwareOpusDecoderWorkBufferSizeEii", "hwopus servi
+ }
+ HLE_FORCE("_ZN2nn5codec29InitializeHardwareOpusDecoderEPNS0_23HardwareOpusDecoderTypeEiiPvmi", "hwopus service; replaced by the software OpusDecoder", int, h_codec_HwOpusInit,
+           void *hw, int rate, int ch, void *buf, size_t size, int option) {
++#ifdef DM_HOGWARTS_NATIVE_OPUS
++    OpusDecoder *decoder = hogwarts_opus(hw);
++    if (rate == HOGWARTS_OPUS_RATE && ch == 1 && dm_profile()->program_id == UINT64_C(0x0100F7E00C70E000)) {
++        int error;
++        if (decoder) return opus_decoder_init(decoder, rate, ch) == OPUS_OK ? 0 : 0x3a6f;
++        decoder = opus_decoder_create(rate, ch, &error);
++        if (decoder) { objmap_put(HOGWARTS_OPUS_KEY(hw), decoder); return 0; }
++    }
++    // An object may be reused for another format after initialization.
++    if (decoder) { objmap_del(HOGWARTS_OPUS_KEY(hw)); opus_decoder_destroy(decoder); }
++#endif
+     (void)option; int (*f)(void *, int, int, void *, size_t) = opus_fn("_ZN2nn5codec21InitializeOpusDecoderEPNS0_15OpusDecoderTypeEiiPvm");
+     void *s = objmap_get(hw); if (!s) { s = calloc(1, SOFT_OPUS_STATE); objmap_put(hw, s); }
+     return f(s, rate, ch, buf, size);
+@@ -39,21 +78,42 @@ HLE_FORCE("_ZN2nn5codec29InitializeHardwareOpusDecoderEPNS0_23HardwareOpusDecode
+ static int opus_mgr_dec_fini(void *gd); static int opus_mgr_dec_reset(void *gd);   // a decoder of a manager (below)
+ HLE_FORCE("_ZN2nn5codec27FinalizeHardwareOpusDecoderEPNS0_23HardwareOpusDecoderTypeE", "hwopus service; software OpusDecoder", void, h_codec_HwOpusFini, void *hw) {
+     if (opus_mgr_dec_fini(hw)) return;
+-    void (*f)(void *) = opus_fn("_ZN2nn5codec19FinalizeOpusDecoderEPNS0_15OpusDecoderTypeE");
+-    void *s = objmap_del(hw); if (s) { f(s); free(s); }
++#ifdef DM_HOGWARTS_NATIVE_OPUS
++    OpusDecoder *decoder = objmap_del(HOGWARTS_OPUS_KEY(hw));
++    if (decoder) opus_decoder_destroy(decoder);
++#endif
++    void *s = objmap_del(hw);
++    if (s) {
++        void (*f)(void *) = opus_fn("_ZN2nn5codec19FinalizeOpusDecoderEPNS0_15OpusDecoderTypeE");
++        f(s); free(s);
++    }
+ }
+ HLE_FORCE("_ZN2nn5codec32GetHardwareOpusDecoderSampleRateEPKNS0_23HardwareOpusDecoderTypeE", "hwopus service; software OpusDecoder", int, h_codec_HwOpusRate, const void *hw) {
++#ifdef DM_HOGWARTS_NATIVE_OPUS
++    if (hogwarts_opus(hw)) return HOGWARTS_OPUS_RATE;
++#endif
+     int (*f)(const void *) = opus_fn("_ZN2nn5codec24GetOpusDecoderSampleRateEPKNS0_15OpusDecoderTypeE"); return f(opus_soft(hw));
+ }
+ HLE_FORCE("_ZN2nn5codec34GetHardwareOpusDecoderChannelCountEPKNS0_23HardwareOpusDecoderTypeE", "hwopus service; software OpusDecoder", int, h_codec_HwOpusCh, const void *hw) {
++#ifdef DM_HOGWARTS_NATIVE_OPUS
++    if (hogwarts_opus(hw)) return 1;
++#endif
+     int (*f)(const void *) = opus_fn("_ZN2nn5codec26GetOpusDecoderChannelCountEPKNS0_15OpusDecoderTypeE"); return f(opus_soft(hw));
+ }
+ HLE_FORCE("_ZN2nn5codec24ResetHardwareOpusDecoderEPNS0_23HardwareOpusDecoderTypeE", "hwopus service; software OpusDecoder", void, h_codec_HwOpusReset, void *hw) {
+     if (opus_mgr_dec_reset(hw)) return;
++#ifdef DM_HOGWARTS_NATIVE_OPUS
++    OpusDecoder *decoder = hogwarts_opus(hw);
++    if (decoder) { opus_decoder_ctl(decoder, OPUS_RESET_STATE); return; }
++#endif
+     void (*f)(void *) = opus_fn("_ZN2nn5codec16ResetOpusDecoderEPNS0_15OpusDecoderTypeE"); f(opus_soft(hw));
+ }
+ HLE_FORCE("_ZN2nn5codec33DecodeOpusInterleavedWithHardwareEPNS0_23HardwareOpusDecoderTypeEPmPiPsmPKvm", "hwopus service; software OpusDecoder", int, h_codec_HwOpusDecode,
+           void *hw, size_t *consumed, int *samples, int16_t *out, size_t out_size, const void *in, size_t in_size) {
++#ifdef DM_HOGWARTS_NATIVE_OPUS
++    OpusDecoder *decoder = hogwarts_opus(hw);
++    if (decoder) return hogwarts_opus_decode(decoder, consumed, samples, out, out_size, in, in_size);
++#endif
+     int (*f)(void *, size_t *, int *, int16_t *, size_t, const void *, size_t) = opus_fn("_ZN2nn5codec21DecodeOpusInterleavedEPNS0_15OpusDecoderTypeEPmPiPsmPKvm");
+     return f(opus_soft(hw), consumed, samples, out, out_size, in, in_size);
+ }
+diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
+index 96b61191e9b36d7460329c447cbf2508d3d3f3f9..1ac294748c3f38d47b91f47281ff7814dc482aa7 100755
+--- a/dm/mac/pack_app.py
++++ b/dm/mac/pack_app.py
+@@ -227,7 +227,7 @@ def selected_inputs(a):
+     pairs = Path(a.pso_pairs) if a.pso_pairs and not any(p.name == 'pso_pairs.tsv' for p in tables) else None
+     fonts = sorted(p for p in Path(a.font).glob('*.ttf') if not detritus(p.name))
+     files = [Path(a.host)] + mods + msls + pso + tables + fonts + ([pairs] if pairs else [])
+-    files += [Path(p) for p in (a.env_file, a.settings, a.icon) if p]
++    files += [Path(p) for p in (a.env_file, a.settings, a.icon, a.opus_license) if p]
+     for p in files:
+         if not p.is_file(): raise SystemExit(f'no input file at {p}')
+     return mods, msls, pso, tables, pairs, fonts, files
+@@ -327,6 +327,7 @@ def pack(a):
+     if tables: copy(tables, dm, False)
+     if pairs: shutil.copyfile(pairs, dm / 'pso_pairs.tsv')   # the split's copy, for a profile without the table
+     if fonts: copy(fonts, dm / 'font', False)
++    if a.opus_license: shutil.copyfile(a.opus_license, res / 'Opus-COPYING.txt')
+     if a.env_file: shutil.copyfile(a.env_file, dm / 'env.txt')
+     if a.settings: shutil.copyfile(a.settings, dm / 'launcher.json')
+     step('shader libraries'); msl_dst = res / 'msl' / (a.msl_name or msl.name); msl_dst.parent.mkdir(exist_ok=True); copy_msl(msl, msls, msl_dst, clone['msl'])
+@@ -378,6 +379,7 @@ def parse(argv):
+     ap = argparse.ArgumentParser(prog='pack_app.py', description='Pack a self-contained Mac app of a game')
+     ap.add_argument('out', help='the app (<name>.app)')
+     ap.add_argument('--host', required=True, help='the Mac host built for the profile')
++    ap.add_argument('--opus-license', help='libopus license for a host that statically links it')
+     ap.add_argument('--patched', required=True, help='the rewritten modules (patch_nso.py output)')
+     ap.add_argument('--romfs', required=True, help='the RomFS of the packed version')
+     ap.add_argument('--msl', required=True, help='the Mac shader libraries: <shader>/cache/b-<chain>, or a Vulkan or GL game\'s <shader>/vk or gl')
+diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
+index 9b489b7ca6ea2711601175733a017ff744552bf9..6f2969c5fc9913eb161c36fa196b9e46e1a4de83 100644
+--- a/dm/tools/tests/test_nsp_mac_app.py
++++ b/dm/tools/tests/test_nsp_mac_app.py
+@@ -176,6 +176,18 @@ class PackReuse(unittest.TestCase):
+         self.assertTrue(any('--sign' in c for c in self.commands))
+         self.assertTrue(self.key.is_file())
+ 
++    def test_optional_opus_license_is_packaged_and_invalidates_reuse(self):
++        license = self.tmp / 'Opus-COPYING.txt'
++        license.write_text('libopus test license')
++        self.args.opus_license = str(license)
++        self.pack()
++        bundled = Path(self.args.out) / 'Contents/Resources/Opus-COPYING.txt'
++        self.assertEqual(bundled.read_bytes(), license.read_bytes())
++        self.assert_reused()
++        license.write_text('libopus test license updated')
++        self.assert_repacked()
++        self.assertEqual(bundled.read_bytes(), license.read_bytes())
++
+     def test_controller_mapping_capability_without_settings(self):
+         self.args.settings = None
+         info = pack_app.info_plist(self.args, '26.6', False)
+diff --git a/docs/development.md b/docs/development.md
+index a400b91317ae271363c2daf9ee7250abbdb8a7f9..d448513a61f69a1ed42c548f56c971aca7eb7aaa 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -471,6 +471,8 @@ The Mac is the development host. To test or debug a game on the Mac, `--platform
+ - the Mac host for the profile into `<id>_build/tools/dmhost`: the compile line of `make -C dm/host GAME=<id> dmhost`, with a provisional or derived profile through `DM_GAMES_DIR` / `DM_GAMES_FIRST` as for the script's other host builds. It is reused while its sources (the chain header `dm/gfx/nvn/dmsh_chain.h` among them), the generated profile header, libvpx and the compiler are unchanged;
+ - the button-icon font (`make_ext_font.py`) into `<id>_build/font/`.
+ 
++For Hogwarts Legacy, an opt-in Mac build can use a separate libopus for the game's 24 kHz mono HardwareOpusDecoder calls. The SDK fallback produced distorted dialogue in the 1.0.5 test. Install libopus and set `HOGWARTS_OPUS_ROOT` to its installation prefix when running the build, for example `HOGWARTS_OPUS_ROOT="$(brew --prefix opus)"`. The prefix must provide `include/opus/opus.h`, `lib/libopus.a` and `COPYING`. The library is linked statically and `--platform mac-app` includes its license. Stereo, other games and iOS keep using the SDK path.
++
+ It skips the iOS shaders, the Xcode project and the IPA. For Mario Kart 8 Deluxe that saves about 30,000 iOS shader compiles and the 12 GB IPA. It keeps the extracted files even with `--no-keep-extracted`, because the game runs from them. It needs a Mac with Apple silicon, and it cannot be combined with `--prepare-xcode`. The last line it prints is the command that runs the game, built from the run's own paths (step 5 of [Build by hand (Mac)](#build-by-hand-mac)), for example:
+ 
+ ```
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 2d88a2240b6d5ebe365f6f7d1f1fc82e585564bd..2f44f0321aba8d68e9de1e22f00c95bd2d70f0da 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1817,12 +1817,27 @@ def decoder_host_key(host):
+     return None
+ 
+ 
++def mac_opus_root(env, game_id):
++    """The optional static decoder used only by the Hogwarts Mac host."""
++    root = env.get('HOGWARTS_OPUS_ROOT')
++    if game_id != '0100F7E00C70E000' or not root: return None
++    root = Path(root).expanduser().resolve()
++    if any(c.isspace() for c in str(root)):
++        raise BuildError('HOGWARTS_OPUS_ROOT must name a libopus installation at a path without spaces')
++    for file in ('lib/libopus.a', 'include/opus/opus.h', 'COPYING'):
++        if not (root / file).is_file(): raise BuildError(f'HOGWARTS_OPUS_ROOT is missing {root / file}')
++    return root
++
++
+ def build_mac_host(repo, out, env, logs, g):
+     """The Mac host for the profile, built into out: dm/host's own compile line (make -n) with the output moved, since make takes no target path with spaces and dm/host/dmhost may be another build's.
+     Reused when the compile line and its inputs (the source files of HOST_DIRS, the chain header dm/gfx/nvn/dmsh_chain.h among them, the profile header make generates, libvpx, dav1d and the third-party headers, the compiler
+     and the macOS SDK) are as at the last build into out. The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
+     if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
+     host = repo / 'dm/host'
++    opus = mac_opus_root(env, g.id)
++    opus_inputs = [('files', [opus / 'lib/libopus.a']), ('tree', opus / 'include/opus')] if opus else []
++    if opus: env = dict(env, HOGWARTS_OPUS_ROOT=str(opus))
+     run(['make', '-s', f'PYTHON={sys.executable}', f'GAME={g.id}', f'gen/{g.id}/game_profile.h', 'gen/vpx/libvpx.a', 'gen/dav1d/libdav1d.a', 'host_msl'], logs / 'mac_host_make.log', env=env, cwd=host)
+     dry = subprocess.run(['make', '-n', '-B', f'PYTHON={sys.executable}', f'GAME={g.id}', 'dmhost'], env=env, cwd=host, capture_output=True, text=True)
+     line = next((l for l in dry.stdout.splitlines() if ' -o dmhost ' in l), None)
+@@ -1831,7 +1846,7 @@ def build_mac_host(repo, out, env, logs, g):
+     kf, tp = out.with_name(out.name + '.key'), repo / 'dm/third_party'
+     srcs = [p for d in HOST_DIRS for p in sorted((repo / d).iterdir()) if p.is_file() and p.suffix in ('.c', '.m', '.h', '.S', '.inc')]
+     common = fingerprint(cmd, ('files', [host / f'gen/{g.id}/game_profile.h', host / 'gen/msl-macosx/host_msl_gen.h', host / 'gen/vpx/libvpx.a', host / 'gen/dav1d/libdav1d.a', tp / 'stb_vorbis/stb_vorbis.c']),
+-                         ('tree', tp / 'vulkan-headers/include'), ('tree', tp / 'libvpx/vpx'), ('tree', tp / 'dav1d/include'), ('cmd', ['clang', '--version']), ('cmd', ['xcrun', '--show-sdk-build-version']), env=env)
++                         ('tree', tp / 'vulkan-headers/include'), ('tree', tp / 'libvpx/vpx'), ('tree', tp / 'dav1d/include'), *opus_inputs, ('cmd', ['clang', '--version']), ('cmd', ['xcrun', '--show-sdk-build-version']), env=env)
+     key = fingerprint(common, ('files', srcs))
+     chain = repo / CHAIN_H
+     # The decoder serves game bytes before rendering. DMSH_CHAIN selects translated shader libraries and appears in the startup log; it cannot change decompression.
+@@ -3037,6 +3052,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+     run([py, repo / 'dm/games/settings.py', g.id, patched, control or game / 'control.nacp', settings], logs / 'mac_settings.log', env=dict(env, GFXAPI=gfx, SETTINGS_PLATFORM='mac', DM_LANG=lang))
+     cmd = [py, repo / 'dm/mac/pack_app.py', out, '--host', host, '--patched', patched, '--romfs', rfs.source(game), '--msl', lib, '--tables', g.table('shader_map.tsv').parent,
+            '--font', font, '--title-id', f'{app:016X}', '--name', name, '--bundle-id', bundle_id, '--lang', lang, '--sign', sign or '-']
++    opus = mac_opus_root(env, g.id)
++    if opus: cmd += ['--opus-license', opus / 'COPYING']
+     split_pairs = work / 'shader/pso_pairs.tsv'   # the split's copy of pso_pairs.tsv, for a profile without the table (as mac_run's DM_PSO_PAIRS)
+     for opt, v in (('--version', version), ('--category', g.get('app_category')), ('--marker', g.get('romfs_marker')), ('--aoc', aoc), ('--icon', icon),
+                    ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
