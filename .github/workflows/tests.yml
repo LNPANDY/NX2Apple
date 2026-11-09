@@ -356,6 +356,8 @@ jobs:
       # Pure Python: the Windows toolchain, IPA and shim logic with the system calls mocked; the few tests that need PySide6 skip without it
       - name: Engine (tools/engine.py sync, issue #214; some tests read engine/)
         run: python tools/engine.py sync
+      - name: Install the Python packages the Windows build imports
+        run: "python -m pip install --only-binary=:all: lz4==4.4.5 capstone==5.0.9 unicorn==2.1.4"
       - name: Tests
         run: python -m unittest discover -s frontend-qt/tests -v
 

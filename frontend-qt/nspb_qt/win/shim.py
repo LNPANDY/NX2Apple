@@ -71,6 +71,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
     _XCRUN = os.path.join(_PKG, 'xcrun_shim.py')
     _BUILD_APP = os.path.join(_PKG, 'build_app.py')
+    _OODLE_EMU = os.path.join(_PKG, 'oodle_emu.py')
 
     # the package root goes on sys.path so `import toolchain` / `import xcrun_shim` resolve, and
     # so `import nspb_qt.win` works from a child that wants the whole package
@@ -793,6 +794,9 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         base = head.rsplit('/', 1)[-1].lower()
         if base in ('xcrun', 'xcrun.exe'):
             return _resolve(args[1:]) or [sys.executable, _XCRUN] + args[1:]
+        if base in ('oodle_emu.py', 'nspb_oodle_host', 'nxw_oodle_host'):
+            py_exe = os.environ.get('NSPB_PYTHON') or sys.executable
+            return [py_exe, _OODLE_EMU] + args[1:]
         if base == 'dmsh_xlate' and '/dmsh_xlate_bin/' in head:
             # an absolute path, not `which`: a .NET SDK the app installed is not on PATH
             import toolchain as tc

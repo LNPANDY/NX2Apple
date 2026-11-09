@@ -933,11 +933,12 @@ class SharedShellParityTests(unittest.TestCase):
                 self.stdout = io.StringIO(
                     'Processing ./wheels/lz4-4.3.3.whl\n'
                     'Processing ./wheels/capstone-5.0.3.whl\n'
+                    'Processing ./wheels/unicorn-2.1.4.whl\n'
                     'Processing ./wheels/fonttools-4.55.0.whl\n'
                     'Processing ./wheels/zbic-0.1.0.whl\n'
                     'Processing ./wheels/backports_zstd-1.0.0.whl\n'
                     'Processing ./wheels/nsz-4.6.1.whl\n'
-                    'Successfully installed lz4 capstone fonttools zbic backports.zstd nsz\n'
+                    'Successfully installed lz4 capstone unicorn fonttools zbic backports.zstd nsz\n'
                 )
                 self.returncode = 0
 
