@@ -172,7 +172,7 @@ import NXModel
         ]
     }
 
-    @MainActor private func measure(_ scenario: Scenario, _ lang: Lang) throws -> [LauncherControlSample] {
+    @MainActor private func measure(_ scenario: Scenario, _ lang: Lang, category: SettingsCategory = .general) throws -> [LauncherControlSample] {
         NSApplication.shared.setActivationPolicy(.accessory)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("control-width-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -182,7 +182,7 @@ import NXModel
         try scenario.set(modelStores, library, directory)
         model.lang = lang
         let samples = Samples()
-        let view = LauncherView(stores: modelStores, library: library, initialPage: scenario.page, activeBuildID: nil, performStartupChecks: false,
+        let view = LauncherView(stores: modelStores, library: library, initialPage: scenario.page, settingsCategory: category, activeBuildID: nil, performStartupChecks: false,
                                search: nil, olderTools: [], manageOpen: false, padRing: false)
             .environment(\.measuresLauncherControls, true)
             .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }
@@ -202,7 +202,8 @@ import NXModel
         let keys = ["repoPath", "depsExpanded", "buildTarget", "installDevice", "signingTeam", "buildOutputDirectory", "autoUpdateRepo", "exportIPA", "sendWhere"]
         for scenario in scenarios {
             for lang in Lang.all {
-                let samples = try measure(scenario, lang)
+                // Settings has four parts (General, Library, Controls, Tools) and shows one: the page is every part in turn
+                let samples = scenario.page == .settings ? try SettingsCategory.allCases.flatMap { try measure(scenario, lang, category: $0) } : try measure(scenario, lang)
                 let at = "\(lang), \(scenario.name)"
                 XCTAssertGreaterThanOrEqual(samples.count, scenario.atLeast, "\(at): the page showed fewer controls than expected")
                 for (index, sample) in samples.enumerated() {

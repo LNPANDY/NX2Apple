@@ -1212,6 +1212,7 @@
   "library.ready": "可在 Mac 上运行",
   "library.readyIOS": "可用于 iPhone",
   "library.rebuild": "用当前工具重新构建…",
+  "library.rebuildAll": "全部重新构建（%d）",
   "library.rebuildShort": "重新构建",
   "library.remove": "从游戏库移除",
   "library.removeFolder": "移除",

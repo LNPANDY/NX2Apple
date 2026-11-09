@@ -1193,6 +1193,7 @@
   "library.ready": "Bereit auf dem Mac",
   "library.readyIOS": "Bereit für iPhone",
   "library.rebuild": "Mit aktuellen Werkzeugen neu bauen …",
+  "library.rebuildAll": "Alle neu bauen (%d)",
   "library.rebuildShort": "Neu bauen",
   "library.remove": "Aus Sammlung entfernen",
   "library.removeFolder": "Entfernen",

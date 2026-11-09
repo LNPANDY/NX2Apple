@@ -9,7 +9,7 @@ import NXModel
 @MainActor final class PreflightSettingTests: IsolatedDefaultsTestCase {
     func testTheSettingIsInEveryLanguage() throws {
         let all = LocalizationFiles.load()
-        XCTAssertEqual(all.count, 7)
+        XCTAssertGreaterThanOrEqual(all.count, 7)   // the seven the launcher shipped with, and any language added since
         for (code, texts) in all {
             for key in ["settings.preflightAfterBuild", "settings.preflightAfterBuildNote", "stage.preflight"] {
                 XCTAssertFalse(texts[key, default: ""].isEmpty, "\(code): \(key)")

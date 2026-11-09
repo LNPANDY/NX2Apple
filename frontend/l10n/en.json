@@ -1211,6 +1211,7 @@
   "library.ready": "Ready on Mac",
   "library.readyIOS": "Ready for iPhone",
   "library.rebuild": "Rebuild with current tools…",
+  "library.rebuildAll": "Rebuild all (%d)",
   "library.rebuildShort": "Rebuild",
   "library.remove": "Remove from collection",
   "library.removeFolder": "Remove",

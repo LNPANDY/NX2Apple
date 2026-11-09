@@ -19,7 +19,7 @@ final class PersonalDefaultsTests: XCTestCase {
     }
 
     func testRoundTripAndReset() {
-        let suite = UserDefaults(suiteName: "personal-defaults-" + UUID().uuidString)!
+        let suite = TestDefaults.make("personal-defaults")
         var defaults = PersonalDefaults(values: ["DM_FULLSCREEN": "1"])
         defaults.save(suite)
         XCTAssertEqual(PersonalDefaults.load(suite), defaults)

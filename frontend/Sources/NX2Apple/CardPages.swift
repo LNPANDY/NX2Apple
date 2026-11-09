@@ -32,9 +32,9 @@ struct CardPages: View {
     var onRunSetup: (() -> Void)?   // the guided first-run setup, again (nil where there is none)
     var controlChanges = 0
     var padMerge: Binding<Bool> = .constant(false)   // "All controllers are player 1" (ControlLayout.padMerge)
+    @Binding var settingsCategory: SettingsCategory   // the part of Settings shown (kept by the launcher, so a test opens any of them)
     @State private var extrasOpen = false
     @State private var logOpen = false
-    @State private var settingsCategory: SettingsCategory = .general
     @EnvironmentObject var loc: Localizer
 
     var body: some View {

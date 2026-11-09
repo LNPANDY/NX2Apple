@@ -130,9 +130,10 @@ final class ArtworkPanelTests: XCTestCase {
         return shown
     }
 
-    @MainActor private func bitmap<V: View>(size: NSSize, _ view: V) throws -> NSBitmapImageRep {
+    @MainActor private func bitmap<V: View>(size: NSSize, dark: Bool = false, _ view: V) throws -> NSBitmapImageRep {
         NSApplication.shared.setActivationPolicy(.accessory)
         let host = NSHostingView(rootView: view)
+        if dark { host.appearance = NSAppearance(named: .darkAqua) }   // the launcher follows the system: a test of the dark page must not depend on the Mac's setting
         let window = OffscreenWindow(size: size)
         window.contentView = host
         window.orderFront(nil)
@@ -168,7 +169,7 @@ final class ArtworkPanelTests: XCTestCase {
         await editor.load()
 
         let size = NSSize(width: 1280, height: 667)
-        let rep = try bitmap(size: size, LauncherView(stores: stores, library: fixture.library, performStartupChecks: false, artworkEditor: editor, artworkStore: store))
+        let rep = try bitmap(size: size, dark: true, LauncherView(stores: stores, library: fixture.library, performStartupChecks: false, artworkEditor: editor, artworkStore: store))
 
         let scaleY = CGFloat(rep.pixelsHigh) / size.height
         let sampleX = Int(CGFloat(rep.pixelsWide) * 0.25)

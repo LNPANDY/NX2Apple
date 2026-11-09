@@ -4,10 +4,7 @@ import XCTest
 
 @MainActor final class StickDeadzoneStoreTests: XCTestCase {
     private func defaults() -> UserDefaults {
-        let name = "StickDeadzoneStoreTests-\(UUID().uuidString)"
-        let d = UserDefaults(suiteName: name)!
-        addTeardownBlock { d.removePersistentDomain(forName: name) }
-        return d
+        TestDefaults.make("StickDeadzoneStoreTests")
     }
 
     func testChangesPersistAndAResetRemovesTheEntry() {

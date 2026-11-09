@@ -64,7 +64,7 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
         game.artwork.hero = ArtworkChoice(source: .banner)
         let list = items(game, folder: true, log: true)
         XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "rename", "reveal", "log", "freeSpace", "supported", "remove", "delete"])
-        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "cheats.menu", "library.changeArtwork", "library.rename", "install.reveal", "library.showLog", "free.menu", "library.remove", "delete.menu"]
+        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "cheats.menu", "library.changeArtwork", "library.rename", "install.reveal", "library.showLog", "free.menu", "supported.menu", "library.remove", "delete.menu"]
             .map { L10n.string($0, .en) })
         XCTAssertTrue(list.allSatisfy(\.enabled))
         XCTAssertEqual(list.last?.destructive, true)
@@ -140,7 +140,7 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
     func testTheControllerLandsOnTheFirstUsableRow() throws {
         let game = try readyGame()
         XCTAssertEqual(ManagePad.firstFocus(items(game)), "manage.rebuild")
-        XCTAssertEqual(ManagePad.firstFocus(items(LibraryGame(titleID: titleID, name: "Hades"))), "manage.saves", "Build again is off: the next row")
+        XCTAssertEqual(ManagePad.firstFocus(items(LibraryGame(titleID: titleID, name: "Hades"))), "manage.options", "Build again is off: the next row is Launch options, which every game has")
         XCTAssertNil(ManagePad.firstFocus([]))
     }
 

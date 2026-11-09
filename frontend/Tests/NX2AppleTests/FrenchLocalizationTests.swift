@@ -19,6 +19,7 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
         "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx", "launch.opt.DM_SCREEN_ASPECT.0", "key.tab",
         "switch2.badge",   // the console's name
+        "ios.ui.switch2Badge",   // the console's name
         // Steam Controller names retained in French.
         "controls.steam.title", "controls.steam.L4", "controls.steam.L5", "controls.steam.R4", "controls.steam.R5", "controls.steam.Guide",
         // Shell words shared by English and French.

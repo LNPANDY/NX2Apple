@@ -96,16 +96,12 @@ extension LauncherView {
                 HStack(spacing: 14) {
                     status(game, prominent: true)
                     if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
-                        Button { configureBuild(game) } label: {
-                            Label(loc.t("library.rebuildShort"), systemImage: "arrow.clockwise")
-                                .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
-                                .padding(.horizontal, 10).padding(.vertical, 4)
-                                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
-                                .contentShape(Capsule())
+                        // Never started by itself: the player adds the game, or every game built with older tools, to the build queue (#944)
+                        heroRebuildButton(loc.t("library.rebuildShort"), id: "hero.rebuild", games: [game])
+                        let others = olderToolsGames
+                        if others.count > 1 {
+                            heroRebuildButton(String(format: loc.t("library.rebuildAll"), others.count), id: "hero.rebuildAll", games: others)
                         }
-                        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(m.running || game.inputs["base", default: []].isEmpty)
-                        .help(loc.t("library.olderToolsHelp"))
-                        .padTarget("hero.rebuild", scope: "main", radius: 12) { if !m.running { configureBuild(game) } }
                     }
                 }
                 Text(game.displayName(loc.lang)).font(.manrope(min(68, width * 0.052), .heavy))
@@ -263,6 +259,28 @@ extension LauncherView {
         .frame(height: height)
         .accessibilityLabel(loc.t(symbol == "chevron.left" ? "library.scrollBack" : "library.scrollForward"))
         .transition(.opacity)
+    }
+
+    /// The games built with older tools that can be built again from the files the library holds.
+    var olderToolsGames: [LibraryGame] {
+        library.games.filter { toolsAge.older.contains($0.id) && !$0.inputs["base", default: []].isEmpty }
+    }
+
+    /// An amber-outlined pill that adds games to the build queue: one game, or all that were built with older tools. It starts nothing itself.
+    func heroRebuildButton(_ title: String, id: String, games: [LibraryGame]) -> some View {
+        let add = {
+            if !m.running { stores.queue.enqueue(games.map { QueueEntry(game: $0, engineID: engine.selection.engineID) }) }
+        }
+        return Button(action: add) {
+            Label(title, systemImage: "arrow.clockwise")
+                .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(m.running || games.isEmpty)
+        .help(loc.t("library.olderToolsHelp"))
+        .padTarget(id, scope: "main", radius: 12, activate: add)
     }
 
     func status(_ game: LibraryGame, prominent: Bool = false) -> some View {

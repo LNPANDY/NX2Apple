@@ -72,7 +72,7 @@ final class SettingsAndOptionsStructureTests: IsolatedDefaultsTestCase {
     }
 
     func testConsoleKeepsItsOwnDarkSurface() throws {
-        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/NX2Apple")
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Sources/NX2Apple")
         for file in ["ConsoleView.swift"] {
             XCTAssertTrue(try String(contentsOf: root.appendingPathComponent(file)).contains(".preferredColorScheme(.dark)"), file)
         }

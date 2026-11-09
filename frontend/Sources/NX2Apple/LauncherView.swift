@@ -14,6 +14,7 @@ struct LauncherView: View {
     @ObservedObject private var engine: EngineSyncStore   // the engine: the sync banner, and the checks that follow a sync
     @StateObject var library: GameLibrary
     @State var page: LauncherPage = .library
+    @State var settingsCategory: SettingsCategory = .general   // the part of Settings shown
     @State private var search = ""
     @State private var searching = false
     @State private var consolePrompt = false
@@ -62,7 +63,7 @@ struct LauncherView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) var reduceMotion
 
-    init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library,
+    init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library, settingsCategory: SettingsCategory = .general,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
          enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false,
@@ -92,6 +93,7 @@ struct LauncherView: View {
         _library = StateObject(wrappedValue: library)
         _recorder = StateObject(wrappedValue: recorder ?? BuildRecorder(stores: stores, library: library, activeBuildID: activeBuildID))
         _page = State(initialValue: initialPage)
+        _settingsCategory = State(initialValue: settingsCategory)
         self.performStartupChecks = performStartupChecks
     }
 
@@ -194,7 +196,7 @@ struct LauncherView: View {
                           sticks: stores.sticks, saveSettings: stores.saveSettings, players: stores.players,
                           library: library, diagnostics: stores.diagnostics, onViewGame: { page = .library }, onOpenSettings: { page = .settings },
                           onChooseLibraryFolder: chooseLibraryFolder, onOpenControls: { controlsOpen = true }, onOpenControllers: { controllerSheet = true }, onRunSetup: onRunSetup, controlChanges: controls.changeCount,
-                          padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }))
+                          padMerge: Binding(get: { controls.padMerge }, set: { setPadMerge($0) }), settingsCategory: $settingsCategory)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             if m.running && page == .settings { activityBar }
