@@ -335,6 +335,12 @@
             "value": "A Switch 2 game. It needs a lot of memory and may not start on every device."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un juego de Switch 2. Necesita mucha memoria y puede que no arranque en todos los dispositivos."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -351,6 +357,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Switch 2のゲームです。多くのメモリを使うため、すべてのデバイスで起動するとは限りません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2 게임입니다. 메모리를 많이 사용하며 일부 기기에서는 시작되지 않을 수 있습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um jogo de Switch 2. Ele precisa de muita memória e pode não iniciar em todos os dispositivos."
           }
         },
         "sv": {
@@ -4605,6 +4623,12 @@
             "value": "Downsample HDR textures"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reducir las texturas HDR"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -4621,6 +4645,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "HDRテクスチャを縮小"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HDR 텍스처 축소"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzir as texturas HDR"
           }
         },
         "sv": {
@@ -8875,6 +8911,12 @@
             "value": "Loads each program's shader libraries in the background, whether a draw uses them or not."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carga en segundo plano las bibliotecas de shaders de cada programa, las use o no un dibujado."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -8891,6 +8933,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "描画で使うかどうかに関わらず、各プログラムのシェーダーライブラリをバックグラウンドで読み込みます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그리기에서 쓰든 안 쓰든 각 프로그램의 셰이더 라이브러리를 백그라운드에서 불러옵니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carrega em segundo plano as bibliotecas de shaders de cada programa, quer um desenho as use ou não."
           }
         },
         "sv": {
@@ -11801,6 +11855,12 @@
             "value": "Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa Joy-Con 2 y Pro Controller 2 por Bluetooth: mantén pulsado Sync en uno durante el juego para emparejarlo. macOS pide una vez el acceso a Bluetooth."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -11817,6 +11877,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Joy-Con 2 と Pro Controller 2 を Bluetooth で使えます。ゲーム中にコントローラーの Sync ボタンを長押しするとペアリングされます。macOS は Bluetooth へのアクセスを一度だけ確認します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joy-Con 2와 Pro Controller 2를 블루투스로 사용합니다. 게임 중에 하나의 Sync를 길게 눌러 페어링하세요. macOS가 블루투스 접근을 한 번 묻습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa Joy-Con 2 e Pro Controller 2 por Bluetooth: segure Sync em um deles durante o jogo para pareá-lo. O macOS pede o acesso ao Bluetooth uma vez."
           }
         },
         "sv": {
@@ -13767,6 +13839,12 @@
             "value": "Saves memory on devices without hardware BC textures, with slightly less precise HDR textures."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahorra memoria en dispositivos sin texturas BC por hardware, con texturas HDR algo menos precisas."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -13783,6 +13861,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "ハードウェアBCテクスチャのない端末でメモリを節約します。HDRテクスチャの精度は少し下がります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하드웨어 BC 텍스처가 없는 기기에서 메모리를 아끼며, HDR 텍스처의 정밀도가 약간 낮아집니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economiza memória em dispositivos sem texturas BC em hardware, com texturas HDR um pouco menos precisas."
           }
         },
         "sv": {
@@ -14197,6 +14287,12 @@
             "value": "Shader prefetch"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precarga de shaders"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -14213,6 +14309,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "シェーダーのプリフェッチ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셰이더 미리 불러오기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pré-carga de shaders"
           }
         },
         "sv": {
@@ -14883,6 +14991,12 @@
             "value": "Switch 2"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -14896,6 +15010,18 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2"
+          }
+        },
+        "pt-BR": {
           "stringUnit": {
             "state": "translated",
             "value": "Switch 2"
@@ -14929,6 +15055,12 @@
             "value": "Switch 2 controllers"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mandos de Switch 2"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -14945,6 +15077,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "Switch 2 コントローラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switch 2 컨트롤러"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controles do Switch 2"
           }
         },
         "sv": {
@@ -15295,6 +15439,12 @@
             "value": "The size of the on-screen controls. Controls move toward medium when a size does not fit the screen."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El tamaño de los controles en pantalla. Si un tamaño no cabe en la pantalla, los controles se acercan al mediano."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -15311,6 +15461,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "画面上のコントロールの大きさです。画面に収まらない大きさは、中くらいに近づきます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 속 컨트롤의 크기입니다. 크기가 화면에 맞지 않으면 컨트롤이 보통 크기에 가까워집니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O tamanho dos controles na tela. Se um tamanho não couber na tela, os controles se aproximam do médio."
           }
         },
         "sv": {
@@ -16813,6 +16975,12 @@
             "value": "Where the left stick of the on-screen controls sits."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde está la palanca izquierda de los controles en pantalla."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -16829,6 +16997,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "画面上のコントロールの左スティックの位置です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 속 컨트롤에서 왼쪽 스틱이 놓이는 위치입니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde fica o analógico esquerdo dos controles na tela."
           }
         },
         "sv": {

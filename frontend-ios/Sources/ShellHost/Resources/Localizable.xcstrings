@@ -3087,6 +3087,12 @@
             "value": "The folder picker could not open here. Open the app on its own and try again."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El selector de carpetas no se pudo abrir aquí. Abre la app por separado e inténtalo de nuevo."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3103,6 +3109,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "ここではフォルダ選択を開けませんでした。アプリを単独で開いて、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서는 폴더 선택기를 열 수 없습니다. 앱을 단독으로 열고 다시 시도하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O seletor de pastas não pôde ser aberto aqui. Abra o app sozinho e tente de novo."
           }
         },
         "sv": {
