@@ -78,15 +78,22 @@ enum ConsoleInput {
                     // The question to leave is drawn over what it was asked from, which stays in view but takes no input.
                     let confirming = state.presentedSheet?.isQuestion == true
                     let shown = confirming ? state.sheets.dropLast().last : state.presentedSheet
+                    // A panel opened over a page of its own (a game's options over the library) keeps that page under it, as the one
+                    // view: the page that was shown is the page under the panel, so nothing fades out and in (a flash) at the change.
+                    let under = shown.flatMap { sheet in sheet.isFullScreen ? nil : state.sheets.last { $0.isFullScreen } }
+                    let page = (shown?.isFullScreen == true ? shown : nil) ?? under
                     Group {
-                        if let sheet = shown, sheet.isFullScreen {
-                            // a page of its own over the whole screen, not a panel at the side
-                            fullPage(sheet, compact: compact)
-                                .padScope(sheet.scope, pad)
+                        if let page {
+                            // a page of its own over the whole screen, not a panel at the side; without input while a panel is over it
+                            fullPage(page, compact: compact)
+                                .padScope(page.scope, pad)
                                 .frame(width: geometry.size.width, height: geometry.size.height)
                                 .background(LauncherPalette.background)
+                                .allowsHitTesting(under == nil).accessibilityHidden(under != nil)
+                                .id(page.scope)
                                 .transition(.opacity)
-                        } else if let sheet = shown {
+                        }
+                        if let sheet = shown, !sheet.isFullScreen {
                             Color.black.opacity(0.5).ignoresSafeArea().accessibilityHidden(true)
                             // On a notched Mac the console covers the whole screen, housing included: the panel keeps clear of it, no
                             // wider than the room beside the housing and its content starting below it (ConsoleNotch).
