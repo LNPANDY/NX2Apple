@@ -31,7 +31,7 @@ Issue: LNPANDY/NX2Apple#483
  7 files changed, 29 insertions(+), 8 deletions(-)
 
 diff --git a/dm/games/README.md b/dm/games/README.md
-index d0032043..76f315fe 100644
+index 768c38df..84096ce4 100644
 --- a/dm/games/README.md
 +++ b/dm/games/README.md
 @@ -243,6 +243,7 @@ One row per profile; the notes are each profile's `README.md`.
@@ -73,7 +73,7 @@ index cb28a9e2..ab8b5a33 100644
                  ('enc_thread', 'ENC_THREAD'), ('draw_barriers', 'DRAW_BARRIERS_GAME'), ('game_args', 'ARGS'), ('game_env', 'ENV')]
          def val(macro):   # the header's C spelling → the file's plain spelling
 diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
-index 3e4cf88c..0ee8e9c1 100644
+index 4b9d493a..879e3576 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
 @@ -96,6 +96,8 @@ typedef struct {

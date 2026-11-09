@@ -278,7 +278,7 @@ index 00000000..f70e1160
 +        c = b.find(CTL_MAGIC, c + 4)
 +    return out, bad
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index 30057b39..a62eff10 100644
+index 2bc5b31c..1c598378 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
 @@ -45,6 +45,8 @@
@@ -290,7 +290,7 @@ index 30057b39..a62eff10 100644
  # Code area: 0x30 header + (graphics) 0x50 SPH + instructions; header magic 0x12345678 for graphics, 0x12345679 for compute. The control section starts with 0x98761234, +0x704 = code area length,
  #   +0x700 = start of the c1 constant segment within the code area; for compute +0x748 thread group xyz (u32 ×3), +0x754 shared memory bytes (checked one by one against PC reflection on D2R's 22 compute shaders).
  # Stage: BNSH uses the stage slot; BAHS uses bits 10..13 of SPH word 0 (1 vertex 2 hull 3 domain 4 geometry 5 pixel), and a compute header means compute.
-@@ -1922,13 +1924,16 @@ def raw_shaders(d, label, known=()):
+@@ -1930,13 +1932,16 @@ def raw_shaders(d, label, known=()):
      main+0x1548014 / +0x1548034); after it lies another vertex shader's code area, whose first 0x100 bytes pass the header and length checks, and that area is the vertex shader main+0x4a2d290 takes from
      before itself (main+0x1548358 / +0x1548374, 0x324 bytes from the first). Compute code areas have no header (SDK 10), so the stage is glslc_stage's, and a headerless one is checked by its length only, never
      across a control section. known: the control sections the other readers took from this main (Celeste's MonoGame effect in main holds some outside any GLSLC output or BNSH file), left out.
@@ -309,7 +309,7 @@ index 30057b39..a62eff10 100644
      if not ctls: return []
      rel, code_of, cset = rel_targets(d), {}, set(ctls)
      for s, c in rel.items():
-@@ -1937,9 +1942,9 @@ def raw_shaders(d, label, known=()):
+@@ -1945,9 +1950,9 @@ def raw_shaders(d, label, known=()):
      out = []
      for c in ctls:
          nctl, n = struct.unpack_from('<I', d, c + 0x20)[0], struct.unpack_from('<I', d, c + 0x704)[0]
@@ -321,7 +321,7 @@ index 30057b39..a62eff10 100644
              code = d[k:k + n]; st = glslc_stage(ctl, code) if k >= 0 and CTL_MAGIC not in code else None
              if st and not check(label, st, ctl, code): out.append((f'{label}#RAW@{c:#x}', st, ctl, code)); why = None; break
          if why: print(f'[RED] {label} control section @{c:#x}: {why}; left out', flush=True)
-@@ -2034,6 +2039,46 @@ def frostbite_shaders(path, rel, ents, out):
+@@ -2042,6 +2047,46 @@ def frostbite_shaders(path, rel, ents, out):
              if why: print(f'[RED] {label}: {why}; left out', flush=True); continue
              out.append((label, st, ctl, code))
  
@@ -368,7 +368,7 @@ index 30057b39..a62eff10 100644
  def smash_arc_jobs(files, parts=128):
      """Super Smash Bros. Ultimate's data.arc (17.6 GB, smash_arc.py): the game's current files, in ranges of about equal stored size. → ([(path, rel, entries), …], the paths taken)"""
      import smash_arc
-@@ -2068,7 +2113,7 @@ _OODLE = None
+@@ -2076,7 +2121,7 @@ _OODLE = None
  def oodle_ask(comp, n):
      """The game's own decoder: OodleLZ_Decompress (Trinity's packs are Oodle Mermaid, Pokémon Legends: Arceus's GFPAK entries Oodle Kraken, and Oodle is linked into main), or LZ5_decompress_safe (DRAGON QUEST XI S's legacy Unreal paks):
      one Mac host per worker process in its tool mode (dm/host/hle_oodle.c, DM_OODLE_SERVE), fed over a pipe. DM_OODLE_HOST = the host, DM_OODLE_MODULES = the rewritten modules it loads
@@ -377,7 +377,7 @@ index 30057b39..a62eff10 100644
      global _OODLE
      if _OODLE is None:
          import tempfile
-@@ -2788,11 +2833,12 @@ def pixel_input_cover(shaders):
+@@ -2798,11 +2843,12 @@ def pixel_input_cover(shaders):
          k = min(ins, key=lambda k: (-len(ins[k] & left), k)); cover.append(k); left -= ins[k]
      return cover
  
@@ -392,7 +392,7 @@ index 30057b39..a62eff10 100644
  def separable_pairs(keys):
      """Single-stage programs (13 Sentinels: each GLSLC output becomes a program with one stage, and BindProgram's stage bits combine vertex and pixel programs per draw; Unreal combines its shaders per draw
      from the pipeline state) have their real pairs only at draw time. vs_pad uses only the union of the locations the paired pixel shaders read, so every single-stage vertex shader is paired with
-@@ -2967,6 +3013,9 @@ def scan_file_in(args):
+@@ -2977,6 +3023,9 @@ def scan_file_in(args):
      if len(args) > 2 and args[2][0] == FB_CAS:   # CompiledBytecode resources of a Frostbite cas file (frostbite_jobs)
          frostbite_shaders(path, rel, args[2][1], found)
          return rel, uniq_keys(found), var_pairs(found), trees
@@ -402,7 +402,7 @@ index 30057b39..a62eff10 100644
      if len(args) > 2 and head[:4] == PKZL:   # entries of a PlatinumGames PKZ (pkz_jobs)
          pkz_shaders(path, rel, args[2], found)
          return rel, uniq_keys(found), var_pairs(found), trees
-@@ -3156,8 +3205,9 @@ def main():
+@@ -3166,8 +3215,9 @@ def main():
      ah_jobs, arhs = arh_jobs(files)   # Monolith's ARH1/ARD archives and embedded XBC1/HCPS programs
      fb_jobs, fbs = frostbite_jobs(files)   # EA SPORTS FC 27's Frostbite bundles, Oodle Leviathan decoded by the game's own decoder in the Mac host
      pd_jobs, pdats = pdat_jobs(files)   # Kirby Air Riders' PDAT archives: the PMAP records in byte ranges
@@ -415,10 +415,10 @@ index 30057b39..a62eff10 100644
          n = len(big) + len(files)
          results += pooled(ex, big, n) + pooled(ex, files, n, len(big), chunk=16)
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 5deb36c3..401a65b7 100644
+index 7bb287b2..bff2ca20 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
-@@ -265,6 +265,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+@@ -273,6 +273,13 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
  - **Fix:** `dm/gfx/tools/frostbite.py` reads `layout.toc`'s install chunks (a DbObject), every toc's bundle entries, the manifests and the blocks; `shader_split.py` (`frostbite_jobs`, `frostbite_shaders`) decodes each `CompiledBytecode` resource with the game's own Oodle in the Mac host's tool mode, as for Trinity packs, and leaves the `.toc` and `.cas` files out of the loose scan. `profile_guess.py` turns the Oodle decoder on for a RomFS with `Data/layout.toc`. Data and Patch are read alike: keys are content hashes, so a base copy the update replaced only adds an unused shader. The resources name no vertex / pixel pairs (Frostbite pairs them in its pipeline data), so the tables have none.
  - **Found on:** [EA SPORTS FC 27](../../dm/games/0100C49025D3E000/README.md) (Frostbite 2025.1.2): 83,325 bundles, 10,401 resources, 10,342 shaders (3,738 vertex, 3,306 pixel, 3,298 compute), 35 MB stored; the split takes about 6 s.
  
@@ -432,7 +432,7 @@ index 5deb36c3..401a65b7 100644
  ### SPK shader package in an MT Framework ARC
  
  - **How it is stored:** The Great Ace Attorney Chronicles keeps its one shader package, `sc\NX_64\root` (`SPK\0`, type hash `0x02358e1a`) in `nativeNXx64/sa/NX_64/root.arc` ([01](../agents/01-extract.md)). After the package's tables every shader is a code area followed directly by its control section, back to back to the end of the file: 230 vertex shaders, then 230 pixel shaders.
-@@ -702,6 +709,7 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+@@ -712,6 +719,7 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
  - **Cause:** a game that builds one NVN program per GLSLC output and combines vertex and pixel programs per draw with `BindProgram` stage bits has its real pairs only at draw time, so the offline build cannot know which pixel shaders a vertex shader must feed.
  - **Fix:** the composite-program path ([Programs bound per stage](rendering.md#programs-bound-per-stage)) does all the pairing at replay. When every pixel shader input is a plain `float4` at fixed locations, `shader_split.py` pairs every vertex shader with a *cover*: the fewest pixel shaders whose inputs together are every input any pixel shader reads. `vs_pad` then gives each vertex shader all of them, and any vertex / pixel combination links.
  - **Found on:** [13 Sentinels: Aegis Rim](../../dm/games/01003FC01670C000/README.md): 838 `ProgramSetShaders` at startup; every pixel shader input is a plain `float4` at locations 1–9 (the SPH input map, words 6–13, matches the translated MSL inputs for all 375 pixel shaders), so the cover is one shader.
@@ -441,10 +441,10 @@ index 5deb36c3..401a65b7 100644
  ### Unwritten components of a written output start as (0, 0, 0, 1)
  
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 2d88a224..fd30032e 100755
+index 2a5bec90..f93078af 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1046,7 +1046,7 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
+@@ -1047,7 +1047,7 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
      S = pg.shader_sources(mods['main']['imports'], F['glsl_src'], [m for m in sorted({*keep, *nro_add}, key=pg.load_order) if 'glslcCompile' in mods[m]['exports']], rom['mags']['SPIR-V'],
                            rom['exts'].get('.pak', 0) if F.get('main_markers', set()) & {'Unreal', 'Unreal 4'} else 0, rom['mags']['Trinity pack'], gl_names=F.get('gl_names', 0),
                            gl_src=F.get('gl_src', 0), gl_files=sum(rom['exts'].get(e, 0) for e in pg.GL_FILES), oodle_pkz=rom['mags']['PlatinumGames PKZ'],   # the manifest has no name tables: every PKZ counts
@@ -453,7 +453,7 @@ index 2d88a224..fd30032e 100755
      vulkan, gl = S['graphics'][0] == 'vulkan', S['graphics'][0] == 'gl'
      notes = []
      if not vulkan and not gl and 'nvnBootstrapLoader' not in mods['main']['imports']: notes.append('main imports neither nvnBootstrapLoader nor Vulkan functions nor OpenGL through EGL: the host implements only NVN, Vulkan and OpenGL')
-@@ -1062,6 +1062,7 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
+@@ -1063,6 +1063,7 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
      if rom['mags']['UnityFS'] or 'Unity IL2CPP' in F['markers']: notes.append('Unity: the shaders are Shader objects in UnityFS bundles and data.unity3d, which shader_split.py reads through unityfs.py (written for Unity 2020.3\'s Switch format, also read for 2017.4, 2018.3, 2019.4, 2021.2, 2021.3, 2022.3, 6000.0 and 6000.3; check other Unity versions first)')
      if F['glslc']: notes.append(f'main has {F["glslc"]} GLSLC compiler output magics (0x19866891): shader_split.py takes those that are whole outputs (13 Sentinels and the KTGL games compile their shaders into main; Unity\'s player has 11 of its own)')
      if rom['mags']['Trinity pack']: notes.append('Trinity packs (Game Freak, arc/data.trpfs with its index data.trpfd): the shaders are BNSH inside Oodle Mermaid streams; shader_split.py decodes them with the game\'s own OodleLZ_Decompress in the Mac host, which dm/host/hle_oodle.c finds by the library\'s name string')

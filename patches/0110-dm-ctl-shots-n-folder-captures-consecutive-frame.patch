@@ -15,15 +15,15 @@ Upstream-Status: forwarded seedds/nxnative#1400
 Reason: Diagnostics used to find the Ezio Collection's one-frame flicker: consecutive-frame capture and a run-time DM_NVN_VIS_ALL
 Issue: LNPANDY/NX2Apple#483
 ---
- dm/gfx/nvn/nvn_mtl.m | 6 +++++-
+ dm/gfx/nvn/nvn_mtl.m | 7 +++++--
  dm/host/hle_hid.c    | 8 +++++++-
- 2 files changed, 12 insertions(+), 2 deletions(-)
+ 2 files changed, 12 insertions(+), 3 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 10c5869e..86d86e39 100644
+index e99f6627..420e35b0 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -2121,11 +2121,15 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+@@ -2257,13 +2257,16 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
      // MTLBuffer.contents may autorelease its receiver; keep that lifetime inside the completed copy.
      @autoreleasepool {
      int n = r->n; post_op *ops = r->ops; seg_clk *sc = r->sc; uint32_t seg_last = r->seg_last;
@@ -32,14 +32,16 @@ index 10c5869e..86d86e39 100644
 +    const char *va = getenv("DM_NVN_VIS_ALL"); int vis_all = va && atoi(va);
      for (int i = 0; i < n; i++) {
          if (ops[i].kind == 1) continue;   // A terminal release publishes after every earlier GPU write has landed.
-         else if (ops[i].kind == 3) {   // Samples passed: the sum of all slots since the reset
-             vis_list *l = ops[i].vis; uint64_t sum = 0;
-             for (int k = 0; k < l->n; k++) { sum += ((const uint64_t *)((__bridge id<MTLBuffer>)l->s[k].buf).contents)[l->s[k].slot]; CFRelease(l->s[k].buf); }
-+            if (vis_all && sum < 0x100000) sum = 0x100000;
-             free(l); uint64_t rec[2] = {sum, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec);
+         else if (ops[i].kind == 3) {   // Samples passed: the running total, in submission order
+             if (ops[i].mode == VIS_ZERO) { g_vis_acc = 0; continue; }
+             vis_list *l = ops[i].vis;
+             for (int k = 0; k < l->n; k++) { g_vis_acc += ((const uint64_t *)((__bridge id<MTLBuffer>)l->s[k].buf).contents)[l->s[k].slot]; CFRelease(l->s[k].buf); }
+-            free(l); if (ops[i].mode == VIS_REPORT) { uint64_t rec[2] = {g_vis_acc, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec); }
++            free(l); if (ops[i].mode == VIS_REPORT) { uint64_t rec[2] = {vis_all && g_vis_acc < 0x100000 ? 0x100000 : g_vis_acc, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec); }
          }
          else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
-@@ -14375,7 +14379,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
+         else { uint64_t t = rep_ticks(&ops[i], sc, seg_last, c0, c1), rec[2] = {(ops[i].type == 0 || ops[i].type == 0x10) && !dm_prof()->render_cond ? t : 0, t}; memcpy((void *)ops[i].addr, rec, sizeof rec); }   // render_cond: a timestamp report's counter field is 0, as on the GPU (see rc_value)
+@@ -15034,7 +15037,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
          c.pools, (unsigned long long)c.pool_adds, c.sview_nonnull, dl, (unsigned long long)da, c.c1_bufs, (unsigned long long)c.c1_alloc, (unsigned long long)c.c1_data);
  }
  // Screenshot on request (used by DM_NVN_SHOT_UI): dm_gfx_shot_at(k, path) = take a screenshot at the kth frame after the current present frame; due requests are checked at every frame's present
@@ -49,10 +51,10 @@ index 10c5869e..86d86e39 100644
  static pthread_mutex_t g_shotq_mu = PTHREAD_MUTEX_INITIALIZER;
  static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4]);
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index bf50c5b2..6dee6c66 100644
+index ebe65345..1e3dc402 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -215,7 +215,8 @@ void hid_keys_init(void) {
+@@ -219,7 +219,8 @@ void hid_keys_init(void) {
  }
  
  // DM_CTL=<file> (Mac, for driving a game step by step from a shell): the host reads the lines appended to the file (polled every 100 ms) and acts on each at once:
@@ -62,7 +64,7 @@ index bf50c5b2..6dee6c66 100644
  //   render passes of the next n frames as DM_NVN_PASSDUMP does (to stderr, the run's log), "texdump <path with %d>" saves the colour targets of the next frame as DM_NVN_TEXDUMP does,
  //   "env KEY=VALUE" sets a switch read at the time of use (DM_NVN_SNAPRAW for the next texdump), "cvarf <main offset> <value>" sets an Unreal float console variable
  //   (hle_fpslock.c dm_ctl_cvar_f32; "cvari" an int one), "peek <address> <count>" logs that many floats of guest memory, "memdump <address> <bytes> <path>" saves guest memory
-@@ -241,6 +242,11 @@ static void *ctl_main(void *arg) {
+@@ -245,6 +246,11 @@ static void *ctl_main(void *arg) {
                  if (!strncmp(line, "program ", 8)) { void dm_oe_execute(int index, const void *param, size_t n); LOG("DM_CTL: oe::ExecuteProgram(%d)", atoi(line + 8)); dm_oe_execute(atoi(line + 8), NULL, 0); continue; }
                  if (!strncmp(line, "webshot ", 8)) { void front_web_shot(const char *path); front_web_shot(line + 8); continue; }
                  if (!strncmp(line, "shot ", 5)) { dm_gfx_shot_at(1, line + 5); LOG("DM_CTL: screenshot of the next frame → %s", line + 5); continue; }
