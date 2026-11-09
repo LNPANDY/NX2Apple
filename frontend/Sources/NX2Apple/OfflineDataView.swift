@@ -23,6 +23,7 @@ struct OfflineDataView: View {
                 if inspecting { ProgressView().controlSize(.small) }
                 if !summary.isEmpty { Text(summary).font(.caption).foregroundStyle(.secondary) }
                 if !error.isEmpty { Text(error).font(.caption).foregroundStyle(.red) }
+                Text(t("offline.privacy")).font(.caption).foregroundStyle(.secondary)
                 Text(t("offline.warning"))
                     .font(.caption).foregroundStyle(.secondary)
             }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
@@ -61,10 +62,10 @@ struct OfflineDataView: View {
                 switch result {
                 case .success(let inventory):
                     path.wrappedValue = url.path
-                    summary = "\(inventory.files) files, " + ByteCountFormatter.string(fromByteCount: inventory.bytes, countStyle: .file)
+                    summary = String(format: t("offline.summary"), inventory.files, ByteCountFormatter.string(fromByteCount: inventory.bytes, countStyle: .file))
                     error = ""
                 case .failure(let failure):
-                    error = failure.localizedDescription
+                    error = (failure as? OfflineDataInventory.ValidationError)?.message(t) ?? failure.localizedDescription
                 }
             }
         }

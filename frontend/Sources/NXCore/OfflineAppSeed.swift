@@ -69,12 +69,22 @@ package enum OfflineAppSeed {
         let backup = app.deletingLastPathComponent().appendingPathComponent(backupName)
         do {
             try replace(app, candidate, backupName)
+            // Match the normal successful Mac build path: saves/logs follow the library.
+            let marker = app.deletingLastPathComponent().appendingPathComponent(".nx2apple-library")
+            if !FileManager.default.fileExists(atPath: marker.path) {
+                try Data().write(to: marker, options: .withoutOverwriting)
+            }
         } catch {
             let fm = FileManager.default
             if !fm.fileExists(atPath: app.path), fm.fileExists(atPath: backup.path) {
                 try fm.moveItem(at: backup, to: app)
             }
             throw error
+        }
+        // Replacement has succeeded: the rollback copy is no longer needed.
+        // Cleanup failure is reported rather than silently retaining multi-GB data.
+        if FileManager.default.fileExists(atPath: backup.path) {
+            try FileManager.default.removeItem(at: backup)
         }
     }
 
@@ -104,8 +114,7 @@ package enum OfflineAppSeed {
         mkdir -p "$ROOT/save" "$ROOT/temp"
         export DM_SAVE="$ROOT/save"
         export DM_TEMP="$ROOT/temp"
-        # Imported data stays local until the user explicitly configures synchronization.
-        export DM_SAVE_SYNC=0
+        # Leave cloud synchronization to the existing launcher setting or environment.
         exec "$HERE/nxnative" "$@"
 
         """

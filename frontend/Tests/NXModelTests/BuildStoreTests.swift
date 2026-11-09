@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 @testable import NXModel
 @testable import NXCore
 
@@ -66,8 +67,8 @@ import XCTest
         try? FileManager.default.removeItem(at: temporary)
     }
 
-    private func makeStore(targetChanged: @escaping () -> Void = {}) -> BuildStore {
-        BuildStore(localizer: localizer, runner: FakeProcessRunner(), repo: repo, deps: deps, engine: engine, devices: devices,
+    private func makeStore(targetChanged: @escaping () -> Void = {}, runner: ProcessRunner = FakeProcessRunner()) -> BuildStore {
+        BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices,
                    defaults: defaults, targetChanged: targetChanged)
     }
 
@@ -75,6 +76,75 @@ import XCTest
         let url = temporary.appendingPathComponent(name)
         try Data([0]).write(to: url)
         return url.path
+    }
+
+    private func offlineFixture() throws -> URL {
+        let app = temporary.appendingPathComponent("Game.app")
+        let contents = app.appendingPathComponent("Contents")
+        try FileManager.default.createDirectory(at: contents.appendingPathComponent("MacOS"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: contents.appendingPathComponent("Resources"), withIntermediateDirectories: true)
+        try PropertyListSerialization.data(fromPropertyList: ["CFBundleExecutable": "nxnative", "CFBundleIdentifier": "org.example.test"], format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
+        let save = temporary.appendingPathComponent("seed")
+        try FileManager.default.createDirectory(at: save, withIntermediateDirectories: true)
+        try Data([1]).write(to: save.appendingPathComponent("progress"))
+        return app
+    }
+
+    func testFinishOfflineAppSuccessPublishesMarkerAndResetsState() async throws {
+        let app = try offlineFixture()
+        let runner = FakeProcessRunner()
+        runner.answer = { _ in ProcessResult(err: "Signature=adhoc\n") }
+        let store = makeStore(runner: runner)
+        store.macAppPath = app.path; store.offlineSaveFolder = temporary.appendingPathComponent("seed").path
+        let ended = expectation(description: "offline preparation ended")
+        let observation = store.$running.dropFirst().filter { !$0 }.sink { _ in ended.fulfill() }
+        store.finishOfflineApp()
+        XCTAssertTrue(store.running); XCTAssertTrue(store.preparingOffline)
+        await fulfillment(of: [ended], timeout: 5)
+        withExtendedLifetime(observation) {}
+        XCTAssertTrue(store.done); XCTAssertFalse(store.running); XCTAssertFalse(store.preparingOffline); XCTAssertFalse(store.stopping)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: temporary.appendingPathComponent(".nx2apple-library").path))
+        XCTAssertEqual(runner.launches.filter { $0.arguments.contains("--sign") }.count, 1)
+        XCTAssertTrue(runner.launches.contains { $0.arguments.contains("--verify") })
+    }
+
+    func testFinishOfflineAppSignerFailureKeepsOriginalAndClearsState() async throws {
+        let app = try offlineFixture()
+        let original = try Data(contentsOf: app.appendingPathComponent("Contents/Info.plist"))
+        let runner = FakeProcessRunner()
+        runner.answer = { _ in ProcessResult(err: "Signature=adhoc\n") }
+        runner.streamAnswer = { _ in ([], false) }
+        let store = makeStore(runner: runner)
+        store.macAppPath = app.path; store.offlineSaveFolder = temporary.appendingPathComponent("seed").path
+        let ended = expectation(description: "failed preparation ended")
+        let observation = store.$running.dropFirst().filter { !$0 }.sink { _ in ended.fulfill() }
+        store.finishOfflineApp()
+        await fulfillment(of: [ended], timeout: 5)
+        withExtendedLifetime(observation) {}
+        XCTAssertFalse(store.done); XCTAssertFalse(store.running); XCTAssertFalse(store.preparingOffline); XCTAssertFalse(store.stopping)
+        XCTAssertEqual(try Data(contentsOf: app.appendingPathComponent("Contents/Info.plist")), original)
+        XCTAssertTrue(store.doneNote.contains("Offline"))
+    }
+
+    func testFinishOfflineAppStopClearsAllPreparationState() async throws {
+        let app = try offlineFixture()
+        let runner = FakeProcessRunner()
+        let entered = DispatchSemaphore(value: 0)
+        let proceed = DispatchSemaphore(value: 0)
+        runner.answer = { _ in entered.signal(); _ = proceed.wait(timeout: .now() + 3); return ProcessResult(err: "Signature=adhoc\n") }
+        let store = makeStore(runner: runner)
+        store.macAppPath = app.path; store.offlineSaveFolder = temporary.appendingPathComponent("seed").path
+        let ended = expectation(description: "cancelled preparation ended")
+        let observation = store.$running.dropFirst().filter { !$0 }.sink { _ in ended.fulfill() }
+        store.finishOfflineApp()
+        XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+        store.stop(); XCTAssertTrue(store.stopping)
+        proceed.signal()
+        await fulfillment(of: [ended], timeout: 5)
+        withExtendedLifetime(observation) {}
+        XCTAssertFalse(store.done); XCTAssertFalse(store.running); XCTAssertFalse(store.preparingOffline); XCTAssertFalse(store.stopping)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: app.appendingPathComponent("Contents/Resources/offline-seed").path))
+        XCTAssertFalse(runner.launches.contains { $0.arguments.contains("--sign") })
     }
 
     // MARK: The conditions to start

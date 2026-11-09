@@ -16,15 +16,15 @@ package struct OfflineDataInventory: Equatable {
     package let bytes: Int64
     package init(files: Int, bytes: Int64) { self.files = files; self.bytes = bytes }
 
-    enum ValidationError: Error, LocalizedError {
+    package enum ValidationError: Error {
         case notDirectory, symbolicLink, unsupportedFile, empty, unsupportedCacheName(String)
-        var errorDescription: String? {
+        package func message(_ t: (String) -> String) -> String {
             switch self {
-            case .notDirectory: return "Choose a folder containing extracted data."
-            case .symbolicLink: return "Symbolic links are not supported in offline data."
-            case .unsupportedFile: return "Offline data may contain only regular files and folders."
-            case .empty: return "The selected folder has no files."
-            case .unsupportedCacheName(let name): return "Unsupported cache folder: \(name). Expected SD_Cache.0000 or temp_cache0."
+            case .notDirectory: return t("offline.error.folder")
+            case .symbolicLink: return t("offline.error.link")
+            case .unsupportedFile: return t("offline.error.file")
+            case .empty: return t("offline.error.empty")
+            case .unsupportedCacheName(let name): return String(format: t("offline.error.cache"), name)
             }
         }
     }
@@ -49,7 +49,7 @@ package struct OfflineDataInventory: Equatable {
         try fm.createDirectory(at: staging, withIntermediateDirectories: false)
         defer { if fm.fileExists(atPath: staging.path) { try? fm.removeItem(at: staging) } }
         if cancelled() { throw CancellationError() }
-        if let save { try fm.copyItem(at: save, to: staging.appendingPathComponent("save")) }
+        if let save { try copyTree(from: save, to: staging.appendingPathComponent("save"), cancelled: cancelled) }
         if let caches {
             for item in try fm.contentsOfDirectory(at: caches, includingPropertiesForKeys: nil) {
                 if item.lastPathComponent == ".DS_Store" { continue }
@@ -57,7 +57,7 @@ package struct OfflineDataInventory: Equatable {
                     throw ValidationError.unsupportedCacheName(item.lastPathComponent)
                 }
                 if cancelled() { throw CancellationError() }
-                try fm.copyItem(at: item, to: staging.appendingPathComponent("temp_cache" + String(index)))
+                try copyTree(from: item, to: staging.appendingPathComponent("temp_cache" + String(index)), cancelled: cancelled)
             }
         }
         if cancelled() { throw CancellationError() }
@@ -65,6 +65,33 @@ package struct OfflineDataInventory: Equatable {
         // publishing, so a newly inserted symlink never becomes a runnable seed.
         _ = try inspect(staging, caches: false, cancelled: cancelled)
         try fm.moveItem(at: staging, to: destination)
+    }
+
+    /// Copy regular files in bounded chunks so Stop can interrupt a single large cache.
+    package static func copyTree(from source: URL, to destination: URL, cancelled: () -> Bool) throws {
+        if cancelled() { throw CancellationError() }
+        let fm = FileManager.default
+        let values = try source.resourceValues(forKeys: [.isSymbolicLinkKey, .isDirectoryKey, .isRegularFileKey])
+        if values.isSymbolicLink == true { throw ValidationError.symbolicLink }
+        if values.isDirectory == true {
+            try fm.createDirectory(at: destination, withIntermediateDirectories: false)
+            for item in try fm.contentsOfDirectory(at: source, includingPropertiesForKeys: nil) {
+                if item.lastPathComponent == ".DS_Store" { continue }
+                try copyTree(from: item, to: destination.appendingPathComponent(item.lastPathComponent), cancelled: cancelled)
+            }
+        } else {
+            guard values.isRegularFile == true else { throw ValidationError.unsupportedFile }
+            guard fm.createFile(atPath: destination.path, contents: nil) else { throw CocoaError(.fileWriteUnknown) }
+            let input = try FileHandle(forReadingFrom: source)
+            defer { try? input.close() }
+            let output = try FileHandle(forWritingTo: destination)
+            defer { try? output.close() }
+            while true {
+                if cancelled() { throw CancellationError() }
+                guard let data = try input.read(upToCount: 1024 * 1024), !data.isEmpty else { break }
+                try output.write(contentsOf: data)
+            }
+        }
     }
 
     package static func inspect(_ root: URL, caches: Bool, cancelled: () -> Bool = { false }) throws -> Self {

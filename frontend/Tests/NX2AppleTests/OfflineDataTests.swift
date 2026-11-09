@@ -110,7 +110,7 @@ final class OfflineDataTests: XCTestCase {
             let script = try String(contentsOf: contents.appendingPathComponent("MacOS/offline-launch"), encoding: .utf8)
             XCTAssertTrue(script.contains("org.example.game"))
             XCTAssertFalse(script.contains(root.path))
-            XCTAssertTrue(script.contains("export DM_SAVE_SYNC=0"))
+            XCTAssertFalse(script.contains("export DM_SAVE_SYNC="), "import must preserve the player cloud-save choice")
             XCTAssertThrowsError(try OfflineAppSeed.install(app: app, save: save, caches: nil))
         }
     }
@@ -334,6 +334,55 @@ final class OfflineDataTests: XCTestCase {
             XCTAssertEqual(process.terminationStatus, 0)
             XCTAssertThrowsError(try OfflineDataInventory.inspect(root, caches: false))
         }
+    }
+
+    func testSuccessfulPublicationRemovesRollbackCopy() throws {
+        try temporary { root in
+            let fm = FileManager.default
+            let app = root.appendingPathComponent("Game.app")
+            let candidate = root.appendingPathComponent("Candidate.app")
+            try fm.createDirectory(at: app, withIntermediateDirectories: true)
+            try fm.createDirectory(at: candidate, withIntermediateDirectories: true)
+            try Data([1]).write(to: app.appendingPathComponent("original"))
+            try Data([2]).write(to: candidate.appendingPathComponent("new"))
+            try OfflineAppSeed.publish(candidate: candidate, over: app, replace: { original, staged, name in
+                try fm.moveItem(at: original, to: root.appendingPathComponent(name))
+                try fm.moveItem(at: staged, to: original)
+            })
+            XCTAssertEqual(Set(try fm.contentsOfDirectory(atPath: root.path)), Set(["Game.app", ".nx2apple-library"]))
+            XCTAssertEqual(try Data(contentsOf: app.appendingPathComponent("new")), Data([2]))
+        }
+    }
+
+    func testSigningIdentityFollowsEngineOutput() throws {
+        XCTAssertEqual(try OfflineSigning.identity(from: "Executable=/example\nSignature=adhoc\n"), "-")
+        XCTAssertEqual(try OfflineSigning.identity(from: "Authority=Developer ID Application: Example (TEAM)\nAuthority=Apple Root CA\n"), "Developer ID Application: Example (TEAM)")
+        XCTAssertThrowsError(try OfflineSigning.identity(from: "unsigned"))
+        XCTAssertThrowsError(try OfflineSigning.identity(from: "Authority=\n"))
+    }
+
+    func testLargeFileCopyCancelsBetweenChunks() throws {
+        try temporary { root in
+            let input = root.appendingPathComponent("large")
+            let output = root.appendingPathComponent("partial")
+            try Data(repeating: 7, count: 4 * 1024 * 1024).write(to: input)
+            var checks = 0
+            XCTAssertThrowsError(try OfflineDataInventory.copyTree(from: input, to: output, cancelled: { checks += 1; return checks >= 3 }))
+            let size = try XCTUnwrap((try FileManager.default.attributesOfItem(atPath: output.path)[.size]) as? NSNumber)
+            XCTAssertEqual(size.intValue, 1024 * 1024)
+            XCTAssertEqual(try Data(contentsOf: input).count, 4 * 1024 * 1024)
+        }
+    }
+
+    func testStopReachesSignerEvenWhenStopWinsStartupRace() {
+        let stopped = expectation(description: "active signer ended")
+        let control = OfflineProcessControl(end: { pid in XCTAssertEqual(pid, 1234); stopped.fulfill() })
+        control.reset(); control.started(1234); control.stop()
+        wait(for: [stopped], timeout: 1)
+        let late = expectation(description: "late signer ended")
+        let raced = OfflineProcessControl(end: { pid in XCTAssertEqual(pid, 5678); late.fulfill() })
+        raced.reset(); raced.stop(); raced.started(5678)
+        wait(for: [late], timeout: 1)
     }
 
     func testEmptyAndSymlinkRejected() throws {
