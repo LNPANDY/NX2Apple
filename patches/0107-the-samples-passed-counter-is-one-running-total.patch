@@ -1,0 +1,175 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: seedds <seedds@gmail.com>
+Date: Mon, 9 Nov 2026 16:23:09 +0800
+Subject: [PATCH] The samples-passed counter is one running total in queue
+ order: a game that never resets it reads its occlusion queries again (Red
+ Dead Redemption's distant characters had no bodies), and a report a
+ submission after its reset no longer reads slots a later submission overwrote
+ (PR #1867)
+
+On the GPU the counter runs from the queue's creation and ResetCounter zeroes it. The host
+counted only from a reset, so a game that never resets read 0 from every report: Red Dead
+Redemption's character occlusion queries (end - begin of two reports around each box) counted
+every character as hidden and dropped the bodies of those a few metres away.
+
+Each report also re-read every visibility slot since the reset, including slots of earlier
+submissions whose buffer the ring had already handed to a later one: a reset and a draw in one
+submission and a half-sized draw and the report in the next read 64 samples instead of 96.
+
+Now post_run keeps one running total in submission order under g_post_mu. A report adds the
+slots since the previous report and writes the total; the slots left at a submission's end are
+added at its completion, so each slot is read once while its buffer is still that
+submission's; a reset zeroes the total at its place in the queue. Counting starts at the first
+reset or, with none before it, at the first report.
+
+Checked: t_render_enable_queue's two new checks (end - begin with no reset across submissions;
+a reset with its report one submission later) fail on main and pass; the whole gfx run list
+passes (149 groups); test_docs. The contributor's Red Dead Redemption 1.0.4 replay and play on
+an M4 were on the PR's first version, which gives that game the same values. No regression
+run: no local game has libraries for chain dedc9391c30b, and translating one is far over the
+five minutes a game. Uncertain reach (every occlusion-query game's path).
+
+Co-authored-by: Robert McFadden <20628004+robandstuff@users.noreply.github.com>
+
+Upstream-Status: backport cfbdd93ca5cab4be6e7dfd106d72e6a3bdeed262
+Reason: Red Dead Redemption's distant characters lost their bodies: upstream's fix (seedds/nxnative#1867, landed as cfbdd93c) until the pin passes it
+Issue: LNPANDY/NX2Apple#999
+
+---
+ dm/gfx/nvn/nvn_mtl.m                 | 32 +++++++++++++++++++---------
+ dm/gfx/tests/t_render_enable_queue.m | 20 +++++++++++++++++
+ docs/reference/rendering.md          |  8 +++++++
+ 3 files changed, 50 insertions(+), 10 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 78a4771..367b621 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -1075,8 +1075,12 @@ static void rc_gpu_write(uint64_t dst, uint64_t n) {
+ }
+ // ---------- Occlusion queries (NVN_COUNTER_TYPE_SAMPLES_PASSED) ----------
+ // NVN semantics: samples passed is a cumulative counter on the queue - ResetCounter zeroes it, every draw afterwards adds to it, and ReportCounter writes out the cumulative value at that moment (+ timestamp) when the GPU completes.
+-// Metal: every render pass attaches a visibility result buffer; draws during counting use counting mode, with a new slot per pass (no reliance on accumulation across passes); a reset empties the 'slot table since the reset',
+-// and a report hands the slot table together with its buffer (retained) to the completion callback to sum and write back; after a report a new slot is used, so later draws are not counted into the reported value.
++// Metal: every render pass attaches a visibility result buffer; draws during counting use counting mode, with a new slot per pass (no reliance on accumulation across passes). The counter is one running total
++// (g_vis_acc), kept by post_run in submission order under g_post_mu: a report hands the slots since the previous report (retained) to its submission's completion, which adds them to the total and writes it out;
++// the slots left at a submission's end are added at its completion too (VIS_FOLD), so a slot is read once, while its buffer is still this submission's (the ring hands it to a later one once the fence passes);
++// a reset drops the slots before it and zeroes the total there (VIS_ZERO). After a report a new slot is used, so later draws are not counted into the reported value.
++// Counting starts at the first reset or, for a game that never resets, at the first report: the GPU's counter runs from the queue's creation, so such a game reads end - begin of two reports around each query
++// (Red Dead Redemption's character occlusion queries: counting used to start only at a reset, so every report was 0 and the bodies of characters a few metres away were dropped).
+ // (Previously always wrote 0: occlusion query = 'fully occluded', campfires / light sources got culled - the character select screen calls ResetCounter 21 times per frame)
+ typedef struct { void *buf; uint32_t slot; } vis_slot;
+ typedef struct { int n; vis_slot s[]; } vis_list;
+@@ -1088,7 +1092,9 @@ static vis_buf g_vis_ring[VIS_RING]; static int g_vis_ring_n, g_vis_ring_i = -1;
+ static id<MTLBuffer> g_vis; static uint32_t g_vis_n;   // This submission's visibility buffer and number of slots used
+ static int vis_in_ring(id<MTLBuffer> b) { for (int i = 0; i < g_vis_ring_n; i++) if (g_vis_ring[i].buf == b) return 1; return 0; }
+ static int g_vis_on, g_vis_counting, g_vis_cur = -1; static uint64_t g_vis_cur_pass;
+-static vis_slot *g_vs; static int g_nvs, g_vscap;      // Slots since the last reset
++static vis_slot *g_vs; static int g_nvs, g_vscap;      // Slots since the last report or reset, in this submission
++enum { VIS_REPORT, VIS_FOLD, VIS_ZERO };               // post_op mode for kind 3: add the slots and write the total / only add them / zero the total
++static uint64_t g_vis_acc;                              // The counter's running total (post_run, under g_post_mu)
+ static uint64_t g_cnt_report[32], g_cnt_reset[32];       // Report / reset counts per counter type (diagnostics)
+ static void vis_clear(void) { for (int i = 0; i < g_nvs; i++) CFRelease(g_vs[i].buf); g_nvs = 0; g_vis_cur = -1; }
+ static vis_list *vis_snapshot(void) {
+@@ -2122,10 +2128,11 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+     int n = r->n; post_op *ops = r->ops; seg_clk *sc = r->sc; uint32_t seg_last = r->seg_last;
+     for (int i = 0; i < n; i++) {
+         if (ops[i].kind == 1) continue;   // A terminal release publishes after every earlier GPU write has landed.
+-        else if (ops[i].kind == 3) {   // Samples passed: the sum of all slots since the reset
+-            vis_list *l = ops[i].vis; uint64_t sum = 0;
+-            for (int k = 0; k < l->n; k++) { sum += ((const uint64_t *)((__bridge id<MTLBuffer>)l->s[k].buf).contents)[l->s[k].slot]; CFRelease(l->s[k].buf); }
+-            free(l); uint64_t rec[2] = {sum, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec);
++        else if (ops[i].kind == 3) {   // Samples passed: the running total, in submission order
++            if (ops[i].mode == VIS_ZERO) { g_vis_acc = 0; continue; }
++            vis_list *l = ops[i].vis;
++            for (int k = 0; k < l->n; k++) { g_vis_acc += ((const uint64_t *)((__bridge id<MTLBuffer>)l->s[k].buf).contents)[l->s[k].slot]; CFRelease(l->s[k].buf); }
++            free(l); if (ops[i].mode == VIS_REPORT) { uint64_t rec[2] = {g_vis_acc, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec); }
+         }
+         else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
+         else { uint64_t t = rep_ticks(&ops[i], sc, seg_last, c0, c1), rec[2] = {(ops[i].type == 0 || ops[i].type == 0x10) && !dm_prof()->render_cond ? t : 0, t}; memcpy((void *)ops[i].addr, rec, sizeof rec); }   // render_cond: a timestamp report's counter field is 0, as on the GPU (see rc_value)
+@@ -2175,11 +2182,12 @@ uint64_t mtl_sub_commit(void) {
+     rt_preserve_bound();   // The game may reuse completed command memory; queue bindings must not point into its texture snapshots.
+     queue_program_preserve(); // Submitted metadata may retire while these programs remain bound.
+     uint64_t fence = ++g_fence;
++    if (g_nvs) { post((post_op){3, NULL, VIS_FOLD, 0, 0, 0, vis_snapshot()}); vis_clear(); }   // this submission's slots after its last report: read at its completion (Occlusion queries)
+     gw_commit(fence); rc_commit(fence);
+     if (g_vis_ring_i >= 0) g_vis_ring[g_vis_ring_i].fence = fence;
+     // CPU-visible effects after completion: copy the op table into the callback
+     int n = g_npost; post_op *ops = n ? malloc(n * sizeof *ops) : NULL; post_rec *pr = &g_postr[fence % POST_RING];
+-    if (ws_on()) for (int i = 0; i < n; i++) { int k = g_post[i].kind == 2 ? (g_post[i].type == 0 || g_post[i].type == 0x10 ? 3 : 4) : g_post[i].kind == 3 ? 2 : 1; atomic_fetch_add(&g_ws_post[k], 1); }   // 1 event, 2 samples passed, 3 timestamp, 4 other counter
++    if (ws_on()) for (int i = 0; i < n; i++) { int k = g_post[i].kind == 2 ? (g_post[i].type == 0 || g_post[i].type == 0x10 ? 3 : 4) : g_post[i].kind == 3 ? (g_post[i].mode == VIS_REPORT ? 2 : 0) : 1; atomic_fetch_add(&g_ws_post[k], 1); }   // 1 event, 2 samples passed, 3 timestamp, 4 other counter
+     if (n) memcpy(ops, g_post, n * sizeof *ops);
+     NSArray<dispatch_block_t> *commit_blocks = [g_commit_blocks copy];
+     MTL4CommitOptions *o = [MTL4CommitOptions new];
+@@ -14114,7 +14122,11 @@ void mtl_exec(const uint8_t *p) {
+             case OP_REPORT_COUNTER: { uint64_t t, ad; memcpy(&t, a, 8); memcpy(&ad, (const uint8_t *)a + 8, 8); g_cnt_report[t & 31]++;
+                 PD("Q report type=%llu cmd=%p dst=%#llx", (unsigned long long)t, p, (unsigned long long)ad);
+                 if (dm_prof()->render_cond) rc_note(ad, t == 0 || t == 0x10 ? 1 : t == NVN_COUNTER_TYPE_SAMPLES_PASSED ? 2 : 3);
+-                if (t == NVN_COUNTER_TYPE_SAMPLES_PASSED) { post((post_op){3, NULL, 0, 0, ad, (uint32_t)t, vis_snapshot()}); g_vis_cur = -1; }
++                if (t == NVN_COUNTER_TYPE_SAMPLES_PASSED) {
++                    if (!g_vis_on) {   // a report with no reset before it: the counter runs from the queue's creation, so counting starts here (Occlusion queries)
++                        g_vis_on = 1; g_vis_counting = 1; MLOG("occlusion queries: samples passed reported with no ResetCounter before it: counting from this report");
++                        if (g_enc && !g_enc_has_vis) { PD("M %llu occlusion query counting starts at a report: render pass split here", g_stat_pass); rp_end(); } }
++                    post((post_op){3, NULL, VIS_REPORT, 0, ad, (uint32_t)t, vis_snapshot()}); vis_clear(); }
+                 else mtl_sub_counter(ad, (uint32_t)t);
+                 break; }
+             case OP_RENDER_COND: { const p_render_cond *rc = a;   // recorded only with the profile key render_cond (hle_nvn.c)
+@@ -14130,7 +14142,7 @@ void mtl_exec(const uint8_t *p) {
+ #ifdef NVN_RT_RANGE_TEST
+                     rr_reset();
+ #endif
+-                    g_vis_on = 1; g_vis_counting = 1; vis_clear();
++                    g_vis_on = 1; g_vis_counting = 1; vis_clear(); post((post_op){3, NULL, VIS_ZERO, 0, 0, (uint32_t)t, NULL});
+                     // The first reset can come inside a render pass that was begun without a visibility buffer (Octopath Traveler 0: Unreal's occlusion queries, once at boot): split the pass
+                     // here, so the continuation is begun with the buffer and its samples are counted (they used not to be: RED "occlusion query counting began in a pass without a visibility buffer")
+                     if (g_enc && !g_enc_has_vis) { PD("M %llu occlusion query counting starts: render pass split here", g_stat_pass); rp_end(); } }
+diff --git a/dm/gfx/tests/t_render_enable_queue.m b/dm/gfx/tests/t_render_enable_queue.m
+index f928cfb..7223c36 100644
+--- a/dm/gfx/tests/t_render_enable_queue.m
++++ b/dm/gfx/tests/t_render_enable_queue.m
+@@ -175,6 +175,26 @@ int main(void) { @autoreleasepool {
+     submit(0,P(nvnCommandBufferEndRecording)(&command),&sync);finish(&sync);
+     CHECK(pixels(0,255,0,0),"CPU counter write after completed report replaces pending zero");
+ 
++    // The samples-passed counter is one running total in queue order. A game that never resets it reads
++    // end - begin of two reports (Red Dead Redemption); this is the process's first samples-passed command.
++    // Slots left at a submission's end are read at its own completion, before a later submission reuses
++    // the visibility buffer (the half-scissored second draw lands in the same slot of the same buffer).
++    uint64_t *r0=(uint64_t *)(memory+EVENT+384),*r1=(uint64_t *)(memory+EVENT+448),*r2=(uint64_t *)(memory+EVENT+512);
++    r0[0]=r1[0]=r2[0]=7;
++    for (int k=0;k<4;k++) {
++        P(nvnCommandBufferBeginRecording)(&command);
++        P(nvnCommandBufferSetRenderTargets)(&command,1,colors,NULL,NULL,NULL);
++        P(nvnCommandBufferSetViewports)(&command,0,1,viewport); P(nvnCommandBufferSetScissor)(&command,0,0,k&1 ? W/2 : W,H);
++        if (k==0) P(nvnCommandBufferReportCounter)(&command,NVN_COUNTER_TYPE_SAMPLES_PASSED,(NVNbufferAddress)(uintptr_t)r0);   // no reset before it
++        if (k==2) P(nvnCommandBufferResetCounter)(&command,NVN_COUNTER_TYPE_SAMPLES_PASSED);
++        P(nvnCommandBufferBindProgram)(&command,&stable_red,3);
++        P(nvnCommandBufferDrawArrays)(&command,NVN_DRAW_PRIMITIVE_TRIANGLES,0,3);
++        if (k&1) P(nvnCommandBufferReportCounter)(&command,NVN_COUNTER_TYPE_SAMPLES_PASSED,(NVNbufferAddress)(uintptr_t)(k==1 ? r1 : r2));
++        submit(0,P(nvnCommandBufferEndRecording)(&command),&sync);finish(&sync);
++    }
++    CHECK(r0[0]!=7 && r1[0]-r0[0]==W*H+W*H/2,"with no reset, end - begin of two reports counts the samples between them, across submissions");
++    CHECK(r2[0]==W*H+W*H/2,"after a reset, the total counts the samples of every submission up to the report");
++
+     // Occlusion conditions: a samples-passed report that has landed decides the
+     // block as the GPU would; one still in flight keeps the block drawing.
+     uint64_t *empty=(uint64_t *)(memory+EVENT+256),*seen=(uint64_t *)(memory+EVENT+320);
+diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
+index 054265e..3defb74 100644
+--- a/docs/reference/rendering.md
++++ b/docs/reference/rendering.md
+@@ -1307,6 +1307,14 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
+ - **Fix:** the draw that needs a slot when none is left ends the pass, and the next begins with a new buffer.
+ - **Found on:** [Splatoon Raiders](../../dm/games/0400380020056000/README.md): at the first level's load, one submission with about 9,000 draws.
+ 
++### Samples-passed reports with no reset before them
++
++- **Symptom:** characters a few metres away drawn as their hats and props only, their bodies missing from the main view while their shadows are there; near characters draw fully. A log line or a probe shows every samples-passed report reading 0.
++- **Cause:** the host started counting samples passed only at `nvnCommandBufferResetCounter(SAMPLES_PASSED)`, and a report before any reset wrote 0. On the GPU the counter runs from the queue's creation, so a game that never resets it reads end − begin of two reports around each query, and gets the samples between them. Red Dead Redemption never resets it: every query read 0, every character counted as hidden.
++- **Fix:** in `nvn_mtl.m` (Occlusion queries), for every game, one model of the counter: a running total that `post_run` keeps in submission order under `g_post_mu`. A report hands the visibility slots since the previous report to its submission's completion, which adds them to the total and writes it; the slots left at a submission's end are added at its completion (so each slot is read once, while its buffer still belongs to that submission); a reset drops the slots before it and zeroes the total at that point in the queue. Counting starts at the first reset or, with none before it, at the first report (the pass is split there if its encoder had no visibility buffer); the log says `occlusion queries: samples passed reported with no ResetCounter before it` once. Games that reset read the same values as before; each report used to sum every slot since the reset, reading slots of earlier submissions whose visibility buffer the ring could already have handed to a later one: in `t_render_enable_queue`, a reset and a draw in one submission and a half-sized draw and the report in the next read 64 samples instead of 96, the second draw's count twice. The test also checks end − begin across submissions with no reset.
++- **Check:** on the change's first version (a separate mode for games that never reset; the same values for them), Red Dead Redemption 1.0.4 (Apple M4, macOS 27.0.1), a recorded replay out of the saloon in Armadillo: the distant characters have their bodies at frames 2,280–2,340, frame time unchanged at 33.3 ms, no `[RED]`; played by hand, the same.
++- **Found on:** Red Dead Redemption (`01007820196A6000`): `rage::CharacterVisQueries::TestVisiblity` takes each character's result from `GetOcclusionQueryData`, end − begin of two reports around its box (about 35 queries and 324 reports a frame, no reset), and puts a character at or below its threshold in the occluded list, which `renDrawBucketContainer::AddToDrawList` uses to drop its low-detail body.
++
+ ## Vulkan layer
+ 
+ The Vulkan layer (`dm/gfx/vk/hle_vk.m`) was written for Hades; Super Mario Galaxy needed the additions below, each found from a red line or a screenshot on the route to the Star Festival.

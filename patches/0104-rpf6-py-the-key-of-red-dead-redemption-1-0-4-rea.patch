@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Robert McFadden <robert.mcfadden@gmail.com>
+Date: Sat, 7 Nov 2026 20:38:48 -0500
+Subject: [PATCH] rpf6.py: the key of Red Dead Redemption 1.0.4, read from its
+ key setup
+
+Update 1.0.4 (v262144) opens its RPF6 archives with the same key as 1.0.0, but its main holds no
+32 bytes of it in a row: the key setup (main+0x145d8c) loads the eight key words, each a big-endian
+u32 zero-extended to 64 bits, from four 16-byte constants in the read-only segment. The split stopped
+with '[RED] /act.rpf: an encrypted RPF6 archive, and no 32-byte window of main decrypts its first
+entry'. key_from_setup finds the setup by its first five instructions (the same in both builds),
+follows its adrp / ldr q / str q / stp q, and gives the key only when it opens the archive.
+
+Upstream-Status: forwarded seedds/nxnative#2005
+Reason: Red Dead Redemption 1.0.4 keeps its archive key in a form the 1.0.0 reader did not find. Goes upstream
+Issue: LNPANDY/NX2Apple#999
+
+---
+ dm/gfx/tools/rpf6.py      | 38 ++++++++++++++++++++++++++++++++++++++
+ docs/reference/shaders.md |  2 +-
+ 2 files changed, 39 insertions(+), 1 deletion(-)
+
+diff --git a/dm/gfx/tools/rpf6.py b/dm/gfx/tools/rpf6.py
+index 9e5af7f..46147ff 100644
+--- a/dm/gfx/tools/rpf6.py
++++ b/dm/gfx/tools/rpf6.py
+@@ -17,6 +17,8 @@
+ #           (joaat) of the lower-case name, so names are found by hashing every string there (shaders.rpf: 134 of 134 hashes)
+ # A compressed file is one zstd frame (the consoles used zlib; shaders.rpf: 131 files, every frame's content size equals the entry's length).
+ # The key is in main's data segment (1.0.0: main+0x3757f88), found as the 32-byte window that decrypts the first entry to the root directory (find_key); it is never written to disk.
++# Update 1.0.4 (v262144) has the same key, but not as 32 bytes in a row: its key setup (main+0x145d8c) loads the eight key words, each a big-endian u32 zero-extended to 64 bits,
++# from four 16-byte constants in the read-only segment (key_from_setup).
+ # Usage: rpf6.py <main NSO> <file.rpf> [--extract <dir>] lists (or extracts) the files.
+ import os, struct, sys, re
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../tools'))
+@@ -62,8 +64,44 @@ def find_key(nso_path, rpf):
+         for a in range(mo, mo + sz - 32, 4):
+             w = img[a:a + 32]
+             if len(set(w)) >= 24 and is_root(decrypt(w, blk)): return w
++    for k in key_from_setup(img, m.segments[0]):
++        if is_root(decrypt(k, blk)): return k
+     return None
+ 
++# The key setup's first instructions (1.0.0: main+0x21ec0c, 1.0.4: main+0x145d8c): cmp w1, #0; mov w8, #-3; csel w8, w8, w1, eq; cmn w8, #3; str w8, [x0]
++SETUP = struct.pack('<5I', 0x7100003f, 0x12800048, 0x1a810108, 0x31000d1f, 0xb9000008)
++
++def key_from_setup(img, text):
++    """Candidate keys from each key setup in main's code: after its b.ne, the function stores 64 bytes of 16-byte constants (adrp, then ldr q) at x0+8 (str q / stp q, through
++    registers copied from x0 and moved by add); those are the eight key words as big-endian u32s zero-extended to 64 bits (1.0.4). A setup that stores something else gives no candidate.
++    The caller keeps only a candidate that opens the archive"""
++    ts, tl = text
++    at = img.find(SETUP, ts, ts + tl)
++    while at >= 0:
++        page, ctx, q, mem = {}, {0: 0}, {}, {}
++        for a in range(at + len(SETUP) + 4, min(at + 0x80, ts + tl), 4):   # past the b.ne
++            w = struct.unpack_from('<I', img, a)[0]
++            rd, rn = w & 31, (w >> 5) & 31
++            if w & 0x9f000000 == 0x90000000:   # adrp
++                imm = ((w >> 29) & 3) | (((w >> 5) & 0x7ffff) << 2)
++                page[rd] = (a & ~0xfff) + ((imm - (1 << 21) if imm & (1 << 20) else imm) << 12); ctx.pop(rd, None)
++            elif w & 0xffe0ffe0 == 0xaa0003e0 and (w >> 16) & 31 in ctx: ctx[rd] = ctx[(w >> 16) & 31]   # mov xd, xm
++            elif w & 0xffc00000 == 0x91000000 and rn in ctx: ctx[rd] = ctx[rn] + ((w >> 10) & 0xfff)   # add xd, xn, #imm
++            elif w & 0xffc00000 == 0x3dc00000 and rn in page:   # ldr qt, [xn, #imm]
++                o = page[rn] + ((w >> 10) & 0xfff) * 16
++                q[rd] = img[o:o + 16]
++            elif w & 0xffe00c00 == 0x3c800c00 and rn in ctx and rd in q:   # str qt, [xn, #imm]!
++                imm = (w >> 12) & 0x1ff; ctx[rn] += imm - 0x200 if imm & 0x100 else imm; mem[ctx[rn]] = q[rd]
++            elif w & 0xffc00000 == 0x3d800000 and rn in ctx and rd in q: mem[ctx[rn] + ((w >> 10) & 0xfff) * 16] = q[rd]   # str qt, [xn, #imm]
++            elif w & 0xffc00000 == 0xad000000 and rn in ctx and rd in q and (w >> 10) & 31 in q:   # stp qt, qt2, [xn, #imm]
++                imm = (w >> 15) & 0x7f; o = ctx[rn] + (imm - 0x80 if imm & 0x40 else imm) * 16
++                mem[o], mem[o + 16] = q[rd], q[(w >> 10) & 31]
++            elif w & 0xfc000000 in (0x14000000, 0x94000000) or w & 0xff000010 == 0x54000000: break   # b, bl, b.cond: the stores are done
++        if all(o in mem for o in range(8, 0x48, 16)):
++            words = struct.unpack('<8Q', b''.join(mem[o] for o in range(8, 0x48, 16)))
++            if all(v >> 32 == 0 for v in words): yield struct.pack('>8I', *words)
++        at = img.find(SETUP, at + 4, ts + tl)
++
+ class Rpf:
+     def __init__(self, path, key):
+         h = header(path)
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index 8f084a6..e3fc864 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -594,7 +594,7 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ 
+ - **Symptom:** the NSP script's split finds no shaders in a RomFS made of `.rpf` files; after a first reader, `[RED]` lines name groups of files that could not be read.
+ - **How it is stored:** Rockstar's RPF6 (big-endian, as on the PS3 and Xbox 360): a 16-byte header {`RPF6`, entry count, name table offset / 8, tag `0xfffffffd` = encrypted}, 20-byte entries, then a name table. The entry and name tables are AES-256 ECB decrypted 16 times over, with a key in `main`'s data segment. Entry 0 is the root directory; a directory's children are consecutive entries; a name hash is Jenkins one-at-a-time of the lower-case name, found by hashing every string in the name table. A plain file's data is raw, one zstd frame, a zlib stream, or raw deflate (`audio_switch.rpf`'s config files). A resource (flags bit 31) keeps its type in the offset word's low byte, so its offset is `(word & 0x7fffff00) × 8`, and its data starts with an `RSC\x05` header (12 bytes) or, when the flags are bit 31 alone, an `RSC\x85` header (16 bytes); `.wsc` scripts are AES encrypted like the tables as well. The shaders are RAGE effects (`.nvn` in `shaders.rpf`, and effects in `main`): `rgxd`, the parameter names, then one record per shader {u32, GLSLC's magic 0x19866891, u32 code length, u32 control length}, the code area, then the control section. A control section may carry bytes past its own length (`+0x20`), so it is compared at that length.
+-- **Fix:** `dm/gfx/tools/rpf6.py` reads the archives: `find_key` tries `main`'s 4-aligned 32-byte windows with at least 24 distinct bytes on an archive's first entry until it decrypts to the root directory (the key is never printed or written). `shader_split.py` reads every archive's files in parallel ranges (`rpf_jobs`, `rpf_shaders`), and `rgxd_shaders` reads effects in files and in `main`. Reading resources as plain files gave 145 groups of unreadable files; with the resource offsets, both headers, zlib, raw deflate and the scripts' encryption, none.
++- **Fix:** `dm/gfx/tools/rpf6.py` reads the archives: `find_key` tries `main`'s 4-aligned 32-byte windows with at least 24 distinct bytes on an archive's first entry until it decrypts to the root directory (the key is never printed or written). Update 1.0.4 has the same key but not in one piece: its key setup loads the eight key words, each a big-endian u32 zero-extended to 64 bits, from four 16-byte constants, so `key_from_setup` follows the setup's loads and stores (it starts `cmp w1, #0; mov w8, #-3; csel w8, w8, w1, eq; cmn w8, #3` in both builds). `shader_split.py` reads every archive's files in parallel ranges (`rpf_jobs`, `rpf_shaders`), and `rgxd_shaders` reads effects in files and in `main`. Reading resources as plain files gave 145 groups of unreadable files; with the resource offsets, both headers, zlib, raw deflate and the scripts' encryption, none.
+ - **Found on:** [Red Dead Redemption](../../dm/games/01007820196A6000/README.md): 134 archives (11 GB), 3,413 shaders from 131 effects in `shaders.rpf` and 168 from `main`.
+ - **Check:** `rpf6.py <main NSO> <file.rpf>` lists an archive; the fuzz harness has an `rgxd` seed (`dm/tools/fuzz/fuzz_shader_split.py`).
+ 

@@ -1,0 +1,354 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Robert McFadden <robert.mcfadden@gmail.com>
+Date: Sat, 7 Nov 2026 20:23:34 -0500
+Subject: [PATCH] Shader split: Rockstar RPF6 archives, RAGE rgxd effects and
+ Double Eleven packs
+
+Red Dead Redemption keeps its RomFS in 134 RPF6 archives with encrypted tables, and its shaders in RAGE
+effects (rgxd) in shaders.rpf and in main; the language selection's two shaders are in a Double Eleven
+.pkdswitch pack. The split found none of them.
+
+dm/gfx/tools/rpf6.py reads RPF6: the tables are AES-256 ECB decrypted 16 times with a key it finds in main's
+data segment (never printed or written), names by joaat hash, plain files (raw, zstd, zlib, raw deflate),
+resources with RSC5 / RSC85 headers, and encrypted scripts. shader_split.py reads every archive's files in
+parallel ranges, reads rgxd effects in files and in main, and reads .pkdswitch packs through their
+.pkiswitch index. A control section is compared at its own length (+0x20), as 919 of the game's carry bytes
+past it. 3,583 shaders, all translated; the fuzz harness has an rgxd seed. docs/reference/shaders.md: two
+entries.
+
+Upstream-Status: forwarded seedds/nxnative#2005
+Reason: Red Dead Redemption's shaders are in Rockstar RPF6 archives and a Double Eleven pack, which the split could not read. Goes upstream
+Issue: LNPANDY/NX2Apple#999
+
+---
+ dm/gfx/tools/rpf6.py               | 137 +++++++++++++++++++++++++++++
+ dm/gfx/tools/shader_split.py       |  84 +++++++++++++++++-
+ dm/tools/fuzz/fuzz_shader_split.py |  11 ++-
+ docs/reference/shaders.md          |  15 ++++
+ 4 files changed, 243 insertions(+), 4 deletions(-)
+ create mode 100644 dm/gfx/tools/rpf6.py
+
+diff --git a/dm/gfx/tools/rpf6.py b/dm/gfx/tools/rpf6.py
+new file mode 100644
+index 0000000..9e5af7f
+--- /dev/null
++++ b/dm/gfx/tools/rpf6.py
+@@ -0,0 +1,137 @@
++#!/usr/bin/env python3
++# Rockstar RPF6 archives (RAGE, the format of Red Dead Redemption on PS3 / Xbox 360). Double Eleven's Switch port of Red Dead Redemption (01007820196A6000, 1.0.0) keeps all of its RomFS
++# but two Bink movies in 134 of them (11 GB; shaders.rpf, fragments.rpf, audio_switch.rpf, redemption/territory_swall/*.rpf, …). shader_split.py reads them through this module (rpf_jobs).
++# Layout (big-endian, as on the consoles):
++#   header  16 bytes: 'RPF6', u32 entry count, u32 name table offset / 8, u32 encryption tag (0xfffffffd in every Switch archive: the entry table and the name table are encrypted)
++#   entries entry count × 20 bytes from +0x10, AES-256 ECB decrypted 16 times over (as on the consoles), padded to 16 bytes:
++#           a directory: u32 name hash, u32 0 (bit 31 set on some), u32 0x80000000 | first child's entry, u32 child count, u32 0
++#           a file:      u32 name hash, u32 stored length (low 31 bits), u32 data offset / 8, u32 flags, u32 0; flags bit 31 clear: bit 30 compressed | length (low 30 bits)
++#           a resource:  flags bit 31 set (act.rpf's .wat, fragments.rpf's .wft, mapres.rpf's .wtx, …): the data offset word's low byte is the resource type (0x1e in act.rpf), so the offset is
++#                        (word & 0x7fffff00) × 8; the flags are RAGE's resource flags (bit 30 compressed, the rest page sizes), not a length. The data is an RSC5 header {'RSC\x05', u32 type
++#                        (little-endian), u32 the entry's flags (little-endian)}, then one zstd frame; the stored length counts the header. Reading the offset as a plain file's gave
++#                        145 groups of unreadable files in the first build. A resource whose flags are only bit 31 (gringores.rpf's .wgd, vfx.rpf's .wtd, the .wsc scripts) has an RSC85
++#                        header instead: {'RSC\x85', u32 type, u32 the entry's flags, u32 the entry's fifth word (its extended flags)}, 16 bytes
++#   data    a zstd frame or a zlib stream (unpack), or raw deflate (audio_switch.rpf's config files, as on the consoles); the scripts (.wsc, RSC85 type 2) are in addition AES encrypted like the tables (whole blocks; the tail of under 16 bytes is clear)
++#           entry 0 is the root directory (hash 0); a directory's children are consecutive entries
++#   names   at the name table offset to the end of the file, encrypted the same way: a binary table, then the names as NUL-terminated strings; a name hash is Jenkins one-at-a-time
++#           (joaat) of the lower-case name, so names are found by hashing every string there (shaders.rpf: 134 of 134 hashes)
++# A compressed file is one zstd frame (the consoles used zlib; shaders.rpf: 131 files, every frame's content size equals the entry's length).
++# The key is in main's data segment (1.0.0: main+0x3757f88), found as the 32-byte window that decrypts the first entry to the root directory (find_key); it is never written to disk.
++# Usage: rpf6.py <main NSO> <file.rpf> [--extract <dir>] lists (or extracts) the files.
++import os, struct, sys, re
++sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../tools'))
++from romfs import open
++from uepak import aes_decrypt
++
++MAGIC, ENCRYPTED, RSC5, RSC85, ZSTD = b'RPF6', 0xfffffffd, b'RSC\x05', b'RSC\x85', b'\x28\xb5\x2f\xfd'
++ROUNDS = 16
++
++def joaat(s):
++    """Jenkins one-at-a-time over the lower-case name: RAGE's name hash"""
++    h = 0
++    for ch in s.lower().encode():
++        h = (h + ch) & 0xffffffff; h = (h + (h << 10)) & 0xffffffff; h ^= h >> 6
++    h = (h + (h << 3)) & 0xffffffff; h ^= h >> 11
++    return (h + (h << 15)) & 0xffffffff
++
++def decrypt(key, data):
++    """RPF6's table encryption: AES-256 ECB applied 16 times (whole blocks only)"""
++    data = data[:len(data) // 16 * 16]
++    for _ in range(ROUNDS): data = aes_decrypt(key, data)
++    return data
++
++def is_root(d):
++    """The root directory entry: hash 0, 0, first child 1 (the entries after it), at least one child"""
++    return len(d) >= 16 and struct.unpack_from('>3I', d) == (0, 0, 0x80000001) and struct.unpack_from('>I', d, 12)[0] > 0
++
++def header(path):
++    """→ (entry count, name table offset, encrypted), or None when path is no RPF6"""
++    with open(path, 'rb') as f: h = f.read(16)
++    if len(h) < 16 or h[:4] != MAGIC: return None
++    n, names, tag = struct.unpack_from('>3I', h, 4)
++    return n, names * 8, tag == ENCRYPTED
++
++def find_key(nso_path, rpf):
++    """The AES key from main's read-only and data segments: the 4-aligned 32-byte window (at least 24 distinct bytes) that decrypts rpf's first entry to the root directory.
++    Red Dead Redemption 1.0.0: one window, in the data segment"""
++    import nso
++    with open(nso_path, 'rb') as f: m = nso.load(f.read(), nso_path)
++    img = bytes(m.image)
++    with open(rpf, 'rb') as f: f.seek(16); blk = f.read(16)
++    for mo, sz in m.segments[1:]:   # read-only, data
++        for a in range(mo, mo + sz - 32, 4):
++            w = img[a:a + 32]
++            if len(set(w)) >= 24 and is_root(decrypt(w, blk)): return w
++    return None
++
++class Rpf:
++    def __init__(self, path, key):
++        h = header(path)
++        if h is None: raise ValueError(f'{path}: no RPF6 archive')
++        self.path, self.key, (n, names_at, enc) = path, key, h
++        with open(path, 'rb') as f:
++            f.seek(16); t = f.read((n * 20 + 15) // 16 * 16)
++            f.seek(names_at); nt = f.read()
++        if enc: t, nt = decrypt(key, t), decrypt(key, nt)
++        if not is_root(t): raise ValueError(f'{path}: the first entry is no root directory (wrong key?)')
++        self.raw = [struct.unpack_from('>5I', t, 20 * i) for i in range(n)]
++        names = {joaat(s.decode()): s.decode() for s in re.findall(rb'[\x20-\x7e]{1,255}(?=\0)', nt)}
++        self.files = []   # (path, offset, stored length, length (None for a resource), compressed, resource flags (None for a plain file))
++        def walk(i, prefix):
++            h, a, b, c, _ = self.raw[i]
++            name = names.get(h, f'#{h:08x}')
++            if b & 0x80000000:
++                first, count = b & 0x7fffffff, c
++                if first + count > n: raise ValueError(f'{path}: directory entry {i} runs past the table')
++                for j in range(first, first + count): walk(j, prefix + name + '/' if i else '')
++            elif c & 0x80000000: self.files.append((prefix + name, (b & 0x7fffff00) * 8, a & 0x7fffffff, None, bool(c & 0x40000000), c))
++            else: self.files.append((prefix + name, (b & 0x7fffffff) * 8, a & 0x7fffffff, c & 0x3fffffff, bool(c & 0x40000000), None))
++        walk(0, '')
++
++    def read(self, f, entry, zstd):
++        name, off, stored, size, comp, rflags = entry
++        f.seek(off); d = f.read(stored)
++        if len(d) != stored: raise ValueError(f'{self.path}/{name}: cut off ({len(d)} of {stored} bytes)')
++        if rflags is not None:   # a resource: RSC5 or RSC85 header, then its data
++            if d[:4] not in (RSC5, RSC85): raise ValueError(f'{self.path}/{name}: a resource entry, but no RSC5 / RSC85 header at {off:#x}')
++            if struct.unpack_from('<I', d, 8)[0] != rflags: raise ValueError(f'{self.path}/{name}: the resource header\'s flags differ from the entry\'s')
++            d = d[16 if d[:4] == RSC85 else 12:]
++        if not comp and rflags is None: return d
++        u = unpack(d, zstd)
++        if u is None and comp and size is not None:   # raw deflate, as on the consoles (audio_switch.rpf's .dat / .dat15 / .dat46 config files): kept only at the entry's length
++            import zlib
++            try: u = zlib.decompressobj(-15).decompress(d)
++            except zlib.error: u = None
++            if u is not None and len(u) != size: u = None
++        if u is None and self.key:   # a script (.wsc): encrypted like the tables, then compressed
++            u = unpack(decrypt(self.key, d) + d[len(d) // 16 * 16:], zstd)
++        if u is None:
++            if not comp: return d   # a resource stored as is
++            raise ValueError(f'{self.path}/{name}: compressed, but neither a zstd frame nor a zlib stream, also after decryption')
++        if size is not None and len(u) != size: raise ValueError(f'{self.path}/{name}: {len(u)} bytes decoded, the entry says {size}')
++        return u
++
++def unpack(d, zstd):
++    """The decoded data when d is a zstd frame or a zlib stream, else None. Both occur: most files are zstd, some resources zlib (cero/fragments.rpf's .wedt, the RSC\\x85 ones)"""
++    if d[:4] == ZSTD: return zstd.decompress(d)
++    if len(d) >= 2 and d[0] & 0xf == 8 and d[0] >> 4 <= 7 and (d[0] << 8 | d[1]) % 31 == 0:
++        import zlib
++        try: return zlib.decompressobj().decompress(d)
++        except zlib.error: return None
++    return None
++
++if __name__ == '__main__':
++    if len(sys.argv) < 3: sys.exit(__doc__ or 'usage: rpf6.py <main NSO> <file.rpf> [--extract <dir>]')
++    key = find_key(sys.argv[1], sys.argv[2])
++    if key is None: sys.exit(f'[RED] no window of main opens {sys.argv[2]}')
++    r = Rpf(sys.argv[2], key)
++    out = sys.argv[sys.argv.index('--extract') + 1] if '--extract' in sys.argv else None
++    if out:
++        from shader_split import zstd_mod
++        z = zstd_mod()
++    with open(r.path, 'rb') as f:
++        for e in r.files:
++            print(f'{"rsc" if e[3] is None else e[3]:>10} {"z" if e[4] else "-"} {e[0]}')
++            if out:
++                p = os.path.join(out, e[0]); os.makedirs(os.path.dirname(p), exist_ok=True)
++                with open(p, 'wb') as g: g.write(r.read(f, e, z))
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index 86716e1..8f9fecc 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -719,6 +719,75 @@ def pkz_shaders(path, rel, ents, out):
+             if len(d) != usz: red(f'/{rel}/{name}: {len(d)} bytes decoded, the entry says {usz}')
+             scan_blob(d, f'/{rel}/{name}', out)
+ 
++RPF6, RGXD = b'RPF6', b'rgxd'
++def rpf_jobs(files, mains, parts=64):
++    """Every file of every Rockstar RPF6 archive in ranges of about equal stored length (Red Dead Redemption: 134 archives, 11 GB; its shaders are the .nvn effects in shaders.rpf, but no
++    file name is relied on). The entry and name tables are AES encrypted with a key in main (rpf6.py find_key): the first main that opens the first archive gives it.
++    → ([(path, rel, (RPF6, key, entries)), …], the RPF6 paths)"""
++    import rpf6
++    rp = [(p, r) for p, r in files if rpf6.header(p) is not None]
++    if not rp: return [], set()
++    key = next((k for m in mains if (k := rpf6.find_key(m, rp[0][0])) is not None), None)
++    if key is None: red(f'/{rp[0][1]}: an encrypted RPF6 archive, and no 32-byte window of main decrypts its first entry to the root directory')
++    arcs = [(p, r, rpf6.Rpf(p, key).files) for p, r in rp]
++    jobs, step = [], max(1, sum(e[2] for _, _, es in arcs for e in es) / parts)
++    for p, r, es in arcs:
++        cur, size = [], 0
++        for e in es:
++            cur.append(e); size += e[2]
++            if size >= step: jobs.append((p, r, (RPF6, key, tuple(cur)))); cur, size = [], 0
++        if cur: jobs.append((p, r, (RPF6, key, tuple(cur))))
++    return jobs, {p for p, _ in rp}
++
++def rpf_shaders(path, rel, key, ents, out):
++    """A range of RPF6 files (rpf_jobs), each zstd-decoded and scanned like a loose file"""
++    import rpf6
++    r = rpf6.Rpf.__new__(rpf6.Rpf); r.path, r.key = path, key   # the entries came with the job; only read() is needed
++    z = zstd_mod()
++    with open(path, 'rb') as f:
++        for e in ents: scan_blob(r.read(f, e, z), f'/{rel}/{e[0]}', out)
++
++def rgxd_shaders(d, label):
++    """A RAGE effect ('rgxd', Red Dead Redemption's .nvn files in shaders.rpf: 131 effects, 3,413 shaders, 2,089 vertex and 1,324 pixel): after the effect's parameter names, each shader is a
++    record {u32 length, u32 0x19866891 (GLSLC's magic), u32 code length, u32 control length}, then the code area, then the control section. The records are packed (not 4-aligned).
++    919 of the 3,413 control sections are 12·n bytes longer than their own length (control +0x20, n = 1…11); the extra bytes stay with the section (ctl_len keys on its own length).
++    The first word is not the record's own length (0x2df8 for a 0x500 + 0x880 shader); it is not needed to find the shaders"""
++    out, n = [], d.count(CTL_MAGIC)
++    for m in re.finditer(b'\x91\x68\x86\x19', d):
++        h = m.start() - 4
++        if h < 0 or h + 16 > len(d): continue
++        _, _, nk, nc = struct.unpack_from('<4I', d, h)
++        if h + 16 + nk + nc > len(d): continue
++        code, ctl = d[h + 16:h + 16 + nk], d[h + 16 + nk:h + 16 + nk + nc]
++        st = glslc_stage(ctl, code) if ctl[:4] == CTL_MAGIC and len(ctl) >= 0x760 else None
++        if st and not check(label, st, ctl, code): out.append((f'{label}#RGXD@{h:#x}', st, ctl, code))
++    if len(out) != n: print(f'[RED] {label}: {n} control sections, {len(out)} shader records read; the rest are left out', flush=True)
++    return out
++
++def d11_pack_shaders(path, label, out):
++    """Double Eleven's resource pack (Red Dead Redemption's d11extra/langselect.pkdswitch, the language selection shown before the game): the data file holds the members one after another, its
++    index beside it (.pkiswitch) is u32 version 3, u32 0, u32 member count (22), then per member {u32 length, u32 stored length, u32 offset in the data file, u32 name hash}; a member whose stored
++    length differs from its length is one zlib stream. Members 4 and 5 are whole GLSLC outputs, the screen's pixel and vertex shader (98664fb56b9c9fdf, 70d4dd8068044bb5): without them the host
++    found no vertex shader for the first program the game draws with. The others are textures ('DFvN') and fonts ('BMF')"""
++    with open(path[:-len('.pkdswitch')] + '.pkiswitch', 'rb') as f: idx = f.read()
++    with open(path, 'rb') as f: d = f.read()
++    if len(idx) < 12: red(f'{label}: the pack index is cut short ({len(idx)} bytes)')
++    ver, _, n = struct.unpack_from('<3I', idx)
++    if ver != 3: red(f'{label}: pack index version {ver}: only 3 is known')
++    if 12 + 16 * n > len(idx): red(f'{label}: the pack index lists {n} members but holds {(len(idx) - 12) // 16}')
++    for k in range(n):
++        size, stored, off, h = struct.unpack_from('<4I', idx, 12 + 16 * k)
++        if off + stored > len(d): red(f'{label}: member {k} runs past the end of the data file')
++        m = d[off:off + stored]
++        if stored != size:
++            try: m = zlib.decompress(m)
++            except zlib.error as e: red(f'{label}: member {k} ({h:08x}) is no zlib stream: {e}')
++            if len(m) != size: red(f'{label}: member {k} ({h:08x}) inflates to {len(m)} bytes, the index says {size}')
++        lb = f'{label}#{h:08x}'
++        found = []; scan_blob(m, lb, found)
++        if not found: found = glslc_shaders(m, lb, need=False)
++        out.extend(found)
++
+ CPK = b'CPK '
+ def cpk_jobs(files, parts=64):
+     """Every entry of every CRI CPK archive in ranges of about equal length (Bayonetta 2: six in the RomFS root, 9.5 GB, 6,091 files, 12 GB of them CRILAYLA-compressed; its shaders are BNSH
+@@ -2748,6 +2817,7 @@ def scan_blob(d, label, out, depth=0, left=None):
+         for i, m in enumerate(cra.narc_members(d, label)): scan_blob(cra.undo(m), f'{label}/{i}', out, depth + 1)
+         return
+     if d[:4] == b'BAHS': out.extend(bahs_shaders(d, label)); return
++    if d[:4] == RGXD: out.extend(rgxd_shaders(d, label)); return
+     if d[:4] == b'NDSR': out.extend(ndsr_shaders(d, label)); return
+     if d[:4] == b'NDVE': out.extend(ndve_shaders(d, label)); return
+     if shaders := sead_prim_shaders(d, label): out.extend(shaders); return
+@@ -2948,6 +3018,9 @@ def scan_file_in(args):
+     if head[:4] == NLG_DICT:
+         nlg_shaders(path, '/' + rel, found)
+         return rel, uniq_keys(found), var_pairs(found), trees
++    if path.endswith('.pkdswitch') and os.path.exists(path[:-len('.pkdswitch')] + '.pkiswitch'):   # Double Eleven's resource pack, read through its index (d11_pack_shaders)
++        d11_pack_shaders(path, '/' + rel, found)
++        return rel, uniq_keys(found), var_pairs(found), trees
+     if head[:8] in (IDRK, PDRK):
+         idrk_shaders(path, '/' + rel, found)
+         return rel, uniq_keys(found), var_pairs(found), trees
+@@ -2969,6 +3042,9 @@ def scan_file_in(args):
+     if len(args) > 2 and args[2][0] == FB_CAS:   # CompiledBytecode resources of a Frostbite cas file (frostbite_jobs)
+         frostbite_shaders(path, rel, args[2][1], found)
+         return rel, uniq_keys(found), var_pairs(found), trees
++    if len(args) > 2 and head[:4] == RPF6 and args[2][0] == RPF6:   # files of a Rockstar RPF6 archive (rpf_jobs)
++        rpf_shaders(path, rel, args[2][1], args[2][2], found)
++        return rel, uniq_keys(found), var_pairs(found), trees
+     if len(args) > 2 and head[:4] == PKZL:   # entries of a PlatinumGames PKZ (pkz_jobs)
+         pkz_shaders(path, rel, args[2], found)
+         return rel, uniq_keys(found), var_pairs(found), trees
+@@ -3119,7 +3195,8 @@ def main():
+         found += glslc_shaders(img, 'main' + ('@' + tag if tag else ''), need=False)
+         found += tfxo_streams(img, 'main' + ('@' + tag if tag else ''))   # YEBIS's effect file, a zlib stream in main (Pokémon Sword)
+         found += retro_main_forms(img, 'main' + ('@' + tag if tag else ''))   # Retro's startup material archive, LZSS in main (Donkey Kong Country: Tropical Freeze)
+-        found += raw_shaders(img, 'main' + ('@' + tag if tag else ''), {c for _, _, c, _ in found})
++        if RGXD in img: found += rgxd_shaders(img, 'main' + ('@' + tag if tag else ''))   # RAGE's built-in effects (Red Dead Redemption: 20 in main's data, 168 shaders that shaders.rpf lacks)
++        found += raw_shaders(img, 'main' + ('@' + tag if tag else ''), {c[:struct.unpack_from('<I', c, 0x20)[0]] for _, _, c, _ in found})   # compared at their own length, as raw_shaders reads them
+         # NROs the game decodes at run time (Mario Tennis Fever: main is a boot stub, and the real code's data holds 11 shaders the game draws its UI and sky with): scanned like main, as no RomFS file holds them
+         if not i:
+             for n in sorted(glob.glob(os.path.join(os.environ.get('DM_NRO_DIR', ''), '*.nro'))) if os.environ.get('DM_NRO_DIR') else []:
+@@ -3158,8 +3235,9 @@ def main():
+     ah_jobs, arhs = arh_jobs(files)   # Monolith's ARH1/ARD archives and embedded XBC1/HCPS programs
+     fb_jobs, fbs = frostbite_jobs(files)   # EA SPORTS FC 27's Frostbite bundles, Oodle Leviathan decoded by the game's own decoder in the Mac host
+     pd_jobs, pdats = pdat_jobs(files)   # Kirby Air Riders' PDAT archives: the PMAP records in byte ranges
+-    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + cr_jobs + zp_jobs + ah_jobs + fb_jobs + pd_jobs
+-    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts and p not in arcs and p not in pkzs and p not in cpks and p not in cras and p not in zips and p not in arhs and p not in fbs and p not in pdats]
++    rp_jobs, rpfs = rpf_jobs(files, main_v)   # Red Dead Redemption's RPF6 archives, their tables decrypted with the key in main (rpf6.py)
++    big += pak_jobs + tr_jobs + ue_jobs + bd_jobs + arc_jobs + pz_jobs + ck_jobs + cr_jobs + zp_jobs + ah_jobs + fb_jobs + pd_jobs + rp_jobs
++    files = [(p, r) for p, r in files if not linkdata_jobs(p, r) and p not in paks and p not in trp and p not in uep and p not in bdts and p not in arcs and p not in pkzs and p not in cpks and p not in cras and p not in zips and p not in arhs and p not in fbs and p not in pdats and p not in rpfs]
+     with cf.ProcessPoolExecutor(J, initializer=_pool_init, initargs=(common, {}, zdicts)) as ex:
+         n = len(big) + len(files)
+         results += pooled(ex, big, n) + pooled(ex, files, n, len(big), chunk=16)
+diff --git a/dm/tools/fuzz/fuzz_shader_split.py b/dm/tools/fuzz/fuzz_shader_split.py
+index 1038dd1..51ca2f6 100644
+--- a/dm/tools/fuzz/fuzz_shader_split.py
++++ b/dm/tools/fuzz/fuzz_shader_split.py
+@@ -109,10 +109,19 @@ def arh1():
+     return b'arh1' + struct.pack('<9I', 0, len(nodes), so, len(strings), no, len(nodes_b), fo, 1, key) + bytes(0x30 - 40) + enc(strings) + enc(nodes_b) + files
+ 
+ 
++def rgxd():
++    """A RAGE effect: 'rgxd', a parameter name, then one record per shader {u32 length, GLSLC's magic, u32 code length, u32 control length}, the code area, the control section; the second
++    control section carries 12 bytes past its own length, as 919 of Red Dead Redemption's do"""
++    d = bytearray(b'rgxd' + bytes(4) + b'\x07gWorld\0')
++    for (ctl, code), extra in ((VS, b''), (PS, bytes(12))):
++        c = ctl + extra; d += struct.pack('<I', 0x10 + len(code) + len(c)) + GLSLC + struct.pack('<II', len(code), len(c)) + code + c
++    return bytes(d)
++
++
+ def seeds():
+     b = bnsh()
+     return {'bnsh': b, 'bahs': bahs(), 'mshd': mshd(), 'sarc-yaz0': yaz0(sarc([(b'shader.bnsh', b)])), 'glslc': glslc([VS]), 'glslc-program': glslc([VS, PS]),
+-            'sdf': sdf(), 'arh1': arh1()}
++            'sdf': sdf(), 'arh1': arh1(), 'rgxd': rgxd()}
+ 
+ 
+ def check(data):
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index ac66691..0d5e4da 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -590,6 +590,21 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **Fix:** `ndsr_shaders` in `shader_split.py` scores up to 16 complete records at each start and takes the start with more pointers to NVN2 control sections. The two starts can leave different numbers of trailing bytes in a short pack; those partial records are excluded from the score, as from the subsequent record walk.
+ - **Found on:** [Splatoon Raiders](../../dm/games/0400380020056000/README.md).
+ 
++### RAGE RPF6 archives and `rgxd` effects
++
++- **Symptom:** the NSP script's split finds no shaders in a RomFS made of `.rpf` files; after a first reader, `[RED]` lines name groups of files that could not be read.
++- **How it is stored:** Rockstar's RPF6 (big-endian, as on the PS3 and Xbox 360): a 16-byte header {`RPF6`, entry count, name table offset / 8, tag `0xfffffffd` = encrypted}, 20-byte entries, then a name table. The entry and name tables are AES-256 ECB decrypted 16 times over, with a key in `main`'s data segment. Entry 0 is the root directory; a directory's children are consecutive entries; a name hash is Jenkins one-at-a-time of the lower-case name, found by hashing every string in the name table. A plain file's data is raw, one zstd frame, a zlib stream, or raw deflate (`audio_switch.rpf`'s config files). A resource (flags bit 31) keeps its type in the offset word's low byte, so its offset is `(word & 0x7fffff00) × 8`, and its data starts with an `RSC\x05` header (12 bytes) or, when the flags are bit 31 alone, an `RSC\x85` header (16 bytes); `.wsc` scripts are AES encrypted like the tables as well. The shaders are RAGE effects (`.nvn` in `shaders.rpf`, and effects in `main`): `rgxd`, the parameter names, then one record per shader {u32, GLSLC's magic 0x19866891, u32 code length, u32 control length}, the code area, then the control section. A control section may carry bytes past its own length (`+0x20`), so it is compared at that length.
++- **Fix:** `dm/gfx/tools/rpf6.py` reads the archives: `find_key` tries `main`'s 4-aligned 32-byte windows with at least 24 distinct bytes on an archive's first entry until it decrypts to the root directory (the key is never printed or written). `shader_split.py` reads every archive's files in parallel ranges (`rpf_jobs`, `rpf_shaders`), and `rgxd_shaders` reads effects in files and in `main`. Reading resources as plain files gave 145 groups of unreadable files; with the resource offsets, both headers, zlib, raw deflate and the scripts' encryption, none.
++- **Found on:** Red Dead Redemption (`01007820196A6000`): 134 archives (11 GB), 3,413 shaders from 131 effects in `shaders.rpf` and 168 from `main`.
++- **Check:** `rpf6.py <main NSO> <file.rpf>` lists an archive; the fuzz harness has an `rgxd` seed (`dm/tools/fuzz/fuzz_shader_split.py`).
++
++### Double Eleven `.pkdswitch` packs
++
++- **Symptom:** after the RPF6 archives are read, the first screen's two shaders are still `[RED] shader … is not in the shader map`.
++- **How it is stored:** Double Eleven's resource pack: the members one after another in `.pkdswitch`, and an index `.pkiswitch` beside it: u32 version 3, u32 0, u32 member count, then 16-byte entries {length, stored length, offset in the data file, name hash}; a member whose stored length differs from its length is one zlib stream. The shaders are whole GLSLC outputs (`langselect`: members 4 and 5, the screen's pixel and vertex shader); the other members are textures (`DFvN`) and fonts (`BMF`).
++- **Fix:** `d11_pack_shaders` in `shader_split.py` reads a `.pkdswitch` through its index and scans each member for shaders.
++- **Found on:** Red Dead Redemption (`01007820196A6000`): `d11extra/langselect.pkdswitch`, the language selection shown before the game.
++
+ ## Control sections and code
+ 
+ ### Code area and control section layout

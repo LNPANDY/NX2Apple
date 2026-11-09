@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Robert McFadden <robert.mcfadden@gmail.com>
+Date: Sat, 7 Nov 2026 21:11:27 -0500
+Subject: [PATCH] Red Dead Redemption: update 1.0.4 registered
+
+1.0.4 (v262144, main 37531419da7654ec3f5b586693f7f331) changes 45 of shaders.rpf's 3,583 shaders; the
+profile's tables are now the union over both builds (3,628), as shader_versions v0 v262144 asks. It runs
+on the Mac through two agreements the update adds (each accepted after scrolling to its end) to the
+title, at 30 fps with no [RED] line in 8 minutes. The profile registers both builds and packs 1.0.4;
+the note records the route, the agreements and what is open (1.0.4 past the title, small dark blocks in
+distant foliage in its title scenes).
+
+Upstream-Status: forwarded seedds/nxnative#2005
+Reason: registers Red Dead Redemption 1.0.4, the version the NSP script packs when the update is present. Goes upstream
+Issue: LNPANDY/NX2Apple#999
+
+---
+ dm/games/01007820196A6000/README.md      | 18 +++++----
+ dm/games/01007820196A6000/game.tsv       |  7 ++--
+ dm/games/01007820196A6000/shader_map.tsv | 47 +++++++++++++++++++++++-
+ dm/games/README.md                       |  2 +-
+ 4 files changed, 62 insertions(+), 12 deletions(-)
+
+diff --git a/dm/games/01007820196A6000/README.md b/dm/games/01007820196A6000/README.md
+index 31bfacb..78653b1 100644
+--- a/dm/games/01007820196A6000/README.md
++++ b/dm/games/01007820196A6000/README.md
+@@ -1,16 +1,18 @@
+ # Red Dead Redemption (`01007820196A6000`)
+ 
+-Base game 1.0.0, SDK 15.3.2, on NVN (3,583 shaders, RAGE effects). Modules `main` and `sdk`. Rockstar's RAGE engine in Double Eleven's Switch port (the survey's Unreal marker is a false match). All of the RomFS but two Bink movies and one Double Eleven pack is in 134 Rockstar RPF6 archives (11 GB, encrypted tables). The profile is the NSP script's provisional one with `render_cond on` added ([What it needs](#what-it-needs)). Getting it to run needed a reader for its archives and effects in `shader_split.py` and several audio renderers at once in the host ([Found on this game](#found-on-this-game)). Only this build is registered in the profile.
++Base game 1.0.0 and update 1.0.4 (v262144), SDK 15.3.2, on NVN (3,628 shaders over both builds, RAGE effects). Modules `main` and `sdk`. Rockstar's RAGE engine in Double Eleven's Switch port (the survey's Unreal marker is a false match). All of the RomFS but two Bink movies and one Double Eleven pack is in 134 Rockstar RPF6 archives (11 GB, encrypted tables). The profile is the NSP script's provisional one with `render_cond on` added ([What it needs](#what-it-needs)). Getting it to run needed a reader for its archives and effects in `shader_split.py` and several audio renderers at once in the host ([Found on this game](#found-on-this-game)). Both builds are registered; the NSP script packs 1.0.4 when the update is in the folder.
+ 
+ On the Mac (2026-11-07, headless, 5 minutes driven with `DM_KEYS`): language selection, the Rockstar Games logo movie, the title, the autosave notice, the difficulty menu, the opening train cutscene and control of John Marston at Armadillo Station with the HUD and the minimap, with no `[RED]` line. It runs at the game's 30 fps (frame time p50 33.3 ms, p95 34.0 ms, max 35.7 ms; GPU p50 10.6 ms). The sound was not listened to (headless runs). The unsigned IPA is built but not tested on an iPhone.
+ 
++Update 1.0.4 on the Mac (2026-11-07, headless, NX2Apple 1.2.3's engine): 3,583 shaders, 45 of them changed from 1.0.0's (`rage_lightprepass` among them), then two agreements the update adds before the title (the license agreement and Rockstar's terms of service, each accepted with A only after scrolling to its end with the right stick), the title at 30 fps (p50 33.3 ms, p95 35.4 ms) and no `[RED]` line in 8 minutes. Past the title it has not been played.
++
+ ## What it needs
+ 
+ | Setting | Where | Why |
+ |---|---|---|
+ | 4 GB layout: `mem_reserve 0xb0000000`, `mem_alias 0x10000000`, `mem_stack 0x10000000`, `app_pool 0xCD500000` | [`game.tsv`](game.tsv) | the provisional layout, which holds: `main` sets a heap of at most the pool − 64 MB − its 1207 MB of bss |
+ | `sys_resource 0x0` | `game.tsv` | the NPDM declares 0 MB of system resource: `IsVirtualAddressMemoryEnabled` is false, as on Horizon |
+-| `mem_used 0x4ca4000` | `game.tsv` | the rewritten modules exceed the default 64 MB |
++| `mem_used 0x4ca4000` | `game.tsv` | 1.0.0's rewritten modules exceed the default 64 MB (1.0.4's fit in it) |
+ | `modules main sdk` | `game.tsv` | `main` imports only from `sdk`; the Bink movies are decoded by `main` |
+ | `render_cond on` | `game.tsv` | the game draws under `SetRenderEnableConditional` (its only `[RED]` line before the key); without it small black squares showed in the title scene and the opening cutscene |
+ | `shader_groups` (one per RomFS folder) | `game.tsv` | the provisional guess, kept |
+@@ -19,11 +21,11 @@ On the Mac (2026-11-07, headless, 5 minutes driven with `DM_KEYS`): language sel
+ ## Files
+ 
+ - RomFS: 138 files, 11.24 GB: 134 `.rpf` (25 at the root, 10.36 GB, among them `shaders.rpf`, `fragments.rpf` and `audio_switch.rpf`; 107 in `redemption/territory_swall/`), two `.bk2` movies, and `d11extra/langselect.pkdswitch` with its index `.pkiswitch`.
+-- The RPF6 archives' table key is in `main`'s data segment (1.0.0: `main+0x3757f88`). `dm/gfx/tools/rpf6.py` finds it by trying `main`'s windows on an archive's first entry; it is never printed or written to disk. `rpf6.py <main NSO> <file.rpf> [--extract <dir>]` lists or extracts an archive.
++- The RPF6 archives' table key is in `main`'s data segment (1.0.0: `main+0x3757f88`). 1.0.4 has the same key, loaded as eight big-endian words from four constants by its key setup (`main+0x145d8c`). `dm/gfx/tools/rpf6.py` finds it by trying `main`'s windows on an archive's first entry; it is never printed or written to disk. `rpf6.py <main NSO> <file.rpf> [--extract <dir>]` lists or extracts an archive.
+ 
+ ## Shaders
+ 
+-- **Current:** 3,583 distinct shaders, all translated for the Mac: 3,413 from the 131 RAGE effects (`.nvn`, `rgxd`) in `shaders.rpf` (2,089 vertex, 1,324 pixel), 168 from effects in `main`, and 2 from the language selection's Double Eleven pack. Each RPF6 archive is read through `rpf6.py` ([RAGE RPF6 archives and `rgxd` effects](../../../docs/reference/shaders.md#rage-rpf6-archives-and-rgxd-effects)).
++- **Current:** 3,628 distinct shaders over both builds (the profile's tables are their union; 1.0.4 changes 45 of `shaders.rpf`'s); 1.0.0 has 3,583, all translated for the Mac: 3,413 from the 131 RAGE effects (`.nvn`, `rgxd`) in `shaders.rpf` (2,089 vertex, 1,324 pixel), 168 from effects in `main`, and 2 from the language selection's Double Eleven pack. Each RPF6 archive is read through `rpf6.py` ([RAGE RPF6 archives and `rgxd` effects](../../../docs/reference/shaders.md#rage-rpf6-archives-and-rgxd-effects)).
+ - **Open:** the prewarm list (`pso_manifest.tsv`) is empty.
+ 
+ ## Memory
+@@ -33,7 +35,8 @@ On the Mac (2026-11-07, headless, 5 minutes driven with `DM_KEYS`): language sel
+ ## On the Mac
+ 
+ - After the NSP script's `--platform mac` build, its printed command runs the game; headless runs set `DM_ROMFS`, `DM_SAVE`, `DM_TEMP`, `DM_MSL_DIR` and `DM_NVN_SHMAP` as the script does.
+-- `DM_KEYS` drives it: A through language selection (about 20 s in), the logo movie plays, then Plus at the title, A through the autosave notice and the difficulty menu; the train cutscene runs on its own into Armadillo.
++- 1.0.4: `20:A,40:RDown~30,72:A,76:RDown~60,138:A,142:RDown~60,204:A` gets through language selection and both agreements (accepted once; the save keeps them); the title comes about 300 s in on a first start.
++- `DM_KEYS` drives 1.0.0: A through language selection (about 20 s in), the logo movie plays, then Plus at the title, A through the autosave notice and the difficulty menu; the train cutscene runs on its own into Armadillo.
+ 
+ ## Found on this game
+ 
+@@ -45,7 +48,8 @@ Otherwise it runs on mechanisms found on other games, including SDK 15.3.2's NVN
+ ## Open
+ 
+ - iPhone: the IPA is built but not tested; the 2.5 GB footprint needs the Increased Memory Limit entitlement.
+-- Faint light-blue blocks on distant buildings at the horizon in Armadillo: cause unknown.
++- Faint light-blue blocks on distant buildings at the horizon in Armadillo (1.0.0), and small dark blocks in distant foliage and on the ground in 1.0.4's title scenes, with `render_cond` on or off: cause unknown.
+ - The sound has not been listened to.
+ - The empty prewarm list ([Shaders](#shaders)).
+-- Only the opening was played: riding, gunfights, the wider map, a save and its reload are untested.
++- 1.0.4 past the title, and on an iPhone.
++- Only 1.0.0's opening was played: riding, gunfights, the wider map, a save and its reload are untested.
+diff --git a/dm/games/01007820196A6000/game.tsv b/dm/games/01007820196A6000/game.tsv
+index e6368d0..d7017d8 100644
+--- a/dm/games/01007820196A6000/game.tsv
++++ b/dm/games/01007820196A6000/game.tsv
+@@ -12,8 +12,9 @@ app_category	public.app-category.games
+ 
+ # ---- Versions ----
+ build	v0	1.0.0	main=9515ef1f79ef3cb800bd85e5d3de0d98	sdk=8618895246b420329b77746b960a66ab
+-package	v0
+-shader_versions	v0
++build	v262144	1.0.4	main=37531419da7654ec3f5b586693f7f331	sdk=8618895246b420329b77746b960a66ab
++package	v262144
++shader_versions	v0 v262144
+ 
+ # ---- Files ----
+ # every module main imports from
+@@ -35,7 +36,7 @@ shader_groups	/redemption/=redemption /cero/=cero /d11extra/=d11extra
+ shader_note	Red Dead Redemption shaders (RAGE effects in shaders.rpf and main, Double Eleven pack)
+ 
+ # ---- After the rewrite ----
+-# used memory for the current rewritten modules, at least the default 64 MB
++# used memory for the rewritten modules, at least the default 64 MB: 1.0.0's (1.0.4's fit in the default)
+ mem_used	0x4ca4000
+ # render_cond: the game draws under SetRenderEnableConditional (its only [RED] line in a 5-minute run); without the key small black squares showed in the title scene and the opening cutscene
+ render_cond	on
+diff --git a/dm/games/01007820196A6000/shader_map.tsv b/dm/games/01007820196A6000/shader_map.tsv
+index e7d0d3a..fae283b 100644
+--- a/dm/games/01007820196A6000/shader_map.tsv
++++ b/dm/games/01007820196A6000/shader_map.tsv
+@@ -1,4 +1,4 @@
+-# kind: evidence  Red Dead Redemption shaders (provisional profile) (GLSLC in RomFS + main) → control section + code area keys (dm/gfx/tools/shader_split.py)
++# kind: evidence  Red Dead Redemption shaders (RAGE effects in shaders.rpf and main, Double Eleven pack) (GLSLC in RomFS + main) → control section + code area keys (dm/gfx/tools/shader_split.py)
+ # column 5 records where each key first appears; no PC shader pairing supplied
+ package	index	stage	dm_ctl_sha16	source
+ ps_d11extra.bin	0	pixel	98664fb56b9c9fdf	/d11extra/langselect.pkdswitch#9be12403#GLSLC@0x0
+@@ -3584,3 +3584,48 @@ ps_other.bin	1320	pixel	94ebda7f84ffebec	/shaders.rpf/shaders/world/switch/rdr2_
+ ps_other.bin	1321	pixel	4d26b43e40605a71	/shaders.rpf/shaders/world/switch/rdr2_wire.nvn#RGXD@0xbf96
+ ps_other.bin	1322	pixel	ed16ac8ab30e4476	/shaders.rpf/shaders/world/switch/rdr2_wire.nvn#RGXD@0xcbb9
+ ps_other.bin	1323	pixel	379eefbcfe3dee9e	/shaders.rpf/shaders/world/switch/rdr2_wire.nvn#RGXD@0xe490
++ps_other.bin	1324	pixel	9b9ea0aac32d726b	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x1ad55
++ps_other.bin	1325	pixel	b972e43a34f07fb6	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x1e492
++ps_other.bin	1326	pixel	b377348b86794b06	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x22686
++ps_other.bin	1327	pixel	79126e51861e9db8	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x2678a
++ps_other.bin	1328	pixel	f584f394b56485a9	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x29dce
++ps_other.bin	1329	pixel	495c7630393198a3	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x2dec9
++ps_other.bin	1330	pixel	ecbef4cebe7755ec	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x31fc0
++ps_other.bin	1331	pixel	4eb5eef49ee4ab13	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x363be
++ps_other.bin	1332	pixel	65e33fa6288e5ed8	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x3a6b4
++ps_other.bin	1333	pixel	05fcb0489650db12	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x3e9b0
++ps_other.bin	1334	pixel	32b64fb24c32e426	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x41efd
++ps_other.bin	1335	pixel	f52dc9884ae55185	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x45549
++ps_other.bin	1336	pixel	3e7d7f002d1189e5	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x9c191
++ps_other.bin	1337	pixel	d169996a40b205a3	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0x9fb65
++ps_other.bin	1338	pixel	ad53174cb35cf92a	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0xa3efb
++ps_other.bin	1339	pixel	6a3bd12c6d7a8b11	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0xa77d6
++ps_other.bin	1340	pixel	4109bf25c3603220	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0xaba60
++ps_other.bin	1341	pixel	fa4983419d3b6210	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0xb000b
++ps_other.bin	1342	pixel	4248f6925071bc20	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0xb46e0
++ps_other.bin	1343	pixel	26691fba868ceab2	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0xb8d9b
++ps_other.bin	1344	pixel	29a56427bb485e42	/v262144/shaders.rpf/shaders/world/switch/rage_lightprepass.nvn#RGXD@0xbc47e
++ps_other.bin	1345	pixel	23a748c41664a8f4	/v262144/shaders.rpf/shaders/world/switch/rdr2_alpha_foliage.nvn#RGXD@0x66848
++ps_other.bin	1346	pixel	a18663b0a378a29e	/v262144/shaders.rpf/shaders/world/switch/rdr2_alpha_foliage_no_fade.nvn#RGXD@0x5c5db
++ps_other.bin	1347	pixel	44f7e2b252567003	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x10245c
++ps_other.bin	1348	pixel	408bf99bcd93e17b	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x106676
++ps_other.bin	1349	pixel	95dd2fcfead1ca34	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x10b243
++ps_other.bin	1350	pixel	6ab68609827448d5	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x110131
++ps_other.bin	1351	pixel	3ab60440cb3dc45d	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x115149
++ps_other.bin	1352	pixel	e2180daaf6877404	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x11a147
++ps_other.bin	1353	pixel	1b064064dc356106	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x11e169
++ps_other.bin	1354	pixel	362d8e46f7761352	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x67229
++ps_other.bin	1355	pixel	9424ebc2c6730d5e	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x6b36f
++ps_other.bin	1356	pixel	61ef4c39661be8a9	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x6ff6c
++ps_other.bin	1357	pixel	9824d6c1bc48dfec	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x74a79
++ps_other.bin	1358	pixel	3118b723d0e3b26a	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x78ac6
++ps_other.bin	1359	pixel	f953123e8904d2ce	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x7d5ca
++ps_other.bin	1360	pixel	cf1e174a4bfd7ece	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x820ca
++ps_other.bin	1361	pixel	0e6cea994f1e68ac	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x86ed1
++ps_other.bin	1362	pixel	d41b23b97cff2ff7	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x8bbd0
++ps_other.bin	1363	pixel	b6d5fd56d8fafb8d	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x908d5
++ps_other.bin	1364	pixel	fa1f79f08f466129	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x9482b
++ps_other.bin	1365	pixel	72e723642509e9cf	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0x98880
++ps_other.bin	1366	pixel	7c21a23e7bb4a95e	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0xf9470
++ps_other.bin	1367	pixel	a888b96e39e7dae8	/v262144/shaders.rpf/shaders/world/switch/rdr2_grass.nvn#RGXD@0xfd783
++ps_other.bin	1368	pixel	15a84cd16af9d202	/v262144/shaders.rpf/shaders/world/switch/rdr2_improvedmotionblur.nvn#RGXD@0xec7
+diff --git a/dm/games/README.md b/dm/games/README.md
+index e6b45fd..eb73d63 100644
+--- a/dm/games/README.md
++++ b/dm/games/README.md
+@@ -148,7 +148,7 @@ One row per profile; the notes are each profile's `README.md`.
+ | [Portal 2](0100ABD01785C000/README.md) | `0100ABD01785C000` | 1.0.3 | 13.3.0 | Valve's Source engine (21 NROs) | NVN |
+ | [Princess Peach: Showtime!](01007A3009184000/README.md) | `01007A3009184000` | 1.0.0 | 15.3.2 | Unreal Engine 4.27 (Good-Feel), Wwise | NVN |
+ | [Raging Loop](010020400E1C2000/README.md) | `010020400E1C2000` | 1.0.0 (base) | 7.3.2 | Unity 2018.3.10f1 IL2CPP | NVN |
+-| [Red Dead Redemption](01007820196A6000/README.md) | `01007820196A6000` | 1.0.0 (base) | 15.3.2 | Rockstar's RAGE (Double Eleven port) | NVN |
++| [Red Dead Redemption](01007820196A6000/README.md) | `01007820196A6000` | 1.0.4 | 15.3.2 | Rockstar's RAGE (Double Eleven port) | NVN |
+ | [Return of the Obra Dinn](010032E00E6E2000/README.md) | `010032E00E6E2000` | 1.0.1 | 8.2.0 | Unity 2017.4.28f1 IL2CPP | NVN |
+ | [Rhythm Heaven Groove](0100D9F01D474000/README.md) | `0100D9F01D474000` | 1.0.0 (base) | 21.4.0 | Nintendo's own 2D engine | NVN |
+ | [ROMANCE OF THE THREE KINGDOMS 8 REMAKE](0100C2A01A730000/README.md) | `0100C2A01A730000` | 1.1.3 | 17.5.3 | Koei Tecmo's KTGL | NVN |

@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Robert McFadden <robert.mcfadden@gmail.com>
+Date: Sun, 8 Nov 2026 16:22:29 -0500
+Subject: [PATCH] Red Dead Redemption: the note follows the new base and the
+ two rendering fixes
+
+The movies' second audio renderer now plays through upstream's support for several renderers (A game with more than one renderer, added for Mario & Luigi: Brothership), so the note links there and the fork's own audio patch is gone. The distant blocks in the sky and the missing bodies of distant characters are resolved, with links to their entries in rendering.md; 1.0.4 was played on the Mac from a save in Armadillo.
+
+Upstream-Status: forwarded seedds/nxnative#2005
+Reason: the Red Dead Redemption note after the two rendering fixes, until upstream has the game. Goes upstream
+Issue: LNPANDY/NX2Apple#999
+
+---
+ dm/games/01007820196A6000/README.md | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/dm/games/01007820196A6000/README.md b/dm/games/01007820196A6000/README.md
+index 78653b1..1c4c277 100644
+--- a/dm/games/01007820196A6000/README.md
++++ b/dm/games/01007820196A6000/README.md
+@@ -1,10 +1,10 @@
+ # Red Dead Redemption (`01007820196A6000`)
+ 
+-Base game 1.0.0 and update 1.0.4 (v262144), SDK 15.3.2, on NVN (3,628 shaders over both builds, RAGE effects). Modules `main` and `sdk`. Rockstar's RAGE engine in Double Eleven's Switch port (the survey's Unreal marker is a false match). All of the RomFS but two Bink movies and one Double Eleven pack is in 134 Rockstar RPF6 archives (11 GB, encrypted tables). The profile is the NSP script's provisional one with `render_cond on` added ([What it needs](#what-it-needs)). Getting it to run needed a reader for its archives and effects in `shader_split.py` and several audio renderers at once in the host ([Found on this game](#found-on-this-game)). Both builds are registered; the NSP script packs 1.0.4 when the update is in the folder.
++Base game 1.0.0 and update 1.0.4 (v262144), SDK 15.3.2, on NVN (3,628 shaders over both builds, RAGE effects). Modules `main` and `sdk`. Rockstar's RAGE engine in Double Eleven's Switch port (the survey's Unreal marker is a false match). All of the RomFS but two Bink movies and one Double Eleven pack is in 134 Rockstar RPF6 archives (11 GB, encrypted tables). The profile is the NSP script's provisional one with `render_cond on` added ([What it needs](#what-it-needs)). Getting it to run needed a reader for its archives and effects in `shader_split.py` ([Found on this game](#found-on-this-game)); its second audio renderer, for the movies, plays through the host's support for several renderers. Both builds are registered; the NSP script packs 1.0.4 when the update is in the folder.
+ 
+ On the Mac (2026-11-07, headless, 5 minutes driven with `DM_KEYS`): language selection, the Rockstar Games logo movie, the title, the autosave notice, the difficulty menu, the opening train cutscene and control of John Marston at Armadillo Station with the HUD and the minimap, with no `[RED]` line. It runs at the game's 30 fps (frame time p50 33.3 ms, p95 34.0 ms, max 35.7 ms; GPU p50 10.6 ms). The sound was not listened to (headless runs). The unsigned IPA is built but not tested on an iPhone.
+ 
+-Update 1.0.4 on the Mac (2026-11-07, headless, NX2Apple 1.2.3's engine): 3,583 shaders, 45 of them changed from 1.0.0's (`rage_lightprepass` among them), then two agreements the update adds before the title (the license agreement and Rockstar's terms of service, each accepted with A only after scrolling to its end with the right stick), the title at 30 fps (p50 33.3 ms, p95 35.4 ms) and no `[RED]` line in 8 minutes. Past the title it has not been played.
++Update 1.0.4 on the Mac (2026-11-07, headless, NX2Apple 1.2.3's engine): 3,583 shaders, 45 of them changed from 1.0.0's (`rage_lightprepass` among them), then two agreements the update adds before the title (the license agreement and Rockstar's terms of service, each accepted with A only after scrolling to its end with the right stick), the title at 30 fps (p50 33.3 ms, p95 35.4 ms) and no `[RED]` line in 8 minutes. Played on the Mac from a save in Armadillo (2026-11-08, Apple M4, macOS 27.0.1): the saloon, the street and the walk to the horses at 30 fps (frame time p50 33.3 ms), with distant characters and the sky over the ridge drawn right since the two fixes in [Found on this game](#found-on-this-game).
+ 
+ ## What it needs
+ 
+@@ -41,15 +41,18 @@ Update 1.0.4 on the Mac (2026-11-07, headless, NX2Apple 1.2.3's engine): 3,583 s
+ ## Found on this game
+ 
+ - Resolved: no shaders were found at first: the effects are inside encrypted RPF6 archives → [RAGE RPF6 archives and `rgxd` effects](../../../docs/reference/shaders.md#rage-rpf6-archives-and-rgxd-effects); the language selection's two shaders are in a Double Eleven pack → [Double Eleven `.pkdswitch` packs](../../../docs/reference/shaders.md#double-eleven-pkdswitch-packs).
+-- Resolved: presentation stopped after the Rockstar Games logo: the game opens a second audio renderer for its movies, and the host rendered only one → [Several audio renderers at once](../../../docs/reference/audio.md#several-audio-renderers-at-once).
++- Resolved: presentation stopped after the Rockstar Games logo: the game opens a second audio renderer for its movies, and the host rendered only one → [A game with more than one renderer](../../../docs/reference/audio.md#a-game-with-more-than-one-renderer).
++
++- Resolved: light square blocks, 8×8 pixels and flickering, in the sky over the distant ridge (1.0.0 and 1.0.4): the cloud fog `rdr2_clouds_fog` (`c0ab3c051753e36d`) sampled the depth attachment its pass had just written → [Depth sampled after a draw of its pass wrote it](../../../docs/reference/rendering.md#depth-sampled-after-a-draw-of-its-pass-wrote-it).
++- Resolved: characters a few metres away drawn as their hats and props only (their shadows had bodies): the character occlusion queries (`rage::CharacterVisQueries`) never reset the samples-passed counter, every query read 0 and every character counted as hidden → [Samples-passed reports with no reset before them](../../../docs/reference/rendering.md#samples-passed-reports-with-no-reset-before-them).
+ 
+ Otherwise it runs on mechanisms found on other games, including SDK 15.3.2's NVN and services.
+ 
+ ## Open
+ 
+ - iPhone: the IPA is built but not tested; the 2.5 GB footprint needs the Increased Memory Limit entitlement.
+-- Faint light-blue blocks on distant buildings at the horizon in Armadillo (1.0.0), and small dark blocks in distant foliage and on the ground in 1.0.4's title scenes, with `render_cond` on or off: cause unknown.
++- Faint light-blue blocks on distant buildings at the horizon in Armadillo (1.0.0), and small dark blocks in distant foliage and on the ground in 1.0.4's title scenes: not looked at again since the depth fix ([Found on this game](#found-on-this-game)), which may be their cause too.
+ - The sound has not been listened to.
+ - The empty prewarm list ([Shaders](#shaders)).
+-- 1.0.4 past the title, and on an iPhone.
++- 1.0.4 beyond Armadillo, and on an iPhone.
+ - Only 1.0.0's opening was played: riding, gunfights, the wider map, a save and its reload are untested.

@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Robert McFadden <robert.mcfadden@gmail.com>
+Date: Sun, 8 Nov 2026 12:40:52 -0500
+Subject: [PATCH] Red Dead Redemption's distant blocks are gone: a draw that
+ samples the depth attachment its render pass already wrote ends the pass
+ first, so it reads what was written
+
+Red Dead Redemption's cloud fog (rdr2_clouds_fog) fades the clouds against the scene's depth, sampling the depth attachment of the colour pass it draws in, after the tree cards, low terrain and props of that pass wrote depth (no game barrier between them). On Apple's GPUs an attachment sampled within the pass that writes it reads whole compressed blocks of what the tiles stored so far: the fog took 8x8 blocks above the trees for geometry, faded the clouds out there and left bare sky, different blocks every frame (a flicker on distant hills and trees in cutscenes and play).
+
+fb_prepare already ended the pass for the other order (a depth or stencil write after a draw that read the attachment) and snapshots colour attachments a pass wrote; this order was not covered. Now a draw that samples the depth attachment, bound or named in a uniform buffer, after a draw of its pass wrote depth or stencil ends the pass before it (not when the draw itself writes depth). On Red Dead Redemption's Armadillo route about one pass end a frame: GPU p50 14.3 -> 14.7 ms, frame time unchanged. DM_NVN_FB_DEPTH=0 turns it off.
+
+Upstream-Status: forwarded seedds/nxnative#1866
+Reason: Red Dead Redemption's sky showed flickering blocks over distant hills: a draw sampling the depth its pass had written read partly stored tiles
+Issue: LNPANDY/NX2Apple#999
+
+---
+ dm/gfx/nvn/nvn_mtl.m        | 19 +++++++++++++++----
+ docs/env_switches.tsv       |  1 +
+ docs/reference/rendering.md |  8 ++++++++
+ 3 files changed, 24 insertions(+), 4 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index ad3424b..78a4771 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -11708,7 +11708,9 @@ void ms_after(void) {
+ // DM_NVN_FB_SNAP=0 none, all a fresh snapshot for every draw sampling an attachment of its pass (diagnostic); DM_NVN_FB_TILE=0 no tile reads
+ static int g_fb_mode = -1;   // 0 none, 1 writers with reuse until a barrier, 2 every sampling draw, fresh
+ static uint64_t g_fb_bar, g_fb_reuse, g_fb_split;   // game barriers so far (OP_BARRIER with bits); draws that reused a snapshot; passes ended before a write to an attachment an earlier draw read
+-static uint64_t g_fb_pass = UINT64_MAX; static uint32_t g_fb_wmask, g_fb_rmask, g_fb_dread;   // the current Metal render pass: color attachments written so far, sampled directly; a draw has read its depth attachment (or could have: bindless)
++static uint64_t g_fb_pass = UINT64_MAX; static uint32_t g_fb_wmask, g_fb_rmask, g_fb_dread, g_fb_dwrote;   // the current Metal render pass: color attachments written so far, sampled directly; a draw has read its depth attachment (or could have: bindless); a draw has written depth or stencil
++static uint64_t g_fb_dsplit;   // passes ended because a draw sampled the depth attachment its pass had written
++static int fb_depth_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_FB_DEPTH"); v = !(e && !strcmp(e, "0")); if (!v) MLOG("DM_NVN_FB_DEPTH=0: a draw sampling the depth attachment its pass wrote reads it in the pass"); } return v; }
+ typedef struct { uint64_t ser, bar, sub, use; int lv, sl; __strong id<MTLTexture> snap; } fb_cache_t;   // use: when it was last taken or reused (g_fbc_use)
+ static fb_cache_t g_fbc[8]; static uint64_t g_fbc_use;
+ static int fb_mode(void) {
+@@ -11716,7 +11718,7 @@ static int fb_mode(void) {
+         if (g_fb_mode != 1) MLOG("same-pass feedback sampling snapshot: %s (DM_NVN_FB_SNAP)", g_fb_mode ? "a fresh one for every draw sampling an attachment of its pass" : "off"); }
+     return g_fb_mode;
+ }
+-static inline void fb_pass_sync(void) { uint64_t p = g_stat_pass + !g_enc; if (p != g_fb_pass) { g_fb_pass = p; g_fb_wmask = g_fb_rmask = g_fb_dread = 0; g_fb_dread_pool = 0; } }
++static inline void fb_pass_sync(void) { uint64_t p = g_stat_pass + !g_enc; if (p != g_fb_pass) { g_fb_pass = p; g_fb_wmask = g_fb_rmask = g_fb_dread = g_fb_dwrote = 0; g_fb_dread_pool = 0; } }
+ static inline int fb_shape(const fb_cache_t *e, MTLPixelFormat pf, NSUInteger w, NSUInteger h) { return e->snap && e->snap.pixelFormat == pf && e->snap.width == w && e->snap.height == h; }
+ static inline int fb_live(const fb_cache_t *e) { return e->ser && e->bar == g_fb_bar && e->sub == g_sub_serial; }   // a later draw may still reuse it
+ // The snapshot of an attachment's level and layer: the cached one (valid: *fresh = 0) or a texture to copy into (*fresh = 1; the entry is then valid from this barrier and submission on).
+@@ -11842,6 +11844,9 @@ static void fb_prepare(NvProg *pr) {
+     int dsw = R.rt.depth && ((S.ds.dt && S.ds.dw) || (S.ds.st && (S.st_wmask[0] || S.st_wmask[1]) && (S.ds.fail_f != NVN_STENCIL_OP_KEEP || S.ds.zfail_f != NVN_STENCIL_OP_KEEP || S.ds.zpass_f != NVN_STENCIL_OP_KEEP
+         || S.ds.fail_b != NVN_STENCIL_OP_KEEP || S.ds.zfail_b != NVN_STENCIL_OP_KEEP || S.ds.zpass_b != NVN_STENCIL_OP_KEEP)));
+     if (g_enc && dsw && g_fb_dread) { g_fb_split++; g_fb_split_pool += g_fb_dread_pool; g_fb_dread_pool = 0; rp_end(); fb_pass_sync(); }   // the same for its depth and stencil (see rtc_on)
++    if (g_enc && g_fb_dwrote && !dsw && fb_depth_on() && R.rt.depth && fs->rf.bindless && fb_texu_reads(fs, R.rt.depth->serial)) {   // the depth case below (fb_dsplit), for a texture named in a uniform buffer
++        g_fb_split++; g_fb_dsplit++; rp_end(); fb_pass_sync();
++        static int once; if (!once++) MLOG("same-pass depth sampling: a draw samples (through a uniform buffer handle) the depth attachment an earlier draw of its pass wrote: the pass ends before it (first case pass %llu)", (unsigned long long)g_stat_pass); }
+     if (R.rt.depth && !g_fb_dread && ((fs->rf.pool && pool_ds_read(R.rt.depth) && (g_fb_dread_pool = 1)) || fs->rf.dyn || (fs->rf.bindless && fb_texu_reads(fs, R.rt.depth->serial)))) g_fb_dread = 1;
+     uint64_t tile[4]; int ntile = fb_tile_plan(pr, wm, tile);
+     for (int i = 0; i < fs->rf.nb && g_fb_n < 4; i++) {
+@@ -11852,7 +11857,13 @@ static void fb_prepare(NvProg *pr) {
+         int tid = (int)(handle & 0xfffff); if (!tid) continue;
+         os_unfair_lock_lock(&g_rmu); uint64_t ser = tid < g_ntreg && g_treg[tid].ok ? g_treg[tid].t.serial : 0; os_unfair_lock_unlock(&g_rmu);
+         if (!ser) continue;
+-        if (R.rt.depth && R.rt.depth->serial == ser) g_fb_dread = 1;
++        if (R.rt.depth && R.rt.depth->serial == ser) {
++            // An earlier draw of this pass wrote the depth attachment this draw samples: end the pass so those writes are in memory (on Apple's GPUs a depth attachment read
++            // within its pass gives whole compressed blocks of what tiles stored so far). Red Dead Redemption's tree cards write depth in the colour pass and its cloud fog
++            // (rdr2_clouds_fog) then samples it for a soft edge: 8x8 blocks of bare sky above the trees, changing every frame. Not when this draw writes depth itself
++            if (g_enc && g_fb_dwrote && !dsw && fb_depth_on()) { g_fb_split++; g_fb_dsplit++; rp_end(); fb_pass_sync();
++                static int once; if (!once++) MLOG("same-pass depth sampling: a draw samples the depth attachment an earlier draw of its pass wrote: the pass ends before it (first case pass %llu)", (unsigned long long)g_stat_pass); }
++            g_fb_dread = 1; }
+         for (int k = 0; k < R.rt.n && k < 8 && g_fb_n < 4; k++) { if (!R.rt.color[k] || R.rt.color[k]->serial != ser) continue;
+             if (!image && (tile[b->reg >> 6] >> (b->reg & 63) & 1)) { PD("N %llu same-pass feedback sampling: slot %d reads attachment %d ser=%llu from the tile", g_stat_pass + !g_enc, b->reg, k, (unsigned long long)ser); continue; }   // fb_tile_plan
+             uint64_t aser; int lv, sl; rt_sub(&R.rt, k, &aser, &lv, &sl);
+@@ -11926,7 +11937,7 @@ static void fb_prepare(NvProg *pr) {
+                      (unsigned long long)atomic_load(&g_cur_frame), g_stat_pass + !g_enc, fs->key, b->reg, k, (unsigned long long)ser, (unsigned long)w, (unsigned long)h, (unsigned long)base.pixelFormat);
+             PD("N %llu same-pass feedback sampling: attachment %d ser=%llu level %d layer %d copied into a snapshot; this draw samples the snapshot", g_stat_pass + !g_enc, k, (unsigned long long)ser, lv, sl);
+         } }
+-    g_fb_wmask |= wm;
++    g_fb_wmask |= wm; if (dsw) g_fb_dwrote = 1;
+     if (g_fb_n) { g_fb_seq = g_draw_seq; args_dirty_all(); g_fb_rebind = 1; }
+     if (ntile) { g_fb_tseq = g_draw_seq; g_fb_tile_draws++;
+         if (g_fb_tile_draws == 1 || g_fb_tile_draws == 1000 || g_fb_tile_draws % 100000 == 0)
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 0ccdbfe..1f8fd67 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -149,6 +149,7 @@ DM_NVN_ENC_LABEL	diagnostic	`=1` labels every render encoder `p<pass in frame> <
+ DM_NVN_ENC_THREAD	player	`1` runs the replay's Metal encoding on a thread of its own while the submit thread goes on translating; on by default on iOS (`0` turns it off), off on macOS
+ DM_NVN_END_ALIAS	diagnostic	`1` puts the resource-alias flush back on every encoder's end barrier (each costs the command allocator about 100 KB; the start barriers carry it); `ab` alternates it with the `DM_AB` phases
+ DM_NVN_FAST_WAKE	switch	`0` makes the game's `SyncWait`s wake on the commit feedback handler instead of the GPU's own signal of the fence (on by default)
++DM_NVN_FB_DEPTH	switch	`0`: a draw that samples the depth attachment of its own render pass after a draw of that pass wrote depth or stencil reads it in the pass (undefined on Apple's GPUs: compressed blocks of what tiles stored so far) instead of the pass ending before it
+ DM_NVN_FB_SNAP	switch	Draws that sample a colour attachment of their own render pass: unset, those that write it (or follow a write in the pass) read a snapshot, reused until the game's next barrier; `0` none; `all` a fresh snapshot for every draw that samples one (slow, diagnostic, no tile reads)
+ DM_NVN_FB_TILE	switch	`0` makes such draws that sample the attachment at their own pixel (a projective sample at the vertex shader's screen varying) read a snapshot too, instead of the tile
+ DM_NVN_FLUSH_FILL	switch	`0` starts a new GPU texture in a CPU-writable pool as zeros; by default one whose storage the game flushed before its first use is filled from that storage once
+diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
+index 6f827d5..054265e 100644
+--- a/docs/reference/rendering.md
++++ b/docs/reference/rendering.md
+@@ -571,6 +571,14 @@ The replay on Metal (`dm/gfx/nvn/nvn_mtl.m`) and the Vulkan and OpenGL layers. E
+ - **Check:** `make -C dm/gfx/tests GAME=<id> check_t_feedback` (`pool_depth_case`). On Ocarina's walk: passes a frame 182 → 101 and level across frames, attachments 300 / 325 → 254 / 277 MB load / store, the heavy frame's GPU span 19.2 → 12.6 ms, summed GPU p50 17.5 → 15.5 ms. No depth attachment of the main pass or the probes was ever read through a pool; about 70 shadow maps were. The pictures show no tile pattern.
+ - **Found on:** [The Legend of Zelda: Ocarina of Time](../../dm/games/0400486024DEC000/README.md#found-on-this-game).
+ 
++### Depth sampled after a draw of its pass wrote it
++
++- **Symptom:** light square blocks, 8×8 pixels and flickering, in the sky over distant hills and trees, where a soft-edged effect fades against the scene's depth. Red Dead Redemption: beige blocks above the ridge behind Armadillo, in both 1.0.0 and 1.0.4.
++- **Cause:** a draw sampled the depth attachment of its own pass after earlier draws of that pass had written it, with no barrier between them. `fb_prepare` ended the pass for the reverse order (a depth write after a depth read, `g_fb_dread`) and snapshotted colour attachments ([Same-pass feedback read through a snapshot](#same-pass-feedback-read-through-a-snapshot)), but not this one. On Apple's GPUs such a read returns whole compressed blocks of whatever tiles had stored so far, so the effect read depth that did not match the scene, faded out there, and the bare sky showed through.
++- **Fix:** `fb_prepare` in `nvn_mtl.m`, for every game. A draw that samples the pass's depth attachment, bound or named by a handle in a uniform buffer (`fb_texu_reads`, as in [Bindless shaders taken as depth readers](#bindless-shaders-taken-as-depth-readers)), after a draw of the same Metal pass wrote depth or stencil (`g_fb_dwrote`), ends the pass first, so it reads what was written. A draw that both samples depth and writes it is left as before. `DM_NVN_FB_DEPTH=0` turns it off; the log says `same-pass depth sampling` once when it first applies.
++- **Check:** on Red Dead Redemption 1.0.4 (Apple M4, macOS 27.0.1), the route out of the saloon in Armadillo: GPU p50 14.3 → 14.7 ms, frame time unchanged at the game's 30 fps, no `[RED]`; the blocks are gone when played with the rule on and back with `DM_NVN_FB_DEPTH=0`.
++- **Found on:** Red Dead Redemption (`01007820196A6000`): its cloud fog `rdr2_clouds_fog` (`c0ab3c051753e36d`) fades the clouds against the depth buffer it samples through a uniform-buffer handle, in the pass where the billboards (`rdr2_billboard`), the low-detail terrain and other geometry have just written depth.
++
+ ### Mip-chain pass sampling the level it renders
+ 
+ - **Symptom:** NaN texels in the upper levels of a texture the game fills level by level (each level drawn from the one above), and from there NaN wherever the texture is read: black speckles in whole 2×2 quads, white blotches once bloom spreads them, and a dark frame from the eye adaptation.
