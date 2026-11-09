@@ -122,6 +122,8 @@ public enum SettingsPresenter {
         case "range": kind = .range(min: s.min ?? 0, max: s.max ?? 1, step: s.step ?? 0.1, unit: s.env.hasSuffix("SCALE") ? "×" : "")
         default: kind = .choice((s.options ?? []).map { SettingOption($0[0], $0[1]) })
         }
-        return SettingRow(id: s.env, label: s.label, note: s.note, kind: kind, value: value, fromShell: fromShell)
+        var row = SettingRow(id: s.env, label: s.label, note: s.note, kind: kind, value: value, fromShell: fromShell)
+        row.changed = !fromShell && !s.isDefault(value)   // a value the shell's settings give is marked as theirs instead
+        return row
     }
 }

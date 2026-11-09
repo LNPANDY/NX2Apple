@@ -268,9 +268,9 @@ import NXModel
         }
     }
 
-    /// The Launch options sheet at its own size, with a choice made so that Reset to tested defaults shows: in every language
-    /// the button is one LauncherControl and its label fits on one line.
-    @MainActor func testLaunchOptionsResetFitsInEveryLanguage() throws {
+    /// The Launch options sheet at its own size, with a choice made so that a setting differs from its tested value: in every language
+    /// the footer's button (Use for new games) is one LauncherControl and its label fits on one line.
+    @MainActor func testLaunchOptionsFooterButtonFitsInEveryLanguage() throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("launch-width-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -303,7 +303,7 @@ import NXModel
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
             host.layoutSubtreeIfNeeded()
             window.orderOut(nil)
-            XCTAssertFalse(samples.all.isEmpty, "\(lang): the sheet showed no Reset to tested defaults")
+            XCTAssertFalse(samples.all.isEmpty, "\(lang): the sheet showed no footer button")
             for sample in samples.all {
                 if sample.room == LauncherControl.buttonLabelWidth {
                     XCTAssertEqual(sample.size.width, LauncherControl.width, "\(lang)")
@@ -312,7 +312,7 @@ import NXModel
                     // A choice with labels too long for the segmented control (French "Plein écran") is a dropdown as wide as one.
                     XCTAssertEqual(sample.size.width, LaunchControl.width, "\(lang)")
                 }
-                XCTAssertLessThanOrEqual(sample.labelWidth, sample.room, "\(lang): \(L10n.string("launch.reset", lang))")
+                XCTAssertLessThanOrEqual(sample.labelWidth, sample.room, "\(lang): \(L10n.string("launch.useForNew", lang))")
             }
         }
     }

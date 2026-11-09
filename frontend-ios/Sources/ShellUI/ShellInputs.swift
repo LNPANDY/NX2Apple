@@ -65,6 +65,8 @@ public struct SettingRow: Identifiable, Equatable, Sendable {
     public var enabled: Bool
     /// The value is the shell settings' choice, because the game has none of its own.
     public var fromShell: Bool
+    /// The value differs from the game profile's tested default (#453): the row draws a small dot before its label.
+    public var changed = false
     /// Label and note are texts of the game's launcher.json: shown in the player's language when the catalog has them.
     public init(id: String, label: String, note: String = "", kind: SettingKind, value: String, enabled: Bool = true, fromShell: Bool = false) {
         self.init(id: id, label: label, note: note, kind: kind, value: value, enabled: enabled, fromShell: fromShell, in: ShellStrings.bundle)
