@@ -39,6 +39,24 @@ import NXModel
         XCTAssertTrue(zh.title.contains("Hades") && !zh.title.contains("notify.") && !zh.body.contains("notify."), zh.title)
     }
 
+    func testAFailedBuildEndsWithAFailureNotice() {
+        var failed = Stage(id: 2, name: "Mac shaders")
+        failed.state = .failed
+        failed.detail = "exit code 1"
+        // `done` stays false for a failure: the note or a failed stage tells it
+        XCTAssertEqual(BuildNotice.ended(stopped: false, running: false, done: false, note: "nxb: error", stages: []), .failed(reason: "nxb: error"))
+        XCTAssertEqual(BuildNotice.ended(stopped: false, running: false, done: false, note: "", stages: [failed]), .failed(reason: "Mac shaders · exit code 1"))
+        XCTAssertEqual(BuildNotice.ended(stopped: false, running: false, done: true, note: "Mac app ready", stages: []), .finished)
+        XCTAssertEqual(BuildNotice.ended(stopped: true, running: false, done: false, note: "Stopped", stages: []), .stopped)
+    }
+
+    func testNothingHasEndedWhileTheChainGoesOn() {
+        let done = Stage(id: 1, name: "Extract", state: .done)
+        XCTAssertNil(BuildNotice.ended(stopped: false, running: true, done: false, note: "", stages: [done]), "still running")
+        XCTAssertNil(BuildNotice.ended(stopped: false, running: true, done: true, note: "", stages: [done]), "the Mac target sets done before running goes false")
+        XCTAssertNil(BuildNotice.ended(stopped: false, running: false, done: false, note: "", stages: [done]), "the iPhone chain between its script and the install")
+    }
+
     func testTheFailureReasonIsTheBuildsOwnLastWord() {
         var stage = Stage(id: 3, name: "Extract")
         stage.state = .failed
