@@ -170,4 +170,54 @@ final class ArtworkLanguageTests: XCTestCase {
     func testLanguagesWithoutACatalogueAskTheEnglishOne() {
         XCTAssertEqual(["en", "de", "fr", "it", "sv", "zh", "ja"].map(CleanArt.language(for:)), ["en", "de", "fr", "it", "en", "en", "en"])
     }
+
+    // The catalogue's original size (the hero at 1440 to 1920 pt on a Retina screen needs about 3000 pixels)
+
+    func testTheOriginalComesBeforeThe1600PixelSize() {
+        let link = "https://www.nintendo.com/eu/media/images/10_share_images/games_15/wiiu_14/SI_WiiU_TheLegendOfZeldaBreathOfTheWild_image1600w.jpg"
+        XCTAssertEqual(CleanArt.original(link), "https://www.nintendo.com/eu/media/images/10_share_images/games_15/wiiu_14/SI_WiiU_TheLegendOfZeldaBreathOfTheWild.jpg")
+        XCTAssertEqual(CleanArt.downloads(for: link), [CleanArt.original(link)!, link])
+        XCTAssertEqual(CleanArt.original("https://www.nintendo.com/eu/media/images/2x1_NSwitch2_TLoZTBotWNSwitch2Edition_image1600w.jpg"),
+                       "https://www.nintendo.com/eu/media/images/2x1_NSwitch2_TLoZTBotWNSwitch2Edition.jpg")
+        XCTAssertNil(CleanArt.original("https://www.nintendo.com/eu/media/images/plain.jpg"))
+        XCTAssertEqual(CleanArt.downloads(for: "https://www.nintendo.com/eu/media/images/plain.jpg"), ["https://www.nintendo.com/eu/media/images/plain.jpg"])
+    }
+
+    func testTheCataloguesOriginalIsSavedWhenItIsPublished() async throws {
+        let sized = try jpeg("key_image1600w.jpg", width: 40).absoluteString
+        _ = try jpeg("key.jpg", width: 50)
+        let store = try store(catalogue: Catalogue(["it": [cleanOne: sized]]))
+        let added = await store.fetchMissing([cleanOne], language: "it")
+        XCTAssertEqual(added, [cleanOne])
+        XCTAssertEqual(width(cleanOne, in: folder), 50, "the original, not the 1600 pixel size")
+        let again = await store.fetchMissing([cleanOne], language: "it")
+        XCTAssertEqual(again, [], "kept: not fetched again")
+    }
+
+    func testAMissingOriginalFallsBackTo1600AndIsNotAskedForAgain() async throws {
+        let sized = try jpeg("only_image1600w.jpg", width: 40).absoluteString   // no only.jpg: the original is missing
+        let store = try store(catalogue: Catalogue(["it": [cleanOne: sized]]))
+        let added = await store.fetchMissing([cleanOne], language: "it")
+        XCTAssertEqual(added, [cleanOne])
+        XCTAssertEqual(width(cleanOne, in: folder), 40, "the 1600 pixel size when the original is not published")
+        _ = try jpeg("only.jpg", width: 50)   // it appears later: the record says it was missing, so nothing is fetched every launch
+        let again = await store.fetchMissing([cleanOne], language: "it")
+        XCTAssertEqual(again, [])
+        XCTAssertEqual(width(cleanOne, in: folder), 40)
+    }
+
+    func testABannerSavedAt1600IsReplacedOnceByTheOriginal() async throws {
+        let sized = try jpeg("old_image1600w.jpg", width: 40).absoluteString
+        // a launcher from before kept the 1600 size and recorded it as the banner's source
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(at: URL(string: sized)!, to: folder.appendingPathComponent(cleanOne + ".jpg"))
+        try JSONEncoder().encode([cleanOne: sized, ArtworkStore.languageKey: "it"]).write(to: folder.appendingPathComponent("sources.json"))
+        _ = try jpeg("old.jpg", width: 50)
+        let store = try store(catalogue: Catalogue(["it": [cleanOne: sized]]))
+        let added = await store.fetchMissing([cleanOne], language: "it")
+        XCTAssertEqual(added, [cleanOne])
+        XCTAssertEqual(width(cleanOne, in: folder), 50, "replaced by the larger original")
+        let again = await store.fetchMissing([cleanOne], language: "it")
+        XCTAssertEqual(again, [], "once")
+    }
 }

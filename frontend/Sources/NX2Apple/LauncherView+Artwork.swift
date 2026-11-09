@@ -29,6 +29,14 @@ extension LauncherView {
         }
     }
 
+    /// What the hero draws: its own decode at the hero's size, never the card's 640 pixel thumbnail (stretched over a 2880 pixel
+    /// wide hero it was blurred). Until `refreshHeroArtwork` has run for this game it decodes here (ArtworkImages keeps it).
+    func heroImage(for game: LibraryGame) -> NSImage? {
+        GameLibrary.heroImage(for: game.id, decoded: heroArtwork) {
+            GameLibrary.artwork(for: displayed(game), repo: stores.repo.path, banners: library.artworkDirectory)
+        }
+    }
+
     /// The eShop key art of the games that have none yet, in the launcher's language; the cards and the hero redraw as it arrives.
     /// A change of language picks every banner again (ArtworkStore.fetchMissing).
     func fetchArtwork() {

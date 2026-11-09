@@ -55,9 +55,8 @@ extension LauncherView {
                 Label(loc.t("library.firstBuild"), systemImage: "plus")
                     .font(.manrope(16, .semibold))
                     .padding(.horizontal, 24).padding(.vertical, 15)
-                    .foregroundStyle(LauncherPalette.onCream).background(LauncherPalette.cream, in: Capsule())
             }
-            .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).padding(.top, 8)
+            .buttonStyle(LauncherActionButtonStyle()).launcherHover(enabled: artworkEditor == nil, lightBrightness: 0).padding(.top, 8)
             Button(action: chooseLibraryFolder) {
                 Label(loc.t("library.chooseFolder"), systemImage: "folder")
                     .font(.manrope(14)).foregroundStyle(.secondary)
@@ -75,7 +74,7 @@ extension LauncherView {
     func hero(_ game: LibraryGame, width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             ZStack {
-                if let image = heroArtwork?.id == game.id ? heroArtwork?.image : artwork[game.id] {
+                if let image = heroImage(for: game) {
                     ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .hero))
                 } else {
                     LauncherPalette.surface
@@ -295,9 +294,9 @@ extension LauncherView {
                 .foregroundStyle(color)
             if GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {   // #445
                 Text(loc.t("switch2.badge"))
-                    .font(.manrope(prominent ? 11 : 10.5, .bold)).foregroundStyle(LauncherPalette.cream.opacity(0.85))
+                    .font(.manrope(prominent ? 11 : 10.5, .bold)).foregroundStyle(LauncherPalette.notice)
                     .padding(.horizontal, 7).padding(.vertical, 2)
-                    .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                    .overlay(Capsule().strokeBorder(LauncherPalette.noticeBorder))
                     .help(loc.t("switch2.help"))
             }
             if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning

@@ -131,7 +131,7 @@ actor ArtworkStore {
         if !sameLanguage { sources = [Self.languageKey: language] }
         await lookUpClean(asked, language: requested)
         let wanted = asked.filter { id in
-            Self.cachedBanner(id, in: directory) == nil || sources[id] == nil || clean(for: id).map { $0 != sources[id] } == true
+            Self.cachedBanner(id, in: directory) == nil || sources[id] == nil || clean(for: id).map { !Self.cleanIsCurrent($0, id: id, sources: sources) } == true
         }
         // A title added since the list was last read has its banner and no media: read the list now, in the background, rather than
         // when the panel opens. An index without media is left for `media(for:)`, as it is not rewritten at launch.
@@ -151,16 +151,26 @@ actor ArtworkStore {
         for id in wanted.sorted() {
             let cached = Self.cachedBanner(id, in: directory) != nil
             if let link = clean(for: id) {
-                if cached && sources[id] == link { continue }
-                do {
-                    try await download(link, to: directory.appendingPathComponent(id + ".jpg"))
-                    sources[id] = link
-                    added.append(id)
-                } catch {
-                    // the large size may be missing for an older image: the size the catalogue names, then the list's banner next time
-                    fputs("artwork: \(id): \(error.localizedDescription)\n", stderr)
-                    clean?.images[id] = nil; saveClean()
+                if cached && Self.cleanIsCurrent(link, id: id, sources: sources) { continue }
+                // The original first (2000 pixels), then the 1600 pixel size. A banner saved at 1600 before is replaced once; an
+                // original that is missing is recorded, so it is not asked for at every launch.
+                var saved = false
+                for (attempt, file) in CleanArt.downloads(for: link).enumerated() {
+                    let isOriginal = attempt == 0 && file != link
+                    if !isOriginal && cached && sources[id] == link { saved = true; break }   // the 1600 copy is already the one there is
+                    do {
+                        try await download(file, to: directory.appendingPathComponent(id + ".jpg"))
+                        sources[id] = file
+                        added.append(id)
+                        saved = true
+                        break
+                    } catch {
+                        fputs("artwork: \(id): \(file): \(error.localizedDescription)\n", stderr)
+                        if isOriginal && Self.isMissing(error) { sources[Self.missingOriginalKey(id)] = file }   // offline: asked again next time
+                    }
                 }
+                // the catalogue's sizes are all missing: the list's banner next time
+                if !saved { clean?.images[id] = nil; saveClean() }
                 continue
             }
             guard let index else { continue }
@@ -182,6 +192,22 @@ actor ArtworkStore {
         }
         writeSources(sources)
         return added
+    }
+
+    /// Where sources.json records that a title's catalogue original is not published (not a title ID, as the language key).
+    nonisolated static func missingOriginalKey(_ id: String) -> String { "_noOriginal:" + id }
+
+    /// The server has no such image (an HTTP error, not an image, no such file), as opposed to a network that is down.
+    nonisolated static func isMissing(_ error: Error) -> Bool {
+        if error is ArtworkError { return true }
+        if let url = error as? URLError { return [.badServerResponse, .fileDoesNotExist].contains(url.code) }
+        return (error as? CocoaError)?.code == .fileReadNoSuchFile
+    }
+
+    /// The saved banner is the catalogue image's best size: its original, or the 1600 pixel one when the original is known to be missing.
+    nonisolated static func cleanIsCurrent(_ link: String, id: String, sources: [String: String]) -> Bool {
+        guard let original = CleanArt.original(link) else { return sources[id] == link }
+        return sources[id] == original || (sources[id] == link && sources[missingOriginalKey(id)] == original)
     }
 
     /// The screenshots of a title. They are in the saved index once it has been read again since they were added, so an index
