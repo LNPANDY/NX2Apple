@@ -34,7 +34,11 @@ extension BuildStore {
                 guard let self else { return }
                 self.preparingOffline = false; self.running = false; self.stopping = false
                 self.done = result == nil
-                self.doneNote = result.map { self.t("offline.failed") + (($0 as? OfflineDataInventory.ValidationError)?.message(self.t) ?? $0.localizedDescription) } ?? self.t("msg.macAppDone")
+                if result is CancellationError {
+                    self.doneNote = self.t("msg.stopped")
+                } else {
+                    self.doneNote = result.map { self.t("offline.failed") + (($0 as? OfflineDataInventory.ValidationError)?.message(self.t) ?? $0.localizedDescription) } ?? self.t("msg.macAppDone")
+                }
                 self.cleanupStaging()
             }
         }

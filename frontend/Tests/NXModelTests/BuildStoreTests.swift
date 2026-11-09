@@ -145,6 +145,7 @@ import Combine
         XCTAssertFalse(store.done); XCTAssertFalse(store.running); XCTAssertFalse(store.preparingOffline); XCTAssertFalse(store.stopping)
         XCTAssertFalse(FileManager.default.fileExists(atPath: app.appendingPathComponent("Contents/Resources/offline-seed").path))
         XCTAssertFalse(runner.launches.contains { $0.arguments.contains("--sign") })
+        XCTAssertEqual(store.doneNote, store.t("msg.stopped"))
     }
 
     // MARK: The conditions to start
