@@ -18,25 +18,24 @@ Issue: seedds/nxnative#221
  dm/games/0100F2C0115B6000/README.md |    6 +
  dm/host/Makefile                    |    4 +-
  dm/host/controllers_mac.h           |   27 +
- dm/host/controllers_mac.m           | 1101 +++++++++++++++++++++++++++
+ dm/host/controllers_mac.m           | 1197 +++++++++++++++++++++++++++
  dm/host/dm_input.h                  |    6 +-
- dm/host/front_mac.m                 |  481 ++----------
+ dm/host/front_mac.m                 |  568 ++-----------
  dm/host/haptics_apple.h             |   10 +
  dm/host/haptics_apple.m             |   50 +-
  dm/host/hle_haptics.h               |    2 +-
- dm/host/hle_hid.c                   |  183 +++--
+ dm/host/hle_hid.c                   |  182 ++--
  dm/host/home_quit.h                 |    4 +-
  dm/host/input_map.h                 |   46 +-
  dm/host/input_preferences_mac.h     |   47 ++
  dm/host/pad_hid_mac.h               |   60 +-
- dm/host/pad_joycon_mac.h            |    2 +-
  dm/host/pad_map.h                   |   17 +
  dm/host/pad_motion.h                |   36 +
  dm/host/steam_input.h               |   97 +++
  dm/host/tests/Makefile              |   11 +
- dm/host/tests/t_controllers_mac.m   | 1084 ++++++++++++++++++++++++++
+ dm/host/tests/t_controllers_mac.m   | 1115 +++++++++++++++++++++++++
  dm/host/tests/t_haptics_apple.m     |   49 +-
- dm/host/tests/t_hid.c               |  247 +++++-
+ dm/host/tests/t_hid.c               |  251 +++++-
  dm/host/tests/t_input_map.c         |   35 +
  dm/host/tests/t_pad_map.c           |  104 +++
  dm/host/tests/t_pad_motion.c        |   19 +
@@ -49,7 +48,7 @@ Issue: seedds/nxnative#221
  docs/frontends.md                   |   32 +
  docs/mac-controllers.md             |  253 ++++++
  docs/reference/services.md          |   36 +-
- 34 files changed, 3671 insertions(+), 539 deletions(-)
+ 33 files changed, 3797 insertions(+), 628 deletions(-)
  create mode 100644 dm/host/controllers_mac.h
  create mode 100644 dm/host/controllers_mac.m
  create mode 100644 dm/host/input_preferences_mac.h
@@ -142,10 +141,10 @@ index 0000000..bd852c4
 +int front_cp_poll(void);
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
 new file mode 100644
-index 0000000..96be5ae
+index 0000000..72d9f95
 --- /dev/null
 +++ b/dm/host/controllers_mac.m
-@@ -0,0 +1,1101 @@
+@@ -0,0 +1,1200 @@
 +// Mac controller input: keep the existing eight-player slot policy, with
 +// shared button choices and per-model extras for GameController and Triton HID.
 +#import "controllers_mac.h"
@@ -330,8 +329,11 @@ index 0000000..96be5ae
 +    });
 +    else if(d && d->joycon) {
 +        GCController *pair=nil;
-+        for(GCController *c in GCController.controllers) if(joycon_is_gc_controller(c) && c.haptics) { pair=c; break; }
-+        if(g_merge) dm_haptics_apple_controller(player,pair);
++        for(GCController *c in GCController.controllers) if(joycon_is_gc_controller(c)) {
++            if(c.motion.sensorsRequireManualActivation) c.motion.sensorsActive=YES;
++            if(!pair && c.haptics) pair=c;
++        }
++        if(g_merge || d->joycon->partner) dm_haptics_apple_controller(player,pair);
 +        else dm_haptics_apple_controller_locality(player,pair,d->joycon->st.pid==JOYCON_PID_L ? GCHapticsLocalityLeftHandle : GCHapticsLocalityRightHandle);
 +    } else dm_haptics_apple_controller(player,d.controller);
 +}
@@ -443,14 +445,24 @@ index 0000000..96be5ae
 +    pad_motion_reset(&d->motion);
 +    if(d->joycon) {
 +        d->joycon->motion=(pro_motion){0};
++        if(d->joycon->partner) d->joycon->partner->motion=(pro_motion){0};
 +        if(d->slot>=0) {
 +            dm_motion_clear_hid(g_merge ? 0 : d->slot);
-+            if(!g_merge) dm_motion_clear_joy(d->slot,joycon_side(d->joycon->st.pid));
++            if(!g_merge) {
++                dm_motion_clear_joy(d->slot,joycon_side(d->joycon->st.pid));
++                if(d->joycon->partner) dm_motion_clear_joy(d->slot,joycon_side(d->joycon->partner->st.pid));
++            }
 +        }
 +    }
 +    if(d->generic && d->generic->twin && hidpad_is_pro(d->generic) && d->slot>=0) dm_motion_clear_hid(g_merge ? 0 : d->slot);
 +    if (d.controller && d->slot >= 0) dm_motion_detach(d.controller, g_merge ? 0 : d->slot);
 +    else if(d->slot>=0 && source) dm_pad_motion(g_merge ? 0 : d->slot,NULL);
++}
++static void joycon_pad_buttons(const joycon_pad *p, int *home, int *a, int *b) {
++    if(!p) return;
++    if(home) *home|=p->st.home | (p->partner ? p->partner->st.home : 0);
++    uint64_t m=p->partner ? (p->st.joy_buttons | p->partner->st.joy_buttons) : p->st.buttons;
++    *a|=!!(m & DM_BTN_A); *b|=!!(m & DM_BTN_B);
 +}
 +// The prompt reads the controllers while guest input is suspended. Window/app
 +// focus and the software keyboard still apply to both.
@@ -465,8 +477,7 @@ index 0000000..96be5ae
 +            if(g.buttonHome.isPressed) { *home=1; if(!holder) holder=d.controller; }
 +            *a|=g.buttonA.isPressed; *b|=g.buttonB.isPressed;
 +        } else if(d->joycon) {
-+            *home|=d->joycon->st.home;
-+            *a|=!!(d->joycon->st.buttons & DM_BTN_A); *b|=!!(d->joycon->st.buttons & DM_BTN_B);
++            joycon_pad_buttons(d->joycon,home,a,b);
 +        } else if(d->s2) {
 +            // A Switch 2 controller has no GCController, so no holder (the prompt shows the default A / B symbols)
 +            if(s2_pad_home(&d->s2->st)) *home=1;
@@ -492,7 +503,10 @@ index 0000000..96be5ae
 +            if(!listening) d->input=(steam_state){0};
 +            controller_publish(d);
 +            if(d->s2 && d->slot>=0) { int p=g_merge ? 0 : d->slot; dm_joy_set(p,0,0,0,0); dm_joy_set(p,1,0,0,0); }   // nothing a Joy-Con 2 pressed stays pressed in the npad layer
-+            if(d->joycon && d->slot>=0 && !g_merge) dm_joy_set(d->slot,joycon_side(d->joycon->st.pid),0,0,0);
++            if(d->joycon && d->slot>=0 && !g_merge) {
++                dm_joy_set(d->slot,joycon_side(d->joycon->st.pid),0,0,0);
++                if(d->joycon->partner) dm_joy_set(d->slot,joycon_side(d->joycon->partner->st.pid),0,0,0);
++            }
 +        }
 +        controller_touches();
 +    } else if(!was_focused) {
@@ -523,7 +537,7 @@ index 0000000..96be5ae
 +    for(DMController *d in g_devices) {
 +        GCExtendedGamepad *g=d.controller.extendedGamepad;
 +        if(g) { *a|=g.buttonA.isPressed; *b|=g.buttonB.isPressed; }
-+        else if(d->joycon) { *a|=!!(d->joycon->st.buttons & DM_BTN_A); *b|=!!(d->joycon->st.buttons & DM_BTN_B); }
++        else if(d->joycon) joycon_pad_buttons(d->joycon,NULL,a,b);
 +        else if(d->s2) s2_pad_ab(&d->s2->st,a,b);
 +        else if(d->device) { *a|=!!(d->quit_buttons & DM_BTN_B); *b|=!!(d->quit_buttons & DM_BTN_A); }   // Triton's physical A (bottom) / B (right)
 +        else if(d->generic) {
@@ -547,7 +561,7 @@ index 0000000..96be5ae
 +    // DM_PAD_PRESS_TO_JOIN=1: the lowest player free at the first button, whatever the port, the link or the model
 +    d->slot = g_press_to_join ? pad_slot_take_lowest(&g_slots, (__bridge const void *)d, d.name.UTF8String) : pad_slot_take(&g_slots, (__bridge const void *)d, d.name.UTF8String);
 +    if (d->slot < 0) { fprintf(stderr, "controller '%s': all %d players are taken\n", d.name.UTF8String, DM_PLAYERS); return; }
-+    if (d->joycon && !g_merge) dm_joy_attach(d->slot, d->joycon->st.pid == JOYCON_PID_R ? 2u : 1u);
++    if (d->joycon && !g_merge) dm_joy_attach(d->slot, joycon_pad_sides(d->joycon));
 +    controller_attach_motion(d);
 +    controller_pro_changed();
 +    if (g_merge) controller_merge_haptics(); else controller_route_haptics(d, d->slot);
@@ -566,8 +580,8 @@ index 0000000..96be5ae
 +    if (d->s2) s2_sink(g_merge ? 0 : slot, NO);
 +    if (g_merge) controller_merge_haptics(); else dm_haptics_apple_controller(slot, nil);
 +    if (d->joycon && !g_merge) {
-+        int side = joycon_side(d->joycon->st.pid);
-+        dm_joy_set(slot, side, 0, 0, 0);
++        dm_joy_set(slot, joycon_side(d->joycon->st.pid), 0, 0, 0);
++        if (d->joycon->partner) dm_joy_set(slot, joycon_side(d->joycon->partner->st.pid), 0, 0, 0);
 +        dm_joy_attach(slot, 0);
 +    }
 +    if (g_merge) controller_publish(d); else dm_pad_set_player(slot, 0, 0, 0, 0, 0);
@@ -614,14 +628,29 @@ index 0000000..96be5ae
 +// Main's split Joy-Con decoder keeps each half sideways, with the shared
 +// registry owning its slot, mappings and focus gate alongside Steam and GC.
 +static DMController *controller_for_joycon(joycon_pad *pad) {
-+    for(DMController *d in g_devices) if(d->joycon==pad) return d;
++    joycon_pad *pri=joycon_pad_primary(pad);
++    for(DMController *d in g_devices) if(d->joycon==pri || d->joycon==pad) return d;
 +    return nil;
 +}
 +static void joycon_read(joycon_pad *pad) {
 +    DMController *d=controller_for_joycon(pad); if(!d) return;
-+    d->input=(steam_state){.buttons=(uint32_t)pad->st.buttons,.lx=controller_axis(pad->st.sx),.ly=controller_axis(pad->st.sy)};
-+    if(!g_merge && d->slot>=0)
++    joycon_pad *pri=d->joycon;
++    if(pri && pri->partner) {
++        joycon_pad *l=pri->st.pid==JOYCON_PID_L ? pri : pri->partner;
++        joycon_pad *r=pri->st.pid==JOYCON_PID_R ? pri : pri->partner;
++        uint32_t b=(uint32_t)((l->st.joy_buttons | r->st.joy_buttons) & 0xffffull);
++        d->input=(steam_state){.buttons=b,.lx=controller_axis(l->st.joy_sx),.ly=controller_axis(l->st.joy_sy),.rx=controller_axis(r->st.joy_sx),.ry=controller_axis(r->st.joy_sy)};
++    } else {
++        d->input=(steam_state){.buttons=(uint32_t)pad->st.buttons,.lx=controller_axis(pad->st.sx),.ly=controller_axis(pad->st.sy)};
++    }
++    if(!g_merge && d->slot>=0) {
 +        dm_joy_set(d->slot,joycon_side(pad->st.pid),g_focus ? pad->st.joy_buttons : 0,g_focus ? controller_axis(pad->st.joy_sx) : 0,g_focus ? controller_axis(pad->st.joy_sy) : 0);
++        if(pri && pri->partner) {
++            joycon_pad *other=pad==pri ? pri->partner : pri;
++            dm_joy_set(d->slot,joycon_side(other->st.pid),g_focus ? other->st.joy_buttons : 0,g_focus ? controller_axis(other->st.joy_sx) : 0,g_focus ? controller_axis(other->st.joy_sy) : 0);
++        }
++    }
++    if(controller_listening()) front_home_poll();
 +    controller_publish(d);
 +}
 +static void joycon_read_motion(joycon_pad *pad, const uint8_t *rep, size_t len) {
@@ -631,12 +660,15 @@ index 0000000..96be5ae
 +    pro_motion_sample samples[3];
 +    int n=joycon_motion_decode(&pad->motion,pad->st.pid,rep,len,now_ns(),samples);
 +    for(int i=0;i<n;i++) {
-+        dm_motion_set_hid(g_merge ? 0 : d->slot,samples[i].acc,samples[i].rot,samples[i].ns);
-+        if(!g_merge) {
-+            float uacc[3],urot[3];
-+            joycon_motion_upright(pad->st.pid,&samples[i],uacc,urot);
-+            dm_motion_set_joy(d->slot,joycon_side(pad->st.pid),uacc,urot,samples[i].ns);
++        joycon_rest_apply(&pad->rest,&samples[i]);
++        float uacc[3],urot[3];
++        joycon_motion_upright(pad->st.pid,&samples[i],uacc,urot);
++        if(pad->partner) {
++            if(pad->st.pid==JOYCON_PID_R) dm_motion_set_hid(g_merge ? 0 : d->slot,uacc,urot,samples[i].ns);
++        } else {
++            dm_motion_set_hid(g_merge ? 0 : d->slot,samples[i].acc,samples[i].rot,samples[i].ns);
 +        }
++        if(!g_merge) dm_motion_set_joy(d->slot,joycon_side(pad->st.pid),uacc,urot,samples[i].ns);
 +    }
 +}
 +static void joycon_attach(joycon_pad *pad) {
@@ -648,18 +680,84 @@ index 0000000..96be5ae
 +    DMController *d=controller_for_joycon(pad); if(!d) return;
 +    controller_disconnect(d); d->joycon=NULL; [g_devices removeObject:d]; controller_panel_refresh();
 +}
++static void joycon_pair_changed(joycon_pad *pri) {
++    pri->motion=(pro_motion){0};
++    if(pri->partner) pri->partner->motion=(pro_motion){0};
++    DMController *d=controller_for_joycon(pri); if(!d) return;
++    d.name=@(pri->name); d.model=[@"Nintendo / " stringByAppendingString:d.name];
++    if(d->slot>=0) {
++        dm_motion_clear_hid(g_merge ? 0 : d->slot);
++        if(!g_merge) dm_joy_attach(d->slot,joycon_pad_sides(pri));
++        if(g_merge) controller_merge_haptics(); else controller_route_haptics(d,d->slot);
++    }
++    joycon_read(pri);
++    controller_panel_refresh();
++}
++static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
++    DMController *d=controller_for_joycon(pri);
++    int slot=d ? d->slot : -1;
++    if(!g_merge && slot>=0) {
++        int sec_side=joycon_side(sec->st.pid);
++        dm_joy_set(slot,sec_side,0,0,0);
++        dm_motion_clear_joy(slot,sec_side);
++    }
++    joycon_pair_changed(pri);
++    joycon_attach(sec);
++    DMController *sd=controller_for_joycon(sec);
++    if(!sd || sd->slot<0) {
++        if(sd) { controller_disconnect(sd); sd->joycon=NULL; [g_devices removeObject:sd]; }
++        pri->partner=sec; sec->partner=pri; pri->primary=1; sec->primary=0;
++        joycon_update_name(pri); joycon_update_name(sec);
++        joycon_pair_changed(pri);
++        return;
++    }
++    fprintf(stderr,"controller '%s' plays alone now: player %d (SL + SR held); '%s' stays player %d\n",sec->name,sd->slot+1,pri->name,slot+1);
++}
++static void joycon_join_pair(joycon_pad *a, joycon_pad *b) {
++    DMController *da=controller_for_joycon(a), *db=controller_for_joycon(b);
++    if(!da || !db) return;
++    joycon_pad *stay=(da->slot>=0 && (db->slot<0 || da->slot<=db->slot)) ? a : b;
++    joycon_pad *mover=stay==a ? b : a;
++    joycon_detach(mover);
++    stay->partner=mover; mover->partner=stay; stay->primary=1; mover->primary=0;
++    joycon_update_name(stay); joycon_update_name(mover);
++    joycon_pair_changed(stay);
++    DMController *ds=controller_for_joycon(stay);
++    fprintf(stderr,"controller '%s': player %d (L + R held)\n",stay->name,ds ? ds->slot+1 : 1);
++}
++static void joycon_unpair_removed(joycon_pad *gone_pad, joycon_pad *keep_pad) {
++    DMController *d=controller_for_joycon(gone_pad);
++    if(d) {
++        int slot=d->slot;
++        if(!g_merge && slot>=0) {
++            int gone_side=joycon_side(gone_pad->st.pid);
++            dm_joy_set(slot,gone_side,0,0,0);
++            dm_motion_clear_joy(slot,gone_side);
++        }
++        d->joycon=keep_pad;
++    }
++    keep_pad->partner=gone_pad->partner=NULL;
++    keep_pad->primary=1;
++    joycon_update_name(keep_pad);
++    joycon_pair_changed(keep_pad);
++}
 +static void joycon_home_changed(void) { if(controller_listening()) front_home_poll(); }
 +static void joycon_haptics_sync(GCController *gone) {
 +    if(!g_joycon_split) return;
 +    GCController *pair=nil;
-+    for(GCController *c in GCController.controllers) if(c!=gone && joycon_is_gc_controller(c) && c.haptics) { pair=c; break; }
++    for(GCController *c in GCController.controllers) if(c!=gone && joycon_is_gc_controller(c)) {
++        if(c.motion.sensorsRequireManualActivation) c.motion.sensorsActive=YES;
++        if(!pair && c.haptics) pair=c;
++    }
 +    if(g_merge) {
 +        DMController *route=g_merge_haptics_source;
 +        if(route && route->joycon) dm_haptics_apple_controller(0,pair);
 +        return;
 +    }
-+    for(DMController *d in g_devices) if(d->joycon && d->slot>=0)
-+        dm_haptics_apple_controller_locality(d->slot,pair,d->joycon->st.pid==JOYCON_PID_L ? GCHapticsLocalityLeftHandle : GCHapticsLocalityRightHandle);
++    for(DMController *d in g_devices) if(d->joycon && d->slot>=0) {
++        if(d->joycon->partner) dm_haptics_apple_controller(d->slot,pair);
++        else dm_haptics_apple_controller_locality(d->slot,pair,d->joycon->st.pid==JOYCON_PID_L ? GCHapticsLocalityLeftHandle : GCHapticsLocalityRightHandle);
++    }
 +}
 +// Switch 2 controllers over Bluetooth LE (pad_switch2_apple.h): the shared registry owns the slot, the mapping and the focus gate, as for the HID and split Joy-Con pads.
 +// A pad's motion and its Joy-Con npad states go to the game from the transport itself (dm_motion_set_hid, dm_joy_set), and its rumble is the sink dm_switch2_rumble (s2_sink).
@@ -1272,7 +1370,7 @@ index ab2c807..3f7cef8 100644
  // Optional diagnostic DM_HID_RECEIPT_LOG=<writable JSONL path>: received samples of real GetNpadState returns.
  // Fields read_start_ns/time_ns use the same host now_ns(); the front-end publish window must use the same helper, and a read interval that spans a publish must not be force-matched.
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index f56fd5f..052f230 100644
+index 5942299..052f230 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -7,7 +7,7 @@
@@ -1324,7 +1422,7 @@ index f56fd5f..052f230 100644
      if (!g_win.isKeyWindow || !NSApp.isActive) return;
      NSView *v = g_win.contentView;
      if (NSPointInRect([v convertPoint:g_win.mouseLocationOutsideOfEventStream fromView:nil], v.bounds)) [NSCursor setHiddenUntilMouseMoves:YES];
-@@ -158,162 +148,21 @@ static int fn_shortcut(NSEvent *e) {
+@@ -158,166 +148,21 @@ static int fn_shortcut(NSEvent *e) {
      return (e.modifierFlags & NSEventModifierFlagFunction) && s.length == 1 && [[NSCharacterSet letterCharacterSet] characterIsMember:[s characterAtIndex:0]];
  }
  static ctrl_prompt g_cp; static int g_cp_confirm, g_cp_cancel;   // the controller applet's prompt (front_ctrl_support) and a key pressed in it since its last step
@@ -1429,12 +1527,16 @@ index f56fd5f..052f230 100644
 -static void joycon_haptics_sync(GCController *gone) {
 -    if (!g_joycon_split) return;
 -    GCController *jc = nil;
--    for (GCController *c in GCController.controllers) if (c != gone && joycon_is_gc_controller(c) && c.haptics) { jc = c; break; }
+-    for (GCController *c in GCController.controllers) if (c != gone && joycon_is_gc_controller(c)) {
+-        if (c.motion.sensorsRequireManualActivation) c.motion.sensorsActive = YES;
+-        if (!jc && c.haptics) jc = c;
+-    }
 -    if (g_merge) { if (g_joycons && jc) dm_haptics_apple_controller(0, jc); return; }
 -    for (joycon_pad *d = g_joycons; d; d = d->next) {
+-        if (d->partner && !d->primary) continue;
 -        int p = pad_slot_of(&g_slots, d); if (p < 0) continue;
--        GCHapticsLocality loc = d->st.pid == JOYCON_PID_L ? GCHapticsLocalityLeftHandle : GCHapticsLocalityRightHandle;
--        dm_haptics_apple_controller_locality(p, jc, loc);
+-        if (d->partner) dm_haptics_apple_controller(p, jc);
+-        else dm_haptics_apple_controller_locality(p, jc, d->st.pid == JOYCON_PID_L ? GCHapticsLocalityLeftHandle : GCHapticsLocalityRightHandle);
 -    }
 -}
 -// DM_PAD_MERGE: whether a controller still plays player 1 (gone: one just removed, not counted), a GameController one or a raw HID pad (pad_hid_mac.h, pad_joycon_mac.h)
@@ -1493,7 +1595,7 @@ index f56fd5f..052f230 100644
  // Display sleep: macOS counts keyboard and mouse input as user activity, not a controller's, so in controller-only play the display dims and locks; the latency
  // activity in front_run keeps the system awake, not the display. While the game window is key the display stays awake (NSActivityIdleDisplaySleepDisabled);
  // losing focus or being minimized lets it sleep again. An explicit lock or sleep is not held off, and no input is synthesized
-@@ -323,195 +172,27 @@ static void display_awake(int on) {
+@@ -327,277 +172,27 @@ static void display_awake(int on) {
          g_display_activity = [NSProcessInfo.processInfo beginActivityWithOptions:NSActivityIdleDisplaySleepDisabled reason:@"NxNative active game window"];
      else if (!on && g_display_activity) { [NSProcessInfo.processInfo endActivity:g_display_activity]; g_display_activity = nil; }
  }
@@ -1507,7 +1609,11 @@ index f56fd5f..052f230 100644
 -    for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
 -    for (hid_pad *d = g_hidpads; d; d = d->next) { int p = pad_slot_of(&g_slots, d); if (p >= 0) dm_pad_set_player(p, 0, 0, 0, 0, 0); }
 -    for (s2_pad *d = dm_switch2_pads(); d; d = d->next) { int p = s2pad_player(d); if (p >= 0) { dm_pad_set_player(p, 0, 0, 0, 0, 0); dm_joy_set(p, 0, 0, 0, 0); dm_joy_set(p, 1, 0, 0, 0); } }
--    for (joycon_pad *d = g_joycons; d; d = d->next) { int p = pad_slot_of(&g_slots, d); if (p >= 0) { dm_pad_set_player(p, 0, 0, 0, 0, 0); dm_joy_set(p, joycon_side(d->st.pid), 0, 0, 0); } }
+-    for (joycon_pad *d = g_joycons; d; d = d->next) {
+-        joycon_pad *pri = joycon_pad_primary(d);
+-        int p = pad_slot_of(&g_slots, pri);
+-        if (p >= 0) { dm_pad_set_player(p, 0, 0, 0, 0, 0); dm_joy_set(p, joycon_side(d->st.pid), 0, 0, 0); }
+-    }
 -}
 -static void hidpad_motion_clear(void) {   // the gyro of identical Pro Controllers read from IOKit (pad_hid_mac.h)
 -    for (hid_pad *d = g_hidpads; d; d = d->next) { int p = d->twin && hidpad_is_pro(d) ? pad_slot_of(&g_slots, d) : -1; if (p >= 0) dm_motion_clear_hid(p); }
@@ -1532,7 +1638,8 @@ index f56fd5f..052f230 100644
 -    dm_switch2_active(0);
 -    for (joycon_pad *d = g_joycons; d; d = d->next) {
 -        d->motion = (pro_motion){0};
--        int p = g_merge ? 0 : pad_slot_of(&g_slots, d);
+-        joycon_pad *pri = joycon_pad_primary(d);
+-        int p = g_merge ? 0 : pad_slot_of(&g_slots, pri);
 -        if (p >= 0) {
 -            dm_motion_clear_hid(p);
 -            if (!g_merge) dm_motion_clear_joy(p, joycon_side(d->st.pid));
@@ -1633,36 +1740,52 @@ index f56fd5f..052f230 100644
 -    dm_pad_players(pad_slot_mask(&g_slots));
 -    cp_poll();   // one player fewer
 -}
--// Split Joy-Con sideways controllers (pad_joycon_mac.h, DM_JOYCON_SPLIT=1): each half takes a player slot of its own
+-// Bluetooth Joy-Cons (pad_joycon_mac.h): paired on one player slot by default (JoyDual or auto-split JoyLeft + JoyRight), or split into two sideways slots by SL+SR held 3 s / DM_JOYCON_SPLIT=1
 -static void joycon_read(joycon_pad *d) {
 -    if (!g_input_on || hq_blocks_input(g_hq.phase)) return;
--    int p = g_merge ? 0 : pad_slot_of(&g_slots, d); if (p < 0) return;
+-    joycon_pad *pri = joycon_pad_primary(d);
+-    int p = g_merge ? 0 : pad_slot_of(&g_slots, pri); if (p < 0) return;
 -    if (cp_poll()) return;   // the controller applet's prompt has the controllers
--    if (!g_merge) dm_joy_set(p, joycon_side(d->st.pid), d->st.joy_buttons, pad_axis(d->st.joy_sx), pad_axis(d->st.joy_sy));
--    pad_set(p, d->st.buttons, pad_axis(d->st.sx), pad_axis(d->st.sy), 0, 0);
+-    if (!g_merge) {
+-        dm_joy_set(p, joycon_side(d->st.pid), d->st.joy_buttons, pad_axis(d->st.joy_sx), pad_axis(d->st.joy_sy));
+-        if (pri->partner) {
+-            joycon_pad *other = d == pri ? pri->partner : pri;
+-            dm_joy_set(p, joycon_side(other->st.pid), other->st.joy_buttons, pad_axis(other->st.joy_sx), pad_axis(other->st.joy_sy));
+-        }
+-    }
+-    if (pri->partner) {
+-        joycon_pad *l = pri->st.pid == JOYCON_PID_L ? pri : pri->partner;
+-        joycon_pad *r = pri->st.pid == JOYCON_PID_R ? pri : pri->partner;
+-        pad_set(p, (l->st.joy_buttons | r->st.joy_buttons) & 0xffffull, pad_axis(l->st.joy_sx), pad_axis(l->st.joy_sy), pad_axis(r->st.joy_sx), pad_axis(r->st.joy_sy));
+-    } else {
+-        pad_set(p, d->st.buttons, pad_axis(d->st.sx), pad_axis(d->st.sy), 0, 0);
+-    }
 -}
 -static void joycon_read_motion(joycon_pad *d, const uint8_t *rep, size_t len) {
 -    if (!g_input_on || hq_blocks_input(g_hq.phase)) return;
 -    const char *e = getenv("DM_MOTION"); if (e && !atoi(e)) return;
--    int p = g_merge ? 0 : pad_slot_of(&g_slots, d); if (p < 0) return;
+-    joycon_pad *pri = joycon_pad_primary(d);
+-    int p = g_merge ? 0 : pad_slot_of(&g_slots, pri); if (p < 0) return;
 -    pro_motion_sample samples[3];
 -    int n = joycon_motion_decode(&d->motion, d->st.pid, rep, len, now_ns(), samples);
 -    for (int i = 0; i < n; i++) {
--        dm_motion_set_hid(p, samples[i].acc, samples[i].rot, samples[i].ns);
--        if (!g_merge) {
--            float uacc[3], urot[3];
--            joycon_motion_upright(d->st.pid, &samples[i], uacc, urot);
--            dm_motion_set_joy(p, joycon_side(d->st.pid), uacc, urot, samples[i].ns);
+-        joycon_rest_apply(&d->rest, &samples[i]);
+-        float uacc[3], urot[3];
+-        joycon_motion_upright(d->st.pid, &samples[i], uacc, urot);
+-        if (d->partner) {
+-            if (d->st.pid == JOYCON_PID_R) dm_motion_set_hid(p, uacc, urot, samples[i].ns);
+-        } else {
+-            dm_motion_set_hid(p, samples[i].acc, samples[i].rot, samples[i].ns);
 -        }
+-        if (!g_merge) dm_motion_set_joy(p, joycon_side(d->st.pid), uacc, urot, samples[i].ns);
 -    }
-+    front_controllers_window(1);
- }
+-}
 -static void joycon_attach(joycon_pad *d) {
 -    int p = g_merge ? 0 : pad_slot_take(&g_slots, d, d->name); char nb[16];
--    if (p < 0) { LOG("controller '%s' (split Joy-Con) connected: all %d players are taken, not used", d->name, DM_PLAYERS); return; }
--    npad_name(p, nb, sizeof nb); LOG("controller '%s' (split Joy-Con) connected: player %d (npad %s), with motion (gyro) and rumble", d->name, p + 1, nb);
+-    if (p < 0) { LOG("controller '%s' (Joy-Con) connected: all %d players are taken, not used", d->name, DM_PLAYERS); return; }
+-    npad_name(p, nb, sizeof nb); LOG("controller '%s' (Joy-Con) connected: player %d (npad %s), with motion (gyro) and rumble", d->name, p + 1, nb);
 -    if (!g_merge) {
--        dm_joy_attach(p, d->st.pid == JOYCON_PID_R ? 2u : 1u);
+-        dm_joy_attach(p, joycon_pad_sides(d));
 -        dm_pad_players(pad_slot_mask(&g_slots));
 -    }
 -    joycon_haptics_sync(nil);
@@ -1671,23 +1794,84 @@ index f56fd5f..052f230 100644
 -}
 -static void joycon_detach(joycon_pad *d) {
 -    if (g_merge) {
--        LOG("controller '%s' (split Joy-Con) disconnected", d->name);
+-        LOG("controller '%s' (Joy-Con) disconnected", d->name);
 -        if (!g_joycons) { dm_motion_clear_hid(0); dm_haptics_apple_controller(0, nil); }
 -        if (!merge_pads_left(nil)) dm_pad_set(0, 0, 0, 0, 0);
 -        return;
 -    }
 -    int p = pad_slot_free(&g_slots, d); char nb[16]; if (p < 0) return;
 -    int side = joycon_side(d->st.pid);
--    npad_name(p, nb, sizeof nb); LOG("controller '%s' (split Joy-Con) disconnected: player %d (npad %s) is free", d->name, p + 1, nb);
+-    npad_name(p, nb, sizeof nb); LOG("controller '%s' (Joy-Con) disconnected: player %d (npad %s) is free", d->name, p + 1, nb);
 -    dm_motion_clear_hid(p);
 -    dm_motion_clear_joy(p, side);
+-    if (d->partner) dm_motion_clear_joy(p, joycon_side(d->partner->st.pid));
 -    dm_haptics_apple_controller(p, nil);
 -    dm_pad_set_player(p, 0, 0, 0, 0, 0);
 -    dm_joy_set(p, side, 0, 0, 0);
+-    if (d->partner) dm_joy_set(p, joycon_side(d->partner->st.pid), 0, 0, 0);
 -    dm_joy_attach(p, 0);
 -    dm_pad_players(pad_slot_mask(&g_slots));
 -    cp_poll();   // one player fewer
 -}
+-static void joycon_pair_changed(joycon_pad *pri) {
+-    pri->motion = (pro_motion){0};
+-    if (pri->partner) pri->partner->motion = (pro_motion){0};
+-    int p = g_merge ? 0 : pad_slot_of(&g_slots, pri);
+-    if (p >= 0) {
+-        dm_motion_clear_hid(p);
+-        if (!g_merge) {
+-            snprintf(g_slots.last[p], sizeof g_slots.last[p], "%s", pri->name);
+-            dm_joy_attach(p, joycon_pad_sides(pri));
+-        }
+-    }
+-    joycon_haptics_sync(nil);
+-    cp_poll();
+-    joycon_read(pri);
+-}
+-static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
+-    int p = g_merge ? 0 : pad_slot_of(&g_slots, pri);
+-    if (!g_merge && p >= 0) {
+-        int sec_side = joycon_side(sec->st.pid);
+-        dm_joy_set(p, sec_side, 0, 0, 0);
+-        dm_motion_clear_joy(p, sec_side);
+-    }
+-    joycon_pair_changed(pri);
+-    joycon_attach(sec);
+-    int sp = g_merge ? 0 : pad_slot_of(&g_slots, sec);
+-    if (!g_merge && sp < 0) {
+-        pri->partner = sec; sec->partner = pri; pri->primary = 1; sec->primary = 0;
+-        joycon_update_name(pri); joycon_update_name(sec);
+-        joycon_pair_changed(pri);
+-        return;
+-    }
+-    LOG("controller '%s' plays alone now: player %d (SL + SR held); '%s' stays player %d", sec->name, sp + 1, pri->name, p + 1);
+-}
+-static void joycon_join_pair(joycon_pad *a, joycon_pad *b) {
+-    int pa = g_merge ? 0 : pad_slot_of(&g_slots, a), pb = g_merge ? 0 : pad_slot_of(&g_slots, b);
+-    joycon_pad *stay = (pa >= 0 && (pb < 0 || pa <= pb)) ? a : b;
+-    joycon_pad *mover = stay == a ? b : a;
+-    if (!g_merge) joycon_detach(mover);
+-    stay->partner = mover; mover->partner = stay; stay->primary = 1; mover->primary = 0;
+-    joycon_update_name(stay); joycon_update_name(mover);
+-    joycon_pair_changed(stay);
+-    int ps = g_merge ? 0 : pad_slot_of(&g_slots, stay);
+-    LOG("controller '%s': player %d (L + R held)", stay->name, ps + 1);
+-}
+-static void joycon_unpair_removed(joycon_pad *gone_pad, joycon_pad *keep_pad) {
+-    int p = g_merge ? 0 : pad_slot_of(&g_slots, joycon_pad_primary(gone_pad));
+-    if (!g_merge && p >= 0) {
+-        int gone_side = joycon_side(gone_pad->st.pid);
+-        dm_joy_set(p, gone_side, 0, 0, 0);
+-        dm_motion_clear_joy(p, gone_side);
+-        g_slots.owner[p] = keep_pad;
+-        snprintf(g_slots.last[p], sizeof g_slots.last[p], "%s", keep_pad->name);
+-    }
+-    keep_pad->partner = gone_pad->partner = NULL;
+-    keep_pad->primary = 1;
+-    joycon_update_name(keep_pad);
+-    joycon_pair_changed(keep_pad);
++    front_controllers_window(1);
+ }
 -static void joycon_home_changed(void) { if (g_input_on) hq_poll(); }
 +
  // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
@@ -1697,7 +1881,7 @@ index f56fd5f..052f230 100644
  static int g_hq_on;
  static NSTimer *g_hq_timer;   // while Home is held: the time runs on without a button change
  static NSView *g_hq_hold, *g_hq_prompt; static CAShapeLayer *g_hq_ring;
-@@ -540,21 +221,6 @@ static void hq_log_setting(void) {
+@@ -621,22 +221,6 @@ static void hq_log_setting(void) {
      }
  #endif
  }
@@ -1712,14 +1896,15 @@ index f56fd5f..052f230 100644
 -    for (s2_pad *d = dm_switch2_pads(); d; d = d->next) { if (s2_pad_home(&d->st)) *home = 1; s2_pad_ab(&d->st, a, b); }   // Switch 2 controllers: no GCController, so no holder (the prompt shows the default A / B symbols)
 -    for (joycon_pad *d = g_joycons; d; d = d->next) {
 -        if (d->st.home) *home = 1;
--        if (d->st.buttons & DM_BTN_A) *a = 1;
--        if (d->st.buttons & DM_BTN_B) *b = 1;
+-        uint64_t m = d->partner ? d->st.joy_buttons : d->st.buttons;
+-        if (m & DM_BTN_A) *a = 1;
+-        if (m & DM_BTN_B) *b = 1;
 -    }
 -}
  static void hq_fade(NSView *v, int in) {
      if (!v) return;
      if (in) v.alphaValue = 0;
-@@ -568,11 +234,10 @@ static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -650,11 +234,10 @@ static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
      NSView *cv = g_win.contentView;
      switch (now) {
      case HQ_HOLDING:
@@ -1733,7 +1918,7 @@ index f56fd5f..052f230 100644
          dm_focus_set(2);
          GCExtendedGamepad *g = holder.extendedGamepad;
          g_hq_prompt = hq_prompt_view(cv.bounds, @(g_hq_text[HQ_TEXT_TITLE]), @(g_hq_text[HQ_TEXT_NOTE]), @(g_hq_text[HQ_TEXT_QUIT]), @(g_hq_text[HQ_TEXT_CANCEL]),
-@@ -586,7 +251,7 @@ static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -668,7 +251,7 @@ static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
          LOG("front end: quit prompt closed, the game goes on");
          break;
      case HQ_IDLE:
@@ -1742,7 +1927,7 @@ index f56fd5f..052f230 100644
          break;
      case HQ_QUIT:
          LOG("front end: quit from the Home button prompt");
-@@ -594,10 +259,10 @@ static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
+@@ -676,10 +259,10 @@ static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
          break;
      }
  }
@@ -1756,7 +1941,7 @@ index f56fd5f..052f230 100644
      double now = CACurrentMediaTime();
      hq_phase was = g_hq.phase, ph = hq_step(&g_hq, now, home, a, b);
      if (ph != was) hq_changed(was, ph, holder);
-@@ -612,27 +277,14 @@ static void hq_close(void) {
+@@ -694,32 +277,14 @@ static void hq_close(void) {
      if (g_hq.phase == HQ_IDLE || g_hq.phase == HQ_QUIT) return;
      if (g_hq.phase == HQ_PROMPT) LOG("front end: quit prompt closed, the window lost the focus");
      hq_cancel(&g_hq); hq_hide_hold(); hq_hide_prompt();
@@ -1776,6 +1961,11 @@ index f56fd5f..052f230 100644
 -    for (GCController *c in GCController.controllers) { GCExtendedGamepad *g = c.extendedGamepad; if (g) { *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed; } }
 -    for (hid_pad *d = g_hidpads; d; d = d->next) { uint64_t m = d->twin && hidpad_is_pro(d) ? d->pro_m : pad_hid_buttons(&d->st); *a |= !!(m & DM_BTN_A); *b |= !!(m & DM_BTN_B); }
 -    for (s2_pad *d = dm_switch2_pads(); d; d = d->next) s2_pad_ab(&d->st, a, b);   // Switch 2 controllers (pad_switch2_apple.h)
+-    for (joycon_pad *d = g_joycons; d; d = d->next) {
+-        uint64_t m = d->partner ? d->st.joy_buttons : d->st.buttons;
+-        if (m & DM_BTN_A) *a = 1;
+-        if (m & DM_BTN_B) *b = 1;
+-    }
 -}
 -static int cp_waiting(void) {   // connected controllers that are no player yet
 -    if (g_merge) return 0;
@@ -1788,7 +1978,7 @@ index f56fd5f..052f230 100644
  static void cp_show(void) {   // the card, built again when its count or its done action changes
      int on = cp_can_confirm(&g_cp);
      if (g_cp_view && g_cp_shown_joined == g_cp.joined && g_cp_shown_on == on) return;
-@@ -645,12 +297,13 @@ static void cp_show(void) {   // the card, built again when its count or its don
+@@ -732,12 +297,13 @@ static void cp_show(void) {   // the card, built again when its count or its don
      [cv addSubview:v]; if (!g_cp_view) hq_fade(v, 1);
      g_cp_view = v; g_cp_shown_joined = g_cp.joined; g_cp_shown_on = on;
  }
@@ -1806,7 +1996,7 @@ index f56fd5f..052f230 100644
      if (was == CP_OPEN && ph == CP_OPEN) cp_show();
      if (was == CP_OPEN && ph != CP_OPEN) {
          hq_fade(g_cp_view, 0); g_cp_view = nil;
-@@ -658,47 +311,24 @@ static int cp_poll(void) {
+@@ -745,47 +311,24 @@ static int cp_poll(void) {
          g_cp_ok = g_cp.ok; dispatch_semaphore_signal(g_cp_done);
          ph = cp_step(&g_cp, joined, 0, a, b, 0, 0);   // nothing held: the game has its input at once
      }
@@ -1861,7 +2051,7 @@ index f56fd5f..052f230 100644
  // Mouse as a single-point touchscreen (front.h dm_touch_set): left button down / drag = finger 0, release = lifted. The content view takes the clicks,
  // not a window-wide event monitor, so clicks on the title bar, the window buttons and the resize edges still reach AppKit.
  // The picture's width / height (front.h front_picture_shape; 16:9 until the first present), which the present fits into the view
-@@ -715,9 +345,9 @@ - (void)mouseDragged:(NSEvent *)e {
+@@ -802,9 +345,9 @@ - (void)mouseDragged:(NSEvent *)e {
      double a = g_picture_aspect; if (w / h > a) w = h * a; else h = w / a;   // the centered picture the present fits into the view (16:9, or a taller one under DM_SCREEN_ASPECT)
      double x0 = (b.width - w) / 2, y0 = (b.height - h) / 2;
      dm_touch t = {0, (float)fmin(fmax((p.x - x0) / w, 0), 0.999), (float)fmin(fmax(1 - (p.y - y0) / h, 0), 0.999)};   // The AppKit view origin is at bottom left, the touchscreen origin is at top left
@@ -1873,7 +2063,7 @@ index f56fd5f..052f230 100644
  // The drawable follows the view in pixels: a layer assigned to a layer-backed view kept the drawable at the first window's 1280x720 in fullscreen too, so the game picture was
  // scaled down to it and up again by the compositor
  - (void)fitDrawable {
-@@ -1666,6 +1296,7 @@ void front_run(void (*guest)(void)) {
+@@ -1753,6 +1296,7 @@ void front_run(void (*guest)(void)) {
              dispatch_async(dispatch_get_main_queue(), ^{ [g_cheats_menu showPanel:nil]; });
          [[bar addItemWithTitle:@"Window" action:nil keyEquivalent:@""] setSubmenu:wm];
          [wm addItemWithTitle:@"Enter Full Screen" action:@selector(toggleFullScreen:) keyEquivalent:@"f"].keyEquivalentModifierMask = NSEventModifierFlagControl | NSEventModifierFlagCommand;
@@ -1881,7 +2071,7 @@ index f56fd5f..052f230 100644
          NSApp.mainMenu = bar;
          const char *fs = getenv("DM_FULLSCREEN");   // 1 (or any value but 0): start in fullscreen; 0, the settings window's Window, or unset: a window
          if (fs && strcmp(fs, "0")) {
-@@ -1711,16 +1342,16 @@ void front_run(void (*guest)(void)) {
+@@ -1798,16 +1342,16 @@ void front_run(void (*guest)(void)) {
                  if (hidden && !over && !armed) show();
                  else if (!hidden && over && CACurrentMediaTime() - last >= idle) { hidden = 1; [NSCursor hide]; } }];
          }
@@ -1907,7 +2097,7 @@ index f56fd5f..052f230 100644
          [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskKeyDown | NSEventMaskKeyUp handler:^NSEvent *(NSEvent *e) {
              if (e.window != win) return e;   // Only swallow keys for the game window; other windows such as the software keyboard input box receive typing as usual
              if (e.type == NSEventTypeKeyDown && (e.modifierFlags & NSEventModifierFlagCommand)) return e;   // ⌘ shortcuts go to the menu; a key released while ⌘ is held still reaches the game, or it would stay pressed
-@@ -1801,8 +1432,9 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
+@@ -1888,8 +1432,9 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
      dispatch_sync(dispatch_get_main_queue(), ^{
          // The box takes the keyboard and the mouse, so the game window never sees the key-up of the button or the touch-up of the click that opened it: nothing may stay pressed
          // while it is up, or the game reads the stuck button / touch the moment the box closes (Stardew Valley's character creation re-opened the keyboard endlessly)
@@ -1919,7 +2109,7 @@ index f56fd5f..052f230 100644
          int min_chars = g_swkbd_min_chars > 0 ? g_swkbd_min_chars : 0;
          NSString *info = [NSString stringWithFormat:@"%s%s%s", sub ? sub : "", sub && *sub && guide && *guide ? "\n" : "", guide ? guide : ""];
          for (;;) {
-@@ -1820,6 +1452,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
+@@ -1907,6 +1452,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
              // On hardware the applet would not have accepted the shorter text (OK stayed disabled); a game that rejects it re-opens the keyboard for ever, so the box comes back with the rule instead
              info = [info stringByAppendingFormat:@"\nAt least %d characters are needed here.", min_chars];
          }
@@ -2076,7 +2266,7 @@ index d808df0..3fb623b 100644
  // The sink copies/enqueues each snapshot in order; called under the state lock, it must not reenter.
  // No hardware calls on the sending thread. A changed epoch invalidates all older queued snapshots.
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index cc4dcf6..ebe6534 100644
+index 804e0b3..2190b4f 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -2,7 +2,7 @@
@@ -2138,7 +2328,7 @@ index cc4dcf6..ebe6534 100644
  }
  uint64_t dm_input_samples(void) { return (uint64_t)atomic_load(&g_sampling); }
  // DM_KEYS scripted input (for tests): "seconds:key[+key][~hold seconds][*count/interval seconds],...", e.g. "8:A,12:A,15:Down~0.5,16:A+B,40:A*80/2" (A every 2 s from 40 s on, 80 times). Key names A B X Y LS RS L R ZL ZR (plus the sticks LLeft LUp LRight LDown and RLeft RUp RRight RDown) Plus Minus Left Up Right Down, left stick LLeft LUp LRight LDown,
-@@ -387,7 +389,10 @@ void dm_pad_players(uint32_t mask) {
+@@ -389,7 +391,10 @@ void dm_pad_players(uint32_t mask) {
      mask = (mask | 1u) & ((1u << DM_PLAYERS) - 1);
      uint32_t old = atomic_exchange(&g_players, mask);
      for (int p = 1; p < DM_PLAYERS; p++) if ((old ^ mask) >> p & 1) {
@@ -2150,7 +2340,7 @@ index cc4dcf6..ebe6534 100644
          if (atomic_load(&g_ids_supported) & id_bit((uint32_t)p)) style_changed((uint32_t)p);
      }
      note_merged();
-@@ -681,19 +686,23 @@ HLE_FORCE("_ZN2nn3hid21ShowControllerSupportEPNS0_27ControllerSupportResultInfoE
+@@ -683,19 +688,23 @@ HLE_FORCE("_ZN2nn3hid21ShowControllerSupportEPNS0_27ControllerSupportResultInfoE
  typedef struct { int64_t delta_ns, sampling; float acc[3], gyro[3], angle[3], dir[9]; uint32_t attributes, _pad; } SixAxisState;
  _Static_assert(sizeof(SixAxisState) == 0x60, "SixAxisState");
  enum { SIX_PERIOD_NS = 5000000 };
@@ -2176,7 +2366,7 @@ index cc4dcf6..ebe6534 100644
  static live_motion g_phone_motion = {.mu = PTHREAD_MUTEX_INITIALIZER};
  static pthread_once_t g_motion_once = PTHREAD_ONCE_INIT;
  static motion_map g_motion_map; static float g_motion_gain = 0.5f; static int g_motion_off, g_motion_log, g_phone_mode;
-@@ -726,7 +735,7 @@ static void motion_set_to(live_motion *m, int p, const float acc[3], const float
+@@ -728,7 +737,7 @@ static void motion_set_to(live_motion *m, int p, const float acc[3], const float
          LOG("[hid] motion player 1 (%s): acc %+.2f %+.2f %+.2f G, gyro %+.3f %+.3f %+.3f rev/s (flat and still should read acc 0 0 -1)",
              source == 1 ? "phone" : source == 2 ? "controller HID" : "controller", m->st.acc[0], m->st.acc[1], m->st.acc[2], m->st.gyro[0], m->st.gyro[1], m->st.gyro[2]);
      }
@@ -2185,15 +2375,13 @@ index cc4dcf6..ebe6534 100644
      pthread_mutex_unlock(&m->mu);
  }
  void dm_motion_set(int p, const float acc[3], const float rot[3]) { motion_set(p, acc, rot, 0, 0); }
-@@ -745,50 +754,77 @@ void dm_motion_clear(int p) {
+@@ -747,50 +756,77 @@ void dm_motion_clear(int p) {
  }
  void dm_motion_clear_hid(int p) {
      if (p < 0 || p >= DM_PLAYERS) return;
 -    pthread_mutex_lock(&g_hid_motion[p].mu); g_hid_motion[p].last_ns = 0; pthread_mutex_unlock(&g_hid_motion[p].mu);
 +    pthread_mutex_lock(&g_hid_motion[p].mu); g_hid_motion[p].last_ns = 0; g_hid_motion[p].count = 0; pthread_mutex_unlock(&g_hid_motion[p].mu);
- }
--static uint64_t motion_copy(live_motion *m, motion_state *out) {   // copies a source while it is fresh; returns its timestamp
--    uint64_t t;
++}
 +// Direct transports may supply their own device-clock integration. Store those samples in
 +// the shared HID source so GameController, phone selection and disconnect use one policy.
 +void dm_pad_motion(int p, const dm_motion *s) {
@@ -2202,17 +2390,19 @@ index cc4dcf6..ebe6534 100644
 +    if (!s) { pthread_mutex_lock(&m->mu); m->last_ns = m->count = 0; pthread_mutex_unlock(&m->mu); return; }
 +    pthread_once(&g_motion_once, motion_env); if (g_motion_off) return;
 +    uint64_t now = now_ns();
-     pthread_mutex_lock(&m->mu);
--    t = m->last_ns && now_ns() - m->received_ns <= MOTION_STALE_NS ? m->last_ns : 0;
--    if (t) *out = m->st;
++    pthread_mutex_lock(&m->mu);
 +    if (!m->last_ns || now - m->received_ns >= 250000000ull) m->count = 0;
 +    unsigned i = m->count++ % MOTION_HISTORY;
 +    m->history[i] = *s; m->time[i] = guest_ns();
 +    m->last_ns = m->received_ns = now;
 +    pthread_mutex_unlock(&m->mu);
-+}
+ }
+-static uint64_t motion_copy(live_motion *m, motion_state *out) {   // copies a source while it is fresh; returns its timestamp
+-    uint64_t t;
 +static uint64_t motion_copy(live_motion *m, uint64_t time, dm_motion *out) {
-+    pthread_mutex_lock(&m->mu);
+     pthread_mutex_lock(&m->mu);
+-    t = m->last_ns && now_ns() - m->received_ns <= MOTION_STALE_NS ? m->last_ns : 0;
+-    if (t) *out = m->st;
 +    uint64_t stale = m->count ? 250000000ull : MOTION_STALE_NS;
 +    uint64_t t = m->last_ns && now_ns() - m->received_ns < stale ? m->last_ns : 0;
 +    if (t && m->count) {
@@ -2290,7 +2480,7 @@ index cc4dcf6..ebe6534 100644
          s->acc[0] = (float)(SHAKE_G * sin(ph));
          s->gyro[2] = (float)(SHAKE_REV * sin(ph));
          yaw = SHAKE_REV / (2 * M_PI * SHAKE_HZ) * (1 - cos(ph)); s->angle[2] = (float)yaw;
-@@ -796,27 +832,54 @@ static void six_sample(SixAxisState *s, int64_t samp, int shakes) {
+@@ -798,22 +834,34 @@ static void six_sample(SixAxisState *s, int64_t samp, int shakes) {
      float c = (float)cos(2 * M_PI * yaw), sn = (float)sin(2 * M_PI * yaw);
      s->dir[0] = c; s->dir[1] = sn; s->dir[3] = -sn; s->dir[4] = c; s->dir[8] = 1;
  }
@@ -2312,13 +2502,14 @@ index cc4dcf6..ebe6534 100644
      int64_t samp = (int64_t)(guest_ns() / SIX_PERIOD_NS);
      npad_ref ref = npad_resolve(h >> 8 & 0xff);
 -    int pl = ref.kind >= KIND_DUAL ? ref.pad : player_of(h >> 8 & 0xff), shakes = pl == 0 && ref.kind < KIND_DUAL;
+-    int split = ((1u << (h & 0xff)) & (STYLE_JOYDUAL | STYLE_JOYLEFT | STYLE_JOYRIGHT)) != 0;
 -    motion_state ms;
 -    int live = ref.kind >= KIND_DUAL ? motion_joy(ref.pad, ref.kind == KIND_LEFT ? 0 : ref.kind == KIND_RIGHT ? 1 : (int)(h >> 16 & 1), &ms) : motion_live(pl, &ms);
--    if (live) { for (int i = 0; i < n; i++) six_sample_live(&out[i], samp - i, &ms, shakes); return n; }
--    for (int i = 0; i < n; i++) six_sample(&out[i], samp - i, shakes);
 +    int split = ref.kind >= KIND_DUAL, p = split ? ref.pad : player_of(h >> 8 & 0xff);
 +    int side = ref.kind == KIND_LEFT ? 0 : ref.kind == KIND_RIGHT ? 1 : (int)(h >> 16 & 1);
-+    for (int i = 0; i < n; i++) {
+     for (int i = 0; i < n; i++) {
+-        if (live) six_sample_live(&out[i], samp - i, &ms, shakes);
+-        else six_sample(&out[i], samp - i, shakes);
 +        uint64_t time = (uint64_t)(samp - i) * SIX_PERIOD_NS;
 +        int shake = split ? -1 : shake_source(p, time);   // a split Joy-Con has no Shake of its own
 +        six_sample(&out[i], samp - i, shake);
@@ -2331,14 +2522,21 @@ index cc4dcf6..ebe6534 100644
 +            memcpy(out[i].angle,m.angle,sizeof m.angle); memcpy(out[i].dir,m.dir,sizeof m.dir);
 +            out[i].acc[0] += shake_acc;
 +        }
-+    }
+         // Super Mario Party (main+0x57a72c, main+0x57ce38) discards any Joy-Con SixAxisSensorState whose
+         // acceleration has an exact 0.0f component (fcmp s0/s1/s2, #0.0; b.eq) and falls back to (0, 0, 0).
+         if (split) {
+@@ -822,11 +870,26 @@ static int six_states(SixAxisState *out, int n, uint32_t h) {
+     }
      return n;
  }
 -HLE_FORCE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "six-axis sensor handles: two for handheld / dual Joy-Cons, one otherwise",
 +static unsigned six_rest(uint32_t h) {
 +    if (!six_connected(h)) return 1;
-+    int p=player_of(h >> 8 & 0xff); if (shake_source(p,guest_ns()) >= 0) return 0;
-+    dm_motion m; int present=physical_motion(p,guest_ns(),&m);
++    npad_ref ref = npad_resolve(h >> 8 & 0xff);
++    int split = ref.kind >= KIND_DUAL, p = split ? ref.pad : player_of(h >> 8 & 0xff);
++    int side = ref.kind == KIND_LEFT ? 0 : ref.kind == KIND_RIGHT ? 1 : (int)(h >> 16 & 1);
++    if (!split && shake_source(p,guest_ns()) >= 0) return 0;
++    dm_motion m; int present=split ? motion_joy(p,side,guest_ns(),&m) : physical_motion(p,guest_ns(),&m);
 +    if (!present) return 1;
 +    float speed=0,acc=0; for(int i=0;i<3;i++) { speed+=m.gyro[i]*m.gyro[i]; acc+=m.acc[i]*m.acc[i]; }
 +    return speed < 0.0001f && fabsf(acc-1) < 0.1f;
@@ -2358,14 +2556,17 @@ index cc4dcf6..ebe6534 100644
  }
  HLE_FORCE("_ZN2nn3hid18StartSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor; always sampling on the host", void, h_hid_SixStart, const uint32_t *h) { (void)h; }
  // Merged mouse pointer (Nmouse, Switch 2 SDKs; Pokemon Pokopia, main+0x11251dc). The SDK opens the hid service itself in InitializeNmouse, which the host does not serve (abort 0xe15). No device
-@@ -1127,11 +1190,7 @@ HLE_FORCE("_ZN2nn3hid16GetGestureStatesEPNS0_12GestureStateEi", "gesture states,
+@@ -1137,14 +1200,7 @@ HLE_FORCE("_ZN2nn3hid16GetGestureStatesEPNS0_12GestureStateEi", "gesture states,
  // Six-axis details: the current state, at rest unless shaking, fusion off
  HLE_FORCE("_ZN2nn3hid17StopSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor; always sampling on the host", void, h_hid_SixStop, const uint32_t *h) { (void)h; }
  HLE_FORCE("_ZN2nn3hid21GetSixAxisSensorStateEPNS0_18SixAxisSensorStateERKNS0_19SixAxisSensorHandleE", "six-axis sensor current state", void, h_hid_SixState, SixAxisState *s, const uint32_t *h) { six_states(s, 1, *h); }
 -HLE_FORCE("_ZN2nn3hid21IsSixAxisSensorAtRestERKNS0_19SixAxisSensorHandleE", "six-axis sensor at rest: yes unless player 1's is shaking or a live controller is turning", unsigned, h_hid_SixRest, const uint32_t *h) {
--    int pl = player_of(*h >> 8 & 0xff); motion_state ms;
--    if (motion_live(pl, &ms)) return fabsf(ms.gyro[0]) + fabsf(ms.gyro[1]) + fabsf(ms.gyro[2]) < 0.01f && !(pl == 0 && shaking(guest_ns()));
--    return pl != 0 || !shaking(guest_ns());
+-    npad_ref ref = npad_resolve(*h >> 8 & 0xff);
+-    int pl = ref.kind >= KIND_DUAL ? ref.pad : player_of(*h >> 8 & 0xff), shakes = pl == 0 && ref.kind < KIND_DUAL;
+-    motion_state ms;
+-    int live = ref.kind >= KIND_DUAL ? motion_joy(ref.pad, ref.kind == KIND_LEFT ? 0 : ref.kind == KIND_RIGHT ? 1 : (int)(*h >> 16 & 1), &ms) : motion_live(pl, &ms);
+-    if (live) return fabsf(ms.gyro[0]) + fabsf(ms.gyro[1]) + fabsf(ms.gyro[2]) < 0.01f && !(shakes && shaking(guest_ns()));
+-    return !shakes || !shaking(guest_ns());
 -}
 +HLE_FORCE("_ZN2nn3hid21IsSixAxisSensorAtRestERKNS0_19SixAxisSensorHandleE", "physical motion or the simulated shake determines rest", unsigned, h_hid_SixRest, const uint32_t *h) { return six_rest(*h); }
  // The console's own six-axis sensor (SevenSixAxisSensor, the body's orientation in handheld mode; The Legend of Zelda: Breath of the Wild): takes a work buffer and is switched through the hid service. The host provides none: switching succeeds, 0 states
@@ -2696,17 +2897,6 @@ index cd5e3c8..925a7ea 100644
      if (r != kIOReturnSuccess) {
          LOG("[RED] HID gamepads: cannot open HID (0x%x); only GameController controllers are read", r);
          IOHIDManagerUnscheduleFromRunLoop(g_hidpad_manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
-diff --git a/dm/host/pad_joycon_mac.h b/dm/host/pad_joycon_mac.h
-index a995be7..388c4b6 100644
---- a/dm/host/pad_joycon_mac.h
-+++ b/dm/host/pad_joycon_mac.h
-@@ -1,5 +1,5 @@
- // Mac: split a Bluetooth Joy-Con pair into two sideways controllers (pad_joycon.h, LNPANDY/NX2Apple#740).
--// When DM_JOYCON_SPLIT=1 is set, front_mac.m skips GameController's combined Joy-Con entry and reads Joy-Con (L) (0x057e:0x2006)
-+// When DM_JOYCON_SPLIT=1 is set, controllers_mac.m skips GameController's combined Joy-Con entry and reads Joy-Con (L) (0x057e:0x2006)
- // and Joy-Con (R) (0x057e:0x2007) directly with IOHIDManager so each half gets its own player slot.
- #pragma once
- #import <IOKit/hid/IOHIDManager.h>
 diff --git a/dm/host/pad_map.h b/dm/host/pad_map.h
 new file mode 100644
 index 0000000..2f482e5
@@ -2903,10 +3093,10 @@ index 133bf4a..6f2c451 100644
 +	$(CLANG) $(GINC) -O1 -fobjc-arc -Wall -Werror -Wno-unused-function -o $@ t_controllers_mac.m -framework Cocoa -framework GameController -framework IOKit
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
 new file mode 100644
-index 0000000..a8327a3
+index 0000000..a95e2b8
 --- /dev/null
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -0,0 +1,1084 @@
+@@ -0,0 +1,1118 @@
 +// GameController snapshots exercise the same read/remap/publish path as hardware.
 +#import <GameController/GameController.h>
 +#import <IOKit/hid/IOHIDManager.h>
@@ -3065,18 +3255,18 @@ index 0000000..a8327a3
 +static unsigned hid_motion_samples[DM_PLAYERS], hid_motion_clears[DM_PLAYERS];
 +void dm_motion_set_hid(int p, const float a[3], const float r[3], uint64_t t) { (void)a; (void)r; assert(t); ++hid_motion_samples[p]; }
 +void dm_motion_clear_hid(int p) { ++hid_motion_clears[p]; }
-+static uint32_t joy_attached[DM_PLAYERS];
++static uint32_t joy_sides[DM_PLAYERS];
 +static uint64_t joy_received[DM_PLAYERS][2];
 +static int32_t joy_axes[DM_PLAYERS][2][2];
 +static unsigned joy_motion_samples[DM_PLAYERS][2], joy_motion_clears[DM_PLAYERS][2];
-+void dm_joy_attach(int p, uint32_t sides) { joy_attached[p]=sides; }
-+void dm_joy_set(int p, int side, uint64_t b, int32_t sx, int32_t sy) { joy_received[p][side]=b; joy_axes[p][side][0]=sx; joy_axes[p][side][1]=sy; }
-+void dm_motion_set_joy(int p, int side, const float a[3], const float r[3], uint64_t t) { (void)a; (void)r; assert(t); ++joy_motion_samples[p][side]; }
-+void dm_motion_clear_joy(int p, int side) { ++joy_motion_clears[p][side]; }
-+void dm_haptics_apple_set_sink(int p, void (*sink)(const dm_haptic_state *)) { (void)p; (void)sink; }
-+int dm_switch2_start(const dm_switch2_front *front) { (void)front; return 0; }
-+void dm_switch2_active(int on) { (void)on; }
-+void dm_switch2_rumble(const dm_haptic_state *state) { (void)state; }
++void dm_joy_attach(int p, uint32_t s) { assert(p >= 0 && p < DM_PLAYERS); joy_sides[p] = s; }
++void dm_joy_set(int p, int side, uint64_t b, int32_t x, int32_t y) { assert(p >= 0 && p < DM_PLAYERS && (side == 0 || side == 1)); joy_received[p][side] = b; joy_axes[p][side][0] = x; joy_axes[p][side][1] = y; }
++void dm_motion_set_joy(int p, int side, const float a[3], const float r[3], uint64_t t) { (void)a; (void)r; assert(p >= 0 && p < DM_PLAYERS && (side == 0 || side == 1) && t); ++joy_motion_samples[p][side]; }
++void dm_motion_clear_joy(int p, int side) { assert(p >= 0 && p < DM_PLAYERS && (side == 0 || side == 1)); ++joy_motion_clears[p][side]; }
++void dm_haptics_apple_set_sink(int p, void (*s)(const dm_haptic_state *)) { (void)p; (void)s; }
++int dm_switch2_start(const dm_switch2_front *f) { (void)f; return 0; }
++void dm_switch2_active(int a) { (void)a; }
++void dm_switch2_rumble(const dm_haptic_state *s) { (void)s; }
 +static dm_motion motions[DM_PLAYERS]; static int motion_present[DM_PLAYERS];
 +static int output_focused=1;
 +void dm_haptics_apple_focus(int active) { output_focused=active; }
@@ -3096,7 +3286,7 @@ index 0000000..a8327a3
 +void dm_pad_set_player(int p, uint64_t b, int32_t lx, int32_t ly, int32_t rx, int32_t ry) { ++pad_updates[p]; received[p] = b; axes[p][0]=lx; axes[p][1]=ly; axes[p][2]=rx; axes[p][3]=ry; }
 +void dm_pad_players(uint32_t m) { players = m; }
 +void dm_haptics_apple_controller_locality(int p, GCController *c, GCHapticsLocality locality) { dm_haptics_apple_controller(p,c); rumble_locality[p]=locality; }
-+void dm_haptics_apple_controller(int p, GCController *c) { ++route_changes[p]; rumble[p] = c; raw_output[p]=nil; }
++void dm_haptics_apple_controller(int p, GCController *c) { ++route_changes[p]; rumble[p] = c; rumble_locality[p] = nil; raw_output[p]=nil; }
 +// GameController's newer live-input API is read-only. Adapt real mutable GC
 +// snapshots at the OS boundary and supply event times explicitly.
 +@interface TestButton : NSObject
@@ -3185,18 +3375,42 @@ index 0000000..a8327a3
 +@end
 +static void test_split_joycon_routing(void) {
 +    for(int merged=0;merged<2;merged++) {
-+        g_merge=merged; g_slots=(pad_slots){0}; g_joycon_split=1;
-+        JoyConController *pair=[JoyConController new]; native_devices=@[pair];
++        g_merge=merged; g_slots=(pad_slots){0}; g_joycon_split=1; g_joycon_force_split=0;
++        memset(joy_sides,0,sizeof joy_sides); memset(joy_received,0,sizeof joy_received);
++        JoyConController *pair=[JoyConController new];
++        pair.testMotion=[TestNativeMotion new]; pair.testMotion.sensorsRequireManualActivation=YES;
++        native_devices=@[pair];
 +        controllers_reconcile(@[pair]); assert(!g_devices.count);
 +        joycon_pad left={0},right={0};
 +        joycon_init(&left.st,JOYCON_PID_L); joycon_init(&right.st,JOYCON_PID_R);
-+        snprintf(left.name,sizeof left.name,"Joy-Con (L)"); snprintf(right.name,sizeof right.name,"Joy-Con (R)");
-+        joycon_attach(&left); joycon_attach(&right);
++        left.primary=right.primary=1; joycon_update_name(&left); joycon_update_name(&right);
++        left.next=&right; g_joycons=&left;
++        // Default connection pairs Left + Right onto one slot (sides == 3) so games see JoyDual or auto-split JoyLeft + JoyRight
++        joycon_attach(&left);
++        left.partner=&right; right.partner=&left; left.primary=1; right.primary=0;
++        joycon_update_name(&left); joycon_update_name(&right); joycon_pair_changed(&left);
++        DMController *p=controller_for_joycon(&left);
++        assert(p && controller_for_joycon(&right)==p && p->slot==0 && g_devices.count==1 && players==1u);
++        assert(rumble[0]==pair && !rumble_locality[0] && pair.testMotion.sensorsActive);
++        if(!merged) assert(joy_sides[0]==3u);
++        left.st.joy_buttons=DM_BTN_DOWN; left.st.joy_sx=-.5f;
++        right.st.joy_buttons=DM_BTN_A; right.st.joy_sx=.5f;
++        joycon_read(&left);
++        assert(received[0]==(DM_BTN_DOWN | DM_BTN_A) && axes[0][0]<0 && axes[0][2]>0);
++        if(!merged) assert(joy_received[0][0]==DM_BTN_DOWN && joy_received[0][1]==DM_BTN_A);
++        // Holding SL + SR for 3 s splits the pair onto two sideways player slots
++        unsigned split_clears=hid_motion_clears[0];
++        left.st.joy_buttons=DM_BTN_LSL | DM_BTN_LSR;
++        right.st.joy_buttons=0;
++        joycon_check_gesture(&left,1000);
++        joycon_check_gesture(&left,1000+JOYCON_GESTURE_NS);
 +        DMController *l=controller_for_joycon(&left), *r=controller_for_joycon(&right);
-+        assert(l && r && l->slot==0 && r->slot==1 && players==(merged ? 1u : 3u));
++        assert(l && r && l!=r && l->slot==0 && r->slot==1 && players==(merged ? 1u : 3u) && hid_motion_clears[0]>split_clears);
 +        assert(rumble[0]==pair);
-+        if(!merged) assert(rumble[1]==pair && [rumble_locality[0] isEqual:GCHapticsLocalityLeftHandle] && [rumble_locality[1] isEqual:GCHapticsLocalityRightHandle] && joy_attached[0]==1u && joy_attached[1]==2u);
-+        else assert(!joy_attached[0] && !joy_attached[1]);
++        if(!merged) {
++            assert(joy_sides[0]==1u && joy_sides[1]==2u);
++            assert(rumble[1]==pair && [rumble_locality[0] isEqual:GCHapticsLocalityLeftHandle] && [rumble_locality[1] isEqual:GCHapticsLocalityRightHandle]);
++        }
 +        DMController *steam=[DMController new]; steam.name=@"Steam Controller"; steam.model=@"Valve Triton";
 +        steam->device=(IOHIDDeviceRef)CFRetain(CFSTR("coexisting Steam")); steam->connected=YES; steam_write=fake_write;
 +        controller_load_map(steam); [g_devices addObject:steam]; controller_connect(steam);
@@ -3204,27 +3418,37 @@ index 0000000..a8327a3
 +        assert(rumble[0]==pair && (merged || raw_output[2]));
 +        controller_disconnect(steam); [g_devices removeObject:steam];
 +        uint8_t report[49]={0x30}; report[1]=3; report[14]=16;
-+        unsigned before=hid_motion_samples[merged ? 0 : r->slot], joy_before=joy_motion_samples[1][1];
-+        joycon_read_motion(&right,report,sizeof report); assert(hid_motion_samples[merged ? 0 : r->slot]>before);
-+        if(!merged) assert(joy_motion_samples[1][1]>joy_before);
-+        unsigned cleared=hid_motion_clears[0], joy_cleared=joy_motion_clears[0][0];
-+        l->map[0]=3; left.st.buttons=DM_BTN_A; left.st.sx=.5f; left.st.joy_buttons=DM_BTN_DOWN|DM_BTN_LSL; left.st.joy_sy=-.5f; joycon_read(&left);
-+        right.st.buttons=DM_BTN_B; right.st.home=1; right.st.joy_buttons=DM_BTN_A|DM_BTN_RSR; right.st.joy_sx=.5f; joycon_read(&right);
++        unsigned before=hid_motion_samples[merged ? 0 : r->slot];
++        unsigned jbefore=joy_motion_samples[r->slot][1];
++        joycon_read_motion(&right,report,sizeof report);
++        assert(hid_motion_samples[merged ? 0 : r->slot]>before);
++        if(!merged) assert(joy_motion_samples[r->slot][1]>jbefore);
++        unsigned cleared=hid_motion_clears[0];
++        l->map[0]=3; left.st.buttons=DM_BTN_A; left.st.sx=.5f; joycon_read(&left);
++        right.st.buttons=DM_BTN_B; right.st.home=1; joycon_read(&right);
 +        assert(received[0]==(DM_BTN_Y | (merged ? DM_BTN_B : 0)) && axes[0][0]>0);
-+        if(!merged) assert(received[1]==DM_BTN_B && joy_received[0][0]==(DM_BTN_DOWN|DM_BTN_LSL) && joy_axes[0][0][1]<0 && joy_received[1][1]==(DM_BTN_A|DM_BTN_RSR) && joy_axes[1][1][0]>0);
++        if(!merged) assert(received[1]==DM_BTN_B);
 +        int home,a,b; front_controllers_quit_buttons(&home,&a,&b); assert(home && a && b);
 +        front_controllers_quit_prompt(1); assert(!received[0] && hid_motion_clears[0]>cleared);
-+        if(!merged) assert(!joy_received[0][0] && !joy_received[1][1] && joy_motion_clears[0][0]>joy_cleared);
 +        front_controllers_quit_buttons(&home,&a,&b); assert(home && a && b);
 +        front_controllers_quit_prompt(0); assert(received[0]&DM_BTN_Y);
-+        if(!merged) assert(joy_received[0][0]==(DM_BTN_DOWN|DM_BTN_LSL) && joy_received[1][1]==(DM_BTN_A|DM_BTN_RSR));
 +        front_controllers_window(0); assert(!received[0]);
-+        if(!merged) assert(!joy_received[0][0] && !joy_received[1][1]);
 +        front_controllers_window(1); assert(received[0]&DM_BTN_Y);
-+        if(!merged) assert(joy_received[0][0]==(DM_BTN_DOWN|DM_BTN_LSL) && joy_received[1][1]==(DM_BTN_A|DM_BTN_RSR));
-+        joycon_detach(&left); assert(!controller_for_joycon(&left));
-+        assert(received[0]==(merged ? DM_BTN_B : 0) && !joy_attached[0] && !joy_received[0][0]);
-+        joycon_detach(&right); assert(!g_devices.count && !players && !received[merged ? 0 : 1] && !joy_attached[1] && !joy_received[1][1]);
++        // Holding L on Left + R on Right for 3 s joins the two sideways controllers back onto slot 0
++        unsigned join_clears=hid_motion_clears[0];
++        l->map[0]=0; left.st.buttons=right.st.buttons=0; right.st.home=0;
++        left.st.joy_buttons=DM_BTN_L; right.st.joy_buttons=DM_BTN_R;
++        joycon_check_gesture(&left,5000); joycon_check_gesture(&right,5000);
++        joycon_check_gesture(&left,5000+JOYCON_GESTURE_NS); joycon_check_gesture(&right,5000+JOYCON_GESTURE_NS);
++        assert(left.partner==&right && right.partner==&left && g_devices.count==1 && players==1u && hid_motion_clears[0]>join_clears);
++        if(!merged) assert(joy_sides[0]==3u && !rumble_locality[0]);
++        // Removing one half keeps the remaining half on slot 0
++        unsigned unpair_clears=hid_motion_clears[0];
++        joycon_unpair_removed(&left,&right);
++        assert(!left.partner && !right.partner && controller_for_joycon(&right)->slot==0 && hid_motion_clears[0]>unpair_clears);
++        if(!merged) assert(joy_sides[0]==2u && [rumble_locality[0] isEqual:GCHapticsLocalityRightHandle]);
++        joycon_detach(&right); assert(!g_devices.count && !players && !received[0]);
++        g_joycons=NULL;
 +        g_joycon_split=0; controllers_reconcile(@[pair]); assert(g_devices.count==1);
 +        [g_devices removeAllObjects]; native_devices=@[];
 +    }
@@ -4074,7 +4298,7 @@ index 94c506d..964dbc9 100644
      assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
      dm_haptics_apple_shutdown();
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 58ab42e..d83d9fe 100644
+index f1134f4..ae271d8 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
 @@ -18,15 +18,16 @@ static int g_prompt_answer = -1, g_prompt_calls, g_prompt_min, g_prompt_max; sta
@@ -4105,7 +4329,7 @@ index 58ab42e..d83d9fe 100644
  
      // A one-player game ({No1, Handheld}): player 2's controller plays as player 1, No2 reads as not connected
      g_signals = 0; ids((const uint32_t[]){0, NPAD_HANDHELD}, 2);
-@@ -357,7 +358,7 @@ static void t_script_hold(void) {
+@@ -370,7 +371,7 @@ static void t_script_hold(void) {
      CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_A | DM_BTN_B | DM_BTN_X), "script, controller and keyboard buttons are combined");
      CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_A | DM_BTN_B | DM_BTN_X), "a scripted hold survives controller updates after the press latch is consumed");
      CHECK(lx_of(0) == -0x7000, "the scripted stick wins over controller drift");
@@ -4114,7 +4338,7 @@ index 58ab42e..d83d9fe 100644
  }
  static void t_script(void) {
      g_mode = 1; dm_pad_players(1);
-@@ -368,7 +369,7 @@ static void t_script(void) {
+@@ -374,7 +375,7 @@ static void t_script(void) {
      script_hold = t_script_hold; keys_main(NULL); script_hold = NULL;
      CHECK(buttons_of(0, STYLE_FULLKEY) == (DM_BTN_B | DM_BTN_X), "script release preserves the controller and keyboard buttons");
      CHECK(lx_of(0) == 120, "script release preserves the controller stick");
@@ -4123,7 +4347,7 @@ index 58ab42e..d83d9fe 100644
      dm_input_set(0, 0, 0, 0, 0); dm_pad_set(0, 0, 0, 0, 0); buttons_of(0, STYLE_FULLKEY);
      g_steps[0] = (key_step){.btn = DM_BTN_Y}; keys_main(NULL);
      CHECK(buttons_of(0, STYLE_FULLKEY) == DM_BTN_Y, "a short scripted press is latched until the game reads");
-@@ -381,6 +382,7 @@ static void t_script(void) {
+@@ -387,6 +388,7 @@ static void t_script(void) {
      script_set(0, 0, 0, 0, 0); buttons_of(NPAD_HANDHELD, STYLE_HANDHELD);
      g_mode = 1; dm_pad_players(1);
      g_nsteps = 0; g_steps = NULL;
@@ -4131,7 +4355,7 @@ index 58ab42e..d83d9fe 100644
  }
  
  // DM_REC (GitHub issue #313): player 1's physical input written as DM_KEYS steps, read back by the DM_KEYS parser and played on the scripted path at the game's reads (keys_sync);
-@@ -513,7 +515,7 @@ static void t_motion_threads(void) {
+@@ -519,7 +521,7 @@ static void t_motion_threads(void) {
  }
  static void t_motion_live(void) {
      g_mode = 1; dm_pad_players(1);
@@ -4140,7 +4364,7 @@ index 58ab42e..d83d9fe 100644
  
      uint32_t h; uint32_t id = 0;
      CHECK(h_hid_SixHandles(&h, 1, &id, STYLE_FULLKEY) == 1, "one six-axis handle for player 1");
-@@ -567,7 +569,7 @@ static void t_motion_live(void) {
+@@ -573,7 +575,7 @@ static void t_motion_live(void) {
  }
  static void t_motion_hid(void) {
      g_mode = 1; dm_pad_players(3); ids((uint32_t[]){0, 1, NPAD_HANDHELD}, 3); g_phone_mode = 0;
@@ -4149,7 +4373,7 @@ index 58ab42e..d83d9fe 100644
      float flat[3] = {0, 0, -1}, tilted[3] = {.5f, 0, -.8660254f}, turn[3] = {0, 0, 2 * (float)M_PI};
      motion_now += 1000000000;
      dm_motion_clear(0);
-@@ -598,11 +600,177 @@ static void t_motion_hid(void) {
+@@ -604,11 +606,177 @@ static void t_motion_hid(void) {
      dm_pad_players(1); g_phone_mode = -1;
  }
  
@@ -4327,7 +4551,7 @@ index 58ab42e..d83d9fe 100644
      t_vibration();
      t_joycons();
      t_jcms();
-@@ -610,6 +778,70 @@ int main(void) {
+@@ -616,6 +784,70 @@ int main(void) {
      t_motion_threads();
      t_motion_live();
      t_motion_hid();
@@ -4398,7 +4622,7 @@ index 58ab42e..d83d9fe 100644
      t_rec();
      {   // Nmouse with no device (SDK 21's forms): the pointer range is kept, the merged handle 0 takes settings, the standard mouse and the handle queries report nothing
          int w = 0, h = 0; uint64_t std = 7; uint32_t npad = 9;
-@@ -635,6 +867,7 @@ int main(void) {
+@@ -641,6 +873,7 @@ int main(void) {
          CHECK(pad_slot_take_lowest(&f, &o[DM_PLAYERS], "pad") == -1, "press: none left when every player is held");
          CHECK(pad_slot_take_lowest(&f, NULL, "pad") == -1, "press: no owner, no slot");
      }
@@ -4877,11 +5101,11 @@ index 062f576..4538163 100644
  
  With an Apple developer account, Xcode can sign and install the app itself:
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index d3e1987..312678a 100644
+index 27d5c93..37d35db 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -97,7 +97,7 @@ DM_JIT_SERVE	path	Folder of a `nn::jit` image (`jit.img`, `jit.tsv`, `jit.out`):
- DM_JOYCON_SPLIT	switch	`1` splits a Bluetooth Nintendo Switch Joy-Con pair on macOS (`0x057e:0x2006` and `0x057e:0x2007`) into two sideways controllers over `IOHIDManager` (`pad_joycon_mac.h`, requires Input Monitoring permission) with per-half 6-axis motion and `LeftHandle` / `RightHandle` Core Haptics rumble
+ DM_JOYCON_SPLIT	switch	Bluetooth Nintendo Switch Joy-Con (L/R) on macOS (`0x057e:0x2006` and `0x057e:0x2007`) over `IOHIDManager` (`pad_joycon_mac.h`, on by default; `0` falls back to GameController, `1` starts split into two sideways player slots instead of paired on one slot with SL+SR / L+R 3 s hold switching)
  DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
  DM_KBD_PLAYER	switch	`own` makes the Mac keyboard player 1 on its own, with controllers from player 2 on (by default the first controller shares player 1 with the keyboard)
 -DM_KEYMAP	player	Mac keyboard: `<name>=<key code>,…` puts a button (`A` … `Down`), a stick direction (`LUp` … `RRight`) or `Shake` on another key (macOS virtual key code, or `none`); one key holds one function (`input_map.h`)
