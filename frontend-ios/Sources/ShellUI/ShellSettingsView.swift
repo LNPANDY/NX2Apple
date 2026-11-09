@@ -113,7 +113,7 @@ struct ShellSettingsView: View {
                 }
 
                 Section {
-                    TouchArrangeRow(arranged: !store.touchLayout.isEmpty)
+                    TouchArrangeRow(arranged: !store.touchLayout.isEmpty || store.touchLayout.hasToggles)
                 }
 
                 Section {

@@ -22,6 +22,8 @@ public struct TouchLayout: Equatable, Sendable {
         /// Drawn in this layout (the D-pad, L3 and R3 only in 3D).
         public func drawn(full: Bool) -> Bool { full || ![.dpad, .l3, .r3].contains(self) }
         public var isFaceKey: Bool { [.a, .b, .x, .y].contains(self) }
+        /// A single key, which can be set to Toggle (#658). The diamond as a whole, the stick and the D-pad are always held.
+        public var canToggle: Bool { ![.face, .stick, .dpad].contains(self) }
     }
 
     public struct Offset: Equatable, Hashable, Sendable {
@@ -37,6 +39,21 @@ public struct TouchLayout: Equatable, Sendable {
     public static let maxLength = 1024
 
     private var offsets: [Kind: [Control: Offset]] = [:]
+    /// The keys set to Toggle (#658): one tap turns the key on, the next tap off. The rest are held. The same in every layout, and kept
+    /// apart from the places: the engine reads them as `DM_TOUCH_TOGGLE`.
+    public private(set) var toggles: Set<Control> = []
+
+    public func toggles(_ c: Control) -> Bool { toggles.contains(c) }
+    public mutating func setToggles(_ c: Control, _ on: Bool) {
+        guard c.canToggle else { return }
+        if on { toggles.insert(c) } else { toggles.remove(c) }
+    }
+    /// The value for `DM_TOUCH_TOGGLE`: the toggled keys' names in the engine's order joined by commas, empty when every key is held.
+    public var encodedToggles: String { Control.allCases.filter { toggles.contains($0) }.map(\.rawValue).joined(separator: ",") }
+    /// Reads the stored toggles. An unknown name, or a control that cannot toggle, is skipped, as the engine does.
+    public mutating func readToggles(_ value: String) {
+        toggles = Set(value.split(separator: ",").compactMap { Control(rawValue: String($0)) }.filter(\.canToggle))
+    }
 
     public init() {}
 
@@ -50,7 +67,9 @@ public struct TouchLayout: Equatable, Sendable {
         }
     }
 
+    /// No control moved. Keys set to Toggle are not places: `hasToggles` says whether there are any.
     public var isEmpty: Bool { offsets.isEmpty }
+    public var hasToggles: Bool { !toggles.isEmpty }
     public func isEmpty(_ kind: Kind) -> Bool { offsets[kind] == nil }
     /// Every control of one layout back to its built-in place.
     public mutating func reset(_ kind: Kind) { offsets[kind] = nil }
