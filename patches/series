@@ -64,3 +64,5 @@
 0097-docs-env-switches-row-for-dm-nvn-bc-alias.patch
 0098-nsp-script-package-names-which-upstream-dropped.patch
 0099-host-serve-nsd-services.patch
+0100-event-descriptors-are-numbered-as-the-bsd-servic.patch
+0101-vulkan-minecraft-s-renderdragon-functions-looked.patch

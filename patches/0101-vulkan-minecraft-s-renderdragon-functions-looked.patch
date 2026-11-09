@@ -1,0 +1,959 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sat, 7 Nov 2026 20:19:22 +0900
+Subject: [PATCH] Vulkan: Minecraft's RenderDragon (functions looked up by
+ name, SPIR-V in materials, the device functions bgfx needs)
+
+Minecraft (Bedrock Edition, 1.21.120) renders with RenderDragon, Mojang's
+bgfx fork, on Vulkan, and the NSP script took it for an NVN game whose
+shader split found nothing.
+
+- profile_guess.py: main imports no Vulkan function and no
+  nvnBootstrapLoader; it gets vkGetInstanceProcAddr from NVIDIA's driver
+  with nn::ro::LookupSymbol and the rest through it. vk_lookups counts the
+  Vulkan names main keeps when it imports LookupSymbol and names
+  vkGetInstanceProcAddr (141), which decides graphics vulkan.
+- hle_ro.c: LookupSymbol gives the host's implementation of a vk* name no
+  loaded module defines, as the host stands in for that driver.
+- vk_shaders.py: the SPIR-V is in bgfx shader binaries (format 5) inside
+  renderer/materials/*.material.bin and, for bgfx's own shaders, in main.
+  material_modules takes a module whose u32 size prefix covers exactly its
+  instructions; the NSP script passes ExeFS/main too. Each key is
+  translated once (12,286 modules, 1,323 different). bgfx's clear shaders
+  declare a uniform block without a binding: it gets binding 0. bgfx hands
+  the bytes to vkCreateShaderModule unchanged: every module the game
+  created was in the library.
+- hle_vk.m: the shader table takes up to 64 resources a shader (Minecraft
+  has up to 27; 24 dropped the last). bgfx gives up on the device when a
+  core device function is null, so the game destroyed its device and
+  recreated its vi layer every frame. Implemented: dynamic blend
+  constants, vkCmdUpdateBuffer, vkCmdClearAttachments of whole targets,
+  vkCmdBlitImage (one layer and level of single-sampled 2D colour
+  images: a copy, or a quad sampling a 2D view of the source's layer and
+  level; t_vk_blit checks layer 1 of an array, copied and scaled, under
+  Metal's validation) and vkCmdResolveImage. Compute, indirect draws, vkCmdCopyQueryPoolResults
+  and partial clears exist and log a [RED] line once (open).
+  An integer vertex input read through an integer format of the other
+  sign (the skinned actors' int bone indices fed R16_UINT) is read through
+  the format of the shader's sign: Metal refused those pipelines and every
+  animal and mob was missing.
+
+With these the game plays on the Mac (world, mobs, a controller).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#1652 (open; a Minecraft build also needs seedds/nxnative#1288)
+Reason: Minecraft (RenderDragon on Vulkan) is detected, its shaders translated and its renderer initialized
+Issue: LNPANDY/NX2Apple#769
+---
+ dm/games/profile_guess.py              |  35 +++--
+ dm/gfx/tests/Makefile                  |   4 +
+ dm/gfx/tests/t_vk_blit.m               |  85 +++++++++++
+ dm/gfx/tools/vk_shaders.py             |  92 ++++++++++--
+ dm/gfx/vk/hle_vk.m                     | 198 ++++++++++++++++++++++++-
+ dm/host/hle_ro.c                       |   6 +
+ dm/host/tests/t_nro.c                  |   5 +-
+ dm/tools/tests/test_regress.py         |   2 +
+ dm/tools/tests/test_vk_renderdragon.py |  54 +++++++
+ docs/reference/rendering.md            |  24 +++
+ docs/reference/shaders.md              |   8 +
+ scripts/build_ipa_from_nsp.py          |  12 +-
+ scripts/regress.py                     |   2 +
+ 13 files changed, 493 insertions(+), 34 deletions(-)
+ create mode 100644 dm/gfx/tests/t_vk_blit.m
+ create mode 100644 dm/tools/tests/test_vk_renderdragon.py
+
+diff --git a/dm/games/profile_guess.py b/dm/games/profile_guess.py
+index a26f2e07b..ca263fecc 100644
+--- a/dm/games/profile_guess.py
++++ b/dm/games/profile_guess.py
+@@ -18,7 +18,8 @@ from romfs import Path, os, open, is_image, source
+ MAGICS = [(b'UnityFS\0', 'UnityFS'), (b'UnityWeb', 'UnityWeb'), (b'UnityRaw', 'UnityRaw'), (b'BNSH', 'BNSH'), (b'BAHS', 'BAHS'), (b'SARC', 'SARC'), (b'Yaz0', 'Yaz0'),
+           (bytes.fromhex('28b52ffd'), 'zstd'), (b'FRES', 'bfres'), (b'BNTX', 'BNTX'), (b'BWAV', 'BWAV'), (b'FSAR', 'BFSAR'), (b'CPK ', 'CRI CPK'), (b'CRID', 'CRI USM'),
+           (b'@UTF', 'CRI UTF'), (b'AKPK', 'Wwise pck'), (b'BKHD', 'Wwise bnk'), (b'FSB5', 'FMOD'), (b'\x89PNG', 'PNG'), (b'RIFF', 'RIFF'), (b'OggS', 'Ogg'), (b'PK\x03\x04', 'zip'), (b'NSO0', 'NSO'),
+-          (bytes.fromhex('03022307'), 'SPIR-V'), (b'ONEPACK\0', 'Trinity pack'), (b'ARC\0', 'MT Framework ARC'), (b'SCNE', 'Bezel Engine archive'), (b'XNB', 'XNB'), (b'pkzl', 'PlatinumGames PKZ')]
++          (bytes.fromhex('03022307'), 'SPIR-V'), (b'ONEPACK\0', 'Trinity pack'), (b'ARC\0', 'MT Framework ARC'), (b'SCNE', 'Bezel Engine archive'), (b'XNB', 'XNB'), (b'pkzl', 'PlatinumGames PKZ'),
++          (struct.pack('<Q', 0x0A11DA1A), 'RenderDragon material')]
+ PACKED = {'UnityFS', 'UnityWeb', 'Yaz0', 'zstd', 'BWAV', 'CRI CPK', 'CRI USM', 'Wwise pck', 'FMOD', 'PNG', 'Ogg', 'zip', 'Trinity pack', 'MT Framework ARC', 'Bezel Engine archive', 'PlatinumGames PKZ'}   # file headers of compressed / media formats (zip_store)
+ # IL2CPP by the metadata file every IL2CPP player opens: Unity 2022's main (Ace Attorney Investigations Collection) has no il2cpp_ API names, Engage's 2020.3 has both
+ MARKERS = [(b'nvnBootstrapLoader', 'NVN'), (b'vkCreateInstance', 'Vulkan'), (b'eglGetProcAddress', 'EGL / OpenGL'), (b'global-metadata.dat', 'Unity IL2CPP'), (b'UnityEngine', 'Unity'),
+@@ -26,7 +27,16 @@ MARKERS = [(b'nvnBootstrapLoader', 'NVN'), (b'vkCreateInstance', 'Vulkan'), (b'e
+            (b'MonoGame.Framework', 'MonoGame'), (b'FMOD mixer', 'FMOD')]
+ GLSLC_MAGIC = b'\x91\x68\x86\x19'   # GLSLC compiler outputs (shader_split.py glslc_shaders)
+ GL_SRC = rb'\0#version [0-9]'      # a GLSL source string as dm/gfx/tools/gl_shaders.py takes it from main (Balatro's main has none, only glslang's messages that start with '#version:')
+-GL_FILES = ('.mvgl', '.vert', '.frag')   # the RomFS files gl_shaders.py reads GLSL from
++GL_FILES = ('.mvgl', '.vert', '.frag')
++RO_LOOKUP = '_ZN2nn2ro12LookupSymbolEPmPKc'
++VK_NAME = rb'(?<=\0)vk[A-Z][A-Za-z0-9]+(?=\0)'   # a Vulkan function's name as a string of its own
++
++
++def vk_lookups(img, imports):
++    """How many Vulkan function names main keeps as strings when it imports no Vulkan function and looks names up with nn::ro::LookupSymbol: Minecraft (RenderDragon) gets
++    vkGetInstanceProcAddr that way from NVIDIA's Vulkan driver (subsdk0) and the rest through it (141 names in 1.21.120). 0 otherwise"""
++    if RO_LOOKUP not in imports or any(re.match(r'vk[A-Z]', s) for s in imports) or b'\0vkGetInstanceProcAddr\0' not in img: return 0
++    return len(set(re.findall(VK_NAME, img)))   # the RomFS files gl_shaders.py reads GLSL from
+ APP_POOL = 0xCD500000               # the application memory pool of a 4 GB Switch (3285 MiB), what every profile but Engage's reports
+ OUNCE_POOL = 0x240000000            # a Switch 2 game's (9 GB of 12 GB, not measured; Donkey Kong Bananza's heaps do not fit in a Switch 1 pool)
+ MiB = 1 << 20
+@@ -88,7 +98,7 @@ def aarch64(path):   # main.npdm's flags (META +0xc) bit 0, Is64BitInstruction;
+ def facts_of(exefs, romfs):
+     """What the profile rules (and the survey report) need from a game's code modules and RomFS"""
+     exefs = Path(exefs)
+-    F = {'mods': {}, 'ounce': False, 'markers': {}, 'sdkver': set(), 'comps': set(), 'unity': set(), 'glslc': 0, 'glsl_src': 0, 'gl_names': 0, 'gl_src': 0, 'sysres': 0, 'program': None}
++    F = {'mods': {}, 'ounce': False, 'markers': {}, 'sdkver': set(), 'comps': set(), 'unity': set(), 'glslc': 0, 'glsl_src': 0, 'gl_names': 0, 'gl_src': 0, 'vk_lookups': 0, 'sysres': 0, 'program': None}
+     for p in sorted(exefs.iterdir()):
+         with open(p, 'rb') as f:
+             if f.read(4) != b'NSO0': continue
+@@ -107,6 +117,7 @@ def facts_of(exefs, romfs):
+             F['unity'] = {v.decode() for v in re.findall(rb'20[12][0-9]\.[0-9]+\.[0-9]+f[0-9]', img)}
+             F['glslc'], F['glsl_src'], F['gl_names'] = img.count(GLSLC_MAGIC), glsl_sources(img), img.count(b'glShaderSource')
+             F['gl_src'] = len(re.findall(GL_SRC, img))
++            F['vk_lookups'] = vk_lookups(img, m['imports'])
+             F['main_markers'] = {name for pat, name in MARKERS if pat in img}
+         m['kind'] = {'main': 'the game', 'sdk': 'nnSdk', 'rtld': 'rtld'}.get(p.name) or kind(m)
+     F['sysres'], F['program'] = npdm(exefs / 'main.npdm')
+@@ -242,8 +253,8 @@ def modules_supplying(exefs, want, modules, hooks=None):   # the modules left ou
+ 
+ 
+ # ---- Shader sources: decided from the game files at every build, not kept in the profile (scripts/build_ipa_from_nsp.py; shader_split.py reads what those steps write) ----
+-def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_packs=0, legacy_paks=0, gl_names=0, gl_src=0, gl_files=0, oodle_pkz=0, nro_imports=frozenset(), oodle_gfpak=0, oodle_ue3=0, frostbite=False, romfs_glsl=0):
+-    """{name: (value, reason)}: graphics (vulkan when main imports Vulkan functions and not nvnBootstrapLoader; gl when it imports eglCreateWindowSurface and names glShaderSource, so it compiles
++def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_packs=0, legacy_paks=0, gl_names=0, gl_src=0, gl_files=0, oodle_pkz=0, nro_imports=frozenset(), oodle_gfpak=0, oodle_ue3=0, frostbite=False, romfs_glsl=0, vk_lookups=0):
++    """{name: (value, reason)}: graphics (vulkan when main imports Vulkan functions and not nvnBootstrapLoader, or looks them up by name with nn::ro::LookupSymbol (vk_lookups: Minecraft); gl when it imports eglCreateWindowSurface and names glShaderSource, so it compiles
+     GLSL through OpenGL (gl_names: how often main has that name; Absolum imports the same EGL functions for SDL3 but renders with NVN and names no GL function); else nvn; vkGetInstanceProcAddr
+     alone is SDL's Vulkan loader, which Balatro's LÖVE links and never uses), vk_capture (a Vulkan game without SPIR-V files generates its shaders at run time), gl_capture (an OpenGL game with no
+     GLSL source where gl_shaders.py looks, gl_src strings in main and gl_files files in the RomFS: it puts its shaders together at run time, LÖVE from its Lua), glslc_capture (main holds GLSL sources and calls glslcCompile in a module the game loads: it compiles some shaders at run time), ue_decode (Unreal paks keep the shaders Oodle-compressed
+@@ -257,7 +268,7 @@ def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_pa
+     extracted; Hades and both Galaxies import 99 or 100 Vulkan functions, Balatro only vkGetInstanceProcAddr), Balatro alone composing its GLSL.
+     nro_imports: what the NROs the game loads at run time import. Portal's main is SDL with its EGL backend (it names glShaderSource for SDL's GL renderer) and renders nothing: its Source engine
+     NROs draw with NVN (materialsystem.nro and video_nx.nro import nvnBootstrapLoader) and call glslcCompile; the GLSLC outputs it ships (nxcontent/nvsb in game.zip) are read by the split"""
+-    vk = sum(1 for s in imports if re.match(r'vk[A-Z]', s) and s != 'vkGetInstanceProcAddr'); vulkan = bool(vk) and 'nvnBootstrapLoader' not in imports
++    vk = sum(1 for s in imports if re.match(r'vk[A-Z]', s) and s != 'vkGetInstanceProcAddr'); vulkan = bool(vk or vk_lookups) and 'nvnBootstrapLoader' not in imports
+     nro_nvn = 'nvnBootstrapLoader' in nro_imports
+     # A main that imports nvnBootstrapLoader and compiles its own GLSL with GLSLC draws with NVN even when it also imports EGL and names glShaderSource: Rayman 30th Anniversary
+     # Edition (Digital Eclipse, SDK 20) links both paths, never calls EGL on the Mac, and compiles the GLSL in its .shader files with subsdk2's glslcCompile; taken for OpenGL, it
+@@ -265,7 +276,8 @@ def shader_sources(imports, glsl_src, glslc_mods, spirv, unreal_paks, trinity_pa
+     own_glslc = 'nvnBootstrapLoader' in imports and 'glslcCompile' in imports and bool(glsl_src) and bool(glslc_mods)
+     gl = not vulkan and not nro_nvn and 'eglCreateWindowSurface' in imports and bool(gl_names) and not own_glslc
+     nro_glslc = not vulkan and not gl and 'glslcCompile' in nro_imports and bool(glslc_mods)
+-    return {'graphics': ('vulkan', f'main imports {vk} Vulkan functions and not nvnBootstrapLoader: the host\'s Vulkan layer (dm/gfx/vk/hle_vk.m)') if vulkan else
++    return {'graphics': ('vulkan', (f'main imports {vk} Vulkan functions' if vk else f'main looks up {vk_lookups} Vulkan functions by name (nn::ro::LookupSymbol, then vkGetInstanceProcAddr: Minecraft)')
++                         + ' and not nvnBootstrapLoader: the host\'s Vulkan layer (dm/gfx/vk/hle_vk.m)') if vulkan else
+                         ('gl', 'main imports EGL and names glShaderSource: it renders with OpenGL and compiles GLSL, the host\'s GL layer (dm/gfx/gl/hle_gl.m)') if gl else
+                         ('nvn', 'the NROs the game loads import nvnBootstrapLoader' if nro_nvn and 'nvnBootstrapLoader' not in imports else
+                                 'main imports nvnBootstrapLoader and compiles its GLSL with GLSLC; its EGL and glShaderSource are left unused (Rayman 30th Anniversary Edition)' if own_glslc and 'eglCreateWindowSurface' in imports and gl_names else
+@@ -320,9 +332,10 @@ def build_sources(exefs, romfs, modules):
+     glslc_mods = [m for m in modules if m != 'main' and (glsl_src or romfs_glsl) and 'glslcCompile' in imports and defines(m)]
+     if 'glslcCompile' in nro_imp:   # an NRO compiles (Portal's materialsystem.nro): the GLSLC module is one nro_modules adds to a provisional profile, so any of the ExeFS's counts
+         glslc_mods = sorted({*glslc_mods, *(p.name for p in exefs.iterdir() if p.name.startswith('subsdk') and defines(p.name))}, key=load_order)
+-    spirv = 0
+-    if any(re.match(r'vk[A-Z]', s) for s in imports):   # only a Vulkan game's RomFS is read
+-        spirv = sum(1 for _, _, head in romfs_files(romfs) if head.startswith(bytes.fromhex('03022307')))
++    spirv, vk_names = 0, vk_lookups(main, imports)
++    if vk_names or any(re.match(r'vk[A-Z]', s) for s in imports):   # only a Vulkan game's RomFS is read; a RenderDragon material counts as a SPIR-V file when it holds a module (vk_shaders.py)
++        sys.path.insert(0, str(HERE.parent / 'gfx/tools')); import vk_shaders
++        spirv = sum(1 for p in vk_shaders.spirv_files(str(romfs)))
+     sys.path.insert(0, str(HERE.parent / 'gfx/tools')); import uepak
+     trinity = 0
+     for d, _, names in os.walk(romfs):
+@@ -358,7 +371,7 @@ def build_sources(exefs, romfs, modules):
+                 oodle_ue3 += h[i + 16 + 8 * nb:i + 17 + 8 * nb] == b'\x8c'
+     import frostbite   # Frostbite's superbundles (EA SPORTS FC 27): every item of the cas files is Oodle Leviathan, decoded with the game's own decoder
+     return shader_sources(imports, glsl_src, glslc_mods, spirv, len(uepak.unreal_paks(str(romfs), inline=False, mains=[exefs / 'main'])), trinity, len(uepak.unreal_paks(str(romfs), inline=True, mains=[exefs / 'main'])), gl_names, gl_src, gl_files, oodle_pkz, nro_imp,
+-                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl)
++                          oodle_gfpak=oodle_gfpak, oodle_ue3=oodle_ue3, frostbite=frostbite.is_frostbite(str(romfs)), romfs_glsl=romfs_glsl, vk_lookups=vk_names)
+ 
+ 
+ def va_heap(sysres, imports):   # virtual address memory (an NPDM system resource) and a heap: the alias / heap split is a starting point the heap check corrects (Wonder, Tears of the Kingdom; Engage's pool is its own measurement)
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index 772c456f1..ab7cf8cf5 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -492,6 +492,10 @@ check_t_gl_imports: t_gl_imports
+ 	./t_gl_imports --stubs
+ gl-imports: check_t_gl_imports
+ check_t_vk_desc: RUN_ENV = MTL_DEBUG_LAYER=1
++# vkCmdBlitImage of one layer of an array, copied and scaled (hle_vk.m blit_image), under Metal's validation: a texture of the wrong type stops it
++t_vk_blit: t_vk_blit.m ../vk/hle_vk.m $(MTL_T_DEP)
++	clang $(CFLAGS) -I../../third_party/vulkan-headers/include -fobjc-arc -o $@ t_vk_blit.m $(MTL_T_SRC) ../nvn/nvn_mtl.m $(FW)
++check_t_vk_blit: RUN_ENV = MTL_DEBUG_LAYER=1
+ # Float32 missing components retain float padding through integer shader inputs.
+ t_float_pad: t_float_pad.m $(MTL_T_DEP)
+ 	clang $(CFLAGS) -fobjc-arc -o $@ t_float_pad.m $(MTL_T_SRC) $(FW)
+diff --git a/dm/gfx/tests/t_vk_blit.m b/dm/gfx/tests/t_vk_blit.m
+new file mode 100644
+index 000000000..a19bf3f40
+--- /dev/null
++++ b/dm/gfx/tests/t_vk_blit.m
+@@ -0,0 +1,85 @@
++// vkCmdBlitImage on the GPU (hle_vk.m blit_image): layer 1 (green) of a two-layer 4x4 array whose layer 0 is red, blitted into a 2D image. The same-size region is a copy,
++// the scaled one (to 8x8) a drawn quad: both must give green. The drawn path once bound the whole array to the shader's texture2d and read layer 0 (red), and Metal's
++// validation stopped at the texture type. A multisampled source is refused before anything is encoded (the destination keeps its contents)
++#include "../vk/hle_vk.m"
++int dm_guest_as_contains(uintptr_t address) { (void)address; return 0; }
++void *front_metal_layer(void) { return NULL; }
++module_t *module_of(const void *p) { (void)p; return NULL; }
++module_t *g_mod; int g_nmod;
++void svc_thread_dump(void) {}
++uint64_t now_ns(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
++void dm_vi_layer_crop(int c[4]) { c[0] = c[1] = c[2] = c[3] = 0; }
++int dm_opmode(void) { return 1; }
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s\n", msg); } } while (0)
++
++static VkImage image(uint32_t w, uint32_t h, uint32_t layers, VkSampleCountFlagBits samples, VkImageUsageFlags usage) {
++    VkImageCreateInfo ici = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO, .imageType = VK_IMAGE_TYPE_2D, .format = VK_FORMAT_R8G8B8A8_UNORM, .extent = {w, h, 1},
++                             .mipLevels = 1, .arrayLayers = layers, .samples = samples, .tiling = VK_IMAGE_TILING_OPTIMAL, .usage = usage};
++    VkImage im = NULL; CHECK(h_vkCreateImage(&g_device, &ici, NULL, &im) == VK_SUCCESS && im && im->tex, "image created");
++    return im;
++}
++static void fill(VkImage im, uint32_t layer, uint32_t rgba) {   // through a shared buffer: the image's texture is private
++    uint32_t n = im->w * im->h, px[64]; for (uint32_t i = 0; i < n; i++) px[i] = rgba;
++    id<MTLBuffer> b = [g_dev newBufferWithBytes:px length:n * 4 options:MTLResourceStorageModeShared];
++    id<MTLCommandBuffer> cb = [g_q commandBuffer]; id<MTLBlitCommandEncoder> be = [cb blitCommandEncoder];
++    [be copyFromBuffer:b sourceOffset:0 sourceBytesPerRow:im->w * 4 sourceBytesPerImage:n * 4 sourceSize:MTLSizeMake(im->w, im->h, 1)
++             toTexture:im->tex destinationSlice:layer destinationLevel:0 destinationOrigin:MTLOriginMake(0, 0, 0)];
++    [be endEncoding]; [cb commit]; [cb waitUntilCompleted];
++}
++static int all(VkImage im, uint32_t rgba) {   // every texel of layer 0 is rgba
++    uint32_t n = im->w * im->h;
++    id<MTLBuffer> b = [g_dev newBufferWithLength:n * 4 options:MTLResourceStorageModeShared];
++    id<MTLCommandBuffer> cb = [g_q commandBuffer]; id<MTLBlitCommandEncoder> be = [cb blitCommandEncoder];
++    [be copyFromTexture:im->tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(im->w, im->h, 1)
++               toBuffer:b destinationOffset:0 destinationBytesPerRow:im->w * 4 destinationBytesPerImage:n * 4];
++    [be endEncoding]; [cb commit]; [cb waitUntilCompleted];
++    const uint32_t *p = b.contents; int ok = 1;
++    for (uint32_t i = 0; i < n; i++) if (p[i] != rgba) { if (ok) fprintf(stderr, "  texel %u: %08x, want %08x\n", i, p[i], rgba); ok = 0; }
++    return ok;
++}
++static void run_blit(VkImage src, uint32_t layer, VkImage dst, VkFilter filter) {   // what the replay does with one recorded C_BLIT
++    c_blit *x = calloc(1, sizeof *x + sizeof(VkImageBlit));
++    x->src = src; x->dst = dst; x->filter = filter; x->n = 1;
++    x->r[0] = (VkImageBlit){{VK_IMAGE_ASPECT_COLOR_BIT, 0, layer, 1}, {{0, 0, 0}, {(int32_t)src->w, (int32_t)src->h, 1}},
++                            {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1}, {{0, 0, 0}, {(int32_t)dst->w, (int32_t)dst->h, 1}}};
++    rs_t s = {0}; s.cb = [g_q commandBuffer];
++    blit_image(&s, x, C_BLIT);
++    end_blit(&s); [s.cb commit]; [s.cb waitUntilCompleted];
++    CHECK(s.cb.status == MTLCommandBufferStatusCompleted, "the blit's command buffer completed");
++    free(x);
++}
++
++int main(void) {
++    @autoreleasepool {
++        dev_init();
++        const uint32_t red = 0xff0000ff, green = 0xff00ff00, blue = 0xffff0000;   // RGBA8 in memory order R, G, B, A
++        VkImageUsageFlags su = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, du = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
++        VkImage arr = image(4, 4, 2, VK_SAMPLE_COUNT_1_BIT, su);
++        CHECK(arr->tex.textureType == MTLTextureType2DArray, "the source is a 2D array texture");
++        fill(arr, 0, red); fill(arr, 1, green);
++
++        VkImage same = image(4, 4, 1, VK_SAMPLE_COUNT_1_BIT, du);
++        run_blit(arr, 1, same, VK_FILTER_NEAREST);
++        CHECK(all(same, green), "same-size blit of layer 1 copies green");
++
++        VkImage big = image(8, 8, 1, VK_SAMPLE_COUNT_1_BIT, du);
++        run_blit(arr, 1, big, VK_FILTER_LINEAR);
++        CHECK(all(big, green), "scaled blit of layer 1 samples green, not layer 0's red");
++        run_blit(arr, 0, big, VK_FILTER_NEAREST);
++        CHECK(all(big, red), "scaled blit of layer 0 samples red");
++
++        VkImage plain = image(4, 4, 1, VK_SAMPLE_COUNT_1_BIT, su);
++        fill(plain, 0, green);
++        run_blit(plain, 0, big, VK_FILTER_LINEAR);
++        CHECK(all(big, green), "scaled blit of a plain 2D image");
++
++        VkImage ms = image(4, 4, 1, VK_SAMPLE_COUNT_4_BIT, su | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT);
++        VkImage keep = image(8, 8, 1, VK_SAMPLE_COUNT_1_BIT, du);
++        fill(keep, 0, blue);
++        run_blit(ms, 0, keep, VK_FILTER_LINEAR);
++        CHECK(all(keep, blue), "a multisampled source is refused: the destination keeps its contents");
++    }
++    printf("t_vk_blit: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/gfx/tools/vk_shaders.py b/dm/gfx/tools/vk_shaders.py
+index 18f18b9d2..53d1f696d 100644
+--- a/dm/gfx/tools/vk_shaders.py
++++ b/dm/gfx/tools/vk_shaders.py
+@@ -17,10 +17,15 @@
+ #     whose blend factors read source 1
+ # Super Mario Galaxy generates its GX shaders at run time; they come from a capture folder (the Mac host's DM_VK_CAPTURE), read like a RomFS: every input folder is
+ # searched for SPIR-V files by their magic
++# Minecraft (RenderDragon, Mojang's bgfx fork) keeps its shaders inside compiled materials (renderer/materials/*.material.bin, magic 0x0A11DA1A): each pass variant holds a bgfx
++# shader binary (VSH / FSH / CSH, version 5) whose code is SPIR-V after a u32 byte count; bgfx's Vulkan renderer passes those bytes to vkCreateShaderModule unchanged
++# (material_modules). The same module recurs across variants and materials (12,286 modules, 1,323 different ones in 1.21.120): each key is translated once.
++# An input that is an NSO (the game's main) is read for the same bgfx shader binaries: bgfx's built-in shaders (its clear shaders fs_clear0-7, vs_clear, the debug text) are
++# compiled into main (11 in Minecraft 1.21.120), and without them every vkCmdClearAttachments-style clear bgfx draws had no shader
+ # Output: <out>/vk/vk_shaders.metallib and <out>/vk/vk_shaders.tsv; --ios <dir> also writes <dir>/vk/ with an iPhone library (same table)
+ # Table rows: key <TAB> stage (vert / frag) <TAB> resources, space-separated kind:set.binding=slot[*count] (count: an array of descriptors in consecutive slots; u uniform buffer, b storage buffer, t image, s sampler, c combined image sampler = texture and sampler slot n,
+ #   p push constants)
+-# Usage: vk_shaders.py <SPIR-V dir>... <out dir> [--ios <dir>]   (SPIR-V dirs: the RomFS, capture folders)
++# Usage: vk_shaders.py <SPIR-V dir | NSO>... <out dir> [--ios <dir>]   (SPIR-V dirs: the RomFS, capture folders; an NSO: the game's main)
+ import concurrent.futures as cf, hashlib, json, os, re, struct, subprocess, sys, tempfile
+ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../tools'))
+ from romfs import os, open
+@@ -40,12 +45,57 @@ PRECISE = re.compile(r'\bfast::(min|max|clamp)\(')
+ 
+ def red(msg): sys.exit('[RED] ' + msg)
+ 
+-def spirv_files(root):
++RD_MAGIC = struct.pack('<Q', 0x0A11DA1A)   # a RenderDragon compiled material (Minecraft's renderer/materials/*.material.bin)
++
++def whole_module(data, at, n):
++    """Whether data[at:at + n] is exactly one SPIR-V module: the magic, schema 0, then instructions whose word counts end at n bytes, not before or after"""
++    if n < 20 or n % 4 or at + n > len(data) or struct.unpack_from('<I', data, at)[0] != MAGIC or struct.unpack_from('<I', data, at + 16)[0]: return False
++    i, end = at + 20, at + n
++    while i < end:
++        w = struct.unpack_from('<I', data, i)[0] >> 16
++        if not w: return False
++        i += 4 * w
++    return i == end
++
++def material_modules(data):
++    """(offset, SPIR-V) of every module in a RenderDragon compiled material: a bgfx shader binary keeps its code after its u32 size (bgfx shader format 5: magic, hash,
++    uniforms, size, code); the size before the magic must cover a whole module, so a magic inside other data is not taken"""
++    head, i = struct.pack('<I', MAGIC), 4
++    while (i := data.find(head, i)) >= 4:
++        n = struct.unpack_from('<I', data, i - 4)[0]
++        if whole_module(data, i, n): yield i, data[i:i + n]; i += n
++        else: i += 4
++
++def nso_modules(path):   # (offset in the image, SPIR-V) of the bgfx shader binaries in an NSO (dm/tools/nso.py; nso.Error, a ValueError, on a damaged file)
++    import nso
++    with open(path, 'rb') as f: return list(material_modules(bytes(nso.load(f.read(), path).image)))
++
++def is_nso(path):
++    with open(path, 'rb') as f: return f.read(4) == b'NSO0'
++
++def spirv_sources(root):
++    """(path, offset or None, SPIR-V bytes) of every shader under root: whole SPIR-V files (offset None), the modules inside RenderDragon materials, and those in an NSO given as root"""
++    if os.path.isfile(root):
++        if is_nso(root): yield from ((root, at, spv) for at, spv in nso_modules(root))
++        return
++    for d, _, fs in os.walk(root):
++        for f in sorted(fs):
++            p = os.path.join(d, f)
++            with open(p, 'rb') as fh: head = fh.read(8)
++            if len(head) >= 4 and struct.unpack('<I', head[:4])[0] == MAGIC: yield p, None, open(p, 'rb').read()
++            elif head == RD_MAGIC:   # some hold no pass, only samplers and uniforms other materials take (Minecraft's PBR/BRDF.material.bin, 277 bytes)
++                for at, spv in material_modules(open(p, 'rb').read()): yield p, at, spv
++
++def spirv_files(root):   # the paths spirv_sources reads shaders from (a whole SPIR-V file by its magic alone)
++    if os.path.isfile(root):
++        if is_nso(root) and nso_modules(root): yield root
++        return
+     for d, _, fs in os.walk(root):
+         for f in sorted(fs):
+             p = os.path.join(d, f)
+-            with open(p, 'rb') as fh: head = fh.read(4)
+-            if len(head) == 4 and struct.unpack('<I', head)[0] == MAGIC: yield p
++            with open(p, 'rb') as fh: head = fh.read(8)
++            if len(head) >= 4 and struct.unpack('<I', head[:4])[0] == MAGIC: yield p
++            elif head == RD_MAGIC and next(material_modules(open(p, 'rb').read()), None): yield p
+ 
+ def decorations(words):
+     """variable id → {'set': n, 'binding': n, 'binding_at': word index of the binding value}"""
+@@ -79,11 +129,25 @@ def fix_strides(words):
+     if not add: return words
+     return words[:at] + [w for t, s in add.items() for w in ((4 << 16) | OP_DECORATE, t, DEC_ARRAY_STRIDE, s)] + words[at:]
+ 
+-def one(path, tmp, root):
+-    data = open(path, 'rb').read()
++def default_bindings(words):
++    """A resource with a DescriptorSet decoration and no Binding gets Binding 0, the decoration's default, inserted after its DescriptorSet decoration: bgfx's built-in clear
++    shaders in Minecraft's main (fs_clear0-7) declare their uniform block so; bgfx's Vulkan renderer clears with vkCmdClearAttachments and only creates them"""
++    dec, i = {}, 5
++    while i < len(words):
++        op, n = words[i] & 0xffff, words[i] >> 16
++        if n == 0: red('SPIR-V instruction length 0')
++        if op == OP_DECORATE and n >= 3 and words[i + 2] in (DEC_SET, DEC_BINDING): dec.setdefault(words[i + 1], {})[words[i + 2]] = i + n
++        i += n
++    add = sorted((d[DEC_SET], v) for v, d in dec.items() if DEC_SET in d and DEC_BINDING not in d)
++    for at, v in reversed(add): words = words[:at] + [(4 << 16) | OP_DECORATE, v, DEC_BINDING, 0] + words[at:]
++    return words
++
++def one(src, tmp, root):
++    path, at, data = src
++    if at is not None: path = f'{path}@{at:#x}'   # a module inside a RenderDragon material: the table names its offset
+     if len(data) % 4: red(f'{path}: SPIR-V length {len(data)} is not a multiple of 4')
+     key = hashlib.sha256(data).hexdigest()[:16]   # of the game's words, which the host hashes
+-    words = fix_strides(list(struct.unpack(f'<{len(data) // 4}I', data)))
++    words = default_bindings(fix_strides(list(struct.unpack(f'<{len(data) // 4}I', data))))
+     src_spv = os.path.join(tmp, key + '.in.spv'); open(src_spv, 'wb').write(struct.pack(f'<{len(words)}I', *words))
+     refl = json.loads(subprocess.run([SPIRV_CROSS, src_spv, '--reflect'], capture_output=True, text=True, check=True).stdout)
+     eps = refl.get('entryPoints', [])
+@@ -140,7 +204,7 @@ def one(path, tmp, root):
+     if stage == 'frag' and '[[color(1)]]' in src:   # dual-source variant vk_<key>_d: the output at location 1 becomes the second blend source of attachment 0
+         msl_d = os.path.join(tmp, key + '_d.metal'); msls.append(msl_d)
+         open(msl_d, 'w').write(src.replace(f'vk_{key}', f'vk_{key}_d').replace('[[color(1)]]', '[[color(0), index(1)]]'))
+-    return key, stage, res, msls, '/' + os.path.relpath(path, root)
++    return key, stage, res, msls, '/' + os.path.relpath(path, root) if root != path.split('@')[0] else os.path.basename(path)
+ 
+ def metallib(msls, out, sdk, extra):
+     os.makedirs(out, exist_ok=True)
+@@ -163,7 +227,12 @@ def main():
+     if '--ios' in a: i = a.index('--ios'); ios = a[i + 1]; del a[i:i + 2]
+     if len(a) < 2: sys.exit('usage: vk_shaders.py <SPIR-V dir>... <out dir> [--ios <dir>]')
+     roots, out = a[:-1], a[-1]
+-    files = [(p, r) for r in roots for p in spirv_files(r)]
++    files, keys = [], set()
++    for r in roots:
++        if not os.path.exists(r): red(f'{r}: no such file or folder')
++        for src in spirv_sources(r):   # one module per key: the same SPIR-V in several files or material variants is translated once (the first, in root and path order)
++            k = hashlib.sha256(src[2]).hexdigest()[:16]
++            if k not in keys: keys.add(k); files.append((src, r))
+     if not files: red(f'no SPIR-V files in {" ".join(roots)}')
+     with tempfile.TemporaryDirectory() as tmp:
+         with cf.ThreadPoolExecutor(os.cpu_count()) as ex: rows = list(ex.map(lambda pr: one(pr[0], tmp, pr[1]), files))
+@@ -187,4 +256,7 @@ def main():
+             open(os.path.join(d, 'vk_shaders.tsv'), 'w').write('\n'.join(tsv) + '\n')
+             print(f'{sdk}: {len(seen)} shaders → {lib}')
+ 
+-if __name__ == '__main__': main()
++if __name__ == '__main__':
++    import nso
++    try: main()
++    except nso.Error as e: red(str(e))   # a damaged main
+diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
+index 9d141a4fd..9b258a22f 100644
+--- a/dm/gfx/vk/hle_vk.m
++++ b/dm/gfx/vk/hle_vk.m
+@@ -133,7 +133,9 @@
+ // Shader table (<DM_MSL_DIR>/vk/vk_shaders.tsv): resource kind u / b / t / s / c, its (set, binding) in the game's SPIR-V and the Metal slot it was moved to;
+ // kind p is the push-constant block (set and binding 0), whose bytes are set straight into its buffer slot
+ typedef struct { char kind; uint8_t set, slot, count; uint16_t binding; } shres;   // count: an array of descriptors, elements in slots slot … slot + count − 1
+-typedef struct { char key[17]; int frag, nres; shres res[24]; } shinfo;
++// SH_RES: every slot vk_shaders.py allows (16 buffers, 31 textures, 16 samplers); 24 dropped the last of Minecraft's (up to 27: its samplers at set 0, bindings 89-91)
++enum { SH_RES = 64 };
++typedef struct { char key[17]; int frag, nres; shres res[SH_RES]; } shinfo;
+ static shinfo *g_sh; static int g_nsh;
+ static id<MTLLibrary> g_lib;
+ static int sh_cmp(const void *a, const void *b) { return memcmp(((const shinfo *)a)->key, ((const shinfo *)b)->key, 16); }
+@@ -153,7 +155,7 @@ static void sh_load(void) {
+         memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag");
+         for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
+             char k; unsigned st, b, sl, n = 1;
+-            if (sscanf(t, "%c:%u.%u=%u*%u", &k, &st, &b, &sl, &n) < 4 || !n || sl + n > 31 || s->nres == 24) { LOG("[vk] [RED] cannot parse a resource entry of shader table %s: %s", s->key, t); continue; }
++            if (sscanf(t, "%c:%u.%u=%u*%u", &k, &st, &b, &sl, &n) < 4 || !n || sl + n > 31 || s->nres == SH_RES) { LOG("[vk] [RED] cannot parse a resource entry of shader table %s: %s", s->key, t); continue; }
+             s->res[s->nres++] = (shres){k, (uint8_t)st, (uint8_t)sl, (uint8_t)n, (uint16_t)b};
+         }
+     }
+@@ -232,6 +234,7 @@ static void dev_init_once(void) {
+     // pipeline keeps its depth-stencil description and builds the state for the masks set (one cached)
+     VkLogicOp logic;   // not implemented (0 = none: VK_LOGIC_OP_CLEAR is not met)
+     int dyn_sref, dyn_smask, stencil; VkStencilOpState sf, sb; MTLCompareFunction dcmp; int dwrite; uint64_t dss_key; __strong id<MTLDepthStencilState> dss_dyn;
++    int dyn_bc;   // blend constants set with vkCmdSetBlendConstants (Minecraft's bgfx)
+ };
+ struct VkCommandPool_T { struct VkCommandBuffer_T *cbs; };
+ struct VkCommandBuffer_T { void *loader; VkCommandPool pool; struct VkCommandBuffer_T *prev, *next; uint8_t *buf; size_t n, cap; };
+@@ -927,6 +930,25 @@ static MTLColorWriteMask write_mask(VkColorComponentFlags m) {   // the bit orde
+     d.readMask = s->compareMask; d.writeMask = s->writeMask;
+     return d;
+ }
++// The sign of an integer shader input (1 signed, 2 unsigned, 0 not an integer) and a vertex format of the same width and that sign (the format itself when it is not an integer one)
++static int dtype_sign(MTLDataType t) {
++    switch (t) {
++        case MTLDataTypeInt: case MTLDataTypeInt2: case MTLDataTypeInt3: case MTLDataTypeInt4: case MTLDataTypeShort: case MTLDataTypeShort2: case MTLDataTypeShort3: case MTLDataTypeShort4:
++        case MTLDataTypeChar: case MTLDataTypeChar2: case MTLDataTypeChar3: case MTLDataTypeChar4: return 1;
++        case MTLDataTypeUInt: case MTLDataTypeUInt2: case MTLDataTypeUInt3: case MTLDataTypeUInt4: case MTLDataTypeUShort: case MTLDataTypeUShort2: case MTLDataTypeUShort3: case MTLDataTypeUShort4:
++        case MTLDataTypeUChar: case MTLDataTypeUChar2: case MTLDataTypeUChar3: case MTLDataTypeUChar4: return 2;
++        default: return 0;
++    }
++}
++static MTLVertexFormat vfmt_sign(MTLVertexFormat f, int sign) {
++    static const MTLVertexFormat pairs[][2] = {   // {signed, unsigned}
++        {MTLVertexFormatChar, MTLVertexFormatUChar}, {MTLVertexFormatChar2, MTLVertexFormatUChar2}, {MTLVertexFormatChar3, MTLVertexFormatUChar3}, {MTLVertexFormatChar4, MTLVertexFormatUChar4},
++        {MTLVertexFormatShort, MTLVertexFormatUShort}, {MTLVertexFormatShort2, MTLVertexFormatUShort2}, {MTLVertexFormatShort3, MTLVertexFormatUShort3}, {MTLVertexFormatShort4, MTLVertexFormatUShort4},
++        {MTLVertexFormatInt, MTLVertexFormatUInt}, {MTLVertexFormatInt2, MTLVertexFormatUInt2}, {MTLVertexFormatInt3, MTLVertexFormatUInt3}, {MTLVertexFormatInt4, MTLVertexFormatUInt4}};
++    if (!sign) return f;
++    for (size_t i = 0; i < sizeof pairs / sizeof *pairs; i++) if (pairs[i][0] == f || pairs[i][1] == f) return pairs[i][sign - 1];
++    return f;
++}
+ static MTLViewport vp_of(const VkViewport *v) { return (MTLViewport){v->x, v->y, v->width, v->height, v->minDepth, v->maxDepth}; }   // the shaders flip y, so the viewport stays as given
+ static int src1_factor(VkBlendFactor f) { return f >= VK_BLEND_FACTOR_SRC1_COLOR && f <= VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA; }
+ static int dual_source(const VkPipelineColorBlendStateCreateInfo *cb) {   // a blend factor reads the second source
+@@ -975,6 +997,7 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
+             strlcat(keys, s ? " " : "", sizeof keys); strlcat(keys, m->key, sizeof keys);
+         }
+         if (!pd.vertexFunction) { LOG("[vk] [RED] pipeline has no usable vertex shader (%s)", keys); return p; }
++        id<MTLFunction> vfn = pd.vertexFunction;
+         const VkPipelineVertexInputStateCreateInfo *vi = ci->pVertexInputState;
+         MTLVertexDescriptor *vd = [MTLVertexDescriptor vertexDescriptor];
+         uint32_t used = 0;   // bindings some mapped attribute reads: Metal's validation rejects a buffer layout no attribute uses
+@@ -984,6 +1007,14 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
+             vd.attributes[at->location].format = f->vf; vd.attributes[at->location].offset = at->offset; vd.attributes[at->location].bufferIndex = 30 - at->binding;
+             used |= 1u << at->binding;
+         }
++        // An integer input read through an integer format of the other sign: Metal refuses the pipeline ("of type int cannot be read using MTLAttributeFormatUShort"), NVIDIA's
++        // driver reads the bits. Minecraft's skinned actors declare their bone indices a_indices as int and feed R16_UINT: every animal and mob was missing, their shadows drawn.
++        // The format of the shader's sign reads the same bits; only a value with its top bit set would come out sign-extended instead of zero-extended (indices and counts never are)
++        for (MTLVertexAttribute *va in vfn.vertexAttributes) {
++            NSUInteger l = va.attributeIndex; if (!va.active || l >= 31) continue;
++            MTLVertexFormat f = vd.attributes[l].format, g = vfmt_sign(f, dtype_sign(va.attributeType));
++            if (g != f) { vd.attributes[l].format = g; static int n; if (n++ < 4) OLOG("vertex attribute %lu: integer format of the other sign read as the shader's (%s)", (unsigned long)l, keys); }
++        }
+         for (uint32_t i = 0; vi && i < vi->vertexBindingDescriptionCount; i++) {
+             const VkVertexInputBindingDescription *b = &vi->pVertexBindingDescriptions[i];
+             if (b->binding >= 14) { LOG("[vk] [RED] vertex binding %u over 13", b->binding); continue; }
+@@ -1048,6 +1079,7 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
+             VkDynamicState s = dy->pDynamicStates[i];
+             if (s == VK_DYNAMIC_STATE_VIEWPORT) p->dyn_vp = 1; else if (s == VK_DYNAMIC_STATE_SCISSOR) p->dyn_sc = 1;
+             else if (s == VK_DYNAMIC_STATE_STENCIL_REFERENCE) p->dyn_sref = 1;
++            else if (s == VK_DYNAMIC_STATE_BLEND_CONSTANTS) p->dyn_bc = 1;
+             else if (s == VK_DYNAMIC_STATE_LINE_WIDTH) continue;   // Metal draws lines one pixel wide whatever the width (Super Mario 64 sets 1)
+             else if (s == VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK || s == VK_DYNAMIC_STATE_STENCIL_WRITE_MASK) p->dyn_smask |= s == VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK ? 1 : 2;
+             else RED1("dynamic state %d not implemented (the imports have no matching set function)", s);
+@@ -1067,10 +1099,16 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
+     for (uint32_t i = 0; i < n; i++) out[i] = pipe_make(&ci[i]);   // a pipeline Metal refuses is still handed out: its draws are skipped
+     return VK_SUCCESS;
+ }
++// Compute is not implemented: the pipeline is handed out without a Metal state (as a graphics pipeline Metal refuses), and binding or dispatching it says so
++VK(vkCreateComputePipelines, VkResult, VkDevice d, VkPipelineCache c, uint32_t n, const VkComputePipelineCreateInfo *ci, const VkAllocationCallbacks *a, VkPipeline *out) {
++    (void)d; (void)c; (void)ci; (void)a; RED1("compute pipelines not implemented (%u created as empty pipelines)", n);
++    for (uint32_t i = 0; i < n; i++) out[i] = zalloc(sizeof *out[i]);
++    return VK_SUCCESS;
++}
+ VKB(vkDestroyPipeline, void, VkDevice d, VkPipeline p, const VkAllocationCallbacks *a) { (void)d; (void)a; if (p) { p->pso = nil; p->dss = nil; free(p); } }
+ 
+ // ---------- Command buffers: recording ----------
+-enum { C_BRP = 1, C_ERP, C_PIPE, C_SETS, C_VB, C_IB, C_VP, C_SC, C_DRAWI, C_COPYB, C_COPYB2I, C_DRAW, C_PUSH, C_COPYI, C_COPYI2B, C_QRESET, C_QTS, C_QBEGIN, C_QEND, C_CLEARI, C_STENCIL };
++enum { C_BRP = 1, C_ERP, C_PIPE, C_SETS, C_VB, C_IB, C_VP, C_SC, C_DRAWI, C_COPYB, C_COPYB2I, C_DRAW, C_PUSH, C_COPYI, C_COPYI2B, C_QRESET, C_QTS, C_QBEGIN, C_QEND, C_CLEARI, C_STENCIL, C_BLENDC, C_UPDB, C_CLEARA, C_BLIT, C_RESOLVE };
+ typedef struct { uint32_t op, size; } chdr;
+ typedef struct { VkRenderPass rp; VkFramebuffer fb; VkRect2D area; uint32_t nclear; VkClearValue clear[]; } c_brp;
+ typedef struct { VkPipeline p; } c_pipe;
+@@ -1088,7 +1126,12 @@ static VkPipeline pipe_make(const VkGraphicsPipelineCreateInfo *ci) {
+ typedef struct { VkImage src; VkBuffer dst; uint32_t n; VkBufferImageCopy r[]; } c_copyi2b;
+ typedef struct { VkQueryPool q; uint32_t first, n; } c_query;
+ typedef struct { int what; VkStencilFaceFlags faces; uint32_t v; } c_stencil;   // what: 0 compare mask, 1 write mask, 2 reference
+-typedef struct { VkImage im; int ds; VkClearValue v; uint32_t n; VkImageSubresourceRange r[]; } c_cleari;   // vkCmdClearColorImage / vkCmdClearDepthStencilImage
++typedef struct { VkImage im; int ds; VkClearValue v; uint32_t n; VkImageSubresourceRange r[]; } c_cleari;
++typedef struct { float c[4]; } c_blendc;
++typedef struct { VkImage src, dst; VkFilter filter; uint32_t n; VkImageBlit r[]; } c_blit;
++typedef struct { VkImage src, dst; uint32_t n; VkImageResolve r[]; } c_resolve;
++typedef struct { uint32_t na, nr; VkClearAttachment a[9]; VkClearRect r[]; } c_cleara;   // vkCmdClearAttachments: up to 8 colour attachments and depth / stencil
++typedef struct { VkBuffer dst; VkDeviceSize off, size; uint8_t data[]; } c_updb;   // vkCmdUpdateBuffer: at most 65536 bytes   // vkCmdClearColorImage / vkCmdClearDepthStencilImage
+ static void *rec(VkCommandBuffer cb, uint32_t op, size_t sz) {
+     size_t need = (sizeof(chdr) + sz + 7) & ~(size_t)7;
+     if (cb->n + need > cb->cap) {
+@@ -1170,6 +1213,29 @@ static void cb_free(VkCommandBuffer cb) {
+ VK(vkCmdSetStencilCompareMask, void, VkCommandBuffer cb, VkStencilFaceFlags f, uint32_t v) { rec_stencil(cb, 0, f, v); }
+ VK(vkCmdSetStencilWriteMask, void, VkCommandBuffer cb, VkStencilFaceFlags f, uint32_t v) { rec_stencil(cb, 1, f, v); }
+ VK(vkCmdSetStencilReference, void, VkCommandBuffer cb, VkStencilFaceFlags f, uint32_t v) { rec_stencil(cb, 2, f, v); }
++VK(vkCmdSetBlendConstants, void, VkCommandBuffer cb, const float c[4]) { memcpy(((c_blendc *)rec(cb, C_BLENDC, sizeof(c_blendc)))->c, c, sizeof(float[4])); }
++VK(vkCmdUpdateBuffer, void, VkCommandBuffer cb, VkBuffer dst, VkDeviceSize off, VkDeviceSize size, const void *data) {
++    if (size > 65536) { RED1("vkCmdUpdateBuffer of %llu bytes (Vulkan allows 65536)", (unsigned long long)size); return; }
++    c_updb *c = rec(cb, C_UPDB, sizeof *c + size); c->dst = dst; c->off = off; c->size = size; memcpy(c->data, data, size);
++}
++// Not implemented yet (vkCmdClearAttachments only clears whole render targets: see C_CLEARA; vkCmdBlitImage and vkCmdResolveImage take 2D images: blit_image, resolve_image). bgfx loads every core device function and gives up on the device when one is null (Minecraft's RenderDragon destroyed its device and instance right
++// after vkGetDeviceProcAddr and retried every frame), so these exist and say so once when a game records one
++VK(vkCmdClearAttachments, void, VkCommandBuffer cb, uint32_t na, const VkClearAttachment *a, uint32_t nr, const VkClearRect *r) {
++    c_cleara *c = rec(cb, C_CLEARA, sizeof *c + nr * sizeof *r); c->na = umin(na, 9); c->nr = nr; memcpy(c->a, a, c->na * sizeof *a); memcpy(c->r, r, nr * sizeof *r);
++}
++VK(vkCmdBlitImage, void, VkCommandBuffer cb, VkImage src, VkImageLayout sl, VkImage dst, VkImageLayout dl, uint32_t n, const VkImageBlit *r, VkFilter f) {
++    (void)sl; (void)dl; c_blit *c = rec(cb, C_BLIT, sizeof *c + n * sizeof *r); c->src = src; c->dst = dst; c->filter = f; c->n = n; memcpy(c->r, r, n * sizeof *r);
++}
++VK(vkCmdResolveImage, void, VkCommandBuffer cb, VkImage src, VkImageLayout sl, VkImage dst, VkImageLayout dl, uint32_t n, const VkImageResolve *r) {
++    (void)sl; (void)dl; c_resolve *c = rec(cb, C_RESOLVE, sizeof *c + n * sizeof *r); c->src = src; c->dst = dst; c->n = n; memcpy(c->r, r, n * sizeof *r);
++}
++VK(vkCmdDrawIndirect, void, VkCommandBuffer cb, VkBuffer b, VkDeviceSize o, uint32_t n, uint32_t stride) { (void)cb; (void)b; (void)o; (void)n; (void)stride; RED1("vkCmdDrawIndirect not implemented: not drawn"); }
++VK(vkCmdDrawIndexedIndirect, void, VkCommandBuffer cb, VkBuffer b, VkDeviceSize o, uint32_t n, uint32_t stride) { (void)cb; (void)b; (void)o; (void)n; (void)stride; RED1("vkCmdDrawIndexedIndirect not implemented: not drawn"); }
++VK(vkCmdDispatch, void, VkCommandBuffer cb, uint32_t x, uint32_t y, uint32_t z) { (void)cb; (void)x; (void)y; (void)z; RED1("vkCmdDispatch not implemented (compute)"); }
++VK(vkCmdDispatchIndirect, void, VkCommandBuffer cb, VkBuffer b, VkDeviceSize o) { (void)cb; (void)b; (void)o; RED1("vkCmdDispatchIndirect not implemented (compute)"); }
++VK(vkCmdCopyQueryPoolResults, void, VkCommandBuffer cb, VkQueryPool q, uint32_t first, uint32_t n, VkBuffer dst, VkDeviceSize off, VkDeviceSize stride, VkQueryResultFlags f) {
++    (void)cb; (void)q; (void)first; (void)n; (void)dst; (void)off; (void)stride; (void)f; RED1("vkCmdCopyQueryPoolResults not implemented: nothing copied");
++}
+ static void rec_clear(VkCommandBuffer cb, VkImage im, int ds, const VkClearValue *v, uint32_t n, const VkImageSubresourceRange *r) {
+     c_cleari *c = rec(cb, C_CLEARI, sizeof *c + n * sizeof *r); c->im = im; c->ds = ds; c->v = *v; c->n = n; memcpy(c->r, r, n * sizeof *r);
+ }
+@@ -1211,6 +1277,7 @@ static void rec_clear(VkCommandBuffer cb, VkImage im, int ds, const VkClearValue
+     MTLRenderPassDescriptor *rpd; MTLStoreAction st_col[8], st_d, st_s; int cut;
+     VkQueryPool aq; uint32_t aq_first;   // the occlusion query running (occ_start)
+     uint32_t sdyn[3][2]; int sdyn_set[3], s_dirty;   // dynamic stencil compare mask / write mask / reference, front and back (C_STENCIL)
++    float bc[4]; int bc_set, bc_dirty;                // dynamic blend constants (C_BLENDC)
+ } rs_t;
+ #define DONE_RING 1024
+ static uint64_t g_done_ns[DONE_RING];   // completion time of submit v at [v % DONE_RING] (timestamp query results)
+@@ -1239,16 +1306,113 @@ static void occ_start(rs_t *s) {
+     q->occ[q->nvis] = (occ_t){s->aq, s->aq_first, q->nvis};
+     [s->re setVisibilityResultMode:MTLVisibilityResultModeCounting offset:q->nvis * 8]; q->nvis++;
+ }
+-static void resume_rp(rs_t *s) {
++static void resume_rp_clear(rs_t *s, const c_cleara *x);
++static void resume_rp(rs_t *s) { resume_rp_clear(s, NULL); }
++// x: the attachments vkCmdClearAttachments clears, with load actions that clear them (Metal clears only through a pass's load actions or a draw)
++static void resume_rp_clear(rs_t *s, const c_cleara *x) {
+     end_blit(s);
+     MTLRenderPassDescriptor *d = s->rpd;
+     for (int i = 0; i < 8; i++) if (d.colorAttachments[i].texture) d.colorAttachments[i].loadAction = MTLLoadActionLoad;
+     if (d.depthAttachment.texture) d.depthAttachment.loadAction = MTLLoadActionLoad;
+     if (d.stencilAttachment.texture) d.stencilAttachment.loadAction = MTLLoadActionLoad;
++    for (uint32_t k = 0; x && k < x->na; k++) {
++        const VkClearAttachment *a = &x->a[k];
++        if (a->aspectMask & VK_IMAGE_ASPECT_COLOR_BIT && a->colorAttachment < 8 && d.colorAttachments[a->colorAttachment].texture) {
++            const float *f = a->clearValue.color.float32; MTLRenderPassColorAttachmentDescriptor *ca = d.colorAttachments[a->colorAttachment];
++            ca.loadAction = MTLLoadActionClear; ca.clearColor = MTLClearColorMake(f[0], f[1], f[2], f[3]);
++        }
++        if (a->aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT && d.depthAttachment.texture) { d.depthAttachment.loadAction = MTLLoadActionClear; d.depthAttachment.clearDepth = a->clearValue.depthStencil.depth; }
++        if (a->aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT && d.stencilAttachment.texture) { d.stencilAttachment.loadAction = MTLLoadActionClear; d.stencilAttachment.clearStencil = a->clearValue.depthStencil.stencil; }
++    }
+     s->re = [s->cb renderCommandEncoderWithDescriptor:d]; s->cut = 0;
+     s->applied = NULL; s->vp_dirty = s->sc_dirty = 1;
+     occ_start(s);
+ }
++// vkCmdBlitImage: a region of the same size and format is a copy; one that scales, flips or converts is drawn, sampling the source over the destination rectangle
++// (Minecraft's bgfx blits its 1920x1080 frame into the swapchain image). One layer of 2D (array or cube) colour images; a drawn one takes float or normalized formats and
++// samples a 2D view of the source's layer and level, so a layer other than 0 of an array is read and the shader's texture2d gets a 2D texture
++static const char k_blit_msl[] = "#include <metal_stdlib>\nusing namespace metal;\nstruct V { float4 p [[position]]; float2 uv; };\n"
++    "vertex V vk_blit_vs(uint vid [[vertex_id]], constant float4 &uv [[buffer(0)]]) { float2 t = float2(vid & 1, vid >> 1); V o; o.p = float4(t.x * 2 - 1, 1 - t.y * 2, 0, 1); o.uv = mix(uv.xy, uv.zw, t); return o; }\n"
++    "fragment float4 vk_blit_fs(V i [[stage_in]], texture2d<float> t [[texture(0)]], sampler s [[sampler(0)]]) { return t.sample(s, i.uv); }\n";
++static id<MTLRenderPipelineState> blit_pso(MTLPixelFormat pf) {
++    static id<MTLLibrary> lib; static NSMutableDictionary<NSNumber *, id<MTLRenderPipelineState>> *cache; static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
++    pthread_mutex_lock(&mu);
++    if (!cache) cache = [NSMutableDictionary new];
++    id<MTLRenderPipelineState> p = cache[@(pf)];
++    if (!p) {
++        NSError *e = nil;
++        if (!lib) lib = [g_dev newLibraryWithSource:@(k_blit_msl) options:nil error:&e];
++        MTLRenderPipelineDescriptor *d = [MTLRenderPipelineDescriptor new];
++        d.vertexFunction = [lib newFunctionWithName:@"vk_blit_vs"]; d.fragmentFunction = [lib newFunctionWithName:@"vk_blit_fs"]; d.colorAttachments[0].pixelFormat = pf;
++        p = lib ? [g_dev newRenderPipelineStateWithDescriptor:d error:&e] : nil;
++        if (!p) LOG("[vk] [RED] cannot build the blit pipeline for format %lu: %s", (unsigned long)pf, e.localizedDescription.UTF8String);
++        else cache[@(pf)] = p;
++    }
++    pthread_mutex_unlock(&mu);
++    return p;
++}
++static void blit_image(rs_t *s, const c_blit *x, uint32_t op) {
++    VkImage a = x->src, b = x->dst;
++    if (!a->tex || !b->tex) { RED1("a blitted image was not created"); return; }
++    for (uint32_t i = 0; i < x->n; i++) {
++        const VkImageBlit *r = &x->r[i];
++        int sx0 = r->srcOffsets[0].x, sy0 = r->srcOffsets[0].y, sx1 = r->srcOffsets[1].x, sy1 = r->srcOffsets[1].y, dx0 = r->dstOffsets[0].x, dy0 = r->dstOffsets[0].y, dx1 = r->dstOffsets[1].x, dy1 = r->dstOffsets[1].y;
++        uint32_t sl = r->srcSubresource.mipLevel, dl = r->dstSubresource.mipLevel;
++        if (a->type != VK_IMAGE_TYPE_2D || b->type != VK_IMAGE_TYPE_2D || r->srcSubresource.layerCount != 1 || r->dstSubresource.layerCount != 1 || !(r->srcSubresource.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT)
++            || a->tex.sampleCount > 1 || b->tex.sampleCount > 1 || r->srcSubresource.baseArrayLayer >= a->layers || r->dstSubresource.baseArrayLayer >= b->layers || sl >= a->mips || dl >= b->mips) {
++            RED1("vkCmdBlitImage of other than one layer and level of single-sampled 2D colour images not implemented: not copied"); continue;
++        }
++        if (dx1 - dx0 == sx1 - sx0 && dy1 - dy0 == sy1 - sy0 && sx1 > sx0 && sy1 > sy0 && a->tex.pixelFormat == b->tex.pixelFormat) {
++            [blit(s, op) copyFromTexture:a->tex sourceSlice:r->srcSubresource.baseArrayLayer sourceLevel:sl sourceOrigin:MTLOriginMake(sx0, sy0, 0) sourceSize:MTLSizeMake(sx1 - sx0, sy1 - sy0, 1)
++                               toTexture:b->tex destinationSlice:r->dstSubresource.baseArrayLayer destinationLevel:dl destinationOrigin:MTLOriginMake(dx0, dy0, 0)];
++            g_n_copy++; continue;
++        }
++        if (a->f->kind != K_COLOR || b->f->kind != K_COLOR) { RED1("vkCmdBlitImage that scales or converts integer or depth images not implemented (formats %d → %d)", a->fmt, b->fmt); continue; }
++        id<MTLRenderPipelineState> pso = blit_pso(b->tex.pixelFormat); if (!pso) continue;
++        if (s->re) { end_rp(s, 0); s->cut = 1; }
++        end_blit(s);
++        // a 2D view of the source's layer and level (same format: no pixel-format-view usage needed), in place of the whole texture
++        id<MTLTexture> src = a->tex;
++        if (src.textureType != MTLTextureType2D || src.mipmapLevelCount > 1)
++            src = [a->tex newTextureViewWithPixelFormat:a->tex.pixelFormat textureType:MTLTextureType2D levels:NSMakeRange(sl, 1) slices:NSMakeRange(r->srcSubresource.baseArrayLayer, 1)];
++        if (!src) { RED1("vkCmdBlitImage: no 2D view of the source layer (texture type %lu): not copied", (unsigned long)a->tex.textureType); continue; }
++        float sw = (float)umax(a->w >> sl, 1), sh = (float)umax(a->h >> sl, 1), uv[4];
++        // a reversed destination range flips: the quad covers the destination rectangle in increasing order and takes the source ends swapped
++        int fx = dx1 < dx0, fy = dy1 < dy0;
++        uv[0] = (fx ? sx1 : sx0) / sw; uv[2] = (fx ? sx0 : sx1) / sw; uv[1] = (fy ? sy1 : sy0) / sh; uv[3] = (fy ? sy0 : sy1) / sh;
++        MTLRenderPassDescriptor *d = [MTLRenderPassDescriptor renderPassDescriptor];
++        d.colorAttachments[0].texture = b->tex; d.colorAttachments[0].level = dl; d.colorAttachments[0].slice = r->dstSubresource.baseArrayLayer;
++        d.colorAttachments[0].loadAction = MTLLoadActionLoad; d.colorAttachments[0].storeAction = MTLStoreActionStore;
++        id<MTLRenderCommandEncoder> e = [s->cb renderCommandEncoderWithDescriptor:d];
++        MTLSamplerDescriptor *sd = [MTLSamplerDescriptor new];
++        sd.minFilter = sd.magFilter = x->filter == VK_FILTER_LINEAR ? MTLSamplerMinMagFilterLinear : MTLSamplerMinMagFilterNearest; sd.mipFilter = MTLSamplerMipFilterNearest;
++        sd.sAddressMode = sd.tAddressMode = MTLSamplerAddressModeClampToEdge;
++        [e setRenderPipelineState:pso];
++        [e setViewport:(MTLViewport){(double)umin(dx0, dx1), (double)umin(dy0, dy1), (double)abs(dx1 - dx0), (double)abs(dy1 - dy0), 0, 1}];
++        [e setVertexBytes:uv length:sizeof uv atIndex:0];
++        [e setFragmentTexture:src atIndex:0]; [e setFragmentSamplerState:[g_dev newSamplerStateWithDescriptor:sd] atIndex:0];
++        [e drawPrimitives:MTLPrimitiveTypeTriangleStrip vertexStart:0 vertexCount:4];
++        [e endEncoding];
++        g_n_copy++;
++    }
++}
++// vkCmdResolveImage: Metal resolves at the end of a pass, so a pass that loads the multisampled image and resolves it into the destination, drawing nothing. Whole images only
++static void resolve_image(rs_t *s, const c_resolve *x) {
++    VkImage a = x->src, b = x->dst;
++    if (!a->tex || !b->tex) { RED1("a resolved image was not created"); return; }
++    if (s->re) { end_rp(s, 0); s->cut = 1; }
++    end_blit(s);
++    for (uint32_t i = 0; i < x->n; i++) {
++        const VkImageResolve *r = &x->r[i];
++        if (r->srcOffset.x || r->srcOffset.y || r->dstOffset.x || r->dstOffset.y || r->extent.width < (a->w >> r->srcSubresource.mipLevel) || r->extent.height < (a->h >> r->srcSubresource.mipLevel))
++            RED1("vkCmdResolveImage of part of an image: the whole image is resolved");
++        MTLRenderPassDescriptor *d = [MTLRenderPassDescriptor renderPassDescriptor];
++        MTLRenderPassColorAttachmentDescriptor *c = d.colorAttachments[0];
++        c.texture = a->tex; c.level = r->srcSubresource.mipLevel; c.slice = r->srcSubresource.baseArrayLayer; c.loadAction = MTLLoadActionLoad;
++        c.resolveTexture = b->tex; c.resolveLevel = r->dstSubresource.mipLevel; c.resolveSlice = r->dstSubresource.baseArrayLayer; c.storeAction = MTLStoreActionStoreAndMultisampleResolve;
++        [[s->cb renderCommandEncoderWithDescriptor:d] endEncoding];
++    }
++}
+ static MTLLoadAction load_a(VkAttachmentLoadOp o) { return o == VK_ATTACHMENT_LOAD_OP_CLEAR ? MTLLoadActionClear : o == VK_ATTACHMENT_LOAD_OP_LOAD ? MTLLoadActionLoad : MTLLoadActionDontCare; }
+ static MTLStoreAction store_a(VkAttachmentStoreOp o) { return o == VK_ATTACHMENT_STORE_OP_DONT_CARE ? MTLStoreActionDontCare : MTLStoreActionStore; }
+ static void begin_rp(rs_t *s, const c_brp *c) {
+@@ -1351,7 +1515,7 @@ static int pre_draw(rs_t *s) {
+         [re setDepthBias:p->bias ? p->bias_c : 0 slopeScale:p->bias ? p->bias_s : 0 clamp:p->bias ? p->bias_cl : 0];
+         [re setBlendColorRed:p->blend[0] green:p->blend[1] blue:p->blend[2] alpha:p->blend[3]];
+         [re setStencilFrontReferenceValue:p->sref_f backReferenceValue:p->sref_b];
+-        s->s_dirty = 1;
++        s->s_dirty = 1; s->bc_dirty = 1;
+         if (p->has_vp && (!s->applied || !s->applied->has_vp || memcmp(&s->applied->vp, &p->vp, sizeof p->vp))) s->vp_dirty = 1;
+         if (p->has_sc) s->sc_dirty = 1;
+         s->applied = p;
+@@ -1372,6 +1536,8 @@ static int pre_draw(rs_t *s) {
+         }
+     }
+     s->s_dirty = 0;
++    if (s->bc_dirty && p->dyn_bc && s->bc_set) [re setBlendColorRed:s->bc[0] green:s->bc[1] blue:s->bc[2] alpha:s->bc[3]];   // after the pipeline's own
++    s->bc_dirty = 0;
+     if (s->vp_dirty) {
+         MTLViewport v = p->has_vp ? p->vp : vp_of(&s->vp);
+         [re setViewport:v]; s->vp_dirty = 0;
+@@ -1510,6 +1676,26 @@ static void replay(rs_t *s, VkCommandBuffer cb) {
+             }
+             case C_STENCIL: { const c_stencil *x = c; if (x->faces & VK_STENCIL_FACE_FRONT_BIT) s->sdyn[x->what][0] = x->v; if (x->faces & VK_STENCIL_FACE_BACK_BIT) s->sdyn[x->what][1] = x->v;
+                               s->sdyn_set[x->what] = 1; s->s_dirty = 1; break; }
++            case C_CLEARA: {   // inside a render pass: bgfx clears each view's targets so at the start of its pass (Minecraft). Whole targets only: the encoder ends and the pass resumes with them cleared
++                const c_cleara *x = c; int whole = 0;
++                if (!s->re && !s->cut) { RED1("vkCmdClearAttachments outside a render pass"); break; }
++                for (uint32_t i = 0; i < x->nr; i++) whole |= x->r[i].rect.offset.x <= 0 && x->r[i].rect.offset.y <= 0 && x->r[i].rect.extent.width >= s->rt_w && x->r[i].rect.extent.height >= s->rt_h;
++                if (!whole) { RED1("vkCmdClearAttachments of part of the render target not implemented: not cleared (%ux%u at %d,%d of %ux%u)", x->nr ? x->r[0].rect.extent.width : 0,
++                                   x->nr ? x->r[0].rect.extent.height : 0, x->nr ? x->r[0].rect.offset.x : 0, x->nr ? x->r[0].rect.offset.y : 0, s->rt_w, s->rt_h); break; }
++                if (s->re) end_rp(s, 0);
++                resume_rp_clear(s, x);
++                break;
++            }
++            case C_BLIT: blit_image(s, c, h->op); break;
++            case C_RESOLVE: resolve_image(s, c); break;
++            case C_BLENDC: memcpy(s->bc, ((const c_blendc *)c)->c, sizeof s->bc); s->bc_set = 1; s->bc_dirty = 1; break;
++            case C_UPDB: {   // through a staging buffer, in order with the copies and passes around it
++                const c_updb *x = c; if (!x->dst->mem) { RED1("an updated buffer has no bound memory"); break; }
++                id<MTLBuffer> tmp = [g_dev newBufferWithBytes:x->data length:x->size options:MTLResourceStorageModeShared];
++                [blit(s, h->op) copyFromBuffer:tmp sourceOffset:0 toBuffer:mem_buf(x->dst->mem) destinationOffset:x->dst->off + x->off size:x->size];
++                g_n_copy++;
++                break;
++            }
+             case C_CLEARI: {   // an image cleared outside a render pass (Super Mario 3D All-Stars' Super Mario 64 clears its depth buffer so): a pass per level and layer that only clears
+                 const c_cleari *x = c; VkImage im = x->im;
+                 if (!im || !im->tex) { RED1("a cleared image was not created"); break; }
+diff --git a/dm/host/hle_ro.c b/dm/host/hle_ro.c
+index 8f113e329..da0c15c7f 100644
+--- a/dm/host/hle_ro.c
++++ b/dm/host/hle_ro.c
+@@ -16,8 +16,14 @@ static pthread_mutex_t g_ro_mu = PTHREAD_MUTEX_INITIALIZER;   // the SDK holds g
+ 
+ HLE_FORCE("_ZN2nn2ro10InitializeEv", "connect to the ldr:ro service; the host has none, symbol lookups search the loaded modules directly", Result, h_ro_Initialize, void) { LOG("init takeover: ro::Initialize (no-op)"); dm_thread_service_connect(); return 0; }
+ 
++uint64_t resolve_import(module_t *m, const char *name);   // hle.c
++int hle_implements(const char *name);
++
++// The host stands in for NVIDIA's Vulkan driver (subsdk0, never loaded: dm/gfx/vk/hle_vk.m), so its Vulkan functions count as definitions of a loaded module. Minecraft (RenderDragon)
++// imports no Vulkan function: it looks up vkGetInstanceProcAddr here and gets the rest through it; without this the lookup failed and the game had no renderer
+ HLE_FORCE("_ZN2nn2ro12LookupSymbolEPmPKc", "look up a definition by name in the loaded modules", Result, h_ro_LookupSymbol, uintptr_t *out, const char *name) {
+     void *p = name ? guest_sym(name) : NULL;
++    if (!p && name && !strncmp(name, "vk", 2) && hle_implements(name)) p = (void *)resolve_import(NULL, name);
+     static int n; if (n++ < 40) LOG("ro::LookupSymbol %s → %p", name ? name : "(null)", p);
+     if (!p) { static int red; if (!red++) LOG("[RED] ro::LookupSymbol cannot find %s (first case)", name ? name : "(null)"); return RO_FAIL; }
+     if (out) *out = (uintptr_t)p;
+diff --git a/dm/host/tests/t_nro.c b/dm/host/tests/t_nro.c
+index 85137584a..375508574 100644
+--- a/dm/host/tests/t_nro.c
++++ b/dm/host/tests/t_nro.c
+@@ -13,7 +13,7 @@ void hlecount_seal(void) {}
+ void *hlecount_wrap(const char *kind, const char *name, void *fn) { (void)kind; (void)name; return fn; }
+ static uint64_t missing;
+ uint64_t resolve_import(module_t *m, const char *name) { (void)m; (void)name; return (uint64_t)&missing; }
+-int hle_implements(const char *name) { (void)name; return 0; }
++int hle_implements(const char *name) { return !strcmp(name, "vkGetInstanceProcAddr") || !strcmp(name, "nvnBootstrapLoader"); }   // the host's own functions in this fixture
+ int svc_nro_deactivate(module_t *m) { m->loaded = 0; return 1; }   // no memory mappings in this fixture
+ 
+ typedef struct {
+@@ -75,6 +75,9 @@ int main(void) {
+     assert(images[0].slots[1] == first && images[2].slots[1] == first);
+     assert(images[0].slots[2] == 0);
+     uintptr_t p; assert(h_ro_LookupModuleSymbol(&p, &handles[0], "shared") == 0 && p == first);
++    // a Vulkan function no module defines is the host's (Minecraft looks up vkGetInstanceProcAddr); other host functions and names it lacks still fail
++    p = 0; assert(h_ro_LookupSymbol(&p, "vkGetInstanceProcAddr") == 0 && p == (uintptr_t)&missing);
++    assert(h_ro_LookupSymbol(&p, "vkNotAFunction") != 0 && h_ro_LookupSymbol(&p, "nvnBootstrapLoader") != 0);
+     assert(h_ro_LoadModule(&handles[0], raw[0], NULL, 32, 1) != 0);
+ 
+     unload(2);
+diff --git a/dm/tools/tests/test_regress.py b/dm/tools/tests/test_regress.py
+index 66bb010d9..1170c7f29 100644
+--- a/dm/tools/tests/test_regress.py
++++ b/dm/tools/tests/test_regress.py
+@@ -620,6 +620,8 @@ class Regress(unittest.TestCase):
+             capture = romfs.parent / 'vk_capture'; capture.mkdir()
+             g = regress.Game(root, build)
+             self.assertEqual(g.shader_roots(), [romfs, capture])
++            main = romfs.parent / 'ExeFS/main'; main.parent.mkdir(); main.write_bytes(b'NSO0')   # RenderDragon's bgfx shaders are in main, as the NSP script reads them
++            self.assertEqual(g.shader_roots(), [romfs, main, capture])
+ 
+     def test_rewriter_uses_original_registered_profile_and_keeps_provisional(self):
+         with tempfile.TemporaryDirectory() as td:
+diff --git a/dm/tools/tests/test_vk_renderdragon.py b/dm/tools/tests/test_vk_renderdragon.py
+new file mode 100644
+index 000000000..5a6635db9
+--- /dev/null
++++ b/dm/tools/tests/test_vk_renderdragon.py
+@@ -0,0 +1,54 @@
++"""Minecraft (RenderDragon, Mojang's bgfx fork): a Vulkan game whose main imports no Vulkan function and looks them up with nn::ro::LookupSymbol, and whose SPIR-V is inside
++compiled materials (renderer/materials/*.material.bin) and main as bgfx shader binaries. Synthetic bytes, no game files."""
++from pathlib import Path
++import struct
++import sys
++import tempfile
++import unittest
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/games')); import profile_guess as pg
++sys.path.insert(0, str(REPO / 'dm/gfx/tools')); import vk_shaders as vk
++
++
++def spirv(n_caps):   # a module: header (magic, version 1.0, generator, bound, schema 0), then n_caps OpCapability Shader
++    return struct.pack('<5I', vk.MAGIC, 0x10000, 0, 1, 0) + b''.join(struct.pack('<2I', (2 << 16) | 17, 1) for _ in range(n_caps))
++
++
++def bgfx(kind, code):   # a bgfx shader binary, format 5: magic, hash, no uniforms, the code's size and the code, a trailing zero
++    return kind + b'\x05' + b'\xaa\xbb\xcc\xdd' + struct.pack('<H', 0) + struct.pack('<I', len(code)) + code + b'\0'
++
++
++class RenderDragon(unittest.TestCase):
++    def test_material_modules(self):
++        a, b = spirv(1), spirv(3)
++        stray = struct.pack('<I', 64) + struct.pack('<I', vk.MAGIC) + b'\0' * 12   # a magic whose size prefix does not cover a whole module: not taken
++        data = vk.RD_MAGIC + b'name' + stray + bgfx(b'VSH', a) + bgfx(b'FSH', b) + bgfx(b'FSH', a)
++        got = list(vk.material_modules(data))
++        self.assertEqual([m for _, m in got], [a, b, a])
++        self.assertTrue(all(data[o:o + len(m)] == m for o, m in got))
++        self.assertFalse(vk.whole_module(a + b'\0' * 4, 0, len(a) + 4))   # the instructions end before the size
++
++    def test_sources_in_a_folder(self):
++        with tempfile.TemporaryDirectory() as d:
++            mats = Path(d) / 'renderer/materials'; mats.mkdir(parents=True)
++            (mats / 'A.material.bin').write_bytes(vk.RD_MAGIC + bgfx(b'VSH', spirv(1)) + bgfx(b'FSH', spirv(2)))
++            (mats / 'BRDF.material.bin').write_bytes(vk.RD_MAGIC + b'no passes')   # samplers and uniforms only (Minecraft's PBR/BRDF)
++            (Path(d) / 'loose.spv').write_bytes(spirv(4))
++            src = list(vk.spirv_sources(d))
++            self.assertEqual(sorted((Path(p).name, at is None) for p, at, _ in src), [('A.material.bin', False), ('A.material.bin', False), ('loose.spv', True)])
++            self.assertEqual(sorted(Path(p).name for p in vk.spirv_files(d)), ['A.material.bin', 'loose.spv'])
++
++    def test_graphics_from_looked_up_names(self):
++        ro = {pg.RO_LOOKUP}
++        img = b'\0vkGetInstanceProcAddr\0vkCreateDevice\0vkCmdDraw\0other\0'
++        self.assertEqual(pg.vk_lookups(img, ro), 3)
++        self.assertEqual(pg.vk_lookups(img, set()), 0)   # no nn::ro::LookupSymbol
++        self.assertEqual(pg.vk_lookups(img, ro | {'vkGetInstanceProcAddr'}), 0)   # imports Vulkan: counted as imports (Balatro: SDL's loader alone)
++        self.assertEqual(pg.vk_lookups(b'\0vkCreateDevice\0', ro), 0)   # no vkGetInstanceProcAddr to start from
++        s = pg.shader_sources(ro, 0, [], 145, 0, vk_lookups=141)
++        self.assertEqual(s['graphics'][0], 'vulkan'); self.assertFalse(s['vk_capture'][0])
++        self.assertEqual(pg.shader_sources(ro | {'nvnBootstrapLoader'}, 0, [], 0, 0, vk_lookups=141)['graphics'][0], 'nvn')
++
++
++if __name__ == '__main__': unittest.main()
+diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
+index 6f827d5c7..eb968cfcc 100644
+--- a/docs/reference/rendering.md
++++ b/docs/reference/rendering.md
+@@ -1448,6 +1448,30 @@ The Vulkan layer (`dm/gfx/vk/hle_vk.m`) was written for Hades; Super Mario Galax
+ - **Cause:** two geometry shaders (GX points and lines expanded to quads) are not translated (Metal has no geometry stage).
+ - **Found on:** [Super Mario Galaxy](../../dm/games/010099C022B96000/README.md).
+ 
++### A Vulkan game that looks its functions up by name
++
++- **Symptom:** the NSP script takes the game for an NVN one and stops at the shader split with `the shader split found no shaders in main or the RomFS`; built as a Vulkan game, the log has `[RED] ro::LookupSymbol cannot find vkGetInstanceProcAddr`.
++- **Cause:** RenderDragon (Mojang's bgfx fork) imports no Vulkan function and no `nvnBootstrapLoader`: it gets `vkGetInstanceProcAddr` from NVIDIA's driver (`subsdk0`, never loaded here) with `nn::ro::LookupSymbol`, and the rest through it. `profile_guess.py` counted only imported Vulkan functions, and `h_ro_LookupSymbol` searched only the loaded modules.
++- **Fix:** `profile_guess.py` (`vk_lookups`) decides `graphics vulkan` when `main` imports `nn::ro::LookupSymbol`, no Vulkan function, and names `vkGetInstanceProcAddr` as a string (141 Vulkan names in Minecraft 1.21.120). `h_ro_LookupSymbol` (`dm/host/hle_ro.c`) gives the host's implementation of a `vk*` name no module defines, as the host stands in for that driver.
++- **Check:** `dm/tools/tests/test_vk_renderdragon.py`, `dm/host/tests/t_nro.c`.
++- **Found on:** Minecraft (Bedrock Edition, title ID 0100D71004694000, 1.21.120).
++
++### A null core device function ends bgfx's device
++
++- **Symptom:** right after `vkCreateDevice` the game calls `vkDestroyDevice` and `vkDestroyInstance`, creates no surface, and from then on destroys and recreates its `vi` layer every frame (`vi::CreateLayer` hundreds of times in the log); nothing is presented.
++- **Cause:** bgfx loads every core device function with `vkGetDeviceProcAddr` and gives up on the device when one is null; the layer had no `vkCmdSetBlendConstants`, `vkCmdUpdateBuffer`, `vkCmdClearAttachments`, `vkCmdBlitImage`, `vkCmdResolveImage`, `vkCmdDrawIndirect`, `vkCmdDrawIndexedIndirect`, `vkCmdDispatch`, `vkCmdDispatchIndirect`, `vkCmdCopyQueryPoolResults` or `vkCreateComputePipelines`. RenderDragon's main loop then retries its renderer each frame.
++- **Fix:** the layer has them all. Implemented: dynamic blend constants (`C_BLENDC`), `vkCmdUpdateBuffer` (a staging buffer copied in order, `C_UPDB`), `vkCmdClearAttachments` of whole render targets (the pass's encoder ends and resumes with clearing load actions, `C_CLEARA`), `vkCmdBlitImage` of one layer and level of single-sampled 2D (array or cube) colour images (a copy for a region of the same size and format, otherwise a quad that samples a 2D view of the source's layer and level with the blit's filter, `blit_image`; other blits are refused before anything is encoded), `vkCmdResolveImage` (a pass that loads the multisampled image and resolves it, `resolve_image`). Minecraft renders its frame into its own target and blits it into the swapchain image: without the blit the screen kept the swapchain's magenta.
++- **Check:** `t_vk_blit` (`make -C dm/gfx/tests GAME=<id> check_t_vk_blit`, under Metal's validation): layer 1 of a red / green array copied and scaled gives green, a multisampled source is refused. Bound whole to the shader's `texture2d`, the scaled blit had read layer 0 and stopped Metal's validation.
++- **Not implemented (open):** compute pipelines and dispatches, indirect draws, `vkCmdCopyQueryPoolResults`, clears of part of a render target. Each exists and logs a `[RED]` line once when a game records it.
++- **Found on:** Minecraft (Bedrock Edition, 1.21.120): with these the game draws its panorama and first dialog. Its 35 compute shaders (FSR 1, volumetrics, light clustering) are not translated.
++
++### Integer vertex inputs of the other sign
++
++- **Symptom:** `[RED] cannot build the pipeline (…): Vertex attribute a_indices(1) of type int cannot be read using MTLAttributeFormatUShort`; every animal and mob missing, their shadows drawn.
++- **Cause:** RenderDragon's skinned actor shaders declare their bone indices as `int` and the game feeds them `R16_UINT`. Vulkan wants the numeric types to match, NVIDIA's driver reads the bits, Metal refuses the pipeline.
++- **Fix:** `pipe_make` reads the vertex function's attribute types (`MTLFunction.vertexAttributes`) and reads an integer input through the format of the shader's sign and the same width (`vfmt_sign`): the same bits, only a value with its top bit set would be sign-extended instead of zero-extended.
++- **Found on:** Minecraft (Bedrock Edition, 1.21.120).
++
+ ## OpenGL layer
+ 
+ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.4.0) and Balatro (LÖVE 11.4, "love-nx", with SDL and LuaJIT) render with **NVIDIA's desktop OpenGL 4.5 core profile through EGL**, not NVN. The host implements GL itself on Metal (`dm/gfx/gl/hle_gl.m`), as it does Vulkan for Hades; NVIDIA's GL driver (`subsdk0`) is not loaded. Balatro's graphics module is LÖVE's own OpenGL backend, so its choices follow what the context reports.
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index 5deb36c36..2c70868f3 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -4,6 +4,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ 
+ ## Containers by engine
+ 
++### SPIR-V inside RenderDragon materials and main
++
++- **Symptom:** a Vulkan game with no SPIR-V file in its RomFS (the NSP script would capture its shaders at run time), whose `renderer/materials/*.material.bin` files start with `1a da 11 0a` and name `RenderDragon.CompiledMaterialDefinition`.
++- **Cause:** Minecraft's RenderDragon (Mojang's bgfx fork) keeps each pass variant's shader as a bgfx shader binary (`VSH`, `FSH` or `CSH`, version 5: magic, hash, uniforms, the code's size as a u32, the code) inside its compiled materials; bgfx's own shaders (`fs_clear0`-`7`, `vs_clear`, the debug text) are bgfx binaries compiled into `main`. bgfx hands the code to `vkCreateShaderModule` unchanged, so the keys match: the host found every module the game created.
++- **Fix:** `vk_shaders.py` (`material_modules`) takes every SPIR-V magic whose size prefix covers exactly one module (its instructions end at that size) in a material, and in an NSO given as input (the NSP script passes `ExeFS/main` for a Vulkan game). The same module recurs across variants and materials, so it is translated once per key. bgfx's clear shaders declare their uniform block with a descriptor set and no binding: `default_bindings` gives it binding 0, the decoration's default (bgfx clears with `vkCmdClearAttachments` and only creates them).
++- **Check:** `dm/tools/tests/test_vk_renderdragon.py`.
++- **Found on:** Minecraft (Bedrock Edition, 1.21.120): 12,286 modules in 145 materials, 1,323 different (1,288 vertex and fragment, 35 compute), and 11 in `main`.
++
+ ### One scrambled archive indexed by the NRO
+ 
+ - **Symptom:** the split finds no shaders, and the RomFS is one huge file with a short name (`42`) whose bytes look random past a table at its start (magic `CRA.`).
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 2d88a2240..40bdf7c52 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1043,10 +1043,10 @@ def survey(nsp_dir, app, fam, keys, repo, py, env):
+     keep = G['modules'][0].split()   # how the build will get the shaders (decided again from the extraction at build time; the survey has only a RomFS manifest, so Unreal paks are guessed from main's markers)
+     nros = {p.name: p for p in sorted((ex / 'romfs_nro').rglob('*.nro'))}   # the manifest pass writes the NROs (their imports decide the API and the modules: Portal 2's main is SDL with EGL, its Source engine NROs draw with NVN)
+     nro_add = pg.nro_modules(ex / 'ExeFS', nros, keep) if nros else {}
+-    S = pg.shader_sources(mods['main']['imports'], F['glsl_src'], [m for m in sorted({*keep, *nro_add}, key=pg.load_order) if 'glslcCompile' in mods[m]['exports']], rom['mags']['SPIR-V'],
++    S = pg.shader_sources(mods['main']['imports'], F['glsl_src'], [m for m in sorted({*keep, *nro_add}, key=pg.load_order) if 'glslcCompile' in mods[m]['exports']], rom['mags']['SPIR-V'] + rom['mags']['RenderDragon material'],
+                           rom['exts'].get('.pak', 0) if F.get('main_markers', set()) & {'Unreal', 'Unreal 4'} else 0, rom['mags']['Trinity pack'], gl_names=F.get('gl_names', 0),
+                           gl_src=F.get('gl_src', 0), gl_files=sum(rom['exts'].get(e, 0) for e in pg.GL_FILES), oodle_pkz=rom['mags']['PlatinumGames PKZ'],   # the manifest has no name tables: every PKZ counts
+-                          nro_imports=frozenset(pg.romfs_nro_imports(ex / 'romfs_nro')))
++                          nro_imports=frozenset(pg.romfs_nro_imports(ex / 'romfs_nro')), vk_lookups=F.get('vk_lookups', 0))
+     vulkan, gl = S['graphics'][0] == 'vulkan', S['graphics'][0] == 'gl'
+     notes = []
+     if not vulkan and not gl and 'nvnBootstrapLoader' not in mods['main']['imports']: notes.append('main imports neither nvnBootstrapLoader nor Vulkan functions nor OpenGL through EGL: the host implements only NVN, Vulkan and OpenGL')
+@@ -2800,10 +2800,10 @@ def layer_shaders(py, repo, api, name, roots, sh, key, logs, env, mac):
+ 
+ 
+ def build_vk_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, provisional=False):
+-    """A Vulkan game's SPIR-V shaders (roots: the RomFS, and a run-time capture folder) → one Metal library each for the Mac (sh/vk/) and the iPhone (sh/ios/vk/, what build_ipa.sh takes from MSL_IOS;
++    """A Vulkan game's SPIR-V shaders (roots: the RomFS, main, and a run-time capture folder) → one Metal library each for the Mac (sh/vk/) and the iPhone (sh/ios/vk/, what build_ipa.sh takes from MSL_IOS;
+     not with mac), replacing the NVN split and chain build (layer_shaders). Reused when the roots (paths and sizes), the tools, the profile and the compilers are as at the last successful run (reuse False: never)"""
+     PROG.stage('Vulkan shaders', step='checking the inputs')
+-    key = fingerprint(*[('stat' if provisional else 'tree', r) for r in roots], ('files', tool_files(repo)), ('files', profile_files(g)), *toolchain(repo, env), env=env) if reuse else None
++    key = fingerprint(*[('stat' if provisional else 'tree', r) if Path(r).is_dir() else ('files', [r]) for r in roots], ('files', tool_files(repo)), ('files', profile_files(g)), *toolchain(repo, env), env=env) if reuse else None
+     return layer_shaders(py, repo, 'vk', 'Vulkan', roots, sh, key, logs, env, mac)
+ 
+ 
+@@ -3461,9 +3461,9 @@ def main(args=None):
+     observed_glslc = capture_glslc(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g) if glslc else None
+     if uedec: decode_ue_shaders(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
+     sh = work / 'shader'
+-    if gfx == 'vulkan':   # the packed version's merged RomFS holds the SPIR-V files the game loads; a capture holds those it generates
++    if gfx == 'vulkan':   # the packed version's merged RomFS holds the SPIR-V files the game loads, main bgfx's built-in shaders (Minecraft); a capture holds those it generates
+         cap = capture_shaders(repo, game, patched, work, env, logs, g, 'vk') if vkcap else None
+-        ios = build_vk_shaders(py, repo, [rfs.source(game)] + dlc_roms + ([cap] if cap else []), sh, env, logs, g, reuse=not ALLOW_DAMAGED, mac=mac, provisional=bool(provisional or derived))
++        ios = build_vk_shaders(py, repo, [rfs.source(game), game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else []), sh, env, logs, g, reuse=not ALLOW_DAMAGED, mac=mac, provisional=bool(provisional or derived))
+     elif gfx == 'gl':   # the GLSL sources in the packed version's archives and in its main (the game compiles them at run time; the host finds each by the hash of its text), and a capture of those it puts together
+         cap = capture_shaders(repo, game, patched, work, env, logs, g, 'gl') if glcap else None
+         ios = build_gl_shaders(py, repo, [rfs.source(game), game / 'ExeFS/main'] + dlc_roms + ([cap] if cap else []), sh, env, logs, g, reuse=not ALLOW_DAMAGED, mac=mac, provisional=bool(provisional or derived))
+diff --git a/scripts/regress.py b/scripts/regress.py
+index 145557961..de8130454 100644
+--- a/scripts/regress.py
++++ b/scripts/regress.py
+@@ -287,6 +287,8 @@ class Game:
+ 
+     def shader_roots(self):
+         roots = [self.romfs()]
++        main = self.build / 'extract' / self.ver / 'ExeFS/main'   # the NSP script's roots: RenderDragon's built-in bgfx shaders are in main (an older vk_shaders.py walks no file root)
++        if main.is_file(): roots.append(main)
+         capture = self.build / 'extract' / self.ver / 'vk_capture'
+         if capture.is_dir(): roots.append(capture)
+         return roots
