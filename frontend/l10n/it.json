@@ -166,6 +166,7 @@
   "console.batteryCharging": "Batteria al %d percento, in carica",
   "console.batteryLevel": "Batteria al %d percento",
   "console.batteryPercent": "%d%%",
+  "console.batteryUnknown": "Batteria non riportata",
   "console.broken": "Questo gioco richiede attenzione in modalità desktop.",
   "console.build.game": "un gioco",
   "console.build.title": "Compilazione di %@",

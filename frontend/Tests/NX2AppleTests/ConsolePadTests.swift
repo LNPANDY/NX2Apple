@@ -368,6 +368,7 @@ import NXModel
         XCTAssertTrue(ConsoleBatteryStyle.percent.showsPercent); XCTAssertFalse(ConsoleBatteryStyle.percent.showsIcon)
         XCTAssertFalse(ConsoleBatteryStyle.hidden.showsIcon || ConsoleBatteryStyle.hidden.showsPercent)
         for style in ConsoleBatteryStyle.allCases { XCTAssertFalse(L10n.string(style.titleKey, .de).isEmpty) }
+        XCTAssertFalse(L10n.string("console.batteryUnknown", .de).isEmpty, "the outline for a battery macOS does not report has a label")
     }
 
     func testGlyphFamiliesFromCategory() {

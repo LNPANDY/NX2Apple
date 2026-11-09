@@ -167,6 +167,7 @@
   "console.batteryCharging": "Batterie %d Prozent, wird geladen",
   "console.batteryLevel": "Batterie %d Prozent",
   "console.batteryPercent": "%d %%",
+  "console.batteryUnknown": "Akkustand nicht gemeldet",
   "console.broken": "Dieses Spiel braucht im Desktop-Modus Aufmerksamkeit.",
   "console.build.game": "ein Spiel",
   "console.build.title": "%@ wird erstellt",

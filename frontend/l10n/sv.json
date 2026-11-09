@@ -158,6 +158,7 @@
   "console.battery.style.percent": "Procent",
   "console.battery.styleNote": "Vad brickorna i övre fältet visar av varje handkontrolls batteri. En handkontroll som inte rapporterar batteri visar inget.",
   "console.battery.stylePreview": "Förhandsvisning av en handkontrollsbricka",
+  "console.batteryUnknown": "Batteri rapporteras inte",
   "console.build.game": "ett spel",
   "console.build.title": "Bygger %@",
   "console.cheats.noBuild": "Bygg först spelet i skrivbordsläget för att slå på eller av dess fusk.",

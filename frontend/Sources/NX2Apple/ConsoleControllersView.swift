@@ -143,6 +143,10 @@ struct ConsoleBattery: View {
         } else if controller.charging {
             HStack(spacing: 5) { BatteryIcon(level: nil, charging: true, height: compact ? 10 : 13) }
                 .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.charging", lang))
+        } else if style.showsIcon, controller.kind != .keyboard {
+            // a controller whose battery macOS does not report (an Xbox pad over Bluetooth): the outline alone, never a guessed number
+            BatteryIcon(level: nil, charging: false, height: compact ? 10 : 13)
+                .accessibilityElement(children: .ignore).accessibilityLabel(L10n.string("console.batteryUnknown", lang))
         }
     }
 }

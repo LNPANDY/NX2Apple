@@ -165,6 +165,7 @@
   "console.batteryCharging": "バッテリー %d パーセント、充電中",
   "console.batteryLevel": "バッテリー %d パーセント",
   "console.batteryPercent": "%d%%",
+  "console.batteryUnknown": "バッテリー未報告",
   "console.broken": "このゲームはデスクトップモードで対応が必要です。",
   "console.build.game": "ゲーム",
   "console.build.title": "%@ をビルド中",

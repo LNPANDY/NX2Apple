@@ -166,6 +166,7 @@
   "console.batteryCharging": "电量百分之 %d，正在充电",
   "console.batteryLevel": "电量百分之 %d",
   "console.batteryPercent": "%d%%",
+  "console.batteryUnknown": "未上报电量",
   "console.broken": "此游戏需要在桌面模式中处理。",
   "console.build.game": "游戏",
   "console.build.title": "正在构建 %@",
