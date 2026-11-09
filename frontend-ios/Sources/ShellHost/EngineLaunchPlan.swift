@@ -43,9 +43,11 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         env["DM_SAVE"] = save.path
         env["DM_TEMP"] = temp.path
         env["DM_NVN_SHMAP"] = fw.appendingPathComponent(manifest.shaderMap).path
-        let ownMSL = gdir.appendingPathComponent("msl", isDirectory: true)
+        // The shaders: the game's own folder's, else beside its data (the export leaves them out of the IPA and step 3 sends them
+        // with romfs.img; a data folder picked elsewhere, from a drive, carries them too), else the framework's.
+        let ownMSL = gdir.appendingPathComponent("msl", isDirectory: true), dataMSL = game.dataURL.appendingPathComponent("msl", isDirectory: true)
         let bundledMSL = game.shaderResourcesURL ?? fw.appendingPathComponent("msl", isDirectory: true)
-        env["DM_MSL_DIR"] = (isDirectory(ownMSL) ? ownMSL : bundledMSL).path
+        env["DM_MSL_DIR"] = (isDirectory(ownMSL) ? ownMSL : isDirectory(dataMSL) ? dataMSL : bundledMSL).path
         let ownPSO = gdir.appendingPathComponent("pso", isDirectory: true), fwPSO = fw.appendingPathComponent("pso", isDirectory: true)
         let dataAOC = game.dataURL.appendingPathComponent("aoc", isDirectory: true), ownAOC = gdir.appendingPathComponent("aoc", isDirectory: true)
         if isDirectory(dataAOC) { env["DM_AOC_DIR"] = dataAOC.path } else if isDirectory(ownAOC) { env["DM_AOC_DIR"] = ownAOC.path }

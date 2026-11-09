@@ -140,6 +140,31 @@ import NXModel
         XCTAssertEqual(found(), [])
     }
 
+    /// The export without a build (#416) asks about every stale framework, as none of them is built again, and Continue goes back to
+    /// the export, not to a build. Stop forgets where Continue would have gone.
+    func testTheExportWithoutABuildAsksAboutEveryStaleFrameworkAndContinueResumesIt() throws {
+        _ = try shell()
+        testDefaults.set(tmp + "/shell", forKey: "shellRoot")
+        let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
+        modelStores.repo.path = tmp + "/engine"
+        var resumed = 0
+        XCTAssertTrue(model.askAboutStaleFrameworks(except: nil, resume: { resumed += 1 }))
+        XCTAssertEqual(model.staleFrameworks.map(\.titleID), [oldID])
+        model.stopForStaleFrameworks()
+        XCTAssertTrue(model.staleFrameworks.isEmpty)
+        XCTAssertNil(model.staleFrameworksResume)
+        XCTAssertEqual(resumed, 0)
+
+        XCTAssertTrue(model.askAboutStaleFrameworks(except: nil, resume: { resumed += 1 }))
+        model.continueWithStaleFrameworks()
+        XCTAssertEqual(resumed, 1)
+        XCTAssertTrue(model.staleFrameworks.isEmpty)
+        XCTAssertNil(model.staleFrameworksResume)
+        XCTAssertEqual(found(), [])
+        XCTAssertEqual(ShellLibrary.load(root: tmp + "/shell").games.map(\.titleID), [newID])
+        XCTAssertFalse(model.askAboutStaleFrameworks(except: nil, resume: { resumed += 1 }), "nothing is stale any more")
+    }
+
     func testAllFiveLanguagesHaveTheTextsAndNoneUsesASemicolon() {
         for lang in Lang.all {
             for key in ["stale.title", "stale.message", "stale.go", "stale.stop", "stale.removeFailed"] {

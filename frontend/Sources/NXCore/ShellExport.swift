@@ -90,34 +90,58 @@ extension ShellInstaller {
 
     /// Steps 3 and 4 of the install, which the export shares: the library with this game, and the shell's project.
     /// Exactly one of `failure` and (`library`, `env`) is set. `notes` name the games left out because their framework is incomplete.
-    func prepareShell(framework: String, titleID: String, name: String)
+    func prepareShell(framework: String, titleID: String, name: String, archive: String = "")
         -> (library: ShellLibrary?, env: [String: String]?, failure: Outcome?, notes: [String]) {
+        prepareShell(adding: .init(titleID: titleID, name: name, framework: framework, archive: archive.isEmpty ? nil : archive))
+    }
+
+    /// The same steps for the games the library holds already, with `added` (a game whose build just ended) put in first. Without
+    /// one, nothing is built and nothing is added: the export of the games built before (`exportLibrary`).
+    func prepareShell(adding added: ShellLibrary.Game?)
+        -> (library: ShellLibrary?, env: [String: String]?, failure: Outcome?, notes: [String]) {
+        let prepared = prepareLibrary(adding: added)
+        guard let library = prepared.library else { return (nil, nil, prepared.failure, []) }
+        return prepareProject(library, notes: prepared.notes)
+    }
+
+    /// Step 3: the library with `added` in it, the frameworks mirrored and checked, the banners placed, saved.
+    func prepareLibrary(adding added: ShellLibrary.Game?) -> (library: ShellLibrary?, failure: Outcome?, notes: [String]) {
         // 3: the library
         ShellInstall.sweepDiscarded(in: ShellInstall.frameworksMirror(root: root))
         var library = ShellLibrary.load(root: root)
         if !team.isEmpty { library.team = team }   // the export has no team: keep the one an install stored
-        library.add(.init(titleID: titleID, name: name, framework: framework))
+        if let added { library.add(added) }
         mirrorFrameworks(&library)
         library.dropMissing()
-        let checked = leaveOutIncomplete(&library, titleID: titleID, name: name)   // ShellFrameworks.swift
+        let checked = leaveOutIncomplete(&library, titleID: added?.titleID ?? "", name: added?.name ?? "")   // ShellFrameworks.swift
         if let why = checked.failure {
             let projectName = t("shell.projectStage")
             begin(Self.projectStageID, projectName)
             end(Self.projectStageID, projectName, ok: false, detail: why)
-            return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
+            return (nil, Outcome(ok: false, message: fmt("shell.projectFailed", why)), [])
+        }
+        // Nothing left to put in the app: every game of the library is gone or incomplete. The notes name the incomplete ones.
+        if library.games.isEmpty {
+            try? library.save(root: root)
+            return (nil, Outcome(ok: false, message: ([t("shell.exportNoGames")] + checked.notes).joined(separator: "\n")), [])
         }
         // The 16:9 banner of the shell's library for every game in it (ShellHost reads <framework>/banner.<ext>, the square
         // icon.png is the fallback): a game rebuilt since its last install gets its banner back too
         for game in library.games {
-            let picked = game.titleID == titleID ? pickedArtwork : nil
+            let picked = game.titleID == added?.titleID ? pickedArtwork : nil
             if let banner = ShellInstall.placeBanner(titleID: game.titleID, framework: game.framework, banners: banners, picked: picked) {
                 log("banner: \(game.titleID) \(banner)\n")
             }
         }
         do { try library.save(root: root) } catch {
-            return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", error.localizedDescription)), [])
+            return (nil, Outcome(ok: false, message: fmt("shell.projectFailed", error.localizedDescription)), [])
         }
+        return (library, nil, checked.notes)
+    }
 
+    /// Step 4: the shell's Xcode project for the games of `library`.
+    func prepareProject(_ library: ShellLibrary, notes: [String])
+        -> (library: ShellLibrary?, env: [String: String]?, failure: Outcome?, notes: [String]) {
         // 4: the project
         guard let package = ShellInstall.shellPackage(resources: resources, repo: repo) else {
             let looked = ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
@@ -139,14 +163,27 @@ extension ShellInstaller {
         ShellInstall.writeProjectFrameworks(root: root, games: library.games)
         ShellInstall.pruneEmbeddedFrameworks(root: root, keeping: library.games)
         end(Self.projectStageID, projectName, ok: true)
-        return (library, env, nil, checked.notes)
+        return (library, env, nil, notes)
     }
 
     /// The export: the library and the project, the unsigned build, the entitlements, the IPA. Needs no device and no team.
-    package func export(framework: String, titleID: String, name: String) -> Outcome {
+    /// `archive` is the game's data folder, which the library keeps for step 3.
+    package func export(framework: String, titleID: String, name: String, archive: String = "") -> Outcome {
         let fm = FileManager.default
         guard fm.fileExists(atPath: framework) else { return missingFramework(framework, name: name) }
-        let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
+        return exportShell(adding: .init(titleID: titleID, name: name, framework: framework, archive: archive.isEmpty ? nil : archive))
+    }
+
+    /// The export of the games built before, with no game built now: the library as it is, made into the IPA again. A player who
+    /// built several games one after the other, or whose IPA is gone, gets the IPA without an hour of building (#416).
+    package func exportLibrary() -> Outcome {
+        guard !ShellLibrary.load(root: root).games.isEmpty else { return Outcome(ok: false, message: t("shell.exportNoGames")) }
+        return exportShell(adding: nil)
+    }
+
+    private func exportShell(adding added: ShellLibrary.Game?) -> Outcome {
+        let fm = FileManager.default
+        let prepared = prepareShell(adding: added)
         guard let library = prepared.library else { return prepared.failure! }
 
         // The unsigned build, in the export's own derived data
@@ -180,6 +217,9 @@ extension ShellInstaller {
             try? fm.removeItem(atPath: ipa)
             try fm.createDirectory(atPath: stage + "/Payload", withIntermediateDirectories: true)
             try fm.copyItem(at: app, to: stagedApp)
+            for name in try moveShadersToGameData(in: stagedApp, games: library.games) {
+                log("export: \(name)'s shaders go with its data in step 3, not in the IPA\n")
+            }
             if try Self.exceedsEntryLimit(in: stagedApp.deletingLastPathComponent(), limit: entryLimit) {
                 try packShaderLibraries(in: stagedApp, games: library.games, label: packName)
             }
@@ -224,6 +264,34 @@ extension ShellInstaller {
         while count <= limit, entries.nextObject() != nil { count += 1 }
         if let failure { throw failure }
         return count > limit
+    }
+
+    /// The shader libraries (each framework's `msl/`) leave the IPA and go into the game's data folder, `<archive>/msl`, which step 3
+    /// sends with romfs.img to `Documents/games/<title ID>/msl`, where the shell looks first (EngineLaunchPlan). They are most of an
+    /// IPA's size (Ocarina of Time: 7 GB in one file), and SideStore reads no IPA or file past 4 GB (no ZIP64) and loads each file
+    /// whole into memory: "Failed to read archive", or SideStore closing on a 2 GB file. They go to the data folder the build recorded
+    /// even when its romfs.img is gone from this Mac (the device may hold it), so step 3 sends the shaders alone; only a game with no
+    /// recorded folder keeps them in the IPA. The copy is a clone on APFS (no space taken) and is skipped when the folder holds the same
+    /// files. The names of the games moved.
+    func moveShadersToGameData(in stagedApp: URL, games: [ShellLibrary.Game]) throws -> [String] {
+        let fm = FileManager.default
+        var moved: [String] = []
+        for game in games {
+            guard let archive = game.archive, !archive.isEmpty else { continue }
+            let shaders = stagedApp.appendingPathComponent("Frameworks")
+                .appendingPathComponent(URL(fileURLWithPath: game.framework).lastPathComponent).appendingPathComponent("msl")
+            var directory: ObjCBool = false
+            guard fm.fileExists(atPath: shaders.path, isDirectory: &directory), directory.boolValue else { continue }
+            let destination = URL(fileURLWithPath: archive).appendingPathComponent("msl")
+            if ShellInstall.localFiles(in: destination.path) != ShellInstall.localFiles(in: shaders.path) {
+                if fm.fileExists(atPath: destination.path) { try fm.removeItem(at: destination) }
+                try fm.createDirectory(atPath: archive, withIntermediateDirectories: true)
+                try fm.copyItem(at: shaders, to: destination)
+            }
+            try fm.removeItem(at: shaders)
+            moved.append(game.name.isEmpty ? game.titleID : game.name)
+        }
+        return moved
     }
 
     /// Keep a large IPA within the sideloader's 16-bit entry count. Only the games in the shell library

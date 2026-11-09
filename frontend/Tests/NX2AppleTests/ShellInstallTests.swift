@@ -579,7 +579,8 @@ import NXModel
             XCTAssertTrue(env.contains(line), line)
         }
         let library = ShellLibrary.load(root: f.root)
-        XCTAssertEqual(library.games, [.init(titleID: titleID, name: "Test Game", framework: mirrored(f.root))])
+        // the game data folder is kept for step 3 of a later export (#416)
+        XCTAssertEqual(library.games, [.init(titleID: titleID, name: "Test Game", framework: mirrored(f.root), archive: f.archive)])
         XCTAssertEqual(library.team, team)
 
         // second run, same data: nothing is copied

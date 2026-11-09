@@ -138,6 +138,19 @@ import NXModel
                 s.deviceStore.sendWhere = SendWhere.device
                 s.build.exportedIPAPath = directory.appendingPathComponent("NX2Apple.ipa").path
             },
+            Scenario(name: "builds exporting an IPA, with games built before", page: .builds, atLeast: 6) { s, _, directory in
+                s.repo.path = try self.makeRepo(directory, git: true)
+                s.build.target = "ios"
+                MainActor.assumeIsolated { s.deviceStore.checked = true }
+                s.deviceStore.exportIPA = true
+                s.deviceStore.exportOneGame = false
+                s.deviceStore.sendWhere = SendWhere.device
+                // step 1's "Export these games" (#416): a game in the shell folder of this test's home
+                let root = s.build.shellCachePath
+                let framework = ShellInstall.mirroredFramework(root: root, titleID: "0100535012974000")
+                try FileManager.default.createDirectory(atPath: framework, withIntermediateDirectories: true)
+                try ShellLibrary(games: [.init(titleID: "0100535012974000", name: "Hades", framework: framework)]).save(root: root)
+            },
             Scenario(name: "builds exporting an IPA, copied to a drive", page: .builds, atLeast: 6) { s, _, directory in
                 s.repo.path = try self.makeRepo(directory, git: true)
                 s.build.target = "ios"
@@ -178,6 +191,7 @@ import NXModel
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let modelStores = LauncherStores(defaults: testDefaults); let model = modelStores.build
+        model.home = directory.path   // the shell folder of this test, never the Mac's own (the export card reads its games)
         let library = GameLibrary(file: directory.appendingPathComponent("library.json"))
         try scenario.set(modelStores, library, directory)
         model.lang = lang

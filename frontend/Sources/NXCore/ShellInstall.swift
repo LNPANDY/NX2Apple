@@ -12,8 +12,13 @@ package struct ShellLibrary: Codable, Equatable {
         package var titleID: String
         package var name: String
         package var framework: String
+        /// The game's data folder on this Mac (`games/<title ID>` with romfs.img and aoc/), recorded by the build that added the game, so
+        /// step 3 of the export can send every game of the app (#994). Nil for an entry written before it was recorded.
+        package var archive: String?
 
-        package init(titleID: String, name: String, framework: String) { self.titleID = titleID; self.name = name; self.framework = framework }
+        package init(titleID: String, name: String, framework: String, archive: String? = nil) {
+            self.titleID = titleID; self.name = name; self.framework = framework; self.archive = archive
+        }
     }
 
     package init(bundleID: String = ShellLibrary.defaultBundleID, team: String = "", games: [Game] = []) {
@@ -31,8 +36,13 @@ package struct ShellLibrary: Codable, Equatable {
     package static func teamVariant(team: String) -> String { defaultBundleID + "." + team }
 
     /// Adding a game replaces the entry with the same title ID (a rebuilt game has a new framework folder), otherwise appends.
+    /// A game added without a data folder keeps the one its entry recorded before.
     package mutating func add(_ game: Game) {
-        if let i = games.firstIndex(where: { $0.titleID == game.titleID }) { games[i] = game } else { games.append(game) }
+        if let i = games.firstIndex(where: { $0.titleID == game.titleID }) {
+            let archive = game.archive ?? games[i].archive
+            games[i] = game
+            games[i].archive = archive
+        } else { games.append(game) }
     }
 
     /// Drops the games whose framework folder is gone, so the shell is never built against a missing one.
@@ -519,7 +529,7 @@ package struct ShellInstaller {
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
         if let refused = pairingRefusal() { return refused }
         // 3 and 4: the library and the project
-        let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
+        let prepared = prepareShell(framework: framework, titleID: titleID, name: name, archive: archive)
         guard var library = prepared.library, let env = prepared.env else { return prepared.failure! }
         let projectName = t("shell.projectStage")
 

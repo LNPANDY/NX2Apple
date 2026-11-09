@@ -74,6 +74,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
     nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
     nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
+    nonisolated package static let sendSkippedKey = "shellSendSkipped"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -107,6 +108,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         }
     }
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
+    package var staleFrameworksResume: (() -> Void)?   // what Continue on that prompt starts, the build when nil (BuildStore+Stale.swift)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
     @Published package var stopping = false
     /// The build log. Not published: only `BuildLogView` observes it (#387), so a log line redraws the log and nothing else.
@@ -175,6 +177,20 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var installedOn = ""       // the device the last build went to (its UDID)
     @Published package var installedAppPath = ""  // the signed app that went there
     @Published package var exportedIPAPath = ""   // the unsigned IPA of an export (#416)
+    @Published package var shellGames: [ShellLibrary.Game] = []   // what an export without a build ships (BuildStore+Export.swift)
+    /// Where a game's data folder can be, from what the launcher's library knows of the game (LauncherView sets it): step 3 finds
+    /// the data of games built before their folder was recorded in shell.json (BuildStore+Export.swift, `refreshShellGames`).
+    package var gameDataCandidates: (String) -> [String] = { _ in [] }
+    @Published package var sendingGame = ""   // the game whose data step 3 copies now, or copied last (BuildStore+Send.swift)
+    @Published package var sendArchive = ""   // that game's data folder: what the Finder way shows when its copy did not work
+    /// The games of the shared app whose data step 3 leaves out (title IDs, upper case): the player unticked them (#994). Kept.
+    @Published package var sendSkipped: Set<String> = [] {
+        didSet {
+            guard sendSkipped != oldValue else { return }   // the load sets it too: nothing to write then
+            if sendSkipped.isEmpty { defaults.removeObject(forKey: Self.sendSkippedKey) } else { defaults.set(sendSkipped.sorted(), forKey: Self.sendSkippedKey) }
+        }
+    }
+    package let sendStop = LockedFlag()       // Stop between two games of step 3's copy to the device
     @Published package var send: DataSend = .idle {  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
         didSet { if send != oldValue { finderShown = false } }
     }
@@ -250,6 +266,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
         experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
+        sendSkipped = Set(defaults.stringArray(forKey: Self.sendSkippedKey) ?? [])
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -289,6 +306,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     package func stop() {
         if case .moving = shellMove { stopShellMove(); return }
+        if case .sending = send { sendStop.set(true) }   // between two games of step 3's copy
         guard running, !stopping, let proc, proc.isRunning else { return }
         stopping = true
         stopPSOPoll()

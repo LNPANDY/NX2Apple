@@ -8,7 +8,7 @@ import NXModel
 
 /// Visual QA of LNPANDY/NX2Apple#416 (matched by --filter testRenderExportStatesForVisualQA).
 final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
-    /// The Install card in every state of the export, for the pull request's screenshots: ready, exported, sending, done, app not found,
+    /// The Install card in every state of the export, for the pull request's screenshots: ready, ready with games built before, exported, sending, done, app not found,
     /// refused, several apps, drive, copying, copied, FAT32 and the drive before an export. Also the card with the install flow, which the segmented switch changed.
     @MainActor func testRenderExportStatesForVisualQA() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
@@ -25,6 +25,8 @@ final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
         try handle.close()
         defer { try? fm.removeItem(at: shellFolder) }
 
+        // The shell folder the card reads its games from: empty, so only shot 1a shows the export without a build
+        testDefaults.set(shellFolder.path, forKey: "shellRoot")
         let stores = LauncherStores(defaults: testDefaults); let model = stores.build
         stores.localizer.lang = lang
         model.target = "ios"
@@ -58,9 +60,38 @@ final class ShellExportCaptureTests: IsolatedDefaultsTestCase {
         try shot("0-install", card())
         stores.deviceStore.exportIPA = true
         try shot("1-ready", card())
+        // Games built before (#416): step 1 offers the IPA again without a build
+        var library = ShellLibrary()
+        for (id, name) in [("0100000000010000", "Super Mario Odyssey"), ("01007EF00011E000", "The Legend of Zelda: Breath of the Wild")] {
+            let framework = ShellInstall.mirroredFramework(root: shellFolder.path, titleID: id)
+            try fm.createDirectory(atPath: framework, withIntermediateDirectories: true)
+            library.add(.init(titleID: id, name: name, framework: framework))
+        }
+        try library.save(root: shellFolder.path)
+        model.refreshShellGames()   // before the fitting size is taken: the card's own refresh comes on appear, after it
+        try shot("1a-ready-library", card())
+        try fm.removeItem(atPath: ShellLibrary.stateFile(root: shellFolder.path))
+        model.refreshShellGames()
         model.exportedIPAPath = ipa.path
         model.archivePath = "/Users/me/Games/0100000000010000_build/games/0100000000010000"
         try shot("2-exported", card())
+        // Step 3 with the app's other games (#416): one whose data was found, one whose data is not on this Mac
+        var games = ShellLibrary()
+        for (id, name, data) in [("01007EF00011E000", "The Legend of Zelda: Breath of the Wild", true), ("0100A00019DE0000", "Hades", false)] {
+            let framework = ShellInstall.mirroredFramework(root: shellFolder.path, titleID: id)
+            try fm.createDirectory(atPath: framework, withIntermediateDirectories: true)
+            let archive = shellFolder.appendingPathComponent("games/" + id).path
+            if data {
+                try fm.createDirectory(atPath: archive, withIntermediateDirectories: true)
+                fm.createFile(atPath: archive + "/romfs.img", contents: Data("image".utf8))
+            }
+            games.add(.init(titleID: id, name: name, framework: framework, archive: data ? archive : nil))
+        }
+        try games.save(root: shellFolder.path)
+        model.refreshShellGames()
+        try shot("2a-exported-games", card())
+        try fm.removeItem(atPath: ShellLibrary.stateFile(root: shellFolder.path))
+        model.refreshShellGames()
         model.send = .sending(done: 3_100_000_000, total: 12_400_000_000,
                               note: L10n.string("shell.copyWired", lang).replacingOccurrences(of: "%@", with: "Zijad’s iPhone"))
         try shot("3-sending", card())

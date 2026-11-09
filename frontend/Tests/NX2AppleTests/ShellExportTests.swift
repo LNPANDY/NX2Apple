@@ -220,6 +220,42 @@ import NXModel
         XCTAssertEqual(try entries(ofZip: overLimit.ipaPath).filter { $0.hasSuffix(".aar") }.count, 1)
     }
 
+    /// SideStore reads no IPA or file past 4 GB ("Failed to read archive"), and the shaders are most of an IPA (Ocarina of Time: 7 GB in
+    /// one file). A game whose data folder is recorded has its shaders moved there, which step 3 sends, even when its romfs.img is gone
+    /// from this Mac (SideStore closed on Tears of the Kingdom's 2 GB file); one with no recorded folder keeps them in the IPA.
+    func testTheShadersOfAGameWithItsDataLeaveTheIPAForTheDataFolder() throws {
+        let f = try makeFixture(entitlements: false)
+        let app = ShellInstall.exportAppPath(root: f.root)
+        let other = "DmGame0100000000000002.framework", mine = "DmGame\(titleID).framework", deleted = "DmGame0100000000000003.framework"
+        for game in [mine, other, deleted] {
+            try write(app + "/Frameworks/\(game)/msl/b-test.img", "shaders of " + game)
+        }
+        let data = path("games/\(titleID)")
+        try write(data + "/romfs.img", "romfs")
+        let library = ShellLibrary(games: [
+            ShellLibrary.Game(titleID: titleID, name: "Test Game", framework: mine, archive: data),
+            ShellLibrary.Game(titleID: "0100000000000002", name: "No Data", framework: other),
+            ShellLibrary.Game(titleID: "0100000000000003", name: "Data Deleted", framework: deleted, archive: path("gone/games/0100000000000003")),
+        ])
+        let outcome = installer(f).packExport(app: URL(fileURLWithPath: app), library: library)
+        XCTAssertTrue(outcome.ok, outcome.message)
+        let names = try entries(ofZip: outcome.ipaPath)
+        XCTAssertFalse(names.contains { $0.contains(mine + "/msl") }, names.joined(separator: "\n"))
+        XCTAssertTrue(names.contains("Payload/DmShell.app/Frameworks/\(other)/msl/b-test.img"), "no data folder: the shaders stay in the IPA")
+        XCTAssertFalse(names.contains { $0.contains(deleted + "/msl") }, "the data deleted from this Mac: the shaders leave the IPA all the same")
+        XCTAssertTrue(fm.fileExists(atPath: path("gone/games/0100000000000003/msl/b-test.img")))
+        XCTAssertEqual(ShellGameData.folder(in: [path("gone/games/0100000000000003")]), path("gone/games/0100000000000003"), "step 3 sends the shaders alone")
+        XCTAssertEqual(try String(contentsOfFile: data + "/msl/b-test.img", encoding: .utf8), "shaders of " + mine, "beside romfs.img for step 3")
+        XCTAssertTrue(fm.fileExists(atPath: app + "/Frameworks/\(mine)/msl/b-test.img"), "the built app keeps them: only the staged copy loses them")
+        XCTAssertEqual(ShellInstall.localFiles(in: data).keys.sorted(), ["msl/b-test.img", "romfs.img"], "step 3 sends both")
+
+        // New shaders replace the old ones; the same ones are left as they are
+        try write(app + "/Frameworks/\(mine)/msl/b-new.img", "new chain")
+        try fm.removeItem(atPath: app + "/Frameworks/\(mine)/msl/b-test.img")
+        XCTAssertTrue(installer(f).packExport(app: URL(fileURLWithPath: app), library: library).ok)
+        XCTAssertEqual(ShellInstall.localFiles(in: data + "/msl").keys.sorted(), ["b-new.img"])
+    }
+
     func testExportPacksEachGamesShaderBytesAndPreservesTheBuiltFrameworks() throws {
         let f = try makeFixture(entitlements: false)
         let app = ShellInstall.exportAppPath(root: f.root)
@@ -369,6 +405,118 @@ import NXModel
         let outcome = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game")
         XCTAssertTrue(outcome.ok, outcome.message)
         XCTAssertFalse(try entries(ofZip: outcome.ipaPath).isEmpty)
+    }
+
+    // ---- the export without a build ----
+
+    /// Two games built one after the other: "Export these games" makes the IPA with both and builds none of them again.
+    func testExportingTheLibraryShipsTheGamesBuiltBeforeWithNoNewBuild() throws {
+        let f = try makeFixture()
+        let otherID = "01007EF00011E000"
+        let other = path("work2/shell-framework/DmGame\(otherID).framework")
+        try write(other + "/game.manifest.json", "{}")
+        try write(other + "/DmGame\(otherID)", "executable")
+        var library = ShellLibrary()
+        library.add(.init(titleID: titleID, name: "Hades", framework: f.framework))
+        library.add(.init(titleID: otherID, name: "Zelda Breath of the Wild", framework: other))
+        try library.save(root: f.root)
+
+        let outcome = installer(f).exportLibrary()
+        XCTAssertTrue(outcome.ok, outcome.message)
+        XCTAssertEqual(outcome.ipaPath, ShellInstall.ipaPath(root: f.root))
+        XCTAssertEqual(outcome.message, String(format: L10n.string("shell.exportDone", .en), outcome.ipaPath))
+        XCTAssertTrue(fm.fileExists(atPath: outcome.ipaPath))
+        let env = try String(contentsOfFile: state + "/shell-env.txt", encoding: .utf8)
+        for id in [titleID, otherID] {
+            XCTAssertTrue(env.contains(ShellInstall.mirroredFramework(root: f.root, titleID: id)), id + ": " + env)
+        }
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.map(\.titleID), [titleID, otherID], "the library keeps its games and order")
+        XCTAssertFalse(calls.contains { $0.hasPrefix("devicectl") }, "no device is asked")
+    }
+
+    func testExportingAnEmptyLibrarySaysToBuildAGameFirstAndRunsNoTool() throws {
+        let f = try makeFixture()
+        let outcome = installer(f).exportLibrary()
+        XCTAssertFalse(outcome.ok)
+        XCTAssertEqual(outcome.message, L10n.string("shell.exportNoGames", .en))
+        XCTAssertTrue(calls.isEmpty)
+        XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"))
+        XCTAssertFalse(fm.fileExists(atPath: ShellInstall.ipaPath(root: f.root)))
+    }
+
+    /// The only game left in the library is half a framework (a cut-off delete): no IPA without a game, and the note names it.
+    func testExportingALibraryOfOnlyIncompleteGamesNamesThemAndMakesNoIPA() throws {
+        let f = try makeFixture()
+        let otherID = "01007EF00011E000"
+        let half = ShellInstall.mirroredFramework(root: f.root, titleID: otherID)
+        try write(half + "/Info.plist", "plist")
+        var library = ShellLibrary()
+        library.add(.init(titleID: otherID, name: "Zelda Breath of the Wild", framework: half))
+        try library.save(root: f.root)
+
+        let outcome = installer(f).exportLibrary()
+        XCTAssertFalse(outcome.ok)
+        XCTAssertTrue(outcome.message.hasPrefix(L10n.string("shell.exportNoGames", .en)), outcome.message)
+        XCTAssertTrue(outcome.message.contains(String(format: L10n.string("shell.gameLeftOut", .en), "Zelda Breath of the Wild", "game.manifest.json")),
+                      outcome.message)
+        XCTAssertFalse(fm.fileExists(atPath: state + "/shell-env.txt"), "build_shell.sh never runs")
+        XCTAssertTrue(ShellLibrary.load(root: f.root).games.isEmpty)
+    }
+
+    /// The store: the button's games come from the shell folder without creating it, and the export ends with the IPA in step 1.
+    @MainActor func testTheStoreExportsTheLibraryWithoutABuild() throws {
+        let f = try makeFixture()
+        testDefaults.set(f.root, forKey: "shellRoot")
+        var library = ShellLibrary()
+        library.add(.init(titleID: titleID, name: "Hades", framework: f.framework))
+        library.add(.init(titleID: "01007EF00011E000", name: "Gone", framework: path("nowhere/DmGame01007EF00011E000.framework")))
+        try library.save(root: f.root)
+        let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = stores.build
+        stores.repo.path = f.repo
+        model.target = "ios"
+        stores.dependencies.pythonPath = "/usr/bin/python3"
+        stores.deviceStore.installDevice = ""
+        stores.deviceStore.signingTeam = ""
+        stores.deviceStore.exportIPA = true
+        model.refreshShellGames()
+        XCTAssertEqual(model.shellGames.map(\.name), ["Hades"], "a game whose framework is gone is not offered")
+
+        let finished = expectation(description: "Exported")
+        let token = model.$done.filter { $0 }.prefix(1).sink { _ in finished.fulfill() }
+        model.exportLibrary()
+        XCTAssertTrue(model.running)
+        wait(for: [finished], timeout: 30)
+        withExtendedLifetime(token) {}
+
+        XCTAssertFalse(model.running)
+        XCTAssertEqual(model.exportedIPAPath, ShellInstall.ipaPath(root: f.root))
+        XCTAssertEqual(model.doneNote, String(format: model.t("shell.exportDone"), model.exportedIPAPath))
+        XCTAssertFalse(fm.fileExists(atPath: state + "/script.txt"), "no game is built")
+        XCTAssertEqual(model.shellGames.map(\.titleID), [titleID])
+
+        // One game's own IPA has no library to export: the button does nothing there
+        model.exportedIPAPath = ""
+        stores.deviceStore.exportOneGame = true
+        model.exportLibrary()
+        XCTAssertFalse(model.running)
+        XCTAssertEqual(model.exportedIPAPath, "")
+    }
+
+    func testTheExportWithoutABuildHasItsTextsInEveryLanguage() {
+        for key in ["shell.exportLibrary", "shell.exportLibraryNote", "shell.exportNoGames"] {
+            for lang in Lang.all {
+                XCTAssertNotNil(L10n.catalogs[lang.code]?[key], "\(key) is missing in \(lang.code)")
+                let text = L10n.string(key, lang)
+                XCTAssertFalse(text.contains(";") || text.contains("；"), "\(key) in \(lang.code)")
+                XCTAssertFalse(text.contains("NX2Apple"), "\(key) in \(lang.code): no product name in a screen")
+                if lang != .en { XCTAssertNotEqual(text, L10n.string(key, .en), "\(key) in \(lang.code) is English") }
+            }
+        }
+        for lang in Lang.all {
+            XCTAssertEqual(L10n.string("shell.exportLibraryNote", lang).components(separatedBy: "%@").count, 2, lang.code)
+            // the empty-library text names step 1's own button
+            XCTAssertTrue(L10n.string("shell.exportNoGames", lang).contains(L10n.string("shell.step1Button", lang)), lang.code)
+        }
     }
 
     func testAFailingBuildReachesThePlayerAndLeavesNoIPA() throws {
@@ -903,6 +1051,214 @@ import NXModel
         model.drive = DriveState(volume: DriveCopy.Volume(freeBytes: 1 << 40, fileSystem: "msdos", readOnly: false), needed: 5_000_000_000,
                                  problem: .fat32(largest: 5_000_000_000))
         XCTAssertFalse(model.canCopyToDrive)
+    }
+
+    // ---- step 3 for every game of the shared app (#416) ----
+
+    private let otherID = "01007EF00011E000"
+
+    /// A second game's data folder, built before: `games/<title ID>` in another output folder.
+    private func makeOtherArchive() throws -> String {
+        let archive = path("older/games", otherID)
+        try write(archive + "/romfs.img", "abcdefgh")
+        return archive
+    }
+
+    /// The shared app holds both games: shell.json names the other game with its recorded data folder, and its framework exists.
+    private func libraryWithOtherGame(root: String, archive: String?) throws {
+        let framework = ShellInstall.mirroredFramework(root: root, titleID: otherID)
+        try write(framework + "/game.manifest.json", "{}")
+        var library = ShellLibrary()
+        library.add(.init(titleID: otherID, name: "Zelda Breath of the Wild", framework: framework, archive: archive))
+        try library.save(root: root)
+    }
+
+    func testTheLibraryKeepsEachGamesDataFolderAndReadsAnOlderFileWithoutOne() throws {
+        let root = path("shell-root")
+        try write(ShellLibrary.stateFile(root: root), #"{"bundleID": "org.nxnative.shell", "team": "", "games": [{"titleID": "\#(otherID)", "name": "Old", "framework": "/fw"}]}"#)
+        var library = ShellLibrary.load(root: root)
+        XCTAssertEqual(library.games.map(\.titleID), [otherID], "a file from before the data folder was recorded still loads")
+        XCTAssertNil(library.games[0].archive)
+        library.add(.init(titleID: otherID, name: "Old", framework: "/fw2", archive: "/data"))
+        library.add(.init(titleID: otherID, name: "Old", framework: "/fw3"))
+        XCTAssertEqual(library.games[0].framework, "/fw3")
+        XCTAssertEqual(library.games[0].archive, "/data", "a game added again without a folder keeps the one it had")
+        try library.save(root: root)
+        XCTAssertEqual(ShellLibrary.load(root: root).games[0].archive, "/data")
+    }
+
+    func testAnExportRecordsTheGamesDataFolder() throws {
+        let f = try makeFixture()
+        let archive = try makeArchive()
+        XCTAssertTrue(installer(f).export(framework: f.framework, titleID: titleID, name: "Hades", archive: archive).ok)
+        XCTAssertEqual(ShellLibrary.load(root: f.root).games.first?.archive, archive)
+    }
+
+    func testTheDataFolderIsTheRecordedOneElseGamesBesideWhereTheGameWasBuilt() throws {
+        let other = try makeOtherArchive()
+        let candidates = ShellGameData.candidates(titleID: otherID, recorded: ["", path("gone")], parents: ["", path("older"), path("older")])
+        XCTAssertEqual(candidates, [path("gone"), path("older/games", otherID)], "no empty path, no duplicate")
+        XCTAssertEqual(ShellGameData.folder(in: candidates), other)
+        XCTAssertNil(ShellGameData.folder(in: [path("gone")]))
+        XCTAssertFalse(ShellGameData.isDataFolder(path("older/games")), "a folder without romfs.img is not a game's data")
+    }
+
+    /// Step 3 after "Export these games": nothing was built now, and the data of every game of the app is found where it was built.
+    @MainActor func testStepThreeSendsTheDataOfEveryGameOfTheApp() throws {
+        let root = path("shell-root"), other = try makeOtherArchive()
+        try libraryWithOtherGame(root: root, archive: nil)
+        let stalled = ShellInstall.mirroredFramework(root: root, titleID: "0100A00019DE0000")
+        try write(stalled + "/game.manifest.json", "{}")
+        var library = ShellLibrary.load(root: root)
+        library.add(.init(titleID: "0100A00019DE0000", name: "No Data", framework: stalled))
+        try library.save(root: root)
+        testDefaults.set(root, forKey: "shellRoot")
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
+        stores.deviceStore.installDevice = "DEV-1"
+        model.gameDataCandidates = { [self] id in id == otherID ? [path("older/games", otherID)] : [] }
+        model.refreshShellGames()
+        XCTAssertEqual(model.dataToSend.map(\.titleID), [otherID])
+        XCTAssertEqual(model.dataToSend.first?.archive, other)
+        XCTAssertEqual(model.gamesWithoutData.map(\.name), ["No Data"])
+        XCTAssertFalse(model.canSendGameData, "step 3 still waits for the IPA")
+        model.exportedIPAPath = path("export/NX2Apple.ipa")
+        XCTAssertTrue(model.canSendToDevice, "no build packed anything now, the app's games are enough")
+        // a build packs a third game: it goes too, with the folder it packed now
+        model.archivePath = try makeArchive()
+        XCTAssertEqual(model.dataToSend.map(\.titleID), [otherID, titleID])
+        XCTAssertEqual(model.dataToSend.last?.archive, model.archivePath)
+    }
+
+    @MainActor func testTheStoreSendsEveryGameIntoTheSameApp() throws {
+        let f = try makeFixture()
+        let archive = try makeArchive(), other = try makeOtherArchive()
+        try libraryWithOtherGame(root: f.root, archive: other)
+        try listApps([("org.nxnative.shell.ABC123", "NX2Apple")])
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = stores.build
+        stores.repo.path = f.repo
+        stores.dependencies.pythonPath = "/usr/bin/python3"
+        stores.deviceStore.installDevice = "DEV-1"
+        model.target = "ios"
+        model.refreshShellGames()
+        model.archivePath = archive
+        model.exportedIPAPath = path("export/NX2Apple.ipa")
+        let sent = expectation(description: "Sent")
+        let token = model.$send.sink { if case .sent = $0 { sent.fulfill() } }
+        model.sendGameData()
+        wait(for: [sent], timeout: 30)
+        withExtendedLifetime(token) {}
+        XCTAssertFalse(model.running)
+        XCTAssertEqual(model.send, .sent(app: "NX2Apple"), "the app's name stays after the second game")
+        let copies = calls.filter { $0.hasPrefix("devicectl device copy to") }
+        XCTAssertEqual(copies.count, 3, copies.joined(separator: "\n"))   // romfs.img and aoc/1.img, then the other game's romfs.img
+        XCTAssertTrue(copies.allSatisfy { $0.contains("org.nxnative.shell.ABC123") }, copies.joined(separator: "\n"))
+        XCTAssertTrue(copies.contains { $0.contains(otherID) } && copies.contains { $0.contains(titleID) }, copies.joined(separator: "\n"))
+        XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device info apps") }.count, 1, "the app is looked for once")
+        XCTAssertEqual(model.sendingGame, titleID, "the game of this build goes last, named by its title ID without inputs")
+
+        // the device refuses: the run stops at the first game and the Finder way shows that game's folder
+        try write(state + "/refuse", "")
+        let refused = expectation(description: "Refused")
+        let again = model.$send.sink { if case .refused = $0 { refused.fulfill() } }
+        model.sendGameData()
+        wait(for: [refused], timeout: 30)
+        withExtendedLifetime(again) {}
+        XCTAssertEqual(model.finderArchive, other)
+    }
+
+    @MainActor func testTheStoreCopiesEveryGameToTheDriveUnderItsTitleID() throws {
+        let archive = try makeArchive(), other = try makeOtherArchive()
+        let root = path("shell-root")
+        try libraryWithOtherGame(root: root, archive: other)
+        testDefaults.set(root, forKey: "shellRoot")
+        let stores = LauncherStores(defaults: testDefaults); let model = stores.build
+        model.refreshShellGames()
+        model.archivePath = archive
+        model.exportedIPAPath = path("export/NX2Apple.ipa")
+        let folder = path("drive")
+        try write(folder + "/" + otherID + "/romfs.img", "abcdefgh")   // that game was copied before: nothing of it is copied again
+        model.chooseFolder = { folder }
+        model.chooseDriveFolder()
+        XCTAssertEqual(model.drive?.needed, 14, "only this build's game is missing on the drive")
+        try fm.removeItem(atPath: folder + "/" + otherID)
+        model.refreshDrive()
+        XCTAssertEqual(model.drive?.needed, 22)
+        var seen: [Int64] = []
+        let copied = expectation(description: "Copied")
+        let token = model.$send.sink {
+            if case .copying(let done, let total) = $0 { seen.append(done); XCTAssertEqual(total, 22) }
+            if case .copied = $0 { copied.fulfill() }
+        }
+        model.copyToDrive()
+        wait(for: [copied], timeout: 30)
+        withExtendedLifetime(token) {}
+        XCTAssertEqual(try String(contentsOfFile: folder + "/" + otherID + "/romfs.img"), "abcdefgh")
+        XCTAssertEqual(try String(contentsOfFile: folder + "/" + titleID + "/romfs.img"), "0123456789")
+        XCTAssertEqual(seen, seen.sorted(), "one progress for all games, never going back")
+        XCTAssertEqual(model.drive?.needed, 0)
+        guard case .copied(let destination) = model.send else { return XCTFail("\(model.send)") }
+        XCTAssertEqual((destination as NSString).deletingLastPathComponent, folder, "the note names the chosen folder")
+    }
+
+    /// Step 3 sends only the games left ticked (Ocarina of Time cannot run on an 8 GB iPhone: its 31 GB need not go each time), to the
+    /// device and to a drive. The choice is kept, and with every game unticked there is nothing to send.
+    @MainActor func testStepThreeSendsOnlyTheTickedGames() throws {
+        let f = try makeFixture()
+        let archive = try makeArchive(), other = try makeOtherArchive()
+        try libraryWithOtherGame(root: f.root, archive: other)
+        try listApps([("org.nxnative.shell.ABC123", "NX2Apple")])
+        testDefaults.set(f.root, forKey: "shellRoot")
+        let stores = LauncherStores(xcrun: f.xcrun, defaults: testDefaults); let model = stores.build
+        stores.repo.path = f.repo
+        stores.dependencies.pythonPath = "/usr/bin/python3"
+        stores.deviceStore.installDevice = "DEV-1"
+        model.target = "ios"
+        model.refreshShellGames()
+        model.archivePath = archive
+        model.exportedIPAPath = path("export/NX2Apple.ipa")
+        XCTAssertTrue(model.sends(otherID))
+        model.setSends(otherID.lowercased(), false)
+        XCTAssertFalse(model.sends(otherID), "the title ID's case does not matter")
+        XCTAssertEqual(model.dataSelected.map(\.titleID), [titleID])
+        XCTAssertEqual(LauncherStores(defaults: testDefaults).build.sendSkipped, [otherID.uppercased()], "kept for the next launch")
+
+        let sent = expectation(description: "Sent")
+        let token = model.$send.sink { if case .sent = $0 { sent.fulfill() } }
+        model.sendGameData()
+        wait(for: [sent], timeout: 30)
+        withExtendedLifetime(token) {}
+        let copies = calls.filter { $0.hasPrefix("devicectl device copy to") }
+        XCTAssertFalse(copies.contains { $0.contains(otherID) }, copies.joined(separator: "\n"))
+        XCTAssertTrue(copies.contains { $0.contains(titleID) }, copies.joined(separator: "\n"))
+
+        // A drive counts and copies the ticked games only
+        let folder = path("drive")
+        model.chooseFolder = { folder }
+        model.chooseDriveFolder()
+        XCTAssertEqual(model.drive?.needed, 14, "this build's game alone")
+        model.setSends(titleID, false)
+        XCTAssertFalse(model.canSendGameData, "nothing ticked: nothing to send")
+        XCTAssertNil(model.drive, "nor to count")
+        model.setSends(otherID, true)
+        XCTAssertEqual(model.drive?.needed, 8)
+    }
+
+    func testTheStepThreeGameTextsAreInEveryLanguage() {
+        for lang in Lang.all {
+            let choose = L10n.string("shell.sendChoose", lang)
+            XCTAssertNotNil(L10n.catalogs[lang.code]?["shell.sendChoose"], lang.code)
+            if lang != .en { XCTAssertNotEqual(choose, L10n.string("shell.sendChoose", .en), lang.code) }
+        }
+        for key in ["shell.sendGames", "shell.sendGamesMissing"] {
+            for lang in Lang.all {
+                XCTAssertNotNil(L10n.catalogs[lang.code]?[key], "\(key) is missing in \(lang.code)")
+                let text = L10n.string(key, lang)
+                XCTAssertEqual(text.components(separatedBy: "%@").count, 2, "\(key) in \(lang.code)")
+                XCTAssertFalse(text.contains(";") || text.contains("；") || text.contains("NX2Apple"), "\(key) in \(lang.code)")
+                if lang != .en { XCTAssertNotEqual(text, L10n.string(key, .en), "\(key) in \(lang.code) is English") }
+            }
+        }
     }
 
     func testEveryLanguageHasTheExportTexts() {

@@ -30,7 +30,8 @@ package struct ExportSteps: View {
     /// Step 3 waits for step 1: until the IPA exists its controls are shown, but all of them quieter and inert.
     private var inert: Bool { !exported && !sentDone }
     private var toDrive: Bool { devices.sendWhere == SendWhere.drive }
-    private var gameName: String { build.gameName }
+    /// The game a copy names: the one step 3 copies now, else the game of this build.
+    private var gameName: String { build.sendingGame.isEmpty ? build.gameName : build.sendingGame }
     private var oneGame: Bool { devices.exportOneGame }
 
     package var body: some View {
@@ -44,11 +45,26 @@ package struct ExportSteps: View {
                     action(loc.t("shell.step1Button"), enabled: build.canBuild && !build.running) { build.startBuild() }
                 }
             }
+            if !oneGame, !build.shellGames.isEmpty { libraryRow }   // also after an export: the IPA again without a build
             CardDivider()
             step(2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step2Title"),
                  sub: loc.t(oneGame ? "shell.oneGameStep2Sub" : "shell.step2Sub")) { EmptyView() }
             if !oneGame { CardDivider(); sendStep }
         }
+        .onAppear { build.refreshShellGames() }
+    }
+
+    /// Step 1 without a build: the IPA again from the games built before, named here so the player sees what it will hold (#994).
+    private var libraryRow: some View {
+        let names = build.shellGames.map { $0.name.isEmpty ? $0.titleID : $0.name }.joined(separator: ", ")
+        return HStack(spacing: ExportGrid.gap) {
+            Text(String(format: loc.t("shell.exportLibraryNote"), names)).font(.manrope(12.5)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: ExportGrid.gap)
+            action(loc.t("shell.exportLibrary"), enabled: !build.running) { build.exportLibrary() }
+        }
+        .padding(.leading, ExportGrid.axis).padding(.trailing, ExportGrid.inset).padding(.bottom, ExportGrid.inset)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Step 3, the game data to the device or a drive: only for the shared app, whose IPA leaves the data out.
@@ -62,6 +78,7 @@ package struct ExportSteps: View {
             }
             VStack(alignment: .leading, spacing: ExportGrid.noteGap) {
                 if toDrive { driveRow; driveStatus } else { deviceRow; deviceStatus }
+                gamesNote
             }
             .padding(.leading, ExportGrid.axis).padding(.trailing, ExportGrid.inset).padding(.bottom, ExportGrid.inset)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -69,6 +86,44 @@ package struct ExportSteps: View {
         }
         .disabled(inert)
     }
+
+    /// Which games step 3 copies, and which it cannot: the shared app holds every game, and each has a tick, so a game that cannot
+    /// run on the device or whose data is there already stays behind (#994). Shown before a copy, when the IPA holds more than the one
+    /// game this build packed or a game's data is missing.
+    @ViewBuilder private var gamesNote: some View {
+        let sending = build.dataToSend, missing = build.gamesWithoutData
+        if case .idle = build.send, exported, sending.count > 1 || !missing.isEmpty {
+            VStack(alignment: .leading, spacing: ExportGrid.noteGap) {
+                if sending.count > 1 {
+                    Text(loc.t("shell.sendChoose")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    ForEach(sending, id: \.titleID) { game in sendTick(game) }
+                } else if !sending.isEmpty {
+                    note(.info, String(format: loc.t("shell.sendGames"), names(sending)))
+                }
+                if !missing.isEmpty { note(.warning, String(format: loc.t("shell.sendGamesMissing"), names(missing))) }
+            }
+        }
+    }
+
+    /// A game of step 3 with its tick.
+    private func sendTick(_ game: ShellLibrary.Game) -> some View {
+        let on = build.sends(game.titleID)
+        return Button { build.setSends(game.titleID, !on) } label: {
+            HStack(spacing: 9) {
+                Image(systemName: on ? "checkmark.square.fill" : "square").font(.system(size: 14))
+                    .foregroundStyle(on ? LauncherPalette.cream : .secondary)
+                Text(game.name.isEmpty ? game.titleID : game.name).font(.manrope(13)).foregroundStyle(on ? .primary : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(build.running)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func names(_ games: [ShellLibrary.Game]) -> String { games.map { $0.name.isEmpty ? $0.titleID : $0.name }.joined(separator: ", ") }
 
     // MARK: A step
 
@@ -181,7 +236,7 @@ package struct ExportSteps: View {
     /// The drag in three steps, numbered as the export's own steps but smaller, in a well under the button. The folder is the one the
     /// Finder window shows selected. Step 3 names the shell's own button, in the language the shell shows it.
     private var finderSteps: some View {
-        let folder = (build.archivePath as NSString).lastPathComponent
+        let folder = (build.finderArchive as NSString).lastPathComponent
         let choose = L10n.string("ios.ui.chooseGameData", loc.lang).trimmingCharacters(in: CharacterSet(charactersIn: "….  "))
         let lines = [loc.t("shell.sendFinderStep1"), String(format: loc.t("shell.sendFinderStep2"), folder),
                      String(format: loc.t("shell.sendFinderStep3"), choose, folder)]

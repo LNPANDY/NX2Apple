@@ -206,6 +206,15 @@ struct LauncherView: View {
         .onAppear {
             gamepad.perform = padAction
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }
+            // Step 3 of the export finds the data of the games built before shell.json recorded it (#994): where each was built
+            let games = library
+            m.gameDataCandidates = { titleID in
+                games.games.filter { $0.titleID.caseInsensitiveCompare(titleID) == .orderedSame }.flatMap { game in
+                    let inputs = game.inputs["base", default: []].flatMap { [$0, ($0 as NSString).deletingLastPathComponent] }
+                    return ShellGameData.candidates(titleID: titleID, recorded: [game.archivePath], parents: [game.outputDirectory, game.sourceFolder] + inputs)
+                }
+            }
+            m.refreshShellGames()   // the export card may have read the games before the lookup was set
             if performStartupChecks {
                 library.migrateLaunchOptions(); library.migrateArtwork(); CloudSavesMigration.run()
                 library.syncSharedApp(root: m.shellCachePath)

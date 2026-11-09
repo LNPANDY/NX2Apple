@@ -62,8 +62,42 @@ extension BuildStore {
     /// The title ID of the game whose data the last build packed (the archive folder is named after it).
     package var packedTitleID: String { archivePath.isEmpty ? "" : (archivePath as NSString).lastPathComponent }
 
-    /// Step 3 can run once a build packed the game's data and the IPA exists, and nothing else runs.
-    package var canSendGameData: Bool { !running && !archivePath.isEmpty && !exportedIPAPath.isEmpty }
+    /// The games whose data step 3 sends, each with its data folder in `archive`: every game of the shared app whose folder is found
+    /// on this Mac, and the game this build packed (with the folder it packed now). The copy skips what the destination holds already.
+    package var dataToSend: [ShellLibrary.Game] {
+        let packed = packedTitleID
+        var items = shellGames.filter { $0.archive != nil }
+        if !packed.isEmpty {
+            if let i = items.firstIndex(where: { $0.titleID.caseInsensitiveCompare(packed) == .orderedSame }) { items[i].archive = archivePath }
+            else { items.append(.init(titleID: packed, name: gameName, framework: "", archive: archivePath)) }
+        }
+        return items
+    }
+
+    /// The games of the shared app whose data is on none of the folders this Mac knows: step 3 names them.
+    package var gamesWithoutData: [ShellLibrary.Game] {
+        let packed = packedTitleID
+        return shellGames.filter { $0.archive == nil && $0.titleID.caseInsensitiveCompare(packed) != .orderedSame }
+    }
+
+    /// The games step 3 sends: those of `dataToSend` the player left ticked (a game that cannot run on the device, or whose data is
+    /// there already, need not go again).
+    package var dataSelected: [ShellLibrary.Game] { dataToSend.filter { !sendSkipped.contains($0.titleID.uppercased()) } }
+
+    /// Whether step 3 sends this game's data: the tick of its row.
+    package func sends(_ titleID: String) -> Bool { !sendSkipped.contains(titleID.uppercased()) }
+
+    /// Ticks or unticks a game of step 3, then counts the drive's room again for the games left.
+    package func setSends(_ titleID: String, _ on: Bool) {
+        if on { sendSkipped.remove(titleID.uppercased()) } else { sendSkipped.insert(titleID.uppercased()) }
+        refreshDrive()
+    }
+
+    /// Step 3 can run once the IPA exists and a ticked game's data is known, and nothing else runs.
+    package var canSendGameData: Bool { !running && !exportedIPAPath.isEmpty && !dataSelected.isEmpty }
+
+    /// The folder the Finder way shows: the game whose copy did not work, else the game this build packed.
+    package var finderArchive: String { sendArchive.isEmpty ? archivePath : sendArchive }
 
     /// The device button needs a device too, the drive button a folder without a problem.
     package var canSendToDevice: Bool { canSendGameData && !devices.installDevice.isEmpty }
@@ -81,12 +115,14 @@ extension BuildStore {
     /// the player chose when the device has several.
     package func sendGameData(bundle: String? = nil) {
         guard canSendToDevice else { return }
+        let items = dataSelected
         buildingGame = false; runningTarget = BuildTarget.ios
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         send = .sending(done: 0, total: 0, note: "")
+        sendStop.set(false)
+        sendingGame = items.first?.name ?? ""; sendArchive = items.first?.archive ?? ""
         var installer = makeInstaller()
-        let target = devices, device = devices.installDevice
-        let titleID = packedTitleID, archive = archivePath
+        let target = devices, device = devices.installDevice, stop = sendStop
         // One click: no question. A device that is not connected cannot be copied to, the player is told instead.
         installer.decideCopy = { [weak self] plan in
             if plan.connection == .notConnected { return .skip }
@@ -101,15 +137,31 @@ extension BuildStore {
         }
         let ready = installer
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = ready.sendData(titleID: titleID, archive: archive, bundleID: bundle)
+            // One game after the other into the same app: the first finds it (or asks which one), the others go to that one. The
+            // first game whose copy does not work ends the run, and step 3 shows that game's state.
+            var chosen = bundle, appName = "", last: ShellInstaller.Outcome?
+            for item in items {
+                guard !stop.value, let archive = item.archive else { break }
+                hop {
+                    self.sendingGame = item.name.isEmpty ? item.titleID : item.name; self.sendArchive = archive
+                    if case .sending(_, _, let note) = self.send { self.send = .sending(done: 0, total: 0, note: note) }
+                }
+                let result = ready.sendData(titleID: item.titleID, archive: archive, bundleID: chosen)
+                last = result
+                if !result.appName.isEmpty { appName = result.appName }
+                guard result.ok, !result.copySkipped else { break }
+                if chosen == nil { chosen = result.bundleID }
+            }
             hop {
                 target.copyEnded()
                 self.running = false
-                if self.stopping {
-                    self.stopping = false
+                if self.stopping || stop.value {
+                    self.stopping = false; stop.set(false)
                     self.resetProgress(); self.send = .idle; self.doneNote = self.t("msg.stopped")
                     return
                 }
+                guard var result = last else { self.send = .idle; return }
+                if result.ok { result.appName = appName }
                 self.send = .after(result, notConnected: String(format: self.t("shell.copyNotConnected"), self.devices.deviceName(device)))
                 if case .failed = self.send, !result.copySkipped, let kind = result.failure { self.failure = BuildFailure(kind: kind, gameName: nil) }
             }
@@ -125,7 +177,7 @@ extension BuildStore {
 
     /// The Finder way, after the copy to the device did not work: a Finder window with the game's folder selected, ready to drag.
     package func copyWithFinder(oneGame: Bool) {
-        guard send.offersFinder, let item = Self.finderItem(archive: archivePath, oneGame: oneGame) else { return }
+        guard send.offersFinder, let item = Self.finderItem(archive: finderArchive, oneGame: oneGame) else { return }
         revealItem(URL(fileURLWithPath: item))
         finderShown = true
     }
@@ -139,36 +191,48 @@ extension BuildStore {
         refreshDrive()
     }
 
-    /// The volume of the chosen folder against the game data the copy still has to write.
+    /// The volume of the chosen folder against the game data the copy still has to write, for every game of step 3 together. Each
+    /// game's files go to `<folder>/<title ID>/`, so they are counted under that prefix.
     package func refreshDrive() {
-        let folder = devices.driveFolder
-        guard !folder.isEmpty, !archivePath.isEmpty else { drive = nil; return }
-        let files = ShellInstall.localFiles(in: archivePath)
-        let have = ShellInstall.localFiles(in: DriveCopy.destination(folder: folder, titleID: packedTitleID))
+        let folder = devices.driveFolder, items = dataSelected
+        guard !folder.isEmpty, !items.isEmpty else { drive = nil; return }
+        var files: [String: Int64] = [:], have: [String: Int64] = [:]
+        for item in items {
+            for (path, size) in ShellInstall.localFiles(in: item.archive ?? "") { files[item.titleID + "/" + path] = size }
+            for (path, size) in ShellInstall.localFiles(in: DriveCopy.destination(folder: folder, titleID: item.titleID)) { have[item.titleID + "/" + path] = size }
+        }
         let needed = DriveCopy.bytesToCopy(files: files, have: have)
         guard let volume = DriveCopy.volume(at: folder) else { drive = DriveState(volume: nil, needed: needed, problem: nil); return }
         drive = DriveState(volume: volume, needed: needed, problem: DriveCopy.problem(files: files, have: have, volume: volume))
     }
 
-    /// A plain file copy of the game data into `<folder>/<title ID>/`, with progress.
+    /// A plain file copy of each game's data into `<folder>/<title ID>/`, one game after the other, with one progress for all.
     package func copyToDrive() {
         refreshDrive()
         guard canCopyToDrive else { return }
         buildingGame = false; runningTarget = BuildTarget.ios
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         driveCancel.set(false)
-        send = .copying(done: 0, total: drive?.needed ?? 0)
-        let folder = devices.driveFolder, titleID = packedTitleID, archive = archivePath, cancel = driveCancel
-        let files = ShellInstall.localFiles(in: archive)
+        let total = drive?.needed ?? 0
+        send = .copying(done: 0, total: total)
+        let folder = devices.driveFolder, items = dataSelected, cancel = driveCancel
         DispatchQueue.global(qos: .userInitiated).async {
-            let destination = DriveCopy.destination(folder: folder, titleID: titleID)
-            var failed: String?
-            do {
-                try DriveCopy.copy(archive: archive, files: files, to: destination,
-                                   progress: { done, total in hop { if case .copying = self.send { self.send = .copying(done: done, total: total) } } },
-                                   cancelled: { cancel.value })
-            } catch DriveCopy.CopyError.cancelled { failed = "" }
-            catch { failed = error.localizedDescription }
+            var failed: String?, before: Int64 = 0, destination = folder
+            for item in items {
+                guard let archive = item.archive else { continue }
+                destination = DriveCopy.destination(folder: folder, titleID: item.titleID)
+                let files = ShellInstall.localFiles(in: archive)
+                let needed = DriveCopy.bytesToCopy(files: files, have: ShellInstall.localFiles(in: destination))
+                let offset = before
+                hop { self.sendingGame = item.name.isEmpty ? item.titleID : item.name; self.sendArchive = archive }
+                do {
+                    try DriveCopy.copy(archive: archive, files: files, to: destination,
+                                       progress: { done, _ in hop { if case .copying = self.send { self.send = .copying(done: offset + done, total: total) } } },
+                                       cancelled: { cancel.value })
+                } catch DriveCopy.CopyError.cancelled { failed = ""; break }
+                catch { failed = error.localizedDescription; break }
+                before += needed
+            }
             hop {
                 self.running = false
                 if let failed {

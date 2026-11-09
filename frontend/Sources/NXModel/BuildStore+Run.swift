@@ -228,7 +228,7 @@ extension BuildStore {
                             ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
                         let tid = ShellInstall.titleID(ofFramework: fw)
                         self.packArchive(workDir: self.effectiveWorkDir, titleID: tid) {
-                            if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name) }
+                            if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name, archive: $0) }
                             else { self.installShell(framework: fw, titleID: tid, name: name, archive: $0) }
                         }
                     }

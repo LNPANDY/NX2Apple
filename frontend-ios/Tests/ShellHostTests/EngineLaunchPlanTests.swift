@@ -64,6 +64,16 @@ import Testing
         #expect(env["DM_PSO_BUNDLE"] == rig.gdir.path + "/pso")
     }
 
+    /// The export leaves the shaders out of the IPA and step 3 sends them with the game data (#416, SideStore reads no IPA past 4 GB):
+    /// beside a data folder picked elsewhere they are taken before the framework's, and the game's own folder still wins.
+    @Test func shadersBesideTheGameDataComeBeforeTheFrameworks() throws {
+        let rig = try Rig()
+        try rig.box.makeFolder(rig.data.appendingPathComponent("msl"))
+        #expect(rig.plan().environment["DM_MSL_DIR"] == rig.data.path + "/msl")
+        try rig.box.makeFolder(rig.gdir.appendingPathComponent("msl"))
+        #expect(rig.plan().environment["DM_MSL_DIR"] == rig.gdir.path + "/msl")
+    }
+
     @Test func psoFallsBackToTheFramework() throws {
         let rig = try Rig()
         try rig.box.makeFolder(rig.fw.appendingPathComponent("pso"))
