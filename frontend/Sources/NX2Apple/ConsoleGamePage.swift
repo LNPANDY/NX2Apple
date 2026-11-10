@@ -62,10 +62,32 @@ import NXLauncher
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
                 }
             }
+            hints.padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LauncherPalette.background)
         .onChange(of: state.gameTab) { tab in pad.focused = Self.tabTarget(tab, game: game) }
+    }
+
+    /// What the buttons do on this page: X plays (resumes a paused game), Y opens the options, − the quick menu, B goes back.
+    static func hintIDs(_ game: ConsoleGame) -> [String] {
+        (game.status == .ready ? ["console.gamePage.hint.play", "console.gamePage.hint.options"] : []) + ["console.gamePage.hint.quick", "console.gamePage.hint.back"]
+    }
+
+    private var hints: some View {
+        let g = { (role: ConsoleGlyphs.Role) in glyphs.hintGlyph(role, swapAB: state.menuSwapAB) }
+        return HStack(spacing: compact ? 12 : 32) {
+            if game.status == .ready {
+                ConsoleHint(glyph: g(.play), label: t(paused ? "console.resume" : "console.play"), id: "console.gamePage.hint.play", scope: scope,
+                            compact: compact) { paused ? driver.resume(game.id) : driver.play(game.id) }
+                ConsoleHint(glyph: g(.options), label: t("console.options"), id: "console.gamePage.hint.options", scope: scope,
+                            compact: compact) { driver.openOptions(game.id) }
+            }
+            ConsoleHint(glyph: g(.quickMenu), label: t("console.quickMenu"), id: "console.gamePage.hint.quick", scope: scope,
+                        compact: compact) { driver.openQuickMenu() }
+            Spacer(minLength: 0)
+            ConsoleHint(glyph: g(.back), label: t("console.back"), id: "console.gamePage.hint.back", scope: scope, compact: compact) { driver.back() }
+        }
     }
 
     private var subtitle: String {

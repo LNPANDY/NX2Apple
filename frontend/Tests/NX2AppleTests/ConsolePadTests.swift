@@ -341,7 +341,7 @@ import NXModel
                                              ("menu", .full, .xbox), ("library", .full, .xbox), ("general", .full, .xbox), ("update", .full, .xbox), ("leave", .full, .xbox),
                                              ("mapping", .full, .xbox), ("mapping-button", .full, .xbox), ("mapping-save", .full, .xbox),
                                              ("game-controller", .full, .xbox), ("game-mapping", .full, .xbox), ("advanced", .full, .xbox),
-                                             ("reset", .full, .xbox), ("cloud-saves", .full, .xbox), ("not-built", .full, .xbox)] {
+                                             ("reset", .full, .xbox), ("cloud-saves", .full, .xbox), ("not-built", .full, .xbox), ("supported", .full, .xbox), ("game-page", .full, .xbox), ("search", .full, .xbox)] {
                 let driver = MockConsoleDriver(scenario: scenario, lang: .en, animated: false, artworkRepo: repo.isEmpty ? nil : repo)
                 if name == "options" { driver.openOptions("demo.0") }
                 if name == "home-4pads" { driver.back() }
@@ -359,6 +359,9 @@ import NXModel
                 case "advanced": driver.openOptions("demo.0"); driver.openAdvanced("demo.0")
                 case "reset": driver.openOptions("demo.0"); driver.setOption(gameID: "demo.0", setting: "DM_VSYNC", value: "0"); driver.askResetOptions("demo.0")
                 case "cloud-saves": driver.openMenu(); driver.openLibrary(); driver.openCloudSaves()
+                case "supported": driver.openMenu(); driver.openLibrary(); driver.openSupportedGames()
+                case "game-page": driver.openGamePage("demo.0")
+                case "search": driver.openSearch(); driver.typeSearch("z")
                 case "not-built": driver.focus("demo.3"); driver.play("demo.3")
                 default: break
                 }

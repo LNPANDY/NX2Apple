@@ -986,7 +986,9 @@ import NXModel
         withExtendedLifetime(token) {}
 
         let script = try String(contentsOfFile: state + "/script.txt")
-        XCTAssertEqual(try String(contentsOfFile: state + "/build-env.txt"), "DM_PROF_TEX_BC_CPU=1\n")
+        let env = try String(contentsOfFile: state + "/build-env.txt")
+        XCTAssertEqual(env, GameMenuText.envFile(bcOnCPU: true, model.t))
+        XCTAssertTrue(env.hasPrefix("DM_PROF_TEX_BC_CPU=1\nDM_GAME_MENU_TEXT="), env)
         XCTAssertTrue(script.contains("--shell-framework \(temporary.path)/out/\(titleID)_build/shell-framework"), script)
         XCTAssertFalse(script.contains("--team-id"), script)
         XCTAssertEqual(model.exportedIPAPath, ShellInstall.ipaPath(root: f.root))

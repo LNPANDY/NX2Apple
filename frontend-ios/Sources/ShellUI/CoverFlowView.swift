@@ -274,6 +274,7 @@ struct CoverFlowView: View, Equatable {
         GlyphHint(role: .activate, label: selected.game.state.actionTitle)
         GlyphHint(role: .settings, label: ShellStrings.text("Game settings"))
         GlyphHint(role: .controllers, label: ShellStrings.text("Controllers"))
+        GlyphHint(role: .shellSettings, label: ShellStrings.text("Settings"))
     }
 }
 

@@ -158,6 +158,26 @@ extension LauncherView {
         .environment(\.colorScheme, .dark)   // the hero is drawn as on main in Light too: artwork, title, Play, version and actions
     }
 
+    /// The way to the Supported games sheet in the collection's header, before Sort: the list is about the library, not about one game.
+    /// The secondary button style, as high as the Sort menu beside it. Below `supportedLabelWidth` the header has no room for the words
+    /// in every language, and the button keeps its symbol, with the name as its tooltip and accessible label.
+    func supportedGamesButton(compact: Bool) -> some View {
+        Button(action: openSupportedGames) {
+            // the style adds 9 pt above and below the label: 18 more makes it as high as Sort
+            if compact {
+                Image(systemName: "list.bullet.rectangle").font(.system(size: 13, weight: .semibold)).frame(height: LauncherControl.height - 18)
+            } else {
+                Label(loc.t("supported.title"), systemImage: "list.bullet.rectangle").frame(height: LauncherControl.height - 18)
+            }
+        }
+        .buttonStyle(LauncherSecondaryButtonStyle())
+        .help(loc.t("supported.title")).accessibilityLabel(loc.t("supported.title"))
+        .padTarget("library.supported", scope: "main", radius: 9, activate: openSupportedGames)
+    }
+
+    /// The window width from which the Supported games button shows its name.
+    static let supportedLabelWidth: CGFloat = 1100
+
     func collection(width: CGFloat) -> some View {
         let cardWidth = min(300, max(190, (width - 124) / 5))
         let step = cardWidth + 14
@@ -167,8 +187,11 @@ extension LauncherView {
             HStack(spacing: 16) {
                 Text(loc.t("library.collection")).font(.manrope(28, .bold)).tracking(-0.6)
                 Spacer()
+                let compactHeader = width < Self.supportedLabelWidth
+                supportedGamesButton(compact: compactHeader)
                 HStack(spacing: 8) {
-                    Text(loc.t("sort.label")).font(.manrope(12)).foregroundStyle(.secondary)
+                    // a narrow window keeps the menu without the word before it (the menu's accessible label says Sort)
+                    if !compactHeader { Text(loc.t("sort.label")).font(.manrope(12)).foregroundStyle(.secondary).fixedSize() }
                     LauncherDropdown(options: LibrarySort.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: librarySort.rawValue,
                                      label: loc.t("sort.label"), style: .button) { setLibrarySort(LibrarySort(rawValue: $0) ?? .recent) }
                         .padTarget("library.sort", scope: "main", radius: 9,
@@ -208,8 +231,8 @@ extension LauncherView {
                                             game.id == heroID ? LauncherPalette.cream : .clear, lineWidth: 2))
                                         Text(game.displayName(loc.lang)).font(.manrope(16, .semibold)).lineLimit(1)
                                         status(game)
-                                        Capsule().fill(game.id == heroID ? LauncherPalette.cream : .clear)
-                                            .frame(height: 3).padding(.top, 4)
+                                        Capsule().fill(game.id == heroID ? LauncherPalette.selectionUnderline : .clear)
+                                            .frame(height: LauncherPalette.selectionUnderlineHeight).padding(.top, 4)
                                     }
                                     .frame(width: cardWidth, alignment: .leading).contentShape(Rectangle())
                                 }

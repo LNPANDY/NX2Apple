@@ -282,6 +282,7 @@ struct ConsoleToastView: View {
                 VStack(alignment: .leading, spacing: 22) {
                     mergeToggle
                     if showsJoyconSplit { joyconSplitToggle }
+                    if showsMapping { menuSwapToggle }   // in reach here too, not only at the top of the button mapping (#1129)
                     if showsMapping { mappingEntry }
                     if showsMapping && state.homeButtonAvailable { homeEntry }
                     if showsMapping { ForEach(ConsolePref.onControllers, id: \.self) { prefToggle($0) } }   // the ways into console mode, as the desktop's Controls card has them
@@ -416,6 +417,27 @@ struct ConsoleToastView: View {
         .buttonStyle(.plain)
         .padTarget("console.controller.joyconSplit", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
         .accessibilityLabel(t("console.joyconSplit")).accessibilityValue(t(state.joyconSplit ? "console.on" : "console.off"))
+    }
+
+    /// Swap A and B in menus, as the button mapping page has it. Here it applies at once (the mapping page applies it on Save).
+    private var menuSwapToggle: some View {
+        let flip = { driver.setMenuSwapAB(!state.menuSwapAB) }
+        return Button(action: flip) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(t("console.mapping.menuSwap"), systemImage: "arrow.left.arrow.right").font(.manrope(compact ? 16 : 18, .semibold))
+                    Text(t("console.mapping.menuSwapNote")).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Toggle(t("console.mapping.menuSwap"), isOn: Binding(get: { state.menuSwapAB }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.controller.menuSwap", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
+        .accessibilityLabel(t("console.mapping.menuSwap")).accessibilityValue(t(state.menuSwapAB ? "console.on" : "console.off"))
     }
 
     private func row(_ controller: ConsoleController) -> some View {

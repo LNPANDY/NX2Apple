@@ -12,7 +12,6 @@ struct ManageActions {
     var cheats: () -> Void = {}
     var changeArtwork: () -> Void = {}
     var rename: () -> Void = {}
-    var supportedGames: () -> Void = {}
     var reveal: () -> Void = {}
     var showLog: () -> Void = {}
     var removeBuildFiles: () -> Void = {}
@@ -62,7 +61,6 @@ struct ManageItem: Identifiable {
             items.append(.init(id: "buildFiles", symbol: "externaldrive.badge.minus", title: title, enabled: !building,
                                hint: building ? t("buildfiles.building") : nil, run: a.removeBuildFiles))
         }
-        items.append(.init(id: "supported", symbol: "list.bullet.rectangle", title: t("supported.menu"), run: a.supportedGames))
         items.append(.init(id: "remove", symbol: "rectangle.stack.badge.minus", title: t("library.remove"), enabled: game.id != activeBuildID,
                            destructive: true, separatorBefore: true, run: a.remove))
         // Delete moves the game's files to the Trash (GameDeletion). Off while any build runs: it may write into the build folder

@@ -165,7 +165,8 @@ public enum InputDevice: Equatable, Sendable {
 
 /// One event from the host's input adapter: a press, or a button or direction let go. `sequence` orders them.
 public struct ShellInput: Equatable, Sendable {
-    public enum Action: Sendable { case up, down, left, right, activate, back, settings, controllers }
+    /// shellSettings: the shell's own settings (the gear), on the controller's Options button (#1129).
+    public enum Action: Sendable { case up, down, left, right, activate, back, settings, controllers, shellSettings }
     public var sequence: Int
     public var action: Action
     public var device: InputDevice

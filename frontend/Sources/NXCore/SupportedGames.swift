@@ -25,6 +25,10 @@ package struct SupportedGame: Identifiable, Equatable {
     /// The first paragraph of the profile's README, markup removed, at most `SupportedGames.noteLimit` characters. Empty without a README.
     package let notes: String
     package var id: String { titleID }
+
+    package init(titleID: String, name: String, edition: GameEdition, version: String?, notes: String) {
+        self.titleID = titleID; self.name = name; self.edition = edition; self.version = version; self.notes = notes
+    }
 }
 
 package enum SupportedGames {

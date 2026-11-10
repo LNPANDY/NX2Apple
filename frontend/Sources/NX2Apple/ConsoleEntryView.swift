@@ -3,25 +3,6 @@ import AppKit
 import NXCore
 import NXLauncher
 
-/// The desktop integration only reports an intent. The application coordinator will supply it later.
-struct ConsoleEntryButton: View {
-    let lang: Lang
-    var compact = false
-    let enterConsole: () -> Void
-    var body: some View {
-        Button(action: enterConsole) {
-            Group {
-                if compact { Image(systemName: "gamecontroller") }
-                else { Label(L10n.string("console.entry", lang), systemImage: "gamecontroller") }
-            }
-                .font(.manrope(13, .semibold)).padding(.horizontal, 12).padding(.vertical, 8)
-                .background(LauncherPalette.menuFill, in: Capsule()).contentShape(Capsule())
-        }
-        .buttonStyle(.plain).accessibilityLabel(L10n.string("console.entry", lang)).help(L10n.string("console.entry", lang))
-        .padTarget("top.console", scope: "main", radius: 24, activate: enterConsole)
-    }
-}
-
 /// The cream button of a dialog: the launcher's secondary button's size and radius, filled.
 struct LauncherPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

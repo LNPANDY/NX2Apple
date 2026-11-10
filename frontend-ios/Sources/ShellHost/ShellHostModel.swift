@@ -590,6 +590,13 @@ public struct ShellHostConfig: Sendable {
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 
+    /// DM_GAME_MENU_TEXT: the in-game menu's own words in the player's language, one per line in the engine's order (patch 0124, GameMenu.swift):
+    /// its title, Controller layout, Keys that toggle and None (#1129).
+    static var gameMenuText: String {
+        [hostText("More settings on the start screen"), hostText("Controller layout"), hostText("Keys that toggle"), hostText("None")]
+            .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
+    }
+
     /// A game's values for the engine: its own choices, then the shell's defaults. A game whose settings list has no
     /// performance overlay row still gets the shell's choice.
     func launchEnvironment(profile: LauncherProfile, id: String) -> [String: String] {
@@ -599,6 +606,8 @@ public struct ShellHostConfig: Sendable {
         env["DM_TOUCH_HINT"] = Self.touchHint
         // The quit prompt's words (patch 0068), as the Mac launcher passes them for its Home button prompt.
         env["DM_HOME_QUIT_TEXT"] = Self.quitPromptText(gameName: entry(id)?.title ?? id)
+        // The in-game menu's own words (patch 0124), as the Mac's build bakes them into a game's own app.
+        env["DM_GAME_MENU_TEXT"] = Self.gameMenuText
         // A launcher.json DM_PAD_MAP row is authoritative, including an empty value.
         if !profile.settings.contains(where: { $0.env == "DM_PAD_MAP" }) {
             env["DM_PAD_MAP"] = PadMap.merged(global: shellSettings.padMap,
