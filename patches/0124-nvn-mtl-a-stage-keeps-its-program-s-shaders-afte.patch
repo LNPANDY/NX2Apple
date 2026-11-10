@@ -31,10 +31,10 @@ Issue: LNPANDY/NX2Apple#483
  2 files changed, 47 insertions(+), 3 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 5e56a8b8..533a50d5 100644
+index 167c0ce6..4d6aec6a 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -6030,6 +6030,12 @@ static void draw_gs_check(NvProg *pr) {
+@@ -6169,6 +6169,12 @@ static void draw_gs_check(NvProg *pr) {
      static const prog_t *lp; static uint64_t lser, lgen; static NvProg *lpr;   // Last result: same object, same serial and unchanged serial table means it is used directly
      uint64_t gen = g_ser_gen;
      if (p == lp && p->serial == lser && gen == lgen && lpr) return lpr;
@@ -47,7 +47,7 @@ index 5e56a8b8..533a50d5 100644
      __unsafe_unretained NvProg *have = p->serial ? serial_get(p->serial) : nil;
      if (have) { lp = p; lser = p->serial; lgen = gen; lpr = have; return have; }
      shmap_load();
-@@ -6769,6 +6775,7 @@ static size_t arena_alloc(size_t n, __strong id<MTLBuffer> *buf) {
+@@ -6935,6 +6941,7 @@ static size_t arena_alloc(size_t n, __strong id<MTLBuffer> *buf) {
      const prog_t *cprog;       // compute program: NVN binds it apart from the graphics stages (see OP_BIND_PROGRAM in state_op)
      p_prim_restart restart;
      const prog_t *bst[5];      // program bound per stage (NVN stage bits 1 vertex 2 fragment 4 geometry 8 / 16 tessellation, indices as in NvProg.sh), see bind_stages
@@ -55,7 +55,7 @@ index 5e56a8b8..533a50d5 100644
      blend_st blend[8]; color_st color; chmask_st chmask; ms_st ms; poly_st poly; ds_st ds;
      va_st attr[32]; int nattr; vs_st stream[16]; int nstream;
      NVNbufferRange vbuf[16];
-@@ -7031,8 +7038,33 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
+@@ -7197,8 +7204,33 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
  // When every stage comes from the same program, that program is the effective one (all of Mario's and Engage's binds are like this, so nothing changes for them); otherwise a composite is made: a host-made prog_t carrying only a serial, whose NvProg in the serial table takes each stage from its source program (a null fragment = a vertex-only pipeline)
  // NVN2's task and mesh bits (0x40, 0x80) of a program bind: stages 3 and 4, where those shaders are kept (hle_nvn.c st_host)
  static inline int gfx_stage_bits(int stages) { return (stages & 0x1f) | (stages & 0x40 ? 8 : 0) | (stages & 0x80 ? 16 : 0); }
@@ -90,7 +90,7 @@ index 5e56a8b8..533a50d5 100644
      const prog_t *v = S.bst[0] ? S.bst[0] : S.bst[4];   // a mesh program has no vertex stage
      if (!v) return NULL;
      int same = 1; for (int st = 1; st < 5; st++) if (S.bst[st] && S.bst[st] != v) same = 0;
-@@ -7040,13 +7072,13 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
+@@ -7206,13 +7238,13 @@ static void udc_note_draw(NvProg *pr, uint32_t raster_mask) {
      enum { NCMP = 64 };
      static prog_t cp[NCMP]; static const prog_t *ck[NCMP][5]; static uint64_t cs[NCMP][5]; static int ncp, next;
      for (int i = 0; i < ncp; i++) {
@@ -106,7 +106,7 @@ index 5e56a8b8..533a50d5 100644
      prog_fold_gs(o);   // the geometry stage came from another program (see prog_fold_gs)
      memset(&cp[i], 0, sizeof cp[i]); cp[i].magic = MAGIC('P', 'R', 'O', 'G'); cp[i].serial = nvn_new_serial(); serial_put(cp[i].serial, o);
      { static int once; if (!once++) MLOG("per-stage program binding: first combined program (vertex %s fragment %s)", o->sh[0] ? o->sh[0]->key : "-", o->sh[1] ? o->sh[1]->key : "-"); }
-@@ -7078,6 +7110,11 @@ static void state_reset(void) {
+@@ -7244,6 +7276,11 @@ static void state_reset(void) {
  // and X-2's first fragment-only bind dereferenced that stale vertex program in keys_hash. Separate queues also retain their own bindings when submissions alternate (Three Houses).
  typedef struct queue_state { uint64_t serial; typeof(S) s; typeof(R) r; tex_t rt_tex[9]; uint64_t rt_pins[9]; prog_t programs[6]; int rc_skip; struct queue_state *next; } queue_state;
  static queue_state *g_queue_states, *g_active_queue;
@@ -119,7 +119,7 @@ index 5e56a8b8..533a50d5 100644
  // bound target descriptions after CPU replay, before this submission can finish
  // and let the game overwrite those bytes. Metal objects keep their existing
 diff --git a/docs/reference/nvn-objects.md b/docs/reference/nvn-objects.md
-index b520744e..f3d69c39 100644
+index 1b00105b..663be2dc 100644
 --- a/docs/reference/nvn-objects.md
 +++ b/docs/reference/nvn-objects.md
 @@ -201,6 +201,13 @@ A game may tell NVN objects apart by their bytes, without an NVN call. A host re

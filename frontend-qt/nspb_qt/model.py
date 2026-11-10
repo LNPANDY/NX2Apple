@@ -284,6 +284,12 @@ class Model(QObject):
         self.app_update_progress: float | None = None
         self.app_update_status = ''
         self._app_update_checked = False
+        self.defender_busy = False
+        self.defender_status_msg = ''
+        self.defender_status_ok = False
+        self._defender_gen = 0
+        self._defender_lock = threading.RLock()
+        self._defender_callbacks: dict[int, Callable[[bool, bool, str], None]] = {}
         self._proc: subprocess.Popen | None = None
         self._thread: threading.Thread | None = None
         self._line_buf = ''
@@ -634,6 +640,7 @@ class Model(QObject):
         # itself) happens in `_windows_deps`, which is the only place allowed to load the
         # Windows-only modules.
         py, py_ok, py_ver = pu.find_python()
+        self.python_path, self.python_ok, self.python_ver = py, py_ok, py_ver
         deps.append(self._python_row(py, py_ok, py_ver))
 
         # .NET. On Windows the row comes from `_windows_deps()` instead: there the check has to be
@@ -1200,6 +1207,205 @@ class Model(QObject):
 
         threading.Thread(target=work, daemon=True).start()
 
+    # ---- Windows Defender build exclusions ----
+
+    @property
+    def show_defender_ui(self) -> bool:
+        return bool(pu.IS_WIN or os.environ.get('NSPB_SHOW_DEFENDER_ROW') == '1')
+
+    def _current_build_dirs(self, title_id: str | None = None) -> tuple[str, str]:
+        import ntpath
+        import os
+        folder = getattr(self, 'game_folder', None)
+        base_path = getattr(self, 'base_path', '')
+        out_dir = getattr(self, 'out_dir', '')
+        if folder is not None:
+            base_dir = folder.folder
+        elif base_path:
+            if '\\' in base_path and os.sep != '\\':
+                base_dir = ntpath.dirname(base_path)
+            else:
+                parent = str(Path(base_path).parent)
+                base_dir = parent if parent not in ('', '.') else ''
+        else:
+            base_dir = getattr(self, 'game_dir', '') or ''
+        tid_hex = title_id or (self.build_key if (folder is not None or base_path) else '')
+        work_root = out_dir or base_dir
+        if tid_hex and work_root:
+            if '\\' in work_root and os.sep != '\\':
+                work_dir = ntpath.join(work_root, f'{tid_hex}_build')
+            else:
+                work_dir = str(Path(work_root, f'{tid_hex}_build'))
+        else:
+            work_dir = ''
+        return base_dir, work_dir
+
+    def defender_info(self, *, title_id: str | None = None) -> tuple[str, list[str], list[str]]:
+        from .win import defender as wdef
+        base_dir, work_dir = self._current_build_dirs(title_id=title_id)
+        lib_obj = getattr(self, 'library', None)
+        games_folder = getattr(lib_obj, 'games_folder', '') if lib_obj is not None else ''
+        repo_dir = self.repo_path if getattr(self, 'repo_ok', False) else ''
+        return wdef.exclusions_status(
+            games_folder=games_folder,
+            work_dir=work_dir,
+            out_dir=getattr(self, 'out_dir', ''),
+            base_dir=base_dir,
+            shell_cache_dir=getattr(self, 'shell_cache_path', ''),
+            repo_dir=repo_dir,
+        )
+
+    def defender_recorded_info(self) -> tuple[list[str], list[str]]:
+        from .win import defender as wdef
+        return wdef.load_recorded_state()
+
+    def should_prompt_defender_before_build(self, *, title_id: str | None = None) -> bool:
+        if not self.show_defender_ui:
+            return False
+        if self.settings_value('defenderPromptDismissed', False):
+            return False
+        state, folders, _procs = self.defender_info(title_id=title_id)
+        return state != 'ready' and bool(folders)
+
+    @Slot(int, bool, bool, str)
+    def _invoke_defender_done(self, gen: int, ok: bool, cancelled: bool, msg: str) -> None:
+        lock = getattr(self, '_defender_lock', None)
+        if lock is None:
+            return
+        with lock:
+            if gen != getattr(self, '_defender_gen', 0):
+                return
+            cb = getattr(self, '_defender_callbacks', {}).pop(gen, None)
+        if cb is not None:
+            cb(ok, cancelled, msg)
+
+    def apply_defender_exclusions(
+        self,
+        *,
+        title_id: str | None = None,
+        on_done: Callable[[bool, bool, str], None] | None = None,
+        runner=None,
+    ) -> None:
+        if getattr(self, 'defender_busy', False):
+            return
+        if not hasattr(self, '_defender_lock'):
+            self._defender_lock = threading.RLock()
+        if not hasattr(self, '_defender_callbacks'):
+            self._defender_callbacks = {}
+        _state, folders, procs = self.defender_info(title_id=title_id)
+        with self._defender_lock:
+            self._defender_gen = getattr(self, '_defender_gen', 0) + 1
+            gen = self._defender_gen
+            self.defender_busy = True
+            self.defender_status_ok = False
+            self.defender_status_msg = self.t('defender.msg.waiting')
+            if on_done is not None:
+                self._defender_callbacks[gen] = on_done
+        self._emit_repo_changed()
+        self._emit_deps_changed()
+
+        def work() -> None:
+            from .win import defender as wdef
+            kw = {'runner': runner} if runner is not None else {}
+            res = wdef.apply_exclusions(folders, procs, **kw)
+            with self._defender_lock:
+                if gen != getattr(self, '_defender_gen', 0):
+                    return
+                self.defender_busy = False
+                if res.ok:
+                    self.defender_status_ok = True
+                    msg = self.t('defender.msg.added', len(res.added_paths), len(res.added_processes))
+                elif res.cancelled:
+                    self.defender_status_ok = False
+                    msg = self.t('defender.msg.cancelled')
+                else:
+                    self.defender_status_ok = False
+                    msg = self.t('defender.msg.failed', res.error)
+                self.defender_status_msg = msg
+            self.log(msg + '\n')
+            self._emit_repo_changed()
+            self._emit_deps_changed()
+            try:
+                if QThread.currentThread() is self.thread():
+                    self._invoke_defender_done(gen, res.ok, res.cancelled, msg)
+                else:
+                    QMetaObject.invokeMethod(
+                        self,
+                        '_invoke_defender_done',
+                        Qt.QueuedConnection,
+                        Q_ARG(int, gen),
+                        Q_ARG(bool, res.ok),
+                        Q_ARG(bool, res.cancelled),
+                        Q_ARG(str, msg),
+                    )
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def remove_defender_exclusions(
+        self,
+        *,
+        on_done: Callable[[bool, bool, str], None] | None = None,
+        runner=None,
+    ) -> None:
+        if getattr(self, 'defender_busy', False):
+            return
+        if not hasattr(self, '_defender_lock'):
+            self._defender_lock = threading.RLock()
+        if not hasattr(self, '_defender_callbacks'):
+            self._defender_callbacks = {}
+        with self._defender_lock:
+            self._defender_gen = getattr(self, '_defender_gen', 0) + 1
+            gen = self._defender_gen
+            self.defender_busy = True
+            self.defender_status_ok = False
+            self.defender_status_msg = self.t('defender.msg.waiting')
+            if on_done is not None:
+                self._defender_callbacks[gen] = on_done
+        self._emit_repo_changed()
+        self._emit_deps_changed()
+
+        def work() -> None:
+            from .win import defender as wdef
+            kw = {'runner': runner} if runner is not None else {}
+            res = wdef.remove_exclusions(**kw)
+            with self._defender_lock:
+                if gen != getattr(self, '_defender_gen', 0):
+                    return
+                self.defender_busy = False
+                if res.ok:
+                    self.defender_status_ok = True
+                    self.settings_set('defenderPromptDismissed', False)
+                    msg = self.t('defender.msg.removed')
+                elif res.cancelled:
+                    self.defender_status_ok = False
+                    msg = self.t('defender.msg.cancelled')
+                else:
+                    self.defender_status_ok = False
+                    msg = self.t('defender.msg.failed', res.error)
+                self.defender_status_msg = msg
+            self.log(msg + '\n')
+            self._emit_repo_changed()
+            self._emit_deps_changed()
+            try:
+                if QThread.currentThread() is self.thread():
+                    self._invoke_defender_done(gen, res.ok, res.cancelled, msg)
+                else:
+                    QMetaObject.invokeMethod(
+                        self,
+                        '_invoke_defender_done',
+                        Qt.QueuedConnection,
+                        Q_ARG(int, gen),
+                        Q_ARG(bool, res.ok),
+                        Q_ARG(bool, res.cancelled),
+                        Q_ARG(str, msg),
+                    )
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=work, daemon=True).start()
+
     # ---- installing what is missing ----
 
     def install_dep(self, dep: Dep) -> None:
@@ -1242,9 +1448,50 @@ class Model(QObject):
 
         def work() -> None:
             ok = True
+            detail = 'venv / package install failed'
             try:
                 if dep.id == 'python':
                     ok = self._make_venv(self.python_path, dep=dep)
+                    if not ok and pu.IS_WIN:
+                        # An existing system Python 3.12 on Windows may lack a working ensurepip/venv
+                        # or carry a broken site configuration. Fall back in-place (on the same worker
+                        # thread so `install_all_missing` stays sequential) to the app-managed
+                        # Python 3.12.10 and rebuild the venv from it.
+                        try:
+                            from .win import fetch as wf, toolchain as wtc
+                            self.log('System Python venv setup failed — installing app-managed Python '
+                                     f'{wtc.PYTHON_VERSION}...\n')
+                            vdir = pu.venv_dir()
+                            if vdir.exists():
+                                shutil.rmtree(vdir, ignore_errors=True)
+                            py_ver = wtc.PYTHON_VERSION
+
+                            def py_log(s: object) -> None:
+                                msg = str(s)
+                                self.log(msg + '\n')
+                                if 'installing Python' in msg or 'unpacking standalone' in msg:
+                                    self._set_dep_progress(
+                                        dep,
+                                        self.t('dep.stage.pyInstall'),
+                                        self.t('dep.detail.pyInstall', py_ver),
+                                        50,
+                                        item_overall_pct=45,
+                                        force=True,
+                                    )
+
+                            path = wf.install_python(
+                                log=py_log,
+                                progress=self._stage_progress_logger(
+                                    dep, self.t('dep.phase.download'),
+                                    wtc.PYTHON_ASSET['name'],
+                                    phase='py_download', py_version=py_ver))
+                            self.log(self.t('dep.python.done', str(path)) + '\n')
+                            py_exe = Path(path) / 'python.exe' if Path(path).is_dir() else Path(path)
+                            self.python_path = str(py_exe)
+                            ok = self._make_venv(str(py_exe), dep=dep)
+                        except Exception as e:
+                            detail = f'{type(e).__name__}: {e}'
+                            ok = False
                 else:
                     self.log('$ ' + ' '.join(dep.install) + '\n')
                     try:
@@ -1257,11 +1504,15 @@ class Model(QObject):
                             self.log(line)
                         p.wait()
                         ok = p.returncode == 0
+                        if not ok:
+                            detail = f'exit {p.returncode}'
                     except OSError as e:
                         self.log(f'{e}\n')
+                        detail = str(e)
                         ok = False
                 if not ok:
-                    self.log(self.t('dep.install.fail', '-') + '\n')
+                    self.log(self.t('dep.install.fail', detail) + '\n')
+                    self._record_install_failure(dep, detail)
             finally:
                 self._clear_installing(dep)
                 self._emit_deps_changed()
@@ -1731,10 +1982,12 @@ class Model(QObject):
         vpy = pu.venv_python()
         if Path(vpy).is_file():
             ver = pu._python_version(vpy)
-            if not ver or pu._ver_tuple(ver) < pu.MIN_PYTHON:
-                # A venv an older app made from Apple's 3.9 (issue #75): pip into it would
-                # "succeed" and the build would still fail. Moved aside, never deleted, because
-                # the folder is the user's. Only when a base can build a new one.
+            vt = pu._ver_tuple(ver) if ver else (0, 0)
+            if not ver or vt < pu.MIN_PYTHON or (pu.IS_WIN and vt != (3, 12)):
+                # A venv an older app made from Apple's 3.9 (issue #75), or a Windows venv created
+                # from a non-3.12 system interpreter that cannot install the bundled cp312 wheels:
+                # moved aside, never deleted, because the folder is the user's. Only when a base
+                # can build a new one.
                 new_base = pu.venv_base(base)
                 if new_base is None or new_base == vpy:
                     self.log(f'{pu.venv_dir()} is older than Python {pu.MIN_PYTHON[0]}.'
@@ -1770,6 +2023,7 @@ class Model(QObject):
             vdir.parent.mkdir(parents=True, exist_ok=True)
             self.log(f'$ {base} -m venv {vdir}\n')
             if not pu._runs(base, ['-m', 'venv', str(vdir)]):
+                shutil.rmtree(vdir, ignore_errors=True)
                 self.log('venv creation failed\n')
                 return False
         ver_str = pu._python_version(vpy)
@@ -1793,9 +2047,10 @@ class Model(QObject):
                     force=True,
                 )
             try:
+                pip_env = pu.child_env({'PIP_CONFIG_FILE': os.devnull} if attempt_wheels else None)
                 p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, text=True, encoding='utf-8',
-                                     errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
+                                     errors='replace', env=pip_env, **pu.no_window_kwargs())
                 assert p.stdout is not None
                 seen_pkgs: list[str] = []
                 for line in p.stdout:

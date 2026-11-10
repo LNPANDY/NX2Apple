@@ -280,7 +280,7 @@ index 9d237c8..417276a 100644
      return fails != 0;
  }
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index ec49382..ea2aed0 100644
+index 230aecf..03afaaa 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
 @@ -55,6 +55,13 @@ Most service calls can be found before they crash, before the first boot or the

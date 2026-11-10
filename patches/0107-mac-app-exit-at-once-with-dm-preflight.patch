@@ -20,7 +20,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: forwarded seedds/nxnative#1881
 Reason: the first start of a new Mac app waits minutes for macOS to verify the bundle; the launcher opens it once after the build with DM_PREFLIGHT so the wait happens on the build page
 Issue: LNPANDY/NX2Apple#1005
-
 ---
  dm/mac/launcher.c     | 1 +
  docs/env_switches.tsv | 1 +
@@ -40,10 +39,10 @@ index f36f73b..1d258aa 100644
      snprintf(contents, sizeof contents, "%s", exe); *strrchr(contents, '/') = 0; *strrchr(contents, '/') = 0;   // .../Contents/MacOS/<launcher> → .../Contents
      snprintf(res, sizeof res, "%s/Resources", contents); snprintf(host, sizeof host, "%s/MacOS/dmhost", contents);
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 0ccdbfe..3abeaed 100644
+index 8f11e57..d262c9e 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -251,6 +251,7 @@ DM_PATCH_FRONT	switch	`=<bytes>`: the size of the patch area right before the mo
+@@ -262,6 +262,7 @@ DM_PATCH_FRONT	switch	`=<bytes>`: the size of the patch area right before the mo
  DM_PHONE_MOTION	switch	On iOS, whether the phone's own device motion drives player 1's six-axis sensor: `auto` (default) while no controller supplies fresh motion, `1` phone only, `0` never; each source keeps its own orientation
  DM_PICTURE_FIT	player	`fill` scales the 16:9 picture on the iPhone and iPad until it covers the screen in landscape and crops the edges (a portrait or tabletop split and a TV stay fitted); `fit` or unset, the largest 16:9 rectangle with black bars. Launcher and in-game menu setting
  DM_PREEMPT	switch	`0` / `1` overrides the profile's `core_preempt`: also check already-runnable higher-priority peers on the caller's core after every thread SVC
@@ -52,7 +51,7 @@ index 0ccdbfe..3abeaed 100644
  DM_PRESENT_FIFO	switch	`0` makes the display link take the newest queued frame each tick, as before; by default it shows frames in order, at most one tick behind
  DM_PRESENT_HZ	switch	`=<N>`: the frequency of presentation pacing (default 60); `0` means no frame limit and is for performance profiling only
 diff --git a/docs/frontends.md b/docs/frontends.md
-index bdb9107..2a1271c 100644
+index ae0e675..214ac82 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -54,7 +54,7 @@ A built app carries the settings its game supports, as the iPhone app's settings

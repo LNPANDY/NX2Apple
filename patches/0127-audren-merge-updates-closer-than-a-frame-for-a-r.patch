@@ -31,10 +31,10 @@ Issue: LNPANDY/NX2Apple#483
  7 files changed, 29 insertions(+), 8 deletions(-)
 
 diff --git a/dm/games/README.md b/dm/games/README.md
-index 768c38df..84096ce4 100644
+index c816a199..2bb17355 100644
 --- a/dm/games/README.md
 +++ b/dm/games/README.md
-@@ -243,6 +243,7 @@ One row per profile; the notes are each profile's `README.md`.
+@@ -247,6 +247,7 @@ One row per profile; the notes are each profile's `README.md`.
  | `tex_flush_upload` | `on` / `off` (the default): a texture the game fills from the CPU in place (no packaged layout, no `WriteTexels`) and publishes with `nvnMemoryPoolFlushMappedRange` is uploaded from guest memory like a packaged one, and re-uploaded when its pages change (`ft_add` in `hle_nvn.c`). Tears of the Kingdom streams all its textures this way; without it the 3D scene is black. Off by default because a flushed range in another game could cover an image a shader writes, whose GPU content the upload would replace. Without the key, every game still gets a texture's storage once when the game flushed it before the texture's first use (`nvn_flushed` in `hle_nvn.c`: Breath of the Wild's sky tables); the key is for textures the CPU writes again after that |
  | `render_cond` | `on` / `off` (the default): `SetRenderEnableConditional` / `SetRenderEnable` are recorded and evaluated at replay, and a timestamp report's counter field is 0 as on the GPU (`OP_RENDER_COND` in `nvn_mtl.m`). Tears of the Kingdom wraps its clears in conditions that skip clearing a target nothing has drawn into since its last clear; without the key every clear runs and its 3D scene is black. Animal Crossing: New Horizons too: four clear-only passes wiped its composite before the window copy, and every frame was black. Off by default: other games draw everything, as before |
  | `tex_dirty_upload` | `on` / `off` (the default), needs `tex_flush_upload`: a registered texture whose pages the CPU writes after `nvnTextureInitialize` without any NVN flush is uploaded as well (its pages are write-protected at registration, checked on first use; `nvn_ft_written` in `hle_nvn.c`). Tears of the Kingdom fills its ASTC terrain material arrays this way; without it the cave is magenta. FINAL FANTASY TACTICS - The Ivalice Chronicles loads its UI textures straight into CPU-uncached pools, which need no flush, after creating them; without both keys its screen stays black. The Great Ace Attorney Chronicles copies every texture into a CPU-cached pool after creating it and never flushes (its `main` has no cache maintenance at all): black too. The Legend of Zelda: Ocarina of Time writes its terrain tiles' height, blend and hole maps this way, and without the keys has holes in the ground |
@@ -43,10 +43,10 @@ index 768c38df..84096ce4 100644
  | `gpu_timestamps` | What a timestamp report (`nvnCommandBufferReportCounter`) records: `submission` (the default) = the time the whole submission completed, the same for every report in it; `segment` = the GPU start (`TIMESTAMP_TOP`) or end (the other types) of the segment the report was encoded in (the host commits a submission in segments of 64 draws, `sub_cut` in `nvn_mtl.m`), so two reports of one submission bracket the GPU time between them, as on hardware. Breath of the Wild needs `segment`: its frame-interval controller and its dynamic resolution read the GPU time between the frame's first and last report, and with one time for both they read 0 (the game kept 60 fps in slow motion when the GPU could not keep up). `DM_NVN_GPU_TS=segment` / `submission` overrides it, also from `Documents/env.txt` |
  | `draw_barriers` | `full` (the default) / `game`: how draw passes are ordered. `full`: each waits for all earlier GPU work. `game`: by the game's own barriers (NVN asks for one before results of rendering are read), so a pass's vertex work overlaps the previous pass's fragments. Ocarina of Time's GPU time 25 → 18 ms, about 180 full barriers a frame halved. Only vertex-stage reads of the previous pass's output without a barrier change order. `DM_NVN_BARRIER` overrides it |
 diff --git a/dm/games/game.py b/dm/games/game.py
-index cb28a9e2..ab8b5a33 100644
+index d1af0a1d..4b56981d 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
-@@ -195,6 +195,8 @@ def header_one(g):
+@@ -197,6 +197,8 @@ def header_one(g):
      if rcd not in ('on', 'off'): sys.exit(f'{g.id}: render_cond must be on or off: {rcd}')
      tfu = g.get('tex_flush_upload', 'off')   # textures written by the CPU into a pool and published with nvnMemoryPoolFlushMappedRange are uploaded like packaged ones (hle_nvn.c): on / off
      if tfu not in ('on', 'off'): sys.exit(f'{g.id}: tex_flush_upload must be on or off: {tfu}')
@@ -55,7 +55,7 @@ index cb28a9e2..ab8b5a33 100644
      tdu = g.get('tex_dirty_upload', 'off')   # with tex_flush_upload: a registered texture the CPU writes after init without any flush is uploaded too (dirty pages, hle_nvn.c nvn_ft_written): on / off
      if tdu not in ('on', 'off') or (tdu == 'on' and tfu != 'on'): sys.exit(f'{g.id}: tex_dirty_upload must be on or off, and needs tex_flush_upload on: {tdu}')
      tbc = g.get('tex_bc_cpu', 'off')   # decode BC-compressed textures on the CPU when the GPU has no BC support (A15/A16 and older; nvn_mtl.m uses nvn_bcdec.c): on / off
-@@ -262,6 +264,7 @@ def header_one(g):
+@@ -265,6 +267,7 @@ def header_one(g):
           f'#define DM_GAME_SHADER_KEY_SKIP_OFF {sko:#x}', f'#define DM_GAME_SHADER_KEY_SKIP_LEN {skl:#x}',
           f'#define DM_GAME_RENDER_COND {int(rcd == "on")}',
           f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',
@@ -63,7 +63,7 @@ index cb28a9e2..ab8b5a33 100644
           f'#define DM_GAME_TEX_BC_CPU {int(tbc == "on")}',
           f'#define DM_GAME_TEX_DYN_SLOTS {int(tds == "on")}',
           f'#define DM_GAME_GPU_TS_SEGMENT {int(gts == "segment")}',
-@@ -295,7 +298,7 @@ if __name__ == '__main__':
+@@ -298,7 +301,7 @@ if __name__ == '__main__':
                  ('fps_target', 'FPS_TARGET'), ('fps_hold', 'FPS_HOLD'), ('present_snap', 'PRESENT_SNAP'), ('pso_mtl4', 'PSO_MTL4'),
                  ('shared_font', 'SHARED_FONT_TTF'), ('pad_layout', 'PAD_LAYOUT'), ('op_mode', 'OPMODE'), ('perf_mode', 'PERF_BOOST'),
                  ('feedback_snap', 'FEEDBACK_SNAP'), ('tex_flush_upload', 'TEX_FLUSH_UPLOAD'), ('render_cond', 'RENDER_COND'),

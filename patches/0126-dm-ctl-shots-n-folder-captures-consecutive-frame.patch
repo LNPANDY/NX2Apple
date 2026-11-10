@@ -20,10 +20,10 @@ Issue: LNPANDY/NX2Apple#483
  2 files changed, 12 insertions(+), 3 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index e99f6627..420e35b0 100644
+index e408321e..046f785a 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -2257,13 +2257,16 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
+@@ -2281,13 +2281,16 @@ static void post_run(post_rec *r, uint64_t c0, uint64_t c1) {
      // MTLBuffer.contents may autorelease its receiver; keep that lifetime inside the completed copy.
      @autoreleasepool {
      int n = r->n; post_op *ops = r->ops; seg_clk *sc = r->sc; uint32_t seg_last = r->seg_last;
@@ -39,9 +39,9 @@ index e99f6627..420e35b0 100644
 -            free(l); if (ops[i].mode == VIS_REPORT) { uint64_t rec[2] = {g_vis_acc, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec); }
 +            free(l); if (ops[i].mode == VIS_REPORT) { uint64_t rec[2] = {vis_all && g_vis_acc < 0x100000 ? 0x100000 : g_vis_acc, gpu_ticks()}; memcpy((void *)ops[i].addr, rec, sizeof rec); }
          }
-         else if (ops[i].kind == 4) mirror_rb_land(ops[i].vis);
          else { uint64_t t = rep_ticks(&ops[i], sc, seg_last, c0, c1), rec[2] = {(ops[i].type == 0 || ops[i].type == 0x10) && !dm_prof()->render_cond ? t : 0, t}; memcpy((void *)ops[i].addr, rec, sizeof rec); }   // render_cond: a timestamp report's counter field is 0, as on the GPU (see rc_value)
-@@ -15034,7 +15037,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
+     }
+@@ -15267,7 +15270,7 @@ void mtl_res_counts(uint32_t tick, const char *why) {
          c.pools, (unsigned long long)c.pool_adds, c.sview_nonnull, dl, (unsigned long long)da, c.c1_bufs, (unsigned long long)c.c1_alloc, (unsigned long long)c.c1_data);
  }
  // Screenshot on request (used by DM_NVN_SHOT_UI): dm_gfx_shot_at(k, path) = take a screenshot at the kth frame after the current present frame; due requests are checked at every frame's present
@@ -51,10 +51,10 @@ index e99f6627..420e35b0 100644
  static pthread_mutex_t g_shotq_mu = PTHREAD_MUTEX_INITIALIZER;
  static int present_encode(id<MTLCommandBuffer> cb, id<MTLTexture> src, id<MTLTexture> dst, const int crop[4]);
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index ebe65345..1e3dc402 100644
+index e8368100..36afb0c4 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -219,7 +219,8 @@ void hid_keys_init(void) {
+@@ -228,7 +228,8 @@ void hid_keys_init(void) {
  }
  
  // DM_CTL=<file> (Mac, for driving a game step by step from a shell): the host reads the lines appended to the file (polled every 100 ms) and acts on each at once:
@@ -64,7 +64,7 @@ index ebe65345..1e3dc402 100644
  //   render passes of the next n frames as DM_NVN_PASSDUMP does (to stderr, the run's log), "texdump <path with %d>" saves the colour targets of the next frame as DM_NVN_TEXDUMP does,
  //   "env KEY=VALUE" sets a switch read at the time of use (DM_NVN_SNAPRAW for the next texdump), "cvarf <main offset> <value>" sets an Unreal float console variable
  //   (hle_fpslock.c dm_ctl_cvar_f32; "cvari" an int one), "peek <address> <count>" logs that many floats of guest memory, "memdump <address> <bytes> <path>" saves guest memory
-@@ -245,6 +246,11 @@ static void *ctl_main(void *arg) {
+@@ -254,6 +255,11 @@ static void *ctl_main(void *arg) {
                  if (!strncmp(line, "program ", 8)) { void dm_oe_execute(int index, const void *param, size_t n); LOG("DM_CTL: oe::ExecuteProgram(%d)", atoi(line + 8)); dm_oe_execute(atoi(line + 8), NULL, 0); continue; }
                  if (!strncmp(line, "webshot ", 8)) { void front_web_shot(const char *path); front_web_shot(line + 8); continue; }
                  if (!strncmp(line, "shot ", 5)) { dm_gfx_shot_at(1, line + 5); LOG("DM_CTL: screenshot of the next frame → %s", line + 5); continue; }

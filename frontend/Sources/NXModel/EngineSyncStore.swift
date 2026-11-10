@@ -32,6 +32,9 @@ import NXCore
     @Published package private(set) var available: EngineUpdate.Engine?
     /// The channel the player picked and is asked to confirm (the switch can change the shader chain).
     @Published package var confirmingChannel: EngineChannel?
+    /// Whether Experimental is built on newer upstream code than Stable, as of the last check (LNPANDY/NX2Apple#1095). Settings hides the
+    /// switch to Experimental while it is not ahead, and offers the way back when the launcher is on it.
+    @Published package private(set) var experimentalStanding: ExperimentalStanding = .unknown
     /// An installed engine that waits for the running build to end before the build tools switch to it.
     package var pendingEngine: (engine: EngineUpdate.Engine, channel: EngineChannel)?
     /// The engine tree inside the app bundle. nil for a launcher built from the repository, which keeps its checkout and git.
@@ -196,7 +199,8 @@ import NXCore
 
     /// The channel picker: a different channel is confirmed first, because the switch can change the shader chain.
     package func requestChannel(_ channel: EngineChannel) {
-        guard selection.channel.switchWarningKey(to: channel) != nil, !busy, !buildRunning() else { return }
+        guard selection.channel.switchWarningKey(to: channel) != nil, !busy, !buildRunning(),
+              EngineChannelChoice.allowsSwitch(to: channel, from: selection.channel, standing: experimentalStanding) else { return }
         confirmingChannel = channel
     }
 
@@ -227,6 +231,8 @@ import NXCore
             }.value
             busy = false
             applyOutcome(outcome, channel: channel, quiet: quiet)
+            if case .failed = outcome { return }
+            experimentalStanding = await Task.detached { EngineUpdate.standing(appVersion: version, transport: transport) }.value
         }
     }
 
@@ -281,6 +287,12 @@ import NXCore
         pendingEngine = nil
         switchEngine(to: pending.engine, channel: pending.channel)
     }
+
+    /// What the channel row of Settings lists and says.
+    package var channelChoice: EngineChannelChoice { EngineChannelChoice(selected: selection.channel, standing: experimentalStanding) }
+
+    /// Test seam and app wiring: the standing a check found.
+    package func setStanding(_ standing: ExperimentalStanding) { experimentalStanding = standing }
 
     /// What Settings shows for the engine: its version and the pin it was built from.
     package var detail: String {

@@ -1,7 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: v0lumehi <aljic.zijad@gmail.com>
 Date: Mon, 9 Nov 2026 21:00:00 +0100
-Subject: [PATCH] ios shell: declare Spanish, Korean and Brazilian Portuguese in CFBundleLocalizations
+Subject: [PATCH] ios shell: declare Spanish, Korean and Brazilian Portuguese
+ in CFBundleLocalizations
 
 Upstream-Status: fork-only
 Reason: frontend/l10n adds es, ko and pt-br, and iOS offers a language to the shell's package bundles only when the app declares it, so devices in those languages got English.

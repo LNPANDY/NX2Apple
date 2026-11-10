@@ -67,10 +67,10 @@ index b8277f3..978dd69 100644
           f'#define DM_GAME_GPU_TS_SEGMENT {int(gts == "segment")}',
           f'#define DM_GAME_DRAW_BARRIERS_GAME {int(dbr == "game")}',
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index d0573c6..ded1eda 100644
+index 2915a90..bf49036 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -22,6 +22,7 @@
+@@ -23,6 +23,7 @@
  #include <mach/mach.h>
  #include "nvn_obj.h"
  #include "../tex/nvn_fmt_mtl.h"
@@ -78,7 +78,7 @@ index d0573c6..ded1eda 100644
  #include "../tex/nvn_deswizzle.h"
  #include "../tex/nvn_deswizzle_gpu.h"
  #include "nvn_builtin.h"
-@@ -93,6 +94,8 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
+@@ -94,6 +95,8 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
  // The shaders the host writes itself (built-in kernels, clears, copies, index conversions, geometry packing, the present: dm/gfx/msl), compiled when the host is built and loaded by
  // name (host_msl_lib), so none is compiled at run time. The diagnostic overrides (DM_NVN_HILITE, DM_NVN_MAGSCAN, DM_NVN_TEXDUMP) still compile theirs from source
  static id<MTLLibrary> host_lib(const char *name, NSError **e) { return host_msl_lib(g_dev, nil, name, e); }
@@ -87,7 +87,7 @@ index d0573c6..ded1eda 100644
  static NSMutableArray *g_l3_gpu_leaks;
  static int g_nvn_deswz_gpu;
  static id<MTLCommandQueue> g_q;
-@@ -638,6 +641,9 @@ void mtl_init(void) {
+@@ -639,6 +642,9 @@ void mtl_init(void) {
      g_dev = MTLCreateSystemDefaultDevice();
      if (!g_dev) MDIE("no Metal device");
      if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
@@ -97,7 +97,7 @@ index d0573c6..ded1eda 100644
      g_q = [g_dev newCommandQueue];
      // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
      // Vulkan layers draw on classic queues of their own and need only the device (mtl_device_classic): there the classic part starts and presents are dropped, which is all a
-@@ -668,8 +674,9 @@ void mtl_init(void) {
+@@ -669,8 +675,9 @@ void mtl_init(void) {
          return;
      }
      // BC textures are created and uploaded as BC, with no decompression path (dm/gfx/tex/README.md); without BC the first one aborts in Metal's descriptor validation mid-game
@@ -2022,7 +2022,7 @@ index 0000000..553c3ec
 +
 +*/
 diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
-index b495829..38158dc 100644
+index 2fb71fb..4740efb 100644
 --- a/dm/tools/docs_patches.py
 +++ b/dm/tools/docs_patches.py
 @@ -141,6 +141,8 @@ SWITCH_BINDING = [

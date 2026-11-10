@@ -129,7 +129,7 @@ class ApplySeries(unittest.TestCase):
 class ChainRule(unittest.TestCase):
     def test_the_chain_paths_come_from_the_engines_agents_md(self):
         g = P.chain_paths(SRC)
-        for want in ('dm/gfx/nvn/dmsh_chain.h', 'dm/gfx/tools/dmsh_*', 'dm/gfx/tools/Program.cs', 'dm/gfx/tools/ios_metal.py', 'dm/gfx/tools/dmsh_chain.lock', 'dm/gfx/tools/dmsh_xlate_bin*'):
+        for want in ('dm/gfx/nvn/dmsh_chain.h', 'dm/gfx/tools/dmsh_*', 'dm/gfx/tools/Program.cs', 'dm/gfx/tools/ios_metal.py', 'dm/gfx/tools/dmsh_chain.lock', 'dm/gfx/nvn/dmsh_abi.h'):
             self.assertIn(want, g)
 
     def test_hits(self):
