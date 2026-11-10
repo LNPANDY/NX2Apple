@@ -4,7 +4,8 @@ import NXLauncher
 
 /// The supported games in console mode (#301), from the menu's Library page: the same list as the desktop's Supported games sheet
 /// (SupportedGamesSheet), with the search's on-screen keyboard so a controller can type. A row opens its notes with A. A game the
-/// player owns says so, and its notes offer the way to its page. Only the profile's own words, no download, no artwork fetch.
+/// player owns says so, and its notes offer the way to its page. Only the profile's own words, no download. Each row shows the game's
+/// cover, the library's own (SupportedCovers), fetched while the row is on screen.
 @MainActor struct ConsoleSupportedGamesPage<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
     let lang: Lang
@@ -13,6 +14,20 @@ import NXLauncher
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var expanded: String?
+    @StateObject private var covers: SupportedCovers
+    @State private var viewport: CGFloat = 0   // the scroll view's height: which rows are on screen
+
+    init(driver: Driver, lang: Lang, glyphs: ConsoleGlyphs, compact: Bool) {
+        self.driver = driver
+        self.lang = lang
+        self.glyphs = glyphs
+        self.compact = compact
+        _covers = StateObject(wrappedValue: driver.supportedCovers(maxPixel: Int(2 * Self.coverSize(compact: compact).width)))
+    }
+
+    /// The cover slot, 16:9, about as tall as the row's two lines of text.
+    static func coverSize(compact: Bool) -> CGSize { compact ? CGSize(width: 80, height: 45) : CGSize(width: 96, height: 54) }
+    private static var space: String { "console.supported.scroll" }
 
     static var scope: String { "console.supported" }
     static var firstTarget: String { "console.supported.key.a" }
@@ -36,6 +51,10 @@ import NXLauncher
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .consoleScrollContent()
                 }
+                .coordinateSpace(name: Self.space)
+                .background(GeometryReader { box in
+                    Color.clear.onAppear { viewport = box.size.height }.onChange(of: box.size.height) { viewport = $0 }
+                })
                 .consoleScrollFade()
                 .onChange(of: pad.focused) { id in
                     guard let id else { return }
@@ -54,6 +73,7 @@ import NXLauncher
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LauncherPalette.background)
         .onChange(of: state.supportedText) { _ in expanded = nil }
+        .onDisappear { covers.stop() }
     }
 
     private var field: some View {
@@ -106,6 +126,16 @@ import NXLauncher
         }
     }
 
+    private func cover(_ game: SupportedGame) -> some View {
+        let size = Self.coverSize(compact: compact)
+        return ZStack {
+            LauncherPalette.background.opacity(0.5)
+            if let image = covers.image(game.titleID) { Image(nsImage: image).resizable().scaledToFill() }
+            else { Image(systemName: "gamecontroller").font(.system(size: compact ? 16 : 19, weight: .light)).foregroundStyle(LauncherPalette.secondaryText) }
+        }
+        .frame(width: size.width, height: size.height).clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityHidden(true)
+    }
+
     private func detail(_ game: SupportedGame) -> String {
         var parts: [String] = []
         if game.edition == .switch2 { parts.append(t("switch2.badge")) }
@@ -121,6 +151,7 @@ import NXLauncher
         return VStack(alignment: .leading, spacing: 14) {
             Button(action: toggle) {
                 HStack(spacing: 18) {
+                    cover(game)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(game.name).font(.manrope(compact ? 19 : 23, .semibold)).lineLimit(2)
                         Text(detail(game)).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText)
@@ -140,6 +171,9 @@ import NXLauncher
             .padTarget(id, scope: Self.scope, radius: 14, activate: toggle)
             .accessibilityLabel(game.name).accessibilityValue(detail(game))
             .accessibilityHint(t(open ? "supported.hideNotes" : "supported.showNotes"))
+            .modifier(OnScreen(space: Self.space, height: viewport) { shown in
+                if shown { covers.appear(game.titleID) } else { covers.disappear(game.titleID) }
+            })
             .id(id)
             if open {
                 VStack(alignment: .leading, spacing: 14) {
@@ -161,6 +195,32 @@ import NXLauncher
             }
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: open)
+    }
+}
+
+/// Calls `change` when the view comes within the scroll view named `space` (`height` tall, one view's height of margin), and again
+/// when it leaves. The page's rows are not lazy (the controller's focus needs every row's frame), so `onAppear` would fire for all.
+private struct OnScreen: ViewModifier {
+    let space: String
+    let height: CGFloat
+    let change: (Bool) -> Void
+    @State private var shown = false
+
+    func body(content: Content) -> some View {
+        content.background(GeometryReader { box in
+            let frame = box.frame(in: .named(space))
+            Color.clear
+                .onAppear { update(frame) }
+                .onChange(of: [frame.minY, frame.maxY, height]) { _ in update(frame) }
+        })
+        .onDisappear { if shown { shown = false; change(false) } }
+    }
+
+    private func update(_ frame: CGRect) {
+        let visible = height > 0 && frame.maxY > -frame.height && frame.minY < height + frame.height
+        guard visible != shown else { return }
+        shown = visible
+        change(visible)
     }
 }
 

@@ -38,6 +38,7 @@ actor ArtworkStore {
     private var index: Index?
     private var listFailed = false   // one attempt per launch
     private var running = false
+    private var idle: [CheckedContinuation<Void, Never>] = []   // callers that wait for the running fetch to end
 
     /// What the list knows of a title besides its banner: up to `maxScreenshots` gameplay screenshots (1920×1080).
     struct Media: Codable, Equatable {
@@ -122,8 +123,18 @@ actor ArtworkStore {
     }
 
     /// Download the banners the given titles lack, and replace one saved before `BannerPick` when the list holds another
-    /// product for its title. Returns the title IDs whose banner is new.
-    @discardableResult func fetchMissing(_ titleIDs: [String], language requested: String = "en") async -> [String] {
+    /// product for its title. Returns the title IDs whose banner is new. While another fetch runs, a call returns at once with
+    /// nothing, unless it `waits`: then it runs after that one (the Supported games covers, which ask for the rows on screen).
+    @discardableResult func fetchMissing(_ titleIDs: [String], language requested: String = "en", waits: Bool = false) async -> [String] {
+        while true {
+            if waits { while running { await withCheckedContinuation { idle.append($0) } } }
+            if let added = await fetchOnce(titleIDs, language: requested) { return added }
+            guard waits else { return [] }   // turned away: another fetch started while this one looked up the catalogue
+        }
+    }
+
+    /// Nil when another fetch is running and there was work to do.
+    private func fetchOnce(_ titleIDs: [String], language requested: String) async -> [String]? {
         let asked = Set(titleIDs.map { $0.uppercased() }.filter(Self.isTitleID))
         seen.formUnion(asked)
         language = listLanguage(requested)
@@ -139,9 +150,15 @@ actor ArtworkStore {
         // when the panel opens. An index without media is left for `media(for:)`, as it is not rewritten at launch.
         loadIndex()
         let lacksMedia = index?.media.map { media in asked.contains { media[$0] == nil } } ?? false
-        guard !wanted.isEmpty || (lacksMedia && !listFailed), !running else { return [] }
+        guard !wanted.isEmpty || (lacksMedia && !listFailed) else { return [] }
+        guard !running else { return nil }
         running = true
-        defer { running = false }
+        defer {
+            running = false
+            let waiting = idle
+            idle = []
+            for caller in waiting { caller.resume() }
+        }
         if lacksMedia, !listFailed { await refresh() }
         guard !wanted.isEmpty else { writeSources(sources); return [] }
         // A title on the clean list needs no title list: the list is read only for the others
@@ -342,12 +359,12 @@ actor ArtworkStore {
     ]
     private var customFallbacks: [String: String]?
 
-    init(directory: URL, titleList: URL, fallbacks: [String: String]) {
+    init(directory: URL, titleList: URL, fallbacks: [String: String], catalogue: CleanArt.Lookup? = nil) {
         self.directory = directory
         self.titleList = titleList
         self.allowsFileURLs = true
         self.regional = [:]
-        self.catalogue = { _, _ in [:] }
+        self.catalogue = catalogue ?? { _, _ in [:] }
         self.customFallbacks = fallbacks
     }
 

@@ -49,6 +49,10 @@ extension LiveConsoleDriver {
     }
     func typeSupported(_ text: String) { state.typeSupported(text) }
     func deleteSupported() { state.deleteSupported() }
+    /// The library's covers, fetched by the launcher's store as the desktop sheet does.
+    func supportedCovers(maxPixel: Int) -> SupportedCovers {
+        .live(directory: library.artworkDirectory, language: lang().code, maxPixel: maxPixel)
+    }
 
     func typeSearch(_ text: String) {
         guard state.presentedSheet == .search, state.searchText.count < 60 else { return }

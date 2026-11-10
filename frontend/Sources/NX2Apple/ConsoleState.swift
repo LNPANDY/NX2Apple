@@ -526,6 +526,8 @@ struct ConsoleState {
     func openSupportedGames()
     func typeSupported(_ text: String)
     func deleteSupported()
+    /// The supported games' covers (SupportedCovers), decoded at `maxPixel`. A driver without a library shows none.
+    func supportedCovers(maxPixel: Int) -> SupportedCovers
     func openBuilds()
     func askStopBuild()
     func stopBuild()
@@ -577,6 +579,9 @@ extension ConsoleDriver {
     func openSupportedGames() {}
     func typeSupported(_ text: String) {}
     func deleteSupported() {}
+    func supportedCovers(maxPixel: Int) -> SupportedCovers {
+        .saved(in: FileManager.default.temporaryDirectory.appendingPathComponent("console-demo-no-banners"), maxPixel: maxPixel)
+    }
     func openBuilds() {}
     func askStopBuild() {}
     func stopBuild() {}

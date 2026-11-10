@@ -55,7 +55,7 @@ import XCTest
         let games = [SupportedGame(titleID: "0100000000000001", name: "Example Game", edition: .switch1, version: "1.0.0", notes: "Plays to the end."),
                      SupportedGame(titleID: "0100000000000002", name: "Other Game", edition: .switch2, version: nil, notes: "")]
         let owned = LibraryGame(titleID: "0100000000000001", name: "Example Game")
-        let sheet = SupportedGamesSheet(games: games, owned: { $0 == owned.titleID ? owned : nil }, cover: { _ in nil }, showInLibrary: { _ in })
+        let sheet = SupportedGamesSheet(games: games, owned: { $0 == owned.titleID ? owned : nil }, covers: .saved(in: URL(fileURLWithPath: "/nonexistent"), maxPixel: SupportedGamesSheet.coverPixels), showInLibrary: { _ in })
             .environmentObject(Localizer(.en)).environmentObject(focus)
         let host = NSHostingView(rootView: AnyView(sheet))
         let window = OffscreenWindow(size: NSSize(width: 680, height: 600))

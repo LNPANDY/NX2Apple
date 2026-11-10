@@ -4,13 +4,13 @@ import NXModel
 import NXLauncher
 
 /// Library > Supported games… (LNPANDY/NX2Apple#301): every game the shipped engine has a profile for, searchable, apart from what the
-/// player owns. Only the profile's own words: the version it was brought up on, its notes. No download or buy action, no artwork fetch
-/// (a cover shows only when the library already cached it), no status the profile does not state.
+/// player owns. Only the profile's own words: the version it was brought up on, its notes. No download or buy action, no status the
+/// profile does not state. Each row shows the game's cover, the library's own (SupportedCovers), fetched while the row is on screen.
 struct SupportedGamesSheet: View {
     let games: [SupportedGame]
     /// The library's game for a title ID, else nil: the row says whether the player has it, and offers to show it.
     let owned: (String) -> LibraryGame?
-    let cover: (String) -> NSImage?
+    @StateObject private var covers: SupportedCovers
     let showInLibrary: (UUID) -> Void
     @EnvironmentObject var loc: Localizer
     @EnvironmentObject private var focus: PadFocus
@@ -18,6 +18,17 @@ struct SupportedGamesSheet: View {
     @State private var search = ""
     @State private var selected: String?
     @FocusState private var searchFocused: Bool
+
+    /// The cover slot: 64 x 36 pt, decoded at 2x.
+    static let coverPixels = 128
+
+    init(games: [SupportedGame], owned: @escaping (String) -> LibraryGame?, covers: @escaping @autoclosure () -> SupportedCovers,
+         showInLibrary: @escaping (UUID) -> Void) {
+        self.games = games
+        self.owned = owned
+        _covers = StateObject(wrappedValue: covers())
+        self.showInLibrary = showInLibrary
+    }
 
     /// At most 720 tall and 80 shorter than the screen.
     static func height(screen: CGFloat) -> CGFloat { LauncherSheet.maxHeight(screen: screen) }
@@ -60,10 +71,12 @@ struct SupportedGamesSheet: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(shown) { game in
-                            SupportedGameRow(game: game, detail: detail(game), owned: owned(game.titleID), cover: cover(game.titleID),
+                            SupportedGameRow(game: game, detail: detail(game), owned: owned(game.titleID), cover: covers.image(game.titleID),
                                              expanded: selected == game.titleID,
                                              toggle: { selected = selected == game.titleID ? nil : game.titleID },
                                              show: { id in showInLibrary(id); dismiss() })
+                                .onAppear { covers.appear(game.titleID) }
+                                .onDisappear { covers.disappear(game.titleID) }
                             Divider().opacity(0.25).padding(.leading, 30)
                         }
                     }
@@ -89,6 +102,7 @@ struct SupportedGamesSheet: View {
         .launcherAppearance()
         .tint(LauncherPalette.accent)
         .onAppear { searchFocused = true }
+        .onDisappear { covers.stop() }
     }
 }
 
