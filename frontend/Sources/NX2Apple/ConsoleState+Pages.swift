@@ -257,3 +257,16 @@ extension ConsoleState {
         sheets = [.stopped]
     }
 }
+
+/// B in the search and in the supported games: a letter goes while the field has one, then B leaves (#1129).
+enum ConsoleSearchBack {
+    static func deletes(_ state: ConsoleState) -> Bool {
+        switch state.presentedSheet {
+        case .search?: return !state.searchText.isEmpty
+        case .supportedGames?: return !state.supportedText.isEmpty
+        default: return false
+        }
+    }
+    /// The hint's words for B.
+    static func labelKey(_ text: String) -> String { text.isEmpty ? "console.back" : "console.search.deleteLetter" }
+}

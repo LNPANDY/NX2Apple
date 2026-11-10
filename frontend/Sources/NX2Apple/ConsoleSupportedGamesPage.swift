@@ -8,6 +8,7 @@ import NXLauncher
 @MainActor struct ConsoleSupportedGamesPage<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
     let lang: Lang
+    let glyphs: ConsoleGlyphs
     let compact: Bool
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -41,6 +42,14 @@ import NXLauncher
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
                 }
             }
+            HStack {
+                Spacer(minLength: 0)
+                ConsoleHint(glyph: glyphs.hintGlyph(.back, swapAB: state.menuSwapAB), label: t(ConsoleSearchBack.labelKey(state.supportedText)),
+                            id: "console.supported.hint.back", scope: Self.scope, compact: compact) {
+                    state.supportedText.isEmpty ? driver.back() : driver.deleteSupported()
+                }
+            }
+            .padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LauncherPalette.background)

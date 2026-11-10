@@ -50,7 +50,7 @@ struct ConsoleTileFramesKey: PreferenceKey {
     /// A row: its heading, the tiles with their room for the ring, and the captions.
     private var sectionHeight: CGFloat { tileWidth / 1.8 + (compact ? 92 : 104) }
     /// The pad ids of the hint strip, so up from it goes back to the focused game.
-    static var hintIDs: Set<String> { ["console.open", "console.play", "console.options", "console.menu", "console.desktop"] }
+    static var hintIDs: Set<String> { ["console.open", "console.play", "console.options", "console.menu", "console.quickMenuHint", "console.desktop"] }
     /// The top bar's targets: the controller chips, Search and the menu button.
     static func isTopBar(_ id: String) -> Bool { id.hasPrefix("console.chip.") || id == "console.searchButton" || id == "console.menuButton" }
 
@@ -242,6 +242,7 @@ struct ConsoleTileFramesKey: PreferenceKey {
                 if !paused { hint(.play, "console.play", "console.play") { if let id = focused?.id { driver.play(id) } } }
                 hint(.options, "console.options", "console.options") { if let id = focused?.id { driver.openOptions(id) } }
                 hint(.menu, "console.menu", "console.menu") { driver.openMenu() }
+                hint(.quickMenu, "console.quickMenu", "console.quickMenuHint") { driver.openQuickMenu() }
                 hint(.back, "console.desktop", "console.desktop") { driver.confirmExit() }   // asks first, as B does
             }
         }

@@ -188,9 +188,25 @@ import NXLauncher
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
                 }
             }
+            hints.padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LauncherPalette.background)
+    }
+
+    /// X plays the result in focus, B deletes a letter while there is one and goes back once the field is empty.
+    private var hints: some View {
+        HStack(spacing: compact ? 12 : 32) {
+            ConsoleHint(glyph: glyphs.hintGlyph(.play, swapAB: state.menuSwapAB), label: t("console.play"), id: "console.search.hint.play", scope: Self.scope,
+                        compact: compact) {
+                if let id = pad.focused, id.hasPrefix("console.result.") { driver.play(String(id.dropFirst("console.result.".count))) }
+            }
+            Spacer(minLength: 0)
+            ConsoleHint(glyph: glyphs.hintGlyph(.back, swapAB: state.menuSwapAB), label: t(ConsoleSearchBack.labelKey(state.searchText)),
+                        id: "console.search.hint.back", scope: Self.scope, compact: compact) {
+                state.searchText.isEmpty ? driver.back() : driver.deleteSearch()
+            }
+        }
     }
 
     /// What was typed, with a caret, or the placeholder.

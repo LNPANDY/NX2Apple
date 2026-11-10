@@ -131,9 +131,9 @@ enum ConsoleInput: Equatable {
         .consoleDarkAppearance()   // the console stays dark in Light: every token resolves to its Dark value here
         .environmentObject(pad)
         .environment(\.padRingStyle, .hug)
-        .background(ConsoleKeyboardInput(perform: { input in glyphs = .keyboard; handle(input) },
+        .background(ConsoleKeyboardInput(perform: { input in glyphs = .keyboard; handle(input, fromKeyboard: true) },
                                          typing: { [driver] in [.search, .supportedGames].contains(driver.state.presentedSheet) }).frame(width: 0, height: 0))
-        .onReceive(inputs, perform: handle)
+        .onReceive(inputs) { handle($0) }
         .onChange(of: scope) { _ in editingOption = nil; resetFocus() }
         .onChange(of: state.exited) { exited in if exited, let onExit { onExit() } else { resetFocus() } }
         // the buttons by their printed letters (ConsoleButtons), the swap read at each press so changing it here applies at once
@@ -255,7 +255,7 @@ enum ConsoleInput: Equatable {
         case .allGames: ConsoleAllGamesPage(driver: driver, lang: lang, glyphs: glyphs, compact: compact)
         case .search: ConsoleSearchPage(driver: driver, lang: lang, glyphs: glyphs, compact: compact)
         case .builds: ConsoleBuildsPage(driver: driver, lang: lang, compact: compact)
-        case .supportedGames: ConsoleSupportedGamesPage(driver: driver, lang: lang, compact: compact)
+        case .supportedGames: ConsoleSupportedGamesPage(driver: driver, lang: lang, glyphs: glyphs, compact: compact)
         default: EmptyView()
         }
     }
@@ -528,8 +528,13 @@ enum ConsoleInput: Equatable {
         case nil: pad.focused = state.exited ? "console.return" : state.focusedGame.map { "console.game." + $0.id } ?? "console.empty.desktop"
         }
     }
-    private func handle(_ input: ConsoleInput) {
+    private func handle(_ input: ConsoleInput, fromKeyboard: Bool = false) {
         if editingOption != nil, input == .back || input == .activate { editingOption = nil; return }   // A or B lets a slider go
+        // B in a search deletes the last letter while there is one, and leaves once the field is empty (the hints say which).
+        // The Mac's Escape always leaves: its keyboard has Delete.
+        if input == .back, !fromKeyboard, ConsoleSearchBack.deletes(state) {
+            state.presentedSheet == .search ? driver.deleteSearch() : driver.deleteSupported(); return
+        }
         if state.presentedSheet == .search {   // the Mac's keyboard types into the search (#816)
             if case let .typed(text) = input { driver.typeSearch(text); return }
             if input == .deleteBackward { driver.deleteSearch(); return }
@@ -567,7 +572,7 @@ enum ConsoleInput: Equatable {
                 pad.focused = "console.game." + id
             } else { pad.move(dx: 0, dy: CGFloat(dy)) }
         case .activate: pad.activate()
-        case .play: if let id = playTarget { driver.play(id) }
+        case .play: if let id = playTarget { id == state.pausedGameID ? driver.resume(id) : driver.play(id) }   // X resumes a paused game
         case .previousTab, .nextTab:
             let step = input == .previousTab ? -1 : 1
             if case .gamePage = state.presentedSheet { driver.stepGameTab(step) }
@@ -577,10 +582,11 @@ enum ConsoleInput: Equatable {
             else if home, let id = state.focusedGame?.id { driver.openOptions(id) }
             else if case let .gamePage(id) = state.presentedSheet { driver.openOptions(id) }
             else if state.presentedSheet == .allGames { driver.toggleLibrarySort() }
-            else if state.presentedSheet == .search { driver.deleteSearch() }
-            else if state.presentedSheet == .supportedGames { driver.deleteSupported() }
         case .menu: if state.presentedSheet == .menu { driver.back() } else if home { driver.openMenu() }
-        case .quickMenu: if state.presentedSheet == .quickMenu { driver.back() } else if home { driver.openQuickMenu() }
+        case .quickMenu:   // from the home screen and a game's page, as their hints show
+            if state.presentedSheet == .quickMenu { driver.back() }
+            else if home { driver.openQuickMenu() }
+            else if case .gamePage = state.presentedSheet { driver.openQuickMenu() }
         case .back, .typed, .deleteBackward: break
         }
     }
