@@ -22,6 +22,7 @@ extension BuildStore {
         shellDeviceChecked = false
         if target != BuildTarget.mac, !exportsOneGame, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         stopping = false
+        buildingGame = true; runningTarget = target
         running = true; done = false; doneNote = ""; stages = []; log.clear(); staleShadersMessageKey = nil
         failure = nil; confirmingOverride = nil
         let override = takeOverrideFlag()   // for this build only: the next one asks again
@@ -284,6 +285,7 @@ extension BuildStore {
 
     /// Looks the device up in `devicectl list devices` (in the background), then starts the build, or says how to pair it.
     package func verifyShellDevice() {
+        buildingGame = true; runningTarget = target
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         let xcrun = devices.xcrun, device = devices.installDevice, runner = runner
         DispatchQueue.global(qos: .userInitiated).async {

@@ -39,8 +39,8 @@ import NXLauncher
     /// `running` as it is about to change (a Published sink runs before the store holds the new value).
     private func runningChanged(_ running: Bool) {
         if !running { DockProgress.update(nil) }
-        if running && activeBuildID == nil { activeBuildID = library.rememberInputs(build) }
-        if running && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (RepoStore.pull, autoPull)
+        if running && build.buildingGame && activeBuildID == nil { activeBuildID = library.rememberInputs(build) }
+        if running && build.buildingGame && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (RepoStore.pull, autoPull)
             buildCommit = ""
             let dir = repoPath()
             DispatchQueue.global(qos: .utility).async { [weak self] in
@@ -59,8 +59,8 @@ import NXLauncher
     }
 
     private func record() {
-        guard build.done, let id = activeBuildID else { return }
-        if build.target == BuildTarget.mac { library.recordCompletedApp(path: build.macAppPath, commit: buildCommit, for: id) }
+        guard build.done, build.buildingGame, let id = activeBuildID else { return }
+        if build.runningTarget == BuildTarget.mac { library.recordCompletedApp(path: build.macAppPath, commit: buildCommit, for: id) }
         else { library.recordCompletedIOS(archive: build.archivePath, app: build.installedAppPath, device: build.installedOn, commit: buildCommit, for: id) }
         recorded.send()
     }

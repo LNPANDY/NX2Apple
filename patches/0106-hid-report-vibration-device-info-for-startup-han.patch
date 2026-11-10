@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Tue, 10 Nov 2026 03:34:44 +0800
+Subject: [PATCH] hid: report vibration device info for startup handles and
+ route iOS haptics on slot attach
+
+GetVibrationDeviceHandles hands out vibration handles at startup before a
+physical controller's haptics route is registered, while GetVibrationDeviceInfo
+still gated its answer on vib_targets (which requires dm_haptics_available()).
+Games that query GetVibrationDeviceInfo right after GetVibrationDeviceHandles
+during startup received DeviceType_Unknown (0) and Position_None (0),
+permanently disabling vibration for the session. Split vib_players from
+vib_targets so GetVibrationDeviceInfo reports LinearResonantActuator (1) and
+Left/Right (1/2) whenever a haptics sink is initialized and the handle
+addresses a valid player slot.
+
+Also intercept BeginForcedVibrationSession, EndForcedVibrationSession, and the
+detail/system PermitVibrationSession / PermitVibration functions in hle_hid.c
+so games like Super Mario Party (main+0x5d503c) do not enter the SDK's
+IHidServer proxy and dereference a null pointer on startup.
+
+On iOS, DmGamepad.m attached motion when a controller took a player slot in
+pads_slotted, pads_merged, or DM_PAD_PRESS_TO_JOIN, but deferred
+dm_haptics_apple_controller until the end of read_pad after the quit-prompt
+and controller-applet (cp_poll) guards. Route Core Haptics as soon as the slot
+is taken and use dm_gamepad_pads_read when the controller prompt returns to
+idle.
+
+Upstream-Status: forwarded seedds/nxnative#2070
+Reason: Report valid LRA device info for startup vibration handles, intercept forced/permit vibration sessions, and bind iOS Core Haptics when a controller takes a slot
+Issue: LNPANDY/NX2Apple#1063
+---
+ dm/host/hle_hid.c          | 25 ++++++++++++++++++++-----
+ dm/host/tests/t_hid.c      |  9 +++++++++
+ dm/ios/Sources/DmGamepad.m |  7 +++++--
+ 3 files changed, 34 insertions(+), 7 deletions(-)
+
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index ebe6534..158d45c 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -1024,7 +1024,7 @@ HLE_FORCE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_1
+ // Vibration handles: byte 0 = SDK style index (FullKey 3, Handheld 4), byte 1 = npad id, byte 2 = motor.
+ // See libnx hid.c _hidGetVibrationDeviceHandles. Only the styles this host connects are exposed.
+ // A Joy-Con style's handle (type 5 JoyDual, 6 JoyLeft, 7 JoyRight) reaches the pad's motor of its Joy-Con: the left one's is motor 0, the right one's motor 1, whichever npad the right one is on
+-static uint32_t vib_targets(uint32_t h, int *motor) {
++static uint32_t vib_players(uint32_t h, int *motor) {
+     unsigned type = h & 0xff, id = h >> 8 & 0xff, dev = h >> 16 & 0xff;
+     *motor = (int)(dev & 1);
+     if (h >> 24 || dev > 1 || type < 3 || type > 7) return 0;
+@@ -1032,7 +1032,7 @@ static uint32_t vib_targets(uint32_t h, int *motor) {
+     if (type >= 5) {
+         if (r.kind != (type == 5 ? KIND_DUAL : type == 6 ? KIND_LEFT : KIND_RIGHT) || (type != 5 && dev)) return 0;
+         if (type != 5) *motor = type == 7;
+-        return dm_haptics_available() & (1u << r.pad);
++        return 1u << r.pad;
+     }
+     if (type > 4) return 0;
+     int p = player_of(id);
+@@ -1041,10 +1041,13 @@ static uint32_t vib_targets(uint32_t h, int *motor) {
+     if (p >= 0 && r.kind >= KIND_DUAL && type == 3 && id != NPAD_HANDHELD) {
+         if (r.kind == KIND_LEFT && dev) return 0;
+         if (r.kind == KIND_RIGHT && !dev) return 0;
+-        return dm_haptics_available() & (1u << r.pad);
++        return 1u << r.pad;
+     }
+     if (p < 0 || r.kind != KIND_PAD || kind_style(r, id) != (1u << (type - 3))) return 0;
+-    return dm_haptics_available() & (p == 0 ? 1u | merged_players() : 1u << p);
++    return p == 0 ? 1u | merged_players() : 1u << p;
++}
++static uint32_t vib_targets(uint32_t h, int *motor) {
++    return dm_haptics_available() & vib_players(h, motor);
+ }
+ static void vib_send(const uint32_t *handles, const dm_vibration *values, int n) {
+     if (!handles || !values || n <= 0) return;
+@@ -1073,6 +1076,16 @@ static void vib_send(const uint32_t *handles, const dm_vibration *values, int n)
+     dm_haptics_send(updates, count);
+ }
+ HLE_FORCE("_ZN2nn3hid20IsVibrationPermittedEv", "vibration permission: enabled and an output available", unsigned, h_hid_VibPermit, void) { return dm_haptics_available() != 0; }
++// Super Mario Party calls EndForcedVibrationSession at startup (main+0x5d503c) and BeginForcedVibrationSession for controller-find rumble; the SDK's own calls reach the hid service
++// (a null read in hid::detail::EndPermitVibrationSession, sdk+0x3526bc). Vibration permission on the host follows dm_haptics_available(), so the session hooks succeed as no-ops
++HLE_FORCE("_ZN2nn3hid27BeginForcedVibrationSessionEv", "forced vibration session: permitted while the host has haptics", void, h_hid_BeginForcedVib, void) {}
++HLE_FORCE("_ZN2nn3hid25EndForcedVibrationSessionEv", "forced vibration session: nothing to release", void, h_hid_EndForcedVib, void) {}
++HLE_FORCE("_ZN2nn3hid6detail27BeginPermitVibrationSessionEv", "permit vibration session: permitted while the host has haptics", Result, h_hid_DetailBeginPermitVib, void) { return RES_OK; }
++HLE_FORCE("_ZN2nn3hid6detail25EndPermitVibrationSessionEv", "permit vibration session: nothing to release", Result, h_hid_DetailEndPermitVib, void) { return RES_OK; }
++HLE_FORCE("_ZN2nn3hid6detail15PermitVibrationEb", "permit vibration: controlled by the host's haptics setting", Result, h_hid_DetailPermitVib, unsigned on) { (void)on; return RES_OK; }
++HLE_FORCE("_ZN2nn3hid6system27BeginPermitVibrationSessionEv", "system permit vibration session: permitted while the host has haptics", void, h_hid_SysBeginPermitVib, void) {}
++HLE_FORCE("_ZN2nn3hid6system25EndPermitVibrationSessionEv", "system permit vibration session: nothing to release", void, h_hid_SysEndPermitVib, void) {}
++HLE_FORCE("_ZN2nn3hid6system15PermitVibrationEb", "system permit vibration: controlled by the host's haptics setting", void, h_hid_SysPermitVib, unsigned on) { (void)on; }
+ // Games can cache handles once at startup, before GameController routes the pad's haptics (Unicorn Overlord kept an empty answer and sent every value to handle 0).
+ // On Horizon handles are computed from npad id and style (libnx _hidGetVibrationDeviceHandles); vib_send checks for an output at each send. With rumble off they are handed out too,
+ // as on a Switch whose vibration setting is off (IsVibrationPermitted answers false and nothing is felt), so turning it on while the game runs works in a game that asked only once.
+@@ -1218,8 +1231,10 @@ HLE_FORCE("_ZN2nn3hid32SetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHan
+ HLE_FORCE("_ZN2nn3hid34ResetSixAxisSensorFusionParametersERKNS0_19SixAxisSensorHandleE", "six-axis sensor fusion parameters; ignored by the host", void, h_hid_FusionReset, const uint32_t *h) { (void)h; }
+ HLE_FORCE("_ZN2nn3hid41IsFirmwareUpdateAvailableForSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor firmware update: none", unsigned, h_hid_SixFw, const uint32_t *h) { (void)h; return 0; }
+ // GetActual returns the sanitized guest value accepted by the host, before output-device adaptation.
++// GetVibrationDeviceInfo is queried right after GetVibrationDeviceHandles at startup, before a physical controller's
++// haptics route is registered, so it follows handle validity and sink presence rather than active route availability.
+ HLE_FORCE("_ZN2nn3hid22GetVibrationDeviceInfoEPNS0_19VibrationDeviceInfoERKNS0_21VibrationDeviceHandleE", "vibration: linear resonant actuator, left or right", void, h_hid_VibInfo, uint32_t *info, const uint32_t *h) {
+-    int m = 0, on = h && vib_targets(*h, &m) != 0; info[0] = on ? 1 : 0; info[1] = on ? 1 + m : 0;
++    int m = 0, on = h && dm_haptics_has_output() && vib_players(*h, &m) != 0; info[0] = on ? 1 : 0; info[1] = on ? 1 + m : 0;
+ }
+ // The SDK's own call reaches the hid service (a null read in hid::detail::IsVibrationDeviceMounted; Super Mario Odyssey asks for each handle of a controller).
+ // On Horizon a device is mounted when the npad's connected controller has that style and an actuator on that side: here, when the channel has an output, as GetVibrationDeviceInfo reports it
+diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
+index d83d9fe..cccc08f 100644
+--- a/dm/host/tests/t_hid.c
++++ b/dm/host/tests/t_hid.c
+@@ -259,9 +259,14 @@ static void t_vibration(void) {
+     dm_vibration v = {0.25, 160, 0.5, 320}, got;
+     g_mode = 1; ids((uint32_t[]){0, 1, NPAD_HANDHELD}, 3); dm_pad_players(3);
+     CHECK(!h_hid_VibPermit() && !h_hid_VibHandles(h, 2, &id, STYLE_FULLKEY), "no sink: no vibration devices");
++    h_hid_VibInfo(info, &(uint32_t){3});
++    CHECK(info[0] == 0 && info[1] == 0, "no sink: vibration device info is empty");
+     dm_haptics_init(vibration_sink, 1);
+     CHECK(!h_hid_VibPermit() && h_hid_VibHandles(h, 2, &id, STYLE_FULLKEY) == 2,
+           "startup handles do not wait for a routed haptics output");
++    h_hid_VibInfo(info, &h[0]); CHECK(info[0] == 1 && info[1] == 1, "startup left motor reports a left LRA before routing");
++    h_hid_VibInfo(info, &h[1]); CHECK(info[0] == 1 && info[1] == 2, "startup right motor reports a right LRA before routing");
++    h_hid_VibInfo(info, &(uint32_t){0x203}); CHECK(info[0] == 0 && info[1] == 0, "disconnected player reports no LRA before routing");
+     CHECK(!h_hid_VibMounted(&h[0]), "no routed output: device not mounted");
+     h_hid_SendVib(&h[0], &v);
+     CHECK(dm_haptics_actual(0, 0).amplitude_low == 0, "a value before routing is not retained");
+@@ -305,6 +310,10 @@ static void t_vibration(void) {
+     CHECK(!h_hid_VibPermit() && h_hid_VibHandles(h, 2, &id, STYLE_HANDHELD) == 2, "rumble disabled: not permitted, but the handles exist, as on a Switch");
+     dm_haptics_set_enabled(1);
+     CHECK(h_hid_VibPermit(), "rumble turned on while the game runs: the handles it took work");
++    h_hid_BeginForcedVib(); h_hid_EndForcedVib();
++    h_hid_SysBeginPermitVib(); h_hid_SysEndPermitVib(); h_hid_SysPermitVib(1);
++    CHECK(h_hid_DetailBeginPermitVib() == RES_OK && h_hid_DetailEndPermitVib() == RES_OK && h_hid_DetailPermitVib(1) == RES_OK,
++          "forced/permit vibration session hooks succeed without hid service");
+ }
+ 
+ static void *vibration_sender(void *arg) {
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 9705efb..5f719bc 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -624,7 +624,7 @@ static void read_pad(GCExtendedGamepad *g) {
+         GCController *c = g.controller; char nb[16];
+         if (!m) return;
+         if ((p = pad_slot_take_lowest(&g_slots, (__bridge const void *)c, pad_name(c))) < 0) { LOG("controller '%s': a button pressed, but all %d players are taken", pad_name(c), DM_PLAYERS); return; }
+-        g_held[p] = c; dm_motion_attach(c, p); dm_pad_players(pad_slot_mask(&g_slots));
++        g_held[p] = c; dm_motion_attach(c, p); dm_haptics_apple_controller(p, c); dm_pad_players(pad_slot_mask(&g_slots));
+         npad_name(p, nb, sizeof nb); LOG("controller '%s': a button pressed: player %d (npad %s)", pad_name(c), p + 1, nb);
+     }
+     if (cp_poll()) return;   // the controller applet's prompt has the controllers (front_ctrl_support)
+@@ -656,6 +656,7 @@ static BOOL pads_merged(GCController *gone) {
+         if (c.motion.hasRotationRate) motion = 1;
+         any = YES; pad_keep_system_buttons(c); c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; read_pad(g); };
+         dm_motion_attach(c, 0);   // every controller is player 1: the last one moved drives its six-axis sensor
++        dm_haptics_apple_controller(0, c);
+         read_pad(c.extendedGamepad);
+     }
+     if (!any || !motion) dm_motion_clear(0);   // the phone's gyro (if on) takes over from its next sample
+@@ -684,6 +685,7 @@ static BOOL pads_slotted(GCController *gone) {
+         g_held[p] = c; pad_keep_system_buttons(c);
+         c.extendedGamepad.valueChangedHandler = ^(GCExtendedGamepad *g, GCControllerElement *el) { (void)el; read_pad(g); };
+         dm_motion_attach(c, p);
++        dm_haptics_apple_controller(p, c);
+         npad_name(p, nb, sizeof nb); LOG("controller '%s' connected: player %d (npad %s)%s", pad_name(c), p + 1, nb, c.motion.hasRotationRate ? ", with motion (gyro)" : "");
+         read_pad(c.extendedGamepad);
+     }
+@@ -792,6 +794,7 @@ static int cp_waiting(void) {   // connected controllers that are no player yet
+     g_cp_count.text = @(t[CP_TEXT_COUNT]);
+     g_cp_done_btn.enabled = cp_can_confirm(&g_cp);
+ }
++void dm_gamepad_pads_read(void);
+ // One step of the prompt (a button, a touch on the card, a controller joining, coming or going); returns whether it keeps the game's input
+ static int cp_poll(void) {
+     if (g_cp.phase == CP_IDLE) return 0;
+@@ -805,7 +808,7 @@ static int cp_poll(void) {
+         g_cp_ok = g_cp.ok; dispatch_semaphore_signal(g_cp_done);
+         ph = cp_step(&g_cp, joined, 0, a, b, 0, 0);   // nothing held: the game has its input at once
+     }
+-    if (ph == CP_IDLE) { for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) read_pad(g_held[p].extendedGamepad); return 0; }   // each controller read as it is now
++    if (ph == CP_IDLE) { dm_gamepad_pads_read(); return 0; }   // each controller read as it is now
+     return 1;
+ }
+ int front_ctrl_support(int min, int max) {

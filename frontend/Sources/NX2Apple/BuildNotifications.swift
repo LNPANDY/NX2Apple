@@ -77,7 +77,7 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
         UNUserNotificationCenter.current().delegate = self
         watching = m.$done.removeDuplicates().dropFirst().sink { [weak self, weak m, weak library] done in MainActor.assumeIsolated {
             guard let self, let m, let library else { return }
-            if m.running { return }   // a reset between builds: done flips false while nothing has ended yet
+            if m.running || !m.buildingGame { return }   // a reset between builds: done flips false while nothing has ended yet
             // `done` is the chain's own verdict: the Mac target sets it when the .app exists, the iPhone target
             // when the pack-install chain finished (its script ends earlier, with `running` false while work goes
             // on — a `running`-based notice read that window as a failure, and a done-based one missed nothing).
@@ -97,7 +97,7 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
         let titleID = m.gameTitleID ?? ""
         let game = library.games.first { $0.titleID == titleID }
         let name = game?.name ?? GameLibrary.title(for: m.gameFolder?.folder ?? m.basePath, repo: m.repo.path, titleID: titleID)
-        let text = BuildNotice.text(outcome, game: name, target: m.target, device: m.installedOn.isEmpty ? nil : m.devices.deviceName(m.installedOn), m.t)
+        let text = BuildNotice.text(outcome, game: name, target: m.runningTarget, device: m.installedOn.isEmpty ? nil : m.devices.deviceName(m.installedOn), m.t)
         let content = UNMutableNotificationContent()
         content.title = text.title
         content.body = text.body
