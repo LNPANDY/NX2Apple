@@ -543,7 +543,7 @@ jobs:
           if [ "$PROMOTE" = true ]; then engine="$RC_DIR/NX2Apple-engine.zip" app="$RC_DIR/NX2Apple-macOS-arm64.zip"; fi
           python tools/release_manifest.py publish \
             --engine-zip "$engine" --app-zip "$app" \
-            --version "$VERSION" --channel stable --tag "$GITHUB_REF_NAME" \
+            --version "$VERSION" --channel stable --tag "$GITHUB_REF_NAME" --upstream-date auto \
             --out "$RUNNER_TEMP/publish" --upload
 
       - name: Release candidate notes (the engine build it tests)
@@ -580,10 +580,12 @@ jobs:
       - name: Engine publishing dry run (a throwaway key, nothing uploaded)
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python tools/release_manifest.py publish \
             --engine-zip "$RUNNER_TEMP/engine-out/NX2Apple-engine.zip" --app-zip frontend/NX2Apple-macOS-arm64.zip \
-            --version "${{ steps.ver.outputs.version }}" --channel stable --tag "v${{ steps.ver.outputs.version }}" \
+            --version "${{ steps.ver.outputs.version }}" --channel stable --tag "v${{ steps.ver.outputs.version }}" --upstream-date auto \
             --out "$RUNNER_TEMP/publish" --ephemeral-key
           cat "$RUNNER_TEMP/publish/latest.json"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
