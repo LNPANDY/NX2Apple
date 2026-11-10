@@ -27,14 +27,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: pending (a fix to patch 0010, goes with seedds/nxnative#460's dataFolder design)
 Reason: Saves need APFS: a game library folder on exFAT, HFS+ or FAT keeps its saves in ~/Library instead of dropping them
 Issue: LNPANDY/NX2Apple#123
-
 ---
  dm/mac/launcher.c                  | 84 ++++++++++++++++++++++--------
  dm/tools/tests/test_nsp_mac_app.py | 44 ++++++++++++++++
  2 files changed, 106 insertions(+), 22 deletions(-)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index f36f73b..a3006c6 100644
+index 1d258aa..945bbd5 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -23,6 +23,7 @@
@@ -81,7 +80,7 @@ index f36f73b..a3006c6 100644
          char a[PATH_MAX], b[PATH_MAX];
          snprintf(a, sizeof a, "%s/%s", from, e->d_name);
          snprintf(b, sizeof b, "%s/%s", to, e->d_name);
-@@ -240,6 +256,7 @@ int main(int argc, char **argv) {
+@@ -241,6 +257,7 @@ int main(int argc, char **argv) {
          return 1;
      }
      const char *home = getenv("HOME"); if (!home || !*home) return 1;
@@ -89,7 +88,7 @@ index f36f73b..a3006c6 100644
      char sup[PATH_MAX], save[PATH_MAX], temp[PATH_MAX], logs[PATH_MAX], log[PATH_MAX], prev[PATH_MAX];
      snprintf(sup, sizeof sup, "%s/Library/Application Support/nxnative/%s", home, id);
      snprintf(save, sizeof save, "%s/save", sup); snprintf(temp, sizeof temp, "%s/temp", sup);
-@@ -265,28 +282,50 @@ int main(int argc, char **argv) {
+@@ -266,28 +283,50 @@ int main(int argc, char **argv) {
          // what is needed and reused comes along, so the library folder stays lean.
          char probe[PATH_MAX]; snprintf(probe, sizeof probe, "%s/.nx2apple-library", appdir);
          if (!stat(probe, &st)) {
@@ -161,7 +160,7 @@ index f36f73b..a3006c6 100644
              }
          }
      }
-@@ -300,6 +339,7 @@ int main(int argc, char **argv) {
+@@ -301,6 +340,7 @@ int main(int argc, char **argv) {
      if (fd >= 0) { dup2(fd, 1); dup2(fd, 2); close(fd); setvbuf(stdout, NULL, _IOLBF, 0); }
      fprintf(stderr, "fork patches: %s\n", *fork_patches ? fork_patches : "none");   // first line of the log (Info.plist DMForkPatches)
      fprintf(stderr, "launcher: %s (%s), host %s\n", name, id, host);
@@ -170,10 +169,10 @@ index f36f73b..a3006c6 100644
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
      for (const char **key=(const char *[]){"DM_KEYMAP","DM_PAD_MAP",NULL}; *key; key++) if(getenv(*key)) add_key(&g_launch_keys,*key);
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 7304908..df26f2e 100644
+index d3bc98b..8e89ff7 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -705,6 +705,50 @@ int main(void) { @autoreleasepool {
+@@ -743,6 +743,50 @@ int main(void) { @autoreleasepool {
          self.assertIn('standin host output', (logs / f'{TID}.prev.log').read_text())
          self.assertEqual(self.host_run()['DM_LANG'], 'fr')   # Info.plist DMLanguage
  

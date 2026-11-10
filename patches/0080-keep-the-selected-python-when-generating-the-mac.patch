@@ -40,7 +40,7 @@ index 33ba8bf..1365fd5 100644
  
  - **The host's shaders compiled when the host is built** (`dm/gfx/msl`, `host_msl_lib`): the HUD's `Compiled 2 shaders … 102.70ms` in play on an iPhone 17 Pro Max came from clear-triangle libraries compiled from source when a new room first issued a scissored clear; [The host's own shaders compiled from source at run time](../../../docs/reference/shaders.md#the-hosts-own-shaders-compiled-from-source-at-run-time).
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 3b91311..385563a 100644
+index 6bab943..0959180 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -1,14 +1,17 @@
@@ -63,7 +63,7 @@ index 3b91311..385563a 100644
  ifeq ($(GAME_DIR),)
  $(error no game profile $(GAME) (neither in dm/games nor in DM_GAMES_DIR))
  endif
-@@ -54,7 +57,7 @@ MSL_SRC = $(sort $(wildcard ../gfx/msl/*.metal))
+@@ -56,7 +59,7 @@ MSL_SRC = $(sort $(wildcard ../gfx/msl/*.metal))
  MSL_H = gen/msl-$(MSL_SDK)/host_msl_gen.h
  # Recheck the toolchain and target on every build; the generator keeps the header unchanged when its inputs match.
  $(MSL_H): $(MSL_SRC) ../gfx/tools/host_msl.py FORCE
@@ -72,7 +72,7 @@ index 3b91311..385563a 100644
  .PHONY: host_msl
  host_msl: $(MSL_H)
  .DEFAULT_GOAL := dmhost   # The header generation rules are written first below, so the default goal must be stated explicitly (otherwise make only generates the headers and does not build the host)
-@@ -62,7 +65,7 @@ host_msl: $(MSL_H)
+@@ -64,7 +67,7 @@ host_msl: $(MSL_H)
  game_profile: $(GAME_H)
  # Regenerated on every make (FORCE): the same GAME can come from another profile folder (DM_GAMES_FIRST), whose game.tsv may be older than the header; game.py writes it only when it changes
  $(GAME_H): $(GAME_DIR)/game.tsv ../games/game.py FORCE
@@ -152,28 +152,28 @@ index 6175a81..6ce3573 100644
          nsp = script('build_ipa_from_nsp')
          self.host_dirs(nsp.HOST_DIRS)
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index 34b50e2..aaf7af6 100644
+index 497ea23..c85b1ed 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
-@@ -40,6 +40,13 @@
- 
- ## Build tools
+@@ -47,6 +47,13 @@
+ - **Fix:** both are committed as native universal executables (NativeAOT, arm64 and x86_64), `dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate` and `dm/tools/nx_extract_bin/nx_extract`, which `dm/tools/native_tools.sh` builds (the .NET SDK is needed only there). Each embeds its sources and prints their digest with `--source-sha`: `tool_lock.py` refuses a translator, and the NSP script (`find_nx_extract`) an `nx_extract`, not built from the sources in the repository, and the lock records the translator's own fingerprint in place of its dlls'. The NSP script no longer asks for `dotnet`, sets `DOTNET_ROOT` or builds `nx_extract`. `dm/tools/tests/test_native_tools.py` checks that both are universal, alone in their folders, built from their sources and, for the translator, the lock's. Measured before landing: the native translator wrote the same SPIR-V, reflection files and messages as the framework-dependent one for 2,058 shaders of Octopath Traveler II (Maxwell) and 672 of Splatoon Raiders (Ampere), byte for byte, and the native `nx_extract` the same ExeFS and merged RomFS image (651 MB) of Big Brain Academy: Brain vs. Brain with its update, and the same `--contents` and `--keys` output. The cost: each translator rebuild adds about 1.4 MB to the repository's history (the dlls about 0.3 MB), since the executable holds the runtime; the build is not byte-reproducible, so a rebuild only follows a source change.
+ - **Found on:** every game's build; reported in [GitHub issue #1853](https://github.com/seedds/nxnative/issues/1853).
  
 +### The Mac host build starts an older Python than the pipeline
 +
 +- **Symptom:** the Mac host step fails in `host_msl.py` with `TypeError: __init__() got an unexpected keyword argument 'capture_output'`, although the launcher reports a recent bundled Python.
 +- **Cause:** the pipeline runs under the selected interpreter, but the host Makefile started `python3` by name. The pipeline's tool folders could put an older installation before the bundled interpreter on `PATH`.
-+- **Fix:** `build_mac_host` passes its exact `sys.executable` to both Make invocations as `PYTHON`. The host Makefile quotes that setting for its shader and profile generators, including parse-time profile lookup. Direct Make builds default to `python3` and can set `PYTHON` explicitly. `PATH` and .NET SDK selection are unchanged. Synthetic tests execute the real shader-header target with an unusable `python3` on `PATH` and an explicitly selected versioned interpreter in a path with spaces.
++- **Fix:** `build_mac_host` passes its exact `sys.executable` to both Make invocations as `PYTHON`. The host Makefile quotes that setting for its shader and profile generators, including parse-time profile lookup. Direct Make builds default to `python3` and can set `PYTHON` explicitly. `PATH` is unchanged. Synthetic tests execute the real shader-header target with an unusable `python3` on `PATH` and an explicitly selected versioned interpreter in a path with spaces.
 +- **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md), version 3.0.0, reported with bundled Python 3.13 and a child Python 3.6 in [NX2Apple issue #711](https://github.com/LNPANDY/NX2Apple/issues/711). The interpreter failure was reproduced synthetically, without game files or a gameplay check.
 +
  ### Homebrew .NET is on PATH but apphosts cannot find the runtime
  
  - **Symptom:** the first extraction stops with `nx_extract exit code 131` and `.NET location: Not found`, even though `dotnet` is on `PATH`. The shader translator can fail the same way.
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 9b75ceb..529214a 100755
+index 3594574..64b9d93 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1721,8 +1721,8 @@ def build_mac_host(repo, out, env, logs, g):
+@@ -1722,8 +1722,8 @@ def build_mac_host(repo, out, env, logs, g):
      and the macOS SDK) are as at the last build into out. The host runs the game's own arm64 code natively, so an Intel Mac stops here (GitHub issue #54)"""
      if not apple_silicon(): raise BuildError('this step boots the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
      host = repo / 'dm/host'

@@ -13,7 +13,7 @@ describes the rows. Apply after engine-544.diff (they touch the same lines of se
 
 Tests: test_launcher_settings.py (the rows, their options and defaults, none on a Mac, the iPhone-only set).
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: pending [builds on the touch patches 0065 to 0070 and 0090, forwarded once those land upstream]
 Reason: A standalone game app offers the same touch-control size and left stick choices as the shared shell
 Issue: LNPANDY/NX2Apple#991
 ---
@@ -23,7 +23,7 @@ Issue: LNPANDY/NX2Apple#991
  3 files changed, 17 insertions(+), 2 deletions(-)
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 141b0d86..89c69f17 100644
+index 141b0d8..89c69f1 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -26,6 +26,8 @@ DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		lev
@@ -36,7 +36,7 @@ index 141b0d86..89c69f17 100644
  DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1
  DM_RUMBLE_MIN	range	0:0.9:0.05	0	always	Controls	Rumble cutoff
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 411b74bb..eb718119 100644
+index 9a48a50..c796c51 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -92,6 +92,13 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -63,7 +63,7 @@ index 411b74bb..eb718119 100644
          self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
          s = mac['DM_FULLSCREEN']
 diff --git a/docs/settings.md b/docs/settings.md
-index 762201a1..b135b367 100644
+index 8d75ce0..2f166f3 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -4,7 +4,7 @@ The screen before the game starts shows the settings the game supports. A settin
@@ -75,7 +75,7 @@ index 762201a1..b135b367 100644
  - [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Downsample HDR textures](#downsample-hdr-textures), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
  - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
  - [In-game menu](#in-game-menu)
-@@ -97,6 +97,10 @@ Shows the frames per second at the top left.
+@@ -99,6 +99,10 @@ Shows the frames per second at the top left.
  
  A light tap from the phone when you press an on-screen button.
  
@@ -86,7 +86,7 @@ index 762201a1..b135b367 100644
  ### Game rumble
  
  The game's vibration, on the phone or on a connected controller.
-@@ -289,6 +293,8 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+@@ -291,6 +295,8 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
  | Picture shape | `DM_SCREEN_ASPECT` | `auto` the app window's own shape where it is taller than 16:9 (iPad 4:3, iPhone Duo 1.43:1), else 16:9 (iOS only); `1.43` the iPhone Duo's shape, `0` 16:9 |
  | Frame-rate counter | `DM_SHOW_FPS` | `1`, `0` |
  | Touch feedback | `DM_TOUCH_HAPTICS` | `1`, `0` |

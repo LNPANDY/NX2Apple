@@ -18,10 +18,10 @@ Issue: LNPANDY/NX2Apple#976
  1 file changed, 35 insertions(+)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index aeb2ae7..2a5bec9 100755
+index a6eec15..f9ca196 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -607,6 +607,41 @@ def dotnet_sdk10_first(env):
+@@ -615,6 +615,41 @@ def dotnet_sdk10_first(env):
  
  
  # ---- NSP identification ----

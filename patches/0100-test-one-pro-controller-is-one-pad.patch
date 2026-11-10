@@ -21,10 +21,10 @@ Issue: LNPANDY/NX2Apple#971
  1 file changed, 27 insertions(+)
 
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index a1daf6f..30165a7 100644
+index 4ca4646..3041d62 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -910,6 +910,32 @@ static void test_generic_unknown_identity(void) {
+@@ -962,6 +962,32 @@ static void test_generic_unknown_identity(void) {
      hidpad_removed(NULL,kIOReturnSuccess,NULL,(__bridge IOHIDDeviceRef)puck); hid_fixture_finish();
      puts("Generic HID missing identity and deferred admission recover without duplicate raw routes: OK");
  }
@@ -57,7 +57,7 @@ index a1daf6f..30165a7 100644
  int main(int argc, char **argv) {
      @autoreleasepool {
          g_devices = [NSMutableArray array]; g_maps = [NSMutableDictionary dictionary];
-@@ -938,6 +964,7 @@ int main(int argc, char **argv) {
+@@ -990,6 +1016,7 @@ int main(int argc, char **argv) {
          test_home_quit_routing();
          test_generic_hid_ownership();
          test_generic_unknown_identity();

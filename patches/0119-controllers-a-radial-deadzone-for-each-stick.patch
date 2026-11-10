@@ -15,7 +15,7 @@ stick_deadzone.h holds the pure math (the same radial rescale steam_deadzone use
 t_stick_deadzone.c tests the switch text, the unchanged default, the centred inside, the rescale, full travel
 and monotonic output. docs/env_switches.tsv lists both switches.
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: forwarded seedds/nxnative#2101
 Reason: The Mac launcher's Controls settings offer left and right deadzones with a live preview and need a general engine switch
 Issue: LNPANDY/NX2Apple#1025
 ---
@@ -29,7 +29,7 @@ Issue: LNPANDY/NX2Apple#1025
  create mode 100644 dm/host/tests/t_stick_deadzone.c
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index ebe65345..99e21649 100644
+index 3d229cb..e836810 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -7,6 +7,7 @@
@@ -59,7 +59,7 @@ index ebe65345..99e21649 100644
  }
 diff --git a/dm/host/stick_deadzone.h b/dm/host/stick_deadzone.h
 new file mode 100644
-index 00000000..36fa9e79
+index 0000000..36fa9e7
 --- /dev/null
 +++ b/dm/host/stick_deadzone.h
 @@ -0,0 +1,27 @@
@@ -91,7 +91,7 @@ index 00000000..36fa9e79
 +    *y = (int32_t)lrintf(fmaxf(-1, fminf(1, fy * scale)) * DM_STICK_MAX);
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 6f2c4510..a72ec863 100644
+index 6f2c451..a72ec86 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -426,7 +426,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
@@ -107,7 +107,7 @@ index 6f2c4510..a72ec863 100644
  $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_stick_deadzone.c b/dm/host/tests/t_stick_deadzone.c
 new file mode 100644
-index 00000000..d9ac75c2
+index 0000000..d9ac75c
 --- /dev/null
 +++ b/dm/host/tests/t_stick_deadzone.c
 @@ -0,0 +1,52 @@
@@ -164,10 +164,10 @@ index 00000000..d9ac75c2
 +    return 0;
 +}
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 4b075826..44fe595a 100644
+index b672e10..3363f23 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -358,6 +358,8 @@ DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it
+@@ -362,6 +362,8 @@ DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it
  DM_SPIN_POLL	switch	`=<µs>`: how long a spin-gate wait polls before it sleeps with the yield back-off (default 2000; `0` yields on every pass)
  DM_STEAM_DEADZONE	switch	`=0..0.9` (exclusive upper bound) sets the radial deadzone for both raw Steam Controller sticks; default 0.10, `0` disables it; invalid values use the default
  DM_STEAM_HID	switch	`=0` disables the Mac direct Steam Controller HID adapter and leaves input to Apple GameController; enabled otherwise

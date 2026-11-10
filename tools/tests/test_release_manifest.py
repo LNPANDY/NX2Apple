@@ -228,6 +228,67 @@ class Manifest(unittest.TestCase):
         self.assertFalse([c for c in self.calls(log) if c[:2] == ['release', 'create']])
         self.assertTrue(all('--clobber' in c for c in self.calls(log) if c[:2] == ['release', 'upload']))
 
+    # ---- the upstream date (LNPANDY/NX2Apple#1095) ----
+
+    def test_the_upstream_date_is_in_the_manifest_only_when_given(self):
+        out = self.publish('--upstream-date', '2026-10-30T18:12:44Z')
+        self.assertEqual(json.loads((out / 'latest.json').read_bytes())['upstream_date'], '2026-10-30T18:12:44Z')
+        out = self.publish(out='out2')
+        self.assertNotIn('upstream_date', json.loads((out / 'latest.json').read_bytes()))
+
+    def test_a_malformed_upstream_date_is_refused(self):
+        self.publish('--upstream-date', 'yesterday', expect=2)
+
+    def test_auto_asks_the_github_api_for_the_date_of_the_pin(self):
+        d = self.tmp / 'bin'; d.mkdir(exist_ok=True)
+        log = self.tmp / 'gh.log'
+        gh = d / 'gh'
+        gh.write_text(f'#!/bin/sh\necho "$@" >> "{log}"\necho 2026-10-29T01:02:03Z\n')
+        gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+        os.environ['PATH'] = f'{d}:{os.environ["PATH"]}'
+        out = self.publish('--upstream-date', 'auto')
+        self.assertEqual(json.loads((out / 'latest.json').read_bytes())['upstream_date'], '2026-10-29T01:02:03Z')
+        self.assertIn(f'api repos/seedds/nxnative/commits/{PIN}', log.read_text())
+
+    def test_auto_leaves_the_field_out_when_the_api_does_not_answer(self):
+        d = self.tmp / 'bin'; d.mkdir(exist_ok=True)
+        gh = d / 'gh'
+        gh.write_text('#!/bin/sh\nexit 1\n')
+        gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+        os.environ['PATH'] = f'{d}:{os.environ["PATH"]}'
+        out = self.publish('--upstream-date', 'auto')
+        self.assertNotIn('upstream_date', json.loads((out / 'latest.json').read_bytes()))
+
+    def published(self, **fields):
+        p = self.tmp / 'published.json'
+        p.write_text(json.dumps({'pin': 'a' * 40, **fields}))
+        return str(p)
+
+    def guard(self, *extra):
+        return R.main(['guard', '--engine-zip', str(self.engine), *extra])
+
+    def test_the_guard_refuses_an_engine_on_an_older_pin_than_the_published_one(self):
+        m = self.published(upstream_date='2026-11-02T00:00:00Z')
+        self.assertEqual(self.guard('--published-manifest', m, '--new-date', '2026-10-30T00:00:00Z'), 1)
+
+    def test_the_guard_lets_a_newer_or_equal_pin_through(self):
+        m = self.published(upstream_date='2026-10-30T00:00:00Z')
+        self.assertEqual(self.guard('--published-manifest', m, '--new-date', '2026-11-02T00:00:00Z'), 0)
+        self.assertEqual(self.guard('--published-manifest', m, '--new-date', '2026-10-30T00:00:00Z'), 0)
+
+    def test_the_guard_publishes_when_nothing_is_published_or_a_date_is_unknown(self):
+        self.assertEqual(self.guard('--published-manifest', str(self.tmp / 'none.json'), '--new-date', '2026-10-30T00:00:00Z'), 0)
+        self.assertEqual(self.guard(), 0)
+        gone = self.tmp / 'bin'; gone.mkdir(exist_ok=True)
+        gh = gone / 'gh'; gh.write_text('#!/bin/sh\nexit 1\n'); gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
+        os.environ['PATH'] = f'{gone}:{os.environ["PATH"]}'
+        self.assertEqual(self.guard('--published-manifest', self.published(), '--new-date', '2026-10-30T00:00:00Z'), 0, 'the old date is unknown')
+
+    def test_the_guard_takes_the_published_date_from_the_manifest_before_the_api(self):
+        m = self.published(upstream_date='2026-11-02T00:00:00Z')
+        self.assertEqual(self.guard('--published-manifest', m, '--new-date', '2026-10-01T00:00:00Z', '--published-date', '2026-09-01T00:00:00Z'), 0,
+                         'an explicit --published-date wins')
+
     def test_a_dry_run_calls_gh_never(self):
         log = self.fake_gh(exists=True)
         self.publish()
@@ -414,6 +475,28 @@ class ReleaseCandidate(unittest.TestCase):
         os.environ['GITHUB_ACTIONS'] = 'true'
         code, text = self.check(self.publish_rc(), built=self.zip('built-engine.zip', PIN + '-000000000000'))
         self.assertEqual(code, 1); self.assertIn('::error title=Not the tested build::', text)
+
+
+class UpstreamDateDecision(unittest.TestCase):
+    """The pure part of the guard: no gh, no network, no key."""
+
+    def test_older_means_refuse(self):
+        ok, why = R.publish_decision('2026-10-30T00:00:00Z', '2026-11-02T00:00:00Z')
+        self.assertFalse(ok); self.assertIn('newer', why)
+
+    def test_equal_and_newer_publish(self):
+        self.assertTrue(R.publish_decision('2026-11-02T00:00:00Z', '2026-11-02T00:00:00Z')[0])
+        self.assertTrue(R.publish_decision('2026-11-03T00:00:00Z', '2026-11-02T00:00:00Z')[0])
+
+    def test_an_unknown_or_malformed_date_publishes(self):
+        for new, old in ((None, '2026-11-02T00:00:00Z'), ('2026-10-30T00:00:00Z', None), ('x', 'y'), ('', '')):
+            self.assertTrue(R.publish_decision(new, old)[0], (new, old))
+
+    def test_parse_utc_takes_only_the_manifest_format(self):
+        self.assertIsNotNone(R.parse_utc('2026-11-02T00:00:00Z'))
+        for bad in (None, 5, '2026-11-02', '2026-11-02T00:00:00+01:00', '2026-11-02 00:00:00Z'):
+            self.assertIsNone(R.parse_utc(bad), bad)
+
 
 
 if __name__ == '__main__':

@@ -19,7 +19,7 @@ the keys that are on and adds them to the pressed buttons.
 Tests: pad_geometry_check.m (the value's form, skipped names, the limit),
 test_env_switches.py (the new row).
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: pending [builds on the touch patches 0065 to 0070 and 0090, forwarded once those land upstream]
 Reason: Touch keys that toggle, set per key in the shell's touch layout editor
 Issue: LNPANDY/NX2Apple#658
 ---
@@ -30,7 +30,7 @@ Issue: LNPANDY/NX2Apple#658
  4 files changed, 58 insertions(+), 5 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 9705efb..fea85a8 100644
+index 5f719bc..d283f74 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -12,6 +12,8 @@
@@ -191,10 +191,10 @@ index b78567b..fa8d893 100644
      check_duo_outer_custom_bounds();
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 44fe595..cf66148 100644
+index 3363f23..f8111e9 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -401,6 +401,7 @@ DM_TOUCH_LAYOUT	player	The player's per-layout touch-control arrangement, encode
+@@ -405,6 +405,7 @@ DM_TOUCH_LAYOUT	player	The player's per-layout touch-control arrangement, encode
  DM_TOUCH_LOG	diagnostic	`=1` logs each touch-screen read with touch points (sample, finger, position, attributes) and each gesture entry, up to 500 lines
  DM_TOUCH_SIZE	player	iOS touch-control size: small, medium (default) or large. Controls move toward medium when the requested size does not fit
  DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or inward

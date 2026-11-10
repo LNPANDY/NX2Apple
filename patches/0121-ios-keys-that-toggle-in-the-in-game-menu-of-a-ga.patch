@@ -15,7 +15,7 @@ stops toggling is released.
 Tests: pad_geometry_check.m (dm_pad_toggle_encode reads back, skips what
 cannot toggle).
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: pending [builds on the touch patches 0065 to 0070 and 0090, forwarded once those land upstream]
 Reason: Touch keys that toggle in a game's own app, which has no layout editor
 Issue: LNPANDY/NX2Apple#658
 ---
@@ -41,7 +41,7 @@ index a7e9c69..8384701 100644
  bool dm_setting_live(const char *env, const char *value);
  void *dm_quit_menu(void);   // front_ios.m: the menu's last item, Quit <game>, which opens the quit prompt (a retained UIMenu, shown inline)   // front_ios.m: value NULL asks whether the running game takes env at once; otherwise applies it
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index fea85a8..7f98402 100644
+index d283f74..6d9ff7d 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -14,6 +14,8 @@
@@ -124,7 +124,7 @@ index fea85a8..7f98402 100644
  - (void)setTouchFeedback:(BOOL)on {
      if (!on) { _touchFeedback = nil; return; }
      if (!_touchFeedback) { _touchFeedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight]; [_touchFeedback prepare]; }
-@@ -844,6 +869,9 @@ int front_ctrl_support(int min, int max) {
+@@ -847,6 +872,9 @@ int front_ctrl_support(int min, int max) {
  int dm_pad_layout(void) { return g_view ? [g_view padLayout] : 0; }
  bool dm_pad_layout_offered(int layout) { return layout == 0 || layout == 1 || (layout == 2 && dm_opmode() == 0); }
  void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }

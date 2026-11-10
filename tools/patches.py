@@ -35,7 +35,7 @@ KINDS = ('forwarded', 'pending', 'fork-only', 'backport')
 # The shader chain and the tool pins (the engine's AGENTS.md: the DMSH_CHAIN paragraph names them; chain_paths() reads it).
 # Used only when that file has no such paragraph.
 CHAIN_FALLBACK = ('dm/gfx/nvn/dmsh_chain.h', 'dm/gfx/tools/dmsh_*', 'dm/gfx/tools/Program.cs', 'dm/gfx/tools/ios_metal.py',
-                  'dm/gfx/tools/dmsh_chain.lock', 'dm/gfx/tools/dmsh_xlate_bin*')
+                  'dm/gfx/tools/dmsh_chain.lock', 'dm/gfx/nvn/dmsh_abi.h')
 
 
 class Fail(Exception):

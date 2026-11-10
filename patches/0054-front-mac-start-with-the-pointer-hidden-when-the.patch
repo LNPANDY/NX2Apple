@@ -41,7 +41,7 @@ index 0c82bd1..6800260 100644
          }
          for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 20ee604..39fea35 100644
+index 3868a3a..412f3ab 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -23,6 +23,7 @@ DM_COPY_GAME_RESOURCES	switch	`NO` skips the Xcode build phase that copies the g

@@ -37,10 +37,9 @@ test_env_switches.py and test_docs.py.
 Front-ends: new: DM_HOME_MENU_LAUNCHER=1 and DM_LAUNCHER_BUNDLE_ID give a Mac game a Back to console mode row that pauses it in the background, org.nxnative.resume.<pid> and org.nxnative.quit.<pid> control it, org.nxnative.paused.<pid> and org.nxnative.resumed.<pid> report it
 Front-ends: new: DM_HOME_QUIT_TEXT takes three more lines (Resume, Back to console mode, the menu title)
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: pending [builds on controllers_mac from seedds/nxnative#221, forwarded once it lands]
 Reason: A Home menu on a short press of Home, and a game paused in the background for the launcher's console mode
 Issue: LNPANDY/NX2Apple#952
-
 ---
  dm/host/controllers_mac.h         |   2 +
  dm/host/controllers_mac.m         |  16 +++
@@ -69,7 +68,7 @@ index bd852c4..991a422 100644
  
  // Called on the main thread when mapped input reaches the game.
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index 9340ae4..f77c760 100644
+index 02a5697..7d6d447 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
 @@ -16,6 +16,7 @@
@@ -80,7 +79,7 @@ index 9340ae4..f77c760 100644
  #include <math.h>
  
  enum { PAD_OFF, PAD_DPAD, PAD_LEFT_STICK, PAD_RIGHT_STICK, PAD_TOUCH };
-@@ -328,6 +329,21 @@ static void controller_reset_motion(DMController *d) {
+@@ -343,6 +344,21 @@ static void joycon_pad_buttons(const joycon_pad *p, int *home, int *a, int *b) {
      }
      return holder;
  }
@@ -568,10 +567,10 @@ index ffc3ab5..be83949 100644
  static NSView *hq_hold_view(NSRect bounds, NSString *label, CAShapeLayer **ring_out) {
      CGFloat k = hq_scale(bounds.size), d = 26 * k, line = 3.5 * k;
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index ae59340..624fe3d 100644
+index 3041d62..5eab427 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
-@@ -788,6 +788,15 @@ static void test_home_quit_routing(void) {
+@@ -835,6 +835,15 @@ static void test_home_quit_routing(void) {
      assert(q.phase==HQ_IDLE && received[gc_slot]);
      report(0,1); now+=HQ_HOLD_S; front_home_poll(); report(1,1);
      assert(q.phase==HQ_QUIT && !received[raw_slot]); // wire A quits, regardless of its guest mapping
@@ -789,7 +788,7 @@ index 0b716c4..0aa2164 100644
      }
      printf("t_home_quit_mac: %d checks, %d failed\n", checks, fails);
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 9711ba9..03df927 100644
+index f8111e9..f5bd416 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -83,9 +83,11 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre

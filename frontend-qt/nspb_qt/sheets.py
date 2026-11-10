@@ -921,3 +921,181 @@ class OnboardingDialog(QDialog):
         else:
             self.m.settings_set('onboardingComplete', True)
             self.accept()
+
+
+class DefenderPromptDialog(QDialog):
+    """Confirmation dialog showing the exact folders, toolchain binaries, and security note before UAC."""
+
+    def __init__(
+        self,
+        model: 'Model',
+        *,
+        title_id: str | None = None,
+        mode: str = 'build',
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.m = model
+        self.title_id = title_id
+        self.mode = mode
+        self.choice = 'cancel'
+        is_remove = mode == 'remove'
+        title_key = 'defender.removePrompt.title' if is_remove else 'defender.prompt.title'
+        body_key = 'defender.removePrompt.body' if is_remove else 'defender.prompt.body'
+        self.setWindowTitle(self.m.t(title_key))
+        self.setMinimumSize(620, 440)
+        self.setStyleSheet(style.STYLESHEET)
+
+        if is_remove:
+            rec_fn = getattr(self.m, 'defender_recorded_info', None)
+            if callable(rec_fn):
+                folders, procs = rec_fn()
+            else:
+                folders, procs = [], []
+            if not folders and not procs:
+                _state, folders, procs = self.m.defender_info(title_id=title_id)
+        else:
+            _state, folders, procs = self.m.defender_info(title_id=title_id)
+        self.folders = list(folders)
+        self.procs = list(procs)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(28, 24, 28, 22)
+        lay.setSpacing(14)
+
+        title = QLabel(self.m.t(title_key))
+        title.setStyleSheet('font-size: 22px; font-weight: 800;')
+        title.setWordWrap(True)
+        lay.addWidget(title)
+
+        body = QLabel(self.m.t(body_key))
+        body.setObjectName('muted')
+        body.setWordWrap(True)
+        lay.addWidget(body)
+
+        grp = CardGroup()
+        r_dirs = QWidget()
+        v_dirs = QVBoxLayout(r_dirs)
+        v_dirs.setContentsMargins(18, 12, 18, 12)
+        v_dirs.setSpacing(4)
+        fh = QLabel(self.m.t('defender.prompt.foldersHeader'))
+        fh.setObjectName('rowTitle')
+        v_dirs.addWidget(fh)
+        dir_scroll = QScrollArea()
+        dir_scroll.setWidgetResizable(True)
+        dir_scroll.setFrameShape(QFrame.NoFrame)
+        dir_scroll.setStyleSheet('background: transparent; border: none;')
+        dir_scroll.setMaximumHeight(110)
+        dir_host = QWidget()
+        dir_host.setStyleSheet('background: transparent;')
+        dir_host_lay = QVBoxLayout(dir_host)
+        dir_host_lay.setContentsMargins(0, 0, 4, 0)
+        dir_host_lay.setSpacing(2)
+        self.folder_list_lbl = QLabel('\n'.join(f'• {f}' for f in self.folders))
+        self.folder_list_lbl.setObjectName('mono')
+        self.folder_list_lbl.setWordWrap(True)
+        dir_host_lay.addWidget(self.folder_list_lbl)
+        dir_scroll.setWidget(dir_host)
+        v_dirs.addWidget(dir_scroll)
+        grp.add_row(r_dirs)
+        grp.add_divider()
+
+        r_procs = QWidget()
+        v_procs = QVBoxLayout(r_procs)
+        v_procs.setContentsMargins(18, 12, 18, 12)
+        v_procs.setSpacing(4)
+        ph = QLabel(self.m.t('defender.prompt.procsHeader'))
+        ph.setObjectName('rowTitle')
+        v_procs.addWidget(ph)
+        proc_scroll = QScrollArea()
+        proc_scroll.setWidgetResizable(True)
+        proc_scroll.setFrameShape(QFrame.NoFrame)
+        proc_scroll.setStyleSheet('background: transparent; border: none;')
+        proc_scroll.setMaximumHeight(110)
+        proc_host = QWidget()
+        proc_host.setStyleSheet('background: transparent;')
+        proc_host_lay = QVBoxLayout(proc_host)
+        proc_host_lay.setContentsMargins(0, 0, 4, 0)
+        proc_host_lay.setSpacing(2)
+        self.proc_list_lbl = QLabel('\n'.join(f'• {p}' for p in self.procs))
+        self.proc_list_lbl.setObjectName('mono')
+        self.proc_list_lbl.setWordWrap(True)
+        proc_host_lay.addWidget(self.proc_list_lbl)
+        proc_scroll.setWidget(proc_host)
+        v_procs.addWidget(proc_scroll)
+        grp.add_row(r_procs)
+        grp.add_divider()
+
+        r_sec = QWidget()
+        v_sec = QVBoxLayout(r_sec)
+        v_sec.setContentsMargins(18, 10, 18, 10)
+        v_sec.setSpacing(2)
+        self.security_note_lbl = QLabel(self.m.t('defender.prompt.securityNote'))
+        self.security_note_lbl.setObjectName('muted')
+        self.security_note_lbl.setWordWrap(True)
+        v_sec.addWidget(self.security_note_lbl)
+        grp.add_row(r_sec)
+        lay.addWidget(grp)
+
+        dont_ask_row = QHBoxLayout()
+        dont_ask_row.setContentsMargins(2, 2, 2, 0)
+        dont_ask_row.setSpacing(10)
+        self.dont_ask_switch = LauncherSwitch(False)
+        dont_ask_row.addWidget(self.dont_ask_switch)
+        self.dont_ask_lbl = QLabel(self.m.t('defender.prompt.dontAskAgain'))
+        self.dont_ask_lbl.setObjectName('muted')
+        self.dont_ask_lbl.setWordWrap(True)
+        dont_ask_row.addWidget(self.dont_ask_lbl, 1)
+        if mode in ('manual', 'remove'):
+            self.dont_ask_switch.hide()
+            self.dont_ask_lbl.hide()
+        lay.addLayout(dont_ask_row)
+
+        lay.addStretch(1)
+
+        foot = QHBoxLayout()
+        foot.setSpacing(10)
+        foot.addStretch(1)
+
+        skip_label = self.m.t('fail.confirm.cancel' if mode in ('manual', 'remove') else 'defender.prompt.skipOnce')
+        self.skip_btn = QPushButton(skip_label.replace('&', '&&'))
+        self.skip_btn.clicked.connect(self._on_cancel if mode in ('manual', 'remove') else self._on_skip)
+        foot.addWidget(self.skip_btn)
+
+        if is_remove:
+            add_label = self.m.t('defender.removePrompt.confirm')
+        elif mode == 'manual':
+            add_label = self.m.t('defender.prompt.confirmApply')
+        else:
+            add_label = self.m.t('defender.prompt.addAndBuild')
+        self.add_btn = QPushButton(add_label.replace('&', '&&'))
+        self.add_btn.setObjectName('danger' if is_remove else 'creamPill')
+        self.add_btn.clicked.connect(self._on_remove if is_remove else self._on_add)
+        foot.addWidget(self.add_btn)
+        lay.addLayout(foot)
+
+        lay.activate()
+        hint_h = max(480, self.sizeHint().height() + 12)
+        self.resize(680, hint_h)
+
+    def _save_dont_ask(self) -> None:
+        if self.mode == 'build' and self.dont_ask_switch.isChecked():
+            self.m.settings_set('defenderPromptDismissed', True)
+
+    def _on_cancel(self) -> None:
+        self.choice = 'cancel'
+        self.reject()
+
+    def _on_skip(self) -> None:
+        self._save_dont_ask()
+        self.choice = 'skip'
+        self.accept()
+
+    def _on_add(self) -> None:
+        self._save_dont_ask()
+        self.choice = 'add'
+        self.accept()
+
+    def _on_remove(self) -> None:
+        self.choice = 'remove'
+        self.accept()

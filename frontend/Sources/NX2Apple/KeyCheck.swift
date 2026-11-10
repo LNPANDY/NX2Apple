@@ -108,7 +108,7 @@ enum KeyCheck {
         return zip(y, masks).map { $0 ^ $1 }
     }
 
-    private static func ecb(_ data: [UInt8], key: [UInt8], encrypt: Bool) -> [UInt8]? {
+    static func ecb(_ data: [UInt8], key: [UInt8], encrypt: Bool) -> [UInt8]? {
         var out = [UInt8](repeating: 0, count: data.count)
         var moved = 0
         let status = CCCrypt(CCOperation(encrypt ? kCCEncrypt : kCCDecrypt), CCAlgorithm(kCCAlgorithmAES), CCOptions(kCCOptionECBMode),

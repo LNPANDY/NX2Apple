@@ -19,7 +19,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Upstream-Status: pending
 Reason: Mac front ends show the game's name in their own language (DMTitleNames from control.nacp)
 Issue: LNPANDY/NX2Apple#895
-
 ---
  dm/mac/pack_app.py                 | 13 ++++--
  dm/tools/fuzz/fuzz_nacp.py         |  5 ++-
@@ -31,7 +30,7 @@ Issue: LNPANDY/NX2Apple#895
  create mode 100644 dm/tools/tests/test_nacp.py
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 96b61191..154fdb5c 100755
+index 0ecb3ee..c7a2e0f 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -5,7 +5,8 @@
@@ -52,7 +51,7 @@ index 96b61191..154fdb5c 100755
  import romfs as rfs
  import shader_lib
  MODULE_FILES = ('*.patched.bin', '*.fixups.tsv', '*.gates.tsv', '*.cuts.tsv', '*.obs.tsv', '*.changed.tsv', 'nro.tsv')   # what the host reads from the module folder (build_ipa.sh copies the same tables but changed.tsv: the iPhone's cheats never write code)
-@@ -137,6 +139,9 @@ def info_plist(a, minos, icon):
+@@ -138,6 +140,9 @@ def info_plist(a, minos, icon):
          p['DMSettings'] = settings_rules(listed)
          lang = next((s['default'] for s in listed if s['env'] == 'DM_LANG'), None)
          if lang: p['DMLanguage'] = lang   # the Game language row's default: --lang, or the game's first language when it lacks that one (settings.py), with or without the window
@@ -62,7 +61,7 @@ index 96b61191..154fdb5c 100755
      return p
  
  
-@@ -275,7 +280,7 @@ def pack(a):
+@@ -276,7 +281,7 @@ def pack(a):
      except (OSError, ValueError): previous = None
      try:
          a = argparse.Namespace(**vars(a))
@@ -71,7 +70,7 @@ index 96b61191..154fdb5c 100755
              if getattr(a, name): setattr(a, name, str(Path(getattr(a, name)).resolve()))
          mods, msls, pso, tables, pairs, fonts, files = selected_inputs(a)
          # --program: the other programs of a game of several programs (index, rewritten modules, RomFS, shader libraries, tables, offline pages; tab-separated), which go in beside the first's as one app
-@@ -285,6 +290,7 @@ def pack(a):
+@@ -286,6 +291,7 @@ def pack(a):
              pa = argparse.Namespace(**{**vars(a), 'patched': patched, 'romfs': prom, 'msl': pmsl, 'tables': ptab, 'pso': None, 'pso_pairs': None, 'aoc': None, 'marker': None})
              pmods, pmsls, _, ptables, _, _, pfiles = selected_inputs(pa)
              programs.append((n, Path(prom), Path(pmsl), Path(phtml), pmods, pmsls, ptables)); files += pfiles
@@ -79,7 +78,7 @@ index 96b61191..154fdb5c 100755
          clang = Path(run(['xcrun', '--find', 'clang']).strip()).resolve()
          swiftc = Path(run(['xcrun', '--find', 'swiftc']).strip())   # not resolved: the driver is a link to swift-frontend, which acts by its name
          sdk = Path(run(['xcrun', '--sdk', 'macosx', '--show-sdk-path']).strip()).resolve()
-@@ -293,7 +299,7 @@ def pack(a):
+@@ -294,7 +300,7 @@ def pack(a):
          if not codesign: raise SystemExit('codesign is not available')
          codesign = Path(codesign).resolve()
          minos = min_os(a.host)
@@ -88,7 +87,7 @@ index 96b61191..154fdb5c 100755
          inputs = {'options': vars(a), 'files': [(str(p), p.stat().st_mode, digest(p), os.readlink(p) if p.is_symlink() else None) for p in files + sources],
                    'trees': [(p, inventory(Path(p))) for p in (a.romfs, a.romfs and f'{a.romfs}.id', a.aoc, a.html, *(str(x[1]) for x in programs), *(str(x[3]) for x in programs)) if p and Path(p).exists()],
                    'tools': [[str(c), c.stat().st_mode, c.stat().st_size, c.stat().st_mtime_ns, c.stat().st_ctime_ns, run([c, '--version']).strip()] for c in (clang, swiftc)] + [
-@@ -394,6 +400,7 @@ def parse(argv):
+@@ -395,6 +401,7 @@ def parse(argv):
      ap.add_argument('--title-id', required=True); ap.add_argument('--name', required=True)
      ap.add_argument('--version'); ap.add_argument('--bundle-id'); ap.add_argument('--category'); ap.add_argument('--lang'); ap.add_argument('--marker', help='the profile\'s romfs_marker')
      ap.add_argument('--icon', help='the game icon (icon.jpg from the control data)')
@@ -97,7 +96,7 @@ index 96b61191..154fdb5c 100755
      return ap.parse_args(argv)
  
 diff --git a/dm/tools/fuzz/fuzz_nacp.py b/dm/tools/fuzz/fuzz_nacp.py
-index 2400cabb..48e9bae6 100644
+index 2400cab..48e9bae 100644
 --- a/dm/tools/fuzz/fuzz_nacp.py
 +++ b/dm/tools/fuzz/fuzz_nacp.py
 @@ -1,7 +1,7 @@
@@ -121,7 +120,7 @@ index 2400cabb..48e9bae6 100644
  
  if __name__ == '__main__':
 diff --git a/dm/tools/nacp.py b/dm/tools/nacp.py
-index d5c4b593..0c3a98f5 100644
+index d5c4b59..0c3a98f 100644
 --- a/dm/tools/nacp.py
 +++ b/dm/tools/nacp.py
 @@ -2,7 +2,7 @@
@@ -180,7 +179,7 @@ index d5c4b593..0c3a98f5 100644
  def version(path):
 diff --git a/dm/tools/tests/test_nacp.py b/dm/tools/tests/test_nacp.py
 new file mode 100644
-index 00000000..e49f7854
+index 0000000..e49f785
 --- /dev/null
 +++ b/dm/tools/tests/test_nacp.py
 @@ -0,0 +1,69 @@
@@ -254,7 +253,7 @@ index 00000000..e49f7854
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index afc1dd59..9912d7c0 100644
+index 48ba155..d8c347a 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -118,7 +118,7 @@ class PackReuse(unittest.TestCase):
@@ -275,7 +274,7 @@ index afc1dd59..9912d7c0 100644
          self.commands = []
          self.clang_version, self.swiftc_version, self.sdk_version = 'clang fixture 1', 'swiftc fixture 1', '27.0'
          self.clang, self.swiftc, self.sdk = t / 'bin/clang', t / 'bin/swiftc', t / 'sdk'
-@@ -207,7 +207,8 @@ class PackReuse(unittest.TestCase):
+@@ -213,7 +213,8 @@ class PackReuse(unittest.TestCase):
                   'pso/gpu.mtl4a', 'pso/prebuilt.tsv', 'pso/rest_pairs.tsv', 'pso/archive.tsv', 'env.txt', 'icon.jpg', 'source/launcher.c',
                   'source/Launcher.swift', 'ios/Sources/LauncherSettings.swift', 'ios/Sources/LauncherRow.swift',   # the settings window's sources
                   'host/input_map.h', 'host/dm_input.h',   # the launcher's headers
@@ -285,7 +284,7 @@ index afc1dd59..9912d7c0 100644
          names += ['profile/' + n for n in pack_app.TABLES]
          for name in names:
              with self.subTest(name=name):
-@@ -457,6 +458,9 @@ class App(unittest.TestCase):
+@@ -463,6 +464,9 @@ class App(unittest.TestCase):
          (t / 'pso').mkdir(); (t / 'pso/applegpu_g14s.mtl4a').write_bytes(b'arch'); (t / 'pso/prebuilt.tsv').write_text('chain\t0123456789ab\n'); (t / 'pso/key.x').write_text('not for the app')
          (t / 'env.txt').write_text('# baked in\nDM_BAKED=1\nDM_BOTH=bundle\n')
          (t / 'launcher.json').write_text('{"game": "x", "settings": []}\n')
@@ -295,7 +294,7 @@ index afc1dd59..9912d7c0 100644
          subprocess.run(['sips', '-s', 'format', 'jpeg', '-z', '256', '256', '/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/GenericApplicationIcon.icns',
                          '--out', t / 'icon.jpg'], check=True, capture_output=True)
          (t / 'bin/osascript').write_text('#!/bin/sh\necho "$@" > "$HOME/alert.txt"\nprintf "%s\\0" "$@" > "$HOME/alert.args"\n'
-@@ -466,7 +470,7 @@ class App(unittest.TestCase):
+@@ -472,7 +476,7 @@ class App(unittest.TestCase):
          cls.args = pack_app.parse([str(cls.app), '--host', str(t / 'dmhost'), '--patched', str(t / 'patched'), '--romfs', str(t / 'romfs'), '--msl', str(t / 'cache/b-0123456789ab'),
                                     '--tables', str(t / 'profile'), '--font', str(t / 'font'), '--aoc', str(t / 'aoc'), '--pso', str(t / 'pso'), '--env-file', str(t / 'env.txt'), '--settings', str(t / 'launcher.json'), '--title-id', TID.lower(),
                                     '--name', 'Game: Test', '--version', '1.0.1', '--lang', 'fr', '--marker', 'region_common/audio/edward.bfsar', '--icon', str(t / 'icon.jpg'),
@@ -304,7 +303,7 @@ index afc1dd59..9912d7c0 100644
          with contextlib.redirect_stdout(io.StringIO()): pack_app.pack(cls.args)
  
      @classmethod
-@@ -524,6 +528,13 @@ class App(unittest.TestCase):
+@@ -530,6 +534,13 @@ class App(unittest.TestCase):
          self.assertEqual(p['DMSettings'], [])   # launcher.json's settings, as the saved choices they accept: none here
          self.assertRegex(p['DMCommit'], r'^[0-9a-f]{12}(\+dirty)?$')   # the packing checkout (scripts/bug_report.py, the host's start line)
          self.assertEqual(p['DMChain'], '0123456789ab')   # the chain of the libraries packed (msl/b-<chain>)
@@ -318,7 +317,7 @@ index afc1dd59..9912d7c0 100644
  
      def test_packed_language_is_the_lists(self):   # --lang a game lacks: the Game language row's default (settings.py: the game's first), with or without the window
          with tempfile.TemporaryDirectory(dir=TEST_ROOT) as d:
-@@ -877,6 +888,7 @@ class Script(unittest.TestCase):
+@@ -883,6 +894,7 @@ class Script(unittest.TestCase):
          self.assertNotIn('--aoc', o); self.assertNotIn('--icon', o)
          self.assertNotIn('--pso', o)   # no shader pairs: no pipeline archive
          self.assertEqual(o['--settings'], str(tmp / 'app/launcher.json'))   # the launcher settings the Mac front end reads, without the iPhone's own switches
@@ -327,10 +326,10 @@ index afc1dd59..9912d7c0 100644
          self.assertEqual((self.settings_env['SETTINGS_PLATFORM'], self.settings_env['GFXAPI'], self.settings_env['DM_LANG']), ('mac', 'nvn', 'en-US'))
          o, tmp = self.pack_cmd('vulkan', aoc=Path('/x/aoc'), sign='Developer ID Application: X (T)')
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index d0c8601e..76c86c31 100755
+index f9ca196..bc726d4 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -3014,7 +3014,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+@@ -3048,7 +3048,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
      split_pairs = work / 'shader/pso_pairs.tsv'   # the split's copy of pso_pairs.tsv, for a profile without the table (as mac_run's DM_PSO_PAIRS)
      for opt, v in (('--version', version), ('--category', g.get('app_category')), ('--marker', g.get('romfs_marker')), ('--aoc', aoc), ('--icon', icon),
                     ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
