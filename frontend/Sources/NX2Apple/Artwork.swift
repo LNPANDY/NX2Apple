@@ -23,7 +23,9 @@ actor ArtworkStore {
     /// The launcher languages whose eShop has its own list in blawar/titledb: names, logos and banners in that language. Chinese
     /// reads Hong Kong's (17,418 titles with a banner, Chinese names; CN.zh has 89). Swedish has no Swedish list (SE.en is
     /// English), so it keeps the US list.
-    static let regionalLists: [String: String] = ["it": "IT.it", "de": "DE.de", "fr": "FR.fr", "ja": "JP.ja", "zh": "HK.zh"]
+    static let regionalLists: [String: String] = [
+        "it": "IT.it", "de": "DE.de", "fr": "FR.fr", "es": "ES.es", "pt-br": "BR.pt", "ja": "JP.ja", "ko": "KR.ko", "zh": "HK.zh",
+    ]
     nonisolated static func titleListURL(for language: String) -> URL? {
         regionalLists[language].flatMap { URL(string: "https://raw.githubusercontent.com/blawar/titledb/master/\($0).json") }
     }
