@@ -2,7 +2,6 @@
 0001-runtime-profile.patch
 0003-ios-game-data-folder.patch
 0004-ios-slim-ipa.patch
-0005-nsp-dotnet-home.patch
 0008-bc-cpu-decode.patch
 0009-mac-keymap.patch
 0010-mac-library-folder.patch
@@ -12,7 +11,6 @@
 0015-fork-docs.patch
 0016-ref-hle-hid-d2r.patch
 0017-fork-patches-stamp.patch
-0018-nsp-dotnet-root-verify.patch
 0024-release-history-changelog.patch
 0031-front-mac-dm-screen.patch
 0032-front-mac-hide-the-pointer-after-a-few-idle-seco.patch
@@ -39,7 +37,6 @@
 0069-ios-shell-compile-the-in-game-menu-so-the-gear-o.patch
 0070-ios-touch-layout.patch
 0071-ios-shell-restore-native-duo-orientation.patch
-0072-nsp-script-the-first-dotnet-with-an-sdk-10-goes.patch
 0073-nsp-script-hand-the-extraction-and-the-shader-sp.patch
 0074-mac-split-a-joy-con-pair-into-two-sideways-contr.patch
 0075-front-mac-hide-the-pointer-before-the-game-takes.patch
@@ -71,7 +68,6 @@
 0106-hid-report-vibration-device-info-for-startup-han.patch
 0107-mac-app-exit-at-once-with-dm-preflight.patch
 0108-pack-app-the-game-s-name-in-each-of-its-language.patch
-0109-nx-extract-control-the-base-game-s-control-data.patch
 0110-mac-app-an-update-without-control-data-gets-no-b.patch
 0111-ios-shell-declare-spanish-korean-and-brazilian-por.patch
 0112-mac-launcher-keep-saves-in-library-when-the-game.patch
@@ -85,4 +81,3 @@
 0120-ios-touch-keys-that-toggle-dm-touch-toggle.patch
 0121-ios-keys-that-toggle-in-the-in-game-menu-of-a-ga.patch
 0122-mac-home-menu-and-background-pause.patch
-0123-splatoon-raiders-shader-tables-are-split-again-w.patch

@@ -9,35 +9,31 @@ Upstream-Status: forwarded seedds/nxnative#485
 Reason: Hades II 1.0.137848 update: build rows, shader_versions v0 v1 and the NVN segment keys
 Issue: LNPANDY/NX2Apple#123
 ---
- dm/games/0100A00019DE0000/game.tsv | 34 +++++++++++++++++++++++++++---
- 1 file changed, 31 insertions(+), 3 deletions(-)
+ dm/games/0100A00019DE0000/game.tsv | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
 
 diff --git a/dm/games/0100A00019DE0000/game.tsv b/dm/games/0100A00019DE0000/game.tsv
-index aca851d..39368d0 100644
+index 0b5390b..b5c1203 100644
 --- a/dm/games/0100A00019DE0000/game.tsv
 +++ b/dm/games/0100A00019DE0000/game.tsv
 @@ -1,4 +1,5 @@
--# Hades II (Supergiant Games' engine on NVN, SDK 19.3.9), base game v0 (the NACP's display version 0.0.126424).
-+# Hades II (Supergiant Games' engine on NVN, SDK 19.3.9 base / 20.5.15 update).
-+# Base game v0 (display version 0.0.126424) and update v1.0.137848 are both registered.
+ # Hades II (Supergiant Games' engine on NVN), base game v0 (the NACP's display version 0.0.126424, SDK 19.3.9) and update v655360 (1.0.141667, SDK 20.5.15).
++# The older update 1.0.137848 is registered too (v1).
  # Started from the NSP script's provisional profile; values marked "Mario's" are not measured for this game yet.
  # Unlike Hades (Vulkan), the Switch version renders with NVN: its 88 shaders are BNSH files in Shaders/NVN/bin (.vert / .frag; the .shader files list each program's pair).
  # The ExeFS has only main and sdk. main's EOS_* imports (Epic Online Services, from nro/EOSSDK-Switch-Shipping.nro, loaded through nn::ro) stay offline: the host
-@@ -16,9 +17,11 @@ app_category	public.app-category.action-games
+@@ -16,8 +17,10 @@ app_category	public.app-category.action-games
  pad_layout	full
  
  # ---- Versions ----
 +# The update's build IDs come from its own ExeFS (the base game's from upstream's profile).
  build	v0	0.0.126424	main=5219053e5eb156be80fbb2f303779531	sdk=d83a56a5558798414c78ec722867a7da
--package	v0
--shader_versions	v0
+ build	v655360	1.0.141667	main=a862861fa2eeedea1d873c94324fca7b	sdk=190030518b5d64e5d87b84bc54661af9
 +build	v1	1.0.137848	main=8ce1ac48e9fa74479051f3520e632df4	sdk=190030518b5d64e5d87b84bc54661af9
-+package	v1
-+shader_versions	v0 v1
- 
- # ---- Files ----
- modules	main sdk
-@@ -36,6 +39,31 @@ mem_stack	0x10000000
+ # The shader tables are v0's and stay so: the update's 55 shaders all have keys among v0's 88 (its shader split gave a subset of v0's map and no facts, pairs or bf_want rows),
+ # so v0's tables are already the union of both, and packing either version needs only what the folder always holds
+ package	v0
+@@ -41,6 +44,31 @@ mem_stack	0x10000000
  app_pool	0xCD500000
  mem_used	0x6c00000
  
