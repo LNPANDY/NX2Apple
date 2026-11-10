@@ -115,7 +115,7 @@ private struct PadTargetModifier: ViewModifier {
         focus.register(id, handlers)
         let on = focus.visible && focus.focused == id
         return content
-            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(LauncherPalette.cream, lineWidth: on ? 2 : 0).padding(ringStyle == .hug ? 0 : -4).allowsHitTesting(false))
+            .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(LauncherPalette.accent, lineWidth: on ? 2 : 0).padding(ringStyle == .hug ? 0 : -4).allowsHitTesting(false))
             .background(GeometryReader { g in
                 Color.clear.preference(key: PadTargetKey.self, value: [.init(id: id, frame: g.frame(in: .named("pad." + scope)))])
             })

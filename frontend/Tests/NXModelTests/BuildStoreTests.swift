@@ -93,6 +93,82 @@ import XCTest
         XCTAssertFalse(store.canBuild, "a build runs")
     }
 
+    // MARK: The keys saved in Settings (#996)
+
+    func testAnEmptyKeysRowTakesTheSavedKeysAndANewStoreReadsThem() throws {
+        let store = makeStore()
+        let keys = try file("prod.keys")
+        store.updateSlot("base") { $0.paths = [try! file("Game [0100000000001000].nsp")] }
+        XCTAssertFalse(store.canBuild, "no keys yet")
+        store.saveKeys(keys)
+        XCTAssertTrue(store.keysRowPath.isEmpty)
+        XCTAssertTrue(store.keysFromSettings)
+        XCTAssertEqual(store.keysPath, keys)
+        XCTAssertTrue(store.canBuild, "the saved keys stand in for the empty row")
+        XCTAssertEqual(makeStore().savedKeys, keys, "kept in the defaults")
+    }
+
+    func testARowWhoseFileIsGoneTakesTheSavedKeysAndARowWithAFileKeepsIt() throws {
+        let store = makeStore()
+        let saved = try file("saved.keys"), own = try file("prod.keys")
+        store.saveKeys(saved)
+        store.updateSlot("keys") { $0.paths = [own] }
+        XCTAssertFalse(store.keysFromSettings)
+        XCTAssertEqual(store.keysPath, own, "the row's own file wins")
+        try FileManager.default.removeItem(atPath: own)
+        XCTAssertTrue(store.keysFromSettings)
+        XCTAssertEqual(store.keysPath, saved, "the library entry's keys were moved: the saved ones stand in")
+        try FileManager.default.removeItem(atPath: saved)
+        XCTAssertFalse(store.keysFromSettings)
+        XCTAssertFalse(store.savedKeysExist)
+        XCTAssertEqual(store.keysPath, own, "nothing to stand in: the row's missing file, which the build reports")
+        XCTAssertFalse(store.keysReady)
+    }
+
+    func testRemoveEmptiesTheSettingAndKeepsTheRow() throws {
+        let store = makeStore()
+        let keys = try file("prod.keys")
+        store.take(picked: [keys], kind: .keys)
+        XCTAssertEqual(store.savedKeys, keys, "a keys file chosen for the row is saved")
+        store.forgetSavedKeys()
+        XCTAssertEqual(store.savedKeys, "")
+        XCTAssertNil(defaults.string(forKey: BuildStore.savedKeysKey))
+        XCTAssertEqual(store.keysRowPath, keys)
+        store.clear("keys")
+        XCTAssertTrue(store.keysPath.isEmpty)
+    }
+
+    func testSettingsChooseSavesThePickedFileAndACancelChangesNothing() throws {
+        let store = makeStore()
+        let keys = try file("prod.keys")
+        var asked: [FilePick] = []
+        store.choosePaths = { asked.append($0); return [] }
+        store.chooseSavedKeys()
+        XCTAssertEqual(store.savedKeys, "")
+        store.choosePaths = { asked.append($0); return [keys] }
+        store.chooseSavedKeys()
+        XCTAssertEqual(store.savedKeys, keys)
+        XCTAssertEqual(asked.last?.fileTypes, GameInputs.allowedFileTypes(for: .keys))
+        XCTAssertEqual(asked.last?.allowsMultiple, false)
+    }
+
+    func testOnlyAChosenKeysFileIsSavedNeverOneAScanFinds() throws {
+        let store = makeStore()
+        let folder = temporary.appendingPathComponent("Game").path
+        try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+        let inside = folder + "/prod.keys"
+        try Data([0]).write(to: URL(fileURLWithPath: inside))
+        try Data([0]).write(to: URL(fileURLWithPath: folder + "/Game [0100000000001000][v0].nsp"))
+        store.scan(folder: folder)
+        XCTAssertEqual(store.keysRowPath, inside)
+        XCTAssertEqual(store.savedKeys, "", "a folder scan fills the row and saves nothing")
+        store.take(dropped: [folder])
+        XCTAssertEqual(store.savedKeys, "", "nor does a dropped folder")
+        let dropped = try file("dropped.keys")
+        store.take(dropped: [dropped])
+        XCTAssertEqual(store.savedKeys, dropped, "a keys file dropped itself is a choice")
+    }
+
     /// #416: the export choice is not an install, so the stop for a missing device and team does not apply to it.
     func testTheExportChoiceNeedsNoDeviceAndNoTeam() {
         let store = makeStore()
@@ -669,5 +745,129 @@ import XCTest
         XCTAssertNil(store.confirmShellMove())
         XCTAssertFalse(store.running)
         XCTAssertNil(defaults.string(forKey: "shellRoot"))
+    }
+
+    // MARK: The check of a new Mac app's first start (#1005)
+
+    /// A Mac app build that has run its stages and packed its app, as the script's exit leaves it: `finishMacApp` comes next.
+    /// Each call packs into a folder of its own in the temporary folder, which tearDown removes with everything in it.
+    private func packedMacApp(_ store: BuildStore) throws -> MacAppOutput {
+        let id = "0100000000010000"
+        let folder = temporary.appendingPathComponent(UUID().uuidString)
+        let output = MacAppOutput(workDir: folder.appendingPathComponent(id + "_build"), key: id, titleID: id, preferred: "")
+        let macOS = output.builderURL.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        for (name, content) in [("game", "DM_PREFLIGHT"), ("dmhost", "")] {   // MacGameBundle.read wants both executable
+            let file = macOS.appendingPathComponent(name)
+            try Data(content.utf8).write(to: file)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
+        let info: [String: Any] = ["DMTitleID": id, "CFBundleExecutable": "game", "CFBundleName": "Journey"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .binary, options: 0)
+            .write(to: output.builderURL.appendingPathComponent("Contents/Info.plist"))
+        store.running = true
+        store.stages = [Stage(id: 6, name: "Shaders", state: .done), Stage(id: 7, name: Stage.localizedName("mac app", store.t), state: .done)]
+        return output
+    }
+
+    func testAMacAppBuildEndsWithTheCheckOfItsFirstStart() async throws {
+        let store = makeStore()
+        let output = try packedMacApp(store)
+        var opened: [URL] = []
+        store.preflightApp = { app, done in
+            opened.append(app)
+            XCTAssertTrue(store.running, "the build runs until macOS has checked the app")
+            XCTAssertFalse(store.done)
+            DispatchQueue.main.async { done(nil) }
+        }
+        await store.finishMacApp(output).value
+        XCTAssertTrue(store.macAppPath.hasPrefix(temporary.path), store.doneNote)
+        XCTAssertEqual(opened.map(\.path), [store.macAppPath])
+        let last = try XCTUnwrap(store.stages.last)
+        XCTAssertEqual(last.id, 8)
+        XCTAssertEqual(last.name, "Verify first start")
+        XCTAssertEqual(last.state, .done)
+        XCTAssertFalse(store.running)
+        XCTAssertTrue(store.done)
+        XCTAssertEqual(store.doneNote, store.t("msg.macAppDone"))
+        XCTAssertTrue(store.log.text.contains(store.t("msg.preflight")), store.log.text)
+    }
+
+    func testNoCheckWhenSwitchedOffOrWhenTheLauncherWouldStartTheGame() async throws {
+        for switchedOff in [true, false] {
+            let store = makeStore()
+            let output = try packedMacApp(store)
+            defaults.set(!switchedOff, forKey: MacPreflight.defaultsKey)
+            store.preflightSupported = { _ in switchedOff }   // off: the switch alone; on: a launcher without DM_PREFLIGHT
+            store.preflightApp = { _, _ in XCTFail("the app was opened") }
+            await store.finishMacApp(output).value
+            XCTAssertEqual(store.stages.map(\.id), [6, 7])
+            XCTAssertFalse(store.running)
+            XCTAssertTrue(store.done, store.doneNote)
+        }
+        defaults.removeObject(forKey: MacPreflight.defaultsKey)
+        XCTAssertTrue(MacPreflight.enabled(defaults), "on unless switched off")
+    }
+
+    func testAFailedCheckLeavesTheBuildDone() async throws {
+        let store = makeStore()
+        let output = try packedMacApp(store)
+        store.preflightApp = { _, done in done(NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "no launch"])) }
+        await store.finishMacApp(output).value
+        let last = try XCTUnwrap(store.stages.last)
+        XCTAssertEqual(last.state, .failed)
+        XCTAssertEqual(last.detail, "no launch")
+        XCTAssertFalse(store.running)
+        XCTAssertTrue(store.done)
+        XCTAssertEqual(store.doneNote, store.t("msg.macAppDone"))
+        XCTAssertTrue(store.log.text.contains(String(format: store.t("msg.preflightFailed"), "no launch")), store.log.text)
+    }
+
+    func testTheCheckEndsAtItsTimeoutOrAtStop() async throws {
+        for stop in [false, true] {
+            let store = makeStore()
+            let output = try packedMacApp(store)
+            store.preflightTimeout = stop ? 60 : 0.05
+            store.preflightApp = { _, _ in if stop { DispatchQueue.main.async { store.stop() } } }   // the app never quits
+            await store.finishMacApp(output).value
+            let last = try XCTUnwrap(store.stages.last)
+            XCTAssertEqual(last.state, .failed)
+            XCTAssertEqual(last.detail, stop ? store.t("msg.stopped") : String(format: store.t("msg.preflightTimedOut"), 0))
+            XCTAssertNil(store.endPreflight)
+            XCTAssertFalse(store.running)
+            XCTAssertTrue(store.done, store.doneNote)
+        }
+    }
+
+    // MARK: Space and the operation (#966, #676, #1059)
+
+    func testABuildDoesNotStartWhenTheVolumeHasLessThanTheGameFilesAndSaysWhatIsKept() throws {
+        let store = makeStore()
+        store.target = BuildTarget.mac
+        store.updateSlot("base") { $0.paths = [try! file("Game [0100000000001000].nsp")] }
+        store.updateSlot("keys") { $0.paths = [try! file("prod.keys")] }
+        store.outDir = temporary.path
+        store.spaceAvailable = { _ in 0 }
+        store.startBuild()
+        XCTAssertFalse(store.running)
+        XCTAssertTrue(store.doneNote.contains("Not enough free space"), store.doneNote)
+        XCTAssertNil(store.operation)
+    }
+
+    func testTheOperationNamesItsGameAndDestinationAndFollowsNeitherTheFormNorTheTarget() {
+        let store = makeStore()
+        store.target = BuildTarget.mac
+        store.runningTarget = BuildTarget.ios
+        store.beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .none)
+        XCTAssertEqual(store.operation, ActiveOperation(kind: .renewingSignature))
+        store.beginOperation(.building, game: "Game A", titleID: "0100000000001000", destination: .target)
+        store.runningTarget = BuildTarget.mac
+        store.beginOperation(.building, game: "Game A", titleID: "0100000000001000", destination: .target)
+        XCTAssertEqual(store.operation?.destination, .thisMac)
+        XCTAssertEqual(store.operation?.title { $0 }, "op.building · Game A · op.thisMac")
+        store.running = true; store.running = false
+        XCTAssertNil(store.operation, "it ends with the work")
+        XCTAssertTrue(ActiveOperation.Kind.building.buildsGame)
+        XCTAssertFalse(ActiveOperation.Kind.renewingSignature.buildsGame, "a re-sign never marks a game as building")
     }
 }

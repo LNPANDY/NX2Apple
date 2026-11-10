@@ -15,6 +15,12 @@
             "value": "\"%@\" is not a DM_ switch."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» no es un interruptor DM_."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -31,6 +37,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "\"%@\" は DM_ スイッチではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”은(는) DM_ 스위치가 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” não é uma chave DM_."
           }
         },
         "sv": {
@@ -61,6 +79,12 @@
             "value": "%@ (from Settings)"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (de Ajustes)"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -77,6 +101,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@（共通設定）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (설정에서)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (dos Ajustes)"
           }
         },
         "sv": {
@@ -107,6 +143,12 @@
             "value": "%@ appears twice in launcher.json."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ aparece dos veces en launcher.json."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -123,6 +165,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ が launcher.json に 2 回出てきます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) launcher.json에 두 번 나옵니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ aparece duas vezes em launcher.json."
           }
         },
         "sv": {
@@ -153,6 +207,12 @@
             "value": "%@ has a wrong or missing value at \"%@\"."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tiene un valor incorrecto o ausente en «%@»."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -169,6 +229,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ の \"%@\" の値が正しくないか、ありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 “%@”에 값이 잘못되었거나 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tem um valor errado ou ausente em “%@”."
           }
         },
         "sv": {
@@ -199,6 +271,12 @@
             "value": "%@ has no \"%@\" (in %@)."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no tiene «%@» (en %@)."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -215,6 +293,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ に \"%@\" がありません（%@ 内）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 “%@”이(가) 없습니다 (%@ 안)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não tem “%@” (em %@)."
           }
         },
         "sv": {
@@ -245,6 +335,12 @@
             "value": "%@ has no \"%@\"."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no tiene «%@»."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -261,6 +357,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ に \"%@\" がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 “%@”이(가) 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não tem “%@”."
           }
         },
         "sv": {
@@ -291,6 +399,12 @@
             "value": "%@ has no game.manifest.json."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no tiene game.manifest.json."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -307,6 +421,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ に game.manifest.json がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 game.manifest.json이 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não tem game.manifest.json."
           }
         },
         "sv": {
@@ -337,6 +463,12 @@
             "value": "%@ has the same title ID %@ as %@, which is used instead."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tiene el mismo ID de título %@ que %@, que es el que se usa."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -353,6 +485,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ のタイトル ID %@ は %@ と同じです。そちらが代わりに使われます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 타이틀 ID %@은(는) %@의 것과 같아서 후자가 대신 사용됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tem o mesmo ID de título %@ que %@, que é o usado."
           }
         },
         "sv": {
@@ -383,6 +527,12 @@
             "value": "%@ has the unknown kind \"%@\"."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tiene el tipo desconocido «%@»."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -399,6 +549,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ の種類 \"%@\" は不明です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 종류 “%@”을(를) 알 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ tem o tipo desconhecido “%@”."
           }
         },
         "sv": {
@@ -429,6 +591,12 @@
             "value": "%@ is a choice without [value, label] options."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ es una opción sin valores [valor, etiqueta]."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -445,6 +613,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ は選択肢ですが、[value, label] のオプションがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) [값, 레이블] 옵션이 없는 선택 항목입니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ é uma escolha sem opções [valor, rótulo]."
           }
         },
         "sv": {
@@ -475,6 +655,12 @@
             "value": "%@ is a range without min, max and step."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ es un intervalo sin mínimo, máximo ni paso."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -491,6 +677,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ は範囲ですが、min、max、step がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 최솟값, 최댓값, 단계가 없는 범위입니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ é um intervalo sem mínimo, máximo e passo."
           }
         },
         "sv": {
@@ -521,6 +719,12 @@
             "value": "%@ is not in this game's folder. Install the game again."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no está en la carpeta de este juego. Vuelve a instalar el juego."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -537,6 +741,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ がこのゲームのフォルダにありません。ゲームをもう一度インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 이 게임의 폴더에 없습니다. 게임을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não está na pasta deste jogo. Instale o jogo de novo."
           }
         },
         "sv": {
@@ -567,6 +783,12 @@
             "value": "%@ is not valid JSON."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no es un JSON válido."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -583,6 +805,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ は正しい JSON ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 올바른 JSON이 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não é um JSON válido."
           }
         },
         "sv": {
@@ -613,6 +847,12 @@
             "value": "%lld additional content packs"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld paquetes de contenido adicional"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -629,6 +869,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "追加コンテンツ %lld 個"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 콘텐츠 팩 %lld개"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld pacotes de conteúdo adicional"
           }
         },
         "sv": {
@@ -659,6 +911,12 @@
             "value": "1 additional content pack"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 paquete de contenido adicional"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -675,6 +933,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "追加コンテンツ 1 個"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 콘텐츠 팩 1개"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 pacote de conteúdo adicional"
           }
         },
         "sv": {
@@ -705,6 +975,12 @@
             "value": "Can't read this game"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede leer este juego"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -721,6 +997,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームを読み込めません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임을 읽을 수 없음"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível ler este jogo"
           }
         },
         "sv": {
@@ -751,6 +1039,12 @@
             "value": "Cancel"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -767,6 +1061,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "キャンセル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "취소"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancelar"
           }
         },
         "sv": {
@@ -797,6 +1103,12 @@
             "value": "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una carpeta RomFS o romfs.img en este dispositivo, un disco externo o iCloud Drive."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -813,6 +1125,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このデバイス、外付けドライブ、または iCloud Drive にある RomFS フォルダか romfs.img を選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기, 외장 드라이브 또는 iCloud Drive에서 RomFS 폴더나 romfs.img를 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma pasta RomFS ou romfs.img neste dispositivo, em um disco externo ou no iCloud Drive."
           }
         },
         "sv": {
@@ -843,6 +1167,12 @@
             "value": "Controller"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mando"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -859,6 +1189,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "コントローラー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨트롤러"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controle"
           }
         },
         "sv": {
@@ -889,6 +1231,12 @@
             "value": "Default"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predeterminado"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -905,6 +1253,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "デフォルト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기본"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Padrão"
           }
         },
         "sv": {
@@ -935,6 +1295,12 @@
             "value": "Done"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listo"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -951,6 +1317,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "完了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Concluir"
           }
         },
         "sv": {
@@ -981,6 +1359,12 @@
             "value": "Game code missing"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta el código del juego"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -997,6 +1381,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "ゲームのコードがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 코드 없음"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta o código do jogo"
           }
         },
         "sv": {
@@ -1027,6 +1423,12 @@
             "value": "Game files damaged"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivos del juego dañados"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1043,6 +1445,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "ゲームファイルが破損しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 파일 손상"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivos do jogo danificados"
           }
         },
         "sv": {
@@ -1073,6 +1487,12 @@
             "value": "Game manifest missing"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta el manifiesto del juego"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1089,6 +1509,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "ゲームのマニフェストがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 매니페스트 없음"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta o manifesto do jogo"
           }
         },
         "sv": {
@@ -1119,6 +1551,12 @@
             "value": "Keep holding to quit"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sigue manteniendo para salir"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1135,6 +1573,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "押し続けると終了します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "계속 누르고 있으면 종료"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Continue segurando para sair"
           }
         },
         "sv": {
@@ -1165,6 +1615,12 @@
             "value": "Launching is not available yet."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía no se puede iniciar."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1181,6 +1637,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "まだ起動できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 실행할 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não é possível iniciar."
           }
         },
         "sv": {
@@ -1211,6 +1679,12 @@
             "value": "Manifest not supported"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifiesto no compatible"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1227,6 +1701,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "サポートされていないマニフェストです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원되지 않는 매니페스트"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manifesto não compatível"
           }
         },
         "sv": {
@@ -1257,6 +1743,12 @@
             "value": "No additional content"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin contenido adicional"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1273,6 +1765,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "追加コンテンツなし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가 콘텐츠 없음"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem conteúdo adicional"
           }
         },
         "sv": {
@@ -1303,6 +1807,12 @@
             "value": "No game data for %@ was found in that folder."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se encontraron datos del juego %@ en esa carpeta."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1319,6 +1829,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "そのフォルダに %@ のゲームデータが見つかりませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 폴더에서 %@의 게임 데이터를 찾지 못했습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum dado do jogo %@ foi encontrado nessa pasta."
           }
         },
         "sv": {
@@ -1349,6 +1871,12 @@
             "value": "No update address is set up for this app."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay una dirección de actualización configurada para esta app."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1365,6 +1893,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアプリにはアップデートのアドレスが設定されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱에는 업데이트 주소가 설정되어 있지 않습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há endereço de atualização configurado para este app."
           }
         },
         "sv": {
@@ -1395,6 +1935,12 @@
             "value": "OK"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1408,6 +1954,18 @@
           }
         },
         "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인"
+          }
+        },
+        "pt-BR": {
           "stringUnit": {
             "state": "translated",
             "value": "OK"
@@ -1441,6 +1999,12 @@
             "value": "Off"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1457,6 +2021,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "オフ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desligado"
           }
         },
         "sv": {
@@ -1487,6 +2063,12 @@
             "value": "On"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sí"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1503,6 +2085,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "オン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "켬"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ligado"
           }
         },
         "sv": {
@@ -1533,6 +2127,12 @@
             "value": "Only the end of the log is shown."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se muestra el final del registro."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1549,6 +2149,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "ログの末尾だけを表示しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그의 끝부분만 표시됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só o final do registro é mostrado."
           }
         },
         "sv": {
@@ -1579,6 +2191,12 @@
             "value": "Player %@"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jugador %@"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1595,6 +2213,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "プレイヤー %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플레이어 %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jogador %@"
           }
         },
         "sv": {
@@ -1625,6 +2255,12 @@
             "value": "Preparing game…"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando el juego…"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1641,6 +2277,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "ゲームを準備中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임을 준비하는 중…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando o jogo…"
           }
         },
         "sv": {
@@ -1671,6 +2319,12 @@
             "value": "Quit"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salir"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1687,6 +2341,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "終了"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sair"
           }
         },
         "sv": {
@@ -1717,6 +2383,12 @@
             "value": "Quit %@?"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Salir de %@?"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1733,6 +2405,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ を終了しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@을(를) 종료할까요?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sair de %@?"
           }
         },
         "sv": {
@@ -1763,6 +2447,12 @@
             "value": "Right stick: drag here"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Palanca derecha: arrastra aquí"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1779,6 +2469,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "右スティック：ここをドラッグ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽 스틱: 여기를 드래그"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analógico dir.: arraste aqui"
           }
         },
         "sv": {
@@ -1809,6 +2511,12 @@
             "value": "Settings list damaged"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista de ajustes dañada"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1825,6 +2533,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定リストが破損しています"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 목록 손상"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista de ajustes danificada"
           }
         },
         "sv": {
@@ -1855,6 +2575,12 @@
             "value": "Settings list missing"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta la lista de ajustes"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1871,6 +2597,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定リストがありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 목록 없음"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta a lista de ajustes"
           }
         },
         "sv": {
@@ -1901,6 +2639,12 @@
             "value": "Settings list not supported"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista de ajustes no compatible"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1917,6 +2661,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "サポートされていない設定リストです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지원되지 않는 설정 목록"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista de ajustes não compatível"
           }
         },
         "sv": {
@@ -1947,6 +2703,12 @@
             "value": "Shell"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -1963,6 +2725,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "シェル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "셸"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell"
           }
         },
         "sv": {
@@ -1993,6 +2767,12 @@
             "value": "Some files of %@ could not be deleted."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron eliminar algunos archivos de %@."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2009,6 +2789,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ の一部のファイルを削除できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 일부 파일을 삭제하지 못했습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível excluir alguns arquivos de %@."
           }
         },
         "sv": {
@@ -2039,6 +2831,12 @@
             "value": "Swap A and B"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intercambiar A y B"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2055,6 +2853,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "A と B を入れ替える"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A와 B 바꾸기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trocar A e B"
           }
         },
         "sv": {
@@ -2085,6 +2895,12 @@
             "value": "That folder could not be remembered. Try a different one."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo recordar esa carpeta. Prueba con otra."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2101,6 +2917,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "そのフォルダを記憶できませんでした。別のフォルダをお試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 폴더를 기억하지 못했습니다. 다른 폴더를 시도하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível lembrar essa pasta. Tente outra."
           }
         },
         "sv": {
@@ -2131,6 +2959,12 @@
             "value": "That location could not be remembered. Try a different one."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo recordar esa ubicación. Prueba con otra."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2147,6 +2981,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "その場所を記憶できませんでした。別の場所をお試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그 위치를 기억하지 못했습니다. 다른 위치를 시도하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível lembrar esse local. Tente outro."
           }
         },
         "sv": {
@@ -2177,6 +3023,12 @@
             "value": "The folder is named %@ but the manifest says %@."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta se llama %@ pero el manifiesto dice %@."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2195,6 +3047,18 @@
             "value": "フォルダ名は %@ ですが、マニフェストには %@ と記載されています。"
           }
         },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 이름은 %@인데 매니페스트에는 %@(으)로 되어 있습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta se chama %@, mas o manifesto diz %@."
+          }
+        },
         "sv": {
           "stringUnit": {
             "state": "translated",
@@ -2205,6 +3069,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "文件夹名为 %@，但清单显示 %@。"
+          }
+        }
+      }
+    },
+    "The folder picker could not open here. Open the app on its own and try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ordnerauswahl konnte hier nicht geöffnet werden. Öffne die App allein und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The folder picker could not open here. Open the app on its own and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El selector de carpetas no se pudo abrir aquí. Abre la app por separado e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le sélecteur de dossier n’a pas pu s’ouvrir ici. Ouvrez l’app seule et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il selettore di cartelle non si è potuto aprire qui. Apri l’app da sola e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここではフォルダ選択を開けませんでした。アプリを単独で開いて、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기서는 폴더 선택기를 열 수 없습니다. 앱을 단독으로 열고 다시 시도하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O seletor de pastas não pôde ser aberto aqui. Abra o app sozinho e tente de novo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappväljaren kunde inte öppnas här. Öppna appen på egen hand och försök igen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此处无法打开文件夹选择器。请单独打开此 App 后再试。"
           }
         }
       }
@@ -2223,6 +3151,12 @@
             "value": "The folder you chose before is no longer readable. Please choose it again."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta que elegiste antes ya no se puede leer. Elígela de nuevo."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2239,6 +3173,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "以前選んだフォルダを読み込めなくなりました。もう一度選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전에 선택한 폴더를 더는 읽을 수 없습니다. 다시 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta que você escolheu antes não pode mais ser lida. Escolha-a de novo."
           }
         },
         "sv": {
@@ -2269,6 +3215,12 @@
             "value": "The game's code is missing from this app. Rebuild and reinstall it."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta el código del juego en esta app. Vuelve a compilarla y a instalarla."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2285,6 +3237,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアプリにゲームのコードがありません。再ビルドして、もう一度インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱에 게임 코드가 없습니다. 다시 빌드하고 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O código do jogo não está neste app. Faça o build e instale de novo."
           }
         },
         "sv": {
@@ -2315,6 +3279,12 @@
             "value": "The game's manifest"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El manifiesto del juego"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2331,6 +3301,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "ゲームのマニフェスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 매니페스트"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O manifesto do jogo"
           }
         },
         "sv": {
@@ -2361,6 +3343,12 @@
             "value": "The location you picked before is no longer readable (the app was signed differently). Please choose it again."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ubicación que elegiste antes ya no se puede leer (la app se firmó de otra manera). Elígela de nuevo."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2377,6 +3365,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "以前選んだ場所を読み込めなくなりました（アプリの署名が変わりました）。もう一度選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전에 선택한 위치를 더는 읽을 수 없습니다 (앱이 다르게 서명되었습니다). 다시 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O local que você escolheu antes não pode mais ser lido (o app foi assinado de outro modo). Escolha-o de novo."
           }
         },
         "sv": {
@@ -2407,6 +3407,12 @@
             "value": "The manifest lists no modules."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El manifiesto no lista ningún módulo."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2423,6 +3429,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "マニフェストにモジュールが記載されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "매니페스트에 모듈이 나열되어 있지 않습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O manifesto não lista nenhum módulo."
           }
         },
         "sv": {
@@ -2453,6 +3471,12 @@
             "value": "The settings list"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La lista de ajustes"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2469,6 +3493,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "設定リスト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 목록"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A lista de ajustes"
           }
         },
         "sv": {
@@ -2499,6 +3535,12 @@
             "value": "This app's folder"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carpeta de esta app"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2515,6 +3557,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアプリのフォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱의 폴더"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasta deste app"
           }
         },
         "sv": {
@@ -2545,6 +3599,12 @@
             "value": "This app's folder has no data for this game yet. Copy it to games/%@ in this app's folder in Files."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta de esta app aún no tiene datos para este juego. Cópialos en games/%@ dentro de la carpeta de esta app en Archivos."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2561,6 +3621,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このアプリのフォルダには、まだこのゲームのデータがありません。「ファイル」アプリで、このアプリのフォルダ内の games/%@ にコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱의 폴더에는 아직 이 게임의 데이터가 없습니다. 파일 앱에서 이 앱 폴더의 games/%@에 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta deste app ainda não tem dados para este jogo. Copie-os para games/%@ na pasta deste app em Arquivos."
           }
         },
         "sv": {
@@ -2591,6 +3663,12 @@
             "value": "This game has no launcher.json."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este juego no tiene launcher.json."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2607,6 +3685,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームには launcher.json がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임에는 launcher.json이 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este jogo não tem launcher.json."
           }
         },
         "sv": {
@@ -2637,6 +3727,12 @@
             "value": "This game has no log yet. It appears after the game has run."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este juego aún no tiene registro. Aparece después de ejecutar el juego."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2653,6 +3749,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームにはまだログがありません。ゲームを実行すると表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임에는 아직 로그가 없습니다. 게임을 실행한 뒤에 나타납니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este jogo ainda não tem registro. Ele aparece depois que o jogo rodar."
           }
         },
         "sv": {
@@ -2683,6 +3791,12 @@
             "value": "This game was built for a different version of this app. Update the app or rebuild the game in the launcher on your Mac."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este juego se compiló para otra versión de esta app. Actualiza la app o vuelve a compilar el juego en el lanzador de tu Mac."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2699,6 +3813,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームは別のバージョンのアプリ用にビルドされています。アプリをアップデートするか、Mac のランチャーでゲームを再ビルドしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임은 이 앱의 다른 버전용으로 빌드되었습니다. 앱을 업데이트하거나 Mac의 런처에서 게임을 다시 빌드하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este jogo foi compilado para outra versão deste app. Atualize o app ou refaça o build do jogo no launcher do seu Mac."
           }
         },
         "sv": {
@@ -2729,6 +3855,12 @@
             "value": "This game's files are damaged. Rebuild the game in the launcher on your Mac."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los archivos de este juego están dañados. Vuelve a compilar el juego en el lanzador de tu Mac."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2745,6 +3877,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームのファイルが破損しています。Mac のランチャーでゲームを再ビルドしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 파일이 손상되었습니다. Mac의 런처에서 게임을 다시 빌드하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos deste jogo estão danificados. Refaça o build do jogo no launcher do seu Mac."
           }
         },
         "sv": {
@@ -2775,6 +3919,12 @@
             "value": "This game's folder has no game.manifest.json."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La carpeta de este juego no tiene game.manifest.json."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2791,6 +3941,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームのフォルダに game.manifest.json がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임 폴더에 game.manifest.json이 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A pasta deste jogo não tem game.manifest.json."
           }
         },
         "sv": {
@@ -2821,6 +3983,12 @@
             "value": "This game's manifest is damaged. Rebuild the game in the launcher on your Mac."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El manifiesto de este juego está dañado. Vuelve a compilar el juego en el lanzador de tu Mac."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2837,6 +4005,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームのマニフェストが破損しています。Mac のランチャーでゲームを再ビルドしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 매니페스트가 손상되었습니다. Mac의 런처에서 게임을 다시 빌드하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O manifesto deste jogo está danificado. Refaça o build do jogo no launcher do seu Mac."
           }
         },
         "sv": {
@@ -2867,6 +4047,12 @@
             "value": "This game's manifest is missing. Rebuild the game in the launcher on your Mac."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta el manifiesto de este juego. Vuelve a compilar el juego en el lanzador de tu Mac."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2883,6 +4069,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームのマニフェストがありません。Mac のランチャーでゲームを再ビルドしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 매니페스트가 없습니다. Mac의 런처에서 게임을 다시 빌드하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O manifesto deste jogo não existe. Refaça o build do jogo no launcher do seu Mac."
           }
         },
         "sv": {
@@ -2913,6 +4111,12 @@
             "value": "This game's settings list is damaged. Rebuild the game in the launcher on your Mac."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La lista de ajustes de este juego está dañada. Vuelve a compilar el juego en el lanzador de tu Mac."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2929,6 +4133,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームの設定リストが破損しています。Mac のランチャーでゲームを再ビルドしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 설정 목록이 손상되었습니다. Mac의 런처에서 게임을 다시 빌드하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A lista de ajustes deste jogo está danificada. Refaça o build do jogo no launcher do seu Mac."
           }
         },
         "sv": {
@@ -2959,6 +4175,12 @@
             "value": "This game's settings list is missing. Rebuild the game in the launcher on your Mac."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Falta la lista de ajustes de este juego. Vuelve a compilar el juego en el lanzador de tu Mac."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -2975,6 +4197,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "このゲームの設定リストがありません。Mac のランチャーでゲームを再ビルドしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 설정 목록이 없습니다. Mac의 런처에서 게임을 다시 빌드하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A lista de ajustes deste jogo não existe. Refaça o build do jogo no launcher do seu Mac."
           }
         },
         "sv": {
@@ -3005,6 +4239,12 @@
             "value": "Unknown game"
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Juego desconocido"
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3021,6 +4261,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "不明なゲーム"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 게임"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jogo desconhecido"
           }
         },
         "sv": {
@@ -3051,6 +4303,12 @@
             "value": "Unsaved progress will be lost. The app closes. Open it again to get back to your games."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se perderá el progreso sin guardar. La app se cierra. Ábrela de nuevo para volver a tus juegos."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3067,6 +4325,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存していない進行状況は失われます。アプリが閉じます。もう一度開くとゲーム一覧に戻ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "저장하지 않은 진행 상황은 사라집니다. 앱이 닫힙니다. 게임으로 돌아가려면 다시 여세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O progresso não salvo será perdido. O app fecha. Abra-o de novo para voltar aos seus jogos."
           }
         },
         "sv": {
@@ -3097,6 +4367,12 @@
             "value": "chain \"%@\" is not of the form b-<hex>."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "la cadena «%@» no tiene la forma b-<hex>."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3113,6 +4389,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "chain \"%@\" が b-<hex> の形式ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "체인 “%@”이(가) b-<hex> 형식이 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a cadeia “%@” não tem a forma b-<hex>."
           }
         },
         "sv": {
@@ -3143,6 +4431,12 @@
             "value": "framework \"%@\" is not a .framework name."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el framework «%@» no es un nombre de .framework."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3159,6 +4453,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "framework \"%@\" が .framework の名前ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프레임워크 “%@”이(가) .framework 이름이 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o framework “%@” não é um nome de .framework."
           }
         },
         "sv": {
@@ -3189,6 +4495,12 @@
             "value": "game \"%@\" in launcher.json is not 16 hex digits."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el juego «%@» de launcher.json no son 16 dígitos hexadecimales."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3205,6 +4517,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "launcher.json の game \"%@\" が 16 桁の 16 進数ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json의 게임 “%@”이(가) 16자리 16진수가 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o jogo “%@” em launcher.json não são 16 dígitos hexadecimais."
           }
         },
         "sv": {
@@ -3235,6 +4559,12 @@
             "value": "game.manifest.json has schema %lld, this app reads schema %lld."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json tiene el esquema %lld, esta app lee el esquema %lld."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3251,6 +4581,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "game.manifest.json のスキーマは %lld ですが、このアプリが読めるのはスキーマ %lld です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json의 스키마는 %lld이고 이 앱은 스키마 %lld을(를) 읽습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "game.manifest.json tem o esquema %lld, este app lê o esquema %lld."
           }
         },
         "sv": {
@@ -3281,6 +4623,12 @@
             "value": "launcher.json has schema %lld, this app reads schema 1."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json tiene el esquema %lld, esta app lee el esquema 1."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3297,6 +4645,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "launcher.json のスキーマは %lld ですが、このアプリが読めるのはスキーマ 1 です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json의 스키마는 %lld이고 이 앱은 스키마 1을 읽습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json tem o esquema %lld, este app lê o esquema 1."
           }
         },
         "sv": {
@@ -3327,6 +4687,12 @@
             "value": "launcher.json is for %@, the manifest for %@."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json es de %@, el manifiesto de %@."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3343,6 +4709,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "launcher.json は %@ 用ですが、マニフェストは %@ 用です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json은 %@용이고 매니페스트는 %@용입니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "launcher.json é de %@, o manifesto de %@."
           }
         },
         "sv": {
@@ -3373,6 +4751,12 @@
             "value": "loader \"%@\" is neither FR nor FH."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "el cargador «%@» no es FR ni FH."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3389,6 +4773,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "loader \"%@\" は FR でも FH でもありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로더 “%@”이(가) FR도 FH도 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "o loader “%@” não é FR nem FH."
           }
         },
         "sv": {
@@ -3419,6 +4815,12 @@
             "value": "title_id \"%@\" is not 16 hex digits."
           }
         },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id «%@» no son 16 dígitos hexadecimales."
+          }
+        },
         "fr": {
           "stringUnit": {
             "state": "translated",
@@ -3435,6 +4837,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "title_id \"%@\" が 16 桁の 16 進数ではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id “%@”이(가) 16자리 16진수가 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "title_id “%@” não são 16 dígitos hexadecimais."
           }
         },
         "sv": {

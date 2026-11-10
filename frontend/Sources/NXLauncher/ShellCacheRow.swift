@@ -15,7 +15,7 @@ package struct ShellCacheRow: View {
 
     /// The column where a row's text starts (CardRow: the edge, the dot and its gap).
     private let axis: CGFloat = 37
-    private let well = Color.black.opacity(0.22)
+    private let well = LauncherPalette.well
 
     private var moving: Bool { if case .moving = build.shellMove { return true } else { return false } }
 
@@ -64,7 +64,7 @@ package struct ShellCacheRow: View {
                 VStack(alignment: .leading, spacing: 8) {
                     LauncherProgressBar(value: total > 0 ? Double(done) / Double(total) : 0, height: 6).frame(height: 6)
                     Text(String(format: loc.t(key), ShellInstall.sizeText(done), ShellInstall.sizeText(total)))
-                        .font(.manrope(12.5)).monospacedDigit().foregroundStyle(.secondary)
+                        .font(.manrope(12.5)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText)
                 }
                 footer(.info, loc.t("shellCache.movingNote")) {
                     button(loc.t("btn.stop"), accent: LauncherPalette.building) { build.stopShellMove() }
@@ -82,7 +82,7 @@ package struct ShellCacheRow: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(well, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(LauncherPalette.cardBorder))
     }
 
     @ViewBuilder private func confirmation(_ plan: ShellRootMove.Plan) -> some View {
@@ -111,7 +111,7 @@ package struct ShellCacheRow: View {
 
     private func fact(_ key: String, _ value: String, path: Bool = false) -> some View {
         GridRow {
-            Text(loc.t(key)).font(.manrope(12.5)).foregroundStyle(.secondary)
+            Text(loc.t(key)).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
             Text(value).font(path ? .mono(12) : .manrope(12.5, .semibold)).monospacedDigit()
                 .lineLimit(1).truncationMode(.middle).help(value)
                 .frame(maxWidth: .infinity, alignment: .leading)

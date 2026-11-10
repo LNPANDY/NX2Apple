@@ -39,7 +39,7 @@ struct ArtworkFill: View {
 
     var body: some View {
         GeometryReader { band in
-            Image(nsImage: image).resizable().scaledToFill()
+            Image(nsImage: image).resizable().interpolation(.high).antialiased(true).scaledToFill()   // smooth when scaled, no blur on top
                 .frame(width: band.size.width, height: band.size.height)
                 .offset(ArtworkFraming.offset(image: image.size, band: band.size, focus: focus))
                 .clipped()

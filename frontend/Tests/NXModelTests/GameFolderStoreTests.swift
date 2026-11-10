@@ -250,6 +250,31 @@ import XCTest
         return Data(d)
     }
 
+    /// #996: the keys saved in Settings never reach a game folder (it needs none), and a package build takes them for its empty row.
+    func testAGameFolderNeverTakesTheSavedKeysAndAPackageBuildDoes() {
+        let (store, game) = makeStore()
+        let keys = root + "/keys/prod.keys"
+        write(keys)
+        store.saveKeys(keys)
+        store.scan(folder: game)
+        XCTAssertFalse(store.keysFromSettings)
+        XCTAssertTrue(store.keysPath.isEmpty, "a Switch 2 folder never shows the saved keys")
+        XCTAssertEqual(store.gameFolderRowText("keys"), store.t("folder.keys"))
+        store.startBuild()
+        XCTAssertFalse(store.lastBuildCommand.contains("-k"))
+        XCTAssertFalse(store.lastBuildCommand.contains(keys))
+
+        let folder = root + "/Mario"
+        write(folder + "/Mario [010015100B514000][v0].nsp")
+        store.scan(folder: folder)
+        XCTAssertTrue(store.keysRowPath.isEmpty, "the folder holds no prod.keys")
+        XCTAssertEqual(store.keysPath, keys)
+        XCTAssertTrue(store.canBuild)
+        store.startBuild()
+        let args = store.lastBuildCommand
+        XCTAssertEqual(args.firstIndex(of: "-k").map { args[$0 + 1] }, keys)
+    }
+
     func testAFolderOfPackagesIsScannedAsBefore() {
         let (store, _) = makeStore()
         let folder = root + "/Mario"

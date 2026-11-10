@@ -3,18 +3,35 @@ import SwiftUI
 package struct LauncherWindowChrome: NSViewRepresentable {
     package init() {}
     package final class ChromeView: NSView {
+        private func applyBackground() {
+            let light = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .aqua
+            window?.backgroundColor = LauncherPalette.backgroundNSColor(light: light)
+        }
+        package override func viewDidChangeEffectiveAppearance() {
+            super.viewDidChangeEffectiveAppearance()
+            applyBackground()
+        }
         package override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             guard let window else { return }
             window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true
             window.styleMask.insert(.fullSizeContentView)
-            window.backgroundColor = NSColor(red: 0.055, green: 0.055, blue: 0.06, alpha: 1)
+            applyBackground()
             window.isMovableByWindowBackground = true
         }
     }
     package func makeNSView(context: Context) -> NSView { ChromeView() }
     package func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// The line under the top bar: the divider Dark always had, a black hairline at 0.08 in Light.
+package struct LauncherTopBarRule: View {
+    @Environment(\.colorScheme) private var scheme
+    package init() {}
+    package var body: some View {
+        if scheme == .light { LauncherPalette.topBarRule.frame(height: 1) } else { Divider().opacity(0.3) }
+    }
 }
 
 /// What a double-click on the title bar does, as System Settings → Desktop & Dock sets it.
@@ -163,13 +180,30 @@ private struct LauncherRowControlFrame: ViewModifier {
 
 package struct LauncherSecondaryButtonStyle: ButtonStyle {
     package init(accent: Color? = nil) { self.accent = accent }
-    /// Text and border in this colour (the build bar's Stop); plain white otherwise.
+    /// Text and border in this colour (the build bar's Stop); plain text otherwise.
     package var accent: Color? = nil
+    package func makeBody(configuration: Configuration) -> some View {
+        LauncherSecondaryButton(configuration: configuration, accent: accent)
+    }
+}
+
+/// A secondary button: a quiet fill with a hairline. Light has its own fill under the pointer and pressed.
+private struct LauncherSecondaryButton: View {
+    let configuration: ButtonStyleConfiguration
+    let accent: Color?
     /// Inside a setting row the button is exactly LauncherControl.width wide and LauncherControl.height high, its label centred on
     /// one line (a little smaller when it does not fit): the buttons of a page line up in one column and are equally high.
     @Environment(\.launcherControlWidth) private var width
     @Environment(\.isEnabled) private var enabled
-    package func makeBody(configuration: Configuration) -> some View {
+    @Environment(\.colorScheme) private var scheme
+    @State private var hovered = false
+
+    private var fill: Color {
+        if configuration.isPressed { return LauncherPalette.secondaryPressed }
+        return scheme == .light && hovered && enabled ? LauncherPalette.secondaryHover : LauncherPalette.secondaryFill
+    }
+
+    var body: some View {
         configuration.label
             .font(.manrope(13, .semibold))
             .multilineTextAlignment(.center)
@@ -177,12 +211,52 @@ package struct LauncherSecondaryButtonStyle: ButtonStyle {
             .minimumScaleFactor(width == nil ? 1 : LauncherControl.minimumLabelScale)
             .padding(.horizontal, 15).padding(.vertical, 9)
             .frame(width: width, height: width == nil ? nil : LauncherControl.height)
-            .background(Color.white.opacity(configuration.isPressed ? 0.13 : 0.055), in: RoundedRectangle(cornerRadius: 9))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(accent?.opacity(0.75) ?? Color.white.opacity(0.10)))
-            .foregroundStyle(enabled ? (accent ?? Color.white.opacity(0.92)) : .gray)
+            .background(fill, in: RoundedRectangle(cornerRadius: 9))
+            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(accent?.opacity(0.75) ?? LauncherPalette.secondaryBorder))
+            .foregroundStyle(enabled ? (accent ?? LauncherPalette.text) : .gray)
             .opacity(enabled ? 1 : 0.55)
             .contentShape(RoundedRectangle(cornerRadius: 9))
             .launcherMeasured(label: configuration.label.font(.manrope(13, .semibold)), room: LauncherControl.buttonLabelWidth)
+            .onHover { hovered = $0 }
+            .launcherHover(lightBrightness: 0)
+    }
+}
+
+/// The primary action outside the hero (Done, Save, Build, Add to queue): the cream fill in Dark, near-black with white text in
+/// Light, darker when pressed and a little lighter under the pointer there. The label brings its own font and padding.
+package struct LauncherActionButtonStyle: ButtonStyle {
+    package enum Outline { case capsule, rounded(CGFloat) }
+    package init(_ shape: Outline = .capsule) { self.shape = shape }
+    package let shape: Outline
+    package func makeBody(configuration: Configuration) -> some View { LauncherActionButton(configuration: configuration, shape: shape) }
+
+    /// The fill for a state: Dark always the cream, Light pressed, under the pointer or at rest.
+    package static func fill(light: Bool, pressed: Bool, hovered: Bool) -> Color {
+        guard light else { return LauncherPalette.cream }
+        return pressed ? LauncherPalette.primaryPressed : (hovered ? LauncherPalette.primaryHover : LauncherPalette.cream)
+    }
+}
+
+private struct LauncherActionButton: View {
+    let configuration: ButtonStyleConfiguration
+    let shape: LauncherActionButtonStyle.Outline
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.isEnabled) private var enabled
+    @State private var hovered = false
+
+    var body: some View {
+        let fill = LauncherActionButtonStyle.fill(light: scheme == .light, pressed: configuration.isPressed, hovered: hovered && enabled)
+        configuration.label
+            .foregroundStyle(LauncherPalette.onCream)
+            .background { background(fill) }
+            .onHover { hovered = $0 }
+    }
+
+    @ViewBuilder private func background(_ fill: Color) -> some View {
+        switch shape {
+        case .capsule: Capsule().fill(fill)
+        case .rounded(let radius): RoundedRectangle(cornerRadius: radius).fill(fill)
+        }
     }
 }
 
@@ -193,16 +267,17 @@ package enum LauncherMotion {
     }
 }
 
-/// The launcher's switch: a cream track when on, a dim one when off.
+/// The launcher's switch: a cream track when on and a dim one when off in Dark, a near-black or a gray track with a white knob in Light.
 package struct LauncherSwitchStyle: ToggleStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     package init() {}
     @Environment(\.isEnabled) private var enabled
+    @Environment(\.colorScheme) private var scheme
     package func makeBody(configuration: Configuration) -> some View {
         Button { withAnimation(LauncherMotion.animation(.spring(response: 0.25, dampingFraction: 0.8), reduceMotion: reduceMotion)) { configuration.isOn.toggle() } } label: {
             ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-                Capsule().fill(configuration.isOn ? LauncherPalette.cream : Color.white.opacity(0.14))
-                Circle().fill(configuration.isOn ? LauncherPalette.background : Color.white.opacity(0.85))
+                Capsule().fill(configuration.isOn ? LauncherPalette.switchOnTrack : LauncherPalette.switchOffTrack)
+                Circle().fill(configuration.isOn ? LauncherPalette.switchOnKnob : LauncherPalette.switchOffKnob)
                     .padding(3)
                     .shadow(color: .black.opacity(0.3), radius: 2, y: 1)
             }
@@ -210,7 +285,7 @@ package struct LauncherSwitchStyle: ToggleStyle {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .opacity(enabled ? 1 : 0.45)
+        .opacity(enabled ? 1 : (scheme == .light ? 0.4 : 0.45))
         .accessibilityRepresentation {
             Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.switch)
         }
@@ -240,11 +315,17 @@ package struct LauncherHeroActionLabel: View {
             Text(title).lineLimit(1).minimumScaleFactor(LauncherHeroAction.minimumScale)
         }
         .font(.manrope(18, .bold))
-        .foregroundStyle(.black)
+        .foregroundStyle(LauncherPalette.onCream)
         .padding(.horizontal, LauncherHeroAction.horizontalPadding)
         .frame(width: LauncherHeroAction.width, height: LauncherHeroAction.height)
         .background(LauncherPalette.cream, in: Capsule())
     }
+}
+
+/// The height of a sheet of the launcher: at most 720 pt, and 80 pt shorter than the screen it is on.
+package enum LauncherSheet {
+    package static let width: CGFloat = 680
+    package static func maxHeight(screen: CGFloat) -> CGFloat { min(720, max(320, screen - 80)) }
 }
 
 /// The width of a launch option's control (choices, list, slider with its value), so the controls of a card line up
@@ -266,27 +347,33 @@ package enum LaunchControl {
     }
 }
 
-/// Two or three choices side by side; the chosen one is a cream pill. Each choice takes an equal share of the width
+/// Two or three choices side by side; the chosen one is a cream pill in Dark, a white one with a hairline in Light. Each choice takes an equal share of the width
 /// it is given.
 package struct LauncherSegmented: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    package init(options: [(value: String, label: String)], selection: String, choose: @escaping (String) -> Void) {
-        self.options = options; self.selection = selection; self.choose = choose
+    @Environment(\.colorScheme) private var scheme
+    package init(options: [(value: String, label: String)], selection: String, size: CGFloat = 12.5, semibold: Bool = false,
+                 choose: @escaping (String) -> Void) {
+        self.options = options; self.selection = selection; self.size = size; self.semibold = semibold; self.choose = choose
     }
     package let options: [(value: String, label: String)]
     package let selection: String
+    /// 12.5 pt with the chosen one bold, as in a setting row. The category selectors of a sheet use 13 pt semibold for every choice.
+    package let size: CGFloat
+    package let semibold: Bool
     package let choose: (String) -> Void
     package var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.value) { o in
                 let on = o.value == selection
                 Button { withAnimation(LauncherMotion.animation(.easeOut(duration: 0.15), reduceMotion: reduceMotion)) { choose(o.value) } } label: {
-                    Text(o.label).font(.manrope(12.5, on ? .bold : .medium))
-                        .foregroundStyle(on ? Color.black : Color.white.opacity(0.75))
+                    Text(o.label).font(.manrope(size, semibold ? .semibold : (on ? (scheme == .light ? .semibold : .bold) : .medium)))
+                        .foregroundStyle(on ? LauncherPalette.segmentSelectedText : LauncherPalette.segmentText)
                         .lineLimit(1).minimumScaleFactor(0.85)
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .frame(maxWidth: .infinity)
-                        .background(on ? LauncherPalette.cream : .clear, in: Capsule())
+                        .background(on ? LauncherPalette.segmentSelected : .clear, in: Capsule())
+                        .overlay(Capsule().strokeBorder(on ? LauncherPalette.segmentSelectedBorder : .clear))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)
@@ -294,8 +381,8 @@ package struct LauncherSegmented: View {
             }
         }
         .padding(3)
-        .background(Color.white.opacity(0.06), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08)))
+        .background(LauncherPalette.segmentTrack, in: Capsule())
+        .overlay(Capsule().strokeBorder(LauncherPalette.segmentTrackBorder))
     }
 }
 
@@ -314,9 +401,9 @@ package struct LauncherSlider: View {
             let fraction = span > 0 ? (min(max(value, range.lowerBound), range.upperBound) - range.lowerBound) / span : 0
             let knob: CGFloat = 16, track = g.size.width - knob
             ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.14)).frame(height: 4).padding(.horizontal, knob / 2)
-                Capsule().fill(LauncherPalette.cream).frame(width: track * fraction + knob / 2, height: 4).padding(.leading, knob / 2)
-                Circle().fill(LauncherPalette.cream).frame(width: knob, height: knob)
+                Capsule().fill(LauncherPalette.ink(0.14)).frame(height: 4).padding(.horizontal, knob / 2)
+                Capsule().fill(LauncherPalette.accent).frame(width: track * fraction + knob / 2, height: 4).padding(.leading, knob / 2)
+                Circle().fill(LauncherPalette.accent).frame(width: knob, height: knob)
                     .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
                     .offset(x: track * fraction)
             }
@@ -324,10 +411,34 @@ package struct LauncherSlider: View {
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
                 let raw = range.lowerBound + Double(min(max(drag.location.x - knob / 2, 0), track) / max(track, 1)) * span
-                let snapped = step > 0 ? (raw / step).rounded() * step : raw
-                change(min(max(snapped, range.lowerBound), range.upperBound))
+                change(Self.snapped(raw, range: range, step: step))
             })
         }
         .frame(height: 22)
+        .focusable()
+        .onMoveCommand { direction in
+            switch direction {
+            case .left: change(Self.moved(value, by: -1, range: range, step: step))
+            case .right: change(Self.moved(value, by: 1, range: range, step: step))
+            default: break
+            }
+        }
+        .accessibilityRepresentation {
+            Slider(value: Binding(get: { value }, set: change), in: range,
+                   step: step > 0 ? step : (range.upperBound - range.lowerBound) / 20)
+        }
+    }
+
+    /// A raw value on the slider's steps, inside its range. The steps count from the range's lower bound, as the
+    /// accessibility `Slider` counts them, so a range of 1...9 with a step of 2 has 1, 3, 5, 7 and 9.
+    package static func snapped(_ raw: Double, range: ClosedRange<Double>, step: Double) -> Double {
+        let snapped = step > 0 ? range.lowerBound + ((raw - range.lowerBound) / step).rounded() * step : raw
+        return min(max(snapped, range.lowerBound), range.upperBound)
+    }
+
+    /// The value one arrow key press away. Without a step it moves a twentieth of the range.
+    package static func moved(_ value: Double, by presses: Int, range: ClosedRange<Double>, step: Double) -> Double {
+        let unit = step > 0 ? step : (range.upperBound - range.lowerBound) / 20
+        return snapped(value + Double(presses) * unit, range: range, step: step)
     }
 }

@@ -1,12 +1,22 @@
 {
   "_about": "Read by LocalizationKeyTests.swift (Mac launcher) and frontend-qt/tests/test_localization_keys.py (Qt front end), LNPANDY/NX2Apple#388. A key that code builds at run time (a prefix plus a variable) must start with one of the dynamicKeys, and every entry needs at least one key in frontend/l10n/en.json and one place in the sources that builds it. A key of en.json that no source mentions and no dynamicKeys entry covers fails the tests unless it is in unusedAllowed, with the reason. The iOS shell's texts (catalogKeys) are not looked up by key in any source: tools/l10n_shell_catalogs.py writes them into the shell's string catalogs, and tools/tests/test_l10n_shell_catalogs.py checks that those files are current, so a key under a catalogKeys prefix counts as used.",
   "dynamicKeys": [
+    {"prefix": "op.", "suffix": "", "why": "the name of each operation of the activity line, ActiveOperation.Kind.key"},
+    {"prefix": "queue.status.", "suffix": "", "why": "the status text of each build queue row, BuildQueueCard.swift"},
+    {"prefix": "transfer.status.", "suffix": "", "why": "the status text of each game data transfer row, TransferCard.swift"},
     {"prefix": "artwork.dropHint.", "suffix": "", "why": "the drop hint of each artwork tab, ArtworkPanel.swift"},
     {"prefix": "artwork.grid.", "suffix": "", "why": "the VoiceOver label of each artwork tab's grid, ArtworkEditor.swift"},
     {"prefix": "artwork.reset.", "suffix": "", "why": "the Reset button of each artwork tab, ArtworkPanel.swift"},
     {"prefix": "artwork.tab.", "suffix": "", "why": "the name of each artwork tab, ArtworkPanel.swift"},
+    {"prefix": "console.filter.", "suffix": "", "why": "the filters of all games in console mode, ConsoleState+Pages.swift"},
     {"prefix": "console.kind.", "suffix": "", "why": "the controller kinds, ConsoleState.swift"},
+    {"prefix": "console.mapping.place.", "suffix": "", "why": "where each controller button sits, by its DM_PAD_MAP name, ConsolePadMappingView.swift"},
     {"prefix": "console.platform.", "suffix": "", "why": "the platforms of a game, ConsoleState.swift"},
+    {"prefix": "console.pref.", "suffix": "", "why": "the launcher's switches on the console menu's pages and their notes, ConsoleExtras.swift"},
+    {"prefix": "console.rows.", "suffix": "", "why": "the rows of console mode's home screen, ConsoleState+Pages.swift"},
+    {"prefix": "console.saves.status.", "suffix": "", "why": "the sync state of each game's save, ConsoleCloudSaves.swift"},
+    {"prefix": "console.saves.updated.", "suffix": "", "why": "which time a save row shows, ConsoleCloudSaves.swift"},
+    {"prefix": "console.tab.", "suffix": "", "why": "the tabs of a game's page in console mode, ConsoleState+Pages.swift"},
     {"prefix": "controls.fn.", "suffix": "", "why": "the label of each controller button, Controls.swift"},
     {"prefix": "controls.mode.", "suffix": "", "why": "the name of each control preset, ControlPresets.swift"},
     {"prefix": "controls.modeNote.", "suffix": "", "why": "the note of each control preset, ControlPresets.swift"},
@@ -38,7 +48,11 @@
     {"prefix": "onboarding.background.", "suffix": "", "why": "the background tasks of the onboarding, OnboardingState.swift"},
     {"prefix": "onboarding.platform.", "suffix": "", "why": "the platform choices of the onboarding, OnboardingView.swift"},
     {"prefix": "onboarding.setup.", "suffix": "", "why": "the Xcode setup tasks of the onboarding, OnboardingState.swift"},
-    {"prefix": "stage.", "suffix": "", "why": "the name of each build stage, BuildProgress.swift"}
+    {"prefix": "stage.", "suffix": "", "why": "the name of each build stage, BuildProgress.swift"},
+    {"prefix": "appearance.", "suffix": "", "why": "the System, Light and Dark choices, LauncherAppearance.labelKey in LauncherPalette.swift"},
+    {"prefix": "launch.cat.", "suffix": "", "why": "the four parts of the options sheet, LaunchCategory.labelKey in LaunchCategory.swift"},
+    {"prefix": "settings.cat.", "suffix": "", "why": "the four parts of Settings, SettingsCategory.labelKey in SettingsCategory.swift"},
+    {"prefix": "sort.", "suffix": "", "why": "the library order choices, LibrarySort.labelKey in LauncherPage.swift"}
   ],
   "catalogKeys": [
     {"prefix": "ios.ui.", "why": "ShellUI, frontend-ios/Sources/ShellUI/Resources/Localizable.xcstrings"},

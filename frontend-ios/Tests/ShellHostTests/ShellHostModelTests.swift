@@ -9,6 +9,12 @@ struct FakePicker: FolderPicker {
     func pickFolder() async -> URL? { url }
 }
 
+/// A picker that cannot be shown (no window to present from, as inside LiveContainer, #1049).
+struct UnavailablePicker: FolderPicker {
+    func pickFolder() async -> URL? { nil }
+    func pickFolderOutcome() async -> FolderPickOutcome { .unavailable }
+}
+
 /// Records launches and can fail them.
 final class RecordingLauncher: GameLauncher, @unchecked Sendable {
     private(set) var launched: [LaunchableGame] = []
@@ -541,6 +547,19 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(model.notice != nil && shell.dataFolderName == nil && shell.dataBookmark == nil)
         await ShellHostModel(config: box.config(), picker: FakePicker(url: nil), shellSettings: shell).pickShellCloudNow()
         #expect(shell.cloudSavesFolderName == nil)
+    }
+
+    @Test func aPickerThatCannotOpenSaysSoForEveryFolderChoiceAndACancelStaysQuiet() async throws {
+        let box = try Sandbox()
+        let model = ShellHostModel(config: box.config(), picker: UnavailablePicker())
+        await model.pickGameDataNow(Fixtures.orbit)
+        #expect(model.notice != nil)
+        model.notice = nil
+        await model.pickCloudSavesNow(Fixtures.orbit)
+        #expect(model.notice != nil)
+        model.notice = nil
+        await ShellHostModel(config: box.config(), picker: FakePicker(url: nil)).pickGameDataNow(Fixtures.orbit)
+        #expect(model.notice == nil)
     }
 
     @Test func showLogReadsTheGamesLogOrSaysThereIsNone() throws {

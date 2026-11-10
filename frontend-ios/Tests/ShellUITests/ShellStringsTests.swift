@@ -25,6 +25,7 @@ import Testing
         "Version %@": ["de", "sv", "fr"],
         "Version": ["de", "sv", "fr"],
         "OK": ["de", "sv", "fr", "it", "ja"],
+        "Switch 2": ["de", "sv", "fr", "it", "ja"],                      // the console's name
     ]
 
     private func table(_ name: String, in folder: String) throws -> [String: Any] {

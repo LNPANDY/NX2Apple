@@ -1,10 +1,13 @@
 import Foundation
 
+/// A game's Mac app as the library reads it: its title ID, its bundle name and its names by language (`DMTitleNames`).
 package struct MacGameBundle {
     package let titleID: String
     package let name: String
+    package let version: String?
     package let shaderChain: String?
     let displayName: String?
+    package var titleNames: [String: String] = [:]
 
     enum Invalid: LocalizedError {
         case notGame
@@ -27,6 +30,24 @@ package struct MacGameBundle {
             .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
         return MacGameBundle(titleID: rawID.uppercased(), name: title ?? url.deletingPathExtension().lastPathComponent,
-                             shaderChain: info["DMChain"] as? String, displayName: title)
+                             version: displayVersion(info), shaderChain: info["DMChain"] as? String, displayName: title,
+                             titleNames: GameTitleNames.read(info))
+    }
+
+    /// The version of the package the app was packed with. A Mac app packed with DMPackageVersion states it in DMDisplayVersion, else
+    /// (an update packed from a dump or a NUP without control data) only as the packed version, whose CFBundleShortVersionString is 1.0
+    /// and not what runs (#953). The base game packed without a display version (v0) states none. An older app states it in
+    /// CFBundleShortVersionString. Unknown stays nil: it is never guessed from the base game or from CFBundleVersion.
+    static func displayVersion(_ info: [String: Any]) -> String? {
+        let trimmed = { (key: String) in ((info[key] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines) }
+        let package = trimmed("DMPackageVersion")
+        let version: String
+        if !package.isEmpty {
+            let display = trimmed("DMDisplayVersion")
+            version = !display.isEmpty ? display : package == "v0" ? "" : package
+        } else {
+            version = trimmed("CFBundleShortVersionString")
+        }
+        return version.isEmpty ? nil : version
     }
 }

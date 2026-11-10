@@ -137,7 +137,7 @@ import NXModel
         MainActor.assumeIsolated { modelStores.dependencies.deps = [Dep(id: "test", name: "Xcode", hint: "", present: true, installCmd: [])] }
         let library = GameLibrary(file: temporary.appendingPathComponent("preview.json"))
         // the page as a drag shows it: the highlight drawn over the Builds page
-        let page = CardPages(settings: false, build: model, updates: modelStores.appUpdates, repo: modelStores.repo, engine: modelStores.engineSync, dependencies: modelStores.dependencies, devices: modelStores.deviceStore, library: library).environmentObject(PadFocus()).environmentObject(modelStores.localizer)
+        let page = CardPages(settings: false, build: model, updates: modelStores.appUpdates, repo: modelStores.repo, engine: modelStores.engineSync, dependencies: modelStores.dependencies, devices: modelStores.deviceStore, queue: modelStores.queue, transfers: modelStores.transfers, library: library, settingsCategory: .constant(.general)).environmentObject(PadFocus()).environmentObject(modelStores.localizer)
             .modifier(GameFilesDrop(enabled: true, label: model.t("drop.hint"), targeted: true) { _ in })
             .frame(width: 1100, height: 760).background(LauncherPalette.background).environment(\.colorScheme, .dark)
         let host = NSHostingView(rootView: page)

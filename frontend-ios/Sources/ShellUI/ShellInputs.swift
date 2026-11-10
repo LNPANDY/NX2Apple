@@ -25,8 +25,11 @@ public struct GameTile: Identifiable, Equatable, Sendable {
     public var state: GameState
     /// Already localized, such as "Played today". Nil leaves the game out of Recently played.
     public var recentlyPlayed: String?
+    /// The engine's manifest says it is a Switch 2 game: the detail view marks it and warns about its memory.
+    public var isSwitch2: Bool
     public init(id: String, title: String, subtitle: String = "", banner: Artwork? = nil, icon: Artwork? = nil,
-                state: GameState = .playable, recentlyPlayed: String? = nil, version: String = "") {
+                state: GameState = .playable, recentlyPlayed: String? = nil, version: String = "", isSwitch2: Bool = false) {
+        self.isSwitch2 = isSwitch2
         self.id = id
         self.title = title
         self.subtitle = subtitle
@@ -62,6 +65,8 @@ public struct SettingRow: Identifiable, Equatable, Sendable {
     public var enabled: Bool
     /// The value is the shell settings' choice, because the game has none of its own.
     public var fromShell: Bool
+    /// The value differs from the game profile's tested default (#453): the row draws a small dot before its label.
+    public var changed = false
     /// Label and note are texts of the game's launcher.json: shown in the player's language when the catalog has them.
     public init(id: String, label: String, note: String = "", kind: SettingKind, value: String, enabled: Bool = true, fromShell: Bool = false) {
         self.init(id: id, label: label, note: note, kind: kind, value: value, enabled: enabled, fromShell: fromShell, in: ShellStrings.bundle)

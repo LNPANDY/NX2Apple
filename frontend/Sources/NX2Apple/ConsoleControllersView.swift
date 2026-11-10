@@ -23,6 +23,33 @@ import NXLauncher
     func requestAssignment(controllerID: String) { base.requestAssignment(controllerID: controllerID) }
     func identify(controllerID: String) { base.identify(controllerID: controllerID) }
     func disconnect(controllerID: String) { base.disconnect(controllerID: controllerID) }
+    func openMenu() { base.openMenu() }
+    func openLibrary() { base.openLibrary() }
+    func openSettings() { base.openSettings() }
+    func openCloudSaves() { base.openCloudSaves() }
+    func openLanguage() { base.openLanguage() }
+    func confirmExit() { base.confirmExit() }
+    func testRumble(gameID: String) { base.testRumble(gameID: gameID) }
+    func setMod(gameID: String, name: String, on: Bool) { base.setMod(gameID: gameID, name: name, on: on) }
+    func setCheatsMaster(gameID: String, on: Bool) { base.setCheatsMaster(gameID: gameID, on: on) }
+    func setCheat(gameID: String, key: String, on: Bool) { base.setCheat(gameID: gameID, key: key, on: on) }
+    func openAdvanced(_ gameID: String) { base.openAdvanced(gameID) }
+    func askResetOptions(_ gameID: String) { base.askResetOptions(gameID) }
+    func resetOptions(_ gameID: String) { base.resetOptions(gameID) }
+    func openOnDesktop(_ gameID: String) { base.openOnDesktop(gameID) }
+    func setPref(_ pref: ConsolePref, on: Bool) { base.setPref(pref, on: on) }
+    func appUpdateAction() { base.appUpdateAction() }
+    func confirmAppUpdate() { base.confirmAppUpdate() }
+    func openSystemHomeSettings() { base.openSystemHomeSettings() }
+    func openGameMapping(_ gameID: String) { base.openGameMapping(gameID) }
+    func openGamePad(_ gameID: String) { base.openGamePad(gameID) }
+    func openMapping() { base.openMapping() }
+    func openMappingRow(_ button: String?) { base.openMappingRow(button) }
+    func setPadMode(_ mode: PadMode) { base.setPadMode(mode) }
+    func setPadSends(button: String, to output: String) { base.setPadSends(button: button, to: output) }
+    func resetPadMapping() { base.resetPadMapping() }
+    func setMenuSwapAB(_ on: Bool) { base.setMenuSwapAB(on) }
+    func finishMapping(save: Bool) { base.finishMapping(save: save) }
     func setPadMerge(_ enabled: Bool) { base.setPadMerge(enabled) }
     func setJoyconSplit(_ enabled: Bool) { base.setJoyconSplit(enabled) }
     func dismissToast() { base.dismissToast() }
@@ -72,12 +99,12 @@ struct BatteryIcon: View {
 
     var body: some View {
         let g = Self.geometry(height: height, level: level)
-        let line = Color.white.opacity(level == nil ? 0.3 : 0.55)
+        let line = LauncherPalette.ink(level == nil ? 0.3 : 0.55)
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: g.outerRadius).strokeBorder(line, lineWidth: 1).frame(width: g.outer.width, height: g.outer.height)
             if level != nil {
                 RoundedRectangle(cornerRadius: g.innerRadius)
-                    .fill(Self.isLow(level) && !charging ? Color.red : (charging ? LauncherPalette.ready : Color.white.opacity(0.9)))
+                    .fill(Self.isLow(level) && !charging ? Color.red : (charging ? LauncherPalette.ready : LauncherPalette.ink(0.9)))
                     .frame(width: g.fill.width, height: g.fill.height).offset(x: g.fill.minX, y: g.fill.minY)
                     .animation(.easeInOut(duration: 0.6), value: g.fill.width)   // a charging level grows smoothly between reads
             }
@@ -105,7 +132,7 @@ struct ConsoleBattery: View {
                 Text(String(format: L10n.string("console.batteryPercent", lang), percent))
             }
             .font(.manrope(compact ? 11 : 16, .medium))
-            .foregroundStyle(BatteryIcon.isLow(controller.battery) && !controller.charging ? Color.red : .white.opacity(0.7))
+            .foregroundStyle(BatteryIcon.isLow(controller.battery) && !controller.charging ? Color.red : LauncherPalette.ink(0.7))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(String(format: L10n.string(controller.charging ? "console.batteryCharging" : "console.batteryLevel", lang), percent))
         } else if controller.charging {
@@ -179,12 +206,34 @@ struct ConsoleControllerChips: View {
         Button(action: openControllers) {
             content().font(.manrope(compact ? 12 : 17, .semibold))
                 .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
-                .background(.white.opacity(0.075), in: Capsule()).contentShape(Capsule())
+                .consoleBarFill().contentShape(Capsule())   // readable on bright art (ConsoleBarFill)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
         .accessibilityHint(t("console.controllers"))
         .padTarget(scope + ".chip." + id, scope: scope, radius: 24, activate: openControllers)
+    }
+}
+
+/// The desktop's work in the top bar: its operation line and a bar for the current stage. It takes no focus and has no action.
+struct ConsoleActivityChip: View {
+    let activity: ConsoleActivity
+    let compact: Bool
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "wrench.and.screwdriver")
+            Text(activity.title).lineLimit(1).truncationMode(.tail)
+            LauncherProgressBar(value: activity.stageProgress, height: 5).frame(width: compact ? 48 : 72)
+        }
+        .font(.manrope(compact ? 13 : 15, .semibold)).foregroundStyle(.white.opacity(0.8))
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(LauncherPalette.surface, in: Capsule())
+        .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
+        .frame(maxWidth: compact ? 260 : 420, alignment: .leading)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(activity.title)
+        .accessibilityValue(activity.spokenProgress)
+        .allowsHitTesting(false)
     }
 }
 
@@ -197,8 +246,8 @@ struct ConsoleToastView: View {
         }
             .font(.manrope(17, .semibold)).padding(.horizontal, 22).padding(.vertical, 15)
             .background(LauncherPalette.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
-            .foregroundStyle(LauncherPalette.cream)
+            .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.15)))
+            .foregroundStyle(LauncherPalette.accent)
             .accessibilityElement(children: .combine)
             .allowsHitTesting(false)
             .padding(20)
@@ -210,6 +259,15 @@ struct ConsoleToastView: View {
     let lang: Lang
     let compact: Bool
     var scope = "console.controllers"
+    /// The row that opens the button mapping. The desktop's Controllers sheet has the Controls page for that instead.
+    var showsMapping = true
+    /// The Joy-Con split only while a Joy-Con is connected (or the split is on, so it can be turned off). The desktop's sheet lists no
+    /// controllers, so it always shows it.
+    var joyconSplitOnlyWithJoyCon = true
+    private var showsJoyconSplit: Bool {
+        !joyconSplitOnlyWithJoyCon || state.joyconSplit
+            || state.controllers.contains { $0.kind == .paired || $0.name.hasPrefix("Joy-Con") }
+    }
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var state: ConsoleState { driver.state }
@@ -220,17 +278,21 @@ struct ConsoleToastView: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 22) {
                     mergeToggle
-                    joyconSplitToggle
-                    Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(.secondary)
+                    if showsJoyconSplit { joyconSplitToggle }
+                    if showsMapping { mappingEntry }
+                    if showsMapping && state.homeButtonAvailable { homeEntry }
+                    if showsMapping { ForEach(ConsolePref.onControllers, id: \.self) { prefToggle($0) } }   // the ways into console mode, as the desktop's Controls card has them
+                    Text(t("console.controllerNote")).font(.manrope(compact ? 17 : 22)).foregroundStyle(LauncherPalette.secondaryText)
                     HStack(spacing: 12) {
                         ForEach(1...4, id: \.self) { player in
                             Button { driver.requestPlayer(player) } label: {
                                 Text(String(format: t("console.playerShort"), player)).font(.manrope(compact ? 18 : 22, .bold))
                                     .frame(maxWidth: .infinity, minHeight: 56)
                                     .background(state.assigningPlayer == player ? LauncherPalette.cream : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-                                    .foregroundStyle(state.assigningPlayer == player ? LauncherPalette.background : .white)
+                                    .foregroundStyle(state.assigningPlayer == player ? LauncherPalette.background : LauncherPalette.textStrong)
                             }
                             .buttonStyle(.plain).accessibilityLabel(String(format: t("console.player"), player))
                             .accessibilityAddTraits(state.assigningPlayer == player ? .isSelected : [])
@@ -244,7 +306,9 @@ struct ConsoleToastView: View {
                     ForEach(state.controllers) { controller in row(controller) }
                 }
                 .padding(.horizontal, compact ? 24 : 40).padding(.vertical, 12)
+                }.consoleScrollContent()
             }
+            .consoleScrollFade()
             .onChange(of: pad.focused) { id in
                 if let id { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) } }
             }
@@ -257,17 +321,81 @@ struct ConsoleToastView: View {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Label(t("console.mergeAll"), systemImage: "person.2").font(.manrope(compact ? 16 : 18, .semibold))
-                    Text(t(state.padMerge ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.padMerge ? LauncherPalette.cream : .secondary)
+                    Text(t(state.padMerge ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.padMerge ? LauncherPalette.cream : LauncherPalette.secondaryText)
                 }
                 Spacer(minLength: 8)
                 Toggle(t("console.mergeAll"), isOn: Binding(get: { state.padMerge }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller.merge", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
         .accessibilityLabel(t("console.mergeAll")).accessibilityValue(t(state.padMerge ? "console.on" : "console.off"))
+    }
+
+    /// The button mapping for all games, with the layout it uses now, as iOS shows it in its Controllers page.
+    private var mappingEntry: some View {
+        let open = { driver.openMapping() }
+        let value = t("controls.mode." + state.padLayout.mode.rawValue)
+        return Button(action: open) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(t("console.mapping"), systemImage: "arrow.left.arrow.right").font(.manrope(compact ? 16 : 18, .semibold))
+                    Text(value).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.padLayout.isDefault ? LauncherPalette.secondaryText : LauncherPalette.cream)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundStyle(LauncherPalette.ink(0.4)).accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.controller.mapping", scope: scope, radius: 10, activate: open)
+        .accessibilityLabel(t("console.mapping")).accessibilityValue(value)
+        .accessibilityHint(t("console.menu.mappingNote"))
+    }
+
+    /// A launcher switch about controllers (ConsolePref.onControllers: start in console mode, offer it when a controller connects), as
+    /// a switch with what it does under it. Console mode only: the desktop's Controls card has the same switches.
+    private func prefToggle(_ pref: ConsolePref) -> some View {
+        let on = state.prefs[pref]
+        let flip = { driver.setPref(pref, on: !on) }
+        return Button(action: flip) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(t(pref.titleKey)).font(.manrope(compact ? 16 : 18, .semibold))
+                    Text(t(pref.noteKey)).font(.manrope(compact ? 14 : 16)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Toggle("", isOn: Binding(get: { on }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.pref." + pref.rawValue, scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
+        .accessibilityLabel(t(pref.titleKey)).accessibilityHint(t(pref.noteKey)).accessibilityValue(t(on ? "console.on" : "console.off"))
+    }
+
+    /// "Quit games with the Home button": the system's setting on macOS 27 (HomeButtonSettings), opened as the desktop's Controls page does.
+    private var homeEntry: some View {
+        let open = { driver.openSystemHomeSettings() }
+        return Button(action: open) {
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(t("controls.homeQuit"), systemImage: "house").font(.manrope(compact ? 16 : 18, .semibold))
+                    Text(t("controls.homeQuitNote")).font(.manrope(compact ? 14 : 16)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "arrow.up.forward.app").font(.system(size: 15, weight: .semibold)).foregroundStyle(LauncherPalette.ink(0.45)).accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .padTarget("console.controller.home", scope: scope, radius: 10, activate: open)
+        .accessibilityLabel(t("controls.homeQuit")).accessibilityHint(t("controls.homeQuitNote"))
     }
 
     /// "Split Joy-Con pair into two controllers" (#740) as a switch with its state spelled out.
@@ -277,13 +405,13 @@ struct ConsoleToastView: View {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Label(t("console.joyconSplit"), systemImage: "rectangle.split.2x1").font(.manrope(compact ? 16 : 18, .semibold))
-                    Text(t(state.joyconSplit ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.joyconSplit ? LauncherPalette.cream : .secondary)
+                    Text(t(state.joyconSplit ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.joyconSplit ? LauncherPalette.cream : LauncherPalette.secondaryText)
                 }
                 Spacer(minLength: 8)
                 Toggle(t("console.joyconSplit"), isOn: Binding(get: { state.joyconSplit }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller.joyconSplit", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
@@ -296,9 +424,9 @@ struct ConsoleToastView: View {
                 Image(systemName: controller.kind.symbol).font(.system(size: compact ? 26 : 34)).frame(width: 42).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(controller.name).font(.manrope(compact ? 18 : 23, .semibold))
-                    do { Text(t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller)).font(.manrope(compact ? 14 : 17)).foregroundStyle(.secondary) }
+                    do { Text(t(controller.kind.labelKey) + " \u{00b7} " + playerLabel(controller)).font(.manrope(compact ? 14 : 17)).foregroundStyle(LauncherPalette.secondaryText) }
                     ConsoleBattery(controller: controller, lang: lang)
-                    if controller.charging { Text(t("console.charging")).font(.manrope(13)).foregroundStyle(.secondary) }
+                    if controller.charging { Text(t("console.charging")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText) }
                 }
                 Spacer(minLength: 0)
             }
@@ -324,7 +452,7 @@ struct ConsoleToastView: View {
                     .lineLimit(2).minimumScaleFactor(0.7).fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, minHeight: compact ? 88 : 96).padding(.horizontal, 6)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller." + id, scope: scope, radius: 10, activate: perform)
@@ -337,7 +465,7 @@ struct ConsoleToastView: View {
                 if let value { Text(value).font(.manrope(compact ? 16 : 20)).foregroundStyle(LauncherPalette.cream) }
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller." + id, scope: scope, radius: 10, activate: perform, adjust: adjust)
@@ -359,10 +487,10 @@ struct ConsoleToastView: View {
                     .buttonStyle(.plain).accessibilityLabel(L10n.string("console.close", lang))
                     .padTarget("console.sheet.close", scope: "console.controllers", radius: 24, activate: close)
             }.padding(24)
-            ConsoleControllerList(driver: driver, lang: lang, compact: true)
+            ConsoleControllerList(driver: driver, lang: lang, compact: true, showsMapping: false, joyconSplitOnlyWithJoyCon: false)
         }
-        .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).preferredColorScheme(.dark)
-        .foregroundStyle(.white).padScope("console.controllers", pad)
+        .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).launcherAppearance()
+        .foregroundStyle(LauncherPalette.textStrong).padScope("console.controllers", pad)
         .environment(\.padRingStyle, .hug)
         .onAppear { pad.scope = "console.controllers"; pad.focused = "console.controller.merge" }
         .overlay(alignment: .bottom) { if let toast = driver.state.toast { ConsoleToastView(toast: toast) } }

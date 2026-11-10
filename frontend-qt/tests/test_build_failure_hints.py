@@ -112,6 +112,8 @@ class Rows(unittest.TestCase):
         self.assertIsNone(bf.classify(fixture('disk.full')['text']).detail)
         log = 'skipping an empty file: a.nsp\n' + fixture('games.noTitleID')['text'] + '\n'
         self.assertEqual(bf.classify(log).detail, fixture('games.noTitleID')['folder'])
+        stale = bf.classify(fixture('profile.stale')['text'])   # #553: a kept profile that lacks the selected update stops the build
+        self.assertEqual((stale.kind, stale.detail), (bf.STALE_PROFILE, fixture('profile.stale')['folder']))
 
     def test_offline_pipelines_explain_low_space_and_keep_the_engine_estimate(self):
         for pid, gb in (('pso.low', '3'), ('pso.merge', '2.5'), ('pso.failed', None)):

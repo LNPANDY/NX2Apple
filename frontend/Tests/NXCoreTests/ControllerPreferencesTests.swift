@@ -140,3 +140,63 @@ private final class MemoryControllerPreferences: ControllerPreferenceStorage {
     func write(_ key: String, value: Any?) { values[key] = value }
     func synchronize() -> Bool { syncOK }
 }
+
+/// #454: the global layout reaches a game's own preferences before any start, so Finder, Dock and Launchpad starts have it.
+final class GlobalLayoutSyncTests: XCTestCase {
+    private let pad = "A=B,B=A"
+    private let other = "A=X,X=A"
+
+    private func prefs() -> (ControllerPreferences, SyncMemory) {
+        let memory = SyncMemory()
+        return (ControllerPreferences(storage: memory), memory)
+    }
+
+    func testAnUntouchedGameGetsTheGlobalLayoutWithoutAStart() {
+        let (prefs, memory) = prefs()
+        XCTAssertTrue(prefs.syncGlobal(["DM_PAD_MAP": pad]))
+        XCTAssertEqual(memory.values["launcher.DM_PAD_MAP"] as? String, pad)
+        XCTAssertNil(memory.values["launcher.DM_KEYMAP"], "no keyboard change, nothing written")
+    }
+
+    func testALaterChangeOfTheGlobalLayoutFollowsInAGameThatKeptWhatWasWritten() {
+        let (prefs, memory) = prefs()
+        prefs.syncGlobal(["DM_PAD_MAP": pad])
+        prefs.syncGlobal(["DM_PAD_MAP": other])
+        XCTAssertEqual(memory.values["launcher.DM_PAD_MAP"] as? String, other)
+        prefs.syncGlobal([:])   // the global layout was reset
+        XCTAssertNil(memory.values["launcher.DM_PAD_MAP"])
+    }
+
+    func testAGamesOwnLayoutAndAResetInTheGameAreLeftAlone() {
+        let (prefs, memory) = prefs()
+        prefs.syncGlobal(["DM_PAD_MAP": pad])
+        memory.values["launcher.DM_PAD_MAP"] = "A=Y,Y=A"   // the player changed it in the game
+        prefs.syncGlobal(["DM_PAD_MAP": other])
+        XCTAssertEqual(memory.values["launcher.DM_PAD_MAP"] as? String, "A=Y,Y=A")
+        memory.values["launcher.DM_PAD_MAP"] = nil   // the game's reset
+        prefs.syncGlobal(["DM_PAD_MAP": pad])
+        XCTAssertNil(memory.values["launcher.DM_PAD_MAP"], "a reset in the game stays reset")
+    }
+
+    func testSavingOffAndInvalidLayoutsWriteNothing() {
+        let (prefs, memory) = prefs()
+        XCTAssertTrue(prefs.syncGlobal(["DM_PAD_MAP": pad], savingEnabled: false))
+        XCTAssertTrue(prefs.syncGlobal(["DM_PAD_MAP": pad, "DM_SAVED_CHOICES": "0"]))
+        prefs.syncGlobal(["DM_PAD_MAP": "nonsense"])
+        XCTAssertNil(memory.values["launcher.DM_PAD_MAP"])
+    }
+
+    func testAFailedWriteIsReported() {
+        let (prefs, memory) = prefs()
+        memory.syncOK = false
+        XCTAssertFalse(prefs.syncGlobal(["DM_PAD_MAP": pad]))
+    }
+}
+
+private final class SyncMemory: ControllerPreferenceStorage {
+    var values: [String: Any] = [:]
+    var syncOK = true
+    func read(_ key: String) -> Any? { values[key] }
+    func write(_ key: String, value: Any?) { values[key] = value }
+    func synchronize() -> Bool { syncOK }
+}

@@ -45,9 +45,17 @@ package struct FilePick: Equatable {
     nonisolated func setWaiting(_ on: Bool)
     nonisolated var waitCancelled: Bool { get }
     func copyEnded()
+    /// Reads the device listing again (a transfer asks it when a send failed, to tell a device that went away from a refusal).
+    func refreshDevices() async
 }
 
-extension DeviceStore: InstallTarget {}
+extension InstallTarget {
+    package func refreshDevices() async {}
+}
+
+extension DeviceStore: InstallTarget {
+    package func refreshDevices() async { await refresh().value }
+}
 extension DependencyStore: DependencyInstalling {}
 extension EngineSyncStore: EngineSyncing {}
 
@@ -74,6 +82,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     nonisolated package static let bcOnCPUKey = "bcOnCPU"
     nonisolated package static let experimentalBuilderKey = "experimentalBuilder"
     nonisolated package static let experimentalBuilderPathKey = "experimentalBuilderPath"
+    nonisolated package static let savedKeysKey = "savedKeysPath"
 
     @Published package var gameDir = ""
     @Published package var slots: [Slot] = [
@@ -104,8 +113,12 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var running = false {
         didSet {
             if !running, !buildingGame { runningTarget = target }
+            if !running { operation = nil }
         }
     }
+    /// What runs right now: operation, game and destination, taken when the work starts and independent of the Build form
+    /// (BuildStore+Operation.swift). nil when nothing runs.
+    @Published package internal(set) var operation: ActiveOperation?
     @Published package var staleFrameworks: [StaleFrameworks.Entry] = []   // the prompt of StaleFrameworksPrompt.swift (#449)
     // The shell folder (shellCachePath, shellRoot, shellRootProblem): BuildStore+ShellRoot.swift.
     @Published package var stopping = false
@@ -158,6 +171,13 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     @Published package var experimentalBuilderPath: String {
         didSet { defaults.set(experimentalBuilderPath, forKey: Self.experimentalBuilderPathKey) }
     }
+    /// The prod.keys chosen once for every game (Settings, "Keys", #996): a build whose keys row is empty or names a file that is gone
+    /// takes it (BuildStore+SavedKeys.swift). Empty when none is saved.
+    @Published package internal(set) var savedKeys: String {
+        didSet {
+            if savedKeys.isEmpty { defaults.removeObject(forKey: Self.savedKeysKey) } else { defaults.set(savedKeys, forKey: Self.savedKeysKey) }
+        }
+    }
     /// The app's own nxb (Contents/Resources/nxbuild/nxb, frontend/nxbuild.pin), nil in tests and in a build without a pinned release.
     package var bundledBuilder: String? = ExperimentalBuilder.bundled(resources: Bundle.main.resourcePath)
     package var nxbRun = false   // the running build is `nxb build`, not the script: its exit code has its own messages
@@ -190,6 +210,19 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var home = NSHomeDirectory()
 
     // ---- The app's side: AppKit and the wiring, as closures ----
+    /// The games whose data can go to a device: the app fills it from the library (title ID, name, the packed data folder).
+    package var sharedAppDataSources: () -> [TransferSource] = { [] }
+    /// Extra environment for a Mac app build of a game (title ID in, variables out): the app adds the stand-in icon of #784.
+    package var macBuildEnvironment: (String) -> [String: String] = { _ in [:] }
+    /// The transfer queue (#1036), which the app wires. Sending data goes through it so that a build can run beside it.
+    package weak var transfers: TransferQueueStore?
+    /// The running send of each transfer asks this flag whether it was cancelled.
+    var transferCancels: [UUID: LockedFlag] = [:]
+    /// A queued shared-app batch builds each game and packages the app once at the end (#997): the games built so far wait here.
+    package var deferShellPackaging = false
+    /// Stop was pressed during the running work (the queue pauses after it). Cleared when the next build starts.
+    package var stoppedByPlayer = false
+    var deferredShell: [(framework: String, titleID: String, name: String)] = []
     package var chooseKeys: (() -> Void)?          // tests stand in for the file picker
     /// The open panel: the paths the player picked, none when they cancelled.
     package var choosePaths: (FilePick) -> [String] = { _ in [] }
@@ -201,6 +234,17 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// A Finder window with this file or folder selected (`activateFileViewerSelecting`).
     package var revealItem: (URL) -> Void = { _ in }
     package var openApp: (URL) -> Void = { _ in }
+    /// Opens a new Mac app once, hidden, with DM_PREFLIGHT set, and calls back on the main actor when it has quit, with the
+    /// error that stopped it, if any (`MacPreflight`, #1005). Nil: no check, as in the tests that do not set it.
+    package var preflightApp: ((URL, @escaping @MainActor (Error?) -> Void) -> Void)?
+    /// Whether this app's launcher knows DM_PREFLIGHT. Tests stand in for the binary's answer.
+    package var preflightSupported: (URL) -> Bool = { MacPreflight.supports($0) }
+    /// How long the check may take. Tests shorten it.
+    package var preflightTimeout = MacPreflight.timeout
+    /// Ends the check's wait now (Stop, or the timeout), while the build's last stage runs it.
+    var endPreflight: (@MainActor (Error) -> Void)?
+    /// The free bytes on the volume of a folder, nil when unknown. Tests stand in for the system's answer.
+    package var spaceAvailable: (String) -> Int64? = { BuildSpace.available(at: $0) }
     /// Whether the build folder is in a cloud folder. Tests stand in for the system's answer.
     package var cloudFolderCheck: (String) -> Bool = { CloudFolder.contains($0) }
     /// Whether the volume of this folder can replace an old Mac app (APFS), nil when unknown. Tests stand in for the system's answer.
@@ -250,6 +294,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         bcOnCPU = defaults.bool(forKey: Self.bcOnCPUKey)
         experimentalBuilder = ExperimentalBuilder.featureEnabled && defaults.bool(forKey: Self.experimentalBuilderKey)
         experimentalBuilderPath = defaults.string(forKey: Self.experimentalBuilderPathKey) ?? ""
+        savedKeys = defaults.string(forKey: Self.savedKeysKey) ?? ""
     }
 
     /// The language and the text this store writes itself: views take strings from the environment.
@@ -267,7 +312,6 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func shortPath(_ path: String) -> String { RepoLayout.shortPath(path) }
 
     package var basePath: String { slot("base").paths.first ?? "" }
-    package var keysPath: String { slot("keys").paths.first ?? "" }
     package var updatePath: String { slot("update").paths.first ?? "" }
     package var dlcPaths: [String] { slot("dlc").paths }
 
@@ -288,7 +332,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func fail(_ why: String) { stopPSOPoll(); running = false; doneNote = why; say("✗ " + why); cleanupStaging() }
 
     package func stop() {
+        if running { stoppedByPlayer = true }
         if case .moving = shellMove { stopShellMove(); return }
+        if let endPreflight { endPreflight(MacPreflight.Failure.stopped); return }   // the app is built: Stop ends the check only
         guard running, !stopping, let proc, proc.isRunning else { return }
         stopping = true
         stopPSOPoll()

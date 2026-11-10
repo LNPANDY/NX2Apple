@@ -1,0 +1,119 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Mon, 9 Nov 2026 21:19:53 +0100
+Subject: [PATCH] iOS: write the game's console into game.manifest.json
+
+gen_manifest.py takes the game's profile (--profile, build_ipa.sh passes dm/games/<id>/game.tsv) and writes console as switch2 or
+switch1 after the schema's keys. The rule is the one the Mac launcher already uses (GameFolder.profileIsSwitch2): a Switch 2 profile
+names it in its first line, "# Name (Switch 2, update v...)". Without a profile the key is left out. The shell can then mark a
+Switch 2 game and warn about its memory. The profile carries no minimum memory, so no min_memory is written.
+
+Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Reason: the iPhone shell has no way to know a game is a Switch 2 game, the manifest is the file it reads per game
+Issue: LNPANDY/NX2Apple#696
+---
+ dm/ios/tests/test_framework_build.py | 17 ++++++++++++++++-
+ dm/ios/tools/build_ipa.sh            |  2 +-
+ dm/ios/tools/gen_manifest.py         | 20 +++++++++++++++++++-
+ 3 files changed, 36 insertions(+), 3 deletions(-)
+
+diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
+index cfba21ff..f1c89929 100644
+--- a/dm/ios/tests/test_framework_build.py
++++ b/dm/ios/tests/test_framework_build.py
+@@ -81,6 +81,21 @@ class ManifestTests(unittest.TestCase):
+         self.assertEqual(data['romfs_identity'], 'DMROMFSID1 title=x size=1 index=2')
+         self.assertEqual(data['min_os'], '26.0')
+ 
++    def test_the_console_comes_from_the_profiles_first_line(self):
++        with tempfile.TemporaryDirectory() as temporary:
++            for first, expected in (('# Donkey Kong Bananza (Switch 2, update v458752)', 'switch2'), ('# Fixture Game (update v1)', 'switch1')):
++                profile = Path(temporary) / 'game.tsv'
++                profile.write_text(first + '\nname\tx\n')
++                result, data = self.manifest('--profile', str(profile))
++                self.assertEqual(result.returncode, 0, result.stderr)
++                self.assertEqual(data['console'], expected)
++                self.assertEqual(list(data)[-2:], ['min_os', 'console'], 'after the schema keys, which keep their order')
++
++    def test_without_a_profile_the_manifest_says_nothing_about_the_console(self):
++        result, data = self.manifest()
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertNotIn('console', data)
++
+     def test_a_romfs_folder_has_no_identity_and_no_nro_table_counts_zero(self):
+         result, data = self.manifest('--romfs-identity', '', nro=False)
+         self.assertEqual(result.returncode, 0, result.stderr)
+@@ -139,7 +154,7 @@ class FrameworkEnvironmentTests(unittest.TestCase):
+             (root / 'tools').symlink_to(REPO / 'dm/ios/tools', target_is_directory=True)
+             result = run_step(block, root, FRAMEWORK='1', FRAMEWORK_ONLY='out', FW_NAME='DmGame' + GAME,
+                               PATCHED=str(root / 'patched'), ROMFS=str(root / 'none'), PREPARE_XCODE='NO', DM_COPY_ROMFS='NO',
+-                              DM_DISPLAY_NAME='Fixture', DM_APP_VERSION='1.0', MODS='main', V='fixture', MARKER='marker', F='')
++                              DM_DISPLAY_NAME='Fixture', DM_APP_VERSION='1.0', MODS='main', V='fixture', MARKER='marker', F='', GD=str(root / 'gd'))
+             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+             self.assertTrue((root / 'Gen/framework/dm/env.txt').is_file(), 'the built framework must carry its environment')
+             self.assertEqual((root / 'Gen/framework/dm/env.txt').read_text(), 'DM_PROF_TEX_BC_CPU=1\n')
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index be74dd66..ef52be27 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -222,7 +222,7 @@ if [ "$FRAMEWORK" = 1 ]; then
+   FW_LOADER=FR; [ -z "$FRAMEWORK_ONLY" ] || FW_LOADER=FH
+   python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
+     --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
+-    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" > /dev/null || die "game manifest (gen_manifest.py)"
++    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" --profile "$GD/game.tsv" > /dev/null || die "game manifest (gen_manifest.py)"
+   printf 'OTHER_LDFLAGS = $(inherited) %s\n' "$F" > Gen/framework.xcconfig || die "framework link flags"
+   t "framework: Gen/framework (modules $MODS, profile.tsv, game.manifest.json)"
+ fi
+diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
+index 058b02dc..963156fd 100644
+--- a/dm/ios/tools/gen_manifest.py
++++ b/dm/ios/tools/gen_manifest.py
+@@ -9,7 +9,7 @@ cross-checks the sections it names. Writing it now keeps the schema honest, and
+ Usage:
+   gen_manifest.py <out.json> --game <title ID> --name <name> --display-version <v> --package-version <pkg>
+                   --modules "main sdk" [--nro-table <nro.tsv>] --chain b-<hex> --romfs-marker <path>
+-                  [--romfs-identity "DMROMFSID1 ..."] [--min-os 26.0]
++                  [--romfs-identity "DMROMFSID1 ..."] [--min-os 26.0] [--profile <dm/games/<title ID>/game.tsv>]
+ Exit status 1 on a value the schema cannot carry (a bad title ID, no module, a chain not written b-<hex>).
+ """
+ import argparse
+@@ -39,6 +39,20 @@ def nro_count(table):
+     return sum(1 for name in rows if name and not name.startswith('#') and name != 'refused')
+ 
+ 
++def console_of(profile):
++    """"switch2" for a Switch 2 game's profile, "switch1" for any other, None without a readable profile. No profile key says so yet:
++    every Switch 2 profile names it in its first line, "# Donkey Kong Bananza (Switch 2, update v458752)" (the launcher reads the
++    same line, GameFolder.profileIsSwitch2), so that line is the rule here too."""
++    if not profile:
++        return None
++    try:
++        with open(profile, encoding='utf-8', errors='replace') as f:
++            first = f.readline()
++    except OSError:
++        return None
++    return 'switch2' if first.startswith('#') and '(Switch 2' in first else 'switch1'
++
++
+ def manifest(args):
+     """The schema's keys in its order; optional ones only when a value is given."""
+     title_id = args.game.upper()
+@@ -74,6 +88,9 @@ def manifest(args):
+         'romfs_identity': args.romfs_identity or '',
+         'min_os': args.min_os,
+     }
++    console = console_of(args.profile)
++    if console:
++        data['console'] = console   # the shell marks a Switch 2 game and warns about its memory (LNPANDY/NX2Apple#696)
+     if args.built_by:
+         data['built_by'] = args.built_by
+     return data
+@@ -97,6 +114,7 @@ def main(argv=None):
+                          'games\' frameworks sit side by side in Frameworks/')
+     ap.add_argument('--loader', default='FR', choices=('FR', 'FH'),
+                     help='FR: a module container whose host is the app (M1); FH: the framework carries its own host (the shell, #451)')
++    ap.add_argument('--profile', help='the game\'s dm/games/<title ID>/game.tsv: console in the manifest comes from its first line')
+     ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
+     args = ap.parse_args(argv)
+     data = manifest(args)

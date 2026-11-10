@@ -168,6 +168,13 @@ import UIKit
         if spot { rejectCount += 1; rejected = true } else { rejected = false }
     }
 
+    /// Hold or Toggle for the chosen key (#658): kept in the draft with the places, saved with them.
+    var selectedToggles: Bool { selected.map { editing.layout.toggles($0) } ?? false }
+    func setToggles(_ on: Bool) {
+        guard let c = selected, c.canToggle else { return }
+        editing.layout.setToggles(c, on)
+    }
+
     func putBack() {
         guard let c = selected else { return }
         editing.putBack(c)

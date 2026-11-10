@@ -188,6 +188,52 @@ import NXModel
 
     // ---- Visual QA ----
 
+    func testOpenUpdateSheetReactsWhenBuildEnds() throws {
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let output = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"].map {
+            URL(fileURLWithPath: $0)
+        }
+        if let output { try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true) }
+
+        let release = AppUpdate.Release(tag: "v1.3.2", url: "", digest: nil, notes: try Self.body072())
+        for action in ["update", "restart"] {
+            let stores = LauncherStores(defaults: testDefaults)
+            stores.build.lang = .en
+            stores.build.running = true
+            stores.appUpdates.update = release
+            if action == "restart" {
+                stores.appUpdates.staged = AppUpdate.Staged(release: release, app: URL(fileURLWithPath: "/unused"))
+            }
+            let width: CGFloat = 560, height: CGFloat = 640
+            let sheet = UpdateSheet(updates: stores.appUpdates, build: stores.build)
+                .environmentObject(stores.localizer).frame(width: width, height: height)
+            let host = NSHostingView(rootView: sheet)
+            let window = OffscreenWindow(size: NSSize(width: width, height: height))
+            window.contentView = host
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.orderFront(nil)
+            defer { window.orderOut(nil) }
+
+            let building = try capture(host)
+            stores.build.running = false
+            let ready = try capture(host)
+            XCTAssertNotEqual(building, ready, "The open sheet must react when the build ends (\(action))")
+
+            if let output {
+                try building.write(to: output.appendingPathComponent("update-sheet-build-\(action).png"))
+                try ready.write(to: output.appendingPathComponent("update-sheet-build-\(action)-finished.png"))
+            }
+        }
+    }
+
+    private func capture(_ host: NSView) throws -> Data {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        host.layoutSubtreeIfNeeded()
+        let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: rep)
+        return try XCTUnwrap(rep.representation(using: .png, properties: [:]))
+    }
+
     /// Opt-in native rendering for pull request screenshots (NX_LAUNCHER_CAPTURE_DIR).
     @MainActor func testRenderUpdateSheetForScreenshots() throws {
         guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
@@ -209,16 +255,12 @@ import NXModel
             mStores.appUpdates.update = AppUpdate.Release(tag: tag, url: "", digest: nil, notes: notes)
             mStores.appUpdates.downloadProgress = progress
             let width: CGFloat = 560, height: CGFloat = 640
-            let host = NSHostingView(rootView: UpdateSheet(updates: mStores.appUpdates).environmentObject(mStores.localizer).frame(width: width, height: height))
+            let host = NSHostingView(rootView: UpdateSheet(updates: mStores.appUpdates, build: m).environmentObject(mStores.localizer).frame(width: width, height: height))
             let window = OffscreenWindow(size: NSSize(width: width, height: height))
             window.contentView = host
             window.appearance = NSAppearance(named: .darkAqua)
             window.orderFront(nil)
-            RunLoop.main.run(until: Date().addingTimeInterval(0.5))
-            host.layoutSubtreeIfNeeded()
-            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-            host.cacheDisplay(in: host.bounds, to: rep)
-            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
+            try capture(host).write(to: output.appendingPathComponent(name + ".png"))
             window.orderOut(nil)
         }
     }

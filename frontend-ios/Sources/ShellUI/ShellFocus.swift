@@ -64,16 +64,28 @@ struct ShellFocusTarget: ViewModifier {
     let radius: CGFloat
     var showsRing = true
     let action: () -> Void
+    /// Radius for capsules and circles: any value above half the control's shorter side draws a full round end.
+    static let capsule: CGFloat = 100
+    /// The corner radius the ring really draws for a control of `size`: SwiftUI clamps it to half the shorter side.
+    nonisolated static func ringCornerRadius(radius: CGFloat, size: CGSize) -> CGFloat {
+        min(radius + 5, min(size.width, size.height) / 2 + 5)
+    }
+    /// Only the focused target draws a ring, and only while focus is visible.
+    nonisolated static func drawsRing(showsRing: Bool, visible: Bool, focused: String?, id: String) -> Bool {
+        showsRing && visible && focused == id
+    }
     @Environment(\.shellFocus) private var focus
     func body(content: Content) -> some View {
         content
             .overlay {
-                if showsRing && focus.visible && focus.id == id {
+                if Self.drawsRing(showsRing: showsRing, visible: focus.visible, focused: focus.id, id: id) {
                     RoundedRectangle(cornerRadius: radius + 5).strokeBorder(ShellPalette.cream, lineWidth: 3)
                         .padding(-5).allowsHitTesting(false).accessibilityHidden(true)
                         // On and off at once: a ring fading in or out stays where it was while a panel slides, apart
-                        // from its control.
+                        // from its control. An animated scroll to the focused row (withAnimation around scrollTo) must not
+                        // fade the ring either: the old row's ring lingered and the new one flashed (#1026).
                         .transition(.identity)
+                        .transaction { $0.animation = nil; $0.disablesAnimations = true }
                 }
             }
             .background {

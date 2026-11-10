@@ -1,0 +1,235 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sun, 8 Nov 2026 18:47:11 +0900
+Subject: [PATCH] Mac app: an update without control data gets no base game
+ version
+
+A dump, or a NUP update without a NACP, carries no control data, so the
+app version fell back to the base game's control data, or to 1.0 for a
+dump. The Mac app then named a version that does not run: Donkey Kong
+Bananza packed with update v458752 said 1.0.
+
+The app version is now the packed version's own display version, else
+the version number the profile registers for its main build, and the
+base game's only when the base game is packed. pack_app.py writes it
+as DMDisplayVersion, and the packed version as DMPackageVersion
+(v458752), which is all an update without control data has.
+
+Front-ends: show DMDisplayVersion, else DMPackageVersion, before
+CFBundleShortVersionString, which is 1.0 for an update without control
+data (docs/frontends.md).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#1784
+Reason: An update packed from a dump or a NUP named the base game's version, or 1.0, in the Mac app; the launcher shows the version that runs
+Issue: LNPANDY/NX2Apple#953
+
+---
+ dm/mac/pack_app.py                 |  7 +++++-
+ dm/tools/tests/test_nsp_mac_app.py | 11 ++++++++-
+ dm/tools/tests/test_nsp_nup.py     | 17 ++++++++++++++
+ docs/development.md                |  2 +-
+ docs/frontends.md                  |  2 +-
+ scripts/build_ipa_from_nsp.py      | 36 ++++++++++++++++++++++--------
+ 6 files changed, 62 insertions(+), 13 deletions(-)
+
+diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
+index c7a2e0fe..989a4106 100755
+--- a/dm/mac/pack_app.py
++++ b/dm/mac/pack_app.py
+@@ -134,6 +134,9 @@ def info_plist(a, minos, icon):
+          'NSBluetoothAlwaysUsageDescription': 'Connect Switch 2 Joy-Con and Pro Controllers over Bluetooth.',
+          'LSApplicationCategoryType': a.category or 'public.app-category.games', 'LSSupportsGameMode': False, 'DMTitleID': a.title_id.upper(), 'DMRomfsMarker': a.marker or '', 'DMLanguage': a.lang or 'en-US', 'DMSaveSyncChoice': 1,
+          'DMForkPatches': fork_patches(), 'DMControllerMappings': 1}
++    # the front ends show DMDisplayVersion, else DMPackageVersion: CFBundleShortVersionString is 1.0 when the packed update has no display version of its own (#953)
++    if a.version: p['DMDisplayVersion'] = a.version
++    if a.package_version: p['DMPackageVersion'] = a.package_version
+     if icon: p['CFBundleIconFile'] = 'AppIcon'
+     if a.settings:
+         listed = json.loads(Path(a.settings).read_text(encoding='utf-8'))['settings']
+@@ -399,7 +402,9 @@ def parse(argv):
+     ap.add_argument('--env-file', help='environment switches baked in (Resources/dm/env.txt)')
+     ap.add_argument('--settings', help='the game\'s launcher settings (dm/games/settings.py output; Resources/dm/launcher.json, which the Mac front end reads)')
+     ap.add_argument('--title-id', required=True); ap.add_argument('--name', required=True)
+-    ap.add_argument('--version'); ap.add_argument('--bundle-id'); ap.add_argument('--category'); ap.add_argument('--lang'); ap.add_argument('--marker', help='the profile\'s romfs_marker')
++    ap.add_argument('--version', help='the game\'s display version (CFBundleShortVersionString and DMDisplayVersion; 1.0 and no DMDisplayVersion without it)')
++    ap.add_argument('--package-version', help='the packed version (v458752): DMPackageVersion, which names an update packed without its display version')
++    ap.add_argument('--bundle-id'); ap.add_argument('--category'); ap.add_argument('--lang'); ap.add_argument('--marker', help='the profile\'s romfs_marker')
+     ap.add_argument('--icon', help='the game icon (icon.jpg from the control data)')
+     ap.add_argument('--control', help='the game\'s control data (control.nacp): its title in each language goes into Info.plist as DMTitleNames')
+     ap.add_argument('--sign', default='-', help='codesign identity (default: - = ad-hoc)')
+diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
+index d8c347aa..d3bc98b8 100644
+--- a/dm/tools/tests/test_nsp_mac_app.py
++++ b/dm/tools/tests/test_nsp_mac_app.py
+@@ -475,7 +475,7 @@ class App(unittest.TestCase):
+         cls.app = t / 'Game - Test.app'
+         cls.args = pack_app.parse([str(cls.app), '--host', str(t / 'dmhost'), '--patched', str(t / 'patched'), '--romfs', str(t / 'romfs'), '--msl', str(t / 'cache/b-0123456789ab'),
+                                    '--tables', str(t / 'profile'), '--font', str(t / 'font'), '--aoc', str(t / 'aoc'), '--pso', str(t / 'pso'), '--env-file', str(t / 'env.txt'), '--settings', str(t / 'launcher.json'), '--title-id', TID.lower(),
+-                                   '--name', 'Game: Test', '--version', '1.0.1', '--lang', 'fr', '--marker', 'region_common/audio/edward.bfsar', '--icon', str(t / 'icon.jpg'),
++                                   '--name', 'Game: Test', '--version', '1.0.1', '--package-version', 'v65536', '--lang', 'fr', '--marker', 'region_common/audio/edward.bfsar', '--icon', str(t / 'icon.jpg'),
+                                    '--category', 'public.app-category.games', '--control', str(t / 'control.nacp')])
+         with contextlib.redirect_stdout(io.StringIO()): pack_app.pack(cls.args)
+ 
+@@ -525,11 +525,20 @@ class App(unittest.TestCase):
+             a.out = str(self.tmp / 'Own.app'); a.tables = self.args.tables; pack_app.pack(a)
+             self.assertEqual((self.tmp / 'Own.app/Contents/Resources/dm/pso_pairs.tsv').read_text(), 'other-vertex\tother-pixel\n')
+ 
++    def test_info_plist_of_an_update_without_its_display_version(self):   # #953: a dump's update has no control data; the front ends show DMPackageVersion
++        a = types.SimpleNamespace(**{**vars(self.args), 'version': None, 'package_version': 'v458752', 'settings': None})
++        p = pack_app.info_plist(a, '14.0', None)
++        self.assertEqual((p['CFBundleShortVersionString'], p['DMPackageVersion']), ('1.0', 'v458752'))
++        self.assertNotIn('DMDisplayVersion', p)
++        a.package_version = None
++        self.assertNotIn('DMPackageVersion', pack_app.info_plist(a, '14.0', None))   # an older NSP script passes neither
++
+     def test_info_plist(self):
+         p = plistlib.loads((self.app / 'Contents/Info.plist').read_bytes())
+         self.assertEqual((p['CFBundleExecutable'], p['CFBundleName'], p['CFBundleIdentifier'], p['CFBundleShortVersionString']), ('nxnative', 'Game: Test', 'org.nxnative.01008cf01baac000', '1.0.1'))
+         self.assertEqual((p['DMTitleID'], p['DMLanguage'], p['DMRomfsMarker'], p['CFBundleIconFile']), (TID, 'fr', 'region_common/audio/edward.bfsar', 'AppIcon'))
+         self.assertIs(p['LSSupportsGameMode'], False)   # macOS's Game Mode holds the GPU at its lowest clock (frame-rate.md)
++        self.assertEqual((p['DMDisplayVersion'], p['DMPackageVersion']), ('1.0.1', 'v65536'))
+         self.assertEqual(p['DMControllerMappings'], 1)
+         self.assertEqual(p['DMSettings'], [])   # launcher.json's settings, as the saved choices they accept: none here
+         self.assertRegex(p['DMCommit'], r'^[0-9a-f]{12}(\+dirty)?$')   # the packing checkout (scripts/bug_report.py, the host's start line)
+diff --git a/dm/tools/tests/test_nsp_nup.py b/dm/tools/tests/test_nsp_nup.py
+index 6dcbf0c0..1e2c67bd 100644
+--- a/dm/tools/tests/test_nsp_nup.py
++++ b/dm/tools/tests/test_nsp_nup.py
+@@ -467,6 +467,23 @@ class Pack(Base):
+         nac = bytearray(nac); struct.pack_into('<I', nac, 0x302C, 0b11); (u / 'control.nacp').write_bytes(nac)
+         self.assertEqual(nsp.languages_control(u, b), u / 'control.nacp')
+ 
++    def test_app_version_is_never_the_base_games_for_an_update(self):   # #953: an update packed without control data (a dump, a NUP update without a NACP)
++        class G:
++            def __init__(self, rows): self.rows = rows
++            def builds(self): return self.rows
++        with tempfile.TemporaryDirectory() as tmp:
++            tmp = Path(tmp); u, b = tmp / 'u', tmp / 'b'
++            for d in (u, b): (d / 'ExeFS').mkdir(parents=True); (d / 'ExeFS/main').write_bytes(b'main')
++            (b / 'control.nacp').write_bytes(control_nacp('Test Game', 'テス', '1.0.0'))
++            with mock.patch.object(nsp, 'build_id', lambda p: 'aa' * 16):
++                package = G({'v458752': {'display': 'v458752', 'main': 'aa' * 16}})   # a row that holds the package version (Donkey Kong Bananza's)
++                self.assertEqual(nsp.app_display_version(package, u, b, True), '')
++                self.assertEqual(nsp.app_display_version(package, b, b, False), '1.0.0')   # the base game packed: its own
++                self.assertEqual(nsp.app_display_version(G({'v65536': {'display': '1.1.0', 'main': 'aa' * 16}}), u, b, True), '1.1.0')   # the row registers a display version
++                self.assertEqual(nsp.app_display_version(G({'v65536': {'display': '?', 'main': 'aa' * 16}}), u, b, True), '')
++                (u / 'control.nacp').write_bytes(control_nacp('Test Game', 'テス', '1.2.3'))
++                self.assertEqual(nsp.app_display_version(package, u, b, True), '1.2.3')   # the update's own control data wins
++
+     def test_ipa_settings_read_the_picked_file_and_the_version_the_packed_one(self):   # build_ipa.sh's own lines: CONTROL is the NSP script's languages_control
+         self.assertIn('CONTROL=str(control)', (REPO / 'scripts/build_ipa_from_nsp.py').read_text(encoding='utf-8'))
+         script = (REPO / 'dm/ios/tools/build_ipa.sh').read_text(encoding='utf-8')
+diff --git a/docs/development.md b/docs/development.md
+index ae296e01..d19ed85c 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -576,7 +576,7 @@ The bundle holds what the IPA holds, with the Mac's shader libraries:
+ 
+ ```
+ <game name>.app/Contents/
+-  Info.plist                 name, version, bundle ID, the profile's app_category, LSSupportsGameMode false (reference/frame-rate.md); NSBluetoothAlwaysUsageDescription for Switch 2 controllers (reference/services.md); DMTitleID, DMRomfsMarker, DMLanguage, DMModuleFiles and DMSettings for the launcher
++  Info.plist                 name, version, bundle ID, the profile's app_category, LSSupportsGameMode false (reference/frame-rate.md); NSBluetoothAlwaysUsageDescription for Switch 2 controllers (reference/services.md); DMTitleID, DMRomfsMarker, DMLanguage, DMModuleFiles, DMSettings, DMDisplayVersion and DMPackageVersion (v458752; the only version an update packed without control data has) for the launcher
+   MacOS/nxnative             the launcher (dm/mac/launcher.c, linked by pack_app.py with swiftc and its settings window: dm/mac/Launcher.swift, LauncherSettings.swift and LauncherRow.swift)
+   MacOS/dmhost               the Mac host built for the profile
+   Resources/romfs.img        the packed version's RomFS image
+diff --git a/docs/frontends.md b/docs/frontends.md
+index 214ac82f..35a25dfc 100644
+--- a/docs/frontends.md
++++ b/docs/frontends.md
+@@ -52,7 +52,7 @@ A built app carries the settings its game supports, as the iPhone app's settings
+ 
+ ## Starting a game
+ 
+-**A Mac app** is started like any app, or by running its `Contents/MacOS/nxnative` with the chosen settings in its environment (`DM_FPS_TARGET=30`, …). The launcher there runs the host as a child, forwards SIGTERM, SIGINT and SIGHUP to it and exits with its exit code: 0 for a quit (⌘Q, the Home prompt, closing the window), 70 after the alert that macOS stopped running the game's GPU work ([A GPU whose access macOS revoked stops the game](reference/rendering.md#a-gpu-whose-access-macos-revoked-stops-the-game)), 134 for an abort. A variable already in the environment wins; then come `~/Library/Application Support/nxnative/<title ID>/env.txt` and the bundle's `dm/env.txt`, one `KEY=VALUE` per line ([A Mac app](development.md#a-mac-app)). The save is in `save/` in that Application Support folder; the log is `~/Library/Logs/nxnative/<title ID>.log`, the previous run's `<title ID>.prev.log`. The title ID is `DMTitleID` in the app's `Info.plist`.
++**A Mac app** is started like any app, or by running its `Contents/MacOS/nxnative` with the chosen settings in its environment (`DM_FPS_TARGET=30`, …). The launcher there runs the host as a child, forwards SIGTERM, SIGINT and SIGHUP to it and exits with its exit code: 0 for a quit (⌘Q, the Home prompt, closing the window), 70 after the alert that macOS stopped running the game's GPU work ([A GPU whose access macOS revoked stops the game](reference/rendering.md#a-gpu-whose-access-macos-revoked-stops-the-game)), 134 for an abort. A variable already in the environment wins; then come `~/Library/Application Support/nxnative/<title ID>/env.txt` and the bundle's `dm/env.txt`, one `KEY=VALUE` per line ([A Mac app](development.md#a-mac-app)). The save is in `save/` in that Application Support folder; the log is `~/Library/Logs/nxnative/<title ID>.log`, the previous run's `<title ID>.prev.log`. The title ID is `DMTitleID` in the app's `Info.plist`. Its game version is `DMDisplayVersion` (the packed version's display version, 1.2.1), else `DMPackageVersion` (the packed version, v458752): an update packed without control data, from a dump or a NUP, has no display version, and `CFBundleShortVersionString` is then 1.0, not the version that runs. An app packed before these keys has `CFBundleShortVersionString` alone.
+ 
+ A Mac app shows its own settings window before the game, drawn from its `launcher.json` and keeping its choices in the same store ([Saved choices](#saved-choices), [The Mac settings window](settings.md#the-mac-settings-window)). It shows a variable the launch environment or an `env.txt` sets as fixed. A front end that draws the settings itself starts the app with `DM_LAUNCHER=0` in its environment (or `--no-launcher` on its command line) to skip the window. The saved choices still apply, so a front end that writes them gets the same game as the window would. With `DM_PREFLIGHT` set in its environment the app exits at once, before it reads anything, rolls its log or touches the saves: a front end opens a new build that way (through LaunchServices, `NSWorkspace.openApplication`), so macOS runs its first-start check of the bundle then, not when the player starts the game. The check scans every file of an ad hoc signed app and takes minutes with a RomFS of several GB, and macOS remembers it until the app changes.
+ 
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 706def4e..2ccc63cf 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -1193,6 +1193,25 @@ def frame_step_builds(path, table='FRAME_STEP'):   # the keys of a table of a pa
+     return set()
+ 
+ 
++def registered_display(g, d):
++    """The display version the profile registers for the main build in d (the build rows: hle_sdk16.c GetDisplayVersion answers the game with it), or None when no row
++    registers that build or its row says ?"""
++    main = d / 'ExeFS/main'; bid = build_id(main) if main.exists() else None
++    return next((b['display'] for b in g.builds().values() if bid and b.get('main') == bid and b.get('display') not in (None, '', '?')), None)
++
++
++def app_display_version(g, game, base, update):
++    """The app version: the packed version's display version. Its own control data (nx_extract and a NUP package save it next to the RomFS), else the version number the profile
++    registers for its main build (not a package version such as v458752, which some rows hold), else the base game's control data, but only when the base game is packed (update:
++    False). An update packed without control data (a dump, a NUP update without a NACP) has none: the base game's would name a version that does not run (#953), so the app
++    carries the package version alone (pack_app.py DMPackageVersion). Empty when there is none"""
++    own = nacp.version(game / 'control.nacp')
++    if own: return own
++    reg = registered_display(g, game) or ''
++    if re.fullmatch(r'\d+(\.\d+){0,2}', reg): return reg
++    return '' if update else nacp.version(base / 'control.nacp')
++
++
+ def derive_profile(g, pdir, ver, d, mods, app=None, shader_only=False):
+     """The game's profile for a version it was not brought up on (the folder has no update, another update, files of other builds, or a registered build under another title ID: app),
+     in pdir (outside the repository, where a provisional profile goes): its keys as they are, with this version's build row, package and shader versions, and app's title ID and
+@@ -1206,9 +1225,7 @@ def derive_profile(g, pdir, ver, d, mods, app=None, shader_only=False):
+     # The display version: the package's control data, else the one the profile registers for this main build. A NUP update or a dump carries no control data, and the game asks
+     # the host for the version by its main's build ID (hle_sdk16.c GetDisplayVersion, the build rows): a row with ? is what the game then shows (Super Mario Bros. Wonder 1.2.1
+     # from an update-only NUP: "Ver. ?" on its title screen, though the profile registers that build as 1.2.1)
+-    main = d / 'ExeFS/main'; bid = build_id(main) if main.exists() else None
+-    known = next((b['display'] for b in g.builds().values() if bid and b.get('main') == bid and b.get('display') not in (None, '', '?')), None)
+-    T, disp = '\t', nacp.version(d / 'control.nacp') or known or '?'
++    T, disp = '\t', nacp.version(d / 'control.nacp') or registered_display(g, d) or '?'
+     add = pg.main_modules(d / 'ExeFS', mods) if not shader_only and (d / 'ExeFS/main').exists() else {}   # a module's slot can change between versions: what main imports and the profile's list leaves out (Absolum 1.2.1's movie module). The host loads what the row names
+     mods = sorted({*mods, *add}, key=pg.load_order) if add else mods
+     row = T.join(['build', ver, disp] + [f'{m}={build_id(d / "ExeFS" / m)}' for m in mods if (d / 'ExeFS' / m).exists()])
+@@ -3030,12 +3047,13 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
+     return re.sub(r'\s*[:/]\s*', ' - ', name).strip(' .-') or 'nxnative'
+ 
+ 
+-def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', programs=None, control=None):
++def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', programs=None, control=None, package=''):
+     """The last stage of PLATFORM 'mac-app': pack the Mac app (dm/mac/pack_app.py) from what a Mac-only build made: the Mac host and font (mac_host), the packed version's RomFS and rewritten
+     modules, the Mac shader libraries (msl: <shader>/cache, whose b-<chain> goes in, or a Vulkan or GL game's <shader>, whose vk / gl goes in), the DLC, the profile's tables (with the shader pairs
+     the pipeline prebuild reads), the pipeline archive made offline for this Mac (mac_pso; gpus: --gpu / PSO_GPUS), the launcher settings and an environment file.
+     The save and the log go to the player's Library, keyed by the folder's title ID (app); a new app replaces the old one only when it is complete. programs: a game of several programs, the others' files
+-    (other_programs), which go in beside the first's as one app. control: the control.nacp that lists the game's languages (languages_control), by default the packed version's"""
++    (other_programs), which go in beside the first's as one app. control: the control.nacp that lists the game's languages (languages_control), by default the packed version's
++    package: the packed version (v458752), which the app carries beside its display version (version, empty when the packed update has none: app_display_version)"""
+     lib = msl / (f'b-{chain_of(repo)}' if gfx == 'nvn' else 'vk' if gfx == 'vulkan' else 'gl')
+     pso = mac_pso(py, repo, work, lib, g, gpus, env, logs) if gfx == 'nvn' and g.table('shader_pairs.tsv').is_file() else None   # a stage of its own, before the app's
+     PROG.stage('Mac app', step='starting')
+@@ -3045,7 +3063,7 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+     cmd = [py, repo / 'dm/mac/pack_app.py', out, '--host', host, '--patched', patched, '--romfs', rfs.source(game), '--msl', lib, '--tables', g.table('shader_map.tsv').parent,
+            '--font', font, '--title-id', f'{app:016X}', '--name', name, '--bundle-id', bundle_id, '--lang', lang, '--sign', sign or '-']
+     split_pairs = work / 'shader/pso_pairs.tsv'   # the split's copy of pso_pairs.tsv, for a profile without the table (as mac_run's DM_PSO_PAIRS)
+-    for opt, v in (('--version', version), ('--category', g.get('app_category')), ('--marker', g.get('romfs_marker')), ('--aoc', aoc), ('--icon', icon),
++    for opt, v in (('--version', version), ('--package-version', package), ('--category', g.get('app_category')), ('--marker', g.get('romfs_marker')), ('--aoc', aoc), ('--icon', icon),
+                    ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
+                    ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings),
+                    ('--control', control or game / 'control.nacp')):   # the game's name in each language (DMTitleNames), from the same control data as its languages
+@@ -3444,8 +3462,8 @@ def main(args=None):
+     if prepare_xcode:
+         try: xcode_projects.check_bundle_id(workspace, project, bundle_id)
+         except ValueError as e: raise BuildError(str(e)) from e
+-    # the app version is the packed game's display version: the update's control data when an update is packed (nx_extract saves it next to the RomFS), else the base game's
+-    app_version = nacp.version(game / 'control.nacp') or nacp.version(base / 'control.nacp')
++    # the app version is the packed version's display version (app_display_version): never the base game's when an update is packed
++    app_version = app_display_version(g, game, base, picks[pkg_ver][1] is not None)
+     if mac_pack and not (args.out or OUT_IPA): out_ipa = work.parent / f'{mac_app_name(app_name)}{"-provisional" if shadowed else ""}.app'
+     # the app icon: --icon / ICON, else the game icon nx_extract saved from the control data (English, icon.jpg; the packed version's first, then the base game's), which a dump never has and a NUP may lack
+     icon = user_icon or next((d / 'icon.jpg' for d in (game, base) if (d / 'icon.jpg').exists()), None)
+@@ -3512,7 +3530,7 @@ def main(args=None):
+         programs = other_programs(args, g)
+         if not icon: say(('no game icon: the NUP carries none' if nup else 'no game icon: a dump folder has no control data') + '; the app\'s icon will be blank; --icon / ICON gives it one' if dump else '[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the app\'s icon will be blank')
+         mac_app(py, repo, out_ipa, app, work, game, patched, host, font, ios, aoc, gfx, lang, g, app_name, app_version, bundle_id, icon, args.mac_sign or MAC_SIGN, env, logs, env_file,
+-                (args.gpu or PSO_GPUS).strip(), programs, control)
++                (args.gpu or PSO_GPUS).strip(), programs, control, pkg_ver)
+         rmtree(work / 'tmp')
+         say(f'done: {out_ipa} ({tree_size(out_ipa)[1] / 2**30:.1f} GB); '
+             f'open it from Finder. Its save is in ~/Library/Application Support/nxnative/{app:016X}/, its log in ~/Library/Logs/nxnative/{app:016X}.log')

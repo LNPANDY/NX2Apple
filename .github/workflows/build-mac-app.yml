@@ -319,9 +319,11 @@ jobs:
           rm -f "$dir/latest.json" "$dir/latest.json.sig"   # the release gets its own manifest, with its own download URL
           { echo "promote=true"; echo "tag=$rc"; echo "dir=$dir"; } >> "$GITHUB_OUTPUT"
 
+      # swift build -c release with the SDK on the link, then a check that the executable records that SDK and not its deployment
+      # target: an app that records SDK 13.0 runs as one built with the macOS 13 SDK (no window from the Dock, #962).
       - name: Build
         working-directory: frontend
-        run: swift build -c release
+        run: tools/build_launcher.sh
 
       - name: Assemble the bundle
         working-directory: frontend
@@ -373,7 +375,7 @@ jobs:
             <key>CFBundleShortVersionString</key><string>$V</string>
             <key>CFBundleVersion</key><string>$V</string>
             <key>CFBundleDevelopmentRegion</key><string>en</string>
-            <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string><string>it</string><string>ja</string></array>
+            <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string><string>it</string><string>ja</string><string>es</string><string>ko</string><string>pt-BR</string></array>
             <key>LSMinimumSystemVersion</key><string>13.0</string>
             <key>NSHighResolutionCapable</key><true/>
           </dict>

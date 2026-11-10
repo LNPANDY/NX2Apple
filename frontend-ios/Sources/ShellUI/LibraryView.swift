@@ -41,45 +41,46 @@ public struct LibraryView: View {
     public var actions: ShellActions
     public var input: ShellInputLog
     /// The sequence of the last input event acted on.
-    @State private var inputSeen: Int
-    @State private var selectedID: String?
-    @State private var settingsOpen: Bool
+    @State var inputSeen: Int
+    @State var selectedID: String?
+    @State var settingsOpen: Bool
     /// The settings pane has finished sliding in: its focus ring shows only then, not ahead of it where it will stop.
-    @State private var settingsArrived: Bool
+    @State var settingsArrived: Bool
     /// Counts the opening and closing of the settings pane, so a wait for one opening does not act on a later one.
-    @State private var settingsOpenings = 0
-    @State private var shellSettingsOpen: Bool
-    @State private var controllersOpen: Bool
+    @State var settingsOpenings = 0
+    @State var shellSettingsOpen: Bool
+    @State var controllersOpen: Bool
     /// The game whose How to fix or How to update explanation is open.
-    @State private var helpGameID: String?
+    @State var helpGameID: String?
     /// The game whose Delete question is open, and whether its saves go too.
-    @State private var deleteGameID: String?
-    @State private var deleteSaves = false
+    @State var deleteGameID: String?
+    @State var deleteSaves = false
     /// The choice whose option list is open.
-    @State private var choice: ChoiceRequest?
+    @State var choice: ChoiceRequest?
     /// The button-mapping card, while open.
-    @State private var padMapping: PadMappingState?
-    @State private var buttonTestOpen: Bool
+    @State var padMapping: PadMappingState?
+    @State var buttonTestOpen: Bool
     /// The touch controls' layout editor, while open (over the shell settings).
-    @State private var touchLayout: TouchLayoutEditorModel?
-    @State private var focus: FocusAppearance
-    @State private var targets = FocusTargetBuffer()
-    @State private var settingsPosition = ScrollPosition()
-    @State private var settingsHeroVisible = true
-    @State private var settingsHeroHeight: CGFloat = 0
-    @State private var libraryPosition = ScrollPosition()
-    @State private var layout: ShellLayout = .column
-    @State private var divisionAxis: Axis?
-    private var horizontalDivision: Bool { divisionAxis == .horizontal }
-    @State private var pendingMenuAction: (() -> Void)?
-    @State private var returnFocus: String?
+    @State var touchLayout: TouchLayoutEditorModel?
+    @State var focus: FocusAppearance
+    @State var targets = FocusTargetBuffer()
+    @State var settingsPosition = ScrollPosition()
+    @State var settingsHeroVisible = true
+    @State var settingsHeroHeight: CGFloat = 0
+    @State var libraryPosition = ScrollPosition()
+    @State var layout: ShellLayout = .column
+    @State var divisionAxis: Axis?
+    var horizontalDivision: Bool { divisionAxis == .horizontal }
+    @State var pendingMenuAction: (() -> Void)?
+    @State var retention = PanelRetention()   // a closed panel stays drawn while the sheet slides out (#664)
+    @State var returnFocus: String?
     /// The device that sent the last input, for the glyphs.
-    @State private var device: InputDevice = .controller(.neutral)
+    @State var device: InputDevice = .controller(.neutral)
     /// True after a touch: the controller hints and the focus ring step back until the next controller or key press.
-    @State private var touchMode: Bool
-    @State private var gate = InputGate()
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dynamicTypeSize) private var typeSize
+    @State var touchMode: Bool
+    @State var gate = InputGate()
+    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.dynamicTypeSize) var typeSize
 
     public init(games: [GameDetail], controllers: [ControllerInfo] = [], actions: ShellActions = ShellActions(),
                 input: ShellInputLog = ShellInputLog(), initialSelection: String? = nil, initialDetailOpen: Bool = false,
@@ -105,7 +106,7 @@ public struct LibraryView: View {
         _focus = State(initialValue: FocusAppearance(id: initialFocusVisible ? "lib.tile.\(first ?? "")" : nil, visible: initialFocusVisible))
         _touchMode = State(initialValue: !initialFocusVisible)
     }
-    private var selected: GameDetail? { games.first { $0.id == selectedID } ?? games.first }
+    var selected: GameDetail? { games.first { $0.id == selectedID } ?? games.first }
 
     public var body: some View {
         NavigationStack {
@@ -130,7 +131,7 @@ public struct LibraryView: View {
         .tint(ShellPalette.cream).preferredColorScheme(.dark)
     }
 
-    private var content: some View {
+    var content: some View {
         GeometryReader { geometry in
             let insets = geometry.safeAreaInsets
             let whole = CGSize(width: geometry.size.width + insets.leading + insets.trailing,
@@ -232,17 +233,17 @@ public struct LibraryView: View {
         }
     }
 
-    private func visibleTargets(_ values: [FocusTarget]) -> [FocusTarget] {
+    func visibleTargets(_ values: [FocusTarget]) -> [FocusTarget] {
         values.filter { $0.frame.width > 1 }
     }
 
-    private var menuPresented: Bool {
+    var menuPresented: Bool {
         touchLayout != nil || settingsOpen || controllersOpen || shellSettingsOpen || helpGameID != nil
             || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
     }
 
     // Host-owned alerts and sheets must wait until the menu presentation finishes closing.
-    private var menuActions: ShellActions {
+    var menuActions: ShellActions {
         var routed = guardedActions
         routed.onPlay = { id in handOffMenu { actions.onPlay(id) } }
         routed.onShowLog = { id in handOffMenu { actions.onShowLog(id) } }
@@ -250,31 +251,34 @@ public struct LibraryView: View {
         return routed
     }
 
-    private func handOffMenu(_ action: @escaping () -> Void) {
+    func handOffMenu(_ action: @escaping () -> Void) {
         pendingMenuAction = action
         dismissMenus()
     }
 
-    private func runPendingMenuAction() {
+    func runPendingMenuAction() {
         let action = pendingMenuAction
         pendingMenuAction = nil
+        retention.reset()
         action?()
     }
 
-    private func dismissMenus() {
+    func dismissMenus() {
         closeTouchLayout()
         if buttonTestOpen { closeButtonTest() }
         choice = nil
         padMapping = nil
         helpGameID = nil
         deleteGameID = nil
+        let leaving: PanelRetention.Panel? = controllersOpen ? .controllers : shellSettingsOpen ? .shellSettings : nil
         controllersOpen = false
         shellSettingsOpen = false
         settingsOpen = false
+        if let leaving { retention.closed(leaving, sheetStaysOpen: false) }
         focus.id = "lib.tile.\(selected?.id ?? "")"
     }
 
-    private var menuSheet: some View {
+    var menuSheet: some View {
         NavigationStack {
             menuContent.toolbar { if touchLayout == nil { launcherToolbar } }
                 .accessibilityHidden(touchLayout != nil)
@@ -313,7 +317,7 @@ public struct LibraryView: View {
         #endif
     }
 
-    private func editorPage(_ model: TouchLayoutEditorModel) -> some View {
+    func editorPage(_ model: TouchLayoutEditorModel) -> some View {
         TouchLayoutEditorView(model: model, close: confirmTouchLayout, cancel: closeTouchLayout)
             .ignoresSafeArea(.container)
             #if os(iOS)
@@ -331,22 +335,24 @@ public struct LibraryView: View {
             .modifier(ShellKeyboardNavigation(active: true) { handle($0, from: .keyboard) })
     }
 
-    private var menuContent: some View {
+    var menuContent: some View {
         GeometryReader { geometry in
             ZStack {
                 if settingsOpen, let selected {
                     settingsPane(selected, width: geometry.size.width)
                         .accessibilityHidden(controllersOpen || shellSettingsOpen || choice != nil || padMapping != nil || helpGameID != nil || deleteGameID != nil)
                 }
-                if controllersOpen {
+                if retention.draws(.controllers, open: controllersOpen) {
                     ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap)
                         .background(ShellPalette.background)
-                        .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen)
+                        .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen || retention.isLeaving(.controllers, open: controllersOpen))
+                        .allowsHitTesting(!retention.isLeaving(.controllers, open: controllersOpen))
                 }
-                if shellSettingsOpen {
+                if retention.draws(.shellSettings, open: shellSettingsOpen) {
                     ShellSettingsView(actions: menuActions, onClose: closeShellSettings)
                         .background(ShellPalette.background)
-                        .accessibilityHidden(choice != nil)
+                        .accessibilityHidden(choice != nil || retention.isLeaving(.shellSettings, open: shellSettingsOpen))
+                        .allowsHitTesting(!retention.isLeaving(.shellSettings, open: shellSettingsOpen))
                 }
                 if let id = helpGameID, let game = games.first(where: { $0.id == id })?.game {
                     ScrollView { StateHelpView(game: game, actions: menuActions, onClose: closeHelp).padding(24) }
@@ -375,19 +381,19 @@ public struct LibraryView: View {
         #endif
     }
 
-    private var tabletopSettings: Bool {
+    var tabletopSettings: Bool {
         horizontalDivision && settingsOpen && !controllersOpen && !shellSettingsOpen && choice == nil
             && padMapping == nil && !buttonTestOpen && helpGameID == nil && deleteGameID == nil
     }
 
-    private var menuTitle: String {
+    var menuTitle: String {
         guard choice == nil, padMapping == nil, !buttonTestOpen, helpGameID == nil, deleteGameID == nil else { return "" }
         if controllersOpen { return ShellStrings.text("Controllers") }
         if shellSettingsOpen { return ShellStrings.text("Settings") }
         return settingsOpen && (horizontalDivision || !settingsHeroVisible) ? selected?.game.title ?? "" : ""
     }
 
-    @ViewBuilder private func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
+    @ViewBuilder func library(_ selected: GameDetail, layout: ShellLayout, size: CGSize, insets: EdgeInsets) -> some View {
         if layout.isCoverFlow {
             CoverFlowView(games: games, selected: selected, controllers: controllers.count, showsHints: !touchMode, obscured: menuPresented, screenInsets: insets,
                           select: select, primary: { primary($0) }, openSettings: openSettings, openControllers: openControllers,
@@ -405,7 +411,7 @@ public struct LibraryView: View {
     }
 
     /// Game settings keep their content column inside the system sheet's safe area.
-    private func settingsPane(_ selected: GameDetail, width: CGFloat) -> some View {
+    func settingsPane(_ selected: GameDetail, width: CGFloat) -> some View {
         return ZStack(alignment: .top) {
             ScrollViewReader { proxy in
                 Form {
@@ -442,8 +448,8 @@ public struct LibraryView: View {
         }
     }
 
-    private enum BarGroup { case close, done, actions }
-    private struct ToolbarAction: Identifiable {
+    enum BarGroup { case close, done, actions }
+    struct ToolbarAction: Identifiable {
         let title: String.LocalizationValue
         let symbol: String
         let id: String
@@ -453,7 +459,7 @@ public struct LibraryView: View {
     }
 
     // The navigation container owns these bars so UIKit can share the Duo rail with system UI.
-    @ToolbarContentBuilder private var launcherToolbar: some ToolbarContent {
+    @ToolbarContentBuilder var launcherToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .cancellationAction) {
             ForEach(toolbarActions.filter { $0.placement == .close }) { item in
                 toolbarButton(ShellStrings.text(item.title), item.symbol, item.id, item.target, item.action)
@@ -478,7 +484,7 @@ public struct LibraryView: View {
         }
     }
 
-    @ToolbarContentBuilder private var libraryToolbar: some ToolbarContent {
+    @ToolbarContentBuilder var libraryToolbar: some ToolbarContent {
         #if os(iOS)
         if #available(iOS 27.1, *) {
             libraryToolbarItems.axisBehavior(layout.isCoverFlow || layout == .column ? .horizontalOnly : .automatic)
@@ -488,7 +494,7 @@ public struct LibraryView: View {
         #endif
     }
 
-    private var libraryTitlePlacement: ToolbarItemPlacement {
+    var libraryTitlePlacement: ToolbarItemPlacement {
         #if os(iOS)
         .topBarLeading
         #else
@@ -496,11 +502,11 @@ public struct LibraryView: View {
         #endif
     }
 
-    private var landscapeLibrary: Bool {
+    var landscapeLibrary: Bool {
         layout.isCoverFlow
     }
 
-    @ToolbarContentBuilder private var libraryToolbarItems: some ToolbarContent {
+    @ToolbarContentBuilder var libraryToolbarItems: some ToolbarContent {
         if landscapeLibrary, let selected {
             ToolbarItem(placement: libraryTitlePlacement) {
                 HStack(spacing: 8) {
@@ -529,14 +535,14 @@ public struct LibraryView: View {
         }
     }
 
-    private func controllerItem(_ item: ToolbarAction) -> some ToolbarContent {
+    func controllerItem(_ item: ToolbarAction) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             toolbarButton(ShellStrings.text(item.title), item.symbol, item.id, item.target, item.action)
                 .disabled(menuPresented).accessibilityHidden(menuPresented)
         }
     }
 
-    private var toolbarActions: [ToolbarAction] {
+    var toolbarActions: [ToolbarAction] {
         if buttonTestOpen { return [.init(title: "Controllers", symbol: "chevron.left", id: "buttonTest.close", target: "test.close", placement: .close, action: closeButtonTest)] }
         if padMapping != nil {
             return [.init(title: "Back", symbol: "chevron.left", id: "padMapping.close", target: "map.close", placement: .close, action: closePadMapping)]
@@ -554,16 +560,16 @@ public struct LibraryView: View {
         return libraryActions
     }
 
-    private var libraryActions: [ToolbarAction] {
+    var libraryActions: [ToolbarAction] {
         var items: [ToolbarAction] = []
         items.append(.init(title: "Controllers", symbol: controllers.isEmpty ? "gamecontroller" : "gamecontroller.fill", id: "controllers.open", target: "lib.controllers", placement: .actions, action: openControllers))
         items.append(.init(title: "Settings", symbol: "gearshape", id: "shellSettings.open", target: "lib.shellSettings", placement: .actions, action: openShellSettings))
         return items
     }
 
-    private var donePlacement: ToolbarItemPlacement { .confirmationAction }
+    var donePlacement: ToolbarItemPlacement { .confirmationAction }
 
-    private func toolbarButton(_ label: String, _ symbol: String, _ identifier: String, _ target: String,
+    func toolbarButton(_ label: String, _ symbol: String, _ identifier: String, _ target: String,
                                _ action: @escaping () -> Void) -> some View {
         let accessibilityLabel = identifier == "controllers.open" ? label + ", \(controllers.count)" : label
         return Button { if !fromSystemEcho { action() } } label: {
@@ -592,7 +598,7 @@ public struct LibraryView: View {
             .onDisappear { targets.toolbarValues.removeValue(forKey: target) }
     }
 
-    private var activeTargets: [FocusTarget] {
+    var activeTargets: [FocusTarget] {
         let prefix: String
         if buttonTestOpen { prefix = "test." }
         else if padMapping != nil { prefix = "map." }
@@ -605,269 +611,6 @@ public struct LibraryView: View {
         else if settingsOpen { prefix = "set." }
         else { prefix = "lib." }
         return targets.active(prefix: prefix, toolbarIDs: Set(toolbarActions.map(\.target)))
-    }
-
-    // MARK: Actions and focus
-
-    /// The system's echo of a controller button (see `SystemEchoWindow`), for the actions that close or go back: they
-    /// do not change the touch mode, but the echo must not close the panel the button just opened.
-    private var fromSystemEcho: Bool { gate.isSystemEcho }
-    /// `actions` for the views that change settings or data themselves (a switch, a row, a button in the settings): the
-    /// system's echo of a controller button changes nothing through them.
-    private var guardedActions: ShellActions {
-        let gate = gate
-        func echo() -> Bool { gate.isSystemEcho }
-        var a = actions
-        let o = actions
-        a.onSelect = { if !echo() { o.onSelect($0) } }
-        a.onPlay = { if !echo() { o.onPlay($0) } }
-        a.onChange = { if !echo() { o.onChange($0, $1, $2) } }
-        a.onPickGameData = { if !echo() { o.onPickGameData($0) } }
-        a.onUseAppData = { if !echo() { o.onUseAppData($0) } }
-        a.onPickCloudSaves = { if !echo() { o.onPickCloudSaves($0) } }
-        a.onDisableCloudSaves = { if !echo() { o.onDisableCloudSaves($0) } }
-        a.onResetDefaults = { if !echo() { o.onResetDefaults($0) } }
-        a.onShowLog = { if !echo() { o.onShowLog($0) } }
-        a.onAppUpdate = { if !echo() { o.onAppUpdate() } }
-        a.onPickShellData = { if !echo() { o.onPickShellData() } }
-        a.onPickShellCloud = { if !echo() { o.onPickShellCloud() } }
-        a.onUseShellCloud = { if !echo() { o.onUseShellCloud($0) } }
-        a.onClearShellData = { if !echo() { o.onClearShellData() } }
-        a.onClearShellCloud = { if !echo() { o.onClearShellCloud() } }
-        a.onGlobalPadMapChange = { if !echo() { o.onGlobalPadMapChange($0, $1) } }
-        a.onGlobalPadMapReset = { if !echo() { o.onGlobalPadMapReset() } }
-        a.onDeleteGame = { if !echo() { o.onDeleteGame($0, $1) } }
-        return a
-    }
-    /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when
-    /// it came from neither but is the system's echo of a controller button (see `SystemEchoWindow`): the shell's own
-    /// focus already took that button, so the press is not acted on.
-    private func noteTouch() -> Bool {
-        guard !gate.handling else { return true }
-        if gate.isSystemEcho { return false }
-        if !touchMode { touchMode = true }
-        if focus.visible { focus.visible = false }
-        return true
-    }
-    /// A press on the library's own buttons that the shell may act on: from `handle`, or with nothing over the library.
-    /// Under a dialog or a panel no finger reaches the library (it takes no hits there), so a press on its buttons is the
-    /// system's echo of a controller button, whatever the window says: a finger that came down elsewhere just before the
-    /// echo (a tap in the settings pane right after A) ends the window, and Play behind the pane started the game.
-    private var libraryPressAllowed: Bool { FocusLayer.libraryTakesPress(fromShell: gate.handling, under: topLayer) }
-    private func primary(_ detail: GameDetail, fromSettings: Bool = false) {
-        guard (fromSettings && topLayer == .settings) || libraryPressAllowed, noteTouch() else { return }
-        if detail.game.state.needsHelp { openHelp(detail.id); return }
-        let targetActions = settingsOpen ? menuActions : actions
-        switch detail.game.state {
-        case .playable: targetActions.onPlay(detail.id)
-        case .needsGameData: targetActions.onPickGameData(detail.id)
-        case .needsAppUpdate: targetActions.onAppUpdate()
-        case .broken: targetActions.onShowLog(detail.id)
-        }
-    }
-    private func select(_ id: String) {
-        guard libraryPressAllowed, noteTouch() else { return }
-        guard id != selectedID else { return }
-        selectedID = id
-        actions.onSelect(id)
-        settingsHeroVisible = true
-        settingsPosition.scrollTo(edge: .top)
-    }
-    private func openSettings() {
-        guard !shellSettingsOpen else { return }
-        guard noteTouch() else { return }
-        controllersOpen = false
-        settingsOpen = true
-        focus.id = "set.back"
-    }
-    private func closeSettings() {
-        guard !fromSystemEcho else { return }
-        settingsOpen = false
-        focus.id = "lib.settings"
-    }
-    private func openControllers() { guard !shellSettingsOpen else { return }; guard noteTouch() else { return }; controllersOpen = true; focus.id = "ctl.close" }
-    private func openShellSettings() { guard noteTouch() else { return }; shellSettingsOpen = true; focus.id = "shs.close" }
-    private func closeShellSettings() { guard !fromSystemEcho else { return }; shellSettingsOpen = false; focus.id = "lib.shellSettings" }
-    private func openTouchLayout(_ window: CGSize, _ insets: EdgeInsets) {
-        guard noteTouch() else { return }
-        touchLayout = TouchLayoutEditorModel.forDevice(window: window, insets: insets)
-        focus.id = "lay.options"
-    }
-    private func closeTouchLayout() { guard !fromSystemEcho else { return }; touchLayout = nil; focus.id = "shs.arrange" }
-    private func confirmTouchLayout() {
-        guard !fromSystemEcho, let touchLayout, !touchLayout.invalidPlacement else { return }
-        touchLayout.commit()
-        closeTouchLayout()
-    }
-    private func openHelp(_ id: String) { guard !fromSystemEcho else { return }; returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
-    private func closeHelp() { guard !fromSystemEcho else { return }; helpGameID = nil; focus.id = returnFocus }
-    /// The question starts on Cancel, with the saves kept.
-    private func openDelete(_ id: String) { guard noteTouch() else { return }; returnFocus = focus.id; deleteSaves = false; deleteGameID = id; focus.id = "del.cancel" }
-    private func closeDelete() { guard !fromSystemEcho else { return }; deleteGameID = nil; focus.id = returnFocus }
-    private func confirmDelete(_ id: String) {
-        guard !fromSystemEcho else { return }
-        let saves = deleteSaves
-        deleteGameID = nil
-        settingsOpen = false
-        focus.id = nil
-        actions.onDeleteGame(id, saves)
-    }
-    private func openChoice(_ request: ChoiceRequest) {
-        guard noteTouch() else { return }
-        returnFocus = focus.id
-        choice = request
-        focus.id = "pick." + request.row.value
-    }
-    private func closeChoice() {
-        guard !fromSystemEcho else { return }
-        guard let request = choice else { return }
-        choice = nil
-        let prefix = request.gameID == ShellSettingsRows.gameID ? ShellSettingsRows.targetPrefix : request.gameID == TouchLayoutEditorView.gameID ? "lay.row." : "set.row."
-        focus.id = prefix + request.row.id
-    }
-    private func pickChoice(_ value: String) {
-        guard noteTouch() else { return }
-        guard let request = choice else { return }
-        if value != request.row.value {
-            if request.gameID == TouchLayoutEditorView.gameID { touchLayout?.apply(row: request.row.id, value: value) }
-            else if request.gameID == ShellSettingsRows.gameID { ShellSettingsRows.apply(request.row.id, value: value, to: .current) }
-            else { actions.onChange(request.gameID, request.row.id, value) }
-        }
-        closeChoice()
-    }
-    // The mapping card: the shell's map or a game's, a row's options in place of the rows once one is picked.
-    private func padMappingRows(_ id: String) -> [SettingRow] {
-        if id == ControllersView.mappingID { return PadMappingRows.global(globalPadMap) }
-        return games.first { $0.id == id }.map(PadMappingRows.game) ?? []
-    }
-    private func padMappingTitle(_ id: String) -> String {
-        if id == ControllersView.mappingID { return ShellStrings.text("All games") }
-        return games.first { $0.id == id }?.game.title ?? ""
-    }
-    private func openPadMapping(_ id: String) {
-        guard noteTouch() else { return }
-        returnFocus = focus.id
-        padMapping = PadMappingState(gameID: id)
-        focus.id = "map.close"
-    }
-    private func closePadMapping() { guard !fromSystemEcho else { return }; padMapping = nil; focus.id = returnFocus }
-    private func openPadRow(_ row: String) {
-        guard noteTouch() else { return }
-        padMapping?.row = row
-        focus.id = "map.opt." + (padMappingRows(padMapping?.gameID ?? "").first { $0.id == row }?.value ?? "")
-    }
-    private func closePadRow() {
-        guard !fromSystemEcho else { return }
-        guard let row = padMapping?.row else { return }
-        padMapping?.row = nil
-        focus.id = "map.row." + row
-    }
-    private func pickPadValue(_ row: String, _ value: String) {
-        guard noteTouch() else { return }
-        guard let id = padMapping?.gameID else { return }
-        if id == ControllersView.mappingID { actions.onGlobalPadMapChange(row, value) } else { actions.onChange(id, row, value) }
-        closePadRow()
-    }
-    private func resetPadMapping() {
-        guard noteTouch() else { return }
-        guard let id = padMapping?.gameID else { return }
-        let global = id == ControllersView.mappingID
-        if global { actions.onGlobalPadMapReset() } else { actions.onChange(id, PadMappingRows.resetID, "") }
-        // Reset is disabled now: the focus goes to the swap, which is back at its default.
-        focus.id = "map.swap.toggle"
-    }
-    private func openButtonTest() { guard noteTouch() else { return }; buttonTestOpen = true; focus.id = "test.close"; actions.onButtonTest(true) }
-    private func closeButtonTest() {
-        guard buttonTestOpen else { return }
-        buttonTestOpen = false
-        actions.onButtonTest(false)
-        focus.id = "ctl.test"
-    }
-    private func back() {
-        guard !fromSystemEcho else { return }
-        if buttonTestOpen { closeButtonTest() }
-        else if padMapping?.row != nil { closePadRow() }
-        else if padMapping != nil { closePadMapping() }
-        else if choice != nil { closeChoice() }
-        else if let touchLayout {
-            if touchLayout.held { touchLayout.putDown() } else if touchLayout.confirmingExit { touchLayout.confirmingExit = false } else if touchLayout.requestExit() { closeTouchLayout() }
-        }
-        else if helpGameID != nil { closeHelp() }
-        else if deleteGameID != nil { closeDelete() }
-        else if controllersOpen { controllersOpen = false; focus.id = settingsOpen ? "set.back" : "lib.controllers" }
-        else if shellSettingsOpen { closeShellSettings() }
-        else if settingsOpen { closeSettings() }
-        else { actions.onBack() }
-    }
-    private func handle(_ action: ShellInput.Action, from source: InputDevice) {
-        gate.handling = true
-        defer { gate.handling = false }
-        if case .controller = source { gate.controller(action) }
-        // Every controller button belongs to the button test while it is open: it closes on B held, touch or Escape.
-        if buttonTestOpen, case .controller = source { return }
-        if device != source { device = source }
-        if touchMode { touchMode = false }
-        focus.visible = true
-        // A control the editor holds: the D-pad (or the arrow keys) moves it, A or B puts it down.
-        if let touchLayout, touchLayout.held, choice == nil {
-            switch action {
-            case .left, .right, .up, .down: touchLayout.nudge(action); return
-            case .activate, .back: touchLayout.putDown(); return
-            default: break
-            }
-        }
-        if focus.id == nil || !activeTargets.contains(where: { $0.id == focus.id }) {
-            focus.id = defaultFocus
-            if action != .activate && action != .back && action != .settings && action != .controllers { return }
-        }
-        switch action {
-        case .activate: activeTargets.first { $0.id == focus.id }?.activate()
-        case .back: back()
-        case .settings: openSettings()
-        case .controllers: openControllers()
-        case .left, .right:
-            // In Cover Flow the focused cover is always the middle one: left and right move the carousel by one.
-            if layout.isCoverFlow, let id = focus.id, id.hasPrefix("lib.tile."), let index = games.firstIndex(where: { $0.id == selected?.id }) {
-                let next = min(games.count - 1, max(0, index + (action == .left ? -1 : 1)))
-                select(games[next].id)
-                focus.id = "lib.tile.\(games[next].id)"
-                return
-            }
-            move(action)
-        default: move(action)
-        }
-    }
-    /// The dialog or panel on top, in the order of `FocusLayer`.
-    private var topLayer: FocusLayer? {
-        if buttonTestOpen { return .buttonTest }
-        if padMapping != nil { return .padMapping }
-        if choice != nil { return .choice }
-        if touchLayout != nil { return .touchLayout }
-        if controllersOpen { return .controllers }
-        if shellSettingsOpen { return .shellSettings }
-        if helpGameID != nil { return .help }
-        if deleteGameID != nil { return .delete }
-        if settingsOpen { return .settings }
-        return nil
-    }
-    private func move(_ action: ShellInput.Action) {
-        let candidates = layout.isCoverFlow
-            ? activeTargets.filter { !$0.id.hasPrefix("lib.tile.") || $0.id == "lib.tile.\(selected?.id ?? "")" }
-            : activeTargets
-        focus.id = FocusNavigation.next(from: focus.id, action: action, targets: candidates)
-        if let id = focus.id, id.hasPrefix("lib.tile.") { select(String(id.dropFirst("lib.tile.".count))) }
-    }
-    private var defaultFocus: String? {
-        if buttonTestOpen { return "test.close" }
-        if let padMapping { return padMapping.row == nil ? "map.close" : "map.back" }
-        if let choice { return "pick." + choice.row.value }
-        if touchLayout != nil { return activeTargets.contains { $0.id == "lay.done" } ? "lay.done" : "lay.options" }
-        if helpGameID != nil { return "help.done" }
-        if deleteGameID != nil { return "del.cancel" }
-        if controllersOpen { return "ctl.close" }
-        if shellSettingsOpen { return "shs.close" }
-        if settingsOpen { return "set.back" }
-        return selected.map { "lib.tile.\($0.id)" } ?? "lib.controllers"
     }
 }
 
@@ -888,7 +631,7 @@ private struct PaneBanner: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func words(title: String) -> some View {
+    func words(title: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
 
             Text(title).shellType(ShellType.pageTitle).lineLimit(2)

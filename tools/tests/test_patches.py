@@ -149,7 +149,7 @@ class ForkPatchList(unittest.TestCase):
         self.assertEqual(mod.fork_patches(), '')
         (self.tmp / 'dm/fork_patches.txt').write_text('runtime-profile\nbc-cpu-decode\n')
         self.assertEqual(mod.fork_patches(), 'runtime-profile,bc-cpu-decode')
-        args = type('A', (), dict(name='G', bundle_id=None, title_id='0100000000000000', version=None, category=None, marker=None, lang=None, settings=None))()
+        args = type('A', (), dict(name='G', bundle_id=None, title_id='0100000000000000', version=None, package_version=None, category=None, marker=None, lang=None, settings=None))()
         self.assertEqual(mod.info_plist(args, '26.0', False)['DMForkPatches'], 'runtime-profile,bc-cpu-decode')
 
     def test_the_first_log_line_and_the_ios_key_are_in_the_sources(self):

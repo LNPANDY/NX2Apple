@@ -172,7 +172,7 @@ import NXModel
         ]
     }
 
-    @MainActor private func measure(_ scenario: Scenario, _ lang: Lang) throws -> [LauncherControlSample] {
+    @MainActor private func measure(_ scenario: Scenario, _ lang: Lang, category: SettingsCategory = .general) throws -> [LauncherControlSample] {
         NSApplication.shared.setActivationPolicy(.accessory)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("control-width-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -182,7 +182,7 @@ import NXModel
         try scenario.set(modelStores, library, directory)
         model.lang = lang
         let samples = Samples()
-        let view = LauncherView(stores: modelStores, library: library, initialPage: scenario.page, activeBuildID: nil, performStartupChecks: false,
+        let view = LauncherView(stores: modelStores, library: library, initialPage: scenario.page, settingsCategory: category, activeBuildID: nil, performStartupChecks: false,
                                search: nil, olderTools: [], manageOpen: false, padRing: false)
             .environment(\.measuresLauncherControls, true)
             .onPreferenceChange(LauncherControlSamples.self) { samples.all = $0 }
@@ -202,7 +202,8 @@ import NXModel
         let keys = ["repoPath", "depsExpanded", "buildTarget", "installDevice", "signingTeam", "buildOutputDirectory", "autoUpdateRepo", "exportIPA", "sendWhere"]
         for scenario in scenarios {
             for lang in Lang.all {
-                let samples = try measure(scenario, lang)
+                // Settings has four parts (General, Library, Controls, Tools) and shows one: the page is every part in turn
+                let samples = scenario.page == .settings ? try SettingsCategory.allCases.flatMap { try measure(scenario, lang, category: $0) } : try measure(scenario, lang)
                 let at = "\(lang), \(scenario.name)"
                 XCTAssertGreaterThanOrEqual(samples.count, scenario.atLeast, "\(at): the page showed fewer controls than expected")
                 for (index, sample) in samples.enumerated() {
@@ -267,9 +268,9 @@ import NXModel
         }
     }
 
-    /// The Launch options sheet at its own size, with a choice made so that Reset to tested defaults shows: in every language
-    /// the button is one LauncherControl and its label fits on one line.
-    @MainActor func testLaunchOptionsResetFitsInEveryLanguage() throws {
+    /// The Launch options sheet at its own size, with a choice made so that a setting differs from its tested value: in every language
+    /// the footer's button (Use for new games) is one LauncherControl and its label fits on one line.
+    @MainActor func testLaunchOptionsFooterButtonFitsInEveryLanguage() throws {
         NSApplication.shared.setActivationPolicy(.accessory)
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("launch-width-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -302,7 +303,7 @@ import NXModel
             RunLoop.main.run(until: Date().addingTimeInterval(0.3))
             host.layoutSubtreeIfNeeded()
             window.orderOut(nil)
-            XCTAssertFalse(samples.all.isEmpty, "\(lang): the sheet showed no Reset to tested defaults")
+            XCTAssertFalse(samples.all.isEmpty, "\(lang): the sheet showed no footer button")
             for sample in samples.all {
                 if sample.room == LauncherControl.buttonLabelWidth {
                     XCTAssertEqual(sample.size.width, LauncherControl.width, "\(lang)")
@@ -311,7 +312,7 @@ import NXModel
                     // A choice with labels too long for the segmented control (French "Plein écran") is a dropdown as wide as one.
                     XCTAssertEqual(sample.size.width, LaunchControl.width, "\(lang)")
                 }
-                XCTAssertLessThanOrEqual(sample.labelWidth, sample.room, "\(lang): \(L10n.string("launch.reset", lang))")
+                XCTAssertLessThanOrEqual(sample.labelWidth, sample.room, "\(lang): \(L10n.string("launch.useForNew", lang))")
             }
         }
     }

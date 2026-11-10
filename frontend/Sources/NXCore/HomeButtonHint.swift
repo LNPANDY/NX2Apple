@@ -24,11 +24,23 @@ package enum HomeButtonHint {
 
     /// DM_HOME_QUIT_TEXT: the game's quit prompt in the launcher's language, one text per line, in the engine's order
     /// (home_quit.h: the hold indicator, the title, the note, the quit button, the cancel button). Lines never hold a newline.
-    package static func promptText(gameName: String, labels: (String) -> String) -> String {
+    /// `homeMenu` (a game started from console mode, #952, engine patch 0121) adds the Home menu's three: Resume, Back to console
+    /// mode and the menu's title, the game's name.
+    package static func promptText(gameName: String, labels: (String) -> String, homeMenu: Bool = false) -> String {
         let name = gameName.replacingOccurrences(of: "\n", with: " ")
-        return [labels("homeQuit.hold"), String(format: labels("homeQuit.title"), name), labels("homeQuit.note"),
-                labels("homeQuit.quit"), labels("homeQuit.cancel")]
+        let menu = homeMenu ? [labels("homeQuit.resume"), labels("homeQuit.backToConsole"), name] : []
+        return ([labels("homeQuit.hold"), String(format: labels("homeQuit.title"), name), labels("homeQuit.note"),
+                 labels("homeQuit.quit"), labels("homeQuit.cancel")] + menu)
             .map { $0.replacingOccurrences(of: "\n", with: " ") }
             .joined(separator: "\n")
+    }
+
+    /// The environment of a game started from console mode (#952, engine patch 0121): the Home menu gets Back to console mode, which
+    /// pauses the game in the background and hands the front to the launcher named by its bundle identifier. A game started from the
+    /// desktop gets none of it.
+    package static func homeMenuEnvironment(launcherBundleID: String?) -> [String: String] {
+        var environment = ["DM_HOME_MENU_LAUNCHER": "1"]
+        if let id = launcherBundleID, !id.isEmpty { environment["DM_LAUNCHER_BUNDLE_ID"] = id }
+        return environment
     }
 }

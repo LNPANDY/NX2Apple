@@ -29,7 +29,7 @@ package struct LogCard: View {
             if devices.shellCopy != nil || devices.shellWaiting {
                 // The log below is the build's own output; the data transfer is driven by the app, so
                 // its questions and errors (a locked device, a failed listing) answer here, not in it.
-                Text(loc.t("log.transferNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                Text(loc.t("log.transferNote")).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true).padding(.horizontal, 14).padding(.top, 2)
             }
             CardDisclosure(loc.t("build.log"), isOpen: logOpen) { logOpen.toggle() }

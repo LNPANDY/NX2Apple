@@ -7,7 +7,7 @@ import XCTest
 
 /// The hero's cream button has one size (LauncherHeroAction) whatever the game's state and the language.
 final class LauncherHeroActionTests: IsolatedDefaultsTestCase {
-    private let languages: [Lang] = [.zh, .en, .sv, .de]
+    private let languages = Lang.all
 
     private func width(_ text: String) throws -> CGFloat {
         let font = try XCTUnwrap(Typography.manropeFont(size: 18, weight: .bold))
@@ -16,9 +16,13 @@ final class LauncherHeroActionTests: IsolatedDefaultsTestCase {
     }
 
     func testPlayAndBuildFitOnOneLineInEveryLanguage() throws {
-        for key in ["library.play", "library.newBuild"] {
+        for key in ["library.play", "library.setUpBuild"] {
             for lang in languages {
                 let text = L10n.string(key, lang)
+                XCTAssertNotEqual(text, key)
+                if key == "library.setUpBuild" {
+                    XCTAssertNotEqual(text, L10n.string("library.newBuild", lang))
+                }
                 XCTAssertLessThanOrEqual(try width(text), LauncherHeroAction.labelWidth, "\(lang) \(key): \(text)")
             }
         }
@@ -32,7 +36,7 @@ final class LauncherHeroActionTests: IsolatedDefaultsTestCase {
     }
 
     @MainActor func testEveryStateHasTheSameSize() throws {
-        let states: [(String, String)] = [("play.fill", "library.play"), ("hammer.fill", "library.newBuild"), ("iphone", "dev.open")]
+        let states: [(String, String)] = [("play.fill", "library.play"), ("hammer.fill", "library.setUpBuild"), ("iphone", "dev.open")]
         for lang in languages {
             var sizes = Set<String>()
             for (symbol, key) in states {

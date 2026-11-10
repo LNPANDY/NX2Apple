@@ -21,7 +21,7 @@ struct FilesCard: View {
                 CardRow(loc.t(build.gameDir.isEmpty ? "build.folderCTA" : "build.folderSelected"),
                     detail: build.gameDir.isEmpty ? loc.t("build.folderNote") : build.shortPath(build.gameDir), help: build.gameDir) {
                     Text(loc.t(build.gameDir.isEmpty ? "data.choose" : "data.change"))
-                        .font(.manrope(13, .semibold)).foregroundStyle(.black)
+                        .font(.manrope(13, .semibold)).foregroundStyle(LauncherPalette.onCream)
                         .launcherRowControlFrame()
                         .background(LauncherPalette.cream, in: Capsule())
                 }
@@ -51,13 +51,17 @@ struct FilesCard: View {
     private func slotRow(_ s: Slot) -> some View {
         // A game folder (a Switch 2 game) fills the rows from its folders: they say what it holds, the keys row that none are
         // needed, and only the base row can be cleared (which clears the folder). An empty prod.keys row says where the file comes from.
+        // An empty keys row, or one whose file is gone, shows the keys saved in Settings, which the build takes (#996).
         let folderText = build.gameFolderRowText(s.id)
-        let ready = folderText != nil ? (s.id == "keys" || s.ok) : s.ok
-        return CardRow(loc.t(s.title), detail: folderText ?? (s.id == "keys" && s.paths.isEmpty ? loc.t("build.keyHint") : s.summary(loc.t)),
-            dot: ready ? LauncherPalette.ready : LauncherPalette.unbuilt, help: s.paths.joined(separator: "\n")) {
+        let saved = s.id == "keys" && build.keysFromSettings
+        let ready = folderText != nil ? (s.id == "keys" || s.ok) : s.ok || saved
+        let detail = folderText ?? (saved ? (build.savedKeys as NSString).lastPathComponent + "\n" + loc.t("keys.fromSettings")
+            : s.id == "keys" && s.paths.isEmpty ? loc.t("build.keyHint") : s.summary(loc.t))
+        return CardRow(loc.t(s.title), detail: detail,
+            dot: ready ? LauncherPalette.ready : LauncherPalette.unbuilt, help: saved ? build.savedKeys : s.paths.joined(separator: "\n")) {
             if !s.paths.isEmpty && (folderText == nil || s.id == "base") {
                 Button(loc.t("data.clear")) { build.clear(s.id) }.buttonStyle(.plain)
-                    .font(.manrope(13)).foregroundStyle(.secondary)
+                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
             }
             if folderText == nil {
                 Button(s.paths.isEmpty ? loc.t("data.choose") : loc.t("data.change")) { build.pickFiles(kind: s.kind) }

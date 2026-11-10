@@ -24,14 +24,15 @@ import NXModel
         try FileManager.default.removeItem(at: temporary)
     }
 
-    private func makeApp(_ titleID: String, name: String = "Hades") throws -> URL {
+    private func makeApp(_ titleID: String, name: String = "Hades", titleNames: [String: String]? = nil) throws -> URL {
         let app = temporary.appendingPathComponent(name + ".app")
         let executables = app.appendingPathComponent("Contents/MacOS")
         try FileManager.default.createDirectory(at: executables, withIntermediateDirectories: true)
         for name in ["nxnative", "dmhost"] {
             try FileManager.default.createSymbolicLink(at: executables.appendingPathComponent(name), withDestinationURL: URL(fileURLWithPath: "/usr/bin/true"))
         }
-        let info: [String: Any] = ["DMTitleID": titleID, "CFBundleDisplayName": name, "CFBundleExecutable": "nxnative", "CFBundleIdentifier": bundleID]
+        var info: [String: Any] = ["DMTitleID": titleID, "CFBundleDisplayName": name, "CFBundleExecutable": "nxnative", "CFBundleIdentifier": bundleID]
+        if let titleNames { info["DMTitleNames"] = titleNames }
         try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
             .write(to: app.appendingPathComponent("Contents/Info.plist"))
         return app
@@ -57,6 +58,38 @@ import NXModel
         XCTAssertTrue(LibraryFilter.built.visibleGames(games).isEmpty)
         XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: nil, focused: nil).selectedID, anotherTwo.id)
         XCTAssertEqual(LibraryFilter.owned.reconcile(games: games, selectedID: ten.id, focused: nil).selectedID, ten.id)
+    }
+
+    /// A game packed with its control data's names shows the one of the launcher's language, and the library keeps the bundle name
+    /// as it is: the names are only what is shown (LauncherView, the console mode, the sheets). The search finds it by either.
+    func testGameNameFollowsLauncherLanguage() throws {
+        let library = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        let names = ["en-US": "Ys Origin", "ja": "イース・オリジン", "zh-Hans": "伊苏 起源"]
+        let id = try library.addApp(makeApp(titleID, name: "Ys Origin", titleNames: names))
+        let game = try XCTUnwrap(library.games.first { $0.id == id })
+        XCTAssertEqual(game.name, "Ys Origin")
+        XCTAssertEqual(game.titleNames, names)
+        XCTAssertEqual(game.displayName(.zh), "伊苏 起源")
+        XCTAssertEqual(game.displayName(Lang("ja")), "イース・オリジン")
+        XCTAssertEqual(game.displayName(.en), "Ys Origin")
+        XCTAssertEqual(game.displayName(Lang("sv")), "Ys Origin")   // no Swedish title: the English one
+        XCTAssertEqual(LibraryFilter.owned.visibleGames(library.games, matching: "伊苏", lang: .zh).map(\.id), [id])
+        XCTAssertEqual(LibraryFilter.owned.visibleGames(library.games, matching: "ys orig", lang: .zh).map(\.id), [id])
+
+        // Saved and read again; a library from before the names has none and shows the bundle name
+        let again = GameLibrary(file: temporary.appendingPathComponent("library.json"))
+        XCTAssertEqual(again.games.first?.titleNames, names)
+        let old = try JSONDecoder().decode(LibraryGame.self, from: Data(#"{"id":"\#(UUID().uuidString)","titleID":"\#(titleID)","name":"Ys Origin"}"#.utf8))
+        XCTAssertEqual(old.titleNames, [:])
+        XCTAssertEqual(old.displayName(.zh), "Ys Origin")
+    }
+
+    /// Sorted by the name shown: a Chinese launcher orders the games by their Chinese names.
+    func testLibraryOrderFollowsShownName() {
+        var b = LibraryGame(titleID: "B", name: "Beta"); b.titleNames = ["zh-Hans": "Aaa 甲"]
+        let a = LibraryGame(titleID: "A", name: "Alpha")
+        XCTAssertEqual(LibraryFilter.owned.visibleGames([a, b], lang: .en).map(\.titleID), ["A", "B"])
+        XCTAssertEqual(LibraryFilter.owned.visibleGames([a, b], lang: .zh).map(\.titleID), ["B", "A"])
     }
 
     func testCommandFFromBuildsOpensLibrarySearch() throws {
@@ -241,6 +274,25 @@ import NXModel
         let to = ArtworkStore.customDirectory(for: pending.id, in: library.artworkDirectory)
         XCTAssertTrue(FileManager.default.fileExists(atPath: to.appendingPathComponent("mine.jpg").path), "the image goes to the entry that stays")
         XCTAssertFalse(FileManager.default.fileExists(atPath: from.path))
+    }
+
+    /// #895: a build that merges a path-keyed entry into the game's existing one keeps the player's name for it and the names it
+    /// had in other languages when the new app carries none.
+    func testBuildOfPathKeyedEntryKeepsTheGamesNames() throws {
+        let app = try makeApp(titleID)
+        let file = temporary.appendingPathComponent("library.json")
+        var existing = LibraryGame(titleID: titleID, name: "Hades")
+        existing.appPath = app.path
+        existing.customName = "My Hades"
+        existing.titleNames = ["ja": "ハデス"]
+        var pending = LibraryGame(titleID: "/games/Hades.nsp", name: "Hades")
+        pending.inputs = ["base": ["/games/Hades.nsp"]]
+        try JSONEncoder().encode([existing, pending]).write(to: file)
+        let library = GameLibrary(file: file)
+        library.recordCompletedApp(path: app.path, for: pending.id)
+        XCTAssertEqual(library.games.count, 1)
+        XCTAssertEqual(library.games[0].customName, "My Hades")
+        XCTAssertEqual(library.games[0].titleNames, ["ja": "ハデス"])
     }
 
     func testRebuildingSameGameKeepsOneEntryAndCustomArtwork() throws {
@@ -969,6 +1021,23 @@ import NXModel
             window.orderOut(nil)
         }
         try capture("library")
+        do {   // #907: a second player in the top bar, and the sheet that names a new one
+            modelStores.players.create(name: "Ana")
+            defer { modelStores.players.remove("ana") }
+            try capture("library-player")
+            let sheet = PlayerNameSheet(players: modelStores.players, renaming: nil, close: {})
+                .environmentObject(modelStores.localizer).background(LauncherPalette.background).preferredColorScheme(.dark)
+            let host = NSHostingView(rootView: sheet)
+            let window = OffscreenWindow(size: NSSize(width: 380, height: 200), styleMask: [.borderless])
+            window.contentView = host
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent("player-new.png"))
+            window.orderOut(nil)
+        }
         try capture("library-search", search: "zel")
         try capture("library-small", width: 900, height: 680)
         try capture("library-small-search", width: 900, height: 680, search: "zel")

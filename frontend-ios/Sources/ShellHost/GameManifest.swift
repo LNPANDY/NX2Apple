@@ -26,6 +26,8 @@ public struct GameManifest: Decodable, Equatable, Sendable {
     public var minOS: String
     public var icon: String?
     public var builtBy: String?
+    /// "switch2" or "switch1" as the engine's gen_manifest.py writes it from the game's profile, nil in a manifest made before it did.
+    public var console: String?
     public var builtAt: String?
     public var bytes: Int?
 
@@ -36,7 +38,7 @@ public struct GameManifest: Decodable, Equatable, Sendable {
         case titleID = "title_id", displayVersion = "display_version", packageVersion = "package_version"
         case nroCount = "nro_count", frameworkExecutable = "framework_executable", imageMarker = "image_marker"
         case shaderMap = "shader_map", romfsMarker = "romfs_marker", romfsIdentity = "romfs_identity", minOS = "min_os"
-        case builtBy = "built_by", builtAt = "built_at"
+        case builtBy = "built_by", builtAt = "built_at", console
     }
 
     /// Decodes and validates. A problem carries a readable reason for the broken state.

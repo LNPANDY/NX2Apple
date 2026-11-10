@@ -1,0 +1,178 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Mon, 9 Nov 2026 21:21:43 +0100
+Subject: [PATCH] Controllers: a radial deadzone for each stick
+ (DM_STICK_DEADZONE_L / _R)
+
+A physical controller's sticks reach the guest as the controller reports them. A worn or drifting stick
+cannot be corrected without a front end of its own. DM_STICK_DEADZONE_L and DM_STICK_DEADZONE_R take a whole
+percent of the travel (1..50). Inside it the stick reads centred, outside it the remaining travel is
+rescaled so a stick pushed all the way still reads full. Unset, 0 or any other value leaves the stick as
+reported. The deadzone sits in dm_pad_set_player, which every physical controller passes through on the Mac
+and the iPhone. Keyboard, touch and scripted input do not use it.
+
+stick_deadzone.h holds the pure math (the same radial rescale steam_deadzone uses) and
+t_stick_deadzone.c tests the switch text, the unchanged default, the centred inside, the rescale, full travel
+and monotonic output. docs/env_switches.tsv lists both switches.
+
+Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Reason: The Mac launcher's Controls settings offer left and right deadzones with a live preview and need a general engine switch
+Issue: LNPANDY/NX2Apple#1025
+---
+ dm/host/hle_hid.c                |  9 ++++++
+ dm/host/stick_deadzone.h         | 27 +++++++++++++++++
+ dm/host/tests/Makefile           |  4 ++-
+ dm/host/tests/t_stick_deadzone.c | 52 ++++++++++++++++++++++++++++++++
+ docs/env_switches.tsv            |  2 ++
+ 5 files changed, 93 insertions(+), 1 deletion(-)
+ create mode 100644 dm/host/stick_deadzone.h
+ create mode 100644 dm/host/tests/t_stick_deadzone.c
+
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index ebe65345..99e21649 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -7,6 +7,7 @@
+ #include "hle.h"
+ #include "hle_haptics.h"
+ #include "dm_input.h"
++#include "stick_deadzone.h"
+ #include "front.h"
+ #include <stdatomic.h>
+ #include <stdbool.h>
+@@ -61,8 +62,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
+     uint64_t old = atomic_exchange(&g_btn, buttons); atomic_fetch_or(&g_latch, buttons & ~old); atomic_fetch_or(&g_peek_latch, buttons & ~old); atomic_store(&g_axes, pack(lx, ly, rx, ry));
+     shake_note(0);
+ }
++// The front end's per-stick deadzones (stick_deadzone.h), read once: the environment is fixed at launch. Every physical controller passes through
++// dm_pad_set_player, so the same deadzone holds on the Mac and the iPhone; keyboard, touch and scripted input do not use it.
++static int stick_dz(int right) {
++    static int cached[2] = {-1, -1};
++    if (cached[right] < 0) cached[right] = stick_deadzone_percent(getenv(right ? "DM_STICK_DEADZONE_R" : "DM_STICK_DEADZONE_L"));
++    return cached[right];
++}
+ void dm_pad_set_player(int p, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
+     if (p < 0 || p >= DM_PLAYERS) return;
++    stick_deadzone_apply(&lx, &ly, stick_dz(0)); stick_deadzone_apply(&rx, &ry, stick_dz(1));
+     uint64_t old = atomic_exchange(&g_pad_btn[p], buttons); atomic_fetch_or(&g_pad_latch[p], buttons & ~old); atomic_fetch_or(&g_peek_latch, buttons & ~old); atomic_store(&g_pad_axes[p], pack(lx, ly, rx, ry));
+     shake_note(p);
+ }
+diff --git a/dm/host/stick_deadzone.h b/dm/host/stick_deadzone.h
+new file mode 100644
+index 00000000..36fa9e79
+--- /dev/null
++++ b/dm/host/stick_deadzone.h
+@@ -0,0 +1,27 @@
++// A radial deadzone for each stick of a physical controller, set by the front end: DM_STICK_DEADZONE_L and DM_STICK_DEADZONE_R,
++// each a whole percent of the stick's travel from 0 to 50. Unset (or invalid, or 0) leaves the stick exactly as the controller reports it.
++// Inside the deadzone the stick reads centred, outside it the remaining travel is rescaled to the full range, so a stick pushed all the way
++// still reads full. A square-range diagonal beyond a full radius is left alone, as steam_deadzone does (steam_input.h).
++#pragma once
++#include <math.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include "dm_input.h"
++
++// The percent a switch's text means: 1..50, or 0 for "leave the stick as reported" (unset, empty, not a whole number, above 50).
++static inline int stick_deadzone_percent(const char *text) {
++    if (!text || !*text) return 0;
++    char *end; long v = strtol(text, &end, 10);
++    return end != text && !*end && v >= 1 && v <= 50 ? (int)v : 0;
++}
++
++// x and y in -DM_STICK_MAX..DM_STICK_MAX, percent as stick_deadzone_percent returns it.
++static inline void stick_deadzone_apply(int32_t *x, int32_t *y, int percent) {
++    if (percent <= 0) return;
++    float dz = percent / 100.0f, fx = *x / (float)DM_STICK_MAX, fy = *y / (float)DM_STICK_MAX, radius = hypotf(fx, fy);
++    if (radius <= dz) { *x = *y = 0; return; }
++    if (radius >= 1) return;
++    float scale = (radius - dz) / ((1 - dz) * radius);
++    *x = (int32_t)lrintf(fmaxf(-1, fminf(1, fx * scale)) * DM_STICK_MAX);
++    *y = (int32_t)lrintf(fmaxf(-1, fminf(1, fy * scale)) * DM_STICK_MAX);
++}
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 6f2c4510..a72ec863 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -426,7 +426,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
+ profile-runtime: $(B)/t_profile_runtime
+ 	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
+ 
+-run: $(B)/t_pad_map $(B)/t_pad_motion $(B)/t_controllers_mac
++run: $(B)/t_pad_map $(B)/t_pad_motion $(B)/t_controllers_mac $(B)/t_stick_deadzone
++$(B)/t_stick_deadzone: t_stick_deadzone.c ../stick_deadzone.h ../dm_input.h | $(B)
++	$(CLANG) -O1 -Wall -Werror -o $@ t_stick_deadzone.c
+ $(B)/t_pad_motion: t_pad_motion.c ../pad_motion.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -o $@ t_pad_motion.c
+ $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
+diff --git a/dm/host/tests/t_stick_deadzone.c b/dm/host/tests/t_stick_deadzone.c
+new file mode 100644
+index 00000000..d9ac75c2
+--- /dev/null
++++ b/dm/host/tests/t_stick_deadzone.c
+@@ -0,0 +1,52 @@
++#include <assert.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include "../stick_deadzone.h"
++
++static void t_percent(void) {
++    assert(stick_deadzone_percent(NULL) == 0 && stick_deadzone_percent("") == 0);   // unset: the stick is left alone
++    assert(stick_deadzone_percent("0") == 0 && stick_deadzone_percent("25") == 25 && stick_deadzone_percent("50") == 50);
++    assert(stick_deadzone_percent("51") == 0 && stick_deadzone_percent("-3") == 0 && stick_deadzone_percent("12x") == 0 && stick_deadzone_percent("1.5") == 0);
++}
++static void t_unset_is_unchanged(void) {
++    int32_t x = 1234, y = -4321;
++    stick_deadzone_apply(&x, &y, 0);
++    assert(x == 1234 && y == -4321);
++}
++static void t_inside_reads_centred(void) {
++    int32_t x = DM_STICK_MAX / 10, y = DM_STICK_MAX / 10;   // radius 0.14, inside 20%
++    stick_deadzone_apply(&x, &y, 20);
++    assert(x == 0 && y == 0);
++}
++static void t_outside_is_rescaled_and_radial(void) {
++    int32_t x = DM_STICK_MAX / 2, y = 0;   // half travel with a 20% deadzone: (0.5-0.2)/(0.8) = 0.375 of the range
++    stick_deadzone_apply(&x, &y, 20);
++    assert(abs(x - (int32_t)(0.375f * DM_STICK_MAX)) <= 1 && y == 0);
++    int32_t dx = DM_STICK_MAX * 6 / 10, dy = DM_STICK_MAX * 6 / 10;   // a diagonal keeps its angle
++    stick_deadzone_apply(&dx, &dy, 20);
++    assert(dx == dy && dx > 0);
++}
++static void t_full_travel_stays_full(void) {
++    int32_t x = DM_STICK_MAX, y = 0;
++    stick_deadzone_apply(&x, &y, 50);
++    assert(x == DM_STICK_MAX && y == 0);
++    int32_t cx = DM_STICK_MAX, cy = DM_STICK_MAX;   // a square corner is beyond a full radius: not rotated
++    stick_deadzone_apply(&cx, &cy, 30);
++    assert(cx == DM_STICK_MAX && cy == DM_STICK_MAX);
++    int32_t nx = -DM_STICK_MAX, ny = 0;
++    stick_deadzone_apply(&nx, &ny, 10);
++    assert(nx == -DM_STICK_MAX);
++}
++static void t_monotonic(void) {
++    int32_t last = -1;
++    for (int v = 0; v <= DM_STICK_MAX; v += 97) {
++        int32_t x = v, y = 0;
++        stick_deadzone_apply(&x, &y, 35);
++        assert(x >= last); last = x;
++    }
++}
++int main(void) {
++    t_percent(); t_unset_is_unchanged(); t_inside_reads_centred(); t_outside_is_rescaled_and_radial(); t_full_travel_stays_full(); t_monotonic();
++    puts("t_stick_deadzone: ok");
++    return 0;
++}
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 4b075826..44fe595a 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -358,6 +358,8 @@ DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it
+ DM_SPIN_POLL	switch	`=<µs>`: how long a spin-gate wait polls before it sleeps with the yield back-off (default 2000; `0` yields on every pass)
+ DM_STEAM_DEADZONE	switch	`=0..0.9` (exclusive upper bound) sets the radial deadzone for both raw Steam Controller sticks; default 0.10, `0` disables it; invalid values use the default
+ DM_STEAM_HID	switch	`=0` disables the Mac direct Steam Controller HID adapter and leaves input to Apple GameController; enabled otherwise
++DM_STICK_DEADZONE_L	switch	`=1..50` sets a radial deadzone of that many percent of the travel for the left stick of every physical controller (inside it the stick reads centred, outside it the rest of the travel is rescaled to the full range); unset, `0` or anything else leaves the stick as the controller reports it. The Mac launcher's Controls settings write it (Use custom deadzones)
++DM_STICK_DEADZONE_R	switch	`=1..50` the same for the right stick
+ DM_SVC	diagnostic	`=1` logs memory SVCs (`SetHeapSize`, `MapMemory`, `Map`/`UnmapPhysicalMemory`) with their addresses and sizes
+ DM_SW2	player	`=1` turns on Switch 2 controllers over Bluetooth LE (Joy-Con 2, Pro Controller 2): the settings window's Switch 2 controllers. Off, no Bluetooth client is created and macOS asks nothing. The host also stays off when the app's Info.plist has no NSBluetoothAlwaysUsageDescription, without which macOS ends the process at the first Bluetooth scan
+ DM_SW2_GYRO_DPS	diagnostic	`=<degrees per second per count>` is the Switch 2 controllers' gyro scale (default 0.0607, measured on a left and a right Joy-Con 2; the Switch family's nominal 0.070 turned a 90 degree tilt into 104)

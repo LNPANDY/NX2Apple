@@ -9,6 +9,9 @@ import XCTest
 /// runs it for --platform mac-app (GFXAPI=nvn SETTINGS_PLATFORM=mac DM_LANG=zh-Hans) for profile 01008CF01BAAC000 (Zelda: Echoes of
 /// Wisdom) over a control.nacp built for the test (no game files): only the SupportedLanguageFlag at 0x302C, set to en-US, ja, fr, de,
 /// es, it, pt, ru, ko, zh-Hant and zh-Hans. Regenerate it the same way when settings.py or settings.tsv changes the rows.
+///
+/// Every forMac call passes a Mac language the games lack (sv-SE), so the rows keep their packed default whatever the Mac running the
+/// tests is set to: SavedChoicesTests covers the Mac's language preselected.
 final class MacAppLanguageTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "01008CF01BAAC000"
@@ -47,7 +50,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
 
     func testTheGameLanguageRowIsDrawnWithTheGamesLanguages() throws {
         let app = try macApp().path
-        let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: titleID, repo: "", labels: { $0 }))
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: titleID, repo: "", labels: { $0 }, preferred: ["sv-SE"]))
         let lang = try XCTUnwrap(list.first { $0.env == "DM_LANG" }, "the sheet has a Game language row")
         XCTAssertEqual(lang.label, "Game language")
         XCTAssertEqual(lang.kind, "choice")
@@ -87,7 +90,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
 
     func testPlayDoesNotPutTheLanguageInTheEnvironment() throws {
         let (app, _) = try macApp()
-        let settings = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: titleID, repo: "", labels: { $0 }))
+        let settings = try XCTUnwrap(LaunchSetting.forMac(app: app, titleID: titleID, repo: "", labels: { $0 }, preferred: ["sv-SE"]))
         let lang = try XCTUnwrap(settings.first { $0.env == "DM_LANG" })
         SavedChoices(app: app, titleID: titleID).set(lang, "ja")
         let game = LibraryGame(titleID: titleID, name: "Zelda", appPath: app)
@@ -110,7 +113,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         let imgURL = app.appendingPathComponent("Contents/Resources/romfs.img")
         try Self.makeDMROMFSImage(mask: "JPja USen CNzh TWzh EUfr\n01111\n").write(to: imgURL)
 
-        let list = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }))
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }, preferred: ["sv-SE"]))
         let lang = try XCTUnwrap(list.first { $0.env == "DM_LANG" })
         XCTAssertFalse(lang.storeBacked, "the app's Info.plist has no DMSettings rule for DM_LANG, so the launcher keeps and passes the choice")
         XCTAssertEqual(lang.def, "en-US")
@@ -153,7 +156,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
     /// Since seedds/nxnative aafe01d a game with no language list gets every language and a note. The RomFS names the real ones (#668).
     func testRomFSNarrowsTheAllLanguagesRowOfAGameWithNoLanguageList() throws {
         let (app, _) = try appWithLangRow(Self.fallbackLangRow, mask: "JPja USen CNzh TWzh EUfr\n01111\n")
-        let list = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }))
+        let list = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }, preferred: ["sv-SE"]))
         let lang = try XCTUnwrap(list.first { $0.env == "DM_LANG" })
         XCTAssertEqual(list.filter { $0.env == "DM_LANG" }.count, 1)
         XCTAssertEqual(lang.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"], "the row's own order, only what the RomFS has")
@@ -185,7 +188,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         let (app, _) = try appWithLangRow(nil, mask: "JPja USen CNzh TWzh EUfr\n01111\n")
         let launcher = app.appendingPathComponent("Contents/Resources/dm/launcher.json")
         try generated.write(to: launcher)
-        let language = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { $0 })?
+        let language = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { $0 }, preferred: ["sv-SE"])?
             .first { $0.env == "DM_LANG" })
         XCTAssertEqual(language.options?.map { $0[0] }, ["en-US", "ja", "fr", "zh-Hant", "zh-Hans"])
         XCTAssertEqual(language.def, "en-US")
@@ -198,7 +201,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
     func testTheAllLanguagesRowStaysWhenTheRomFSCannotNarrowIt() throws {
         for mask in ["Hello\n", "USen\n", "JPja EUfr\n"] {   // no tag, one language, no American English (the packed default)
             let (app, _) = try appWithLangRow(Self.fallbackLangRow, mask: mask)
-            let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) })?
+            let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }, preferred: ["sv-SE"])?
                 .first { $0.env == "DM_LANG" })
             XCTAssertEqual(lang.options?.count, 16, mask)
             XCTAssertFalse(lang.note.isEmpty, mask)
@@ -209,7 +212,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
     func testARowWithoutTheNoteIsNeverNarrowed() throws {
         let exact = Self.fallbackLangRow.replacingOccurrences(of: #""note":"This game's files do not list its languages, so some of these may not be in the game. It may then show another one.""#, with: #""note":"""#)
         let (app, _) = try appWithLangRow(exact, mask: "JPja USen\n01\n")
-        let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) })?
+        let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }, preferred: ["sv-SE"])?
             .first { $0.env == "DM_LANG" })
         XCTAssertEqual(lang.options?.count, 16)
     }
@@ -220,7 +223,7 @@ final class MacAppLanguageTests: IsolatedDefaultsTestCase {
         let extended = Self.fallbackLangRow.replacingOccurrences(of: #"["pt-BR","Brazilian Portuguese"]]"#, with: #"["pt-BR","Brazilian Portuguese"],["th","Thai"],["pl","Polish"]]"#)
         XCTAssertTrue(extended.contains(#"["th","Thai"]"#))
         let (app, _) = try appWithLangRow(extended, mask: "JPja USen CNzh\n011\n")
-        let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) })?
+        let lang = try XCTUnwrap(LaunchSetting.forMac(app: app.path, titleID: "040074A01BF12000", repo: "", labels: { L10n.string($0, .en) }, preferred: ["sv-SE"])?
             .first { $0.env == "DM_LANG" })
         XCTAssertEqual(lang.options?.map { $0[0] }, ["en-US", "ja", "zh-Hans", "th", "pl"])
         XCTAssertEqual(lang.note, "")

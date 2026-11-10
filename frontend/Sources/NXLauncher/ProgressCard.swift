@@ -14,10 +14,10 @@ package struct ProgressCard: View {
             CardGroup(loc.t("section.progress")) {
                 if let message = build.staleShadersMessageKey {
                     HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: "info.circle").foregroundStyle(.secondary)
+                        Image(systemName: "info.circle").foregroundStyle(LauncherPalette.secondaryText)
                         VStack(alignment: .leading, spacing: 6) {
                             Text(loc.t("msg.shadersStale.title")).font(.manrope(14, .semibold))
-                            Text(loc.t(message)).font(.manrope(13)).foregroundStyle(.secondary)
+                            Text(loc.t(message)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -34,14 +34,14 @@ package struct ProgressCard: View {
                         Spacer(minLength: 12)
                         if s.state == .running {
                             TimelineView(.periodic(from: Date(), by: 1)) { context in
-                                Text([s.detail, s.clock(at: context.date, left: loc.t("prog.eta"))].filter { !$0.isEmpty }.joined(separator: " · "))
-                                    .font(.manrope(12)).monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
+                                Text([s.detail, s.clock(at: context.date, left: loc.t("prog.etaEstimate"))].filter { !$0.isEmpty }.joined(separator: " · "))
+                                    .font(.manrope(12)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).lineLimit(1)
                             }
-                        } else if !s.detail.isEmpty { Text(s.detail).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(1) }
+                        } else if !s.detail.isEmpty { Text(s.detail).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1) }
                         if s.state == .running {
                             LauncherProgressBar(value: s.percent.map { $0 / 100 }, height: 6).frame(width: 180)
                             Text(s.percent.map { "\(Int($0))%" } ?? "").font(.manrope(13, .semibold)).monospacedDigit()
-                                .foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                                .foregroundStyle(LauncherPalette.secondaryText).frame(width: 40, alignment: .trailing)
                         }
                     }
                     .padding(.horizontal, 18).padding(.vertical, 12)

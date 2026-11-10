@@ -14,14 +14,14 @@ import NXLauncher
 /// ReleaseNotes turns them into blocks with links, and this file only styles those.
 package struct UpdateSheet: View {
     @ObservedObject var updates: AppUpdateStore
-    /// A game build runs (the model's flag, as in Settings' AppCard). Nothing installs or relaunches then.
-    let buildRunning: Bool
+    /// The store of the running build: the open sheet follows it, so the button is back when the build ends.
+    @ObservedObject private var build: BuildStore
     @EnvironmentObject var loc: Localizer
     @Environment(\.dismiss) private var dismiss
 
-    package init(updates: AppUpdateStore, buildRunning: Bool = false) {
+    package init(updates: AppUpdateStore, build: BuildStore) {
         self.updates = updates
-        self.buildRunning = buildRunning
+        self.build = build
     }
 
     /// The orange line above the buttons: a refusal the store reported, or else the reason the main button is off
@@ -38,7 +38,7 @@ package struct UpdateSheet: View {
                 Text(loc.t("update.title"))
                     .font(.manrope(24, .heavy)).tracking(-0.5)
                 Text(String(format: loc.t("update.fromTo"), updates.version, update?.tag ?? ""))
-                    .font(.manrope(13)).foregroundStyle(.secondary)
+                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
             }
             .padding(.horizontal, 28).padding(.top, 26).padding(.bottom, 18)
 
@@ -50,14 +50,14 @@ package struct UpdateSheet: View {
                             blockView(block, first: index == 0)
                         }
                     } else {
-                        Text(loc.t("update.noNotes")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("update.noNotes")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                     }
                 }
                 .padding(.horizontal, 28).padding(.bottom, 20)
             }
             .frame(maxHeight: 340)
 
-            if let blocked = Self.note(blocked: updates.blocked, buildRunning: buildRunning, waitForBuild: loc.t("app.waitForBuild")) {
+            if let blocked = Self.note(blocked: updates.blocked, buildRunning: build.running, waitForBuild: loc.t("app.waitForBuild")) {
                 Text(blocked).font(.manrope(12.5)).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 28).padding(.bottom, 12)
@@ -73,7 +73,7 @@ package struct UpdateSheet: View {
                     .buttonStyle(LauncherSecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button {
-                    guard !updates.busy, !buildRunning else { return }
+                    guard !updates.busy, !build.running else { return }
                     // Automatic mode has already downloaded and staged the release, so the action is
                     // to swap it in now; otherwise this downloads, verifies and installs as before.
                     // The sheet stays up while it downloads, so a refusal (a macOS too old for the release) is seen here.
@@ -83,8 +83,8 @@ package struct UpdateSheet: View {
                     updateButtonLabel
                 }
                 .buttonStyle(.plain)
-                .disabled((updates.busy && updates.downloadProgress == nil) || buildRunning)
-                .allowsHitTesting(!updates.busy && !buildRunning)
+                .disabled((updates.busy && updates.downloadProgress == nil) || build.running)
+                .allowsHitTesting(!updates.busy && !build.running)
                 .accessibilityValue(updates.downloadProgress.map { "\(Int((min(max($0, 0), 1) * 100).rounded()))%" } ?? "")
                 .keyboardShortcut(.defaultAction)
             }
@@ -92,8 +92,8 @@ package struct UpdateSheet: View {
         }
         .frame(width: 560)
         .background(LauncherPalette.background)
-        .preferredColorScheme(.dark)
-        .tint(LauncherPalette.cream)
+        .launcherAppearance()
+        .tint(LauncherPalette.accent)
     }
 
     @ViewBuilder private var updateButtonLabel: some View {
@@ -114,7 +114,7 @@ package struct UpdateSheet: View {
                 Canvas { canvas, size in
                     let rect = CGRect(origin: .zero, size: size)
                     let capsule = Capsule().path(in: rect)
-                    canvas.fill(capsule, with: .color(Color.white.opacity(0.10)))
+                    canvas.fill(capsule, with: .color(LauncherPalette.ink(0.10)))
                     if clamped > 0 {
                         var inner = canvas
                         inner.clip(to: capsule)
@@ -127,7 +127,7 @@ package struct UpdateSheet: View {
             }
         } else {
             Text(baseTitle)
-                .font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                .font(.manrope(13.5, .bold)).foregroundStyle(LauncherPalette.onCream)
                 .padding(.horizontal, 20).padding(.vertical, 9)
                 .background(LauncherPalette.cream, in: Capsule())
         }
@@ -137,14 +137,14 @@ package struct UpdateSheet: View {
         switch block {
         case .heading(let text):
             Text(Self.styled(text, size: 12.5, weight: .bold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(LauncherPalette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, first ? 0 : 14)
         case .bullet(let text):
             // A hanging indent: the bullet is its own column, so wrapped lines align with the text.
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("\u{2022}").font(.manrope(13)).foregroundStyle(.secondary).frame(width: 10, alignment: .center)
+                Text("\u{2022}").font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).frame(width: 10, alignment: .center)
                 Text(Self.styled(text, size: 13))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -168,11 +168,11 @@ package struct UpdateSheet: View {
             if intent.contains(.emphasized) { font = font.italic() }
             if intent.contains(.code) {
                 font = .mono(size - 1, intent.contains(.stronglyEmphasized) ? .bold : .regular)
-                out[run.range].backgroundColor = Color.white.opacity(0.10)
+                out[run.range].backgroundColor = LauncherPalette.ink(0.10)
             }
             out[run.range].font = font
             if run.link != nil {
-                out[run.range].foregroundColor = LauncherPalette.cream
+                out[run.range].foregroundColor = LauncherPalette.accent
                 out[run.range].underlineStyle = .single
             }
         }

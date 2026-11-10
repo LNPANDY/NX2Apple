@@ -1,0 +1,204 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Mon, 9 Nov 2026 23:28:51 +0100
+Subject: [PATCH] iOS: touch keys that toggle (DM_TOUCH_TOGGLE)
+
+Holding a touch key for a long time is tiring, for example to run or to
+accelerate. The shell's touch layout editor now sets each key to Hold or
+Toggle and passes the toggled ones as DM_TOUCH_TOGGLE, control names joined
+by commas (zl,zr,a). A tap on such a key turns it on, the next tap off, and
+the key is drawn pressed while it is on. Only single keys toggle: the
+diamond as a whole, the left stick and the D-pad are skipped, so is an
+unknown name. Opening the in-game menu, a pose change, a connected
+controller and the controller prompt release a toggled key with every
+other key, so nothing stays on behind a menu.
+
+dm_pad_toggle_parse in DmPadGeometry.h reads the value, DmGamepad.m keeps
+the keys that are on and adds them to the pressed buttons.
+
+Tests: pad_geometry_check.m (the value's form, skipped names, the limit),
+test_env_switches.py (the new row).
+
+Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Reason: Touch keys that toggle, set per key in the shell's touch layout editor
+Issue: LNPANDY/NX2Apple#658
+---
+ dm/ios/Sources/DmGamepad.m                    | 24 +++++++++++++++----
+ dm/ios/Sources/DmPadGeometry.h                | 21 ++++++++++++++++
+ .../tests/pad_geometry/pad_geometry_check.m   | 17 +++++++++++++
+ docs/env_switches.tsv                         |  1 +
+ 4 files changed, 58 insertions(+), 5 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 9705efb..fea85a8 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -12,6 +12,8 @@
+ //   Touch-down ownership (dm_pad_menu_takes and dm_pad_hit in DmPadGeometry.h): the menu button where it is nearer than a locked key (a view of its own, DmMenuButton), locked keys next (shoulders, − / +, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
+ //     then in 3D the right stick for a touch in the right third.
+ //   The player can move single controls in the shell's settings (DM_TOUCH_LAYOUT, one arrangement per layout): the geometry places each only where it fits and keeps the rest where they were.
++//   A key the player set to Toggle there (DM_TOUCH_TOGGLE, DmPadGeometry.h) turns on with one tap and off with the next, drawn pressed while on; the rest are held as before.
++//     Opening the in-game menu, a pose change, a connected controller and the controller prompt release it with every other key (reset).
+ //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
+ //   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium) and the left stick's place through DM_TOUCH_STICK (corner, higher, inward).
+ //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
+@@ -164,6 +166,7 @@ @implementation DmGamepad {
+     UITouch *_stick[2]; CGPoint _stickNow[2];      // the touch holding each stick and where it is now (0 left, 1 right)
+     CGPoint _rCentre;                              // the right stick's centre: where its touch landed, dragged along past K_RSTICK_R
+     uint64_t _faceBits, _dpadBits, _btnBits;
++    uint64_t _toggle, _latched;                    // DM_TOUCH_TOGGLE's keys (1 << B_*), and the ones a tap turned on
+     NSMapTable<UITouch *, NSNumber *> *_faceOf;    // which keys each touch on the diamond currently holds
+     CAShapeLayer *_key[B_N]; CATextLayer *_label[B_N];   // one layer per key
+     CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
+@@ -197,6 +200,7 @@ @implementation DmGamepad {
+     t.string = s; t.alignmentMode = kCAAlignmentCenter; t.foregroundColor = k_text.CGColor;
+     [parent addSublayer:t]; return t;
+ }
++static int toggleKey(int c);
+ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   // keys shown only in the 3D layout
+ 
+ - (instancetype)initWithFrame:(CGRect)f {
+@@ -212,6 +216,9 @@ - (instancetype)initWithFrame:(CGRect)f {
+         if (!dm_pad_layout_parse(arrangement, &_arrangement)) LOG("front end: DM_TOUCH_LAYOUT ignored (not a layout the engine reads, %zu characters): every control keeps its place", strlen(arrangement));
+         else if (dm_pad_layout_count(&_arrangement)) LOG("front end: touch controls arranged by the player (DM_TOUCH_LAYOUT, %d moved over every layout)", dm_pad_layout_count(&_arrangement));
+         _opts.layout = &_arrangement;
++        unsigned toggles = dm_pad_toggle_parse(getenv("DM_TOUCH_TOGGLE"));
++        for (int c = 0; c < DM_PAD_C_N; c++) if (toggles & (1u << c)) _toggle |= 1ull << toggleKey(c);
++        if (toggles) LOG("front end: touch keys that toggle (DM_TOUCH_TOGGLE): %s", getenv("DM_TOUCH_TOGGLE"));
+         [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
+             [(UIView *)environment setNeedsLayout];
+         }];
+@@ -339,6 +346,7 @@ static int lockedKey(int c) {   // DmPadGeometry.h's control → the key it pres
+     switch (c) { case DM_PAD_C_ZL: return B_ZL; case DM_PAD_C_L: return B_L; case DM_PAD_C_ZR: return B_ZR; case DM_PAD_C_R: return B_R;
+                  case DM_PAD_C_MINUS: return B_MINUS; case DM_PAD_C_PLUS: return B_PLUS; case DM_PAD_C_L3: return B_LS; default: return B_RS; }
+ }
++static int toggleKey(int c) { return c >= DM_PAD_C_A && c <= DM_PAD_C_Y ? B_A + (c - DM_PAD_C_A) : lockedKey(c); }   // DM_TOUCH_TOGGLE's control → its key
+ - (BOOL)menuTakes:(CGPoint)p {   // the menu button takes a touch in its hit circle unless a locked key's target is nearer (the drawn keys are hidden in Tap and with a controller)
+     if (dm_pad_menu_distance(self.geo, p) > 1) return NO;
+     if (_tap || _padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return YES;
+@@ -369,7 +377,7 @@ - (CGPoint)knobOffset:(int)i {   // knob offset from the stick centre (clamped t
+ // ---- Touch ----
+ - (void)recompute {
+     uint64_t face = 0; for (UITouch *t in _faceOf) face |= [_faceOf objectForKey:t].unsignedLongLongValue;
+-    uint64_t btn = 0, dpad = 0;
++    uint64_t btn = _latched, dpad = 0;   // a toggled key stays pressed with no finger on it
+     for (UITouch *t in _owner) { uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff);
+         if (c == C_BTN) btn |= 1ull << (v >> 8);
+         else if (c == C_DPAD) dpad |= [self dpadAt:[t locationInView:self]]; }
+@@ -440,11 +448,17 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+         CGPoint p = [t locationInView:self];
+         if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }
+         DmPadHit hit = dm_pad_hit(self.geo, _full, _layout.separated, _tap, !_stick[0], p);   // the same geometry the controls are drawn with (the menu button took its own touches, menuTakes)
+-        if (hit.kind == DM_PAD_HIT_KEY) { [_owner setObject:@(C_BTN | (uint64_t)lockedKey(hit.key) << 8) forKey:t]; continue; }
++        if (hit.kind == DM_PAD_HIT_KEY) {
++            int key = lockedKey(hit.key);
++            if (_toggle & (1ull << key)) { _latched ^= 1ull << key; [_owner setObject:@(C_NONE) forKey:t]; }   // a toggled key: this tap flips it, the finger holds nothing
++            else [_owner setObject:@(C_BTN | (uint64_t)key << 8) forKey:t];
++            continue;
++        }
+         if (_tap) { game |= [self gameBegin:t]; continue; }
+         int kind = hit.kind == DM_PAD_HIT_FACE ? C_FACE : hit.kind == DM_PAD_HIT_DPAD ? C_DPAD : hit.kind == DM_PAD_HIT_STICK ? C_STICK : C_NONE, idx = 0;
+         if (kind == C_NONE && _full && !_stick[1] && [self inRightArea:p]) { kind = C_STICK; idx = 1; _rCentre = p; [self hideHint]; }   // the right stick: centred where the touch lands (the hint's job is done)
+-        if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
++        if (kind == C_FACE) { uint64_t keys = [self faceAt:p]; _latched ^= keys & _toggle;   // a toggled face key flips on touch-down, the held ones follow the finger
++            [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@(keys & ~_toggle) forKey:t]; }
+         else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
+         else if (kind == C_STICK) { [_owner setObject:@(C_STICK | (uint64_t)idx << 8) forKey:t]; _stick[idx] = t; _stickNow[idx] = p; }
+         else game |= [self gameBegin:t];
+@@ -456,7 +470,7 @@ - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+     BOOL game = NO;
+     for (UITouch *t in ts) {
+         uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff); CGPoint p = [t locationInView:self];
+-        if (c == C_FACE) [_faceOf setObject:@([self faceAt:p]) forKey:t];
++        if (c == C_FACE) [_faceOf setObject:@([self faceAt:p] & ~_toggle) forKey:t];
+         else if (c == C_STICK) { _stickNow[v >> 8] = p;
+             if ((v >> 8) == 1) { CGFloat d = dist(p, _rCentre), R = [self stickR:1];   // the right stick's centre follows a finger past its radius, so turning back responds at once
+                 if (d > R) _rCentre = CGPointMake(p.x - (p.x - _rCentre.x) * R / d, p.y - (p.y - _rCentre.y) * R / d); } }
+@@ -477,7 +491,7 @@ - (void)endTouches:(NSSet<UITouch *> *)ts tapped:(BOOL)ended {
+ }
+ - (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:YES]; }
+ - (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:NO]; }
+-- (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0] = _stick[1] = nil; for (int i = 0; i < 16; i++) _game[i] = nil; [self pushGame]; [self recompute]; }
++- (void)reset { _latched = 0; [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0] = _stick[1] = nil; for (int i = 0; i < 16; i++) _game[i] = nil; [self pushGame]; [self recompute]; }
+ 
+ // ---- Shapes ----
+ static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
+diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
+index d2efd77..e5b749f 100644
+--- a/dm/ios/Sources/DmPadGeometry.h
++++ b/dm/ios/Sources/DmPadGeometry.h
+@@ -277,6 +277,27 @@ static inline int dm_pad_layout_count(const DmPadLayout *l) {   // the moved con
+     return n;
+ }
+ 
++// ---- Keys that toggle (DM_TOUCH_TOGGLE) ----
++// The keys the player set to Toggle in the shell's layout editor, as dm_pad_control_names joined by commas, for example zl,zr,a. A tap
++// on such a key turns it on and the next tap turns it off, so a long hold (running, accelerating) needs no finger on the screen. Only
++// single keys toggle: the diamond as a whole, the left stick and the D-pad are skipped, so is an unknown name (a newer shell). Unset,
++// empty or a value longer than DM_PAD_LAYOUT_MAX: every key is held as before.
++static inline BOOL dm_pad_toggleable(int c) {
++    return (c >= DM_PAD_C_A && c <= DM_PAD_C_Y) || (c >= DM_PAD_C_ZL && c <= DM_PAD_C_PLUS);
++}
++static inline unsigned dm_pad_toggle_parse(const char *_Nullable v) {   // the controls (1 << DM_PAD_C_*) that toggle
++    if (!v || !*v || strnlen(v, DM_PAD_LAYOUT_MAX + 1) > DM_PAD_LAYOUT_MAX) return 0;
++    unsigned mask = 0;
++    for (const char *p = v; *p; ) {
++        const char *name = p;
++        while (*p && *p != ',') p++;
++        int c = dm_pad_name_index(name, (size_t)(p - name), dm_pad_control_names, DM_PAD_C_N);
++        if (c >= 0 && dm_pad_toggleable(c)) mask |= 1u << c;
++        if (*p == ',') p++;
++    }
++    return mask;
++}
++
+ // The drawn shapes (dm_pad_shapes ids) of a control.
+ static inline BOOL dm_pad_is_shape_of(int id, int c) {
+     switch (c) {
+diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+index b78567b..fa8d893 100644
+--- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
++++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+@@ -33,6 +33,22 @@ static void check_fits(const Screen *s, BOOL full, const char *size, DmPadOption
+     }
+ }
+ 
++// ---- DM_TOUCH_TOGGLE ----
++
++// The keys that toggle: single keys by name, the diamond, the sticks, the D-pad and unknown names skipped.
++static void check_toggle_values(void) {
++    if (dm_pad_toggle_parse(NULL) || dm_pad_toggle_parse("")) FAIL("DM_TOUCH_TOGGLE unset or empty: every key is held");
++    unsigned m = dm_pad_toggle_parse("zl,zr,a");
++    if (m != (1u << DM_PAD_C_ZL | 1u << DM_PAD_C_ZR | 1u << DM_PAD_C_A)) FAIL("DM_TOUCH_TOGGLE zl,zr,a: read as %#x", m);
++    m = dm_pad_toggle_parse("face,stick,dpad,home,,b,");
++    if (m != 1u << DM_PAD_C_B) FAIL("DM_TOUCH_TOGGLE: the diamond, the stick, the D-pad or an unknown name is not skipped (%#x)", m);
++    m = dm_pad_toggle_parse("a,b,x,y,zl,l,zr,r,l3,r3,minus,plus");
++    for (int c = 0; c < DM_PAD_C_N; c++) if (!!(m & (1u << c)) != dm_pad_toggleable(c)) FAIL("DM_TOUCH_TOGGLE: %s", dm_pad_control_names[c]);
++    char longv[DM_PAD_LAYOUT_MAX + 8]; memset(longv, 'a', sizeof longv - 1); longv[sizeof longv - 1] = 0;
++    for (size_t i = 1; i < sizeof longv - 1; i += 2) longv[i] = ',';
++    if (dm_pad_toggle_parse(longv)) FAIL("DM_TOUCH_TOGGLE longer than the limit is not ignored");
++}
++
+ // ---- DM_TOUCH_LAYOUT ----
+ 
+ static int g_arranged;
+@@ -354,6 +370,7 @@ int main(void) {
+             }
+ 
+     check_layout_values();
++    check_toggle_values();
+     check_arrangement(screens, nscreens);
+     check_duo_outer_custom_bounds();
+ 
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 44fe595..cf66148 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -401,6 +401,7 @@ DM_TOUCH_LAYOUT	player	The player's per-layout touch-control arrangement, encode
+ DM_TOUCH_LOG	diagnostic	`=1` logs each touch-screen read with touch points (sample, finger, position, attributes) and each gesture entry, up to 500 lines
+ DM_TOUCH_SIZE	player	iOS touch-control size: small, medium (default) or large. Controls move toward medium when the requested size does not fit
+ DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or inward
++DM_TOUCH_TOGGLE	player	iOS touch keys set to Toggle in the shell's touch layout editor, as control names joined by commas (for example `zl,zr,a`): a tap turns the key on, the next tap off. Also set by the in-game menu of a game's own app (the Touch keys that toggle row), which has no layout editor. Unset, every key is held
+ DM_UDC_SELFTEST	diagnostic	`=1` runs a start-up check of DontCare load and store on private depth-stencil and RGBA8 textures (clear, Load + DontCare, read back) and logs one result line
+ DM_UE_SHADERS	path	Folder of the Unreal shader code archives decoded by `uepak.py`, for `shader_split.py` (default `ue_shaders` beside the RomFS); needed when the RomFS has Unreal paks
+ DM_UE_TEXTURE_POOL	switch	Megabytes Unreal's texture streaming pool (`r.Streaming.PoolSize`) is raised to, overriding the profile's `ue_texture_pool`; `0` keeps the game's own pool. On iOS only this switch turns it on (`Documents/env.txt`)

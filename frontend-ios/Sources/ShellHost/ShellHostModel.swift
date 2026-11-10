@@ -80,6 +80,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var scannedShellFolder: String?
     @ObservationIgnored private var shellMatches: [String: URL] = [:]
     @ObservationIgnored private var shellScan: Task<Void, Never>?
+    @ObservationIgnored private var romfsChecks: [URL: RomfsCheck] = [:]
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
@@ -92,9 +93,19 @@ public struct ShellHostConfig: Sendable {
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
-        // Game files stay out of the iCloud backup (#618), also what an earlier version put there. Off the main actor, it lists folders.
+        // Off the main actor, it lists folders and may write GB: a file the Mac launcher sent in parts is joined first (#899), then
+        // the game files are kept out of the iCloud backup (#618), also what an earlier version put there. A joined file can make a
+        // game playable, so the library is read again.
         let dataRoot = config.appDataRoot
-        Task.detached(priority: .utility) { BackupExclusion.apply(appDataRoot: dataRoot) }
+        Task { [weak self] in
+            let joined = await Task.detached(priority: .utility) { () -> Bool in
+                DataParts.writeFeatures(documents: dataRoot.deletingLastPathComponent())
+                let joined = DataParts.joinAll(appDataRoot: dataRoot)
+                BackupExclusion.apply(appDataRoot: dataRoot)
+                return !joined.isEmpty
+            }.value
+            if joined { self?.reload() }
+        }
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
@@ -121,10 +132,11 @@ public struct ShellHostConfig: Sendable {
     /// folder starts a new scan and drops the old matches, the same folder keeps its matches unless `force`.
     private func startShellScan(force: Bool = false) {
         guard case .url(let folder) = shellData.resolve() else {
-            shellScan?.cancel(); scannedShellFolder = nil; shellMatches = [:]; return
+            shellScan?.cancel(); shellScan = nil; scannedShellFolder = nil; shellMatches = [:]; return
         }
         if !force && scannedShellFolder == folder.path { return }
         shellScan?.cancel()
+        shellScan = nil
         scannedShellFolder = folder.path
         shellMatches = [:]
         let wanted = entries.compactMap { e in
@@ -141,13 +153,17 @@ public struct ShellHostConfig: Sendable {
                 return found
             }.value
             guard let self, !Task.isCancelled, self.scannedShellFolder == folder.path else { return }
+            self.shellScan = nil
             self.shellMatches = found
             if !found.isEmpty { self.details = self.entries.map(self.detail(for:)) }
         }
     }
 
-    /// For tests: returns when the scan of the shell data folder is done.
-    func waitForShellScan() async { await shellScan?.value }
+    /// For tests: returns when the shell scan and the pending RomFS identity checks are done.
+    func waitForDataChecks() async {
+        await shellScan?.value
+        for entry in entries { _ = await verifiedData(for: entry) }
+    }
 
     private func defaultsDidChange() {
         if Self.choices(of: shellSettings) != shellChoices { refreshAll() }
@@ -158,6 +174,7 @@ public struct ShellHostConfig: Sendable {
     /// Reads the games folder again and sorts the library (see `LibraryOrder`). Only this and the first load re-sort:
     /// a change to one game updates it in place.
     public func reload() {
+        forgetCheckedRomfsImages()
         let scanned = GameCatalogue.scan(root: config.gamesRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
@@ -208,10 +225,68 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
-    private func data(for entry: CatalogueEntry) -> DataResolution {
+    private struct RomfsCheck {
+        struct Stamp: Equatable {
+            let size: NSNumber?
+            let modified: Date?
+            let volume: NSNumber?
+            let file: NSNumber?
+        }
+
+        let stamp: Stamp
+        var task: Task<Void, Never>?
+        var identity: RomfsIdentity?
+        var titles: Set<String>
+    }
+
+    /// A copy in place can preserve the file stamp. Retry completed checks when the player explicitly refreshes or plays.
+    private func forgetCheckedRomfsImages() {
+        romfsChecks = romfsChecks.filter { $0.value.task != nil }
+    }
+
+    /// Only stat on the main actor. A replacement starts a new check even when its size and modification date stayed the same.
+    private func matchesRomfs(_ url: URL, expected: RomfsIdentity, title: String, pending: (Task<Void, Never>) -> Void) -> Bool {
+        guard let info = try? FileManager.default.attributesOfItem(atPath: url.path) else { return false }
+        let stamp = RomfsCheck.Stamp(size: info[.size] as? NSNumber, modified: info[.modificationDate] as? Date,
+                                    volume: info[.systemNumber] as? NSNumber, file: info[.systemFileNumber] as? NSNumber)
+        if let check = romfsChecks[url], check.stamp == stamp {
+            if let task = check.task {
+                romfsChecks[url]?.titles.insert(title)
+                pending(task)
+            }
+            return check.identity == expected
+        }
+        romfsChecks[url]?.task?.cancel()
+        let task = Task { [weak self] in
+            let identity = await Task.detached(priority: .utility) { RomfsIdentity.ofImage(at: url) }.value
+            guard !Task.isCancelled, let self, let check = self.romfsChecks[url] else { return }
+            self.romfsChecks[url] = RomfsCheck(stamp: stamp, identity: identity, titles: [])
+            for title in check.titles { self.refresh(title) }
+        }
+        romfsChecks[url] = RomfsCheck(stamp: stamp, task: task, titles: [title])
+        pending(task)
+        return false
+    }
+
+    private func data(for entry: CatalogueEntry, pending: (Task<Void, Never>) -> Void = { _ in }) -> DataResolution {
         guard let manifest = entry.manifest, entry.problem == nil else { return .missing }
         return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appFolder(for: entry.id),
-                                  global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID])
+                                  global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID]) { url, identity in
+            matchesRomfs(url, expected: identity, title: entry.id, pending: pending)
+        }
+    }
+
+    /// A pending higher-priority location must finish before Play can use a lower-priority fallback.
+    private func verifiedData(for entry: CatalogueEntry) async -> DataResolution {
+        while !Task.isCancelled {
+            var firstCheck: Task<Void, Never>?
+            let result = data(for: entry) { if firstCheck == nil { firstCheck = $0 } }
+            if let firstCheck { await firstCheck.value }
+            else if result.source != .picked, let shellScan,
+                    entry.manifest.flatMap({ RomfsIdentity.parse($0.romfsIdentity) }) != nil { await shellScan.value }
+            else { return result }
+        }
+        return .missing
     }
 
     private func profile(for entry: CatalogueEntry, data: DataResolution? = nil) -> LauncherProfile? {
@@ -219,8 +294,8 @@ public struct ShellHostConfig: Sendable {
         // A DM_LANG row of the game's own list stays, except the all-languages row of a game with no language list (the engine's
         // fallback): the RomFS names the languages it really has (#668)
         if let row = base.settings.first(where: { $0.env == "DM_LANG" }), !RomfsLanguages.isFallbackRow(row) { return base }
-        guard let url = (data ?? self.data(for: entry)).url else { return base }
-        return RomfsLanguages.applying(to: base, options: RomfsLanguages.options(in: url))   // read once per image: RomfsLanguages caches by size and date
+        guard let romfs = (data ?? self.data(for: entry)).romfsURL else { return base }
+        return RomfsLanguages.applying(to: base, options: RomfsLanguages.options(forRomfs: romfs))
     }
 
     private func image(_ url: URL?) -> Artwork? {
@@ -237,7 +312,8 @@ public struct ShellHostConfig: Sendable {
         let played = lastPlayed(entry.id)
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
-                            recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "")
+                            recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
+                            isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
             return GameDetail(game: tile, dataNote: dataNote(data, found: false))
         }
@@ -337,16 +413,29 @@ public struct ShellHostConfig: Sendable {
         refresh(id)
     }
 
+    /// The folder the player picked, nil on a cancel. A picker that could not be shown says so in the notice (#1049).
+    private func pickedFolder() async -> URL? {
+        switch await picker.pickFolderOutcome() {
+        case .picked(let url): return url
+        case .cancelled: return nil
+        case .unavailable:
+            notice = hostText("The folder picker could not open here. Open the app on its own and try again.")
+            return nil
+        }
+    }
+
     public func pickGameData(_ id: String) {
         Task { await pickGameDataNow(id) }
     }
 
     func pickGameDataNow(_ id: String) async {
-        guard let url = await picker.pickFolder() else { return }
+        guard let url = await pickedFolder() else { return }
         guard dataStore(id).store(url) else {
             notice = hostText("That location could not be remembered. Try a different one.")
             return
         }
+        forgetCheckedRomfsImages()
+        if let entry = entry(id) { _ = await verifiedData(for: entry) }
         refresh(id)
         if let game = details.first(where: { $0.id == id })?.game, game.state == .needsGameData {
             notice = hostText("No game data for \(game.title) was found in that folder.")
@@ -366,21 +455,23 @@ public struct ShellHostConfig: Sendable {
     }
 
     func pickCloudSavesNow(_ id: String) async {
-        guard let url = await picker.pickFolder() else { return }
+        guard let url = await pickedFolder() else { return }
         if cloudStore(id).store(url) { config.defaults(id).removeObject(forKey: GameDefaults.cloudSavesOffKey) }
         else { notice = hostText("That folder could not be remembered. Try a different one.") }
         refresh(id)
     }
 
     func pickShellDataNow() async {
-        guard let url = await picker.pickFolder() else { return }
+        guard let url = await pickedFolder() else { return }
         guard shellData.store(url) else { notice = hostText("That folder could not be remembered. Try a different one."); return }
+        forgetCheckedRomfsImages()
         shellSettings.storeDataFolderName(url.lastPathComponent)
+        startShellScan(force: true)
         refreshAll()
     }
 
     func pickShellCloudNow() async {
-        guard let url = await picker.pickFolder() else { return }
+        guard let url = await pickedFolder() else { return }
         guard shellCloud.store(url) else { notice = hostText("That folder could not be remembered. Try a different one."); return }
         shellSettings.storeCloudSavesFolderName(url.lastPathComponent)
         refreshAll()
@@ -443,7 +534,7 @@ public struct ShellHostConfig: Sendable {
     private func isDeleted(_ entry: CatalogueEntry) -> Bool {
         let defaults = config.defaults(entry.id)
         guard let deleted = defaults.string(forKey: GameDeletion.deletedKey) else { return false }
-        let hasData = entry.manifest.map { DataLocator.holder(of: appFolder(for: entry.id), manifest: $0, .default) != nil } ?? false
+        let hasData = entry.manifest.map { DataLocator.romfs(in: appFolder(for: entry.id), manifest: $0, .default) != nil } ?? false
         if deleted == GameDeletion.stamp(entry) && !hasData { return true }
         defaults.removeObject(forKey: GameDeletion.deletedKey)
         return false
@@ -460,11 +551,16 @@ public struct ShellHostConfig: Sendable {
 
     func playNow(_ id: String) async {
         guard !launchingGame, let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
-              details.first(where: { $0.id == id })?.game.state == .playable,
-              case let resolved = data(for: entry), let dataURL = resolved.url,
-              let profile = profile(for: entry, data: resolved) else { return }
+              details.first(where: { $0.id == id })?.game.state == .playable else { return }
         launchingGame = true
         defer { launchingGame = false }
+        forgetCheckedRomfsImages()
+        let resolved = await verifiedData(for: entry)
+        guard self.entry(id)?.manifest == manifest, let dataURL = resolved.url,
+              let profile = profile(for: entry, data: resolved) else {
+            refresh(id)
+            return
+        }
         var cloud: URL?
         switch cloudSaves(id) {
         case .own(let url), .shell(let url): cloud = url
@@ -475,7 +571,7 @@ public struct ShellHostConfig: Sendable {
         refresh(id)
         var game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
-            appFolder: appFolder(for: id), environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
+            romfsURL: resolved.romfsURL, appFolder: appFolder(for: id), environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
         do {
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
             try await launcher.launch(game)

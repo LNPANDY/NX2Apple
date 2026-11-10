@@ -122,6 +122,11 @@ public struct GameDetailView: View {
                         .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
                     AlertStateChip(state: detail.game.state)
                         .fixedSize(horizontal: false, vertical: true)
+                    if detail.game.isSwitch2 {   // #696: the manifest's console
+                        ConsoleBadge().accessibilityIdentifier("detail.switch2")
+                        Text(ShellStrings.text("A Switch 2 game. It needs a lot of memory and may not start on every device."))
+                            .shellText(12.5).foregroundStyle(.white.opacity(0.62)).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             }
@@ -314,7 +319,7 @@ struct NativeChoiceControl: View {
                             picker(options).pickerStyle(.menu)
                         }
                     } label: {
-                        Text(row.label).font(.body)
+                        ChangedSettingLabel(row: row)
                     }
                 } else {
                     Text(row.label).shellType(ShellType.settingLabel)
@@ -335,6 +340,7 @@ struct NativeChoiceControl: View {
             .disabled(!row.enabled)
             .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
             .accessibilityIdentifier("setting.\(row.id)")
+            .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled) { advance(options) }
         }
     }
 
@@ -344,9 +350,12 @@ struct NativeChoiceControl: View {
         }
         .labelsHidden()
         .accessibilityLabel(row.label)
-        .shellTarget("\(targetPrefix)\(row.id)", enabled: row.enabled) {
-            if let next = Self.nextValue(options, after: row.value) { change(next) }
-        }
+    }
+
+    /// The whole row is the focus target, whatever the control is (segments, a menu, a long language list): a menu picker did not report a
+    /// frame the focus graph could reach, so the game language was skipped (#1026).
+    private func advance(_ options: [SettingOption]) {
+        if let next = Self.nextValue(options, after: row.value) { change(next) }
     }
 
     // Controller activation advances the native picker without opening a separate page.

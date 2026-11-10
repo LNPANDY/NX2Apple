@@ -1,0 +1,226 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Martin Majewski <mail@martinmajewski.net>
+Date: Sat, 7 Nov 2026 18:43:01 +0100
+Subject: [PATCH] Mac launcher: keep saves in ~/Library when the game library
+ is not on APFS
+
+A save transaction clones the save folder and commits by swapping two
+folders (hle_fs.c), which only APFS does. With the game library folder
+on exFAT, HFS+ or FAT, the host mounted the save read-only and dropped
+every write while the game said it saved, and cloud saves had nothing
+to send. The launcher now asks the library folder's volume for
+VOL_CAP_INT_CLONE and VOL_CAP_INT_RENAME_SWAP. When it has neither,
+the save stays in ~/Library/Application Support/nxnative/<id>/save (a
+save already in the library folder is copied in once), the log still
+goes with the game, the log has a [RED] line every start, and an alert
+says so once. A volume that does not answer keeps the library folder.
+The migration copy skips AppleDouble ._ files, which are not part of a
+save.
+
+Tests: test_nsp_mac_app.App.test_library_folder_not_on_apfs runs the
+packed app from a library on an exFAT disk image (hdiutil) and fails
+without the fix (DM_SAVE was the exFAT folder);
+test_library_folder_on_apfs keeps saves and log beside the app on APFS.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending (a fix to patch 0010, goes with seedds/nxnative#460's dataFolder design)
+Reason: Saves need APFS: a game library folder on exFAT, HFS+ or FAT keeps its saves in ~/Library instead of dropping them
+Issue: LNPANDY/NX2Apple#123
+
+---
+ dm/mac/launcher.c                  | 84 ++++++++++++++++++++++--------
+ dm/tools/tests/test_nsp_mac_app.py | 44 ++++++++++++++++
+ 2 files changed, 106 insertions(+), 22 deletions(-)
+
+diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
+index f36f73b..a3006c6 100644
+--- a/dm/mac/launcher.c
++++ b/dm/mac/launcher.c
+@@ -23,6 +23,7 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <sys/attr.h>
+ #include <sys/stat.h>
+ #include <dirent.h>
+ #include <sys/wait.h>
+@@ -80,6 +81,19 @@ static void mkdirs(const char *path) {   // mkdir -p
+     mkdir(p, 0755);
+ }
+ 
++/// Whether the volume holding `path` can hold a save: the host's save transaction clones the save
++/// folder (clonefile) and publishes a commit by swapping two folders (renamex_np RENAME_SWAP), which
++/// only APFS does (hle_fs.c). 1 yes, 0 no (exFAT, HFS+, FAT, network volumes), -1 when the volume
++/// does not say, which the caller takes as yes.
++static int volume_holds_saves(const char *path) {
++    struct attrlist al = {.bitmapcount = ATTR_BIT_MAP_COUNT, .volattr = ATTR_VOL_INFO | ATTR_VOL_CAPABILITIES};
++    struct { uint32_t length; vol_capabilities_attr_t caps; } __attribute__((aligned(4), packed)) buf;
++    if (getattrlist(path, &al, &buf, sizeof buf, 0)) return -1;
++    uint32_t need = VOL_CAP_INT_CLONE | VOL_CAP_INT_RENAME_SWAP;
++    if ((buf.caps.valid[VOL_CAPABILITIES_INTERFACES] & need) != need) return -1;
++    return (buf.caps.capabilities[VOL_CAPABILITIES_INTERFACES] & need) == need;
++}
++
+ static int dir_has_entries(const char *path) {   // anything inside at all (a save folder, a log folder)
+     DIR *d = opendir(path); if (!d) return 0;
+     struct dirent *e; int any = 0;
+@@ -100,12 +114,14 @@ static int copy_file(const char *from, const char *to) {
+ 
+ /// Recursive copy for the one-time migration of a save folder. Symlinks are followed (a save is
+ /// plain files); a file that already exists is left alone, so a half-finished copy can be resumed.
++/// AppleDouble files (._name, the metadata macOS writes beside each file on exFAT and FAT) are not
++/// part of the save and are left behind: copied, they would be files of their own in the guest's save.
+ static void copy_tree(const char *from, const char *to) {
+     mkdirs(to);
+     DIR *d = opendir(from); if (!d) return;
+     struct dirent *e;
+     while ((e = readdir(d))) {
+-        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
++        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") || !strncmp(e->d_name, "._", 2)) continue;
+         char a[PATH_MAX], b[PATH_MAX];
+         snprintf(a, sizeof a, "%s/%s", from, e->d_name);
+         snprintf(b, sizeof b, "%s/%s", to, e->d_name);
+@@ -240,6 +256,7 @@ int main(int argc, char **argv) {
+         return 1;
+     }
+     const char *home = getenv("HOME"); if (!home || !*home) return 1;
++    char library_not_apfs[PATH_MAX] = "";   // a game library folder on a volume that cannot hold saves (volume_holds_saves)
+     char sup[PATH_MAX], save[PATH_MAX], temp[PATH_MAX], logs[PATH_MAX], log[PATH_MAX], prev[PATH_MAX];
+     snprintf(sup, sizeof sup, "%s/Library/Application Support/nxnative/%s", home, id);
+     snprintf(save, sizeof save, "%s/save", sup); snprintf(temp, sizeof temp, "%s/temp", sup);
+@@ -265,28 +282,50 @@ int main(int argc, char **argv) {
+         // what is needed and reused comes along, so the library folder stays lean.
+         char probe[PATH_MAX]; snprintf(probe, sizeof probe, "%s/.nx2apple-library", appdir);
+         if (!stat(probe, &st)) {
+-            snprintf(save, sizeof save, "%s/save/%s", appdir, id);
+             snprintf(logs, sizeof logs, "%s/log", appdir);
+-            // First run after this change: bring the old saves across rather than starting the
+-            // player on an empty save slot. Copied, not moved — an older build of the same app
+-            // still reads the old place, and a copy is cheap next to a save.
+-            char oldsave[PATH_MAX], oldlog[PATH_MAX];
+-            snprintf(oldsave, sizeof oldsave, "%s/save", sup);
+-            snprintf(oldlog, sizeof oldlog, "%s/Library/Logs/nxnative/%s.log", home, id);
+-            mkdirs(save); mkdirs(logs);
+-            if (dir_has_entries(oldsave) && !dir_has_entries(save)) {
+-                copy_tree(oldsave, save);
+-                fprintf(stderr, "launcher: saves copied from %s to %s (they now live with the game)\n", oldsave, save);
+-            }
+-            // The previous session's log becomes the .prev.log, as the rotation below would have
+-            // it: the .log itself is opened fresh right after, and copying into it would be
+-            // truncated away by that open.
+-            char newprev[PATH_MAX]; snprintf(newprev, sizeof newprev, "%s/%s.prev.log", logs, id);
+-            // Explicit compares, not !stat(): stat() returns -1 when the file is missing, which is
+-            // truthy — reading "!" as "does not exist" here inverted the condition and skipped the
+-            // copy (found by the end-to-end test below).
+-            if (stat(oldlog, &st) == 0 && stat(newprev, &st) != 0) {
+-                if (copy_file(oldlog, newprev)) fprintf(stderr, "launcher: the previous log was copied from %s\n", oldlog);
++            if (volume_holds_saves(appdir) == 0) {
++                // A library on exFAT, HFS+ or FAT (an external drive): the host would mount its save
++                // read-only and drop every write while the game says it saved, and cloud saves would
++                // have nothing to send. The save stays in ~/Library on the Mac's own APFS disk; the
++                // log still goes with the game. A save the library folder holds from an earlier
++                // build is copied in, once, as the migration below does the other way.
++                char libsave[PATH_MAX]; snprintf(libsave, sizeof libsave, "%s/save/%s", appdir, id);
++                mkdirs(save);
++                if (dir_has_entries(libsave) && !dir_has_entries(save)) {
++                    copy_tree(libsave, save);
++                    fprintf(stderr, "launcher: saves copied from %s to %s\n", libsave, save);
++                }
++                snprintf(library_not_apfs, sizeof library_not_apfs, "%s", appdir);
++                char noted[PATH_MAX]; snprintf(noted, sizeof noted, "%s/.library-not-apfs-noted", sup);
++                if (stat(noted, &st)) {
++                    char msg[3 * PATH_MAX];
++                    snprintf(msg, sizeof msg, "The game library folder %s is on a drive that is not formatted as APFS, and games cannot save there.\n\nThis game saves in %s instead. Cloud saves work from there.\n\nTo keep saves with the game library, put it on an APFS drive.", appdir, save);
++                    mkdirs(sup); alert(name, msg);
++                    int fd = open(noted, O_WRONLY | O_CREAT, 0644); if (fd >= 0) close(fd);
++                }
++            } else {
++                snprintf(save, sizeof save, "%s/save/%s", appdir, id);
++                // First run after this change: bring the old saves across rather than starting the
++                // player on an empty save slot. Copied, not moved — an older build of the same app
++                // still reads the old place, and a copy is cheap next to a save.
++                char oldsave[PATH_MAX], oldlog[PATH_MAX];
++                snprintf(oldsave, sizeof oldsave, "%s/save", sup);
++                snprintf(oldlog, sizeof oldlog, "%s/Library/Logs/nxnative/%s.log", home, id);
++                mkdirs(save); mkdirs(logs);
++                if (dir_has_entries(oldsave) && !dir_has_entries(save)) {
++                    copy_tree(oldsave, save);
++                    fprintf(stderr, "launcher: saves copied from %s to %s (they now live with the game)\n", oldsave, save);
++                }
++                // The previous session's log becomes the .prev.log, as the rotation below would have
++                // it: the .log itself is opened fresh right after, and copying into it would be
++                // truncated away by that open.
++                char newprev[PATH_MAX]; snprintf(newprev, sizeof newprev, "%s/%s.prev.log", logs, id);
++                // Explicit compares, not !stat(): stat() returns -1 when the file is missing, which is
++                // truthy — reading "!" as "does not exist" here inverted the condition and skipped the
++                // copy (found by the end-to-end test below).
++                if (stat(oldlog, &st) == 0 && stat(newprev, &st) != 0) {
++                    if (copy_file(oldlog, newprev)) fprintf(stderr, "launcher: the previous log was copied from %s\n", oldlog);
++                }
+             }
+         }
+     }
+@@ -300,6 +339,7 @@ int main(int argc, char **argv) {
+     if (fd >= 0) { dup2(fd, 1); dup2(fd, 2); close(fd); setvbuf(stdout, NULL, _IOLBF, 0); }
+     fprintf(stderr, "fork patches: %s\n", *fork_patches ? fork_patches : "none");   // first line of the log (Info.plist DMForkPatches)
+     fprintf(stderr, "launcher: %s (%s), host %s\n", name, id, host);
++    if (*library_not_apfs) fprintf(stderr, "[RED] launcher: the game library %s is not on an APFS volume, which saves need: saves stay in %s\n", library_not_apfs, save);
+     CFArrayRef rules = setting_rules();   // the settings the launch environment already set: the window shows them, fixed
+     for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
+     for (const char **key=(const char *[]){"DM_KEYMAP","DM_PAD_MAP",NULL}; *key; key++) if(getenv(*key)) add_key(&g_launch_keys,*key);
+diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
+index 7304908..df26f2e 100644
+--- a/dm/tools/tests/test_nsp_mac_app.py
++++ b/dm/tools/tests/test_nsp_mac_app.py
+@@ -705,6 +705,50 @@ int main(void) { @autoreleasepool {
+         self.assertIn('standin host output', (logs / f'{TID}.prev.log').read_text())
+         self.assertEqual(self.host_run()['DM_LANG'], 'fr')   # Info.plist DMLanguage
+ 
++    def run_in_library(self, lib, home):   # the app in a game library folder (the .nx2apple-library marker beside it), as the Mac front end lays it out
++        app = lib / self.app.name
++        if not app.exists(): subprocess.run(['ditto', self.app, app], check=True)
++        (home / 'alert.txt').unlink(missing_ok=True)
++        p = subprocess.run([app / 'Contents/MacOS/nxnative'], env=dict(HOME=str(home), PATH=f'{self.tmp / "bin"}:/usr/bin:/bin', DM_LAUNCHER='0'), capture_output=True, text=True, timeout=30)
++        self.assertEqual(p.returncode, 7, p.stdout + p.stderr)
++        return self.host_run_in(home)
++
++    def host_run_in(self, home):
++        return dict(ln.partition('=')[::2] for ln in (home / 'host_run.txt').read_text().splitlines())
++
++    def test_library_folder_on_apfs(self):   # saves and log beside the app
++        lib, home = self.tmp / 'library-apfs', self.tmp / 'home-library-apfs'
++        lib.mkdir(); home.mkdir(); (lib / '.nx2apple-library').touch()
++        r = self.run_in_library(lib, home)
++        if r['DM_SAVE'] != str(lib / 'save' / TID): self.skipTest(f'{self.tmp} is not on APFS')
++        self.assertIn('standin host output', (lib / f'log/{TID}.log').read_text())
++        self.assertFalse((home / 'alert.txt').exists())
++
++    @unittest.skipUnless(shutil.which('hdiutil'), 'needs hdiutil for an exFAT volume')
++    def test_library_folder_not_on_apfs(self):   # exFAT cannot clone or swap folders, which a save transaction needs: the host mounted the save read-only and every save was lost
++        home, image, mnt = self.tmp / 'home-library-exfat', self.tmp / 'library.dmg', self.tmp / 'mnt'
++        home.mkdir(); mnt.mkdir()
++        made = subprocess.run(['hdiutil', 'create', '-size', '32m', '-fs', 'ExFAT', '-volname', 'NXLIB', '-type', 'UDIF', image], capture_output=True)
++        if made.returncode: self.skipTest('hdiutil cannot make an exFAT image here: ' + made.stderr.decode(errors='replace'))
++        if subprocess.run(['hdiutil', 'attach', '-nobrowse', '-mountpoint', mnt, image], capture_output=True).returncode: self.skipTest('hdiutil cannot attach an image here')
++        try:
++            lib = mnt / 'Games'; (lib / 'save' / TID).mkdir(parents=True); (lib / '.nx2apple-library').touch()
++            (lib / 'save' / TID / 'savedata0.bin').write_bytes(b'save from an earlier build')   # its ._savedata0.bin is made by macOS on exFAT
++            sup = home / f'Library/Application Support/nxnative/{TID}'
++            r = self.run_in_library(lib, home)
++            self.assertEqual(r['DM_SAVE'], str(sup / 'save'))   # on the Mac's own APFS disk, not the library folder
++            self.assertEqual(sorted(p.name for p in (sup / 'save').iterdir()), ['savedata0.bin'])   # the earlier save copied in, without the AppleDouble file
++            self.assertEqual((sup / 'save/savedata0.bin').read_bytes(), b'save from an earlier build')
++            log = (lib / f'log/{TID}.log').read_text()   # the log still goes with the game
++            self.assertIn('standin host output', log)
++            self.assertIn(f'[RED] launcher: the game library {lib} is not on an APFS volume', log)
++            self.assertIn('is on a drive that is not formatted as APFS', (home / 'alert.txt').read_text())   # said once
++            self.run_in_library(lib, home)
++            self.assertFalse((home / 'alert.txt').exists())
++            self.assertIn('is not on an APFS volume', (lib / f'log/{TID}.log').read_text())   # the log line at every start
++        finally:
++            subprocess.run(['hdiutil', 'detach', '-force', mnt], capture_output=True)
++
+     def test_sigterm(self):   # forwarded to the host, whose exit code comes back
+         p = self.launch(wait=True)
+         for _ in range(100):

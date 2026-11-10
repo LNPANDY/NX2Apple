@@ -12,6 +12,8 @@ public struct LaunchableGame: Equatable, Sendable {
     public var frameworkURL: URL
     /// The folder with the game's data (romfs.img or romfs/), picked or the app's own.
     public var dataURL: URL
+    /// The exact RomFS image or tree selected by the data locator.
+    var romfsURL: URL? = nil
     /// The app's `Documents/games/<title ID>/`: save, temp, log.txt.
     public var appFolder: URL
     /// The exported framework's shaders, unpacked for this launch when the player has no override.

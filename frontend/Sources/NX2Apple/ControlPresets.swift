@@ -56,11 +56,11 @@ struct PadModeSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(loc.t("controls.mode")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+            Text(loc.t("controls.mode")).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
             HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(loc.t("controls.modeRow")).font(.manrope(14, .medium))
-                    Text(connected).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    Text(connected).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
                 LauncherDropdown(options: PadMode.allCases.map { (value: $0.rawValue, label: label($0)) },
@@ -71,9 +71,9 @@ struct PadModeSection: View {
             .padding(.horizontal, 18).padding(.vertical, 9)
             .frame(minHeight: 46)
             .padTarget("pad.mode", scope: "controls", radius: 10, activate: { step(1) }, adjust: step)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
-            Text(loc.t("controls.modeNote." + layout.padMode.rawValue)).font(.manrope(12)).foregroundStyle(.secondary)
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
+            Text(loc.t("controls.modeNote." + layout.padMode.rawValue)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                 .padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
         }
         .onAppear { category = layout.controllerCategory() }

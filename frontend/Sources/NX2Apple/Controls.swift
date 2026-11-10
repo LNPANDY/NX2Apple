@@ -114,6 +114,16 @@ final class ControlLayout: ObservableObject {
     }
 
     func setPadMode(_ mode: PadMode) { padMode = mode; save("DM_PAD_MAP") }
+    /// Puts the layout back as it was (console mode's button mapping, when its changes are not saved).
+    func restorePad(mode: PadMode, pad: [String: String]) { self.pad = pad; padMode = mode; save("DM_PAD_MAP") }
+
+    /// The layout as the editor opened it, so Cancel can put it back and the editor can tell whether anything changed (#901's save-before-leaving).
+    struct Snapshot: Equatable { var keys: [String: Int?]; var pad: [String: String]; var mode: PadMode }
+    var snapshot: Snapshot { Snapshot(keys: keys, pad: pad, mode: padMode) }
+    func restore(_ snapshot: Snapshot) {
+        keys = snapshot.keys; pad = snapshot.pad; padMode = snapshot.mode
+        save("DM_KEYMAP"); save("DM_PAD_MAP")
+    }
 
     private var activePad: [String: String] { padMap(for: padMode, category: padMode == .auto ? controllerCategory() : nil) }
 
@@ -167,7 +177,11 @@ struct ControlsView: View {
     var gameName: String? = nil
     var mappingStore: ControllerMappingStore? = nil
     var copyGlobal: (() -> Void)? = nil
+    /// A counter the launcher raises for the controller's B, which asks to leave like the Cancel button.
+    var cancelRequest = 0
     @Environment(\.dismiss) private var dismiss
+    @State private var original: ControlLayout.Snapshot?
+    @State private var confirmingDiscard = false
     @State private var listening: String?
     @State private var monitor: Any?
     @EnvironmentObject private var focus: PadFocus
@@ -176,7 +190,7 @@ struct ControlsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(gameName ?? loc.t("controls.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                Text(loc.t(gameName == nil ? "controls.globalNote" : "controls.gameNote")).font(.manrope(14)).foregroundStyle(.secondary)
+                Text(loc.t(gameName == nil ? "controls.globalNote" : "controls.gameNote")).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText)
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 20)
             ScrollViewReader { proxy in
@@ -201,7 +215,7 @@ struct ControlsView: View {
                 if let mappingStore {
                     ControllerMappingStatus(store: mappingStore)
                 } else {
-                    Text(loc.t("controls.globalApplied")).font(.manrope(12)).foregroundStyle(.secondary).lineLimit(2)
+                    Text(loc.t("controls.globalApplied")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
                 }
                 Spacer(minLength: 8)
                 if !layout.isDefault {
@@ -209,13 +223,16 @@ struct ControlsView: View {
                         .buttonStyle(LauncherSecondaryButtonStyle())
                         .padTarget("controls.reset", scope: "controls") { stopListening(); layout.resetKeyboard(); layout.resetController() }
                 }
-                Button { stopListening(); dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                Button(loc.t("controls.cancel")) { cancel() }
+                    .buttonStyle(LauncherSecondaryButtonStyle())
+                    .keyboardShortcut(listening == nil ? .cancelAction : nil)
+                    .padTarget("controls.cancel", scope: "controls") { cancel() }
+                Button { stopListening(); original = nil; dismiss() } label: {
+                    Text(loc.t("controls.save")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 22).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
                 }
-                .buttonStyle(.plain).keyboardShortcut(listening == nil ? .defaultAction : nil)
-                .padTarget("controls.done", scope: "controls", radius: 20) { stopListening(); dismiss() }
+                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(listening == nil ? .defaultAction : nil)
+                .padTarget("controls.done", scope: "controls", radius: 20) { stopListening(); original = nil; dismiss() }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
         }
@@ -223,24 +240,48 @@ struct ControlsView: View {
         .frame(width: 600, height: 700)
         .background(LauncherPalette.background)
         .font(.manrope(13))
-        .preferredColorScheme(.dark)
-        .tint(LauncherPalette.cream)
+        .launcherAppearance()
+        .tint(LauncherPalette.accent)
         .onDisappear { stopListening() }
+        .onAppear { if original == nil { original = layout.snapshot } }
+        .onChange(of: cancelRequest) { _ in cancel() }
+        .interactiveDismissDisabled(hasEdits)
+        .confirmationDialog(loc.t("controls.discardTitle"), isPresented: $confirmingDiscard, titleVisibility: .visible) {
+            Button(loc.t("controls.discard"), role: .destructive) { discard() }
+            Button(loc.t("controls.keepEditing"), role: .cancel) { }
+        } message: {
+            Text(loc.t("controls.discardNote"))
+        }
+    }
+
+    /// Whether the keys or buttons differ from how the editor opened.
+    private var hasEdits: Bool { original.map { $0 != layout.snapshot } ?? false }
+
+    /// Cancel leaves at once when nothing changed, and asks before throwing edits away.
+    private func cancel() {
+        stopListening()
+        if hasEdits { confirmingDiscard = true } else { dismiss() }
+    }
+
+    private func discard() {
+        if let original { layout.restore(original) }
+        self.original = nil
+        dismiss()
     }
 
     private func section<Item, Row: View>(_ title: String, _ items: [Item], note: String = "", @ViewBuilder row: @escaping (Item) -> Row) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+            Text(title).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
             VStack(spacing: 0) {
                 ForEach(items.indices, id: \.self) { i in
                     row(items[i])
                     if i < items.count - 1 { Divider().opacity(0.25).padding(.leading, 18) }
                 }
             }
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             if !note.isEmpty {
-                Text(note).font(.manrope(12)).foregroundStyle(.secondary).padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
+                Text(note).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -264,7 +305,7 @@ struct ControlsView: View {
             HStack(spacing: 6) {
                 if key != nil && !on {
                     Button { layout.assign(f, key: nil) } label: {
-                        Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                        Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                             .frame(width: 22, height: 22).contentShape(Circle())
                     }
                     .buttonStyle(.plain).help(loc.t("controls.clear"))
@@ -272,10 +313,10 @@ struct ControlsView: View {
                 Button { on ? stopListening() : listen(f) } label: {
                     Text(on ? loc.t("controls.press") : ControlLayout.keyName(key, loc.t) ?? loc.t("controls.none"))
                         .font(.manrope(12.5, on ? .bold : .semibold))
-                        .foregroundStyle(on ? Color.black : key == nil ? Color.white.opacity(0.45) : Color.white.opacity(0.92))
+                        .foregroundStyle(on ? LauncherPalette.onCream : key == nil ? LauncherPalette.ink(0.45) : LauncherPalette.text)
                         .frame(maxWidth: .infinity).padding(.vertical, 6)
-                        .background(on ? LauncherPalette.cream : Color.white.opacity(0.06), in: Capsule())
-                        .overlay(Capsule().strokeBorder(Color.white.opacity(on ? 0 : 0.10)))
+                        .background(on ? LauncherPalette.cream : LauncherPalette.ink(0.06), in: Capsule())
+                        .overlay(Capsule().strokeBorder(LauncherPalette.ink(on ? 0 : 0.10)))
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)

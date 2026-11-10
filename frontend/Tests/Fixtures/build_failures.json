@@ -145,6 +145,14 @@
   "text": "CodeSign /Users/x/Library/Mobile\\ Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app (in target 'DmIOS' from project 'DmIOS')\n/Users/x/Library/Mobile Documents/com~apple~CloudDocs/Downloads/0100152000022000_build/xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app: resource fork, Finder information, or similar detritus not allowed\nCommand CodeSign failed with a nonzero exit code"
  },
  {
+  "id": "profile.stale",
+  "kind": "staleProfile",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "cached provisional profile describes",
+  "text": "[RED] cached provisional profile describes v0, but inputs select v983040. Preserving the existing profile at /Volumes/Games/0100BEE017FC0000_build/profile. Use --profile-out with a new empty folder to survey this update, or explicitly select an available registered version with --package. Refusing to silently pack an older version",
+  "folder": "/Volumes/Games/0100BEE017FC0000_build/profile"
+ },
+ {
   "id": "volume.swap",
   "kind": "volumeFormat",
   "source": "errno45",
