@@ -69,7 +69,7 @@ import NXLauncher
     }
 
     private var subtitle: String {
-        let status = paused ? t("console.paused") : t(game.status.labelKey)
+        let status = paused ? t("console.paused") : t(game.status.labelKey) + (game.status == .ready && game.olderTools ? " \u{00b7} " + t("library.olderTools") : "")
         return game.version.isEmpty ? status : status + " \u{00b7} " + String(format: t("console.version"), game.version)
     }
 

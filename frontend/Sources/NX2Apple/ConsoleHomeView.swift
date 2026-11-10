@@ -87,7 +87,9 @@ struct ConsoleTileFramesKey: PreferenceKey {
             if let activity = state.activity { ConsoleActivityChip(activity: activity, compact: compact) }
             ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
             Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
-                .foregroundStyle(.white.opacity(0.65)).fixedSize()
+                .foregroundStyle(.white).fixedSize()
+                .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
+                .consoleBarFill()
             barButton("magnifyingglass", id: "console.searchButton", label: t("console.search")) { driver.openSearch() }
             // The menu, as + opens it: drawn as a controller chip (same capsule, same height), focusable like them.
             barButton("line.3.horizontal", id: "console.menuButton", label: t("console.menu")) { driver.openMenu() }
@@ -107,7 +109,7 @@ struct ConsoleTileFramesKey: PreferenceKey {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: compact ? 12 : 17, weight: .semibold))
                 .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
-                .background(.white.opacity(0.075), in: Capsule()).contentShape(Capsule())
+                .consoleBarFill().contentShape(Capsule())
         }
         .buttonStyle(.plain).accessibilityLabel(label)
         .padTarget(id, scope: "console", radius: 24, activate: action)
@@ -142,6 +144,8 @@ struct ConsoleTileFramesKey: PreferenceKey {
     private func eyebrow(_ game: ConsoleGame) -> String {
         if game.id == state.pausedGameID { return t("console.paused").uppercased() }
         if game.status != .ready { return t(game.status.labelKey).uppercased() }
+        // ready, but in Needs attention: why it is there (built with other tools than the engine has now)
+        if game.olderTools, game.lastPlayed == nil { return (t("console.ready") + " \u{00b7} " + t("library.olderTools")).uppercased() }
         if let date = game.lastPlayed { return String(format: t("console.lastPlayedOn"), ConsoleTimes.relative(date, now: state.time, lang: lang)).uppercased() }
         return t("console.ready").uppercased()
     }
@@ -316,4 +320,19 @@ enum ConsoleTimes {
         f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute]
         return f.string(from: max(seconds, 60)) ?? ""
     }
+}
+
+/// The top bar's capsules (the controllers, the clock, Search, the menu): a dark fill with a hairline, so white text keeps at least
+/// 4.5:1 on any art, together with the backdrop's top scrim (ConsoleBackdrop.scrimHeight).
+extension View {
+    func consoleBarFill() -> some View {
+        background(Color.black.opacity(ConsoleBarFill.opacity), in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+    }
+}
+
+enum ConsoleBarFill {
+    /// Black at this share over pure white, under the scrim's 0.32 at the bar's middle, gives white text about 7:1, and 4.9:1 with
+    /// no scrim at all.
+    static let opacity = 0.55
 }

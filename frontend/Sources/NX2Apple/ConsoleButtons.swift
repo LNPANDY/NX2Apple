@@ -71,7 +71,7 @@ extension ConsoleGlyphs {
     /// or its printed letter. The keyboard's keys do not move with the swap, so it keeps the role's key cap.
     func glyph(for role: Role, on action: LauncherGamepad.Action?) -> Glyph {
         guard family != .keyboard, let action, let element = ConsoleButtons.element(action) else { return glyph(for: role) }
-        if let name = reported[element] ?? Self.table(family)[element] { return .symbol(name) }
+        if let name = symbol(for: element) { return .symbol(name) }
         switch element {
         case .a: return .letter("A")
         case .b: return .letter("B")

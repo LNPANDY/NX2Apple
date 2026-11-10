@@ -54,12 +54,27 @@ struct ConsoleGameTile: View {
     var alwaysCaptioned = false
     private var badge: String? {
         if paused { return L10n.string("console.paused", lang) }
+        if game.status == .ready, game.olderTools { return L10n.string("library.olderToolsShort", lang) }   // why a ready game needs attention
         return game.status == .ready ? nil : L10n.string(game.status.labelKey, lang)
+    }
+    /// Darkening, never transparency: over the bright backdrop a see-through tile reads as a pale veil. A game this Mac cannot play is
+    /// darker, a tile out of focus slightly darker on the home screen.
+    /// The layer is blended in linear light, so a share that looks like half as bright is larger than a half: black at 0.5 only takes
+    /// white down to a light grey (the pale veil seen on bright covers).
+    private var shade: Double {
+        let unplayable = game.status == .ready ? 0 : 0.72
+        let unfocused = selected || alwaysCaptioned ? 0 : 0.3
+        return game.status == .ready ? unfocused : max(unplayable, 0.72)
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus).aspectRatio(1.8, contentMode: .fit)
-                .opacity(game.status == .ready ? 1 : 0.45)   // not playable on this Mac: dimmed, its status on top
+            // not playable on this Mac or out of focus: darker under a black layer in the tile's own group, never see-through
+            ZStack {
+                ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus)
+                Color.black.opacity(shade)
+            }
+            .compositingGroup()
+            .aspectRatio(1.8, contentMode: .fit)
                 .overlay(alignment: .bottomLeading) {
                     if let badge {
                         Text(badge).font(.manrope(compact ? 14 : 18, .semibold))
@@ -74,7 +89,7 @@ struct ConsoleGameTile: View {
             // nothing else moves). The others keep a small, muted caption.
             if !selected || alwaysCaptioned {
                 Text(game.title).opacity(captionVisible ? 1 : 0).font(.manrope(compact ? 14 : 17, .medium)).lineLimit(1)
-                    .foregroundStyle(.white.opacity(selected ? 0.95 : 0.5)).padding(.horizontal, 4).accessibilityHidden(true)
+                    .foregroundStyle(.white.opacity(selected ? 0.95 : 0.72)).padding(.horizontal, 4).accessibilityHidden(true)
             }
         }
     }

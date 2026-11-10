@@ -15,6 +15,8 @@ struct ConsoleBackdrop: View {
     /// The sharp art's share of the screen, from the top right corner.
     static let artWidth: CGFloat = 0.74
     static let artHeight: CGFloat = 0.8
+    /// How far the top bar's scrim reaches down.
+    static let scrimHeight: CGFloat = 160
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -67,6 +69,10 @@ struct ConsoleBackdrop: View {
                            center: .bottomLeading, startRadius: 0, endRadius: max(size.width, size.height) * 0.85)
             LinearGradient(stops: [.init(color: bg.opacity(0), location: 0.6), .init(color: bg.opacity(0.85), location: 1)],
                            startPoint: .top, endPoint: .bottom)
+            // The top edge, where the controllers, the clock, Search and the menu sit: a dark scrim over the full width, so the status
+            // stays readable on bright art (the sharp art is brightest there). Clear after about 160 pt.
+            LinearGradient(colors: [.black.opacity(0.55), .black.opacity(0)], startPoint: .top, endPoint: .bottom)
+                .frame(height: Self.scrimHeight).frame(maxHeight: .infinity, alignment: .top)
         }
         .frame(width: size.width, height: size.height)
     }

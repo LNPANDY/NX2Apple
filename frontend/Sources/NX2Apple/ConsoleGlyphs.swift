@@ -83,8 +83,23 @@ struct ConsoleGlyphs: Equatable {
 
     func glyph(for role: Role) -> Glyph {
         if family == .keyboard { return role.keySymbol ? .keySymbol(role.keyCap) : .key(role.keyCap) }
-        if let name = reported[role.element] ?? Self.table(family)[role.element] { return .symbol(name) }
+        if let name = symbol(for: role.element) { return .symbol(name) }
         return .letter(role.letter)
+    }
+
+    /// The symbol to draw for a button: the controller's own when it says what the button is, else the family's, else nil (a
+    /// letter). A DualSense reports its Options and Create buttons as their bare shape ("capsule.portrait"), which draws an empty
+    /// rounded rectangle: a bare shape, or a name this macOS does not have, is never used.
+    func symbol(for element: Element) -> String? {
+        [reported[element], Self.table(family)[element]].compactMap { $0 }.first(where: Self.usable)
+    }
+
+    /// Shapes that show where a button is but not which: an outline with nothing in it.
+    static let bareShapes: Set<String> = ["capsule", "capsule.fill", "capsule.portrait", "capsule.portrait.fill", "circle", "circle.fill",
+                                          "rectangle", "rectangle.fill", "rectangle.portrait", "rectangle.portrait.fill", "app", "app.fill",
+                                          "square", "square.fill", "oval", "oval.fill", "oval.portrait", "oval.portrait.fill"]
+    static func usable(_ name: String) -> Bool {
+        !name.isEmpty && !bareShapes.contains(name) && NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
     }
 
     /// What a family's elements are printed with, for a controller that reports no symbol of its own.

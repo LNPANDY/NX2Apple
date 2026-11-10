@@ -406,8 +406,10 @@ import NXModel
     }
 
     func testReportedSymbolWinsAndFallbacksAreNeutral() {
-        let reported = ConsoleGlyphs(family: .xbox, reported: [.a: "custom.symbol"])
-        XCTAssertEqual(reported.glyph(for: .activate), .symbol("custom.symbol"))
+        let reported = ConsoleGlyphs(family: .xbox, reported: [.a: "a.circle.fill"])
+        XCTAssertEqual(reported.glyph(for: .activate), .symbol("a.circle.fill"))
+        XCTAssertEqual(ConsoleGlyphs(family: .xbox, reported: [.a: "custom.symbol"]).glyph(for: .activate), .symbol("a.circle"),
+                       "a name this macOS does not have falls back to the family's")
         XCTAssertEqual(reported.glyph(for: .back), .symbol("b.circle"), "an element it does not report uses the family table")
         XCTAssertEqual(ConsoleGlyphs.neutral.glyph(for: .activate), .letter("A"))
         XCTAssertEqual(ConsoleGlyphs.neutral.glyph(for: .menu), .letter("+"))
