@@ -8,7 +8,7 @@ A NUP or a dump folder has no control data, so the Mac app is packed with no ico
 a 256x256 JPEG in NX_FALLBACK_ICON. The Mac app takes it only when the game has no icon of its own. The iOS app and the shared
 shell never use it.
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: forwarded seedds/nxnative#2099
 Reason: A Switch 2 game from a NUP or a dump has no control data, so its Mac app had a blank icon, the launcher can now hand over an icon
 Issue: LNPANDY/NX2Apple#784
 ---

@@ -39,7 +39,7 @@ from .app_update import APP_VERSION
 from .build_notes import TEXT, TITLE, stale_reason
 from .i18n import Lang
 from .model import Dep, DepState, Model
-from .sheets import CheatsDialog, DeleteGameDialog, FreeSpaceDialog, OnboardingDialog
+from .sheets import CheatsDialog, DefenderPromptDialog, DeleteGameDialog, FreeSpaceDialog, OnboardingDialog
 from .widgets import (
     CardGroup,
     CardPageHeading,
@@ -541,6 +541,7 @@ class MainWindow(QMainWindow):
         return games
 
     def _refresh_library(self) -> None:
+        self._refresh_defender()
         self.lib_welcome_title.setText(self.m.t('library.welcome'))
         self.lib_welcome_note.setText(self.m.t('library.welcomeNote'))
         self.lib_first_build_btn.setText('+ ' + self.m.t('library.firstBuild'))
@@ -1560,6 +1561,57 @@ class MainWindow(QMainWindow):
         grp.add_row(r_cache)
         grp.add_divider()
 
+        # Row 2.8: Windows Security exclusions (Windows / NSPB_SHOW_DEFENDER_ROW=1)
+        self.defender_row_widget = QWidget()
+        rdef_lay = QHBoxLayout(self.defender_row_widget)
+        rdef_lay.setContentsMargins(18, 12, 18, 12)
+        rdef_lay.setSpacing(12)
+        self.defender_dot = _dot(style.AMBER)
+        rdef_lay.addWidget(self.defender_dot)
+        def_col = QVBoxLayout()
+        def_col.setSpacing(2)
+        def_head = QHBoxLayout()
+        def_head.setSpacing(8)
+        self.defender_title_lbl = QLabel(self.m.t('defender.title'))
+        self.defender_title_lbl.setObjectName('rowTitle')
+        def_head.addWidget(self.defender_title_lbl)
+        self.defender_badge_lbl = QLabel('')
+        def_head.addWidget(self.defender_badge_lbl)
+        def_head.addStretch(1)
+        def_col.addLayout(def_head)
+
+        self.defender_summary_lbl = QLabel('')
+        self.defender_summary_lbl.setObjectName('mono')
+        self.defender_summary_lbl.setWordWrap(True)
+        self.defender_note_lbl = QLabel(self.m.t('defender.note'))
+        self.defender_note_lbl.setObjectName('muted')
+        self.defender_note_lbl.setWordWrap(True)
+        self.defender_status_lbl = QLabel('')
+        self.defender_status_lbl.setObjectName('muted')
+        self.defender_status_lbl.setWordWrap(True)
+        self.defender_status_lbl.hide()
+        def_col.addWidget(self.defender_summary_lbl)
+        def_col.addWidget(self.defender_note_lbl)
+        def_col.addWidget(self.defender_status_lbl)
+        rdef_lay.addLayout(def_col, 1)
+
+        def_btn_col = QVBoxLayout()
+        def_btn_col.setSpacing(6)
+        self.defender_btn = QPushButton(self.m.t('defender.addBtn'))
+        self.defender_btn.setFixedWidth(184)
+        self.defender_btn.clicked.connect(self._on_defender_clicked)
+        def_btn_col.addWidget(self.defender_btn)
+
+        self.defender_remove_btn = QPushButton(self.m.t('defender.removeBtn'))
+        self.defender_remove_btn.setObjectName('ghost')
+        self.defender_remove_btn.setFixedWidth(184)
+        self.defender_remove_btn.hide()
+        self.defender_remove_btn.clicked.connect(self._on_defender_remove_clicked)
+        def_btn_col.addWidget(self.defender_remove_btn)
+        rdef_lay.addLayout(def_btn_col)
+        grp.add_row(self.defender_row_widget)
+        self.defender_div = grp.add_divider()
+
         # Row 3: Copy Diagnostics (diag.title / diag.copy)
         r_diag = QWidget()
         rd_lay = QHBoxLayout(r_diag)
@@ -1616,6 +1668,66 @@ class MainWindow(QMainWindow):
         )
         self.cache_status_lbl.show()
         self._refresh_all()
+
+    def _on_defender_clicked(self) -> None:
+        dlg = DefenderPromptDialog(self.m, mode='manual', parent=self)
+        dlg.exec()
+        if dlg.choice == 'add':
+            self.m.apply_defender_exclusions()
+
+    def _on_defender_remove_clicked(self) -> None:
+        dlg = DefenderPromptDialog(self.m, mode='remove', parent=self)
+        dlg.exec()
+        if dlg.choice == 'remove':
+            self.m.remove_defender_exclusions()
+
+    def _refresh_defender(self) -> None:
+        show_def = bool(getattr(self.m, 'show_defender_ui', False))
+        self.defender_row_widget.setVisible(show_def)
+        div_wrap = self.defender_div.parentWidget()
+        if div_wrap is not None:
+            div_wrap.setVisible(show_def)
+        if not show_def:
+            return
+        t = self.m.t
+        state, folders, procs = self.m.defender_info()
+        rec_fn = getattr(self.m, 'defender_recorded_info', None)
+        rec_dirs, rec_procs = rec_fn() if callable(rec_fn) else ([], [])
+        busy = bool(getattr(self.m, 'defender_busy', False))
+        _set_dot(self.defender_dot, style.GREEN if state == 'ready' else style.AMBER)
+        self.defender_title_lbl.setText(t('defender.title'))
+        status_key = {
+            'ready': 'defender.status.ready',
+            'partial': 'defender.status.partial',
+        }.get(state, 'defender.status.needed')
+        self.defender_badge_lbl.setText(t(status_key))
+        self.defender_badge_lbl.setStyleSheet(
+            f'color: {style.GREEN if state == "ready" else style.AMBER}; font-size: 12px; font-weight: 600;'
+        )
+        self.defender_summary_lbl.setText(t('defender.summary', len(folders), len(procs)))
+        self.defender_note_lbl.setText(t('defender.note'))
+        status_msg = getattr(self.m, 'defender_status_msg', '')
+        if status_msg:
+            msg_ok = bool(getattr(self.m, 'defender_status_ok', False))
+            self.defender_status_lbl.setText(status_msg)
+            self.defender_status_lbl.setStyleSheet(
+                f'color: {style.GREEN if msg_ok else style.AMBER}; font-size: 12px;'
+            )
+            self.defender_status_lbl.show()
+        else:
+            self.defender_status_lbl.hide()
+        self.defender_btn.setText(
+            t('defender.addingBtn')
+            if busy
+            else t('defender.updateBtn' if state == 'ready' else 'defender.addBtn')
+        )
+        self.defender_btn.setObjectName('creamPill' if (state != 'ready' and not busy) else '')
+        self.defender_btn.setEnabled(not busy and not self.m.running)
+        self.defender_btn.style().unpolish(self.defender_btn)
+        self.defender_btn.style().polish(self.defender_btn)
+        self.defender_remove_btn.setText(t('defender.removeBtn'))
+        self.defender_remove_btn.setVisible(state in ('ready', 'partial') or bool(rec_dirs or rec_procs))
+        self.defender_remove_btn.setEnabled(not busy and not self.m.running)
 
     def _copy_diagnostics(self) -> None:
         report = feat.Diagnostics.format_report(
@@ -2000,6 +2112,7 @@ class MainWindow(QMainWindow):
         self.check_upd_btn.setEnabled(not busy and not self.m.running)
         self.repo_status_label.setText(self.m.repo_status or (t('repo.ok') if ok else ''))
         self.repo_status_label.setVisible(bool(self.m.repo_status or ok))
+        self._refresh_defender()
 
     def _clear_dep_rows(self) -> None:
         self._deps_sig = None
@@ -2280,6 +2393,7 @@ class MainWindow(QMainWindow):
         self.out_label.setText(self.m.out_dir or t('build.saveDefault'))
         self.out_clear_btn.setVisible(bool(self.m.out_dir))
         self._refresh_install_card()
+        self._refresh_defender()
         self._refresh_running()
 
     def _refresh_target(self) -> None:
@@ -2621,11 +2735,31 @@ class MainWindow(QMainWindow):
         self.m.out_dir = ''
         self._refresh_inputs()
 
-    def _build_clicked(self, *, title_id: str | None = None) -> None:
+    def _prompt_defender_before_build(self, *, title_id: str | None = None) -> str:
+        dlg = DefenderPromptDialog(self.m, title_id=title_id, parent=self)
+        dlg.exec()
+        return dlg.choice
+
+    def _build_clicked(self, *, title_id: str | None = None, skip_defender_prompt: bool = False) -> None:
         if self.m.running:
             if title_id is None:
                 self.m.cancel_build()
             return
+        should_prompt_fn = getattr(self.m, 'should_prompt_defender_before_build', None)
+        if not skip_defender_prompt and callable(should_prompt_fn) and should_prompt_fn(title_id=title_id):
+            choice = self._prompt_defender_before_build(title_id=title_id)
+            if choice == 'cancel':
+                return
+            if choice == 'add':
+                self.footer.setText(self.m.t('defender.msg.waiting'))
+                self.m.apply_defender_exclusions(
+                    title_id=title_id,
+                    on_done=lambda _ok, cancelled, _msg: (
+                        self._build_clicked(title_id=title_id, skip_defender_prompt=True)
+                        if not cancelled else None
+                    ),
+                )
+                return
         self._failed = False
         self._stale_shaders_shown = False
         self.reveal_ipa_btn.hide()

@@ -376,6 +376,93 @@ def install_dotnet(dest: Path | None = None,
     return target
 
 
+_MAX_PYTHON_FILES = 4_000
+_MAX_PYTHON_BYTES = 150 * 1024 * 1024
+
+
+def _unpack_python_nupkg(nupkg: Path, root: Path, target: Path,
+                         log: Callable[[str], None]) -> bool:
+    """Unpack the `tools/` subtree of the official Python NuGet archive into `target`.
+
+    Used when the WiX Burn installer (`python-3.12.10-amd64.exe`) cannot write to `target`
+    because another Python 3.12 MSI is already registered on the system (per-machine install at
+    `C:\\Program Files\\Python312`, a newer 3.12 patch, or a locked MSI transaction). Unpacking
+    the NuGet archive requires no Windows Installer registration and never uninstalls or modifies
+    the user's existing system Python.
+    """
+    staging = root / f'.unpack-python-{tc.PYTHON_VERSION}'
+    shutil.rmtree(staging, ignore_errors=True)
+    files_seen = 0
+    bytes_written = 0
+    try:
+        staging.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(nupkg) as z:
+            for info in z.infolist():
+                name = info.filename.replace('\\', '/')
+                if not name.startswith('tools/'):
+                    continue
+                rel = name[len('tools/'):]
+                if not rel or rel.endswith('/'):
+                    continue
+                if ':' in rel or rel.startswith(('/', '\\')):
+                    raise DownloadError(f'unsafe path in {nupkg.name}: {info.filename!r}')
+                parts = [p for p in rel.split('/') if p]
+                if not parts or any(p in ('.', '..') for p in parts):
+                    raise DownloadError(f'unsafe path in {nupkg.name}: {info.filename!r}')
+                mode = (info.external_attr >> 16) & 0o170000
+                if mode == 0o120000:
+                    raise DownloadError(f'unexpected symlink entry in {nupkg.name}: {info.filename!r}')
+                files_seen += 1
+                if files_seen > _MAX_PYTHON_FILES:
+                    raise DownloadError(
+                        f'{nupkg.name} exceeds file limit ({files_seen} > {_MAX_PYTHON_FILES})'
+                    )
+                dest = staging.joinpath(*parts)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with z.open(info) as src, open(dest, 'wb') as dst:
+                    while True:
+                        chunk = src.read(65536)
+                        if not chunk:
+                            break
+                        bytes_written += len(chunk)
+                        if bytes_written > _MAX_PYTHON_BYTES:
+                            raise DownloadError(
+                                f'{nupkg.name} exceeds size limit ({bytes_written} > {_MAX_PYTHON_BYTES})'
+                            )
+                        dst.write(chunk)
+                if dest.suffix.lower() in ('.exe', '.dll', '.pyd'):
+                    try:
+                        dest.chmod(0o755)
+                    except OSError:
+                        pass
+        if not (staging / 'python.exe').is_file():
+            raise DownloadError(f'{nupkg.name} did not contain tools/python.exe')
+        shutil.rmtree(target, ignore_errors=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            staging.replace(target)
+        except BaseException:
+            shutil.rmtree(target, ignore_errors=True)
+            raise
+    except (OSError, zipfile.BadZipFile, DownloadError) as e:
+        log(f'standalone Python package unpack failed: {e}')
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(target, ignore_errors=True)
+        return False
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+    try:
+        subprocess.run(
+            [str(target / 'python.exe'), '-m', 'ensurepip', '--default-pip'],
+            capture_output=True, text=True, errors='replace',
+            timeout=180, env=tc._clean_python_env(), **tc.no_window(),
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return True
+
+
 def install_python(dest: Path | None = None,
                    log: Callable[[str], None] | None = None,
                    progress: Callable[[int, int], None] | None = None) -> Path:
@@ -410,26 +497,32 @@ def install_python(dest: Path | None = None,
                        timeout=900, **tc.no_window())
     runs_ok = tc._runs_quiet(target / 'python.exe') if r.returncode == 0 else False
     if r.returncode == 0 and not runs_ok:
-        # When Python 3.12.10 was installed previously and its folder was deleted by hand without
-        # running the MSI uninstaller, CPython's WiX Burn bootstrapper (`PythonBootstrapperApplication.cpp`)
-        # detects `0 < llInstalled`, converts `BOOTSTRAPPER_ACTION_INSTALL` into `BOOTSTRAPPER_ACTION_MODIFY`,
-        # sees no feature changes, and exits 0 without writing any files. `/repair` restores the missing files;
-        # if a previous install was registered at a different `TargetDirRegistryKey`, `/uninstall` followed by
-        # a clean install places the interpreter into `target`.
+        # When Python 3.12.10 was installed previously into `target` and its folder was deleted by
+        # hand without running the MSI uninstaller, CPython's WiX Burn bootstrapper converts
+        # `INSTALL` into `MODIFY` and exits 0 without writing files; `/repair` restores them.
         log(f'Python {tc.PYTHON_VERSION} already registered in Windows Installer; running /repair → {target}')
         r = subprocess.run([str(exe), '/repair'] + base_flags, capture_output=True, text=True,
                            errors='replace', timeout=900, **tc.no_window())
         runs_ok = tc._runs_quiet(target / 'python.exe') if r.returncode == 0 else False
-        if not runs_ok:
-            log(f're-installing Python {tc.PYTHON_VERSION} cleanly into {target} after /uninstall')
-            subprocess.run([str(exe), '/uninstall', '/quiet', '/norestart'],
-                           capture_output=True, text=True, errors='replace',
-                           timeout=900, **tc.no_window())
-            shutil.rmtree(target, ignore_errors=True)
-            r = subprocess.run(cmd, capture_output=True, text=True, errors='replace',
-                               timeout=900, **tc.no_window())
-            runs_ok = tc._runs_quiet(target / 'python.exe') if r.returncode == 0 else False
-    if r.returncode != 0 or not runs_ok:
+    if not runs_ok:
+        # Another Python 3.12 installation on the machine (e.g. a system-wide install in
+        # `C:\Program Files\Python312`, a different `TargetDirRegistryKey`, or MSI error 1603/1638)
+        # prevents the Burn installer from writing to `target`. Never run `/uninstall` (which
+        # would remove or break the user's system Python); unpack the official standalone NuGet
+        # package directly into `target` instead.
+        log(f'Windows Installer could not place Python {tc.PYTHON_VERSION} into {target} '
+            f'(exit {r.returncode}); unpacking standalone package into {target}')
+        try:
+            nupkg_asset = tc.PYTHON_NUPKG_ASSET
+            nupkg = download(nupkg_asset['url'], cache / nupkg_asset['name'],
+                             nupkg_asset['sha256'], nupkg_asset['size'],
+                             log=log, progress=progress)
+            if _unpack_python_nupkg(nupkg, root, target, log):
+                runs_ok = tc._runs_quiet(target / 'python.exe')
+        except DownloadError as e:
+            log(f'standalone package download failed: {e}')
+    if not runs_ok:
+        shutil.rmtree(target, ignore_errors=True)
         log(f'installer exit {r.returncode}: {(r.stdout or r.stderr or "")[:300]}')
         raise DownloadError(
             f'Python {tc.PYTHON_VERSION} did not install (exit {r.returncode}). '

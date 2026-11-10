@@ -15,7 +15,7 @@ stops toggling is released.
 Tests: pad_geometry_check.m (dm_pad_toggle_encode reads back, skips what
 cannot toggle).
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: pending [builds on the touch patches 0065 to 0070 and 0090, forwarded once those land upstream]
 Reason: Touch keys that toggle in a game's own app, which has no layout editor
 Issue: LNPANDY/NX2Apple#658
 ---

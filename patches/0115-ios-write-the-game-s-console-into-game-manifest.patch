@@ -8,7 +8,7 @@ switch1 after the schema's keys. The rule is the one the Mac launcher already us
 names it in its first line, "# Name (Switch 2, update v...)". Without a profile the key is left out. The shell can then mark a
 Switch 2 game and warn about its memory. The profile carries no minimum memory, so no min_memory is written.
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: fork-only (declined seedds/nxnative#492)
 Reason: the iPhone shell has no way to know a game is a Switch 2 game, the manifest is the file it reads per game
 Issue: LNPANDY/NX2Apple#696
 ---

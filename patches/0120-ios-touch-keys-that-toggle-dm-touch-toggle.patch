@@ -19,7 +19,7 @@ the keys that are on and adds them to the pressed buttons.
 Tests: pad_geometry_check.m (the value's form, skipped names, the limit),
 test_env_switches.py (the new row).
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: pending [builds on the touch patches 0065 to 0070 and 0090, forwarded once those land upstream]
 Reason: Touch keys that toggle, set per key in the shell's touch layout editor
 Issue: LNPANDY/NX2Apple#658
 ---
