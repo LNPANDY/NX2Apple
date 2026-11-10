@@ -637,6 +637,12 @@ private struct PaneBanner: View {
             Text(title).shellType(ShellType.pageTitle).lineLimit(2)
                 .accessibilityAddTraits(.isHeader).accessibilityIdentifier("detail.title")
             AlertStateChip(state: game.state)
+            // #696: the manifest's console, beside the state as the hidden detail header had it, with its memory note
+            if game.isSwitch2 {
+                ConsoleBadge().accessibilityIdentifier("detail.switch2")
+                Text(ShellStrings.text("A Switch 2 game. It needs a lot of memory and may not start on every device."))
+                    .shellText(12.5).foregroundStyle(.white.opacity(0.62)).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }
