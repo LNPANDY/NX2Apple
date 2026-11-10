@@ -3,6 +3,8 @@ import NXCore
 import NXLauncher
 
 @MainActor final class MockConsoleDriver: ConsoleDriver {
+    /// The supported games' covers, by decoded size: set by a capture or a test (MockConsoleDriver+Pages.swift).
+    var supportedCoverSource: ((Int) -> SupportedCovers)?
     enum Scenario: String, CaseIterable { case full, few, empty, controllers, controllersMixed, starting, paused }
     @Published var state: ConsoleState
     private var toastTask: Task<Void, Never>?

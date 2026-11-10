@@ -325,7 +325,7 @@ struct LauncherView: View {
         }
         .sheet(isPresented: Binding(get: { supportedGames != nil }, set: { if !$0 { supportedGames = nil } })) {
             SupportedGamesSheet(games: supportedGames ?? [], owned: { id in library.games.first { $0.titleID.uppercased() == id } },
-                                cover: { id in ArtworkStore.cachedBanner(id, in: library.artworkDirectory).flatMap { ArtworkImages.shared.image(at: $0, maxPixel: 128) } },
+                                covers: .live(store: artworkStore, directory: library.artworkDirectory, language: loc.lang.code, maxPixel: SupportedGamesSheet.coverPixels),
                                 showInLibrary: showInLibrary)
                 .environmentObject(padFocus)
         }
