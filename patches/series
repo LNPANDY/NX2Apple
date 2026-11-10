@@ -85,9 +85,10 @@
 0120-ios-touch-keys-that-toggle-dm-touch-toggle.patch
 0121-ios-keys-that-toggle-in-the-in-game-menu-of-a-ga.patch
 0122-mac-home-menu-and-background-pause.patch
-0123-shader-split-scimitar-forge-archives-and-raw-con.patch
-0124-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
-0125-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
-0126-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
-0127-audren-merge-updates-closer-than-a-frame-for-a-r.patch
-0128-nsp-script-a-program-s-dlc-counts-from-the-appli.patch
+0123-splatoon-raiders-shader-tables-are-split-again-w.patch
+0124-shader-split-scimitar-forge-archives-and-raw-con.patch
+0125-nvn-mtl-a-stage-keeps-its-program-s-shaders-afte.patch
+0126-nvn-mtl-write-image-buffer-textures-below-16-byt.patch
+0127-dm-ctl-shots-n-folder-captures-consecutive-frame.patch
+0128-audren-merge-updates-closer-than-a-frame-for-a-r.patch
+0129-nsp-script-a-program-s-dlc-counts-from-the-appli.patch
