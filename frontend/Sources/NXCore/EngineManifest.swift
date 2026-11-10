@@ -40,12 +40,16 @@ package enum EngineManifest {
         package var built: String?
         /// "stable" or "experimental".
         package var channel: String?
+        /// The commit date of `pin` in seedds/nxnative ("2026-10-30T18:12:44Z"), when the release workflow could read it.
+        /// Older manifests have none. What tells the launcher whether one engine is built on newer upstream code than another.
+        package var upstreamDate: String?
 
         // Written out because a default value does not make a key optional to the synthesized decoder:
         // a manifest without `sources` is valid and means "the release page".
         private enum CodingKeys: String, CodingKey {
             case version, pin, engine, app, sources, built, channel
             case engineID = "engine_id"
+            case upstreamDate = "upstream_date"
         }
 
         package init(from decoder: Decoder) throws {
@@ -58,12 +62,13 @@ package enum EngineManifest {
             sources = try c.decodeIfPresent([String].self, forKey: .sources) ?? []
             built = try c.decodeIfPresent(String.self, forKey: .built)
             channel = try c.decodeIfPresent(String.self, forKey: .channel)
+            upstreamDate = try c.decodeIfPresent(String.self, forKey: .upstreamDate)
         }
 
         package init(version: String, pin: String, engineID: String, engine: Asset, app: Asset?, sources: [String] = [],
-             built: String? = nil, channel: String? = nil) {
+             built: String? = nil, channel: String? = nil, upstreamDate: String? = nil) {
             self.version = version; self.pin = pin; self.engineID = engineID; self.engine = engine; self.app = app
-            self.sources = sources; self.built = built; self.channel = channel
+            self.sources = sources; self.built = built; self.channel = channel; self.upstreamDate = upstreamDate
         }
     }
 
@@ -95,6 +100,12 @@ package enum EngineManifest {
             guard let u = URL(string: s), u.scheme == "https", u.host?.isEmpty == false else { throw Problem.badSource(s) }
         }
         return m
+    }
+
+    /// `upstream_date` as a date, nil when the manifest has none or it is not "2026-10-30T18:12:44Z".
+    package static func date(_ text: String?) -> Date? {
+        guard let text, text.count == 20 else { return nil }
+        return ISO8601DateFormatter().date(from: text)
     }
 
     package static func isDigest(_ s: String) -> Bool {

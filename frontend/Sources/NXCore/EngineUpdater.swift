@@ -56,6 +56,44 @@ package enum EngineChannel: String, CaseIterable {
     }
 }
 
+/// Whether the experimental engine is built on newer upstream code than the stable one (LNPANDY/NX2Apple#1095). The nightly bump can
+/// stop at a conflicting patch while the stable engine moves on through a manual bump, and Experimental would then be the older one.
+package enum ExperimentalStanding: Equatable {
+    case unknown        // a manifest is missing or has no upstream date: offered as before
+    case ahead
+    case notAhead       // the same engine as Stable, or one built on an older upstream commit
+
+    /// The same engine is not ahead. Otherwise the upstream pin dates decide: an older experimental pin is not ahead, an equal date
+    /// with another engine id is (the patch series differs), and a missing date on either side is unknown.
+    package static func compare(experimental: EngineManifest.Manifest, stable: EngineManifest.Manifest) -> ExperimentalStanding {
+        if !experimental.engineID.isEmpty, experimental.engineID == stable.engineID { return .notAhead }
+        guard let e = EngineManifest.date(experimental.upstreamDate), let s = EngineManifest.date(stable.upstreamDate) else { return .unknown }
+        return e < s ? .notAhead : .ahead
+    }
+}
+
+/// What the engine row of Settings offers, from the channel the launcher is on and how Experimental stands.
+package struct EngineChannelChoice: Equatable {
+    /// The channels the picker lists. Stable alone while Experimental is not ahead of it, so the switch is not offered.
+    package let options: [EngineChannel]
+    /// The localization key of the secondary text that replaces the usual note, nil: the usual note.
+    package let noteKey: String?
+    /// A "Back to Stable" button: the launcher is on an Experimental engine that is not ahead of Stable.
+    package let offersBackToStable: Bool
+
+    package init(selected: EngineChannel, standing: ExperimentalStanding) {
+        let behind = standing == .notAhead
+        options = behind && selected == .stable ? [.stable] : EngineChannel.allCases
+        noteKey = behind ? "engine.experimentalBehind" : nil
+        offersBackToStable = behind && selected == .experimental
+    }
+
+    /// Whether a switch to `channel` may be asked for.
+    package static func allowsSwitch(to channel: EngineChannel, from selected: EngineChannel, standing: ExperimentalStanding) -> Bool {
+        !(channel == .experimental && selected == .stable && standing == .notAhead)
+    }
+}
+
 /// The engine tree the release app carries in `Contents/Resources/engine` (the release workflow puts it there).
 /// A launcher built from the repository has none, and keeps working on its checkout with git.
 package enum EngineBundle {
@@ -315,6 +353,23 @@ package enum EngineUpdate {
                      install: install) {
             downloadAndInstall(m, channel: channel, appVersion: appVersion, store: store, transport: transport)
         }
+    }
+
+    /// How Experimental stands against Stable: both manifests are read, checked like an update's and compared. Anything that goes
+    /// wrong (offline, no manifest, a bad signature) is `.unknown`, which offers the switch as before.
+    package static func standing(appVersion: String, publicKey: String = EngineManifest.publicKey,
+                                 transport: EngineTransport) -> ExperimentalStanding {
+        func manifest(_ channel: EngineChannel) -> EngineManifest.Manifest? {
+            guard let url = channel.manifestURL(version: appVersion), case .ok(let data) = transport.data(from: url) else { return nil }
+            var signature: String?
+            if let sigURL = channel.signatureURL(version: appVersion), case .ok(let s) = transport.data(from: sigURL) {
+                signature = String(decoding: s, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            guard EngineManifest.allowsInstall(EngineManifest.verify(manifest: data, signature: signature, publicKey: publicKey)) else { return nil }
+            return try? EngineManifest.decode(data)
+        }
+        guard let experimental = manifest(.experimental), let stable = manifest(.stable) else { return .unknown }
+        return ExperimentalStanding.compare(experimental: experimental, stable: stable)
     }
 
     /// The engine from the cheapest place: already selected, already in the store, in the app, or downloaded.

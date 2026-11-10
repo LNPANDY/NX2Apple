@@ -4,7 +4,7 @@
 The manifest has the shape of EngineManifest.Manifest (frontend/Sources/NXCore/EngineManifest.swift), plus `engine_id`:
 
   {"version": "0.8.0", "pin": "<seedds commit>", "engine_id": "<pin>-<12 hex of the series digest>", "channel": "stable",
-   "built": "2026-10-31T02:00:00Z",
+   "built": "2026-10-31T02:00:00Z", "upstream_date": "2026-10-30T18:12:44Z",     (upstream_date optional: see below)
    "engine": {"asset": "NX2Apple-engine.zip", "sha256": "<64 hex>", "size": 91553652},
    "app": {"asset": "NX2Apple-macOS-arm64.zip", "sha256": "...", "size": 1234},          (stable only, optional)
    "sources": ["https://github.com/LNPANDY/NX2Apple/releases/download/v0.8.0/"]}
@@ -12,6 +12,10 @@ The manifest has the shape of EngineManifest.Manifest (frontend/Sources/NXCore/E
 `pin` and `engine_id` come from the engine zip itself (its .upstream-ref and .engine-id, written by `tools/engine.py tree`), so the
 manifest cannot disagree with the asset it describes. The signature is a detached Ed25519 signature over the exact bytes of
 latest.json, base64, in latest.json.sig next to it (EngineManifest.verify(manifest:signature:publicKey:)).
+
+`upstream_date` is the commit date of the pin in seedds/nxnative (UTC). The launcher compares it between the stable and the experimental
+manifest, so it can tell that Experimental is not ahead of Stable (LNPANDY/NX2Apple#1095). `publish --upstream-date auto` asks the GitHub API
+for it and leaves the field out, with a warning, when the API does not answer. A manifest without the field is valid: "unknown".
 
 The private key is the repository secret ENGINE_SIGNING_KEY: base64 of the 32 raw bytes. Signing is optional for now. When the secret is
 set, `publish` signs, and its public key must equal the one in frontend/engine-signing.pub, which the launcher compiles in: a key that
@@ -28,6 +32,10 @@ Subcommands (Python 3.9+, `pip install -r tools/requirements-release.txt`):
                                put the zip, latest.json and (when signed) latest.json.sig on the GitHub release TAG (gh). Without it
                                nothing is uploaded: that is the dry run. --ephemeral-key signs with a throwaway key (dry runs only,
                                never uploads)
+  guard --engine-zip Z --published-manifest F [--published-date D] [--new-date D]
+                               exit 0 when Z may replace the engine whose latest.json is F, exit 1 when F's upstream pin is newer than Z's
+                               (the experimental release never goes back). Dates come from the arguments, from F's upstream_date, or from the
+                               GitHub API. An unknown date is no reason to refuse. A missing F means nothing is published yet
   verify --manifest F [--sig F] [--pub FILE] [--require-signature]
                                check a signature the way the launcher does. A missing signature file is accepted with a warning while
                                ENGINE_SIGNING_KEY is not set, and is an error when the key is set or --require-signature is given
@@ -58,6 +66,8 @@ SIGNATURE = 'latest.json.sig'
 GITHUB_REPO = 'LNPANDY/NX2Apple'
 EXPERIMENTAL_TAG = 'engine-experimental'
 ENGINE_ID = re.compile(r'[0-9a-f]{40}-[0-9a-f]{12}')
+UPSTREAM_REPO = 'seedds/nxnative'
+UTC_TIME = re.compile(r'\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ')
 
 
 class Fail(Exception):
@@ -72,6 +82,10 @@ def warn(msg):
     """A warning that stands out in the CI log (a workflow annotation) and reads fine in a terminal."""
     if os.environ.get('GITHUB_ACTIONS') == 'true': print(f'::warning title=Engine is not signed::{msg}', flush=True)
     else: print(f'WARNING: {msg}', flush=True)
+
+
+def warn_plain(msg):
+    print(f'::warning::{msg}' if os.environ.get('GITHUB_ACTIONS') == 'true' else f'WARNING: {msg}', flush=True)
 
 
 def unsigned_warning():
@@ -174,15 +188,49 @@ def engine_identity(zip_path):
     return pin, eid
 
 
-def build_manifest(engine_zip, version, channel, tag, app_zip=None, repo=GITHUB_REPO, built=None, extra_sources=()):
+def build_manifest(engine_zip, version, channel, tag, app_zip=None, repo=GITHUB_REPO, built=None, extra_sources=(), upstream_date=None):
     if channel not in ('stable', 'experimental'): raise Fail(f'channel must be stable or experimental, not {channel!r}')
     if not version.strip(): raise Fail('--version is empty')
     pin, eid = engine_identity(engine_zip)
     built = built or datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     m = {'version': version, 'pin': pin, 'engine_id': eid, 'channel': channel, 'built': built, 'engine': asset(engine_zip)}
+    if upstream_date:
+        if not UTC_TIME.fullmatch(upstream_date): raise Fail(f'upstream_date must look like 2026-10-31T02:00:00Z, not {upstream_date!r}')
+        m['upstream_date'] = upstream_date
     if app_zip: m['app'] = asset(app_zip)
     m['sources'] = [f'https://github.com/{repo}/releases/download/{tag}/', *extra_sources]
     return (json.dumps(m, indent=2) + '\n').encode()
+
+
+# ---- the upstream pin's date (LNPANDY/NX2Apple#1095) ----
+
+def parse_utc(text):
+    """A datetime for 2026-10-31T02:00:00Z, None for anything else (a missing or malformed date is "unknown")."""
+    if not isinstance(text, str) or not UTC_TIME.fullmatch(text): return None
+    return datetime.datetime.strptime(text, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc)
+
+
+def publish_decision(new_date, published_date):
+    """(publish?, why). The experimental release never goes back to an upstream pin older than the one it serves.
+    An unknown date on either side is no reason to refuse."""
+    new, old = parse_utc(new_date), parse_utc(published_date)
+    if new is None or old is None: return True, 'a pin date is unknown: publishing'
+    if old > new: return False, f'the published engine is built on a newer upstream commit ({published_date}) than this one ({new_date})'
+    return True, 'this engine is not older than the published one'
+
+
+def pin_date(pin):
+    """The commit date of `pin` in seedds/nxnative as UTC text, None when the API does not say (gh, a token or the network is missing)."""
+    if not re.fullmatch(r'[0-9a-f]{7,64}', pin or ''): return None
+    r = gh('api', f'repos/{UPSTREAM_REPO}/commits/{pin}', '--jq', '.commit.committer.date', check=False)
+    text = r.stdout.strip() if r.returncode == 0 else ''
+    return text if parse_utc(text) else None
+
+
+def manifest_json(path):
+    try: m = json.loads(Path(path).read_bytes())
+    except (OSError, ValueError): return None
+    return m if isinstance(m, dict) else None
 
 
 # ---- publishing ----
@@ -218,7 +266,11 @@ def cmd_publish(a):
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     zsrc = Path(a.engine_zip)
-    data = build_manifest(zsrc, a.version, a.channel, a.tag, a.app_zip, a.repo, a.built, a.source or ())
+    udate = a.upstream_date
+    if udate == 'auto':
+        udate = pin_date(engine_identity(zsrc)[0])
+        if udate is None: warn_plain('could not read the commit date of the upstream pin from the GitHub API: latest.json has no upstream_date')
+    data = build_manifest(zsrc, a.version, a.channel, a.tag, a.app_zip, a.repo, a.built, a.source or (), udate)
     files = [out / zsrc.name, out / MANIFEST]
     if zsrc.resolve() != files[0].resolve(): shutil.copyfile(zsrc, files[0])
     files[1].write_bytes(data)
@@ -241,6 +293,20 @@ def cmd_publish(a):
     else:
         say(f'dry run: nothing uploaded; the files are in {out}')
     return 0
+
+
+def cmd_guard(a):
+    pin, _ = engine_identity(a.engine_zip)
+    published = manifest_json(a.published_manifest) if a.published_manifest else None
+    if published is None:
+        say('nothing is published yet: publishing')
+        return 0
+    new = a.new_date or pin_date(pin)
+    old = a.published_date or published.get('upstream_date') or pin_date(published.get('pin', ''))
+    ok, why = publish_decision(new, old)
+    say(f'new pin {pin[:12]} ({new or "date unknown"}), published pin {str(published.get("pin", ""))[:12]} ({old or "date unknown"}): {why}')
+    if not ok: say('::warning title=Experimental engine not replaced::' + why if os.environ.get('GITHUB_ACTIONS') == 'true' else 'refused: ' + why)
+    return 0 if ok else 1
 
 
 def cmd_check_key(a):
@@ -332,6 +398,9 @@ def main(argv=None):
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('keygen').set_defaults(f=cmd_keygen)
     s = sub.add_parser('check-key'); s.add_argument('--pub', default=str(PUB_FILE)); s.set_defaults(f=cmd_check_key)
+    s = sub.add_parser('guard')
+    s.add_argument('--engine-zip', required=True); s.add_argument('--published-manifest'); s.add_argument('--published-date'); s.add_argument('--new-date')
+    s.set_defaults(f=cmd_guard)
     s = sub.add_parser('verify'); s.add_argument('--manifest', required=True); s.add_argument('--sig', help='default: latest.json.sig next to the manifest'); s.add_argument('--pub', default=str(PUB_FILE))
     s.add_argument('--require-signature', action='store_true'); s.set_defaults(f=cmd_verify)
     s = sub.add_parser('check-rc')
@@ -341,7 +410,7 @@ def main(argv=None):
     s.add_argument('--engine-zip', required=True); s.add_argument('--app-zip'); s.add_argument('--version', required=True)
     s.add_argument('--channel', required=True, choices=('stable', 'experimental')); s.add_argument('--tag', required=True)
     s.add_argument('--out', required=True); s.add_argument('--repo', default=os.environ.get('GITHUB_REPOSITORY') or GITHUB_REPO)
-    s.add_argument('--built', help='UTC timestamp, 2026-10-31T02:00:00Z (default: now)'); s.add_argument('--source', action='append', help='another base URL for the assets (a mirror), tried after GitHub')
+    s.add_argument('--built', help='UTC timestamp, 2026-10-31T02:00:00Z (default: now)'); s.add_argument('--upstream-date', help='the pin\'s commit date in seedds/nxnative, 2026-10-31T02:00:00Z, or auto (GitHub API)'); s.add_argument('--source', action='append', help='another base URL for the assets (a mirror), tried after GitHub')
     s.add_argument('--pub', default=str(PUB_FILE)); s.add_argument('--upload', action='store_true'); s.add_argument('--ephemeral-key', action='store_true')
     s.set_defaults(f=cmd_publish)
     a = ap.parse_args(argv)
