@@ -19,7 +19,7 @@ and docs/env_switches.tsv describe it. The iOS shell hides the row on a GPU with
 Tests: t_bcdec.c (the packing against an independent decode, the format map with the switch on and off, the
 RGB9E5 pixels equal the RGBA16F pixels packed, edge blocks) and test_launcher_settings.py (who sees the row).
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: fork-only (declined seedds/nxnative#488)
 Reason: HDR textures on a phone without BC support can pass the memory limit, a front end needs a switch for the smaller format
 Issue: LNPANDY/NX2Apple#544
 ---
