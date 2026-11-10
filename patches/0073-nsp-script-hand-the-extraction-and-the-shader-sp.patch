@@ -33,13 +33,13 @@ Issue: LNPANDY/NX2Apple#749
 ---
  .../tests/test_nsp_experimental_builder.py    | 211 ++++++++++++++++++
  docs/env_switches.tsv                         |   1 +
- scripts/build_ipa_from_nsp.py                 | 198 +++++++++++++++-
- 3 files changed, 404 insertions(+), 6 deletions(-)
+ scripts/build_ipa_from_nsp.py                 | 164 +++++++++++++-
+ 3 files changed, 370 insertions(+), 6 deletions(-)
  create mode 100644 dm/tools/tests/test_nsp_experimental_builder.py
 
 diff --git a/dm/tools/tests/test_nsp_experimental_builder.py b/dm/tools/tests/test_nsp_experimental_builder.py
 new file mode 100644
-index 0000000..444e186
+index 00000000..444e1864
 --- /dev/null
 +++ b/dm/tools/tests/test_nsp_experimental_builder.py
 @@ -0,0 +1,211 @@
@@ -255,7 +255,7 @@ index 0000000..444e186
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 2610250..9cfc501 100644
+index 26102509..9cfc501a 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -37,6 +37,7 @@ DM_ENV_FILE	path	`=<file>` makes `build_ipa.sh` bake its `KEY=VALUE` lines into
@@ -267,7 +267,7 @@ index 2610250..9cfc501 100644
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
  DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 3181b70..3594574 100755
+index 3181b701..ebf2ca8a 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@
@@ -278,7 +278,7 @@ index 3181b70..3594574 100755
  import ast, collections, contextlib, ctypes, errno, getpass, hashlib, importlib.util, json, os, re, shlex, shutil, struct, subprocess, sys, tempfile, threading, time, types
  from pathlib import Path
  sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
-@@ -443,6 +444,175 @@ def tool_env(environ=os.environ):
+@@ -443,6 +444,141 @@ def tool_env(environ=os.environ):
      return dict(environ, PATH=os.pathsep.join([environ.get('PATH') or '/usr/bin:/bin:/usr/sbin:/sbin'] + TOOL_PATHS))
  
  
@@ -417,44 +417,10 @@ index 3181b70..3594574 100755
 +    return None
 +
 +
-+def configure_dotnet(env):
-+    """Let standalone .NET apphosts find the runtime used by dotnet (Homebrew installs it outside the registered locations)."""
-+    if env.get('DOTNET_ROOT'): return
-+    dn = shutil.which('dotnet', path=env['PATH'])
-+    if not dn: return
-+    try:
-+        out = subprocess.run([dn, '--list-runtimes'], env=env, capture_output=True, text=True, check=True, timeout=10).stdout
-+    except (OSError, subprocess.SubprocessError): return
-+    for line in out.splitlines():
-+        m = re.fullmatch(r'Microsoft\.NETCore\.App\s+\S+\s+\[(.+)/shared/Microsoft\.NETCore\.App\]', line.strip())
-+        if m:
-+            # A Homebrew command can be a wrapper in bin, so its resolved directory is not a runtime root.
-+            # Extraction steps without env= inherit os.environ; shader steps receive env explicitly.
-+            env['DOTNET_ROOT'] = os.environ['DOTNET_ROOT'] = m[1]
-+            return
-+
-+
-+def dotnet_sdk10_first(env):
-+    """Put the first dotnet on PATH that lists an SDK 10 or newer in front. TOOL_PATHS looks in /usr/local/share/dotnet before ~/.dotnet, so an
-+    older .NET left there by an installer would build nx_extract and stop with NETSDK1045 while the .NET 10 of dotnet-install.sh sits in ~/.dotnet.
-+    PATH stays as it is when the first dotnet has an SDK 10 or none has one."""
-+    dirs = env['PATH'].split(os.pathsep)
-+    found = [(d, dn) for d in dict.fromkeys(dirs) if d and (dn := shutil.which('dotnet', path=d))]
-+    for i, (d, dn) in enumerate(found):
-+        try:
-+            out = subprocess.run([dn, '--list-sdks'], env=env, capture_output=True, text=True, timeout=30).stdout
-+        except (OSError, subprocess.SubprocessError): continue
-+        if any(int(v) >= 10 for v in re.findall(r'^(\d+)\.', out, re.M)):
-+            if i:
-+                env['PATH'] = os.pathsep.join([d] + [x for x in dirs if x != d])
-+                say(f'dotnet: {d}, the first with an SDK 10 ({found[0][0]} comes before it and has none)')
-+            return
-+
-+
  # ---- NSP identification ----
  def is_package(path):   # what nx_extract's OpenNsp opens: an XCI / XCZ by the card header's magic at 0x100, else a PFS0 (NSP, NSZ)
      with open(path, 'rb') as f: h = f.read(0x104)
-@@ -1212,7 +1382,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
+@@ -1212,7 +1348,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
      def poll():
          n, b = tree_size(tmp); return {'done': b, 'note': f'{n:,} files'}
      PROG.stage(f'extract {name}', poll=poll, unit='B', total=last[1] if last else base.stat().st_size + (upd.stat().st_size if upd and upd != base else 0), est=not last)
@@ -464,7 +430,7 @@ index 3181b70..3594574 100755
      swap_in(tmp, dst)
      n, b = extracted(log) or (0, 0)
      PROG.end(f'{n:,} files, {amount(b, "B")}')
-@@ -1252,13 +1423,15 @@ def scan_nup(path, want=None):   # a NUP as scan_nsps gives a folder of NSPs, wi
+@@ -1252,13 +1389,15 @@ def scan_nup(path, want=None):   # a NUP as scan_nsps gives a folder of NSPs, wi
      return app, {'base': base, 'updates': sorted(vers.items()), 'dlc': [(tid, None, k) for tid, k in sorted(dlc.items())], 'nup': n}
  
  
@@ -481,7 +447,7 @@ index 3181b70..3594574 100755
          how = pack_nup.pack_version(n, k, base, app, dst, say=lambda s: None, step=lambda s: PROG.set(step=s))
      except pack_nup.Error as e: raise BuildError(str(e)) from e
      PROG.end(amount((dst / 'RomFS.img').stat().st_size, 'B') + {'kept': ', reused (inputs unchanged)', 'verified': ', reused (image checked)'}.get(how, ''))
-@@ -1316,6 +1489,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
+@@ -1316,6 +1455,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
      if not fam['dlc']: return None
      if fam.get('nup'):
          PROG.stage('unpack DLC', step='unpacking')
@@ -493,7 +459,7 @@ index 3181b70..3594574 100755
          try: pack_nup.pack_dlc(fam['nup'], app, {tid: k for tid, _, k in fam['dlc']}, work / 'aoc', say=lambda s: None)
          except pack_nup.Error as e: raise BuildError(str(e)) from e
          PROG.end(f'{len(fam["dlc"])} DLC')
-@@ -2182,9 +2360,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
+@@ -2182,9 +2326,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
      tmp = pkg.with_name(pkg.name + '.partial'); rmtree(tmp); (tmp / 'tables').mkdir(parents=True)
      def counted(ln):   # shader_split.py's 'progress: <done>/<total>'
          if m := re.fullmatch(r'progress: (\d+)/(\d+)', ln): PROG.set(done=int(m[1]), total=int(m[2]), unit='files')
@@ -514,7 +480,7 @@ index 3181b70..3594574 100755
      m = re.search(r'shaders: (\d+) \(', text)
      bad = re.search(r'^\[RED\] (\d+) file\(s\) could not be read.*$', text, re.M)   # the split leaves out a file no reader reads (its own red line per file in the log) and goes on
      if bad and not provisional:   # the profile's tables were split from every file: one that does not read now is a reader change
-@@ -3053,7 +3239,7 @@ def main(args=None):
+@@ -3053,7 +3205,7 @@ def main(args=None):
      dirs = {}
      for ver in versions:   # each merged version streams directly into its own image
          b, u = picks[ver]

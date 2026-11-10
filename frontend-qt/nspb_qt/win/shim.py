@@ -784,6 +784,36 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             return None
         return [str(exe)] + (x.metal_args(sdk, rest[3:]) if tool == 'metal' else rest[3:])
 
+    def _dmsh_xlate_dll(bin_path, dotnet, tc):
+        dll_next = bin_path + '.dll'
+        if os.path.isfile(dll_next) or not os.path.isfile(bin_path):
+            return dll_next
+        import hashlib, tempfile
+        from pathlib import Path
+        proj = Path(bin_path).resolve().parents[1] / 'dmsh_xlate'
+        if not (proj / 'dmsh_xlate.csproj').is_file():
+            return dll_next
+        h = hashlib.sha256(Path(bin_path).read_bytes())
+        for f in sorted([*proj.glob('*.cs'), *proj.glob('*.csproj')], key=lambda p: p.name):
+            h.update(f.name.encode('utf-8') + b'\0' + f.read_bytes() + b'\0')
+        cache_dir = tc.tools_dir() / f'dmsh_xlate-{h.hexdigest()[:16]}'
+        cached = cache_dir / 'dmsh_xlate.dll'
+        if cached.is_file():
+            return str(cached)
+        with tempfile.TemporaryDirectory(prefix='dmsh_xlate_') as td, \
+                tempfile.TemporaryDirectory(prefix='dmsh_xlate_art_') as art:
+            _run([dotnet, 'publish', str(proj), '-c', 'Release', '--self-contained', 'false',
+                  '-p:PublishAot=false', '-p:SatelliteResourceLanguages=en',
+                  '--artifacts-path', art, '-o', td, '-v', 'quiet', '-nologo'],
+                 check=True, **tc.no_window())
+            shutil.rmtree(cache_dir, ignore_errors=True)
+            try:
+                shutil.copytree(td, cache_dir)
+            except BaseException:
+                shutil.rmtree(cache_dir, ignore_errors=True)
+                raise
+        return str(cached)
+
     def _map(args):
         if isinstance(args, (str, bytes)) or not args:
             return args
@@ -802,7 +832,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             import toolchain as tc
             dn = tc.dotnet_dir()
             dotnet = str(dn / 'dotnet.exe') if dn else (shutil.which('dotnet') or 'dotnet')
-            return [dotnet, args[0] + '.dll'] + args[1:]
+            return [dotnet, _dmsh_xlate_dll(args[0], dotnet, tc)] + args[1:]
         if base in ('python3', 'python3.exe') or base in ('python', 'python.exe'):
             py_exe = os.environ.get('NSPB_PYTHON') or sys.executable
             return [py_exe] + [a for a in args[1:] if a != '-I']

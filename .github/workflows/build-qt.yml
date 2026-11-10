@@ -97,16 +97,24 @@ jobs:
         shell: bash
         run: |
           # Use the patched sources that produced engine-tree. Keep obj/ and other build
-          # intermediates in engine/ so only the published output goes into the Windows zip.
+          # intermediates outside engine/ so only the published output goes into the Windows zip.
           out=engine-tree/dm/tools/nx_extract_bin
           cp frontend-qt/nx_extract/packages.lock.json engine/dm/tools/nx_extract/
-          dotnet publish engine/dm/tools/nx_extract -c Release --self-contained false -p:RestoreLockedMode=true -o "$out"
+          dotnet publish engine/dm/tools/nx_extract -c Release --self-contained false -p:PublishAot=false -p:RestoreLockedMode=true --artifacts-path "$RUNNER_TEMP/nx_extract_artifacts" -o "$out"
           cp frontend-qt/nx_extract/LibHac-LICENSE.txt "$out/"
+          "$out/nx_extract.exe" --source-sha
 
           # Open a synthetic empty PFS0 through LibHac before packaging.
           touch empty.keys
           python -c "from pathlib import Path; Path('empty.nsp').write_bytes(b'PFS0' + bytes(256))"
           "$out/nx_extract.exe" empty.keys --keys empty.nsp
+
+          # The engine tree ships a macOS Mach-O dmsh_xlate NativeAOT binary in dm/gfx/tools/dmsh_xlate_bin/.
+          # Publish the managed Windows assemblies alongside it so shim.py's `dotnet dmsh_xlate.dll` runs
+          # on Windows while tool_lock.py still sees the committed Mach-O binary's sha16 fingerprint.
+          dotnet publish engine/dm/gfx/tools/dmsh_xlate -c Release --self-contained false -p:PublishAot=false -p:SatelliteResourceLanguages=en --artifacts-path "$RUNNER_TEMP/dmsh_xlate_artifacts" -o "$RUNNER_TEMP/dmsh_xlate_out"
+          cp "$RUNNER_TEMP/dmsh_xlate_out"/*.dll "$RUNNER_TEMP/dmsh_xlate_out"/*.json "$RUNNER_TEMP/dmsh_xlate_out"/*.exe engine-tree/dm/gfx/tools/dmsh_xlate_bin/
+          dotnet engine-tree/dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate.dll --source-sha
 
       - name: Build Windows shader tools for the bundled engine
         shell: bash

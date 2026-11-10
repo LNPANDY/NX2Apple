@@ -15,7 +15,8 @@ What gets replaced, and why:
 ========================  ==========================================================
 `check_prereqs`           Xcode/xcodegen/make are absent; the Windows toolchain is checked
                           instead, with the same "what is missing and how to get it" shape.
-`build_nx_extract`        use the packaged extractor, or build the Windows executable from source
+`find_nx_extract` /       use the packaged extractor, or build the Windows executable from source
+`build_nx_extract`        with NativeAOT disabled (`-p:PublishAot=false`)
 `can_clone`               no APFS: plain copies (`nx_extract` spends the disk, not the build)
 `apple_silicon`           no `sysctl`
 `heap_check`              boots the game in the Mac host; replaced by an estimate
@@ -40,6 +41,7 @@ import importlib.util
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -224,6 +226,34 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.check_prereqs = check_prereqs
 
     # ---------------------------------------------------------------- nx_extract
+    def _nx_extract_source_sha(repo_p: Path) -> str:
+        proj = repo_p / 'dm/tools/nx_extract'
+        if hasattr(mod, 'nx_extract_source_sha') and (proj / 'Program.cs').is_file() and (proj / 'nx_extract.csproj').is_file():
+            return mod.nx_extract_source_sha(repo_p)
+        import hashlib
+        h = hashlib.sha256()
+        if proj.is_dir():
+            for f in sorted([*proj.glob('*.cs'), *proj.glob('*.csproj')], key=lambda p: p.name):
+                h.update(f.name.encode('utf-8') + b'\0' + f.read_bytes() + b'\0')
+        return h.hexdigest()[:16]
+
+    def _verify_nx_extract(exe: Path, want: str, env) -> None:
+        if not want:
+            return
+        try:
+            r = subprocess.run([str(exe), '--source-sha'], capture_output=True, text=True,
+                               env=env if env is not None else os.environ, timeout=60,
+                               errors='replace', **tc.no_window())
+        except OSError as e:
+            raise BuildError(f'nx_extract failed to start ({exe}): {e}') from e
+        got = (r.stdout or '').strip()
+        if r.returncode or not got:
+            raise BuildError(f'nx_extract does not run ({exe}, exit {r.returncode}): '
+                             f'{(r.stderr or r.stdout or "").strip()}')
+        if got != want:
+            raise BuildError(f'nx_extract was not built from the in-repo source '
+                             f'(embedded {got} / in repo {want})')
+
     def build_nx_extract(repo_: Path, work: Path, logs: Path, env, *a, **kw):
         """Use the executable shipped with this engine, or build it for a source checkout."""
         bundled = repo_ / 'dm/tools/nx_extract_bin/nx_extract.exe'
@@ -236,8 +266,10 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
         # lives in its own folder (the shim's PATH has it, but not every caller goes through it).
         dn = tc.dotnet_dir()
         dotnet = str(dn / 'dotnet.exe') if dn else 'dotnet'
-        with tempfile.TemporaryDirectory(prefix='nx_extract_') as td:
+        with tempfile.TemporaryDirectory(prefix='nx_extract_') as td, \
+                tempfile.TemporaryDirectory(prefix='nx_extract_art_') as art:
             mod.run([dotnet, 'build', repo_ / 'dm/tools/nx_extract', '-c', 'Release',
+                     '-p:PublishAot=false', '--artifacts-path', art,
                      '-o', td, '-v', 'quiet', '-nologo'],
                     logs / 'nx_extract_build.log', env=env)
             exe = Path(td) / 'nx_extract.exe'
@@ -245,9 +277,53 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
                 raise BuildError(f'nx_extract built without nx_extract.exe (see '
                                  f'{logs / "nx_extract_build.log"})')
             mod.rmtree(nx.parent)
-            shutil.copytree(td, nx.parent)
+            try:
+                shutil.copytree(td, nx.parent)
+            except BaseException:
+                mod.rmtree(nx.parent)
+                raise
         return nx
+
+    def find_nx_extract(repo_: Path, env=None, *a, **kw):
+        """Return the Windows extractor executable: bundled in dm/tools/nx_extract_bin/, or built into tools_dir()."""
+        repo_p = Path(repo_)
+        proj = repo_p / 'dm/tools/nx_extract'
+        has_src = (proj / 'Program.cs').is_file() and (proj / 'nx_extract.csproj').is_file()
+        want = _nx_extract_source_sha(repo_p) if has_src else ''
+        bundled = repo_p / 'dm/tools/nx_extract_bin/nx_extract.exe'
+        if bundled.is_file():
+            _verify_nx_extract(bundled, want, env)
+            return bundled
+        sha = want or _nx_extract_source_sha(repo_p)
+        cache_dir = tc.tools_dir() / f'nx_extract-{sha}'
+        cached = cache_dir / 'nx_extract.exe'
+        if cached.is_file():
+            _verify_nx_extract(cached, want, env)
+            return cached
+        import tempfile
+        dn = tc.dotnet_dir()
+        dotnet = str(dn / 'dotnet.exe') if dn else 'dotnet'
+        log = tc.tools_dir() / 'nx_extract_build.log'
+        log.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix='nx_extract_') as td, \
+                tempfile.TemporaryDirectory(prefix='nx_extract_art_') as art:
+            mod.run([dotnet, 'build', proj, '-c', 'Release', '-p:PublishAot=false',
+                     '--artifacts-path', art, '-o', td, '-v', 'quiet', '-nologo'],
+                    log, env=env if env is not None else os.environ)
+            exe = Path(td) / 'nx_extract.exe'
+            if not exe.exists():
+                raise BuildError(f'nx_extract built without nx_extract.exe (see {log})')
+            mod.rmtree(cache_dir)
+            try:
+                shutil.copytree(td, cache_dir)
+            except BaseException:
+                mod.rmtree(cache_dir)
+                raise
+        _verify_nx_extract(cached, want, env)
+        return cached
+
     mod.build_nx_extract = build_nx_extract
+    mod.find_nx_extract = find_nx_extract
 
     # ---------------------------------------------------------------- APFS clones
     mod.can_clone = lambda *a, **kw: False

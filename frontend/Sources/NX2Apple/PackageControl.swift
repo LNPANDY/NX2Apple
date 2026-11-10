@@ -57,7 +57,8 @@ enum PackageControl {
             if let pfs0 = partition(at: 0, magic: "PFS0", entrySize: 0x18) { return pfs0 }
             for base: UInt64 in [0, 0x1000] {
                 guard let card = read(base, 0x140), card[0x100..<0x104].elementsEqual("HEAD".utf8),
-                      let root = partition(at: base + PackageControl.le(card, 0x130, 8), magic: "HFS0", entrySize: 0x40),
+                      let rootAt = PackageControl.add(base, PackageControl.le(card, 0x130, 8)),
+                      let root = partition(at: rootAt, magic: "HFS0", entrySize: 0x40),
                       let secure = root.first(where: { $0.name == "secure" }) else { continue }
                 return partition(at: secure.offset, magic: "HFS0", entrySize: 0x40) ?? []
             }
@@ -66,15 +67,18 @@ enum PackageControl {
 
         /// A PFS0 or HFS0 file table at `at`: count (0x4), size of the names (0x8), then the entries (offset 0x0, size 0x8, name 0x10).
         private func partition(at: UInt64, magic: String, entrySize: Int) -> [Entry]? {
-            guard let head = read(at, 0x10), head[0..<4].elementsEqual(magic.utf8) else { return nil }
+            guard let head = read(at, 0x10), head[0..<4].elementsEqual(magic.utf8),
+                  let tableAt = PackageControl.add(at, 0x10) else { return nil }
             let count = Int(PackageControl.le(head, 4, 4)), names = Int(PackageControl.le(head, 8, 4))
-            guard count > 0, count <= 4096, names <= 1 << 20, let table = read(at + 0x10, count * entrySize + names) else { return nil }
-            let data = at + UInt64(0x10 + count * entrySize + names)
+            guard count > 0, count <= 4096, names <= 1 << 20 else { return nil }
+            let tableSize = count * entrySize + names
+            guard let data = PackageControl.add(tableAt, UInt64(tableSize)),
+                  let table = read(tableAt, tableSize) else { return nil }
             return (0..<count).compactMap { i in
                 let e = i * entrySize, nameAt = count * entrySize + Int(PackageControl.le(table, e + 0x10, 4))
-                guard nameAt < table.count else { return nil }
+                guard nameAt < table.count, let offset = PackageControl.add(data, PackageControl.le(table, e, 8)) else { return nil }
                 let name = String(decoding: table[nameAt...].prefix { $0 != 0 }, as: UTF8.self).lowercased()
-                return Entry(name: name, offset: data + PackageControl.le(table, e, 8), size: PackageControl.le(table, e + 8, 8))
+                return Entry(name: name, offset: offset, size: PackageControl.le(table, e + 8, 8))
             }
         }
     }
@@ -120,7 +124,8 @@ enum PackageControl {
     private static func derived(_ keys: [String: [UInt8]], suffix: String, source: String, kek: Bool) -> [UInt8]? {
         guard let master = keys["master_key_" + suffix], master.count == 16, let src = keys[source], src.count == 16 else { return nil }
         guard kek else { return KeyCheck.ecb(src, key: master, encrypt: false) }
-        guard let kekSource = keys["aes_kek_generation_source"], let keySource = keys["aes_key_generation_source"],
+        guard let kekSource = keys["aes_kek_generation_source"], kekSource.count == 16,
+              let keySource = keys["aes_key_generation_source"], keySource.count == 16,
               let k = KeyCheck.ecb(kekSource, key: master, encrypt: false), let sourceKek = KeyCheck.ecb(src, key: k, encrypt: false) else { return nil }
         return KeyCheck.ecb(keySource, key: sourceKek, encrypt: false)
     }
@@ -138,15 +143,15 @@ enum PackageControl {
 
     /// control.nacp from the root of section 0's RomFS (IVFC level 6), decrypted with `key` when the section is AES-CTR.
     static func controlNACP(_ file: Reader, nca: UInt64, header h: [UInt8], key: [UInt8]) -> Data? {
-        let start = nca + le(h, 0x240, 4) * 0x200, end = nca + le(h, 0x244, 4) * 0x200
         let fs = 0x400
-        guard end > start, h[fs + 2] == 0, h[fs + 3] == 3, [1, 3].contains(h[fs + 4]),   // RomFS, hierarchical integrity, no crypto or CTR
-              h[(fs + 8)..<(fs + 12)].elementsEqual("IVFC".utf8) else { return nil }
-        let romfs = le(h, fs + 0x18 + 5 * 0x18, 8)
+        guard let start = add(nca, le(h, 0x240, 4) * 0x200), let end = add(nca, le(h, 0x244, 4) * 0x200),
+              end > start, h[fs + 2] == 0, h[fs + 3] == 3, [1, 3].contains(h[fs + 4]),   // RomFS, hierarchical integrity, no crypto or CTR
+              h[(fs + 8)..<(fs + 12)].elementsEqual("IVFC".utf8),
+              let romfsBase = add(start, le(h, fs + 0x18 + 5 * 0x18, 8)), romfsBase <= end else { return nil }
         let counter = Array(h[(fs + 0x140)..<(fs + 0x148)].reversed())
         func read(_ offset: UInt64, _ count: Int) -> [UInt8]? {
-            let at = start + romfs + offset
-            guard count > 0, count <= 1 << 20, at + UInt64(count) <= end else { return nil }
+            guard count > 0, count <= 1 << 20,
+                  let at = add(romfsBase, offset), let reqEnd = add(at, UInt64(count)), reqEnd <= end else { return nil }
             let aligned = nca + ((at - nca) & ~0xF), skip = Int(at - aligned), total = (skip + count + 15) & ~15   // CTR blocks start at the NCA's
             guard let raw = file.read(aligned, total) else { return nil }
             if h[fs + 4] == 1 { return Array(raw[skip..<(skip + count)]) }
@@ -164,12 +169,13 @@ enum PackageControl {
         while next != 0xFFFF_FFFF, seen < 4096 {
             seen += 1
             let e = Int(next)
-            guard e + 0x20 <= files.count else { return nil }
+            guard files.count >= 0x20, e <= files.count - 0x20 else { return nil }
             let length = Int(le(files, e + 0x1C, 4))
-            guard e + 0x20 + length <= files.count else { return nil }
+            guard length <= files.count - 0x20 - e else { return nil }
             if String(decoding: files[(e + 0x20)..<(e + 0x20 + length)], as: UTF8.self) == "control.nacp" {
                 let size = le(files, e + 0x10, 8)
-                guard size > 0, size <= 0x10000, let nacp = read(data + le(files, e + 8, 8), Int(size)) else { return nil }
+                guard size > 0, size <= 0x10000, let nacpOffset = add(data, le(files, e + 8, 8)),
+                      let nacp = read(nacpOffset, Int(size)) else { return nil }
                 return Data(nacp)
             }
             next = le(files, e + 4, 4)
@@ -178,6 +184,11 @@ enum PackageControl {
     }
 
     // MARK: Bytes
+
+    static func add(_ a: UInt64, _ b: UInt64) -> UInt64? {
+        let (r, o) = a.addingReportingOverflow(b)
+        return o ? nil : r
+    }
 
     static func le(_ b: [UInt8], _ o: Int, _ n: Int) -> UInt64 {
         guard o >= 0, o + n <= b.count else { return 0 }
