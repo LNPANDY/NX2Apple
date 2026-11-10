@@ -40,6 +40,7 @@ import Testing
         try box.write(large, to: box.root.appendingPathComponent("shader-input/" + secondShader))
         let first = framework.appendingPathComponent("msl-" + UUID().uuidString + ".aar")
         try archive("first", in: box, at: first)
+        model.refreshAll()
         await model.playNow(Fixtures.orbit)
         let firstGame = try #require(launcher.launched.first), firstCache = try #require(firstGame.shaderResourcesURL)
         #expect(try msl(firstGame, in: box) == firstCache.path)
@@ -84,6 +85,7 @@ import Testing
         let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
         let packed = framework.appendingPathComponent("msl-" + UUID().uuidString + ".aar")
         try archive("ready", in: box, at: packed)
+        model.refreshAll()
         let cache = gameFolder.appendingPathComponent(".shader-resources")
         let interrupted = cache.appendingPathComponent(".partial-" + UUID().uuidString)
         let similar = cache.appendingPathComponent(interrupted.lastPathComponent + ".saved")
@@ -109,6 +111,7 @@ import Testing
         let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
         try box.write("bundled", to: framework.appendingPathComponent("msl/" + shader))
         try Data([0]).write(to: framework.appendingPathComponent("msl-" + UUID().uuidString + ".aar"))
+        model.refreshAll()
         // A legacy framework only needs to allow traversal to its known shader path.
         try FileManager.default.setAttributes([.posixPermissions: 0o111], ofItemAtPath: framework.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: framework.path) }
@@ -121,6 +124,7 @@ import Testing
         try FileManager.default.removeItem(at: framework.appendingPathComponent("msl"))
         let override = gameFolder.appendingPathComponent("msl")
         try box.write("custom", to: override.appendingPathComponent(shader))
+        model.refreshAll()
         await model.playNow(Fixtures.orbit)
         let custom = try #require(launcher.launched.last)
         #expect(launcher.launched.count == 2 && custom.shaderResourcesURL == nil)
