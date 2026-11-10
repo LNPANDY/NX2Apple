@@ -72,7 +72,9 @@ class ShellLibrary:
     def load(cls, root: str | os.PathLike) -> ShellLibrary:
         p = cls.state_file(root)
         if not p.is_file():
-            return cls()
+            library = cls()
+            library.adopt_mirrors(root)
+            return library
         try:
             data = json.loads(p.read_text(encoding='utf-8'))
             if not isinstance(data, dict):
@@ -85,13 +87,51 @@ class ShellLibrary:
                     g = ShellGame.from_dict(item)
                     if g is not None:
                         games.append(g)
-            return cls(bundle_id=bundle_id, team=team, games=games)
+            library = cls(bundle_id=bundle_id, team=team, games=games)
+            library.adopt_mirrors(root)
+            return library
         except Exception:
             return cls()
+
+    def adopt_mirrors(self, root: str | os.PathLike) -> list[ShellGame]:
+        """Register every whole `DmGame*.framework` under `<root>/frameworks/` that is not listed.
+
+        A folder that was moved, restored from a backup, or whose `shell.json` was replaced
+        still holds the games' frameworks. Each one carries its name and its title ID in its
+        manifest, so the game can be taken back without building it again.
+        """
+        folder = frameworks_mirror(root)
+        known = {g.title_id for g in self.games}
+        added: list[ShellGame] = []
+        try:
+            entries = list(folder.iterdir())
+        except OSError:
+            return added
+        for entry in entries:
+            if not entry.is_dir():
+                continue
+            tid = title_id_of_framework(entry)
+            if not tid or tid in known:
+                continue
+            if missing_file_in_framework(entry, tid) is not None:
+                continue
+            name = tid
+            try:
+                data = json.loads((entry / 'game.manifest.json').read_text(encoding='utf-8'))
+                if isinstance(data, dict):
+                    name = str(data.get('name') or '').strip() or tid
+            except Exception:
+                pass
+            game = ShellGame(title_id=tid, name=name, framework=str(entry))
+            self.games.append(game)
+            known.add(tid)
+            added.append(game)
+        return added
 
     def save(self, root: str | os.PathLike) -> None:
         root_p = Path(root)
         root_p.mkdir(parents=True, exist_ok=True)
+        dropped = self._dropped_entries(root_p)
         payload = {
             'bundleID': self.bundle_id,
             'games': [g.to_dict() for g in self.games],
@@ -101,6 +141,39 @@ class ShellLibrary:
         tmp.write_text(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + '\n',
                        encoding='utf-8')
         os.replace(tmp, self.state_file(root_p))
+        if dropped:
+            self._keep_dropped(root_p, dropped)
+
+    def _dropped_entries(self, root: Path) -> list[dict]:
+        """The entries on disk that this save would forget."""
+        p = self.state_file(root)
+        if not p.is_file():
+            return []
+        try:
+            data = json.loads(p.read_text(encoding='utf-8'))
+        except Exception:
+            return []
+        if not isinstance(data, dict):
+            return []
+        here = {g.title_id for g in self.games}
+        out: list[dict] = []
+        for item in data.get('games') or []:
+            if not isinstance(item, dict):
+                continue
+            tid = str(item.get('titleID') or item.get('title_id') or '').strip().upper()
+            if tid and tid not in here:
+                out.append(item)
+        return out
+
+    def _keep_dropped(self, root: Path, entries: list[dict]) -> None:
+        """Write the forgotten entries to `shell.json.bak`: the only record of them left."""
+        payload = {'bundleID': self.bundle_id, 'games': entries, 'team': self.team}
+        try:
+            (root / 'shell.json.bak').write_text(
+                json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + '\n',
+                encoding='utf-8')
+        except OSError:
+            pass
 
     def add(self, game: ShellGame) -> None:
         for i, existing in enumerate(self.games):
@@ -109,8 +182,21 @@ class ShellLibrary:
                 return
         self.games.append(game)
 
-    def drop_missing(self, exists: Callable[[str], bool] = os.path.isdir) -> None:
-        self.games = [g for g in self.games if exists(g.framework)]
+    def missing(self, exists: Callable[[str], bool] = os.path.isdir) -> list[ShellGame]:
+        return [g for g in self.games if not exists(g.framework)]
+
+    def drop_missing(self, exists: Callable[[str], bool] = os.path.isdir,
+                     log: Callable[[str], None] = lambda _: None) -> list[ShellGame]:
+        """Return the games whose framework is not on disk, and keep them registered.
+
+        Forgetting one here is what made it disappear from the shared app for good: the build
+        folder it came from is often gone too by then, so nothing is left to register it again.
+        """
+        gone = self.missing(exists)
+        for g in gone:
+            log(f'library: {g.title_id} ({g.name or g.title_id}) stays registered but its '
+                f'framework is not on disk, so this export leaves it out: {g.framework}\n')
+        return gone
 
 
 def export_folder(root: str | os.PathLike) -> Path:
@@ -315,26 +401,106 @@ def leave_out_incomplete(
     name: str,
     t_func: Callable[..., str],
     log: Callable[[str], None] = lambda _: None,
-) -> tuple[list[str], str | None]:
-    """Filter out incomplete earlier frameworks; fail if the current game's framework is incomplete."""
-    notes: list[str] = []
-    gone: set[str] = set()
+) -> tuple[list[ShellGame], str | None]:
+    """Return the incomplete earlier frameworks to leave out; fail on the current game's own.
+
+    The incompletes stay registered and stay on disk: the folder they came from is usually gone
+    by the time they are incomplete, so throwing the entries and the files away here is what made
+    a game disappear from the shared app for good.
+    """
+    left_out: list[ShellGame] = []
     for g in library.games:
         missing = missing_file_in_framework(g.framework, g.title_id)
         if missing is None:
             continue
         if g.title_id == title_id:
             return [], t_func('shell.frameworkIncomplete', name, missing)
-        label = g.name or g.title_id
-        note = t_func('shell.gameLeftOut', label, missing)
+        note = t_func('shell.gameLeftOut', g.name or g.title_id, missing)
         log(f'library: {note} ({g.framework})\n')
-        notes.append(note)
-        gone.add(g.title_id)
-        if Path(g.framework) == mirrored_framework(root, g.title_id):
-            discard(g.framework)
-    if gone:
-        library.games = [g for g in library.games if g.title_id not in gone]
-    return notes, None
+        left_out.append(g)
+    return left_out, None
+
+
+def find_framework_copy(title_id: str, search_dirs: list[str | os.PathLike]) -> Path | None:
+    """Return a whole `DmGame<title ID>.framework` for `title_id` from one of `search_dirs`."""
+    name = f'DmGame{title_id}.framework'
+    seen: set[str] = set()
+    for raw in search_dirs:
+        try:
+            base = Path(raw)
+        except (TypeError, ValueError):
+            continue
+        for place in (base, base / name, base / 'frameworks' / name, base / 'shell-framework' / name):
+            try:
+                key = str(place.resolve()).lower()
+            except OSError:
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            if not place.is_dir():
+                continue
+            if missing_file_in_framework(place, title_id) is None:
+                return place
+    return None
+
+
+def recover_frameworks(
+    library: ShellLibrary,
+    root: str | os.PathLike,
+    search_dirs: list[str | os.PathLike],
+    log: Callable[[str], None] = lambda _: None,
+) -> tuple[list[str], list[ShellGame]]:
+    """Mirror whole frameworks found in `search_dirs` back into `root` for the games that need them.
+
+    This is what makes a moved or emptied cache recoverable without building the games again:
+    the framework the old folder holds is the same file the game was built into.
+    """
+    recovered: list[str] = []
+    still: list[ShellGame] = []
+    for g in library.games:
+        if missing_file_in_framework(g.framework, g.title_id) is None:
+            continue
+        found = find_framework_copy(g.title_id, [g.framework, *search_dirs])
+        if found is None:
+            still.append(g)
+            continue
+        mirror = mirrored_framework(root, g.title_id)
+        try:
+            if Path(found).resolve() != mirror.resolve():
+                mirror_framework(found, root, g.title_id)
+            g.framework = str(mirror)
+        except OSError as e:
+            log(f"library: {g.title_id}'s framework could not be put back from {found}: {e}\n")
+            still.append(g)
+            continue
+        log(f'library: {g.title_id} was put back from {found} into {mirror}\n')
+        recovered.append(f'{g.title_id} ({g.name or g.title_id})')
+    return recovered, still
+
+
+def frameworks_in_ipa(ipa: str | os.PathLike) -> list[str]:
+    """The `DmGame*.framework` names an IPA actually holds under `Payload/<shell>/Frameworks/`."""
+    prefix = f'Payload/{APP_NAME}/Frameworks/'
+    names: set[str] = set()
+    with zipfile.ZipFile(ipa) as zf:
+        for info in zf.infolist():
+            if not info.filename.startswith(prefix):
+                continue
+            rest = info.filename[len(prefix):]
+            first = rest.split('/', 1)[0]
+            if first.endswith('.framework'):
+                names.add(first)
+    return sorted(names)
+
+
+def check_ipa_has_games(ipa: str | os.PathLike, title_ids: list[str]) -> None:
+    """Raise when the packed IPA lacks a framework it was asked to hold."""
+    present = set(frameworks_in_ipa(ipa))
+    missing = [f'DmGame{tid}.framework' for tid in title_ids
+               if f'DmGame{tid}.framework' not in present]
+    if missing:
+        raise RuntimeError(f'the archive is missing {", ".join(missing)}; the old IPA was kept')
 
 
 def place_banner(
@@ -716,6 +882,7 @@ def _stage_and_pack_shell_ipa(
     entry_limit: int,
     external_msl_threshold: int,
 ) -> tuple[bool, str, str, list[str]]:
+    pack_ids = [g.title_id for g in library.games]
     pack_stage_name = _t('shell.exportPackStage')
     if stage_cb:
         stage_cb(pack_stage_name, 'running')
@@ -800,6 +967,9 @@ def _stage_and_pack_shell_ipa(
             raise RuntimeError(
                 f'packed IPA holds {actual_entries:,} entries, exceeding the {entry_limit:,}-entry ZIP32 limit'
             )
+        # The archive must hold every game it was asked to hold before it may replace the one
+        # on disk, which the phone's library and the user's saves are tied to.
+        check_ipa_has_games(tmp_ipa, pack_ids)
 
         mode_summary = fix_ipa_modes.fix(tmp_ipa, executables)
         log(f'{mode_summary}\n')
@@ -834,8 +1004,12 @@ def export_shell(
     stage_cb: Callable[[str, str], None] | None = None,
     entry_limit: int = ZIP32_ENTRY_LIMIT,
     external_msl_threshold: int = EXTERNAL_MSL_THRESHOLD,
+    extra_dirs: list[str | os.PathLike] | None = None,
 ) -> tuple[bool, str, str, list[str]]:
     """Mirror `framework` into `root`, update `shell.json`, and pack `<root>/export/NX2Apple.ipa`.
+
+    `extra_dirs` are folders to look in for a registered game whose framework is not in `root`
+    any more, such as the cache folder the user moved away from or a backup copy.
 
     Returns `(ok, ipa_path, message, notes)`.
     """
@@ -854,14 +1028,28 @@ def export_shell(
         folder = fw_p.parent.name or 'shell-framework'
         return False, '', _t('shell.noFramework', name, folder), []
 
+    notes: list[str] = []
     sweep_discarded(frameworks_mirror(root_p))
     library = ShellLibrary.load(root_p)
     library.add(ShellGame(title_id=tid_norm, name=name, framework=str(fw_p)))
     mirror_frameworks(library, root_p, log=log)
-    library.drop_missing()
-    notes, err = leave_out_incomplete(library, root_p, tid_norm, name, _t, log=log)
+    recovered, _still = recover_frameworks(
+        library, root_p, [d for d in (extra_dirs or []) if d], log=log)
+    library.drop_missing(log=log)
+    left_out, err = leave_out_incomplete(library, root_p, tid_norm, name, _t, log=log)
     if err is not None:
         return False, '', _t('shell.projectFailed', err), []
+    if left_out:
+        # The archive on disk holds games this export cannot hold: keeping it is the only way
+        # not to lose them from the phone, so say which files are missing and stop.
+        try:
+            library.save(root_p)
+        except OSError as e:
+            return False, '', _t('shell.projectFailed', str(e)), []
+        blocked = [f'{g.title_id} ({g.name or g.title_id}): '
+                   f'{missing_file_in_framework(g.framework, g.title_id)}'
+                   for g in left_out]
+        return False, '', _t('shell.gamesMissing', str(ipa_path(root_p)), '\n'.join(blocked)), []
 
     for g in library.games:
         picked = picked_artwork if g.title_id == tid_norm else None
@@ -873,6 +1061,9 @@ def export_shell(
         library.save(root_p)
     except OSError as e:
         return False, '', _t('shell.projectFailed', str(e)), []
+
+    if recovered:
+        notes.append(_t('shell.gamesRecovered', ', '.join(recovered)))
 
     return _stage_and_pack_shell_ipa(
         library=library,
@@ -900,8 +1091,13 @@ def repack_built_shell(
     stage_cb: Callable[[str, str], None] | None = None,
     entry_limit: int = ZIP32_ENTRY_LIMIT,
     external_msl_threshold: int = EXTERNAL_MSL_THRESHOLD,
+    extra_dirs: list[str | os.PathLike] | None = None,
 ) -> tuple[bool, str, str, list[str]]:
-    """Repack `<root>/export/NX2Apple.ipa` from already-built frameworks in `shell.json` without rebuilding."""
+    """Repack `<root>/export/NX2Apple.ipa` from already-built frameworks in `shell.json` without rebuilding.
+
+    `extra_dirs` are folders to look in for a registered game whose framework is not in `root`
+    any more, such as the cache folder the user moved away from or a backup copy.
+    """
     def _t(key: str, *args: object) -> str:
         if t_func is not None:
             return t_func(key, *args)
@@ -911,17 +1107,31 @@ def repack_built_shell(
     repo_p = Path(repo)
     py_exe = _resolve_python_exe(python_exe)
 
+    notes: list[str] = []
     sweep_discarded(frameworks_mirror(root_p))
     library = ShellLibrary.load(root_p)
     mirror_frameworks(library, root_p, log=log)
-    library.drop_missing()
+    recovered, _still = recover_frameworks(
+        library, root_p, [d for d in (extra_dirs or []) if d], log=log)
+    library.drop_missing(log=log)
     if not library.games:
         return False, '', _t('shell.exportFailed', 'no built games in shell cache'), []
 
     last = library.games[-1]
-    notes, err = leave_out_incomplete(library, root_p, '', last.name or last.title_id, _t, log=log)
+    left_out, err = leave_out_incomplete(library, root_p, '', last.name or last.title_id, _t, log=log)
     if err is not None:
         return False, '', _t('shell.projectFailed', err), []
+    if left_out:
+        # Same reason as in `export_shell`: an archive that still holds these games must not
+        # be replaced by one that cannot, or they leave the phone with it.
+        try:
+            library.save(root_p)
+        except OSError as e:
+            return False, '', _t('shell.projectFailed', str(e)), []
+        blocked = [f'{g.title_id} ({g.name or g.title_id}): '
+                   f'{missing_file_in_framework(g.framework, g.title_id)}'
+                   for g in left_out]
+        return False, '', _t('shell.gamesMissing', str(ipa_path(root_p)), '\n'.join(blocked)), []
     if not library.games:
         why = notes[-1] if notes else 'no complete frameworks in shell cache'
         return False, '', _t('shell.projectFailed', why), notes
@@ -937,6 +1147,9 @@ def repack_built_shell(
         library.save(root_p)
     except OSError as e:
         return False, '', _t('shell.projectFailed', str(e)), notes
+
+    if recovered:
+        notes.append(_t('shell.gamesRecovered', ', '.join(recovered)))
 
     return _stage_and_pack_shell_ipa(
         library=library,
