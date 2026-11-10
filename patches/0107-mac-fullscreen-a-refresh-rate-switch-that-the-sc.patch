@@ -18,7 +18,7 @@ answering until the screens were unplugged.
   runs the main run loop, and the window's screen notification came inside a
   switch back, which then ran twice (the doubled log lines of the issue).
 
-Upstream-Status: pending
+Upstream-Status: forwarded seedds/nxnative#2095
 Reason: the screen-match loop blanks screens and hangs the Dock with several screens attached
 Issue: LNPANDY/NX2Apple#1085
 
