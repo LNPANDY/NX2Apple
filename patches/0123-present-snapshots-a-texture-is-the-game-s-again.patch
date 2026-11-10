@@ -1,0 +1,282 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Tue, 10 Nov 2026 19:22:17 +0900
+Subject: [PATCH] Present snapshots: a texture is the game's again once its
+ copy has run
+
+With present snapshots on (Frame buffering, DM_PRESENT_SNAP), a present
+that took a snapshot returned ticket 0, so the game's next acquire of that
+texture waited for nothing and only the next ring slot paced it. The ring
+slot is counted per present, not per texture: with more slots than
+swapchain textures, or a game that acquires its next texture before it
+presents the current frame, the game ran more frames ahead of the GPU than
+its swapchain allows. Xenoblade Chronicles 3 keeps its CPU-written
+per-frame uniform blocks in a ring sized on the swapchain and the GPU reads
+them from the shared pool when the draw runs, so it rewrote a queued
+frame's data: the 3D scene came out one flat colour, a new one each time,
+under a correct HUD. Field walk on an M2, 80 screen captures each:
+2 slots 32/80 and 4 slots 49/80 before, 0/80 and 0/80 after; snapshots off
+0/80 either way.
+
+A snapshot present now keeps its ticket, and the acquire of its texture
+(nvn_queue_present_wait) waits in mtl_present_wait_texture until that
+snapshot's copy has signalled g_snap_ev. The frame drawn into the texture
+ran before the copy, so the game never has more frames in flight than its
+swapchain holds, and it still does not wait for the screen, which is what
+snapshots are for.
+
+t_present_snap ticket checks it with 4 ring slots and 2 window textures:
+the presents keep their tickets, acquiring a texture again waits for its
+copy, and an acquire whose copy is held behind a GPU gate returns only once
+the gate opens. Before the fix three of its checks fail. The test file also
+renames nvn_mtl.m's weak nvn_hle_teardown in its translation unit, which
+hle_nvn.c defines: t_present_snap did not compile at this pin.
+
+Upstream-Status: forwarded seedds/nxnative#2153
+Reason: Frame buffering (present snapshots) let Xenoblade Chronicles 3 rewrite per-frame data still in use: flat-colour frames
+Issue: LNPANDY/NX2Apple#1117
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ dm/gfx/nvn/nvn_mtl.h          |  1 +
+ dm/gfx/nvn/nvn_mtl.m          | 23 +++++++++++++---
+ dm/gfx/nvn/nvn_obj.h          |  1 +
+ dm/gfx/nvn/nvn_queue.inc      |  2 +-
+ dm/gfx/tests/Makefile         |  2 ++
+ dm/gfx/tests/t_present_snap.m | 52 ++++++++++++++++++++++++++++++++---
+ docs/reference/frame-rate.md  |  6 +++-
+ docs/settings.md              |  2 +-
+ 8 files changed, 78 insertions(+), 11 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.h b/dm/gfx/nvn/nvn_mtl.h
+index c72746f..3621a43 100644
+--- a/dm/gfx/nvn/nvn_mtl.h
++++ b/dm/gfx/nvn/nvn_mtl.h
+@@ -59,3 +59,4 @@ uint64_t mtl_present_ext(uint64_t serial, double period, void *ev, uint64_t ev_v
+ void mtl_present_layer(uint32_t w, uint32_t h);   // a sized vi layer (hle_vi.c): the picture's shape instead of the display's 16:9
+ void mtl_present_screen(uint32_t w, uint32_t h);   // a screen taller than 16:9 (loader.c, DM_SCREEN_ASPECT): the picture's shape for a texture of that shape
+ void mtl_present_wait(uint64_t ticket);   // as in nvn_obj.h: wait until that present has been handed to the GPU
++void mtl_present_wait_texture(uint64_t ticket);   // the next acquire of a presented texture: a snapshot present's copy has run on the GPU, else as mtl_present_wait
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index df6a069..8840116 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -2421,7 +2421,7 @@ static void mtl_finish_gpu_at(int site) {
+ 
+ // ================= Render replay =================
+ #include "../../host/front.h"
+-static int g_red_once[164];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
++static int g_red_once[165];   // one past the highest key: a new key raises this, and the macro refuses to compile otherwise
+ #define RED_ONCE(k, ...) do { _Static_assert((k) < sizeof g_red_once / sizeof *g_red_once, "a RED_ONCE key past g_red_once: raise its size"); if (!g_red_once[k]++) MLOG("[RED] " __VA_ARGS__); } while (0)
+ // NVN vertex streams 0–15 → Metal vertex buffer slots: 0–13 go to 16–29 (30 is the constant fallback buffer), 14 and 15 to 14 and 15. Metal has only the 31 slots 0–30; translated shaders use only buffer(0) (the argument buffer),
+ // and the host's own vertex functions read no vertex buffers. 13 Sentinels uses stream 15, and the old 16 + stream went out of range (Metal assertion: buffer index (31) must be < 31)
+@@ -16035,12 +16035,13 @@ uint64_t mtl_present_ext(uint64_t serial, double period, void *ev, uint64_t ev_v
+ static id<MTLResidencySet> g_snap_res; static id<MTLSharedEvent> g_snap_ev; static uint64_t g_snap_v;
+ static _Atomic uint64_t g_snap_next, g_snap_cmt;   // g_snap_cmt: the last copy the encode thread has committed (its g_snap_v)
+ static int g_snap_n = 2;
++static struct { uint64_t tk, ev; } g_snap_tex[64];   // a snapshot present's ticket and its copy's g_snap_ev value, by ticket (mtl_present_wait_texture; under g_pq_mu)
+ int mtl_snap_on(void) {
+     static int v = -1; if (v >= 0) return v;
+     const char *e = getenv("DM_PRESENT_SNAP");
+     int n = e ? atoi(e) : dm_prof()->present_snap ? 2 : 0;   // the profile's present_snap (a ring of 2)
+     v = n > 0; g_snap_n = n < 2 ? 2 : n > SNAP_MAX ? SNAP_MAX : n;
+-    if (v) MLOG("present snapshots (DM_PRESENT_SNAP=%d): each present is copied into a ring of %d host textures and the game's texture is free at once", n, g_snap_n);
++    if (v) MLOG("present snapshots (DM_PRESENT_SNAP=%d): each present is copied into a ring of %d host textures, so the screen never samples the game's texture", n, g_snap_n);
+     else MLOG("present snapshots off (%s): the screen shows the game's own texture", e ? "DM_PRESENT_SNAP" : "game profile present_snap");   // Frame buffering off: the log says so too
+     return v;
+ }
+@@ -16156,15 +16157,29 @@ static uint64_t present_enqueue(const tex_t *t, double period, const int crop[4]
+     pq_item *it = &g_pq[g_pq_in % PQ]; *it = (pq_item){*t, period, atomic_load(&g_cur_frame), {0}, CACurrentMediaTime(), ev_val, ss ? g_snap[slot].ev : 0};
+     if (crop) memcpy(it->crop, crop, sizeof it->crop);   // The current frame's state is enqueued with the ticket number, rather than reading the mutable window late on the present thread
+     uint64_t tk = ++g_pq_in;
+-    if (ss) { g_snap[slot].ticket = tk; atomic_fetch_add(&g_snap_next, 1); }
++    if (ss) { g_snap[slot].ticket = tk; atomic_fetch_add(&g_snap_next, 1); g_snap_tex[tk % 64].tk = tk; g_snap_tex[tk % 64].ev = g_snap[slot].ev; }
+     pthread_cond_broadcast(&g_pq_cv);
+     pthread_mutex_unlock(&g_pq_mu);
+-    return ss ? 0 : tk;   // a snapshot: the game's texture is free now (its later draws come after the copy on the queue)
++    // A snapshot present still returns its ticket: the game's next acquire of this texture waits for the copy (mtl_present_wait_texture), not for the screen
++    return tk;
+ }
+ // For the layer's frame history (hle_vi.c): the ticket of the last present queued, and the last one the present queue has handed on (to the GPU and the display, or dropped)
+ void mtl_present_progress(uint64_t *queued, uint64_t *done) { pthread_mutex_lock(&g_pq_mu); *queued = g_pq_in; *done = g_pq_done; pthread_mutex_unlock(&g_pq_mu); }
+ // Do not wait during discard: the frame enqueued only after the flag was set (the present thread had just passed the flag check) has nobody to take it, and waiting for it would stall again; it is left for the following mtl_drain to clear
+ // Do not wait indefinitely in display-link mode: see the note at STALL_NS. Only frames "not yet taken by the display link" are dropped; the one already on its way to the screen is waited for until handed to the GPU (same dropping as when entering the background)
++// The game's next acquire of the texture a present showed (nvn_queue_present_wait). Without a snapshot the screen samples that texture: wait for the present (above).
++// With one, the texture is the game's again once its copy has run on the GPU, and with it the frame that drew into it: the game never has more frames in flight than
++// its swapchain holds, and still need not wait for the screen. Before, a snapshot present handed the texture back at once (ticket 0) and only the ring slot paced the
++// acquire; a game that acquires its next texture before presenting the current frame then ran a frame further ahead of the GPU per ring slot, and one that sizes its
++// CPU-written per-frame buffers on the swapchain's depth rewrote data a queued frame's draws still read: Xenoblade Chronicles 3's scene came out one flat colour in a
++// third to a half of the frames (2 slots 32/80, 4 slots 49/80, snapshots off 0/80; LNPANDY/NX2Apple#1117)
++void mtl_present_wait_texture(uint64_t tk) {
++    uint64_t ev = 0;
++    pthread_mutex_lock(&g_pq_mu); if (g_snap_tex[tk % 64].tk == tk) ev = g_snap_tex[tk % 64].ev; pthread_mutex_unlock(&g_pq_mu);
++    if (!ev) { mtl_present_wait(tk); return; }
++    if (atomic_load(&g_present_discard) || g_snap_ev.signaledValue >= ev) return;
++    if (![g_snap_ev waitUntilSignaledValue:ev timeoutMS:2000]) RED_ONCE(164, "present snapshots: a texture's copy did not finish within 2 s; the game draws into it again");
++}
+ void mtl_present_wait(uint64_t tk) {
+     pthread_mutex_lock(&g_pq_mu);
+     while (g_pq_done < tk && !atomic_load(&g_present_discard)) {
+diff --git a/dm/gfx/nvn/nvn_obj.h b/dm/gfx/nvn/nvn_obj.h
+index ba0ea08..4beddd1 100644
+--- a/dm/gfx/nvn/nvn_obj.h
++++ b/dm/gfx/nvn/nvn_obj.h
+@@ -221,6 +221,7 @@ void mtl_exec_rest(const uint64_t *handles, int n);   // Tells which handles in
+ // Present: draw the swapchain texture to the front-end CAMetalLayer (only counts when there is no window)
+ uint64_t mtl_present(const tex_t *t, double period_s, const int crop[4]);   // Enqueue a present and return the ticket immediately; period_s: minimum time this image is displayed (= present period, 0 = unlimited)
+ void mtl_present_wait(uint64_t ticket);                    // Wait until the present with this ticket has been processed (blit committed to the GPU queue)
++void mtl_present_wait_texture(uint64_t ticket);   // the next acquire of a presented texture: a snapshot present's copy has run on the GPU, else as mtl_present_wait
+ void mtl_present_flush(void);                              // Wait until all enqueued presents have been processed
+ void mtl_present_test_stall(uint64_t ns);                  // Unit test: extra pause in ns before each present on the present thread
+ int mtl_display_hz(void);                                   // Maximum refresh rate of the screen (Hz) when there is a window, 0 without a window
+diff --git a/dm/gfx/nvn/nvn_queue.inc b/dm/gfx/nvn/nvn_queue.inc
+index daeee4c..5108f3d 100644
+--- a/dm/gfx/nvn/nvn_queue.inc
++++ b/dm/gfx/nvn/nvn_queue.inc
+@@ -265,7 +265,7 @@ void nvn_queue_present_wait(uint64_t ticket) {
+         pthread_cond_wait(&nq_cv,&nq_mu);
+     }
+     uint64_t physical=r->present; pthread_mutex_unlock(&nq_mu);
+-    if(physical) mtl_present_wait(physical);
++    if(physical) mtl_present_wait_texture(physical);   // the texture's next acquire: a snapshot's copy, else the present itself
+ }
+ void nvn_queue_fence(queue_t *q,sync_t *s) {
+     pthread_mutex_lock(&nq_mu); nq_queue *p=nq_get(q);
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index 70454aa..61f22fc 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -220,6 +220,8 @@ check_t_present_snap: t_present_snap
+ 	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_present_snap resize
+ 	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_present_snap queued
+ 	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_present_snap queued
++	DM_NVN_ENC_THREAD=0 MTL_DEBUG_LAYER=1 ./t_present_snap ticket
++	DM_NVN_ENC_THREAD=1 MTL_DEBUG_LAYER=1 ./t_present_snap ticket
+ t_reorder_chain: t_reorder_chain.m $(MTL_T_DEP)
+ 	clang $(CFLAGS) -fobjc-arc -o $@ t_reorder_chain.m $(MTL_T_SRC) $(FW)
+ check_t_reorder_chain: RUN_ENV = MTL_DEBUG_LAYER=1
+diff --git a/dm/gfx/tests/t_present_snap.m b/dm/gfx/tests/t_present_snap.m
+index edf132d..1ae15b8 100644
+--- a/dm/gfx/tests/t_present_snap.m
++++ b/dm/gfx/tests/t_present_snap.m
+@@ -1,7 +1,9 @@
+ // Snapshot lifecycle: real NVN acquire/present/suspend, real Metal copies, and controlled encoder/GPU delays.
+ #define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_hle_teardown nvn_hle_teardown_mtl_default   // nvn_mtl.m's weak stand-in; hle_nvn.c below defines the real one in this translation unit
+ #include "../nvn/nvn_mtl.m"
+ #undef nvn_game_fps
++#undef nvn_hle_teardown
+ #define g_ft g_ft_hle
+ #include "../nvn/hle_nvn.c"
+ #undef g_ft
+@@ -111,8 +113,9 @@ static void pending_copy_case(void) {
+     tex_t t = source(0);
+     id<MTLSharedEvent> gpu_gate = [g_dev newSharedEvent]; if (!gpu_gate) abort(); [g_q4 waitForEvent:gpu_gate value:1];
+     pthread_mutex_lock(&g_pq_mu); g_link_owns_layer = 1; pthread_mutex_unlock(&g_pq_mu);
+-    CHECK("first snapshot queued", present_enqueue(&t, 1. / 60, NULL, 0) == 0);
+-    CHECK("second snapshot queued", present_enqueue(&t, 1. / 60, NULL, 0) == 0);
++    uint64_t v0 = g_snap_v;   // a snapshot keeps its present ticket (LNPANDY/NX2Apple#1117): the copy count tells a snapshot from a fallback
++    CHECK("first snapshot queued", present_enqueue(&t, 1. / 60, NULL, 0) != 0 && g_snap_v == v0 + 1);
++    CHECK("second snapshot queued", present_enqueue(&t, 1. / 60, NULL, 0) != 0 && g_snap_v == v0 + 2);
+     present_drop_for_suspend();   // Tickets are free, but the GPU still owns both allocators.
+     uint64_t v = g_snap_v, start = now_ns(), ticket = present_enqueue(&t, 1. / 60, NULL, 0);
+     CHECK("pending copy falls back without waiting", ticket != 0 && now_ns() - start < 50000000);
+@@ -135,8 +138,8 @@ static void resize_case(void) {
+     CHECK("slot 0's old texture is still resident", [g_snap_res containsAllocation:old0]);
+     snap_present(&big);
+     CHECK("slot 1's old texture is still resident", [g_snap_res containsAllocation:old1]);
+-    uint64_t ticket = present_enqueue(&big, 1. / 60, NULL, 0); mtl_present_flush();
+-    CHECK("a present while slot 0's copy is queued falls back", ticket != 0);
++    uint64_t copies = g_snap_v; present_enqueue(&big, 1. / 60, NULL, 0); mtl_present_flush();
++    CHECK("a present while slot 0's copy is queued falls back", g_snap_v == copies);
+     CHECK("the old texture stays resident while the copy is queued", [g_snap_res containsAllocation:old0]);
+     gpu_gate.signaledValue = 1;
+     CHECK("the replacing copies complete", [g_snap_ev waitUntilSignaledValue:g_snap_v timeoutMS:2000]);
+@@ -155,6 +158,46 @@ static void resize_case(void) {
+     h_nvnWindowAcquireTexture((NVNwindow *)job->window, NULL, &job->index);
+     dispatch_semaphore_signal(job->done);
+ } return NULL; }
++// A snapshot present keeps its ticket (LNPANDY/NX2Apple#1117): acquiring that texture again waits until its copy, and with it the frame drawn into it, has run on the GPU,
++// though not for the screen. Before, the ticket was 0 and only the next ring slot paced the acquire; with more ring slots than window textures, or a game that
++// acquires its next texture before presenting the current frame, the game ran frames further ahead of the GPU and rewrote per-frame data queued draws still read
++// (Xenoblade Chronicles 3: the scene one flat colour in a third to a half of the frames)
++static void ticket_case(void) {
++    state_reset(); memset(&R, 0, sizeof R); mtl_sub_begin();
++    CHECK("prior submission completed", mtl_wait(mtl_sub_commit(), 2000000000ull));
++    g_snap_n = 4;   // more ring slots than window textures: ring capacity alone does not hold the acquire
++    tex_t textures[2]; win_t win = {.ntex=2};
++    for (int i = 0; i < 2; i++) { textures[i] = source(i); win.tex[i] = (NVNtexture *)&textures[i]; }
++    id<MTLSharedEvent> gpu_gate = [g_dev newSharedEvent]; if (!gpu_gate) abort();
++    mtl_present_test_stall(400000000); uint64_t copies = g_snap_v; int idx;
++    h_nvnWindowAcquireTexture((NVNwindow *)&win, NULL, &idx); h_nvnQueuePresentTexture(&fixture_queue, (NVNwindow *)&win, idx);
++    queue_encoded(); snap_commit_wait(g_snap_v);
++    [g_q4 waitForEvent:gpu_gate value:1];   // holds the queue: the next copy stays unrun until the gate opens
++    h_nvnWindowAcquireTexture((NVNwindow *)&win, NULL, &idx); h_nvnQueuePresentTexture(&fixture_queue, (NVNwindow *)&win, idx);
++    for (uint64_t t0 = now_ns(); g_snap_v < copies + 2 && now_ns() - t0 < 2000000000ull;) usleep(1000);   // the queue worker takes the second snapshot (its copy waits behind the gate)
++    CHECK("both presents took snapshots", g_snap_v == copies + 2);
++    // The window holds the queue's receipts; the ticket the next acquire waits for is the present ticket the receipt was published with (0: nothing to wait for)
++    nq_receipt *r0 = (nq_receipt *)(uintptr_t)win.ticket[0];
++    CHECK("snapshot presents keep their present tickets", r0 && r0->published && r0->present);
++    uint64_t ev0 = 0; pthread_mutex_lock(&g_pq_mu); if (r0 && g_snap_tex[r0->present % 64].tk == r0->present) ev0 = g_snap_tex[r0->present % 64].ev; pthread_mutex_unlock(&g_pq_mu);
++    CHECK("the first texture's copy is known by its ticket", ev0 == copies + 1);
++    h_nvnWindowAcquireTexture((NVNwindow *)&win, NULL, &idx);   // (it also takes the stalled display link's pacing wait, as any acquire with snapshots does)
++    CHECK("acquiring the first texture again waited for its copy", idx == 0 && g_snap_ev.signaledValue >= ev0);
++    // the second texture's copy is still behind the gate: its acquire must hold until the gate opens
++    h_nvnQueuePresentTexture(&fixture_queue, (NVNwindow *)&win, idx);
++    acquire_job job = {.window = &win, .started = dispatch_semaphore_create(0), .done = dispatch_semaphore_create(0)};
++    pthread_t thread; if (pthread_create(&thread, NULL, acquire_thread, &job)) { gpu_gate.signaledValue = 1; exit(2); }
++    dispatch_semaphore_wait(job.started, DISPATCH_TIME_FOREVER);
++    int returned = dispatch_semaphore_wait(job.done, dispatch_time(DISPATCH_TIME_NOW, 100000000ll)) == 0;
++    CHECK("acquiring the second texture waits for its unrun copy", !returned);
++    gpu_gate.signaledValue = 1;
++    if (!returned) returned = dispatch_semaphore_wait(job.done, dispatch_time(DISPATCH_TIME_NOW, 2000000000ll)) == 0;
++    CHECK("that acquire returns once the copy has run", returned && job.index == 1);
++    if (!returned) exit(2); pthread_join(thread, NULL);
++    h_nvnQueuePresentTexture(&fixture_queue, (NVNwindow *)&win, job.index); queue_encoded();
++    mtl_present_flush(); mtl_present_test_stall(0); snap_commit_wait(g_snap_v);
++    CHECK("the last snapshot completes", [g_snap_ev waitUntilSignaledValue:g_snap_v timeoutMS:2000]);
++}
+ static void queued_case(void) {
+     uint8_t *memory = NULL; if (posix_memalign((void **)&memory, getpagesize(), 65536)) exit(2); memset(memory, 0, 65536);
+     NVNmemoryPool pool; NVNmemoryPoolBuilder pb = {0}; h_nvnMemoryPoolBuilderSetDefaults(&pb); h_nvnMemoryPoolBuilderSetDevice(&pb, &fixture_device);
+@@ -211,6 +254,7 @@ int main(int argc, char **argv) { @autoreleasepool {
+     else if (!strcmp(argv[1], "copy")) pending_copy_case();
+     else if (!strcmp(argv[1], "resize")) resize_case();
+     else if (!strcmp(argv[1], "queued")) queued_case();
++    else if (!strcmp(argv[1], "ticket")) ticket_case();
+     else return 2;
+     printf("present snapshots: %d checks, %d failed\n", checks, failed); return failed != 0;
+ } }
+diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
+index 1f066f9..8d27cf3 100644
+--- a/docs/reference/frame-rate.md
++++ b/docs/reference/frame-rate.md
+@@ -293,10 +293,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+ 
+ - **Symptom:** frames miss the screen while the GPU stays at its lowest clock (444 MHz on an M2 Max); more work (a higher render scale) only makes the frames slower.
+ - **Cause:** a game with two swapchain textures gets one back only when the display link has taken its previous present, so each frame's CPU work starts on a tick and the GPU idles from the end of one frame to the first work of the next. macOS reads that idle time as room and keeps the clock low.
+-- **Fix:** present snapshots (`DM_PRESENT_SNAP=<n>`, a ring of n host textures, 2 to 4; off by default on iOS and Mac; `nvn_mtl.m` `snap_take`): each present is copied on the game's queue, right after the frame's work, into the next ring slot; the display link shows the copy, and the game's texture is free at once. The game runs up to a frame ahead of the screen, and a frame whose work runs long is absorbed instead of shown late. Acquire waits for ring capacity and counts it as pacing (`mtl_snap_acquire_wait`). Present never waits for a snapshot slot: if it is still busy (several textures acquired ahead of time, or a copy not finished), the original texture is queued with its usual acquire ticket. Waiting inside present held the game's locks while the screen was stalled.
++- **Fix:** present snapshots (`DM_PRESENT_SNAP=<n>`, a ring of n host textures, 2 to 4; off by default on iOS and Mac; `nvn_mtl.m` `snap_take`): each present is copied on the game's queue, right after the frame's work, into the next ring slot; the display link shows the copy, and the game's texture is the game's again as soon as the copy has run on the GPU, without waiting for the screen. The game runs up to a frame ahead of the screen, and a frame whose work runs long is absorbed instead of shown late. Acquire waits for ring capacity and counts it as pacing (`mtl_snap_acquire_wait`). Present never waits for a snapshot slot: if it is still busy (several textures acquired ahead of time, or a copy not finished), the original texture is queued with its usual acquire ticket. Waiting inside present held the game's locks while the screen was stalled.
+ - **Setting:** the iOS launcher's **Frame buffering** toggle is offered for NVN builds and remembers the choice. Its default is the profile's `present_snap` (off unless a game was tested with it on: Breath of the Wild, a steady 60 fps on an iPhone 17 Pro Max where it fell to 30 without). `Documents/env.txt` overrides it (`DM_PRESENT_SNAP=1` on, `0` off); restart the app after editing the file. The Mac uses the same environment variable and the same profile default.
+ - **Fix:** the frame step judges lateness by what the screen shows while snapshots are on: the on-screen interval of the frame 8 presents back, against its hold (`fstep_tick`, `nvn_fstep.screen`). Judged by its cost, a frame whose CPU time holds the game's waits on its own GPU work (which now runs a frame later) looked late at a GPU time of 0.75 vsyncs.
+ - **Note:** the cost is up to a frame more latency.
++- **Symptom:** with snapshots on, Xenoblade Chronicles 3's 3D scene is one flat colour in a third to a half of the frames (black, grey, blue, orange, white; a new colour each time), while the HUD drawn over it is right. The more ring slots, the more often: 32 of 80 screen captures with 2 slots, 49 of 80 with 4, none with snapshots off ([LNPANDY/NX2Apple#1117](https://github.com/LNPANDY/NX2Apple/issues/1117)).
++- **Cause:** a present that took a snapshot returned ticket 0, so the game's next acquire of that texture waited for nothing; only the next ring slot paced it. The ring slot is counted per present, not per texture, so with more slots than swapchain textures, or a game that acquires its next texture before it presents the current frame, the game ran more frames ahead of the GPU than its swapchain allows. A game that keeps its CPU-written per-frame data (uniform blocks read by the GPU from the shared pool when the draw runs) in a ring sized on the swapchain then rewrote the data of a frame still queued: here the composite's block.
++- **Fix:** a snapshot present keeps its ticket, and the acquire of its texture waits until that snapshot's copy has run on the GPU (`mtl_present_wait_texture`, from `nvn_queue_present_wait`); the frame drawn into the texture has run before it. The game never has more frames in flight than its swapchain holds, and still does not wait for the screen. With the fix, 0 of 80 flat frames with 2 slots and with 4.
++- **Check:** `t_present_snap ticket`: with 4 ring slots and 2 window textures, both presents keep their tickets, acquiring the first texture again waits for its copy, and acquiring the second waits while its copy is held behind a GPU gate and returns once the gate opens. Before the fix the tickets were 0 and the acquire returned at once.
+ - **Note:** with Metal encoding on its own thread (`DM_NVN_ENC_THREAD`, the default on iOS) the copy is a block of the encode thread's own queue (`rec_own_push`), behind everything submitted before the present, so a present from another thread than the submitting one gets a snapshot too; the present waits only until that block is encoded (`snap_commit_wait`). The wait ledger `DM_NVN_WAITS=1` counts every CPU wait for the GPU or the encode thread (`[waits]` every 300 frames).
+ - **Fix:** suspend drains snapshot commits and their GPU event even when their display tickets were discarded (`snap_drain` in `mtl_drain`). Submission fences and upload completion do not cover these copies; previously suspend could return while the encoder still held a copy to submit.
+ - **Fix:** with snapshots on and the display link ticking, the acquire waits for the link's present-interval ticks like any present (`nvnWindowAcquireTexture` in `hle_nvn.c`); only a silent link falls back to the texture's slot time. The wait for a free ring slot alone did not pace: the link takes frames in order and drops all but the newest two, and a dropped frame frees its slot. Donkey Kong Bananza at the 30 fps cap ran 43-65 fps of game time on an M1 Pro and 45-50 fps on an iPhone 15 Pro Max, each frame still stepping 1/30 s (fast-forward), and about 110 of every 300 frames never reached the screen; after, 30.0 fps and 300 of 300 frames on screen (Mac; measured by the author of PR #1073 on their build). The game still runs up to a frame ahead of the screen: the link wait limits how often a frame starts, not how far ahead of the display it is. `t_link_ticks` checks the acquire with snapshots on: two ticks of a 60 Hz link at interval 2, one at interval 1, none while the link is stalled.
+diff --git a/docs/settings.md b/docs/settings.md
+index b135b36..2ecd519 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -138,7 +138,7 @@ sequenceDiagram
+     Game->>GPU: frame 2
+     Note over Game,Screen: Frame buffering on
+     Game->>GPU: frame 1, then a copy into the buffer
+-    Note over Game: image free at once
++    Note over Game: image free once copied
+     Game->>GPU: frame 2
+     GPU->>Screen: frame 1 from the buffer, at the next refresh
+     Note over GPU: keeps working: frame 2 while frame 1 is on screen
