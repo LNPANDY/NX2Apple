@@ -197,6 +197,7 @@ jobs:
             --hidden-import nspb_qt.win.gm_shaders \
             --hidden-import nspb_qt.win.nro_emu \
             --hidden-import nspb_qt.win.glslc_emu \
+            --hidden-import nspb_qt.win.defender \
             --collect-data PySide6 \
             --hidden-import PySide6.QtCore \
             --hidden-import PySide6.QtGui \
