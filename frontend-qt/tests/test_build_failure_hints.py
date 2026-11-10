@@ -73,7 +73,8 @@ class Classifier(unittest.TestCase):
 
     def test_unknown_output_keeps_todays_behaviour(self):
         for log in ('', 'something odd happened', '[RED] the RomFS image failed',
-                    '[RED] the NSP is damaged: 3 files written as read (--allow-damaged)'):   # the note of a build that went on
+                    '[RED] the NSP is damaged: 3 files written as read (--allow-damaged)',
+                    '[RED] v131072: 3 file(s) whose bytes do not start as their names promise (a .zs file that is not a zstd stream), so the game files are damaged:\n  Tex/a.bntx.zs (216,015 bytes, starts 00000000)\npacked as they are (--allow-damaged)'):   # the note of a build that went on
             self.assertEqual(bf.classify(log), bf.Failure(bf.UNKNOWN), log)
 
     def test_the_game_of_a_32_bit_program_is_named_when_the_message_names_it(self):

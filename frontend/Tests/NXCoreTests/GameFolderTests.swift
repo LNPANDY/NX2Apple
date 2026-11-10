@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import NXCore
 
@@ -159,7 +160,7 @@ extension GameFolderTests {
 
 /// A NUP's header and package table (SPEC v1), as pack_nup.py reads them: enough for `readNUP`, no folders, files or data.
 /// packages: (kind 0 base / 1 update / 2 add-on, title ID, version).
-func syntheticNUP(_ packages: [(kind: UInt8, titleID: UInt64, version: UInt32)], size: Int? = nil) -> Data {
+func syntheticNUP(_ packages: [(kind: UInt8, titleID: UInt64, version: UInt32)], size: Int? = nil, tocSHA: [UInt8]? = nil) -> Data {
     func put(_ d: inout [UInt8], _ o: Int, _ v: UInt64, _ n: Int) { for i in 0..<n { d[o + i] = UInt8(v >> (8 * UInt64(i)) & 0xFF) } }
     let total = 0x80 + 0x30 + packages.count * 0x40
     var d = [UInt8](repeating: 0, count: total)
@@ -172,6 +173,8 @@ func syntheticNUP(_ packages: [(kind: UInt8, titleID: UInt64, version: UInt32)],
         let o = 0x80 + 0x30 + i * 0x40
         put(&d, o, p.titleID, 8); put(&d, o + 20, UInt64(p.version), 4); d[o + 24] = p.kind
     }
+    let sha = tocSHA?.count == 32 ? tocSHA! : Array(SHA256.hash(data: Data(d[0x80..<total])))
+    d.replaceSubrange(0x18..<0x38, with: sha)
     return Data(d)
 }
 
@@ -206,7 +209,9 @@ extension GameFolderTests {
         XCTAssertEqual(GameFolder.scan(root + "/Other.nup").failureValue, .notNUP("Other.nup"))
         write("Half.nup", syntheticNUP([(0, 0x040074A01BF12000, 0)], size: 1 << 30))
         XCTAssertEqual(GameFolder.scan(root + "/Half.nup").failureValue, .nupPartial("Half.nup"))
-        XCTAssertEqual(GameFolder.scan(root).failureValue, .severalNUPs(2))
+        write("Damaged.nup", syntheticNUP([(0, 0x040074A01BF12000, 0)], tocSHA: [UInt8](repeating: 0xAA, count: 32)))
+        XCTAssertEqual(GameFolder.scan(root + "/Damaged.nup").failureValue, .nupDamaged("Damaged.nup"))
+        XCTAssertEqual(GameFolder.scan(root).failureValue, .severalNUPs(3))
     }
 
     /// build_ipa_from_nsp.py `nup_file`: a NUP in the folder is built before any game folders beside it, a package beside it is not.

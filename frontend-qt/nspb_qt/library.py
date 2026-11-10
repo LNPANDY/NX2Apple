@@ -5,6 +5,7 @@ FreeSpace.swift, GameDeletion.swift, and DriveCopy.swift for the Windows/Qt fron
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -269,7 +270,7 @@ class GameFolderContents:
 
 @dataclass
 class GameFolderProblem:
-    kind: str  # 'missing', 'noBaseFolder', 'unreadableNPDM', 'notBaseTitle', 'packageBeside', 'dlcName', 'notDLC', 'dlcRomFS', 'notNUP', 'nupPartial', 'severalNUPs'
+    kind: str  # 'missing', 'noBaseFolder', 'unreadableNPDM', 'notBaseTitle', 'packageBeside', 'dlcName', 'notDLC', 'dlcRomFS', 'notNUP', 'nupPartial', 'nupDamaged', 'severalNUPs'
     arg1: object = None
     arg2: object = None
 
@@ -325,12 +326,23 @@ class GameFolder:
                 if expected_size != size:
                     return GameFolderProblem('nupPartial', name)
                 toc = struct.unpack_from('<Q', head, 0x08)[0]
+                toc_size = struct.unpack_from('<Q', head, 0x10)[0]
+                toc_sha = head[0x18:0x38]
                 count = struct.unpack_from('<I', head, 0x48)[0]
-                if count <= 0 or count >= 100_000 or toc + 0x30 + count * 0x40 > size:
+                min_table = 0x30 + count * 0x40
+                if count <= 0 or count >= 100_000 or toc + min_table > size:
                     return GameFolderProblem('notNUP', name)
                 f.seek(toc)
-                table = f.read(0x30 + count * 0x40)
-                if len(table) != 0x30 + count * 0x40 or table[:4] != b'TOC\x01':
+                if any(toc_sha):
+                    if not min_table <= toc_size <= (256 << 20) or toc + toc_size > size:
+                        return GameFolderProblem('nupDamaged', name)
+                    toc_bytes = f.read(toc_size)
+                    if len(toc_bytes) != toc_size or hashlib.sha256(toc_bytes).digest() != toc_sha:
+                        return GameFolderProblem('nupDamaged', name)
+                    table = toc_bytes[:min_table]
+                else:
+                    table = f.read(min_table)
+                if len(table) != min_table or table[:4] != b'TOC\x01':
                     return GameFolderProblem('notNUP', name)
         except OSError:
             return GameFolderProblem('notNUP', name)

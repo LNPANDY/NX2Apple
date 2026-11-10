@@ -95,7 +95,8 @@ import NXModel
 
     func testUnknownOutputKeepsTodaysBehaviour() {
         for log in ["", "something odd happened", "[RED] the RomFS image failed",
-                    "[RED] the NSP is damaged: 3 files written as read (--allow-damaged)"] {   // the success note of a build that went on
+                    "[RED] the NSP is damaged: 3 files written as read (--allow-damaged)",
+                    "[RED] v131072: 3 file(s) whose bytes do not start as their names promise (a .zs file that is not a zstd stream), so the game files are damaged:\n  Tex/a.bntx.zs (216,015 bytes, starts 00000000)\npacked as they are (--allow-damaged)"] {   // the success note of a build that went on
             XCTAssertEqual(BuildFailureClassifier.classify(log), BuildFailure(kind: .unknown, gameName: nil), log)
         }
     }

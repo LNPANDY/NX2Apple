@@ -44,6 +44,7 @@ TABLE: list[tuple[str, str, str]] = [
     ('metal.other', OTHER_METAL, r'Metal compiler is not the one the shaders were tested with'),
     ('shaders.regression', SHADER_REGRESSION, r'a change to the translation chain broke them'),
     ('nsp.damaged', DAMAGED_NSP, r"files fail the NCA's hash check"),
+    ('nup.damaged', DAMAGED_NSP, r'Pack again from a good copy of the game'),
     ('arm32.program', A32_PROGRAM, r'is a 32-bit ARM program'),
     ('keys.missing', KEYS, r'(?m)^\[RED\] no such file: '),
     ('keys.old', KEYS_OLD, r'the keys are older than the game'),

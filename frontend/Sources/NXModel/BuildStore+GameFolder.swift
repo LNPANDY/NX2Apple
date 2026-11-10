@@ -66,6 +66,7 @@ extension BuildStore {
         case .dlcRomFS(let name, let count): return String(format: t("folder.problem.dlcRomFS"), name, count)
         case .notNUP(let name): return String(format: t("folder.problem.notNUP"), name)
         case .nupPartial(let name): return String(format: t("folder.problem.nupPartial"), name)
+        case .nupDamaged(let name): return String(format: t("folder.problem.nupDamaged"), name)
         case .severalNUPs(let count): return String(format: t("folder.problem.severalNUPs"), count)
         }
     }

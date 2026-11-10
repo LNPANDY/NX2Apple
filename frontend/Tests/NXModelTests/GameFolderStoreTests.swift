@@ -214,6 +214,18 @@ import XCTest
         XCTAssertEqual(store.slot("base").problem, store.t("folder.engineOldNUP"))
     }
 
+    func testADamagedNUPIsRefusedWithReplacementMessage() {
+        let (store, _) = makeStore()
+        var d = [UInt8](nupData())
+        d.replaceSubrange(0x18..<0x38, with: [UInt8](repeating: 0xAA, count: 32))
+        let nup = root + "/Damaged.nup"
+        write(nup, Data(d))
+        store.scan(folder: nup)
+        XCTAssertNil(store.gameFolder)
+        XCTAssertEqual(store.slot("base").problem, String(format: store.t("folder.problem.nupDamaged"), "Damaged.nup"))
+        XCTAssertFalse(store.canBuild)
+    }
+
     /// An old engine (no survey in the script) refuses a NUP of a game it has no profile for, one with the survey builds it.
     func testANUPOfAGameWithoutAProfileNeedsTheSurveyInTheEngine() throws {
         let (store, _) = makeStore(profile: false)
@@ -243,7 +255,7 @@ import XCTest
         func put(_ d: inout [UInt8], _ o: Int, _ v: UInt64, _ n: Int) { for i in 0..<n { d[o + i] = UInt8(v >> (8 * UInt64(i)) & 0xFF) } }
         var d = [UInt8](repeating: 0, count: 0x80 + 0x30 + 2 * 0x40)
         d.replaceSubrange(0..<4, with: [0x4E, 0x55, 0x50, 0x01])
-        put(&d, 0x08, 0x80, 8); put(&d, 0x40, UInt64(d.count), 8); put(&d, 0x48, 2, 4)
+        put(&d, 0x08, 0x80, 8); put(&d, 0x10, UInt64(0x30 + 2 * 0x40), 8); put(&d, 0x40, UInt64(d.count), 8); put(&d, 0x48, 2, 4)
         d.replaceSubrange(0x80..<0x84, with: [0x54, 0x4F, 0x43, 0x01])
         put(&d, 0xB0, 0x040074A01BF12000, 8)
         put(&d, 0xF0, 0x040074A01BF12800, 8); put(&d, 0xF0 + 20, 458752, 4); d[0xF0 + 24] = 1

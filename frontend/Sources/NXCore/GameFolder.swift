@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// A game that comes as a folder of its files instead of NSP or XCI packages (LNPANDY/NX2Apple#512, #445). Switch 2 games come
@@ -71,6 +72,8 @@ package enum GameFolder {
         case notNUP(String)
         /// The NUP is shorter or longer than its header says (copied or downloaded in part): its name.
         case nupPartial(String)
+        /// The NUP's table of contents fails its SHA-256 check (damaged file): its name.
+        case nupDamaged(String)
         /// More than one NUP in the folder: how many. The script takes one game per folder.
         case severalNUPs(Int)
     }
@@ -264,11 +267,21 @@ package enum GameFolder {
         guard head.count == 0x80, head[0..<3].elementsEqual("NUP".utf8), head[3] == 1 else { return .failure(.notNUP(name)) }
         let size = (try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? UInt64 ?? 0
         if u(head, 0x40, 8) != size { return .failure(.nupPartial(name)) }
-        let toc = u(head, 0x08, 8), count = Int(u(head, 0x48, 4))
-        guard count > 0, count < 100_000, toc + 0x30 + UInt64(count) * 0x40 <= size else { return .failure(.notNUP(name)) }
+        let toc = u(head, 0x08, 8), tocSize = u(head, 0x10, 8), count = Int(u(head, 0x48, 4))
+        let minTable = UInt64(0x30 + max(0, count) * 0x40)
+        guard count > 0, count < 100_000, toc <= size, minTable <= size - toc else { return .failure(.notNUP(name)) }
+        let tocSHA = Array(head[0x18..<0x38])
         try? h.seek(toOffset: toc)
-        let table = [UInt8](h.readData(ofLength: 0x30 + count * 0x40))
-        guard table.count == 0x30 + count * 0x40, table[0..<4].elementsEqual([0x54, 0x4F, 0x43, 0x01]) else { return .failure(.notNUP(name)) }
+        let table: [UInt8]
+        if tocSHA.contains(where: { $0 != 0 }) {
+            guard tocSize >= minTable, tocSize <= 256 << 20, tocSize <= size - toc else { return .failure(.nupDamaged(name)) }
+            let tocData = h.readData(ofLength: Int(tocSize))
+            guard tocData.count == Int(tocSize), Array(SHA256.hash(data: tocData)) == tocSHA else { return .failure(.nupDamaged(name)) }
+            table = [UInt8](tocData.prefix(Int(minTable)))
+        } else {
+            table = [UInt8](h.readData(ofLength: Int(minTable)))
+        }
+        guard table.count == Int(minTable), table[0..<4].elementsEqual([0x54, 0x4F, 0x43, 0x01]) else { return .failure(.notNUP(name)) }
         var base: UInt64 = 0, updates: [(version: Int, path: String)] = [], addons: [UInt64] = [], updateTitle: UInt64 = 0
         for i in 0..<count {
             let o = 0x30 + i * 0x40, tid = u(table, o, 8), version = Int(u(table, o + 20, 4))
