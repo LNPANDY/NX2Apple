@@ -4637,12 +4637,17 @@ class WinToolchainInstallWiringTest(unittest.TestCase):
         pct100_logs = [ln for ln in h.logs if 'Unpack 100%' in ln]
         self.assertEqual(len(pct100_logs), 1, pct100_logs)
 
-    def test_install_python_repairs_or_reinstalls_when_msi_already_registered(self) -> None:
-        """When Python 3.12.10 was previously installed and its folder was deleted by hand,
-        the Burn installer exits 0 in Modify mode without writing files; install_python must
-        automatically run /repair (and /uninstall + clean install if TargetDir was elsewhere).
+    def test_install_python_repairs_or_unpacks_nupkg_when_msi_already_registered(self) -> None:
+        """When Python 3.12 is already registered on Windows, `install_python` must try `/repair`
+        first, and if `TargetDir` was registered elsewhere (or MSI exits 1603/1638), unpack the
+        standalone NuGet archive into `target` without running `/uninstall` on the user's Python.
         """
         from nspb_qt.win import fetch as wf
+
+        nupkg_asset = tc.PYTHON_NUPKG_ASSET
+        self.assertEqual(len(nupkg_asset['sha256']), 64)
+        self.assertIn(tc.PYTHON_VERSION, nupkg_asset['url'])
+        self.assertGreater(nupkg_asset['size'], 10_000_000)
 
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -4650,11 +4655,18 @@ class WinToolchainInstallWiringTest(unittest.TestCase):
             exe.parent.mkdir(parents=True)
             exe.write_bytes(b'MZ')
 
+            nupkg = root / 'downloads' / nupkg_asset['name']
+            with zipfile.ZipFile(nupkg, 'w') as zf:
+                zf.writestr('python.nuspec', '<package/>')
+                zf.writestr('tools/python.exe', b'MZ-standalone')
+                zf.writestr('tools/Lib/venv/__init__.py', '# venv\n')
+                zf.writestr('tools/Lib/ensurepip/__init__.py', '# ensurepip\n')
+
             # Case 1: initial install exits 0 without creating python.exe -> /repair succeeds
             cmds_case1: list[list[str]] = []
 
             def run_case1(cmd, **_kw):
-                cmds_case1.append(list(cmd))
+                cmds_case1.append([str(c) for c in cmd])
                 return subprocess.CompletedProcess(cmd, 0, '', '')
 
             # _runs_quiet sequence: [False (initial check), False (after install), True (after /repair)]
@@ -4667,34 +4679,219 @@ class WinToolchainInstallWiringTest(unittest.TestCase):
             self.assertNotIn('/repair', cmds_case1[0])
             self.assertIn('/repair', cmds_case1[1])
 
-            # Case 2: /repair still leaves target missing (registered at another path) -> /uninstall + clean install
+            # Case 2: /repair still leaves target missing (registered at another path) -> unpacks
+            # standalone NuGet archive into target and never invokes `/uninstall`
             cmds_case2: list[list[str]] = []
 
             def run_case2(cmd, **_kw):
-                cmds_case2.append(list(cmd))
+                cmds_case2.append([str(c) for c in cmd])
                 return subprocess.CompletedProcess(cmd, 0, '', '')
 
-            # _runs_quiet sequence: [False (initial), False (after install), False (after /repair), True (after reinstall)]
-            with mock.patch.object(wf, 'download', return_value=exe), \
+            def fake_download(url, dest_path, *_a, **_kw):
+                return nupkg if 'nuget' in str(url) or str(dest_path).endswith('.nupkg') else exe
+
+            # _runs_quiet: [False (initial), False (after install), False (after /repair), True (after nupkg unpack)]
+            with mock.patch.object(wf, 'download', side_effect=fake_download), \
                  mock.patch.object(wf.subprocess, 'run', side_effect=run_case2), \
                  mock.patch.object(tc, '_runs_quiet', side_effect=[False, False, False, True]):
                 out2 = wf.install_python(dest=root, log=lambda _s: None)
             self.assertEqual(out2, root / f'python-{tc.PYTHON_VERSION}')
+            self.assertTrue((out2 / 'python.exe').is_file())
+            self.assertTrue((out2 / 'Lib' / 'venv' / '__init__.py').is_file())
             self.assertTrue(any('/repair' in c for c in cmds_case2), cmds_case2)
-            self.assertTrue(any('/uninstall' in c for c in cmds_case2), cmds_case2)
+            self.assertFalse(any('/uninstall' in c for c in cmds_case2), cmds_case2)
+            self.assertTrue(any('ensurepip' in c for c in cmds_case2), cmds_case2)
 
-            # Case 3: _clean_python_env strips PyInstaller _MEIPASS and frozen PYTHONHOME
+            # Case 2b: unsafe path in nupkg is rejected and cleans up pre-existing partial target
+            bad_nupkg = root / 'downloads' / 'bad.nupkg'
+            with zipfile.ZipFile(bad_nupkg, 'w') as zf:
+                zf.writestr('tools/../evil.exe', b'MZ')
+            target_bad = root / 'bad-target'
+            target_bad.mkdir(parents=True)
+            (target_bad / 'partial.dll').write_bytes(b'MZ-partial')
+            self.assertFalse(wf._unpack_python_nupkg(bad_nupkg, root, target_bad, lambda _s: None))
+            self.assertFalse(target_bad.exists())
+
+            # Case 3: _clean_python_env strips PyInstaller _MEIPASS, frozen PYTHONHOME, VIRTUAL_ENV, and PIP_USER
             with mock.patch.object(sys, 'frozen', True, create=True), \
                  mock.patch.object(sys, '_MEIPASS', r'C:\App\_internal', create=True), \
                  mock.patch.dict(os.environ, {
                      '_MEIPASS': r'C:\App\_internal',
                      'PYTHONHOME': r'C:\App\_internal',
                      'PYTHONPATH': r'C:\App\_internal;C:\UserLib',
+                     'VIRTUAL_ENV': r'C:\Users\dev\.venv',
+                     'PYTHONSTARTUP': r'C:\Users\dev\startup.py',
+                     'PIP_USER': '1',
+                     'PIP_TARGET': r'C:\CustomTarget',
+                     'PIP_REQUIRE_VIRTUALENV': 'true',
                  }, clear=False):
                 cenv = tc._clean_python_env()
                 self.assertNotIn('_MEIPASS', cenv)
                 self.assertNotIn('PYTHONHOME', cenv)
+                self.assertNotIn('VIRTUAL_ENV', cenv)
+                self.assertNotIn('PYTHONSTARTUP', cenv)
+                self.assertNotIn('PIP_USER', cenv)
+                self.assertNotIn('PIP_TARGET', cenv)
+                self.assertNotIn('PIP_REQUIRE_VIRTUALENV', cenv)
                 self.assertEqual(cenv.get('PYTHONPATH'), r'C:\UserLib')
+
+    def test_existing_windows_python_selection_and_in_thread_fallback(self) -> None:
+        """On Windows:
+        1. System Python 3.13/3.14 without pre-installed packages is not picked as `fallback`
+           (because bundled offline wheels target cp312), so onboarding installs managed 3.12.10.
+        2. Embeddable zip (`python312._pth`) or a partial install with `Lib/` but no `Lib/venv`
+           is rejected as a venv base.
+        3. If a system Python 3.12 is picked for venv creation and `_make_venv` fails, `install_dep`
+           falls back in the same worker thread to `wf.install_python()` + `_make_venv()`.
+        """
+        import ast
+        from nspb_qt import platform_util as pu
+        from nspb_qt.i18n import Lang
+        from nspb_qt.l10n import t as l10n_t
+        from nspb_qt.win import fetch as wf
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # System Python 3.13 without packages -> must not be returned as fallback on Windows
+            py313 = root / 'Python313' / 'python.exe'
+            py313.parent.mkdir(parents=True)
+            py313.write_bytes(b'MZ')
+            py313.chmod(0o755)
+            with mock.patch.object(pu, 'IS_WIN', True), \
+                 mock.patch.object(pu, 'python_candidates', return_value=[str(py313)]), \
+                 mock.patch.object(pu, '_python_version', return_value='3.13'), \
+                 mock.patch.object(pu, '_runs', return_value=False):
+                got_py, got_ok, got_ver = pu.find_python()
+                self.assertEqual((got_py, got_ok, got_ver), ('python', False, ''))
+                self.assertIsNone(pu.venv_base(str(py313)))
+
+            # Embeddable Python 3.12 with `python312._pth` or `python312.zip` without `Lib/` -> rejected as venv base
+            py_embed = root / 'Python312Embed' / 'python.exe'
+            py_embed.parent.mkdir(parents=True)
+            py_embed.write_bytes(b'MZ')
+            (py_embed.parent / 'python312._pth').write_text('python312.zip\n', encoding='utf-8')
+            py_embed_no_pth = root / 'Python312EmbedNoPth' / 'python.exe'
+            py_embed_no_pth.parent.mkdir(parents=True)
+            py_embed_no_pth.write_bytes(b'MZ')
+            (py_embed_no_pth.parent / 'python312.zip').write_bytes(b'PK')
+            with mock.patch.object(pu, 'IS_WIN', True):
+                self.assertFalse(pu._usable_venv_base(str(py_embed), '3.12'))
+                self.assertFalse(pu._usable_venv_base(str(py_embed_no_pth), '3.12'))
+
+                # Partial Python 3.12 with `Lib/` but missing `Lib/ensurepip` -> rejected
+                py_partial = root / 'Python312Partial' / 'python.exe'
+                (py_partial.parent / 'Lib' / 'venv').mkdir(parents=True)
+                py_partial.write_bytes(b'MZ')
+                self.assertFalse(pu._usable_venv_base(str(py_partial), '3.12'))
+                (py_partial.parent / 'Lib' / 'ensurepip').mkdir(parents=True)
+                self.assertTrue(pu._usable_venv_base(str(py_partial), '3.12'))
+
+            # WindowsApps store stub is filtered out of python_candidates() on Windows
+            store_stub = r'C:\Users\u\AppData\Local\Microsoft\WindowsApps\python.exe'
+            with mock.patch.object(pu, 'IS_WIN', True), \
+                 mock.patch.object(pu, '_which', return_value=store_stub):
+                self.assertNotIn(store_stub, pu.python_candidates())
+
+            # In-thread fallback in `install_dep` when system Python 3.12 `_make_venv` fails
+            src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
+            tree = ast.parse(src)
+            cls_node = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Model')
+            wanted = {
+                'install_dep',
+                '_stage_progress_logger',
+                '_progress_logger',
+                '_set_dep_progress',
+                '_clear_installing',
+                '_record_install_failure',
+                '_classify_install_failure',
+            }
+            methods = [n for n in cls_node.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
+            mod_node = ast.fix_missing_locations(ast.Module(body=methods, type_ignores=[]))
+
+            class _SyncThread:
+                def __init__(self, target=None, daemon=None):
+                    self._target = target
+
+                def start(self):
+                    if self._target:
+                        self._target()
+
+            ns: dict = {
+                'Path': Path,
+                'shutil': shutil,
+                'subprocess': subprocess,
+                'pu': pu,
+                'threading': type('T', (), {'Thread': _SyncThread}),
+                '__package__': 'nspb_qt',
+            }
+            exec(compile(mod_node, str(QT / 'nspb_qt' / 'model.py'), 'exec'), ns)
+
+            managed_dir = root / 'tools' / f'python-{tc.PYTHON_VERSION}'
+            managed_dir.mkdir(parents=True)
+            managed_exe = managed_dir / 'python.exe'
+            managed_exe.write_bytes(b'MZ')
+
+            make_venv_calls: list[str] = []
+
+            class _FallbackHarness:
+                install_dep = ns['install_dep']
+                _stage_progress_logger = ns['_stage_progress_logger']
+                _progress_logger = ns['_progress_logger']
+                _set_dep_progress = ns['_set_dep_progress']
+                _clear_installing = ns['_clear_installing']
+                _record_install_failure = ns['_record_install_failure']
+                _classify_install_failure = ns['_classify_install_failure']
+
+                def __init__(self):
+                    self.lang = Lang('en')
+                    self.logs: list[str] = []
+                    self.deps: list = []
+                    self.python_path = r'C:\Python312\python.exe'
+                    self.python_ver = '3.12'
+
+                def log(self, msg: str) -> None:
+                    self.logs.append(str(msg))
+
+                def t(self, key: str, *args: object) -> str:
+                    return l10n_t(key, self.lang, *args)
+
+                def _emit_deps_changed(self) -> None:
+                    pass
+
+                def check_deps(self) -> None:
+                    pass
+
+                def _make_venv(self, py: str, dep=None) -> bool:
+                    make_venv_calls.append(py)
+                    return Path(py) == managed_exe
+
+            class _PyDep:
+                def __init__(self):
+                    self.id = 'python'
+                    self.title_key = 'dep.python'
+                    self.install = [r'C:\Python312\python.exe', '-m', 'pip', 'install', 'lz4']
+                    self.installing = False
+                    self.install_stage = ''
+                    self.install_detail = ''
+                    self.install_pct = None
+                    self.queue_index = 0
+                    self.last_error = ''
+                    self.fix_hint = ''
+
+            fh = _FallbackHarness()
+            py_dep = _PyDep()
+            fh.deps = [py_dep]
+            with mock.patch.object(pu, 'IS_WIN', True), \
+                 mock.patch.object(pu, 'venv_dir', return_value=root / 'venv'), \
+                 mock.patch.object(wf, 'install_python', return_value=managed_dir) as spy_inst:
+                fh.install_dep(py_dep)
+
+            spy_inst.assert_called_once()
+            self.assertEqual(make_venv_calls, [r'C:\Python312\python.exe', str(managed_exe)])
+            self.assertEqual(fh.python_path, str(managed_exe))
+            self.assertEqual(py_dep.last_error, '')
+            self.assertFalse(py_dep.installing)
+            self.assertTrue(getattr(py_dep, '_install_done', False))
 
 
 class LoveShadersWinTest(unittest.TestCase):

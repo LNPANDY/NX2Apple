@@ -640,6 +640,7 @@ class Model(QObject):
         # itself) happens in `_windows_deps`, which is the only place allowed to load the
         # Windows-only modules.
         py, py_ok, py_ver = pu.find_python()
+        self.python_path, self.python_ok, self.python_ver = py, py_ok, py_ver
         deps.append(self._python_row(py, py_ok, py_ver))
 
         # .NET. On Windows the row comes from `_windows_deps()` instead: there the check has to be
@@ -1447,9 +1448,50 @@ class Model(QObject):
 
         def work() -> None:
             ok = True
+            detail = 'venv / package install failed'
             try:
                 if dep.id == 'python':
                     ok = self._make_venv(self.python_path, dep=dep)
+                    if not ok and pu.IS_WIN:
+                        # An existing system Python 3.12 on Windows may lack a working ensurepip/venv
+                        # or carry a broken site configuration. Fall back in-place (on the same worker
+                        # thread so `install_all_missing` stays sequential) to the app-managed
+                        # Python 3.12.10 and rebuild the venv from it.
+                        try:
+                            from .win import fetch as wf, toolchain as wtc
+                            self.log('System Python venv setup failed — installing app-managed Python '
+                                     f'{wtc.PYTHON_VERSION}...\n')
+                            vdir = pu.venv_dir()
+                            if vdir.exists():
+                                shutil.rmtree(vdir, ignore_errors=True)
+                            py_ver = wtc.PYTHON_VERSION
+
+                            def py_log(s: object) -> None:
+                                msg = str(s)
+                                self.log(msg + '\n')
+                                if 'installing Python' in msg or 'unpacking standalone' in msg:
+                                    self._set_dep_progress(
+                                        dep,
+                                        self.t('dep.stage.pyInstall'),
+                                        self.t('dep.detail.pyInstall', py_ver),
+                                        50,
+                                        item_overall_pct=45,
+                                        force=True,
+                                    )
+
+                            path = wf.install_python(
+                                log=py_log,
+                                progress=self._stage_progress_logger(
+                                    dep, self.t('dep.phase.download'),
+                                    wtc.PYTHON_ASSET['name'],
+                                    phase='py_download', py_version=py_ver))
+                            self.log(self.t('dep.python.done', str(path)) + '\n')
+                            py_exe = Path(path) / 'python.exe' if Path(path).is_dir() else Path(path)
+                            self.python_path = str(py_exe)
+                            ok = self._make_venv(str(py_exe), dep=dep)
+                        except Exception as e:
+                            detail = f'{type(e).__name__}: {e}'
+                            ok = False
                 else:
                     self.log('$ ' + ' '.join(dep.install) + '\n')
                     try:
@@ -1462,11 +1504,15 @@ class Model(QObject):
                             self.log(line)
                         p.wait()
                         ok = p.returncode == 0
+                        if not ok:
+                            detail = f'exit {p.returncode}'
                     except OSError as e:
                         self.log(f'{e}\n')
+                        detail = str(e)
                         ok = False
                 if not ok:
-                    self.log(self.t('dep.install.fail', '-') + '\n')
+                    self.log(self.t('dep.install.fail', detail) + '\n')
+                    self._record_install_failure(dep, detail)
             finally:
                 self._clear_installing(dep)
                 self._emit_deps_changed()
@@ -1936,10 +1982,12 @@ class Model(QObject):
         vpy = pu.venv_python()
         if Path(vpy).is_file():
             ver = pu._python_version(vpy)
-            if not ver or pu._ver_tuple(ver) < pu.MIN_PYTHON:
-                # A venv an older app made from Apple's 3.9 (issue #75): pip into it would
-                # "succeed" and the build would still fail. Moved aside, never deleted, because
-                # the folder is the user's. Only when a base can build a new one.
+            vt = pu._ver_tuple(ver) if ver else (0, 0)
+            if not ver or vt < pu.MIN_PYTHON or (pu.IS_WIN and vt != (3, 12)):
+                # A venv an older app made from Apple's 3.9 (issue #75), or a Windows venv created
+                # from a non-3.12 system interpreter that cannot install the bundled cp312 wheels:
+                # moved aside, never deleted, because the folder is the user's. Only when a base
+                # can build a new one.
                 new_base = pu.venv_base(base)
                 if new_base is None or new_base == vpy:
                     self.log(f'{pu.venv_dir()} is older than Python {pu.MIN_PYTHON[0]}.'
@@ -1975,6 +2023,7 @@ class Model(QObject):
             vdir.parent.mkdir(parents=True, exist_ok=True)
             self.log(f'$ {base} -m venv {vdir}\n')
             if not pu._runs(base, ['-m', 'venv', str(vdir)]):
+                shutil.rmtree(vdir, ignore_errors=True)
                 self.log('venv creation failed\n')
                 return False
         ver_str = pu._python_version(vpy)
@@ -1998,9 +2047,10 @@ class Model(QObject):
                     force=True,
                 )
             try:
+                pip_env = pu.child_env({'PIP_CONFIG_FILE': os.devnull} if attempt_wheels else None)
                 p = subprocess.Popen([vpy, '-m', 'pip'] + args, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, text=True, encoding='utf-8',
-                                     errors='replace', env=pu.child_env(), **pu.no_window_kwargs())
+                                     errors='replace', env=pip_env, **pu.no_window_kwargs())
                 assert p.stdout is not None
                 seen_pkgs: list[str] = []
                 for line in p.stdout:

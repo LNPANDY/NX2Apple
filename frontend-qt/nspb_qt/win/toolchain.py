@@ -176,6 +176,17 @@ PYTHON_ASSET = {
     'sha256': '67b5635e80ea51072b87941312d00ec8927c4db9ba18938f7ad2d27b328b95fb',
     'size': 26964224,
 }
+#: Official standalone NuGet package (`python.3.12.10.nupkg`, published by the Python Software
+#: Foundation on nuget.org). Unlike the embeddable zip, this archive ships the full standard
+#: library including `Lib/venv` and `Lib/ensurepip` under `tools/` without touching the Windows
+#: Installer (MSI) registry — used as a conflict-free fallback when an existing system Python 3.12
+#: installation causes the WiX Burn installer to exit without writing `TargetDir`.
+PYTHON_NUPKG_ASSET = {
+    'name': f'python.{PYTHON_VERSION}.nupkg',
+    'url': f'https://www.nuget.org/api/v2/package/python/{PYTHON_VERSION}',
+    'sha256': '0eb85c2dfccccf1b17352de4c397f69194035b7d37149eacc16f1147d93de3b8',
+    'size': 14515433,
+}
 
 #: zstd for Windows, from facebook/zstd's own release (the build's decompression step calls the
 #: CLI). Flat zip: the exe sits one folder down.
@@ -501,8 +512,14 @@ def python_dir() -> Path | None:
     git: a machine with no system Python is exactly the machine that ran the in-app installer,
     and after installing, the interpreter has to be found again without the user editing PATH.
     """
-    for root in (tools_dir() / f'python-{PYTHON_VERSION}',
-                 bundled_tools_dir() / f'python-{PYTHON_VERSION}'):
+    cands: list[Path] = [
+        tools_dir() / f'python-{PYTHON_VERSION}',
+        bundled_tools_dir() / f'python-{PYTHON_VERSION}',
+    ]
+    if cfg := setting('python_dir'):
+        p = Path(cfg)
+        cands.insert(0, p.parent if p.name.lower() == 'python.exe' else p)
+    for root in cands:
         exe = root / 'python.exe'
         if exe.is_file() and _runs_quiet(exe):
             return root
@@ -516,6 +533,11 @@ def _clean_python_env() -> dict[str, str]:
     is_frozen = bool(getattr(sys, 'frozen', False) or meipass)
     env.pop('_MEIPASS', None)
     env.pop('_MEIPASS2', None)
+    env.pop('VIRTUAL_ENV', None)
+    env.pop('PYTHONSTARTUP', None)
+    env.pop('PIP_USER', None)
+    env.pop('PIP_TARGET', None)
+    env.pop('PIP_REQUIRE_VIRTUALENV', None)
     if is_frozen:
         env.pop('PYTHONHOME', None)
     if meipass and 'PYTHONPATH' in env:

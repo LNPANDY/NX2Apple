@@ -119,6 +119,7 @@ def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
             os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python312\python.exe'),
             os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python311\python.exe'),
             os.path.expandvars(r'%ProgramFiles%\Python312\python.exe'),
+            r'C:\Python312\python.exe',
         ]
     else:
         fw = '/Library/Frameworks/Python.framework/Versions'
@@ -130,7 +131,37 @@ def python_candidates(extra_candidates: list[str] | None = None) -> list[str]:
         cands += version_manager_pythons()
     if w := _which('python3' if not IS_WIN else 'python'):
         cands.append(w)
+    if IS_WIN:
+        cands = [c for c in cands if c and 'windowsapps' not in c.replace('/', '\\').lower()]
     return cands
+
+
+def _usable_venv_base(py: str, ver: str) -> bool:
+    """Whether `py` (at version `ver`) can create a venv and install the bundled wheels.
+
+    On Windows the shipped offline `wheels/` folder carries `cp312` (`win_amd64`) wheels only, so
+    an unpacked system Python 3.13 / 3.14 without the packages pre-installed would fail offline
+    `pip install --no-index`. Also reject Windows embeddable zip layouts (`python*._pth`) and
+    custom system installs where `Lib/` is present without `Lib/venv` or `Lib/ensurepip`.
+    """
+    vt = _ver_tuple(ver)
+    if vt < MIN_PYTHON:
+        return False
+    if IS_WIN:
+        if vt != (3, 12):
+            return False
+        py_dir = Path(py).parent
+        try:
+            if any(py_dir.glob('python*._pth')):
+                return False
+            lib_dir = py_dir / 'Lib'
+            if any(py_dir.glob('python*.zip')) and not lib_dir.is_dir():
+                return False
+            if lib_dir.is_dir() and not ((lib_dir / 'venv').is_dir() and (lib_dir / 'ensurepip').is_dir()):
+                return False
+        except OSError:
+            return False
+    return True
 
 
 def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, str]:
@@ -164,7 +195,7 @@ def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, s
         if _runs(c, ['-c', probe]):
             if ready is None or _win_ver_rank(ver) > _win_ver_rank(ready[1]):
                 ready = (c, ver)
-        elif fallback is None or _win_ver_rank(ver) > _win_ver_rank(fallback[1]):
+        elif _usable_venv_base(c, ver) and (fallback is None or _win_ver_rank(ver) > _win_ver_rank(fallback[1])):
             fallback = (c, ver)
     if ready:
         return (ready[0], True, ready[1])
@@ -191,14 +222,14 @@ def venv_base(preferred: str) -> str | None:
             preferred = str(sub)
     if preferred and p.is_file() and os.access(preferred, os.X_OK):
         v = _python_version(preferred)
-        if v and _ver_tuple(v) >= MIN_PYTHON:
+        if v and _usable_venv_base(preferred, v):
             return preferred
     best: tuple[str, str] | None = None
     for c in python_candidates():
         if not c or not Path(c).is_file() or not os.access(c, os.X_OK):
             continue
         v = _python_version(c)
-        if not v or _ver_tuple(v) < MIN_PYTHON:
+        if not v or not _usable_venv_base(c, v):
             continue
         if best is None or _win_ver_rank(v) > _win_ver_rank(best[1]):
             best = (c, v)
@@ -362,6 +393,11 @@ def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     is_frozen = bool(getattr(sys, 'frozen', False) or meipass)
     env.pop('_MEIPASS', None)
     env.pop('_MEIPASS2', None)
+    env.pop('VIRTUAL_ENV', None)
+    env.pop('PYTHONSTARTUP', None)
+    env.pop('PIP_USER', None)
+    env.pop('PIP_TARGET', None)
+    env.pop('PIP_REQUIRE_VIRTUALENV', None)
     if is_frozen:
         for k in ('PYTHONHOME', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
             env.pop(k, None)
