@@ -15,9 +15,10 @@ Upstream-Status: forwarded seedds/nxnative#1400
 Reason: Diagnostics used to find the Ezio Collection's one-frame flicker: consecutive-frame capture and a run-time DM_NVN_VIS_ALL
 Issue: LNPANDY/NX2Apple#483
 ---
- dm/gfx/nvn/nvn_mtl.m | 7 +++++--
- dm/host/hle_hid.c    | 8 +++++++-
- 2 files changed, 12 insertions(+), 3 deletions(-)
+ dm/gfx/nvn/nvn_mtl.m  | 7 +++++--
+ dm/host/hle_hid.c     | 8 +++++++-
+ docs/env_switches.tsv | 1 +
+ 3 files changed, 13 insertions(+), 3 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
 index e408321e..046f785a 100644
@@ -76,3 +77,15 @@ index e8368100..36afb0c4 100644
                  if (!strncmp(line, "texlist ", 8)) { void dm_gfx_texlist(int target); dm_gfx_texlist(atoi(line + 8)); continue; }
                  if (!strcmp(line, "restop")) { void dm_gfx_restop(void); dm_gfx_restop(); continue; }   // what the residency set holds (nvn_mtl.m res_top)
                  if (!strncmp(line, "texraw ", 7)) { void dm_gfx_texraw(uint64_t serial, const char *path); char *e2; uint64_t s = strtoull(line + 7, &e2, 10); while (*e2 == ' ') e2++; dm_gfx_texraw(s, e2); continue; }
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index f5bd4161..bdef8c06 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -243,6 +243,7 @@ DM_NVN_VBUF_CACHE	switch	`0` turns off the cache of resolved vertex stream addre
+ DM_NVN_VCONV_CHECK	diagnostic	`=1` scans the indices again at every reuse of a cached vertex conversion range (`vconv_range`) and reports differences
+ DM_NVN_VCONV_CPU	switch	`=1` converts integer vertex inputs fed formats of another class on the CPU, as before, instead of through the shader's shadow inputs (`<key>_bv`)
+ DM_NVN_VCONV_RANGE	switch	`0` / `1` overrides the profile's `vconv_range`: CPU vertex conversion only over the vertices each draw reads instead of the whole bound range
++DM_NVN_VIS_ALL	diagnostic	`=1` makes every samples-passed report say visible; read each time, so DM_CTL `env DM_NVN_VIS_ALL=1` turns it on and off while the game runs
+ DM_NVN_VLOG	diagnostic	Set: logs each NVN memory pool as it is created (address, memory, size, flags) with a backtrace
+ DM_NVN_VSDUMP	path	Output file for post-vertex captures; used with DM_NVN_VSDUMP_KEY and the frame/count bounds
+ DM_NVN_VSDUMP_FROM	diagnostic	First presented frame eligible for a post-vertex capture (default 0)
