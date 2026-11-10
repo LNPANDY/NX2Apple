@@ -37,6 +37,13 @@ final class Sandbox: @unchecked Sendable {
         for id in ["0100000000010000", "0100000000020000", "0100000000030000", "0100000000040000", "0100000000080000"] { UserDefaults().removePersistentDomain(forName: suite + id) }
     }
 
+    /// An archive test needs a framework whose library is only the packed `msl-<UUID>.aar` it writes itself, so
+    /// the loose tree every fixture starts with goes away first.
+    func takeLooseShadersOut(_ id: String = Fixtures.orbit) throws {
+        let msl = games.appendingPathComponent(id).appendingPathComponent("DmGame.framework/msl")
+        if FileManager.default.fileExists(atPath: msl.path) { try FileManager.default.removeItem(at: msl) }
+    }
+
     func defaults(_ id: String) -> UserDefaults { UserDefaults(suiteName: suite + id)! }
 
     func config(chain: String? = "b-3f9a2c", os: OperatingSystemVersion = OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0),

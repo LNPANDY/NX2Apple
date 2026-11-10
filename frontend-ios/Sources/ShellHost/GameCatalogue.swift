@@ -310,7 +310,7 @@ public enum GameStateResolver {
         if let min = manifest.minOSVersion, !isVersion(environment.osVersion, atLeast: min) { return .needsAppUpdate }
         guard data.found else { return .needsGameData }
         if !shaderFolders.isEmpty, !hasShaderLibrary(manifest, in: shaderFolders, fileManager: fm),
-           !(entry.frameworkURL.map { hasPackedShaderLibrary(in: $0, fileManager: fm) } ?? false) {
+           !(entry.frameworkURL.map { hasBundledShaderLibrary(manifest, in: $0, fileManager: fm) } ?? false) {
             return .needsShaderLibrary
         }
         return .playable
@@ -328,10 +328,13 @@ public enum GameStateResolver {
         return false
     }
 
-    /// A framework that still carries its library packed: the Mac app writes `msl-<UUID>.aar` and the launcher unpacks
-    /// it on the first play. Read here so an IPA built before the libraries moved beside it still plays.
-    static func hasPackedShaderLibrary(in framework: URL, fileManager fm: FileManager = .default) -> Bool {
+    /// A framework that carries its own library, in either shape an IPA made before the libraries moved beside it
+    /// has: one `msl-<UUID>.aar` the launcher unpacks on the first play, or the loose `msl/b-<hex>` tree the engine
+    /// reads where it is. Both keep such a game playable without copying anything.
+    static func hasBundledShaderLibrary(_ manifest: GameManifest, in framework: URL,
+                                        fileManager fm: FileManager = .default) -> Bool {
         let names = (try? fm.contentsOfDirectory(atPath: framework.path)) ?? []
-        return names.contains { $0.hasPrefix("msl-") && $0.hasSuffix(".aar") }
+        if names.contains(where: { $0.hasPrefix("msl-") && $0.hasSuffix(".aar") }) { return true }
+        return hasShaderLibrary(manifest, in: [framework.appendingPathComponent("msl", isDirectory: true)], fileManager: fm)
     }
 }
