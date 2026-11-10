@@ -46,6 +46,12 @@ package enum LauncherPalette {
     /// The cream as a line, a mark or a tint on a surface: cream in Dark, the primary text color in Light, where cream on white has no contrast.
     package static let accent = dynamic(dark: darkCream, light: rgb(0x18181B))
     /// No border around the primary action in either appearance.
+    /// The controller's focus ring (PadFocus) and the underline of the selected tile in the collection. Dark keeps the cream it always
+    /// had. Light uses the primary at 0.55: solid near-black read as a heavy outline on the light page.
+    package static let focusRing = dynamic(dark: darkCream, light: rgb(0x18181B, alpha: 0.55))
+    package static var focusRingWidth: CGFloat { 2 }
+    package static let selectionUnderline = focusRing
+    package static var selectionUnderlineHeight: CGFloat { 3 }
     package static let actionBorder = dynamic(dark: .clear, light: .clear)
 
     // A secondary button, a menu button or a pop-up.

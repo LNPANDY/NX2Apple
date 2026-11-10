@@ -345,7 +345,7 @@ struct TouchLayoutEditorView: View {
 
     private func selectedToolbarWidth(for selected: TouchLayout.Control) -> CGFloat {
         let count: CGFloat = selected == .face || selected.isFaceKey ? 2 : 1
-        let mode: CGFloat = selected.canToggle ? Self.modeWidth + 8 : 0
+        let mode: CGFloat = selected.canToggle ? Self.modeWidth + 8 : selected == .face ? Self.faceModesWidth + 8 : 0
         return count * 44 + (count - 1) * 8 + mode + 12
     }
 
@@ -372,6 +372,7 @@ struct TouchLayoutEditorView: View {
             }
 
             if selected.canToggle { selectedMode }
+            else if selected == .face { faceModes }
         }
         .padding(6)
         .frame(width: selectedToolbarWidth(for: selected), height: 56)
@@ -446,6 +447,13 @@ struct TouchLayoutEditorView: View {
         for shape in Self.shapes(c, g) {
             if let halo { context.stroke(PadDrawing.outline(shape), with: .color(halo), lineWidth: (model.held ? 12 : 9) / k) }
             PadDrawing.draw(shape, in: &context, style: style)
+        }
+        // A key set to Toggle carries a small cream mark at its top right, so the editor shows which keys toggle (#658, #1129)
+        if model.editing.layout.toggles(c), let box = g.box(of: c)?.box {
+            let r = 5 / k
+            let mark = Path(ellipseIn: CGRect(x: box.maxX - r, y: box.minY - r, width: 2 * r, height: 2 * r))
+            context.fill(mark, with: .color(ShellPalette.cream))
+            context.stroke(mark, with: .color(.black.opacity(0.6)), lineWidth: 1 / k)
         }
     }
 
@@ -586,6 +594,28 @@ struct TouchLayoutEditorView: View {
 
     static let holdMode = "hold", toggleMode = "toggle"
 
+    /// The diamond chosen as a whole: A, B, X and Y each Hold or Toggle (filled when Toggle), so the mode never needs the keys moving apart.
+    static let faceModesWidth: CGFloat = 4 * 44 + 3 * 6
+    private var faceModes: some View {
+        HStack(spacing: 6) {
+            ForEach([TouchLayout.Control.a, .b, .x, .y], id: \.self) { key in
+                let on = model.editing.layout.toggles(key)
+                Button { if !ignoresPress() { model.setToggles(key, !on) } } label: {
+                    Text(key.title).shellText(15, .bold).foregroundStyle(on ? Color.black : Color.white)
+                        .frame(width: 44, height: 44)
+                        .background(on ? ShellPalette.cream : Color.white.opacity(0.08), in: Circle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!exactGeometryReady)
+                .accessibilityLabel(key.title)
+                .accessibilityValue(ShellStrings.text(on ? "Toggle" : "Hold"))
+                .accessibilityHint(ShellStrings.text("Button mode"))
+                .accessibilityIdentifier("touchLayout.mode.\(key.rawValue)")
+                .shellTarget("lay.mode.\(key.rawValue)", enabled: exactGeometryReady) { model.setToggles(key, !model.editing.layout.toggles(key)) }
+            }
+        }
+    }
+
     /// Reset the selected control.
     private var selectedReset: some View {
         let canPutBack = exactGeometryReady && (model.selected.map { model.editing.isMoved($0) } ?? false)
@@ -607,12 +637,23 @@ struct TouchLayoutEditorView: View {
 /// that opens the editor.
 struct TouchArrangeRow: View {
     var arranged: Bool
+    /// The keys set to Toggle, by their names, listed under the row (#1129). Empty: every key is held, no line.
+    var toggled: [String] = []
     @Environment(\.shellOpenTouchLayout) private var open
+    static func toggledLine(_ keys: [String]) -> String? {
+        keys.isEmpty ? nil : line(keys.joined(separator: " "))
+    }
+    private static func line(_ list: String) -> String { ShellStrings.text("Keys that toggle: \(list)") }
     var body: some View {
         Button { open?() } label: {
             HStack {
-                Label(ShellStrings.text("Touch controls"), systemImage: "hand.draw")
-                    .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 3) {
+                    Label(ShellStrings.text("Touch controls"), systemImage: "hand.draw")
+                        .foregroundStyle(.primary)
+                    if let line = Self.toggledLine(toggled) {
+                        Text(line).font(.footnote).foregroundStyle(.secondary).accessibilityIdentifier("shellSettings.arrange.toggles")
+                    }
+                }
                 Spacer(minLength: 8)
                 Text(ShellStrings.text(arranged ? "Your own" : "Built in"))
                     .foregroundStyle(.secondary)

@@ -63,7 +63,7 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
         let t: (String) -> String = { L10n.string($0, .en) }
         XCTAssertEqual(BuildFiles.menuTitle(store, game: id, t: t), "Remove build files", "not measured yet: the item without a size")
         await store.refresh([BuildFilesStore.Game(id: id, name: "Zelda", folder: "/x_build")]).value
-        XCTAssertEqual(BuildFiles.menuTitle(store, game: id, t: t), "Remove build files (31 GB)")
+        XCTAssertEqual(BuildFiles.menuTitle(store, game: id, t: t), "Remove build files (\(BuildFilesCard.bytes(31_000_000_000)))")
     }
 
     func testGameReadyOnMacAndDeviceOffersBothLaunchDestinations() throws {
@@ -92,8 +92,8 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
         var game = try readyGame()
         game.artwork.hero = ArtworkChoice(source: .banner)
         let list = items(game, folder: true, log: true)
-        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "rename", "reveal", "log", "supported", "remove", "delete"])
-        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "cheats.menu", "library.changeArtwork", "library.rename", "install.reveal", "library.showLog", "supported.menu", "library.remove", "delete.menu"]
+        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "rename", "reveal", "log", "remove", "delete"])
+        XCTAssertEqual(list.map(\.title), ["library.buildAgain", "launch.title", "saves.menu", "cheats.menu", "library.changeArtwork", "library.rename", "install.reveal", "library.showLog", "library.remove", "delete.menu"]
             .map { L10n.string($0, .en) })
         XCTAssertTrue(list.allSatisfy(\.enabled))
         XCTAssertEqual(list.last?.destructive, true)
@@ -105,7 +105,7 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
     func testANotBuiltGameLeavesOutTheRowsThatNeedABuild() {
         var game = LibraryGame(titleID: titleID, name: "Hades")
         var list = items(game)
-        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "rename", "supported", "remove", "delete"], "launch options answer with the build to make, there is no Finder or Free space without a build")
+        XCTAssertEqual(list.map(\.id), ["rebuild", "options", "saves", "cheats", "artwork", "rename", "remove", "delete"], "launch options answer with the build to make, there is no Finder or Free space without a build")
         XCTAssertFalse(list[0].enabled, "no recorded inputs: nothing to build again")
         game.inputs = ["base": ["/preview/Hades.nsp"]]
         list = items(game)
@@ -149,10 +149,10 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
         let game = try readyGame()
         var log: [String] = []
         let actions = ManageActions(rebuild: { log.append("rebuild") }, options: { log.append("options") }, saves: { log.append("saves") },
-                                    cheats: { log.append("cheats") }, changeArtwork: { log.append("artwork") }, rename: { log.append("rename") }, supportedGames: { log.append("supported") }, reveal: { log.append("reveal") }, showLog: { log.append("log") },
+                                    cheats: { log.append("cheats") }, changeArtwork: { log.append("artwork") }, rename: { log.append("rename") }, reveal: { log.append("reveal") }, showLog: { log.append("log") },
                                     removeBuildFiles: { log.append("buildFiles") }, remove: { log.append("remove") }, delete: { log.append("delete") })
         for item in items(game, folder: true, log: true, buildFiles: "Remove build files", actions: actions) { item.run() }
-        XCTAssertEqual(log, ["rebuild", "options", "saves", "cheats", "artwork", "rename", "reveal", "log", "buildFiles", "supported", "remove", "delete"])
+        XCTAssertEqual(log, ["rebuild", "options", "saves", "cheats", "artwork", "rename", "reveal", "log", "buildFiles", "remove", "delete"])
     }
 
     func testChangeArtworkOpensThePanel() throws {

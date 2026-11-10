@@ -144,15 +144,15 @@ extension BuildStore {
         // A game folder's files are not encrypted: the script ignores -k for it, and the launcher does not ask for the keys.
         var args = [engine + "/" + RepoLayout.buildScript, inputDir] + (folder != nil ? [] : ["-k", keysPath]) + ["--progress", "json"]
         if let selectedTitleID { args += ["--title-id", selectedTitleID] }
-        // A compatibility switch the player turned on: written to a small env file the pipeline
-        // copies into the app bundle (main.m sets one variable per line at boot). Only for an iPhone or iPad build;
-        // a Mac app runs on this Mac's GPU, which always has BC support.
-        if bcOnCPU && target != BuildTarget.mac {
+        // A small env file the pipeline copies into the app bundle (main.m sets one variable per line at boot). Only for an iPhone or
+        // iPad build: the in-game menu's words in the launcher's language (GameMenuText, #1129), and the CPU decode of BC textures when
+        // the player turned that compatibility switch on (a Mac app runs on this Mac's GPU, which always has BC support).
+        if target != BuildTarget.mac {
             let envPath = NSTemporaryDirectory() + "nspb-env-\(UUID().uuidString.prefix(8)).txt"
             do {
-                try "DM_PROF_TEX_BC_CPU=1\n".write(toFile: envPath, atomically: true, encoding: .utf8)
+                try GameMenuText.envFile(bcOnCPU: bcOnCPU, t).write(toFile: envPath, atomically: true, encoding: .utf8)
                 args += ["--env-file", envPath]
-                say(t("msg.bcOn"))
+                if bcOnCPU { say(t("msg.bcOn")) }
             } catch {
                 say(String(format: t("msg.bcEnvFailed"), error.localizedDescription))
             }

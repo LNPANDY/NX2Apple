@@ -166,6 +166,35 @@ extension ConsoleState {
         searchText = ""; searchResults = []
         sheets.append(.search)
     }
+    /// The supported games, with an empty search each time the page opens.
+    mutating func openSupportedGames(_ list: [SupportedGame], owned: [String: String]) {
+        guard canOpen, presentedSheet != .supportedGames else { return }
+        supportedGames = list; supportedOwned = owned; supportedText = ""
+        sheets.append(.supportedGames)
+    }
+    mutating func typeSupported(_ text: String) {
+        guard presentedSheet == .supportedGames, supportedText.count < 60 else { return }
+        supportedText += text
+    }
+    mutating func deleteSupported() {
+        guard presentedSheet == .supportedGames, !supportedText.isEmpty else { return }
+        supportedText.removeLast()
+    }
+    /// The profiles that answer to the search, by name, title ID or the owned game's name in the library, as the desktop's Supported
+    /// games sheet finds them. All of them for an empty search.
+    var supportedShown: [SupportedGame] {
+        let needle = supportedText.trimmingCharacters(in: .whitespaces)
+        guard !needle.isEmpty else { return supportedGames }
+        return supportedGames.filter { game in
+            let ownedTitle = ownedGameID(game).flatMap { id in games.first { $0.id == id }?.title } ?? ""
+            return [game.name, game.titleID, ownedTitle].contains { $0.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+        }
+    }
+    /// The library's game for a supported game the player owns.
+    func ownedGameID(_ game: SupportedGame) -> String? {
+        supportedOwned[game.titleID.uppercased()].flatMap { id in games.contains { $0.id == id } ? id : nil }
+    }
+
     mutating func openBuilds() {
         guard canOpen, presentedSheet != .builds else { return }
         sheets.append(.builds)
@@ -227,4 +256,17 @@ extension ConsoleState {
         stopped = ConsoleStopped(gameID: id, lastSave: lastSave)
         sheets = [.stopped]
     }
+}
+
+/// B in the search and in the supported games: a letter goes while the field has one, then B leaves (#1129).
+enum ConsoleSearchBack {
+    static func deletes(_ state: ConsoleState) -> Bool {
+        switch state.presentedSheet {
+        case .search?: return !state.searchText.isEmpty
+        case .supportedGames?: return !state.supportedText.isEmpty
+        default: return false
+        }
+    }
+    /// The hint's words for B.
+    static func labelKey(_ text: String) -> String { text.isEmpty ? "console.back" : "console.search.deleteLetter" }
 }

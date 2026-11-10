@@ -174,6 +174,14 @@ import UIKit
         guard let c = selected, c.canToggle else { return }
         editing.layout.setToggles(c, on)
     }
+    /// One key's mode, while the diamond is chosen and its keys move together: a controller sets A, B, X or Y without turning
+    /// "Move A B X Y together" off first (#1129).
+    func setToggles(_ c: TouchLayout.Control, _ on: Bool) {
+        guard c.canToggle else { return }
+        editing.layout.setToggles(c, on)
+    }
+    /// The keys set to Toggle, in the engine's order, for the settings row and the marks in the editor.
+    var toggledKeys: [TouchLayout.Control] { TouchLayout.Control.allCases.filter { editing.layout.toggles($0) } }
 
     func putBack() {
         guard let c = selected else { return }

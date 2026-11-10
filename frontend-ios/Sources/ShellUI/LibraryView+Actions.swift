@@ -82,7 +82,9 @@ extension LibraryView {
     }
     func openControllers() { guard !shellSettingsOpen else { return }; guard noteTouch() else { return }; retention.reset(); controllersOpen = true; focus.id = "ctl.close" }
     func openShellSettings() { guard noteTouch() else { return }; retention.reset(); shellSettingsOpen = true; focus.id = "shs.close" }
-    func closeShellSettings() { guard !fromSystemEcho else { return }; shellSettingsOpen = false; retention.closed(.shellSettings, sheetStaysOpen: menuPresented); focus.id = "lib.shellSettings" }
+    func closeShellSettings() { guard !fromSystemEcho else { return }; shellSettingsOpen = false; retention.closed(.shellSettings, sheetStaysOpen: menuPresented); focus.id = settingsOpen ? "set.back" : "lib.shellSettings" }
+    /// Where the Options button opens the shell's settings: over the library and over a game's settings, never over another panel or dialog.
+    static func optionsOpensShellSettings(under top: FocusLayer?) -> Bool { top == nil || top == .settings }
     func openTouchLayout(_ window: CGSize, _ insets: EdgeInsets) {
         guard noteTouch() else { return }
         touchLayout = TouchLayoutEditorModel.forDevice(window: window, insets: insets)
@@ -213,13 +215,15 @@ extension LibraryView {
         }
         if focus.id == nil || !activeTargets.contains(where: { $0.id == focus.id }) {
             focus.id = defaultFocus
-            if action != .activate && action != .back && action != .settings && action != .controllers { return }
+            if action != .activate && action != .back && action != .settings && action != .controllers && action != .shellSettings { return }
         }
         switch action {
         case .activate: activeTargets.first { $0.id == focus.id }?.activate()
         case .back: back()
         case .settings: openSettings()
         case .controllers: openControllers()
+        case .shellSettings:   // Options: the gear's panel from the library or a game's settings, and Options again closes it
+            if shellSettingsOpen { closeShellSettings() } else if Self.optionsOpensShellSettings(under: topLayer) { openShellSettings() }
         case .left, .right:
             // In Cover Flow the focused cover is always the middle one: left and right move the carousel by one.
             if layout.isCoverFlow, let id = focus.id, id.hasPrefix("lib.tile."), let index = games.firstIndex(where: { $0.id == selected?.id }) {
