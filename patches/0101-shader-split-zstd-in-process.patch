@@ -20,10 +20,10 @@ Issue: LNPANDY/NX2Apple#837
  create mode 100644 dm/tools/tests/test_split_zstd.py
 
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index 78e2fcd..2bc5b31 100644
+index 202c5da..2827eec 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
-@@ -2557,12 +2557,14 @@ def unzs_dict(d, did, where):
+@@ -2626,12 +2626,14 @@ def unzs_dict(d, did, where):
      return zstd.decompress(d, zstd_dict=_ZD[did])
  
  def unzs(path):
@@ -113,7 +113,7 @@ index 0000000..9693d56
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index f562418..7bb287b 100644
+index 7092689..c16d277 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
 @@ -89,6 +89,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
