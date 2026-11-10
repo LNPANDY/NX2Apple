@@ -208,8 +208,8 @@ extension LauncherView {
                                             game.id == heroID ? LauncherPalette.cream : .clear, lineWidth: 2))
                                         Text(game.displayName(loc.lang)).font(.manrope(16, .semibold)).lineLimit(1)
                                         status(game)
-                                        Capsule().fill(game.id == heroID ? LauncherPalette.cream : .clear)
-                                            .frame(height: 3).padding(.top, 4)
+                                        Capsule().fill(game.id == heroID ? LauncherPalette.selectionUnderline : .clear)
+                                            .frame(height: LauncherPalette.selectionUnderlineHeight).padding(.top, 4)
                                     }
                                     .frame(width: cardWidth, alignment: .leading).contentShape(Rectangle())
                                 }
