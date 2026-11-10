@@ -535,6 +535,83 @@ import XCTest
         XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
     }
 
+    /// The controller's Options button (#1129) opens the shell settings over the library and over a game's settings, and Options again closes them.
+    func testOptionsButtonOpensAndClosesShellSettings() {
+        extraArguments = ["--input-test"]
+        launch("focus")
+        let options = app.buttons["qa.input.options"]
+        XCTAssertTrue(options.waitForExistence(timeout: 5))
+        options.tap()
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+        // The sheet now covers the stand-in buttons, so Options again comes from the hardware keyboard's comma, which the shell maps to it.
+        app.typeKey(",", modifierFlags: [])
+        let gone = NSPredicate { _, _ in !self.app.buttons["shellSettings.close"].exists }
+        expectation(for: gone, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        // Over a game's settings it opens too, and closing it returns to those settings.
+        app.buttons["qa.input.settings"].tap()
+        XCTAssertTrue(app.buttons["library.back"].waitForExistence(timeout: 5))
+        app.typeKey(",", modifierFlags: [])
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+        app.typeKey(",", modifierFlags: [])
+        expectation(for: gone, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertTrue(app.buttons["library.back"].exists)
+    }
+
+    /// A Switch 2 game's settings carry the badge and its memory note, another game's do not (#696).
+    func testSwitch2BadgeShowsInTheGameSettingsOnlyForSwitch2Games() {
+        extraArguments = ["--samples", "--switch2"]
+        launch("settings")
+        XCTAssertTrue(app.descendants(matching: .any)["detail.switch2"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Switch 2"].firstMatch.exists)
+        app.terminate()
+        extraArguments = ["--samples", "--select", "paper"]
+        launch("settings")
+        XCTAssertTrue(app.staticTexts["detail.title"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.descendants(matching: .any)["detail.switch2"].firstMatch.exists)
+    }
+
+    /// With the diamond chosen as a whole, each of A, B, X and Y has its own Hold or Toggle, and the setting row lists the Toggle keys (#1129).
+    func testDiamondKeysChooseHoldOrToggleEach() {
+        XCUIDevice.shared.orientation = .landscapeLeft
+        launch("shell-settings")
+        let arrange = app.buttons["shellSettings.arrange"]
+        reveal(arrange)
+        XCTAssertFalse(app.staticTexts["shellSettings.arrange.toggles"].exists)
+        arrange.tap()
+        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
+        let diamond = app.buttons["A B X Y"].firstMatch
+        XCTAssertTrue(diamond.waitForExistence(timeout: 5))
+        // The diamond's middle is empty: touch its top key. Its Hold or Toggle choice appears in the selection toolbar.
+        diamond.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        let mode = app.segmentedControls["touchLayout.mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 5))
+        XCTAssertTrue(mode.buttons["Hold"].isSelected)
+        mode.buttons["Toggle"].tap()
+        XCTAssertTrue(mode.buttons["Toggle"].isSelected)
+        capture("touch-editor-diamond-key-toggle")
+        app.buttons["touchLayout.options"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
+        XCTAssertTrue(app.buttons["touchLayout.done"].waitForExistence(timeout: 5))
+        app.buttons["touchLayout.done"].tap()
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+        reveal(arrange)
+        let line = app.staticTexts["shellSettings.arrange.toggles"]
+        XCTAssertTrue(line.waitForExistence(timeout: 5))
+        XCTAssertTrue(line.label.hasPrefix("Keys that toggle: "), line.label)
+        // Put the saved layout back, so no other test starts with a toggled key.
+        arrange.tap()
+        XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
+        app.buttons["A B X Y"].firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        XCTAssertTrue(mode.waitForExistence(timeout: 5))
+        mode.buttons["Hold"].tap()
+        app.buttons["touchLayout.options"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
+        app.buttons["touchLayout.done"].tap()
+        XCTAssertTrue(app.buttons["shellSettings.close"].waitForExistence(timeout: 5))
+        reveal(arrange)
+        XCTAssertFalse(app.staticTexts["shellSettings.arrange.toggles"].exists)
+    }
+
     func testEditedTouchControlsSaveAndDiscardBothCloseTheEditor() {
         launch("shell-settings")
         func openOptions() {

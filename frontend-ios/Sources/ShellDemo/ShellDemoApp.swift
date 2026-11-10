@@ -38,6 +38,11 @@ struct DemoScreen: View {
     /// `--games` sizes the sample library, repeating fixtures for long-scroll checks.
     private var shown: [GameDetail] {
         guard scenario != "empty" else { return [] }
+        // QA: `--switch2` marks the selected game as a Switch 2 game, for the badge and memory note of its settings.
+        var games = games
+        if args.contains("--switch2") {
+            games = games.map { var detail = $0; if detail.game.id == initialSelection { detail.game.isSwitch2 = true }; return detail }
+        }
         guard let count = value("--games").flatMap(Int.init), !games.isEmpty else { return games }
         return (0..<max(0, count)).map { index in
             var detail = games[index % games.count]
@@ -66,7 +71,7 @@ struct DemoScreen: View {
         .overlay(alignment: .bottom) {
             if args.contains("--input-test") {
                 HStack {
-                    ForEach(["left", "right", "down", "up", "activate", "back", "settings"], id: \.self) { name in
+                    ForEach(["left", "right", "down", "up", "activate", "back", "settings", "options"], id: \.self) { name in
                         Button(name) { send(qaAction(name)) }.accessibilityIdentifier("qa.input.\(name)").frame(minHeight: 44)
                     }
                 }
@@ -134,6 +139,7 @@ struct DemoScreen: View {
         case "up": .up
         case "activate": .activate
         case "back": .back
+        case "options": .shellSettings
         default: .settings
         }
     }
