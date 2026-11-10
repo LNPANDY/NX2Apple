@@ -161,11 +161,10 @@ final class LightPaletteTests: IsolatedDefaultsTestCase {
 @MainActor final class ConsoleDarkInLightTests: IsolatedDefaultsTestCase {
     func testConsoleRootResolvesDarkTokensWhileTheChoiceIsLight() throws {
         NSApplication.shared.setActivationPolicy(.accessory)
-        UserDefaults.standard.set("light", forKey: LauncherAppearance.defaultsKey)
-        defer { UserDefaults.standard.removeObject(forKey: LauncherAppearance.defaultsKey) }
+        LauncherAppearance.light.save(testDefaults)   // the view reads it through defaultAppStorage below, never the shared domain
         let driver = MockConsoleDriver(scenario: .full)
         let root = ConsoleView(driver: driver, lang: .en).frame(width: 1440, height: 1024)
-            .background(LauncherPalette.background).launcherAppearance()
+            .background(LauncherPalette.background).launcherAppearance().defaultAppStorage(testDefaults)
         let host = NSHostingView(rootView: root)
         let window = OffscreenWindow(size: NSSize(width: 1440, height: 1024), styleMask: [.titled, .closable, .resizable])
         window.appearance = NSAppearance(named: .aqua)
