@@ -75,6 +75,7 @@ public struct ControllersView: View {
                         hint(ButtonGlyph(role: .back), ShellStrings.text("Back"))
                         hint(ButtonGlyph(role: .settings), ShellStrings.text("Game settings"))
                         hint(ButtonGlyph(role: .controllers), ShellStrings.text("Controllers"))
+                        hint(ButtonGlyph(role: .shellSettings), ShellStrings.text("Settings"))
                     }
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)

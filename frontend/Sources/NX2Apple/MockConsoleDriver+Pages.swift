@@ -20,6 +20,17 @@ extension MockConsoleDriver {
         }.map(\.id)
     }
     func openSearch() { state.openSearch() }
+    /// A few demo profiles, the first one owned (the first demo game), as the live driver reads the engine's.
+    func openSupportedGames() {
+        let list = (0..<6).map { i in
+            SupportedGame(titleID: String(format: "0100DEMO%08X", i), name: i < state.games.count ? state.games[i].title : "Demo game \(i + 1)",
+                          edition: i == 2 ? .switch2 : .switch1, version: i == 4 ? nil : "1.0.\(i)",
+                          notes: i == 1 ? "" : "Runs to the end credits. Online play is not supported.")
+        }
+        state.openSupportedGames(list, owned: state.games.first.map { [list[0].titleID: $0.id] } ?? [:])
+    }
+    func typeSupported(_ text: String) { state.typeSupported(text) }
+    func deleteSupported() { state.deleteSupported() }
     func typeSearch(_ text: String) {
         guard state.presentedSheet == .search else { return }
         state.searchText += text

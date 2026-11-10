@@ -37,6 +37,23 @@ import Testing
         #expect(store.gameDefaults["DM_TOUCH_TOGGLE"] == nil)
     }
 
+    /// #1129: with the diamond chosen as a whole (A B X Y moving together, a controller's default), each of its keys still gets a mode, and
+    /// the keys that toggle are listed under the Touch controls row.
+    @MainActor @Test func theDiamondsKeysGetAModeWhileTheyMoveTogether() {
+        let store = store()
+        let model = TouchLayoutEditorModel(store: store)
+        #expect(model.together)
+        model.select(.face)
+        #expect(!TouchLayout.Control.face.canToggle)
+        model.setToggles(.b, true)
+        model.setToggles(.face, true)   // the diamond itself never toggles
+        #expect(model.together && model.toggledKeys == [.b])
+        model.commit()
+        #expect(store.gameDefaults["DM_TOUCH_TOGGLE"] == "b")
+        #expect(TouchArrangeRow.toggledLine([]) == nil)
+        #expect(TouchArrangeRow.toggledLine(["B", "ZR"])?.contains("B ZR") == true)
+    }
+
     @MainActor @Test func theEditorSavesTheModeOfTheChosenKey() {
         let store = store()
         let model = TouchLayoutEditorModel(store: store)

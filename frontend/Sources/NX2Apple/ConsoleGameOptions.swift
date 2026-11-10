@@ -227,7 +227,7 @@ struct ConsoleSwitchRow: View {
     }
 }
 
-/// The Library page: the library's switch (only built games), and the way to the cloud saves page.
+/// The Library page: the library's switch (only built games), and the ways to the cloud saves page and the supported games.
 @MainActor struct ConsoleLibraryList<Driver: ConsoleDriver>: View {
     @ObservedObject var driver: Driver
     let lang: Lang
@@ -245,6 +245,8 @@ struct ConsoleSwitchRow: View {
             }
             ConsoleMenuRow(id: "console.library.saves", scope: scope, symbol: "icloud", title: t(ConsoleCloudSaves.menuKey),
                            note: t(ConsoleCloudSaves.menuNoteKey), compact: compact) { driver.openCloudSaves() }
+            ConsoleMenuRow(id: "console.library.supported", scope: scope, symbol: "list.bullet.rectangle", title: t("supported.title"),
+                           note: t("console.supported.menuNote"), compact: compact) { driver.openSupportedGames() }
         }
     }
 }

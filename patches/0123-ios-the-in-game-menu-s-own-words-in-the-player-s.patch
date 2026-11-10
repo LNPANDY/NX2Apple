@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Tue, 10 Nov 2026 13:56:25 +0100
+Subject: [PATCH] iOS: the in-game menu's own words in the player's language
+
+The in-game menu's title, Controller layout, Keys that toggle and None
+were English only. DM_GAME_MENU_TEXT carries them in the player's
+language, one per line, as DM_HOME_QUIT_TEXT does for the quit prompt.
+The shell sets it at launch. A game's own app gets it in its bundled
+dm/env.txt (the build's --env-file), with the lines joined by a backslash
+and n. A missing or empty line stays English.
+
+Upstream-Status: pending [builds on 0121, forwarded once the touch patches land upstream]
+Reason: The in-game menu's own words in the player's language
+Issue: LNPANDY/NX2Apple#1129
+
+---
+ dm/ios/Sources/GameMenu.swift | 27 ++++++++++++++++++++++++---
+ docs/env_switches.tsv         |  1 +
+ 2 files changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
+index c32f51e..0ce1484 100644
+--- a/dm/ios/Sources/GameMenu.swift
++++ b/dm/ios/Sources/GameMenu.swift
+@@ -6,9 +6,30 @@ import UIKit
+ 
+ var gameMenuModel: LauncherModel?   // the settings screen's model (Launcher.swift); nil in an app without one: the menu has the layout only
+ 
++// The menu's own words in the player's language (LNPANDY/NX2Apple#1129): DM_GAME_MENU_TEXT, one per line in GameMenuText's order, passed by the
++// launcher as DM_HOME_QUIT_TEXT is for the quit prompt: the shell sets it at launch, and a game's own app gets it in its bundled dm/env.txt (the build's
++// --env-file), where the lines are joined by a backslash and n. A line that is missing or empty stays English.
++enum GameMenuText: Int, CaseIterable {
++    case moreSettings, controllerLayout, keysThatToggle, none
++    var english: String {
++        switch self {
++        case .moreSettings: return "More settings on the start screen"
++        case .controllerLayout: return "Controller layout"
++        case .keysThatToggle: return "Keys that toggle"
++        case .none: return "None"
++        }
++    }
++    static func line(_ t: GameMenuText, in text: String?) -> String {
++        let lines = (text ?? "").replacingOccurrences(of: "\\n", with: "\n").components(separatedBy: "\n")
++        let line = t.rawValue < lines.count ? lines[t.rawValue].trimmingCharacters(in: .whitespaces) : ""
++        return line.isEmpty ? t.english : line
++    }
++    var text: String { Self.line(self, in: getenv("DM_GAME_MENU_TEXT").map { String(cString: $0) }) }
++}
++
+ @_cdecl("dm_game_menu")
+ public func dmGameMenu() -> UnsafeMutableRawPointer {
+-    let title = gameMenuModel != nil ? "More settings on the start screen" : ""
++    let title = gameMenuModel != nil ? GameMenuText.moreSettings.text : ""
+     let menu = UIMenu(title: title, children: [UIDeferredMenuElement.uncached { done in done(gameMenuItems()) }])   // built each time it opens, so it shows the current choices
+     return Unmanaged.passRetained(menu).toOpaque()
+ }
+@@ -18,7 +39,7 @@ private func gameMenuItems() -> [UIMenuElement] {
+     let layouts = (0..<3).filter { dm_pad_layout_offered(Int32($0)) }.map { l in
+         UIAction(title: names[l], state: dm_pad_layout() == l ? .on : .off) { _ in dm_pad_layout_set(Int32(l)) }
+     }
+-    let layout = UIMenu(title: "Controller layout", options: .singleSelection, children: layouts)   // a choice's value shows in its submenu: a subtitle would make each row two lines
++    let layout = UIMenu(title: GameMenuText.controllerLayout.text, options: .singleSelection, children: layouts)   // a choice's value shows in its submenu: a subtitle would make each row two lines
+     let controls: [UIMenuElement] = dm_pad_toggle_offered() ? [layout, keysThatToggle()] : [layout]
+     var items: [UIMenuElement] = []
+     var placed = false
+@@ -48,7 +69,7 @@ private func keysThatToggle() -> UIMenuElement {
+             dm_pad_toggle_set(key.control, !dm_pad_toggles(key.control))
+         }
+     }
+-    return UIMenu(title: "Keys that toggle", subtitle: on.isEmpty ? "None" : on.joined(separator: " "), children: keys)
++    return UIMenu(title: GameMenuText.keysThatToggle.text, subtitle: on.isEmpty ? GameMenuText.none.text : on.joined(separator: " "), children: keys)
+ }
+ 
+ private func gameMenuRow(_ m: LauncherModel, _ s: Setting) -> UIMenuElement {
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index dffbe0a..cbe09e6 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -60,6 +60,7 @@ DM_GAME	switch	Selects the game profile (a title ID under `dm/games` or `DM_GAME
+ DM_GAMES_DIR	path	Profile folders outside the repository, separated by `:`, searched after `dm/games`; the NSP script points it at a provisional or derived profile
+ DM_GAMES_FIRST	switch	`=1` searches `DM_GAMES_DIR` before `dm/games`, so a provisional or derived profile wins over the game's own (the NSP script's `--provisional`)
+ DM_GAME_ENV	switch	`KEY=VALUE` pairs, separated by spaces, that the game's own `getenv` returns, in place of the profile's `game_env` (`hle_os.c`); any other name goes to the SDK's empty environment
++DM_GAME_MENU_TEXT	switch	The iOS in-game menu's own words in the player's language, one per line: the menu's title (more settings on the start screen), Controller layout, Keys that toggle and None (GameMenu.swift). A missing or empty line stays English. The shell passes it at launch, a game's own app gets it in its bundled `dm/env.txt` with the lines joined by `\n`
+ DM_GFX_FIXTURE_OUT	test	`=<dir>`: graphics tests write their raw result textures and buffers there
+ DM_GLSLC_CAPTURE	path	`=<dir>` saves every GLSLC output the game compiles at run time; `shader_split.py` reads it (default `<version dir>/glslc_capture`)
+ DM_GL_CAPTURE	path	`=<dir>`: the GL layer writes every shader source the game compiles (`<key>.vert` / `<key>.frag`) for `gl_shaders.py`; the NSP script uses it to capture run-time shaders

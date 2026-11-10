@@ -79,6 +79,8 @@ struct SupportedGamesSheet: View {
             }
             .padding(.horizontal, 30).padding(.vertical, 14)
         }
+        .background(Button("") { searchFocused = true }.keyboardShortcut("f", modifiers: .command)
+            .opacity(0).frame(width: 0, height: 0).accessibilityHidden(true))   // Cmd+F, as in the library: the search of this list
         .padScope("supported", focus)
         .frame(width: 680)
         .frame(maxHeight: Self.height(screen: NSScreen.main?.visibleFrame.height ?? 800))
@@ -127,6 +129,7 @@ private struct SupportedGameRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain).launcherHover()
+            .padTarget("supported.row." + game.titleID, scope: "supported", radius: 6, activate: toggle)   // a controller opens the notes too
             .accessibilityAddTraits(expanded ? .isSelected : [])
             .accessibilityHint(loc.t(expanded ? "supported.hideNotes" : "supported.showNotes"))
             if expanded {
@@ -135,6 +138,7 @@ private struct SupportedGameRow: View {
                         .foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                     if let owned {
                         Button(loc.t("supported.show")) { show(owned.id) }.buttonStyle(LauncherSecondaryButtonStyle())
+                            .padTarget("supported.show." + game.titleID, scope: "supported") { show(owned.id) }
                     }
                 }
                 .padding(.leading, 108).padding(.trailing, 30).padding(.bottom, 14)

@@ -188,9 +188,25 @@ import NXLauncher
                     withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
                 }
             }
+            hints.padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(LauncherPalette.background)
+    }
+
+    /// X plays the result in focus, B deletes a letter while there is one and goes back once the field is empty.
+    private var hints: some View {
+        HStack(spacing: compact ? 12 : 32) {
+            ConsoleHint(glyph: glyphs.hintGlyph(.play, swapAB: state.menuSwapAB), label: t("console.play"), id: "console.search.hint.play", scope: Self.scope,
+                        compact: compact) {
+                if let id = pad.focused, id.hasPrefix("console.result.") { driver.play(String(id.dropFirst("console.result.".count))) }
+            }
+            Spacer(minLength: 0)
+            ConsoleHint(glyph: glyphs.hintGlyph(.back, swapAB: state.menuSwapAB), label: t(ConsoleSearchBack.labelKey(state.searchText)),
+                        id: "console.search.hint.back", scope: Self.scope, compact: compact) {
+                state.searchText.isEmpty ? driver.back() : driver.deleteSearch()
+            }
+        }
     }
 
     /// What was typed, with a caret, or the placeholder.
@@ -229,19 +245,8 @@ import NXLauncher
     }
 
     private func key(_ id: String, label: String, symbol: String? = nil, width: CGFloat? = nil, primary: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Group {
-                if let symbol { Image(systemName: symbol).font(.system(size: compact ? 16 : 20, weight: .semibold)) }
-                else { Text(label).font(.manrope(compact ? 16 : 21, .semibold)).lineLimit(1).minimumScaleFactor(0.7) }
-            }
-            .foregroundStyle(primary ? LauncherPalette.background : .white)
-            .frame(width: width ?? keySize.width, height: keySize.height)
-            .background(primary ? LauncherPalette.cream : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 10))
-            .contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain).accessibilityLabel(label)
-        .padTarget("console.key." + id, scope: Self.scope, radius: 10, activate: action)
-        .id("console.key." + id)
+        ConsoleKeyButton(id: "console.key." + id, scope: Self.scope, label: label, symbol: symbol, size: keySize, width: width, primary: primary,
+                         compact: compact, action: action)
     }
 
     @ViewBuilder private var results: some View {
