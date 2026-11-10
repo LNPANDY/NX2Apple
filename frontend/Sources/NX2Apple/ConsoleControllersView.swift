@@ -132,7 +132,7 @@ struct ConsoleBattery: View {
                 Text(String(format: L10n.string("console.batteryPercent", lang), percent))
             }
             .font(.manrope(compact ? 11 : 16, .medium))
-            .foregroundStyle(BatteryIcon.isLow(controller.battery) && !controller.charging ? Color.red : .white.opacity(0.7))
+            .foregroundStyle(BatteryIcon.isLow(controller.battery) && !controller.charging ? Color.red : LauncherPalette.ink(0.7))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(String(format: L10n.string(controller.charging ? "console.batteryCharging" : "console.batteryLevel", lang), percent))
         } else if controller.charging {
@@ -206,7 +206,7 @@ struct ConsoleControllerChips: View {
         Button(action: openControllers) {
             content().font(.manrope(compact ? 12 : 17, .semibold))
                 .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
-                .background(.white.opacity(0.075), in: Capsule()).contentShape(Capsule())
+                .consoleBarFill().contentShape(Capsule())   // readable on bright art (ConsoleBarFill)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
@@ -246,12 +246,11 @@ struct ConsoleToastView: View {
         }
             .font(.manrope(17, .semibold)).padding(.horizontal, 22).padding(.vertical, 15)
             .background(LauncherPalette.surface, in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
-            .foregroundStyle(LauncherPalette.cream)
+            .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.15)))
+            .foregroundStyle(LauncherPalette.accent)
             .accessibilityElement(children: .combine)
             .allowsHitTesting(false)
             .padding(20)
-            .environment(\.colorScheme, .dark)   // a console notice: dark over the desktop in Light too
     }
 }
 
@@ -328,7 +327,7 @@ struct ConsoleToastView: View {
                 Toggle(t("console.mergeAll"), isOn: Binding(get: { state.padMerge }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller.merge", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
@@ -346,10 +345,10 @@ struct ConsoleToastView: View {
                     Text(value).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.padLayout.isDefault ? LauncherPalette.secondaryText : LauncherPalette.cream)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundStyle(.white.opacity(0.4)).accessibilityHidden(true)
+                Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold)).foregroundStyle(LauncherPalette.ink(0.4)).accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller.mapping", scope: scope, radius: 10, activate: open)
@@ -372,7 +371,7 @@ struct ConsoleToastView: View {
                 Toggle("", isOn: Binding(get: { on }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.pref." + pref.rawValue, scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
@@ -389,10 +388,10 @@ struct ConsoleToastView: View {
                     Text(t("controls.homeQuitNote")).font(.manrope(compact ? 14 : 16)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "arrow.up.forward.app").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white.opacity(0.45)).accessibilityHidden(true)
+                Image(systemName: "arrow.up.forward.app").font(.system(size: 15, weight: .semibold)).foregroundStyle(LauncherPalette.ink(0.45)).accessibilityHidden(true)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller.home", scope: scope, radius: 10, activate: open)
@@ -412,7 +411,7 @@ struct ConsoleToastView: View {
                 Toggle(t("console.joyconSplit"), isOn: Binding(get: { state.joyconSplit }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller.joyconSplit", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
@@ -453,7 +452,7 @@ struct ConsoleToastView: View {
                     .lineLimit(2).minimumScaleFactor(0.7).fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, minHeight: compact ? 88 : 96).padding(.horizontal, 6)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller." + id, scope: scope, radius: 10, activate: perform)
@@ -466,7 +465,7 @@ struct ConsoleToastView: View {
                 if let value { Text(value).font(.manrope(compact ? 16 : 20)).foregroundStyle(LauncherPalette.cream) }
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
         }
         .buttonStyle(.plain)
         .padTarget("console.controller." + id, scope: scope, radius: 10, activate: perform, adjust: adjust)
