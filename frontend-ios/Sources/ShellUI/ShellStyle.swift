@@ -484,7 +484,7 @@ struct StatusLabel: View {
 }
 
 /// What a button does, for its glyph.
-enum GlyphRole { case activate, back, settings, controllers }
+enum GlyphRole { case activate, back, settings, controllers, shellSettings }
 
 /// A button as the Mac console draws it for the device used last: the letter in a rounded square for Xbox, Nintendo
 /// and unknown controllers, the shape for PlayStation (cross, circle, square, triangle), a key cap for a keyboard.
@@ -493,6 +493,11 @@ struct ButtonGlyph: View {
     @Environment(\.shellInputDevice) private var device
     var body: some View {
         Group {
+            if role == .shellSettings, case .controller(let family) = device {
+                // Options has no letter: Xbox's View, PlayStation's Create, Nintendo's Minus
+                Image(systemName: Self.optionsSymbol(family)).font(.system(size: 9, weight: .heavy)).frame(width: 20, height: 20)
+                    .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.45), lineWidth: 1.2))
+            } else {
             switch device {
             case .controller(.playStation):
                 Image(systemName: playStationSymbol).font(.system(size: 9, weight: .heavy)).frame(width: 20, height: 20)
@@ -504,16 +509,25 @@ struct ButtonGlyph: View {
                 Text(letter).font(ShellFonts.fixed(11, weight: .bold)).frame(width: 20, height: 20)
                     .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(.white.opacity(0.45), lineWidth: 1.2))
             }
+            }
         }.accessibilityHidden(true)
     }
     private var letter: String {
-        switch role { case .activate: "A"; case .back: "B"; case .settings: "X"; case .controllers: "Y" }
+        switch role { case .activate: "A"; case .back: "B"; case .settings: "X"; case .controllers: "Y"; case .shellSettings: "" }
     }
     private var playStationSymbol: String {
-        switch role { case .activate: "xmark"; case .back: "circle"; case .settings: "square"; case .controllers: "triangle" }
+        switch role { case .activate: "xmark"; case .back: "circle"; case .settings: "square"; case .controllers: "triangle"; case .shellSettings: "" }
     }
     private var keyCap: String {
-        switch role { case .activate: "return"; case .back: "esc"; case .settings: "O"; case .controllers: "Y" }
+        switch role { case .activate: "return"; case .back: "esc"; case .settings: "O"; case .controllers: "Y"; case .shellSettings: "," }
+    }
+    /// The Options button's symbol by the controller's family.
+    static func optionsSymbol(_ family: ControllerFamily) -> String {
+        switch family {
+        case .playStation: "square.and.arrow.up"
+        case .nintendo: "minus"
+        case .xbox, .neutral: "rectangle.on.rectangle"
+        }
     }
 }
 

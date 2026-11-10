@@ -162,6 +162,7 @@ struct ShellKeyboardNavigation: ViewModifier {
             .onKeyPress(.escape) { press(.back) }
             .onKeyPress("o") { press(.settings) }
             .onKeyPress("y") { press(.controllers) }
+            .onKeyPress(",") { press(.shellSettings) }
         #endif
     }
     private func press(_ action: ShellInput.Action) -> KeyPress.Result {
@@ -188,7 +189,7 @@ private struct ShellKeyCommands: UIViewRepresentable {
         private static let actions: [(String, ShellInput.Action)] = [
             (UIKeyCommand.inputLeftArrow, .left), (UIKeyCommand.inputRightArrow, .right),
             (UIKeyCommand.inputUpArrow, .up), (UIKeyCommand.inputDownArrow, .down),
-            ("\r", .activate), (UIKeyCommand.inputEscape, .back), ("o", .settings), ("y", .controllers)
+            ("\r", .activate), (UIKeyCommand.inputEscape, .back), ("o", .settings), ("y", .controllers), (",", .shellSettings)
         ]
         override var canBecomeFirstResponder: Bool { active }
         override var keyCommands: [UIKeyCommand]? {

@@ -11,6 +11,15 @@ final class PadMappingTests: XCTestCase {
         XCTAssertEqual(PadMapper.action(for: .y), .controllers)
         XCTAssertNil(PadMapper.action(for: .leftShoulder))
     }
+    /// #1129: Options (Xbox View, PlayStation Create, Nintendo Minus) opens the shell's settings, one press one action. A pad without
+    /// the button sends nothing new.
+    func testOptionsOpensTheShellSettings() {
+        XCTAssertEqual(PadMapper.action(for: .options), .shellSettings)
+        var mapper = PadMapper()
+        XCTAssertEqual(mapper.changes(controller: "one", state: PadState(buttons: [.options])).pressed, [.shellSettings])
+        XCTAssertEqual(mapper.changes(controller: "one", state: PadState(buttons: [.options])).pressed, [], "held is not pressed again")
+        XCTAssertEqual(mapper.changes(controller: "two", state: PadState(buttons: [.a])).pressed, [.activate])
+    }
     func testDeadzoneAndStrongerAxis() {
         XCTAssertNil(PadMapper.direction(x: 0.4, y: -0.3))
         XCTAssertEqual(PadMapper.direction(x: 0.8, y: 0.6), .right)
