@@ -12,6 +12,9 @@ final class OffscreenWindow: NSWindow {
     init(size: NSSize, styleMask: NSWindow.StyleMask = [.titled]) {
         super.init(contentRect: NSRect(origin: Self.origin, size: size), styleMask: styleMask, backing: .buffered, defer: false)
         isReleasedWhenClosed = false
+        // Ordering a window in or out plays a fade on a worker thread, paced by the display. With no frames coming each fade
+        // holds its thread for good, and a suite that shows hundreds of windows runs out of them.
+        animationBehavior = .none
         // a titled window was already moved onto a screen by the initializer, so put it back
         setFrame(NSRect(origin: Self.origin, size: frame.size), display: false)
     }
