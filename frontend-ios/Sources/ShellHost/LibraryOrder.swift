@@ -11,16 +11,16 @@ public struct LastPlayedStore {
     public func record(_ date: Date) { defaults.set(date, forKey: Self.key) }
 }
 
-/// The library's order: recently played first (the latest first), then playable, then needs game data, then needs an
-/// app update, then broken. Alphabetical by title within each group. Applied when the library loads or reloads, never
-/// on a single game's change of state, so nothing moves under the player's finger.
+/// The library's order: recently played first (the latest first), then playable, then needs game data or shaders, then
+/// needs an app update, then broken. Alphabetical by title within each group. Applied when the library loads or reloads,
+/// never on a single game's change of state, so nothing moves under the player's finger.
 public enum LibraryOrder {
     static func group(_ game: GameTile, lastPlayed: Date?) -> Int {
         if lastPlayed != nil { return 0 }
         switch game.state {
         case .playable: return 1
         case .joiningGameData: return 2
-        case .needsGameData: return 3
+        case .needsGameData, .needsShaderLibrary: return 3
         case .needsAppUpdate: return 4
         case .broken: return 5
         }

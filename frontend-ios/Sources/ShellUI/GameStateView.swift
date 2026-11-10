@@ -39,7 +39,8 @@ public struct GameStateView: View {
         case .needsGameData: actions.onPickGameData(game.id)
         case .joiningGameData: break
         case .needsAppUpdate: actions.onAppUpdate()
-        case .broken: actions.onShowLog(game.id)
+        // needsHelp sends these to the sheet before the switch, but the switch still has to name them.
+        case .needsShaderLibrary, .broken: actions.onShowLog(game.id)
         }
     }
 }
@@ -105,6 +106,7 @@ public struct StateHelpView: View {
         case .broken(_, let detail, _) where !detail.isEmpty: detail
         case .broken: ShellStrings.text("Build this game again on your Mac and install it on this device. The Mac app checks every file while it builds, so the new copy is complete.")
         case .needsAppUpdate: ShellStrings.text("This game needs a newer version of this app. Update it with the Mac app on your Mac, then install it on this device again.")
+        case .needsShaderLibrary: ShellStrings.text("This game's shader library is not on this device yet. Copy the msl folder the app wrote beside the IPA into this game's folder on the iPhone, then open the game again.")
         default: ""
         }
     }

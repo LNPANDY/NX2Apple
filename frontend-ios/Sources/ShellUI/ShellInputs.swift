@@ -8,6 +8,9 @@ public enum GameState: Equatable, Sendable {
     /// Background `.nxpart` split-file assembly in `Documents/games/<titleID>/` with percentage and formatted byte counts.
     case joiningGameData(percent: Int, doneSize: String, totalSize: String)
     case needsAppUpdate
+    /// The game is built and its data is here, but its shader library is not on this device: the Mac app writes
+    /// it beside the IPA, because a library of several gigabytes stops the installers (LNPANDY/NX2Apple#947).
+    case needsShaderLibrary
     /// `reason` is one short line for under the title, such as "Game files damaged". `detail` is a plain sentence
     /// for the player (what happened, what to do), shown under the title and in the How to fix sheet. `technical`
     /// is the underlying message, shown only as small secondary Details in the sheet.

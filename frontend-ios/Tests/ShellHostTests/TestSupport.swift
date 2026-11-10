@@ -20,6 +20,17 @@ final class Sandbox: @unchecked Sendable {
     init() throws {
         try FileManager.default.createDirectory(at: appData, withIntermediateDirectories: true)
         try FileManager.default.copyItem(at: Fixtures.gamesURL, to: games)
+        // An IPA built before the shader libraries moved beside it keeps `msl/b-<chain>.img` inside each framework,
+        // which is what every fixture stands for here. The tests for a missing library take it away again.
+        for id in try FileManager.default.contentsOfDirectory(atPath: games.path) {
+            let fw = games.appendingPathComponent(id).appendingPathComponent("DmGame.framework")
+            guard FileManager.default.fileExists(atPath: fw.path) else { continue }
+            for chain in ["b-3f9a2c", "b-0000ff"] {
+                let image = fw.appendingPathComponent("msl/\(chain).img")
+                try FileManager.default.createDirectory(at: image.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try Data().write(to: image)
+            }
+        }
     }
     deinit {
         try? FileManager.default.removeItem(at: root)

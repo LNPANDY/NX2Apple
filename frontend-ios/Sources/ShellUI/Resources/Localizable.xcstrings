@@ -7937,6 +7937,98 @@
         }
       }
     },
+    "How to add": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So geht es"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to add"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment faire"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come fare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加方法"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Så gör du"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如何添加"
+          }
+        }
+      }
+    },
+    "How to add shaders": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So fügst du Shader hinzu"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to add shaders"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment ajouter les shaders"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come aggiungere gli shader"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェーダーの追加方法"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Så lägger du till shader"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如何添加着色器"
+          }
+        }
+      }
+    },
     "How to fix": {
       "localizations": {
         "de": {
@@ -10369,6 +10461,52 @@
         }
       }
     },
+    "Missing Shaders": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader fehlen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Missing Shaders"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaders absents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader mancanti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェーダーがありません"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaders saknas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缺少着色器"
+          }
+        }
+      }
+    },
     "More buttons": {
       "localizations": {
         "de": {
@@ -11133,6 +11271,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "需要游戏数据"
+          }
+        }
+      }
+    },
+    "Needs shaders": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Braucht Shader"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs shaders"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaders manquants"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servono gli shader"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シェーダーが必要です"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behöver shader"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要着色器"
           }
         }
       }
@@ -17085,6 +17269,52 @@
           "stringUnit": {
             "state": "translated",
             "value": "此游戏需要本 App 的更新版本。请在 Mac 应用中更新。"
+          }
+        }
+      }
+    },
+    "This game's shader library is not on this device yet. Copy the msl folder the app wrote beside the IPA into this game's folder on the iPhone, then open the game again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Shader-Bibliothek dieses Spiels ist noch nicht auf diesem Gerät. Kopiere den msl-Ordner, den die App neben die IPA geschrieben hat, in den Ordner dieses Spiels auf dem iPhone und öffne das Spiel dann erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's shader library is not on this device yet. Copy the msl folder the app wrote beside the IPA into this game's folder on the iPhone, then open the game again."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La bibliothèque de shaders de ce jeu n'est pas encore sur cet appareil. Copie le dossier msl que l'app a écrit à côté de l'IPA dans le dossier de ce jeu sur l'iPhone, puis rouvre le jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La libreria di shader di questo gioco non è ancora su questo dispositivo. Copia la cartella msl che l'app ha scritto accanto all'IPA nella cartella di questo gioco sull'iPhone, poi riapri il gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのシェーダーライブラリはまだこの端末にありません。アプリが IPA の隣に書き出した msl フォルダーを、iPhone 上のこのゲームのフォルダーにコピーしてから、ゲームを開き直してください。"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det här spelets shaderbibliotek finns inte på enheten än. Kopiera mappen msl som appen skrev bredvid IPA-filen till spelets mapp på iPhone och öppna spelet igen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个游戏的着色器库还不在本机上。把应用写在 IPA 旁边的 msl 文件夹复制到 iPhone 上该游戏的文件夹里，然后重新打开游戏。"
           }
         }
       }

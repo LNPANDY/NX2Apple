@@ -736,7 +736,7 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
             switch d.game.state {
             case .playable: return 1
             case .joiningGameData: return 2
-            case .needsGameData: return 3
+            case .needsGameData, .needsShaderLibrary: return 3
             case .needsAppUpdate: return 4
             case .broken: return 5
             }

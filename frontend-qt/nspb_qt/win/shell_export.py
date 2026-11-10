@@ -5,6 +5,12 @@ Mirrors the Mac Swift launcher's `ShellInstall.swift`, `ShellExport.swift`, and
 `--shell-framework <work_dir>/shell-framework`, mirrored into `<shell_root>/frameworks/`,
 recorded in `<shell_root>/shell.json`, and packed into `<shell_root>/export/NX2Apple.ipa`
 inside a pre-built `DmShell.app` template (`frontend-ios` SwiftUI shell).
+
+Each game's shader library is left out of the archive and written to
+`<shell_root>/export/shader-libraries/<TitleID>/msl/` instead, to be copied to
+`Documents/games/<TitleID>/msl/` on the device: install tools cannot carry the multi-gigabyte
+`b-<chain>.img` of a big game (LNPANDY/NX2Apple#947), and the host reads the game's own folder
+first (`EngineLaunchPlan.swift`, `nvn_mtl.m`). `external_shaders=False` packs them in again.
 """
 from __future__ import annotations
 
@@ -31,6 +37,8 @@ DEFAULT_BUNDLE_ID = 'org.nxnative.shell'
 DISCARD_PREFIX = '.discarded-'
 SHELL_ENTITLEMENTS = {'com.apple.developer.kernel.increased-memory-limit': True}
 ZIP32_ENTRY_LIMIT = 0xFFFF - 2  # 65,533: reserves _CodeSignature/ and CodeResources for sideloaders
+SHADER_FOLDER = 'shader-libraries'
+SHADER_DIR = 'msl'
 
 
 @dataclass
@@ -208,6 +216,14 @@ def ipa_path(root: str | os.PathLike) -> Path:
 
 def export_stage(root: str | os.PathLike) -> Path:
     return export_folder(root) / 'stage'
+
+
+def shader_libraries_folder(root: str | os.PathLike) -> Path:
+    return export_folder(root) / SHADER_FOLDER
+
+
+def external_shader_folder(root: str | os.PathLike, title_id: str) -> Path:
+    return shader_libraries_folder(root) / title_id.upper()
 
 
 def frameworks_mirror(root: str | os.PathLike) -> Path:
@@ -476,6 +492,50 @@ def place_banner(
         shutil.copy2(source, dest)
         return str(source)
     except OSError:
+        return None
+
+
+def framework_shaders(framework: str | os.PathLike) -> Path | None:
+    """Return the `msl` folder of `framework`, or None when it carries no shader library."""
+    folder = Path(framework) / SHADER_DIR
+    return folder if folder.is_dir() else None
+
+
+def shader_library_skip(framework_name: str) -> str:
+    """The archive path `pack_ipa.py --skip` leaves out: a framework's whole shader folder."""
+    return f'Payload/{APP_NAME}/Frameworks/{framework_name}/{SHADER_DIR}'
+
+
+def place_shader_library(framework: str | os.PathLike, root: str | os.PathLike,
+                         title_id: str, log: Callable[[str], None] = lambda _: None) -> Path | None:
+    """Copy `framework`'s shader library to `<root>/export/shader-libraries/<title id>/msl`.
+
+    The copy is a hard link where the volume allows it, so the gigabytes of a big game are not
+    stored twice. Returns the folder holding it, or None when the framework carries none.
+    """
+    source = framework_shaders(framework)
+    if source is None:
+        return None
+    dest = external_shader_folder(root, title_id) / SHADER_DIR
+    try:
+        if dest.is_dir():
+            shutil.rmtree(dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        for member in source.iterdir():
+            target = dest / member.name
+            try:
+                if member.is_file():
+                    try:
+                        os.link(member, target)
+                    except OSError:
+                        shutil.copy2(member, target)
+                elif member.is_dir():
+                    shutil.copytree(member, target, symlinks=True)
+            except OSError as e:
+                log(f'shader library: {member} was not copied to {target}: {e}\n')
+        return dest
+    except OSError as e:
+        log(f'shader library: {source} was not copied to {dest}: {e}\n')
         return None
 
 
@@ -759,6 +819,7 @@ def export_shell(
     stage_cb: Callable[[str, str], None] | None = None,
     entry_limit: int = ZIP32_ENTRY_LIMIT,
     extra_dirs: list[str | os.PathLike] | None = None,
+    external_shaders: bool = True,
 ) -> tuple[bool, str, str, list[str]]:
     """Mirror `framework` into `root`, update `shell.json`, and pack `<root>/export/NX2Apple.ipa`.
 
@@ -767,6 +828,11 @@ def export_shell(
 
     `entry_limit` is the sideloader ZIP32 entry cap: past it the framework shader folders are packed
     into images first, and the export fails rather than write an archive no sideloader can read.
+
+    `external_shaders` leaves every game's shader library out of the archive and writes it to
+    `<root>/export/shader-libraries/<title id>/msl/` for the player to copy to
+    `Documents/games/<title id>/msl/` on the device. Pass False to pack them in again, which is
+    what an older shell expects.
 
     Returns `(ok, ipa_path, message, notes)`.
     """
@@ -823,6 +889,24 @@ def export_shell(
 
     if recovered:
         notes.append(_t('shell.gamesRecovered', ', '.join(recovered)))
+
+    # The shader library of a big game is several gigabytes in one file, which the install tools
+    # cannot copy on to the phone (LNPANDY/NX2Apple#947). Write it beside the IPA for the player
+    # to send to Documents/games/<title id>/msl/, where the host reads it first, and leave it out
+    # of the archive.
+    skips: list[str] = []
+    shader_dirs: list[str] = []
+    if external_shaders:
+        for g in library.games:
+            fw_name = Path(g.framework).name
+            placed = place_shader_library(g.framework, root_p, g.title_id, log=log)
+            if placed is None:
+                continue
+            skips.append(shader_library_skip(fw_name))
+            shader_dirs.append(f'{g.title_id}: {placed}')
+        if shader_dirs:
+            notes.append(_t('shell.shadersExported', str(shader_libraries_folder(root_p)),
+                            '\n'.join(shader_dirs)))
 
     # 2. Stage DmShell.app from the pre-built template
     pack_stage_name = _t('shell.exportPackStage')
@@ -887,7 +971,10 @@ def export_shell(
             executables.append(f'Payload/{APP_NAME}/Frameworks/{fw_name}/{fw_exe}')
         maps.append(f'Payload/{APP_NAME}={staged_app}')
 
-        cmd = [py_exe, str(pack_py), str(tmp_ipa), '--no-reuse'] + maps
+        cmd = [py_exe, str(pack_py), str(tmp_ipa), '--no-reuse']
+        for skip in skips:
+            cmd += ['--skip', skip]
+        cmd += maps
         log(f'[{pack_stage_name}] {" ".join(cmd)}\n')
         r = subprocess.run(
             cmd, capture_output=True, text=True, encoding='utf-8', errors='replace',

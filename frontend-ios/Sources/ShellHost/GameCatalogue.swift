@@ -297,13 +297,41 @@ public enum DataLocator {
 }
 
 /// Derives the state a tile shows from what is present: a bundle that cannot run is broken with its reason, a game
-/// built for another chain (when its framework has no host of its own) or a newer OS needs an app update, a game without reachable data needs game data.
+/// built for another chain (when its framework has no host of its own) or a newer OS needs an app update, a game without
+/// reachable data needs game data, and a game whose shader library was never copied in needs its shaders.
 public enum GameStateResolver {
-    public static func state(for entry: CatalogueEntry, data: DataResolution, environment: HostEnvironment) -> GameState {
+    /// `shaderFolders` are the `msl` folders to look in, the player's copy first. Empty switches the check off, which
+    /// is what a bundle that only ships its shaders inside its framework wants.
+    public static func state(for entry: CatalogueEntry, data: DataResolution, environment: HostEnvironment,
+                             shaderFolders: [URL] = [], fileManager fm: FileManager = .default) -> GameState {
         if let problem = entry.problem { return problem.state }
         guard let manifest = entry.manifest else { return GameProblem(cause: .manifestMissing, reason: hostText("Game manifest missing")).state }
         if manifest.loader != "FH", let chain = environment.chain, chain != manifest.chain { return .needsAppUpdate }
         if let min = manifest.minOSVersion, !isVersion(environment.osVersion, atLeast: min) { return .needsAppUpdate }
-        return data.found ? .playable : .needsGameData
+        guard data.found else { return .needsGameData }
+        if !shaderFolders.isEmpty, !hasShaderLibrary(manifest, in: shaderFolders, fileManager: fm),
+           !(entry.frameworkURL.map { hasPackedShaderLibrary(in: $0, fileManager: fm) } ?? false) {
+            return .needsShaderLibrary
+        }
+        return .playable
+    }
+
+    /// The engine takes `b-<hex>` as a folder of loose files and `b-<hex>.img` as one packed file, and nothing else.
+    static func hasShaderLibrary(_ manifest: GameManifest, in folders: [URL], fileManager fm: FileManager = .default) -> Bool {
+        for folder in folders {
+            var isDir: ObjCBool = false
+            let loose = folder.appendingPathComponent(manifest.chain, isDirectory: true)
+            if fm.fileExists(atPath: loose.path, isDirectory: &isDir), isDir.boolValue { return true }
+            let packed = folder.appendingPathComponent(manifest.chain + ".img")
+            if fm.fileExists(atPath: packed.path, isDirectory: &isDir), !isDir.boolValue { return true }
+        }
+        return false
+    }
+
+    /// A framework that still carries its library packed: the Mac app writes `msl-<UUID>.aar` and the launcher unpacks
+    /// it on the first play. Read here so an IPA built before the libraries moved beside it still plays.
+    static func hasPackedShaderLibrary(in framework: URL, fileManager fm: FileManager = .default) -> Bool {
+        let names = (try? fm.contentsOfDirectory(atPath: framework.path)) ?? []
+        return names.contains { $0.hasPrefix("msl-") && $0.hasSuffix(".aar") }
     }
 }

@@ -60,7 +60,8 @@ extension LibraryView {
         case .needsGameData: targetActions.onPickGameData(detail.id)
         case .joiningGameData: break
         case .needsAppUpdate: targetActions.onAppUpdate()
-        case .broken: targetActions.onShowLog(detail.id)
+        // needsHelp opens the sheet before the switch, but the switch still has to name them.
+        case .needsShaderLibrary, .broken: targetActions.onShowLog(detail.id)
         }
     }
     func select(_ id: String) {

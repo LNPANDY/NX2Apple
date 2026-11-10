@@ -421,6 +421,7 @@ extension GameState {
         case .needsGameData: ShellStrings.text("Missing Data")
         case .joiningGameData: ShellStrings.text("Joining Data")
         case .needsAppUpdate: ShellStrings.text("Update Required")
+        case .needsShaderLibrary: ShellStrings.text("Missing Shaders")
         case .broken: ShellStrings.text("Fix Game Files")
         default: nil
         }
@@ -434,6 +435,7 @@ extension GameState {
         case .needsGameData: ShellStrings.text("Needs game data")
         case .joiningGameData(let percent, _, _): ShellStrings.text("Joining game data (\(Self.percentText(percent)))")
         case .needsAppUpdate: ShellStrings.text("App update needed")
+        case .needsShaderLibrary: ShellStrings.text("Needs shaders")
         case .broken(let reason, _, _): reason.isEmpty ? ShellStrings.text("Unavailable") : reason
         }
     }
@@ -441,7 +443,7 @@ extension GameState {
         switch self {
         case .playable: ShellPalette.ready
         case .joiningGameData: ShellPalette.cream
-        case .needsGameData, .needsAppUpdate, .broken: ShellPalette.attention
+        case .needsGameData, .needsAppUpdate, .needsShaderLibrary, .broken: ShellPalette.attention
         }
     }
     var explanation: String {
@@ -451,6 +453,7 @@ extension GameState {
         case .joiningGameData(_, let doneSize, let totalSize):
             ShellStrings.text("Joining split data files on this device (\(doneSize) of \(totalSize)). Play unlocks automatically when finished.")
         case .needsAppUpdate: ""
+        case .needsShaderLibrary: ""
         case .broken: ""
         }
     }
@@ -460,6 +463,7 @@ extension GameState {
         case .needsGameData: ShellStrings.text("Choose game data…")
         case .joiningGameData(let percent, _, _): ShellStrings.text("Joining game data (\(Self.percentText(percent)))")
         case .needsAppUpdate: ShellStrings.text("How to update")
+        case .needsShaderLibrary: ShellStrings.text("How to add shaders")
         case .broken: ShellStrings.text("How to fix")
         }
     }
@@ -469,6 +473,7 @@ extension GameState {
         case .needsGameData: "folder"
         case .joiningGameData: "arrow.triangle.merge"
         case .needsAppUpdate: "arrow.up.circle"
+        case .needsShaderLibrary: "square.stack.3d.up"
         case .broken: "wrench.and.screwdriver"
         }
     }
@@ -573,13 +578,15 @@ extension GameState {
         case .needsGameData: ShellStrings.text("Choose")
         case .joiningGameData: ShellStrings.text("Joining Data")
         case .needsAppUpdate: ShellStrings.text("How to update")
+        case .needsShaderLibrary: ShellStrings.text("How to add")
         case .broken: ShellStrings.text("How to fix")
         }
     }
-    /// Broken and needs-an-update are fixed on the Mac. Their primary action explains how, instead of acting.
+    /// Broken, needs-an-update and needs-shaders are all fixed away from the game itself: with the Mac app, or by
+    /// copying the library it wrote beside the IPA. Their primary action explains how, instead of acting.
     var needsHelp: Bool {
         switch self {
-        case .broken, .needsAppUpdate: true
+        case .broken, .needsAppUpdate, .needsShaderLibrary: true
         default: false
         }
     }

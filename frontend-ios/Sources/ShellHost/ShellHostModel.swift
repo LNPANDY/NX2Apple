@@ -315,6 +315,15 @@ public struct ShellHostConfig: Sendable {
 
     public func appFolder(for id: String) -> URL { config.appDataRoot.appendingPathComponent(id, isDirectory: true) }
 
+    /// Where this game's shader library can be: the player's copy in the game's own folder first, which is where the
+    /// Mac app asks for it, then the framework, which is where an IPA that still packs it keeps it. The engine reads
+    /// `b-<chain>` as a folder or `b-<chain>.img` as one file.
+    private func shaderFolders(for entry: CatalogueEntry) -> [URL] {
+        var folders = [appFolder(for: entry.id).appendingPathComponent("msl", isDirectory: true)]
+        if let framework = entry.frameworkURL { folders.append(framework.appendingPathComponent("msl", isDirectory: true)) }
+        return folders
+    }
+
     private func dataStore(_ id: String) -> BookmarkStore {
         if let s = dataStores[id] { return s }
         let s = BookmarkStore(defaults: config.defaults(id), key: BookmarkStore.gameDataKey)
@@ -430,7 +439,8 @@ public struct ShellHostConfig: Sendable {
         if data.source == .picked {
             pickedDataNotes.removeValue(forKey: entry.id)
         }
-        var state = GameStateResolver.state(for: entry, data: data, environment: config.environment)
+        var state = GameStateResolver.state(for: entry, data: data, environment: config.environment,
+                                             shaderFolders: shaderFolders(for: entry))
         if state == .needsGameData, let progress = joiningProgress[entry.id], progress.totalBytes > 0 {
             let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
             let rawPercent = Int((Double(clampedDone) / Double(progress.totalBytes) * 100.0).rounded(.down))

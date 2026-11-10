@@ -158,12 +158,14 @@ import NXModel
     }
 
     /// Exercise the real packaging steps on a small fixture at a lowered ZIP entry limit.
-    private func pack(_ f: Fixture, games: [String]? = nil, limit: Int, using customInstaller: ShellInstaller? = nil) -> ShellInstaller.Outcome {
+    private func pack(_ f: Fixture, games: [String]? = nil, limit: Int, using customInstaller: ShellInstaller? = nil,
+                      externalShaders: Bool = false) -> ShellInstaller.Outcome {
         let names = games ?? [URL(fileURLWithPath: f.framework).lastPathComponent]
         let library = ShellLibrary(games: names.map {
             ShellLibrary.Game(titleID: ShellInstall.titleID(ofFramework: $0), name: "Test Game", framework: $0)
         })
-        return (customInstaller ?? installer(f)).packExport(app: URL(fileURLWithPath: ShellInstall.exportAppPath(root: f.root)), library: library, entryLimit: limit)
+        return (customInstaller ?? installer(f)).packExport(app: URL(fileURLWithPath: ShellInstall.exportAppPath(root: f.root)), library: library,
+                                                           externalShaders: externalShaders, entryLimit: limit)
     }
 
     // ---- the export ----
@@ -207,7 +209,7 @@ import NXModel
         let f = try makeFixture(entitlements: false)
         let shader = "Frameworks/DmGame\(titleID).framework/msl/b-test/shader.json"
         try write(ShellInstall.exportAppPath(root: f.root) + "/" + shader, "reflection")
-        let original = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game")
+        let original = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game", externalShaders: false)
         XCTAssertTrue(original.ok, original.message)
         let names = try entries(ofZip: original.ipaPath)
         XCTAssertTrue(names.contains("Payload/DmShell.app/" + shader))
@@ -327,6 +329,92 @@ import NXModel
         XCTAssertTrue(verified.ok, verified.out)
     }
 
+    // ---- the shader libraries, which stay out of the archive (#947) ----
+
+    /// The path a game's library is written to, beside the IPA.
+    private func shaderFolder(_ f: Fixture, _ game: String = "DmGame\(titleID).framework") -> String {
+        ShellInstall.exportFolder(root: f.root) + "/shader-libraries/" + ShellInstall.titleID(ofFramework: game) + "/msl"
+    }
+
+    func testTheExportWritesEachGamesShaderLibraryBesideTheIPA() throws {
+        let f = try makeFixture(entitlements: false)
+        let app = ShellInstall.exportAppPath(root: f.root)
+        let games = ["DmGame\(titleID).framework", "DmGame0100000000000002.framework"]
+        for (index, game) in games.enumerated() {
+            try write(app + "/Frameworks/\(game)/msl/b-test/shader.json", "{\"game\":\(index)}")
+            try Data([0, 255, UInt8(index)]).write(to: URL(fileURLWithPath: app + "/Frameworks/\(game)/msl/b-test/shader.metallib"))
+        }
+        let unrelated = "Frameworks/GraphicsSupport.framework/msl/library.bin"
+        try write(app + "/" + unrelated, "third-party resource")
+
+        let outcome = pack(f, games: games, limit: 2, externalShaders: true)
+        XCTAssertTrue(outcome.ok, outcome.message)
+
+        let names = try entries(ofZip: outcome.ipaPath)
+        XCTAssertFalse(names.contains { $0.contains("/msl/") || $0.hasSuffix(".aar") }, names.joined(separator: "\n"))
+        XCTAssertTrue(names.contains("Payload/DmShell.app/\(unrelated)"), "another framework's resources stay as they are")
+
+        for (index, game) in games.enumerated() {
+            let dest = shaderFolder(f, game)
+            XCTAssertEqual(try String(contentsOfFile: dest + "/b-test/shader.json", encoding: .utf8), "{\"game\":\(index)}")
+            XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: dest + "/b-test/shader.metallib")), Data([0, 255, UInt8(index)]))
+        }
+        XCTAssertTrue(outcome.message.contains(ShellInstall.shaderLibrariesFolder(root: f.root)), outcome.message)
+        XCTAssertTrue(outcome.message.contains(shaderFolder(f, games[0])), outcome.message)
+    }
+
+    func testTheBuiltFrameworkKeepsItsShadersSoTheNextExportReusesThem() throws {
+        let f = try makeFixture(entitlements: false)
+        let built = ShellInstall.exportAppPath(root: f.root) + "/Frameworks/DmGame\(titleID).framework/msl/b-test/shader.json"
+        try write(built, "reflection")
+        let outcome = pack(f, limit: 2, externalShaders: true)
+        XCTAssertTrue(outcome.ok, outcome.message)
+        XCTAssertTrue(fm.fileExists(atPath: built), "the export copies the library out, it does not move the built one")
+        XCTAssertFalse(fm.fileExists(atPath: shaderFolder(f) + "/b-test/x"), "nothing extra is written")
+    }
+
+    func testPackingTheShadersInAgainWritesNothingBesideTheIPA() throws {
+        let f = try makeFixture(entitlements: false)
+        try write(ShellInstall.exportAppPath(root: f.root) + "/Frameworks/DmGame\(titleID).framework/msl/b-test/shader.json", "reflection")
+        let outcome = pack(f, limit: 2, externalShaders: false)
+        XCTAssertTrue(outcome.ok, outcome.message)
+        XCTAssertFalse(fm.fileExists(atPath: ShellInstall.shaderLibrariesFolder(root: f.root)), "an older shell gets the packed layout")
+        XCTAssertEqual(try entries(ofZip: outcome.ipaPath).filter { $0.hasSuffix(".aar") }.count, 1)
+    }
+
+    func testTheShadersOfAnEarlierExportAreNotKeptBesideTheNewFolder() throws {
+        let f = try makeFixture(entitlements: false)
+        try write(ShellInstall.exportAppPath(root: f.root) + "/Frameworks/DmGame\(titleID).framework/msl/b-test/shader.json", "reflection")
+        let stale = shaderFolder(f) + "/b-old/shader.json"
+        try write(stale, "an earlier export")
+        let outcome = pack(f, limit: 2, externalShaders: true)
+        XCTAssertTrue(outcome.ok, outcome.message)
+        XCTAssertFalse(fm.fileExists(atPath: stale), "the folder holds this export's library, not the last one's")
+        XCTAssertTrue(fm.fileExists(atPath: shaderFolder(f) + "/b-test/shader.json"))
+    }
+
+    func testAPackedCopyInTheFrameworkIsLeftOutOfTheNewExport() throws {
+        let f = try makeFixture(entitlements: false)
+        let app = ShellInstall.exportAppPath(root: f.root)
+        try write(app + "/Frameworks/DmGame\(titleID).framework/msl/b-test/shader.json", "reflection")
+        let packed = "msl-\(UUID().uuidString).aar"
+        try write(app + "/Frameworks/DmGame\(titleID).framework/" + packed, "an earlier export's copy")
+        try write(app + "/Frameworks/DmGame\(titleID).framework/msl-custom.aar", "unrelated resource")
+        let outcome = pack(f, limit: 2, externalShaders: true)
+        XCTAssertTrue(outcome.ok, outcome.message)
+        let names = try entries(ofZip: outcome.ipaPath)
+        XCTAssertFalse(names.contains { $0.hasSuffix(packed) }, "the loose tree is this export's library")
+        XCTAssertTrue(names.contains { $0.hasSuffix("msl-custom.aar") }, "an unrelated resource stays")
+        XCTAssertTrue(fm.fileExists(atPath: app + "/Frameworks/DmGame\(titleID).framework/" + packed), "the built app is not changed")
+    }
+
+    func testTheExportPathIsTheFolderThePlayerCopiesFrom() {
+        let root = "/R/NX2Apple-shell"
+        XCTAssertEqual(ShellInstall.shaderLibrariesFolder(root: root), root + "/export/shader-libraries")
+        XCTAssertEqual(ShellInstall.externalShaderFolder(root: root, titleID: "0100535012974000"), root + "/export/shader-libraries/0100535012974000")
+        XCTAssertEqual(ShellInstall.externalShaderFolder(root: root, titleID: "0100535012974abc"), root + "/export/shader-libraries/0100535012974ABC")
+    }
+
     func testFailedZipRemovesItsPartialIPA() throws {
         let f = try makeFixture(entitlements: false)
         let stage = ShellInstall.exportStage(root: f.root), ipa = ShellInstall.ipaPath(root: f.root)
@@ -351,7 +439,7 @@ import NXModel
         for key in 0...Int(UInt16.max) {
             guard fm.createFile(atPath: chain + "/\(key).json", contents: Data()) else { throw CocoaError(.fileWriteUnknown) }
         }
-        let outcome = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game")
+        let outcome = installer(f).export(framework: f.framework, titleID: titleID, name: "Test Game", externalShaders: false)
         XCTAssertTrue(outcome.ok, outcome.message)
         let names = try entries(ofZip: outcome.ipaPath)
         XCTAssertEqual(names.count, 8)   // Payload/, app/, Frameworks/, framework/, two executables, Info.plist, one shader archive

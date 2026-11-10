@@ -4,6 +4,11 @@ import Foundation
 // (build_shell.sh --prepare-xcode), built by xcodebuild with signing off, the executable signed ad-hoc to carry its entitlements
 // (as build_ipa.sh does for the one-game IPA), then zipped as Payload/<app>.app. A sideloading tool signs the result. The game data
 // stays out: the player copies romfs.img into the app's Documents/games/<title ID>/ after installing it.
+// Each game's shader library stays out too, for the same reason and for a harder one: a big game's
+// b-<chain>.img is several gigabytes in one file, and the install tools cannot copy it on to the phone
+// (LNPANDY/NX2Apple#947). The export writes it to <root>/export/shader-libraries/<title ID>/msl/ for the
+// player to send to Documents/games/<title ID>/msl/, where the host reads it first (EngineLaunchPlan,
+// nvn_mtl.m). Pass externalShaders: false to pack it inside the app again, as an older shell expects.
 
 extension ShellInstall {
     /// The IPA's file name.
@@ -17,6 +22,12 @@ extension ShellInstall {
     package static func exportAppPath(root: String) -> String { exportDerivedData(root: root) + "/Build/Products/Release-iphoneos/" + appName }
     /// The folder the app is copied into as `Payload/<app>.app` before it is zipped.
     package static func exportStage(root: String) -> String { exportFolder(root: root) + "/stage" }
+    /// The folder the games' shader libraries are written to instead of going inside the archive.
+    package static func shaderLibrariesFolder(root: String) -> String { exportFolder(root: root) + "/shader-libraries" }
+    /// One game's shader libraries, to be copied to Documents/games/<title ID>/msl/ on the device.
+    package static func externalShaderFolder(root: String, titleID: String) -> String {
+        shaderLibrariesFolder(root: root) + "/" + titleID.uppercased()
+    }
 
     /// The shell project (prepared by the install's own script call) built for iOS with signing off, as build_shell.sh --build does.
     /// `bundleID` is the one shell.json holds, so the IPA keeps the identifier of the install.
@@ -172,7 +183,9 @@ extension ShellInstaller {
     }
 
     /// The export: the library and the project, the unsigned build, the entitlements, the IPA. Needs no device and no team.
-    package func export(framework: String, titleID: String, name: String) -> Outcome {
+    /// Pass `externalShaders: false` to pack each game's shader library inside the app again, as an older shell
+    /// expects; the export otherwise writes it beside the IPA (see `packExport`).
+    package func export(framework: String, titleID: String, name: String, externalShaders: Bool = true) -> Outcome {
         let fm = FileManager.default
         guard fm.fileExists(atPath: framework) else { return missingFramework(framework, name: name) }
         let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
@@ -194,14 +207,16 @@ extension ShellInstaller {
             return Outcome(ok: false, message: fmt("dev.noProject", app))
         }
         end(Self.exportBuildStageID, buildName, ok: true)
-        return packExport(app: URL(fileURLWithPath: app), library: library, notes: prepared.notes)
+        return packExport(app: URL(fileURLWithPath: app), library: library, notes: prepared.notes, externalShaders: externalShaders)
     }
 
     /// Stage and zip Payload/<app>.app. Signing can add _CodeSignature/ and CodeResources, so reserve two ZIP32 entries.
-    func packExport(app: URL, library: ShellLibrary, notes: [String] = [], entryLimit: Int = ShellExport.entryLimit,
+    func packExport(app: URL, library: ShellLibrary, notes: [String] = [], externalShaders: Bool = true,
+                    entryLimit: Int = ShellExport.entryLimit,
                     hardLimit: Int = ShellExport.entryLimit) -> Outcome {
         let fm = FileManager.default
         let packName = t("shell.exportPackStage")
+        var notes = notes
         begin(Self.exportPackStageID, packName)
         let stage = ShellInstall.exportStage(root: root), ipa = ShellInstall.ipaPath(root: root)
         let stagedApp = URL(fileURLWithPath: stage + "/Payload/" + ShellInstall.appName)
@@ -211,7 +226,13 @@ extension ShellInstaller {
             try fm.createDirectory(atPath: stage + "/Payload", withIntermediateDirectories: true)
             try fm.copyItem(at: app, to: stagedApp)
             let payload = stagedApp.deletingLastPathComponent()
-            if try ShellExport.exceedsEntryLimit(in: payload, limit: entryLimit) {
+            if externalShaders {
+                let written = try externalizeShaderLibraries(in: stagedApp, games: library.games, label: packName)
+                if !written.isEmpty {
+                    notes.append(fmt("shell.shadersExported", ShellInstall.shaderLibrariesFolder(root: root),
+                                     written.joined(separator: "\n")))
+                }
+            } else if try ShellExport.exceedsEntryLimit(in: payload, limit: entryLimit) {
                 try packShaderLibraries(in: stagedApp, games: library.games, label: packName)
                 if try ShellExport.exceedsEntryLimit(in: payload, limit: hardLimit) {
                     throw ShellExport.entryLimitExceededError(limit: hardLimit)
@@ -246,6 +267,39 @@ extension ShellInstaller {
         return outcome
     }
 
+    /// Move each game's shader library out of the staged app to `<root>/export/shader-libraries/<title ID>/msl/`,
+    /// so the archive holds the app and the code but not the gigabytes. Same volume, so this is a rename.
+    /// Returns one line per game that had a library, to name the folders in the export's message.
+    private func externalizeShaderLibraries(in stagedApp: URL, games: [ShellLibrary.Game], label: String) throws -> [String] {
+        let fm = FileManager.default
+        let frameworks = stagedApp.appendingPathComponent("Frameworks")
+        var written: [String] = []
+        for game in games {
+            let framework = frameworks.appendingPathComponent(URL(fileURLWithPath: game.framework).lastPathComponent)
+            // A re-used framework can already hold a copy packed by an older export. This export's library is the loose tree.
+            for old in (try? fm.contentsOfDirectory(at: framework, includingPropertiesForKeys: nil)) ?? [] where old.pathExtension == "aar" {
+                let stem = old.deletingPathExtension().lastPathComponent
+                if stem.hasPrefix("msl-"), UUID(uuidString: String(stem.dropFirst(4))) != nil { try? fm.removeItem(at: old) }
+            }
+            let shaders = framework.appendingPathComponent("msl")
+            var directory: ObjCBool = false
+            guard fm.fileExists(atPath: shaders.path, isDirectory: &directory), directory.boolValue else { continue }
+            let folder = URL(fileURLWithPath: ShellInstall.externalShaderFolder(root: root, titleID: game.titleID))
+            let dest = folder.appendingPathComponent("msl")
+            try? fm.removeItem(at: dest)
+            try fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            do {
+                try fm.moveItem(at: shaders, to: dest)
+            } catch {
+                // Another volume, or a rename the volume refuses: a copy still gets the bytes out.
+                try fm.copyItem(at: shaders, to: dest)
+                try fm.removeItem(at: shaders)
+            }
+            log("export: \(game.titleID)'s shaders go beside the IPA at \(dest.path), not inside it\n")
+            written.append("\(game.titleID): \(dest.path)")
+        }
+        return written
+    }
     /// Keep a large IPA within the sideloader's 16-bit entry count. Only the games in the shell library
     /// know how to unpack an archive. Leave other frameworks' resources in their original layout.
     private func packShaderLibraries(in stagedApp: URL, games: [ShellLibrary.Game], label: String) throws {
