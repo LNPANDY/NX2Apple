@@ -2,6 +2,7 @@
 The same rules as the Mac launcher's GameInputs.classify, so both front ends agree."""
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import struct
@@ -147,7 +148,7 @@ class GameFolderContents:
 class GameFolderProblem:
     """Why a game folder cannot be built. `kind` is the Mac launcher's Problem case, `args` fill its text
     (`folder.problem.<key>`, see `l10n_key`)."""
-    kind: str    # missing noBaseFolder unreadableNPDM notBaseTitle packageBeside dlcName notDLC dlcRomFS notNUP nupPartial severalNUPs
+    kind: str    # missing noBaseFolder unreadableNPDM notBaseTitle packageBeside dlcName notDLC dlcRomFS notNUP nupPartial nupDamaged severalNUPs
     args: tuple = ()
 
     @property
@@ -155,7 +156,7 @@ class GameFolderProblem:
         return 'folder.problem.' + {
             'missing': 'missing', 'noBaseFolder': 'noBase', 'unreadableNPDM': 'npdm', 'notBaseTitle': 'notBase',
             'packageBeside': 'package', 'dlcName': 'dlcName', 'notDLC': 'notDLC', 'dlcRomFS': 'dlcRomFS',
-            'notNUP': 'notNUP', 'nupPartial': 'nupPartial', 'severalNUPs': 'severalNUPs'}[self.kind]
+            'notNUP': 'notNUP', 'nupPartial': 'nupPartial', 'nupDamaged': 'nupDamaged', 'severalNUPs': 'severalNUPs'}[self.kind]
 
 
 def _is_file(p: str | Path) -> bool:
@@ -331,8 +332,8 @@ def program_id(npdm: bytes) -> int | None:
 
 def read_nup(path: str) -> GameFolderContents | GameFolderProblem:
     """A NUP's title ID, updates and DLC from its header and package table (SPEC v1, pack_nup.py). The title ID is the base
-    package's, else an update's with the low 12 bits cleared, else 0. Checks the magic, the version and the file size,
-    not the SHA-256s (the script checks every file it reads)."""
+    package's, else an update's with the low 12 bits cleared, else 0. Checks the magic, the version, the file size and the
+    TOC SHA-256 when present."""
     name = Path(path).name
     try:
         size = os.path.getsize(path)
@@ -343,14 +344,25 @@ def read_nup(path: str) -> GameFolderContents | GameFolderProblem:
             if struct.unpack_from('<Q', head, 0x40)[0] != size:
                 return GameFolderProblem('nupPartial', (name,))
             toc = struct.unpack_from('<Q', head, 0x08)[0]
+            toc_size = struct.unpack_from('<Q', head, 0x10)[0]
+            toc_sha = head[0x18:0x38]
             count = struct.unpack_from('<I', head, 0x48)[0]
-            if not 0 < count < 100_000 or toc + 0x30 + count * 0x40 > size:
+            min_table = 0x30 + count * 0x40
+            if not 0 < count < 100_000 or toc + min_table > size:
                 return GameFolderProblem('notNUP', (name,))
             f.seek(toc)
-            table = f.read(0x30 + count * 0x40)
+            if any(toc_sha):
+                if not min_table <= toc_size <= (256 << 20) or toc + toc_size > size:
+                    return GameFolderProblem('nupDamaged', (name,))
+                toc_bytes = f.read(toc_size)
+                if len(toc_bytes) != toc_size or hashlib.sha256(toc_bytes).digest() != toc_sha:
+                    return GameFolderProblem('nupDamaged', (name,))
+                table = toc_bytes[:min_table]
+            else:
+                table = f.read(min_table)
     except OSError:
         return GameFolderProblem('notNUP', (name,))
-    if len(table) != 0x30 + count * 0x40 or table[:4] != b'TOC\x01':
+    if len(table) != min_table or table[:4] != b'TOC\x01':
         return GameFolderProblem('notNUP', (name,))
     base = update_title = 0
     updates: list[tuple[int, str]] = []

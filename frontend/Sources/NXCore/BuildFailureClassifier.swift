@@ -16,6 +16,7 @@ package enum BuildFailureClassifier {
         ("metal.other", .otherMetal, "Metal compiler is not the one the shaders were tested with"),
         ("shaders.regression", .shaderRegression, "a change to the translation chain broke them"),
         ("nsp.damaged", .damagedNSP, "files fail the NCA's hash check"),
+        ("nup.damaged", .damagedNSP, "Pack again from a good copy of the game"),
         ("arm32.program", .a32Program, "is a 32-bit ARM program"),
         ("keys.missing", .keys, "(?m)^\\[RED\\] no such file: "),
         ("keys.old", .keysOld, "the keys are older than the game"),
