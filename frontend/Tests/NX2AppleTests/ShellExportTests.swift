@@ -353,7 +353,9 @@ import NXModel
         XCTAssertTrue(outcome.ok, outcome.message)
 
         let names = try entries(ofZip: outcome.ipaPath)
-        XCTAssertFalse(names.contains { $0.contains("/msl/") || $0.hasSuffix(".aar") }, names.joined(separator: "\n"))
+        // Only the games lose their library: another framework's own resources are none of our business.
+        let fromGames = names.filter { name in games.contains { name.contains("/\($0)/") } }
+        XCTAssertFalse(fromGames.contains { $0.contains("/msl/") || $0.hasSuffix(".aar") }, fromGames.joined(separator: "\n"))
         XCTAssertTrue(names.contains("Payload/DmShell.app/\(unrelated)"), "another framework's resources stay as they are")
 
         for (index, game) in games.enumerated() {

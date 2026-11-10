@@ -99,7 +99,7 @@ import ShellUI
         #expect(state == .needsGameData)
     }
 
-    @Test func theModelShowsTheNewStateAndClearsItOnceTheLibraryArrives() throws {
+    @MainActor @Test func theModelShowsTheNewStateAndClearsItOnceTheLibraryArrives() async throws {
         let box = try Sandbox()
         try box.giveAppData()
         try takeTheLibraryOutOfTheFramework(Fixtures.orbit, in: box)
@@ -112,7 +112,7 @@ import ShellUI
         #expect(after.game.state == .playable)
     }
 
-    @Test func aGameWithoutDataSaysDataFirstEvenWithTheLibraryMissing() throws {
+    @MainActor @Test func aGameWithoutDataSaysDataFirstEvenWithTheLibraryMissing() async throws {
         let box = try Sandbox()
         try takeTheLibraryOutOfTheFramework(Fixtures.orbit, in: box)
         let model = ShellHostModel(config: box.config())
