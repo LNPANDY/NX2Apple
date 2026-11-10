@@ -460,7 +460,8 @@ struct LauncherView: View {
                     .frame(width: searching ? 16 : 40, height: searching ? 16 : 40).contentShape(Rectangle())
             }
             .keyboardShortcut("f", modifiers: .command)
-            .buttonStyle(.plain).launcherHover().help(loc.t("library.search")).accessibilityLabel(loc.t("library.search"))
+            .buttonStyle(.plain).launcherHover().help(loc.t("library.search") + " (\u{2318}F)")   // the shortcut in the tooltip and to VoiceOver
+            .accessibilityLabel(loc.t("library.search")).accessibilityHint(loc.t("library.searchShortcut"))
             if searching {
                 TextField(loc.t("library.search"), text: $search)
                     .textFieldStyle(.plain).font(.manrope(14))
