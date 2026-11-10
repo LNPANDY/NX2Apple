@@ -332,8 +332,10 @@ import NXModel
     // ---- the shader libraries, which stay out of the archive (#947) ----
 
     /// The path a game's library is written to, beside the IPA.
-    private func shaderFolder(_ f: Fixture, _ game: String = "DmGame\(titleID).framework") -> String {
-        ShellInstall.exportFolder(root: f.root) + "/shader-libraries/" + ShellInstall.titleID(ofFramework: game) + "/msl"
+    private func shaderFolder(_ f: Fixture, _ game: String? = nil) -> String {
+        // A default argument cannot name an instance member, so the game falls back to this fixture's here.
+        let framework = game ?? "DmGame\(titleID).framework"
+        return ShellInstall.exportFolder(root: f.root) + "/shader-libraries/" + ShellInstall.titleID(ofFramework: framework) + "/msl"
     }
 
     func testTheExportWritesEachGamesShaderLibraryBesideTheIPA() throws {

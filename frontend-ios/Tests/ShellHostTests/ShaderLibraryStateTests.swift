@@ -4,7 +4,7 @@ import ShellUI
 @testable import ShellHost
 
 /// A shared app keeps every game's shader library out of the IPA, because a library of several gigabytes stops the
-/// installers (LNPBNX2Apple#947). The shell reads it from the game's own folder instead, so a game whose library was
+/// installers (LNPANDY/NX2Apple#947). The shell reads it from the game's own folder instead, so a game whose library was
 /// never copied in has to say so rather than offer Play.
 @Suite struct ShaderLibraryStateTests {
     private let env = HostEnvironment(chain: "b-3f9a2c", osVersion: OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
