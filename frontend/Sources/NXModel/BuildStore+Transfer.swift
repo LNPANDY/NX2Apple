@@ -50,7 +50,8 @@ extension BuildStore {
         var library = ShellLibrary.load(root: shellRoot)
         for game in games.dropLast() { library.add(.init(titleID: game.titleID, name: game.name, framework: game.framework)) }
         try? library.save(root: shellRoot)
-        exportShell(framework: last.framework, titleID: last.titleID, name: last.name)
+        exportShell(framework: last.framework, titleID: last.titleID, name: last.name,
+                    extraFrameworksToClean: games.dropLast().map(\.framework))
     }
 
     // MARK: Send game data

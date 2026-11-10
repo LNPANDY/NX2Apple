@@ -57,8 +57,34 @@ package enum RomFSArchive {
         let fm = FileManager.default
         let isTitleID = key.count == 16 && key.allSatisfy(\.isHexDigit)
         let games = isTitleID ? [key] : ((try? fm.contentsOfDirectory(atPath: root + "/games")) ?? []).sorted()
-        return (games.map { root + "/games/" + $0 + "/romfs.img" } + [root + "/" + key + ".app/Contents/Resources/romfs.img"])
-            .filter { fm.fileExists(atPath: $0) && fm.fileExists(atPath: $0 + ".id") }
+        var candidates = games.map { root + "/games/" + $0 + "/romfs.img" }
+            + [root + "/" + key + ".app/Contents/Resources/romfs.img"]
+        let rootURL = URL(fileURLWithPath: root)
+        let rootEntries = ((try? fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: [.isSymbolicLinkKey], options: [.skipsHiddenFiles])) ?? [])
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for appURL in rootEntries where appURL.pathExtension.lowercased() == "app" && appURL.lastPathComponent != key + ".app" {
+            guard (try? appURL.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == false else { continue }
+            let image = root + "/" + appURL.lastPathComponent + "/Contents/Resources/romfs.img"
+            guard fm.fileExists(atPath: image), fm.fileExists(atPath: image + ".id") else { continue }
+            if !isTitleID || appImageMatchesTitleID(appURL: appURL, idPath: image + ".id", titleID: key) {
+                candidates.append(image)
+            }
+        }
+        return candidates.filter { fm.fileExists(atPath: $0) && fm.fileExists(atPath: $0 + ".id") }
+    }
+
+    private nonisolated static func appImageMatchesTitleID(appURL: URL, idPath: String, titleID: String) -> Bool {
+        if let data = try? Data(contentsOf: URL(fileURLWithPath: idPath)),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let title = json["title"] as? String, !title.isEmpty {
+            return title.caseInsensitiveCompare(titleID) == .orderedSame
+        }
+        if let data = try? Data(contentsOf: appURL.appendingPathComponent("Contents/Info.plist")),
+           let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+           let rawID = info["DMTitleID"] as? String, !rawID.isEmpty {
+            return rawID.caseInsensitiveCompare(titleID) == .orderedSame
+        }
+        return false
     }
 
     /// The identity file beside an extracted image (RomFS.img.id) goes with the image's copy, as romfs.img.id; without one a stale

@@ -4,10 +4,12 @@ import Foundation
 /// game's existing bundle so the packer can reuse it, or replace it safely on APFS and other volumes.
 package struct MacAppOutput {
     package let builderURL: URL
+    package let workDirectoryURL: URL
     private let directory: URL
     private let rebuilding: Bool
 
     package init(workDir: URL, key: String, titleID: String?, preferred: String) {
+        workDirectoryURL = workDir
         directory = workDir.deletingLastPathComponent()
         let prior = Self.existing(in: directory, titleID: titleID, preferred: preferred)
         rebuilding = prior != nil

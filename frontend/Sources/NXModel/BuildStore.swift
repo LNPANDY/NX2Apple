@@ -270,6 +270,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     var psoNativeProgress = false
     var psoPollGeneration = 0
     var psoPollTask: Task<Void, Never>?
+    var archiveGeneration = 0
 
     /// - Parameters:
     ///   - volumesRoot: where external drives are mounted (the failure classifier reads it).
@@ -329,13 +330,14 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     // MARK: Ending a build
 
-    package func fail(_ why: String) { stopPSOPoll(); running = false; doneNote = why; say("✗ " + why); cleanupStaging() }
+    package func fail(_ why: String) { archiveGeneration &+= 1; stopPSOPoll(); running = false; doneNote = why; say("✗ " + why); cleanupStaging() }
 
     package func stop() {
         if running { stoppedByPlayer = true }
         if case .moving = shellMove { stopShellMove(); return }
         if let endPreflight { endPreflight(MacPreflight.Failure.stopped); return }   // the app is built: Stop ends the check only
         guard running, !stopping, let proc, proc.isRunning else { return }
+        archiveGeneration &+= 1
         stopping = true
         stopPSOPoll()
         ProcessGroups.endGroup(proc.processIdentifier)   // the script and every tool it started
@@ -348,7 +350,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
 
     /// A stopped build leaves no half-finished stages behind: the progress starts empty again.
-    package func resetProgress() { stopPSOPoll(); stages = []; log.clear() }
+    package func resetProgress() { archiveGeneration &+= 1; stopPSOPoll(); stages = []; log.clear() }
 
     package func markAllDone() { stopPSOPoll(); for i in stages.indices where stages[i].state != .failed { stages[i].state = .done } }
 

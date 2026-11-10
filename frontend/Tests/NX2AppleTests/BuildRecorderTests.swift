@@ -214,9 +214,14 @@ import NXModel
         try Data("image".utf8).write(to: extractV0.appendingPathComponent("RomFS.img"))
         m.buildingGame = false
         var packed = ""
-        m.packArchive(workDir: workDir.path, titleID: titleID) { packed = $0 }
+        let archiveEnded = expectation(description: "packArchive")
+        m.packArchive(workDir: workDir.path, titleID: titleID) {
+            packed = $0
+            archiveEnded.fulfill()
+        }
         XCTAssertTrue(m.buildingGame, "packArchive must reset buildingGame to true")
         XCTAssertEqual(m.runningTarget, BuildTarget.ios)
+        wait(for: [archiveEnded], timeout: 5)
         XCTAssertFalse(packed.isEmpty)
         m.running = false
         drainMainQueue()

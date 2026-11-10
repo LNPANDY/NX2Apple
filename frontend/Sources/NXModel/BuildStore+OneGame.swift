@@ -7,12 +7,32 @@ import NXCore
 extension BuildStore {
     /// The script ended well: the IPA is the export's result, or the build says that it is missing.
     func finishOneGameIPA() {
+        running = true
         let ipa = oneGameIPAPath
-        let made = FileManager.default.fileExists(atPath: ipa)
-        exportedIPAPath = made ? ipa : ""
-        done = made
-        doneNote = String(format: t(made ? "shell.exportDone" : "shell.oneGameMissing"), ipa)
-        running = false
-        cleanupStaging()
+        let workDir = effectiveWorkDir
+        archiveGeneration &+= 1
+        let generation = archiveGeneration
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let made = FileManager.default.fileExists(atPath: ipa)
+            if made {
+                PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: true, removeShellFramework: true)
+            }
+            hop {
+                guard let self, self.archiveGeneration == generation else { return }
+                if self.stopping {
+                    self.stopping = false
+                    self.running = false
+                    self.resetProgress()
+                    self.doneNote = self.t("msg.stopped")
+                    self.cleanupStaging()
+                    return
+                }
+                self.exportedIPAPath = made ? ipa : ""
+                self.done = made
+                self.doneNote = String(format: self.t(made ? "shell.exportDone" : "shell.oneGameMissing"), ipa)
+                self.running = false
+                self.cleanupStaging()
+            }
+        }
     }
 }

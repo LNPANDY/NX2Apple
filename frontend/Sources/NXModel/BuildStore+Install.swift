@@ -53,6 +53,9 @@ extension BuildStore {
         DispatchQueue.global(qos: .userInitiated).async {
             let result = dataOnly ? installer.installData(titleID: titleID, archive: archive)
                                   : installer.install(framework: framework, titleID: titleID, name: name, archive: archive)
+            if !dataOnly, result.ok {
+                PostBuildCleanup.cleanBuiltFrameworkContainer(framework)
+            }
             hop {
                 target.copyEnded()
                 if self.stopping {
