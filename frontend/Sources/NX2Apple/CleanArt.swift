@@ -11,13 +11,16 @@ import Foundation
 /// Hyrule Warriors: Age of Calamity and Dragon Quest XI S in German, French, Italian and Spanish, one in Dutch.
 ///
 /// The catalogue has English, German, French, Italian, Spanish, Dutch and Portuguese. A launcher language without one (Swedish,
-/// Chinese, Japanese) asks the English catalogue: an English logo without a badge rather than the list's banner. A title the
+/// Chinese, Japanese, Korean) asks the English catalogue: an English logo without a badge rather than the list's banner. A title the
 /// catalogue lacks (Switch 2 games, games not sold in Europe, the newest releases) keeps the list's banner.
 enum CleanArt {
     typealias Lookup = @Sendable (_ language: String, _ titleIDs: [String]) async throws -> [String: String]
 
     static let languages: Set<String> = ["en", "de", "fr", "it", "es", "nl", "pt"]
-    static func language(for launcher: String) -> String { languages.contains(launcher) ? launcher : "en" }
+    static func language(for launcher: String) -> String {
+        let base = String(launcher.prefix { $0 != "-" })
+        return languages.contains(launcher) ? launcher : (languages.contains(base) ? base : "en")
+    }
 
     struct Cache: Codable {
         var language: String

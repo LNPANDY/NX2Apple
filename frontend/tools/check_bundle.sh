@@ -40,7 +40,7 @@ done < <(find "$RES/tools" "$RES/python" -type f -print0)
 if [ -d "$APP/Contents" ]; then
     for f in Assets.car AppIcon.icns; do [ -s "$RES/$f" ] && ok "$f is in the bundle" || bad "$f is missing from Resources"; done
     # the launcher's texts (#388): Contents/Resources/l10n, one JSON file per language, each a JSON object with an English text of its own
-    for c in en zh sv de fr; do
+    for c in de en es fr it ja ko pt-br sv zh; do
         v=$(clean "$PY" -I -c "import json, sys; d = json.load(open(sys.argv[1], encoding='utf-8')); assert isinstance(d, dict) and len(d) > 1 and '_language' in d" "$RES/l10n/$c.json" 2>&1) \
             && ok "l10n/$c.json is in the bundle and reads as JSON" || bad "l10n/$c.json is missing or broken: $v"
     done
