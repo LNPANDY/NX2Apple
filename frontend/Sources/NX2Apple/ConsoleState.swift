@@ -154,6 +154,8 @@ enum ConsoleSheet: Equatable {
     /// #816: a game's page (A on a tile), all games with their filters, the search with its keyboard, the builds, the quick menu (−),
     /// a game's Manage panel, "stopped unexpectedly" after a crash, and the questions before Stop and before quitting a paused game (#952).
     case gamePage(String), allGames, search, builds, quickMenu, manage(String), stopped, confirmStopBuild, confirmQuitPaused
+    /// The supported games (#301): every game the engine has a profile for, with its own search (the Library page's way to it).
+    case supportedGames
     /// The questions drawn in the middle of the screen, over what they were asked from.
     var isQuestion: Bool {
         switch self {
@@ -165,7 +167,7 @@ enum ConsoleSheet: Equatable {
     /// a game's page, all games, the search and the builds.
     var isFullScreen: Bool {
         switch self {
-        case .cloudSaves, .gamePad, .mapping, .gamePage, .allGames, .search, .builds: return true
+        case .cloudSaves, .gamePad, .mapping, .gamePage, .allGames, .search, .builds, .supportedGames: return true
         default: return false
         }
     }
@@ -174,6 +176,7 @@ enum ConsoleSheet: Equatable {
         case .gamePage: return "console.gamePage"
         case .allGames: return "console.allGames"
         case .search: return "console.search"
+        case .supportedGames: return "console.supported"
         case .builds: return "console.builds"
         case .quickMenu: return "console.quickMenu"
         case .manage: return "console.manage"
@@ -295,6 +298,11 @@ struct ConsoleState {
     var libraryOrder: [String] = []
     var searchText = ""
     var searchResults: [String] = []
+    /// The supported games page: the engine's profiles (the driver reads them when it opens), what was typed into its search, and the
+    /// library's game for a title ID the player owns (upper-case title ID to the game's ID), so a row can say so and open its page.
+    var supportedGames: [SupportedGame] = []
+    var supportedText = ""
+    var supportedOwned: [String: String] = [:]
     /// The desktop's build and its queue, for the Builds page.
     var builds = ConsoleBuilds()
     /// The game that stopped unexpectedly and its newest save, for the screen after a crash.
@@ -514,6 +522,10 @@ struct ConsoleState {
     func openSearch()
     func typeSearch(_ text: String)
     func deleteSearch()
+    /// The Library page's Supported games (#301), and its search's typing and Delete.
+    func openSupportedGames()
+    func typeSupported(_ text: String)
+    func deleteSupported()
     func openBuilds()
     func askStopBuild()
     func stopBuild()
@@ -562,6 +574,9 @@ extension ConsoleDriver {
     func openSearch() {}
     func typeSearch(_ text: String) {}
     func deleteSearch() {}
+    func openSupportedGames() {}
+    func typeSupported(_ text: String) {}
+    func deleteSupported() {}
     func openBuilds() {}
     func askStopBuild() {}
     func stopBuild() {}

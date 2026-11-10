@@ -36,6 +36,20 @@ extension LiveConsoleDriver {
 
     func openSearch() { state.openSearch() }
 
+    /// The Library page's Supported games (#301): the engine's profiles, read off the main thread as the desktop's sheet reads them,
+    /// with the library's games by title ID so an owned row opens that game's page.
+    func openSupportedGames() {
+        let root = EngineLayout.root(repo())
+        let owned = Dictionary(library.games.filter { game in state.games.contains { $0.id == game.id.uuidString } }
+            .map { ($0.titleID.uppercased(), $0.id.uuidString) }) { a, _ in a }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let list = SupportedGames.list(engineRoot: root)
+            DispatchQueue.main.async { [weak self] in self?.state.openSupportedGames(list, owned: owned) }
+        }
+    }
+    func typeSupported(_ text: String) { state.typeSupported(text) }
+    func deleteSupported() { state.deleteSupported() }
+
     func typeSearch(_ text: String) {
         guard state.presentedSheet == .search, state.searchText.count < 60 else { return }
         state.searchText += text

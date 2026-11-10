@@ -54,7 +54,9 @@ enum ConsoleInput: Equatable {
     @State private var editingOption: String?
 
     /// `gamepad` is the one the root view owns (the controller has a single handler, so two would fight); without one the view makes its own.
-    init(driver: Driver, lang: Lang = .initial(), inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher(), gamepad: LauncherGamepad? = nil, glyphs: ConsoleGlyphs? = nil, onExit: (() -> Void)? = nil, chooseLanguage: ((String) -> Void)? = nil) {
+    /// `padFocus` lets a test read which targets a page offers.
+    init(driver: Driver, lang: Lang = .initial(), inputs: AnyPublisher<ConsoleInput, Never> = Empty().eraseToAnyPublisher(), gamepad: LauncherGamepad? = nil, glyphs: ConsoleGlyphs? = nil, onExit: (() -> Void)? = nil, chooseLanguage: ((String) -> Void)? = nil, padFocus: PadFocus? = nil) {
+        _pad = StateObject(wrappedValue: padFocus ?? PadFocus())
         self.onExit = onExit
         self.chooseLanguage = chooseLanguage
         _glyphs = State(initialValue: glyphs ?? .current())
@@ -130,7 +132,7 @@ enum ConsoleInput: Equatable {
         .environmentObject(pad)
         .environment(\.padRingStyle, .hug)
         .background(ConsoleKeyboardInput(perform: { input in glyphs = .keyboard; handle(input) },
-                                         typing: { [driver] in driver.state.presentedSheet == .search }).frame(width: 0, height: 0))
+                                         typing: { [driver] in [.search, .supportedGames].contains(driver.state.presentedSheet) }).frame(width: 0, height: 0))
         .onReceive(inputs, perform: handle)
         .onChange(of: scope) { _ in editingOption = nil; resetFocus() }
         .onChange(of: state.exited) { exited in if exited, let onExit { onExit() } else { resetFocus() } }
@@ -185,7 +187,7 @@ enum ConsoleInput: Equatable {
             case let .manage(id):
                 if let game = state.games.first(where: { $0.id == id }) { ConsoleManagePanel(driver: driver, game: game, lang: lang, compact: compact) }
             case .mapping, .gamePad, .cloudSaves, .confirmExit, .confirmMapping, .confirmReset, .confirmUpdate,
-                 .gamePage, .allGames, .search, .builds, .stopped, .confirmStopBuild, .confirmQuitPaused: EmptyView()   // drawn over the whole screen (fullPage, question)
+                 .gamePage, .allGames, .search, .builds, .supportedGames, .stopped, .confirmStopBuild, .confirmQuitPaused: EmptyView()   // drawn over the whole screen (fullPage, question)
             }
         }
         .padScope(sheet.scope, pad)
@@ -253,6 +255,7 @@ enum ConsoleInput: Equatable {
         case .allGames: ConsoleAllGamesPage(driver: driver, lang: lang, glyphs: glyphs, compact: compact)
         case .search: ConsoleSearchPage(driver: driver, lang: lang, glyphs: glyphs, compact: compact)
         case .builds: ConsoleBuildsPage(driver: driver, lang: lang, compact: compact)
+        case .supportedGames: ConsoleSupportedGamesPage(driver: driver, lang: lang, compact: compact)
         default: EmptyView()
         }
     }
@@ -479,7 +482,7 @@ enum ConsoleInput: Equatable {
         case .confirmUpdate: return "console.update.title"
         case .quickMenu: return "console.quickMenu"
         case .manage: return "console.manage"
-        case .gamePage, .allGames, .search, .builds, .stopped, .confirmStopBuild, .confirmQuitPaused: return "console.menu"   // their own headers
+        case .gamePage, .allGames, .search, .builds, .supportedGames, .stopped, .confirmStopBuild, .confirmQuitPaused: return "console.menu"   // their own headers
         }
     }
     private func resetFocus() {
@@ -515,6 +518,7 @@ enum ConsoleInput: Equatable {
         case let .gamePage(id): pad.focused = ConsoleGamePage<Driver>.firstTarget(state.games.first { $0.id == id }, paused: id == state.pausedGameID)
         case .allGames: pad.focused = state.libraryGames.first.map { "console.lib." + $0.id } ?? "console.allGames.close"
         case .search: pad.focused = "console.key.a"
+        case .supportedGames: pad.focused = ConsoleSupportedGamesPage<Driver>.firstTarget
         case .builds: pad.focused = state.builds.running ? "console.builds.stop" : "console.builds.close"
         case .quickMenu: pad.focused = ConsoleQuickMenu<Driver>.firstTarget(state)
         case .manage: pad.focused = "console.manage.desktop"
@@ -529,6 +533,10 @@ enum ConsoleInput: Equatable {
         if state.presentedSheet == .search {   // the Mac's keyboard types into the search (#816)
             if case let .typed(text) = input { driver.typeSearch(text); return }
             if input == .deleteBackward { driver.deleteSearch(); return }
+        }
+        if state.presentedSheet == .supportedGames {   // and into the supported games' search
+            if case let .typed(text) = input { driver.typeSupported(text); return }
+            if input == .deleteBackward { driver.deleteSupported(); return }
         }
         if input == .back { driver.back(); return }
         if state.exited { if input == .activate { driver.returnFromGame() }; return }
@@ -570,6 +578,7 @@ enum ConsoleInput: Equatable {
             else if case let .gamePage(id) = state.presentedSheet { driver.openOptions(id) }
             else if state.presentedSheet == .allGames { driver.toggleLibrarySort() }
             else if state.presentedSheet == .search { driver.deleteSearch() }
+            else if state.presentedSheet == .supportedGames { driver.deleteSupported() }
         case .menu: if state.presentedSheet == .menu { driver.back() } else if home { driver.openMenu() }
         case .quickMenu: if state.presentedSheet == .quickMenu { driver.back() } else if home { driver.openQuickMenu() }
         case .back, .typed, .deleteBackward: break

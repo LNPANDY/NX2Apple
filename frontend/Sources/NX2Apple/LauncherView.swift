@@ -703,7 +703,7 @@ struct LauncherView: View {
                         deviceName: devices.deviceName(game.installedDevice), launching: launching,
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
-                            changeArtwork: { openArtwork(game) }, rename: { renaming = game }, supportedGames: openSupportedGames,
+                            changeArtwork: { openArtwork(game) }, rename: { renaming = game },
                             reveal: { if let path = game.revealTarget { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)]) } },
                             showLog: { if let log = GameLog.latest(titleID: game.titleID, appPath: game.appPath) { GameLog.show(log) } },
                             removeBuildFiles: { stores.buildFiles.ask(game.id, building: m.running && activeBuildID == game.id) }, remove: { removing = game }, delete: { deleting = game }))
