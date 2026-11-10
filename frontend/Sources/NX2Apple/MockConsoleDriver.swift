@@ -3,7 +3,7 @@ import NXCore
 import NXLauncher
 
 @MainActor final class MockConsoleDriver: ConsoleDriver {
-    enum Scenario: String, CaseIterable { case full, few, empty, controllers, controllersMixed, starting }
+    enum Scenario: String, CaseIterable { case full, few, empty, controllers, controllersMixed, starting, paused }
     @Published var state: ConsoleState
     private var toastTask: Task<Void, Never>?
     private var startingTask: Task<Void, Never>?
@@ -48,6 +48,17 @@ import NXLauncher
                                     controllers: [.init(id: "pad.1", name: t("console.demoController"), player: 1)],
                                     time: Date(timeIntervalSince1970: 1_793_210_400))
         snapshot.isPreview = true
+        // two games played before (#816's Continue playing), with their play time
+        for (id, days, hours) in [("demo.2", 1.0, 12.5), ("demo.4", 6.0, 3.0)] {
+            if let i = snapshot.games.firstIndex(where: { $0.id == id }) {
+                snapshot.games[i].lastPlayed = snapshot.time.addingTimeInterval(-days * 86_400); snapshot.games[i].playSeconds = hours * 3600
+            }
+        }
+        snapshot.builds = ConsoleBuilds(running: true, title: t("console.demoBuild"),
+                                        stages: [.init(id: 1, name: t("console.demoStage1"), state: .done), .init(id: 2, name: t("console.demoStage2"), state: .running, progress: 0.4),
+                                                 .init(id: 3, name: t("console.demoStage3"), state: .pending)],
+                                        queue: [.init(id: UUID(), name: titles[3], statusKey: "queue.status.queued")])
+        if scenario == .paused { snapshot.gamePaused("demo.2") }
         snapshot.prefs = ConsolePrefs(values: [:], appVersion: "1.2.3", update: .available("1.2.4"))
         snapshot.homeButtonAvailable = true
         if scenario == .controllers {
@@ -70,6 +81,7 @@ import NXLauncher
     }
     func focus(_ gameID: String) { state.focus(gameID) }
     func play(_ gameID: String) {
+        if state.pausedGameID == gameID { resume(gameID); return }
         let wasStarting = state.startingGameID != nil
         state.play(gameID)
         if !wasStarting, state.startingGameID != nil, animated { animateStarting(gameID) }
@@ -95,7 +107,7 @@ import NXLauncher
         loadDemoDetails(gameID)
         state.openOptions(gameID)
     }
-    private func loadDemoDetails(_ gameID: String) {
+    func loadDemoDetails(_ gameID: String) {
         guard let i = state.games.firstIndex(where: { $0.id == gameID }), state.games[i].status == .ready else { return }
         func t(_ key: String) -> String { L10n.string(key, lang) }
         state.games[i].mods = demoMods[gameID] ?? [ConsoleMod(name: t("console.demoMod1"), usable: true, on: true),

@@ -66,7 +66,7 @@ struct ConsolePadSnapshot: Equatable {
     /// The Controls page's layout: the player mode, the Joy-Con split and the button mapping (LiveConsoleDriver+Mapping.swift).
     let controls: ControlLayout
     let repo: () -> String
-    private let lang: () -> Lang
+    let lang: () -> Lang
     private let labels: (String) -> String
     private let saves: (String) -> (global: SaveGlobalSettings, game: SaveGameOverride)?   // the save settings (SaveSettingsStore)
     private let sticks: () -> StickDeadzoneSettings?   // StickDeadzoneStore
@@ -85,12 +85,17 @@ struct ConsolePadSnapshot: Equatable {
     var cloudGate = CloudSaveGate() { didSet { watchCloudGate() } }
     var cloudGameID: String?
     var cloudWatch: AnyCancellable?
-    private var timeoutTask: Task<Void, Never>?
+    var timeoutTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var notices = ConsoleNoticeQueue()
     private var clock: Timer?
     /// Real controllers by id, for Identify and player assignment.
     var devices: [String: GCController] = [:]
+    /// #816 and #952 (LiveConsoleDriver+Sessions.swift): the play history, the game running now (paused, stopped, quit before another)
+    /// and the games built with older tools than the engine has.
+    let sessions: PlaySessionStore
+    let tracking = ConsoleGameTracking()
+    let toolsAge = ToolsAge()
 
     init(library: GameLibrary, controls: ControlLayout, repo: @escaping () -> String, lang: @escaping () -> Lang, labels: @escaping (String) -> String,
          pads: (() -> [ConsolePadSnapshot])? = nil, steamPads: (() -> [ConsolePadSnapshot])? = nil,
@@ -99,6 +104,8 @@ struct ConsolePadSnapshot: Equatable {
          player: @escaping () -> PlayerProfile? = { nil },
          saves: @escaping (String) -> (global: SaveGlobalSettings, game: SaveGameOverride)? = { _ in nil },
          sticks: @escaping () -> StickDeadzoneSettings? = { nil }) {
+        sessions = PlaySessionStore(file: observeSystem ? PlaySessionStore.defaultFile : nil)   // a test keeps its history in memory
+        tracking.observesSystem = observeSystem
         self.saves = saves
         self.sticks = sticks
         self.sendPlayerOutput = playerOutput
@@ -126,6 +133,7 @@ struct ConsolePadSnapshot: Equatable {
             self.refreshControllers(announce: false)
         }.store(in: &cancellables)
         watchCloudGate()
+        watchTools()
         refresh()
         refreshControllers(announce: false)
         refreshPadLayout()
@@ -181,6 +189,7 @@ struct ConsolePadSnapshot: Equatable {
         let shown = LibraryFilter.load() == .built ? library.games.filter(LibraryFilter.built.includes) : library.games   // the desktop's filter
         let games = ConsoleGame.readyFirst(shown.map { var g = consoleGame($0); (g.hero, g.heroFocus) = heroes[g.id].map { ($0.0, $0.1) } ?? (nil, .center); return g })
         state.games = games
+        refreshPages(shown)   // all games' order, the search's results (LiveConsoleDriver+Pages.swift)
         state.focusedGameID = games.contains { $0.id == focus } ? focus : (library.selected.map { $0.id.uuidString }.flatMap { id in games.contains { $0.id == id } ? id : nil } ?? games.first?.id)
         state.time = Date(); loadHero()
         reloadOpenDetails()   // the open options page keeps its mods, cheats, save and Reset
@@ -205,63 +214,17 @@ struct ConsolePadSnapshot: Equatable {
         let store = SavedChoices(app: game.appPath, titleID: game.titleID)
         var values: [String: String] = [:]
         for s in settings { values[s.env] = s.storeBacked ? store.current(s) : game.launchValue(s) }
-        return ConsoleGame(id: game.id.uuidString, title: game.displayName(lang()), version: version(of: game),
+        return withHistory(of: game, ConsoleGame(id: game.id.uuidString, title: game.displayName(lang()), version: version(of: game),
                            platforms: Self.platforms(of: game), artwork: cover(game), artworkFocus: game.artwork.focus(for: .thumbnail),
                            status: Self.status(of: game, brokenMessage: t("console.broken")), settings: settings, values: values,
                            mapsButtons: game.isReady && SavedChoices.appReadsControllerMappings(app: game.appPath)
-                               && game.controllerSavingEnabled(environment: game.launchOptions))
+                               && game.controllerSavingEnabled(environment: game.launchOptions)))
     }
 
     /// The library's game behind a console game (LiveConsoleDriver+Mapping.swift reads its own button mapping).
     func libraryGame(_ id: String) -> LibraryGame? { library.games.first { $0.id.uuidString == id } }
 
-    private var versions: [String: String] = [:]
-
-    /// The version of the build the library knows: the Mac app's Info.plist (pack_app.py writes it, version(plist:)), else the
-    /// iPhone app's, else the one inside the IPA. Empty only when none of them states one.
-    private func version(of game: LibraryGame) -> String {
-        for path in [game.appPath, game.iosAppPath, game.ipaPath] where !path.isEmpty {
-            if let cached = versions[path] { if !cached.isEmpty { return cached }; continue }
-            let found = Self.version(at: path)
-            versions[path] = found
-            if !found.isEmpty { return found }
-        }
-        return ""
-    }
-
-    /// The display version in a build: a .app (Contents/Info.plist), an iOS .app (Info.plist) or an IPA (Payload/*.app/Info.plist).
-    static func version(at path: String) -> String {
-        let url = URL(fileURLWithPath: path)
-        if url.pathExtension.lowercased() == "ipa" {
-            let process = Process(), pipe = Pipe()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-            process.arguments = ["-p", path, "Payload/*.app/Info.plist"]
-            process.standardOutput = pipe; process.standardError = FileHandle.nullDevice
-            guard (try? process.run()) != nil else { return "" }
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            process.waitUntilExit()
-            return version(plist: data)
-        }
-        for relative in ["Contents/Info.plist", "Info.plist"] {
-            if let data = try? Data(contentsOf: url.appendingPathComponent(relative)) { let v = version(plist: data); if !v.isEmpty { return v } }
-        }
-        return ""
-    }
-
-    /// A Mac app packed with DMPackageVersion states its version in DMDisplayVersion, else (an update packed from a dump or a NUP without control data) only as the
-    /// packed version, v458752: its CFBundleShortVersionString is then 1.0, not what runs (#953). The base game packed without a display version (v0) states none.
-    /// Other builds state it in CFBundleShortVersionString.
-    static func version(plist data: Data) -> String {
-        guard let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return "" }
-        let trimmed = { (key: String) in ((info[key] as? String) ?? "").trimmingCharacters(in: .whitespaces) }
-        let package = trimmed("DMPackageVersion")
-        if !package.isEmpty {
-            let display = trimmed("DMDisplayVersion")
-            return !display.isEmpty ? display : package == "v0" ? "" : package
-        }
-        let short = trimmed("CFBundleShortVersionString")
-        return short.isEmpty ? trimmed("CFBundleVersion") : short
-    }
+    var versions: [String: String] = [:]   // LiveConsoleDriver+Version.swift
 
     /// Covers through the launcher's own lookup, decoded once per image path.
     private func cover(_ game: LibraryGame) -> NSImage? {
@@ -278,9 +241,10 @@ struct ConsolePadSnapshot: Equatable {
     func focus(_ gameID: String) { state.focus(gameID); loadHero() }
 
     func play(_ gameID: String) {
+        if state.pausedGameID == gameID { resume(gameID); return }   // the paused game plays on where it was (#952)
         state.play(gameID)
         guard state.startingGameID == gameID, let game = library.games.first(where: { $0.id.uuidString == gameID }) else { return }
-        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, lang: lang(), fullscreen: true, player: player(), saves: saves(game.titleID), sticks: sticks())
+        let environment = GameStart.environment(for: game, library: library, controls: controls, repo: repo(), labels: labels, lang: lang(), fullscreen: true, player: player(), saves: saves(game.titleID), sticks: sticks(), homeMenu: true)   // the Home menu's way back here (#952)
             .merging(pointerHidden() ? ["DM_CURSOR_HIDDEN": "1"] : [:]) { $1 }   // the game is a new process: without this its pointer shows until its own idle wait ends
             .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }   // a frame-time recording, as the desktop Play adds (FrameTimes.swift)
         state.starting = .preparing
@@ -304,6 +268,7 @@ struct ConsolePadSnapshot: Equatable {
                     if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
                     self.launchedPID = pid
                     self.library.recordPlayed(game.id)   // the Recently played order (#937)
+                    if let pid { self.beginTracking(game, pid: pid, environment: environment) }   // the session, its pause and its end (+Sessions)
                     self.launchedGame = game
                     if let pid { GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in self?.gameDidTerminate(pid: pid) } }   // the launcher's one watcher and its switch (ReturnAfterPlay.swift)
                     self.state.starting = .opening
@@ -351,14 +316,14 @@ struct ConsolePadSnapshot: Equatable {
         guard pid == launchedPID else { return }
         launchedPID = nil
         timeoutTask?.cancel()
-        state.returnFromGame()
-        gameEnded()
-        if let game = launchedGame { launchedGame = nil; offerHomeButtonHint(after: game) }
+        let game = launchedGame
+        launchedGame = nil
+        gameSessionEnded(game)   // the history, a crash, what waited for a paused game (+Sessions), then the Home button hint
     }
 
     // MARK: Home button (#336)
 
-    private var launchedGame: LibraryGame?
+    var launchedGame: LibraryGame?
     /// The Home button setting the game's last session wrote to its log (HomeButtonHint), the switch "already shown", whether this
     /// is macOS 27 and the way to the setting. Tests replace them.
     var homeButtonReported: (LibraryGame) -> String? = { HomeButtonSettings.reported(by: $0) }
@@ -367,7 +332,7 @@ struct ConsolePadSnapshot: Equatable {
     var openHomeSettings: () -> Void = { HomeButtonSettings.open() }
 
     /// After a game quit: the hint, once, when that game found that the system keeps the Home button for itself.
-    private func offerHomeButtonHint(after game: LibraryGame) {
+    func offerHomeButtonHint(after game: LibraryGame) {
         let shown = homeHintDefaults.bool(forKey: HomeButtonHint.shownKey)
         guard HomeButtonHint.shouldShow(setting: homeButtonReported(game), shown: shown, macOS27: isMacOS27) else { return }
         homeHintDefaults.set(true, forKey: HomeButtonHint.shownKey)
@@ -741,7 +706,7 @@ struct ConsolePadSnapshot: Equatable {
     // MARK: Navigation
 
     func dismissToast() { toastTask?.cancel(); notices.clear(); state.toast = nil; state.identifyingControllerID = nil }
-    func exitToDesktop() { state.exitToDesktop() }
+    func exitToDesktop() { if state.pausedGameID != nil { state.askQuitPaused(then: .leave(selecting: nil)) } else { state.exitToDesktop() } }
     func returnFromGame() { state.returnFromGame() }
 
     /// A passing message goes through the one queue (ConsoleNotices.swift): one at a time, same kinds replace each other, none while a game starts.
@@ -781,18 +746,4 @@ struct ConsolePadSnapshot: Equatable {
             self?.publishNotices()
         }
     }
-}
-
-/// Calls `handler` whenever one of the object's key-value observable properties changes.
-final class KeyValueWatcher: NSObject {
-    private let object: NSObject   // held, so it cannot go away while observed
-    private let keys: [String]
-    private let handler: () -> Void
-    init(object: NSObject, keys: [String], handler: @escaping () -> Void) {
-        self.object = object; self.keys = keys; self.handler = handler
-        super.init()
-        for key in keys { object.addObserver(self, forKeyPath: key, options: [], context: nil) }
-    }
-    override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) { handler() }
-    deinit { for key in keys { object.removeObserver(self, forKeyPath: key) } }
 }

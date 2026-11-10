@@ -17,6 +17,7 @@ import NXLauncher
                                        saves: { [stores] in (stores.saveSettings.global, stores.saveSettings.game($0)) },
                                        sticks: { [stores] in stores.sticks.settings })
         driver.bindActivity(stores.build)   // the top bar's chip shows the desktop's build (#1004)
+        driver.bindBuilds(stores.build, queue: stores.queue)   // the Builds page (#816)
         return driver
     }()
 
@@ -71,6 +72,9 @@ struct RootView: View {
             shared.console.pointerHidden = { [console] in console.pointerHidden }
             shared.console.gameEnded = { [console] in console.resumeFullScreenAfterGame() }
             shared.console.attach(updates: stores.appUpdates, builds: stores.build)   // the General page's update row
+            // quitting the launcher while a game is paused in the background asks first in console mode (#952)
+            AppDelegate.deferTermination = { [console, shared] in shared.console.shouldDeferTermination(consoleShown: console.active) }
+            shared.console.tracking.showConsole = { [console] in console.enter() }   // a game paused from its Home menu comes back to console mode
             await decide()
         }
         .onChange(of: mode) { console.available = $0 == .launcher }

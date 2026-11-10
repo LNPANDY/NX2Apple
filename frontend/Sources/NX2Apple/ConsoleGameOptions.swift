@@ -162,7 +162,7 @@ struct ConsoleSwitchRow: View {
                                compact: compact) { driver.openAdvanced(game.id) }
             }
             mods
-            cheats
+            ConsoleCheatsSection(driver: driver, game: game, lang: lang, compact: compact, scope: scope)
             if let save = game.save { saveCard(save) }
             if game.canReset {
                 ConsoleMenuRow(id: "console.options.reset", scope: scope, symbol: "arrow.counterclockwise", title: t("console.reset.title"),
@@ -184,39 +184,6 @@ struct ConsoleSwitchRow: View {
                     driver.setMod(gameID: game.id, name: mod.name, on: !mod.on)
                 }
             }
-        }
-    }
-
-    // MARK: Cheats
-
-    @ViewBuilder private var cheats: some View {
-        if let cheats = game.cheats, cheats.note == nil || !cheats.items.isEmpty {
-            ConsoleSectionHeading(title: t("cheats.title"), compact: compact).padding(.top, 14)
-            ConsoleSwitchRow(id: "console.cheats.master", scope: scope, title: t("cheats.master"), isOn: cheats.masterOn, compact: compact) {
-                driver.setCheatsMaster(gameID: game.id, on: !cheats.masterOn)
-            }
-            ForEach(cheats.items) { cheat in
-                switch cheat.kind {
-                case .label:
-                    Text(cheat.name).font(.manrope(compact ? 14 : 16, .semibold)).foregroundStyle(.white.opacity(0.6))
-                        .padding(.horizontal, 4).padding(.top, 6)
-                case .alwaysOn:
-                    HStack {
-                        Text(cheat.name).font(.manrope(compact ? 17 : 20, .semibold))
-                        Spacer(minLength: 8)
-                        Text(t("cheats.alwaysOn")).font(.manrope(compact ? 14 : 16, .semibold)).foregroundStyle(LauncherPalette.cream)
-                    }
-                    .padding(.horizontal, 20).padding(.vertical, compact ? 14 : 16)
-                    .background(LauncherPalette.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
-                case .cheat:
-                    ConsoleSwitchRow(id: "console.cheat." + cheat.key, scope: scope, title: cheat.name, isOn: cheat.on, enabled: cheats.masterOn,
-                                     compact: compact) { driver.setCheat(gameID: game.id, key: cheat.key, on: !cheat.on) }
-                }
-            }
-        } else if let note = game.cheats?.note, game.status == .ready {
-            ConsoleSectionHeading(title: t("cheats.title"), compact: compact).padding(.top, 14)
-            Text(note).font(.manrope(compact ? 14 : 16)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 4)
         }
     }
 
@@ -328,4 +295,47 @@ struct ConsoleSwitchRow: View {
         default: return prefs.updateStatus.isEmpty ? version : version + " \u{00b7} " + prefs.updateStatus   // downloading, ready, or why an install failed
         }
     }
+}
+
+/// A game's cheats for the build it has (CheatFiles, imported on the desktop): the switch for all of them and one per cheat, or why
+/// there are none. On its options page and on its page's Cheats tab (#816).
+@MainActor struct ConsoleCheatsSection<Driver: ConsoleDriver>: View {
+    @ObservedObject var driver: Driver
+    let game: ConsoleGame
+    let lang: Lang
+    let compact: Bool
+    let scope: String
+    private func t(_ key: String) -> String { L10n.string(key, lang) }
+
+    @ViewBuilder var body: some View {
+        if let cheats = game.cheats, cheats.note == nil || !cheats.items.isEmpty {
+            ConsoleSectionHeading(title: t("cheats.title"), compact: compact).padding(.top, 14)
+            ConsoleSwitchRow(id: "console.cheats.master", scope: scope, title: t("cheats.master"), isOn: cheats.masterOn, compact: compact) {
+                driver.setCheatsMaster(gameID: game.id, on: !cheats.masterOn)
+            }
+            ForEach(cheats.items) { cheat in
+                switch cheat.kind {
+                case .label:
+                    Text(cheat.name).font(.manrope(compact ? 14 : 16, .semibold)).foregroundStyle(.white.opacity(0.6))
+                        .padding(.horizontal, 4).padding(.top, 6)
+                case .alwaysOn:
+                    HStack {
+                        Text(cheat.name).font(.manrope(compact ? 17 : 20, .semibold))
+                        Spacer(minLength: 8)
+                        Text(t("cheats.alwaysOn")).font(.manrope(compact ? 14 : 16, .semibold)).foregroundStyle(LauncherPalette.cream)
+                    }
+                    .padding(.horizontal, 20).padding(.vertical, compact ? 14 : 16)
+                    .background(LauncherPalette.surface.opacity(0.6), in: RoundedRectangle(cornerRadius: 14))
+                case .cheat:
+                    ConsoleSwitchRow(id: "console.cheat." + cheat.key, scope: scope, title: cheat.name, isOn: cheat.on, enabled: cheats.masterOn,
+                                     compact: compact) { driver.setCheat(gameID: game.id, key: cheat.key, on: !cheat.on) }
+                }
+            }
+        } else if let note = game.cheats?.note, game.status == .ready {
+            ConsoleSectionHeading(title: t("cheats.title"), compact: compact).padding(.top, 14)
+            Text(note).font(.manrope(compact ? 14 : 16)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 4)
+        }
+    }
+
 }

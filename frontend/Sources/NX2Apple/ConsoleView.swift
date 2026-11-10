@@ -4,12 +4,16 @@ import NXCore
 import NXLauncher
 
 /// Semantic inputs from a future controller adapter; the view does not discover hardware.
-enum ConsoleInput {
+enum ConsoleInput: Equatable {
     case left, right, up, down, activate, back, options, menu
+    /// #816: X plays the focused game at once, L and R switch a page's tabs or filters, − (View) opens the quick menu. The search's
+    /// keyboard takes typed text and Delete from the Mac's keyboard.
+    case play, previousTab, nextTab, quickMenu
+    case typed(String), deleteBackward
 
     /// The launcher's controller path (Gamepad.swift) in console terms: the D-pad and left stick move, A activates, B backs out,
-    /// Y opens the focused game's options, the menu button (+, Menu, Options) and the Select-type button (−, View, Share,
-    /// Create) the console's menu. The same button again closes what it opened. X, L and R are not used.
+    /// Y opens the focused game's options, X plays it, L and R switch tabs, the menu button (+, Menu, Options) opens the console's
+    /// menu and the Select-type button (−, View, Share, Create) the quick menu. The same button again closes what it opened.
     init?(_ action: LauncherGamepad.Action) {
         switch action {
         case .left: self = .left
@@ -19,8 +23,11 @@ enum ConsoleInput {
         case .a: self = .activate
         case .b: self = .back
         case .y: self = .options
-        case .plus, .select: self = .menu
-        case .x, .l, .r: return nil
+        case .x: self = .play
+        case .l: self = .previousTab
+        case .r: self = .nextTab
+        case .plus: self = .menu
+        case .select: self = .quickMenu
         }
     }
 }
@@ -72,7 +79,7 @@ enum ConsoleInput {
                 } else if let game = state.startingGame {
                     starting(game, compact: compact)
                 } else {
-                    home(size: geometry.size, compact: compact)
+                    ConsoleHomeScreen(driver: driver, lang: lang, glyphs: glyphs, size: geometry.size, compact: compact)
                         .allowsHitTesting(state.presentedSheet == nil)
                         .accessibilityHidden(state.presentedSheet != nil)
                     // The question to leave is drawn over what it was asked from, which stays in view but takes no input.
@@ -106,7 +113,7 @@ enum ConsoleInput {
                     .allowsHitTesting(!confirming).accessibilityHidden(confirming)
                     if confirming {
                         Color.black.opacity(0.55).ignoresSafeArea().accessibilityHidden(true).onTapGesture { driver.back() }
-                        question(compact: compact)
+                        ConsoleQuestionLayer(driver: driver, lang: lang, compact: compact)
                             .frame(width: geometry.size.width, height: geometry.size.height)
                             .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.96)))
                     }
@@ -122,7 +129,8 @@ enum ConsoleInput {
         .consoleDarkAppearance()   // the console stays dark in Light: every token resolves to its Dark value here
         .environmentObject(pad)
         .environment(\.padRingStyle, .hug)
-        .background(ConsoleKeyboardInput(perform: { input in glyphs = .keyboard; handle(input) }).frame(width: 0, height: 0))
+        .background(ConsoleKeyboardInput(perform: { input in glyphs = .keyboard; handle(input) },
+                                         typing: { [driver] in driver.state.presentedSheet == .search }).frame(width: 0, height: 0))
         .onReceive(inputs, perform: handle)
         .onChange(of: scope) { _ in editingOption = nil; resetFocus() }
         .onChange(of: state.exited) { exited in if exited, let onExit { onExit() } else { resetFocus() } }
@@ -144,169 +152,6 @@ enum ConsoleInput {
 
     private func backdrop(size: CGSize) -> some View {
         ConsoleBackdrop(game: state.startingGame ?? state.focusedGame, starting: state.startingGame != nil, size: size)
-    }
-
-    private func home(size: CGSize, compact: Bool) -> some View {
-        let inset: CGFloat = compact ? 24 : 64
-        return VStack(alignment: .leading, spacing: 0) {
-            topBar(compact: compact).padding(.horizontal, inset).padding(.top, compact ? 24 : 40)
-            if state.games.isEmpty {
-                empty(compact: compact).frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                // The title and the row sit at the bottom, above the hints, so the artwork has the screen above them. A short window scrolls.
-                GeometryReader { area in
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: compact || size.height < 900 ? 24 : 32) {
-                        Spacer(minLength: 0)
-                        if let game = state.focusedGame {
-                            // A fixed-height slot: the old and the new title overlap and cross-fade in place (0.15 s), so nothing slides
-                            // and the row below never moves, whatever the title's length.
-                            ZStack(alignment: .bottomLeading) {
-                            VStack(alignment: .leading, spacing: compact ? 14 : 20) {
-                                Text(t("console.library")).font(.manrope(compact ? 14 : 18, .semibold))
-                                    .tracking(2).foregroundStyle(LauncherPalette.cream.opacity(0.75))
-                                Text(game.title).font(.manrope(compact ? 36 : min(64, size.width / 24), .bold))
-                                    .tracking(-1.6).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                                    .shadow(color: .black.opacity(0.45), radius: 12)
-                                    .accessibilityAddTraits(.isHeader)
-                                if !game.version.isEmpty {
-                                    Text(String(format: t("console.version"), game.version)).monospacedDigit().lineLimit(1)
-                                        .font(.manrope(compact ? 14 : 18)).foregroundStyle(.white.opacity(0.6))
-                                }
-                            }
-                            .id(game.id).transition(.opacity)
-                            }
-                            .animation(.easeInOut(duration: 0.12), value: game.id)
-                            .padding(.horizontal, inset)
-                            .frame(height: compact ? 175 : 100 + 2.4 * min(64, size.width / 24), alignment: .bottomLeading)
-                        }
-                        gameRow(size: size, compact: compact, inset: inset)
-                    }
-                    .padding(.top, 24).padding(.bottom, 24)
-                    .frame(minHeight: area.size.height, alignment: .bottomLeading)
-                }
-                }
-            }
-            if !state.games.isEmpty { hintBar(compact: compact, width: size.width).padding(.horizontal, inset).padding(.bottom, compact ? 20 : 32) }
-        }
-        .padScope("console", pad)
-    }
-
-    /// One fixed-height status row: the controller chips (scrolling sideways inside their own group) to the left of the clock.
-    /// Its height never changes, so a controller arriving or leaving moves nothing below it.
-    private func topBar(compact: Bool) -> some View {
-        HStack(spacing: compact ? 12 : 20) {
-            if let activity = state.activity { ConsoleActivityChip(activity: activity, compact: compact) }
-            ConsoleControllerChips(controllers: state.controllers, merged: state.padMerge, lang: lang, compact: compact) { driver.openControllers() }
-            Text(state.time, style: .time).font(.manrope(compact ? 17 : 22, .medium)).monospacedDigit()
-                .foregroundStyle(.white.opacity(0.65)).fixedSize()
-            // The menu, as + and − open it: drawn as a controller chip (same capsule, same height), focusable like them.
-            Button { driver.openMenu() } label: {
-                Image(systemName: "line.3.horizontal").font(.system(size: compact ? 12 : 17, weight: .semibold))
-                    .padding(.horizontal, compact ? 10 : 14).frame(height: compact ? 30 : 40)
-                    .background(.white.opacity(0.075), in: Capsule()).contentShape(Capsule())
-            }
-            .buttonStyle(.plain).accessibilityLabel(t("console.menu"))
-            .padTarget("console.menuButton", scope: "console", radius: 24, activate: { driver.openMenu() })
-        }
-        .frame(height: compact ? 40 : 52)
-        // The banner sits under the bar, so it never covers the controller chips, and it is drawn over the page without moving it (#1004)
-        .overlay(alignment: .top) {
-            if let toast = state.toast {
-                ConsoleToastView(toast: toast).id(toast.id).transition(.opacity)
-                    .offset(y: (compact ? 40 : 52) - 12)
-            }
-        }
-        .zIndex(1)
-    }
-
-    /// A caption shows only while its tile is fully inside the row, so a clipped tile never leaves a fragment of text at the margin.
-    private func tileVisible(_ id: String, rowWidth: CGFloat) -> Bool {
-        guard let frame = tileFrames[id] else { return true }
-        return frame.minX >= -1 && frame.maxX <= rowWidth + 1
-    }
-
-    private func gameRow(size: CGSize, compact: Bool, inset: CGFloat) -> some View {
-        let width: CGFloat = compact ? size.width - inset * 2 - 16 : min(470, size.width * 0.32)
-        return ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(alignment: .top, spacing: (compact ? 22 : 28) - 16) {
-                    ForEach(state.games) { game in
-                        let selected = state.focusedGame?.id == game.id
-                        Button { driver.focus(game.id); driver.play(game.id) } label: {
-                            ConsoleGameTile(game: game, selected: selected, compact: compact, lang: lang, captionVisible: tileVisible(game.id, rowWidth: size.width - 2 * (inset - 8)))
-                                .frame(width: width)
-                                .contentShape(RoundedRectangle(cornerRadius: 16))
-                        }
-                        .buttonStyle(.plain)
-                        .padTarget("console.game." + game.id, scope: "console", radius: 16, activate: { driver.play(game.id) })
-                        // the focus scale is applied to the button with its ring, so the ring frames the image flush at any scale
-                        .scaleEffect(selected && !reduceMotion ? 1.025 : 1)
-                        .animation(.easeOut(duration: 0.15), value: selected)
-                        .background(GeometryReader { g in Color.clear.preference(key: ConsoleTileFramesKey.self, value: [game.id: g.frame(in: .named("console.row"))]) })
-                        .accessibilityLabel(game.title + ", " + t(game.status.labelKey))
-                        .accessibilityHint(t("console.playHint"))
-                        .accessibilityAddTraits(selected ? .isSelected : [])
-                        // every tile carries its own 8 pt of room for the ring and the focus scale, and the scroll target is this padded
-                        // cell, so a scroll to the first or last tile never pushes that room out of the clip
-                        .padding(.horizontal, 8)
-                        .id(Self.rowCell(game.id))
-                    }
-                }
-                .padding(.vertical, 12)
-            }
-            .coordinateSpace(name: "console.row")
-            .onPreferenceChange(ConsoleTileFramesKey.self) { tileFrames = $0 }
-            .padding(.horizontal, inset - 8)   // the scroll area is the page margin, so tiles clip there and the title lines up with the first tile
-            .onChange(of: state.focusedGame?.id) { id in
-                // The ring moves across the visible tiles. The row scrolls only when the focused tile would leave the visible area, by
-                // the least that brings it inside, and a new focus replaces the running scroll (held repeats do not queue).
-                guard let id else { return }
-                guard let frame = tileFrames[id] else { proxy.scrollTo(Self.rowCell(id), anchor: .center); return }
-                let rowWidth = size.width - 2 * (inset - 8)
-                let anchor: UnitPoint? = frame.minX < 8 ? .leading : (frame.maxX > rowWidth - 8 ? .trailing : nil)
-                if let anchor { withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.2)) { proxy.scrollTo(Self.rowCell(id), anchor: anchor) } }
-            }
-            .onAppear { if let id = state.focusedGame?.id { proxy.scrollTo(Self.rowCell(id), anchor: .center) } }
-        }
-    }
-
-    private static func rowCell(_ id: String) -> String { "console.row." + id }
-
-    private func hintBar(compact: Bool, width: CGFloat) -> some View {
-        let items = {
-            Group {
-                hint(.activate, "console.play", "console.play", primary: true, compact: compact) { if let id = state.focusedGame?.id { driver.play(id) } }
-                hint(.options, "console.options", "console.options", compact: compact) { if let id = state.focusedGame?.id { driver.openOptions(id) } }
-                hint(.menu, "console.menu", "console.menu", compact: compact) { driver.openMenu() }
-                hint(.back, "console.desktop", "console.desktop", compact: compact) { driver.confirmExit() }   // asks first, as B does
-            }
-        }
-        return VStack(spacing: 20) {
-            Rectangle().fill(.white.opacity(0.10)).frame(height: 1)
-            if compact {
-                // equal pills, two by two
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 2), spacing: 12) { items() }
-            } else {
-                // inline glyph and label, the group centered as a whole with even spacing, the active one a cream pill
-                HStack(spacing: min(width * 0.12, 220)) { items() }.frame(maxWidth: .infinity)   // wide gaps, the group centered as a unit
-            }
-        }
-    }
-
-    /// A button and what it does. The glyph is the button that does it now (ConsoleButtons): A or B as Swap A and B in menus has it.
-    private func hint(_ role: ConsoleGlyphs.Role, _ key: String, _ id: String, primary: Bool = false, compact: Bool, action: @escaping () -> Void) -> some View {
-        let input: ConsoleInput = switch role { case .back: .back; case .options: .options; case .menu: .menu; default: .activate }
-        let glyph = glyphs.glyph(for: role, on: ConsoleButtons.button(for: input, swapAB: state.menuSwapAB))
-        return Button(action: action) {
-            HStack(alignment: .center, spacing: 10) { ConsoleGlyphView(glyph: glyph, size: compact ? 20 : 24); Text(t(key)).lineLimit(1).minimumScaleFactor(0.8) }
-                .font(.manrope(compact ? 15 : 20, .semibold))
-                .padding(.horizontal, compact ? 12 : (primary ? 20 : 8)).frame(maxWidth: compact ? .infinity : nil, minHeight: 48)
-                .foregroundStyle(primary ? LauncherPalette.background : .white.opacity(0.8))
-                .background(primary ? LauncherPalette.cream : (compact ? .white.opacity(0.07) : .clear), in: Capsule())
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain).padTarget(id, scope: "console", radius: 28, activate: action)
     }
 
     @ViewBuilder private func sheetContent(_ sheet: ConsoleSheet, compact: Bool) -> some View {
@@ -336,7 +181,11 @@ enum ConsoleInput {
             case .language: language(compact: compact)
             case let .advanced(id):
                 if let game = state.games.first(where: { $0.id == id }) { advanced(game, compact: compact) }
-            case .mapping, .gamePad, .cloudSaves, .confirmExit, .confirmMapping, .confirmReset, .confirmUpdate: EmptyView()   // drawn over the whole screen (fullPage, question)
+            case .quickMenu: ConsoleQuickMenu(driver: driver, lang: lang, compact: compact)
+            case let .manage(id):
+                if let game = state.games.first(where: { $0.id == id }) { ConsoleManagePanel(driver: driver, game: game, lang: lang, compact: compact) }
+            case .mapping, .gamePad, .cloudSaves, .confirmExit, .confirmMapping, .confirmReset, .confirmUpdate,
+                 .gamePage, .allGames, .search, .builds, .stopped, .confirmStopBuild, .confirmQuitPaused: EmptyView()   // drawn over the whole screen (fullPage, question)
             }
         }
         .padScope(sheet.scope, pad)
@@ -388,39 +237,6 @@ enum ConsoleInput {
         settings.contains { $0.kind == "range" } ? "console.adjustHintSlider" : "console.adjustHint"
     }
 
-    /// The question on top: leaving console mode, saving the button mapping's changes, resetting a game's options, the app's update.
-    @ViewBuilder private func question(compact: Bool) -> some View {
-        if case let .confirmReset(id) = state.presentedSheet {
-            ConsoleQuestion(compact: compact, symbol: "arrow.counterclockwise", title: t("console.reset.ask"), message: t("console.reset.askBody"),
-                            scope: "console.confirmReset",
-                            other: (t("console.exit.cancel"), "console.confirmReset.cancel", { driver.back() }),
-                            main: (t("console.reset.confirm"), "console.confirmReset.reset", { driver.resetOptions(id) }))
-                .padScope("console.confirmReset", pad)
-        } else if state.presentedSheet == .confirmUpdate {
-            let ready = state.prefs.update == .ready
-            let tag: String = {
-                switch state.prefs.update { case let .available(tag), let .failed(tag, _): return tag; default: return "" }
-            }()
-            ConsoleQuestion(compact: compact, symbol: "arrow.down.app", title: ready ? t("console.update.restartAsk") : String(format: t("console.update.ask"), tag),
-                            message: t(ready ? "console.update.restartBody" : "console.update.askBody"), scope: "console.confirmUpdate",
-                            other: (t("console.exit.cancel"), "console.confirmUpdate.cancel", { driver.back() }),
-                            main: (t(ready ? "app.restartNow" : "console.update.install"), "console.confirmUpdate.go", { driver.confirmAppUpdate() }))
-                .padScope("console.confirmUpdate", pad)
-        } else if state.presentedSheet == .confirmMapping {
-            ConsoleQuestion(compact: compact, symbol: "arrow.left.arrow.right", title: t("console.mapping.saveTitle"), message: t("console.mapping.saveBody"),
-                            scope: "console.confirmMapping",
-                            other: (t("console.mapping.discard"), "console.confirmMapping.discard", { driver.finishMapping(save: false) }),
-                            main: (t("console.mapping.save"), "console.confirmMapping.save", { driver.finishMapping(save: true) }))
-                .padScope("console.confirmMapping", pad)
-        } else {
-            ConsoleQuestion(compact: compact, symbol: "rectangle.portrait.and.arrow.right", title: t("console.exit.title"), message: t("console.exit.body"),
-                            scope: "console.confirmExit",
-                            other: (t("console.exit.cancel"), "console.confirmExit.cancel", { driver.back() }),
-                            main: (t("console.exit.confirm"), "console.confirmExit.leave", { driver.exitToDesktop() }))
-                .padScope("console.confirmExit", pad)
-        }
-    }
-
     /// The pages over the whole screen: the cloud saves, a game's controller settings, the button mapping.
     @ViewBuilder private func fullPage(_ sheet: ConsoleSheet, compact: Bool) -> some View {
         switch sheet {
@@ -430,6 +246,13 @@ enum ConsoleInput {
                 ConsoleGamePadPage(driver: driver, game: game, lang: lang, compact: compact, editing: $editingOption)
             }
         case .mapping: ConsolePadMappingSheet(driver: driver, lang: lang, compact: compact)
+        case let .gamePage(id):
+            if let game = state.games.first(where: { $0.id == id }) {
+                ConsoleGamePage(driver: driver, game: game, lang: lang, glyphs: glyphs, compact: compact, editing: $editingOption)
+            }
+        case .allGames: ConsoleAllGamesPage(driver: driver, lang: lang, glyphs: glyphs, compact: compact)
+        case .search: ConsoleSearchPage(driver: driver, lang: lang, glyphs: glyphs, compact: compact)
+        case .builds: ConsoleBuildsPage(driver: driver, lang: lang, compact: compact)
         default: EmptyView()
         }
     }
@@ -437,18 +260,35 @@ enum ConsoleInput {
     /// The console's own menu, as the desktop's Settings groups things: Library (the library's switch, the cloud saves), Controllers
     /// (players, the button mapping, the ways into console mode), General (the language, the app's update), and the way back to the desktop.
     private func menu(compact: Bool) -> some View {
+        ScrollViewReader { proxy in
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
+            // #816: all games with their filters, the search and the builds, before the pages the menu had
+            menuRow("console.menu.allGames", symbol: "square.grid.3x2", title: t("console.allGames"), note: t("console.menu.allGamesNote"),
+                    compact: compact) { driver.openAllGames() }
+            menuRow("console.menu.search", symbol: "magnifyingglass", title: t("console.search"), note: t("console.menu.searchNote"),
+                    compact: compact) { driver.openSearch() }
+            menuRow("console.menu.builds", symbol: "shippingbox", title: t("console.builds"), note: t("console.menu.buildsNote"),
+                    value: state.builds.running ? t("console.builds.running") : nil, compact: compact) { driver.openBuilds() }
             menuRow("console.menu.library", symbol: "square.grid.2x2", title: t("console.menu.library"), note: t("console.menu.libraryNote"),
                     compact: compact) { driver.openLibrary() }
             menuRow("console.menu.controllers", symbol: "gamecontroller", title: t("console.controllers"), note: t("console.menu.controllersNote"),
                     compact: compact) { driver.openControllers() }
             menuRow("console.menu.settings", symbol: "gearshape", title: t("console.menu.settings"), note: t("console.menu.settingsNote"),
                     compact: compact) { driver.openSettings() }
-            Spacer(minLength: 24)
+            Spacer(minLength: 12)
             menuRow("console.menu.exit", symbol: "rectangle.portrait.and.arrow.right", title: t("console.menu.exit"), note: t("console.menu.exitNote"),
                     compact: compact) { driver.confirmExit() }
         }
         .padding(.horizontal, compact ? 24 : 40).padding(.bottom, compact ? 24 : 40)
+        .consoleScrollContent()
+        }
+        .consoleScrollFade()
+        .onChange(of: pad.focused) { id in
+            guard let id, id.hasPrefix("console.menu.") else { return }
+            withAnimation(.easeOut(duration: reduceMotion ? 0 : 0.18)) { proxy.scrollTo(id, anchor: .center) }
+        }
+        }
     }
 
     private func menuRow(_ id: String, scope: String = "console.menu", symbol: String, title: String, note: String, value: String? = nil, compact: Bool,
@@ -566,16 +406,6 @@ enum ConsoleInput {
         .padding(compact ? 24 : 40)
     }
 
-    private func empty(compact: Bool) -> some View {
-        VStack(spacing: 24) {
-            Image(systemName: "rectangle.stack").font(.system(size: compact ? 44 : 64, weight: .light)).foregroundStyle(LauncherPalette.cream.opacity(0.65)).accessibilityHidden(true)
-            Text(t("console.empty")).font(.manrope(compact ? 34 : 54, .bold)).accessibilityAddTraits(.isHeader)
-            Text(t("console.emptyNote")).font(.manrope(compact ? 20 : 26)).foregroundStyle(LauncherPalette.secondaryText)
-            primaryButton(t("console.desktop"), id: "console.empty.desktop", scope: "console") { driver.exitToDesktop() }.frame(maxWidth: 340)
-        }
-        .multilineTextAlignment(.center).padding(24)
-    }
-
     private func starting(_ game: ConsoleGame, compact: Bool) -> some View {
         VStack(spacing: 30) {
             // The only image is the blurred cover behind (backdrop). The text and the bar sit in the middle of the screen.
@@ -593,8 +423,12 @@ enum ConsoleInput {
                 if case let .cloudSave(long) = state.starting {   // the cloud's save on its way (#957): B cancels, A plays without it once it takes long
                     if long { Text(t("cloudCheck.fetching.long")).font(.manrope(compact ? 15 : 19)).foregroundStyle(LauncherPalette.secondaryText).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true) }
                     HStack(spacing: 24) {
-                        if long { hint(.activate, "cloudCheck.playLocal", "console.cloudSave.offline", primary: true, compact: compact) { driver.chooseCloudSave(.offline) } }
-                        hint(.back, "cloudCheck.cancel", "console.cloudSave.cancel", compact: compact) { driver.back() }
+                        if long {
+                            ConsoleHint(glyph: glyphs.hintGlyph(.activate, swapAB: state.menuSwapAB), label: t("cloudCheck.playLocal"), id: "console.cloudSave.offline",
+                                        primary: true, compact: compact) { driver.chooseCloudSave(.offline) }
+                        }
+                        ConsoleHint(glyph: glyphs.hintGlyph(.back, swapAB: state.menuSwapAB), label: t("cloudCheck.cancel"), id: "console.cloudSave.cancel",
+                                    compact: compact) { driver.back() }
                     }.padding(.top, 8)
                 }
             }.frame(maxWidth: compact ? 320 : 540)
@@ -622,12 +456,7 @@ enum ConsoleInput {
     }
 
     private func primaryButton(_ label: String, id: String, scope: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label).font(.manrope(21, .bold)).foregroundStyle(LauncherPalette.background)
-                .multilineTextAlignment(.center).lineLimit(2).minimumScaleFactor(0.8).padding(.horizontal, 20)   // a long label wraps or shrinks, the button keeps its width
-                .frame(maxWidth: .infinity, minHeight: 60).background(LauncherPalette.cream, in: Capsule()).contentShape(Capsule())
-        }
-        .buttonStyle(.plain).padTarget(id, scope: scope, radius: 30, activate: action)   // half the 60 pt height: a capsule ring
+        ConsolePrimaryButton(label: label, id: id, scope: scope, action: action)
     }
     private func sheetTitle(_ sheet: ConsoleSheet) -> String {
         switch sheet {
@@ -648,6 +477,9 @@ enum ConsoleInput {
         case .advanced: return "launch.advanced"
         case .confirmReset: return "console.reset.ask"
         case .confirmUpdate: return "console.update.title"
+        case .quickMenu: return "console.quickMenu"
+        case .manage: return "console.manage"
+        case .gamePage, .allGames, .search, .builds, .stopped, .confirmStopBuild, .confirmQuitPaused: return "console.menu"   // their own headers
         }
     }
     private func resetFocus() {
@@ -669,7 +501,7 @@ enum ConsoleInput {
         case .explanation: pad.focused = "console.explanation.desktop"
         case .homeButtonHint: pad.focused = "console.homeHint.open"
         case let .cloudSave(question): pad.focused = ConsoleCloudSaveView.firstFocus(question)
-        case .menu: pad.focused = "console.menu.library"
+        case .menu: pad.focused = "console.menu.allGames"
         case .cloudSaves: pad.focused = ConsoleCloudSaves.sorted(state.saveRows).first.map { "console.saves.row." + $0.id } ?? "console.saves.close"   // the first row as the page sorts them
         case .library: pad.focused = ConsolePref.onLibrary.first.map { "console.pref." + $0.rawValue } ?? "console.library.saves"
         case .settings: pad.focused = "console.settings.language"
@@ -680,11 +512,24 @@ enum ConsoleInput {
         case .confirmReset: pad.focused = "console.confirmReset.cancel"   // the safe choice, as leaving
         case .confirmUpdate: pad.focused = "console.confirmUpdate.cancel"   // the safe choice, as leaving
         case .mapping: pad.focused = state.mappingGameID == nil ? "console.map.menuSwap" : "console.map.swap"
+        case let .gamePage(id): pad.focused = ConsoleGamePage<Driver>.firstTarget(state.games.first { $0.id == id }, paused: id == state.pausedGameID)
+        case .allGames: pad.focused = state.libraryGames.first.map { "console.lib." + $0.id } ?? "console.allGames.close"
+        case .search: pad.focused = "console.key.a"
+        case .builds: pad.focused = state.builds.running ? "console.builds.stop" : "console.builds.close"
+        case .quickMenu: pad.focused = ConsoleQuickMenu<Driver>.firstTarget(state)
+        case .manage: pad.focused = "console.manage.desktop"
+        case .stopped: pad.focused = "console.stopped.again"   // the main answer: nothing is lost by playing again
+        case .confirmStopBuild: pad.focused = "console.confirmStop.cancel"   // the safe choice, as leaving
+        case .confirmQuitPaused: pad.focused = "console.confirmQuitPaused.cancel"   // the safe choice: the paused game keeps its progress
         case nil: pad.focused = state.exited ? "console.return" : state.focusedGame.map { "console.game." + $0.id } ?? "console.empty.desktop"
         }
     }
     private func handle(_ input: ConsoleInput) {
         if editingOption != nil, input == .back || input == .activate { editingOption = nil; return }   // A or B lets a slider go
+        if state.presentedSheet == .search {   // the Mac's keyboard types into the search (#816)
+            if case let .typed(text) = input { driver.typeSearch(text); return }
+            if input == .deleteBackward { driver.deleteSearch(); return }
+        }
         if input == .back { driver.back(); return }
         if state.exited { if input == .activate { driver.returnFromGame() }; return }
         if case let .cloudSave(long) = state.starting, state.startingGameID != nil {   // the download's wait (#957): A plays without it once it takes long
@@ -693,95 +538,55 @@ enum ConsoleInput {
         }
         guard state.startingGameID == nil else { return }
         pad.show(default: pad.focused)
+        let home = state.presentedSheet == nil
+        let onTile = home && pad.focused?.hasPrefix("console.game.") == true
         switch input {
         case .left, .right:
+            // on the home screen left and right stay in the focused game's row (ConsoleHome.move), elsewhere the nearest target
             let step = input == .left ? -1 : 1
-            if state.presentedSheet == nil, pad.focused?.hasPrefix("console.game.") == true {
-                var snapshot = state; snapshot.moveFocus(step)
-                if let id = snapshot.focusedGame?.id { driver.focus(id); pad.focused = "console.game." + id }
+            if onTile, let id = state.focusedGame?.id, let next = ConsoleHome.move(from: id, dx: step, dy: 0, in: state.homeSections) {
+                driver.focus(next); pad.focused = "console.game." + next
             } else { pad.horizontal(step) }
-        case .up: pad.move(dx: 0, dy: -1)
-        case .down: pad.move(dx: 0, dy: 1)
+        case .up, .down:
+            // from row to row at the same place, up from the first row to the top bar's Search, and back down to the focused game
+            let dy = input == .up ? -1 : 1
+            if onTile, let id = state.focusedGame?.id {
+                if let next = ConsoleHome.move(from: id, dx: 0, dy: dy, in: state.homeSections) { driver.focus(next); pad.focused = "console.game." + next }
+                else if dy < 0 { pad.focused = "console.searchButton" }
+                else { pad.move(dx: 0, dy: 1) }
+            } else if home, let focused = pad.focused, let id = state.focusedGame?.id,
+                      dy > 0 ? ConsoleHomeScreen<Driver>.isTopBar(focused) : ConsoleHomeScreen<Driver>.hintIDs.contains(focused) {
+                pad.focused = "console.game." + id
+            } else { pad.move(dx: 0, dy: CGFloat(dy)) }
         case .activate: pad.activate()
+        case .play: if let id = playTarget { driver.play(id) }
+        case .previousTab, .nextTab:
+            let step = input == .previousTab ? -1 : 1
+            if case .gamePage = state.presentedSheet { driver.stepGameTab(step) }
+            else if state.presentedSheet == .allGames { driver.stepLibraryFilter(step) }
         case .options:
             if case .options = state.presentedSheet { driver.back() }
-            else if state.presentedSheet == nil, let id = state.focusedGame?.id { driver.openOptions(id) }
-        case .menu: if state.presentedSheet == .menu { driver.back() } else if state.presentedSheet == nil { driver.openMenu() }
-        case .back: break
+            else if home, let id = state.focusedGame?.id { driver.openOptions(id) }
+            else if case let .gamePage(id) = state.presentedSheet { driver.openOptions(id) }
+            else if state.presentedSheet == .allGames { driver.toggleLibrarySort() }
+            else if state.presentedSheet == .search { driver.deleteSearch() }
+        case .menu: if state.presentedSheet == .menu { driver.back() } else if home { driver.openMenu() }
+        case .quickMenu: if state.presentedSheet == .quickMenu { driver.back() } else if home { driver.openQuickMenu() }
+        case .back, .typed, .deleteBackward: break
+        }
+    }
+
+    /// The game X plays: the focused one on the home screen, the focused tile of all games or of the search, the page's game.
+    private var playTarget: String? {
+        switch state.presentedSheet {
+        case nil: return state.focusedGame?.id
+        case let .gamePage(id)?: return id
+        case .allGames?, .search?:
+            guard let focused = pad.focused else { return nil }
+            for prefix in ["console.lib.", "console.result."] where focused.hasPrefix(prefix) { return String(focused.dropFirst(prefix.count)) }
+            return nil
+        default: return nil
         }
     }
 }
 
-/// Reusable 1.8:1 presentation; nil artwork uses the same quiet surface as the desktop library.
-/// A cover drawn from the title alone, in the launcher's palette: a dark gradient tinted by one of its accents, and the name.
-/// Nothing is loaded or bundled. The same title always gets the same colors.
-enum ConsolePlaceholder {
-    static func colors(for title: String) -> [Color] {
-        let accents = [LauncherPalette.cream, LauncherPalette.ready, LauncherPalette.building, LauncherPalette.unbuilt]
-        let seed = title.unicodeScalars.reduce(5381) { ($0 &* 33) &+ Int($1.value) }
-        let accent = accents[abs(seed) % accents.count]
-        return [accent.opacity(0.42), LauncherPalette.surface, LauncherPalette.background]
-    }
-}
-
-struct ConsoleArtwork: View {
-    let image: NSImage?
-    var title = ""
-    var focus = UnitPoint.center
-    var body: some View {
-        GeometryReader { geometry in
-            if let image { ArtworkFill(image: image, focus: focus).frame(width: geometry.size.width, height: geometry.size.height) }
-            else {
-                ZStack(alignment: .bottomLeading) {
-                    LinearGradient(colors: ConsolePlaceholder.colors(for: title), startPoint: .topLeading, endPoint: .bottomTrailing)
-                    if title.isEmpty { Image(systemName: "gamecontroller").font(.system(size: 50)).foregroundStyle(LauncherPalette.secondaryText) }
-                    else {
-                        Text(title).font(.manrope(max(14, geometry.size.width / 11), .bold)).foregroundStyle(LauncherPalette.cream.opacity(0.9))
-                            .lineLimit(3).minimumScaleFactor(0.6).padding(geometry.size.width / 18)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// The width each button of the Home button hint was drawn at, by its pad id: ConsoleTests checks that it is the same in every language.
-struct ConsoleButtonWidths: PreferenceKey {
-    static var defaultValue: [String: CGFloat] = [:]
-    static func reduce(value: inout [String: CGFloat], nextValue: () -> [String: CGFloat]) { value.merge(nextValue()) { _, new in new } }
-    static func reader(_ id: String) -> some View { GeometryReader { g in Color.clear.preference(key: ConsoleButtonWidths.self, value: [id: g.size.width]) } }
-}
-
-private struct ConsoleTileFramesKey: PreferenceKey {
-    static var defaultValue: [String: CGRect] = [:]
-    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) { value.merge(nextValue()) { _, new in new } }
-}
-
-struct ConsoleGameTile: View {
-    let game: ConsoleGame
-    let selected: Bool
-    let compact: Bool
-    let lang: Lang
-    var captionVisible = true
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            ConsoleArtwork(image: game.artwork, title: game.title, focus: game.artworkFocus).aspectRatio(1.8, contentMode: .fit)
-                .opacity(game.status == .ready ? 1 : 0.45)   // not playable on this Mac: dimmed, its status on top
-                .overlay(alignment: .bottomLeading) {
-                    if game.status != .ready {
-                        Text(L10n.string(game.status.labelKey, lang)).font(.manrope(compact ? 14 : 18, .semibold))
-                            .padding(.horizontal, 14).padding(.vertical, 10)
-                            .background(LauncherPalette.background.opacity(0.93), in: Capsule()).padding(14)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.12), lineWidth: 1))
-            // The focused game's name is the big title above, so its tile shows the image alone (the row is top-aligned, so
-            // nothing else moves). The others keep a small, muted caption.
-            if !selected {
-                Text(game.title).opacity(captionVisible ? 1 : 0).font(.manrope(compact ? 14 : 17, .medium)).lineLimit(1)
-                    .foregroundStyle(.white.opacity(0.5)).padding(.horizontal, 4).accessibilityHidden(true)
-            }
-        }
-    }
-}

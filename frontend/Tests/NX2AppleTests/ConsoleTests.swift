@@ -244,7 +244,9 @@ import NXModel
         let sizes: [(String, CGFloat, CGFloat)] = [("tv", 1920, 1080), ("mac", 1280, 800), ("compact", 390, 844)]
         for lang in CaptureLanguage.all([.en, .zh]) {
             for (name, width, height) in sizes {
-                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "controllerDesktopSplit", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint", "menu", "mapping", "mappingCustom", "mappingRow", "gamePad", "gameMapping", "cloudSaves", "library", "general", "language", "confirmExit", "menuExit", "confirmMapping", "advanced", "confirmReset", "confirmUpdate"] {
+                for screen in ["full", "few", "empty", "controllers", "controllersMixed", "mixedHome", "controllerDesktop", "controllerDesktopSplit", "connectedToast", "starting", "options", "needsBuild", "needsData", "broken", "desktop", "prompt", "homeHint", "menu", "mapping", "mappingCustom", "mappingRow", "gamePad", "gameMapping", "cloudSaves", "library", "general", "language", "confirmExit", "menuExit", "confirmMapping", "advanced", "confirmReset", "confirmUpdate",
+                               "paused", "gamePage", "gamePageSaves", "gamePageBuild", "gamePageCheats", "gamePageNotBuilt", "allGames", "allGamesNotBuilt",
+                               "search", "builds", "confirmStop", "quickMenu", "manage", "stopped", "confirmQuitPaused"] {
                     let driver = MockConsoleDriver(scenario: MockConsoleDriver.Scenario(rawValue: screen) ?? (screen == "mixedHome" || screen == "controllerDesktop" || screen == "controllerDesktopSplit" || screen == "connectedToast" ? .controllersMixed : .full), lang: lang, animated: false)
                     switch screen {
                     case "mixedHome": driver.back()
@@ -273,6 +275,20 @@ import NXModel
                     case "advanced": driver.openOptions("demo.0"); driver.openAdvanced("demo.0")
                     case "confirmReset": driver.openOptions("demo.0"); driver.setOption(gameID: "demo.0", setting: "DM_VSYNC", value: "0"); driver.askResetOptions("demo.0")
                     case "confirmUpdate": driver.openMenu(); driver.openSettings(); driver.appUpdateAction()
+                    case "gamePage": driver.focus("demo.2"); driver.openGamePage("demo.2")
+                    case "gamePageSaves": driver.openGamePage("demo.0"); driver.stepGameTab(1)
+                    case "gamePageBuild": driver.openGamePage("demo.0"); driver.stepGameTab(2)
+                    case "gamePageCheats": driver.openGamePage("demo.0"); driver.stepGameTab(3)
+                    case "gamePageNotBuilt": driver.focus("demo.3"); driver.openGamePage("demo.3")
+                    case "allGames": driver.openMenu(); driver.openAllGames()
+                    case "allGamesNotBuilt": driver.openAllGames(); driver.stepLibraryFilter(2)
+                    case "search": driver.openSearch(); driver.typeSearch("h"); driver.typeSearch("a")
+                    case "builds": driver.openMenu(); driver.openBuilds()
+                    case "confirmStop": driver.openBuilds(); driver.askStopBuild()
+                    case "quickMenu": driver.openQuickMenu()
+                    case "manage": driver.openGamePage("demo.0"); driver.openManage("demo.0")
+                    case "stopped": driver.state.showStopped("demo.0", lastSave: driver.state.time.addingTimeInterval(-600))
+                    case "confirmQuitPaused": driver.state.gamePaused("demo.2"); driver.play("demo.0")
                     case "gameMapping": driver.openOptions("demo.0"); driver.openGamePad("demo.0"); driver.openGameMapping("demo.0"); driver.setPadSends(button: "ZR", to: "none")
                     default: break
                     }

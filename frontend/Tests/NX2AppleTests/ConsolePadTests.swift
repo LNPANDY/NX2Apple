@@ -71,7 +71,7 @@ import NXModel
     func testGamepadActionsMapToConsoleInputs() {
         let expected: [(LauncherGamepad.Action, ConsoleInput?)] = [
             (.left, .left), (.right, .right), (.up, .up), (.down, .down), (.a, .activate), (.b, .back),
-            (.y, .options), (.x, nil), (.plus, .menu), (.select, .menu), (.l, nil), (.r, nil)]
+            (.y, .options), (.x, .play), (.plus, .menu), (.select, .quickMenu), (.l, .previousTab), (.r, .nextTab)]
         for (action, input) in expected { XCTAssertEqual(ConsoleInput(action), input, "\(action)") }
     }
 
@@ -101,14 +101,19 @@ import NXModel
         gamepad.perform(.plus); settle()
         XCTAssertEqual(driver.state.presentedSheet, .menu, "the menu button opens the menu")
         gamepad.perform(.a); settle()
-        XCTAssertEqual(driver.state.presentedSheet, .library, "the menu's first row is Library")
+        XCTAssertEqual(driver.state.presentedSheet, .allGames, "the menu's first row is All games (#816)")
         gamepad.perform(.b); settle()
         XCTAssertEqual(driver.state.presentedSheet, .menu, "B goes back to the menu")
         gamepad.perform(.plus); settle()
         XCTAssertNil(driver.state.presentedSheet, "the menu button again closes the menu")
-        // The menu button at the top right: up to the controller chip, right to the button. A opens the menu from there, and closing
-        // it with the menu button puts the focus back on the button, not on a game.
+        // Up from a game goes to the row above at the same place, up from the first row to Search in the top bar, right to the menu
+        // button. A opens the menu from there, and closing it with the menu button puts the focus back on the button, not on a game.
         gamepad.perform(.up); settle()
+        XCTAssertEqual(driver.state.focusedGameID, "demo.2", "up goes to the Continue playing row, the game played last")
+        gamepad.perform(.up); settle()
+        gamepad.perform(.a); settle()
+        XCTAssertEqual(driver.state.presentedSheet, .search, "up from the first row reaches Search")
+        gamepad.perform(.b); settle()
         gamepad.perform(.right); settle()
         gamepad.perform(.a); settle()
         XCTAssertEqual(driver.state.presentedSheet, .menu, "A on the menu button opens the menu")
@@ -120,8 +125,20 @@ import NXModel
         XCTAssertNil(driver.state.startingGameID, "and not to a game")
         gamepad.perform(.b); settle()
         XCTAssertNil(driver.state.presentedSheet)
-        gamepad.perform(.l); gamepad.perform(.r); settle()
-        XCTAssertNil(driver.state.presentedSheet, "L and R do nothing")
+        // Down from the top bar goes back to the focused game. A opens its page, L and R switch its tabs (stopping at the ends).
+        gamepad.perform(.down); settle()
+        gamepad.perform(.a); settle()
+        XCTAssertEqual(driver.state.presentedSheet, .gamePage("demo.2"), "A on a tile opens the game's page")
+        gamepad.perform(.r); settle()
+        XCTAssertEqual(driver.state.gameTab, .saves)
+        gamepad.perform(.l); gamepad.perform(.l); settle()
+        XCTAssertEqual(driver.state.gameTab, .overview, "the tabs stop at the ends")
+        gamepad.perform(.b); settle()
+        XCTAssertNil(driver.state.presentedSheet)
+        gamepad.perform(.select); settle()
+        XCTAssertEqual(driver.state.presentedSheet, .quickMenu, "− opens the quick menu")
+        gamepad.perform(.select); settle()
+        XCTAssertNil(driver.state.presentedSheet, "and closes it")
         gamepad.perform(.b); settle()
         XCTAssertEqual(driver.state.presentedSheet, .confirmExit, "B from Home asks before leaving")
         XCTAssertFalse(driver.state.exited)
@@ -288,15 +305,17 @@ import NXModel
     }
 
     /// Console mode's own buttons go by their printed letters, whatever the games' mapping: A confirms, B goes back, Y opens a game's
-    /// options, X does nothing. Swap A and B in menus makes B confirm, as on a Switch.
+    /// options, X plays, L and R switch tabs, − opens the quick menu (#816). Swap A and B in menus makes B confirm, as on a Switch.
     func testConsoleButtonsGoByTheirLabels() {
         let usual = ConsoleButtons.bindings()
         XCTAssertEqual(usual[.a], .activate, "A confirms, as printed on Xbox and PlayStation controllers")
         XCTAssertEqual(usual[.b], .back)
         XCTAssertEqual(usual[.y], .options, "a game's options: the button printed Y")
-        XCTAssertNil(usual[.x], "X does nothing")
+        XCTAssertEqual(usual[.x], .play, "X plays the focused game")
+        XCTAssertEqual(usual[.l], .previousTab)
+        XCTAssertEqual(usual[.r], .nextTab)
         XCTAssertEqual(usual[.plus], .menu)
-        XCTAssertEqual(usual[.select], .menu)
+        XCTAssertEqual(usual[.select], .quickMenu, "− opens the quick menu, + the menu")
         let swapped = ConsoleButtons.bindings(swapAB: true)
         XCTAssertEqual(swapped[.b], .activate, "swapped: B confirms, as on a Switch")
         XCTAssertEqual(swapped[.a], .back)

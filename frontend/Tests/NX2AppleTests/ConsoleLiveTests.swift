@@ -82,8 +82,8 @@ import SwiftUI
         if let main = NSScreen.main { XCTAssertEqual(launches.first?.environment["DM_SCREEN"], GameStart.displayID(of: main).map(String.init), "the game opens on the launcher's display") }
         XCTAssertEqual(launches.first?.environment["DM_FULLSCREEN"], "1", "console mode plays fullscreen whatever Display says")
         XCTAssertEqual(launches.first?.game.titleID, titleID)
-        let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { L10n.string($0, .en) }, fullscreen: true) }
-        XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen")
+        let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { L10n.string($0, .en) }, fullscreen: true, homeMenu: true) }
+        XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen and Home menu")
     }
 
     func testAGameStartsWithThePointerHiddenWhenTheConsoleHadItHidden() throws {
@@ -172,13 +172,24 @@ import SwiftUI
         XCTAssertNil(driver.state.presentedSheet, "before macOS 27 the Home button does not quit, so there is nothing to explain")
     }
 
-    /// #336: the game's quit prompt gets its texts in the launcher's language, with the game's name.
+    /// #336: the game's quit prompt gets its texts in the launcher's language, with the game's name. #952: a game started from console
+    /// mode also gets the Home menu's three (Resume, Back to console mode, its title) and the way back to the launcher.
     func testPlayPassesTheHomeQuitTexts() throws {
         var launches: [Launch] = []
-        let (driver, _, _) = try makeDriver { launches.append($0) }
+        let (driver, library, layout) = try makeDriver { launches.append($0) }
         driver.play(try XCTUnwrap(driver.state.games.first?.id))
-        let text = try XCTUnwrap(launches.first?.environment["DM_HOME_QUIT_TEXT"])
-        XCTAssertEqual(text.components(separatedBy: "\n"), ["Keep holding to quit", "Quit Hades?", "Unsaved progress will be lost.", "Quit", "Cancel"])
+        let environment = try XCTUnwrap(launches.first?.environment)
+        let text = try XCTUnwrap(environment["DM_HOME_QUIT_TEXT"])
+        XCTAssertEqual(text.components(separatedBy: "\n"), ["Keep holding to quit", "Quit Hades?", "Unsaved progress will be lost.", "Quit", "Cancel",
+                                                             "Resume", "Back to console mode", "Hades"])
+        XCTAssertEqual(environment["DM_HOME_MENU_LAUNCHER"], "1", "Back to console mode is offered")
+        XCTAssertEqual(environment["DM_LAUNCHER_BUNDLE_ID"], Bundle.main.bundleIdentifier, "the game hands the front back to this app")
+        // the desktop's Play stays as it was: no Home menu row, five texts
+        let game = try XCTUnwrap(library.games.first)
+        let desktop = GameStart.environment(for: game, library: library, controls: layout, repo: "", labels: { L10n.string($0, .en) })
+        XCTAssertNil(desktop["DM_HOME_MENU_LAUNCHER"])
+        XCTAssertNil(desktop["DM_LAUNCHER_BUNDLE_ID"])
+        XCTAssertEqual(desktop["DM_HOME_QUIT_TEXT"]?.components(separatedBy: "\n").count, 5)
     }
 
     func testOptionsRoundTripThroughSavedChoices() throws {
@@ -568,7 +579,7 @@ import SwiftUI
     }
 
     func testSelectButtonGlyphAndInput() {
-        XCTAssertEqual(ConsoleInput(.select), .menu, "in console mode Select opens the console's menu")
+        XCTAssertEqual(ConsoleInput(.select), .quickMenu, "in console mode Select opens the quick menu (#816)")
         XCTAssertEqual(ConsoleInput(.plus), .menu, "so does the menu button")
         XCTAssertEqual(ConsoleInput(.y), .options, "Y opens a game's options")
         XCTAssertEqual(ConsoleGlyphs.Role.select.element, .select)

@@ -52,6 +52,13 @@ struct ConsoleGame: Identifiable {
     var cheats: ConsoleCheats?
     var canReset = false
     var save: ConsoleSaveRow?
+    /// When it was last played and for how long (the launcher's play history, PlaySessions, and the desktop's Recently played), nil
+    /// for a game never played. Built with older tools than the engine has now (ToolsAge). The newest save on this Mac, read when its
+    /// page opens.
+    var lastPlayed: Date?
+    var playSeconds: Double = 0
+    var olderTools = false
+    var lastSave: Date?
 
     /// The console's order: the games this Mac can play first, then the rest, each group in the order it came in.
     static func readyFirst(_ games: [ConsoleGame]) -> [ConsoleGame] {
@@ -144,22 +151,35 @@ enum ConsoleSheet: Equatable {
     /// advanced: a game's advanced options. confirmReset: "Reset this game's options?". confirmUpdate: install the app's update, or restart into it.
     case options(String), controllers, explanation(String), homeButtonHint, menu, mapping, gamePad(String), library, settings, language, cloudSaves, confirmExit, confirmMapping
     case advanced(String), confirmReset(String), confirmUpdate, cloudSave(CloudSaveQuestion)
+    /// #816: a game's page (A on a tile), all games with their filters, the search with its keyboard, the builds, the quick menu (−),
+    /// a game's Manage panel, "stopped unexpectedly" after a crash, and the questions before Stop and before quitting a paused game (#952).
+    case gamePage(String), allGames, search, builds, quickMenu, manage(String), stopped, confirmStopBuild, confirmQuitPaused
     /// The questions drawn in the middle of the screen, over what they were asked from.
     var isQuestion: Bool {
         switch self {
-        case .confirmExit, .confirmMapping, .confirmReset, .confirmUpdate: return true
+        case .confirmExit, .confirmMapping, .confirmReset, .confirmUpdate, .stopped, .confirmStopBuild, .confirmQuitPaused: return true
         default: return false
         }
     }
-    /// Pages over the whole screen rather than a panel at the side: the cloud saves, a game's controller settings, the button mapping.
+    /// Pages over the whole screen rather than a panel at the side: the cloud saves, a game's controller settings, the button mapping,
+    /// a game's page, all games, the search and the builds.
     var isFullScreen: Bool {
         switch self {
-        case .cloudSaves, .gamePad, .mapping: return true
+        case .cloudSaves, .gamePad, .mapping, .gamePage, .allGames, .search, .builds: return true
         default: return false
         }
     }
     var scope: String {
         switch self {
+        case .gamePage: return "console.gamePage"
+        case .allGames: return "console.allGames"
+        case .search: return "console.search"
+        case .builds: return "console.builds"
+        case .quickMenu: return "console.quickMenu"
+        case .manage: return "console.manage"
+        case .stopped: return "console.stopped"
+        case .confirmStopBuild: return "console.confirmStop"
+        case .confirmQuitPaused: return "console.confirmQuitPaused"
         case .language: return "console.language"
         case .cloudSave: return "console.cloudSave"
         case .confirmExit: return "console.confirmExit"
@@ -261,6 +281,24 @@ struct ConsoleState {
     var startingGameID: String?
     var exited = false
     var time: Date = Date()
+    /// The game paused in the background from its Home menu (#952, org.nxnative.paused.<pid>), nil while none is.
+    var pausedGameID: String?
+    /// What waits for the paused game to quit, after "Quit <game>?" was answered (or is being asked).
+    var afterQuit: ConsoleAfterQuit?
+    /// The paused game was asked to quit and has not yet.
+    var quittingPaused = false
+    /// The tab a game's page shows (L and R), the filter and the order of all games (L and R, Y), the search and what it finds.
+    var gameTab: ConsoleGameTab = .overview
+    var libraryFilter: ConsoleLibraryFilter = .all
+    var librarySort: LibrarySort = .recent
+    /// The games' IDs in `librarySort`'s order, as the desktop sorts them (the driver fills it).
+    var libraryOrder: [String] = []
+    var searchText = ""
+    var searchResults: [String] = []
+    /// The desktop's build and its queue, for the Builds page.
+    var builds = ConsoleBuilds()
+    /// The game that stopped unexpectedly and its newest save, for the screen after a crash.
+    var stopped: ConsoleStopped?
     var presentedSheet: ConsoleSheet? { sheets.last }
     var focusedGame: ConsoleGame? { games.first { $0.id == focusedGameID } ?? games.first }
     var startingGame: ConsoleGame? { games.first { $0.id == startingGameID } }
@@ -276,7 +314,9 @@ struct ConsoleState {
     }
     mutating func play(_ id: String) {
         guard !exited, startingGameID == nil, let game = games.first(where: { $0.id == id }) else { return }
-        if game.status == .ready { startingGameID = id; starting = .preparing; sheets = [] }
+        if pausedGameID == id { return }   // the driver resumes it (resume)
+        if game.status == .ready, pausedGameID != nil { askQuitPaused(then: .play(id)); return }   // one game at a time: the paused one quits first
+        if game.status == .ready { startingGameID = id; starting = .preparing; sheets = []; stopped = nil }
         else if presentedSheet != .explanation(id) { sheets.append(.explanation(id)) }
     }
     mutating func openOptions(_ id: String) {
@@ -311,6 +351,7 @@ struct ConsoleState {
     }
     /// Asks before leaving console mode: Leave goes to the desktop (exitToDesktop), B or Cancel closes the question.
     mutating func confirmExit() {
+        if pausedGameID != nil { askQuitPaused(then: .leave(selecting: nil)); return }   // the paused game would stay behind: quit it first
         guard !exited, startingGameID == nil, presentedSheet != .confirmExit else { return }
         sheets.append(.confirmExit)
     }
@@ -365,6 +406,8 @@ struct ConsoleState {
         if presentedSheet == .mapping, mappingRow != nil { mappingRow = nil; return }   // B in a button's choices goes back to the list
         if presentedSheet == .mapping, mappingChanged { sheets.append(.confirmMapping); return }   // asks before leaving changes
         if presentedSheet == .mapping { mappingOrigin = nil; pendingMenuSwapAB = nil; mappingUndo = nil }
+        if presentedSheet == .confirmQuitPaused { if quittingPaused { return }; afterQuit = nil }   // waiting for the quit: B does not take it back
+        if presentedSheet == .stopped { stopped = nil }
         if !sheets.isEmpty {
             if presentedSheet == .mapping { mappingGameID = nil }
             sheets.removeLast(); assigningPlayer = nil; assigningControllerID = nil; mappingRow = nil
@@ -460,6 +503,25 @@ struct ConsoleState {
     func chooseCloudSave(_ choice: CloudSaveCheck.Choice)
     /// The cloud save question's Try again: the check runs again.
     func retryCloudSave()
+
+    // #816 (ConsoleState+Pages.swift): a game's page and its tabs, all games (filter on L and R, order on Y), the search and its
+    // keyboard, the builds and Stop (asked first), the quick menu and a game's Manage panel.
+    func openGamePage(_ gameID: String)
+    func stepGameTab(_ step: Int)
+    func openAllGames()
+    func stepLibraryFilter(_ step: Int)
+    func toggleLibrarySort()
+    func openSearch()
+    func typeSearch(_ text: String)
+    func deleteSearch()
+    func openBuilds()
+    func askStopBuild()
+    func stopBuild()
+    func openQuickMenu()
+    func openManage(_ gameID: String)
+    /// #952: the paused game plays again, and the answer Quit to "Quit <game>?" (the paused game quits, then what waited for it runs).
+    func resume(_ gameID: String)
+    func quitPausedGame()
 }
 
 extension ConsoleDriver {
@@ -492,6 +554,21 @@ extension ConsoleDriver {
     func openHomeButtonSettings() { back() }
     func chooseCloudSave(_ choice: CloudSaveCheck.Choice) { back() }
     func retryCloudSave() { back() }
+    func openGamePage(_ gameID: String) {}
+    func stepGameTab(_ step: Int) {}
+    func openAllGames() {}
+    func stepLibraryFilter(_ step: Int) {}
+    func toggleLibrarySort() {}
+    func openSearch() {}
+    func typeSearch(_ text: String) {}
+    func deleteSearch() {}
+    func openBuilds() {}
+    func askStopBuild() {}
+    func stopBuild() {}
+    func openQuickMenu() {}
+    func openManage(_ gameID: String) {}
+    func resume(_ gameID: String) {}
+    func quitPausedGame() {}
 }
 
 /// Shared choice/range/toggle stepping for mouse, d-pad and keyboard. No settings store is touched.

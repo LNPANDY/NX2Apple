@@ -147,6 +147,7 @@ extension LiveConsoleDriver {
 
     /// Leaves console mode with the game selected on the desktop, where it is built or its files are chosen.
     func openOnDesktop(_ gameID: String) {
+        if state.pausedGameID != nil { state.askQuitPaused(then: .leave(selecting: gameID)); return }   // the paused game quits first (#952)
         if let id = UUID(uuidString: gameID) { library.selectedID = id }
         state.exitToDesktop()
     }
