@@ -11,7 +11,7 @@
   "kind": "translator",
   "source": "scripts/build_ipa_from_nsp.py",
   "fragment": "the shader translator does not run (",
-  "text": "[RED] the shader translator does not run (You must install .NET to run this application.): it needs the .NET 10 runtime for this Mac's architecture (brew install --cask dotnet-sdk); unset DOTNET_ROOT if it names another one"
+  "text": "[RED] the shader translator does not run (exit code 137): dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate is the committed native executable; check out the repository again if it is missing or damaged"
  },
  {
   "id": "translator.start",

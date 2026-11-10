@@ -2301,6 +2301,87 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 driver.patch(mod, bundled)
                 with mock.patch.object(mod, 'run', side_effect=AssertionError('attempted a source build')):
                     self.assertEqual(mod.build_nx_extract(bundled, work, work / 'logs', {}), exe)
+                    self.assertEqual(mod.find_nx_extract(bundled, {}), exe)
+
+    def test_find_nx_extract_and_dmsh_xlate_build_from_source_without_aot_and_cache(self) -> None:
+        from nspb_qt.win import driver
+        repo = QT.parent / 'engine'
+        if not (repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            self.skipTest('engine/ is missing')
+        mod = driver.load_upstream(repo)
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src_repo = root / 'engine'
+            proj = src_repo / 'dm/tools/nx_extract'
+            proj.mkdir(parents=True)
+            (proj / 'nx_extract.csproj').write_text('<Project><PropertyGroup><PublishAot>true</PublishAot></PropertyGroup></Project>', encoding='utf-8')
+            (proj / 'Program.cs').write_text('// stub', encoding='utf-8')
+            tools_root = root / 'tools_cache'
+            seen_cmds: list[list[str]] = []
+
+            def fake_mod_run(cmd, log, env=None):
+                s_cmd = [str(c) for c in cmd]
+                seen_cmds.append(s_cmd)
+                out_dir = Path(s_cmd[s_cmd.index('-o') + 1])
+                (out_dir / 'nx_extract.exe').write_bytes(b'MZ')
+
+            with mock.patch.object(driver, '_UPSTREAM_RUN', None), \
+                 mock.patch.object(tc, 'tools_dir', return_value=tools_root), \
+                 mock.patch.object(tc, 'dotnet_dir', return_value=Path('C:/dotnet')):
+                driver.patch(mod, src_repo)
+                with mock.patch.object(mod, 'run', side_effect=fake_mod_run):
+                    first = mod.find_nx_extract(src_repo, {})
+                    second = mod.find_nx_extract(src_repo, {})
+            self.assertEqual(first, second)
+            self.assertTrue(first.is_file())
+            self.assertEqual(len(seen_cmds), 1, 'second call must reuse the cached binary')
+            self.assertIn('-p:PublishAot=false', seen_cmds[0])
+            self.assertIn('--artifacts-path', seen_cmds[0])
+
+            # Test shim's _dmsh_xlate_dll helper on both bundled and source-checkout layouts.
+            import ast
+            tree = ast.parse(shim._SITECUSTOMIZE_SRC)
+            fn_node = next(
+                n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == '_dmsh_xlate_dll'
+            )
+            mod_ast = ast.Module(body=[fn_node], type_ignores=[])
+            publish_cmds: list[list[str]] = []
+
+            def fake_publish(cmd, **kw):
+                s_cmd = [str(c) for c in cmd]
+                publish_cmds.append(s_cmd)
+                out_dir = Path(s_cmd[s_cmd.index('-o') + 1])
+                (out_dir / 'dmsh_xlate.dll').write_bytes(b'DLL')
+
+            ns = {'os': os, 'Path': Path, 'shutil': shutil, '_run': fake_publish}
+            exec(compile(mod_ast, '<shim>', 'exec'), ns)
+            _dmsh_xlate_dll = ns['_dmsh_xlate_dll']
+
+            xlate_bin = src_repo / 'dm/gfx/tools/dmsh_xlate_bin/dmsh_xlate'
+            xlate_bin.parent.mkdir(parents=True)
+            xlate_bin.write_bytes(b'\xcf\xfa\xed\xfe')
+            xlate_proj = src_repo / 'dm/gfx/tools/dmsh_xlate'
+            xlate_proj.mkdir(parents=True)
+            (xlate_proj / 'dmsh_xlate.csproj').write_text('<Project/>', encoding='utf-8')
+            (xlate_proj / 'Program.cs').write_text('// xlate', encoding='utf-8')
+
+            with mock.patch.object(tc, 'tools_dir', return_value=tools_root):
+                dll1 = _dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc)
+                dll2 = _dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc)
+            self.assertEqual(dll1, dll2)
+            self.assertTrue(Path(dll1).is_file())
+            self.assertEqual(len(publish_cmds), 1)
+            self.assertIn('-p:PublishAot=false', publish_cmds[0])
+            self.assertIn('-p:SatelliteResourceLanguages=en', publish_cmds[0])
+            self.assertIn('--artifacts-path', publish_cmds[0])
+
+            # When dmsh_xlate.dll is bundled beside dmsh_xlate, no publish runs.
+            bundled_dll = Path(str(xlate_bin) + '.dll')
+            bundled_dll.write_bytes(b'BUNDLED')
+            publish_cmds.clear()
+            self.assertEqual(_dmsh_xlate_dll(str(xlate_bin), 'dotnet', tc), str(bundled_dll))
+            self.assertEqual(publish_cmds, [])
 
     def test_driver_region_skip_stamps_rewrite_id_and_capture_jit_reuses_image(self) -> None:
         from nspb_qt.win import driver

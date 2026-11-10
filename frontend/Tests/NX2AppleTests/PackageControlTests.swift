@@ -98,4 +98,39 @@ final class PackageControlTests: XCTestCase {
         XCTAssertNil(read(try write(Array("not a package".utf8), "Text.nsp")))
         XCTAssertNil(PackageControl.read(package: nsp, keysFile: temporary.appendingPathComponent("missing.keys").path, titleID: titleID))
     }
+
+    /// Malformed 64-bit offsets in a package, NCA header or RomFS header return nil instead of trapping on overflow.
+    func testOverflowingOffsetsAndShortKeySourcesReturnNil() throws {
+        var xci = F.xci([("c.nca", F.controlNCA(programID: titleID, nacp: F.nacp(names), rightsID: nil))], keyArea: true)
+        xci.replaceSubrange((0x1000 + 0x130)..<(0x1000 + 0x138), with: F.le(UInt64.max, 8))
+        XCTAssertNil(read(try write(xci, "OverflowCard.xci")))
+
+        var pfs0 = F.partition([("c.nca", F.controlNCA(programID: titleID, nacp: F.nacp(names), rightsID: nil, encrypted: false))])
+        pfs0.replaceSubrange(0x10..<0x18, with: F.le(UInt64.max, 8))
+        XCTAssertNil(read(try write(pfs0, "OverflowEntry.nsp")))
+
+        var nca = F.controlNCA(programID: titleID, nacp: F.nacp(names), rightsID: nil, encrypted: false)
+        // Corrupt the unencrypted RomFS dirMeta offset (at 0xC00 + 0x200 + 0x18) to UInt64.max.
+        nca.replaceSubrange((0xE00 + 0x18)..<(0xE00 + 0x20), with: F.le(UInt64.max, 8))
+        XCTAssertNil(read(try write(F.partition([("c.nca", nca)]), "OverflowRomFS.nsp")))
+
+        var ncaFileOff = F.controlNCA(programID: titleID, nacp: F.nacp(names), rightsID: nil, encrypted: false)
+        // Corrupt the second RomFS file entry's data offset to UInt64.max.
+        let controlName = Array("control.nacp".utf8)
+        if let range = ncaFileOff.firstRange(of: controlName) {
+            let entryStart = range.lowerBound - 0x20
+            ncaFileOff.replaceSubrange((entryStart + 8)..<(entryStart + 16), with: F.le(UInt64.max, 8))
+        }
+        XCTAssertNil(read(try write(F.partition([("c.nca", ncaFileOff)]), "OverflowFileData.nsp")))
+
+        let shortKeys: [String: [UInt8]] = [
+            "header_key": F.headerKey,
+            "master_key_02": [UInt8](repeating: 1, count: 16),
+            "key_area_key_application_source": [UInt8](repeating: 2, count: 16),
+            "aes_kek_generation_source": [1, 2, 3],
+            "aes_key_generation_source": [UInt8](repeating: 4, count: 16),
+        ]
+        let validXCI = try write(F.xci([("c.nca", F.controlNCA(programID: titleID, nacp: F.nacp(names), rightsID: nil))]), "ShortSource.xci")
+        XCTAssertNil(read(validXCI, keys: shortKeys))
+    }
 }
