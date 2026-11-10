@@ -82,8 +82,8 @@ import SwiftUI
         if let main = NSScreen.main { XCTAssertEqual(launches.first?.environment["DM_SCREEN"], GameStart.displayID(of: main).map(String.init), "the game opens on the launcher's display") }
         XCTAssertEqual(launches.first?.environment["DM_FULLSCREEN"], "1", "console mode plays fullscreen whatever Display says")
         XCTAssertEqual(launches.first?.game.titleID, titleID)
-        let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { L10n.string($0, .en) }, fullscreen: true) }
-        XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen")
+        let expected = launches.first.map { GameStart.environment(for: $0.game, library: GameLibrary(file: temporary.appendingPathComponent("other.json")), controls: layout, repo: "", labels: { L10n.string($0, .en) }, fullscreen: true, homeMenu: true) }
+        XCTAssertEqual(launches.first?.environment, expected, "the same function the desktop Play uses, with the console's fullscreen and Home menu")
     }
 
     func testAGameStartsWithThePointerHiddenWhenTheConsoleHadItHidden() throws {
@@ -172,13 +172,24 @@ import SwiftUI
         XCTAssertNil(driver.state.presentedSheet, "before macOS 27 the Home button does not quit, so there is nothing to explain")
     }
 
-    /// #336: the game's quit prompt gets its texts in the launcher's language, with the game's name.
+    /// #336: the game's quit prompt gets its texts in the launcher's language, with the game's name. #952: a game started from console
+    /// mode also gets the Home menu's three (Resume, Back to console mode, its title) and the way back to the launcher.
     func testPlayPassesTheHomeQuitTexts() throws {
         var launches: [Launch] = []
-        let (driver, _, _) = try makeDriver { launches.append($0) }
+        let (driver, library, layout) = try makeDriver { launches.append($0) }
         driver.play(try XCTUnwrap(driver.state.games.first?.id))
-        let text = try XCTUnwrap(launches.first?.environment["DM_HOME_QUIT_TEXT"])
-        XCTAssertEqual(text.components(separatedBy: "\n"), ["Keep holding to quit", "Quit Hades?", "Unsaved progress will be lost.", "Quit", "Cancel"])
+        let environment = try XCTUnwrap(launches.first?.environment)
+        let text = try XCTUnwrap(environment["DM_HOME_QUIT_TEXT"])
+        XCTAssertEqual(text.components(separatedBy: "\n"), ["Keep holding to quit", "Quit Hades?", "Unsaved progress will be lost.", "Quit", "Cancel",
+                                                             "Resume", "Back to console mode", "Hades"])
+        XCTAssertEqual(environment["DM_HOME_MENU_LAUNCHER"], "1", "Back to console mode is offered")
+        XCTAssertEqual(environment["DM_LAUNCHER_BUNDLE_ID"], Bundle.main.bundleIdentifier, "the game hands the front back to this app")
+        // the desktop's Play stays as it was: no Home menu row, five texts
+        let game = try XCTUnwrap(library.games.first)
+        let desktop = GameStart.environment(for: game, library: library, controls: layout, repo: "", labels: { L10n.string($0, .en) })
+        XCTAssertNil(desktop["DM_HOME_MENU_LAUNCHER"])
+        XCTAssertNil(desktop["DM_LAUNCHER_BUNDLE_ID"])
+        XCTAssertEqual(desktop["DM_HOME_QUIT_TEXT"]?.components(separatedBy: "\n").count, 5)
     }
 
     func testOptionsRoundTripThroughSavedChoices() throws {
@@ -221,6 +232,56 @@ import SwiftUI
         XCTAssertNotNil(driver.state.toast, "a Bluetooth controller cannot be dropped by an app: the toast says where")
     }
 
+    /// A game's options page keeps what it read when it opened (its cloud save, whether Reset applies) across a rebuilt list, and
+    /// Reset shows as soon as an option differs.
+    func testOpenOptionsKeepTheirDetails() throws {
+        let (driver, _, _) = try makeDriver()
+        let id = try XCTUnwrap(driver.state.games.first?.id)
+        driver.openOptions(id)
+        XCTAssertNotNil(driver.state.games.first?.save, "the cloud save's state is read with the options")
+        XCTAssertNotNil(driver.state.games.first?.cheats)
+        driver.setOption(gameID: id, setting: "DM_FPS_TARGET", value: "30")
+        XCTAssertEqual(driver.state.games.first?.canReset, true, "an option that differs shows Reset at once")
+        driver.refresh()
+        XCTAssertNotNil(driver.state.games.first?.save, "a rebuilt list keeps the open page's details")
+        XCTAssertEqual(driver.state.games.first?.canReset, true)
+        driver.setOption(gameID: id, setting: "DM_FPS_TARGET", value: "60")
+    }
+
+    /// The console's button mapping is the Controls page's controller layout: a button changed there makes it Custom, Reset goes back
+    /// to the standard layout, and the sheet shows what the layout sends.
+    func testMappingChangesTheSharedControllerLayout() throws {
+        let (driver, _, layout) = try makeDriver(pads: [])
+        driver.openMenu()
+        XCTAssertEqual(driver.state.presentedSheet, .menu)
+        driver.openMapping()
+        XCTAssertEqual(driver.state.presentedSheet, .mapping)
+        driver.openMappingRow("A")
+        XCTAssertEqual(driver.state.mappingRow, "A")
+        driver.setPadSends(button: "A", to: "B")
+        driver.refreshPadLayout()
+        XCTAssertEqual(layout.padMode, .custom)
+        XCTAssertEqual(layout.environment["DM_PAD_MAP"], "A=B")
+        XCTAssertEqual(driver.state.padLayout.mode, .custom)
+        XCTAssertEqual(driver.state.padLayout.output("A"), "B")
+        XCTAssertTrue(driver.state.padLayout.changed("A"))
+        driver.setPadSends(button: "X", to: "nonsense")
+        XCTAssertNil(layout.environment["DM_PAD_MAP"]?.range(of: "X="), "an unknown button is refused")
+        driver.back()
+        XCTAssertNil(driver.state.mappingRow, "B in a button's choices goes back to the list")
+        XCTAssertEqual(driver.state.presentedSheet, .mapping)
+        driver.setPadMode(.byLabel)
+        driver.refreshPadLayout()
+        XCTAssertEqual(driver.state.padLayout.output("A"), "B")
+        XCTAssertEqual(driver.state.padLayout.output("X"), "Y")
+        driver.resetPadMapping()
+        driver.refreshPadLayout()
+        XCTAssertTrue(driver.state.padLayout.isDefault)
+        XCTAssertNil(layout.environment["DM_PAD_MAP"])
+        driver.back(); driver.back()
+        XCTAssertNil(driver.state.presentedSheet, "mapping, then the menu, close in turn")
+    }
+
     func testJoyconSplitExpandsPairedJoyConIntoTwoSidewaysPlayers() throws {
         let pads = [ConsolePadSnapshot(id: "jc", name: "Joy-Con (L/R)", category: "Nintendo Switch Joy-Con (L/R)", playerIndex: 1, battery: 0.75, charging: true)]
         let (driver, _, layout) = try makeDriver(pads: pads)
@@ -260,6 +321,23 @@ import SwiftUI
         XCTAssertEqual(calls, [true], "the window has not left full screen yet")
         try await Task.sleep(nanoseconds: 150_000_000)
         coordinator.toggle()
+    }
+
+    /// Console mode's Play: the launcher stays full screen while the game starts, and nothing changes the window when it quits.
+    func testAGameStartsWithTheConsoleStillFullScreen() {
+        var calls: [Bool] = []
+        let window = ConsoleFullScreenTestWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+        window.isFull = true
+        let coordinator = ConsoleCoordinator(window: { window }, setFullScreen: { _, on, done in calls.append(on); done() }, fadeSeconds: 0.05)
+        coordinator.available = true
+        coordinator.enter()
+        var launched = 0
+        coordinator.startGameInFullScreen { launched += 1 }
+        XCTAssertEqual(launched, 1, "the game starts at once")
+        XCTAssertEqual(calls, [], "the window stays full screen")
+        coordinator.resumeFullScreenAfterGame()
+        XCTAssertEqual(calls, [], "and is left alone when the game quits")
+        XCTAssertTrue(coordinator.active)
     }
 
     func testAGameStartsFromAWindowThatLeftFullScreenAndFullScreenReturnsAfterIt() throws {
@@ -456,6 +534,11 @@ import SwiftUI
         XCTAssertEqual(LiveConsoleDriver.version(plist: try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "1.2.3"], format: .xml, options: 0)), "1.2.3")
         XCTAssertEqual(LiveConsoleDriver.version(plist: try PropertyListSerialization.data(fromPropertyList: ["CFBundleVersion": "7"], format: .xml, options: 0)), "7")
         XCTAssertEqual(LiveConsoleDriver.version(plist: Data([0])), "")
+        let plist = { (info: [String: String]) in try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0) }
+        // #953: an update packed from a dump has no display version; its CFBundleShortVersionString is pack_app.py's 1.0, not what runs
+        XCTAssertEqual(LiveConsoleDriver.version(plist: try plist(["CFBundleShortVersionString": "1.0", "DMPackageVersion": "v458752"])), "v458752")
+        XCTAssertEqual(LiveConsoleDriver.version(plist: try plist(["CFBundleShortVersionString": "1.2.1", "DMDisplayVersion": "1.2.1", "DMPackageVersion": "v131072"])), "1.2.1")
+        XCTAssertEqual(LiveConsoleDriver.version(plist: try plist(["CFBundleShortVersionString": "1.0", "DMPackageVersion": "v0"])), "", "the base game without a display version")
         let ios = temporary.appendingPathComponent("ios.app")
         try FileManager.default.createDirectory(at: ios, withIntermediateDirectories: true)
         try PropertyListSerialization.data(fromPropertyList: ["CFBundleShortVersionString": "2.0.1"], format: .xml, options: 0).write(to: ios.appendingPathComponent("Info.plist"))
@@ -474,7 +557,7 @@ import SwiftUI
         XCTAssertEqual(ConsolePadSnapshot.batteryReading(level: 0, state: .charging).level, 0, "charging reports its real level, even a low one")
         let full = ConsolePadSnapshot.batteryReading(level: 0, state: .full)
         XCTAssertEqual(full.level, 1, "full: the full battery")
-        XCTAssertTrue(full.charging, "with the bolt")
+        XCTAssertFalse(full.charging, "full does not imply a charging cable (#1033)")
         let topped = ConsolePadSnapshot.batteryReading(level: 1.0, state: .charging)
         XCTAssertEqual(topped.level, 1)
         XCTAssertTrue(topped.charging)
@@ -496,7 +579,9 @@ import SwiftUI
     }
 
     func testSelectButtonGlyphAndInput() {
-        XCTAssertNil(ConsoleInput(.select), "in console mode Select does nothing special")
+        XCTAssertEqual(ConsoleInput(.select), .quickMenu, "in console mode Select opens the quick menu (#816)")
+        XCTAssertEqual(ConsoleInput(.plus), .menu, "so does the menu button")
+        XCTAssertEqual(ConsoleInput(.y), .options, "Y opens a game's options")
         XCTAssertEqual(ConsoleGlyphs.Role.select.element, .select)
         XCTAssertEqual(ConsoleGlyphs(family: .playStation, reported: [.select: "square.and.arrow.up"]).glyph(for: .select), .symbol("square.and.arrow.up"), "the controller's own symbol")
         for family in [ConsoleGlyphs.Family.xbox, .playStation, .nintendo, .neutral] {

@@ -78,7 +78,7 @@ package struct LauncherProgressBar: View {
 
     package var body: some View {
         ZStack(alignment: .leading) {
-            Capsule().fill(Color.white.opacity(0.12))
+            Capsule().fill(LauncherPalette.ink(0.12))
             if let value {
                 GeometryReader { g in
                     Capsule().fill(tint).frame(width: max(height, g.size.width * min(max(value, 0), 1)))

@@ -94,7 +94,7 @@ extension View {
     /// The list's own surface: the app's dark card with its border, radius and shadow.
     package func launcherDropdownSurface() -> some View {
         background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LauncherPalette.ink(0.10)))
             .shadow(color: .black.opacity(0.5), radius: 18, y: 6)
     }
 }
@@ -180,12 +180,12 @@ package struct LauncherDropdownList: View {
             HStack(spacing: 10) {
                 Text(option.label).font(.manrope(13, selected ? .bold : .medium)).lineLimit(1)
                 Spacer(minLength: 16)
-                Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(LauncherPalette.cream)
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(LauncherPalette.accent)
                     .opacity(selected ? 1 : 0)
             }
-            .foregroundStyle(Color.white.opacity(0.92))
+            .foregroundStyle(LauncherPalette.text)
             .padding(.horizontal, 12).frame(height: LauncherDropdownLayout.rowHeight)
-            .background(highlighted == index ? Color.white.opacity(0.09) : (selected ? Color.white.opacity(0.045) : .clear),
+            .background(highlighted == index ? LauncherPalette.ink(0.09) : (selected ? LauncherPalette.ink(0.045) : .clear),
                         in: RoundedRectangle(cornerRadius: 8))
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
@@ -262,19 +262,19 @@ package struct LauncherDropdown: View {
                 .frame(maxWidth: fill || width != nil ? .infinity : nil, alignment: fill && leading ? .leading : .center)   // the words centre across the whole button
                 .padding(.leading, (fill && !leading) || width != nil ? 14 : 0)   // room so the chevron never crowds them
             if fill || width != nil {
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                     .rotationEffect(.degrees(open ? 180 : 0)).padding(.trailing, 14)
             } else {
-                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                     .rotationEffect(.degrees(open ? 180 : 0)).padding(.leading, 8)
             }
         }
         .padding(.horizontal, rounded ? 15 : 14).padding(.vertical, rounded ? 9 : 7)
         .frame(width: width, height: width != nil || (fill && rounded) ? LauncherControl.height : nil)   // a filling button as high as a row's buttons
         .frame(maxWidth: fill ? .infinity : nil)
-        .background(Color.white.opacity(open ? 0.13 : (rounded ? 0.055 : 0.06)), in: shape)
-        .overlay(shape.strokeBorder(Color.white.opacity(open ? 0.18 : 0.10)))
-        .foregroundStyle(Color.white.opacity(0.92))
+        .background(open ? LauncherPalette.secondaryPressed : (rounded ? LauncherPalette.secondaryFill : LauncherPalette.dropdownFill), in: shape)
+        .overlay(shape.strokeBorder(open ? LauncherPalette.dropdownOpenBorder : LauncherPalette.secondaryBorder))
+        .foregroundStyle(LauncherPalette.text)
         .contentShape(shape)
         .launcherMeasured(label: Text(current).font(.manrope(rounded ? 13 : 12.5, .semibold)), room: LauncherControl.choiceWidth)
     }
@@ -320,7 +320,7 @@ package struct LauncherDropdown: View {
                                              choose: { dropdown.choose($0); open = false }, close: { open = false })
                             .frame(width: LauncherDropdownLayout.width(labels: dropdown.options.map(\.label), button: 0),
                                    height: min(LauncherDropdownLayout.contentHeight(rows: dropdown.options.count), LauncherDropdownLayout.maxHeight))
-                            .preferredColorScheme(.dark)
+                            .launcherAppearance()
                     }
             )
         }

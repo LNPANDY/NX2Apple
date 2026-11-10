@@ -31,37 +31,49 @@ package enum DependencyCheck {
     package static let dotnetInstallCmd = ["/bin/bash", "-c",
         "curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/di.sh && chmod +x /tmp/di.sh && /tmp/di.sh --channel 10.0 --install-dir $HOME/.dotnet"]
 
-    /// The rows. `needsIOS`: the xcode row asks for the iOS SDK. `repo`: the checkout whose lock pins the Metal compiler ("" for none).
-    package static func detect(needsIOS: Bool, repo: String = "") -> [Dep] {
-        var out: [Dep] = []
-
+    /// `macToolchainRuns`: the selected tools answer `xcrun -sdk macosx metal --version`. A Mac build with no full Xcode selected is accepted
+    /// only when they do (LNPANDY/NX2Apple#1017): the real toolchain decides, not the name of what is installed. An iPhone build always
+    /// needs the selected Xcode with its iOS SDK.
+    package static func xcodeDep(needsIOS: Bool, customApp: String?, runner: ProcessRunner, macToolchainRuns: Bool = false) -> Dep {
         // Xcode.app alone is not enough: since Xcode 15 the iOS platform ships as a separate
         // download, so a fresh install has xcodebuild but no iOS SDK and the build dies deep in
         // xcodebuild. Ask for the SDK version itself — that is the check that matches the name.
         // And ask xcode-select where Xcode is, not a fixed path: a beta lives at
         // /Applications/Xcode-beta.app and the hard-coded check called that "no Xcode" (#21).
-        let selected = Toolchain.developerDir()
-        let xcodeApp = Toolchain.installedXcode()
-        let sdkenv = Toolchain.runOK("/usr/bin/xcrun", ["--sdk", "iphoneos", "--show-sdk-version"])
+        let selected = Toolchain.developerDir(runner: runner)
+        let xcodeApp = Toolchain.installedXcode(customApp: customApp)
+        let sdkenv = Toolchain.runOK("/usr/bin/xcrun", ["--sdk", "iphoneos", "--show-sdk-version"], runner: runner)
         // A Mac-only setup does not need the iOS platform (onboarding's platform choice, #120); a
         // Mac build still needs a selected Xcode, so the CommandLineTools state is reported either way.
+        if customApp != nil && (selected?.hasSuffix(".app/Contents/Developer") != true || xcodeApp == nil) {
+            return Dep(id: "xcode", name: "dep.xcode", hint: "xcodeChoice.unavailable", present: false, installCmd: [])
+        }
         switch Toolchain.xcodeState(selected: selected, xcodeApp: xcodeApp, iosSDK: !needsIOS || sdkenv) {
         case .ready:
-            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: []))
+            return Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, installCmd: [])
         case .noIOSSDK:
-            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
-                           detail: "dep.xcode.noSDK", installCmd: Toolchain.iosPlatformCmd))
+            return Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
+                       detail: "dep.xcode.noSDK", installCmd: Toolchain.iosPlatformCmd)
+        case .commandLineToolsOnly where !needsIOS && macToolchainRuns && customApp == nil:
+            return Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: true, detail: "dep.xcode.macToolsRun", installCmd: [])
         case .commandLineToolsOnly(let xcode):
-            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
-                           detail: "dep.xcode.notSelected", actionLabel: "dep.xcode.fix",
-                           installCmd: Toolchain.selectXcodeCmd(xcode)))
+            return Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false,
+                       detail: "dep.xcode.notSelected", actionLabel: "dep.xcode.fix",
+                       installCmd: Toolchain.selectXcodeCmd(xcode))
         case .notInstalled:
-            out.append(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: []))
+            return Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: [])
         }
+    }
 
-        let macMetal = Toolchain.firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"])
+    /// The rows. `needsIOS`: the xcode row asks for the iOS SDK. `repo`: the checkout whose lock pins the Metal compiler ("" for none).
+    package static func detect(needsIOS: Bool, repo: String = "", customApp: String? = nil) -> [Dep] {
+        let runner = SystemProcessRunner(xcodeApp: customApp)
+        let macMetal = Toolchain.firstOutputLine("/usr/bin/xcrun", ["-sdk", "macosx", "metal", "--version"], runner: runner)
+        let macSDK = Toolchain.runOK("/usr/bin/xcrun", ["--sdk", "macosx", "--show-sdk-version"], runner: runner)
+        var out = [xcodeDep(needsIOS: needsIOS, customApp: customApp, runner: runner, macToolchainRuns: macMetal != nil && macSDK)]
+
         let lock = repo.isEmpty ? nil : try? String(contentsOfFile: EngineLayout.root(repo) + "/" + MetalPin.lockPath, encoding: .utf8)
-        let iosMetal = needsIOS && lock != nil ? Toolchain.firstOutputLine("/usr/bin/xcrun", ["-sdk", "iphoneos", "metal", "--version"]) : nil
+        let iosMetal = needsIOS && lock != nil ? Toolchain.firstOutputLine("/usr/bin/xcrun", ["-sdk", "iphoneos", "metal", "--version"], runner: runner) : nil
         out.append(metalDep(runs: macMetal != nil, lock: lock, now: ["macosx": macMetal, "iphoneos": iosMetal], needsIOS: needsIOS))
 
         out += Toolchain.toolDeps(resources: BundledTools.resources,
@@ -86,8 +98,8 @@ package enum DependencyCheck {
     }
 
     /// The rows and the paths of the interpreter and of dotnet the build runs under.
-    package static func scan(needsIOS: Bool, repo: String) -> Result {
-        let deps = detect(needsIOS: needsIOS, repo: repo)
+    package static func scan(needsIOS: Bool, repo: String, customApp: String? = nil) -> Result {
+        let deps = detect(needsIOS: needsIOS, repo: repo, customApp: customApp)
         let (py, _) = Toolchain.findPython()
         let (dn, _) = Toolchain.findDotnet()
         return Result(deps: deps, python: py, dotnet: FileManager.default.isExecutableFile(atPath: dn) ? dn : "")

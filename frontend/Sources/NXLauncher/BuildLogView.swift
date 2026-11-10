@@ -19,12 +19,12 @@ package struct BuildLogView: View {
                     .font(.mono(11))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(LauncherPalette.secondaryText)
                     .padding(12)
                     .id("end")
             }
             .frame(height: 220)
-            .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
+            .background(LauncherPalette.well, in: RoundedRectangle(cornerRadius: 10))
             .onChange(of: log.text) { _ in sp.scrollTo("end", anchor: .bottom) }
             .onAppear { sp.scrollTo("end", anchor: .bottom) }
         }

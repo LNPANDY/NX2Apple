@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import NXCore
 import NXModel
 
@@ -21,16 +22,28 @@ import NXModel
     let deviceStore: DeviceStore
     let appUpdates: AppUpdateStore
     let build: BuildStore
+    /// The one build queue (#943), kept in Application Support so it survives a restart. A test suite of defaults keeps it in memory.
+    let queue: BuildQueueStore
+    /// The transfer queue (#1036): game data on its way to devices, beside any build.
+    let transfers: TransferQueueStore
+    private var transferWatch: AnyCancellable?
+    private var queueWatch: AnyCancellable?
+    let players: PlayerProfileStore
+    let saveSettings: SaveSettingsStore
+    let sticks: StickDeadzoneStore
+    /// The games' build files (#232), measured and removed by `BuildFiles` (the Free space code).
+    let buildFiles = BuildFilesStore(measure: { BuildFiles.measure($0) }, remove: { try BuildFiles.remove($0) })
     private var quitObserver: NSObjectProtocol?
 
     /// - Parameters:
     ///   - xcrun: runs xcodebuild and devicectl: a test points it at a stand-in.
     ///   - volumesRoot: where external drives are mounted.
     ///   - defaults: where the stores keep their settings: a test passes its own suite, so it neither reads nor writes the shared ones.
-    init(localizer: Localizer = Localizer(), runner: ProcessRunner = SystemProcessRunner(), gitCheckout: GitCheckout? = nil,
+    init(localizer: Localizer = Localizer(), runner: ProcessRunner? = nil, gitCheckout: GitCheckout? = nil,
          releases: ReleaseSource = GitHubReleases(), xcrun: String = "/usr/bin/xcrun", volumesRoot: String = "/Volumes",
          defaults: UserDefaults = .standard) {
         _ = Self.endGroupsWhenQuitting
+        let runner = runner ?? SystemProcessRunner(defaults: defaults)
         let git = gitCheckout ?? SystemGitCheckout(runner: runner)
         self.localizer = localizer; self.runner = runner; self.gitCheckout = git; self.releases = releases
         let log = BuildLog()
@@ -73,6 +86,44 @@ import NXModel
         laterBuild.value = build
         self.repo = repo; self.engineSync = engineSync; self.dependencies = dependencies; self.deviceStore = devices
         self.appUpdates = updates; self.build = build
+        let queueFile = defaults === UserDefaults.standard
+            ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("NX2Apple/build-queue.json") : nil
+        let queue = BuildQueueStore(
+            file: queueFile, engineID: { engineSync.selection.engineID }, busy: { build.running },
+            start: { build.startQueued($0) }, packageBatch: { _ in build.packageDeferred() }, engineChangedReason: { localizer.t("queue.engineChanged") })
+        self.queue = queue
+        let transferFile = queueFile?.deletingLastPathComponent().appendingPathComponent("transfer-queue.json")
+        let transfers = TransferQueueStore(
+            file: transferFile,
+            perform: { entry, report, finish in build.performTransfer(entry, report: report, finish: finish) },
+            cancelRunning: { build.cancelTransfer($0) })
+        self.transfers = transfers
+        build.transfers = transfers
+        // A device that comes back continues the transfers that waited for it. The list is read again every few seconds while one waits.
+        transferWatch = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+            .sink { [weak transfers, weak devices] _ in
+                MainActor.assumeIsolated {
+                    guard let transfers, let devices, transfers.hasWaiting else { return }
+                    transfers.deviceConnected(Set(devices.devices.filter(\.reachable).map(\.id)))
+                    devices.refresh()
+                }
+            }
+        // A build that ended settles the queue's running entry and starts the next. The hop lets the install step that follows a
+        // build raise `running` again first (the BuildRecorder waits the same way).
+        queueWatch = build.$running.removeDuplicates().sink { [weak build, weak queue] running in
+            guard !running else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let build, let queue, !build.running, queue.running != nil else { return }
+                    let outcome = build.queueOutcome
+                    queue.buildEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
+                    if queue.running == nil { build.deferShellPackaging = false }
+                }
+            }
+        }
+        self.saveSettings = SaveSettingsStore(defaults: defaults)
+        self.sticks = StickDeadzoneStore(defaults: defaults)
+        self.players = PlayerProfileStore(defaults: defaults, defaultName: { localizer.t("players.default") })
 
         // The staged update goes in as the app quits, so the next launch is the new version without interrupting anyone.
         quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak updates] _ in
@@ -116,6 +167,32 @@ import NXModel
         build.revealFolder = { NSWorkspace.shared.open($0) }
         build.revealItem = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
         build.openApp = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
+        build.preflightApp = { app, done in Self.preflight(app, done: done) }
+    }
+
+    /// The build's check of a new Mac app's first start (#1005, `MacPreflight`): opened through LaunchServices, as Play
+    /// opens it, since only that open has macOS check the bundle; hidden, in the background, a new instance even if an
+    /// older build of the game runs, kept out of the recent items. Its launcher sees DM_PREFLIGHT and quits at once, once
+    /// macOS lets it start. `done` runs when the process has quit, or with the error that kept it from starting; the
+    /// BuildStore ends the wait itself after its timeout, and the poll stops then too.
+    static func preflight(_ app: URL, done: @escaping @MainActor (Error?) -> Void) {
+        let c = NSWorkspace.OpenConfiguration()
+        c.activates = false
+        c.hides = true
+        c.addsToRecentItems = false
+        c.createsNewApplicationInstance = true
+        c.environment = [MacPreflight.environmentKey: "1"]
+        NSWorkspace.shared.openApplication(at: app, configuration: c) { running, error in
+            DispatchQueue.main.async {
+                guard let running else { done(error); return }
+                let deadline = Date().addingTimeInterval(MacPreflight.timeout)
+                Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+                    guard running.isTerminated || Date() > deadline else { return }
+                    timer.invalidate()
+                    MainActor.assumeIsolated { done(running.isTerminated ? nil : MacPreflight.Failure.timedOut) }
+                }
+            }
+        }
     }
 
     /// The panel of the Build tab's Save to folder. It can make a folder, because the folder for the IPA often does not exist yet.

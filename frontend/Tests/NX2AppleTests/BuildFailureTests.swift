@@ -60,6 +60,15 @@ import NXModel
         }
     }
 
+    /// #553: a profile kept from an earlier build that lacks the selected update stops the build and names the folder it kept.
+    func testAStaleProvisionalProfileIsItsOwnStopWithItsFolder() throws {
+        let f = try XCTUnwrap(fixtures().first { $0.id == "profile.stale" })
+        let failure = BuildFailureClassifier.classify(f.text)
+        XCTAssertEqual(failure.kind, .staleProfile)
+        XCTAssertEqual(failure.detail, f.folder)
+        XCTAssertNil(failure.kind.overrideFlag, "there is no way to build around it")
+    }
+
     func testTheOlderSeveralGamesMessageStillClassifies() {   // the stable and experimental engine channels can still serve the text before the pin of cd859c38
         let log = "[RED] more than one game in the folder, keep one game per folder: 0100000000010000, 01006F8002326000"
         XCTAssertEqual(BuildFailureClassifier.classify(log).kind, .severalGames)

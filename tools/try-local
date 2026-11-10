@@ -10,7 +10,7 @@
 #   --own-repo   let the app choose its engine as it always does, instead of the engine tree bundled in this build
 #
 # What it builds: the same app as the job `build` of .github/workflows/build-mac-app.yml: the engine tree (tools/engine.py tree), the
-# launcher (swift build -c release), the bundled tools and Python (frontend/tools/bundle_tools.sh), the iPhone shell package, Info.plist,
+# launcher (frontend/tools/build_launcher.sh), the bundled tools and Python (frontend/tools/bundle_tools.sh), the iPhone shell package, Info.plist,
 # an ad-hoc signature, and frontend/tools/check_bundle.sh. The version is <appVersion>-local.
 # It is NOT a release. It writes no latest.json, signs nothing with an engine key, touches no tag, uploads nothing. An rc tag still
 # needs CI and the owner's ENGINE_SIGNING_KEY. Without a latest.json the app has no manifest to check: it opens with the engine it
@@ -89,8 +89,8 @@ python3 tools/engine.py -q sync
 python3 tools/engine.py tree --out "$work/engine-tree"
 done_step
 
-step "swift build -c release"
-( cd frontend && swift build -c release )
+step "swift build -c release (frontend/tools/build_launcher.sh, as in the workflow)"
+frontend/tools/build_launcher.sh
 done_step
 
 step "bundled tools and Python"
@@ -156,7 +156,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>$V</string>
   <key>CFBundleVersion</key><string>$V</string>
   <key>CFBundleDevelopmentRegion</key><string>en</string>
-  <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string><string>it</string><string>ja</string></array>
+  <key>CFBundleLocalizations</key><array><string>en</string><string>zh-Hans</string><string>sv</string><string>de</string><string>fr</string><string>it</string><string>ja</string><string>es</string><string>ko</string><string>pt-BR</string></array>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>

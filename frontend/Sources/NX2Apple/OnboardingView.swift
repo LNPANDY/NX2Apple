@@ -69,11 +69,11 @@ import NXLauncher
         }
         .animation(.easeInOut(duration: reduceMotion ? 0.16 : 0.32), value: state.step)
         .font(.manrope(14))
-        .foregroundStyle(.white)
+        .foregroundStyle(LauncherPalette.textStrong)
         .background(LauncherPalette.background)
         .background(LauncherWindowChrome())
-        .preferredColorScheme(.dark)
-        .tint(LauncherPalette.cream)
+        .launcherAppearance()
+        .tint(LauncherPalette.accent)
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .padScope("onboarding", padFocus)
         .environmentObject(padFocus)
@@ -82,7 +82,7 @@ import NXLauncher
             gamepad.perform = padAction
             headingFocused = true
         }
-        .onDisappear { gamepad.perform = { _ in } }
+        .onDisappear { gamepad.deactivate() }
         .onChange(of: state.step) { _ in
             padFocus.focused = nil
             detailsOpen = false
@@ -115,17 +115,14 @@ import NXLauncher
             Spacer()
             HStack(spacing: 10) {
                 ForEach(OnboardingStep.allCases, id: \.self) { step in
-                    Capsule().fill(step == state.step ? LauncherPalette.cream : (step.index < state.step.index ? LauncherPalette.ready : Color.white.opacity(0.18)))
+                    Capsule().fill(step == state.step ? LauncherPalette.cream : (step.index < state.step.index ? LauncherPalette.ready : LauncherPalette.ink(0.18)))
                         .frame(width: step == state.step ? 26 : 7, height: 7)
                 }
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(String(format: t("onboarding.stepCount"), state.step.index + 1, OnboardingStep.allCases.count))
             Spacer()
-            Button(t("onboarding.later"), action: driver.skipForLater)
-                .buttonStyle(.plain).foregroundStyle(.secondary)
-                .padTarget("onboarding.later", scope: "onboarding", activate: driver.skipForLater)
-                .frame(width: 130, alignment: .trailing)
+            Color.clear.frame(width: 130, height: 1)   // balances the Back button; Set up later is in the footer, with its note (#686)
         }
         .padding(.horizontal, 40).padding(.top, 40).padding(.bottom, 12)
         .background(TitlebarDoubleClick())   // an empty part of the header acts as the title bar does
@@ -142,7 +139,7 @@ import NXLauncher
                 .accessibilityValue(accessibilityStatus)
                 .accessibilityFocused($headingFocused)
             Text(t("onboarding.\(state.step.rawValue).note"))
-                .font(.manrope(17)).foregroundStyle(.secondary)
+                .font(.manrope(17)).foregroundStyle(LauncherPalette.secondaryText)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -178,7 +175,7 @@ import NXLauncher
             }
             // A fact about this Mac, constant during setup: a calm note, not a warning, and no gate.
             if state.osTooOldForNVN {
-                Text(t("onboarding.nvn.os")).font(.manrope(13)).foregroundStyle(.secondary)
+                Text(t("onboarding.nvn.os")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }.modifier(OnboardingCard())
@@ -188,11 +185,11 @@ import NXLauncher
         HStack(alignment: .top, spacing: 16) {
             Image(systemName: okay == true ? "checkmark.circle" : (okay == false ? "exclamationmark.triangle" : "folder"))
                 .font(.system(size: 22, weight: .light))
-                .foregroundStyle(okay == false ? LauncherPalette.building : LauncherPalette.cream)
+                .foregroundStyle(okay == false ? LauncherPalette.building : LauncherPalette.accent)
                 .frame(width: 28).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 5) {
                 Text(t(key)).font(.manrope(15, .semibold))
-                Text(value).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(value).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
             }
         }.accessibilityElement(children: .combine)
     }
@@ -207,17 +204,17 @@ import NXLauncher
                             Image(systemName: platform.symbol).font(.system(size: 34, weight: .light))
                             Spacer()
                             Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selected ? LauncherPalette.cream : Color.white.opacity(0.2))
+                                .foregroundStyle(selected ? LauncherPalette.accent : LauncherPalette.ink(0.2))
                         }.frame(height: 40, alignment: .top).accessibilityHidden(true)   // symbols differ in height: the titles stay on one line
                         Text(t("onboarding.platform.\(platform.rawValue)")).font(.manrope(22, .bold))
                         Text(t(platform.includesIOS ? "onboarding.platform.iosSize" : "onboarding.platform.macNote"))
-                            .font(.manrope(13)).foregroundStyle(.secondary)
+                            .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                             .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                     }
                     .padding(24).frame(maxWidth: .infinity, minHeight: 216, maxHeight: 216, alignment: .topLeading)
-                    .background(selected ? LauncherPalette.cream.opacity(0.07) : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.cream : Color.white.opacity(0.10), lineWidth: selected ? 2 : 1))
+                    .background(selected ? LauncherPalette.selectedFillStrong : LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(selected ? LauncherPalette.accent : LauncherPalette.ink(0.10), lineWidth: selected ? 2 : 1))
                     .contentShape(RoundedRectangle(cornerRadius: 14))
                 }
                 .buttonStyle(.plain)
@@ -248,12 +245,13 @@ import NXLauncher
                         .fixedSize(horizontal: false, vertical: true)
                 }.accessibilityElement(children: .combine)
                 switch state.xcode {
-                case .checking: Text(t("onboarding.xcode.checkingNote")).foregroundStyle(.secondary)
-                case .missing: Text(t("onboarding.xcode.missingNote")).foregroundStyle(.secondary)
+                case .checking: Text(t("onboarding.xcode.checkingNote")).foregroundStyle(LauncherPalette.secondaryText)
+                case .missing: Text(t("onboarding.xcode.missingNote")).foregroundStyle(LauncherPalette.secondaryText)
+                case .disconnected: Text(t("xcodeChoice.unavailable")).foregroundStyle(LauncherPalette.secondaryText)
                 case .downloading:
-                    Text(t("onboarding.xcode.downloadNote")).foregroundStyle(.secondary)
+                    Text(t("onboarding.xcode.downloadNote")).foregroundStyle(LauncherPalette.secondaryText)
                     waitingBar
-                case .needsSetup: Text(t("onboarding.xcode.passwordNote")).foregroundStyle(.secondary)
+                case .needsSetup: Text(t("onboarding.xcode.passwordNote")).foregroundStyle(LauncherPalette.secondaryText)
                 case .settingUp, .ready:
                     ForEach(state.setupTasks, id: \.self) { task in
                         taskRow(task.titleKey, status: state.setup[task] ?? (state.xcode == .ready ? .done : .queued))
@@ -262,7 +260,7 @@ import NXLauncher
                 }
                 // Inside the fixed card (it scrolls when longer), so the card heights stay as they are.
                 if state.xcodeTooOldForNVN, state.xcode != .checking {
-                    Text(t("onboarding.nvn.xcode")).font(.manrope(12)).foregroundStyle(.secondary)
+                    Text(t("onboarding.nvn.xcode")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
               }
@@ -273,7 +271,7 @@ import NXLauncher
                 ForEach(OnboardingBackgroundTask.allCases, id: \.self) { task in
                     taskRow(task.titleKey, status: state.background[task] ?? .queued)
                 }
-                Text(t("onboarding.background.note")).font(.manrope(12)).foregroundStyle(.secondary)
+                Text(t("onboarding.background.note")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
               }
@@ -285,7 +283,7 @@ import NXLauncher
         switch state.xcode {
         case .ready: OnboardingCheck(lang: lang).frame(width: 26, height: 26)
         case .checking, .downloading, .settingUp: OnboardingWaiting(label: t("onboarding.running")).frame(width: 24, height: 24)
-        default: Image(systemName: "hammer").foregroundStyle(LauncherPalette.cream).accessibilityHidden(true)
+        default: Image(systemName: "hammer").foregroundStyle(LauncherPalette.accent).accessibilityHidden(true)
         }
     }
 
@@ -357,11 +355,11 @@ import NXLauncher
                 if state.keys == .valid { OnboardingCheck(lang: lang).frame(width: 26, height: 26) }
                 else if state.keys == .searching || state.keys == .validating {
                     OnboardingWaiting(label: t(state.keys.statusKey)).frame(width: 24, height: 24)
-                } else { Image(systemName: "key").foregroundStyle(LauncherPalette.cream).accessibilityHidden(true) }
+                } else { Image(systemName: "key").foregroundStyle(LauncherPalette.accent).accessibilityHidden(true) }
                 Text(t(state.keys.statusKey)).font(.manrope(17, .semibold))
             }.accessibilityElement(children: .combine)
             if case let .found(url) = state.keys {
-                Text(url.path).font(.mono(12)).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(url.path).font(.mono(12)).foregroundStyle(LauncherPalette.secondaryText).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if case let .invalid(reason) = state.keys {
@@ -374,8 +372,9 @@ import NXLauncher
                 Button(t("onboarding.keys.skip"), action: skipKeys)
                     .buttonStyle(LauncherSecondaryButtonStyle())
                     .padTarget("onboarding.keys.skip", scope: "onboarding", activate: skipKeys)
+                Text(t("onboarding.keys.skipNote")).font(.manrope(12)).foregroundStyle(.secondary)
             }
-            Text(t("onboarding.keys.privacy")).font(.manrope(12)).foregroundStyle(.secondary)
+            Text(t("onboarding.keys.privacy")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
         }
         .frame(minHeight: onboardingDropCardHeight, alignment: .topLeading)   // the same size whether it asks, checks or is done
         .modifier(OnboardingCard())
@@ -398,10 +397,12 @@ import NXLauncher
                             // The collection's 1.8:1 crop, placeholder and radius, with driver-supplied artwork.
                             GeometryReader { geometry in
                                 ZStack {
-                                    if let cover = game.cover { Image(nsImage: cover).resizable().scaledToFill() }
-                                    else {
-                                        LauncherPalette.surface
-                                        Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(.secondary)
+                                    LauncherPalette.surface
+                                    if let cover = game.cover {   // the frame is on the picture: a cover of another shape still fills the tile (#661)
+                                        Image(nsImage: cover).resizable().scaledToFill()
+                                            .frame(width: geometry.size.width, height: geometry.size.height)
+                                    } else {
+                                        Image(systemName: "gamecontroller").font(.system(size: 30, weight: .light)).foregroundStyle(LauncherPalette.secondaryText)
                                     }
                                 }
                                 .frame(width: geometry.size.width, height: geometry.size.height).clipped()
@@ -409,14 +410,14 @@ import NXLauncher
                             }.aspectRatio(1.8, contentMode: .fit).accessibilityHidden(true)
                             Text(game.title).font(.manrope(16, .semibold)).lineLimit(2)
                             if !game.version.isEmpty {
-                                Text(String(format: t("onboarding.games.version"), game.version)).font(.manrope(12)).foregroundStyle(.secondary)
+                                Text(String(format: t("onboarding.games.version"), game.version)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                             }
                         }.accessibilityElement(children: .combine)
                     }
                 }
             case .none, .found:
                 Label(t("onboarding.games.none"), systemImage: "folder.badge.questionmark").foregroundStyle(LauncherPalette.building)
-                Text(t("onboarding.games.noneHint")).foregroundStyle(.secondary)
+                Text(t("onboarding.games.noneHint")).foregroundStyle(LauncherPalette.secondaryText)
             case .empty: EmptyView()
             }
             dropZone(keys: false, enabled: state.games != .scanning)
@@ -435,8 +436,12 @@ import NXLauncher
         VStack(spacing: 0) {
             Divider().opacity(0.3)
             HStack(spacing: 24) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(t("onboarding.footer")).font(.manrope(13)).foregroundStyle(.secondary)
+                // Set up later and what it means stay together: one block, gap 6, the button first
+                VStack(alignment: .leading, spacing: 6) {
+                    Button(t("onboarding.later"), action: driver.skipForLater)
+                        .buttonStyle(.plain).font(.manrope(14, .semibold)).foregroundStyle(LauncherPalette.text)
+                        .padTarget("onboarding.later", scope: "onboarding", activate: driver.skipForLater)
+                    Text(t("onboarding.footer")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                     if let pickerError { Text(pickerError).font(.manrope(12)).foregroundStyle(LauncherPalette.building) }
                 }
                 Spacer()
@@ -447,8 +452,8 @@ import NXLauncher
                     }
                     .font(.manrope(16, .semibold)).padding(.horizontal, 28).padding(.vertical, 15)
                     .frame(minWidth: 190)
-                    .foregroundStyle(state.primaryEnabled ? Color.black : Color.white.opacity(0.55))
-                    .background(state.primaryEnabled ? LauncherPalette.cream : Color.white.opacity(0.08), in: Capsule())
+                    .foregroundStyle(state.primaryEnabled ? LauncherPalette.onCream : LauncherPalette.ink(0.55))
+                    .background(state.primaryEnabled ? LauncherPalette.cream : LauncherPalette.ink(0.08), in: Capsule())
                     .contentShape(Capsule())
                 }
                 .buttonStyle(.plain).disabled(!state.primaryEnabled)
@@ -500,7 +505,7 @@ private struct OnboardingCard: ViewModifier {
     func body(content: Content) -> some View {
         content.padding(24).frame(maxWidth: .infinity, alignment: .leading)
             .background(LauncherPalette.surface, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.ink(0.08)))
     }
 }
 
@@ -521,7 +526,7 @@ private struct OnboardingDropZone: View {
         }
         .padding(24).frame(minHeight: 112)
         .background(LauncherPalette.cream.opacity(targeted ? 0.10 : 0.025), in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LauncherPalette.cream.opacity(targeted ? 0.8 : 0.25), style: StrokeStyle(lineWidth: 1, dash: [6, 5])))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LauncherPalette.accent.opacity(targeted ? 0.8 : 0.25), style: StrokeStyle(lineWidth: 1, dash: [6, 5])))
         .disabled(!enabled).opacity(enabled ? 1 : 0.5)
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
             guard enabled, let first = providers.first else { return false }
@@ -539,7 +544,7 @@ private struct OnboardingWaiting: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         TimelineView(.animation(paused: reduceMotion)) { context in
-            Circle().trim(from: 0.05, to: 0.76).stroke(LauncherPalette.cream, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            Circle().trim(from: 0.05, to: 0.76).stroke(LauncherPalette.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 .padding(2)
                 .rotationEffect(.degrees(reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6 * 360))
         }.accessibilityLabel(label)
@@ -586,7 +591,7 @@ private struct OnboardingCheck: View {
             else {
                 VStack(spacing: 24) {
                     Text(L10n.string(driver.state.exit == .later ? "onboarding.demo.paused" : "onboarding.demo.library", lang)).font(.manrope(32, .bold))
-                    Text(L10n.string("onboarding.demo.note", lang)).foregroundStyle(.secondary)
+                    Text(L10n.string("onboarding.demo.note", lang)).foregroundStyle(LauncherPalette.secondaryText)
                     if driver.state.exit == .later {
                         Button(L10n.string("onboarding.demo.resume", lang), action: driver.resume)
                             .buttonStyle(LauncherSecondaryButtonStyle())
@@ -610,7 +615,7 @@ private struct OnboardingCheck: View {
             }
         }
         .frame(minWidth: 900, minHeight: 680)
-        .foregroundStyle(.white).background(LauncherPalette.background)
-        .background(LauncherWindowChrome()).preferredColorScheme(.dark)
+        .foregroundStyle(LauncherPalette.text).background(LauncherPalette.background)
+        .background(LauncherWindowChrome()).launcherAppearance()
     }
 }

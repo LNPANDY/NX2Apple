@@ -27,14 +27,14 @@ struct ArtworkPanel: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(t("artwork.title")).font(.manrope(26, .heavy)).tracking(-0.6).accessibilityAddTraits(.isHeader)
-                Text(editor.gameName).font(.manrope(14)).foregroundStyle(.secondary).lineLimit(1)
+                Text(editor.gameName).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1)
             }
             .padding(.horizontal, 24).padding(.top, 22).padding(.bottom, 14)
             tabs.padding(.horizontal, 24).padding(.bottom, 14)
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     grid
-                    if editor.isLoading { Text(t("artwork.loading")).font(.manrope(12)).foregroundStyle(.secondary) }
+                    if editor.isLoading { Text(t("artwork.loading")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText) }
                     if editor.loadState == .offline { offline }
                     if let notice = editor.notice { noticeRow(notice) }
                     if editor.needsFraming { framing }
@@ -69,7 +69,7 @@ struct ArtworkPanel: View {
                         Text(title).font(.manrope(14, on ? .bold : .medium))
                     }
                     .padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(on ? Color.white.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 9))
+                    .background(on ? LauncherPalette.ink(0.10) : .clear, in: RoundedRectangle(cornerRadius: 9))
                     .contentShape(RoundedRectangle(cornerRadius: 9))
                 }
                 .buttonStyle(.plain)
@@ -120,14 +120,14 @@ struct ArtworkPanel: View {
                     } else {
                         ZStack {
                             LauncherPalette.surface
-                            Image(systemName: tile.isFailed ? "photo.badge.exclamationmark" : "photo").font(.system(size: 15, weight: .light)).foregroundStyle(.secondary)
+                            Image(systemName: tile.isFailed ? "photo.badge.exclamationmark" : "photo").font(.system(size: 15, weight: .light)).foregroundStyle(LauncherPalette.secondaryText)
                         }
                     }
                 }
                 .overlay(alignment: .topLeading) { if tile.isHero { badge(t("artwork.heroBadge")) } }
                 .overlay(alignment: .bottomLeading) { if tile.isLowResolution { badge(t("artwork.lowResBadge")) } }
                 .clipShape(RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tile.isSelected ? LauncherPalette.cream : Color.white.opacity(0.08), lineWidth: tile.isSelected ? 2 : 1))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(tile.isSelected ? LauncherPalette.accent : LauncherPalette.ink(0.08), lineWidth: tile.isSelected ? 2 : 1))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -152,9 +152,9 @@ struct ArtworkPanel: View {
                         Image(systemName: "folder").font(.system(size: 14, weight: .light))
                         Text(t("artwork.chooseFile")).font(.manrope(10.5, .medium)).lineLimit(2).multilineTextAlignment(.center).minimumScaleFactor(0.8)
                     }
-                    .foregroundStyle(.secondary).padding(.horizontal, 4)
+                    .foregroundStyle(LauncherPalette.secondaryText).padding(.horizontal, 4)
                 }
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.white.opacity(0.22), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(LauncherPalette.ink(0.22), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -204,7 +204,7 @@ struct ArtworkPanel: View {
                 }
                 Path { path in path.addRect(fitted); path.addRect(slot) }
                     .fill(Color.black.opacity(0.55), style: FillStyle(eoFill: true))
-                Rectangle().strokeBorder(LauncherPalette.cream, lineWidth: 2)
+                Rectangle().strokeBorder(LauncherPalette.accent, lineWidth: 2)
                     .frame(width: slot.width, height: slot.height).offset(x: slot.minX, y: slot.minY)
                 Circle().fill(Color.black.opacity(0.35)).overlay(Circle().strokeBorder(LauncherPalette.cream, lineWidth: 2))
                     .frame(width: 18, height: 18).offset(x: slot.midX - 9, y: slot.midY - 9)
@@ -280,7 +280,7 @@ struct ArtworkPanel: View {
 
     private var offline: some View {
         HStack(spacing: 12) {
-            Label(t("artwork.offline"), systemImage: "wifi.slash").font(.manrope(13)).foregroundStyle(.secondary)
+            Label(t("artwork.offline"), systemImage: "wifi.slash").font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
             Button(t("artwork.retry")) { editor.retry() }.buttonStyle(LauncherSecondaryButtonStyle())
@@ -326,12 +326,10 @@ struct ArtworkPanel: View {
             .keyboardShortcut(.cancelAction)
             .padTarget("artwork.cancel", scope: "artwork", radius: 9, activate: cancel)
         Button(action: save) {
-            Text(t("artwork.save")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+            Text(t("artwork.save")).font(.manrope(13.5, .bold))
                 .padding(.horizontal, 22).padding(.vertical, 9)
-                .background(LauncherPalette.cream, in: Capsule())
-                .opacity(editor.isDirty ? 1 : 0.4)
         }
-        .buttonStyle(.plain).keyboardShortcut("s", modifiers: .command).disabled(!editor.isDirty)
+        .buttonStyle(LauncherActionButtonStyle()).opacity(editor.isDirty ? 1 : 0.4).keyboardShortcut("s", modifiers: .command).disabled(!editor.isDirty)
         .padTarget("artwork.save", scope: "artwork", radius: 20) { if editor.isDirty { save() } }
     }
 }
@@ -344,7 +342,7 @@ private struct SkeletonTile: View {
 
     var body: some View {
         RoundedRectangle(cornerRadius: 5)
-            .fill(Color.white.opacity(lit ? 0.10 : 0.05))
+            .fill(LauncherPalette.ink(lit ? 0.10 : 0.05))
             .aspectRatio(aspect, contentMode: .fit)
             .accessibilityHidden(true)
             .onAppear {

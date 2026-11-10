@@ -45,7 +45,7 @@ struct CheatsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(loc.t("cheats.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                if let game { Text(game.name).font(.manrope(14)).foregroundStyle(.secondary) }
+                if let game { Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText) }
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, 16)
             VStack(alignment: .leading, spacing: 14) {
@@ -56,7 +56,7 @@ struct CheatsView: View {
                 if busy {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
-                        Text(loc.t("cheats.copying")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("cheats.copying")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                     }
                 } else if let result {
                     Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
@@ -68,15 +68,14 @@ struct CheatsView: View {
             Spacer(minLength: 0)
             Divider().opacity(0.3)
             HStack(spacing: 14) {
-                Text(loc.t("cheats.note") + ((game?.onDevice ?? false) ? " " + String(format: loc.t("cheats.noteDevice"), deviceName) : "")).font(.manrope(12)).foregroundStyle(.secondary)
+                Text(loc.t("cheats.note") + ((game?.onDevice ?? false) ? " " + String(format: loc.t("cheats.noteDevice"), deviceName) : "")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Button { dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 22).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
                 }
-                .buttonStyle(.plain).keyboardShortcut(.defaultAction).disabled(busy)
+                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(.defaultAction).disabled(busy)
                 .padTarget("cheats.done", scope: "cheats", radius: 20) { if !busy { dismiss() } }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
@@ -85,8 +84,8 @@ struct CheatsView: View {
         .frame(width: 600, height: 700)
         .background(LauncherPalette.background)
         .font(.manrope(13))
-        .preferredColorScheme(.dark)
-        .tint(LauncherPalette.cream)
+        .launcherAppearance()
+        .tint(LauncherPalette.accent)
         .modifier(GameFilesDrop(enabled: !busy, label: loc.t("cheats.dropHint"), targeted: dropped) { importPaths($0) })
         .onAppear(perform: refresh)
     }
@@ -95,26 +94,26 @@ struct CheatsView: View {
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0, content: content)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
     }
 
     /// The build the game is, and the master switch.
     private var buildCard: some View {
         card {
             HStack(spacing: 14) {
-                Image(systemName: "number").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
+                Image(systemName: "number").font(.system(size: 16, weight: .light)).foregroundStyle(LauncherPalette.secondaryText).frame(width: 26)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(loc.t("cheats.buildLabel")).font(.manrope(14, .medium))
                     Text(buildID ?? loc.t("cheats.buildUnknown")).font(buildID == nil ? .manrope(12) : .system(size: 12.5, design: .monospaced))
-                        .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 12)
             }
             .padding(.horizontal, 18).padding(.vertical, 11)
             Divider().opacity(0.25).padding(.leading, 18)
             HStack(spacing: 14) {
-                Image(systemName: "power").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
+                Image(systemName: "power").font(.system(size: 16, weight: .light)).foregroundStyle(LauncherPalette.secondaryText).frame(width: 26)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(loc.t("cheats.master")).font(.manrope(14, .medium))
                     if safeMode {
@@ -133,20 +132,20 @@ struct CheatsView: View {
     /// Code cheats do not run on iPhone or iPad, data cheats do: said once, calmly, with the switches left usable for a Mac build.
     private var iosNoteCard: some View {
         HStack(alignment: .top, spacing: 14) {
-            Image(systemName: "info.circle").font(.system(size: 16, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
-            Text(loc.t("cheats.iosNote")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Image(systemName: "info.circle").font(.system(size: 16, weight: .light)).foregroundStyle(LauncherPalette.secondaryText).frame(width: 26)
+            Text(loc.t("cheats.iosNote")).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 18).padding(.vertical, 11)
-        .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 14))
+        .background(LauncherPalette.ink(0.04), in: RoundedRectangle(cornerRadius: 14))
         .accessibilityElement(children: .combine)
     }
 
     private var emptyCard: some View {
         card {
             VStack(spacing: 10) {
-                Image(systemName: "square.and.arrow.down").font(.system(size: 26, weight: .light)).foregroundStyle(.secondary)
-                Text(loc.t("cheats.empty")).font(.manrope(13)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Image(systemName: "square.and.arrow.down").font(.system(size: 26, weight: .light)).foregroundStyle(LauncherPalette.secondaryText)
+                Text(loc.t("cheats.empty")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, minHeight: 150).padding(18)
@@ -162,7 +161,7 @@ struct CheatsView: View {
             }
             if current == nil {
                 Text(buildID == nil ? loc.t("cheats.noBuildFile") : String(format: loc.t("cheats.noFileForBuild"), buildID ?? ""))
-                    .font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 18).padding(.vertical, 14).frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ScrollView {
@@ -177,13 +176,13 @@ struct CheatsView: View {
     private func fileRow(_ file: CheatFiles.Found) -> some View {
         let isCurrent = file.buildID == buildID
         return HStack(spacing: 12) {
-            Image(systemName: "doc.text").font(.system(size: 15, weight: .light)).foregroundStyle(.secondary).frame(width: 26)
+            Image(systemName: "doc.text").font(.system(size: 15, weight: .light)).foregroundStyle(LauncherPalette.secondaryText).frame(width: 26)
             Text(file.buildID + ".txt").font(.system(size: 12.5, design: .monospaced))
             Spacer(minLength: 8)
             Text((isCurrent ? loc.t("cheats.thisBuild") : loc.t("cheats.otherBuild")).uppercased()).font(.manrope(10.5, .bold)).tracking(1.1)
-                .foregroundStyle(isCurrent ? .black : .secondary)
+                .foregroundStyle(isCurrent ? LauncherPalette.onCream : LauncherPalette.secondaryText)
                 .padding(.horizontal, 10).padding(.vertical, 4)
-                .background(isCurrent ? AnyShapeStyle(LauncherPalette.cream) : AnyShapeStyle(Color.white.opacity(0.08)), in: Capsule())
+                .background(isCurrent ? AnyShapeStyle(LauncherPalette.cream) : AnyShapeStyle(LauncherPalette.ink(0.08)), in: Capsule())
         }
         .padding(.horizontal, 18).padding(.vertical, 9)
         .opacity(isCurrent ? 1 : 0.6)
@@ -193,19 +192,19 @@ struct CheatsView: View {
     @ViewBuilder private func cheatRow(_ cheat: CheatFiles.Cheat, index: Int) -> some View {
         let first = index == 0 || shown[index - 1].section != cheat.section
         if first && !cheat.section.isEmpty {
-            Text(cheat.section.uppercased()).font(.manrope(10.5, .bold)).tracking(1.1).foregroundStyle(.secondary)
+            Text(cheat.section.uppercased()).font(.manrope(10.5, .bold)).tracking(1.1).foregroundStyle(LauncherPalette.secondaryText)
                 .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 4)
         }
         switch cheat.kind {
         case .label where cheat.name.hasPrefix("--Section"):
             EmptyView()
         case .label:
-            Text(cheat.name).font(.manrope(12)).foregroundStyle(.secondary).padding(.horizontal, 18).padding(.vertical, 5)
+            Text(cheat.name).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).padding(.horizontal, 18).padding(.vertical, 5)
         case .master:
             HStack(spacing: 10) {
                 Text(cheat.name).font(.manrope(13))
                 Spacer(minLength: 8)
-                Text(loc.t("cheats.alwaysOn")).font(.manrope(11.5)).foregroundStyle(.secondary)
+                Text(loc.t("cheats.alwaysOn")).font(.manrope(11.5)).foregroundStyle(LauncherPalette.secondaryText)
             }
             .padding(.horizontal, 18).padding(.vertical, 6)
         case .cheat:
@@ -213,7 +212,7 @@ struct CheatsView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(cheat.name).font(.manrope(13)).lineLimit(2)
                     if cheat.broken { Text(loc.t("cheats.broken")).font(.manrope(11.5)).foregroundStyle(LauncherPalette.building) }
-                    else if cheat.once { Text(loc.t("cheats.once")).font(.manrope(11.5)).foregroundStyle(.secondary) }
+                    else if cheat.once { Text(loc.t("cheats.once")).font(.manrope(11.5)).foregroundStyle(LauncherPalette.secondaryText) }
                 }
                 Spacer(minLength: 8)
                 if cheat.switchable {
@@ -259,7 +258,7 @@ struct CheatsView: View {
         do {
             try cheatFiles.writeEnabled(file.buildID, cheats: cheats, on: next)
             on = next
-            result = game.flatMap { CheatsView.running(game: $0) ? (String(format: loc.t("cheats.running"), $0.name), false) : nil }
+            result = game.flatMap { CheatsView.running(game: $0) ? (String(format: loc.t("cheats.running"), $0.displayName(loc.lang)), false) : nil }
         } catch { result = (String(format: loc.t("cheats.writeFailed"), error.localizedDescription), false) }
     }
 
@@ -330,12 +329,14 @@ extension View {
 
 /// An on / off switch that reads the same in a window that is not key (the system's drops its colour there): cream when on, a dim track when off.
 struct CheatSwitchStyle: ToggleStyle {
+    @Environment(\.colorScheme) private var scheme
     func makeBody(configuration: Configuration) -> some View {
-        Button { configuration.isOn.toggle() } label: {
-            Capsule().fill(configuration.isOn ? LauncherPalette.cream : Color.white.opacity(0.16))
+        let light = scheme == .light
+        return Button { configuration.isOn.toggle() } label: {
+            Capsule().fill(configuration.isOn ? LauncherPalette.switchOnTrack : (light ? LauncherPalette.switchOffTrack : LauncherPalette.ink(0.16)))
                 .frame(width: 40, height: 23)
                 .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-                    Circle().fill(configuration.isOn ? Color.black.opacity(0.85) : Color.white.opacity(0.85)).frame(width: 17, height: 17).padding(3)
+                    Circle().fill(configuration.isOn ? (light ? LauncherPalette.switchOnKnob : Color.black.opacity(0.85)) : LauncherPalette.switchOffKnob).frame(width: 17, height: 17).padding(3)
                 }
                 .animation(.easeOut(duration: 0.12), value: configuration.isOn)
         }

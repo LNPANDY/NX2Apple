@@ -1,0 +1,843 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: v0lumehi <aljic.zijad@gmail.com>
+Date: Tue, 10 Nov 2026 00:34:27 +0100
+Subject: [PATCH] Mac: a Home menu on a short press, and a game paused in the
+ background
+
+Many controllers switch off when Home is held, so the 2 s hold to quit is
+the only way back from a game and often does not work. A short press of
+Home (let go within 0.5 s) now opens a Home menu over the game, on the
+quit prompt's card: Resume, Back to console mode and Quit. Up and down
+(d-pad or left stick) choose, A selects, B or a new press of Home resumes.
+Quit opens the existing quit prompt, so ending the game is asked first.
+The game is out of focus and gets no controller input while the menu is
+open, as with the prompt. The hold keeps opening the quit prompt.
+
+Back to console mode is shown only with DM_HOME_MENU_LAUNCHER=1, which a
+launcher sets for a game started from its console mode. It pauses the
+game as a minimized window is paused (input released, focus 3, audio and
+graphics suspended), leaves full screen, hands the activation to the app
+named by DM_LAUNCHER_BUNDLE_ID and hides the game. The game resumes as a
+restored window does when it is active again, and on the distributed
+notification org.nxnative.resume.<pid>. org.nxnative.quit.<pid> quits it
+through NSApp terminate. It posts org.nxnative.paused.<pid> and
+org.nxnative.resumed.<pid>, and logs "front end: paused in the background"
+and "front end: resumed". DM_HOME_MENU=0 turns the menu off.
+
+home_quit.h gets the menu and the paused phase (hq_step_nav with up and
+down, hq_resumed). DM_HOME_QUIT_TEXT takes three more lines after the
+five it has: Resume, Back to console mode and the menu's title.
+
+Tests: t_home_quit.c (short press and hold told apart, the menu off, the
+rows with and without the launcher's, moving and clamping, Resume, Back to
+console mode and resuming from it, Quit asking first), t_home_quit_mac.m
+(the menu's view), t_controllers_mac.m (up and down from a native pad),
+test_env_switches.py and test_docs.py.
+
+Front-ends: new: DM_HOME_MENU_LAUNCHER=1 and DM_LAUNCHER_BUNDLE_ID give a Mac game a Back to console mode row that pauses it in the background, org.nxnative.resume.<pid> and org.nxnative.quit.<pid> control it, org.nxnative.paused.<pid> and org.nxnative.resumed.<pid> report it
+Front-ends: new: DM_HOME_QUIT_TEXT takes three more lines (Resume, Back to console mode, the menu title)
+
+Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Reason: A Home menu on a short press of Home, and a game paused in the background for the launcher's console mode
+Issue: LNPANDY/NX2Apple#952
+
+---
+ dm/host/controllers_mac.h         |   2 +
+ dm/host/controllers_mac.m         |  16 +++
+ dm/host/front_mac.m               | 172 ++++++++++++++++++++++++++----
+ dm/host/home_quit.h               |  91 +++++++++++++---
+ dm/host/home_quit_mac.h           |  47 ++++++++
+ dm/host/tests/t_controllers_mac.m |   9 ++
+ dm/host/tests/t_home_quit.c       | 112 ++++++++++++++++++-
+ dm/host/tests/t_home_quit_mac.m   |  43 +++++++-
+ docs/env_switches.tsv             |   5 +-
+ docs/frontends.md                 |   4 +-
+ docs/playing.md                   |   2 +-
+ 11 files changed, 464 insertions(+), 39 deletions(-)
+
+diff --git a/dm/host/controllers_mac.h b/dm/host/controllers_mac.h
+index bd852c4..991a422 100644
+--- a/dm/host/controllers_mac.h
++++ b/dm/host/controllers_mac.h
+@@ -14,6 +14,8 @@ void front_controllers_window(int active);
+ @class GCController;
+ GCController *front_controllers_quit_buttons(int *home, int *a, int *b);
+ void front_controllers_quit_prompt(int active);
++// Up and down for the Home menu (home_quit.h): the d-pad or the left stick past HQ_STICK on any player's controller, before remapping
++void front_controllers_menu_dirs(int *up, int *down);
+ void front_home_poll(void);
+ 
+ // Called on the main thread when mapped input reaches the game.
+diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
+index 9340ae4..f77c760 100644
+--- a/dm/host/controllers_mac.m
++++ b/dm/host/controllers_mac.m
+@@ -16,6 +16,7 @@
+ #include "pad_hid_mac.h"
+ #include "pad_joycon_mac.h"
+ #include "pad_switch2_apple.h"
++#include "home_quit.h"
+ #include <math.h>
+ 
+ enum { PAD_OFF, PAD_DPAD, PAD_LEFT_STICK, PAD_RIGHT_STICK, PAD_TOUCH };
+@@ -328,6 +329,21 @@ static void controller_reset_motion(DMController *d) {
+     }
+     return holder;
+ }
++void front_controllers_menu_dirs(int *up, int *down) {
++    *up=*down=0;
++    if(!controller_listening()) return;
++    const int32_t far=(int32_t)(DM_STICK_MAX*HQ_STICK);
++    for(DMController *d in g_devices) if(d->slot>=0) {
++        GCExtendedGamepad *g=d.controller.extendedGamepad;
++        if(g) {
++            *up|=g.dpad.up.isPressed || g.leftThumbstick.yAxis.value>HQ_STICK;
++            *down|=g.dpad.down.isPressed || g.leftThumbstick.yAxis.value< -HQ_STICK;
++        }
++        // Every pad's raw state is kept in d->input (Switch layout, up positive) while the window has the focus, the prompt's or menu's time included
++        *up|=!!(d->input.buttons & DM_BTN_UP) || d->input.ly>far;
++        *down|=!!(d->input.buttons & DM_BTN_DOWN) || d->input.ly< -far;
++    }
++}
+ static void controller_update_focus(void) {
+     int was_focused=g_focus, listening=controller_listening();
+     g_focus=listening && !g_quit_prompt && !g_applet;
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 42eac55..b407953 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -1,7 +1,7 @@
+ // Mac front end: with DM_WINDOW=1 open a window (CAMetalLayer, for the graphics backend to present frames) + keyboard and controllers → dm_input; the guest runs on a large-stack thread instead and the main thread belongs to AppKit.
+ // Without DM_WINDOW: the guest runs directly on the current thread, behaving the same as with no front end (windowless tests use this).
+ // The window is fullscreen-capable (the green button and ⌃⌘F); DM_FULLSCREEN=1 starts it that way. ⌘Q quits, and so does a controller's Home button held for 2 s and
+-// confirmed with A (home_quit.h); the left mouse button is the touchscreen.
++// confirmed with A (home_quit.h); a short press opens the Home menu (Resume, Back to console mode, Quit); the left mouse button is the touchscreen.
+ // Cheats (hle_cheats.c): the Cheats menu's rows toggle, reload (⌘R) and open the cheats folder; its first item "Show Cheats
+ // Window" (⌘⇧C, or DM_CHEATS_WINDOW=1 at launch) opens a Cheats panel beside the game: sections, search, the master switch,
+ // safe mode, values, details and the import of cheat files (see the code below).
+@@ -191,19 +191,28 @@ static void input_resume(void) {
+ 
+ // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
+ // (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
+-// Switch's HOME menu does, and gets no controller input or touch; the keyboard and ⌘Q work as always. DM_HOME_QUIT=0 turns it off
++// Switch's HOME menu does, and gets no controller input or touch; the keyboard and ⌘Q work as always. DM_HOME_QUIT=0 turns it off.
++// A short press opens the Home menu (LNPANDY/NX2Apple#952) the same way: Resume, Back to console mode (DM_HOME_MENU_LAUNCHER=1) and Quit, which opens the prompt.
++// Back to console mode pauses the game as a minimized window is paused and hides it (bg_enter below). DM_HOME_MENU=0 turns the menu off
+ static home_quit g_hq;
+ static int g_hq_on;
+-static NSTimer *g_hq_timer;   // while Home is held: the time runs on without a button change
+-static NSView *g_hq_hold, *g_hq_prompt; static CAShapeLayer *g_hq_ring;
++static NSTimer *g_hq_timer;   // while anything is shown or Home is held: the time runs on, and pads that report only some buttons on their own are read
++static NSView *g_hq_hold, *g_hq_prompt, *g_hq_menu; static CAShapeLayer *g_hq_ring;
++static int g_hq_menu_sel = -1;   // the selection g_hq_menu was built with
+ static char g_hq_text[HQ_TEXTS][256];
++static void bg_enter(void);
+ static void hq_start(void) {
+-    g_hq_on = hq_enabled(getenv("DM_HOME_QUIT"));
++    g_hq.no_hold = !hq_enabled(getenv("DM_HOME_QUIT"));
++    g_hq.menu = hq_enabled(getenv("DM_HOME_MENU"));
++    g_hq.launcher = hq_launcher(getenv("DM_HOME_MENU_LAUNCHER"));
++    g_hq_on = !g_hq.no_hold || g_hq.menu;
+     char title[256]; snprintf(title, sizeof title, "Quit %s?", DM_GAME_NAME);
+-    const char *def[HQ_TEXTS] = {"Keep holding to quit", title, "Unsaved progress will be lost.", "Quit", "Cancel"};
++    const char *def[HQ_TEXTS] = {"Keep holding to quit", title, "Unsaved progress will be lost.", "Quit", "Cancel", "Resume", "Back to console mode", DM_GAME_NAME};
+     const char *text = getenv("DM_HOME_QUIT_TEXT");   // a front end's, in the player's language: one line per text, in home_quit.h's order
+     for (int i = 0; i < HQ_TEXTS; i++) hq_text_line(text, i, def[i], g_hq_text[i], sizeof g_hq_text[i]);
+-    LOG("front end: hold the Home button to quit %s", g_hq_on ? "is on" : "is off (DM_HOME_QUIT=0)");
++    LOG("front end: hold the Home button to quit %s", !g_hq.no_hold ? "is on" : "is off (DM_HOME_QUIT=0)");
++    LOG("front end: a short press of Home opens the Home menu %s%s", g_hq.menu ? "(on)" : "is off (DM_HOME_MENU=0)",
++        g_hq.menu ? (g_hq.launcher ? ", with Back to console mode (DM_HOME_MENU_LAUNCHER=1)" : ", without Back to console mode") : "");
+ }
+ // The Home button setting for apps (macOS 27), once, when the first controller is there (GameController reads it only while one is connected): "system" in the log
+ // explains a hold that does nothing, since the system keeps Home whatever the host asks. A front end reads the setting itself (GCControllerHomeButtonSettingsManager)
+@@ -227,28 +236,57 @@ static void hq_fade(NSView *v, int in) {
+     [NSAnimationContext runAnimationGroup:^(NSAnimationContext *ctx) { ctx.duration = 0.18; v.animator.alphaValue = in ? 1 : 0; }
+                         completionHandler:^{ if (!in) [v removeFromSuperview]; }];
+ }
+-static void hq_hide_hold(void) { [g_hq_timer invalidate]; g_hq_timer = nil; [g_hq_hold removeFromSuperview]; g_hq_hold = nil; g_hq_ring = nil; }
++static void hq_tick(void) {   // the timer runs while a phase needs it
++    hq_phase p = g_hq.phase;
++    int want = g_hq_on && (p == HQ_HOLDING || p == HQ_PROMPT || p == HQ_MENU || p == HQ_SETTLE);
++    if (want && !g_hq_timer) g_hq_timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer *t) { (void)t; front_home_poll(); }];
++    else if (!want && g_hq_timer) { [g_hq_timer invalidate]; g_hq_timer = nil; }
++}
++static void hq_hide_hold(void) { [g_hq_hold removeFromSuperview]; g_hq_hold = nil; g_hq_ring = nil; }
+ static void hq_hide_prompt(void) { hq_fade(g_hq_prompt, 0); g_hq_prompt = nil; }
++static void hq_hide_menu(void) { hq_fade(g_hq_menu, 0); g_hq_menu = nil; g_hq_menu_sel = -1; }
++static NSString *hq_a_symbol(GCController *holder) {
++    GCExtendedGamepad *g = holder.extendedGamepad;
++    if (!g) for (GCController *c in GCController.controllers) if ((g = c.extendedGamepad)) break;
++    return g.buttonA.sfSymbolsName;
++}
++// The menu, built again when the selection moves (no fade then)
++static void hq_show_menu(GCController *holder) {
++    if (g_hq_menu && g_hq_menu_sel == g_hq.sel) return;
++    int rows[HQ_ROWS], n = hq_menu_rows(&g_hq, rows);
++    NSMutableArray<NSString *> *labels = [NSMutableArray new];
++    for (int i = 0; i < n; i++) [labels addObject:@(g_hq_text[rows[i] == HQ_ROW_RESUME ? HQ_TEXT_RESUME : rows[i] == HQ_ROW_CONSOLE ? HQ_TEXT_CONSOLE : HQ_TEXT_QUIT])];
++    NSView *cv = g_win.contentView, *v = hq_menu_view(cv.bounds, @(g_hq_text[HQ_TEXT_MENU_TITLE]), labels, g_hq.sel, hq_a_symbol(holder));
++    [cv addSubview:v];
++    if (g_hq_menu) [g_hq_menu removeFromSuperview]; else hq_fade(v, 1);
++    g_hq_menu = v; g_hq_menu_sel = g_hq.sel;
++}
+ static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
+     if (was == HQ_HOLDING) hq_hide_hold();
+     NSView *cv = g_win.contentView;
+     switch (now) {
+     case HQ_HOLDING:
+-        g_hq_timer = [NSTimer scheduledTimerWithTimeInterval:1.0 / 60 repeats:YES block:^(NSTimer *t) { (void)t; front_home_poll(); }];
+         break;
+     case HQ_PROMPT: {
++        if (was == HQ_MENU) hq_hide_menu();
+         front_controllers_quit_prompt(1);
+         dm_focus_set(2);
+         GCExtendedGamepad *g = holder.extendedGamepad;
+         g_hq_prompt = hq_prompt_view(cv.bounds, @(g_hq_text[HQ_TEXT_TITLE]), @(g_hq_text[HQ_TEXT_NOTE]), @(g_hq_text[HQ_TEXT_QUIT]), @(g_hq_text[HQ_TEXT_CANCEL]),
+-                                     g.buttonA.sfSymbolsName, g.buttonB.sfSymbolsName);
++                                     g ? g.buttonA.sfSymbolsName : hq_a_symbol(nil), g.buttonB.sfSymbolsName);
+         [cv addSubview:g_hq_prompt]; hq_fade(g_hq_prompt, 1);
+-        LOG("front end: Home held, quit prompt open");
++        LOG("front end: %s, quit prompt open", was == HQ_MENU ? "Quit chosen in the Home menu" : "Home held");
+         break;
+     }
++    case HQ_MENU:
++        front_controllers_quit_prompt(1);
++        dm_focus_set(2);
++        hq_show_menu(holder);
++        LOG("front end: Home pressed, Home menu open");
++        break;
+     case HQ_SETTLE:
+-        hq_hide_prompt(); dm_focus_set(1);
+-        LOG("front end: quit prompt closed, the game goes on");
++        hq_hide_prompt(); hq_hide_menu(); dm_focus_set(1);
++        LOG("front end: %s closed, the game goes on", was == HQ_MENU ? "Home menu" : "quit prompt");
+         break;
+     case HQ_IDLE:
+         if (was == HQ_SETTLE) front_controllers_quit_prompt(0);   // the game reads the controllers again, as they are now
+@@ -257,28 +295,123 @@ static void hq_changed(hq_phase was, hq_phase now, GCController *holder) {
+         LOG("front end: quit from the Home button prompt");
+         [NSApp terminate:nil];   // as ⌘Q
+         break;
++    case HQ_PAUSED:
++        hq_hide_menu();
++        bg_enter();
++        break;
+     }
+ }
+ void front_home_poll(void) {
+     static int busy; if (!g_hq_on || !g_win || !g_input_on || busy) return;
+     busy = 1;
+-    int home, a, b; GCController *holder = front_controllers_quit_buttons(&home, &a, &b);
++    int home, a, b, up, down; GCController *holder = front_controllers_quit_buttons(&home, &a, &b);
++    front_controllers_menu_dirs(&up, &down);
+     double now = CACurrentMediaTime();
+-    hq_phase was = g_hq.phase, ph = hq_step(&g_hq, now, home, a, b);
++    hq_phase was = g_hq.phase, ph = hq_step_nav(&g_hq, now, home, a, b, up, down);
+     if (ph != was) hq_changed(was, ph, holder);
++    else if (ph == HQ_MENU) hq_show_menu(holder);   // the selection may have moved
+     double fill = hq_ring(&g_hq, now);
+     if (fill >= 0) {
+         if (!g_hq_hold) { NSView *cv = g_win.contentView; CAShapeLayer *ring = nil; g_hq_hold = hq_hold_view(cv.bounds, @(g_hq_text[HQ_TEXT_HOLD]), &ring); g_hq_ring = ring; [cv addSubview:g_hq_hold]; hq_fade(g_hq_hold, 1); }
+         hq_hold_set(g_hq_ring, fill);
+     }
++    hq_tick();
+     busy = 0;
+ }
+ static void hq_close(void) {
+-    if (g_hq.phase == HQ_IDLE || g_hq.phase == HQ_QUIT) return;
++    if (g_hq.phase == HQ_IDLE || g_hq.phase == HQ_QUIT || g_hq.phase == HQ_PAUSED) return;   // the paused game is hidden on purpose: it stays paused
+     if (g_hq.phase == HQ_PROMPT) LOG("front end: quit prompt closed, the window lost the focus");
+-    hq_cancel(&g_hq); hq_hide_hold(); hq_hide_prompt();
++    if (g_hq.phase == HQ_MENU) LOG("front end: Home menu closed, the window lost the focus");
++    hq_cancel(&g_hq); hq_hide_hold(); hq_hide_prompt(); hq_hide_menu(); hq_tick();
+     front_controllers_quit_prompt(0);
+ }
++
++// Back to console mode (LNPANDY/NX2Apple#952): the game is paused as a minimized window is (input released, focus 3, audio and graphics suspended), leaves full screen
++// so its Space goes away, hands the activation to the launcher (DM_LAUNCHER_BUNDLE_ID) and hides. It resumes as a restored window does when it is active again (the
++// launcher activates it, the Dock, ⌘Tab) or when the launcher posts org.nxnative.resume.<pid>; org.nxnative.quit.<pid> quits as ⌘Q. The state goes out as log lines
++// ("front end: paused in the background", "front end: resumed") and as the distributed notifications org.nxnative.paused.<pid> and org.nxnative.resumed.<pid>
++static int g_bg;        // 0 playing, 1 going to the background (leaving full screen), 2 paused and hidden
++static int g_bg_full;   // the window was in full screen: it goes back to it on resume
++static void bg_post(const char *what) {
++    NSString *name = [NSString stringWithFormat:@"org.nxnative.%s.%d", what, (int)getpid()];
++    [NSDistributedNotificationCenter.defaultCenter postNotificationName:name object:nil userInfo:nil deliverImmediately:YES];
++}
++static void bg_hide(void) {
++    if (g_bg != 1) return;   // resumed meanwhile
++    const char *bid = getenv("DM_LAUNCHER_BUNDLE_ID");
++    if (bid && *bid) {
++        NSRunningApplication *l = [NSRunningApplication runningApplicationsWithBundleIdentifier:@(bid)].firstObject;
++        if (l) {
++            [NSApp yieldActivationToApplication:l];
++            BOOL ok = [l activateFromApplication:NSRunningApplication.currentApplication options:NSApplicationActivateAllWindows];
++            LOG("front end: background: launcher %s %s", bid, ok ? "activated" : "did not take the activation");
++        } else {
++            NSURL *u = [NSWorkspace.sharedWorkspace URLForApplicationWithBundleIdentifier:@(bid)];
++            LOG("front end: background: launcher %s is not running, %s", bid, u ? "opening it" : "and not installed");
++            if (u) [NSWorkspace.sharedWorkspace openApplicationAtURL:u configuration:[NSWorkspaceOpenConfiguration configuration] completionHandler:nil];
++        }
++    } else LOG("front end: background: no DM_LAUNCHER_BUNDLE_ID, macOS shows the app behind the game");
++    [NSApp hide:nil];
++    g_bg = 2;
++    LOG("front end: background: game hidden");
++    LOG("front end: paused in the background");
++    bg_post("paused");
++}
++static void bg_enter(void) {
++    if (g_bg) return;
++    NSWindow *win = g_win;
++    g_bg = 1; g_bg_full = (win.styleMask & NSWindowStyleMaskFullScreen) != 0;
++    LOG("front end: Home menu: back to console mode, pausing the game");
++    input_release();   // hq_close leaves HQ_PAUSED alone
++    dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1);
++    LOG("front end: background: input released, focus 3, audio and graphics suspended");
++    if (!g_bg_full) { bg_hide(); return; }
++    LOG("front end: background: leaving full screen first");
++    __block id token = nil; __block int done = 0;
++    void (^then)(void) = ^{ if (done++) return; if (token) [NSNotificationCenter.defaultCenter removeObserver:token]; token = nil; bg_hide(); };
++    token = [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidExitFullScreenNotification object:win queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { (void)n; then(); }];
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), then);   // a refused exit does not keep the game on screen
++    [win toggleFullScreen:nil];
++}
++static void bg_resume(const char *why) {
++    if (!g_bg) return;
++    NSWindow *win = g_win;
++    int full = g_bg_full; g_bg = 0;
++    LOG("front end: background: resuming (%s)", why);
++    if (NSApp.hidden) [NSApp unhide:nil];
++    dm_gfx_suspend(0); dm_audio_suspend(0); dm_focus_set(2);   // as a restored window; focus 1 follows when the window is key
++    hq_resumed(&g_hq); hq_tick();   // the game gets the controllers once Home, A and B are up
++    [win makeKeyAndOrderFront:nil];
++    if (!NSApp.active) [NSApp activate];
++    if (win.isKeyWindow && NSApp.active) { input_resume(); dm_focus_set(1); front_home_poll(); }
++    if (full && !(win.styleMask & NSWindowStyleMaskFullScreen))
++        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{
++            if (g_bg || (win.styleMask & NSWindowStyleMaskFullScreen)) return;
++            LOG("front end: background: back to full screen"); [win toggleFullScreen:nil]; });
++    LOG("front end: resumed");
++    bg_post("resumed");
++}
++static void bg_start(void) {
++    NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
++    [nc addObserverForName:NSApplicationDidBecomeActiveNotification object:NSApp queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { (void)n; if (g_bg == 2) bg_resume("the game is active again"); }];
++    [nc addObserverForName:NSApplicationDidUnhideNotification object:NSApp queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { (void)n; if (g_bg == 2) bg_resume("the game is shown again"); }];
++    NSDistributedNotificationCenter *dc = NSDistributedNotificationCenter.defaultCenter;
++    int pid = (int)getpid();
++    [dc addObserverForName:[NSString stringWithFormat:@"org.nxnative.resume.%d", pid] object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
++        (void)n;
++        if (g_bg) { bg_resume("the launcher asked"); return; }
++        LOG("front end: the launcher asked to resume, the game is not paused: bringing it to the front");
++        if (NSApp.hidden) [NSApp unhide:nil];
++        [g_win makeKeyAndOrderFront:nil]; [NSApp activate];
++    }];
++    [dc addObserverForName:[NSString stringWithFormat:@"org.nxnative.quit.%d", pid] object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
++        (void)n;
++        LOG("front end: quit asked by the launcher%s", g_bg ? " (paused in the background: audio and graphics resumed for the exit)" : "");
++        if (g_bg) { dm_gfx_suspend(0); dm_audio_suspend(0); }   // the exit handlers run as after ⌘Q, with nothing held suspended
++        [NSApp terminate:nil];
++    }];
++    LOG("front end: launcher requests: org.nxnative.resume.%d and org.nxnative.quit.%d", pid, pid);
++}
+ // The controller applet's prompt (front.h front_ctrl_support, ctrl_prompt.h; GitHub issue #1640): the game asked for more players than it sees, and the game's thread waits while
+ // the prompt is up over the game, as the Switch's player screen. A controller that joins meanwhile is a player at once (its first button with DM_PAD_PRESS_TO_JOIN, its
+ // connection without), and the count on the card follows. A and B are the physical buttons A and B on any controller (controllers_mac.m front_controllers_applet_buttons, as the Home
+@@ -1347,6 +1480,7 @@ void front_run(void (*guest)(void)) {
+         NSString *keys = input_preference_map(input_preferences_domain(), "DM_KEYMAP", 0);
+         if (keys) key_map_parse(&g_keys, keys.UTF8String);
+         hq_start();
++        bg_start();
+         front_controllers_start();
+         hq_log_setting();
+         [NSNotificationCenter.defaultCenter addObserverForName:GCControllerDidConnectNotification object:nil queue:NSOperationQueue.mainQueue
+@@ -1373,8 +1507,8 @@ void front_run(void (*guest)(void)) {
+         // DM_FOCUS_KEEP (on by default, =0 turns it off): the game stays in focus while its window is up, whichever app is active. Tears of the Kingdom and Ocarina of Time
+         // stop presenting out of focus, so clicking into another app read as a hang (no frame and no sound after the last focus change)
+         static int keep = -1; if (keep < 0) keep = !getenv("DM_FOCUS_KEEP") || atoi(getenv("DM_FOCUS_KEEP"));
+-        [nc addObserverForName:NSWindowDidResignKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); if (!win.miniaturized && !g_text_box && !keep) dm_focus_set(2); }];
+-        [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_resume(); dm_focus_set(1); }];
++        [nc addObserverForName:NSWindowDidResignKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); if (!win.miniaturized && !g_text_box && !keep && !g_bg) dm_focus_set(2); }];
++        [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; if (g_bg) return; input_resume(); dm_focus_set(1); }];   // paused in the background (bg_enter): bg_resume takes it back
+         [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1); }];
+         [nc addObserverForName:NSWindowDidDeminiaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; dm_gfx_suspend(0); dm_audio_suspend(0); dm_focus_set(2); }];
+         display_awake(win.isKeyWindow);   // the window may have become key (makeKeyAndOrderFront above) before these observers were installed
+diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
+index ddab115..8acb4a5 100644
+--- a/dm/host/home_quit.h
++++ b/dm/host/home_quit.h
+@@ -7,6 +7,11 @@
+ // macOS 27 respects the claim when the Home button setting for apps lets the app decide (front_mac.m logs the setting). When the system takes Home anyway (it opens the
+ // Games app or the player's chosen app), the game window loses the focus and whatever was shown closes (hq_cancel). DM_HOME_QUIT=0 turns it off. A front end passes the
+ // texts in the player's language as DM_HOME_QUIT_TEXT (hq_text_line, docs/frontends.md), English otherwise.
++//
++// A short press of Home (let go within HQ_TAP_S) opens the Home menu instead (LNPANDY/NX2Apple#952): Resume, Back to console mode (only when a launcher started the game
++// and asked for it, DM_HOME_MENU_LAUNCHER=1) and Quit, chosen with up and down and A; B or a new press of Home resumes. Quit opens the quit prompt above, so ending the
++// game is asked first. Back to console mode puts the game in HQ_PAUSED: the front end pauses it as a minimized window, hides it and shows the launcher, and
++// hq_resumed takes it back when the game is shown again. DM_HOME_MENU=0 turns the menu off (a short press does nothing, as before).
+ #pragma once
+ #include <stddef.h>
+ #include <stdio.h>
+@@ -14,6 +19,8 @@
+ 
+ #define HQ_HOLD_S 2.0    // how long Home is held before the prompt opens
+ #define HQ_RING_S 0.3    // the hold indicator shows only after this, so a short press shows nothing
++#define HQ_TAP_S 0.5     // Home let go within this is a short press: it opens the Home menu
++#define HQ_STICK 0.5     // a stick moved this far (of its range) up or down moves the menu's selection, as the d-pad does
+ 
+ typedef enum {
+     HQ_IDLE,      // nothing shown, the game has its input
+@@ -21,29 +28,77 @@ typedef enum {
+     HQ_PROMPT,    // the prompt is open: the game gets no controller input
+     HQ_SETTLE,    // the prompt was closed: the game gets controller input again once Home, A and B are all up, so the B that closed it never reaches the game
+     HQ_QUIT,      // A was pressed in the prompt: the front end quits (final)
++    HQ_MENU,      // the Home menu is open: the game gets no controller input
++    HQ_PAUSED,    // Back to console mode was chosen: the front end pauses the game in the background until hq_resumed
+ } hq_phase;
+ 
++// The rows of the Home menu, in the order they are shown
++enum { HQ_ROW_RESUME, HQ_ROW_CONSOLE, HQ_ROW_QUIT, HQ_ROWS };
++
+ typedef struct {
+     hq_phase phase;
+     double since;     // when the hold started (seconds, any clock that only goes forward)
+     int home;         // Home was down at the last step (a press is a change from up to down)
+     int a_up, b_up;   // A and B have been up since the prompt opened: a button already held when it opens does not count
++    int up, down;     // up and down were held at the last step (a move is a change from up to down)
++    int sel;          // the selected row of the menu (an index into hq_menu_rows)
++    // Set by the front end before the first step; all 0 is today's hold to quit alone
++    int menu;         // a short press opens the Home menu (DM_HOME_MENU)
++    int launcher;     // the menu has Back to console mode (DM_HOME_MENU_LAUNCHER=1)
++    int no_hold;      // holding Home does not open the quit prompt (DM_HOME_QUIT=0)
+ } home_quit;
+ 
+-// Whether the hold does anything: on unless DM_HOME_QUIT=0 (env: its value, NULL when unset)
++// Whether the hold does anything: on unless DM_HOME_QUIT=0 (env: its value, NULL when unset). DM_HOME_MENU reads the same way
+ static inline int hq_enabled(const char *env) { return !(env && !strcmp(env, "0")); }
++// Whether the launcher asked for Back to console mode: DM_HOME_MENU_LAUNCHER=1 only
++static inline int hq_launcher(const char *env) { return env && !strcmp(env, "1"); }
++
++// The rows the menu shows (HQ_ROW_*), into rows; returns how many
++static inline int hq_menu_rows(const home_quit *q, int rows[HQ_ROWS]) {
++    int n = 0;
++    rows[n++] = HQ_ROW_RESUME;
++    if (q->launcher) rows[n++] = HQ_ROW_CONSOLE;
++    rows[n++] = HQ_ROW_QUIT;
++    return n;
++}
++// The row the selection is on (HQ_ROW_*)
++static inline int hq_menu_row(const home_quit *q) {
++    int rows[HQ_ROWS], n = hq_menu_rows(q, rows);
++    return rows[q->sel < 0 ? 0 : q->sel >= n ? n - 1 : q->sel];
++}
+ 
+-// One step with the buttons as they are now (pressed on any controller) at time now. Called on every change of a button and, while Home is held, from a timer.
+-static inline hq_phase hq_step(home_quit *q, double now, int home, int a, int b) {
+-    int pressed = home && !q->home;
+-    q->home = home;
++// One step with the buttons as they are now (pressed on any controller) at time now, up and down being the d-pad or a stick (only the menu reads them). Called on
++// every change of a button and, while anything is shown, from a timer.
++static inline hq_phase hq_step_nav(home_quit *q, double now, int home, int a, int b, int up, int down) {
++    int pressed = home && !q->home, moved_up = up && !q->up, moved_down = down && !q->down;
++    q->home = home; q->up = up; q->down = down;
+     switch (q->phase) {
+     case HQ_IDLE:
+         if (pressed) { q->phase = HQ_HOLDING; q->since = now; }
+         break;
+     case HQ_HOLDING:
+-        if (!home) q->phase = HQ_IDLE;   // let go too early
+-        else if (now - q->since >= HQ_HOLD_S) { q->phase = HQ_PROMPT; q->a_up = !a; q->b_up = !b; }
++        if (!home) {   // let go: a short press opens the menu, a longer one was a hold let go too early
++            if (q->menu && now - q->since < HQ_TAP_S) { q->phase = HQ_MENU; q->sel = 0; q->a_up = !a; q->b_up = !b; }
++            else q->phase = HQ_IDLE;
++        } else if (!q->no_hold && now - q->since >= HQ_HOLD_S) { q->phase = HQ_PROMPT; q->a_up = !a; q->b_up = !b; }
++        break;
++    case HQ_MENU: {
++        if (!a) q->a_up = 1;
++        if (!b) q->b_up = 1;
++        int rows[HQ_ROWS], n = hq_menu_rows(q, rows);
++        if ((b && q->b_up) || pressed) { q->phase = HQ_SETTLE; break; }   // B or Home resumes; with A and B at once the safe one wins
++        if (a && q->a_up) {
++            int row = hq_menu_row(q);
++            if (row == HQ_ROW_RESUME) q->phase = HQ_SETTLE;
++            else if (row == HQ_ROW_CONSOLE) q->phase = HQ_PAUSED;
++            else { q->phase = HQ_PROMPT; q->a_up = 0; q->b_up = !b; }   // Quit asks first: the A that chose it does not confirm it
++            break;
++        }
++        if (moved_up && !moved_down && q->sel > 0) q->sel--;
++        else if (moved_down && !moved_up && q->sel < n - 1) q->sel++;
++        break;
++    }
++    case HQ_PAUSED:
+         break;
+     case HQ_PROMPT:
+         if (!a) q->a_up = 1;
+@@ -59,23 +114,29 @@ static inline hq_phase hq_step(home_quit *q, double now, int home, int a, int b)
+     }
+     return q->phase;
+ }
++// The same without up and down (the hold and the prompt alone)
++static inline hq_phase hq_step(home_quit *q, double now, int home, int a, int b) { return hq_step_nav(q, now, home, a, b, 0, 0); }
+ 
+-// The window lost focus (another app, the Games app the system opened for Home): whatever was shown closes. A Home still held needs a new press
+-static inline void hq_cancel(home_quit *q) { if (q->phase != HQ_QUIT) { q->phase = HQ_IDLE; q->home = 1; } }
++// The window lost focus (another app, the Games app the system opened for Home): whatever was shown closes. A Home still held needs a new press. A game paused in the
++// background stays so until hq_resumed: hiding it is what takes its focus
++static inline void hq_cancel(home_quit *q) { if (q->phase != HQ_QUIT && q->phase != HQ_PAUSED) { q->phase = HQ_IDLE; q->home = 1; } }
++// The game paused in the background is shown again: it gets controller input once Home, A and B are all up, and a Home still held needs a new press
++static inline void hq_resumed(home_quit *q) { if (q->phase == HQ_PAUSED) { q->phase = HQ_SETTLE; q->home = 1; } }
+ 
+ // The game gets no controller input in these phases
+-static inline int hq_blocks_input(hq_phase p) { return p == HQ_PROMPT || p == HQ_SETTLE || p == HQ_QUIT; }
++static inline int hq_blocks_input(hq_phase p) { return p == HQ_PROMPT || p == HQ_SETTLE || p == HQ_QUIT || p == HQ_MENU || p == HQ_PAUSED; }
+ 
+-// How full the hold indicator is (0 to 1), -1 while it is not shown
++// How full the hold indicator is (0 to 1), -1 while it is not shown (also when the hold does not quit)
+ static inline double hq_ring(const home_quit *q, double now) {
+-    if (q->phase != HQ_HOLDING) return -1;
++    if (q->phase != HQ_HOLDING || q->no_hold) return -1;
+     double t = (now - q->since - HQ_RING_S) / (HQ_HOLD_S - HQ_RING_S);
+     return t < 0 ? -1 : t > 1 ? 1 : t;
+ }
+ 
+-// The texts, in this order, one per line of DM_HOME_QUIT_TEXT: the hold indicator, the prompt's title, its note, the quit button, the cancel button
+-enum { HQ_TEXT_HOLD, HQ_TEXT_TITLE, HQ_TEXT_NOTE, HQ_TEXT_QUIT, HQ_TEXT_CANCEL, HQ_TEXTS };
+-// Line i of text into out; an empty or missing line (or no text) gives def. The title's default has the game's name: def is the caller's
++// The texts, in this order, one per line of DM_HOME_QUIT_TEXT: the hold indicator, the prompt's title, its note, the quit button (also the menu's Quit row), the cancel
++// button, then the Home menu's Resume row, its Back to console mode row and its title. The menu's lines come last, so a front end that passes the first five still works
++enum { HQ_TEXT_HOLD, HQ_TEXT_TITLE, HQ_TEXT_NOTE, HQ_TEXT_QUIT, HQ_TEXT_CANCEL, HQ_TEXT_RESUME, HQ_TEXT_CONSOLE, HQ_TEXT_MENU_TITLE, HQ_TEXTS };
++// Line i of text into out; an empty or missing line (or no text) gives def. The titles' defaults have the game's name: def is the caller's
+ static inline void hq_text_line(const char *text, int i, const char *def, char *out, size_t cap) {
+     const char *s = text;
+     for (int k = 0; s && k < i; k++) { s = strchr(s, '\n'); if (s) s++; }
+diff --git a/dm/host/home_quit_mac.h b/dm/host/home_quit_mac.h
+index ffc3ab5..be83949 100644
+--- a/dm/host/home_quit_mac.h
++++ b/dm/host/home_quit_mac.h
+@@ -97,6 +97,53 @@ static NSView *hq_prompt_view(NSRect bounds, NSString *title, NSString *note, NS
+     return hq_card_view(bounds, title, note, quit, cancel, a_symbol, b_symbol, 1);
+ }
+ 
++// The Home menu of a short press (home_quit.h HQ_MENU, LNPANDY/NX2Apple#952): on the same scrim and card as the prompt, the title (the game's name) and one row per
++// action, stacked. The selected row is the cream pill with the controller's A glyph, the others plain; front_mac.m builds it again when the selection moves.
++// Rows are this wide (points at a 720-high view), whatever their labels: a longer label gets a smaller font, then is cut
++#define HQ_ROW_W 360
++static NSView *hq_menu_row_view(NSString *label, int selected, NSString *a_symbol, CGFloat k) {
++    NSColor *fg = selected ? HQ_BACKGROUND : [NSColor colorWithWhite:1 alpha:0.85];
++    CGFloat w = HQ_ROW_W * k, glyph = 24 * k, gap = 10 * k, inset = 20 * k, room = w - 2 * inset - (selected ? glyph + gap : 0);
++    NSTextField *t = hq_label(label, hq_fit(label, 22 * k, room), NSFontWeightSemibold, fg, 0);
++    t.lineBreakMode = NSLineBreakByTruncatingTail;
++    [t setContentCompressionResistancePriority:NSLayoutPriorityDefaultLow forOrientation:NSLayoutConstraintOrientationHorizontal];
++    NSStackView *row = [NSStackView stackViewWithViews:selected ? @[hq_glyph(a_symbol, @"a.circle", glyph, fg), t] : @[t]];
++    row.spacing = gap; row.translatesAutoresizingMaskIntoConstraints = NO;
++    NSView *pill = [NSView new]; pill.translatesAutoresizingMaskIntoConstraints = NO;
++    pill.wantsLayer = YES; pill.layer.cornerRadius = 28 * k;
++    pill.layer.backgroundColor = selected ? HQ_CREAM.CGColor : [NSColor colorWithWhite:1 alpha:0.06].CGColor;
++    [pill addSubview:row];
++    [NSLayoutConstraint activateConstraints:@[[pill.widthAnchor constraintEqualToConstant:w], [pill.heightAnchor constraintEqualToConstant:56 * k],
++        [row.centerXAnchor constraintEqualToAnchor:pill.centerXAnchor], [row.centerYAnchor constraintEqualToAnchor:pill.centerYAnchor],
++        [row.widthAnchor constraintLessThanOrEqualToConstant:w - 2 * inset]]];
++    pill.accessibilityElement = YES; pill.accessibilityRole = NSAccessibilityButtonRole; pill.accessibilityLabel = label; pill.accessibilitySelected = selected;
++    return pill;
++}
++// labels: the rows' texts in order; sel: the selected one
++static NSView *hq_menu_view(NSRect bounds, NSString *title, NSArray<NSString *> *labels, NSInteger sel, NSString *a_symbol) {
++    CGFloat k = hq_scale(bounds.size);
++    NSView *scrim = [[HqScrim alloc] initWithFrame:bounds]; scrim.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
++    scrim.wantsLayer = YES; scrim.layer.backgroundColor = [NSColor colorWithWhite:0 alpha:0.6].CGColor;
++    NSTextField *t = hq_label(title, 34 * k, NSFontWeightBold, NSColor.whiteColor, 1);
++    NSMutableArray<NSView *> *rows = [NSMutableArray new];
++    for (NSUInteger i = 0; i < labels.count; i++) [rows addObject:hq_menu_row_view(labels[i], (NSInteger)i == sel, a_symbol, k)];
++    NSStackView *list = [NSStackView stackViewWithViews:rows];
++    list.orientation = NSUserInterfaceLayoutOrientationVertical; list.alignment = NSLayoutAttributeCenterX;
++    list.spacing = 12 * k; list.translatesAutoresizingMaskIntoConstraints = NO;
++    NSStackView *card = [NSStackView stackViewWithViews:@[t, list]];
++    card.orientation = NSUserInterfaceLayoutOrientationVertical; card.alignment = NSLayoutAttributeCenterX;
++    card.spacing = 28 * k;
++    card.edgeInsets = NSEdgeInsetsMake(40 * k, 48 * k, 40 * k, 48 * k); card.translatesAutoresizingMaskIntoConstraints = NO;
++    card.wantsLayer = YES; card.layer.backgroundColor = HQ_SURFACE.CGColor; card.layer.cornerRadius = 28 * k;
++    card.layer.borderWidth = 1; card.layer.borderColor = [NSColor colorWithWhite:1 alpha:0.10].CGColor;
++    [scrim addSubview:card];
++    CGFloat w = 600 * k;
++    [NSLayoutConstraint activateConstraints:@[[card.centerXAnchor constraintEqualToAnchor:scrim.centerXAnchor], [card.centerYAnchor constraintEqualToAnchor:scrim.centerYAnchor],
++        [card.widthAnchor constraintEqualToConstant:w], [t.widthAnchor constraintLessThanOrEqualToConstant:w - 96 * k]]];
++    scrim.accessibilityElement = YES; scrim.accessibilityRole = NSAccessibilityGroupRole; scrim.accessibilityLabel = title;
++    return scrim;
++}
++
+ // The hold indicator at the top of the view: a pill with a ring that fills while Home is held, and its label. hq_hold_set moves the ring
+ static NSView *hq_hold_view(NSRect bounds, NSString *label, CAShapeLayer **ring_out) {
+     CGFloat k = hq_scale(bounds.size), d = 26 * k, line = 3.5 * k;
+diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
+index ae59340..624fe3d 100644
+--- a/dm/host/tests/t_controllers_mac.m
++++ b/dm/host/tests/t_controllers_mac.m
+@@ -788,6 +788,15 @@ static void test_home_quit_routing(void) {
+     assert(q.phase==HQ_IDLE && received[gc_slot]);
+     report(0,1); now+=HQ_HOLD_S; front_home_poll(); report(1,1);
+     assert(q.phase==HQ_QUIT && !received[raw_slot]); // wire A quits, regardless of its guest mapping
++    // The Home menu's up and down (LNPANDY/NX2Apple#952): the native d-pad and stick, before remapping, also while the prompt holds the game's input
++    int up,down; front_controllers_menu_dirs(&up,&down); assert(!up && !down);
++    [native.extendedGamepad.dpad setValueForXAxis:0 yAxis:-1]; gc_event(gc);
++    front_controllers_menu_dirs(&up,&down); assert(!up && down);
++    [native.extendedGamepad.dpad setValueForXAxis:0 yAxis:0]; [native.extendedGamepad.leftThumbstick setValueForXAxis:0 yAxis:0.9]; gc_event(gc);
++    front_controllers_menu_dirs(&up,&down); assert(up && !down);
++    [native.extendedGamepad.leftThumbstick setValueForXAxis:0 yAxis:0.2]; gc_event(gc);
++    front_controllers_menu_dirs(&up,&down); assert(!up && !down);
++    front_controllers_window(0); front_controllers_menu_dirs(&up,&down); assert(!up && !down); front_controllers_window(1);
+     test_home_poll=nil; front_controllers_quit_prompt(0);
+     hidpad_removed(NULL,kIOReturnSuccess,NULL,hid); hid_fixture_finish();
+     puts("Home quit: adapter ownership, physical labels, prompt/settle gating and focus recovery: OK");
+diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
+index ff11b7d..94ef558 100644
+--- a/dm/host/tests/t_home_quit.c
++++ b/dm/host/tests/t_home_quit.c
+@@ -1,5 +1,6 @@
+ // The Home button's hold and quit prompt (home_quit.h): the hold time, letting go early, A and B in the prompt, a button already held when it opens, Home closing it,
+-// the settle phase that keeps the closing B from the game, losing the focus, the hold indicator, the switch, a front end's texts and the setting's log word
++// the settle phase that keeps the closing B from the game, losing the focus, the hold indicator, the switch, a front end's texts and the setting's log word; the Home
++// menu of a short press: its rows with and without the launcher's, moving through them, Resume, Back to console mode and resuming from it, Quit asking first
+ #include "../home_quit.h"
+ #include <stdio.h>
+ 
+@@ -61,6 +62,106 @@ int main(void) {
+     hq_step(&q, 3.1, 0, 0, 0);
+     CHECK(hq_step(&q, 3.2, 1, 0, 0) == HQ_HOLDING, "then a press holds again");
+ 
++    // The Home menu (LNPANDY/NX2Apple#952): a short press opens it, a hold still opens the quit prompt
++    q = (home_quit){.menu = 1};
++    CHECK(hq_step(&q, 0, 1, 0, 0) == HQ_HOLDING, "menu on: Home pressed starts a hold");
++    CHECK(hq_step(&q, 0.2, 0, 0, 0) == HQ_MENU, "let go within 0.5 s: the menu opens");
++    CHECK(hq_blocks_input(q.phase), "the menu takes the controllers");
++    CHECK(q.sel == 0 && hq_menu_row(&q) == HQ_ROW_RESUME, "the menu opens on Resume");
++    CHECK(hq_step(&q, 0.3, 0, 1, 0) == HQ_SETTLE, "A on Resume: the game goes on, once A is up");
++    CHECK(hq_step(&q, 0.4, 0, 0, 0) == HQ_IDLE, "all up: the game has the controllers again");
++
++    q = (home_quit){.menu = 1};
++    hq_step(&q, 0, 1, 0, 0);
++    CHECK(hq_step(&q, 1.0, 0, 0, 0) == HQ_IDLE, "let go after 0.5 s and before 2 s: nothing");
++    hq_step(&q, 2.0, 1, 0, 0);
++    CHECK(hq_step(&q, 4.0, 1, 0, 0) == HQ_PROMPT, "menu on: a 2 s hold still opens the quit prompt");
++    CHECK(hq_step(&q, 4.1, 0, 0, 0) == HQ_PROMPT, "letting go after the hold keeps the prompt, no menu");
++
++    q = (home_quit){0};
++    hq_step(&q, 0, 1, 0, 0);
++    CHECK(hq_step(&q, 0.2, 0, 0, 0) == HQ_IDLE, "menu off (DM_HOME_MENU=0): a short press does nothing");
++
++    // Without the launcher: Resume and Quit
++    q = (home_quit){.menu = 1};
++    int rows[HQ_ROWS];
++    CHECK(hq_menu_rows(&q, rows) == 2 && rows[0] == HQ_ROW_RESUME && rows[1] == HQ_ROW_QUIT, "without DM_HOME_MENU_LAUNCHER: Resume and Quit only");
++    q.launcher = 1;
++    CHECK(hq_menu_rows(&q, rows) == 3 && rows[1] == HQ_ROW_CONSOLE, "with it: Back to console mode in the middle");
++
++    // Navigation: down, down, clamped at the end, up; a held direction moves once
++    q = (home_quit){.menu = 1, .launcher = 1};
++    hq_step_nav(&q, 0, 1, 0, 0, 0, 0); hq_step_nav(&q, 0.1, 0, 0, 0, 0, 0);
++    CHECK(q.phase == HQ_MENU, "the menu is open");
++    hq_step_nav(&q, 0.2, 0, 0, 0, 0, 1);
++    CHECK(hq_menu_row(&q) == HQ_ROW_CONSOLE, "down: Back to console mode");
++    hq_step_nav(&q, 0.3, 0, 0, 0, 0, 1);
++    CHECK(hq_menu_row(&q) == HQ_ROW_CONSOLE, "down held: no repeat");
++    hq_step_nav(&q, 0.4, 0, 0, 0, 0, 0); hq_step_nav(&q, 0.5, 0, 0, 0, 0, 1);
++    CHECK(hq_menu_row(&q) == HQ_ROW_QUIT, "down again: Quit");
++    hq_step_nav(&q, 0.6, 0, 0, 0, 0, 0); hq_step_nav(&q, 0.7, 0, 0, 0, 0, 1);
++    CHECK(hq_menu_row(&q) == HQ_ROW_QUIT, "down on the last row stays there");
++    hq_step_nav(&q, 0.8, 0, 0, 0, 0, 0); hq_step_nav(&q, 0.9, 0, 0, 0, 1, 0);
++    CHECK(hq_menu_row(&q) == HQ_ROW_CONSOLE, "up: back to Back to console mode");
++    hq_step_nav(&q, 1.0, 0, 0, 0, 0, 0); hq_step_nav(&q, 1.1, 0, 0, 0, 1, 0); hq_step_nav(&q, 1.2, 0, 0, 0, 0, 0); hq_step_nav(&q, 1.3, 0, 0, 0, 1, 0);
++    CHECK(hq_menu_row(&q) == HQ_ROW_RESUME, "up on the first row stays there");
++    hq_step_nav(&q, 1.4, 0, 0, 0, 0, 0); hq_step_nav(&q, 1.5, 0, 0, 0, 0, 1);
++    CHECK(hq_step_nav(&q, 1.6, 0, 1, 0, 0, 1) == HQ_PAUSED, "A on Back to console mode: paused in the background");
++    CHECK(hq_blocks_input(q.phase), "the paused game gets no controller input");
++    hq_cancel(&q);
++    CHECK(q.phase == HQ_PAUSED, "hiding the game (a focus loss) keeps it paused");
++    CHECK(hq_step_nav(&q, 2.0, 1, 1, 0, 0, 0) == HQ_PAUSED, "buttons while paused change nothing");
++    hq_resumed(&q);
++    CHECK(q.phase == HQ_SETTLE && hq_blocks_input(q.phase), "shown again: settling until the buttons are up");
++    CHECK(hq_step_nav(&q, 3.0, 1, 0, 0, 0, 0) == HQ_SETTLE, "Home still held: still settling");
++    CHECK(hq_step_nav(&q, 3.1, 0, 0, 0, 0, 0) == HQ_IDLE, "all up: the game plays again");
++    CHECK(hq_step_nav(&q, 3.2, 1, 0, 0, 0, 0) == HQ_HOLDING, "and a new press of Home works");
++    hq_resumed(&q);
++    CHECK(q.phase == HQ_HOLDING, "hq_resumed outside the background changes nothing");
++
++    // Quit in the menu asks first: the A that chose it does not confirm it
++    q = (home_quit){.menu = 1};
++    hq_step_nav(&q, 0, 1, 0, 0, 0, 0); hq_step_nav(&q, 0.1, 0, 0, 0, 0, 0); hq_step_nav(&q, 0.2, 0, 0, 0, 0, 1);
++    CHECK(hq_menu_row(&q) == HQ_ROW_QUIT, "without the launcher, down goes straight to Quit");
++    CHECK(hq_step_nav(&q, 0.3, 0, 1, 0, 0, 0) == HQ_PROMPT, "A on Quit: the quit prompt");
++    CHECK(hq_step_nav(&q, 0.4, 0, 1, 0, 0, 0) == HQ_PROMPT, "the A still held does not quit");
++    hq_step_nav(&q, 0.5, 0, 0, 0, 0, 0);
++    CHECK(hq_step_nav(&q, 0.6, 0, 1, 0, 0, 0) == HQ_QUIT, "a new A quits");
++
++    // B and Home close the menu; buttons held when it opens do not count
++    q = (home_quit){.menu = 1};
++    hq_step(&q, 0, 1, 0, 1);
++    CHECK(hq_step(&q, 0.1, 0, 0, 1) == HQ_MENU, "B held through the press: the menu opens and stays");
++    hq_step(&q, 0.2, 0, 0, 0);
++    CHECK(hq_step(&q, 0.3, 0, 0, 1) == HQ_SETTLE, "a new B resumes");
++    q = (home_quit){.menu = 1};
++    hq_step(&q, 0, 1, 1, 0);
++    CHECK(hq_step(&q, 0.1, 0, 1, 0) == HQ_MENU, "A held through the press does not choose Resume");
++    q = (home_quit){.menu = 1};
++    hq_step(&q, 0, 1, 0, 0); hq_step(&q, 0.1, 0, 0, 0);
++    CHECK(hq_step(&q, 0.5, 1, 0, 0) == HQ_SETTLE, "a new press of Home resumes");
++    q = (home_quit){.menu = 1, .launcher = 1};
++    hq_step(&q, 0, 1, 0, 0); hq_step(&q, 0.1, 0, 0, 0);
++    hq_step_nav(&q, 0.2, 0, 0, 0, 0, 1);
++    CHECK(hq_step_nav(&q, 0.3, 0, 1, 1, 0, 0) == HQ_SETTLE, "A and B at once in the menu: B wins");
++    q = (home_quit){.menu = 1};
++    hq_step(&q, 0, 1, 0, 0); hq_step(&q, 0.1, 0, 0, 0);
++    hq_cancel(&q);
++    CHECK(q.phase == HQ_IDLE, "a focus loss closes the menu");
++    hq_step(&q, 0.5, 1, 0, 0);
++    CHECK(hq_step(&q, 0.6, 0, 0, 0) == HQ_IDLE, "a Home held through the focus loss opens nothing when let go");
++
++    // DM_HOME_QUIT=0 with the menu on: the hold does nothing, the short press still opens the menu
++    q = (home_quit){.menu = 1, .no_hold = 1};
++    hq_step(&q, 0, 1, 0, 0);
++    CHECK(hq_ring(&q, 1.5) == -1, "no hold: no indicator");
++    CHECK(hq_step(&q, 3.0, 1, 0, 0) == HQ_HOLDING, "no hold: no prompt after 2 s");
++    CHECK(hq_step(&q, 3.1, 0, 0, 0) == HQ_IDLE, "and letting go late does nothing");
++    hq_step(&q, 4.0, 1, 0, 0);
++    CHECK(hq_step(&q, 4.1, 0, 0, 0) == HQ_MENU, "a short press opens the menu");
++
++    CHECK(!hq_launcher(NULL) && !hq_launcher("0") && !hq_launcher("") && hq_launcher("1"), "DM_HOME_MENU_LAUNCHER: only 1 turns the row on");
++
+     CHECK(hq_enabled(NULL) && hq_enabled("1") && hq_enabled(""), "on by default");
+     CHECK(!hq_enabled("0"), "DM_HOME_QUIT=0: off");
+ 
+@@ -75,6 +176,15 @@ int main(void) {
+     CHECK(!strcmp(out, "Quit"), "a missing line takes the default");
+     hq_text_line(NULL, HQ_TEXT_HOLD, "Keep holding to quit", out, sizeof out);
+     CHECK(!strcmp(out, "Keep holding to quit"), "no text: the defaults");
++    const char *nine = "Hold\nQuit Zelda?\nLost\nQuit\nCancel\nResume\nBack to console mode\nZelda";
++    hq_text_line(nine, HQ_TEXT_RESUME, "d", out, sizeof out);
++    CHECK(!strcmp(out, "Resume"), "the menu's Resume line comes after the prompt's five");
++    hq_text_line(nine, HQ_TEXT_CONSOLE, "d", out, sizeof out);
++    CHECK(!strcmp(out, "Back to console mode"), "then Back to console mode");
++    hq_text_line(nine, HQ_TEXT_MENU_TITLE, "d", out, sizeof out);
++    CHECK(!strcmp(out, "Zelda"), "then the menu's title");
++    hq_text_line("Hold\nQuit Zelda?\nLost\nQuit\nCancel", HQ_TEXT_RESUME, "Resume", out, sizeof out);
++    CHECK(!strcmp(out, "Resume"), "an old launcher's five lines: the menu's texts are English");
+     char small[4]; hq_text_line("Abcdef", 0, "d", small, sizeof small);
+     CHECK(!strcmp(small, "Abc"), "a long line is cut to the buffer");
+ 
+diff --git a/dm/host/tests/t_home_quit_mac.m b/dm/host/tests/t_home_quit_mac.m
+index 0b716c4..0aa2164 100644
+--- a/dm/host/tests/t_home_quit_mac.m
++++ b/dm/host/tests/t_home_quit_mac.m
+@@ -1,5 +1,6 @@
+ // The views of the Home button's quit prompt (home_quit_mac.h), built without a game, a window or a controller: the texts are shown, the card stays inside a small
+-// window and a TV-sized one, a long title wraps instead of widening the card, and a glyph the system does not have falls back to the plain letter.
++// window and a TV-sized one, a long title wraps instead of widening the card, and a glyph the system does not have falls back to the plain letter. The Home menu's
++// rows, its selection and its sizes the same way.
+ // DM_HOME_QUIT_CAPTURE=<folder> also draws both views over a stand-in picture into PNG files there (the pull request's screenshots), in an offscreen window.
+ #import "../home_quit_mac.h"
+ #include <stdio.h>
+@@ -102,6 +103,43 @@ int main(void) {
+         }
+         CHECK(game->clicks == 0, "a click on the prompt does not reach the game's view");
+ 
++        // The Home menu (LNPANDY/NX2Apple#952): its rows in order, the selection drawn on one of them, every row as wide as the others in both sizes, the card inside
++        NSArray<NSString *> *three = @[@"Resume", @"Back to console mode", @"Quit"];
++        for (NSValue *size in @[[NSValue valueWithRect:small], [NSValue valueWithRect:tv]]) {
++            NSRect r = size.rectValue; CGFloat k = hq_scale(r.size);
++            for (NSInteger sel = 0; sel < 3; sel++) {
++                NSView *m = hq_menu_view(r, @"Super Mario Odyssey", three, sel, nil);
++                [m layoutSubtreeIfNeeded];
++                NSMutableArray<NSString *> *mt = [NSMutableArray new]; texts(m, mt);
++                CHECK(([mt isEqualToArray:@[@"Super Mario Odyssey", @"Resume", @"Back to console mode", @"Quit"]]), "the menu shows its title and its rows in order");
++                CHECK(NSContainsRect(m.bounds, card_of(m).frame), "the menu's card is inside the view");
++                NSStackView *list = (NSStackView *)((NSStackView *)card_of(m)).arrangedSubviews.lastObject;
++                CHECK(list.arrangedSubviews.count == 3, "three rows");
++                for (NSInteger i = 0; i < 3; i++) {
++                    NSView *row = list.arrangedSubviews[i];
++                    CHECK(fabs(row.frame.size.width - HQ_ROW_W * k) < 0.5 && fabs(row.frame.size.height - 56 * k) < 0.5, "every row has the same size");
++                    CHECK(row.accessibilitySelected == (i == sel), "only the selected row is selected");
++                    CHECK((first_image(row) != nil) == (i == sel), "only the selected row has the A glyph");
++                    CHECK(NSContainsRect(row.bounds, ((NSView *)row.subviews.firstObject).frame), "the row's content stays inside it");
++                }
++                CHECK(NSMinY(list.arrangedSubviews[0].frame) > NSMinY(list.arrangedSubviews[2].frame), "Resume is on top");
++            }
++        }
++        NSView *m2 = hq_menu_view(small, @"Hades", @[@"Resume", @"Quit"], 1, @"no.such.symbol");
++        [m2 layoutSubtreeIfNeeded];
++        NSMutableArray<NSString *> *m2t = [NSMutableArray new]; texts(m2, m2t);
++        CHECK(([m2t isEqualToArray:@[@"Hades", @"Resume", @"Quit"]]), "without the launcher's row: two rows");
++        CHECK(first_image(m2).image.size.width > 0, "the menu's A glyph falls back to the letter");
++        NSView *m3 = hq_menu_view(small, @"Hades", @[@"Zur\u00fcck zum Konsolenmodus und noch viel l\u00e4nger als jede Sprache", @"Quit"], 0, nil);
++        [m3 layoutSubtreeIfNeeded];
++        NSStackView *l3 = (NSStackView *)((NSStackView *)card_of(m3)).arrangedSubviews.lastObject;
++        CHECK(fabs(l3.arrangedSubviews[0].frame.size.width - HQ_ROW_W) < 0.5, "a long label does not widen its row");
++        Clicks *game2 = [[Clicks alloc] initWithFrame:small]; NSView *mc = hq_menu_view(small, @"Hades", three, 0, nil);
++        [game2 addSubview:mc]; [mc layoutSubtreeIfNeeded];
++        NSEvent *e2 = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:NSMakePoint(10, 10) modifierFlags:0 timestamp:0 windowNumber:0 context:nil eventNumber:0 clickCount:1 pressure:1];
++        NSView *hit2 = [mc hitTest:NSMakePoint(10, 10)] ?: mc; [hit2 mouseDown:e2]; [hit2 mouseUp:e2];
++        CHECK(game2->clicks == 0, "a click on the menu does not reach the game's view");
++
+         CAShapeLayer *ring = nil;
+         NSView *h = hq_hold_view(small, @"Keep holding to quit", &ring);
+         [h layoutSubtreeIfNeeded];
+@@ -122,6 +160,9 @@ int main(void) {
+             CAShapeLayer *r = nil; NSView *hv = hq_hold_view(tv, @"Keep holding to quit", &r); hq_hold_set(r, 0.6);
+             capture(hv, tv.size, dir, "home-quit-hold.png");
+             capture(hq_prompt_view(tv, @"Quit Super Mario Odyssey?", @"Unsaved progress will be lost.", @"Quit", @"Cancel", @"xmark.circle", @"circle.circle"), tv.size, dir, "home-quit-prompt-ps.png");
++            capture(hq_menu_view(tv, @"Super Mario Odyssey", three, 0, @"a.circle"), tv.size, dir, "home-menu.png");
++            capture(hq_menu_view(tv, @"Super Mario Odyssey", three, 1, @"a.circle"), tv.size, dir, "home-menu-console.png");
++            capture(hq_menu_view(tv, @"Super Mario Odyssey", @[three[0], three[2]], 0, @"a.circle"), tv.size, dir, "home-menu-no-launcher.png");
+         }
+     }
+     printf("t_home_quit_mac: %d checks, %d failed\n", checks, fails);
+diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
+index 9711ba9..03df927 100644
+--- a/docs/env_switches.tsv
++++ b/docs/env_switches.tsv
+@@ -83,9 +83,11 @@ DM_HID_MAP	switch	`=<map>` such as `A=1,B=2,X=4,Y=5`: which HID button usage pre
+ DM_HID_PADS	switch	`0` stops reading raw HID gamepads that GameController does not list, such as an 8BitDo in its own mode (`pad_hid_mac.h`); Mac only
+ DM_HITCH_DUMP	diagnostic	`=<ms>[:<s>]`: when no frame has been presented for that long (from s seconds on), logs every guest thread once per stall: wait, last SVC, pc, lr, frames and registers
+ DM_HLECOUNT	diagnostic	`=<file>` (`%d` = process ID) writes at exit a TSV of how many times the guest called each HLE function, zero counts included
++DM_HOME_MENU	player	`0` turns off the Mac's Home menu (on by default): a short press of the controller's Home button opens it over the paused game, with Resume, Back to console mode (only with `DM_HOME_MENU_LAUNCHER=1`) and Quit (which opens the quit prompt), up and down choose, A selects, B or Home resumes (`home_quit.h`, `home_quit_mac.h`)
++DM_HOME_MENU_LAUNCHER	switch	`1`: the Mac's Home menu has Back to console mode, which pauses the game in the background (as a minimized window), hides it and activates the launcher (`DM_LAUNCHER_BUNDLE_ID`). It resumes when it is active again or on the distributed notification `org.nxnative.resume.<pid>`, quits on `org.nxnative.quit.<pid>`, and posts `org.nxnative.paused.<pid>` and `org.nxnative.resumed.<pid>`. A front end such as NX2Apple sets it for a game started from its console mode ([Starting a game](frontends.md#starting-a-game))
+ DM_HOME_QUIT	player	`0` turns off quitting with the controller's Home button (Mac and iOS, on by default): held for 2 s it opens a quit prompt over the game, A quits as ⌘Q does (on iOS the app closes after the cloud saves went out, as Quit in the in-game menu does), B or Home closes it (`home_quit.h`, `quit_prompt.h`)
+ DM_HOME_QUIT_CAPTURE	test	`=<folder>`: `tests/t_home_quit_mac.m` also draws the Home button's quit prompt and hold indicator into PNG files there
+-DM_HOME_QUIT_TEXT	switch	The texts of the Home button's quit prompt in the player's language, one per line: the hold indicator, the title, the note, the quit and the cancel button; a front end such as NX2Apple sets it ([Starting a game](frontends.md#starting-a-game)), an empty or missing line keeps the English text
++DM_HOME_QUIT_TEXT	switch	The texts of the Home button's quit prompt and Home menu in the player's language, one per line: the hold indicator, the title, the note, the quit and the cancel button, then the menu's Resume, its Back to console mode and its title (the game's name). A front end such as NX2Apple sets it ([Starting a game](frontends.md#starting-a-game)), an empty or missing line keeps the English text
+ DM_HTML	path	Folder of the offline HTML pages (default: `html` beside the RomFS)
+ DM_HUD_PER_LAYER	switch	`1`: the shell app sets it at start together with `MTL_HUD_ENABLED`, and the game view then turns Apple's Metal HUD off on its layer unless `DM_METAL_HUD` is `1`
+ DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
+@@ -102,6 +104,7 @@ DM_KEYMAP	player	Mac keyboard: `<name>=<key code>,…` puts a button (`A` … `D
+ DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold or ~f<frames>][*count/interval],…` presses buttons, sticks, touches and `Shake` at those times; `=@<file>` reads the steps from the file
+ DM_LANG	player	Game language as a language code (default `en-US`; the iOS app sets the one the IPA was packed with)
+ DM_LAUNCHER	switch	`0` skips the iOS settings screen or the Mac settings window and starts the game at once, with the saved choices (on the Mac also `--no-launcher`)
++DM_LAUNCHER_BUNDLE_ID	switch	`=<bundle id>`: the launcher the Mac's Home menu shows on Back to console mode (`DM_HOME_MENU_LAUNCHER`): the game hands it the activation before it hides, and opens it when it is not running. Unset, macOS shows the app behind the game
+ DM_LAUNCH_PARAM	path	File whose bytes `oe::TryPopLaunchParameter` returns once; `oe::ExecuteProgram` sets it for the program it starts
+ DM_LINK_VTICK	switch	`0` keeps the system's display-link rate on 144 or 165 Hz Mac screens; by default the link counts only the refreshes nearest a steady 1/60 s clock
+ DM_LOADHASH	diagnostic	`=1` logs an address-independent SHA-256 per module after loading
+diff --git a/docs/frontends.md b/docs/frontends.md
+index 35a25df..907badd 100644
+--- a/docs/frontends.md
++++ b/docs/frontends.md
+@@ -56,7 +56,9 @@ A built app carries the settings its game supports, as the iPhone app's settings
+ 
+ A Mac app shows its own settings window before the game, drawn from its `launcher.json` and keeping its choices in the same store ([Saved choices](#saved-choices), [The Mac settings window](settings.md#the-mac-settings-window)). It shows a variable the launch environment or an `env.txt` sets as fixed. A front end that draws the settings itself starts the app with `DM_LAUNCHER=0` in its environment (or `--no-launcher` on its command line) to skip the window. The saved choices still apply, so a front end that writes them gets the same game as the window would. With `DM_PREFLIGHT` set in its environment the app exits at once, before it reads anything, rolls its log or touches the saves: a front end opens a new build that way (through LaunchServices, `NSWorkspace.openApplication`), so macOS runs its first-start check of the bundle then, not when the player starts the game. The check scans every file of an ad hoc signed app and takes minutes with a RomFS of several GB, and macOS remembers it until the app changes.
+ 
+-A Mac game quits when the player holds a controller's Home button for 2 seconds and confirms with A ([On the Mac](playing.md#on-the-mac)). Its prompt is in English; a front end that shows the player another language passes the texts in `DM_HOME_QUIT_TEXT`, one per line in this order: the hold indicator ("Keep holding to quit"), the title ("Quit <game>?"), the note ("Unsaved progress will be lost."), the quit button and the cancel button. An empty or missing line keeps the English text. The same goes for the prompt that waits when a game asks for more players than have joined (Mac and iOS): `DM_CTRL_PROMPT_TEXT`, one per line, the title ("{min} players wanted"), the hint ("Press a button on each controller to join."), the count ("Players: {joined} of {min}"), the done button and the cancel button; `{min}`, `{max}` and `{joined}` are replaced by the numbers. Whether macOS lets the game have the Home button is the player's Home button setting for apps, which a front end reads itself on macOS 27 (`GCControllerHomeButtonSettingsManager`, while a controller is connected) to tell the player when the system keeps Home.
++A Mac game quits when the player holds a controller's Home button for 2 seconds and confirms with A ([On the Mac](playing.md#on-the-mac)). Its prompt is in English; a front end that shows the player another language passes the texts in `DM_HOME_QUIT_TEXT`, one per line in this order: the hold indicator ("Keep holding to quit"), the title ("Quit <game>?"), the note ("Unsaved progress will be lost."), the quit button and the cancel button, then the Home menu's texts: Resume, Back to console mode and its title (the game's name). An empty or missing line keeps the English text, so a front end that passes only the first five still works. The same goes for the prompt that waits when a game asks for more players than have joined (Mac and iOS): `DM_CTRL_PROMPT_TEXT`, one per line, the title ("{min} players wanted"), the hint ("Press a button on each controller to join."), the count ("Players: {joined} of {min}"), the done button and the cancel button; `{min}`, `{max}` and `{joined}` are replaced by the numbers. Whether macOS lets the game have the Home button is the player's Home button setting for apps, which a front end reads itself on macOS 27 (`GCControllerHomeButtonSettingsManager`, while a controller is connected) to tell the player when the system keeps Home.
++
++A short press of Home opens the Home menu over the paused game (`DM_HOME_MENU=0` turns it off): Resume, Quit (which opens the quit prompt) and, when the front end sets `DM_HOME_MENU_LAUNCHER=1`, Back to console mode. That row pauses the game in the background the way a minimized window is paused (input released, focus lost, audio and graphics suspended), leaves full screen, hands the activation to the app named by `DM_LAUNCHER_BUNDLE_ID` (opening it when it is not running) and hides the game. The game resumes when it is active again (the front end activates it, the Dock, ⌘Tab), and on a distributed notification `org.nxnative.resume.<pid>` (`<pid>` is the game's process ID). `org.nxnative.quit.<pid>` quits it as ⌘Q does. It reports its state in the log, `front end: paused in the background` and `front end: resumed`, and as the distributed notifications `org.nxnative.paused.<pid>` and `org.nxnative.resumed.<pid>`. A front end that wants the game in front calls `yieldActivation(toApplicationWithBundleIdentifier:)` or `yieldActivation(to:)` before it activates the game or posts the resume, since macOS lets an app take the activation only from the active one.
+ 
+ Settings a player chose in a front end and wants kept, also for a start from Finder or the Dock, go in the app's saved choices ([Saved choices](#saved-choices)), not in its environment.
+ 
+diff --git a/docs/playing.md b/docs/playing.md
+index 94da367..cda980d 100644
+--- a/docs/playing.md
++++ b/docs/playing.md
+@@ -48,7 +48,7 @@ Two identical controllers that Apple's controller support lists as one, such as
+ 
+ With [Press a button to join](settings.md#press-a-button-to-join) on in the settings (`DM_PAD_PRESS_TO_JOIN=1` in `env.txt`), on the Mac and on iOS, a controller becomes a player only when one of its buttons is pressed, as the lowest player free: the players choose their order and how many play, over Bluetooth or USB, identical pads included, and a controller connected while the game runs joins at its first press. The log says `press a button to play`, then `a button pressed: player N`. The press that joins also reaches the game. When a game asks for more players than it sees, a prompt over the game says how many are wanted and joined and waits for the others: a controller that presses a button (or connects, with the setting off) joins, A finishes once enough are in, and B or Escape closes it, as on a Switch.
+ 
+-To quit with a controller, hold its Home button (the logo button on an Xbox or PlayStation controller) for 2 seconds, then press A to quit or B to go back to the game. Quitting this way is the same as ⌘Q: progress the game has not saved is lost. If holding Home opens the Games app instead, macOS keeps the Home button for itself: its controller settings for the Home button decide whether apps may use it. `DM_HOME_QUIT=0` in `env.txt` turns the hold off.
++To quit with a controller, hold its Home button (the logo button on an Xbox or PlayStation controller) for 2 seconds, then press A to quit or B to go back to the game. Quitting this way is the same as ⌘Q: progress the game has not saved is lost. If holding Home opens the Games app instead, macOS keeps the Home button for itself: its controller settings for the Home button decide whether apps may use it. `DM_HOME_QUIT=0` in `env.txt` turns the hold off. A short press of Home opens the Home menu over the paused game: up and down choose, A selects, B or Home goes back to the game. It has Resume and Quit (which asks first), and Back to console mode when the game was started from a launcher's console mode, which pauses the game in the background and shows the launcher. `DM_HOME_MENU=0` in `env.txt` turns the menu off.
+ 
+ ### Switch 2 controllers (Mac)
+ 

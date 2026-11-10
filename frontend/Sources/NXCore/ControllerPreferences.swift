@@ -75,6 +75,42 @@ package final class ControllerPreferences {
         return controls.filter { $0.key != "DM_KEYMAP" && $0.key != "DM_PAD_MAP" }
     }
 
+    /// The global layout as it was last given to this game, kept apart from the game's own value so a later change of the global layout
+    /// reaches a game that never customised it and leaves one that did (#454).
+    private static func writtenKey(_ env: String) -> String { "nx2apple.globalWritten." + env }
+
+    /// Gives the game the global layout without a start through the launcher: a game opened from Finder, the Dock or Launchpad reads its own
+    /// preferences, so the layout has to be there before. For DM_KEYMAP and DM_PAD_MAP separately:
+    /// - the game has no value and never got one from here: the global value is written (or nothing for a default layout),
+    /// - the game still has exactly what was written from here: it follows a change of the global layout,
+    /// - anything else (the player changed it in the game, or reset it there): left alone.
+    /// A game with no record here and no value counts as never customised, also one the earlier one-time import (`importedKey`) served.
+    /// Returns false when the preferences could not be written.
+    @discardableResult package func syncGlobal(_ controls: [String: String], savingEnabled: Bool = true) -> Bool {
+        guard savingEnabled, controls["DM_SAVED_CHOICES"] != "0" else { return true }
+        _ = storage.synchronize()
+        var changed = false
+        for env in ["DM_KEYMAP", "DM_PAD_MAP"] {
+            let global = controls[env].flatMap { ControllerMap.valid($0, pad: env == "DM_PAD_MAP") ? $0 : nil }
+            let current = map(env)
+            let written = storage.read(Self.writtenKey(env)) as? String
+            let follows: Bool
+            if let written { follows = current == (written.isEmpty ? nil : written) }
+            else { follows = current == nil }
+            guard follows, current != global else {
+                if follows, written == nil { storage.write(Self.writtenKey(env), value: ""); changed = true }
+                continue
+            }
+            storage.write("launcher." + env, value: global)
+            storage.write(Self.writtenKey(env), value: global ?? "")
+            changed = true
+        }
+        // The one-time import at a start (launchControls) has nothing left to do: this sync is what keeps the layout in step now.
+        if storage.read(Self.importedKey) == nil { storage.write(Self.importedKey, value: true); changed = true }
+        guard changed else { return true }
+        return storage.synchronize()
+    }
+
     @discardableResult package func setMap(_ env: String, value: String?) -> Bool {
         guard ["DM_KEYMAP", "DM_PAD_MAP"].contains(env) else { return false }
         if let value, !ControllerMap.valid(value, pad: env == "DM_PAD_MAP") { return false }

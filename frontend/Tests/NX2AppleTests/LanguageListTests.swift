@@ -30,9 +30,9 @@ final class LanguageListTests: IsolatedDefaultsTestCase {
     }
 
     func testThePickerListsTheFiveLanguagesByTheirOwnNamesInTheOrderItAlwaysHadThenItalianAndJapanese() {
-        XCTAssertEqual(AppCard.languageCodes, ["", "zh", "en", "sv", "de", "fr", "it", "ja"])
-        XCTAssertEqual(Lang.all.map(\.name), ["\u{4E2D}\u{6587}", "English", "Svenska", "Deutsch", "Fran\u{E7}ais", "Italiano", "\u{65E5}\u{672C}\u{8A9E}"])
-        XCTAssertEqual(Lang.all, [Lang.zh, .en, .sv, .de, .fr, Lang("it"), Lang("ja")])
+        XCTAssertEqual(AppCard.languageCodes, ["", "zh", "en", "sv", "de", "fr", "es", "it", "ja", "ko", "pt-br"])
+        XCTAssertEqual(Lang.all.map(\.name), ["\u{4E2D}\u{6587}", "English", "Svenska", "Deutsch", "Fran\u{E7}ais", "Espa\u{F1}ol", "Italiano", "\u{65E5}\u{672C}\u{8A9E}", "\u{D55C}\u{AD6D}\u{C5B4}", "Portugu\u{EA}s (Brasil)"])
+        XCTAssertEqual(Lang.all, [Lang.zh, .en, .sv, .de, .fr, Lang("es"), Lang("it"), Lang("ja"), Lang("ko"), Lang("pt-br")])
     }
 
     func testFindKnowsACodeOnlyWhenAFileHasIt() {
@@ -90,20 +90,22 @@ final class LanguageListTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(LocalizationFiles.directory(environment: ["NX_L10N_DIR": folder.path])?.path, folder.path)
         let languages = LocalizationFiles.languages(from: folder)
         // It is in the picker, after the five that have a place and the real files without one (Italian, Japanese), and shows its own name.
-        XCTAssertEqual(languages.map(\.code), ["zh", "en", "sv", "de", "fr", "it", "ja", "xx"])
-        XCTAssertEqual(AppCard.languageCodes(among: languages), ["", "zh", "en", "sv", "de", "fr", "it", "ja", "xx"])
+        XCTAssertEqual(languages.map(\.code), ["zh", "en", "sv", "de", "fr", "es", "it", "ja", "ko", "pt-br", "xx"])
+        XCTAssertEqual(AppCard.languageCodes(among: languages), ["", "zh", "en", "sv", "de", "fr", "es", "it", "ja", "ko", "pt-br", "xx"])
         XCTAssertEqual(languages.last?.name, "Xenia")
         // The device language selects it by its prefix, and the others still select theirs.
         XCTAssertEqual(Lang.detect(preferred: ["xx-YY"], among: languages), Lang("xx"))
         XCTAssertEqual(Lang.detect(preferred: ["xenian"], among: languages), Lang("xx"))
         XCTAssertEqual(Lang.detect(preferred: ["de-DE"], among: languages), .de)
-        XCTAssertEqual(Lang.detect(preferred: ["ko-KR"], among: languages), .en)
+        XCTAssertEqual(Lang.detect(preferred: ["ko-KR"], among: languages), Lang("ko"))
+        XCTAssertEqual(Lang.detect(preferred: ["pt-BR"], among: languages), Lang("pt-br"))
+        XCTAssertEqual(Lang.detect(preferred: ["da-DK"], among: languages), .en)
         // Its texts are read, and a key it lacks is not in its catalog (the lookup then shows English).
         let catalogs = LocalizationFiles.load(from: folder)
         XCTAssertEqual(catalogs["xx"]?["onboarding.start"], "Go")
         XCTAssertNil(catalogs["xx"]?["onboarding.later"])
         XCTAssertNotNil(catalogs["en"]?["onboarding.later"])
-        XCTAssertEqual(catalogs.keys.sorted(), ["de", "en", "fr", "it", "ja", "sv", "xx", "zh"])
+        XCTAssertEqual(catalogs.keys.sorted(), ["de", "en", "es", "fr", "it", "ja", "ko", "pt-br", "sv", "xx", "zh"])
     }
 
     func testAFileWithoutALanguageEntryStillWorks() throws {

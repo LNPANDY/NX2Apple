@@ -50,7 +50,7 @@ def prefixes(target: str) -> tuple[str, ...]:
 
 
 # The language code of a file and the code Xcode and iOS know it by. Every other code is the same in both.
-APPLE_CODES = {'zh': 'zh-Hans'}
+APPLE_CODES = {'zh': 'zh-Hans', 'pt-br': 'pt-BR'}   # a file name is lowercase, Apple's region code is not
 SOURCE_LANGUAGE = 'en'
 
 

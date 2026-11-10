@@ -1,0 +1,157 @@
+import Foundation
+import Combine
+import NXCore
+
+/// The one build queue (LNPANDY/NX2Apple#943, #997): games the player added, built one after the other. It follows `AppUpdateStore`
+/// (`frontend/ARCHITECTURE.md`, "Stores"): what it needs from the app comes through `init` as closures.
+///
+/// - Every entry is a snapshot (`QueueEntry`). The queue never reads the Build form, never changes the engine selection, and never
+///   adds anything by itself: an engine update does not queue a rebuild (#945 is not part of the product).
+/// - It lives in a file. After a restart the unfinished entries are back and `awaitingResume` asks the player before one starts.
+/// - Stop (of the running build) ends that entry only. `cancelQueued` removes the waiting ones and leaves the results.
+@MainActor package final class BuildQueueStore: ObservableObject {
+    @Published package private(set) var entries: [QueueEntry]
+    /// Entries from before a restart are waiting: nothing starts until the player confirms (`resume`) or drops them.
+    @Published package private(set) var awaitingResume: Bool
+    /// The player stopped the running build: the queue waits and starts nothing until `resume`. It survives a restart.
+    @Published package private(set) var paused: Bool
+
+    private let file: URL?
+    private let engineID: () -> String
+    /// Starts the entry's build. nil: started. A string: why it cannot, which becomes the entry's reason.
+    private let start: (QueueEntry) -> String?
+    /// A shared-app batch ended with these successful entries: package them once.
+    private let packageBatch: ([QueueEntry]) -> Void
+    /// A build or another operation is running, so nothing starts.
+    private let busy: () -> Bool
+    private let engineChangedReason: () -> String
+
+    package init(file: URL?, engineID: @escaping () -> String, busy: @escaping () -> Bool,
+                 start: @escaping (QueueEntry) -> String?, packageBatch: @escaping ([QueueEntry]) -> Void = { _ in },
+                 engineChangedReason: @escaping () -> String = { "The engine changed since this game was queued" }) {
+        self.file = file; self.engineID = engineID; self.busy = busy; self.start = start; self.packageBatch = packageBatch
+        self.engineChangedReason = engineChangedReason
+        let stored = file.map(BuildQueueFile.load) ?? (entries: [QueueEntry](), paused: false)
+        var loaded = stored.entries
+        // A build that was running when the app quit goes first again. Its folder keeps the finished stages.
+        for index in loaded.indices where loaded[index].status == .running { loaded[index].status = .queued }
+        let waiting = loaded.contains { $0.status == .queued }
+        entries = loaded
+        paused = stored.paused && waiting
+        awaitingResume = !stored.paused && waiting
+    }
+
+    package var queued: [QueueEntry] { entries.filter { $0.status == .queued } }
+    package var running: QueueEntry? { entries.first { $0.status == .running } }
+    package var isEmpty: Bool { entries.isEmpty }
+    package var hasWaiting: Bool { !queued.isEmpty }
+
+    // MARK: Changing the queue
+
+    /// Adds entries. The results of the earlier batch go: the summary shows the last batch only.
+    package func enqueue(_ new: [QueueEntry]) {
+        guard !new.isEmpty else { return }
+        entries.removeAll { $0.finished }
+        // A game that is already waiting is not queued twice.
+        let waiting = Set(queued.map(\.titleID) + (running.map { [$0.titleID] } ?? []))
+        var seen = waiting
+        for var entry in new where !seen.contains(entry.titleID) {
+            seen.insert(entry.titleID)
+            entry.status = .queued; entry.reason = nil
+            entries.append(entry)
+        }
+        persist()
+        processNext()
+    }
+
+    package func remove(_ id: UUID) {
+        guard let entry = entries.first(where: { $0.id == id }), entry.status != .running else { return }
+        entries.removeAll { $0.id == id }
+        persist()
+        if !hasWaiting { awaitingResume = false; paused = false }
+    }
+
+    package func canMoveUp(_ id: UUID) -> Bool { queuedIndex(id).map { $0 > 0 } ?? false }
+    package func canMoveDown(_ id: UUID) -> Bool { queuedIndex(id).map { $0 < queued.count - 1 } ?? false }
+
+    package func moveUp(_ id: UUID) { move(id, by: -1) }
+    package func moveDown(_ id: UUID) { move(id, by: 1) }
+
+    private func queuedIndex(_ id: UUID) -> Int? { queued.firstIndex { $0.id == id } }
+
+    private func move(_ id: UUID, by step: Int) {
+        guard let q = queuedIndex(id), (0..<queued.count).contains(q + step) else { return }
+        let other = queued[q + step].id
+        guard let a = entries.firstIndex(where: { $0.id == id }), let b = entries.firstIndex(where: { $0.id == other }) else { return }
+        entries.swapAt(a, b)
+        persist()
+    }
+
+    /// "Cancel queued builds": the waiting entries go, the running one and the results stay.
+    package func cancelQueued() {
+        entries.removeAll { $0.status == .queued }
+        awaitingResume = false
+        paused = false
+        persist()
+    }
+
+    // MARK: Running
+
+    /// The player confirmed the queue from before the restart.
+    package func resume() {
+        awaitingResume = false
+        paused = false
+        persist()
+        processNext()
+    }
+
+    /// The running entry's build ended. `reason` names a failure, nil is success. `stopped`: the player pressed Stop, which ends this
+    /// build and pauses the queue, so the next game does not start by itself.
+    package func buildEnded(succeeded: Bool, reason: String? = nil, stopped: Bool = false) {
+        guard let index = entries.firstIndex(where: { $0.status == .running }) else { return }
+        entries[index].status = succeeded ? .done : .failed
+        entries[index].reason = succeeded ? nil : reason
+        let batch = entries[index].batch
+        if stopped && !succeeded && hasWaiting { paused = true }
+        persist()
+        if !entries.contains(where: { $0.batch == batch && ($0.status == .queued || $0.status == .running) }) { batchEnded(batch) }
+        processNext()
+    }
+
+    /// The next waiting entry starts when nothing runs. An entry that cannot start is skipped with its reason, and the next one tries.
+    package func processNext() {
+        guard !awaitingResume, !paused, running == nil, !busy() else { return }
+        while let index = entries.firstIndex(where: { $0.status == .queued }) {
+            let entry = entries[index]
+            if entry.engineID != engineID() {
+                skip(index, engineChangedReason())
+                continue
+            }
+            entries[index].status = .running
+            persist()
+            if let problem = start(entry) {
+                guard let again = entries.firstIndex(where: { $0.id == entry.id }) else { continue }
+                skip(again, problem)
+                continue
+            }
+            return
+        }
+    }
+
+    private func skip(_ index: Int, _ reason: String) {
+        entries[index].status = .skipped
+        entries[index].reason = reason
+        let batch = entries[index].batch
+        persist()
+        if !entries.contains(where: { $0.batch == batch && ($0.status == .queued || $0.status == .running) }) { batchEnded(batch) }
+    }
+
+    private func batchEnded(_ batch: UUID) {
+        let members = entries.filter { $0.batch == batch }
+        let good = members.filter { $0.status == .done }
+        guard members.contains(where: \.packageAfter), !good.isEmpty else { return }
+        packageBatch(good)
+    }
+
+    private func persist() { if let file { BuildQueueFile.save(entries, paused: paused, to: file) } }
+}

@@ -8,8 +8,10 @@ British English
 Canadian French
 Console mode
 Controls
+Corner
 Display mode
 Docked
+Downsample HDR textures
 Dutch
 Dynamic resolution
 Encode thread
@@ -28,14 +30,20 @@ Game's own
 Game's upscaler
 German
 Handheld
+Higher
 Hold frames when late
+Inward
 Italian
 Japanese
 Keeps a pipeline archive; uses more memory.
 Korean
+Large
 Latin American Spanish
+Left stick
 Lets the game lower its resolution under load. Turn off to keep full resolution for the selected console mode.
+Loads each program's shader libraries in the background, whether a draw uses them or not.
 Match screen
+Medium
 Metal 4 pipelines
 MetalFX
 Performance
@@ -51,15 +59,21 @@ Renders about a quarter more pixels: a little slower and warmer.
 Rumble cutoff
 Rumble strength
 Russian
+Saves memory on devices without hardware BC textures, with slightly less precise HDR textures.
+Shader prefetch
 Simplified Chinese
+Size
+Small
 Spanish
 Standard
 Switch 2 controllers
 The first start waits a few minutes for it, once.
+The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.
 Touch feedback
 Traditional Chinese
 Up to one frame more display latency.
 Upscaling
 Uses more GPU time and can increase heat.
+Where the left stick of the on-screen controls sits.
 Window
 iPhone Duo screen (1.43:1)

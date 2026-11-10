@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import NXCore
 import NXModel
 
@@ -11,6 +12,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
     @ObservedObject var repo: RepoStore
     @ObservedObject var engine: EngineSyncStore
     @ObservedObject var dependencies: DependencyStore
+    @State private var invalidXcode = false
     let buildRunning: Bool
     let shellCache: ShellCache
     let builder: Builder
@@ -64,14 +66,14 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                 // GitHub does not load everywhere: the manual route (Code → Download ZIP → unzip →
                 // Choose repository) needs no git at all, and the note says which folder to pick.
                 HStack(spacing: 4) {
-                    Text(loc.t("repo.manualHint")).foregroundStyle(.secondary)
+                    Text(loc.t("repo.manualHint")).foregroundStyle(LauncherPalette.secondaryText)
                     Link("github.com/LNPANDY/NX2Apple", destination: URL(string: RepoStore.url.replacingOccurrences(of: ".git", with: ""))!)
-                    Text(loc.t("repo.manualHint2")).foregroundStyle(.secondary)
+                    Text(loc.t("repo.manualHint2")).foregroundStyle(LauncherPalette.secondaryText)
                 }
                 .font(.manrope(12)).padding(.horizontal, 18).padding(.bottom, 12)
             }
             if repo.isRepo, !repo.isGit {
-                Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(.secondary)
+                Text(loc.t(repo.autoUpdate ? "repo.noGit" : "repo.zipNoAuto")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                     .padding(.horizontal, 18).padding(.bottom, 12)
             }
             if repo.isRepo, !RepoLayout.missingTools(in: repo.path).isEmpty {
@@ -86,6 +88,15 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                 }
             }
             }
+            CardDivider()
+            CardRow(loc.t("xcodeChoice.title"), detail: dependencies.xcodeApp ?? loc.t("xcodeChoice.system")) {
+                if dependencies.xcodeApp != nil {
+                    Button(loc.t("xcodeChoice.reset")) { dependencies.selectXcode(nil) }
+                }
+                Button(loc.t("xcodeChoice.choose")) { pickXcode() }
+            }
+            .disabled(buildRunning || dependencies.deps.contains(where: \.installing))
+            .alert(loc.t("xcodeChoice.invalid"), isPresented: $invalidXcode) {}
             CardDivider()
             Button(action: { withAnimation(.easeInOut(duration: 0.18)) { dependencies.toggle() } }) {
                 CardRow(loc.t("dep.title"),
@@ -109,7 +120,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                             if d.installing {
                                 ProgressView().controlSize(.small)
                                 Text(loc.t("dep.installing")).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
-                            } else if !d.present {
+                            } else if !d.present && !(d.id == "xcode" && dependencies.xcodeApp != nil && d.installCmd.isEmpty) {
                                 Button(d.actionLabel.isEmpty ? (d.installCmd.isEmpty ? loc.t("dep.openAppStore") : loc.t("dep.install")) : loc.t(d.actionLabel)) { _ = dependencies.install(d) }
                             }
                         }
@@ -120,7 +131,7 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
                                 Text(d.lastError).font(.mono(11)).foregroundStyle(LauncherPalette.building)
                                     .lineLimit(3).help(d.lastError)
                                 if !d.fixHint.isEmpty {
-                                    Text(loc.t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(.secondary)
+                                    Text(loc.t(d.fixHint)).font(.manrope(11.5)).foregroundStyle(LauncherPalette.secondaryText)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
@@ -176,6 +187,15 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         CardDivider()
         CardRow(loc.t("repo.auto"), detail: loc.t("engine.autoNote")) {
             Toggle(loc.t("repo.auto"), isOn: $repo.autoUpdate).labelsHidden().toggleStyle(LauncherSwitchStyle())
+        }
+    }
+
+    private func pickXcode() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.applicationBundle]
+        panel.message = loc.t("xcodeChoice.message")
+        if panel.runModal() == .OK, let url = panel.url {
+            invalidXcode = !dependencies.selectXcode(url)
         }
     }
 

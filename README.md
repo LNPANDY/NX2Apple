@@ -56,8 +56,11 @@ launcher and a short list of patches, and follows nxnative every day.
 - **An Apple silicon Mac.** The launcher opens on **macOS 13 or later**. Building needs Xcode with
   the iOS SDK, and NVN games need [Xcode](https://developer.apple.com/download/all/?q=Xcode%2027.2) 27.2 (macOS 26.6
   or later) unless built with `--allow-other-metal`. Take 27.2 from Apple's download page, not the App Store's newer
-  Xcode. With a newer Xcode installed too, rename 27.2 to `Xcode-27.2.app` and select it:
-  `sudo xcode-select -s /Applications/Xcode-27.2.app`.
+  Xcode. With both installed, give 27.2 a distinct name such as `Xcode-27.2.app`. In **Settings →
+  Build tools → Choose Xcode…**, select the copy to use with NX2Apple, including one on an external
+  drive. During first-run setup, click **Set up later** to reach Settings, then **Run setup again**
+  after choosing Xcode. **Use system Xcode** follows the Mac's command-line selection (for example,
+  `sudo xcode-select -s /Applications/Xcode-27.2.app`).
 - **Your own game dumps** (NSP or XCI) and **your own `prod.keys`** from your own console. Nothing is
   bundled, downloaded or looked up for you. The same `prod.keys` opens every one of your Switch
   games. A current dump covers all retail titles. Switch 2 games (a game folder or `.nup` file) do not need
@@ -133,10 +136,13 @@ rumble and motion. Short stutters the first time a scene appears are normal: the
 graphics for it once and remembers them. The game's data (`romfs.img`) can live on an external drive
 that the Files app picks.
 
-**Game language.** English is the default. On the Mac, use the **Game language** row of Launch
-options. For anything the sheet lacks, write an `env.txt` of `KEY=VALUE` lines (for example
-`DM_LANG=zh-Hans`) in one of two places: `~/Library/Application Support/nxnative/<title ID>/env.txt`
-wins and survives rebuilds; `<App>.app/Contents/Resources/dm/env.txt` is the app's own. A Mac app
+**Game language.** On the Mac, a game that has your Mac's language starts in it: the **Game language**
+row of Launch options preselects it until you pick another, and **Reset to tested defaults** goes
+back to it. A game without your Mac's language, a game built in another language (`LANGUAGE`), and
+every iPhone build start in the build's language, English by default. For anything the sheet lacks,
+write an `env.txt` of `KEY=VALUE` lines (for example `DM_LANG=zh-Hans`) in one of two places:
+`~/Library/Application Support/nxnative/<title ID>/env.txt` wins and survives rebuilds;
+`<App>.app/Contents/Resources/dm/env.txt` is the app's own. A Mac app
 built before the language row existed needs one rebuild to get it. On the iPhone, the same lines go
 in `Documents/env.txt` (`DM_FPS_TARGET=30` caps the frame rate to save battery, `DM_OPMODE=0` picks
 handheld mode). That file applies to every game in the shared app. For a line that belongs to one game

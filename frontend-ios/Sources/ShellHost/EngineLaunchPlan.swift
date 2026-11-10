@@ -38,7 +38,9 @@ public struct EngineLaunchPlan: Equatable, Sendable {
 
         let perGameProfile = gdir.appendingPathComponent("profile.tsv")
         env["DM_PROFILE"] = (fm.fileExists(atPath: perGameProfile.path) ? perGameProfile : fw.appendingPathComponent(manifest.profile)).path
-        if let romfs = romfs(in: game.dataURL, manifest: manifest, fm, isDirectory) { env["DM_ROMFS"] = romfs.path }
+        if let romfs = game.romfsURL ?? DataLocator.romfs(in: game.dataURL, manifest: manifest, fm)?.romfs {
+            env["DM_ROMFS"] = romfs.path
+        }
         let save = gdir.appendingPathComponent("save", isDirectory: true), temp = gdir.appendingPathComponent("temp", isDirectory: true)
         env["DM_SAVE"] = save.path
         env["DM_TEMP"] = temp.path
@@ -105,19 +107,5 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             result.append((key: String(line[..<eq]), value: String(line[line.index(after: eq)...])))
         }
         return result
-    }
-
-    /// `DM_ROMFS`: a non-empty `romfs.img` (any case, the exact name first, like `romfs_document_images`), else a
-    /// `romfs/` tree or the folder itself, each only when it holds the manifest's marker.
-    private static func romfs(in data: URL, manifest: GameManifest, _ fm: FileManager, _ isDirectory: (URL) -> Bool) -> URL? {
-        let marker = manifest.romfsMarker
-        let names = ((try? fm.contentsOfDirectory(atPath: data.path)) ?? []).filter { $0.lowercased() == "romfs.img" }
-        for name in names.sorted(by: { ($0 == "romfs.img" ? 0 : 1, $0) < ($1 == "romfs.img" ? 0 : 1, $1) }) {
-            let url = data.appendingPathComponent(name)
-            if DataLocator.isComplete(url, manifest: manifest, fm) { return url }   // a partial copy is not the game's image
-        }
-        for tree in [data.appendingPathComponent("romfs", isDirectory: true), data]
-        where isDirectory(tree) && fm.fileExists(atPath: tree.appendingPathComponent(marker).path) { return tree }
-        return nil
     }
 }

@@ -21,7 +21,10 @@ extension BuildStore {
         }
         shellDeviceChecked = false
         if target != BuildTarget.mac, !exportsOneGame, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
-        stopping = false
+        if let message = spaceProblem() { doneNote = message; done = false; return }
+        stopping = false; stoppedByPlayer = false
+        buildingGame = true; runningTarget = target
+        beginOperation(.building, game: gameName, titleID: gameTitleID, destination: .target)
         running = true; done = false; doneNote = ""; stages = []; log.clear(); staleShadersMessageKey = nil
         failure = nil; confirmingOverride = nil
         let override = takeOverrideFlag()   // for this build only: the next one asks again
@@ -193,6 +196,7 @@ extension BuildStore {
         // is the per-user temp folder whether or not the app's own environment carries one.
         var denv = toolEnvironment(python: py)
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
+        if macApp { denv.merge(macBuildEnvironment(tidHex)) { $1 } }   // NX_FALLBACK_ICON for a game with no control data (#784)
         let launch = nxbRun
             ? experimentalLaunch(nxb: experimentalBuilderBinary ?? "", scriptArguments: args, engine: engine, environment: denv, python: py)   // BuildStore+Builder.swift (#749)
             : ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)
@@ -227,7 +231,8 @@ extension BuildStore {
                             ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
                         let tid = ShellInstall.titleID(ofFramework: fw)
                         self.packArchive(workDir: self.effectiveWorkDir, titleID: tid) {
-                            if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name) }
+                            if self.deferShellPackaging && self.exportsShell { self.deferShellPackage(framework: fw, titleID: tid, name: name) }
+                            else if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name) }
                             else { self.installShell(framework: fw, titleID: tid, name: name, archive: $0) }
                         }
                     }
@@ -264,12 +269,15 @@ extension BuildStore {
         } catch { fail(String(format: t("msg.launchFailed"), error.localizedDescription)) }
     }
 
-    private func finishMacApp(_ output: MacAppOutput) {
+    /// The app goes where the player finds it, macOS checks its first start (`preflight`), and the build is done.
+    @discardableResult
+    func finishMacApp(_ output: MacAppOutput) -> Task<Void, Never> {
         Task {
             do {
                 let app = try await Task.detached { try output.finish() }.value
                 macAppPath = app.path
                 say("✓ " + shortPath(app.path))
+                await preflight(app)
                 done = true
                 doneNote = t("msg.macAppDone")
                 running = false
@@ -282,8 +290,53 @@ extension BuildStore {
         }
     }
 
+    /// The build's last stage: the new app is opened once, hidden, so that macOS checks it now and not at the player's first
+    /// start (#1005, `MacPreflight`). Its end, whatever it is, leaves the build done: a failure is a line in the log and a
+    /// failed stage. Skipped when switched off in Settings, or when the app's launcher would start the game instead.
+    func preflight(_ app: URL) async {
+        guard let open = preflightApp, MacPreflight.enabled(defaults), preflightSupported(app) else { return }
+        operation?.kind = .verifyingFirstStart
+        let id = (stages.map(\.id).max() ?? 0) + 1
+        let started = Date()
+        stages.append(Stage(id: id, name: Stage.localizedName("preflight", t), state: .running, started: started))
+        say(t("msg.preflight"))
+        var timer: Task<Void, Never>?
+        let error: Error? = await withCheckedContinuation { (c: CheckedContinuation<Error?, Never>) in
+            let end: @MainActor (Error?) -> Void = { [weak self] e in
+                guard let self, self.endPreflight != nil else { return }   // once: the app quit, Stop, or the timeout
+                self.endPreflight = nil
+                c.resume(returning: e)
+            }
+            endPreflight = { end($0) }
+            let timeout = preflightTimeout
+            timer = Task {
+                do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
+                end(MacPreflight.Failure.timedOut)
+            }
+            open(app, end)
+        }
+        timer?.cancel()
+        guard let i = stages.firstIndex(where: { $0.id == id }) else { return }
+        if let error {
+            let why: String
+            switch error {
+            case MacPreflight.Failure.timedOut: why = String(format: t("msg.preflightTimedOut"), Int(preflightTimeout / 60))
+            case MacPreflight.Failure.stopped: why = t("msg.stopped")
+            default: why = error.localizedDescription
+            }
+            stages[i].state = .failed
+            stages[i].detail = why
+            say("✗ " + String(format: t("msg.preflightFailed"), why))
+        } else {
+            stages[i].state = .done
+            say("✓ " + String(format: t("msg.preflightDone"), Int(Date().timeIntervalSince(started).rounded())))
+        }
+    }
+
     /// Looks the device up in `devicectl list devices` (in the background), then starts the build, or says how to pair it.
     package func verifyShellDevice() {
+        buildingGame = true; runningTarget = target
+        beginOperation(.building, game: gameName, titleID: gameTitleID, destination: .target)
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         let xcrun = devices.xcrun, device = devices.installDevice, runner = runner
         DispatchQueue.global(qos: .userInitiated).async {
@@ -299,5 +352,16 @@ extension BuildStore {
                 self.runBuild()
             }
         }
+    }
+}
+
+extension BuildStore {
+    /// #966: the game files are the least a build needs. Short of that, the build does not start, and the note says why and what is kept.
+    func spaceProblem() -> String? {
+        let folder = outDir.isEmpty ? inputFolder : outDir
+        guard !folder.isEmpty, let free = spaceAvailable(folder) else { return nil }
+        let space = BuildSpace(needed: BuildSpace.size(of: [basePath, updatePath] + dlcPaths), available: free)
+        guard space.isShort else { return nil }
+        return String(format: t("space.short"), shortPath(folder), BuildSpace.text(space.needed), BuildSpace.text(space.available))
     }
 }

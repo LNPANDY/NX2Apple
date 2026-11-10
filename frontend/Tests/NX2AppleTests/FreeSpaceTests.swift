@@ -55,6 +55,37 @@ final class FreeSpaceTests: IsolatedDefaultsTestCase {
         return game
     }
 
+    /// #232: Remove build files takes every part Free space offers and keeps what the folder keeps for its own sake and every protected path.
+    @MainActor func testRemoveBuildFilesKeepsTheGameWorkingAndTheFolderLogs() throws {
+        let game = try fixture()
+        let entry = try XCTUnwrap(BuildFiles.games([game], lang: .en).first)
+        XCTAssertEqual(entry.folder, build.path)
+        let before = BuildFiles.measure(entry)
+        XCTAssertGreaterThan(before, 0)
+        let freed = try BuildFiles.remove(entry)
+        XCTAssertGreaterThan(freed, 0)
+        for gone in ["extract", "shader", "pso", "xcode", "tmp", "aoc", "patched_v0", "patched_v0.key"] { XCTAssertFalse(exists(gone), gone) }
+        for kept in ["logs/split.log", "profile/\(titleID)/game.tsv", "run/save/save.bin", "nsp/game.nsp",
+                     "xcode-derived-data/Build/Products/Release-iphoneos/DmIOS.app/Info.plist"] { XCTAssertTrue(exists(kept), kept) }
+        for kept in [titleID + ".app/Contents/Info.plist", titleID + ".ipa", "games/\(titleID)/romfs.img"] { XCTAssertTrue(exists(kept, in: out), kept) }
+        XCTAssertEqual(BuildFiles.measure(entry), 0, "nothing left to remove: the item and the row go")
+    }
+
+    func testBuildFilesTextsAreInEnglishGermanAndChineseWithoutSemicolons() {
+        for lang in [Lang.en, Lang("de"), Lang.zh] {
+            for key in ["buildfiles.title", "buildfiles.note", "buildfiles.menu", "buildfiles.card", "buildfiles.cardNote", "buildfiles.remove",
+                        "buildfiles.total", "buildfiles.building", "buildfiles.removeNamed", "buildfiles.frees", "buildfiles.stays",
+                        "buildfiles.details", "buildfiles.detailsNamed"] {
+                let text = L10n.string(key, lang)
+                XCTAssertNotEqual(text, key, "\(lang.code) \(key)")
+                XCTAssertFalse(text.contains(";") || text.contains("；"), "\(lang.code) \(key)")
+            }
+        }
+        XCTAssertEqual(L10n.string("buildfiles.note", .en), "The game keeps working. The next build of this game starts over and takes longer.")
+        XCTAssertEqual(String(format: L10n.string("buildfiles.frees", .en), "31 GB") + " " + L10n.string("buildfiles.stays", .en),
+                       "Frees 31 GB. Logs, saves of development builds and converted game files stay.")
+    }
+
     func testTheFolderIsFoundInTheOutputFolderOrBesideTheNSPs() throws {
         let game = try fixture()
         XCTAssertEqual(BuildFolder.location(for: game), build.path)

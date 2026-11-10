@@ -397,12 +397,12 @@ struct SavesView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 4) {
                 Text(loc.t("saves.title")).font(.manrope(26, .heavy)).tracking(-0.6)
-                if let game { Text(game.name).font(.manrope(14)).foregroundStyle(.secondary) }
+                if let game { Text(game.displayName(loc.lang)).font(.manrope(14)).foregroundStyle(LauncherPalette.secondaryText) }
             }
             .padding(.horizontal, 30).padding(.top, 28).padding(.bottom, model.showsSelector ? 12 : 20)
             if model.showsSelector {
                 HStack(spacing: 12) {
-                    Text(loc.t("saves.device")).font(.manrope(13)).foregroundStyle(.secondary)
+                    Text(loc.t("saves.device")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                     LauncherDropdown(options: model.devices.map { d in
                         (value: d.id, label: d.name + (d.reachable ? "" : " (" + loc.t("dev.notConnected") + ")"))
                     }, selection: model.selected, label: loc.t("saves.device")) { model.select($0) }
@@ -420,7 +420,7 @@ struct SavesView: View {
                 if busy {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
-                        Text(loc.t("saves.copying")).font(.manrope(13)).foregroundStyle(.secondary)
+                        Text(loc.t("saves.copying")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                     }
                 } else if let result {
                     Label(result.text, systemImage: result.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
@@ -432,15 +432,14 @@ struct SavesView: View {
             .padding(.horizontal, 30)
             Divider().opacity(0.3)
             HStack(spacing: 14) {
-                Text(String(format: loc.t("saves.note"), deviceName)).font(.manrope(12)).foregroundStyle(.secondary)
+                Text(String(format: loc.t("saves.note"), deviceName)).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 Button { dismiss() } label: {
-                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold)).foregroundStyle(.black)
+                    Text(loc.t("launch.done")).font(.manrope(13.5, .bold))
                         .padding(.horizontal, 22).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: Capsule())
                 }
-                .buttonStyle(.plain).keyboardShortcut(asking == nil ? .defaultAction : nil).disabled(busy)
+                .buttonStyle(LauncherActionButtonStyle()).keyboardShortcut(asking == nil ? .defaultAction : nil).disabled(busy)
                 .padTarget("saves.done", scope: "saves", radius: 20) { if !busy { dismiss() } }
             }
             .padding(.horizontal, 30).padding(.vertical, 16)
@@ -449,15 +448,15 @@ struct SavesView: View {
         .frame(width: 600, height: 520)
         .background(LauncherPalette.background)
         .font(.manrope(13))
-        .preferredColorScheme(.dark)
-        .tint(LauncherPalette.cream)
+        .launcherAppearance()
+        .tint(LauncherPalette.accent)
         .onAppear { model.begin() }
     }
 
     private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 0, content: content)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
     }
 
     private func sideRow(_ side: SaveTransfer.Side) -> some View {
@@ -478,10 +477,10 @@ struct SavesView: View {
         }
         return HStack(spacing: 14) {
             Image(systemName: side == .mac ? "desktopcomputer" : (model.selectedDevice?.model.lowercased().contains("ipad") == true ? "ipad" : "iphone")).font(.system(size: 18, weight: .light))
-                .foregroundStyle(.secondary).frame(width: 26)
+                .foregroundStyle(LauncherPalette.secondaryText).frame(width: 26)
             VStack(alignment: .leading, spacing: 3) {
                 Text(side == .mac ? loc.t("saves.mac") : deviceName).font(.manrope(14, .medium))
-                Text(detail).font(.manrope(12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
                 if side == .mac {
                     Text(macLocationText).font(.manrope(11)).foregroundStyle(.tertiary).lineLimit(2).truncationMode(.middle)
                         .fixedSize(horizontal: false, vertical: true)
@@ -489,7 +488,7 @@ struct SavesView: View {
             }
             Spacer(minLength: 12)
             if newer == side && (side == .mac || deviceSave != nil) {
-                Text(loc.t("saves.newer").uppercased()).font(.manrope(10.5, .bold)).tracking(1.1).foregroundStyle(.black)
+                Text(loc.t("saves.newer").uppercased()).font(.manrope(10.5, .bold)).tracking(1.1).foregroundStyle(LauncherPalette.onCream)
                     .padding(.horizontal, 10).padding(.vertical, 4)
                     .background(LauncherPalette.cream, in: Capsule())
             }
@@ -524,23 +523,22 @@ struct SavesView: View {
             Text(replacing == .device ? String(format: loc.t("saves.askToDevice"), deviceName) : String(format: loc.t("saves.askToMac"), deviceName))
                 .font(.manrope(15, .semibold)).fixedSize(horizontal: false, vertical: true)
             Text(String(format: loc.t("saves.askNote"), deviceName, m.shortPath(transfer.backups.path)))
-                .font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 10) {
                 Spacer()
                 Button(loc.t("saves.cancel")) { asking = nil }.buttonStyle(LauncherSecondaryButtonStyle())
                     .padTarget("saves.cancel", scope: "saves") { asking = nil }
                 Button { copy(replacing) } label: {
-                    Text(loc.t("saves.replace")).font(.manrope(13, .bold)).foregroundStyle(.black)
+                    Text(loc.t("saves.replace")).font(.manrope(13, .bold))
                         .padding(.horizontal, 18).padding(.vertical, 9)
-                        .background(LauncherPalette.cream, in: RoundedRectangle(cornerRadius: 9))
                 }
-                .buttonStyle(.plain).keyboardShortcut(.defaultAction)
+                .buttonStyle(LauncherActionButtonStyle(.rounded(9))).keyboardShortcut(.defaultAction)
                 .padTarget("saves.replace", scope: "saves") { copy(replacing) }
             }
         }
         .padding(18)
-        .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cream.opacity(0.35)))
+        .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.accent.opacity(0.35)))
     }
 
     private func dateText(_ date: Date) -> String {
@@ -553,7 +551,7 @@ struct SavesView: View {
     private func ask(_ replacing: SaveTransfer.Side) {
         result = nil
         guard let game, !SaveTransfer.runningOnMac(titleID: game.titleID) else {
-            result = (String(format: loc.t("saves.running"), game?.name ?? ""), false)
+            result = (String(format: loc.t("saves.running"), game?.displayName(loc.lang) ?? ""), false)
             return
         }
         asking = replacing
@@ -564,7 +562,7 @@ struct SavesView: View {
         asking = nil
         guard let game, let transfer = model.found else { return }
         if SaveTransfer.runningOnMac(titleID: game.titleID) {   // started while the question was open
-            result = (String(format: loc.t("saves.running"), game.name), false)
+            result = (String(format: loc.t("saves.running"), game.displayName(loc.lang)), false)
             return
         }
         busy = true

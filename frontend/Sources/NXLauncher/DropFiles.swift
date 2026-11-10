@@ -28,10 +28,10 @@ package struct GameFilesDrop: ViewModifier {
                     ZStack {
                         RoundedRectangle(cornerRadius: 18)
                             .fill(LauncherPalette.background.opacity(0.72))
-                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(LauncherPalette.cream.opacity(0.8),
+                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(LauncherPalette.accent.opacity(0.8),
                                                                                     style: StrokeStyle(lineWidth: 2, dash: [8, 6])))
                         Label(label, systemImage: "square.and.arrow.down")
-                            .font(.manrope(15, .semibold)).foregroundStyle(.black)
+                            .font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.onCream)
                             .padding(.horizontal, 20).padding(.vertical, 12)
                             .background(LauncherPalette.cream, in: Capsule())
                     }

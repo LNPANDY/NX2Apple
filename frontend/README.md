@@ -340,8 +340,8 @@ cd frontend
 swift run
 ```
 
-or double-click `nxnative.app` in this folder (ad-hoc signed, and rebuild it with `swift build -c release`
-and copy the binary into `Contents/MacOS/`). The app's settings and library stay under the folder name it
+or double-click `nxnative.app` in this folder (ad-hoc signed, and rebuild it with `tools/build_launcher.sh`, which runs `swift build -c release`
+with the SDK on the link, and copy `.build/release/NX2Apple` into `Contents/MacOS/`). The app's settings and library stay under the folder name it
 had before the rename, `~/Library/Application Support/NS Port Builder/`.
 
 To try the app CI built for a pull request, for `main` or for a release candidate, without building it: `tools/try-pr 271`,

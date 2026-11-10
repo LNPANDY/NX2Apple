@@ -102,6 +102,14 @@ class BuildButton(unittest.TestCase):
         self.assertFalse(w.build_btn.isEnabled())
         self.assertEqual(w.footer.text(), m.t('status.needInputs'))
 
+    def test_a_refused_game_folder_names_its_real_reason_not_missing_files(self):
+        m, w = self._window(deps=self._rows(), base='', keys='')
+        m.game_folder_problem = 'This folder holds no base game of a supported title'
+        w._refresh_running()
+        self.assertFalse(w.build_btn.isEnabled())
+        self.assertEqual(w.footer.text(), 'This folder holds no base game of a supported title')
+        self.assertNotEqual(w.footer.text(), m.t('status.needInputs'))
+
     def test_the_line_goes_when_the_reason_does(self):
         m, w = self._window(deps=self._rows(required_missing=True))
         self.assertEqual(w.footer.text(), m.t('status.installFirst'))

@@ -97,13 +97,25 @@ extension ProcessRunner {
 
 /// Starts real processes.
 package struct SystemProcessRunner: ProcessRunner {
-    package init() {}
+    private let xcodeApp: () -> String?
+
+    package init(defaults: UserDefaults = .standard) { xcodeApp = { XcodeSelection.app(in: defaults) } }
+
+    /// A dependency scan probes one selection throughout, even if a new scan starts before it finishes.
+    init(xcodeApp: String?) { self.xcodeApp = { xcodeApp } }
 
     private func process(_ launch: ProcessLaunch) -> Process {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launch.executable)
         p.arguments = launch.arguments
-        if let env = launch.environment { p.environment = env }
+        if let app = xcodeApp(), XcodeSelection.isXcode(app) {
+            // xcrun, xcodebuild and the engine's grandchildren must agree, even for a build or install with a clean environment.
+            var env = launch.environment ?? ProcessInfo.processInfo.environment
+            env["DEVELOPER_DIR"] = app + "/Contents/Developer"
+            p.environment = env
+        } else if let env = launch.environment {
+            p.environment = env
+        }
         if let dir = launch.directory { p.currentDirectoryURL = URL(fileURLWithPath: dir) }
         return p
     }

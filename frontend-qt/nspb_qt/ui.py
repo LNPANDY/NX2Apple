@@ -579,7 +579,7 @@ class MainWindow(QMainWindow):
             else:
                 st_text = self.m.t('library.notBuilt')
                 st_color = style.NEUTRAL_DOT
-                p_label = self.m.t('build.startGame')
+                p_label = self.m.t('library.setUpBuild')
                 p_en = not self.m.running
 
             sub_parts = [sel.title_id]
@@ -2364,7 +2364,8 @@ class MainWindow(QMainWindow):
                 elif not self.m.all_deps_ok:
                     why = t('status.installFirst')
                 elif self.m.game_folder_problem:
-                    why = t('status.fixFolder')
+                    # the real reason the folder was refused, not a generic line and never "the base game and keys are missing" (#696)
+                    why = self.m.game_folder_problem
                 else:
                     why = t('status.needInputs')
                 self.footer.setText(why)

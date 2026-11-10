@@ -22,14 +22,14 @@ package struct BuildFailureCard: View {
     package var body: some View {
         if let f = failure ?? m.failure {
             VStack(alignment: .leading, spacing: 10) {
-                Text(loc.t("fail.section")).font(.manrope(15, .semibold)).foregroundStyle(.secondary).padding(.leading, 2)
+                Text(loc.t("fail.section")).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText).padding(.leading, 2)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         Circle().fill(LauncherPalette.building).frame(width: 7, height: 7)
                         Text(m.failureWhat(f)).font(.manrope(14, .semibold)).fixedSize(horizontal: false, vertical: true)
                     }
                     let chooseTitle = !f.titleIDs.isEmpty && !m.experimentalBuilder
-                    Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(.manrope(13)).foregroundStyle(.secondary)
+                    Text(loc.t(chooseTitle ? "fail.severalGames.choose" : f.kind.nextKey)).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                         .fixedSize(horizontal: false, vertical: true).padding(.leading, 17)
                     if chooseTitle {
                         VStack(alignment: .leading, spacing: 6) {
@@ -42,11 +42,14 @@ package struct BuildFailureCard: View {
                     } else {
                         buttons(f.kind).padding(.leading, 17).padding(.top, 2)
                     }
+                    if f.kind == .shellDataIncomplete, m.finderShown, let archive = m.finderArchive {
+                        FinderCopySteps(archive: archive).padding(.leading, 17)
+                    }
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+                .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
             }
             .alert(loc.t("fail.confirm.title"), isPresented: Binding(get: { m.confirmingOverride != nil }, set: { if !$0 { m.cancelBuildAnyway() } })) {
                 Button(loc.t("fail.confirm.go")) { m.confirmBuildAnyway() }
@@ -67,19 +70,24 @@ package struct BuildFailureCard: View {
             case .iosSDK:
                 fix(kind, "fail.iosSDK.button")
             case .cltSelected:
-                if Toolchain.installedXcode() != nil { fix(kind, "fail.cltSelected.button") }
+                if m.installedXcode != nil { fix(kind, "fail.cltSelected.button") }
             case .keys, .keysOld:
                 fix(kind, "fail.keys.button")
-            case .severalGames, .noTitleID, .diskFull:
+            case .severalGames, .noTitleID, .diskFull, .staleProfile:
                 fix(kind, "fail.showFolder")
             case .cloudFolder, .volumeFormat:
                 fix(kind, "fail.cloudFolder.button")
             case .teamTaken, .noSigningAccount:
-                if Toolchain.installedXcode() != nil { fix(kind, "fail.openXcode") }
+                if m.installedXcode != nil { fix(kind, "fail.openXcode") }
             case .deviceTransfer, .devicePairing:
                 fix(kind, "fail.retry")
             case .shellDataIncomplete:
                 fix(kind, "shell.retry")
+                if m.finderArchive != nil {
+                    Button(loc.t("shell.sendFinder")) {
+                        withAnimation(.easeInOut(duration: 0.18)) { m.copyWithFinder(oneGame: false) }
+                    }.disabled(m.running)
+                }
             case .engineOffline, .engineSync:
                 Button(loc.t("fail.retry")) { engine?.retrySync() }.disabled(engine?.syncing ?? false)
             default: EmptyView()

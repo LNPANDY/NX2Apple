@@ -59,7 +59,7 @@ import NXModel
         }
         env.openURL = { fake.opened.append($0) }
         env.keyCheck = { _, _ in fake.keyOutcome }
-        env.scanGames = { _, _ in fake.games }
+        env.scanGames = { _, _, _ in fake.games }
         env.fetchArtwork = { _ in }
         env.pollInterval = 0.01; env.advanceDelay = 0
         let library = GameLibrary(file: home.appendingPathComponent("library.json"))
@@ -275,6 +275,37 @@ import NXModel
         XCTAssertEqual(failure.message, L10n.string("onboarding.error.metal", driver.model.lang))
         XCTAssertTrue(failure.details.contains("HTTP 503"))
         XCTAssertTrue(fake.adminCalls.isEmpty, "Xcode was already set up: no prompt")
+    }
+
+    func testLauncherOnlyXcodeNeverRunsTheSystemSelectionCommandForFirstLaunch() async {
+        let app = "/Volumes/External Drive/Xcode.app"
+        testDefaults.set(app, forKey: XcodeSelection.key)
+        let fake = Fake()
+        fake.probe = XcodeProbe(appPath: app, selectedIsXcode: true, licenseAccepted: false, firstLaunchDone: false)
+        let (driver, _) = make(fake, deps: [dep("metal", present: true)], step: .xcode, platform: .mac)
+        await driver.refreshXcode()
+        driver.finishXcodeSetup()
+        await driver.settle()
+        XCTAssertTrue(fake.adminCalls.isEmpty)
+        guard case .failed(let failure) = driver.state.xcode else { return XCTFail("Expected first-launch instructions") }
+        XCTAssertEqual(failure.details, app)
+    }
+
+    func testUnavailableSelectedXcodeOffersRetryAndDetectsTheReconnectedDrive() async {
+        let fake = Fake()
+        fake.probe = XcodeProbe(selectedAppUnavailable: true)
+        let (driver, _) = make(fake, deps: [dep("metal", present: false)], step: .xcode, platform: .mac)
+        await driver.refreshXcode()
+        XCTAssertEqual(driver.state.xcode, .disconnected)
+        XCTAssertEqual(driver.state.primary, .retry)
+        driver.getXcode()
+        XCTAssertTrue(fake.opened.isEmpty)
+        fake.probe = XcodeProbe(appPath: "/Volumes/Example/Xcode.app", selectedIsXcode: true, licenseAccepted: true, firstLaunchDone: true)
+        fake.onDetect = { $0.deps = [self.dep("metal", present: true)] }
+        driver.retry(.xcode)
+        await driver.settle()
+        XCTAssertEqual(driver.state.xcode, .ready)
+        XCTAssertTrue(fake.adminCalls.isEmpty)
     }
 
     func testGetXcodeOpensTheAppStoreAndPollsUntilItAppears() async {
@@ -533,6 +564,35 @@ import NXModel
         XCTAssertEqual(driver.state.keys, .skipped)
         XCTAssertTrue(model.keysPath.isEmpty)
         XCTAssertTrue(FileManager.default.fileExists(atPath: keys.path))
+    }
+
+    /// #996: keys chosen in the setup are saved for every game, and skipping the keys never removes a saved file.
+    func testChosenKeysAreSavedAndSkippingKeepsThem() async throws {
+        let keys = home.appendingPathComponent("prod.keys")
+        try Data().write(to: keys)
+        let (driver, model) = make(Fake(), deps: [], step: .keys, platform: .mac)
+        driver.chooseKeys(keys)
+        await driver.settle()
+        XCTAssertEqual(driver.state.keys, .valid)
+        XCTAssertEqual(model.savedKeys, keys.path)
+
+        let (again, saved) = make(Fake(), deps: [], step: .keys, platform: .mac)
+        XCTAssertEqual(saved.savedKeys, keys.path, "a new launch reads them")
+        again.skipKeys()
+        XCTAssertEqual(again.state.keys, .skipped)
+        XCTAssertEqual(saved.savedKeys, keys.path, "Skip never removes the saved keys")
+        XCTAssertTrue(saved.keysRowPath.isEmpty, "skipped: the row stays empty")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keys.path), "the file itself stays")
+    }
+
+    func testResumeBeyondKeysAcceptsTheKeysSavedInSettings() throws {
+        let keys = home.appendingPathComponent("saved.keys")
+        try Data().write(to: keys)
+        testDefaults.set(keys.path, forKey: BuildStore.savedKeysKey)
+        let (resumed, model) = make(Fake(), deps: [], step: .done, platform: .mac)
+        XCTAssertTrue(model.keysRowPath.isEmpty)
+        XCTAssertEqual(resumed.state.step, .done)
+        XCTAssertEqual(resumed.state.keys, .valid)
     }
 
     func testResumeBeyondKeysRequiresAnExistingKeyOrASavedSkip() throws {

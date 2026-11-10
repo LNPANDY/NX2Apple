@@ -43,6 +43,12 @@ extension GameLibrary {
         return url.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
     }
 
+    /// The hero's image for a game: the one decoded for the hero when it is this game's, else a hero-sized decode. Never a card's.
+    static func heroImage(for id: UUID, decoded: (id: UUID, image: NSImage)?, decode: () -> NSImage?) -> NSImage? {
+        if let decoded, decoded.id == id { return decoded.image }
+        return decode()
+    }
+
     /// The artwork, decoded no larger than `maxPixel` on its longer side. The hero needs the large default, a card or a
     /// console cover `ArtworkImages.cardPixels`.
     static func artwork(for game: LibraryGame, slot: ArtworkSlot = .hero, repo: String, banners: URL = ArtworkStore.shared.directory,

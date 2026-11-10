@@ -39,14 +39,20 @@ class Detect(unittest.TestCase):
         self.assertEqual(Lang('en').other, Lang('sv'))
         self.assertEqual(Lang('sv').other, Lang('de'))
         self.assertEqual(Lang('de').other, Lang('fr'))
-        self.assertEqual(Lang('fr').other, Lang('it'))
+        self.assertEqual(Lang('fr').other, Lang('es'))
+        self.assertEqual(Lang('es').other, Lang('it'))
         self.assertEqual(Lang('it').other, Lang('ja'))
-        self.assertEqual(Lang('ja').other, Lang('zh'))
+        self.assertEqual(Lang('ja').other, Lang('ko'))
+        self.assertEqual(Lang('ko').other, Lang('pt-br'))
+        self.assertEqual(Lang('pt-br').other, Lang('zh'))
         self.assertEqual(Lang('sv').toggle_label, 'Deutsch')
         self.assertEqual(Lang('de').toggle_label, 'Français')
-        self.assertEqual(Lang('fr').toggle_label, 'Italiano')
+        self.assertEqual(Lang('fr').toggle_label, 'Español')
+        self.assertEqual(Lang('es').toggle_label, 'Italiano')
         self.assertEqual(Lang('it').toggle_label, '日本語')
-        self.assertEqual(Lang('ja').toggle_label, '中文')
+        self.assertEqual(Lang('ja').toggle_label, '한국어')
+        self.assertEqual(Lang('ko').toggle_label, 'Português (Brasil)')
+        self.assertEqual(Lang('pt-br').toggle_label, '中文')
 
     def test_german_is_recognised_by_tag_and_windows_name(self):
         for tag in ('de_DE', 'de-AT', 'de_CH.UTF-8', 'de'):
@@ -64,8 +70,10 @@ class Detect(unittest.TestCase):
     def test_the_windows_locale_name_is_recognised(self):
         for name in ('Chinese (Simplified)_China', 'Chinese (Traditional)_Taiwan', 'Chinese_China'):
             self.assertEqual(detect(name, platform='win32'), Lang('zh'), name)
-        for name in ('English_United States', 'Korean_Korea'):
-            self.assertEqual(detect(name, platform='win32'), Lang('en'), name)
+        self.assertEqual(detect('English_United States', platform='win32'), Lang('en'))
+        self.assertEqual(detect('Korean_Korea', platform='win32'), Lang('ko'))
+        self.assertEqual(detect('Spanish_Spain', platform='win32'), Lang('es'))
+        self.assertEqual(detect('Portuguese_Brazil', platform='win32'), Lang('pt-br'))
         self.assertEqual(detect('Japanese_Japan', platform='win32'), Lang('ja'))
 
     def test_a_bcp47_tag_still_works(self):

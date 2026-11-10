@@ -19,8 +19,12 @@ final class FrenchLocalizationTests: IsolatedDefaultsTestCase {
         "controls.fn.ZL", "controls.fn.ZR", "controls.fn.Plus", "controls.fn.Minus", "launch.mods",
         "pad.options", "engine.channel.stable", "launch.opt.DM_PRESENT_UPSCALE.off", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx", "launch.opt.DM_SCREEN_ASPECT.0", "key.tab",
         "switch2.badge",   // the console's name
+        "ios.ui.switch2Badge",   // the console's name
+        "console.mapping.place.Plus", "console.menu", "console.mapping.group.menus",   // the Switch's Plus button, and Menu and Menus, as French writes them
         // Steam Controller names retained in French.
         "controls.steam.title", "controls.steam.L4", "controls.steam.L5", "controls.steam.R4", "controls.steam.R5", "controls.steam.Guide",
+        "buildfiles.total",   // Total reads the same in French
+        "console.gamePage.version",   // Version, the game page's fact (#816)
         // Shell words shared by English and French.
         "ios.host.ok", "ios.ui.interface", "ios.ui.padPlus", "ios.ui.version", "ios.ui.touchEditorPortrait", "ios.ui.gameVersionLabel",
     ]

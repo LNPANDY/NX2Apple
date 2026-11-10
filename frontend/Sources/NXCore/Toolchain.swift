@@ -357,7 +357,8 @@ package enum Toolchain {
     /// An Xcode.app that is installed but not selected: an App Store download arrives as
     /// /Applications/Xcode.app and stays unused until someone opens it or points xcode-select at
     /// it, so `xcode-select -p` keeps saying CommandLineTools and xcodebuild fails later.
-    package static func installedXcode() -> String? {
+    package static func installedXcode(customApp: String? = nil) -> String? {
+        if let customApp { return XcodeSelection.isXcode(customApp) ? customApp : nil }
         for app in ["/Applications/Xcode.app", "/Applications/Xcode-beta.app"]
         where FileManager.default.isExecutableFile(atPath: app + "/Contents/Developer/usr/bin/xcodebuild") {
             return app

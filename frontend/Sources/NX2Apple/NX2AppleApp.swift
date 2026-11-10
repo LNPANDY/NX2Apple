@@ -48,6 +48,13 @@ struct NX2AppleApp: App {
 /// regular app: no Dock icon, and the window can stay hidden behind the terminal. Inside the
 /// .app bundle this changes nothing.
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// True when the quit waits: console mode asks before a game paused in the background quits, and quits the launcher once it has (#952).
+    @MainActor static var deferTermination: () -> Bool = { false }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated { Self.deferTermination() } ? .terminateCancel : .terminateNow
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)

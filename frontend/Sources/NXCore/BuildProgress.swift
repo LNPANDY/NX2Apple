@@ -34,18 +34,29 @@ package struct Stage: Identifiable {
         return name
     }
 
-    /// "3:42" since the stage began, then "1 min left" while the script's estimate, counted down from when it came,
-    /// lasts: the estimate only arrives with a new count, so one taken as it was would stand still with the count.
+    /// The seconds left, only when the estimate holds against the stage's own progress (LNPANDY/NX2Apple#934): the stage reports a
+    /// share done (5 to 99 %) and has run 30 s, and the script's estimate is within a factor of five of what that share and the
+    /// elapsed time project. Anything else is no estimate, and the view shows the calm indeterminate state. The share is the
+    /// current stage's, never the whole build's.
+    package func remaining(at now: Date) -> Double? {
+        guard let eta, let etaAt, let percent, let started, percent >= 5, percent < 100 else { return nil }
+        let elapsed = now.timeIntervalSince(started)
+        guard elapsed >= 30 else { return nil }
+        let projected = elapsed * (100 - percent) / percent
+        let counted = eta - now.timeIntervalSince(etaAt)
+        guard counted >= 1, projected > 0, counted <= projected * 5, counted >= projected / 5 else { return nil }
+        return counted
+    }
+
+    /// "3:42" since the stage began, then "about 1 min left (estimate)" while a defensible estimate (`remaining`) lasts. The estimate
+    /// is counted down from when it came: it only arrives with a new count, so one taken as it was would stand still with the count.
     package func clock(at now: Date, left: String) -> String {
         var parts: [String] = []
         if let started {
             let t = max(0, Int(now.timeIntervalSince(started)))
             parts.append(t >= 3600 ? String(format: "%d:%02d:%02d", t / 3600, t / 60 % 60, t % 60) : String(format: "%d:%02d", t / 60, t % 60))
         }
-        if let eta, let etaAt {
-            let remaining = eta - now.timeIntervalSince(etaAt)
-            if remaining >= 1 { parts.append(String(format: left, BuildProgress.duration(remaining))) }
-        }
+        if let remaining = remaining(at: now) { parts.append(String(format: left, BuildProgress.duration(remaining))) }
         return parts.joined(separator: " · ")
     }
 }

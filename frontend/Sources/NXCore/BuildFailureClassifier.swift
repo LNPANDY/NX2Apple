@@ -19,6 +19,7 @@ package enum BuildFailureClassifier {
         ("arm32.program", .a32Program, "is a 32-bit ARM program"),
         ("keys.missing", .keys, "(?m)^\\[RED\\] no such file: "),
         ("keys.old", .keysOld, "the keys are older than the game"),
+        ("profile.stale", .staleProfile, "cached provisional profile describes"),
         ("games.several", .severalGames, "more than one game in the folder"),
         ("games.noTitleID", .noTitleID, "no (?:NSP|game package) with a readable (?:title ID|content meta) in "),
         ("disk.low", .diskFull, "less than [0-9]+ GB free on the volume of "),
@@ -81,6 +82,10 @@ package enum BuildFailureClassifier {
         case .psoDiskFull:
             guard let r = log.range(of: #"pso_offline: [^\n]+(?:metal-tt needs about|before merging; need at least) [0-9.]+ GB"#, options: .regularExpression) else { return nil }
             return log[r].split(separator: " ").dropLast().last.map(String.init)
+        case .staleProfile:   // "... Preserving the existing profile at /path. Use --profile-out ..."
+            guard let r = log.range(of: #"Preserving the existing profile at [^\n]+?\. (?:Use|Refusing)"#, options: .regularExpression),
+                  let at = log[r].range(of: "profile at ") else { return nil }
+            return String(log[r][at.upperBound...]).replacingOccurrences(of: #"\. (?:Use|Refusing)$"#, with: "", options: .regularExpression)
         case .noTitleID:   // "no game package with a readable content meta in /path" (engines before c78d7375: "no NSP with a readable title ID in /path")
             guard let r = log.range(of: #"(?m)no (?:NSP|game package) with a readable (?:title ID|content meta) in (.+)$"#, options: .regularExpression),
                   let at = log[r].range(of: " in ") else { return nil }
@@ -106,9 +111,13 @@ package enum BuildFailureClassifier {
         }
     }
 
-    /// xcodebuild's words when the app's identifier is registered to another team.
+    /// xcodebuild's words when the app's identifier is registered to another team. "No profiles for" counts only for an identifier
+    /// with one part after `org.nxnative.` (`org.nxnative.shell`, or an older per-game `org.nxnative.<title ID>`): for the team's own
+    /// variant (`org.nxnative.shell.<team>`) it has another cause, such as a capability the team cannot add, and the retry under the
+    /// team's identifier has run already. This picks the card only: the retry has its own, wider rule (`ShellInstall.retryUnderTeamVariant`).
     package static func signingTeamTaken(_ error: String) -> Bool {
-        error.contains("cannot be registered to your development team") || error.contains("No profiles for 'org.nxnative.")
+        error.contains("cannot be registered to your development team")
+            || error.range(of: #"No profiles for 'org\.nxnative\.[^'.]+'"#, options: .regularExpression) != nil
     }
 
     /// "<name> (<title ID>) is a 32-bit ARM program": the name is "?" when the extraction has none.

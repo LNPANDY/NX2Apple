@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Metal)
+import Metal
+#endif
 import ShellUI
 
 /// Per-game defaults, one suite per title ID. A suite keeps two games' choices apart without prefixes, and the keys
@@ -72,12 +75,34 @@ public struct GameSettingsStore {
     }
 }
 
+/// What the device can do, for the rows that only mean something on some devices (#544). `current` asks the GPU; tests pass their own.
+public struct DeviceCapabilities: Equatable, Sendable {
+    /// Whether the GPU samples block-compressed (BC) textures itself. Without it the engine decodes them on the CPU (profile `tex_bc_cpu`).
+    public var supportsBCTextureCompression: Bool
+    public init(supportsBCTextureCompression: Bool) { self.supportsBCTextureCompression = supportsBCTextureCompression }
+
+    #if canImport(Metal)
+    public static var current: DeviceCapabilities {
+        DeviceCapabilities(supportsBCTextureCompression: MTLCreateSystemDefaultDevice()?.supportsBCTextureCompression ?? true)
+    }
+    #else
+    public static var current: DeviceCapabilities { DeviceCapabilities(supportsBCTextureCompression: true) }
+    #endif
+
+    /// The rows that mean nothing on this device: the HDR texture downsample only changes the CPU BC decode.
+    public func hides(_ env: String) -> Bool {
+        env == "DM_BC6H_RGB9E5" && supportsBCTextureCompression
+    }
+}
+
 /// The profile and its values as the views' sections.
 public enum SettingsPresenter {
     /// A row with `needs` (`<VAR>=<value>`) is drawn only while the row that sets that variable has that value. A row
     /// naming a variable the list does not have stays drawn. Sections come in the list's order.
-    public static func sections(profile: LauncherProfile, values: [String: String], fromShell: Set<String> = []) -> [SettingSection] {
+    public static func sections(profile: LauncherProfile, values: [String: String], fromShell: Set<String> = [],
+                                capabilities: DeviceCapabilities = .current) -> [SettingSection] {
         func visible(_ s: LauncherSetting) -> Bool {
+            if capabilities.hides(s.env) { return false }
             guard let needs = s.needs, let eq = needs.firstIndex(of: "=") else { return true }
             guard let v = values[String(needs[..<eq])] else { return true }
             return v == String(needs[needs.index(after: eq)...])
@@ -97,6 +122,8 @@ public enum SettingsPresenter {
         case "range": kind = .range(min: s.min ?? 0, max: s.max ?? 1, step: s.step ?? 0.1, unit: s.env.hasSuffix("SCALE") ? "×" : "")
         default: kind = .choice((s.options ?? []).map { SettingOption($0[0], $0[1]) })
         }
-        return SettingRow(id: s.env, label: s.label, note: s.note, kind: kind, value: value, fromShell: fromShell)
+        var row = SettingRow(id: s.env, label: s.label, note: s.note, kind: kind, value: value, fromShell: fromShell)
+        row.changed = !fromShell && !s.isDefault(value)   // a value the shell's settings give is marked as theirs instead
+        return row
     }
 }

@@ -46,11 +46,27 @@ struct NativeGameSettingControl: View {
 
     private var label: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(row.label).font(.body)
+            ChangedSettingLabel(row: row)
             if !row.note.isEmpty {
                 Text(row.note).font(.subheadline).foregroundStyle(.secondary)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A game setting's label, with a small amber dot before it while the value differs from the game profile's tested default (#453).
+/// VoiceOver reads "Changed from the tested value" with the label.
+struct ChangedSettingLabel: View {
+    let row: SettingRow
+    var body: some View {
+        HStack(spacing: 7) {
+            if row.changed {
+                Circle().fill(ShellPalette.attention).frame(width: 6, height: 6)
+                    .accessibilityLabel(ShellStrings.text("Changed from the tested value"))
+            }
+            Text(row.label).font(.body)
+        }
+        .accessibilityElement(children: .combine)
     }
 }

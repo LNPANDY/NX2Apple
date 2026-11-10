@@ -19,6 +19,21 @@ final class ControlsTests: IsolatedDefaultsTestCase {
         XCTAssertNil(layout.key(fn("RUp")))
     }
 
+    /// #901: the editor opens with a snapshot. Cancel puts it back, and Save keeps the edits.
+    func testASnapshotTellsEditsApartAndRestoreUndoesThemAlsoInTheSavedSettings() {
+        let layout = ControlLayout(defaults: defaults)
+        let opened = layout.snapshot
+        XCTAssertEqual(layout.snapshot, opened, "nothing changed: Cancel leaves without asking")
+        layout.assign(fn("A"), key: 40)
+        layout.setSends("A", "B")
+        XCTAssertNotEqual(layout.snapshot, opened, "edits: Cancel asks before discarding")
+        XCTAssertFalse(layout.environment.isEmpty)
+        layout.restore(opened)
+        XCTAssertEqual(layout.snapshot, opened)
+        XCTAssertEqual(layout.environment, [:])
+        XCTAssertEqual(ControlLayout(defaults: defaults).environment, [:], "the discarded edit is not kept for the next start")
+    }
+
     func testAssigningAnotherFunctionsKeyLeavesThatFunctionOnNone() {
         let layout = ControlLayout(defaults: defaults)
         layout.assign(fn("A"), key: 40)   // K, B's key

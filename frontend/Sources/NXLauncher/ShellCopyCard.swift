@@ -19,9 +19,9 @@ package struct ShellCopyCard: View {
                 if let note = plan.versionNote {
                     Text(note).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
                 }
-                Text(plan.sizeText).font(.manrope(13)).foregroundStyle(.secondary)
+                Text(plan.sizeText).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
                 Text(plan.connectionText).font(.manrope(13)).fixedSize(horizontal: false, vertical: true)
-                Text(loc.t("shell.copyExternalNote")).font(.manrope(12.5)).foregroundStyle(.secondary)
+                Text(loc.t("shell.copyExternalNote")).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true).padding(.top, 1)
                 HStack(spacing: 10) {
                     Button(loc.t("shell.copyStart")) { devices.answerCopy(.copy) }
@@ -47,7 +47,7 @@ package struct ShellCopyCard: View {
         VStack(alignment: .leading, spacing: 8, content: content)
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
     }
 }

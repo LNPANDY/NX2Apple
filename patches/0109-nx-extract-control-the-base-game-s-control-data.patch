@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sat, 7 Nov 2026 19:13:26 +0900
+Subject: [PATCH] nx_extract --control: the base game's control data alone
+
+A front end that shows the game's name in its own language needs the
+names of games packed before DMTitleNames. nx_extract <prod.keys>
+--control <package> <control.nacp> [--app <title ID>] writes the base
+game's control.nacp without extracting the game: it opens the package's
+Application content meta (NSZ: only the headers of its NCZ files), takes
+the Control NCA of its program and writes the raw NACP, in under a
+second where an extraction takes minutes. Exit code 5 when the package
+has no control data, 6 for missing keys as elsewhere.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: The Mac launcher reads the names of games packed before DMTitleNames from their packages (nx_extract --control)
+Issue: LNPANDY/NX2Apple#895
+
+---
+ dm/tools/nx_extract/Program.cs | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/dm/tools/nx_extract/Program.cs b/dm/tools/nx_extract/Program.cs
+index 6b80d1c..bfeed43 100644
+--- a/dm/tools/nx_extract/Program.cs
++++ b/dm/tools/nx_extract/Program.cs
+@@ -65,8 +65,9 @@ static class P {
+         ulong? app = null; int ai = Array.IndexOf(a, "--app");
+         if (ai >= 0 && ai + 1 < a.Length) { app = Convert.ToUInt64(a[ai + 1], 16); var rest = new List<string>(a); rest.RemoveRange(ai, 2); a = rest.ToArray(); }
+         if (a.Length >= 3 && a[1] == "--contents") return Contents(ExternalKeyReader.ReadKeyFile(a[0]), a[2..]);
++        if (a.Length == 4 && a[1] == "--control") return Control(ExternalKeyReader.ReadKeyFile(a[0]), a[2], a[3], app);
+         if (a.Length >= 3 && a[1] == "--keys") return Keys(ExternalKeyReader.ReadKeyFile(a[0]), a[2..]);
+-        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--program=<title ID>] [--list] [--html] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>...\n       nx_extract <prod.keys> --keys <nsp|nsz|xci|xcz>..."); return 2; }
++        if (a.Length < 4) { Console.Error.WriteLine("usage: nx_extract <prod.keys> <base.nsp> <update.nsp|-> <out dir> [base RomFS dir] [--app <title ID>] [--program=<title ID>] [--list] [--html] [--romfs-image|--manifest] [--allow-damaged]\n       nx_extract <prod.keys> --aoc <dlc.nsp> <out dir or image> [<DLC title ID>] [--romfs-image]\n       nx_extract <prod.keys> --contents <nsp|nsz|xci|xcz>...\n       nx_extract <prod.keys> --control <nsp|nsz|xci|xcz> <control.nacp> [--app <title ID>]\n       nx_extract <prod.keys> --keys <nsp|nsz|xci|xcz>..."); return 2; }
+         KeySet ks = ExternalKeyReader.ReadKeyFile(a[0]);
+         if (a[1] == "--aoc") return Aoc(ks, a[2], a[3], image, a.Length > 4 ? Convert.ToUInt64(a[4], 16) : null);
+         // each by its own content meta: a merged package (base game + update + DLC in one NSP, a cartridge dump with its update) is given as both the base game and the update,
+@@ -175,6 +176,23 @@ static class P {
+         return bad > 0 ? 5 : 0;
+     }
+ 
++    // The base game's control data alone (control.nacp) written to dst, without extracting the game: a front end reads the game's name in each of its languages from it
++    // (seconds where an extraction takes minutes). app: the application of a package that holds several. Exit code 5 when the package has no control data
++    static int Control(KeySet ks, string path, string dst, ulong? app) {
++        var pkg = OpenNsp(ks, path, ContentMetaType.Application, app, ncz: true);   // an NSZ's large NCAs are NCZ: only their headers are read, the control NCA stays an NCA
++        Nca prog = Pick(pkg, NcaContentType.Program);
++        Nca ctrl = Pick(pkg, NcaContentType.Control, prog?.Header.TitleId) ?? Pick(pkg, NcaContentType.Control);
++        if (ctrl == null) { Console.WriteLine($"[RED] no control data in {Path.GetFileName(path)}"); return 5; }
++        Fit(new[] { MissingKey(ks, new List<Nca> { ctrl }, path) });
++        byte[] nacp = Nacp(ctrl);
++        string dir = Path.GetDirectoryName(Path.GetFullPath(dst));
++        if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
++        File.WriteAllBytes(dst, nacp);
++        Console.WriteLine($"title {ctrl.Header.TitleId:x16}");
++        Console.WriteLine($"name {TitleName(nacp)}");
++        return 0;
++    }
++
+     static int Keys(KeySet ks, string[] paths) {
+         var found = new List<(int Rev, string Key, string File)?>();
+         foreach (string p in paths) found.Add(MissingKey(ks, OpenNsp(ks, p, ncz: true), p));

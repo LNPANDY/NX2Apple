@@ -22,9 +22,15 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "launch.opt.DM_FPS_TARGET.30", "launch.opt.DM_FPS_TARGET.60", "launch.opt.DM_FPS_TARGET.120", "launch.opt.DM_PRESENT_UPSCALE.metalfx", "launch.opt.DM_UPSCALER.metalfx",
         "launch.opt.DM_SCREEN_ASPECT.0",   // 16:9 (Switch) reads the same in every language
         "switch2.badge",   // the console's name
+        "ios.ui.switch2Badge", "appearance.system", "sort.name", "launch.opt.DM_PRESENT_INTERVAL.display", "launch.opt.DM_PRESENT_INTERVAL.game",   // the console's name, System, Name, the frame rates
+        // Steam Controller names and button labels, and Touchscreen, read the same in German.
+        "controls.steam.title", "controls.steam.Guide", "controls.steam.mode.4", "controls.steam.L4", "controls.steam.L5", "controls.steam.R4", "controls.steam.R5",
+        "console.mapping.place.Plus", "console.mapping.place.Minus",   // the Switch's Plus and Minus buttons, as German writes them
         // The iOS shell's words that German writes as English does: OK, the controller, the Switch's Minus and Plus buttons, Version.
         // Every other ios.* key needs a German text that differs (ShellStringsTests in frontend-ios checks all seven languages).
         "ios.host.ok", "ios.host.padController", "ios.ui.padController", "ios.ui.padMinus", "ios.ui.padPlus", "ios.ui.version", "ios.ui.gameVersionLabel",
+        // Console mode's game page and Builds page (#816): Builds, Build, Cheats, Version and Status read the same in German.
+        "console.builds", "console.tab.build", "console.tab.cheats", "console.gamePage.version", "console.gamePage.status",
     ]
 
     func testGermanIsNotLeftInEnglish() {

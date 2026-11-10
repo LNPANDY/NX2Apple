@@ -47,7 +47,7 @@ final class ArtworkStoreMediaTests: XCTestCase {
         XCTAssertEqual(media.screenshots.count, 6)
         XCTAssertEqual(media.screenshots.first, temporary.appendingPathComponent("shot-0.jpg").absoluteString)
         let saved = try JSONSerialization.jsonObject(with: Data(contentsOf: temporary.appendingPathComponent("artwork/index.json"))) as? [String: Any]
-        XCTAssertEqual(saved?["version"] as? Int, 2)
+        XCTAssertEqual(saved?["version"] as? Int, ArtworkStore.indexVersion)
         XCTAssertEqual(Set((saved?["media"] as? [String: Any])?.keys.map { $0 } ?? []), [titleID])   // only the title asked for
     }
 

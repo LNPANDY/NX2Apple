@@ -55,13 +55,16 @@ extension LauncherView {
                 Label(loc.t("library.firstBuild"), systemImage: "plus")
                     .font(.manrope(16, .semibold))
                     .padding(.horizontal, 24).padding(.vertical, 15)
-                    .foregroundStyle(.black).background(LauncherPalette.cream, in: Capsule())
             }
-            .buttonStyle(.plain).padding(.top, 8)
+            .buttonStyle(LauncherActionButtonStyle()).launcherHover(enabled: artworkEditor == nil, lightBrightness: 0).padding(.top, 8)
             Button(action: chooseLibraryFolder) {
                 Label(loc.t("library.chooseFolder"), systemImage: "folder")
                     .font(.manrope(14)).foregroundStyle(.secondary)
-            }.buttonStyle(.plain)
+            }.buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
+            Button(action: openSupportedGames) {
+                Label(loc.t("supported.menu"), systemImage: "list.bullet.rectangle")
+                    .font(.manrope(14)).foregroundStyle(.secondary)
+            }.buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
             Spacer()
             Text(loc.t("library.localNote")).font(.manrope(12)).foregroundStyle(.secondary)
         }
@@ -71,7 +74,7 @@ extension LauncherView {
     func hero(_ game: LibraryGame, width: CGFloat, height: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             ZStack {
-                if let image = heroArtwork?.id == game.id ? heroArtwork?.image : artwork[game.id] {
+                if let image = heroImage(for: game) {
                     ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .hero))
                 } else {
                     LauncherPalette.surface
@@ -92,31 +95,18 @@ extension LauncherView {
                 HStack(spacing: 14) {
                     status(game, prominent: true)
                     if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
-                        Button { configureBuild(game) } label: {
-                            Label(loc.t("library.rebuildShort"), systemImage: "arrow.clockwise")
-                                .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
-                                .padding(.horizontal, 10).padding(.vertical, 4)
-                                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
-                                .contentShape(Capsule())
+                        // Never started by itself: the player adds the game, or every game built with older tools, to the build queue (#944)
+                        heroRebuildButton(loc.t("library.rebuildShort"), id: "hero.rebuild", games: [game])
+                        let others = olderToolsGames
+                        if others.count > 1 {
+                            heroRebuildButton(String(format: loc.t("library.rebuildAll"), others.count), id: "hero.rebuildAll", games: others)
                         }
-                        .buttonStyle(.plain).disabled(m.running || game.inputs["base", default: []].isEmpty)
-                        .help(loc.t("library.olderToolsHelp"))
-                        .padTarget("hero.rebuild", scope: "main", radius: 12) { if !m.running { configureBuild(game) } }
                     }
                 }
-                Text(game.name).font(.manrope(min(68, width * 0.052), .heavy))
+                Text(game.displayName(loc.lang)).font(.manrope(min(68, width * 0.052), .heavy))
                     .tracking(-1.6).lineLimit(2).shadow(color: .black.opacity(0.25), radius: 12)
-                HStack(spacing: 18) {
-                    Button { primaryAction(game) } label: {
-                        LauncherHeroActionLabel(
-                            title: game.primary == .play ? loc.t("library.play")
-                                : (game.primary == .openOnDevice ? String(format: loc.t("dev.open"), devices.deviceName(game.installedDevice))
-                                   : loc.t("library.newBuild")),
-                            symbol: game.primary == .play ? "play.fill" : (game.primary == .openOnDevice ? "iphone" : "hammer.fill"))
-                    }
-                    .buttonStyle(.plain).disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
-                    .keyboardShortcut(.return, modifiers: [])
-                    .padTarget("hero.play", scope: "main", radius: 30) { if !launching { primaryAction(game) } }
+                HStack(alignment: width < 760 ? .top : .center, spacing: 18) {
+                    heroPrimary(game, compact: width < 760)
                     if game.isReady {
                         Button { optionsFor = game.id } label: {
                             Image(systemName: "slider.horizontal.3").font(.system(size: 17))
@@ -124,13 +114,16 @@ extension LauncherView {
                                 .background(Color.white.opacity(0.10), in: Circle())
                                 .overlay(Circle().strokeBorder(Color.white.opacity(0.14)))
                         }
-                        .buttonStyle(.plain).help(loc.t("launch.title")).accessibilityLabel(loc.t("launch.title"))
+                        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).help(loc.t("launch.title")).accessibilityLabel(loc.t("launch.title"))
                         .padTarget("hero.options", scope: "main", radius: 24) { optionsFor = game.id }
                     }
                     Button { manageOpenFor = manageOpenFor == nil ? game.id : nil } label: { ManageButtonLabel(title: loc.t("library.manage")) }
-                        .buttonStyle(.plain).accessibilityLabel(loc.t("library.manage"))
+                        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).accessibilityLabel(loc.t("library.manage"))
                         .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
                         .padTarget("hero.manage", scope: "main", radius: 12) { manageOpenFor = game.id }
+                }
+                if game.switch2EditionContentFound, !GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {
+                    Text(loc.t("library.switch2Content")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)   // #1057
                 }
                 // A free Apple ID's provisioning profile lasts 7 days. Say when this app's runs out, and offer the
                 // re-sign at any time: renewing early (before a trip, say) is as valid as renewing just in time.
@@ -149,7 +142,7 @@ extension LauncherView {
                                 .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
                                 .contentShape(Capsule())
                         }
-                        .buttonStyle(.plain).disabled(m.running)
+                        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(m.running)
                         .help(loc.t("dev.resignHelp"))
                         .padTarget("hero.resign", scope: "main", radius: 12) { if !m.running { resign(game) } }
                     }
@@ -162,6 +155,7 @@ extension LauncherView {
             .padding(.horizontal, 34).padding(.bottom, 34)
         }
         .frame(width: width, height: height).clipped()
+        .environment(\.colorScheme, .dark)   // the hero is drawn as on main in Light too: artwork, title, Play, version and actions
     }
 
     func collection(width: CGFloat) -> some View {
@@ -173,6 +167,14 @@ extension LauncherView {
             HStack(spacing: 16) {
                 Text(loc.t("library.collection")).font(.manrope(28, .bold)).tracking(-0.6)
                 Spacer()
+                HStack(spacing: 8) {
+                    Text(loc.t("sort.label")).font(.manrope(12)).foregroundStyle(.secondary)
+                    LauncherDropdown(options: LibrarySort.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: librarySort.rawValue,
+                                     label: loc.t("sort.label"), style: .button) { setLibrarySort(LibrarySort(rawValue: $0) ?? .recent) }
+                        .padTarget("library.sort", scope: "main", radius: 9,
+                                   activate: { setLibrarySort(librarySort == .recent ? .name : .recent) },
+                                   adjust: { setLibrarySort($0 > 0 ? .name : .recent) })
+                }
                 LauncherSegmented(options: LibraryFilter.allCases.map { ($0.rawValue, loc.t($0.labelKey)) },
                                   selection: libraryFilter.rawValue) { setLibraryFilter(LibraryFilter(rawValue: $0) ?? .owned) }
                     .frame(width: LauncherControl.width)
@@ -204,14 +206,14 @@ extension LauncherView {
                                         .clipShape(RoundedRectangle(cornerRadius: 5))
                                         .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
                                             game.id == heroID ? LauncherPalette.cream : .clear, lineWidth: 2))
-                                        Text(game.name).font(.manrope(16, .semibold)).lineLimit(1)
+                                        Text(game.displayName(loc.lang)).font(.manrope(16, .semibold)).lineLimit(1)
                                         status(game)
                                         Capsule().fill(game.id == heroID ? LauncherPalette.cream : .clear)
                                             .frame(height: 3).padding(.top, 4)
                                     }
                                     .frame(width: cardWidth, alignment: .leading).contentShape(Rectangle())
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
                                 .accessibilityAddTraits(game.id == heroID ? .isSelected : [])
                                 .padTarget("card." + game.id.uuidString, scope: "main", radius: 7) { if !launching { primaryAction(game) } }
                             }
@@ -252,10 +254,32 @@ extension LauncherView {
                 .shadow(color: .black.opacity(0.4), radius: 10)
                 .contentShape(Circle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
         .frame(height: height)
         .accessibilityLabel(loc.t(symbol == "chevron.left" ? "library.scrollBack" : "library.scrollForward"))
         .transition(.opacity)
+    }
+
+    /// The games built with older tools that can be built again from the files the library holds.
+    var olderToolsGames: [LibraryGame] {
+        library.games.filter { toolsAge.older.contains($0.id) && !$0.inputs["base", default: []].isEmpty }
+    }
+
+    /// An amber-outlined pill that adds games to the build queue: one game, or all that were built with older tools. It starts nothing itself.
+    func heroRebuildButton(_ title: String, id: String, games: [LibraryGame]) -> some View {
+        let add = {
+            if !m.running { stores.queue.enqueue(games.map { QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID) }) }
+        }
+        return Button(action: add) {
+            Label(title, systemImage: "arrow.clockwise")
+                .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(m.running || games.isEmpty)
+        .help(loc.t("library.olderToolsHelp"))
+        .padTarget(id, scope: "main", radius: 12, activate: add)
     }
 
     func status(_ game: LibraryGame, prominent: Bool = false) -> some View {
@@ -270,9 +294,9 @@ extension LauncherView {
                 .foregroundStyle(color)
             if GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {   // #445
                 Text(loc.t("switch2.badge"))
-                    .font(.manrope(prominent ? 11 : 10.5, .bold)).foregroundStyle(LauncherPalette.cream.opacity(0.85))
+                    .font(.manrope(prominent ? 11 : 10.5, .bold)).foregroundStyle(LauncherPalette.notice)
                     .padding(.horizontal, 7).padding(.vertical, 2)
-                    .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                    .overlay(Capsule().strokeBorder(LauncherPalette.noticeBorder))
                     .help(loc.t("switch2.help"))
             }
             if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning

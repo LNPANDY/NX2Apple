@@ -375,6 +375,17 @@ struct AlertStateChip: View {
     }
 }
 
+/// "Switch 2" in the look of `AlertStateChip` (black capsule, one point ring, 11 semibold), in the secondary white, not a state colour.
+struct ConsoleBadge: View {
+    var body: some View {
+        Text(ShellStrings.text("Switch 2")).shellText(11, .semibold, relativeTo: .caption)
+            .foregroundStyle(.white.opacity(0.72)).lineLimit(1)
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(.black, in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.32), lineWidth: 1))
+    }
+}
+
 struct GameMetadataSubtitle: View {
     let state: GameState
     let recentlyPlayed: String

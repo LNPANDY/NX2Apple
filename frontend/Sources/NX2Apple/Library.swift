@@ -28,12 +28,23 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var installedDevice = ""
     /// The engine's commit (engine/ HEAD: the pin plus the series) the last finished build used (ToolsAge); empty for a build from before it was recorded.
     var toolsCommit = ""
+    var titleNames: [String: String] = [:]   // the game's names by language, only what is shown (LibraryGame+Names.swift)
+    var customName = ""   // the player's name (Manage > Rename), shown in every language
+    var lastPlayed: Date?   // when Play last started the Mac app (the library's Recently played order, #937)
+    /// False for a game the library has just added: LaunchSetting personal defaults (#680) are written once, before its first start.
+    /// A library written before the defaults existed decodes true, so no existing choice is touched.
+    var defaultsApplied = false
 
     /// An empty path means there is no Mac build. It is not read, because URL(fileURLWithPath:) would make it the current folder.
-    var isReady: Bool {
-        guard !appPath.isEmpty, let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)) else { return false }
-        return app.titleID == titleID
+    private var playableMacBundle: MacGameBundle? {
+        guard !appPath.isEmpty, let app = try? MacGameBundle.read(URL(fileURLWithPath: appPath)),
+              app.titleID == titleID else { return nil }
+        return app
     }
+    var isReady: Bool { playableMacBundle != nil }
+
+    /// The package Play opens, never the newer source inputs or an iPhone build.
+    var playVersion: String? { playableMacBundle?.version }
 
     /// Signed and installed on a paired device (installedDevice is its UDID): Play starts it there.
     var onDevice: Bool { !installedDevice.isEmpty && FileManager.default.fileExists(atPath: iosAppPath + "/Info.plist") }
@@ -81,125 +92,10 @@ extension LibraryGame {
         iosAppPath = try c.decodeIfPresent(String.self, forKey: .iosAppPath) ?? ""
         installedDevice = try c.decodeIfPresent(String.self, forKey: .installedDevice) ?? ""
         toolsCommit = try c.decodeIfPresent(String.self, forKey: .toolsCommit) ?? ""
-    }
-}
-
-/// One row of the app's `dm/launcher.json` (dm/games/settings.py), the list the iPhone launcher shows
-/// (dm/ios/Sources/LauncherSettings.swift). Each sets an environment variable the game reads at start.
-struct LaunchSetting: Decodable, Identifiable {
-    let env, kind: String
-    var label, note: String   // var: localized() puts the launcher's language in place of the build's English
-    let def: String
-    let section: String?
-    var options: [[String]]?   // choice: [value, label]
-    let min, max, step: Double?   // range
-    let on, off: String?   // toggle: the values the variable takes
-    /// "basic" for a setting shown first (settings.tsv's level column, seedds/nxnative#399); without it, `basicByDefault` decides.
-    var level: String? = nil
-    /// The 3D views' base size the setting scales, docked and handheld ([width, height]); the render scale's row shows pixels with it.
-    var base: [String: [Int]]? = nil
-    /// `<VAR>=<value>` (schema 1, optional): the row is a sub-setting, shown only while the row that sets <VAR> has that value.
-    var needs: String? = nil
-    /// The value that leaves the variable unset (DM_FULLSCREEN is on when it is set at all).
-    var unsetValue: String? = nil
-    /// A setting this launcher adds itself (launcher.json has no row for it) is not a saved choice: the store has no rule for it.
-    var storeBacked: Bool { unsetValue == nil }
-    var id: String { env }
-    var sectionTitle: String { section ?? "Game" }
-    /// The rows the sheet shows first, as seedds/nxnative#374 groups them; the rest are under Advanced settings.
-    static let basicByDefault: Set = ["DM_FPS_TARGET", "DM_RENDER_SCALE", "DM_FULLSCREEN", "DM_OPMODE", "DM_LANG", "DM_RUMBLE"]
-    var isBasic: Bool { level.map { $0 == "basic" } ?? Self.basicByDefault.contains(env) }
-    var onValue: String { on ?? "1" }
-    var offValue: String { off ?? "0" }
-    func isDefault(_ v: String) -> Bool {   // a range compares as numbers (a slider writes 1.00 for 1.0)
-        kind == "range" ? abs((Double(v) ?? .nan) - (Double(def) ?? .nan)) < 1e-6 : v == def
-    }
-    func accepts(_ v: String) -> Bool {   // a saved choice the build still offers
-        switch kind {
-        case "choice": return options?.contains { $0.first == v } ?? false
-        case "range":   // as dm/mac/launcher.c: no leading space, no hex, no NaN
-            guard !v.isEmpty, !(v.first?.isWhitespace ?? true), !v.contains("x"), !v.contains("X"),
-                  let n = Double(v), n.isFinite, let lo = min, let hi = max else { return false }
-            return n >= lo && n <= hi
-        case "toggle": return v == onValue || v == offValue
-        default: return true
-        }
-    }
-    enum CodingKeys: String, CodingKey { case env, kind, label, note, def = "default", section, options, min, max, step, on, off, level, base, needs }
-
-    /// The settings a Mac app was packed with; nil for an app packed before they were (see LaunchList for the schema).
-    static func read(app: String) -> [LaunchSetting]? {
-        let url = URL(fileURLWithPath: app).appendingPathComponent("Contents/Resources/dm/launcher.json")
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        return LaunchList.parse(data)?.settings
-    }
-
-    /// The app's settings as the Mac shows them: the Mac-only Display mode added when the list has none (the host reads
-    /// DM_FULLSCREEN in front_mac.m; a list from settings.tsv will carry it as a platform:mac row), and the render scale's
-    /// base size from the game's profile in the repository when the list does not carry it (render_base).
-    static func forMac(app: String, titleID: String, repo: String, labels: (String) -> String) -> [LaunchSetting]? {
-        guard var list = read(app: app)?.map({ $0.localized(labels) }) else { return nil }
-        if !list.contains(where: { $0.env == "DM_FULLSCREEN" }) {
-            let display = LaunchSetting(env: "DM_FULLSCREEN", kind: "choice", label: labels("launch.display"), note: "", def: "",
-                                        section: "Game", options: [["", labels("launch.display.window")], ["1", labels("launch.display.fullscreen")]],
-                                        min: nil, max: nil, step: nil, on: nil, off: nil, unsetValue: "")
-            list.insert(display, at: (list.firstIndex { $0.env == "DM_RENDER_SCALE" }).map { $0 + 1 } ?? 0)
-        }
-        if let i = list.firstIndex(where: { $0.env == "DM_LANG" }) {
-            // A game with no language list gets every language and a note from the engine (seedds/nxnative aafe01d, #668): the
-            // RomFS names the ones it really has
-            if RomFSLanguages.isFallbackRow(options: list[i].options, note: list[i].note),
-               let kept = RomFSLanguages.narrowed(list[i].options ?? [], default: list[i].def, to: RomFSLanguages.options(in: app)) {
-                list[i].options = kept
-                list[i].note = ""
-            }
-        } else {
-            let langs = RomFSLanguages.options(in: app)
-            if langs.count > 1 {
-                let def = RomFSLanguages.defaultLanguage(forApp: app, options: langs)
-                let row = LaunchSetting(env: "DM_LANG", kind: "choice", label: "Game language", note: "", def: def,
-                                        section: "Game", options: langs, min: nil, max: nil, step: nil, on: nil, off: nil,
-                                        level: "basic", unsetValue: def).localized(labels)
-                let idx = list.firstIndex { $0.env == "DM_FULLSCREEN" }
-                    ?? list.lastIndex { $0.sectionTitle == "Game" }.map { $0 + 1 } ?? 0
-                list.insert(row, at: idx)
-            }
-        }
-        if let i = list.firstIndex(where: { $0.env == "DM_RENDER_SCALE" && $0.base == nil }), let base = renderBase(titleID: titleID, repo: repo) {
-            list[i].base = base
-        }
-        return list
-    }
-
-    /// The row in the launcher's language: launch.set.<VAR> for the label, launch.set.<VAR>.note for the note and
-    /// launch.opt.<VAR>.<value> for a choice. launcher.json carries English only; a key the table does not have (a row
-    /// a newer build adds) keeps the build's own text rather than showing the key.
-    func localized(_ labels: (String) -> String) -> LaunchSetting {
-        func text(_ key: String, _ fallback: String) -> String {
-            let s = labels(key)
-            return s == key ? fallback : s
-        }
-        var s = self
-        s.label = text("launch.set." + env, label)
-        if !note.isEmpty { s.note = text("launch.set.\(env).note", note) }
-        s.options = options?.map { $0.count > 1 ? [$0[0], text("launch.opt.\(env).\($0[0])", $0[1])] : $0 }
-        return s
-    }
-
-    /// render_base in the game's profile ("1600x900 1280x720": docked, then handheld).
-    static func renderBase(titleID: String, repo: String) -> [String: [Int]]? {
-        let path = EngineLayout.root(repo) + "/dm/games/" + titleID + "/game.tsv"
-        guard !repo.isEmpty, let text = try? String(contentsOfFile: path, encoding: .utf8),
-              let line = text.split(separator: "\n").first(where: { $0.hasPrefix("render_base\t") }) else { return nil }
-        let sizes = line.dropFirst("render_base\t".count).split(separator: " ").map { $0.split(separator: "x").compactMap { Int($0) } }
-        guard sizes.count == 2, sizes.allSatisfy({ $0.count == 2 }) else { return nil }
-        return ["docked": sizes[0], "handheld": sizes[1]]
-    }
-
-    /// The render scale as pixels: the base size of the console mode chosen (DM_OPMODE: 1 docked, 0 handheld) times the scale.
-    func pixels(scale: Double, docked: Bool) -> String? {
-        guard let size = base?[docked ? "docked" : "handheld"], size.count == 2 else { return nil }
-        return "\(Int((Double(size[0]) * scale).rounded()))×\(Int((Double(size[1]) * scale).rounded()))"
+        titleNames = (try? c.decodeIfPresent([String: String].self, forKey: .titleNames)) ?? [:]
+        customName = try c.decodeIfPresent(String.self, forKey: .customName) ?? ""
+        lastPlayed = try c.decodeIfPresent(Date.self, forKey: .lastPlayed)
+        defaultsApplied = try c.decodeIfPresent(Bool.self, forKey: .defaultsApplied) ?? true
     }
 }
 
@@ -268,13 +164,19 @@ final class GameLibrary: ObservableObject {
     @Published private(set) var games: [LibraryGame] = []
     @Published var selectedID: UUID?
     @Published var error: String?
-    @Published private(set) var folder = ""
+    /// The folders games are looked for in, in the order the player added them (LibraryRoots). The first wins when two hold a game.
+    @Published private(set) var folders: [String] = []
+    /// The first root: where a build goes when nothing else was chosen, and what the single-folder code reads.
+    var folder: String { folders.first ?? "" }
     @Published private(set) var scanning = false
+    /// The keys saved in Settings: their header_key finds packages whose name has no title ID (#1012). The launcher sets it.
+    var keysFile: () -> String = { "" }
     private let file: URL
     let artworkDirectory: URL   // where this library's artwork lives: the store's, or a temporary one in tests
     private struct Snapshot: Codable {
         let games: [LibraryGame]
         let folder: String
+        var folders: [String]? = nil   // absent in a library written before several roots (#992): `folder` is then the only one
     }
 
     /// `artwork` defaults to the store's folder for the app's own library, and to an `artwork` folder beside any other `file`: a library
@@ -288,7 +190,7 @@ final class GameLibrary: ObservableObject {
                 let data = try Data(contentsOf: self.file)
                 if let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) {
                     games = snapshot.games
-                    folder = snapshot.folder
+                    folders = LibraryRoots.removing("", from: snapshot.folders ?? [snapshot.folder]).filter { !$0.isEmpty }
                 } else { games = try JSONDecoder().decode([LibraryGame].self, from: data) }
             }
             catch { self.error = error.localizedDescription }
@@ -327,15 +229,40 @@ final class GameLibrary: ObservableObject {
     @discardableResult func save() -> Bool {
         do {
             try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(Snapshot(games: games, folder: folder)).write(to: file, options: .atomic)
+            try JSONEncoder().encode(Snapshot(games: games, folder: folder, folders: folders)).write(to: file, options: .atomic)
             return true
         } catch { self.error = error.localizedDescription; return false }
     }
 
+    /// The elements in order, the first of each key kept: the same game or app found under two roots is one.
+    static func firstOfEach<T>(_ items: [T], key: (T) -> String) -> [T] {
+        var seen = Set<String>()
+        return items.filter { seen.insert(key($0)).inserted }
+    }
+
+    /// Makes `url` the library's only root (the single-folder way, kept for the first choice and for tests).
     func setFolder(_ url: URL) {
-        folder = url.standardizedFileURL.path
+        folders = LibraryRoots.adding(url.path, to: [])
         save()
         discover()
+    }
+
+    /// Adds a root unless it is already one (another spelling of the same folder counts as the same), then scans.
+    func addFolder(_ url: URL) {
+        folders = LibraryRoots.adding(url.path, to: folders)
+        save()
+        discover()
+    }
+
+    /// Forgets a root. The games found there stay in the library with their paths (they are not deleted, and a game on a drive that
+    /// is not connected is not known to be gone), and its files are never touched.
+    func removeFolder(_ path: String) {
+        folders = LibraryRoots.removing(path, from: folders)
+        save()
+    }
+
+    func rootState(_ path: String, volumes: String = "/Volumes") -> LibraryRoots.State {
+        LibraryRoots.state(of: path, in: folders, volumes: volumes)
     }
 
     /// Where installed games are looked for besides the library folder (tests empty it).
@@ -380,7 +307,9 @@ final class GameLibrary: ObservableObject {
         }
     }
 
-    static func sourceGames(in root: URL, repo: String) -> [LibraryGame] {
+    /// `headerKey` (the saved keys' header_key) also finds an NSP or NSZ whose name has no title ID, by its NCA headers (#1012).
+    static func sourceGames(in root: URL, repo: String, headerKey: [UInt8]? = nil) -> [LibraryGame] {
+        let ids = PackageTitleID.Resolver(headerKey: headerKey)
         if GameFolder.isDumpDirectory(root.path), case .success(let f) = GameFolder.scan(root.path) {
             var game = LibraryGame(titleID: f.titleIDHex, name: title(for: f.folder, repo: repo, titleID: f.titleIDHex))
             game.inputs = [GameLibrary.folderInput: [f.folder], "base": [f.basePath]]
@@ -420,7 +349,7 @@ final class GameLibrary: ObservableObject {
                 continue
             }
             guard packages.contains(url.pathExtension.lowercased()),
-                  let id = TitleID.parse(url.lastPathComponent), id & 0xfff == 0 else { continue }
+                  let id = ids.titleID(url.path), id & 0xfff == 0 else { continue }
             let tid = String(format: "%016llX", id)
             guard result[tid] == nil else { continue }
             var game = LibraryGame(titleID: tid, name: title(for: url.path, repo: repo, titleID: tid))
@@ -428,9 +357,9 @@ final class GameLibrary: ObservableObject {
             // The folder to scan is the one the player picks by hand — the game's own folder — so climb while the parent
             // still holds a package of this game's family (the base, its update, or one of its DLC), and stop at the scan
             // root or at a folder that holds no more of them (issue: an auto-scanned game found no update or DLC).
-            let family = { (name: String) -> Bool in
-                guard packages.contains((name as NSString).pathExtension.lowercased()),
-                      let other = TitleID.parse(name) else { return false }
+            let family = { (path: String) -> Bool in
+                guard packages.contains((path as NSString).pathExtension.lowercased()),
+                      let other = ids.titleID(path) else { return false }
                 return other == id || (other >= id + 0x800 && other < id + 0x1000) || (other >= id + 0x1000 && other < id + 0x2000)
             }
             var gameRoot = url.deletingLastPathComponent()
@@ -440,12 +369,12 @@ final class GameLibrary: ObservableObject {
             let skipDirs: Set<String> = ["romfs", "extract", "tools", "venv", "archive", "harness", "runs", "shader", "xcode"]
             func holdsFamily(_ folder: URL, except child: String) -> Bool {
                 guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return false }
-                if names.contains(where: family) { return true }
+                if names.contains(where: { family(folder.appendingPathComponent($0).path) }) { return true }
                 for name in names where name != child && !name.hasPrefix(".") {
                     let low = name.lowercased()
                     if skipDirs.contains(low) || low.hasSuffix("_build") || low.hasSuffix("_survey") { continue }
                     if let sub = try? FileManager.default.contentsOfDirectory(atPath: folder.appendingPathComponent(name).path),
-                       sub.contains(where: family) { return true }
+                       sub.contains(where: { family(folder.appendingPathComponent(name).appendingPathComponent($0).path) }) { return true }
                 }
                 return false
             }
@@ -464,14 +393,14 @@ final class GameLibrary: ObservableObject {
                         if walk.level >= 3 || ["romfs", "extract", "tools", "venv", "archive", "harness", "runs", "shader"].contains(name) { walk.skipDescendants() }
                         continue
                     }
-                    if family(f.lastPathComponent) { found.append(f) }
+                    if family(f.path) { found.append(f) }
                 }
             }
             let familyOf = { (u: URL, lo: UInt64, hi: UInt64) -> Bool in
-                guard let other = TitleID.parse(u.lastPathComponent) else { return false }
+                guard let other = ids.titleID(u.path) else { return false }
                 return other >= lo && other < hi
             }
-            let isBase = { (u: URL) -> Bool in TitleID.parse(u.lastPathComponent) == id }
+            let isBase = { (u: URL) -> Bool in ids.titleID(u.path) == id }
             game.inputs["base"] = ([url] + found.filter(isBase))
                 .sorted { TitleID.updateVersion($0.lastPathComponent) > TitleID.updateVersion($1.lastPathComponent) }
                 .prefix(1).map(\.path)
@@ -489,12 +418,15 @@ final class GameLibrary: ObservableObject {
     }
 
     func discover(repo: String = RepoLayout.find()) {
-        guard !folder.isEmpty, !scanning else { return }
+        let roots = LibraryRoots.scannable(folders).map { URL(fileURLWithPath: $0) }   // a root on a drive that is not connected is skipped
+        guard !roots.isEmpty, !scanning else { return }
         scanning = true
-        let root = URL(fileURLWithPath: folder), installed = applicationFolders
+        let installed = applicationFolders, keys = keysFile()
         DispatchQueue.global(qos: .utility).async {
-            let apps = Self.builtApps(in: root) + Self.installedApps(in: installed)
-            let sources = Self.sourceGames(in: root, repo: repo)
+            let apps = Self.firstOfEach(roots.flatMap { Self.builtApps(in: $0) } + Self.installedApps(in: installed)) { $0.standardizedFileURL.path }
+            let headerKey = PackageTitleID.headerKey(keysFile: keys)
+            // Roots in their order: the first one that holds a game is its source, so the library does not depend on scan timing
+            let sources = Self.firstOfEach(roots.flatMap { Self.sourceGames(in: $0, repo: repo, headerKey: headerKey) }) { $0.titleID }
             DispatchQueue.main.async {
                 let previousSelection = self.selectedID
                 for source in sources {
@@ -511,12 +443,14 @@ final class GameLibrary: ObservableObject {
                             }
                         }
                         if existing.ipaPath.isEmpty { existing.ipaPath = source.ipaPath }
+                        // A name an older scan kept (a raw title ID, a size from the file name) gives way to the one the scan reads now
+                        if existing.name != source.name, LibraryGame.needsBetterName(existing) { existing.name = source.name }
                         self.upsert(existing)
                     } else { self.upsert(source) }
                 }
                 for url in apps {
                     guard let info = try? MacGameBundle.read(url) else { continue }
-                    if let existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady { continue }
+                    if let existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady { self.learnTitleNames(existing, from: info, at: url); continue }
                     _ = try? self.addApp(url)
                 }
                 self.pruneMissingPaths()
@@ -530,6 +464,7 @@ final class GameLibrary: ObservableObject {
         let app = try MacGameBundle.read(url)
         var game = games.first { $0.titleID == app.titleID } ?? LibraryGame(titleID: app.titleID, name: app.name)
         game.name = app.name
+        if !app.titleNames.isEmpty { game.titleNames = app.titleNames }   // an older app has none: keep what TitleNameLookup read
         game.appPath = url.standardizedFileURL.path
         upsert(game)
         selectedID = game.id
@@ -539,7 +474,10 @@ final class GameLibrary: ObservableObject {
     @MainActor @discardableResult func rememberInputs(_ model: BuildStore) -> UUID? {
         guard !model.basePath.isEmpty else { return nil }
         let titleID = model.gameTitleID ?? URL(fileURLWithPath: model.basePath).standardizedFileURL.path
-        var game = games.first { $0.titleID == titleID } ?? LibraryGame(titleID: titleID, name: Self.title(for: model.gameFolder?.folder ?? model.basePath, repo: model.repo.path, titleID: titleID))
+        // A base whose name has no title ID is the entry the scan found for it by its NCA headers (#1012), not a second one.
+        func real(_ path: String?) -> String? { path.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path } }
+        var game = games.first { $0.titleID == titleID } ?? games.first { model.gameTitleID == nil && real($0.inputs["base"]?.first) == real(model.basePath) }
+            ?? LibraryGame(titleID: titleID, name: Self.title(for: model.gameFolder?.folder ?? model.basePath, repo: model.repo.path, titleID: titleID))
         game.inputs = Dictionary(uniqueKeysWithValues: model.slots.map { ($0.id, $0.paths) })
         // A game folder is kept as the folder: Build again reads it anew (LauncherView.configureBuild).
         if let folder = model.gameFolder { game.inputs[GameLibrary.folderInput] = [folder.scriptInput] }
@@ -572,11 +510,14 @@ final class GameLibrary: ObservableObject {
             game.installedDevice = old.installedDevice
             game.ipaPath = old.ipaPath
             game.archivePath = old.archivePath
+            if game.customName.isEmpty { game.customName = old.customName }   // the player's name for it (Manage > Rename)
+            if game.titleNames.isEmpty { game.titleNames = old.titleNames }   // until the new app's own names replace them below
             games.removeAll { $0.id == old.id }
         }
         game.titleID = app.titleID
         game.appPath = path
         game.name = app.name
+        if !app.titleNames.isEmpty { game.titleNames = app.titleNames }
         game.toolsCommit = commit   // empty for a checkout without git: nothing to compare, rather than an older build's commit
         upsert(game)
         selectedID = game.id
@@ -650,12 +591,18 @@ final class GameLibrary: ObservableObject {
     /// The one-time move of the launch options an earlier version kept in the library file into each app's preferences domain
     /// (SavedChoices.migrate). The field stays decoded so an old library file loads; what is left in it is only what the store
     /// has no row for. Runs for every game that has options and an app with a settings list; a game without one waits.
+    /// Then a game whose language was never picked gets the Mac's, once (SavedChoices.preselectLanguage).
     func migrateLaunchOptions() {
         var changed = false
         for i in games.indices where !games[i].launchOptions.isEmpty && !games[i].appPath.isEmpty {
             guard let settings = LaunchSetting.read(app: games[i].appPath) else { continue }
             let store = SavedChoices(app: games[i].appPath, titleID: games[i].titleID)
             for env in store.migrate(games[i].launchOptions, settings: settings) { games[i].launchOptions[env] = nil; changed = true }
+        }
+        applyPersonalDefaults()   // before the Mac's language fills what is still empty
+        for game in games where !game.appPath.isEmpty {
+            guard let settings = LaunchSetting.read(app: game.appPath) else { continue }
+            SavedChoices(app: game.appPath, titleID: game.titleID).preselectLanguage(settings)
         }
         if changed { save() }
     }
@@ -756,7 +703,7 @@ final class GameLibrary: ObservableObject {
         save()
     }
 
-    @discardableResult private func upsert(_ game: LibraryGame) -> Bool {
+    @discardableResult func upsert(_ game: LibraryGame) -> Bool {   // internal: LibraryGame+Names.swift
         if let index = games.firstIndex(where: { $0.id == game.id }) { games[index] = game }
         else { games.append(game) }
         return save()
@@ -767,9 +714,6 @@ final class GameLibrary: ObservableObject {
            let row = text.split(separator: "\n").first(where: { $0.hasPrefix("name\t") }) {
             return String(row.dropFirst(5))
         }
-        let filename = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        let name = filename.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? filename : name
+        return LibraryGame.cleanedName(URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent)
     }
 }

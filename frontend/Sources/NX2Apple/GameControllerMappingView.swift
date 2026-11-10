@@ -33,17 +33,17 @@ import NXLauncher
     var body: some View {
         Group {
             if savingEnabled {
-                ControlsView(layout: layout, gameName: game.name, mappingStore: store, copyGlobal: globalControls.map { global in
+                ControlsView(layout: layout, gameName: game.displayName(loc.lang), mappingStore: store, copyGlobal: globalControls.map { global in
                     { copy(global.environment) }
                 })
             } else {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text(game.name).font(.manrope(26, .heavy))
+                    Text(game.displayName(loc.lang)).font(.manrope(26, .heavy))
                     Text(loc.t("controls.savingDisabled")).font(.manrope(14))
                     Button(loc.t("launch.done")) { dismiss() }.buttonStyle(LauncherSecondaryButtonStyle())
                         .padTarget("controls.done", scope: "controls") { dismiss() }
                 }.padding(30).frame(width: 600, height: 300).background(LauncherPalette.background)
-                    .padScope("controls", focus).preferredColorScheme(.dark)
+                    .padScope("controls", focus).launcherAppearance()
             }
         }
         .onAppear { refresh() }
@@ -75,7 +75,7 @@ struct SteamControllerSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text(loc.t("controls.steam.title")).font(.manrope(15, .semibold)).foregroundStyle(.secondary)
+                Text(loc.t("controls.steam.title")).font(.manrope(15, .semibold)).foregroundStyle(LauncherPalette.secondaryText)
                 Spacer()
                 Button(loc.t("controls.steam.reset")) { store.resetSteam() }
                     .buttonStyle(LauncherSecondaryButtonStyle())
@@ -107,8 +107,8 @@ struct SteamControllerSection: View {
                         .labelsHidden().toggleStyle(LauncherSwitchStyle())
                 }
             }
-            .background(LauncherPalette.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.06)))
+            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(LauncherPalette.cardBorder))
         }
     }
     private func line<Trailing: View>(_ title: String, id: String, activate: (() -> Void)? = nil, adjust: ((Int) -> Void)? = nil, @ViewBuilder trailing: () -> Trailing) -> some View {
