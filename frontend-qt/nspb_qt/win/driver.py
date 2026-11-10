@@ -41,6 +41,7 @@ import importlib.util
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -225,13 +226,33 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     mod.check_prereqs = check_prereqs
 
     # ---------------------------------------------------------------- nx_extract
-    def _nx_extract_source_sha(proj: Path) -> str:
+    def _nx_extract_source_sha(repo_p: Path) -> str:
+        proj = repo_p / 'dm/tools/nx_extract'
+        if hasattr(mod, 'nx_extract_source_sha') and (proj / 'Program.cs').is_file() and (proj / 'nx_extract.csproj').is_file():
+            return mod.nx_extract_source_sha(repo_p)
         import hashlib
         h = hashlib.sha256()
         if proj.is_dir():
             for f in sorted([*proj.glob('*.cs'), *proj.glob('*.csproj')], key=lambda p: p.name):
                 h.update(f.name.encode('utf-8') + b'\0' + f.read_bytes() + b'\0')
         return h.hexdigest()[:16]
+
+    def _verify_nx_extract(exe: Path, want: str, env) -> None:
+        if not want:
+            return
+        try:
+            r = subprocess.run([str(exe), '--source-sha'], capture_output=True, text=True,
+                               env=env if env is not None else os.environ, timeout=60,
+                               errors='replace', **tc.no_window())
+        except OSError as e:
+            raise BuildError(f'nx_extract failed to start ({exe}): {e}') from e
+        got = (r.stdout or '').strip()
+        if r.returncode or not got:
+            raise BuildError(f'nx_extract does not run ({exe}, exit {r.returncode}): '
+                             f'{(r.stderr or r.stdout or "").strip()}')
+        if got != want:
+            raise BuildError(f'nx_extract was not built from the in-repo source '
+                             f'(embedded {got} / in repo {want})')
 
     def build_nx_extract(repo_: Path, work: Path, logs: Path, env, *a, **kw):
         """Use the executable shipped with this engine, or build it for a source checkout."""
@@ -266,14 +287,18 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
     def find_nx_extract(repo_: Path, env=None, *a, **kw):
         """Return the Windows extractor executable: bundled in dm/tools/nx_extract_bin/, or built into tools_dir()."""
         repo_p = Path(repo_)
+        proj = repo_p / 'dm/tools/nx_extract'
+        has_src = (proj / 'Program.cs').is_file() and (proj / 'nx_extract.csproj').is_file()
+        want = _nx_extract_source_sha(repo_p) if has_src else ''
         bundled = repo_p / 'dm/tools/nx_extract_bin/nx_extract.exe'
         if bundled.is_file():
+            _verify_nx_extract(bundled, want, env)
             return bundled
-        proj = repo_p / 'dm/tools/nx_extract'
-        sha = _nx_extract_source_sha(proj)
+        sha = want or _nx_extract_source_sha(repo_p)
         cache_dir = tc.tools_dir() / f'nx_extract-{sha}'
         cached = cache_dir / 'nx_extract.exe'
         if cached.is_file():
+            _verify_nx_extract(cached, want, env)
             return cached
         import tempfile
         dn = tc.dotnet_dir()
@@ -294,6 +319,7 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
             except BaseException:
                 mod.rmtree(cache_dir)
                 raise
+        _verify_nx_extract(cached, want, env)
         return cached
 
     mod.build_nx_extract = build_nx_extract

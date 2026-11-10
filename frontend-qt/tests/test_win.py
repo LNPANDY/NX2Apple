@@ -2316,29 +2316,52 @@ class WindowsBuildFixesTest(unittest.TestCase):
             proj.mkdir(parents=True)
             (proj / 'nx_extract.csproj').write_text('<Project><PropertyGroup><PublishAot>true</PublishAot></PropertyGroup></Project>', encoding='utf-8')
             (proj / 'Program.cs').write_text('// stub', encoding='utf-8')
+            expected_sha = mod.nx_extract_source_sha(src_repo)
             tools_root = root / 'tools_cache'
             seen_cmds: list[list[str]] = []
+
+            def write_stub_exe(exe_path: Path, sha_out: str) -> None:
+                exe_path.write_text(f'#!/bin/sh\necho {sha_out}\n', encoding='utf-8')
+                exe_path.chmod(0o755)
+
+            real_subproc_run = subprocess.run
+
+            def win_compat_subproc_run(cmd, *a, **kw):
+                if os.name == 'nt' and cmd and str(cmd[0]).endswith('nx_extract.exe'):
+                    lines = Path(cmd[0]).read_text(encoding='utf-8').splitlines()
+                    out = lines[1].removeprefix('echo ').strip() if len(lines) > 1 else ''
+                    return subprocess.CompletedProcess(cmd, 0, stdout=out + '\n', stderr='')
+                return real_subproc_run(cmd, *a, **kw)
 
             def fake_mod_run(cmd, log, env=None):
                 s_cmd = [str(c) for c in cmd]
                 seen_cmds.append(s_cmd)
                 out_dir = Path(s_cmd[s_cmd.index('-o') + 1])
-                (out_dir / 'nx_extract.exe').write_bytes(b'MZ')
+                write_stub_exe(out_dir / 'nx_extract.exe', expected_sha)
 
             with mock.patch.object(driver, '_UPSTREAM_RUN', None), \
                  mock.patch.object(tc, 'tools_dir', return_value=tools_root), \
-                 mock.patch.object(tc, 'dotnet_dir', return_value=Path('C:/dotnet')):
+                 mock.patch.object(tc, 'dotnet_dir', return_value=Path('C:/dotnet')), \
+                 mock.patch.object(subprocess, 'run', side_effect=win_compat_subproc_run):
                 driver.patch(mod, src_repo)
                 with mock.patch.object(mod, 'run', side_effect=fake_mod_run):
                     first = mod.find_nx_extract(src_repo, {})
                     second = mod.find_nx_extract(src_repo, {})
-            self.assertEqual(first, second)
-            self.assertTrue(first.is_file())
-            self.assertEqual(len(seen_cmds), 1, 'second call must reuse the cached binary')
-            self.assertIn('-p:PublishAot=false', seen_cmds[0])
-            self.assertIn('--artifacts-path', seen_cmds[0])
+                self.assertEqual(first, second)
+                self.assertEqual(first.parent.name, f'nx_extract-{expected_sha}')
+                self.assertTrue(first.is_file())
+                self.assertEqual(len(seen_cmds), 1, 'second call must reuse the cached binary')
+                self.assertIn('-p:PublishAot=false', seen_cmds[0])
+                self.assertIn('--artifacts-path', seen_cmds[0])
+
+                # A stale/mismatched binary must be rejected by --source-sha verification.
+                write_stub_exe(first, '0000000000000000')
+                with self.assertRaises(mod.BuildError) as ctx:
+                    mod.find_nx_extract(src_repo, {})
+                self.assertIn('was not built from the in-repo source', str(ctx.exception))
 
             # Test shim's _dmsh_xlate_dll helper on both bundled and source-checkout layouts.
+            # Only provide globals actually imported at top level in _SITECUSTOMIZE_SRC (never inject Path).
             import ast
             tree = ast.parse(shim._SITECUSTOMIZE_SRC)
             fn_node = next(
@@ -2354,7 +2377,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 out_dir = Path(s_cmd[s_cmd.index('-o') + 1])
                 (out_dir / 'dmsh_xlate.dll').write_bytes(b'DLL')
 
-            ns = {'os': os, 'Path': Path, 'shutil': shutil, '_run': fake_publish}
+            ns = {'os': os, 'sys': sys, 'shutil': shutil, 'subprocess': subprocess, '_run': fake_publish}
             exec(compile(mod_ast, '<shim>', 'exec'), ns)
             _dmsh_xlate_dll = ns['_dmsh_xlate_dll']
 

@@ -788,10 +788,11 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         dll_next = bin_path + '.dll'
         if os.path.isfile(dll_next) or not os.path.isfile(bin_path):
             return dll_next
+        import hashlib, tempfile
+        from pathlib import Path
         proj = Path(bin_path).resolve().parents[1] / 'dmsh_xlate'
         if not (proj / 'dmsh_xlate.csproj').is_file():
             return dll_next
-        import hashlib, tempfile
         h = hashlib.sha256(Path(bin_path).read_bytes())
         for f in sorted([*proj.glob('*.cs'), *proj.glob('*.csproj')], key=lambda p: p.name):
             h.update(f.name.encode('utf-8') + b'\0' + f.read_bytes() + b'\0')
