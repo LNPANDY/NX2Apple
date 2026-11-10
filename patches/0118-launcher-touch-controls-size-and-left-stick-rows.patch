@@ -13,7 +13,7 @@ describes the rows. Apply after engine-544.diff (they touch the same lines of se
 
 Tests: test_launcher_settings.py (the rows, their options and defaults, none on a Mac, the iPhone-only set).
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: pending [builds on the touch patches 0065 to 0070 and 0090, forwarded once those land upstream]
 Reason: A standalone game app offers the same touch-control size and left stick choices as the shared shell
 Issue: LNPANDY/NX2Apple#991
 ---

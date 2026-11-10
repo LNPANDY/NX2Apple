@@ -37,7 +37,7 @@ test_env_switches.py and test_docs.py.
 Front-ends: new: DM_HOME_MENU_LAUNCHER=1 and DM_LAUNCHER_BUNDLE_ID give a Mac game a Back to console mode row that pauses it in the background, org.nxnative.resume.<pid> and org.nxnative.quit.<pid> control it, org.nxnative.paused.<pid> and org.nxnative.resumed.<pid> report it
 Front-ends: new: DM_HOME_QUIT_TEXT takes three more lines (Resume, Back to console mode, the menu title)
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: pending [builds on controllers_mac from seedds/nxnative#221, forwarded once it lands]
 Reason: A Home menu on a short press of Home, and a game paused in the background for the launcher's console mode
 Issue: LNPANDY/NX2Apple#952
 

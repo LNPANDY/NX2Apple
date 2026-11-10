@@ -15,7 +15,7 @@ stick_deadzone.h holds the pure math (the same radial rescale steam_deadzone use
 t_stick_deadzone.c tests the switch text, the unchanged default, the centred inside, the rescale, full travel
 and monotonic output. docs/env_switches.tsv lists both switches.
 
-Upstream-Status: pending [seedds/nxnative#TBD, becomes forwarded when the PR is open]
+Upstream-Status: forwarded seedds/nxnative#2101
 Reason: The Mac launcher's Controls settings offer left and right deadzones with a live preview and need a general engine switch
 Issue: LNPANDY/NX2Apple#1025
 ---
