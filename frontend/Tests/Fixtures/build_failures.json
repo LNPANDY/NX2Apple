@@ -63,6 +63,13 @@
   "text": "[RED] hash check failed: ExeFS/main\n[RED] the NSP is damaged: 1 files fail the NCA's hash check (an incomplete copy or a broken download); copy or download it again, or pass --allow-damaged to write them as read\n[RED] nx_extract exit code 3 (full output: /w/logs/extract.log)"
  },
  {
+  "id": "nsp.formats",
+  "kind": "damagedNSP",
+  "source": "scripts/build_ipa_from_nsp.py",
+  "fragment": "whose bytes do not start as their names promise",
+  "text": "[RED] v131072: 1 file(s) whose bytes do not start as their names promise (a .zs file that is not a zstd stream), so the game files are damaged:\n  Model/Player.bfres.zs (1,048,576 bytes, starts 00000000)\nPack again from a good copy of the game (--allow-damaged packs these files as they are)"
+ },
+ {
   "id": "arm32.program",
   "kind": "a32Program",
   "source": "scripts/build_ipa_from_nsp.py",
