@@ -23,6 +23,7 @@ from . import input_staging
 from . import inputs
 from . import library as lib
 from . import platform_util as pu
+from . import post_build_cleanup as pbc
 from . import romfs_languages
 from .i18n import Lang
 from .l10n import t
@@ -579,6 +580,17 @@ class Model(QObject):
         except OSError:
             return False
         return "'--work-dir'" in text or '"--work-dir"' in text
+
+    def supports_romfs_from(self) -> bool:
+        """Whether the checkout's build script declares --romfs-from (#708)."""
+        f = Path(self.engine_path, 'scripts', 'build_ipa_from_nsp.py')
+        if not f.is_file() and engine.has_engine_tool(self.repo_path):
+            return True
+        try:
+            text = f.read_text(encoding='utf-8', errors='replace')
+        except OSError:
+            return False
+        return "'--romfs-from'" in text or '"--romfs-from"' in text
 
     def supports_shell_framework(self) -> bool:
         return (Path(self.engine_path, 'dm', 'ios', 'Shell').is_dir()
@@ -2468,6 +2480,9 @@ class Model(QObject):
             args += ['--work-dir', work_dir]
         else:
             self.log(self.t('msg.noWorkDir') + '\n')
+        if folder is None and self.supports_romfs_from():
+            for img in pbc.reusable_romfs_images(self.out_dir or base_dir, tid_hex):
+                args += ['--romfs-from', img]
         # A Mac app is a different output, not a different pipeline: --platform mac-app runs the
         # same steps and then packs dm/mac/pack_app.py's result. Its -o names the .app, and the
         # RomFS is inside it, so the archive step is skipped below.
@@ -2577,10 +2592,12 @@ class Model(QObject):
             if ok and mac_app:
                 ok = bool(self.mac_app_path) and Path(self.mac_app_path).exists()
                 note = self.t('target.macDone' if ok else 'target.missingApp')
-                if ok and input_game:
-                    input_game.app_path = self.mac_app_path
-                    self.library.upsert(input_game)
-                    self._emit_library_changed()
+                if ok:
+                    pbc.clean_work_dir(self.effective_work_dir, remove_extracted_romfs=True)
+                    if input_game:
+                        input_game.app_path = self.mac_app_path
+                        self.library.upsert(input_game)
+                        self._emit_library_changed()
             elif ok:
                 for st in self.stages:
                     if st.state == 'running':
@@ -2590,6 +2607,8 @@ class Model(QObject):
                     return self.pack_archive(title_id, export_shell=use_shell_fw)
                 if not self.ipa_path:
                     self.ipa_path = str(Path(base_dir, f'{tid_hex}.ipa'))
+                if Path(self.ipa_path).is_file():
+                    pbc.clean_work_dir(self.effective_work_dir, remove_extracted_romfs=True)
                 self._record_library_ios_completion(title_id)
                 note = self.t('shell.oneGameDone', self.ipa_path)
             else:
@@ -3036,6 +3055,7 @@ class Model(QObject):
         if not versions:
             if export_shell:
                 return self._export_shell_after_archive(True, self.t('msg.archiveSkipped', str(extract)))
+            pbc.clean_work_dir(work, remove_extracted_romfs=False)
             return True, self.t('msg.archiveSkipped', str(extract))
         ver_dir = versions[-1][1]
         romfs_img = ver_dir / 'RomFS.img'
@@ -3056,23 +3076,7 @@ class Model(QObject):
         try:
             Path(dest).mkdir(parents=True, exist_ok=True)
             if romfs_img.is_file():
-                reused = (out_img.is_file()
-                          and out_img.stat().st_size == romfs_img.stat().st_size
-                          and abs(out_img.stat().st_mtime - romfs_img.stat().st_mtime) < 1)
-                if reused and out_img.stat().st_size <= 1024 * 1024:
-                    try:
-                        reused = out_img.read_bytes() == romfs_img.read_bytes()
-                    except OSError:
-                        reused = False
-                if not reused:
-                    out_img.unlink(missing_ok=True)
-                    try:
-                        os.link(romfs_img, out_img)
-                    except OSError:
-                        shutil.copy2(romfs_img, out_img)
-                id_dst.unlink(missing_ok=True)
-                if id_src.is_file():
-                    shutil.copy2(id_src, id_dst)
+                pbc.place_image(romfs_img, out_img)
             else:
                 py_exe = self.python_path
                 if not py_exe:
@@ -3096,9 +3100,7 @@ class Model(QObject):
             aoc_dst = Path(dest, 'aoc')
             aoc_src = Path(work, 'aoc')
             if ok:
-                shutil.rmtree(aoc_dst, ignore_errors=True)
-                if aoc_src.is_dir() and any(aoc_src.iterdir()):
-                    shutil.copytree(aoc_src, aoc_dst)
+                pbc.place_aoc(aoc_src, aoc_dst)
                 try:
                     from .win import shell_export as se
                     fw = se.built_framework(work)
@@ -3106,6 +3108,7 @@ class Model(QObject):
                         romfs_languages.apply_to_launcher_json(fw / 'dm' / 'launcher.json', dest)
                 except Exception:
                     pass
+                pbc.clean_work_dir(work, remove_extracted_romfs=True, remove_shell_framework=False)
         except OSError as e:
             self.log(f'{e}\n')
             ok = False
@@ -3173,6 +3176,10 @@ class Model(QObject):
         if ok:
             self.ipa_path = out_ipa
             self._record_library_ios_completion(tid, name=game_name)
+            pbc.clean_work_dir(work, remove_extracted_romfs=False, remove_shell_framework=False)
+            exported_ids = {g.title_id.upper() for g in se.ShellLibrary.load(self.shell_cache_path).games}
+            if tid.upper() in exported_ids:
+                pbc.clean_built_framework_container(fw)
         return ok, msg
 
     def _record_library_ios_completion(self, title_id: str | None = None, name: str = '') -> None:
