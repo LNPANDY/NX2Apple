@@ -245,7 +245,7 @@ struct LauncherView: View {
                 return FallbackIcon.environment(titleID: titleID, banners: library.artworkDirectory, folder: support)
             }
             library.keysFile = { [m] in m.savedKeys }   // the scan reads renamed packages' title IDs with them (#1012)
-            if performStartupChecks { library.discover(); fetchArtwork(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)); _ = stores.deviceStore.refresh(); checkTools() }
+            if performStartupChecks { library.discover(); fetchArtwork(); library.fillMissingTitleNames(); _ = stores.deviceStore.refresh(); checkTools() }
             if performStartupChecks {
                 _ = stores.dependencies.check()
                 if engine.usesEngineStore { engine.prepareEngine() }   // the release app: its engine store, never git
@@ -266,14 +266,14 @@ struct LauncherView: View {
             if performStartupChecks { library.syncSharedApp(root: m.shellCachePath) }
             refreshArtwork()
             readSignatures()
-            if performStartupChecks { fetchArtwork(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)) }
+            if performStartupChecks { fetchArtwork(); library.fillMissingTitleNames() }
         }
         .onChange(of: m.savedKeys) { _ in if performStartupChecks { library.discover() } }   // other keys may name other packages (#1012)
         .onReceive(library.$scanning.removeDuplicates().dropFirst()) { scanning in if !scanning && performStartupChecks { checkTools() } }
         .onChange(of: m.shellCachePath) { root in
             if performStartupChecks { library.syncSharedApp(root: root); readSignatures() }
         }
-        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools(); library.fillMissingTitleNames(engineRoot: EngineLayout.root(repo.path)) } }
+        .onChange(of: repo.path) { _ in refreshArtwork(); if performStartupChecks { checkTools(); library.fillMissingTitleNames() } }
         // A clone, pull or update check has finished (the automatic pull at launch among them): the checkout may have moved
         .onReceive(repo.$busy.removeDuplicates().dropFirst()) { busy in if !busy && performStartupChecks { checkTools() } }
         .onReceive(engine.$syncing.removeDuplicates().dropFirst()) { syncing in if !syncing && performStartupChecks { checkTools() } }   // a sync made or moved the engine (its HEAD is what ToolsAge compares)

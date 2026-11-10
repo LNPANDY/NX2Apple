@@ -163,14 +163,20 @@ package struct ToolsCard<Diagnostics: View, ShellCache: View, Builder: View>: Vi
         }
         CardDivider()
         // A different channel is asked about first (the alert below): the switch can recompile every game's shaders
-        CardRow(loc.t("engine.update"), detail: loc.t("engine.channelNote"), dot: LauncherPalette.ready) {
-            LauncherDropdown(options: EngineChannel.allCases.map { (value: $0.rawValue, label: loc.t($0.labelKey)) },
+        // Experimental older than or equal to Stable (#1095): no switch to it, and a way back when the launcher is on it
+        let choice = engine.channelChoice
+        CardRow(loc.t("engine.update"), detail: loc.t(choice.noteKey ?? "engine.channelNote"), dot: LauncherPalette.ready) {
+            if choice.offersBackToStable {
+                Button(loc.t("engine.backToStable")) { engine.requestChannel(.stable) }.disabled(!idle)
+                    .padTarget("set.engineBack", scope: "main") { if idle { engine.requestChannel(.stable) } }
+            }
+            LauncherDropdown(options: choice.options.map { (value: $0.rawValue, label: loc.t($0.labelKey)) },
                              selection: engine.selection.channel.rawValue) { v in
                 if let channel = EngineChannel(rawValue: v) { engine.requestChannel(channel) }
             }
             .disabled(!idle)
             .padTarget("set.engineChannel", scope: "main") {
-                if idle { engine.requestChannel(engine.selection.channel == .stable ? .experimental : .stable) }
+                if idle { engine.requestChannel(engine.selection.channel == .stable ? .experimental : .stable) }   // refused while Experimental is not ahead
             }
         }
         .alert(loc.t("engine.switch.title"), isPresented: Binding(get: { engine.confirmingChannel != nil },

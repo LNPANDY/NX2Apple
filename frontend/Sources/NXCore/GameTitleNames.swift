@@ -64,7 +64,10 @@ package enum GameTitleNames {
             return traditional ? ["zh-Hant", "zh-Hans"] : ["zh-Hans", "zh-Hant"]
         }
         let code = lang.code.lowercased()
-        return all.filter { $0.lowercased() == code } + all.filter { $0.lowercased().hasPrefix(code + "-") }
+        let base = String(code.prefix { $0 != "-" })
+        let exact = all.filter { $0.lowercased() == code } + all.filter { $0.lowercased().hasPrefix(code + "-") }
+        let fallback = base == code ? [] : (all.filter { $0.lowercased() == base } + all.filter { $0.lowercased().hasPrefix(base + "-") && $0.lowercased() != code })
+        return exact + fallback
     }
 
     /// The name to show in `lang`: the first of its codes that `names` has, else the English one (a Japanese launcher shows a

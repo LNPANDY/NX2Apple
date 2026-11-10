@@ -149,9 +149,13 @@ def t(key: str, lang: Lang, *args: object) -> str:
     if not args:
         return s
     try:
-        if re.search(r'%\d+\$[@d]', s):   # positional (%1$@, %2$d): the argument by its number
-            return re.sub(r'%(\d+)\$([@d])', lambda m: str(args[int(m.group(1)) - 1]), s)
-        py = s.replace("%@", "%s")   # %d is the same in both; %@ is Swift-only
+        if re.search(r'%\d+\$(?:ll|l)?[@d]', s):   # positional (%1$@, %2$d, %1$ld): the argument by its number
+            return re.sub(
+                r'%%|%(\d+)\$(?:ll|l)?([@d])',
+                lambda m: '%' if m.group(1) is None else str(args[int(m.group(1)) - 1 if int(m.group(1)) >= 1 else len(args)]),
+                s,
+            )
+        py = re.sub(r'%%|%(?:@|lld)', lambda m: '%%' if m.group(0) == '%%' else ('%s' if m.group(0) == '%@' else '%d'), s)
         return py % args
     except (TypeError, ValueError, IndexError):
         return s

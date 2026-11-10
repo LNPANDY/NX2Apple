@@ -227,6 +227,27 @@ import XCTest
         XCTAssertEqual(store.selection.channel, .stable)
     }
 
+    func testNoSwitchToExperimentalIsAskedForWhileItIsNotAheadOfStable() {
+        let store = makeStore(bundle: temporary)
+        store.selection.channel = .stable
+        store.setStanding(.notAhead)
+        store.requestChannel(.experimental)
+        XCTAssertNil(store.confirmingChannel)
+        XCTAssertEqual(store.channelChoice.options, [.stable])
+        store.setStanding(.unknown)
+        store.requestChannel(.experimental)
+        XCTAssertEqual(store.confirmingChannel, .experimental, "an unknown standing offers it as before")
+    }
+
+    func testALauncherOnAnOlderExperimentalCanGoBackToStable() {
+        let store = makeStore(bundle: temporary)
+        store.selection.channel = .experimental
+        store.setStanding(.notAhead)
+        XCTAssertTrue(store.channelChoice.offersBackToStable)
+        store.requestChannel(.stable)
+        XCTAssertEqual(store.confirmingChannel, .stable)
+    }
+
     func testNoChannelSwitchIsAskedForWhileABuildRuns() {
         let store = makeStore(bundle: temporary)
         building = true

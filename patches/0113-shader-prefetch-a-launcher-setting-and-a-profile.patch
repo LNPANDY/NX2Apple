@@ -1,4 +1,4 @@
-From 2c2ff836aae5a3d7144252754b031f63b7d3b780 Mon Sep 17 00:00:00 2001
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: ZhaowTao <zhaowtao@users.noreply.github.com>
 Date: Fri, 6 Nov 2026 01:01:45 +0800
 Subject: [PATCH] Shader prefetch: a launcher setting, and a profile key that
@@ -57,7 +57,7 @@ Issue: LNPANDY/NX2Apple#665
  8 files changed, 33 insertions(+), 3 deletions(-)
 
 diff --git a/dm/games/01005CA01580E000/game.tsv b/dm/games/01005CA01580E000/game.tsv
-index af50363a..d78fa737 100644
+index af50363..d78fa73 100644
 --- a/dm/games/01005CA01580E000/game.tsv
 +++ b/dm/games/01005CA01580E000/game.tsv
 @@ -35,6 +35,12 @@ sys_resource	0x0
@@ -74,19 +74,19 @@ index af50363a..d78fa737 100644
  # The rewritten modules require 76 MB, more than the default 64 MB deducted from the pool.
  mem_used	0x4c00000
 diff --git a/dm/games/README.md b/dm/games/README.md
-index 768c38df..1099da6b 100644
+index 5282ff7..97b0d54 100644
 --- a/dm/games/README.md
 +++ b/dm/games/README.md
-@@ -225,6 +225,7 @@ One row per profile; the notes are each profile's `README.md`.
+@@ -228,6 +228,7 @@ One row per profile; the notes are each profile's `README.md`.
  | `present_snap` | `on` / `off` (the default): present snapshots by default (`nvn_mtl.m` `mtl_snap_on`, a ring of 2 host textures): each present is copied and the game's swapchain texture is free at once, so the GPU does not idle between frames ([Present snapshots](../../docs/reference/frame-rate.md#present-snapshots-the-games-swapchain-texture-free-at-once)). A setting the game was tested with: the iOS launcher's **Frame buffering** defaults to it, and `DM_PRESENT_SNAP` / `Documents/env.txt` override it. Breath of the Wild sets it on |
  | `pso_mtl4` | `on` / `off` (the default): on iOS, render pipelines through MTL4Compiler by default, with the pipeline archive, the prepare step, the hybrid pipelines and the prebuild (on by default on the Mac; `DM_PSO_MTL4=1` / `0` overrides). A setting the game was tested with on an iPhone. It also gives the app the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) (`build_ipa.sh` builds it for the `pso_gpu` key's list when present, else for `g18p`, unless `DM_PSO_GPUS` says otherwise). An iOS build carries the pulling libraries (`_bp`) whatever this key says, since the launcher's Metal 4 pipelines toggle can turn the path on. Profiles with `pso_mtl4 off` get no archive unless a build override selects one. Breath of the Wild sets it on |
  | `pso_gpu` | Optional, whitespace-separated GPU architectures: the ones the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) is made for when the profile also sets `pso_mtl4 on`. The bases are made per GPU family and each family's archive costs its own `metal-tt` run, so a profile names exactly the devices it serves. 1-4 tokens, each alphanumeric, with or without the `applegpu_` prefix (for example `g18p applegpu_g19p`); `none` is not a value. Without this key, `pso_mtl4 on` keeps the A19 / A19 Pro default `g18p`; `pso_mtl4 off` gets no archive. The `DM_PSO_GPUS` switch / the NSP script's `--gpu` overrides the archive selection; this key does not enable Metal 4 pipelines |
 +| `nvn_prefetch` | `on` (the default) / `off`: a program's shader libraries loaded in the background when the game makes it (`nvn_mtl.m` `mtl_prog_prefetch`), so a scene's first draws do not stall. `DM_NVN_PREFETCH` and the launcher's Shader prefetch override it. On iOS a program's libraries are then mapped whether a draw uses them or not: a game with a very large shader tree fills the process's mapping limit and the system ends it (Persona 5 Royal, 24,826 pipelines, about ten minutes). Persona 5 Royal sets it off |
  | `enc_thread` | `on` / `off` (the default): on the Mac, Metal encoding on its own thread by default, as on iOS for every game (`nvn_rec.h` `rec_on`; `DM_NVN_ENC_THREAD=1` / `0` and the launcher's Encode thread override it). For a game that waits on its fence every frame, whose submit thread would otherwise also encode before the wait: Need for Speed: Hot Pursuit Remastered's 60 fps frame took 18.1 ms with encoding on the submit thread and 16.7 on its own |
- | `fps_target` | Frame rate cap of the rewriter's frame step, for builds that have one (`FRAME_STEP` in the profile's `patches.py`: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0, Hyrule Warriors: Age of Calamity 1.3.0, Paper Mario: The Thousand-Year Door 1.0.1, ASTRAL CHAIN 1.0.1), or the engine's own frame limit the host writes into game memory (`hle_fpslock.c`: Monster Hunter Rise 16.0.2, which also needs `present_interval display`; any Unreal Engine 4.2x / 5 build, its `t.MaxFPS` (or `ue_fps_cvar`) and `rhi.SyncInterval` or `nvn.SyncInterval`, found by name by the rewriter, so the game asks for present interval 1 itself, and its fixed frame rate `GEngine->FixedFrameRate`, found by its reflection entry and written while the engine's `bUseFixedFrameRate` is set (DRAGON BALL: Sparking! ZERO's battles, Pikmin 4); Luigi's Mansion 3 1.4.0, its frame limiter's milliseconds per frame, with `present_interval display`; Pokémon Brilliant Diamond 1.3.0, Unity's integer `Application.targetFrameRate`, also with `present_interval display`; EA SPORTS FC 27, Frostbite's simulation rate, found by name on any build, and on 1.8d.310c its frame regulator, also with `present_interval display`; Fire Emblem Fortune's Weave, a target frame rate the game steps by, found by its readers on any build, so the game asks for present interval 1 itself). `0` (the default): the game's own step. `30` / `60`: the host decides each frame's step in whole vsyncs and keeps the frame on screen that long (`hle_nvn.c` `fstep_tick`, `nvn_fstep.h`): 1 at a 60 cap, 2 when 60 does not hold or at a 30 cap (and while a prerendered movie plays), plus one vsync while the game is behind real time after a late frame. Presents follow that hold instead of the interval the game sets. `DM_FPS_TARGET` overrides it, also from `Documents/env.txt`; the log line `frame step: game time … of real time` checks the game's speed. A derived profile (`derive_profile`) whose `main` has no `FRAME_STEP` stubs, while the profile has them for other builds, gets `fps_target 0`: without the stubs the host would present every vsync and the game would run at double speed. On a main with neither a frame step nor an engine limit the host writes, the host keeps the game's own present interval whatever `fps_target` or `DM_FPS_TARGET` says (`hle_fpslock.c` `dm_fps_lock_engine`) |
+ | `fps_target` | Frame rate cap of the rewriter's frame step, for builds that have one (`FRAME_STEP` in the profile's `patches.py`: Tears of the Kingdom 1.4.3, Breath of the Wild 1.9.0, Hyrule Warriors: Age of Calamity 1.3.0, Paper Mario: The Thousand-Year Door 1.0.1, ASTRAL CHAIN 1.0.1), or the engine's own frame limit the host writes into game memory (`hle_fpslock.c`: Monster Hunter Rise 16.0.2, which also needs `present_interval display`; any Unreal Engine 4.2x / 5 build, its `t.MaxFPS` (or `ue_fps_cvar`) and `rhi.SyncInterval` or `nvn.SyncInterval`, found by name by the rewriter, so the game asks for present interval 1 itself, and its fixed frame rate `GEngine->FixedFrameRate`, found by its reflection entry and written while the engine's `bUseFixedFrameRate` is set (DRAGON BALL: Sparking! ZERO's battles, Pikmin 4); Luigi's Mansion 3 1.4.0, its frame limiter's milliseconds per frame, with `present_interval display`; Pokémon Brilliant Diamond 1.3.0, Unity's integer `Application.targetFrameRate`, also with `present_interval display`; EA SPORTS FC 27, Frostbite's simulation rate, found by name on any build, and on 1.8d.310c its frame regulator, also with `present_interval display`; Fire Emblem Fortune's Weave, a target frame rate the game steps by, found by its readers on any build, so the game asks for present interval 1 itself). `0` (the default): the game's own step. `30` / `60`: the host decides each frame's step in whole vsyncs and keeps the frame on screen that long (`hle_nvn.c` `fstep_tick`, `nvn_fstep.h`): 1 at a 60 cap, 2 when 60 does not hold or at a 30 cap (and while a prerendered movie plays), plus one vsync while the game is behind real time after a late frame. Presents follow that hold instead of the interval the game sets. `DM_FPS_TARGET` overrides it, also from `Documents/env.txt`; the log line `frame step: game time … of real time` checks the game's speed. A derived profile (`derive_profile`) whose `main` has no `FRAME_STEP` stubs, while the profile has them for other builds, gets `fps_target 0`: without the stubs the host would present every vsync and the game would run at double speed. On a main with neither a frame step nor an engine limit the host writes, the host keeps the game's own present interval whatever `fps_target` or `DM_FPS_TARGET` says (`hle_fpslock.c` `dm_fps_lock_engine`), except with `present_interval display`, where the cap is the present interval alone: a game whose only limit is its present interval and that steps by the time that passed (Red Dead Redemption) |
  | `fps_max` | `60` (the default) or `120`: the highest rate `fps_target` and the player's **Frame rate** take. `120` only for a game with an engine limit the host writes and whose speed was measured at 120 against 60 over the same inputs: the target then follows the frames that fit, 120 or 60 ([120 fps follows the frame step](../../docs/reference/frame-rate.md#120-fps-follows-the-frame-step)). |
 diff --git a/dm/games/game.py b/dm/games/game.py
-index cb28a9e2..d1af0a1d 100644
+index cb28a9e..d1af0a1 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
 @@ -178,6 +178,8 @@ def header_one(g):
@@ -107,7 +107,7 @@ index cb28a9e2..d1af0a1d 100644
           f'#define DM_GAME_PAD_LAYOUT {("simple", "full", "touch").index(pl)}',
           f'#define DM_GAME_OPMODE {int(om == "console")}',
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 15f48241..7f23186f 100644
+index 15f4824..7f23186 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -35,5 +35,6 @@ DM_PRESENT_SNAP	toggle	-	DM_GAME_PRESENT_SNAP	gfxapi:nvn	Performance	Frame buffe
@@ -118,7 +118,7 @@ index 15f48241..7f23186f 100644
  DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	DM_GAME_FPS_TARGET!=0	Performance	Hold frames when late
  DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
 diff --git a/dm/ios/Sources/player_env.h b/dm/ios/Sources/player_env.h
-index f1d53479..129ce470 100644
+index f1d5347..129ce47 100644
 --- a/dm/ios/Sources/player_env.h
 +++ b/dm/ios/Sources/player_env.h
 @@ -4,8 +4,9 @@
@@ -133,7 +133,7 @@ index f1d53479..129ce470 100644
      for(unsigned i=0;i<sizeof prefixes/sizeof *prefixes;i++)
          if(!strncmp(key,prefixes[i],strlen(prefixes[i])))return 1;
 diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
-index 38158dca..7f2dd741 100644
+index 4740efb..1887370 100644
 --- a/dm/tools/docs_patches.py
 +++ b/dm/tools/docs_patches.py
 @@ -118,6 +118,8 @@ SWITCH_BINDING = [
@@ -146,7 +146,7 @@ index 38158dca..7f2dd741 100644
       'why': "the output size is the host's, but the stubs that follow it (projections, layout panes, screen copies) are this build's code"}),
      ('game_env', 'DOTNET_GCRegionRange=', {'what': ".NET's garbage-collector region range", 'now': 'game', 'goal': 'game', 'purpose': 'address space', 'why': "measured for the game's regions"}),
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 42ad3d7b..11ef9098 100644
+index db5bfb5..55df23c 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -15,7 +15,7 @@ settings = importlib.util.module_from_spec(spec)
@@ -174,7 +174,7 @@ index 42ad3d7b..11ef9098 100644
          s = build(BOTW, 'nvn')['DM_FPS_HOLD']
          self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
 diff --git a/docs/settings.md b/docs/settings.md
-index 9b5e4049..01c368b5 100644
+index f78498d..c11388b 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -5,7 +5,7 @@ The screen before the game starts shows the settings the game supports. A settin
@@ -186,7 +186,7 @@ index 9b5e4049..01c368b5 100644
  - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
  - [In-game menu](#in-game-menu)
  - [TV](#tv)
-@@ -187,6 +187,14 @@ The app turns the game's graphics commands into Metal commands on a thread of it
+@@ -189,6 +189,14 @@ The app turns the game's graphics commands into Metal commands on a thread of it
  
  - **When to change it:** leave it on unless a game misbehaves with it; turning it off is a diagnostic step.
  

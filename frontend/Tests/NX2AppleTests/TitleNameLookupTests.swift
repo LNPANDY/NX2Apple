@@ -3,7 +3,7 @@ import XCTest
 @testable import NXCore
 
 /// The names of a game whose app has no `DMTitleNames`, from its control data: a build folder's leftover `control.nacp`, else the
-/// base package read by `nx_extract --control`. A stand-in `dotnet` "builds" a stand-in extractor, so no .NET, keys or game is needed.
+/// base package read by `PackageControl`. The packages are synthetic (`ControlPackageFixture`), with made-up keys.
 @MainActor final class TitleNameLookupTests: IsolatedDefaultsTestCase {
     private var temporary: URL!
     private let titleID = "01008D7016438000"
@@ -28,12 +28,6 @@ import XCTest
         return url
     }
 
-    private func script(_ path: String, _ body: String) throws -> URL {
-        let url = try write(Data(("#!/bin/sh\n" + body).utf8), path)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-        return url
-    }
-
     private func game(base: String, keys: String? = nil) -> LibraryGame {
         var g = LibraryGame(titleID: titleID, name: "13기병방위권")
         g.inputs = ["base": [base], "keys": keys.map { [$0] } ?? []]
@@ -45,53 +39,27 @@ import XCTest
         let base = try write(Data(), "games/13 Sentinels.xci")
         _ = try write(nacp([12: "13기병방위권"]), "games/\(titleID)_build/extract/v0/control.nacp")
         _ = try write(nacp([12: "13기병방위권", 14: "十三机兵防卫圈"]), "games/\(titleID)_build/extract/v65536/control.nacp")
-        let lookup = TitleNameLookup(engineRoot: temporary.appendingPathComponent("no-engine").path, cache: temporary.appendingPathComponent("cache"),
-                                     findDotnet: { XCTFail("no extractor for a leftover"); return ("", false) })
-        XCTAssertEqual(lookup.names(for: game(base: base.path)), ["ko": "13기병방위권", "zh-Hans": "十三机兵防卫圈"])
+        XCTAssertEqual(TitleNameLookup.names(for: game(base: base.path)), ["ko": "13기병방위권", "zh-Hans": "十三机兵防卫圈"])
     }
 
-    /// The base package with the keys: the extractor is built once into the cache, and asked for the control data alone.
+    /// The base package with the keys: its Control NCA is read, no engine tool or .NET SDK is needed.
     func testControlDataFromThePackage() throws {
-        let engine = temporary.appendingPathComponent("engine")
-        _ = try write(Data(#"if (a[1] == "--control") return Control();"#.utf8), "engine/dm/tools/nx_extract/Program.cs")
-        _ = try write(Data("<Project/>".utf8), "engine/dm/tools/nx_extract/nx_extract.csproj")
-        let control = try write(nacp([12: "13기병방위권", 13: "十三機兵防衛圈", 14: "十三机兵防卫圈"]), "fixture/control.nacp")
-        // dotnet build <project> -c Release -o <dir> …: writes an nx_extract that copies the fixture to its fourth argument
-        let builds = temporary.appendingPathComponent("builds.txt")
-        let dotnet = try script("bin/dotnet", """
-            [ "$1" = build ] || exit 0
-            echo built >> '\(builds.path)'
-            out="$6"; mkdir -p "$out"
-            printf '#!/bin/sh\\n[ "$2" = --control ] && [ "$5" = --app ] && [ "$6" = \(titleID) ] || exit 9\\ncp "\(control.path)" "$4"\\n' > "$out/nx_extract"
-            chmod +x "$out/nx_extract"
-            """)
-        let keys = try write(Data("keys".utf8), "keys/prod.keys"), base = try write(Data("xci".utf8), "games/13 Sentinels.xci")
-        let cache = temporary.appendingPathComponent("cache")
-        let expected = ["ko": "13기병방위권", "zh-Hant": "十三機兵防衛圈", "zh-Hans": "十三机兵防卫圈"]
-        for _ in 0..<2 {   // a second lookup (the next launch) uses the cached extractor
-            let lookup = TitleNameLookup(engineRoot: engine.path, cache: cache, findDotnet: { (dotnet.path, true) })
-            XCTAssertEqual(lookup.names(for: game(base: base.path, keys: keys.path)), expected)
-        }
-        XCTAssertEqual(try String(contentsOf: builds, encoding: .utf8), "built\n")
+        typealias F = ControlPackageFixture
+        let id = UInt64(titleID, radix: 16)!
+        let names = [12: "13기병방위권", 13: "十三機兵防衛圈", 14: "十三机兵防卫圈"]
+        let keys = try write(Data(F.keysFile().utf8), "keys/prod.keys")
+        let xci = try write(Data(F.xci([("c.nca", F.controlNCA(programID: id, nacp: F.nacp(names), rightsID: nil))])), "games/13 Sentinels.xci")
+        XCTAssertEqual(TitleNameLookup.names(for: game(base: xci.path, keys: keys.path)), ["ko": "13기병방위권", "zh-Hant": "十三機兵防衛圈", "zh-Hans": "十三机兵防卫圈"])
     }
 
-    /// Nothing to read: no keys, a game folder instead of a package, an engine whose extractor has no --control, no .NET SDK.
+    /// Nothing to read: no keys, a game folder instead of a package, a package the keys do not open.
     func testNoNamesWithoutWhatTheLookupNeeds() throws {
         let keys = try write(Data("keys".utf8), "keys/prod.keys"), base = try write(Data("nsp".utf8), "games/Game.nsp")
         XCTAssertNil(TitleNameLookup.packageInputs(of: game(base: base.path)))
         try FileManager.default.createDirectory(at: temporary.appendingPathComponent("games/Switch 2 game"), withIntermediateDirectories: true)
         XCTAssertNil(TitleNameLookup.packageInputs(of: game(base: temporary.appendingPathComponent("games/Switch 2 game").path, keys: keys.path)))
         XCTAssertNotNil(TitleNameLookup.packageInputs(of: game(base: base.path, keys: keys.path)))
-        _ = try write(Data("static int Main() {}".utf8), "old-engine/dm/tools/nx_extract/Program.cs")
-        _ = try write(Data("<Project/>".utf8), "old-engine/dm/tools/nx_extract/nx_extract.csproj")
-        let old = TitleNameLookup(engineRoot: temporary.appendingPathComponent("old-engine").path, cache: temporary.appendingPathComponent("cache"),
-                                  findDotnet: { XCTFail("an extractor without --control is not built"); return ("", false) })
-        XCTAssertNil(old.names(for: game(base: base.path, keys: keys.path)))
-        _ = try write(Data(#""--control""#.utf8), "engine/dm/tools/nx_extract/Program.cs")
-        _ = try write(Data("<Project/>".utf8), "engine/dm/tools/nx_extract/nx_extract.csproj")
-        let noSDK = TitleNameLookup(engineRoot: temporary.appendingPathComponent("engine").path, cache: temporary.appendingPathComponent("cache"),
-                                    findDotnet: { ("/usr/local/bin/dotnet", false) })
-        XCTAssertNil(noSDK.names(for: game(base: base.path, keys: keys.path)))
+        XCTAssertNil(TitleNameLookup.names(for: game(base: base.path, keys: keys.path)))
     }
 
     /// What the lookup found stays when the library reads the game's older app again, and an app packed with names replaces it.

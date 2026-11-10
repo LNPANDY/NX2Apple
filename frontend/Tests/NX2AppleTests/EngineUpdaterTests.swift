@@ -365,4 +365,121 @@ final class EngineUpdaterTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(change.new, "v42")
         XCTAssertNil(EngineUpdate.chainChange(from: none.path, to: new.path), "no chain to compare with")
     }
+
+    // MARK: Experimental against Stable (#1095)
+
+    private func manifest(_ c: Character, date: String?, channel: String = "stable") -> EngineManifest.Manifest {
+        EngineManifest.Manifest(version: "0.7.3", pin: String(id(c).prefix(40)), engineID: id(c),
+                                engine: .init(asset: "e.zip", sha256: String(repeating: "a", count: 64), size: nil),
+                                app: nil, channel: channel, upstreamDate: date)
+    }
+
+    func testTheManifestCarriesTheUpstreamDate() throws {
+        let data = Data("""
+        {"version":"0.7.3","pin":"\(id("a").prefix(40))","engine_id":"\(id("a"))","upstream_date":"2026-10-30T18:12:44Z",
+         "engine":{"asset":"e.zip","sha256":"\(String(repeating: "a", count: 64))"}}
+        """.utf8)
+        let m = try EngineManifest.decode(data)
+        XCTAssertEqual(m.upstreamDate, "2026-10-30T18:12:44Z")
+        XCTAssertNotNil(EngineManifest.date(m.upstreamDate))
+        XCTAssertNil(EngineManifest.date(nil))
+        XCTAssertNil(EngineManifest.date("yesterday"))
+        XCTAssertNil(try EngineManifest.decode(Data("""
+        {"version":"0.7.3","pin":"\(id("a").prefix(40))","engine_id":"\(id("a"))","engine":{"asset":"e.zip","sha256":"\(String(repeating: "a", count: 64))"}}
+        """.utf8)).upstreamDate, "an older manifest has none")
+    }
+
+    func testAnOlderExperimentalPinIsNotAhead() {
+        XCTAssertEqual(ExperimentalStanding.compare(experimental: manifest("a", date: "2026-10-31T00:00:00Z"),
+                                                     stable: manifest("b", date: "2026-11-05T00:00:00Z")), .notAhead)
+    }
+
+    func testANewerExperimentalPinIsAhead() {
+        XCTAssertEqual(ExperimentalStanding.compare(experimental: manifest("a", date: "2026-11-06T00:00:00Z"),
+                                                     stable: manifest("b", date: "2026-11-05T00:00:00Z")), .ahead)
+        XCTAssertEqual(ExperimentalStanding.compare(experimental: manifest("a", date: "2026-11-05T00:00:00Z"),
+                                                     stable: manifest("b", date: "2026-11-05T00:00:00Z")), .ahead,
+                       "the same pin date with another engine id: the patch series differs")
+    }
+
+    func testTheSameEngineIsNotAhead() {
+        XCTAssertEqual(ExperimentalStanding.compare(experimental: manifest("a", date: nil), stable: manifest("a", date: nil)), .notAhead)
+    }
+
+    func testAMissingDateIsUnknown() {
+        XCTAssertEqual(ExperimentalStanding.compare(experimental: manifest("a", date: nil), stable: manifest("b", date: "2026-11-05T00:00:00Z")), .unknown)
+        XCTAssertEqual(ExperimentalStanding.compare(experimental: manifest("a", date: "2026-11-05T00:00:00Z"), stable: manifest("b", date: nil)), .unknown)
+        XCTAssertEqual(ExperimentalStanding.compare(experimental: manifest("a", date: "x"), stable: manifest("b", date: "y")), .unknown)
+    }
+
+    private func serve(_ t: FakeTransport, _ c: Character, date: String?, channel: String, base: String) {
+        let d = date.map { ",\"upstream_date\":\"\($0)\"" } ?? ""
+        t.files[base + "latest.json"] = Data("""
+        {"version":"0.7.3","pin":"\(id(c).prefix(40))","engine_id":"\(id(c))","channel":"\(channel)"\(d),
+         "engine":{"asset":"e.zip","sha256":"\(String(repeating: "a", count: 64))"}}
+        """.utf8)
+    }
+
+    func testTheStandingReadsBothChannelsManifests() {
+        let t = FakeTransport()
+        serve(t, "a", date: "2026-10-31T00:00:00Z", channel: "experimental", base: experimentalBase)
+        serve(t, "b", date: "2026-11-05T00:00:00Z", channel: "stable", base: stableBase)
+        XCTAssertEqual(EngineUpdate.standing(appVersion: "0.7.3", publicKey: "", transport: t), .notAhead)
+        serve(t, "a", date: "2026-11-06T00:00:00Z", channel: "experimental", base: experimentalBase)
+        XCTAssertEqual(EngineUpdate.standing(appVersion: "0.7.3", publicKey: "", transport: t), .ahead)
+    }
+
+    func testTheStandingIsUnknownWhenAManifestIsMissingOrTheNetworkIsDown() {
+        let t = FakeTransport()
+        serve(t, "b", date: "2026-11-05T00:00:00Z", channel: "stable", base: stableBase)
+        XCTAssertEqual(EngineUpdate.standing(appVersion: "0.7.3", publicKey: "", transport: t), .unknown, "no experimental release")
+        serve(t, "a", date: "2026-10-31T00:00:00Z", channel: "experimental", base: experimentalBase)
+        t.failing = true
+        XCTAssertEqual(EngineUpdate.standing(appVersion: "0.7.3", publicKey: "", transport: t), .unknown)
+    }
+
+    func testTheStandingIsUnknownForAManifestWithoutTheRightSignature() {
+        let t = FakeTransport()
+        serve(t, "a", date: "2026-10-31T00:00:00Z", channel: "experimental", base: experimentalBase)
+        serve(t, "b", date: "2026-11-05T00:00:00Z", channel: "stable", base: stableBase)
+        let key = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation.base64EncodedString()
+        XCTAssertEqual(EngineUpdate.standing(appVersion: "0.7.3", publicKey: key, transport: t), .unknown, "a key is built in and nothing is signed")
+    }
+
+    // MARK: The engine update row
+
+    func testTheRowOffersBothChannelsAsLongAsExperimentalIsAheadOrUnknown() {
+        for standing in [ExperimentalStanding.ahead, .unknown] {
+            for selected in EngineChannel.allCases {
+                let c = EngineChannelChoice(selected: selected, standing: standing)
+                XCTAssertEqual(c.options, [.stable, .experimental])
+                XCTAssertNil(c.noteKey)
+                XCTAssertFalse(c.offersBackToStable)
+            }
+        }
+    }
+
+    func testOnStableTheRowDoesNotOfferExperimentalWhileItIsNotAhead() {
+        let c = EngineChannelChoice(selected: .stable, standing: .notAhead)
+        XCTAssertEqual(c.options, [.stable])
+        XCTAssertEqual(c.noteKey, "engine.experimentalBehind")
+        XCTAssertFalse(c.offersBackToStable)
+        XCTAssertFalse(EngineChannelChoice.allowsSwitch(to: .experimental, from: .stable, standing: .notAhead))
+        XCTAssertTrue(EngineChannelChoice.allowsSwitch(to: .experimental, from: .stable, standing: .unknown))
+        XCTAssertTrue(EngineChannelChoice.allowsSwitch(to: .experimental, from: .stable, standing: .ahead))
+    }
+
+    func testOnExperimentalThatIsNotAheadTheRowOffersTheWayBackToStable() {
+        let c = EngineChannelChoice(selected: .experimental, standing: .notAhead)
+        XCTAssertEqual(c.options, [.stable, .experimental])
+        XCTAssertEqual(c.noteKey, "engine.experimentalBehind")
+        XCTAssertTrue(c.offersBackToStable)
+        XCTAssertTrue(EngineChannelChoice.allowsSwitch(to: .stable, from: .experimental, standing: .notAhead))
+    }
+
+    func testTheNewEngineRowStringsAreTranslated() {
+        for key in ["engine.experimentalBehind", "engine.backToStable"] {
+            for code in ["en", "zh", "de", "es", "fr", "it", "ja", "ko", "pt-br", "sv"] { XCTAssertNotEqual(L10n.string(key, Lang(code)), key, "\(key) \(code)") }
+        }
+    }
 }

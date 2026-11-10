@@ -168,7 +168,12 @@ final class ArtworkLanguageTests: XCTestCase {
     }
 
     func testLanguagesWithoutACatalogueAskTheEnglishOne() {
-        XCTAssertEqual(["en", "de", "fr", "it", "sv", "zh", "ja"].map(CleanArt.language(for:)), ["en", "de", "fr", "it", "en", "en", "en"])
+        XCTAssertEqual(["en", "de", "fr", "it", "es", "pt-br", "sv", "zh", "ja", "ko"].map(CleanArt.language(for:)),
+                       ["en", "de", "fr", "it", "es", "pt", "en", "en", "en", "en"])
+        XCTAssertEqual(ArtworkStore.titleListURL(for: "es")?.lastPathComponent, "ES.es.json")
+        XCTAssertEqual(ArtworkStore.titleListURL(for: "pt-br")?.lastPathComponent, "BR.pt.json")
+        XCTAssertEqual(ArtworkStore.titleListURL(for: "ko")?.lastPathComponent, "KR.ko.json")
+        XCTAssertNil(ArtworkStore.titleListURL(for: "sv"))
     }
 
     // The catalogue's original size (the hero at 1440 to 1920 pt on a Retina screen needs about 3000 pixels)

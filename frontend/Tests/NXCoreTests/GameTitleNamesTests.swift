@@ -11,8 +11,11 @@ final class GameTitleNamesTests: XCTestCase {
         XCTAssertEqual(GameTitleNames.pick(names, for: .zh, preferred: ["zh-Hans-CN"]), "传说")
         XCTAssertEqual(GameTitleNames.pick(names, for: .en, preferred: ["en-GB"]), "The Legend")   // American English first, as the control data orders them
         XCTAssertEqual(GameTitleNames.pick(names, for: Lang("ja"), preferred: []), "伝説")
+        XCTAssertEqual(GameTitleNames.pick(names, for: Lang("ko"), preferred: []), "전설")
         XCTAssertEqual(GameTitleNames.pick(names, for: Lang("fr"), preferred: []), "La Légende (CA)")   // no French: the Canadian French one
         XCTAssertEqual(GameTitleNames.pick(names, for: Lang("es"), preferred: []), "La Leyenda")   // Spanish before Latin American Spanish
+        XCTAssertEqual(GameTitleNames.pick(["en-US": "The Legend", "pt": "A Lenda", "pt-BR": "A Lenda (BR)"], for: Lang("pt-br"), preferred: []), "A Lenda (BR)")
+        XCTAssertEqual(GameTitleNames.pick(["en-US": "The Legend", "pt": "A Lenda"], for: Lang("pt-br"), preferred: []), "A Lenda")   // no Brazilian Portuguese: the Portuguese one
     }
 
     /// The launcher's Chinese is Simplified: Simplified first, Traditional when the game has no Simplified name, and Traditional first

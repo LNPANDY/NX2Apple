@@ -38,7 +38,7 @@ index 052f230..42eac55 100644
          [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_resume(); dm_focus_set(1); }];
          [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1); }];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 043ba44..baa97be 100644
+index b9189aa..8f11e57 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -40,7 +40,7 @@ DM_EXEC_OUT	path	File `oe::ExecuteProgram` records the next program and its para

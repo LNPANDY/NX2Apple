@@ -135,7 +135,7 @@ index 0000000..121294c
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/docs/development.md b/docs/development.md
-index 4538163..ae296e0 100644
+index f249453..200ebee 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -427,7 +427,7 @@ What the script does:
@@ -148,7 +148,7 @@ index 4538163..ae296e0 100644
  A repeat build skips work whose inputs have not changed. The extraction is kept (`extract/`). The DLC, the rewrite, the shader split and the iOS (or Vulkan) shaders each write a key beside their output: a sha256 of their inputs (the game files, the tools, the profile, Xcode's version and the in-repo spirv-cross; for the DLC, the DLC NSPs' names, sizes and times and nx_extract's sources). When the key matches, the stage line says `reused (inputs unchanged)` and the step does not run. Any change to a tool or the profile runs the step again; deleting the `.key` file forces it. The rewrite's key covers the patch files that name one of the modules' builds, the selected game's own, and always `dm/tools/sdk_patches.py`, whose SDK-wide `MATCH_CUTS` apply to builds it does not name (a new reviewed implementation was left out of a reused rewrite of Pokémon Legends: Arceus before). The iOS shaders' inputs are the shader package's content and only the tools `dmsh_build.py` loads (the modules it imports, at any depth): a split that runs again because a reader for another engine changed (a pull that touches `shader_split.py` or `unityfs.py`) writes the same package, and the iOS shaders stay reused.
  
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index aaf7af6..3497b85 100644
+index c85b1ed..a2860b8 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
 @@ -2,6 +2,13 @@

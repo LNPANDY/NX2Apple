@@ -11,37 +11,37 @@ Reason: Mac: split a Joy-Con pair into two sideways controllers over HID 0x30 wi
 Issue: LNPANDY/NX2Apple#740
 ---
  dm/host/Makefile                           |   2 +-
- dm/host/front_mac.m                        | 193 ++++++++++++++++-
+ dm/host/front_mac.m                        | 198 ++++++++++++++++-
  dm/host/haptics_apple.h                    |   1 +
  dm/host/haptics_apple.m                    |  35 ++-
- dm/host/hle_hid.c                          |  16 +-
+ dm/host/hle_hid.c                          |  25 ++-
  dm/host/pad_joycon.h                       | 234 +++++++++++++++++++++
  dm/host/pad_joycon_mac.h                   | 199 ++++++++++++++++++
  dm/host/tests/Makefile                     |   2 +-
  dm/host/tests/t_haptics_apple.m            |  14 ++
- dm/host/tests/t_hid.c                      |   6 +
+ dm/host/tests/t_hid.c                      |  13 ++
  dm/host/tests/t_pad_hid.c                  | 131 +++++++++++-
  dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   1 +
  docs/env_switches.tsv                      |   1 +
- 13 files changed, 809 insertions(+), 26 deletions(-)
+ 13 files changed, 827 insertions(+), 29 deletions(-)
  create mode 100644 dm/host/pad_joycon.h
  create mode 100644 dm/host/pad_joycon_mac.h
 
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 8fa39b0..3b91311 100644
+index 461132f..6bab943 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
-@@ -76,7 +76,7 @@ endif
- endif
+@@ -79,7 +79,7 @@ endif
  .PHONY: FORCE
  FORCE:
--dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
-+dmhost: $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h pad_joycon.h pad_joycon_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
+ # Makefile: a change to CFLAGS (or the compile line) rebuilds the host
+-dmhost: Makefile $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
++dmhost: Makefile $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h pad_slots.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_joycon.h pad_joycon_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
  	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreBluetooth -framework IOBluetooth -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
  clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
  	rm -rf gen dmhost dmhost_* *.dSYM
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 6800260..2db5155 100644
+index 6800260..d11ebd5 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -30,6 +30,7 @@
@@ -303,7 +303,7 @@ index 6800260..2db5155 100644
  // Quit with the Home button (home_quit.h, LNPANDY/NX2Apple#336): held for 2 s it opens the prompt (home_quit_mac.h) over the game's view, A quits through the same path as ⌘Q
  // (NSApp terminate, so the save writer and the other exit handlers run as there), B or Home closes it. While the prompt is open the game is told it lost the focus, as the
  // Switch's HOME menu does, and gets no controller input or touch; the keyboard and ⌘Q work as always. DM_HOME_QUIT=0 turns it off
-@@ -461,11 +624,18 @@ static void hq_log_setting(void) {
+@@ -461,11 +629,18 @@ static void hq_log_setting(void) {
  static void hq_buttons(int *home, int *a, int *b, GCController **holder) {
      *home = *a = *b = 0;
      for (GCController *c in GCController.controllers) {
@@ -322,7 +322,7 @@ index 6800260..2db5155 100644
  }
  static void hq_fade(NSView *v, int in) {
      if (!v) return;
-@@ -536,6 +706,11 @@ static void cp_buttons(int *a, int *b) {
+@@ -536,6 +711,11 @@ static void cp_buttons(int *a, int *b) {
      for (GCController *c in GCController.controllers) { GCExtendedGamepad *g = c.extendedGamepad; if (g) { *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed; } }
      for (hid_pad *d = g_hidpads; d; d = d->next) { uint64_t m = d->twin && hidpad_is_pro(d) ? d->pro_m : pad_hid_buttons(&d->st); *a |= !!(m & DM_BTN_A); *b |= !!(m & DM_BTN_B); }
      for (s2_pad *d = dm_switch2_pads(); d; d = d->next) s2_pad_ab(&d->st, a, b);   // Switch 2 controllers (pad_switch2_apple.h)
@@ -334,7 +334,7 @@ index 6800260..2db5155 100644
  }
  static int cp_waiting(void) {   // connected controllers that are no player yet
      if (g_merge) return 0;
-@@ -602,6 +777,7 @@ static void pads_start(void) {
+@@ -602,6 +782,7 @@ static void pads_start(void) {
                                                                             : "each controller is a player of its own, the keyboard plays with player 1");
      if (g_press_to_join) LOG("front end: a controller becomes a player at its first button press, the lowest player free (DM_PAD_PRESS_TO_JOIN)");
      hq_start();
@@ -342,7 +342,7 @@ index 6800260..2db5155 100644
      pads_changed(nil);
      hq_log_setting();
      dm_motion_pro_start(pro_devices_changed);
-@@ -1619,6 +1795,7 @@ void front_run(void (*guest)(void)) {
+@@ -1619,6 +1800,7 @@ void front_run(void (*guest)(void)) {
          for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
@@ -446,7 +446,7 @@ index 0b075f5..0e86fec 100644
  #if TARGET_OS_IPHONE
          [nc addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *n) { (void)n; suspend(DM_HAPTICS_INACTIVE, YES); }];
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index cc4dcf6..804e0b3 100644
+index 1ea3583..80a6120 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -366,7 +366,9 @@ void dm_joy_attach(int p, uint32_t sides) {
@@ -481,8 +481,7 @@ index cc4dcf6..804e0b3 100644
      return n;
  }
  HLE_FORCE("_ZN2nn3hid23GetSixAxisSensorHandlesEPNS0_19SixAxisSensorHandleEiRKjNS_4util10BitFlagSetILi32ENS0_12NpadStyleTagEEE", "six-axis sensor handles: two for handheld / dual Joy-Cons, one otherwise",
-@@ -1127,11 +1137,14 @@ HLE_FORCE("_ZN2nn3hid16GetGestureStatesEPNS0_12GestureStateEi", "gesture states,
- // Six-axis details: the current state, at rest unless shaking, fusion off
+@@ -1142,9 +1152,12 @@ HLE_FORCE("_ZN2nn3hid16GetGestureStatesEPNS0_12GestureStateEi", "gesture states,
  HLE_FORCE("_ZN2nn3hid17StopSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor; always sampling on the host", void, h_hid_SixStop, const uint32_t *h) { (void)h; }
  HLE_FORCE("_ZN2nn3hid21GetSixAxisSensorStateEPNS0_18SixAxisSensorStateERKNS0_19SixAxisSensorHandleE", "six-axis sensor current state", void, h_hid_SixState, SixAxisState *s, const uint32_t *h) { six_states(s, 1, *h); }
  HLE_FORCE("_ZN2nn3hid21IsSixAxisSensorAtRestERKNS0_19SixAxisSensorHandleE", "six-axis sensor at rest: yes unless player 1's is shaking or a live controller is turning", unsigned, h_hid_SixRest, const uint32_t *h) {
@@ -498,7 +497,6 @@ index cc4dcf6..804e0b3 100644
  }
  // The console's own six-axis sensor (SevenSixAxisSensor, the body's orientation in handheld mode; The Legend of Zelda: Breath of the Wild): takes a work buffer and is switched through the hid service. The host provides none: switching succeeds, 0 states
  HLE_FORCE("_ZN2nn3hid28InitializeSevenSixAxisSensorEPvm", "console six-axis sensor initialization; not provided by the host", Result, h_hid_SevenInit, void *buf, size_t n) { (void)buf; (void)n; return RES_OK; }
- HLE_FORCE("_ZN2nn3hid26FinalizeSevenSixAxisSensorEv", "console six-axis sensor", Result, h_hid_SevenFini, void) { return RES_OK; }
 diff --git a/dm/host/pad_joycon.h b/dm/host/pad_joycon.h
 new file mode 100644
 index 0000000..055da08
@@ -983,10 +981,10 @@ index 7bd1edc..94c506d 100644
      dm_haptics_apple_shutdown();
      puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, level cutoff and the DualShock 4 route passed");
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 58ab42e..f1134f4 100644
+index 201d7f8..f2dbe95 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
-@@ -214,6 +214,19 @@ static void t_joycons(void) {
+@@ -224,6 +224,19 @@ static void t_joycons(void) {
      // One Joy-Con alone on player 2: JoyRight on No2; leaving: full-key again
      dm_pad_players(3); dm_joy_attach(1, 2);
      CHECK(h_hid_GetStyle(&(uint32_t){1}) == STYLE_JOYRIGHT, "one right Joy-Con alone: JoyRight on its own npad");
@@ -1173,7 +1171,7 @@ index 2b64998..500e86f 100644
  int front_ios_boot_ok(void) { return 1; }
  void front_ios_boot(void) {}
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index d448bb3..0cef6cc 100644
+index 9cfc501..3635321 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -94,6 +94,7 @@ DM_JIT_CAPTURE	path	Folder the Mac host writes what a game's `nn::jit` plugin ma
