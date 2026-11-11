@@ -32,6 +32,10 @@ package enum BuildFailureClassifier {
         ("volume.swap", .volumeFormat, "\\[Errno 45\\] Operation not supported: '[^']*\\.app'"),
     ]
 
+    /// Apple error 9120 and the surrounding 10-App-IDs-per-7-days wording on a free Apple ID.
+    package static let appIDLimitPattern =
+        #"(?i)(?:maximum App ID limit|(?:create|register) (?:up to|more than) 10 App IDs|10 App IDs[^\n]{0,30}7[- ]day|Reached the maximum number of[^\n]{0,40}App IDs|MaximumAppIDLimitReached|(?:DVTPortal\w*|IDEProvisioning\w*|DVTProvisioning\w*|resultCode)\b[^\n]{0,80}(?<!\d)9120(?!\d)|(?:App ID|bundle identifier|provisioning|development team|Communication with Apple|Apple Developer|register bundle)[^\n]{0,160}(?:\(\s*9120\s*\)|(?:\bcode\b|\berror\b|resultCode)\s*[=:]?\s*9120(?!\d))|(?:\(\s*9120\s*\)|(?:\bcode\b|\berror\b|resultCode)\s*[=:]?\s*9120(?!\d))[^\n]{0,160}(?:App ID|bundle identifier|provisioning|development team|Communication with Apple|Apple))"#
+
     /// Additional Mac launcher rules for Metal Toolchain components, game profile update mismatches, and free Apple ID limits.
     /// Kept separate from `table` so `Tests/Fixtures/build_failures.json` stays aligned with the shared Qt fixture table.
     package static let extraTable: [(id: String, kind: BuildFailureKind, pattern: String)] = [
@@ -40,7 +44,8 @@ package enum BuildFailureClassifier {
         (id: "update.missing", kind: .updateMismatch, pattern: "no NSP for update v[0-9]+ \\(the game profile needs these versions:"),
         (id: "profile.tables", kind: .updateMismatch, pattern: "Either these game files are not the versions the profile registers, or shader_split\\.py now reads them differently"),
         (id: "profile.builds", kind: .updateMismatch, pattern: "not the builds provisional game profile [0-9A-Fa-f]+ registers:"),
-        (id: "signing.freeLimit", kind: .freeAccountLimit, pattern: "(?i)(?:maximum number of (?:provisioning profiles|installed apps|apps for free development profiles)|maximum App ID limit|create up to 10 App IDs every 7 days)"),
+        (id: "signing.appIDLimit", kind: .appIDLimit, pattern: appIDLimitPattern),
+        (id: "signing.freeLimit", kind: .freeAccountLimit, pattern: "(?i)(?:maximum number of (?:provisioning profiles|installed apps|apps for free development profiles|provisioned iOS devices)|code -36607)"),
     ]
 
     /// What the launcher itself knows when the log says nothing it can use. The keys file and the game files are checked
@@ -107,6 +112,8 @@ package enum BuildFailureClassifier {
             guard let r = log.range(of: #"the game profile needs these versions: ([^)\n]+)"#, options: .regularExpression),
                   let at = log[r].range(of: marker) else { return nil }
             return String(log[r][at.upperBound...]).trimmingCharacters(in: .whitespaces)
+        case .appIDLimit:
+            return appIDLimitReset(in: log)
         default: return nil
         }
     }
@@ -119,6 +126,7 @@ package enum BuildFailureClassifier {
     /// the Mac knows (an account signed in to Xcode, or a development certificate in the keychain).
     package static func classifyInstall(_ step: InstallStep, error: String, teamListed: Bool) -> BuildFailure? {
         if error.contains("No space left on device") { return BuildFailure(kind: .diskFull, gameName: nil) }
+        if appIDLimitReached(error) { return BuildFailure(kind: .appIDLimit, gameName: nil, detail: appIDLimitReset(in: error)) }
         if freeAccountLimitReached(error) { return BuildFailure(kind: .freeAccountLimit, gameName: nil) }
         switch step {
         case .sign:
@@ -129,10 +137,28 @@ package enum BuildFailureClassifier {
         }
     }
 
-    /// Matches Apple free developer account limits (10 App IDs per 7 days during provisioning, or 3 active sideloaded apps per device).
+    /// Matches Apple error 9120 and the 10-App-IDs-in-7-days free developer account cap.
+    package static func appIDLimitReached(_ error: String) -> Bool {
+        error.range(of: appIDLimitPattern, options: .regularExpression) != nil
+    }
+
+    private static let appIDResetRegex = try? NSRegularExpression(
+        pattern: #"(?i)(?:expires?|frees? up|available(?: again)?|resets?|try again|until)\s+(?:on|after|at)?\s*(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\s*(?:UTC|GMT|Z|[+-]\d{2}:?\d{2}))?)?|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}(?:\s+(?:at\s+)?\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*(?:UTC|GMT))?)?)"#
+    )
+
+    /// Extracts the date when the oldest App ID slot frees up, when the signing log names it.
+    package static func appIDLimitReset(in log: String) -> String? {
+        guard let re = appIDResetRegex,
+              let match = re.firstMatch(in: log, range: NSRange(log.startIndex..., in: log)),
+              let range = Range(match.range(at: 1), in: log) else { return nil }
+        let value = log[range].trimmingCharacters(in: CharacterSet(charactersIn: " \t\r\n."))
+        return value.isEmpty ? nil : value
+    }
+
+    /// Matches other free Apple developer account limits (such as the 3-active-apps-per-device sideloading limit).
     package static func freeAccountLimitReached(_ error: String) -> Bool {
         error.range(
-            of: #"(?i)(?:maximum number of (?:provisioning profiles|installed apps|apps for free development profiles)|maximum App ID limit|create up to 10 App IDs every 7 days)"#,
+            of: #"(?i)(?:maximum number of (?:provisioning profiles|installed apps|apps for free development profiles|provisioned iOS devices)|code -36607)"#,
             options: .regularExpression
         ) != nil
     }

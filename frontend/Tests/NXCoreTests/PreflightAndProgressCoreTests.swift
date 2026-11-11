@@ -231,8 +231,11 @@ final class PreflightAndProgressCoreTests: XCTestCase {
         XCTAssertEqual(BuildFailureClassifier.classify(provisionalMismatch).kind, .updateMismatch)
 
         let freeAppIDLimit = "error: Your development team has reached the maximum number of provisioning profiles. You can create up to 10 App IDs every 7 days."
-        XCTAssertEqual(BuildFailureClassifier.classify(freeAppIDLimit).kind, .freeAccountLimit)
-        XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: freeAppIDLimit, teamListed: true)?.kind, .freeAccountLimit)
+        XCTAssertEqual(BuildFailureClassifier.classify(freeAppIDLimit).kind, .appIDLimit)
+        XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: freeAppIDLimit, teamListed: true)?.kind, .appIDLimit)
+
+        let profileCountLimit = "error: Your development team has reached the maximum number of provisioning profiles."
+        XCTAssertEqual(BuildFailureClassifier.classify(profileCountLimit).kind, .freeAccountLimit)
 
         let threeAppLimit = "ERROR: This device has reached the maximum number of installed apps using a free developer profile."
         XCTAssertEqual(BuildFailureClassifier.classifyInstall(.install, error: threeAppLimit, teamListed: true)?.kind, .freeAccountLimit)

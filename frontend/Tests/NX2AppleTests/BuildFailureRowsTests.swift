@@ -245,4 +245,90 @@ import NXModel
         m.fixBuildFailure(.teamTaken)
         if let xcode = Toolchain.installedXcode() { XCTAssertEqual(opened, [URL(fileURLWithPath: xcode)]) } else { XCTAssertTrue(opened.isEmpty) }
     }
+
+    @MainActor func testAppIDLimit9120AndLookalikes() throws {
+        let real9120 = """
+        /tmp/shell/project/DmShell.xcodeproj: error: Failed to register bundle identifier: The app identifier "org.nxnative.shell" cannot be registered to your development team because it is not available. (9120) (in target 'DmShell' from project 'DmShell')
+        /tmp/shell/project/DmShell.xcodeproj: error: No profiles for 'org.nxnative.shell' were found: Xcode couldn't find any iOS App Development provisioning profiles matching 'org.nxnative.shell'. (in target 'DmShell' from project 'DmShell')
+        """
+        XCTAssertTrue(BuildFailureClassifier.appIDLimitReached(real9120))
+        XCTAssertFalse(ShellInstall.retryUnderTeamVariant(real9120, attempted: "org.nxnative.shell", variant: "org.nxnative.shell.TEAM123"))
+        XCTAssertEqual(BuildFailureClassifier.classify(real9120).kind, .appIDLimit)
+        XCTAssertNil(BuildFailureClassifier.classify(real9120).detail)
+        XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: real9120, teamListed: true)?.kind, .appIDLimit)
+
+        let portal9120WithReset = """
+        Error Domain=DVTPortalServiceErrorDomain Code=9120 "Your maximum App ID limit has been reached. You may create up to 10 App IDs every 7 days. The oldest App ID expires on 2026-11-18."
+        """
+        let classifiedWithReset = BuildFailureClassifier.classify(portal9120WithReset)
+        XCTAssertEqual(classifiedWithReset.kind, .appIDLimit)
+        XCTAssertEqual(classifiedWithReset.detail, "2026-11-18")
+
+        // Lookalike logs that must NOT be misclassified as Apple error 9120
+        let lookalikes = [
+            "[240/9120] Compiling App ID shader pipeline...",
+            "Communication with Apple failed on port 9120: connection reset by peer",
+            "error: clang frontend command failed with exit code 1 (pid 9120)",
+            "error: Failed to register bundle identifier (91200)",
+            "error: Failed to register bundle identifier: The app identifier \"org.nxnative.shell\" cannot be registered to your development team because it is not available.",
+            "error: No profiles for 'org.nxnative.shell' were found",
+            "ERROR: This device has reached the maximum number of installed apps using a free developer profile (code -36607).",
+        ]
+        for log in lookalikes {
+            XCTAssertFalse(BuildFailureClassifier.appIDLimitReached(log), "false positive on lookalike: \(log)")
+            XCTAssertNotEqual(BuildFailureClassifier.classify(log).kind, .appIDLimit, "false positive classify on: \(log)")
+        }
+        // Plain taken bundle ID without 9120 still classifies as .teamTaken and still retries team variant
+        let plainTaken = lookalikes[4]
+        XCTAssertTrue(ShellInstall.retryUnderTeamVariant(plainTaken, attempted: "org.nxnative.shell", variant: "org.nxnative.shell.TEAM123"))
+        XCTAssertEqual(BuildFailureClassifier.classifyInstall(.sign, error: plainTaken, teamListed: true)?.kind, .teamTaken)
+
+        // BuildStore recovers 9120 + reset date from logTail even when `error` only holds the trailing "No profiles" line
+        let mStores = LauncherStores(defaults: testDefaults); let m = mStores.build
+        mStores.deviceStore.signingTeam = "TEAM123456"
+        mStores.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "Apple Development")] }
+        m.logTail = portal9120WithReset + "\nerror: No profiles for 'org.nxnative.shell' were found\n"
+        m.noteInstallFailure(.sign, error: "Signing failed: error: No profiles for 'org.nxnative.shell' were found")
+        XCTAssertEqual(m.failure?.kind, .appIDLimit)
+        XCTAssertEqual(m.failure?.detail, "2026-11-18")
+        XCTAssertTrue(m.doneNote.contains("2026-11-18"), m.doneNote)
+
+        // AppSignature.oldestFreeAppIDExpiry only reports when all 10 7-day App IDs for the team are cached locally
+        let home = try tempFolder()
+        let profDir = home.appendingPathComponent("Library/MobileDevice/Provisioning Profiles")
+        try FileManager.default.createDirectory(at: profDir, withIntermediateDirectories: true)
+        let now = Date(timeIntervalSince1970: 1_760_000_000)
+        for idx in 0..<10 {
+            let created = now.addingTimeInterval(Double(-6 + idx % 5) * 86_400 + Double(idx) * 3600)
+            let expires = created.addingTimeInterval(7 * 86_400)
+            let plist: [String: Any] = [
+                "TeamIdentifier": ["TEAM123456"],
+                "CreationDate": created,
+                "ExpirationDate": expires,
+                "Entitlements": ["application-identifier": "TEAM123456.org.nxnative.game\(idx)"],
+            ]
+            let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            if idx < 9 {
+                try data.write(to: profDir.appendingPathComponent("p\(idx).mobileprovision"))
+            } else {
+                XCTAssertNil(AppSignature.oldestFreeAppIDExpiry(forTeam: "TEAM123456", lang: .en, home: home.path, now: now))
+                try data.write(to: profDir.appendingPathComponent("p\(idx).mobileprovision"))
+            }
+        }
+        XCTAssertNotNil(AppSignature.oldestFreeAppIDExpiry(forTeam: "TEAM123456", lang: .en, home: home.path, now: now))
+
+        // Every launcher language provides non-empty, semicolon-free, product-name-free strings for all three keys
+        for lang in Lang.all {
+            for key in ["fail.appIDLimit.what", "fail.appIDLimit.whatUntil", "fail.appIDLimit.next"] {
+                let text = L10n.string(key, lang)
+                XCTAssertNotEqual(text, key, "\(lang.code): missing \(key)")
+                XCTAssertFalse(text.isEmpty, "\(lang.code): empty \(key)")
+                XCTAssertFalse(text.contains(";") || text.contains("\u{FF1B}"), "\(lang.code): semicolon in \(key)")
+                XCTAssertFalse(text.localizedCaseInsensitiveContains("NX2Apple"), "\(lang.code): mentions NX2Apple in \(key)")
+                if key == "fail.appIDLimit.whatUntil" {
+                    XCTAssertTrue(text.contains("%@"), "\(lang.code): missing placeholder in \(key)")
+                }
+            }
+        }
+    }
 }

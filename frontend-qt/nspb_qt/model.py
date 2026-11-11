@@ -2765,6 +2765,8 @@ class Model(QObject):
             return self.t('fail.diskFull.whatNeeds', f.detail)
         if f.kind == bf.PSO_DISK_FULL and f.detail:
             return self.t('fail.psoDiskFull.whatNeeds', f.detail)
+        if f.kind == bf.APP_ID_LIMIT and f.detail:
+            return self.t('fail.appIDLimit.whatUntil', f.detail)
         return self.t(f.what_key)
 
     def _keys_readable(self) -> bool | None:

@@ -370,6 +370,51 @@ import NXModel
             MetalRowPreview(dependencies: mStores.dependencies, t: m.t).padding(24)
         })
     }
+
+    /// Opt-in native rendering for Apple error 9120 screenshots across all 10 languages (NX_LAUNCHER_CAPTURE_DIR).
+    @MainActor func testRenderAppIDLimitForVisualQA() throws {
+        guard let directory = ProcessInfo.processInfo.environment["NX_LAUNCHER_CAPTURE_DIR"] else { throw XCTSkip("Set NX_LAUNCHER_CAPTURE_DIR to capture native views") }
+        let output = URL(fileURLWithPath: directory)
+        try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        func capture(_ name: String, width: CGFloat, height: CGFloat, _ view: some View) throws {
+            let host = NSHostingView(rootView: view.preferredColorScheme(.dark).frame(width: width, height: height))
+            let window = OffscreenWindow(size: NSSize(width: width, height: height))
+            window.contentView = host
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.orderFront(nil)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+            host.layoutSubtreeIfNeeded()
+            let rep = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: rep)
+            try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: output.appendingPathComponent(name + ".png"))
+            window.orderOut(nil)
+        }
+        let log9120 = """
+        /tmp/shell/project/DmShell.xcodeproj: error: Failed to register bundle identifier: The app identifier "org.nxnative.shell" cannot be registered to your development team because it is not available. (9120) (in target 'DmShell' from project 'DmShell')
+        /tmp/shell/project/DmShell.xcodeproj: error: No profiles for 'org.nxnative.shell' were found: Xcode couldn't find any iOS App Development provisioning profiles matching 'org.nxnative.shell'. (in target 'DmShell' from project 'DmShell')
+        """
+        let errLine = "error: Failed to register bundle identifier: The app identifier \"org.nxnative.shell\" cannot be registered to your development team because it is not available. (9120)"
+        for lang in Lang.all {
+            let stores = LauncherStores(defaults: testDefaults)
+            let build = stores.build
+            stores.localizer.lang = lang
+            build.lang = lang
+            stores.deviceStore.signingTeam = "TEAM123456"
+            stores.deviceStore.readTeams = { [SigningTeam(id: "TEAM123456", identity: "Apple Development")] }
+            build.logTail = log9120
+            build.finishInstall(String(format: build.t("dev.signFailed"), errLine))
+            build.noteInstallFailure(.sign, error: build.doneNote)
+            try capture("mac-9120-\(lang.code)", width: 780, height: 420, ZStack(alignment: .top) {
+                LauncherPalette.background
+                VStack(alignment: .leading, spacing: 20) {
+                    ActionCard(build: build, dependencies: stores.dependencies, repo: stores.repo)
+                    BuildFailureCard(m: build)
+                }.environmentObject(stores.localizer).padding(24)
+            })
+        }
+    }
 }
 
 /// The dependency panel's rows as the Settings card draws them, for the screenshot (the card itself is ToolsCard in NXLauncher).

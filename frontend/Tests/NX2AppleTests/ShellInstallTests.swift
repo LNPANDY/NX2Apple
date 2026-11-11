@@ -1643,4 +1643,20 @@ import NXModel
         XCTAssertTrue(runningParts.contains { $0.detail == "3/3" && $0.percent == 90 }, "\(runningParts)")
         XCTAssertEqual(partBytes.last?.0, 25)
     }
+
+    func testAppIDLimit9120DoesNotRetryTeamVariantAndReportsAppIDLimit() throws {
+        let f = try makeFixture()
+        try write(state + "/xcodebuild-error", """
+        /tmp/shell/project/DmShell.xcodeproj: error: Failed to register bundle identifier: The app identifier "org.nxnative.shell" cannot be registered to your development team because it is not available. (9120) (in target 'DmShell' from project 'DmShell')
+        /tmp/shell/project/DmShell.xcodeproj: error: No profiles for 'org.nxnative.shell' were found: Xcode couldn't find any iOS App Development provisioning profiles matching 'org.nxnative.shell'. (in target 'DmShell' from project 'DmShell')
+
+        """)
+        let outcome = install(installer(f), f)
+        XCTAssertFalse(outcome.ok)
+        XCTAssertEqual(outcome.step, .sign)
+        XCTAssertEqual(outcome.failure, .appIDLimit)
+        XCTAssertTrue(outcome.message.contains("9120"), outcome.message)
+        let builds = try String(contentsOfFile: state + "/calls.txt", encoding: .utf8).split(separator: "\n").filter { $0.hasPrefix("xcodebuild") }
+        XCTAssertEqual(builds.count, 1, "must not retry under org.nxnative.shell.<team> when 9120 is reached: \(builds)")
+    }
 }

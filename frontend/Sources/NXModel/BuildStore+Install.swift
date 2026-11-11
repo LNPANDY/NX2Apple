@@ -69,8 +69,12 @@ extension BuildStore {
                 }
                 guard result.ok else {
                     self.finishInstall(result.message)
-                    if let kind = result.failure { self.failure = BuildFailure(kind: kind, gameName: nil) }
-                    else if let step = result.step { self.noteInstallFailure(step, error: result.message) }
+                    if let kind = result.failure {
+                        let detail = (kind == .appIDLimit && !result.detail.isEmpty) ? result.detail : nil
+                        let f = BuildFailure(kind: kind, gameName: nil, detail: detail)
+                        self.failure = f
+                        if kind == .appIDLimit { self.doneNote = self.failureWhat(f) }
+                    } else if let step = result.step { self.noteInstallFailure(step, error: result.message) }
                     return
                 }
                 self.installedOn = device
@@ -200,6 +204,7 @@ extension BuildStore {
                             stagedProfiles.rollback()
                             self.stagedResignProfiles = nil
                             self.doneNote = String(format: self.t("dev.resignFailed"), error)
+                            self.noteInstallFailure(.sign, error: error)
                             self.running = false
                             then?(); return
                         }

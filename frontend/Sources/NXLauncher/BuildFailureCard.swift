@@ -87,7 +87,7 @@ package struct BuildFailureCard: View {
                 fix(kind, "fail.showFolder")
             case .cloudFolder, .volumeFormat:
                 fix(kind, "fail.cloudFolder.button")
-            case .teamTaken, .noSigningAccount, .freeAccountLimit:
+            case .teamTaken, .noSigningAccount, .freeAccountLimit, .appIDLimit:
                 if m.installedXcode != nil { fix(kind, "fail.openXcode") }
             case .deviceTransfer, .devicePairing:
                 fix(kind, "fail.retry")
