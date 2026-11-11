@@ -228,6 +228,9 @@ class Model(QObject):
     appUpdateFound = Signal(str, str)     # tag, url
     appRelaunching = Signal()
     libraryChanged = Signal()
+    driveCopyStateChanged = Signal()
+    driveCopyProgress = Signal(object, object)   # done_bytes, total_bytes
+    driveCopyFinished = Signal(bool, bool, str)  # ok, cancelled, info
 
     #: Set by the window: asks for a folder (QFileDialog lives in the UI layer) and returns the
     #: path, or '' when the user cancelled. `pick_dep_folder` calls it, so the model stays UI-free.
@@ -292,6 +295,17 @@ class Model(QObject):
         self._defender_callbacks: dict[int, Callable[[bool, bool, str], None]] = {}
         self._proc: subprocess.Popen | None = None
         self._thread: threading.Thread | None = None
+        self._build_cancelled = False
+        self.drive_copying = False
+        self.drive_copy_cancelling = False
+        self.drive_copy_done = 0
+        self.drive_copy_total = 0
+        self.drive_copy_game = ''
+        self.drive_copy_tid = ''
+        self._drive_copy_cancel: threading.Event | None = None
+        self._drive_copy_thread: threading.Thread | None = None
+        self._drive_copy_lock = threading.RLock()
+        self._drive_copy_gen = 0
         self._line_buf = ''
         self._pso_lock = threading.RLock()
         self._pso_poll_gen = 0
@@ -2518,6 +2532,7 @@ class Model(QObject):
             )
             self._emit_library_changed()
 
+        self._build_cancelled = False
         self.running = True
         self.runningChanged.emit(True)
         self._stop_pso_poll()
@@ -2557,20 +2572,34 @@ class Model(QObject):
 
         def run_build() -> tuple[bool, str]:
             ok = False
+            proc: subprocess.Popen | None = None
             try:
-                self._proc = subprocess.Popen([py] + args, cwd=cwd,
-                                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                              text=True, encoding='utf-8', errors='replace',
-                                              bufsize=1, env=env,
-                                              **pu.no_window_kwargs())
-                assert self._proc.stdout is not None
-                for line in self._proc.stdout:
+                proc = subprocess.Popen([py] + args, cwd=cwd,
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        text=True, encoding='utf-8', errors='replace',
+                                        bufsize=1, env=env,
+                                        **pu.process_group_kwargs())
+                self._proc = proc
+                if getattr(self, '_build_cancelled', False):
+                    pu.kill_process_tree(proc)
+                assert proc.stdout is not None
+                for line in proc.stdout:
                     self._on_line(line.rstrip('\n'))
-                self._proc.wait()
-                ok = self._proc.returncode == 0
+                proc.wait()
+                ok = proc.returncode == 0 and not getattr(self, '_build_cancelled', False)
             except OSError as e:
                 self.log(f'{e}\n')
             finally:
+                poll_fn = getattr(proc, 'poll', None)
+                still_running = (poll_fn() is None) if callable(poll_fn) else False
+                if proc is not None and (not ok or still_running):
+                    pu.kill_process_tree(proc)
+                close_out = getattr(getattr(proc, 'stdout', None), 'close', None)
+                if callable(close_out):
+                    try:
+                        close_out()
+                    except OSError:
+                        pass
                 self._stop_pso_poll()
                 self._proc = None
             self._flush_lines()
@@ -2672,9 +2701,11 @@ class Model(QObject):
                                  install=['/usr/bin/xcodebuild', '-downloadPlatform', 'iOS']))
 
     def cancel_build(self) -> None:
+        self._build_cancelled = True
         self._stop_pso_poll()
-        if self._proc and self._proc.poll() is None:
-            self._proc.terminate()
+        proc = self._proc
+        if proc is not None:
+            pu.kill_process_tree(proc)
 
     # ---- the script's own progress lines
 
@@ -3002,21 +3033,318 @@ class Model(QObject):
                 return cand
         return ''
 
+    @staticmethod
+    def _copy_archive_files(
+        archive_dir: str,
+        dest_root: str,
+        title_id: str,
+        *,
+        progress_cb: Callable[[int, int], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[bool, bool, str]:
+        """Copy game data files into `<dest_root>/<TITLE_ID>/` via `.part` staging and atomic replace.
+
+        Returns `(ok, cancelled, info)`. If cancelled or an I/O error occurs mid-stream, any
+        partially written `.part` file and newly created empty folders are removed before returning
+        so an external drive never retains a truncated `romfs.img`.
+        """
+        raw_files = lib.DriveCopy.collect_archive_files(archive_dir)
+        files = {
+            rel: sz
+            for rel, sz in raw_files.items()
+            if not rel.lower().endswith(('.part', '.partial'))
+        }
+        if not files:
+            return False, False, 'No game data files found'
+        tid_clean = title_id.upper()
+        dest_dir = os.path.join(dest_root, tid_clean)
+        dest_abs = os.path.abspath(dest_dir)
+
+        total = sum(files.values())
+        reusable: set[str] = set()
+        for rel, sz in sorted(files.items()):
+            norm_rel = rel.replace('\\', '/')
+            parts = norm_rel.split('/')
+            if (
+                not norm_rel
+                or norm_rel.startswith('/')
+                or ':' in norm_rel
+                or any(p in ('', '.', '..') for p in parts)
+            ):
+                return False, False, f'Invalid archive entry path: {rel}'
+            dst_cand = os.path.abspath(os.path.join(dest_dir, *parts))
+            if os.path.commonpath([dest_abs, dst_cand]) != dest_abs or dst_cand == dest_abs:
+                return False, False, f'Invalid archive entry path: {rel}'
+            src_cand = os.path.join(archive_dir, *parts)
+            if os.path.isfile(dst_cand):
+                try:
+                    same = (
+                        os.path.getsize(dst_cand) == sz
+                        and abs(os.path.getmtime(src_cand) - os.path.getmtime(dst_cand)) < 0.001
+                    )
+                    if same and sz <= 1024 * 1024:
+                        same = Path(src_cand).read_bytes() == Path(dst_cand).read_bytes()
+                    if same:
+                        reusable.add(rel)
+                except OSError:
+                    pass
+
+        needed = sum(sz for rel, sz in files.items() if rel not in reusable)
+        free = lib.DriveCopy.free_space(dest_root)
+        if free > 0 and needed > free:
+            return (
+                False,
+                False,
+                f'Not enough space ({lib.format_bytes(needed)} needed, {lib.format_bytes(free)} free)',
+            )
+
+        if cancel_event is not None and cancel_event.is_set():
+            return False, True, ''
+
+        done = 0
+        if progress_cb is not None:
+            progress_cb(0, total)
+
+        dest_existed = os.path.exists(dest_dir)
+        created_dirs: list[str] = []
+        staged_parts: list[tuple[str, str, str]] = []
+        active_part = ''
+
+        def _ensure_dir(d: str) -> None:
+            missing: list[str] = []
+            cur = os.path.abspath(d)
+            root_stop = os.path.abspath(dest_root)
+            while cur and not os.path.exists(cur):
+                missing.append(cur)
+                if cur == root_stop:
+                    break
+                parent = os.path.dirname(cur)
+                if parent == cur:
+                    break
+                cur = parent
+            os.makedirs(d, exist_ok=True)
+            for m_dir in reversed(missing):
+                if m_dir not in created_dirs:
+                    created_dirs.append(m_dir)
+
+        def _rollback_staging() -> None:
+            nonlocal active_part
+            paths_to_remove = [active_part] if active_part else []
+            paths_to_remove.extend(p for p, _dst, _src in staged_parts)
+            active_part = ''
+            for p in paths_to_remove:
+                if p and os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+            if not dest_existed and os.path.exists(dest_dir):
+                shutil.rmtree(dest_dir, ignore_errors=True)
+            else:
+                for m_dir in reversed(created_dirs):
+                    try:
+                        os.rmdir(m_dir)
+                    except OSError:
+                        pass
+
+        chunk_size = 1024 * 1024
+        try:
+            for rel, sz in sorted(files.items()):
+                if cancel_event is not None and cancel_event.is_set():
+                    _rollback_staging()
+                    return False, True, ''
+                parts = rel.replace('\\', '/').split('/')
+                src = os.path.join(archive_dir, *parts)
+                dst = os.path.join(dest_dir, *parts)
+                if rel in reusable:
+                    done += sz
+                    if progress_cb is not None:
+                        progress_cb(done, total)
+                    continue
+                _ensure_dir(os.path.dirname(dst))
+                for stale_suffix in ('.part', '.partial'):
+                    stale = dst + stale_suffix
+                    if os.path.exists(stale):
+                        try:
+                            os.remove(stale)
+                        except OSError:
+                            pass
+                active_part = dst + '.part'
+                cancelled_mid = False
+                with open(src, 'rb') as fin, open(active_part, 'wb') as fout:
+                    while True:
+                        if cancel_event is not None and cancel_event.is_set():
+                            cancelled_mid = True
+                            break
+                        buf = fin.read(chunk_size)
+                        if not buf:
+                            break
+                        fout.write(buf)
+                        done += len(buf)
+                        if progress_cb is not None:
+                            progress_cb(done, total)
+                    if not cancelled_mid:
+                        fout.flush()
+                if cancelled_mid or (cancel_event is not None and cancel_event.is_set()):
+                    _rollback_staging()
+                    return False, True, ''
+                staged_parts.append((active_part, dst, src))
+                active_part = ''
+
+            for part_file, dst, src in staged_parts:
+                try:
+                    os.replace(part_file, dst)
+                except PermissionError:
+                    if os.path.exists(dst):
+                        os.chmod(dst, 0o666)
+                        os.replace(part_file, dst)
+                    else:
+                        raise
+                try:
+                    shutil.copystat(src, dst)
+                except OSError:
+                    pass
+            staged_parts.clear()
+            return True, False, dest_dir
+        except OSError as e:
+            _rollback_staging()
+            return False, False, str(e)
+        finally:
+            if active_part or staged_parts:
+                _rollback_staging()
+
+    def _drive_game_name(self, tid: str) -> str:
+        sel = self.library.selected
+        if sel is not None and (sel.title_id or '').upper() == tid.upper() and sel.name:
+            return sel.name
+        for g in self.library.games:
+            if (g.title_id or '').upper() == tid.upper() and g.name:
+                return g.name
+        return (
+            lib.GameFolder.profile_name(tid, self.engine_path)
+            or (lib.clean_game_name(self.base_path) if self.base_path else '')
+            or tid
+        )
+
     def copy_archive_to_drive(
         self,
         dest_root: str,
         progress_cb: Callable[[int, int], None] | None = None,
+        *,
+        cancel_event: threading.Event | None = None,
     ) -> tuple[bool, str]:
         arch = self.effective_archive_path()
         if not arch or not dest_root:
             return False, ''
         tid = self.packed_title_id
-        return lib.DriveCopy.copy_to_folder(
+        ok, cancelled, info = self._copy_archive_files(
             arch,
             dest_root,
             tid,
             progress_cb=progress_cb,
+            cancel_event=cancel_event,
         )
+        if cancelled:
+            return False, self.t('msg.stopped')
+        return ok, info
+
+    def start_drive_copy(self, dest_root: str, *, archive_dir: str = '') -> bool:
+        """Start copying the packed game archive to `dest_root` on a background worker thread."""
+        arch = archive_dir or self.effective_archive_path()
+        if not arch or not dest_root or not os.path.isdir(arch):
+            return False
+        lock = getattr(self, '_drive_copy_lock', None)
+        if lock is None:
+            lock = threading.RLock()
+            self._drive_copy_lock = lock
+        tid = self.packed_title_id
+        game_name = self._drive_game_name(tid)
+        with lock:
+            if getattr(self, 'drive_copying', False):
+                return False
+            self._drive_copy_gen = getattr(self, '_drive_copy_gen', 0) + 1
+            gen = self._drive_copy_gen
+            cancel_ev = threading.Event()
+            self._drive_copy_cancel = cancel_ev
+            self.drive_copying = True
+            self.drive_copy_cancelling = False
+            self.drive_copy_done = 0
+            self.drive_copy_total = 0
+            self.drive_copy_game = game_name
+            self.drive_copy_tid = tid.upper()
+        try:
+            self.driveCopyStateChanged.emit()
+        except RuntimeError:
+            pass
+
+        last_emit = [0.0]
+        last_pct = [-1]
+
+        def on_progress(done: int, total: int) -> None:
+            pct = int(min(100, (done * 100) // total)) if total > 0 else 0
+            now = time.monotonic()
+            if done != 0 and done < total and pct == last_pct[0] and (now - last_emit[0]) < 0.05:
+                return
+            with lock:
+                if self._drive_copy_gen != gen or not self.drive_copying or cancel_ev.is_set():
+                    return
+                self.drive_copy_done = done
+                self.drive_copy_total = total
+                last_pct[0] = pct
+                last_emit[0] = now
+            try:
+                self.driveCopyProgress.emit(done, total)
+            except RuntimeError:
+                pass
+
+        def worker() -> None:
+            try:
+                ok, cancelled, info = self._copy_archive_files(
+                    arch,
+                    dest_root,
+                    tid,
+                    progress_cb=on_progress,
+                    cancel_event=cancel_ev,
+                )
+            except Exception as exc:  # noqa: BLE001
+                ok, cancelled, info = False, False, str(exc)
+            with lock:
+                if self._drive_copy_gen != gen:
+                    return
+                self.drive_copying = False
+                self.drive_copy_cancelling = False
+                self._drive_copy_cancel = None
+                self._drive_copy_thread = None
+            try:
+                self.driveCopyStateChanged.emit()
+                self.driveCopyFinished.emit(ok, cancelled, info)
+            except RuntimeError:
+                pass
+
+        th = threading.Thread(target=worker, daemon=True)
+        with lock:
+            if self._drive_copy_gen == gen and self.drive_copying:
+                self._drive_copy_thread = th
+        th.start()
+        return True
+
+    def cancel_drive_copy(self) -> None:
+        """Request cancellation of the active background drive copy."""
+        lock = getattr(self, '_drive_copy_lock', None)
+        if lock is None:
+            return
+        changed = False
+        with lock:
+            if getattr(self, 'drive_copying', False) and self._drive_copy_cancel is not None:
+                if not self.drive_copy_cancelling:
+                    self.drive_copy_cancelling = True
+                    changed = True
+                self._drive_copy_cancel.set()
+        if changed:
+            try:
+                self.driveCopyStateChanged.emit()
+            except RuntimeError:
+                pass
 
     def pack_archive(self, title_id: str | None = None, *, export_shell: bool = False) -> tuple[bool, str]:
         """Run the final shared-build step on the build worker."""
