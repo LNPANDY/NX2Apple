@@ -34,6 +34,11 @@ enum CleanArt {
         url.replacingOccurrences(of: #"_image\d+w\."#, with: "_image1600w.", options: .regularExpression)
     }
 
+    /// The catalogue's compact image at 500 pixels wide (~35 KB): used when browsing list covers (`SupportedCovers`).
+    static func compact(_ url: String) -> String {
+        url.replacingOccurrences(of: #"_image\d+w\."#, with: "_image500w.", options: .regularExpression)
+    }
+
     /// The catalogue's original of an image: its name without a size (`…_image1600w.jpg` → `….jpg`), 2000 x 1000 for the
     /// games checked on 2026-11-09 (`_image2500w` and `_image3200w` are not published). A 1440 to 1920 pt hero on a Retina
     /// screen needs 2880 to 3840 pixels, so 1600 was half of it. Nil for a name without a size.

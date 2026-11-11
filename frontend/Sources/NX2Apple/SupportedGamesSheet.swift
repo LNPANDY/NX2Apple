@@ -19,8 +19,8 @@ struct SupportedGamesSheet: View {
     @State private var selected: String?
     @FocusState private var searchFocused: Bool
 
-    /// The cover slot: 64 x 36 pt, decoded at 2x.
-    static let coverPixels = 128
+    /// The cover slot: 112 x 63 pt, decoded at 2x.
+    static let coverPixels = 224
 
     init(games: [SupportedGame], owned: @escaping (String) -> LibraryGame?, covers: @escaping @autoclosure () -> SupportedCovers,
          showInLibrary: @escaping (UUID) -> Void) {
@@ -121,15 +121,18 @@ private struct SupportedGameRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
-                HStack(spacing: 14) {
+                HStack(spacing: 16) {
                     ZStack {
                         LauncherPalette.surface
                         if let cover { Image(nsImage: cover).resizable().scaledToFill() }
-                        else { Image(systemName: "gamecontroller").font(.system(size: 14, weight: .light)).foregroundStyle(LauncherPalette.secondaryText) }
+                        else { Image(systemName: "gamecontroller").font(.system(size: 18, weight: .light)).foregroundStyle(LauncherPalette.secondaryText) }
                     }
-                    .frame(width: 64, height: 36).clipShape(RoundedRectangle(cornerRadius: 4)).accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(game.name).font(.manrope(14, .medium)).lineLimit(2).multilineTextAlignment(.leading)
+                    .frame(width: 112, height: 63)
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(LauncherPalette.cardBorder))
+                    .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(game.name).font(.manrope(14.5, .semibold)).lineLimit(2).multilineTextAlignment(.leading)
                         Text(detail).font(.manrope(12.5)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2).multilineTextAlignment(.leading)
                     }
                     Spacer(minLength: 12)
@@ -139,7 +142,7 @@ private struct SupportedGameRow: View {
                     Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(LauncherPalette.secondaryText)
                         .rotationEffect(.degrees(expanded ? 90 : 0)).accessibilityHidden(true)
                 }
-                .padding(.horizontal, 30).padding(.vertical, 10).frame(minHeight: 64)
+                .padding(.horizontal, 30).padding(.vertical, 14).frame(minHeight: 91)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain).launcherHover()
@@ -155,7 +158,7 @@ private struct SupportedGameRow: View {
                             .padTarget("supported.show." + game.titleID, scope: "supported") { show(owned.id) }
                     }
                 }
-                .padding(.leading, 108).padding(.trailing, 30).padding(.bottom, 14)
+                .padding(.leading, 158).padding(.trailing, 30).padding(.bottom, 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .transition(reduceMotion ? .identity : .opacity)
             }

@@ -68,6 +68,21 @@ extension GameLibrary {
         upsert(game)
     }
 
+    /// Names (when still empty) and source package version read off-thread by `TitleNameLookup`.
+    func setPackageMetadata(names: [String: String]?, sourceVersion: String?, for id: UUID) {
+        guard var game = games.first(where: { $0.id == id }) else { return }
+        var changed = false
+        if let names, !names.isEmpty, game.titleNames.isEmpty {
+            game.titleNames = names
+            changed = true
+        }
+        if let sourceVersion, game.sourceVersion != sourceVersion {
+            game.sourceVersion = sourceVersion
+            changed = true
+        }
+        if changed { upsert(game) }
+    }
+
     /// A ready entry the folder scan finds again learns the names of its app: one from before the names were kept, or rebuilt since.
     /// An app without names (packed before the key) leaves what TitleNameLookup read.
     func learnTitleNames(_ game: LibraryGame, from app: MacGameBundle, at url: URL) {

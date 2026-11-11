@@ -72,6 +72,7 @@ package struct AppCard: View {
             // System, Light or Dark for the launcher's windows and sheets (LauncherAppearance)
             CardRow(loc.t("settings.appearance")) {
                 LauncherSegmented(options: LauncherAppearance.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: appearance) { appearance = $0 }
+                    .compactFrame(minWidth: 276)
                     .accessibilityElement(children: .contain).accessibilityLabel(loc.t("settings.appearance"))
                     .padTarget("set.appearance", scope: "main", activate: { cycleAppearance(1) }, adjust: { cycleAppearance($0) })
             }

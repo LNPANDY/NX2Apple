@@ -28,7 +28,7 @@ extension LauncherView {
         .disabled(launching || (m.running && !game.isReady) || artworkEditor != nil)
         .keyboardShortcut(.return, modifiers: [])
         .padTarget("hero.play", scope: "main", radius: 30) { if !launching { primaryAction(game) } }
-        if let version = game.playVersion {
+        if let version = game.playVersion ?? game.unbuiltVersion {
             let label = Text(String(format: loc.t("console.version"), version))
                 .font(.manrope(13)).foregroundStyle(.secondary).lineLimit(1)
             if compact {

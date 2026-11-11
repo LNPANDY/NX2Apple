@@ -32,21 +32,25 @@ struct SettingsPage: View {
     @AppStorage(BuildNotice.defaultsKey) private var notifyBuilds = true   // BuildNotifications.swift
     @AppStorage(ReturnAfterPlay.defaultsKey) private var returnAfterPlay = true   // ReturnAfterPlay.swift
     @AppStorage(MacPreflight.defaultsKey) private var preflightAfterBuild = true   // MacPreflight.swift (#1005)
-    @Environment(\.launcherScrollTo) private var scrollTo
+    @State private var pendingScrollID: String?
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
-        CardPageHeading(loc.t("settings.heading"), note: loc.t("settings.note"))
-        LauncherSegmented(options: SettingsCategory.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: category.rawValue) {
-            category = SettingsCategory(rawValue: $0) ?? .general
-        }
-        .accessibilityElement(children: .contain).accessibilityLabel(loc.t("settings.heading"))
-        .padTarget("set.category", scope: "main", radius: 17, activate: { move(1) }, adjust: { move($0) })
-        switch category {
-        case .general: general
-        case .library: libraryCategory
-        case .controls: controls
-        case .tools: tools
+        LauncherStickyPageScroll(memoryKey: "settings." + category.rawValue, scrollRequest: $pendingScrollID) {
+            CardPageHeading(loc.t("settings.heading"), note: loc.t("settings.note"))
+        } bar: {
+            LauncherSegmented(options: SettingsCategory.allCases.map { ($0.rawValue, loc.t($0.labelKey)) }, selection: category.rawValue) {
+                category = SettingsCategory(rawValue: $0) ?? .general
+            }
+            .accessibilityElement(children: .contain).accessibilityLabel(loc.t("settings.heading"))
+            .padTarget("set.category", scope: "main", radius: 17, activate: { move(1) }, adjust: { move($0) })
+        } content: {
+            switch category {
+            case .general: general
+            case .library: libraryCategory
+            case .controls: controls
+            case .tools: tools
+            }
         }
     }
 
@@ -60,7 +64,7 @@ struct SettingsPage: View {
     private func showTools() {
         category = .tools
         if !dependencies.open { dependencies.toggle() }
-        DispatchQueue.main.async { scrollTo?("set.deps") }
+        pendingScrollID = "set.deps"
     }
 
     private func appCard(_ part: AppCard.Part) -> AppCard {

@@ -43,6 +43,7 @@ package struct PersonalDefaultsCard: View {
             CardRow(loc.t("launch.set.DM_FULLSCREEN")) {
                 LauncherSegmented(options: [("", loc.t("launch.display.window")), ("1", loc.t("launch.display.fullscreen"))],
                                   selection: personal.value(for: "DM_FULLSCREEN") ?? "") { store($0, "DM_FULLSCREEN") }
+                    .compactFrame(minWidth: LauncherControl.width)
                     .accessibilityElement(children: .contain).accessibilityLabel(loc.t("launch.set.DM_FULLSCREEN"))
                     .padTarget("set.defaultDisplay", scope: "main",
                                activate: { store(personal.value(for: "DM_FULLSCREEN") == nil ? "1" : "", "DM_FULLSCREEN") },

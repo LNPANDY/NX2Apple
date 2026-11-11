@@ -43,7 +43,7 @@ import SwiftUI
     /// Through the launcher's store, into the library's artwork folder.
     static func live(store: ArtworkStore = .shared, directory: URL, language: String, maxPixel: Int) -> SupportedCovers {
         SupportedCovers(directory: directory, language: language, maxPixel: maxPixel) { ids, language in
-            _ = await store.fetchMissing(ids, language: language, waits: true)
+            _ = await store.fetchMissing(ids, language: language, waits: true, lightweight: true)
         }
     }
 
