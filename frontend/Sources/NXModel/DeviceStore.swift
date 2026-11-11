@@ -138,6 +138,13 @@ package enum SendWhere {
     /// "Stop waiting" while the install waits for a cable: the poll ends at its next look and the game data stays for later.
     package func cancelWait() { waitCancel.set(true) }
 
+    /// Cancels an active copy prompt or cable wait when the build is stopped.
+    package func cancelCopy() {
+        cancelWait()
+        shellWaiting = false
+        answerCopy(.skip)
+    }
+
     /// The install asks between two polls whether the player cancelled.
     nonisolated package var waitCancelled: Bool { waitCancel.value }
 

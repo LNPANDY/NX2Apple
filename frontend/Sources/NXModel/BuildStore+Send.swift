@@ -83,14 +83,15 @@ extension BuildStore {
         guard canSendToDevice else { return }
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.sendingGameData, game: packedGameName, titleID: packedTitleID, destination: .target)
+        stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
         running = true; done = false; doneNote = ""; failure = nil; stages = []
         send = .sending(done: 0, total: 0, note: "")
         var installer = makeInstaller()
-        let target = devices, device = devices.installDevice
+        let target = devices, device = devices.installDevice, cancel = installCancel
         let titleID = packedTitleID, archive = archivePath
         // One click: no question. A device that is not connected cannot be copied to, the player is told instead.
         installer.decideCopy = { [weak self] plan in
-            if plan.connection == .notConnected { return .skip }
+            if cancel.value || plan.connection == .notConnected { return .skip }
             hop { if case .sending(let done, let total, _) = self?.send { self?.send = .sending(done: done, total: total, note: plan.connectionText) } }
             return .copy
         }
@@ -104,6 +105,7 @@ extension BuildStore {
         DispatchQueue.global(qos: .userInitiated).async {
             let result = ready.sendData(titleID: titleID, archive: archive, bundleID: bundle)
             hop {
+                self.installPhaseActive = false
                 target.copyEnded()
                 self.running = false
                 if self.stopping {

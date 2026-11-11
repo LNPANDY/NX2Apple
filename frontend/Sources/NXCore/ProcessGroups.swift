@@ -32,11 +32,43 @@ package enum ProcessGroups {
 
     package static func track(_ p: Process) {
         _ = sigtermHandler
-        lock.lock(); groups.insert(p.processIdentifier); lock.unlock()
+        lock.lock()
+        if p.isRunning, p.processIdentifier > 0 { groups.insert(p.processIdentifier) }
+        lock.unlock()
     }
 
     package static func untrack(_ p: Process) {
         lock.lock(); groups.remove(p.processIdentifier); lock.unlock()
+    }
+
+    /// Pairs an asynchronous `terminationHandler` with `track(_:)` so an instant child exit that runs `untrack` before `run()`
+    /// returns to the caller can never leave a dead PID in `groups`.
+    package final class Registration: @unchecked Sendable {
+        private var ended = false
+        private var pid: pid_t = 0
+
+        package init() { _ = ProcessGroups.sigtermHandler }
+
+        package func track(_ p: Process) {
+            ProcessGroups.lock.lock()
+            defer { ProcessGroups.lock.unlock() }
+            guard !ended, p.isRunning, p.processIdentifier > 0 else { return }
+            pid = p.processIdentifier
+            ProcessGroups.groups.insert(pid)
+        }
+
+        package func untrack(_ p: Process) {
+            ProcessGroups.lock.lock()
+            defer { ProcessGroups.lock.unlock() }
+            ended = true
+            let id = pid != 0 ? pid : p.processIdentifier
+            if id > 0 { ProcessGroups.groups.remove(id) }
+        }
+    }
+
+    static var trackedCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return groups.count
     }
 
     /// A build's process group is still running (the app update waits for it: its relaunch would end the build).

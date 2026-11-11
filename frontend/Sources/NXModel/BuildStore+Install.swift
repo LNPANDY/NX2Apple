@@ -31,9 +31,10 @@ extension BuildStore {
         installer.processStarted = { @Sendable p in hop { self.proc = p } }
         // The size and the connection are shown with Continue, "Wait for a cable" and "Not now" (ShellCopyCard)
         let target = devices
-        installer.decideCopy = { plan in target.askCopy(plan) }
-        installer.waiting = { on in target.setWaiting(on) }
-        installer.waitCancelled = { target.waitCancelled }
+        let cancel = installCancel
+        installer.decideCopy = { plan in cancel.value ? .skip : target.askCopy(plan) }
+        installer.waiting = { on in if !cancel.value || !on { target.setWaiting(on) } }
+        installer.waitCancelled = { cancel.value || target.waitCancelled }
         return installer
     }
 
@@ -43,6 +44,8 @@ extension BuildStore {
         buildingGame = true
         runningTarget = BuildTarget.ios
         beginOperation(dataOnly ? .sendingGameData : .installing, game: name, titleID: titleID, destination: .target)
+        stopping = false; installCancel.set(false); installPhaseActive = true
+        if dataOnly { stoppedByPlayer = false }
         running = true
         finderShown = false
         if dataOnly { failure = nil; done = false; doneNote = "" }
@@ -54,6 +57,7 @@ extension BuildStore {
             let result = dataOnly ? installer.installData(titleID: titleID, archive: archive)
                                   : installer.install(framework: framework, titleID: titleID, name: name, archive: archive)
             hop {
+                self.installPhaseActive = false
                 target.copyEnded()
                 if self.stopping {
                     self.stopping = false; self.running = false
@@ -77,6 +81,23 @@ extension BuildStore {
     package func retryShellData() {
         guard !running, let r = shellRetry else { return }
         installShell(framework: r.framework, titleID: r.titleID, name: r.name, archive: r.archive, dataOnly: true)
+    }
+
+    /// Cancels an active drive copy or post-build device install wait when no child process is running.
+    func stopPendingInstallOrCopy() -> Bool {
+        if case .copying = send { stopDriveCopy(); return true }
+        guard endPreflight == nil else { return false }
+        devices.cancelCopy()
+        guard running, !stopping else { return false }
+        installCancel.set(true)
+        if proc?.isRunning == true { return false }
+        guard installPhaseActive else { return false }
+        stopping = true
+        stopPSOPoll()
+        DispatchQueue.main.async { [weak self] in
+            if self?.stopping == true { self?.devices.cancelCopy() }
+        }
+        return true
     }
 
     package func finishInstall(_ failure: String?, note: String? = nil) {
@@ -150,6 +171,7 @@ extension BuildStore {
         let resources = Bundle.main.resourceURL?.path, repoPath = repo.path, home = self.home, runner = self.runner
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.renewingSignature, game: nil, titleID: nil, destination: .target)
+        stopping = false; stoppedByPlayer = false; installPhaseActive = true
         running = true
         // The shared app is signed again under the identifier shell.json holds, so the device keeps its Documents
         let command = ShellInstall.buildCommand(xcrun: xcrun, root: shell.root, device: device, team: team, bundleID: bundle)
@@ -160,9 +182,12 @@ extension BuildStore {
                     app: app, bundleID: bundle, team: team, home: home, runner: runner
                 )
                 hop {
+                    self.installPhaseActive = false
                     if self.stopping {
+                        self.stopping = false
                         stagedProfiles.rollback()
                         self.running = false
+                        self.doneNote = self.t("msg.stopped")
                         then?(); return
                     }
                     self.stagedResignProfiles = stagedProfiles
@@ -213,6 +238,7 @@ extension BuildStore {
         runTool(id: ShellInstaller.projectStageID, name: t("shell.projectStage"),
                 ShellInstall.projectCommand(repo: engineRoot), environment: env, step: { _ in nil }) { projectError in
             if let projectError, !projectError.isEmpty {
+                self.installPhaseActive = false
                 self.running = false
                 self.doneNote = String(format: self.t("shell.projectFailed"), projectError)
                 then?(); return
@@ -284,27 +310,46 @@ extension BuildStore {
         let env = environment ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"]
         let launch = ProcessLaunch(command, environment: env,
                                    groupPython: deps.pythonPath.isEmpty ? "/usr/bin/python3" : deps.pythonPath)
+        let utf8 = UTF8StreamDecoder.Locked()
         var buffer = "", lastError = ""
+        let handleLine: @MainActor (BuildStore, String) -> Void = { store, raw in
+            var line = raw
+            if line.unicodeScalars.last == "\r" { line.unicodeScalars.removeLast() }
+            store.append(line + "\n")
+            if line.contains("error:") || line.hasPrefix("ERROR:") { lastError = line.trimmingCharacters(in: .whitespaces) }
+            if let s = step(line), let i = store.stages.firstIndex(where: { $0.id == id }) {
+                store.stages[i].detail = s.detail
+                if let percent = s.percent { store.stages[i].percent = percent }
+            }
+        }
         let onOutput: @Sendable (Data) -> Void = { [weak self] d in
-            guard let chunk = String(data: d, encoding: .utf8) else { return }
             hop {
                 guard let self else { return }
+                let chunk = utf8.decode(d)
+                guard !chunk.isEmpty else { return }
                 buffer += chunk
-                while let nl = buffer.firstIndex(of: "\n") {
-                    let line = String(buffer[..<nl]); buffer = String(buffer[buffer.index(after: nl)...])
-                    self.append(line + "\n")
-                    if line.contains("error:") || line.hasPrefix("ERROR:") { lastError = line.trimmingCharacters(in: .whitespaces) }
-                    if let s = step(line), let i = self.stages.firstIndex(where: { $0.id == id }) {
-                        self.stages[i].detail = s.detail
-                        if let percent = s.percent { self.stages[i].percent = percent }
-                    }
+                while let nl = buffer.unicodeScalars.firstIndex(of: "\n") {
+                    let line = String(buffer.unicodeScalars[..<nl])
+                    buffer = String(buffer.unicodeScalars[buffer.unicodeScalars.index(after: nl)...])
+                    handleLine(self, line)
                 }
             }
         }
         let onExit: @Sendable (Int32) -> Void = { [weak self] status in
             hop {
                 guard let self else { return }
+                buffer += utf8.finish()
+                while let nl = buffer.unicodeScalars.firstIndex(of: "\n") {
+                    let line = String(buffer.unicodeScalars[..<nl])
+                    buffer = String(buffer.unicodeScalars[buffer.unicodeScalars.index(after: nl)...])
+                    handleLine(self, line)
+                }
+                if !buffer.isEmpty {
+                    let tail = buffer; buffer = ""
+                    handleLine(self, tail)
+                }
                 if self.stopping {
+                    self.installPhaseActive = false
                     self.stopping = false; self.running = false
                     self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
                     return
@@ -317,7 +362,7 @@ extension BuildStore {
                 then(ok ? nil : (lastError.isEmpty ? String(format: self.t("msg.exitCode"), status) : lastError))
             }
         }
-        do { proc = try runner.start(launch, onOutput: onOutput, onExit: onExit) } catch { then(error.localizedDescription) }
+        do { proc = try runner.start(launch, onOutput: onOutput, onExit: onExit) } catch { installPhaseActive = false; then(error.localizedDescription) }
     }
 
     /// Start the game on the device it was installed on.

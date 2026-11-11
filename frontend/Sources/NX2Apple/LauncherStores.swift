@@ -168,14 +168,31 @@ import NXModel
         build.revealItem = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
         build.openApp = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
         build.preflightApp = { app, done in Self.preflight(app, done: done) }
+        build.runPreflight = { app, timeout in await Self.preflight(app, timeout: timeout) }
     }
 
     /// The build's check of a new Mac app's first start (#1005, `MacPreflight`): opened through LaunchServices, as Play
     /// opens it, since only that open has macOS check the bundle; hidden, in the background, a new instance even if an
     /// older build of the game runs, kept out of the recent items. Its launcher sees DM_PREFLIGHT and quits at once, once
-    /// macOS lets it start. `done` runs when the process has quit, or with the error that kept it from starting; the
-    /// BuildStore ends the wait itself after its timeout, and the poll stops then too.
+    /// macOS lets it start. Cancellation or timeout immediately invalidates the poll timer and terminates the hidden process.
     static func preflight(_ app: URL, done: @escaping @MainActor (Error?) -> Void) {
+        Task { @MainActor in done(await preflight(app)) }
+    }
+
+    static func preflight(_ app: URL, timeout: TimeInterval = MacPreflight.timeout, pollInterval: TimeInterval = 0.5,
+                          open: (@MainActor (URL, @escaping @MainActor (RunningPreflightApp?, Error?) -> Void) -> Void)? = nil) async -> Error? {
+        let opener = open ?? LauncherStores.openPreflightApp
+        let session = PreflightSession()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                session.start(app: app, timeout: timeout, pollInterval: pollInterval, continuation: continuation, open: opener)
+            }
+        } onCancel: {
+            Task { @MainActor in session.cancel() }
+        }
+    }
+
+    private static func openPreflightApp(_ app: URL, completion: @escaping @MainActor (RunningPreflightApp?, Error?) -> Void) {
         let c = NSWorkspace.OpenConfiguration()
         c.activates = false
         c.hides = true
@@ -184,13 +201,7 @@ import NXModel
         c.environment = [MacPreflight.environmentKey: "1"]
         NSWorkspace.shared.openApplication(at: app, configuration: c) { running, error in
             DispatchQueue.main.async {
-                guard let running else { done(error); return }
-                let deadline = Date().addingTimeInterval(MacPreflight.timeout)
-                Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
-                    guard running.isTerminated || Date() > deadline else { return }
-                    timer.invalidate()
-                    MainActor.assumeIsolated { done(running.isTerminated ? nil : MacPreflight.Failure.timedOut) }
-                }
+                MainActor.assumeIsolated { completion(running, error) }
             }
         }
     }
@@ -214,4 +225,95 @@ import NXModel
 /// A store that a closure reaches before it exists: the closures of the stores created first read it, the app fills it in last.
 @MainActor private final class Later<T: AnyObject> {
     weak var value: T?
+}
+
+protocol RunningPreflightApp: AnyObject {
+    var isTerminated: Bool { get }
+    @discardableResult func terminate() -> Bool
+    @discardableResult func forceTerminate() -> Bool
+}
+
+extension NSRunningApplication: RunningPreflightApp {}
+
+/// Tracks one hidden `DM_PREFLIGHT` launch so cancellation or timeout stops the 0.5 s timer and terminates any orphan process.
+@MainActor private final class PreflightSession {
+    private var continuation: CheckedContinuation<Error?, Never>?
+    private var running: RunningPreflightApp?
+    private var timer: Timer?
+    private var timeoutTask: Task<Void, Never>?
+    private var finished = false
+
+    func start(app: URL, timeout: TimeInterval, pollInterval: TimeInterval,
+               continuation: CheckedContinuation<Error?, Never>,
+               open: @MainActor (URL, @escaping @MainActor (RunningPreflightApp?, Error?) -> Void) -> Void) {
+        if finished {
+            continuation.resume(returning: MacPreflight.Failure.stopped)
+            return
+        }
+        self.continuation = continuation
+        guard timeout > 0 else {
+            finish(MacPreflight.Failure.timedOut, terminateApp: true)
+            return
+        }
+        timeoutTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000)) } catch { return }
+            self?.finish(MacPreflight.Failure.timedOut, terminateApp: true)
+        }
+        let deadline = Date().addingTimeInterval(timeout)
+        open(app) { [weak self] launched, error in
+            guard let self, !self.finished else {
+                Self.terminateIfNeeded(launched)
+                return
+            }
+            guard let launched else {
+                self.finish(error, terminateApp: false)
+                return
+            }
+            self.running = launched
+            if launched.isTerminated {
+                self.finish(nil, terminateApp: false)
+                return
+            }
+            if Date() > deadline {
+                self.finish(MacPreflight.Failure.timedOut, terminateApp: true)
+                return
+            }
+            self.timer = Timer.scheduledTimer(withTimeInterval: pollInterval, repeats: true) { [weak self] t in
+                MainActor.assumeIsolated {
+                    guard let self, !self.finished, let current = self.running else { t.invalidate(); return }
+                    if current.isTerminated {
+                        self.finish(nil, terminateApp: false)
+                    } else if Date() > deadline {
+                        self.finish(MacPreflight.Failure.timedOut, terminateApp: true)
+                    }
+                }
+            }
+        }
+    }
+
+    func cancel() {
+        finish(MacPreflight.Failure.stopped, terminateApp: true)
+    }
+
+    private func finish(_ error: Error?, terminateApp: Bool) {
+        guard !finished else { return }
+        finished = true
+        timer?.invalidate()
+        timer = nil
+        timeoutTask?.cancel()
+        timeoutTask = nil
+        let app = running
+        running = nil
+        if terminateApp { Self.terminateIfNeeded(app) }
+        let c = continuation
+        continuation = nil
+        c?.resume(returning: error)
+    }
+
+    private static func terminateIfNeeded(_ app: RunningPreflightApp?) {
+        guard let app, !app.isTerminated else { return }
+        if !app.terminate() || !app.isTerminated {
+            _ = app.forceTerminate()
+        }
+    }
 }

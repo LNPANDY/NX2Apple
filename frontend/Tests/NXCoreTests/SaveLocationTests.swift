@@ -35,6 +35,20 @@ final class SaveLocationTests: XCTestCase {
                        "the game is told, so it does not read the exFAT folder")
     }
 
+    func testALibraryFolderInjectsDMSaveSoEnginesWithoutTheLibraryPatchUseTheSameSave() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lib-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data().write(to: root.appendingPathComponent(".nx2apple-library"))
+        let appPath = root.appendingPathComponent("Zelda.app").path
+        let save = SaveLocations.effectiveSave(titleID: tid, appPath: appPath, global: .init(), game: .init(),
+                                               support: support, volumeHolds: { _ in true })
+        XCTAssertEqual(save.source, .libraryFolder)
+        XCTAssertEqual(save.path.path, root.appendingPathComponent("save/\(tid)").path)
+        let env = SaveLocations.environment(save: save, cloud: .init(folder: nil, source: .standard))
+        XCTAssertEqual(env["DM_SAVE"], save.path.path)
+    }
+
     func testCloudOrderIsOverrideThenTheGamesOwnSettingThenGlobal() {
         let global = SaveGlobalSettings(cloudFolder: "icloud", cloudOn: true)
         let none = CloudSaveSync.Setting(source: .none, value: nil, folder: nil)
