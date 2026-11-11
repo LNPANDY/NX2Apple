@@ -99,40 +99,6 @@ extension LibraryGame {
     }
 }
 
-/// A folder in the game's mods folder: RomFS files that replace the game's own (DM_ROMFS_OVERLAY, hle_fs.c). The files are
-/// found in <mod>/romfs, in an Atmosphère layout (<mod>/atmosphere/contents/<title ID>/romfs, <mod>/contents/<title ID>/romfs)
-/// or in the folder itself. A mod with only exefs/ changes the game's code, which the rewriter does not take: listed, not usable.
-struct GameMod: Identifiable, Equatable {
-    let name: String
-    let romfs: String?
-    var id: String { name }
-    var usable: Bool { romfs != nil }
-
-    static func folder(for game: LibraryGame, library: String) -> URL {
-        let root = library.isEmpty
-            ? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("NS Port Builder")
-            : URL(fileURLWithPath: library)
-        return root.appendingPathComponent("mods").appendingPathComponent(game.titleID)
-    }
-
-    static func list(in folder: URL, titleID: String) -> [GameMod] {
-        let fm = FileManager.default
-        let names = ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter { !$0.hasPrefix(".") }.sorted {
-            $0.localizedStandardCompare($1) == .orderedAscending
-        }
-        return names.compactMap { name in
-            var dir: ObjCBool = false
-            let mod = folder.appendingPathComponent(name)
-            guard fm.fileExists(atPath: mod.path, isDirectory: &dir), dir.boolValue else { return nil }
-            let candidates = ["romfs", "atmosphere/contents/\(titleID)/romfs", "contents/\(titleID)/romfs"].map { mod.appendingPathComponent($0).path }
-            if let found = candidates.first(where: { fm.fileExists(atPath: $0) }) { return GameMod(name: name, romfs: found) }
-            let top = ((try? fm.contentsOfDirectory(atPath: mod.path)) ?? []).filter { !$0.hasPrefix(".") }
-            let codeOnly = top.allSatisfy { ["exefs", "atmosphere", "contents"].contains($0.lowercased()) } && !top.isEmpty
-            return GameMod(name: name, romfs: codeOnly || top.isEmpty ? nil : mod.path)
-        }
-    }
-}
-
 extension LibraryGame {
     /// The value of a setting this launcher keeps itself (not a saved choice): the player's choice while the build still offers it,
     /// else the game's default. Saved choices are read through SavedChoices.
@@ -169,6 +135,7 @@ final class GameLibrary: ObservableObject {
     /// The first root: where a build goes when nothing else was chosen, and what the single-folder code reads.
     var folder: String { folders.first ?? "" }
     @Published private(set) var scanning = false
+    @Published private(set) var skippedItems: [SkippedLibraryItem] = []
     /// The keys saved in Settings: their header_key finds packages whose name has no title ID (#1012). The launcher sets it.
     var keysFile: () -> String = { "" }
     /// Test hook run at the start of each background folder scan pass.
@@ -262,6 +229,7 @@ final class GameLibrary: ObservableObject {
     /// is not connected is not known to be gone), and its files are never touched.
     func removeFolder(_ path: String) {
         folders = LibraryRoots.removing(path, from: folders)
+        skippedItems = Self.filterSkippedItems(skippedItems, forRemainingFolders: folders)
         scanGeneration &+= 1
         if scanning {
             if LibraryRoots.scannable(folders).isEmpty {
@@ -320,18 +288,29 @@ final class GameLibrary: ObservableObject {
         }
     }
 
-    /// `headerKey` (the saved keys' header_key) also finds an NSP or NSZ whose name has no title ID, by its NCA headers (#1012).
+    /// `headerKey` (the saved keys' header_key) also finds a renamed NSP, NSZ, XCI or XCZ by its NCA headers (#1012).
     static func sourceGames(in root: URL, repo: String, headerKey: [UInt8]? = nil) -> [LibraryGame] {
+        scanSourceRoot(in: root, repo: repo, headerKey: headerKey).games
+    }
+
+    static func scanSourceRoot(
+        in root: URL,
+        repo: String,
+        headerKey: [UInt8]? = nil
+    ) -> (games: [LibraryGame], skipped: [(groupKey: String?, item: SkippedLibraryItem)]) {
         let ids = PackageTitleID.Resolver(headerKey: headerKey)
         if GameFolder.isDumpDirectory(root.path), case .success(let f) = GameFolder.scan(root.path) {
             var game = LibraryGame(titleID: f.titleIDHex, name: title(for: f.folder, repo: repo, titleID: f.titleIDHex))
             game.inputs = [GameLibrary.folderInput: [f.folder], "base": [f.basePath]]
             game.sourceFolder = f.folder
             game.outputDirectory = f.folder
-            return [game]
+            return ([game], [])
         }
-        guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { return [] }
-        let packages = Set(["nsp", "xci", "nsz", "xcz"])
+        guard let e = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else {
+            return ([], [])
+        }
+        let packages = PackageTitleID.supportedExtensions
+        var collector = SkippedScanCollector(root: root)
         var result: [String: LibraryGame] = [:]
         while let url = e.nextObject() as? URL {
             if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
@@ -361,6 +340,7 @@ final class GameLibrary: ObservableObject {
                 result[f.titleIDHex] = game
                 continue
             }
+            collector.observeFile(url, resolver: ids)
             guard packages.contains(url.pathExtension.lowercased()),
                   let id = ids.titleID(url.path), id & 0xfff == 0 else { continue }
             let tid = String(format: "%016llX", id)
@@ -432,7 +412,8 @@ final class GameLibrary: ObservableObject {
             game.outputDirectory = url.deletingLastPathComponent().path
             result[tid] = game
         }
-        return result.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        let sortedGames = result.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        return (sortedGames, collector.candidates)
     }
 
     func discover(repo: String = RepoLayout.find()) {
@@ -440,6 +421,7 @@ final class GameLibrary: ObservableObject {
         let roots = LibraryRoots.scannable(folders).map { URL(fileURLWithPath: $0) }   // a root on a drive that is not connected is skipped
         guard !roots.isEmpty else {
             pendingRescanRepo = nil
+            skippedItems = []
             if scanning { scanning = false }
             return
         }
@@ -458,8 +440,10 @@ final class GameLibrary: ObservableObject {
             onStart?()
             let apps = Self.firstOfEach(roots.flatMap { Self.builtApps(in: $0) } + Self.installedApps(in: installed)) { $0.standardizedFileURL.path }
             let headerKey = PackageTitleID.headerKey(keysFile: keys)
+            let rootPasses = roots.map { Self.scanSourceRoot(in: $0, repo: repo, headerKey: headerKey) }
             // Roots in their order: the first one that holds a game is its source, so the library does not depend on scan timing
-            let sources = Self.firstOfEach(roots.flatMap { Self.sourceGames(in: $0, repo: repo, headerKey: headerKey) }) { $0.titleID }
+            let sources = Self.firstOfEach(rootPasses.flatMap(\.games)) { $0.titleID }
+            let rawSkipped = rootPasses.flatMap(\.skipped)
             DispatchQueue.main.async {
                 if generation == self.scanGeneration {
                     let previousSelection = self.selectedID
@@ -483,9 +467,14 @@ final class GameLibrary: ObservableObject {
                     }
                     for url in apps {
                         guard let info = try? MacGameBundle.read(url) else { continue }
-                        if let existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady { self.learnTitleNames(existing, from: info, at: url); continue }
+                        if let existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady {
+                            self.learnTitleNames(existing, from: info, at: url)
+                            continue
+                        }
                         _ = try? self.addApp(url)
                     }
+                    let knownIDs = Self.knownBaseTitleIDSet(from: self.games.map(\.titleID) + sources.map(\.titleID))
+                    self.skippedItems = Self.resolveSkippedItems(rawSkipped, knownBaseTitleIDs: knownIDs)
                     self.pruneMissingPaths()
                     self.selectedID = previousSelection ?? self.games.first?.id
                 }
@@ -493,6 +482,7 @@ final class GameLibrary: ObservableObject {
                     self.pendingRescanRepo = nil
                     let nextRoots = LibraryRoots.scannable(self.folders).map { URL(fileURLWithPath: $0) }
                     guard !nextRoots.isEmpty else {
+                        self.skippedItems = []
                         self.scanning = false
                         return
                     }
@@ -750,6 +740,10 @@ final class GameLibrary: ObservableObject {
     @discardableResult func upsert(_ game: LibraryGame) -> Bool {   // internal: LibraryGame+Names.swift
         if let index = games.firstIndex(where: { $0.id == game.id }) { games[index] = game }
         else { games.append(game) }
+        if !skippedItems.isEmpty, game.titleID.count == 16, UInt64(game.titleID, radix: 16) != nil {
+            let baseUpper = game.titleID.uppercased()
+            skippedItems.removeAll { $0.expectedBaseTitleID == baseUpper }
+        }
         return save()
     }
 

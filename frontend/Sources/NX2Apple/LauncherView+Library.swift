@@ -44,7 +44,8 @@ extension LauncherView {
     }
 
     var emptyLibrary: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        let hasSkipped = !library.skippedItems.isEmpty
+        return VStack(alignment: .leading, spacing: hasSkipped ? 16 : 22) {
             Spacer()
             Image(systemName: "gamecontroller").font(.system(size: 44, weight: .light))
                 .foregroundStyle(LauncherPalette.cream)
@@ -56,7 +57,7 @@ extension LauncherView {
                     .font(.manrope(16, .semibold))
                     .padding(.horizontal, 24).padding(.vertical, 15)
             }
-            .buttonStyle(LauncherActionButtonStyle()).launcherHover(enabled: artworkEditor == nil, lightBrightness: 0).padding(.top, 8)
+            .buttonStyle(LauncherActionButtonStyle()).launcherHover(enabled: artworkEditor == nil, lightBrightness: 0).padding(.top, hasSkipped ? 4 : 8)
             Button(action: chooseLibraryFolder) {
                 Label(loc.t("library.chooseFolder"), systemImage: "folder")
                     .font(.manrope(14)).foregroundStyle(.secondary)
@@ -65,10 +66,18 @@ extension LauncherView {
                 Label(loc.t("supported.menu"), systemImage: "list.bullet.rectangle")
                     .font(.manrope(14)).foregroundStyle(.secondary)
             }.buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
+            if hasSkipped {
+                LibrarySkippedBanner(items: library.skippedItems, enabled: artworkEditor == nil) {
+                    skippedItemsOpen = true
+                }
+                .frame(maxWidth: 660)
+                .padding(.top, 4)
+            }
             Spacer()
             Text(loc.t("library.localNote")).font(.manrope(12)).foregroundStyle(.secondary)
         }
-        .padding(48).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .padding(.horizontal, 48).padding(.vertical, hasSkipped ? 28 : 48)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 
     func hero(_ game: LibraryGame, width: CGFloat, height: CGFloat) -> some View {
@@ -140,6 +149,17 @@ extension LauncherView {
                 }
                 if game.switch2EditionContentFound, !GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {
                     Text(loc.t("library.switch2Content")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)   // #1057
+                }
+                if verifiedProfiles.isUnverified(game) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 12))
+                            .foregroundStyle(LauncherPalette.cream.opacity(0.68))
+                        Text(loc.t("macLibVerify.note"))
+                            .font(.manrope(12.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 // A free Apple ID's provisioning profile lasts 7 days. Say when this app's runs out, and offer the
                 // re-sign at any time: renewing early (before a trip, say) is as valid as renewing just in time.
@@ -222,6 +242,11 @@ extension LauncherView {
                                adjust: { setLibraryFilter($0 > 0 ? .built : .owned) })
                 Text(String(format: loc.t("library.gameCount"), libraryFilter == .owned ? library.games.count : library.games.filter(libraryFilter.includes).count))
                     .font(.manrope(12)).foregroundStyle(.secondary)
+            }
+            if !library.skippedItems.isEmpty {
+                LibrarySkippedBanner(items: library.skippedItems, enabled: artworkEditor == nil) {
+                    skippedItemsOpen = true
+                }
             }
             if games.isEmpty {
                 Text(loc.t("library.noResults")).foregroundStyle(.secondary).padding(.vertical, 28)
@@ -337,6 +362,16 @@ extension LauncherView {
                     .padding(.horizontal, 7).padding(.vertical, 2)
                     .overlay(Capsule().strokeBorder(LauncherPalette.noticeBorder))
                     .help(loc.t("switch2.help"))
+            }
+            if prominent && verifiedProfiles.isUnverified(game) {
+                Text(loc.t("macLibVerify.badge"))
+                    .font(.manrope(11, .semibold))
+                    .foregroundStyle(LauncherPalette.cream.opacity(0.84))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 2)
+                    .background(Color.white.opacity(0.08), in: Capsule())
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.22)))
+                    .help(loc.t("macLibVerify.note"))
             }
             if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning
                 Text("· " + loc.t(prominent ? "library.olderTools" : "library.olderToolsShort"))
