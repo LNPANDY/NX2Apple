@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -29,6 +30,7 @@ SCHEME = 'DmShell'
 DEFAULT_BUNDLE_ID = 'org.nxnative.shell'
 DISCARD_PREFIX = '.discarded-'
 SHELL_ENTITLEMENTS = {'com.apple.developer.kernel.increased-memory-limit': True}
+ZIP32_ENTRY_LIMIT = 0xFFFF - 2  # 65,533: reserves _CodeSignature/ and CodeResources for sideloaders
 
 
 @dataclass
@@ -463,6 +465,117 @@ def _cleanup_tmp_sidecars(tmp_ipa: Path) -> None:
             pass
 
 
+def _count_tree_entries(root: Path, cap: int) -> int:
+    """Count `root` plus its descendants, stopping once `cap` is exceeded."""
+    if not root.exists():
+        return 0
+    total = 1
+    if not root.is_dir():
+        return total
+    for _dirpath, dirnames, filenames in os.walk(root):
+        total += len(dirnames) + len(filenames)
+        if total > cap:
+            return total
+    return total
+
+
+def _estimate_ipa_entries(staged_app: Path, fw_paths: list[Path], limit: int) -> int:
+    """Estimate total ZIP entries for `Payload/`, `DmShell.app`, and mapped frameworks."""
+    cap = limit + 1
+    # 1 for Payload/, plus DmShell.app tree, plus Frameworks/ container when frameworks exist.
+    total = 1 + _count_tree_entries(staged_app, cap)
+    if fw_paths and not (staged_app / 'Frameworks').exists():
+        total += 1
+    for fw in fw_paths:
+        if total > cap:
+            return total
+        total += _count_tree_entries(fw, cap - total + 1)
+    return total
+
+
+def _pack_loose_shader_dirs(
+    fw_paths: list[Path],
+    *,
+    stage_dir: Path,
+    repo_p: Path,
+    py_exe: str,
+    entry_limit: int,
+    staged_app: Path,
+    log: Callable[[str], None],
+) -> list[Path]:
+    """Pack loose `msl/**/b-*` shader folders into single `.img` files when entry count exceeds `entry_limit`."""
+    shader_lib_py = repo_p / 'dm' / 'tools' / 'shader_lib.py'
+    staged_fw_root = stage_dir / 'packed_frameworks'
+    out_fws: list[Path] = []
+    aa_bin = Path('/usr/bin/aa')
+
+    for fw_path in fw_paths:
+        msl_dir = fw_path / 'msl'
+        if not msl_dir.is_dir():
+            out_fws.append(fw_path)
+            continue
+
+        b_dirs: list[Path] = []
+        for cand in sorted(msl_dir.iterdir()):
+            if cand.is_dir() and cand.name.startswith('b-'):
+                b_dirs.append(cand)
+            elif cand.is_dir() and re.fullmatch(r'p\d+', cand.name):
+                for sub in sorted(cand.iterdir()):
+                    if sub.is_dir() and sub.name.startswith('b-'):
+                        b_dirs.append(sub)
+
+        if not b_dirs and not aa_bin.is_file():
+            out_fws.append(fw_path)
+            continue
+
+        staged_fw = staged_fw_root / fw_path.name
+        shutil.rmtree(staged_fw, ignore_errors=True)
+        staged_fw.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(fw_path, staged_fw, symlinks=True)
+
+        if shader_lib_py.is_file():
+            for rel_b in [d.relative_to(fw_path) for d in b_dirs]:
+                target_b = staged_fw / rel_b
+                if not target_b.is_dir():
+                    continue
+                r = subprocess.run(
+                    [py_exe, str(shader_lib_py), 'pack', str(target_b)],
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    env=pu.child_env(),
+                    **pu.no_window_kwargs(),
+                )
+                if r.returncode != 0 or not Path(f'{target_b}.img').is_file():
+                    why = (r.stderr or r.stdout or f'exit {r.returncode}').strip()
+                    raise RuntimeError(f'shader_lib pack failed for {fw_path.name}: {why}')
+                log(f'packed loose shader folder into {rel_b}.img for {fw_path.name}\n')
+
+        staged_msl = staged_fw / 'msl'
+        if (
+            staged_msl.is_dir()
+            and aa_bin.is_file()
+            and _count_tree_entries(staged_msl, entry_limit) > 256
+        ):
+            for old_aar in list(staged_fw.glob('msl-*.aar')):
+                old_aar.unlink(missing_ok=True)
+            aar_out = staged_fw / f'msl-{uuid.uuid4()}.aar'
+            r_aa = subprocess.run(
+                [str(aa_bin), 'archive', '-d', str(staged_msl), '-o', str(aar_out), '-a', 'lzfse'],
+                capture_output=True,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+            )
+            if r_aa.returncode == 0 and aar_out.is_file():
+                shutil.rmtree(staged_msl, ignore_errors=True)
+
+        out_fws.append(staged_fw)
+
+    return out_fws
+
+
 def export_shell(
     *,
     root: str | os.PathLike,
@@ -476,6 +589,7 @@ def export_shell(
     t_func: Callable[..., str] | None = None,
     log: Callable[[str], None] = lambda _: None,
     stage_cb: Callable[[str, str], None] | None = None,
+    entry_limit: int = ZIP32_ENTRY_LIMIT,
 ) -> tuple[bool, str, str, list[str]]:
     """Mirror `framework` into `root`, update `shell.json`, and pack `<root>/export/NX2Apple.ipa`.
 
@@ -549,11 +663,31 @@ def export_shell(
 
         # 3. Pack Payload/DmShell.app and every game's framework into a temporary archive first,
         # then atomically replace export/NX2Apple.ipa so an existing IPA is preserved on failure.
+        raw_fw_paths = [Path(g.framework) for g in library.games]
+        if _estimate_ipa_entries(staged_app, raw_fw_paths, entry_limit) > entry_limit:
+            effective_fw_paths = _pack_loose_shader_dirs(
+                raw_fw_paths,
+                stage_dir=stage_dir,
+                repo_p=repo_p,
+                py_exe=py_exe,
+                entry_limit=entry_limit,
+                staged_app=staged_app,
+                log=log,
+            )
+        else:
+            effective_fw_paths = raw_fw_paths
+
+        est_entries = _estimate_ipa_entries(staged_app, effective_fw_paths, entry_limit)
+        if est_entries > entry_limit:
+            raise RuntimeError(
+                f'IPA entry count exceeds the {entry_limit:,}-entry ZIP32 sideloader limit '
+                '(remove unused games from the shared app or rebuild them with packed shader images)'
+            )
+
         pack_py = repo_p / 'dm' / 'ios' / 'tools' / 'pack_ipa.py'
         maps: list[str] = []
         executables = [f'Payload/{APP_NAME}/{SCHEME}']
-        for g in library.games:
-            fw_path = Path(g.framework)
+        for fw_path in effective_fw_paths:
             fw_name = fw_path.name
             fw_exe = fw_path.stem
             maps.append(f'Payload/{APP_NAME}/Frameworks/{fw_name}={fw_path}')
@@ -573,6 +707,13 @@ def export_shell(
         if r.returncode != 0 or not tmp_ipa.is_file():
             why = (r.stderr or r.stdout or f'exit {r.returncode}').strip().splitlines()[-1]
             raise RuntimeError(why)
+
+        with zipfile.ZipFile(tmp_ipa, 'r') as zf_check:
+            actual_entries = len(zf_check.infolist())
+        if actual_entries > entry_limit:
+            raise RuntimeError(
+                f'packed IPA holds {actual_entries:,} entries, exceeding the {entry_limit:,}-entry ZIP32 limit'
+            )
 
         mode_summary = fix_ipa_modes.fix(tmp_ipa, executables)
         log(f'{mode_summary}\n')

@@ -12,25 +12,205 @@ from pathlib import Path
 GAME_SUFFIXES = ('.nsp', '.xci', '.nsz', '.xcz')
 
 _BRACKET_ID = re.compile(r'\[([0-9A-Fa-f]{16})\]')
-# a bare ID that starts with 01, as a token: start of the name or after _ space - . ( [
-_BARE_ID = re.compile(r'(?:^|[_ \-.(\[])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])')
+# a bare ID that starts with 01 (Switch) or 04 (Switch 2), as a token: start of the name or after _ space - . ( [
+_BARE_ID = re.compile(r'(?:^|[_ \-.(\[])(0[14][0-9A-Fa-f]{14})(?![0-9A-Fa-f])')
 _BRACKET_VERSION = re.compile(r'\[v(\d+)\]')
 _TOKEN_VERSION = re.compile(r'(?:^|[_ ])v(\d+)(?=$|[_ .\-)\]])')
+
+_PKG_TID_CACHE: dict[tuple[str, int, int, str], int | None] = {}
 
 
 def title_id(name: str) -> int | None:
     """The title ID in a file name: [0100F2C0115B6000] first, else a bare 16-digit ID like
-    01007EF00011E000_v0_420d1c5034ab.nsp."""
+    01007EF00011E000_v0_420d1c5034ab.nsp or 0400000000010000_v0.nsp."""
     m = _BRACKET_ID.search(name) or _BARE_ID.search(name)
     return int(m.group(1), 16) if m else None
 
 
-def build_key(path: str) -> str:
+def _load_header_key_bytes(keys_path: str | Path) -> bytes | None:
+    if not keys_path:
+        return None
+    p = str(keys_path)
+    if not os.path.isfile(p):
+        return None
+    try:
+        from . import features as _feat
+        keys = _feat.KeyCheck.load_keys(p)
+    except Exception:
+        return None
+    if not keys:
+        return None
+    hk_hex = keys.get('header_key', '')
+    if len(hk_hex) != 64:
+        return None
+    try:
+        return bytes.fromhex(hk_hex)
+    except ValueError:
+        return None
+
+
+def _read_fs_entries(
+    f,
+    file_size: int,
+    base_off: int,
+    magic: bytes,
+    entry_size: int,
+) -> tuple[int, list[tuple[str, int, int]]] | None:
+    """Read a PFS0 (entry_size=24) or HFS0 (entry_size=64) table safely without integer overflow."""
+    if base_off < 0 or base_off > file_size or file_size - base_off < 16:
+        return None
+    f.seek(base_off)
+    head = f.read(16)
+    if len(head) != 16 or head[:4] != magic:
+        return None
+    count, str_size, _ = struct.unpack_from('<III', head, 4)
+    if count <= 0 or count > 4096 or str_size <= 0 or str_size > 1_048_576:
+        return None
+    table_bytes = count * entry_size
+    header_total = 16 + table_bytes + str_size
+    if header_total > file_size - base_off:
+        return None
+    entries_raw = f.read(table_bytes)
+    str_tab = f.read(str_size)
+    if len(entries_raw) != table_bytes or len(str_tab) != str_size:
+        return None
+    data_base = base_off + header_total
+    rem_after_base = file_size - data_base
+    out: list[tuple[str, int, int]] = []
+    for i in range(count):
+        off, sz, soff = struct.unpack_from('<QQI', entries_raw, i * entry_size)
+        if soff >= str_size or off > rem_after_base or sz > rem_after_base - off:
+            continue
+        end = str_tab.find(b'\x00', soff)
+        raw_name = str_tab[soff:end if end != -1 else str_size]
+        name = raw_name.decode('utf-8', errors='replace')
+        out.append((name, data_base + off, sz))
+    return data_base, out
+
+
+def _plausible_switch_tid(tid: int) -> bool:
+    hi = (tid >> 56) & 0xFF
+    return tid != 0 and hi in (0x01, 0x04)
+
+
+def package_title_id(path: str | Path, keys_path: str | Path = '') -> int | None:
+    """Read a renamed package's own title ID from its PFS0/HFS0 container (NCA header or ticket).
+
+    Follows PackageTitleID.swift for encrypted NCA headers (preferring the content-meta NCA at
+    content_type == 1 so base, update, and DLC packages keep their own IDs) and falls back to
+    XCI secure HFS0 partitions and common tickets when present. Cached by `(abspath, size, mtime_ns, hk_tag)`.
+    """
+    if not path:
+        return None
+    p = os.fspath(path)
+    ext = os.path.splitext(p)[1].lower()
+    if ext not in GAME_SUFFIXES:
+        return None
+    try:
+        ap = os.path.abspath(p)
+        st = os.stat(ap)
+    except OSError:
+        return None
+    if not os.path.isfile(ap) or st.st_size < 64:
+        return None
+
+    hk = _load_header_key_bytes(keys_path)
+    if hk is None:
+        # Check sibling prod.keys if the caller did not supply one yet
+        sib = os.path.join(os.path.dirname(ap), 'prod.keys')
+        if os.path.isfile(sib):
+            hk = _load_header_key_bytes(sib)
+    hk_tag = hashlib.sha256(hk).hexdigest()[:16] if hk else ''
+    cache_key = (ap, st.st_size, st.st_mtime_ns, hk_tag)
+    if cache_key in _PKG_TID_CACHE:
+        return _PKG_TID_CACHE[cache_key]
+
+    result: int | None = None
+    try:
+        with open(ap, 'rb') as f:
+            entries: list[tuple[str, int, int]] | None = None
+            if ext in ('.nsp', '.nsz'):
+                parsed = _read_fs_entries(f, st.st_size, 0, b'PFS0', 24)
+                if parsed is not None:
+                    entries = parsed[1]
+            elif ext in ('.xci', '.xcz') and st.st_size >= 0x200:
+                f.seek(0x100)
+                xci_head = f.read(0x40)
+                if len(xci_head) == 0x40 and xci_head[:4] == b'HEAD':
+                    hfs0_off = struct.unpack_from('<Q', xci_head, 0x30)[0]
+                    root_hfs = _read_fs_entries(f, st.st_size, hfs0_off, b'HFS0', 64)
+                    if root_hfs is not None:
+                        sec = next((e for e in root_hfs[1] if e[0].lower() == 'secure'), None)
+                        if sec is not None:
+                            sec_hfs = _read_fs_entries(f, st.st_size, sec[1], b'HFS0', 64)
+                            if sec_hfs is not None:
+                                entries = sec_hfs[1]
+
+            if entries:
+                if hk is not None:
+                    from . import features as _feat
+                    prog_fallback: int | None = None
+                    # Check .cnmt.nca entries first so a multi-NCA package resolves in one sector decrypt
+                    ordered = sorted(entries, key=lambda it: (0 if it[0].lower().endswith('.cnmt.nca') else 1, it[0]))
+                    for name, abs_off, sz in ordered:
+                        low = name.lower()
+                        if not low.endswith(('.nca', '.ncz')) or sz < 0x400:
+                            continue
+                        f.seek(abs_off + 0x200)
+                        sec1 = f.read(0x200)
+                        if len(sec1) != 0x200:
+                            continue
+                        plain1 = _feat.decrypt_nca_sector(sec1, 1, hk[:16], hk[16:32])
+                        if plain1[:4] not in (b'NCA3', b'NCA2'):
+                            continue
+                        tid_val = struct.unpack_from('<Q', plain1, 0x10)[0]
+                        if tid_val == 0:
+                            continue
+                        ctype = plain1[0x05]
+                        if ctype == 1:  # Meta NCA holds the package's exact Title ID
+                            result = tid_val
+                            break
+                        if ctype == 0 and prog_fallback is None:
+                            prog_fallback = tid_val
+                    if result is None:
+                        result = prog_fallback
+
+                if result is None:
+                    for name, abs_off, sz in entries:
+                        low = name.lower()
+                        if not low.endswith('.tik'):
+                            continue
+                        if sz >= 0x2B0:
+                            f.seek(abs_off + 0x280)
+                            tbuf = f.read(0x30)
+                            if len(tbuf) == 0x30:
+                                rid_tid = struct.unpack_from('>Q', tbuf, 0x20)[0]
+                                if _plausible_switch_tid(rid_tid):
+                                    result = rid_tid
+                                    break
+                        stem = os.path.splitext(os.path.basename(low))[0]
+                        if len(stem) >= 16 and all(c in '0123456789abcdef' for c in stem[:16]):
+                            cand_tid = int(stem[:16], 16)
+                            if _plausible_switch_tid(cand_tid):
+                                result = cand_tid
+                                break
+    except OSError:
+        result = None
+
+    if len(_PKG_TID_CACHE) >= 512:
+        _PKG_TID_CACHE.clear()
+    _PKG_TID_CACHE[cache_key] = result
+    return result
+
+
+def build_key(path: str, keys_path: str = '') -> str:
     """The name of a game's work folder and output (<key>_build, <key>.app), the same rule as the Mac launcher's
-    buildKey: the title ID in the file name, else the cleaned file name stem plus a short FNV-1a hash of it. Two games
-    never share a folder (and its shader cache), the same file name always gets the same one (#382)."""
+    buildKey: the title ID in the file name (or container header), else the cleaned file name stem plus a short FNV-1a hash.
+    Two games never share a folder (and its shader cache), the same file name always gets the same one (#382)."""
     name = Path(path).name
     tid = title_id(name)
+    if tid is None and path and Path(path).suffix.lower() in GAME_SUFFIXES:
+        tid = package_title_id(path, keys_path)
     if tid is not None:
         return f'{tid:016X}'
     stem = name.rsplit('.', 1)[0] if '.' in name else name
@@ -55,10 +235,25 @@ def owner(tid: int) -> int:
     return tid & ~0xFFF if low == 0x800 else (tid & ~0xFFF) - 0x1000
 
 
-def classify(files: list[Path]) -> dict:
-    """{'base', 'update', 'dlc', 'update_count'} for a list of files. Names without a title ID fall back
-    to the older [upd] / [dlc] / 'update' / 'addon' markers, and count as a base game only when no file
-    with a title ID is one. Update and DLC files of another game than the chosen base are left out."""
+def classify(files: list[Path], keys_path: str = '') -> dict:
+    """{'base', 'update', 'dlc', 'update_count'} for a list of files. Names without a title ID inspect the
+    package header first and fall back to the older [upd] / [dlc] / 'update' / 'addon' markers, counting as a
+    base game only when no file with a title ID is one. Update and DLC files of another game are left out."""
+    eff_keys = keys_path
+    if not eff_keys:
+        for cand in files:
+            clow = cand.name.lower()
+            if (clow in ('prod.keys', 'keys.txt') or clow.endswith('.keys')) and cand.is_file():
+                eff_keys = str(cand)
+                break
+
+    resolved_tids: dict[Path, int | None] = {}
+
+    def _tid_of(f: Path) -> int | None:
+        if f not in resolved_tids:
+            resolved_tids[f] = title_id(f.name) or package_title_id(f, eff_keys)
+        return resolved_tids[f]
+
     bases: list[tuple[int, Path]] = []
     updates: list[tuple[int, Path, int]] = []
     dlcs: list[Path] = []
@@ -73,7 +268,7 @@ def classify(files: list[Path]) -> dict:
             continue
         if size <= 0:     # an incomplete download leaves empty files
             continue
-        tid = title_id(name)
+        tid = _tid_of(f)
         if tid is None:
             low = name.lower()
             if '[upd]' in low or 'update' in low:
@@ -91,11 +286,11 @@ def classify(files: list[Path]) -> dict:
         else:
             dlcs.append(f)
     base = max(bases, key=lambda b: b[0])[1] if bases else (unnamed[0] if unnamed else None)
-    base_tid = title_id(base.name) if base else None
+    base_tid = _tid_of(base) if base else None
     if base_tid is not None:
         app = base_tid & ~0xFFF
         updates = [u for u in updates if u[0] == 0 or owner(u[0]) == app]
-        dlcs = [d for d in dlcs if (title_id(d.name) is None or owner(title_id(d.name)) == app)]
+        dlcs = [d for d in dlcs if (_tid_of(d) is None or owner(_tid_of(d)) == app)]  # type: ignore[arg-type]
     newest = max(updates, key=lambda u: u[2]) if updates else None
     return {'base': base, 'update': newest[1] if newest else None,
             'dlc': sorted(dlcs), 'update_count': len(updates)}

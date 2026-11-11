@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -2273,7 +2274,7 @@ class Model(QObject):
             elif p.is_dir():
                 files += [q for q in sorted(p.iterdir()) if q.is_file()]
         self.keys_path = next((str(f) for f in files if f.name.lower() == 'prod.keys'), self.keys_path)
-        found = inputs.classify(files)
+        found = inputs.classify(files, keys_path=self.keys_path)
         self.base_path = str(found['base']) if found['base'] else ''
         self.update_path = str(found['update']) if found['update'] else ''
         self.dlc_paths = [str(f) for f in found['dlc']]
@@ -2352,14 +2353,90 @@ class Model(QObject):
         """The name of the work folder and the app (<key>_build, <key>.app): the folder's title ID, else the base package's."""
         f = self.game_folder
         if f is None:
-            return inputs.build_key(self.base_path)
-        return f.title_id_hex if f.has_title_id else inputs.build_key(f.script_input)
+            return inputs.build_key(self.base_path, self.keys_path)
+        return f.title_id_hex if f.has_title_id else inputs.build_key(f.script_input, self.keys_path)
+
+    @staticmethod
+    def _file_stat_sig(path: str) -> tuple[str, int, int] | None:
+        if not path:
+            return None
+        try:
+            ap = os.path.abspath(path)
+            st = os.stat(ap)
+        except OSError:
+            return None
+        if not stat.S_ISREG(st.st_mode):
+            return None
+        return (ap, st.st_size, st.st_mtime_ns)
+
+    def _cached_key_verdict(self):
+        base_sig = self._file_stat_sig(self.base_path)
+        keys_sig = self._file_stat_sig(self.keys_path)
+        if base_sig is None or keys_sig is None or base_sig[1] < 0x400:
+            return None
+        upd_sig = self._file_stat_sig(self.update_path)
+        dlc_sigs = tuple(s for p in self.dlc_paths if (s := self._file_stat_sig(p)) is not None)
+        cache_key = (base_sig, upd_sig, dlc_sigs, keys_sig)
+        cached = getattr(self, '_keycheck_cache', None)
+        if cached is not None and cached[0] == cache_key:
+            return cached[1]
+        from . import features as _feat
+        verdict = _feat.KeyCheck.check(self.keys_path, self.base_path, self.update_path, list(self.dlc_paths))
+        self._keycheck_cache = (cache_key, verdict)
+        return verdict
+
+    def prebuild_block_reason(self) -> str:
+        """Return a localized pre-build block reason when keys are known to be insufficient or free disk space is too low."""
+        if self.game_folder is None and self.base_path and self.keys_path:
+            verdict = self._cached_key_verdict()
+            if verdict is not None:
+                if verdict.kind == 'unreadableKeys':
+                    return self.t('keycheck.unreadable')
+                if verdict.kind == 'missingHeaderKey':
+                    return self.t('keycheck.noHeaderKey')
+                if verdict.kind == 'wrongHeaderKey':
+                    part_name = self.t('keycheck.part.' + (verdict.part or 'base'))
+                    return self.t('keycheck.wrongHeaderKey', part_name)
+                if verdict.kind == 'missingKey':
+                    part_name = self.t('keycheck.part.' + (verdict.part or 'base'))
+                    msg = self.t('keycheck.tooOld', part_name, verdict.key)
+                    if verdict.firmware:
+                        msg += ' ' + self.t('keycheck.firmware', verdict.firmware)
+                    return msg
+
+        total_in = 0
+        has_compressed = False
+        if self.game_folder is not None:
+            if self.game_folder.nup:
+                sig = self._file_stat_sig(self.game_folder.nup)
+                if sig is not None:
+                    total_in = sig[1]
+        elif self.base_path:
+            for p in (self.base_path, self.update_path, *self.dlc_paths):
+                sig = self._file_stat_sig(p)
+                if sig is not None:
+                    total_in += sig[1]
+                    if p.lower().endswith(('.nsz', '.xcz')):
+                        has_compressed = True
+
+        if total_in >= 0x400:
+            factor = 3.5 if has_compressed else 2.2
+            needed = int(total_in * factor)
+            probe_dir = self.out_dir or (
+                self.game_folder.folder if self.game_folder is not None else str(Path(self.base_path).parent)
+            )
+            free = lib.DriveCopy.free_space(probe_dir)
+            if free > 0 and free < needed:
+                return self.t('status.lowDiskSpace', lib.format_bytes(needed), lib.format_bytes(free))
+        return ''
 
     @property
     def can_build(self) -> bool:
         # a game folder needs no keys, a refused one cannot build
         inputs_ready = self.game_folder is not None or (bool(self.base_path) and bool(self.keys_path))
-        return self.repo_ok and inputs_ready and self.all_deps_ok and not self.running
+        if not (self.repo_ok and inputs_ready and self.all_deps_ok and not self.running):
+            return False
+        return not bool(self.prebuild_block_reason())
 
     # ---- build
 
@@ -2381,6 +2458,10 @@ class Model(QObject):
             self.finished.emit(False, self.t('msg.repoInvalidEmpty'))
             return
         if self.game_folder is None and not self.base_path:
+            return
+        block = self.prebuild_block_reason()
+        if block:
+            self.finished.emit(False, block)
             return
         if engine.needs_sync_before_build(self.repo_path):
             # engine/ is the only engine and is stale or missing: make it, then build (a failed sync names its fix in the log)
@@ -2413,12 +2494,15 @@ class Model(QObject):
                 unpicked = []
         staged = list(all_files)
         if folder is None:
-            base_tid = int(title_id, 16) if title_id else inputs.title_id(Path(self.base_path).name)
+            base_tid = int(title_id, 16) if title_id else (
+                inputs.title_id(Path(self.base_path).name)
+                or inputs.package_title_id(self.base_path, self.keys_path)
+            )
             if base_tid is not None:
                 app = base_tid & ~0xFFF
                 upd_candidates: list[str] = []
                 for f in unpicked:
-                    ftid = inputs.title_id(f)
+                    ftid = inputs.title_id(f) or inputs.package_title_id(Path(base_dir, f), self.keys_path)
                     if ftid is None or inputs.owner(ftid) != app:
                         continue
                     low = ftid & 0xFFF
@@ -2505,7 +2589,7 @@ class Model(QObject):
                     shutil.rmtree(old_fw, ignore_errors=True)
             args += ['--shell-framework', str(sf_dir)]
         elif self.out_dir or title_id:
-            self.ipa_path = str(Path(self.out_dir or base_dir, f'{tid_hex}.ipa'))
+            self.ipa_path = lib.one_game_ipa_path(self.out_dir or base_dir, tid_hex)
             args += ['-o', self.ipa_path]
         if self.bc_on_cpu and not mac_app:
             try:
@@ -2615,6 +2699,8 @@ class Model(QObject):
                     if st.state == 'running':
                         st.state = 'done'
                 self.stagesChanged.emit()
+                if self.ipa_kind == 'oneGame' and not self.ipa_path:
+                    self.ipa_path = self._resolve_one_game_ipa_path(base_dir, input_dir, tid_hex)
                 if self.ipa_kind != 'oneGame':
                     return self.pack_archive(title_id, export_shell=use_shell_fw)
                 if not self.ipa_path:
@@ -2707,6 +2793,44 @@ class Model(QObject):
         if proc is not None:
             pu.kill_process_tree(proc)
 
+    @staticmethod
+    def _resolve_one_game_ipa_path(base_dir: str, input_dir: str, tid_hex: str) -> str:
+        cand = lib.one_game_ipa_path(base_dir, tid_hex)
+        staged = bool(
+            input_dir and base_dir
+            and os.path.abspath(input_dir) != os.path.abspath(base_dir)
+        )
+        if not staged and os.path.isfile(cand):
+            return cand
+        search_dirs = (input_dir, base_dir) if staged else (base_dir,)
+        for search_dir in search_dirs:
+            if not search_dir or not os.path.isdir(search_dir):
+                continue
+            try:
+                ipas = sorted(
+                    (p for p in Path(search_dir).glob('*.ipa') if p.is_file()),
+                    key=lambda p: p.stat().st_mtime_ns,
+                    reverse=True,
+                )
+            except OSError:
+                ipas = []
+            matched = next(
+                (str(p) for p in ipas if lib.reveal_ipa_path(
+                    ipa_kind='oneGame', shell_cache='', out_dir='', build_key='', last_ipa=str(p)
+                )),
+                '',
+            )
+            if matched:
+                if os.path.abspath(search_dir) != os.path.abspath(base_dir):
+                    dest_ipa = os.path.join(base_dir, os.path.basename(matched))
+                    try:
+                        os.replace(matched, dest_ipa)
+                        matched = dest_ipa
+                    except OSError:
+                        pass
+                return matched
+        return cand
+
     # ---- the script's own progress lines
 
     def _ensure_pso_lock(self) -> threading.RLock:
@@ -2718,7 +2842,7 @@ class Model(QObject):
 
     def _is_pso_stage_text(self, text: str) -> bool:
         low = text.lower()
-        return 'pipeline archive' in low or self.t('stage.pipeline_archive').lower() in low
+        return 'pipeline archive' in low or 'game framework' in low or self.t('stage.pipeline_archive').lower() in low
 
     def _start_pso_poll(self) -> None:
         lock = self._ensure_pso_lock()
@@ -3089,14 +3213,9 @@ class Model(QObject):
                 except OSError:
                     pass
 
-        needed = sum(sz for rel, sz in files.items() if rel not in reusable)
-        free = lib.DriveCopy.free_space(dest_root)
-        if free > 0 and needed > free:
-            return (
-                False,
-                False,
-                f'Not enough space ({lib.format_bytes(needed)} needed, {lib.format_bytes(free)} free)',
-            )
+        preflight_err = lib.DriveCopy.preflight_copy(files, dest_root, tid_clean, reusable=reusable)
+        if preflight_err is not None:
+            return False, False, preflight_err
 
         if cancel_event is not None and cancel_event.is_set():
             return False, True, ''

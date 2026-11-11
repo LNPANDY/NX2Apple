@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import shutil
 import subprocess
@@ -19,8 +19,13 @@ import urllib.error
 import urllib.request
 import zipfile
 
+from . import archive_guard as ag
+
 #: Bump together with each release tag and `AppUpdateStore.appVersion` in Swift.
 APP_VERSION = '1.4.0'
+
+MAX_UPDATE_ENTRIES = 40_000
+MAX_UPDATE_BYTES = 2 * 1024 * 1024 * 1024
 
 LATEST_RELEASE_URL = 'https://api.github.com/repos/LNPANDY/NX2Apple/releases/latest'
 RELEASES_PAGE_URL = 'https://github.com/LNPANDY/NX2Apple/releases/latest'
@@ -205,25 +210,30 @@ def fresh_staging_root(base_temp: Path | None = None) -> Path:
     return root
 
 
-def _safe_extract_zip(zip_path: Path, dest_dir: Path) -> None:
-    """Extract `zip_path` into `dest_dir`, rejecting any path traversal entries."""
-    dest_resolved = dest_dir.resolve()
-    with zipfile.ZipFile(zip_path, 'r') as zf:
-        for info in zf.infolist():
-            norm = PurePosixPath(info.filename.replace('\\', '/'))
-            if norm.is_absolute() or '..' in norm.parts:
-                raise zipfile.BadZipFile(f'unsafe zip entry: {info.filename}')
-            target = (dest_resolved / Path(*norm.parts)).resolve()
-            if target != dest_resolved and dest_resolved not in target.parents:
-                raise zipfile.BadZipFile(f'escaped zip entry: {info.filename}')
-        zf.extractall(dest_resolved)
+def _safe_extract_zip(
+    zip_path: Path,
+    dest_dir: Path,
+    *,
+    quota: ag.ArchiveQuota | None = None,
+) -> ag.ArchiveQuota:
+    """Extract `zip_path` into `dest_dir` with unified path, symlink, and quota enforcement."""
+    ledger = quota or ag.ArchiveQuota(
+        max_entries=MAX_UPDATE_ENTRIES,
+        max_bytes=MAX_UPDATE_BYTES,
+    )
+    return ag.extract_zip_safely(
+        zip_path,
+        dest_dir,
+        quota=ledger,
+        error_cls=ag.ArchiveSafetyError,
+    )
 
 
 def _find_bundled_app_dir(unpacked_dir: Path) -> tuple[Path, str] | None:
     """Locate the unpacked PyInstaller app directory containing `NX2Apple.exe` and `_internal/`."""
     candidates = [unpacked_dir]
     try:
-        candidates.extend( sorted(p for p in unpacked_dir.iterdir() if p.is_dir()) )
+        candidates.extend(sorted(p for p in unpacked_dir.iterdir() if p.is_dir()))
     except OSError:
         return None
     for cand in candidates:
@@ -251,50 +261,117 @@ def stage_zip(
         raise StageError('app.noDigest')
 
     unpacked = staging_root / 'unpacked'
-    shutil.rmtree(unpacked, ignore_errors=True)
+    ag.rmtree_force(unpacked)
     unpacked.mkdir(parents=True, exist_ok=True)
     try:
         _safe_extract_zip(zip_path, unpacked)
-    except (zipfile.BadZipFile, OSError) as exc:
+    except (zipfile.BadZipFile, OSError, ag.ArchiveSafetyError) as exc:
         zip_path.unlink(missing_ok=True)
-        shutil.rmtree(unpacked, ignore_errors=True)
+        ag.rmtree_force(unpacked)
         raise StageError('app.unpackFail') from exc
     zip_path.unlink(missing_ok=True)
 
     found = _find_bundled_app_dir(unpacked)
     if found is None:
-        shutil.rmtree(unpacked, ignore_errors=True)
+        ag.rmtree_force(unpacked)
         raise StageError('app.notOurApp')
     app_dir, exe_name = found
     return StagedUpdate(release=release, app_dir=app_dir, exe_name=exe_name, staging_root=staging_root)
 
 
-#: Pure-ASCII PowerShell script that waits for the running process to exit, copies the staged
-#: update into place with robocopy (retrying locked files), removes a legacy exe name when
-#: transitioning from `NS Port Builder.exe` to `NX2Apple.exe`, and relaunches the new executable.
-WINDOWS_RELAUNCH_PS1 = (
-    "$pidToWait = [int]$env:NX_PID; "
-    "for ($i = 0; $i -lt 150; $i++) { "
-    "if (-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)) { break }; "
-    "Start-Sleep -Milliseconds 200 "
-    "}; "
-    "Start-Sleep -Milliseconds 400; "
-    "& robocopy $env:NX_STAGED $env:NX_TARGET /E /IS /IT /IM /NFL /NDL /NJH /NJS /R:10 /W:1 | Out-Null; "
-    "$newExe = Join-Path $env:NX_TARGET $env:NX_NEW_EXE; "
-    "if (($env:NX_OLD_EXE -ne $env:NX_NEW_EXE) -and (Test-Path -LiteralPath $newExe)) { "
-    "$oldExe = Join-Path $env:NX_TARGET $env:NX_OLD_EXE; "
-    "Remove-Item -LiteralPath $oldExe -Force -ErrorAction SilentlyContinue "
-    "}; "
-    "Remove-Item Env:_MEIPASS,Env:_MEIPASS2,Env:PYTHONHOME,Env:PYTHONPATH,Env:QT_PLUGIN_PATH,Env:QML2_IMPORT_PATH "
-    "-ErrorAction SilentlyContinue; "
-    "$launchExe = if (Test-Path -LiteralPath $newExe) { $newExe } else { Join-Path $env:NX_TARGET $env:NX_OLD_EXE }; "
-    "if (Test-Path -LiteralPath $launchExe) { "
-    "Start-Process -FilePath $launchExe -WorkingDirectory $env:NX_TARGET "
-    "}; "
-    "if ($env:NX_STAGE_ROOT -and (Test-Path -LiteralPath $env:NX_STAGE_ROOT)) { "
-    "Remove-Item -LiteralPath $env:NX_STAGE_ROOT -Recurse -Force -ErrorAction SilentlyContinue "
-    "}"
-)
+def apply_staged_update(
+    staged: StagedUpdate | Path,
+    target_dir: Path,
+    *,
+    move_fn=None,
+) -> Path:
+    """Install a staged app bundle into `target_dir` with `.old` backup and failure cleanup."""
+    staged_dir = staged.app_dir if isinstance(staged, StagedUpdate) else Path(staged)
+    return ag.install_staged_tree(
+        staged_dir,
+        target_dir,
+        validator=lambda d: _find_bundled_app_dir(d) is not None,
+        move_fn=move_fn,
+        error_cls=StageError,
+    )
+
+
+def _sanitize_relaunch_env(base_env: dict[str, str], target_dir: Path) -> dict[str, str]:
+    """Strip only PyInstaller freeze pollution while preserving user PYTHONPATH in normal runs."""
+    env = dict(base_env)
+    meipass = getattr(sys, '_MEIPASS', None) or env.get('_MEIPASS') or env.get('_MEIPASS2')
+    is_frozen = bool(getattr(sys, 'frozen', False))
+    env.pop('_MEIPASS', None)
+    env.pop('_MEIPASS2', None)
+    if is_frozen:
+        env.pop('PYTHONHOME', None)
+        env.pop('QT_PLUGIN_PATH', None)
+        env.pop('QML2_IMPORT_PATH', None)
+    if (is_frozen or meipass) and 'PYTHONPATH' in env:
+        polluted_roots: list[str] = []
+        if meipass:
+            polluted_roots.append(os.path.abspath(os.fspath(meipass)))
+        if is_frozen:
+            polluted_roots.append(os.path.abspath(os.fspath(target_dir / '_internal')))
+            exe_internal = Path(sys.executable).resolve().parent / '_internal'
+            polluted_roots.append(os.path.abspath(os.fspath(exe_internal)))
+
+        def _is_polluted(entry: str) -> bool:
+            entry_abs = os.path.abspath(entry)
+            return any(ag.is_same_or_within(entry_abs, root) for root in polluted_roots)
+
+        win_sep = ';'
+        sep = win_sep if (os.name == 'nt' or win_sep in env['PYTHONPATH']) else os.pathsep
+        kept = [item for item in env['PYTHONPATH'].split(sep) if item and not _is_polluted(item)]
+        if kept:
+            env['PYTHONPATH'] = sep.join(kept)
+        else:
+            env.pop('PYTHONPATH', None)
+    return env
+
+
+#: Pure-ASCII PowerShell script that waits for the running process to exit, backs up any existing
+#: bundle to `.<name>.old`, copies the staged update into place, rolls back on failure, and launches.
+WINDOWS_RELAUNCH_PS1 = "\n".join([
+    "$pidToWait = [int]$env:NX_PID",
+    "for ($i = 0; $i -lt 150; $i++) {",
+    "  if (-not (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue)) { break }",
+    "  Start-Sleep -Milliseconds 200",
+    "}",
+    "Start-Sleep -Milliseconds 400",
+    "$target = $env:NX_TARGET",
+    "$parent = Split-Path -Parent $target",
+    "$leaf = Split-Path -Leaf $target",
+    "$backup = Join-Path $parent (\".\" + $leaf + \".old\")",
+    "$hadExisting = Test-Path -LiteralPath $target",
+    "if ($hadExisting) {",
+    "  if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue }",
+    "  Copy-Item -LiteralPath $target -Destination $backup -Recurse -Force -ErrorAction SilentlyContinue",
+    "}",
+    "& robocopy $env:NX_STAGED $target /E /IS /IT /IM /NFL /NDL /NJH /NJS /R:10 /W:1 | Out-Null",
+    "$rc = $LASTEXITCODE",
+    "$newExe = Join-Path $target $env:NX_NEW_EXE",
+    "if (($rc -ge 8) -or (-not (Test-Path -LiteralPath $newExe))) {",
+    "  if (Test-Path -LiteralPath $target) { Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue }",
+    "  if ($hadExisting -and (Test-Path -LiteralPath $backup)) {",
+    "    Move-Item -LiteralPath $backup -Destination $target -Force -ErrorAction SilentlyContinue",
+    "  }",
+    "} else {",
+    "  if (($env:NX_OLD_EXE -ne $env:NX_NEW_EXE) -and (Test-Path -LiteralPath $newExe)) {",
+    "    $oldExe = Join-Path $target $env:NX_OLD_EXE",
+    "    Remove-Item -LiteralPath $oldExe -Force -ErrorAction SilentlyContinue",
+    "  }",
+    "  if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue }",
+    "}",
+    "Remove-Item Env:_MEIPASS,Env:_MEIPASS2 -ErrorAction SilentlyContinue",
+    "$launchExe = if (Test-Path -LiteralPath $newExe) { $newExe } else { Join-Path $target $env:NX_OLD_EXE }",
+    "if (Test-Path -LiteralPath $launchExe) {",
+    "  Start-Process -FilePath $launchExe -WorkingDirectory $target",
+    "}",
+    "if ($env:NX_STAGE_ROOT -and (Test-Path -LiteralPath $env:NX_STAGE_ROOT)) {",
+    "  Remove-Item -LiteralPath $env:NX_STAGE_ROOT -Recurse -Force -ErrorAction SilentlyContinue",
+    "}",
+])
 
 
 def relaunch_windows_update(
@@ -306,9 +383,7 @@ def relaunch_windows_update(
     """Spawn a detached background process on Windows to swap `staged` in after `pid` exits."""
     exe_path = (current_exe or Path(sys.executable)).resolve()
     target_dir = exe_path.parent
-    env = os.environ.copy()
-    for k in ('_MEIPASS', '_MEIPASS2', 'PYTHONHOME', 'PYTHONPATH', 'QT_PLUGIN_PATH', 'QML2_IMPORT_PATH'):
-        env.pop(k, None)
+    env = _sanitize_relaunch_env(os.environ, target_dir)
     env['NX_PID'] = str(os.getpid() if pid is None else pid)
     env['NX_STAGED'] = str(staged.app_dir)
     env['NX_TARGET'] = str(target_dir)

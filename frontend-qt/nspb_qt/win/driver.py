@@ -256,32 +256,46 @@ def patch(mod: ModuleType, repo: Path, *, j: int | None = None) -> None:
 
     def build_nx_extract(repo_: Path, work: Path, logs: Path, env, *a, **kw):
         """Use the executable shipped with this engine, or build it for a source checkout."""
-        bundled = repo_ / 'dm/tools/nx_extract_bin/nx_extract.exe'
+        repo_p = Path(repo_)
+        proj = repo_p / 'dm/tools/nx_extract'
+        has_src = (proj / 'Program.cs').is_file() and (proj / 'nx_extract.csproj').is_file()
+        want = _nx_extract_source_sha(repo_p) if has_src else ''
+        bundled = repo_p / 'dm/tools/nx_extract_bin/nx_extract.exe'
         if bundled.is_file():
+            _verify_nx_extract(bundled, want, env)
             return bundled
 
         import tempfile
-        nx = work / 'tools/nx_extract/nx_extract'
+        nx = Path(work) / 'tools/nx_extract/nx_extract'
+        nx_exe = nx.parent / 'nx_extract.exe'
+        if nx_exe.is_file():
+            try:
+                _verify_nx_extract(nx_exe, want, env)
+                return nx
+            except BuildError:
+                mod.rmtree(nx.parent)
+
         # An absolute path: `dotnet` by name relies on PATH, and a toolchain this app downloaded
         # lives in its own folder (the shim's PATH has it, but not every caller goes through it).
         dn = tc.dotnet_dir()
         dotnet = str(dn / 'dotnet.exe') if dn else 'dotnet'
         with tempfile.TemporaryDirectory(prefix='nx_extract_') as td, \
                 tempfile.TemporaryDirectory(prefix='nx_extract_art_') as art:
-            mod.run([dotnet, 'build', repo_ / 'dm/tools/nx_extract', '-c', 'Release',
+            mod.run([dotnet, 'build', proj, '-c', 'Release',
                      '-p:PublishAot=false', '--artifacts-path', art,
                      '-o', td, '-v', 'quiet', '-nologo'],
-                    logs / 'nx_extract_build.log', env=env)
+                    Path(logs) / 'nx_extract_build.log', env=env)
             exe = Path(td) / 'nx_extract.exe'
             if not exe.exists():
                 raise BuildError(f'nx_extract built without nx_extract.exe (see '
-                                 f'{logs / "nx_extract_build.log"})')
+                                 f'{Path(logs) / "nx_extract_build.log"})')
             mod.rmtree(nx.parent)
             try:
                 shutil.copytree(td, nx.parent)
             except BaseException:
                 mod.rmtree(nx.parent)
                 raise
+        _verify_nx_extract(nx_exe, want, env)
         return nx
 
     def find_nx_extract(repo_: Path, env=None, *a, **kw):

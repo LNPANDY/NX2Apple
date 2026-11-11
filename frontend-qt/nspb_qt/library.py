@@ -40,10 +40,13 @@ def default_state_dir() -> Path:
 
 _TID_RE = re.compile(r'\[([0-9A-Fa-f]{16})\]')
 _TID_ANY_RE = re.compile(r'(?<![0-9A-Fa-f])([0-9A-Fa-f]{16})(?![0-9A-Fa-f])')
+_BARE_TID_TOKEN_RE = re.compile(r'(?:^|[-_\s.])0[14][0-9A-Fa-f]{14}(?=$|[-_\s.])')
+_BARE_VER_TOKEN_RE = re.compile(r'(?:^|[-_\s.])v\d+(?=$|[-_\s.])', re.IGNORECASE)
 _VER_TAG_RE = re.compile(r'\[v\d+\]', re.IGNORECASE)
 _PAREN_TAG_RE = re.compile(r'\([^)]*\)')
 _BRACKET_TAG_RE = re.compile(r'\[[^\]]*\]')
 _KIND_SUFFIX_RE = re.compile(r'[-_\s]*(upd|update|base|dlc|patch)\s*$', re.IGNORECASE)
+_UNEXTRACTED_ARCHIVE_RE = re.compile(r'\.(?:7z|rar|r\d\d|00|\d{3})$', re.IGNORECASE)
 
 PACKAGE_EXTS = {'.nsp', '.xci', '.nsz', '.xcz'}
 
@@ -189,12 +192,14 @@ def clean_game_name(filename: str) -> str:
     stem = os.path.splitext(os.path.basename(filename))[0]
     s = _BRACKET_TAG_RE.sub('', stem)
     s = _PAREN_TAG_RE.sub('', s)
+    s = _BARE_TID_TOKEN_RE.sub(' ', s)
+    s = _BARE_VER_TOKEN_RE.sub(' ', s)
     s = _KIND_SUFFIX_RE.sub('', s)
-    s = s.replace('_', ' ').strip(' -._')
+    s = re.sub(r'\s+', ' ', s.replace('_', ' ')).strip(' -._')
     return s or stem
 
 
-def extract_title_id(path: str) -> str | None:
+def extract_title_id(path: str, keys_path: str = '') -> str | None:
     name = os.path.basename(path)
     m = _TID_RE.search(name)
     if m:
@@ -202,6 +207,11 @@ def extract_title_id(path: str) -> str | None:
     m2 = _TID_ANY_RE.search(name)
     if m2:
         return m2.group(1).upper()
+    ext = os.path.splitext(name)[1].lower()
+    if ext in PACKAGE_EXTS and os.path.isfile(path):
+        pkg_tid = _inputs.package_title_id(path, keys_path)
+        if pkg_tid is not None:
+            return f'{pkg_tid:016X}'
     return None
 
 
@@ -629,11 +639,40 @@ class LibraryGame:
         )
 
 
+@dataclass(frozen=True)
+class SkippedFile:
+    path: str
+    name: str
+    kind: str  # 'orphan' or 'archive'
+
+
+def _atomic_write_text(dest: Path, text: str) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = dest.parent / f'.{dest.name}.{uuid.uuid4().hex}.tmp'
+    try:
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            f.write(text)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        os.replace(tmp_path, dest)
+    except BaseException:
+        try:
+            if tmp_path.exists():
+                tmp_path.unlink()
+        except OSError:
+            pass
+        raise
+
+
 class GameLibrary:
     def __init__(self, state_dir: Path | None = None) -> None:
         self.state_dir = state_dir or default_state_dir()
         self.file_path = self.state_dir / 'library.json'
         self.games: list[LibraryGame] = []
+        self.skipped_files: list[SkippedFile] = []
         self.selected_id: str | None = None
         self.games_folder: str = ''
         self._extra_top: dict = {}
@@ -672,7 +711,6 @@ class GameLibrary:
 
     def save(self) -> None:
         try:
-            self.state_dir.mkdir(parents=True, exist_ok=True)
             payload = dict(self._extra_top)
             if 'folder' in payload or self.games_folder:
                 payload['folder'] = self.games_folder or payload.get('folder', '')
@@ -681,7 +719,7 @@ class GameLibrary:
                 'selectedID': self.selected_id,
                 'games': [g.to_dict() for g in self.games],
             })
-            self.file_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding='utf-8')
+            _atomic_write_text(self.file_path, json.dumps(payload, indent=2, ensure_ascii=False))
         except OSError:
             pass
 
@@ -689,6 +727,8 @@ class GameLibrary:
         self.games_folder = folder
         if folder and os.path.isdir(folder):
             self.rescan_games_folder(repo_path=repo_path, default_keys=default_keys)
+        else:
+            self.skipped_files = []
         self.save()
 
     def remove(self, title_id: str) -> None:
@@ -754,7 +794,7 @@ class GameLibrary:
                 tid = res.title_id_hex
                 name = GameFolder.profile_name(tid, repo_path) or clean_game_name(res.folder)
         if not tid:
-            tid_raw = extract_title_id(base_path)
+            tid_raw = extract_title_id(base_path, keys_path=keys_path)
             if tid_raw:
                 tid = base_family_id(tid_raw)
         if not tid:
@@ -788,15 +828,21 @@ class GameLibrary:
 
     def record_completed_ios(
         self,
-        ipa_path: str,
-        archive_path: str,
-        base_path: str,
-        output_dir: str,
-        inputs: dict[str, list[str]],
+        ipa_path: str = '',
+        archive_path: str = '',
+        base_path: str = '',
+        output_dir: str = '',
+        inputs: dict[str, list[str]] | None = None,
         repo_path: str = '',
         title_id: str | None = None,
         name: str = '',
+        keys_path: str = '',
     ) -> LibraryGame | None:
+        inputs_dict = dict(inputs or {})
+        if keys_path and 'keys' not in inputs_dict:
+            inputs_dict['keys'] = [keys_path]
+        if base_path and 'base' not in inputs_dict:
+            inputs_dict['base'] = [base_path]
         tid = ''
         if title_id and re.fullmatch(r'[0-9A-Fa-f]{16}', title_id.strip()):
             tid = title_id.strip().upper()
@@ -806,21 +852,22 @@ class GameLibrary:
             bn = os.path.basename(archive_path.rstrip('/\\'))
             if re.fullmatch(r'[0-9A-Fa-f]{16}', bn):
                 tid = bn.upper()
+        keys_hint = keys_path or (inputs_dict.get('keys') or [''])[0]
         if not tid and base_path:
             if GameFolder.is_candidate(base_path):
                 res = GameFolder.scan(base_path if os.path.basename(base_path) != 'base' else os.path.dirname(base_path))
                 if isinstance(res, GameFolderContents) and res.has_title_id:
                     tid = res.title_id_hex
             if not tid:
-                tid_raw = extract_title_id(base_path)
+                tid_raw = extract_title_id(base_path, keys_path=keys_hint)
                 if tid_raw:
                     tid = base_family_id(tid_raw)
         if not tid and ipa_path:
-            tid_raw = extract_title_id(ipa_path)
+            tid_raw = extract_title_id(ipa_path, keys_path=keys_hint)
             if tid_raw:
                 tid = base_family_id(tid_raw)
         if not tid:
-            tid = '0100000000000000'
+            tid = _inputs.build_key(base_path or ipa_path or 'game', keys_hint).upper()
 
         resolved_name = name.strip() or GameFolder.profile_name(tid, repo_path)
         if not resolved_name:
@@ -837,7 +884,7 @@ class GameLibrary:
             ipa_path=ipa_path if (ipa_path and os.path.isfile(ipa_path)) else '',
             archive_path=archive_path if (archive_path and os.path.isdir(archive_path)) else '',
             output_dir=output_dir,
-            inputs=inputs,
+            inputs=inputs_dict,
             last_built_at=time.time(),
         )
         g = self.upsert(game)
@@ -848,8 +895,16 @@ class GameLibrary:
     def rescan_games_folder(self, repo_path: str = '', default_keys: str = '') -> int:
         folder = self.games_folder
         if not folder or not os.path.isdir(folder):
+            self.skipped_files = []
             return 0
-        discovered = self.discover_in_folder(folder, repo_path=repo_path, default_keys=default_keys)
+        skipped: list[SkippedFile] = []
+        discovered = self.discover_in_folder(
+            folder,
+            repo_path=repo_path,
+            default_keys=default_keys,
+            out_skipped=skipped,
+        )
+        self.skipped_files = skipped
         count = 0
         for g in discovered:
             self.upsert(g)
@@ -858,13 +913,21 @@ class GameLibrary:
         return count
 
     @staticmethod
-    def discover_in_folder(folder: str, repo_path: str = '', default_keys: str = '') -> list[LibraryGame]:
+    def discover_in_folder(
+        folder: str,
+        repo_path: str = '',
+        default_keys: str = '',
+        *,
+        out_skipped: list[SkippedFile] | None = None,
+    ) -> list[LibraryGame]:
         if not folder or not os.path.isdir(folder):
             return []
         families: dict[str, dict[str, list[str]]] = {}
         names: dict[str, str] = {}
         ipas: dict[str, str] = {}
         archives: dict[str, str] = {}
+        skipped_archives: list[SkippedFile] = []
+        pending_packages: list[tuple[str, str]] = []
         found_keys = default_keys if (default_keys and os.path.isfile(default_keys)) else ''
 
         def walk_dir(curr: str, depth: int) -> None:
@@ -906,22 +969,13 @@ class GameLibrary:
                             families.setdefault(tid, {})['base'] = [full]
                             names[tid] = GameFolder.profile_name(tid, repo_path) or clean_game_name(full)
                     elif ext in PACKAGE_EXTS:
-                        tid_raw = extract_title_id(entry)
-                        if tid_raw:
-                            fam = base_family_id(tid_raw)
-                            kind = classify_tid(tid_raw)
-                            slot = families.setdefault(fam, {})
-                            if kind == 'base':
-                                slot['base'] = [full]
-                                names[fam] = GameFolder.profile_name(fam, repo_path) or clean_game_name(entry)
-                            elif kind == 'update':
-                                slot.setdefault('update', []).append(full)
-                            else:
-                                slot.setdefault('dlc', []).append(full)
+                        pending_packages.append((full, entry))
                     elif ext == '.ipa':
                         tid_raw = extract_title_id(entry)
                         if tid_raw:
                             ipas[base_family_id(tid_raw)] = full
+                    elif _UNEXTRACTED_ARCHIVE_RE.search(low):
+                        skipped_archives.append(SkippedFile(path=full, name=entry, kind='archive'))
                 elif os.path.isdir(full):
                     if entry.endswith('_build'):
                         continue
@@ -937,9 +991,27 @@ class GameLibrary:
                     walk_dir(full, depth + 1)
 
         walk_dir(folder, 0)
+
+        for full, entry in pending_packages:
+            tid_raw = extract_title_id(full, keys_path=found_keys)
+            if tid_raw:
+                fam = base_family_id(tid_raw)
+                kind = classify_tid(tid_raw)
+                slot = families.setdefault(fam, {})
+                if kind == 'base':
+                    slot['base'] = [full]
+                    names[fam] = GameFolder.profile_name(fam, repo_path) or clean_game_name(entry)
+                elif kind == 'update':
+                    slot.setdefault('update', []).append(full)
+                else:
+                    slot.setdefault('dlc', []).append(full)
+
+        orphan_skipped: list[SkippedFile] = []
         results: list[LibraryGame] = []
         for tid, slots in families.items():
             if 'base' not in slots:
+                for p in slots.get('update', []) + slots.get('dlc', []):
+                    orphan_skipped.append(SkippedFile(path=p, name=os.path.basename(p), kind='orphan'))
                 continue
             if found_keys and 'keys' not in slots:
                 slots['keys'] = [found_keys]
@@ -972,6 +1044,13 @@ class GameLibrary:
                     inputs=slots,
                 )
             )
+        if out_skipped is not None:
+            seen_paths: set[str] = set()
+            for item in orphan_skipped + skipped_archives:
+                norm = os.path.normcase(os.path.abspath(item.path))
+                if norm not in seen_paths:
+                    seen_paths.add(norm)
+                    out_skipped.append(item)
         return results
 
 
@@ -1001,6 +1080,7 @@ class ArtworkStore:
         self._fetching: set[str] = set()
         self._titledb_cache: dict[str, str] | None = None
         self._lock = threading.Lock()
+        self._index_lock = threading.Lock()
         self._load_custom()
 
     def _load_custom(self) -> None:
@@ -1102,17 +1182,22 @@ class ArtworkStore:
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _fetch_one(self, tid: str) -> None:
-        index_file = self.banners_dir / 'banners_index.json'
-        mapping: dict[str, str] = {}
-        if index_file.is_file():
-            try:
-                mapping = json.loads(index_file.read_text(encoding='utf-8'))
-            except Exception:
-                mapping = {}
-
-        url = mapping.get(tid)
-        if not url and not mapping:
+    def _load_or_fetch_index(self) -> dict[str, str]:
+        with self._index_lock:
+            if self._titledb_cache is not None:
+                return self._titledb_cache
+            index_file = self.banners_dir / 'banners_index.json'
+            mapping: dict[str, str] = {}
+            if index_file.is_file():
+                try:
+                    loaded = json.loads(index_file.read_text(encoding='utf-8'))
+                    if isinstance(loaded, dict):
+                        mapping = {str(k).upper(): str(v) for k, v in loaded.items() if k and v}
+                except Exception:
+                    mapping = {}
+            if mapping:
+                self._titledb_cache = mapping
+                return mapping
             try:
                 req = urllib.request.Request(self.TITLEDB_URL, headers={'User-Agent': 'NX2Apple/1.1'})
                 with urllib.request.urlopen(req, timeout=15) as resp:
@@ -1124,14 +1209,15 @@ class ArtworkStore:
                             burl = str(entry.get('bannerUrl') or '')
                             if len(etid) == 16 and burl.startswith('http'):
                                 mapping[etid] = burl
-                    self.banners_dir.mkdir(parents=True, exist_ok=True)
-                    index_file.write_text(json.dumps(mapping), encoding='utf-8')
-                    url = mapping.get(tid)
+                    _atomic_write_text(index_file, json.dumps(mapping))
+                    self._titledb_cache = mapping
             except Exception:
                 pass
+            return mapping
 
-        if not url:
-            url = self.FALLBACK_BANNERS.get(tid)
+    def _fetch_one(self, tid: str) -> None:
+        mapping = self._load_or_fetch_index()
+        url = mapping.get(tid) or self.FALLBACK_BANNERS.get(tid)
         if not url:
             return
         try:
@@ -1142,7 +1228,16 @@ class ArtworkStore:
                 self.banners_dir.mkdir(parents=True, exist_ok=True)
                 ext = 'png' if data[:8] == b'\x89PNG\r\n\x1a\n' else 'jpg'
                 dest = self.banners_dir / f'{tid}.{ext}'
-                dest.write_bytes(data)
+                tmp_dest = self.banners_dir / f'.{tid}.{uuid.uuid4().hex}.{ext}.tmp'
+                try:
+                    tmp_dest.write_bytes(data)
+                    os.replace(tmp_dest, dest)
+                finally:
+                    if tmp_dest.exists():
+                        try:
+                            tmp_dest.unlink()
+                        except OSError:
+                            pass
                 if self.on_updated:
                     self.on_updated(tid)
         except Exception:
@@ -1374,6 +1469,7 @@ class GameDeletionPlan:
 
 class DriveCopy:
     FAT32_LIMIT = 4_294_967_295
+    _FAT32_FS_NAMES = frozenset({'fat32', 'vfat', 'msdos', 'fat', 'fat16', 'fat12'})
 
     @staticmethod
     def collect_archive_files(archive_dir: str) -> dict[str, int]:
@@ -1393,17 +1489,149 @@ class DriveCopy:
         return out
 
     @staticmethod
-    def free_space(folder: str) -> int:
-        probe = folder
+    def _existing_probe(folder: str) -> str:
+        probe = os.path.abspath(folder) if folder else '.'
         while probe and not os.path.exists(probe):
             parent = os.path.dirname(probe)
             if parent == probe:
                 break
             probe = parent
+        return probe or '.'
+
+    @staticmethod
+    def free_space(folder: str) -> int:
         try:
-            return shutil.disk_usage(probe or '.').free
+            return shutil.disk_usage(DriveCopy._existing_probe(folder)).free
         except OSError:
             return 0
+
+    @staticmethod
+    def filesystem_type(folder: str) -> str:
+        probe = DriveCopy._existing_probe(folder)
+        if os.name == 'nt':
+            try:
+                import ctypes
+                drive, _ = os.path.splitdrive(os.path.abspath(probe))
+                root_path = (drive + '\\') if drive else (os.path.abspath(probe).rstrip('\\/') + '\\')
+                fs_buf = ctypes.create_unicode_buffer(64)
+                ok = ctypes.windll.kernel32.GetVolumeInformationW(
+                    ctypes.c_wchar_p(root_path),
+                    None,
+                    0,
+                    None,
+                    None,
+                    None,
+                    fs_buf,
+                    len(fs_buf),
+                )
+                if ok:
+                    return fs_buf.value.strip().lower()
+            except Exception:
+                return ''
+            return ''
+
+        try:
+            real_probe = os.path.realpath(probe)
+        except OSError:
+            real_probe = probe
+
+        if os.path.isfile('/proc/mounts'):
+            best_mp = ''
+            best_fs = ''
+            try:
+                with open('/proc/mounts', encoding='utf-8', errors='replace') as f:
+                    for line in f:
+                        parts = line.split()
+                        if len(parts) < 3:
+                            continue
+                        mp = parts[1].replace('\\040', ' ')
+                        if real_probe == mp or real_probe.startswith(mp.rstrip('/') + '/'):
+                            if len(mp) >= len(best_mp):
+                                best_mp = mp
+                                best_fs = parts[2].lower()
+                if best_fs:
+                    return best_fs
+            except OSError:
+                pass
+
+        try:
+            import subprocess
+            proc = subprocess.run(
+                ['/sbin/mount'] if os.path.isfile('/sbin/mount') else ['mount'],
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+            if proc.returncode == 0:
+                best_mp = ''
+                best_fs = ''
+                for line in proc.stdout.splitlines():
+                    # macOS / BSD: "/dev/disk4s1 on /Volumes/USB (msdos, local, ...)"
+                    m = re.match(r'^.+?\s+on\s+(.+?)\s+\(([^,)\s]+)', line)
+                    if not m:
+                        continue
+                    mp, fstype = m.group(1), m.group(2).lower()
+                    if real_probe == mp or real_probe.startswith(mp.rstrip('/') + '/'):
+                        if len(mp) >= len(best_mp):
+                            best_mp = mp
+                            best_fs = fstype
+                return best_fs
+        except Exception:
+            pass
+        return ''
+
+    @staticmethod
+    def is_fat32_filesystem(folder: str) -> bool:
+        return DriveCopy.filesystem_type(folder).lower() in DriveCopy._FAT32_FS_NAMES
+
+    @staticmethod
+    def net_space_needed(
+        files: dict[str, int],
+        dest_dir: str,
+        *,
+        reusable: set[str] | None = None,
+    ) -> int:
+        skip = reusable or set()
+        needed = 0
+        for rel, sz in files.items():
+            if rel in skip:
+                continue
+            parts = rel.replace('\\', '/').split('/')
+            dst = os.path.join(dest_dir, *parts)
+            old_sz = 0
+            try:
+                if os.path.isfile(dst) and not os.path.islink(dst):
+                    old_sz = os.path.getsize(dst)
+            except OSError:
+                old_sz = 0
+            if sz > old_sz:
+                needed += sz - old_sz
+        return needed
+
+    @staticmethod
+    def preflight_copy(
+        files: dict[str, int],
+        dest_root: str,
+        title_id: str,
+        *,
+        reusable: set[str] | None = None,
+        t_func: Callable[..., str] | None = None,
+    ) -> str | None:
+        skip = reusable or set()
+        over_fat32 = [rel for rel, sz in files.items() if rel not in skip and sz > DriveCopy.FAT32_LIMIT]
+        if over_fat32 and DriveCopy.is_fat32_filesystem(dest_root):
+            if t_func is not None:
+                return t_func('shell.driveFat32')
+            return 'This drive is FAT32 and cannot hold files over 4 GB. Format it as exFAT or APFS, or choose another drive.'
+
+        dest_dir = os.path.join(dest_root, title_id.upper())
+        needed = DriveCopy.net_space_needed(files, dest_dir, reusable=skip)
+        free = DriveCopy.free_space(dest_root)
+        if free > 0 and needed > free:
+            if t_func is not None:
+                return t_func('shell.driveNoSpace', format_bytes(needed), format_bytes(free))
+            return f'Not enough space ({format_bytes(needed)} needed, {format_bytes(free)} free)'
+        return None
 
     @staticmethod
     def copy_to_folder(
@@ -1417,9 +1645,22 @@ class DriveCopy:
             return False, 'No game data files found'
         dest_dir = os.path.join(dest_root, title_id.upper())
         total = sum(files.values())
-        free = DriveCopy.free_space(dest_root)
-        if free > 0 and total > free:
-            return False, f'Not enough space ({format_bytes(total)} needed, {format_bytes(free)} free)'
+        reusable: set[str] = set()
+        for rel, sz in sorted(files.items()):
+            src = os.path.join(archive_dir, rel)
+            dst = os.path.join(dest_dir, rel)
+            if os.path.isfile(dst):
+                try:
+                    same = os.path.getsize(dst) == sz and abs(os.path.getmtime(src) - os.path.getmtime(dst)) < 0.001
+                    if same and sz <= 1024 * 1024:
+                        same = Path(src).read_bytes() == Path(dst).read_bytes()
+                    if same:
+                        reusable.add(rel)
+                except OSError:
+                    pass
+        err = DriveCopy.preflight_copy(files, dest_root, title_id, reusable=reusable)
+        if err is not None:
+            return False, err
         done = 0
         if progress_cb:
             progress_cb(0, total)
@@ -1428,19 +1669,12 @@ class DriveCopy:
             for rel, sz in sorted(files.items()):
                 src = os.path.join(archive_dir, rel)
                 dst = os.path.join(dest_dir, rel)
+                if rel in reusable:
+                    done += sz
+                    if progress_cb:
+                        progress_cb(done, total)
+                    continue
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                if os.path.isfile(dst) and os.path.getsize(dst) == sz:
-                    same = abs(os.path.getmtime(src) - os.path.getmtime(dst)) < 0.001
-                    if same and sz <= 1024 * 1024:
-                        try:
-                            same = Path(src).read_bytes() == Path(dst).read_bytes()
-                        except OSError:
-                            same = False
-                    if same:
-                        done += sz
-                        if progress_cb:
-                            progress_cb(done, total)
-                        continue
                 partial = dst + '.partial'
                 with open(src, 'rb') as fin, open(partial, 'wb') as fout:
                     while True:
