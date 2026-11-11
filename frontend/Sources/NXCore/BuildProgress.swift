@@ -290,10 +290,16 @@ package enum BuildProgress {
     }
 
     package static func parseStage(_ line: String) -> (k: Int, name: String, state: StepState, detail: String, percent: Double?)? {
+        guard let parsed = parseStageWithTotal(line) else { return nil }
+        return (parsed.k, parsed.name, parsed.state, parsed.detail, parsed.percent)
+    }
+
+    package static func parseStageWithTotal(_ line: String) -> (k: Int, n: Int, name: String, state: StepState, detail: String, percent: Double?)? {
         guard let re = try? NSRegularExpression(pattern: #"\[(\d+)/(\d+)\] (.+)$"#) else { return nil }
         let ns = line as NSString
         guard let m = re.firstMatch(in: line, range: NSRange(location: 0, length: ns.length)) else { return nil }
-        guard let k = Int(ns.substring(with: m.range(at: 1))) else { return nil }
+        guard let k = Int(ns.substring(with: m.range(at: 1))),
+              let n = Int(ns.substring(with: m.range(at: 2))) else { return nil }
         var rest = ns.substring(with: m.range(at: 3))
 
         if let pct = rest.range(of: #"(\d+)%"#, options: .regularExpression) {
@@ -301,19 +307,22 @@ package enum BuildProgress {
             var name = String(rest[..<pct.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: " :·"))
             if let dot = name.range(of: " · ", options: .backwards) { name = String(name[..<dot.lowerBound]) }
             let after = String(rest[pct.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: ", :"))
-            return (k, name, .running, after, v)
+            return (k, n, name, .running, after, v)
         }
         let ok = line.contains("✓") || line.contains("⚠"), bad = line.contains("✗")
         if ok || bad {
             var detail = ""
-            if let r = rest.range(of: "): ") { detail = String(rest[r.upperBound...]); rest = String(rest[..<r.lowerBound]) + ")" }
+            if let r = rest.range(of: "): ") {
+                detail = String(rest[r.upperBound...])
+                rest = String(rest[..<r.lowerBound]) + ")"
+            }
             if let r = rest.range(of: " (", options: .backwards) { rest = String(rest[..<r.lowerBound]) }
-            return (k, rest, bad ? .failed : .done, detail, 100)
+            return (k, n, rest, bad ? .failed : .done, detail, 100)
         }
         if rest.hasSuffix(" …") {
             rest = String(rest.dropLast(2))
             if let dot = rest.range(of: " · ", options: .backwards), !rest.hasPrefix("survey") { rest = String(rest[..<dot.lowerBound]) }
-            return (k, rest, .running, "", nil)
+            return (k, n, rest, .running, "", nil)
         }
         var detail = ""
         if let col = rest.range(of: ": ") {
@@ -321,7 +330,34 @@ package enum BuildProgress {
             rest = String(rest[..<col.lowerBound])
         }
         if let dot = rest.range(of: " · ", options: .backwards), !rest.hasPrefix("survey") { rest = String(rest[..<dot.lowerBound]) }
-        return (k, rest, .running, detail, nil)
+        return (k, n, rest, .running, detail, nil)
+    }
+
+    /// Monotonic overall build progress in `0.0...1.0` across script stages (`1..<1000`) and post-build steps.
+    package static func overallFraction(stages: [Stage], totalStages: Int, floor: Double = 0) -> Double? {
+        let clampedFloor = min(max(floor, 0), 0.995)
+        let scriptStages = stages.filter { $0.id > 0 && $0.id < 1000 }
+        let total = max(totalStages, scriptStages.map(\.id).max() ?? 0)
+        let active = stages.last(where: { $0.state == .running })
+        guard total > 0, !scriptStages.isEmpty else {
+            if let pct = active?.percent {
+                return max(clampedFloor, min(max(pct / 100.0, 0), 0.995))
+            }
+            return clampedFloor > 0 ? clampedFloor : nil
+        }
+        if let active, active.id > 0, active.id < 1000 {
+            let doneBefore = Double(max(active.id - 1, scriptStages.filter { $0.state == .done && $0.id != active.id }.count))
+            let share = min(max((active.percent ?? 0) / 100.0, 0), 0.99)
+            let raw = min((doneBefore + share) / Double(total), 0.95)
+            return max(clampedFloor, raw)
+        }
+        let doneCount = Double(scriptStages.filter { $0.state == .done }.count)
+        var raw = min(doneCount / Double(total), 0.95)
+        if let active, active.id >= 1000, doneCount >= Double(total) {
+            let postShare = min(max((active.percent ?? 0) / 100.0, 0), 0.99)
+            raw = max(raw, min(0.95 + postShare * 0.045, 0.995))
+        }
+        return max(clampedFloor, raw)
     }
 
     /// What xcodebuild is doing, from the actions it prints.

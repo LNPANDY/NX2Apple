@@ -32,6 +32,17 @@ package enum BuildFailureClassifier {
         ("volume.swap", .volumeFormat, "\\[Errno 45\\] Operation not supported: '[^']*\\.app'"),
     ]
 
+    /// Additional Mac launcher rules for Metal Toolchain components, game profile update mismatches, and free Apple ID limits.
+    /// Kept separate from `table` so `Tests/Fixtures/build_failures.json` stays aligned with the shared Qt fixture table.
+    package static let extraTable: [(id: String, kind: BuildFailureKind, pattern: String)] = [
+        (id: "metal.toolchain", kind: .metalToolchain, pattern: "(?:the Metal compiler does not run|cannot execute tool 'metal'|missing Metal Toolchain|metal_(?:macosx|iphoneos): lock [^\\n]+ / actual missing|(?:use:|install it with) xcodebuild -downloadComponent MetalToolchain)"),
+        (id: "pso.metalToolchain", kind: .metalToolchain, pattern: "pso_offline: metal-tt is not available"),
+        (id: "update.missing", kind: .updateMismatch, pattern: "no NSP for update v[0-9]+ \\(the game profile needs these versions:"),
+        (id: "profile.tables", kind: .updateMismatch, pattern: "Either these game files are not the versions the profile registers, or shader_split\\.py now reads them differently"),
+        (id: "profile.builds", kind: .updateMismatch, pattern: "not the builds provisional game profile [0-9A-Fa-f]+ registers:"),
+        (id: "signing.freeLimit", kind: .freeAccountLimit, pattern: "(?i)(?:maximum number of (?:provisioning profiles|installed apps|apps for free development profiles)|maximum App ID limit|create up to 10 App IDs every 7 days)"),
+    ]
+
     /// What the launcher itself knows when the log says nothing it can use. The keys file and the game files are checked
     /// first: a drive that is not connected makes every later message ("not a folder", a dangling link) a consequence.
     package struct Inputs {
@@ -53,7 +64,7 @@ package enum BuildFailureClassifier {
             let name = path.dropFirst(prefix.count).split(separator: "/").first.map(String.init)
             return BuildFailure(kind: .driveMissing, gameName: nil, detail: name)
         }
-        for row in table where log.range(of: row.pattern, options: .regularExpression) != nil {
+        for row in (table + extraTable) where log.range(of: row.pattern, options: .regularExpression) != nil {
             var failure = BuildFailure(kind: row.kind, gameName: row.kind == .a32Program ? gameName(in: log) : nil, detail: detail(of: row.kind, in: log))
             if row.kind == .severalGames { failure.titleIDs = selectableTitles(in: log) }
             return failure
@@ -91,6 +102,11 @@ package enum BuildFailureClassifier {
             guard let r = log.range(of: #"(?m)no (?:NSP|game package) with a readable (?:title ID|content meta) in (.+)$"#, options: .regularExpression),
                   let at = log[r].range(of: " in ") else { return nil }
             return String(log[r][at.upperBound...]).trimmingCharacters(in: .whitespaces)
+        case .updateMismatch:
+            let marker = "the game profile needs these versions: "
+            guard let r = log.range(of: #"the game profile needs these versions: ([^)\n]+)"#, options: .regularExpression),
+                  let at = log[r].range(of: marker) else { return nil }
+            return String(log[r][at.upperBound...]).trimmingCharacters(in: .whitespaces)
         default: return nil
         }
     }
@@ -103,6 +119,7 @@ package enum BuildFailureClassifier {
     /// the Mac knows (an account signed in to Xcode, or a development certificate in the keychain).
     package static func classifyInstall(_ step: InstallStep, error: String, teamListed: Bool) -> BuildFailure? {
         if error.contains("No space left on device") { return BuildFailure(kind: .diskFull, gameName: nil) }
+        if freeAccountLimitReached(error) { return BuildFailure(kind: .freeAccountLimit, gameName: nil) }
         switch step {
         case .sign:
             if signingTeamTaken(error) { return BuildFailure(kind: .teamTaken, gameName: nil) }
@@ -110,6 +127,14 @@ package enum BuildFailureClassifier {
         case .install, .copy:
             return BuildFailure(kind: .deviceTransfer, gameName: nil)
         }
+    }
+
+    /// Matches Apple free developer account limits (10 App IDs per 7 days during provisioning, or 3 active sideloaded apps per device).
+    package static func freeAccountLimitReached(_ error: String) -> Bool {
+        error.range(
+            of: #"(?i)(?:maximum number of (?:provisioning profiles|installed apps|apps for free development profiles)|maximum App ID limit|create up to 10 App IDs every 7 days)"#,
+            options: .regularExpression
+        ) != nil
     }
 
     /// xcodebuild's words when the app's identifier is registered to another team. "No profiles for" counts only for an identifier

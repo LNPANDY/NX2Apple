@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import NXCore
 import NXModel
@@ -69,15 +70,24 @@ package struct BuildFailureCard: View {
                 fix(kind, "fail.zbic.button")
             case .iosSDK:
                 fix(kind, "fail.iosSDK.button")
+            case .metalToolchain:
+                fix(kind, "macFail.metalToolchain.button")
+                Button(loc.t("macFail.metalToolchain.copy")) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString("xcodebuild -downloadComponent MetalToolchain", forType: .string)
+                }
             case .cltSelected:
                 if m.installedXcode != nil { fix(kind, "fail.cltSelected.button") }
             case .keys, .keysOld:
                 fix(kind, "fail.keys.button")
+            case .updateMismatch:
+                fix(kind, "macFail.updateMismatch.button")
+                Button(loc.t("fail.showFolder")) { m.showFailureFolder() }.disabled(m.running)
             case .severalGames, .noTitleID, .diskFull, .staleProfile:
                 fix(kind, "fail.showFolder")
             case .cloudFolder, .volumeFormat:
                 fix(kind, "fail.cloudFolder.button")
-            case .teamTaken, .noSigningAccount:
+            case .teamTaken, .noSigningAccount, .freeAccountLimit:
                 if m.installedXcode != nil { fix(kind, "fail.openXcode") }
             case .deviceTransfer, .devicePairing:
                 fix(kind, "fail.retry")

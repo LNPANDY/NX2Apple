@@ -35,7 +35,7 @@ import NXModel
     }
 
     func testEveryKindIsReachable() {
-        let kinds = Set(BuildFailureClassifier.table.map(\.kind))
+        let kinds = Set((BuildFailureClassifier.table + BuildFailureClassifier.extraTable).map(\.kind))
         for k in BuildFailureKind.allCases where k != .unknown && !Self.stateKinds.contains(k) { XCTAssertTrue(kinds.contains(k), "\(k)") }
     }
 
@@ -118,6 +118,7 @@ import NXModel
     func testEveryHintIsInBothLanguagesWithoutSemicolons() {
         var keys = ["fail.section", "fail.buildAnyway", "fail.confirm.title", "fail.confirm.go", "fail.confirm.cancel", "fail.override.note",
                     "fail.a32Program.whatNamed", "fail.translator.button", "fail.iosSDK.button", "fail.cltSelected.button",
+                    "macFail.metalToolchain.button", "macFail.metalToolchain.copy", "macFail.updateMismatch.button", "macFail.updateMismatch.whatVersions",
                     "dep.metal.other", "dep.fix.metalPin", "fail.showFolder", "fail.openXcode", "fail.retry", "fail.keys.button",
                     "fail.driveMissing.whatNamed", "fail.diskFull.whatNeeds"]
         for k in BuildFailureKind.allCases where k != .unknown {

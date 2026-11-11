@@ -244,6 +244,68 @@ package protocol EngineTransport {
     func data(from url: URL) -> EngineFetch<Data>
     /// Download to `destination` (which does not exist yet). true when the whole file arrived.
     func download(from url: URL, to destination: URL) -> Bool
+    /// Download to `destination`, reporting `(writtenBytes, expectedBytes)` as chunks arrive.
+    func download(from url: URL, to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) -> Bool
+}
+
+extension EngineTransport {
+    package func download(from url: URL, to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) -> Bool {
+        download(from: url, to: destination)
+    }
+}
+
+private final class EngineDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+    private let destination: URL
+    private let progress: (@Sendable (Int64, Int64?) -> Void)?
+    private let done: @Sendable (Bool) -> Void
+    private let lock = NSLock()
+    private var movedOK = false
+    private var finished = false
+
+    init(
+        destination: URL,
+        progress: (@Sendable (Int64, Int64?) -> Void)?,
+        done: @escaping @Sendable (Bool) -> Void
+    ) {
+        self.destination = destination
+        self.progress = progress
+        self.done = done
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        downloadTask: URLSessionDownloadTask,
+        didWriteData bytesWritten: Int64,
+        totalBytesWritten: Int64,
+        totalBytesExpectedToWrite: Int64
+    ) {
+        let expected = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil
+        progress?(totalBytesWritten, expected)
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        let ok: Bool
+        if (downloadTask.response as? HTTPURLResponse)?.statusCode == 200 {
+            ok = (try? FileManager.default.moveItem(at: location, to: destination)) != nil
+        } else {
+            ok = false
+        }
+        lock.lock()
+        movedOK = ok
+        lock.unlock()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            return
+        }
+        finished = true
+        let ok = error == nil && movedOK
+        lock.unlock()
+        done(ok)
+    }
 }
 
 /// URLSession, waited on from a background queue as the app update does (AppUpdateStore).
@@ -271,16 +333,45 @@ package struct URLSessionEngineTransport: EngineTransport {
     }
 
     package func download(from url: URL, to destination: URL) -> Bool {
-        var ok = false
-        let sem = DispatchSemaphore(value: 0)
-        session.downloadTask(with: url) { local, response, _ in
-            if let local, (response as? HTTPURLResponse)?.statusCode == 200 {
-                ok = (try? FileManager.default.moveItem(at: local, to: destination)) != nil
+        download(from: url, to: destination, progress: nil)
+    }
+
+    package func download(from url: URL, to destination: URL, progress: (@Sendable (Int64, Int64?) -> Void)?) -> Bool {
+        guard progress != nil else {
+            var ok = false
+            let sem = DispatchSemaphore(value: 0)
+            session.downloadTask(with: url) { local, response, _ in
+                if let local, (response as? HTTPURLResponse)?.statusCode == 200 {
+                    ok = (try? FileManager.default.moveItem(at: local, to: destination)) != nil
+                }
+                sem.signal()
+            }.resume()
+            sem.wait()
+            return ok
+        }
+        final class OutcomeBox: @unchecked Sendable {
+            private let lock = NSLock()
+            var ok = false
+            func set(_ v: Bool) {
+                lock.lock()
+                ok = v
+                lock.unlock()
             }
+        }
+        let box = OutcomeBox()
+        let sem = DispatchSemaphore(value: 0)
+        let delegate = EngineDownloadDelegate(destination: destination, progress: progress) { succeeded in
+            box.set(succeeded)
             sem.signal()
-        }.resume()
+        }
+        let c = URLSessionConfiguration.ephemeral
+        c.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        c.timeoutIntervalForRequest = 60
+        let streamSession = URLSession(configuration: c, delegate: delegate, delegateQueue: nil)
+        defer { streamSession.finishTasksAndInvalidate() }
+        streamSession.downloadTask(with: url).resume()
         sem.wait()
-        return ok
+        return box.ok
     }
 }
 
@@ -321,8 +412,30 @@ package enum EngineUpdate {
 
     package static let assetPrefix = ".download-"
 
-    package static func run(channel: EngineChannel, appVersion: String, current: String, store: EngineStore, bundled: URL?,
-                    publicKey: String = EngineManifest.publicKey, install: Bool, transport: EngineTransport) -> Outcome {
+    /// Formats downloaded bytes into an optional 0...1 fraction and a readable MB summary.
+    package static func formatDownloadProgress(written: Int64, expected: Int64?) -> (fraction: Double?, text: String) {
+        let safeWritten = max(0, written)
+        let mbWritten = Double(safeWritten) / 1_048_576.0
+        if let expected, expected > 0 {
+            let frac = min(max(Double(safeWritten) / Double(expected), 0), 1)
+            let mbExpected = Double(expected) / 1_048_576.0
+            let pct = Int((frac * 100).rounded())
+            return (frac, String(format: "%.1f / %.1f MB (%d%%)", mbWritten, mbExpected, pct))
+        }
+        return (nil, String(format: "%.1f MB", mbWritten))
+    }
+
+    package static func run(
+        channel: EngineChannel,
+        appVersion: String,
+        current: String,
+        store: EngineStore,
+        bundled: URL?,
+        publicKey: String = EngineManifest.publicKey,
+        install: Bool,
+        transport: EngineTransport,
+        onProgress: (@Sendable (Int64, Int64?) -> Void)? = nil
+    ) -> Outcome {
         guard let manifestURL = channel.manifestURL(version: appVersion) else { return .failed(.noManifest) }
         let bundledID = bundled.flatMap { EngineStore.identity(of: $0) }
 
@@ -351,7 +464,7 @@ package enum EngineUpdate {
 
         return place(Engine(id: m.engineID, version: m.version), current: current, store: store, bundled: bundled, bundledID: bundledID,
                      install: install) {
-            downloadAndInstall(m, channel: channel, appVersion: appVersion, store: store, transport: transport)
+            downloadAndInstall(m, channel: channel, appVersion: appVersion, store: store, transport: transport, onProgress: onProgress)
         }
     }
 
@@ -386,15 +499,25 @@ package enum EngineUpdate {
         return download()
     }
 
-    private static func downloadAndInstall(_ m: EngineManifest.Manifest, channel: EngineChannel, appVersion: String,
-                                           store: EngineStore, transport: EngineTransport) -> Outcome {
+    private static func downloadAndInstall(
+        _ m: EngineManifest.Manifest,
+        channel: EngineChannel,
+        appVersion: String,
+        store: EngineStore,
+        transport: EngineTransport,
+        onProgress: (@Sendable (Int64, Int64?) -> Void)?
+    ) -> Outcome {
         let fm = FileManager.default
         try? fm.createDirectory(at: store.root, withIntermediateDirectories: true)
         var failure = Failure.download
+        let manifestExpected = m.engine.size.flatMap { $0 > 0 ? Int64($0) : nil }
         for url in channel.assetURLs(m.engine.asset, version: appVersion, sources: m.sources) {
             let file = store.root.appendingPathComponent(assetPrefix + UUID().uuidString + ".zip")
             defer { try? fm.removeItem(at: file) }
-            guard transport.download(from: url, to: file) else { continue }
+            let downloaded = transport.download(from: url, to: file) { written, expected in
+                onProgress?(written, expected ?? manifestExpected)
+            }
+            guard downloaded else { continue }
             let size = (try? fm.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.intValue
             guard m.engine.size == nil || size == m.engine.size, AppUpdate.sha256(of: file) == m.engine.sha256 else {
                 failure = .digest   // a mirror that serves other bytes: the next source may have the right ones

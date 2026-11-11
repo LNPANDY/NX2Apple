@@ -30,9 +30,9 @@ import NXLauncher
         build.$done.removeDuplicates().sink { [weak self] done in
             if done { DispatchQueue.main.async { self?.record() } }
         }.store(in: &watching)
-        build.$stages.sink { [weak self] stages in   // the Dock tile follows the build in console mode too
+        Publishers.CombineLatest(build.$stages, build.$overallProgress).sink { [weak self] stages, overall in
             guard let self, self.build.running else { return }
-            DockProgress.update(stages.last { $0.state == .running }?.percent.map { $0 / 100 })
+            DockProgress.update(overall ?? stages.last { $0.state == .running }?.percent.map { $0 / 100 })
         }.store(in: &watching)
     }
 

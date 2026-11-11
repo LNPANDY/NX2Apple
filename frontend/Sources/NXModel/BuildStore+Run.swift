@@ -13,6 +13,7 @@ extension BuildStore {
 
     func runBuild() {
         guard !running else { return }
+        guard prepareBuildPreflight() else { return }
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
         if target != BuildTarget.mac, !shellDeviceChecked, !exportsShell {
             guard installsDirectly else { doneNote = t("shell.needsDevice"); done = false; return }
@@ -397,10 +398,6 @@ extension BuildStore {
 extension BuildStore {
     /// #966: the game files are the least a build needs. Short of that, the build does not start, and the note says why and what is kept.
     func spaceProblem() -> String? {
-        let folder = outDir.isEmpty ? inputFolder : outDir
-        guard !folder.isEmpty, let free = spaceAvailable(folder) else { return nil }
-        let space = BuildSpace(needed: BuildSpace.size(of: [basePath, updatePath] + dlcPaths), available: free)
-        guard space.isShort else { return nil }
-        return String(format: t("space.short"), shortPath(folder), BuildSpace.text(space.needed), BuildSpace.text(space.available))
+        preflightSpaceProblem()
     }
 }
