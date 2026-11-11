@@ -1,0 +1,143 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Wed, 11 Nov 2026 11:47:55 +0800
+Subject: [PATCH] Haptics: reset rumble settings on teardown and add merged
+ handles fallback
+
+Reset static gain, rumble_min, error count and initialization state in
+dm_haptics_apple_teardown() and dm_haptics_apple_init() so switching games
+inside the iOS shared shell reloads DM_RUMBLE_GAIN and DM_RUMBLE_MIN
+cleanly without carrying stale overrides into the next game. Also set
+m.fallback to the default locality controller on merged non-default dual
+actuators (such as GCHapticsLocalityHandles) so startup failures fall back
+to GCHapticsLocalityDefault instead of dropping rumble.
+
+Add unit tests in t_haptics_apple.m covering merged handles startup
+fallback and cross-session teardown environment reloading.
+
+Upstream-Status: fork-only
+Reason: Reset static DM_RUMBLE_GAIN and DM_RUMBLE_MIN state across DmShell game launches and fall back from GCHapticsLocalityHandles to default locality on startup failure
+Issue: LNPANDY/NX2Apple#809
+---
+ dm/host/haptics_apple.m         | 30 +++++++++++++++++++++++++-----
+ dm/host/tests/t_haptics_apple.m | 29 +++++++++++++++++++++++++++++
+ 2 files changed, 54 insertions(+), 5 deletions(-)
+
+diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
+index 6228394..5b9eeaf 100644
+--- a/dm/host/haptics_apple.m
++++ b/dm/host/haptics_apple.m
+@@ -427,7 +427,20 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
+                 channels[p] = [NSMutableArray new];
+                 GCHapticsLocality both = [localities containsObject:GCHapticsLocalityHandles] ? GCHapticsLocalityHandles : GCHapticsLocalityDefault;
+                 add_engine(p, -1, @"controller handles", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:both]; });
+-                channels[p].lastObject.simple = YES;
++                DmRumbleChannel *m = channels[p].lastObject;
++                m.simple = YES;
++                if (![both isEqualToString:GCHapticsLocalityDefault]) {
++                    __weak NSArray *merged = channels[p];
++                    m.fallback = ^(NSTimeInterval retryAfter) {
++                        if (!merged || channels[p] != merged) return;
++                        for (DmRumbleChannel *old in channels[p]) [old stop];
++                        channels[p] = [NSMutableArray new];
++                        default_controller(p, h, retryAfter);
++                        channels[p].lastObject.simple = YES;
++                        dm_haptics_route(p, 1);
++                        fprintf(stderr, "haptics: player %d retrying with the default controller locality\n", p + 1);
++                    };
++                }
+                 dm_haptics_route(p, 1);
+                 fprintf(stderr, "haptics: player %d plays both motors on one engine (%s)\n", p + 1, both.UTF8String);
+             };
+@@ -530,6 +543,10 @@ void dm_haptics_apple_teardown(void) {
+         }
+         queue = nil;
+     }
++    dm_haptics_init(NULL, 0);
++    gain = 1;
++    rumble_min = 0;
++    errors = 0;
+     g_haptics_inited = 0;
+     pthread_mutex_unlock(&routeLock);
+ }
+@@ -540,12 +557,15 @@ void dm_haptics_apple_init(void) {
+         return;
+     }
+     g_haptics_inited = 1;
++    gain = 1;
++    rumble_min = 0;
++    errors = 0;
+     queue = dispatch_queue_create("dm.rumble", DISPATCH_QUEUE_SERIAL);
+     dispatch_queue_set_specific(queue, &queue, &queue, NULL);
+-    const char *e = getenv("DM_RUMBLE_GAIN");
+-    if (e) { float v = strtof(e, NULL); if (isfinite(v)) gain = fmaxf(0, fminf(3, v)); }
+-    e = getenv("DM_RUMBLE_MIN");
+-    if (e) { float v = strtof(e, NULL); if (isfinite(v)) rumble_min = fmaxf(0, fminf(0.9f, v)); }
++    const char *e = getenv("DM_RUMBLE_GAIN"); char *end = NULL;
++    if (e && *e) { float v = strtof(e, &end); if (end != e && !*end && isfinite(v)) gain = fmaxf(0, fminf(3, v)); }
++    e = getenv("DM_RUMBLE_MIN"); end = NULL;
++    if (e && *e) { float v = strtof(e, &end); if (end != e && !*end && isfinite(v)) rumble_min = fmaxf(0, fminf(0.9f, v)); }
+     e = getenv("DM_RUMBLE");
+     dm_haptics_init(apply, !e || atoi(e) != 0);
+ #if TARGET_OS_IPHONE
+diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
+index 964dbc9..5f281d3 100644
+--- a/dm/host/tests/t_haptics_apple.m
++++ b/dm/host/tests/t_haptics_apple.m
+@@ -131,6 +131,7 @@ - (void)stopWithCompletionHandler:(CHHapticCompletionHandler)handler { self.stop
+ @end
+ @interface TestHaptics : NSObject
+ @property NSSet *supportedLocalities;
++@property NSSet *failingLocalities;
+ @property NSMutableArray<TestEngine *> *engines;
+ @property NSMutableArray<GCHapticsLocality> *requestedLocalities;
+ @property int attempts, failureStage;
+@@ -150,6 +151,7 @@ - (CHHapticEngine *)createEngineWithLocality:(GCHapticsLocality)locality {
+     [self.requestedLocalities addObject:locality];
+     if (self.attempts == 1 && self.failureStage == 1) return nil;
+     TestEngine *e = [TestEngine new]; [self.engines addObject:e]; e.noAdvanced = self.noAdvanced;
++    if ([self.failingLocalities containsObject:locality]) e.fail = YES;
+     if (self.attempts == 1) {
+         e.fail = self.failureStage == 2; e.failPattern = self.failureStage == 3;
+         e.failPlayer = self.failureStage == 4; e.failSend = self.failureStage == 5;
+@@ -428,6 +430,18 @@ int main(void) { @autoreleasepool {
+     send_pair(0.3, 0.4); send_pair(0.3, 0.4); drain();
+     assert([split3.haptics.requestedLocalities.lastObject isEqual:GCHapticsLocalityHandles]);   // the handles' own group when the controller lists it
+     send_pair(0, 0); drain();
++    // If the merged GCHapticsLocalityHandles engine fails to start, its fallback moves the route to GCHapticsLocalityDefault
++    TestController *split4 = [TestController new]; split4.haptics = [TestHaptics new]; split4.haptics.noAdvanced = YES;
++    split4.haptics.supportedLocalities = split3.haptics.supportedLocalities;
++    split4.haptics.failingLocalities = [NSSet setWithObject:GCHapticsLocalityHandles];
++    dm_haptics_apple_controller(0, (id)split4); drain();
++    send_pair(0.3, 0.4); send_pair(0.3, 0.4); drain();
++    assert([split4.haptics.requestedLocalities.lastObject isEqual:GCHapticsLocalityHandles]);
++    expire_retries(); send_pair(0.3, 0.4); drain();
++    assert([split4.haptics.requestedLocalities.lastObject isEqual:GCHapticsLocalityDefault]);
++    assert(split4.haptics.engines.lastObject.plainPlayers == 1);
++    assert(fabsf(split4.haptics.engines.lastObject.testPlayer.levels.lastObject.floatValue - 0.5f) < 1e-6f);
++    send_pair(0, 0); drain();
+     dm_haptics_apple_controller(0, nil); drain();   // disconnect discards the controller factory and its old callbacks
+     assert(!(dm_haptics_available() & 1));
+     TestController *unsupported = [TestController new]; unsupported.haptics = [TestHaptics new];
+@@ -517,6 +531,21 @@ int main(void) { @autoreleasepool {
+     assert(nativeStops && !outputOwners[0] && !nativeOutputs[0] && channels[0].count==1 && [controllerLocalities[0] isEqual:GCHapticsLocalityLeftHandle]);
+     dm_haptics_apple_controller(0, nil); dm_haptics_apple_controller(1, nil); drain();
+     assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
++    // Shell game switch: teardown resets gain and rumble_min and allows the next game to re-read or clear DM_RUMBLE_GAIN / DM_RUMBLE_MIN
++    dm_haptics_apple_teardown();
++    assert(gain == 1 && rumble_min == 0 && !g_haptics_inited);
++    setenv("DM_RUMBLE_GAIN", "2.5", 1);
++    setenv("DM_RUMBLE_MIN", "0.5", 1);
++    dm_haptics_apple_init();
++    assert(fabsf(gain - 2.5f) < 1e-6f && fabsf(rumble_min - 0.5f) < 1e-6f);
++    assert(dm_haptics_apple_controller_intensity(0.4f) == 0 && fabsf(dm_haptics_apple_controller_intensity(0.75f) - 0.5f) < 1e-6f);
++    dm_haptics_apple_teardown();
++    assert(gain == 1 && rumble_min == 0);
++    unsetenv("DM_RUMBLE_GAIN");
++    unsetenv("DM_RUMBLE_MIN");
++    dm_haptics_apple_init();
++    assert(gain == 1 && rumble_min == 0 && dm_haptics_apple_controller_intensity(0.4f) == 0.4f);
+     dm_haptics_apple_shutdown();
++    dm_haptics_apple_teardown();
+     puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, level cutoff and the DualShock 4 route passed");
+ } }

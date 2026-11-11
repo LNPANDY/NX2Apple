@@ -83,3 +83,9 @@
 0122-mac-home-menu-and-background-pause.patch
 0123-ios-the-in-game-menu-s-own-words-in-the-player-s.patch
 0124-build-ipa-from-nsp-report-pso-batch-and-build-st.patch
+0125-ios-cancel-controller-pairing-prompt-and-deactiv.patch
+0126-controllers-apply-radial-stick-deadzones-in-dm-j.patch
+0127-mac-fix-joy-con-press-to-join-official-0x057e-de.patch
+0128-haptics-reset-rumble-settings-on-teardown-and-ad.patch
+0129-mac-guard-background-hide-timer-generation-and-f.patch
+0130-textures-align-temporary-bc-edge-decode-buffer-t.patch

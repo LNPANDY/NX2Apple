@@ -1,0 +1,229 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Wed, 11 Nov 2026 11:47:44 +0800
+Subject: [PATCH] Controllers: apply radial stick deadzones in dm_joy_set for
+ Joy-Con modes
+
+Patch 0119 wired DM_STICK_DEADZONE_L and DM_STICK_DEADZONE_R into
+dm_pad_set_player(), leaving JoyDual, JoyLeft and JoyRight controllers
+reported through dm_joy_set() without deadzone filtering on both macOS and
+iOS. Apply stick_deadzone_apply() to each half's stick axes in dm_joy_set()
+using atomic cached deadzone percentages, wire t_stick_deadzone into the
+host test runner, and add regression coverage for JoyDual, JoySingle auto
+split and two-player sideways Joy-Con deadzones.
+
+Upstream-Status: pending [builds on 0119-controllers-a-radial-deadzone-for-each-stick.patch]
+Reason: Apply DM_STICK_DEADZONE_L and DM_STICK_DEADZONE_R to JoyDual, JoyLeft and JoyRight stick axes reported through dm_joy_set
+Issue: LNPANDY/NX2Apple#1025
+---
+ dm/host/hle_hid.c                |  15 ++--
+ dm/host/tests/Makefile           |   5 +-
+ dm/host/tests/t_stick_deadzone.c | 129 ++++++++++++++++++++++++++++++-
+ 3 files changed, 141 insertions(+), 8 deletions(-)
+
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index e836810..d64f39f 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -62,12 +62,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
+     uint64_t old = atomic_exchange(&g_btn, buttons); atomic_fetch_or(&g_latch, buttons & ~old); atomic_fetch_or(&g_peek_latch, buttons & ~old); atomic_store(&g_axes, pack(lx, ly, rx, ry));
+     shake_note(0);
+ }
+-// The front end's per-stick deadzones (stick_deadzone.h), read once: the environment is fixed at launch. Every physical controller passes through
+-// dm_pad_set_player, so the same deadzone holds on the Mac and the iPhone; keyboard, touch and scripted input do not use it.
++// The front end's per-stick deadzones (stick_deadzone.h), read once: the environment is fixed at launch. Physical controllers pass through
++// dm_pad_set_player and Joy-Cons through dm_joy_set, so the same deadzone holds across controller modes on the Mac and the iPhone.
++static _Atomic int g_stick_dz[2] = {-1, -1};
+ static int stick_dz(int right) {
+-    static int cached[2] = {-1, -1};
+-    if (cached[right] < 0) cached[right] = stick_deadzone_percent(getenv(right ? "DM_STICK_DEADZONE_R" : "DM_STICK_DEADZONE_L"));
+-    return cached[right];
++    int d = atomic_load_explicit(&g_stick_dz[right], memory_order_relaxed);
++    if (d < 0) {
++        d = stick_deadzone_percent(getenv(right ? "DM_STICK_DEADZONE_R" : "DM_STICK_DEADZONE_L"));
++        atomic_store_explicit(&g_stick_dz[right], d, memory_order_relaxed);
++    }
++    return d;
+ }
+ void dm_pad_set_player(int p, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
+     if (p < 0 || p >= DM_PLAYERS) return;
+@@ -385,6 +389,7 @@ void dm_joy_attach(int p, uint32_t sides) {
+ }
+ void dm_joy_set(int p, int side, uint64_t buttons, int32_t sx, int32_t sy) {
+     if (p < 0 || p >= DM_PLAYERS || (side != 0 && side != 1)) return;
++    stick_deadzone_apply(&sx, &sy, stick_dz(side));
+     uint64_t old = atomic_exchange(&g_joy_btn[p][side], buttons); atomic_fetch_or(&g_joy_latch[p][side], buttons & ~old);
+     atomic_store(&g_joy_axes[p][side], pack(sx, sy, 0, 0));
+ }
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index a72ec86..64d9c09 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -82,6 +82,7 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
+ 	$(B)/t_pad_map
+ 	$(B)/t_pad_motion
+ 	$(B)/t_controllers_mac
++	$(B)/t_stick_deadzone
+ run: $(B)/t_nro
+ run: $(B)/t_sync_wait
+ $(B)/t_sync_wait: t_sync_wait.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+@@ -427,8 +428,8 @@ profile-runtime: $(B)/t_profile_runtime
+ 	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
+ 
+ run: $(B)/t_pad_map $(B)/t_pad_motion $(B)/t_controllers_mac $(B)/t_stick_deadzone
+-$(B)/t_stick_deadzone: t_stick_deadzone.c ../stick_deadzone.h ../dm_input.h | $(B)
+-	$(CLANG) -O1 -Wall -Werror -o $@ t_stick_deadzone.c
++$(B)/t_stick_deadzone: t_stick_deadzone.c ../stick_deadzone.h ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
++	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_stick_deadzone.c ../hle_haptics.c
+ $(B)/t_pad_motion: t_pad_motion.c ../pad_motion.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -o $@ t_pad_motion.c
+ $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
+diff --git a/dm/host/tests/t_stick_deadzone.c b/dm/host/tests/t_stick_deadzone.c
+index d9ac75c..6b1b97b 100644
+--- a/dm/host/tests/t_stick_deadzone.c
++++ b/dm/host/tests/t_stick_deadzone.c
+@@ -1,7 +1,53 @@
+ #include <assert.h>
+ #include <stdio.h>
+ #include <stdlib.h>
+-#include "../stick_deadzone.h"
++#include <time.h>
++#include <unistd.h>
++
++static int dz_clock_gettime(clockid_t clock, struct timespec *ts) { (void)clock; *ts = (struct timespec){.tv_sec = 1}; return 0; }
++static int dz_usleep(useconds_t usec) { (void)usec; return 0; }
++#define clock_gettime dz_clock_gettime
++#define usleep dz_usleep
++#include "../hle_hid.c"
++#undef clock_gettime
++#undef usleep
++
++static int g_mode = 1;
++int dm_opmode(void) { return g_mode; }
++uint64_t guest_ns(void) { return 1000000000ull; }
++uint64_t now_ns(void) { return 1000000000ull; }
++uint64_t dm_guest_frame(void) { return 0; }
++void dm_oe_execute(int index, const void *param, size_t n) { (void)index; (void)param; (void)n; }
++void front_web_shot(const char *path) { (void)path; }
++int front_ctrl_support(int min, int max) { (void)min; (void)max; return -1; }
++void (*_Atomic dm_touch_observer)(const dm_touch *t, int n);
++void dm_touch_set(const dm_touch *t, int n) { (void)t; (void)n; }
++void dm_touch_script(const dm_touch *t, int n) { (void)t; (void)n; }
++int touch_fill_n(void *out, int max, uint64_t now) { (void)out; (void)max; (void)now; return 0; }
++int gesture_fill(void *out, int n, uint64_t now) { (void)out; (void)n; (void)now; return 0; }
++void dm_gfx_shot_at(long frame, const char *path) { (void)frame; (void)path; }
++void hle_bind_system_event(void *g, int autoclear) { (void)g; (void)autoclear; }
++void hle_signal_system_event(void *g) { (void)g; }
++int hle_signal_bound_system_event(void *g) { (void)g; return 1; }
++void dm_gfx_texlist(int target) { (void)target; }
++void dm_gfx_restop(void) {}
++void dm_gfx_texraw(uint64_t serial, const char *path) { (void)serial; (void)path; }
++void dm_ctl_peek(uint64_t a, int n) { (void)a; (void)n; }
++void crash_dump_now(const char *why) { (void)why; }
++void dm_ctl_memdump(uint64_t a, uint64_t n, const char *path) { (void)a; (void)n; (void)path; }
++void dm_ctl_cvar_i32(uint64_t off, int32_t v) { (void)off; (void)v; }
++void dm_ctl_cvar_f32(uint64_t off, float v) { (void)off; (void)v; }
++void dm_gfx_texdump_next(const char *path) { (void)path; }
++void dm_gfx_passdump_next(long n) { (void)n; }
++void dm_applet_enter(const char *name) { (void)name; }
++void dm_applet_leave(void) {}
++
++static void reset_deadzone_cache(const char *l, const char *r) {
++    if (l) setenv("DM_STICK_DEADZONE_L", l, 1); else unsetenv("DM_STICK_DEADZONE_L");
++    if (r) setenv("DM_STICK_DEADZONE_R", r, 1); else unsetenv("DM_STICK_DEADZONE_R");
++    atomic_store(&g_stick_dz[0], -1);
++    atomic_store(&g_stick_dz[1], -1);
++}
+ 
+ static void t_percent(void) {
+     assert(stick_deadzone_percent(NULL) == 0 && stick_deadzone_percent("") == 0);   // unset: the stick is left alone
+@@ -45,8 +91,89 @@ static void t_monotonic(void) {
+         assert(x >= last); last = x;
+     }
+ }
++static void t_joy_set_deadzones(void) {
++    g_mode = 1;
++    uint32_t ids[] = {0, 1};
++    h_hid_SetIds(ids, 2);
++    h_hid_SetStyles(STYLE_FULLKEY | STYLE_HANDHELD | STYLE_JOYDUAL | STYLE_JOYLEFT | STYLE_JOYRIGHT);
++
++    // Unset deadzones leave Joy-Con sticks untouched
++    reset_deadzone_cache(NULL, NULL);
++    dm_pad_players(1u);
++    dm_joy_attach(0, 3);
++    dm_joy_set(0, 0, DM_BTN_DOWN, 1234, -2345);
++    dm_joy_set(0, 1, DM_BTN_A, -3456, 4567);
++    NpadState s = {0};
++    h_hid_StatesJoyDual(&s, 1, &(uint32_t){0});
++    assert(s.attributes != 0 && s.lx == 1234 && s.ly == -2345 && s.rx == -3456 && s.ry == 4567);
++
++    // Distinct left (20%) and right (30%) deadzones apply to JoyDual (side 0 = left, side 1 = right)
++    reset_deadzone_cache("20", "30");
++    dm_joy_set(0, 0, DM_BTN_DOWN, DM_STICK_MAX / 10, DM_STICK_MAX / 10);   // radius ~0.14 < 0.20 -> zero
++    dm_joy_set(0, 1, DM_BTN_A, DM_STICK_MAX / 4, 0);                       // radius 0.25 < 0.30 -> zero on right
++    h_hid_StatesJoyDual(&s, 1, &(uint32_t){0});
++    assert(s.lx == 0 && s.ly == 0 && s.rx == 0 && s.ry == 0);
++    assert((s.buttons & 0xffffull) == (DM_BTN_DOWN | DM_BTN_A));
++
++    // Smooth radial rescaling outside the deadzone on paired JoyDual
++    dm_joy_set(0, 0, 0, DM_STICK_MAX / 2, 0);           // (0.50 - 0.20) / 0.80 = 0.375
++    dm_joy_set(0, 1, 0, DM_STICK_MAX * 65 / 100, 0);    // (0.65 - 0.30) / 0.70 = 0.500
++    h_hid_StatesJoyDual(&s, 1, &(uint32_t){0});
++    assert(abs(s.lx - (int32_t)(0.375f * DM_STICK_MAX)) <= 2 && s.ly == 0);
++    assert(abs(s.rx - (int32_t)(0.5f * DM_STICK_MAX)) <= 2 && s.ry == 0);
++
++    // Smooth transition across the 20% threshold on dm_joy_set
++    int32_t prev = 0;
++    for (int pct = 0; pct <= 100; pct += 5) {
++        dm_joy_set(0, 0, 0, DM_STICK_MAX * pct / 100, 0);
++        h_hid_StatesJoyDual(&s, 1, &(uint32_t){0});
++        if (pct <= 20) assert(s.lx == 0);
++        else assert(s.lx > 0);
++        assert(s.lx >= prev);
++        prev = s.lx;
++    }
++    assert(prev == DM_STICK_MAX);
++
++    // Auto-split single assignment (JoyLeft on No1, JoyRight on No2)
++    h_hid_JoySingle(&(uint32_t){0});
++    dm_joy_set(0, 0, DM_BTN_LSL, DM_STICK_MAX * 15 / 100, 0);
++    dm_joy_set(0, 1, DM_BTN_RSR, 0, -DM_STICK_MAX * 28 / 100);
++    NpadState sl = {0}, sr = {0};
++    h_hid_StatesJoyLeft(&sl, 1, &(uint32_t){0});
++    h_hid_StatesJoyRight(&sr, 1, &(uint32_t){1});
++    assert(sl.attributes != 0 && sl.lx == 0 && sl.ly == 0);
++    assert(sr.attributes != 0 && sr.rx == 0 && sr.ry == 0);
++    dm_joy_set(0, 0, DM_BTN_LSL, 0, DM_STICK_MAX * 60 / 100);          // (0.60 - 0.20) / 0.80 = 0.500
++    dm_joy_set(0, 1, DM_BTN_RSR, -DM_STICK_MAX * 65 / 100, 0);         // -(0.65 - 0.30) / 0.70 = -0.500
++    h_hid_StatesJoyLeft(&sl, 1, &(uint32_t){0});
++    h_hid_StatesJoyRight(&sr, 1, &(uint32_t){1});
++    assert(abs(sl.ly - DM_STICK_MAX / 2) <= 2 && sl.lx == 0);
++    assert(abs(sr.rx + DM_STICK_MAX / 2) <= 2 && sr.ry == 0);
++
++    // Independent single Joy-Con slots (sideways JoyLeft on player 1, sideways JoyRight on player 2)
++    dm_joy_attach(0, 0);
++    dm_pad_players(0x3u);
++    dm_joy_attach(0, 1);
++    dm_joy_attach(1, 2);
++    dm_joy_set(0, 0, 0, -DM_STICK_MAX / 10, 0);
++    dm_joy_set(1, 1, 0, DM_STICK_MAX / 5, 0);
++    h_hid_StatesJoyLeft(&sl, 1, &(uint32_t){0});
++    h_hid_StatesJoyRight(&sr, 1, &(uint32_t){1});
++    assert(sl.lx == 0 && sl.ly == 0 && sr.rx == 0 && sr.ry == 0);
++    dm_joy_set(0, 0, 0, -DM_STICK_MAX, 0);
++    dm_joy_set(1, 1, 0, 0, DM_STICK_MAX);
++    h_hid_StatesJoyLeft(&sl, 1, &(uint32_t){0});
++    h_hid_StatesJoyRight(&sr, 1, &(uint32_t){1});
++    assert(sl.lx == -DM_STICK_MAX && sr.ry == DM_STICK_MAX);
++
++    dm_joy_attach(0, 0);
++    dm_joy_attach(1, 0);
++    dm_pad_players(1u);
++    reset_deadzone_cache(NULL, NULL);
++}
+ int main(void) {
+     t_percent(); t_unset_is_unchanged(); t_inside_reads_centred(); t_outside_is_rescaled_and_radial(); t_full_travel_stays_full(); t_monotonic();
++    t_joy_set_deadzones();
+     puts("t_stick_deadzone: ok");
+     return 0;
+ }

@@ -1,0 +1,136 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Wed, 11 Nov 2026 11:47:56 +0800
+Subject: [PATCH] Mac: guard background hide timer generation and fullscreen
+ exit resume race
+
+Track a monotonic generation counter across background pause and resume
+transitions in front_mac.m so a pending 3 s bg_hide fallback timer or
+stale fullscreen-exit observer from an earlier pause cycle cannot hide a
+window that already resumed. When org.nxnative.resume arrives while the
+0.6 s fullscreen-exit transition is still in flight, record g_bg_want_fs
+and keep the exit observer armed so completion immediately toggles full
+screen back on instead of stranding the game windowed.
+
+Upstream-Status: pending [builds on 0122-mac-home-menu-and-background-pause.patch]
+Reason: Prevent stale 3 s background hide timers from hiding a resumed window and restore fullscreen when org.nxnative.resume arrives mid fullscreen-exit animation
+Issue: LNPANDY/NX2Apple#952
+---
+ dm/host/front_mac.m | 78 +++++++++++++++++++++++++++++++++++----------
+ 1 file changed, 61 insertions(+), 17 deletions(-)
+
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index b407953..d658a69 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -330,14 +330,30 @@ static void hq_close(void) {
+ // so its Space goes away, hands the activation to the launcher (DM_LAUNCHER_BUNDLE_ID) and hides. It resumes as a restored window does when it is active again (the
+ // launcher activates it, the Dock, ⌘Tab) or when the launcher posts org.nxnative.resume.<pid>; org.nxnative.quit.<pid> quits as ⌘Q. The state goes out as log lines
+ // ("front end: paused in the background", "front end: resumed") and as the distributed notifications org.nxnative.paused.<pid> and org.nxnative.resumed.<pid>
+-static int g_bg;        // 0 playing, 1 going to the background (leaving full screen), 2 paused and hidden
+-static int g_bg_full;   // the window was in full screen: it goes back to it on resume
++static int g_bg;               // 0 playing, 1 going to the background (leaving full screen), 2 paused and hidden
++static int g_bg_full;          // the window was in full screen: it goes back to it on resume
++static int g_bg_exiting_fs;    // 1 while leaving full screen for bg_enter before DidExitFullScreen arrives
++static int g_bg_want_fs;       // 1 while a resumed full-screen window still owes its return to full screen
++static uint64_t g_bg_gen;      // bumped on every bg_enter and bg_resume so stale timers and observers do nothing
++static id g_bg_exit_obs;       // NSWindowDidExitFullScreenNotification observer while leaving full screen
+ static void bg_post(const char *what) {
+     NSString *name = [NSString stringWithFormat:@"org.nxnative.%s.%d", what, (int)getpid()];
+     [NSDistributedNotificationCenter.defaultCenter postNotificationName:name object:nil userInfo:nil deliverImmediately:YES];
+ }
+-static void bg_hide(void) {
+-    if (g_bg != 1) return;   // resumed meanwhile
++static void bg_clear_exit_obs(void) {
++    if (g_bg_exit_obs) { [NSNotificationCenter.defaultCenter removeObserver:g_bg_exit_obs]; g_bg_exit_obs = nil; }
++}
++static void bg_schedule_fullscreen(NSWindow *win, uint64_t gen) {
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{
++        if (g_bg || g_bg_gen != gen || g_bg_exiting_fs) return;
++        g_bg_want_fs = 0;
++        if (win.styleMask & NSWindowStyleMaskFullScreen) return;
++        LOG("front end: background: back to full screen");
++        [win toggleFullScreen:nil];
++    });
++}
++static void bg_hide(uint64_t gen) {
++    if (g_bg != 1 || g_bg_gen != gen) return;   // resumed or superseded meanwhile
+     const char *bid = getenv("DM_LAUNCHER_BUNDLE_ID");
+     if (bid && *bid) {
+         NSRunningApplication *l = [NSRunningApplication runningApplicationsWithBundleIdentifier:@(bid)].firstObject;
+@@ -360,34 +376,62 @@ static void bg_hide(void) {
+ static void bg_enter(void) {
+     if (g_bg) return;
+     NSWindow *win = g_win;
+-    g_bg = 1; g_bg_full = (win.styleMask & NSWindowStyleMaskFullScreen) != 0;
++    uint64_t gen = ++g_bg_gen;
++    int in_fs = (win.styleMask & NSWindowStyleMaskFullScreen) != 0;
++    g_bg = 1; g_bg_full = in_fs || g_bg_want_fs; g_bg_want_fs = 0;
+     LOG("front end: Home menu: back to console mode, pausing the game");
+     input_release();   // hq_close leaves HQ_PAUSED alone
+     dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1);
+     LOG("front end: background: input released, focus 3, audio and graphics suspended");
+-    if (!g_bg_full) { bg_hide(); return; }
++    if (!in_fs && !g_bg_exiting_fs) { bg_clear_exit_obs(); bg_hide(gen); return; }
+     LOG("front end: background: leaving full screen first");
+-    __block id token = nil; __block int done = 0;
+-    void (^then)(void) = ^{ if (done++) return; if (token) [NSNotificationCenter.defaultCenter removeObserver:token]; token = nil; bg_hide(); };
+-    token = [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidExitFullScreenNotification object:win queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { (void)n; then(); }];
+-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), then);   // a refused exit does not keep the game on screen
+-    [win toggleFullScreen:nil];
++    int already_exiting = g_bg_exiting_fs;
++    g_bg_exiting_fs = 1;
++    bg_clear_exit_obs();
++    g_bg_exit_obs = [NSNotificationCenter.defaultCenter addObserverForName:NSWindowDidExitFullScreenNotification object:win queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
++        (void)n;
++        bg_clear_exit_obs();
++        g_bg_exiting_fs = 0;
++        if (g_bg == 1) { bg_hide(g_bg_gen); return; }
++        if (!g_bg && g_bg_want_fs) bg_schedule_fullscreen(win, g_bg_gen);
++    }];
++    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++        if (g_bg != 1 || g_bg_gen != gen) return;
++        bg_clear_exit_obs();
++        g_bg_exiting_fs = 0;
++        bg_hide(gen);
++    });   // a refused exit does not keep the game on screen
++    if (!already_exiting) [win toggleFullScreen:nil];
+ }
+ static void bg_resume(const char *why) {
+     if (!g_bg) return;
+     NSWindow *win = g_win;
+-    int full = g_bg_full; g_bg = 0;
++    uint64_t gen = ++g_bg_gen;
++    int full = g_bg_full; g_bg = 0; g_bg_want_fs = full;
+     LOG("front end: background: resuming (%s)", why);
+     if (NSApp.hidden) [NSApp unhide:nil];
+-    dm_gfx_suspend(0); dm_audio_suspend(0); dm_focus_set(2);   // as a restored window; focus 1 follows when the window is key
++    dm_gfx_suspend(0); dm_audio_suspend(0); dm_focus_set(2);   // as a restored window, focus 1 follows when the window is key
+     hq_resumed(&g_hq); hq_tick();   // the game gets the controllers once Home, A and B are up
+     [win makeKeyAndOrderFront:nil];
+     if (!NSApp.active) [NSApp activate];
+     if (win.isKeyWindow && NSApp.active) { input_resume(); dm_focus_set(1); front_home_poll(); }
+-    if (full && !(win.styleMask & NSWindowStyleMaskFullScreen))
+-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC / 4), dispatch_get_main_queue(), ^{
+-            if (g_bg || (win.styleMask & NSWindowStyleMaskFullScreen)) return;
+-            LOG("front end: background: back to full screen"); [win toggleFullScreen:nil]; });
++    if (full) {
++        if (g_bg_exiting_fs) {
++            // Leaving full screen takes ~0.6 s and keeps NSWindowStyleMaskFullScreen set until DidExitFullScreen arrives.
++            // Keep g_bg_exit_obs armed so it re-enters full screen once the exit animation settles, with a 3 s guard if refused.
++            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++                if (g_bg || g_bg_gen != gen || !g_bg_exiting_fs) return;
++                bg_clear_exit_obs();
++                g_bg_exiting_fs = 0;
++                if (g_bg_want_fs && !(win.styleMask & NSWindowStyleMaskFullScreen)) bg_schedule_fullscreen(win, gen);
++                else g_bg_want_fs = 0;
++            });
++        } else if (!(win.styleMask & NSWindowStyleMaskFullScreen)) {
++            bg_schedule_fullscreen(win, gen);
++        } else {
++            g_bg_want_fs = 0;
++        }
++    }
+     LOG("front end: resumed");
+     bg_post("resumed");
+ }
