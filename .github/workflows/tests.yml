@@ -241,7 +241,62 @@ jobs:
       - name: Engine (tools/engine.py sync, issue #214; the tool tests read engine/)
         run: python tools/engine.py sync
       - name: Install ripgrep (the engine/ search test)
-        run: sudo apt-get install -y -qq ripgrep > /dev/null
+        run: |
+          if ! command -v rg > /dev/null
+          then
+            arch=$(uname -m)
+            rg_ver="15.1.0"
+            if [ "$arch" = "x86_64" ]
+            then
+              rg_target="x86_64-unknown-linux-musl"
+              rg_sha="1c9297be4a084eea7ecaedf93eb03d058d6faae29bbc57ecdaf5063921491599"
+            elif [ "$arch" = "aarch64" ] || [ "$arch" = "arm64" ]
+            then
+              rg_target="aarch64-unknown-linux-gnu"
+              rg_sha="2b661c6ef508e902f388e9098d9c4c5aca72c87b55922d94abdba830b4dc885e"
+            else
+              rg_target=""
+              rg_sha=""
+            fi
+            installed=0
+            if [ -n "$rg_target" ]
+            then
+              rg_url="https://github.com/BurntSushi/ripgrep/releases/download/$rg_ver/ripgrep-$rg_ver-$rg_target.tar.gz"
+              rg_tmp=$(mktemp -d)
+              if curl -fsSL --retry 3 --retry-delay 3 --retry-all-errors "$rg_url" -o "$rg_tmp/rg.tar.gz"
+              then
+                if command -v sha256sum > /dev/null
+                then
+                  got_sha=$(sha256sum "$rg_tmp/rg.tar.gz" | awk '{print $1}')
+                else
+                  got_sha=$(shasum -a 256 "$rg_tmp/rg.tar.gz" | awk '{print $1}')
+                fi
+                if [ "$got_sha" != "$rg_sha" ]
+                then
+                  echo "ripgrep sha256 is $got_sha, expected $rg_sha" >&2
+                  rm -rf "$rg_tmp"
+                  exit 1
+                fi
+                tar -xzf "$rg_tmp/rg.tar.gz" -C "$rg_tmp" "ripgrep-$rg_ver-$rg_target/rg"
+                rg_bin="${RUNNER_TEMP:-/tmp}/ripgrep-bin"
+                mkdir -p "$rg_bin"
+                install -m 0755 "$rg_tmp/ripgrep-$rg_ver-$rg_target/rg" "$rg_bin/rg"
+                export PATH="$rg_bin:$PATH"
+                if [ -n "${GITHUB_PATH:-}" ]
+                then
+                  echo "$rg_bin" >> "$GITHUB_PATH"
+                fi
+                installed=1
+              fi
+              rm -rf "$rg_tmp"
+            fi
+            if [ "$installed" != "1" ]
+            then
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq ripgrep > /dev/null
+            fi
+          fi
+          rg --version
       - name: Install the signing tool's package (tools/release_manifest.py)
         run: python -m pip install -r tools/requirements-release.txt
       - name: Patch, engine and release tool tests
