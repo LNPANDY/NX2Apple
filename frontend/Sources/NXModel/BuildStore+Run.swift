@@ -177,6 +177,7 @@ extension BuildStore {
         } else if let macOutput {
             macAppPath = ""
             args += ["--platform", "mac-app", "-o", macOutput.builderURL.path]
+            if !nxbRun, RepoLayout.supportsFallbackIcon(repo.path) { args += macFallbackIconArguments(tidHex) }
         } else {
             // Only the game's framework: the one shared app is made and signed after the script (installShell)
             args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
@@ -199,7 +200,6 @@ extension BuildStore {
         // is the per-user temp folder whether or not the app's own environment carries one.
         var denv = toolEnvironment(python: py)
         if !oneGameIPAPath.isEmpty { denv.merge(OneGameIPA.environment) { $1 } }
-        if macApp { denv.merge(macBuildEnvironment(tidHex)) { $1 } }   // NX_FALLBACK_ICON for a game with no control data (#784)
         let launch = nxbRun
             ? experimentalLaunch(nxb: experimentalBuilderBinary ?? "", scriptArguments: args, engine: engine, environment: denv, python: py)   // BuildStore+Builder.swift (#749)
             : ProcessLaunch(executable: py, arguments: args, environment: denv, directory: engine, groupPython: py)

@@ -746,7 +746,7 @@ class DriverPatchTest(unittest.TestCase):
             raise unittest.SkipTest('engine/ is missing: run python3 tools/engine.py sync')
         # `pwd` is installed by the stub inside load_upstream, so this works on any OS
         cls.saved = {k: os.environ.get(k) for k in
-                     ('NSPB_ALLOW_NON_WINDOWS', 'GAME', 'W')}
+                     ('NSPB_ALLOW_NON_WINDOWS', 'GAME', 'W', 'DMSH_PROCS')}
         cls.mod = driver.load_upstream(cls.repo)
         driver.patch(cls.mod, cls.repo)
 
@@ -6763,6 +6763,174 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
                 self.assertEqual(h.defender_status_msg, h.t('defender.msg.removed'))
                 self.assertFalse(h.settings_value('defenderPromptDismissed', False))
                 self.assertEqual(rem_calls, [(True, False)])
+
+
+class WindowsEngineBumpFollowUpTest(unittest.TestCase):
+    """Windows stand-ins for upstream `8b55ebb3` (`DMSH_PROCS`) and `0b124486` (`proc_group`)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from nspb_qt.win import driver
+        cls.driver = driver
+        cls.repo = QT.parent / 'engine'
+        if not (cls.repo / 'scripts/build_ipa_from_nsp.py').is_file():
+            raise unittest.SkipTest('engine/ is missing: run python3 tools/engine.py sync')
+        cls.saved_upstream_run = driver._UPSTREAM_RUN
+        driver._UPSTREAM_RUN = None
+        cls.mod = driver.load_upstream(cls.repo)
+        cls.orig_group = cls.mod.proc_group.Group
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls.mod.proc_group.Group = cls.orig_group
+        cls.driver._UPSTREAM_RUN = cls.saved_upstream_run
+
+    def test_build_env_defaults_dmsh_procs_to_zero_and_respects_override(self) -> None:
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(shim, 'shim_dir', return_value=Path(td)):
+            env_default = shim.build_env({'PATH': '', 'PYTHONPATH': ''}, python_exe=sys.executable)
+            env_custom = shim.build_env({'PATH': '', 'PYTHONPATH': '', 'DMSH_PROCS': '4'},
+                                        python_exe=sys.executable)
+        self.assertEqual(env_default.get('DMSH_PROCS'), '0')
+        self.assertEqual(env_custom.get('DMSH_PROCS'), '4')
+
+    def test_patch_installs_win_proc_group_and_dmsh_procs(self) -> None:
+        self.mod.proc_group.Group = self.orig_group
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('DMSH_PROCS', None)
+            self.driver.patch(self.mod, self.repo)
+            self.assertEqual(os.environ.get('DMSH_PROCS'), '0')
+            self.assertIs(self.mod.proc_group.Group, self.driver._WinProcGroup)
+
+    def test_mod_run_streams_lines_and_reports_nonzero_exit_via_win_proc_group(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            self.driver.patch(self.mod, self.repo)
+        seen: list[str] = []
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / 'ok.log'
+            rc = self.mod.run(
+                [sys.executable, '-c', 'import sys; sys.stdout.write("alpha\\nbeta\\ngamma"); sys.stdout.flush()'],
+                log,
+                on_line=seen.append,
+            )
+            self.assertEqual(rc, 0)
+            self.assertEqual(seen, ['alpha', 'beta', 'gamma'])
+            self.assertEqual(log.read_text(encoding='utf-8'), 'alpha\nbeta\ngamma')
+
+            bad_log = Path(td) / 'bad.log'
+            with self.assertRaises(self.mod.BuildError) as ctx:
+                self.mod.run(
+                    [sys.executable, '-c', 'import sys; print("boom", flush=True); sys.exit(7)'],
+                    bad_log,
+                )
+            self.assertIn('exit code 7', str(ctx.exception))
+
+    def test_mod_run_interrupt_stops_whole_child_tree(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            self.driver.patch(self.mod, self.repo)
+        grandchild_pid: list[int] = []
+
+        def on_line(line: str) -> None:
+            if line.startswith('CHILD_PID='):
+                grandchild_pid.append(int(line.split('=', 1)[1]))
+                raise KeyboardInterrupt()
+
+        script = (
+            'import subprocess, sys, time\n'
+            'p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])\n'
+            'print(f"CHILD_PID={p.pid}", flush=True)\n'
+            'time.sleep(30)\n'
+        )
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / 'intr.log'
+            with self.assertRaises(KeyboardInterrupt):
+                self.mod.run([sys.executable, '-c', script], log, on_line=on_line)
+        self.assertEqual(len(grandchild_pid), 1)
+        pid = grandchild_pid[0]
+        if sys.platform != 'win32':
+            with self.assertRaises(ProcessLookupError):
+                os.kill(pid, 0)
+
+    def test_mod_run_catches_straggler_holding_stdout_after_drain(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=False):
+            self.driver.patch(self.mod, self.repo)
+        script = (
+            'import os, subprocess, sys\n'
+            'p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])\n'
+            'print(f"STRAGGLER={p.pid}", flush=True)\n'
+            'os._exit(0)\n'
+        )
+        leaked_pid: list[int] = []
+
+        def on_line(line: str) -> None:
+            if line.startswith('STRAGGLER='):
+                leaked_pid.append(int(line.split('=', 1)[1]))
+
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(self.driver._WinProcGroup, 'DRAIN', 0.15):
+            log = Path(td) / 'straggler.log'
+            with self.assertRaises(self.mod.BuildError) as ctx:
+                self.mod.run([sys.executable, '-c', script], log, on_line=on_line)
+            self.assertIn('still ran', str(ctx.exception))
+        self.assertEqual(len(leaked_pid), 1)
+        if sys.platform != 'win32':
+            with self.assertRaises(ProcessLookupError):
+                os.kill(leaked_pid[0], 0)
+
+    def test_win_proc_group_uses_job_object_and_closes_handle_on_win32(self) -> None:
+        calls: list[tuple] = []
+
+        class FakeK32:
+            def CreateJobObjectW(self, sec, name):
+                calls.append(('create',))
+                return 0x12340000ABCD
+
+            def AssignProcessToJobObject(self, job, proc):
+                calls.append(('assign', job, proc))
+                return 1
+
+            def QueryInformationJobObject(self, job, cls_id, info_ptr, sz, ret_ptr):
+                calls.append(('query', job, cls_id, sz))
+                return 1
+
+            def TerminateJobObject(self, job, code):
+                calls.append(('terminate', job, code))
+                return 1
+
+            def CloseHandle(self, job):
+                calls.append(('close', job))
+                return 1
+
+        class FakePopen:
+            def __init__(self, args, **kw):
+                calls.append(('popen', kw.get('creationflags', 0)))
+                self.pid = 9999
+                self.returncode = 0
+                self._handle = 0x55AA
+                self.stdout = None
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self):
+                return self.returncode
+
+            def kill(self):
+                self.returncode = -9
+
+        with mock.patch.object(self.driver.sys, 'platform', 'win32'), \
+             mock.patch.object(self.driver, '_k32', FakeK32()), \
+             mock.patch.object(self.driver.subprocess, 'CREATE_NEW_PROCESS_GROUP', 0x200, create=True), \
+             mock.patch.object(self.driver.subprocess, 'CREATE_NO_WINDOW', 0x08000000, create=True), \
+             mock.patch.object(self.driver.subprocess, 'Popen', FakePopen):
+            with self.assertRaises(RuntimeError):
+                with self.driver._WinProcGroup(['tool.exe']) as _g:
+                    raise RuntimeError('boom')
+
+        self.assertIn(('popen', 0x08000200), calls)
+        self.assertIn(('assign', 0x12340000ABCD, 0x55AA), calls)
+        self.assertIn(('terminate', 0x12340000ABCD, 1), calls)
+        self.assertIn(('close', 0x12340000ABCD), calls)
 
 
 if __name__ == '__main__':
