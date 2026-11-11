@@ -44,12 +44,14 @@ package struct FilePick: Equatable {
     nonisolated func askCopy(_ plan: ShellCopyPlan) -> ShellCopyDecision
     nonisolated func setWaiting(_ on: Bool)
     nonisolated var waitCancelled: Bool { get }
+    func cancelCopy()
     func copyEnded()
     /// Reads the device listing again (a transfer asks it when a send failed, to tell a device that went away from a refusal).
     func refreshDevices() async
 }
 
 extension InstallTarget {
+    package func cancelCopy() {}
     package func refreshDevices() async {}
 }
 
@@ -206,6 +208,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package let driveCancel = LockedFlag()   // Stop of the copy to a drive (BuildStore+Send.swift)
     @Published package var shellMove: ShellMove = .idle   // Move cache folder (BuildStore+ShellRoot.swift, #427)
     package let shellMoveStop = LockedFlag()
+    let installCancel = LockedFlag()
+    var installPhaseActive = false
     /// The home folder the default shell root is in. Tests use a temporary one, so they never touch the real Application Support.
     package var home = NSHomeDirectory()
 
@@ -237,6 +241,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// Opens a new Mac app once, hidden, with DM_PREFLIGHT set, and calls back on the main actor when it has quit, with the
     /// error that stopped it, if any (`MacPreflight`, #1005). Nil: no check, as in the tests that do not set it.
     package var preflightApp: ((URL, @escaping @MainActor (Error?) -> Void) -> Void)?
+    /// Cancellable async preflight runner wired by `LauncherStores` so Stop or timeout terminates the hidden check process immediately.
+    package var runPreflight: ((URL, TimeInterval) async -> Error?)?
     /// Whether this app's launcher knows DM_PREFLIGHT. Tests stand in for the binary's answer.
     package var preflightSupported: (URL) -> Bool = { MacPreflight.supports($0) }
     /// How long the check may take. Tests shorten it.
@@ -334,6 +340,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func stop() {
         if running { stoppedByPlayer = true }
         if case .moving = shellMove { stopShellMove(); return }
+        if stopPendingInstallOrCopy() { return }
         if let endPreflight { endPreflight(MacPreflight.Failure.stopped); return }   // the app is built: Stop ends the check only
         guard running, !stopping, let proc, proc.isRunning else { return }
         stopping = true

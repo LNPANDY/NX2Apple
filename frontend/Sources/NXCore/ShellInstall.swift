@@ -609,6 +609,12 @@ package struct ShellInstaller {
         begin(Self.copyStageID, copyName)
         var copiedBytes: Int64 = 0
         for (i, item) in missing.enumerated() {
+            if waitCancelled() {
+                end(Self.copyStageID, copyName, ok: false, detail: "")
+                outcome.copySkipped = true
+                outcome.message = fmt("dev.copySkipped", deviceName)
+                return outcome
+            }
             copyProgress(copiedBytes, needed)
             // devicectl reports per file, not per byte. Before the first file is whole there is nothing true to show, and a single
             // 17 GB image would read 0% for its whole run. So the bar stays indeterminate until bytes are done (LNPANDY/NX2Apple#967).
