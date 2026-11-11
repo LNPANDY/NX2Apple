@@ -115,6 +115,8 @@ final class ArtworkImages {
             kCGImageSourceThumbnailMaxPixelSize: min(maxPixel, max(width, height)),   // the thumbnail would be enlarged to the maximum
         ]
         guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-        return NSImage(cgImage: thumbnail, size: NSSize(width: thumbnail.width, height: thumbnail.height))
+        let image = NSImage(size: NSSize(width: thumbnail.width, height: thumbnail.height))
+        image.addRepresentation(NSBitmapImageRep(cgImage: thumbnail))
+        return image
     }
 }
