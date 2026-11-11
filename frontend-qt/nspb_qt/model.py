@@ -8,6 +8,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -2672,11 +2673,16 @@ class Model(QObject):
         def run_build() -> tuple[bool, str]:
             ok = False
             proc: subprocess.Popen | None = None
+            spool_dir: str | None = None
+            run_env = env
             try:
+                if pu.IS_WIN:
+                    spool_dir = tempfile.mkdtemp(prefix='nspb-spool-')
+                    run_env = {**env, 'NSPB_SPOOL_DIR': spool_dir}
                 proc = subprocess.Popen([py] + args, cwd=cwd,
                                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                         text=True, encoding='utf-8', errors='replace',
-                                        bufsize=1, env=env,
+                                        bufsize=1, env=run_env,
                                         **pu.process_group_kwargs())
                 self._proc = proc
                 if getattr(self, '_build_cancelled', False):
@@ -2693,6 +2699,8 @@ class Model(QObject):
                 still_running = (poll_fn() is None) if callable(poll_fn) else False
                 if proc is not None and (not ok or still_running):
                     pu.kill_process_tree(proc)
+                if spool_dir:
+                    shutil.rmtree(spool_dir, ignore_errors=True)
                 close_out = getattr(getattr(proc, 'stdout', None), 'close', None)
                 if callable(close_out):
                     try:

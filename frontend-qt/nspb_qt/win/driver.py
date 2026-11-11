@@ -43,6 +43,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from types import ModuleType
@@ -992,21 +993,29 @@ def main(argv: list[str] | None = None) -> int:
 
     from . import shim
     env = shim.build_env(python_exe=sys.executable)
-    os.environ.clear()
-    os.environ.update(env)
-    sdir = str(shim.shim_dir())
-    if sdir not in sys.path:
-        sys.path.insert(0, sdir)
-    if 'sitecustomize' not in sys.modules:
-        try:
-            import sitecustomize  # noqa: F401
-        except Exception:
-            pass
+    owned_spool: str | None = None
+    if not env.get('NSPB_SPOOL_DIR', '').strip():
+        owned_spool = tempfile.mkdtemp(prefix='nspb-spool-')
+        env['NSPB_SPOOL_DIR'] = owned_spool
+    try:
+        os.environ.clear()
+        os.environ.update(env)
+        sdir = str(shim.shim_dir())
+        if sdir not in sys.path:
+            sys.path.insert(0, sdir)
+        if 'sitecustomize' not in sys.modules:
+            try:
+                import sitecustomize  # noqa: F401
+            except Exception:
+                pass
 
-    mod = load_upstream(repo)
-    patch(mod, repo)
-    sys.argv[0] = str(repo / 'scripts' / 'build_ipa_from_nsp.py')
-    return mod.cli(argv)
+        mod = load_upstream(repo)
+        patch(mod, repo)
+        sys.argv[0] = str(repo / 'scripts' / 'build_ipa_from_nsp.py')
+        return mod.cli(argv)
+    finally:
+        if owned_spool:
+            shutil.rmtree(owned_spool, ignore_errors=True)
 
 
 if __name__ == '__main__':
