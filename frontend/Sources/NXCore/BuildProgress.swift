@@ -101,19 +101,21 @@ package enum BuildProgress {
         let fm = FileManager.default
         let candidates = [workDir + "/pso/mac-work", workDir + "/ipa/build/ios/pso/work"]
         var chosenWork = ""
-        var rootMtime = Date.distantPast
+        // Compare `TimeInterval` (`Double`) rather than `Date >= Date`: Xcode 27.2 SDK emits `Foundation.Date.>=`
+        // as a weak-imported symbol under `-O`, which binds to NULL (`pc = 0`) on early macOS 27.2 betas (#1131).
+        var rootMtime = Date.distantPast.timeIntervalSinceReferenceDate
         var rootSize: UInt64 = 0
         for dir in candidates {
             let js = dir + "/bases.mtl4-json"
             guard let attr = try? fm.attributesOfItem(atPath: js),
                   let size = attr[.size] as? UInt64, size > 0,
-                  let mtime = attr[.modificationDate] as? Date else { continue }
+                  let mtime = (attr[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate else { continue }
             if mtime >= rootMtime {
                 chosenWork = dir; rootMtime = mtime; rootSize = size
             }
         }
         guard !chosenWork.isEmpty else { return nil }
-        let cutoff = rootMtime.addingTimeInterval(-2)
+        let cutoff = rootMtime - 2
 
         // 1. Prefer `pso_offline.py`'s own batch log lines (`pso_offline: <arch>: batch i/N: ...` / `merging N batches`),
         // which carry the exact batch total without reading `bases.mtl4-json` or assuming a fixed batch size.
@@ -126,12 +128,12 @@ package enum BuildProgress {
         guard let entries = try? fm.contentsOfDirectory(atPath: chosenWork) else { return nil }
         let archDirs = entries.filter { $0.hasPrefix("batches.") && $0.count > "batches.".count }
         var chosenArch = ""
-        var latestArchMtime = Date.distantPast
+        var latestArchMtime = Date.distantPast.timeIntervalSinceReferenceDate
         for name in archDirs {
             let p = chosenWork + "/" + name
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: p, isDirectory: &isDir), isDir.boolValue else { continue }
-            let mtime = (try? fm.attributesOfItem(atPath: p)[.modificationDate] as? Date) ?? .distantPast
+            let mtime = ((try? fm.attributesOfItem(atPath: p)[.modificationDate] as? Date) ?? .distantPast).timeIntervalSinceReferenceDate
             if chosenArch.isEmpty || mtime >= latestArchMtime {
                 chosenArch = String(name.dropFirst("batches.".count))
                 latestArchMtime = mtime
@@ -141,11 +143,11 @@ package enum BuildProgress {
         let batchesRoot = chosenWork + "/batches." + chosenArch
         let firstBatchJS = batchesRoot + "/00001/bases.mtl4-json"
         guard let firstAttr = try? fm.attributesOfItem(atPath: firstBatchJS),
-              let firstMtime = firstAttr[.modificationDate] as? Date,
+              let firstMtime = (firstAttr[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate,
               firstMtime >= cutoff else { return nil }
 
         let jsPath = chosenWork + "/bases.mtl4-json"
-        let cacheKey = "\(jsPath)|\(rootSize)|\(rootMtime.timeIntervalSince1970)"
+        let cacheKey = "\(jsPath)|\(rootSize)|\(rootMtime)"
         let basesCount: Int = {
             basesCacheLock.lock()
             if let cached = basesCache, cached.key == cacheKey {
@@ -153,7 +155,7 @@ package enum BuildProgress {
                 return cached.count
             }
             basesCacheLock.unlock()
-            guard let data = try? Data(contentsOf: URL(fileURLWithPath: jsPath), options: .mappedIfSafe) else { return 0 }
+            guard let data = try? Data(contentsOf: URL(fileURLWithPath: jsPath)) else { return 0 }
             let token = Data("\"vertex_function_descriptor\"".utf8)
             var count = 0
             var searchRange = data.startIndex..<data.endIndex
@@ -175,7 +177,7 @@ package enum BuildProgress {
             let batchDir = batchesRoot + "/" + String(format: "%05d", index)
             let batchJS = batchDir + "/bases.mtl4-json"
             guard let bAttr = try? fm.attributesOfItem(atPath: batchJS),
-                  let bMtime = bAttr[.modificationDate] as? Date,
+                  let bMtime = (bAttr[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate,
                   bMtime >= cutoff else { break }
             let keyPath = batchDir + "/key." + chosenArch
             let archivePath = batchDir + "/" + chosenArch + ".mtl4a"
@@ -188,19 +190,19 @@ package enum BuildProgress {
             done = index
         }
         let packLog = chosenWork + "/metal-pack." + chosenArch + ".log"
-        let packMtime = (try? fm.attributesOfItem(atPath: packLog)[.modificationDate] as? Date) ?? .distantPast
+        let packMtime = ((try? fm.attributesOfItem(atPath: packLog)[.modificationDate] as? Date) ?? .distantPast).timeIntervalSinceReferenceDate
         let merging = done == total && packMtime >= cutoff
         return PSOArchiveProgress(done: done, total: total, merging: merging)
     }
 
-    private static func psoProgressFromLogs(workDir: String, cutoff: Date, fm: FileManager) -> PSOArchiveProgress? {
+    private static func psoProgressFromLogs(workDir: String, cutoff: TimeInterval, fm: FileManager) -> PSOArchiveProgress? {
         let logNames = ["pso_offline_mac.log", "build_ipa.log", "build_framework.log", "prepare_xcode.log"]
         var bestLog = ""
-        var bestMtime = Date.distantPast
+        var bestMtime = Date.distantPast.timeIntervalSinceReferenceDate
         for name in logNames {
             let p = workDir + "/logs/" + name
             guard let attr = try? fm.attributesOfItem(atPath: p),
-                  let mtime = attr[.modificationDate] as? Date,
+                  let mtime = (attr[.modificationDate] as? Date)?.timeIntervalSinceReferenceDate,
                   mtime >= cutoff else { continue }
             if bestLog.isEmpty || mtime >= bestMtime {
                 bestLog = p; bestMtime = mtime

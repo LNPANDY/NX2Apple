@@ -39,7 +39,7 @@ struct ConsoleNoticeQueue {
     /// Time passed, or a game began to start: the notice whose time is up goes and the next one comes.
     mutating func advance(now: Date, suppressed: Bool) {
         if suppressed { clear(); return }
-        if let until, now >= until { current = nil; self.until = nil }
+        if let until, now.timeIntervalSinceReferenceDate >= until.timeIntervalSinceReferenceDate { current = nil; self.until = nil }
         if current == nil, !waiting.isEmpty {
             current = waiting.removeFirst()
             until = now.addingTimeInterval(Self.duration)
