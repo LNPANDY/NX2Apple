@@ -34,6 +34,31 @@ final class RomFSImageReuseTests: XCTestCase {
         XCTAssertEqual(RomFSArchive.reusableImages(root: root, key: key).count, 2, "another game's image is not named")
     }
 
+    func testRenamedMacAppOfThisGameIsNamedWhileOtherAppsAndSymlinksAreSkipped() throws {
+        let key = "0100AAAA00000000"
+        try write("Hollow Knight.app/Contents/Resources/romfs.img")
+        try write("Hollow Knight.app/Contents/Resources/romfs.img.id", "{\"title\": \"0100aaaa00000000\", \"version\": \"v0\"}\n")
+        try write("Celeste.app/Contents/Resources/romfs.img")
+        try write("Celeste.app/Contents/Resources/romfs.img.id", "{\"title\": \"0100bbbb00000000\", \"version\": \"v0\"}\n")
+        let plistApp = URL(fileURLWithPath: root + "/Hollow Knight [\(key)].app/Contents")
+        try FileManager.default.createDirectory(at: plistApp.appendingPathComponent("Resources"), withIntermediateDirectories: true)
+        try PropertyListSerialization.data(fromPropertyList: ["DMTitleID": key], format: .xml, options: 0)
+            .write(to: plistApp.appendingPathComponent("Info.plist"))
+        try write("Hollow Knight [\(key)].app/Contents/Resources/romfs.img")
+        try write("Hollow Knight [\(key)].app/Contents/Resources/romfs.img.id", "legacy-id")
+        try FileManager.default.createSymbolicLink(
+            atPath: root + "/Linked.app",
+            withDestinationPath: root + "/Hollow Knight.app"
+        )
+        XCTAssertEqual(
+            RomFSArchive.reusableImages(root: root, key: key),
+            [
+                root + "/Hollow Knight [\(key)].app/Contents/Resources/romfs.img",
+                root + "/Hollow Knight.app/Contents/Resources/romfs.img",
+            ]
+        )
+    }
+
     func testAKeyWithoutATitleIDNamesEveryGamesImage() throws {   // Game.nsp: the games folder is named after the framework's title ID (#515)
         let key = "Game-1a2b3c4d"
         try write("games/0100AAAA00000000/romfs.img"); try write("games/0100AAAA00000000/romfs.img.id")

@@ -23,7 +23,7 @@ extension BuildStore {
         shellDeviceChecked = false
         if target != BuildTarget.mac, !exportsOneGame, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         if let message = spaceProblem() { doneNote = message; done = false; return }
-        stopping = false; stoppedByPlayer = false
+        stopping = false; stoppedByPlayer = false; archiveGeneration &+= 1
         buildingGame = true; runningTarget = target
         beginOperation(.building, game: gameName, titleID: gameTitleID, destination: .target)
         running = true; done = false; doneNote = ""; stages = []; log.clear(); staleShadersMessageKey = nil
@@ -286,19 +286,30 @@ extension BuildStore {
     /// The app goes where the player finds it, macOS checks its first start (`preflight`), and the build is done.
     @discardableResult
     func finishMacApp(_ output: MacAppOutput) -> Task<Void, Never> {
-        Task {
+        let workDir = effectiveWorkDir.isEmpty ? output.workDirectoryURL.path : effectiveWorkDir
+        archiveGeneration &+= 1
+        let generation = archiveGeneration
+        return Task {
             do {
-                let app = try await Task.detached { try output.finish() }.value
+                let app = try await Task.detached {
+                    let placed = try output.finish()
+                    PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: true, removeShellFramework: true)
+                    return placed
+                }.value
+                guard archiveGeneration == generation, !stopping else { return }
                 macAppPath = app.path
                 say("✓ " + shortPath(app.path))
                 await preflight(app)
+                guard archiveGeneration == generation else { return }
                 done = true
                 doneNote = t("msg.macAppDone")
                 running = false
                 cleanupStaging()
             } catch MacAppOutput.FinishError.retainedApp(let app, let cause) {
+                guard archiveGeneration == generation else { return }
                 fail(app.path + "\n" + cause.localizedDescription)
             } catch {
+                guard archiveGeneration == generation else { return }
                 fail(t("msg.macAppMissing"))
             }
         }
