@@ -184,8 +184,13 @@ enum KeyCheck {
         case unsupported
     }
 
-    /// The NCA headers of an NSP or NSZ (a PFS0); anything else, an XCI among them, is `unsupported`.
+    /// The NCA headers of an NSP or NSZ (a PFS0) or of an XCI or XCZ secure HFS0 partition, else `unsupported`.
     static func readContainer(_ path: String) -> Container {
+        let ext = (path as NSString).pathExtension.lowercased()
+        if ext == "xci" || ext == "xcz" {
+            guard let headers = PackageTitleID.readXCIContainer(path), !headers.isEmpty else { return .unsupported }
+            return .pfs0(headers)
+        }
         guard let f = FileHandle(forReadingAtPath: path) else { return .unsupported }
         defer { try? f.close() }
         func read(_ offset: UInt64, _ count: Int) -> [UInt8]? {
@@ -205,7 +210,10 @@ enum KeyCheck {
             guard nameAt < table.count else { continue }
             let name = String(decoding: table[nameAt...].prefix { $0 != 0 }, as: UTF8.self).lowercased()
             let ncz = name.hasSuffix(".ncz")
-            guard name.hasSuffix(".nca") || ncz, size >= UInt64(headerBytes), let h = read(dataStart + offset, headerBytes) else { continue }
+            guard name.hasSuffix(".nca") || ncz,
+                  size >= UInt64(headerBytes),
+                  let ncaOffset = PackageTitleID.checkedAdd(dataStart, offset),
+                  let h = read(ncaOffset, headerBytes) else { continue }
             headers.append((h, ncz))
         }
         return .pfs0(headers)

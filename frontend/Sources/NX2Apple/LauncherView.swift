@@ -37,6 +37,7 @@ struct LauncherView: View {
     @State private var selectingGames = false   // the Build selected games sheet (BuildSelectedSheet.swift)
     @State private var deleting: LibraryGame?   // the game whose Delete sheet is open (DeleteGameSheet.swift)
     @State var supportedGames: [SupportedGame]?   // the Supported games sheet is open when this is set (SupportedGamesSheet.swift)
+    @State var skippedItemsOpen = false
     @State private var renaming: LibraryGame?   // the game whose Rename sheet is open (RenameGameSheet.swift)
     @State var optionsFor: UUID?
     @State private var controllerMappingOpen = false
@@ -58,6 +59,7 @@ struct LauncherView: View {
     @StateObject var padFocus: PadFocus
     @StateObject var row = RowScroller()
     @StateObject var toolsAge: ToolsAge
+    @StateObject var verifiedProfiles = VerifiedProfilesTracker()
     @StateObject var signatures = SignatureTracker()
     var signatureExpiry: [UUID: Date] { signatures.expiry }
     @State var resignNote: String?   // the last re-sign's outcome, shown under the hero's expiry line
@@ -71,10 +73,11 @@ struct LauncherView: View {
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library, settingsCategory: SettingsCategory = .general,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
          manageOpen: Bool = false, padRing: Bool = false, onRunSetup: (() -> Void)? = nil,
-         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false, qaLaunching: Bool = false,
+         enterConsole: (() -> Void)? = nil, controllerDriver: AnyConsoleDriver? = nil, controls sharedControls: ControlLayout? = nil, recorder: BuildRecorder? = nil, qaPrompt: Bool = false, qaLaunching: Bool = false, qaSkippedOpen: Bool = false,
          gamepad: LauncherGamepad? = nil, padFocus: PadFocus? = nil, artworkOpen: ArtworkSlot? = nil, artworkEditor: ArtworkEditor? = nil, artworkStore: ArtworkStore = .shared) {
         _padFocus = StateObject(wrappedValue: padFocus ?? PadFocus())
         _consolePrompt = State(initialValue: qaPrompt)   // visual QA: the connect prompt open at launch
+        _skippedItemsOpen = State(initialValue: qaSkippedOpen)
         _launching = State(initialValue: qaLaunching)
         _showGatekeeperHint = State(initialValue: qaLaunching)
         self.onRunSetup = onRunSetup
@@ -343,6 +346,7 @@ struct LauncherView: View {
         .cloudSaveSheet(cloudGate, pad: padFocus, scope: { currentPadScope })
         .syncControllerLayouts(library: library, controls: controls)
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
+        .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
             BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, exportsIPA: devices.exportIPA) { selectingGames = false }
                 .environmentObject(loc)
@@ -668,7 +672,7 @@ struct LauncherView: View {
             }
             return
         }
-        let sheetOpen = controllerSheet || supportedGames != nil || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
+        let sheetOpen = controllerSheet || supportedGames != nil || skippedItemsOpen || optionsFor != nil || controlsOpen || savesFor != nil || cheatsFor != nil || freeSpaceFor != nil || stores.buildFiles.confirming != nil || deleting != nil || renaming != nil || artworkEditor != nil || cloudGate.isActive
         switch ManagePad.route(action, menuOpen: manageOpenFor != nil, sheetOpen: sheetOpen, hasGame: library.selected != nil && page == .library) {
         case .close: manageOpenFor = nil; return
         case .swallow: return
@@ -689,6 +693,10 @@ struct LauncherView: View {
         if freeSpaceFor != nil && [.b, .x, .l, .r].contains(action) { if action == .b { freeSpaceFor = nil }; return }
         if deleting != nil && [.b, .x, .l, .r].contains(action) { if action == .b { deleting = nil }; return }
         if supportedGames != nil && [.b, .x, .l, .r].contains(action) { if action == .b { supportedGames = nil }; return }
+        if skippedItemsOpen && [.b, .x, .l, .r].contains(action) {
+            if action == .b { skippedItemsOpen = false }
+            return
+        }
         if renaming != nil && [.b, .x, .l, .r].contains(action) { if action == .b { renaming = nil }; return }
         if action == .b {
             if optionsFor != nil { optionsFor = nil } else if controlsOpen { controlsCancelRequest += 1 }
@@ -737,9 +745,15 @@ struct LauncherView: View {
 
     private func manageItems(for game: LibraryGame?) -> [ManageItem] { game.map(manageItems) ?? [] }
 
+    private func openKeysSettingsFromDiagnostics() {
+        skippedItemsOpen = false
+        page = .settings
+        settingsCategory = .tools
+    }
+
     /// The scope a controller acts in when no menu is open: the innermost sheet, else the window.
     private var currentPadScope: String {
-        cloudGate.isActive ? "cloudsave" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
+        cloudGate.isActive ? "cloudsave" : controllerSheet ? "console.controllers" : controllerMappingOpen ? "controls" : artworkEditor != nil ? "artwork" : savesFor != nil ? "saves" : cheatsFor != nil ? "cheats" : freeSpaceFor != nil ? "free" : stores.buildFiles.confirming != nil ? "buildfiles" : deleting != nil ? "delete" : skippedItemsOpen ? "skipped" : supportedGames != nil ? "supported" : renaming != nil ? "rename" : optionsFor != nil ? "launch" : controlsOpen ? "controls" : "main"
     }
 
     /// The space the collection row keeps around its cards for the focus ring (PadFocus draws it 4 pt outside a target).
