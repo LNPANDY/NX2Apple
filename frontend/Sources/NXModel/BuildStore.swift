@@ -405,8 +405,12 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         psoNativeProgress = false
     }
 
+    private static func isPSOStage(_ name: String) -> Bool {
+        name == "Pipeline archive" || name == "game framework"
+    }
+
     /// Inspect `<workDir>/pso/mac-work` (or the iOS work directory / logs) for completed `pso_offline.py` batches while the
-    /// `Pipeline archive` stage runs without native JSON counts from the script.
+    /// `Pipeline archive` or `game framework` stage runs without native JSON counts from the script.
     package func pollPSOArchive() {
         guard !psoNativeProgress, let id = psoStageID, !effectiveWorkDir.isEmpty else { return }
         let generation = psoPollGeneration
@@ -461,7 +465,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         append(line + "\n")
         guard let s = BuildProgress.parseStage(line) else { return }
         if s.state == .running {
-            if s.name == "Pipeline archive" {
+            if Self.isPSOStage(s.name) {
                 if s.percent != nil {
                     psoPollGeneration &+= 1
                     psoNativeProgress = true
@@ -520,7 +524,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 $0.eta = nil
                 $0.isScanningLastShaderFiles = false
             }
-            if name == "Pipeline archive" { startPSOPoll(stageID: k, step: step) }
+            if Self.isPSOStage(name) { startPSOPoll(stageID: k, step: step) }
             else if psoStageID == k { stopPSOPoll() }
         case "step":
             let step = e["step"] as? String ?? ""

@@ -71,6 +71,7 @@ package enum SendWhere {
     private let listDevices: @Sendable (_ xcrun: String) -> [AppleDevice]
     private var copyAnswer: ((ShellCopyDecision) -> Void)?
     private let waitCancel = LockedFlag()
+    private var refreshGeneration = 0
 
     /// - Parameters:
     ///   - listDevices: the paired devices for an `xcrun` path. Runs off the main actor.
@@ -94,14 +95,30 @@ package enum SendWhere {
     package func deviceName(_ udid: String) -> String { devices.first { $0.id == udid }?.name ?? "iPhone" }
 
     /// The paired devices and the signing teams, read in the background (devicectl can take a few seconds). A team that is no longer
-    /// known is replaced by the first one.
+    /// known is replaced by the first one, while a transient empty team list preserves a valid saved team ID.
     @discardableResult package func refresh() -> Task<Void, Never> {
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
         let xcrun = xcrun, list = listDevices, teamsOf = readTeams
+        let lookup = Task.detached(priority: .userInitiated) { (list(xcrun), teamsOf()) }
         return Task { @MainActor in
-            let (devices, teams) = await Task.detached(priority: .userInitiated) { (list(xcrun), teamsOf()) }.value
-            self.devices = devices; self.teams = teams; self.checked = true
-            if !teams.contains(where: { $0.id == self.signingTeam }) { self.signingTeam = teams.first?.id ?? "" }
+            let (devices, teams) = await lookup.value
+            guard self.refreshGeneration == generation else { return }
+            self.devices = devices
+            self.teams = teams
+            self.checked = true
+            if teams.isEmpty {
+                if !self.signingTeam.isEmpty && !Self.isValidTeamID(self.signingTeam) {
+                    self.signingTeam = ""
+                }
+            } else if !teams.contains(where: { $0.id == self.signingTeam }) {
+                self.signingTeam = teams[0].id
+            }
         }
+    }
+
+    nonisolated private static func isValidTeamID(_ id: String) -> Bool {
+        id.range(of: "^[A-Z0-9]{10}$", options: .regularExpression) != nil
     }
 
     // MARK: The copy flow

@@ -162,6 +162,58 @@ import NXModel
         XCTAssertNil(reopened.image(id))
     }
 
+    func testStopWhileInFlightFetchWritesFilesDoesNotPublishStaleGenerationImages() async throws {
+        let folder = temporary.appendingPathComponent("artwork-race")
+        let id = "0100000000000077"
+        let imageData = Self.jpeg(.systemGreen, "late-cover", size: NSSize(width: 640, height: 360))
+
+        actor Gate {
+            private var startedContinuation: CheckedContinuation<Void, Never>?
+            private var releaseContinuation: CheckedContinuation<Void, Never>?
+            private var started = false
+            private var released = false
+
+            func enterAndWait() async {
+                started = true
+                startedContinuation?.resume()
+                startedContinuation = nil
+                if !released {
+                    await withCheckedContinuation { releaseContinuation = $0 }
+                }
+            }
+
+            func waitUntilStarted() async {
+                if !started {
+                    await withCheckedContinuation { startedContinuation = $0 }
+                }
+            }
+
+            func release() {
+                released = true
+                releaseContinuation?.resume()
+                releaseContinuation = nil
+            }
+        }
+
+        let gate = Gate()
+        let covers = SupportedCovers(directory: folder, language: "en", maxPixel: 128, batch: 2, tried: SupportedCovers.Tried()) { ids, _ in
+            await gate.enterAndWait()
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            for item in ids {
+                try? imageData.write(to: folder.appendingPathComponent(item + ".jpg"))
+            }
+        }
+
+        covers.appear(id)
+        await gate.waitUntilStarted()
+        covers.stop()
+        await gate.release()
+        try? await Task.sleep(nanoseconds: 80_000_000)
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: folder.appendingPathComponent(id + ".jpg").path))
+        XCTAssertNil(covers.image(id), "an in-flight fetch from a stopped generation must never write decoded images back into covers")
+    }
+
     // MARK: Visual QA (NX_LAUNCHER_CAPTURE_DIR=<dir> swift test --filter SupportedCoversTests/testRenderSupportedGamesCovers)
 
     /// The sheet and the console page before (no cover saved: the placeholder in every row) and after (a fake source saves each
