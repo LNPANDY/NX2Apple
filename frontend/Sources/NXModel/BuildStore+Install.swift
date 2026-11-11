@@ -250,38 +250,131 @@ extension BuildStore {
 
     /// The signed app as an .ipa, written to the place the app's save panel (`chooseSaveLocation`) returned.
     package func saveIPAPanel() {
+        guard !running else { return }
         guard let url = chooseSaveLocation(t("dev.saveIPATitle"), defaultIPAName()) else { return }
         saveIPA(to: url)
     }
 
     /// The signed app as an .ipa (Payload/<name>.app, the layout iOS and the sideloaders install): useful while the
-    /// signature lasts, and the thing to re-sign when it expires. The game data is not in it — it stays in the app's
-    /// Documents (romfs.img), as a normal iOS build has it.
-    package func saveIPA(to url: URL, then: (() -> Void)? = nil) {
-        let app = installedAppPath, fm = FileManager.default
-        guard !app.isEmpty, fm.fileExists(atPath: app) else {
+    /// signature lasts, and the thing to re-sign when it expires. All staging copies, shader archive packing, ZIP32
+    /// entry-count validation and archive creation run on a background queue so multi-GB bundles never freeze the UI.
+    package func saveIPA(to url: URL, entryLimit: Int = ShellExport.entryLimit, then: (() -> Void)? = nil) {
+        guard !running else { return }
+        let app = installedAppPath
+        guard !app.isEmpty, FileManager.default.fileExists(atPath: app) else {
             doneNote = String(format: t("dev.saveNeedsApp"), shortPath(app))
-            then?(); return
-        }
-        let stage = fm.temporaryDirectory.appendingPathComponent("nspb-ipa-" + UUID().uuidString)
-        let payload = stage.appendingPathComponent("Payload")
-        do {
-            try fm.createDirectory(at: payload, withIntermediateDirectories: true)
-            try fm.copyItem(atPath: app, toPath: payload.appendingPathComponent((app as NSString).lastPathComponent).path)
-        } catch {
-            try? fm.removeItem(at: stage)
-            doneNote = String(format: t("dev.saveFailed"), error.localizedDescription)
-            then?(); return
-        }
-        buildingGame = false; runningTarget = BuildTarget.ios
-        beginOperation(.exportingIPA, game: nil, titleID: nil, destination: .none)
-        running = true
-        runTool(id: 1005, name: t("dev.saveStage"), BuildCommands.ipaCommand(payload: payload.path, ipa: url.path), step: { _ in nil }) { error in
-            try? fm.removeItem(at: stage)
-            self.running = false
-            self.doneNote = error.map { String(format: self.t("dev.saveFailed"), $0) }
-                ?? String(format: self.t("dev.savedIPA"), self.shortPath(url.path))
             then?()
+            return
+        }
+        let stageID = 1005
+        let stageName = t("dev.saveStage")
+        let groupPython = deps.pythonPath.isEmpty ? "/usr/bin/python3" : deps.pythonPath
+        let lang = localizer.lang
+        let runner = self.runner
+        let cancel = installCancel
+        buildingGame = false
+        runningTarget = BuildTarget.ios
+        beginOperation(.exportingIPA, game: nil, titleID: nil, destination: .none)
+        stopping = false
+        stoppedByPlayer = false
+        cancel.set(false)
+        installPhaseActive = true
+        running = true
+        if let i = stages.firstIndex(where: { $0.id == stageID }) {
+            stages[i] = Stage(id: stageID, name: stageName, state: .running, started: Date())
+        } else {
+            stages.append(Stage(id: stageID, name: stageName, state: .running, started: Date()))
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let fm = FileManager.default
+            let stage = fm.temporaryDirectory.appendingPathComponent("nspb-ipa-" + UUID().uuidString)
+            let payload = stage.appendingPathComponent("Payload")
+            let stagedApp = payload.appendingPathComponent((app as NSString).lastPathComponent)
+            let toolEnv = [
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "HOME": NSHomeDirectory(),
+                "USER": NSUserName(),
+                "LANG": "en_US.UTF-8"
+            ]
+            let runStep: ([String]) -> (status: Int32, output: String, lastError: String?) = { command in
+                hop { self?.append("[\(stageName)] \(command.joined(separator: " "))\n") }
+                var output = ""
+                var lastError: String?
+                let launch = ProcessLaunch(command, environment: toolEnv, groupPython: groupPython)
+                let res = runner.streamLines(launch, started: { p in hop { self?.proc = p } }) { line in
+                    hop { self?.append(line + "\n") }
+                    output += line + "\n"
+                    if line.contains("error:") || line.hasPrefix("ERROR:") {
+                        lastError = line.trimmingCharacters(in: .whitespaces)
+                    }
+                }
+                guard res.started else { return (127, res.out, res.out) }
+                return (res.status, output, lastError)
+            }
+
+            var failureReason: String?
+            var ranZip = false
+            do {
+                try fm.createDirectory(at: payload, withIntermediateDirectories: true)
+                try fm.copyItem(atPath: app, toPath: stagedApp.path)
+                if !cancel.value, try ShellExport.exceedsEntryLimit(in: payload, limit: entryLimit) {
+                    let frameworks = ShellExport.gameFrameworkNames(forApp: app, stagedApp: stagedApp, fm: fm)
+                    try ShellExport.packShaderLibraries(
+                        in: stagedApp,
+                        frameworkNames: frameworks,
+                        runArchive: runStep,
+                        exitCodeMessage: { String(format: L10n.string("msg.exitCode", lang), $0) }
+                    )
+                    if try ShellExport.exceedsEntryLimit(in: payload, limit: entryLimit) {
+                        throw ShellExport.entryLimitExceededError(limit: entryLimit)
+                    }
+                }
+                if !cancel.value {
+                    try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    ranZip = true
+                    let zipped = runStep(BuildCommands.ipaCommand(payload: payload.path, ipa: url.path))
+                    if zipped.status != 0 {
+                        try? fm.removeItem(at: url)
+                        failureReason = zipped.lastError ?? String(format: L10n.string("msg.exitCode", lang), zipped.status)
+                    }
+                }
+            } catch {
+                failureReason = error.localizedDescription
+            }
+            if cancel.value, ranZip {
+                try? fm.removeItem(at: url)
+            }
+            try? fm.removeItem(at: stage)
+
+            hop {
+                guard let self else { return }
+                self.proc = nil
+                self.installPhaseActive = false
+                if self.stopping || cancel.value {
+                    self.stopping = false
+                    self.running = false
+                    self.resetProgress()
+                    self.doneNote = self.t("msg.stopped")
+                    self.cleanupStaging()
+                    then?()
+                    return
+                }
+                let ok = failureReason == nil
+                if let i = self.stages.firstIndex(where: { $0.id == stageID }) {
+                    self.stages[i].state = ok ? .done : .failed
+                    if ok {
+                        self.stages[i].percent = 100
+                        self.stages[i].detail = ""
+                    } else if let failureReason {
+                        self.stages[i].detail = failureReason
+                    }
+                }
+                self.running = false
+                self.doneNote = failureReason.map { String(format: self.t("dev.saveFailed"), $0) }
+                    ?? String(format: self.t("dev.savedIPA"), self.shortPath(url.path))
+                then?()
+            }
         }
     }
 

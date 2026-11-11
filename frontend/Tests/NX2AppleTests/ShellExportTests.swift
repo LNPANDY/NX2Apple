@@ -1090,4 +1090,95 @@ import NXModel
         model.target = BuildTarget.mac
         XCTAssertFalse(model.exportsShell)
     }
+
+    @MainActor func testSaveIPARunsOffMainActorAndPacksLooseShadersWhenExceedingEntryLimit() throws {
+        final class ThreadRecordingRunner: ProcessRunner {
+            let base = SystemProcessRunner()
+            let lock = NSLock()
+            var streamOnMainThread: [Bool] = []
+            var commands: [[String]] = []
+
+            func capture(_ launch: ProcessLaunch) -> ProcessResult { base.capture(launch) }
+            func stream(_ launch: ProcessLaunch, line: @escaping (String) -> Void) -> Bool { base.stream(launch, line: line) }
+            func streamLines(_ launch: ProcessLaunch, started: @escaping (RunningProcess) -> Void, line: @escaping (String) -> Void) -> ProcessResult {
+                lock.lock()
+                streamOnMainThread.append(Thread.isMainThread)
+                commands.append([launch.executable] + launch.arguments)
+                lock.unlock()
+                return base.streamLines(launch, started: started, line: line)
+            }
+            func start(_ launch: ProcessLaunch, onOutput: @escaping (Data) -> Void, onExit: @escaping (Int32) -> Void) throws -> RunningProcess {
+                try base.start(launch, onOutput: onOutput, onExit: onExit)
+            }
+        }
+
+        let app = path("signed/DmShell.app")
+        let gameFw = "Frameworks/DmGame\(titleID).framework"
+        try write(app + "/DmShell", "signed-binary")
+        try write(app + "/Info.plist", "<plist/>")
+        try write(app + "/" + gameFw + "/DmGame\(titleID)", "game-binary")
+        try write(app + "/" + gameFw + "/msl/b-test/shader.json", "{\"s\":1}")
+        try Data([1, 2, 3, 4]).write(to: URL(fileURLWithPath: app + "/" + gameFw + "/msl/b-test/shader.metallib"))
+        try write(app + "/Frameworks/GraphicsSupport.framework/msl/keep.bin", "third-party")
+
+        let beforeStaging = Set(((try? fm.contentsOfDirectory(atPath: fm.temporaryDirectory.path)) ?? []).filter { $0.hasPrefix("nspb-ipa-") })
+
+        let runner = ThreadRecordingRunner()
+        let stores = LauncherStores(runner: runner, defaults: testDefaults)
+        let model = stores.build
+        model.installedAppPath = app
+
+        let ipa = URL(fileURLWithPath: path("out/Signed.ipa"))
+        let saved = expectation(description: "saveIPA finished")
+        model.saveIPA(to: ipa, entryLimit: 12) {
+            saved.fulfill()
+        }
+        XCTAssertTrue(model.running, "saveIPA dispatches heavy staging work asynchronously and returns at once")
+        wait(for: [saved], timeout: 30)
+
+        XCTAssertFalse(model.running)
+        XCTAssertEqual(model.stages.first(where: { $0.id == 1005 })?.state, .done)
+        XCTAssertTrue(fm.fileExists(atPath: ipa.path))
+        XCTAssertFalse(runner.streamOnMainThread.isEmpty)
+        XCTAssertTrue(runner.streamOnMainThread.allSatisfy { !$0 }, "archive tools must run off the main thread: \(runner.streamOnMainThread)")
+        XCTAssertTrue(runner.commands.contains { $0.first == "/usr/bin/aa" }, "expected shader archive packing via aa")
+
+        let zipEntries = try entries(ofZip: ipa.path)
+        XCTAssertFalse(zipEntries.contains { $0.contains("\(gameFw)/msl/") }, zipEntries.joined(separator: "\n"))
+        XCTAssertEqual(zipEntries.filter { $0.hasPrefix("Payload/DmShell.app/\(gameFw)/msl-") && $0.hasSuffix(".aar") }.count, 1)
+        XCTAssertTrue(zipEntries.contains("Payload/DmShell.app/Frameworks/GraphicsSupport.framework/msl/keep.bin"))
+        XCTAssertTrue(fm.fileExists(atPath: app + "/" + gameFw + "/msl/b-test/shader.json"), "installed app keeps its original loose shaders")
+
+        let afterStaging = Set(((try? fm.contentsOfDirectory(atPath: fm.temporaryDirectory.path)) ?? []).filter { $0.hasPrefix("nspb-ipa-") })
+        XCTAssertTrue(afterStaging.subtracting(beforeStaging).isEmpty, "temporary IPA staging directories must be cleaned up")
+    }
+
+    @MainActor func testSaveIPARefusesArchiveAboveEntryLimitAndCleansTemporaryStaging() throws {
+        let app = path("oversized/DmShell.app")
+        try write(app + "/DmShell", "signed-binary")
+        for index in 0..<8 {
+            try write(app + "/Resources/f\(index).dat", "data-\(index)")
+        }
+
+        let beforeStaging = Set(((try? fm.contentsOfDirectory(atPath: fm.temporaryDirectory.path)) ?? []).filter { $0.hasPrefix("nspb-ipa-") })
+
+        let stores = LauncherStores(defaults: testDefaults)
+        let model = stores.build
+        model.installedAppPath = app
+
+        let ipa = URL(fileURLWithPath: path("out/Oversized.ipa"))
+        let finished = expectation(description: "saveIPA refused oversized bundle")
+        model.saveIPA(to: ipa, entryLimit: 5) {
+            finished.fulfill()
+        }
+        wait(for: [finished], timeout: 30)
+
+        XCTAssertFalse(model.running)
+        XCTAssertEqual(model.stages.first(where: { $0.id == 1005 })?.state, .failed)
+        XCTAssertFalse(fm.fileExists(atPath: ipa.path), "must never emit a corrupt ZIP32 IPA above the entry limit")
+        XCTAssertTrue(model.doneNote.contains("ZIP32"), model.doneNote)
+
+        let afterStaging = Set(((try? fm.contentsOfDirectory(atPath: fm.temporaryDirectory.path)) ?? []).filter { $0.hasPrefix("nspb-ipa-") })
+        XCTAssertTrue(afterStaging.subtracting(beforeStaging).isEmpty, "temporary IPA staging directory must be removed on failure")
+    }
 }

@@ -198,4 +198,68 @@ import XCTest
         XCTAssertEqual(state.presentedSheet, .confirmStopBuild)
         XCTAssertTrue(ConsoleSheet.confirmStopBuild.isQuestion)
     }
+
+    func testDelayedDmhostSpawnBeyondInitialPollsIsCapturedAndResumed() throws {
+        let defaultIntervals = ConsoleGameTracking().lookupIntervals
+        XCTAssertGreaterThan(defaultIntervals.count, 5)
+        XCTAssertGreaterThanOrEqual(defaultIntervals.reduce(0, +), 300)
+
+        let h = try makeHarness()
+        let hades = h.ids[0]
+        var polls = 0
+        h.driver.tracking.runsChildLookup = true
+        h.driver.tracking.lookupIntervals = Array(repeating: 0.01, count: 12)
+        h.driver.tracking.isProcessAlive = { _ in true }
+        h.driver.tracking.children = { _ in
+            polls += 1
+            return polls >= 8 ? [5099] : []
+        }
+
+        h.driver.play(hades)
+        let deadline = Date().addingTimeInterval(3.0)
+        while h.driver.tracking.hostPID == nil && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        XCTAssertEqual(polls, 8)
+        XCTAssertTrue(h.driver.tracking.observedPIDs.contains(5099))
+        XCTAssertEqual(h.driver.tracking.hostPID, 5099)
+        XCTAssertNil(h.driver.tracking.lookup)
+    }
+
+    func testChildLookupStopsImmediatelyWhenOuterGameProcessExitsOrSessionEnds() throws {
+        let h = try makeHarness()
+        let hades = h.ids[0]
+        var polls = 0
+        h.driver.tracking.runsChildLookup = true
+        h.driver.tracking.lookupIntervals = Array(repeating: 0.01, count: 100)
+        h.driver.tracking.children = { _ in
+            polls += 1
+            return []
+        }
+        h.driver.tracking.isProcessAlive = { _ in
+            polls < 2
+        }
+
+        h.driver.play(hades)
+        let deadline = Date().addingTimeInterval(2.0)
+        while (polls == 0 || h.driver.tracking.lookup != nil) && Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+        }
+
+        XCTAssertEqual(polls, 2)
+        XCTAssertNil(h.driver.tracking.lookup)
+
+        let second = try makeHarness()
+        second.driver.tracking.runsChildLookup = true
+        second.driver.tracking.lookupIntervals = [5.0, 5.0]
+        second.driver.tracking.isProcessAlive = { _ in true }
+        second.driver.tracking.children = { _ in [] }
+        second.driver.play(second.ids[0])
+        settle()
+        XCTAssertNotNil(second.driver.tracking.lookup)
+        second.driver.gameDidTerminate(pid: 4001)
+        XCTAssertNil(second.driver.tracking.lookup)
+    }
 }

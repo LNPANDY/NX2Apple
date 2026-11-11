@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import Darwin
 import NXCore
 
 /// What the console knows about the game it started, while it runs and once it has ended.
@@ -17,9 +18,13 @@ import NXCore
     var observers: [NSObjectProtocol] = []
     var observedPIDs: Set<Int32> = []
     var lookup: Task<Void, Never>?
+    var lookupGeneration: UInt64 = 0
     var quitTimeout: Task<Void, Never>?
     var toolsChecked: [String] = []
     var observesSystem = true
+    var runsChildLookup: Bool?
+    /// Backoff intervals while waiting for `nxnative` to spawn `dmhost` on slow external drives or during first-run Gatekeeper scans.
+    var lookupIntervals: [TimeInterval] = [0.25, 0.5, 1.0, 2.0] + Array(repeating: 4.0, count: 150)
 
     // What the system does, replaced by the tests.
     /// Posts a distributed notification to the game (org.nxnative.resume.<pid>, org.nxnative.quit.<pid>).
@@ -30,7 +35,14 @@ import NXCore
     var yieldFront: (String?) -> Void = { bundleID in
         if #available(macOS 14, *), let bundleID { NSApp.yieldActivation(toApplicationWithBundleIdentifier: bundleID) }
     }
-    var children: (Int32) -> [Int32] = { ProcessTree.children(of: $0) }
+    private(set) var usesDefaultChildren = true
+    var children: (Int32) -> [Int32] = { ProcessTree.children(of: $0) } {
+        didSet { usesDefaultChildren = false }
+    }
+    var isProcessAlive: (Int32) -> Bool = { pid in
+        guard pid > 0 else { return false }
+        return kill(pid, 0) == 0 || errno == EPERM
+    }
     /// How the session ended, from the game's log (GameExit).
     var exit: (LibraryGame) -> GameExit = { game in
         guard let url = GameLog.latest(titleID: game.titleID, appPath: game.appPath), let lines = GameLog.tail(url, lines: 400) else { return .unknown }
@@ -43,6 +55,12 @@ import NXCore
     var quitTimeoutSeconds: TimeInterval = 10
     /// Where the order of all games is kept: the desktop's own setting (LibrarySort), a suite of its own in tests.
     var sortDefaults: UserDefaults = .standard
+
+    deinit {
+        lookup?.cancel()
+        quitTimeout?.cancel()
+        observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
+    }
 }
 
 /// #816 (Koshindai's concept): the play history and the screen after a crash. #952 (Haseenesss's idea, engine patch 0121): a game started
@@ -91,22 +109,55 @@ extension LiveConsoleDriver {
         tracking.pausedSeconds = 0
         sessions.started(titleID: game.titleID)
         observe(pid)
-        guard tracking.observesSystem else { return }
-        // the host is the app's child and starts a moment after it: looked for until it is there
+        guard tracking.runsChildLookup ?? tracking.observesSystem else { return }
+        let generation = tracking.lookupGeneration
+        let intervals = tracking.lookupIntervals
+        // The host is the app's child and may take minutes on slow external drives or first-run Gatekeeper scans.
         tracking.lookup = Task { [weak self] in
-            for seconds in [0.5, 1.0, 2.0, 4.0, 8.0] {
-                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
-                guard !Task.isCancelled, let self, self.tracking.appPID == pid else { return }
-                let children = self.tracking.children(pid)
-                children.forEach(self.observe)
-                if !children.isEmpty { return }
+            for seconds in intervals {
+                let delay = UInt64(max(seconds, 0) * 1_000_000_000)
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled,
+                      let self,
+                      self.tracking.lookupGeneration == generation,
+                      self.tracking.appPID == pid,
+                      self.tracking.gameID != nil else { return }
+                if self.tracking.hostPID != nil {
+                    self.tracking.lookup = nil
+                    return
+                }
+                let children: [Int32]
+                if self.tracking.usesDefaultChildren {
+                    children = await Task.detached(priority: .utility) { ProcessTree.children(of: pid) }.value
+                    guard !Task.isCancelled,
+                          self.tracking.lookupGeneration == generation,
+                          self.tracking.appPID == pid,
+                          self.tracking.gameID != nil else { return }
+                } else {
+                    children = self.tracking.children(pid)
+                }
+                if !children.isEmpty {
+                    children.forEach(self.observe)
+                    if self.tracking.hostPID == nil {
+                        self.tracking.hostPID = children.first
+                    }
+                    self.tracking.lookup = nil
+                    return
+                }
+                if !self.tracking.isProcessAlive(pid) {
+                    self.tracking.lookup = nil
+                    return
+                }
+            }
+            if let self, self.tracking.lookupGeneration == generation {
+                self.tracking.lookup = nil
             }
         }
     }
 
     /// Listens for org.nxnative.paused.<pid> and org.nxnative.resumed.<pid> of a process of the game.
     func observe(_ pid: Int32) {
-        guard tracking.observesSystem, tracking.observedPIDs.insert(pid).inserted else { return }
+        guard tracking.observedPIDs.insert(pid).inserted, tracking.observesSystem else { return }
         let center = DistributedNotificationCenter.default()
         tracking.observers += [
             center.addObserver(forName: Notification.Name("org.nxnative.paused.\(pid)"), object: nil, queue: .main) { [weak self] _ in
@@ -119,7 +170,9 @@ extension LiveConsoleDriver {
     }
 
     private func endObserving() {
+        tracking.lookupGeneration &+= 1
         tracking.lookup?.cancel()
+        tracking.lookup = nil
         tracking.observers.forEach { DistributedNotificationCenter.default().removeObserver($0) }
         tracking.observers = []
         tracking.observedPIDs = []
