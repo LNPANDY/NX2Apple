@@ -85,11 +85,21 @@ package struct BuildSpace: Equatable, Sendable {
     }
 
     /// The free bytes on the volume of `path` (or of its nearest existing parent), nil when the system cannot say.
-    package static func available(at path: String, fm: FileManager = .default) -> Int64? {
+    /// macOS answers 0 (or nil) for `volumeAvailableCapacityForImportantUsage` on some external drives such as exFAT (#1155),
+    /// so a non-positive or missing answer falls back to `statfs` (`DriveCopy.volume`).
+    package static func available(
+        at path: String,
+        fm: FileManager = .default,
+        importantCapacity: (URL) -> Int64? = {
+            (try? $0.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
+        },
+        fallbackCapacity: (String, FileManager) -> Int64? = { DriveCopy.volume(at: $0, fm: $1)?.freeBytes }
+    ) -> Int64? {
+        guard !path.isEmpty else { return nil }
         var url = URL(fileURLWithPath: path)
         while !fm.fileExists(atPath: url.path), url.path != "/" { url.deleteLastPathComponent() }
-        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        return values?.volumeAvailableCapacityForImportantUsage
+        if let important = importantCapacity(url), important > 0 { return important }
+        return fallbackCapacity(url.path, fm)
     }
 
     package static func text(_ bytes: Int64) -> String { ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
