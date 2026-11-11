@@ -241,7 +241,24 @@ jobs:
       - name: Engine (tools/engine.py sync, issue #214; the tool tests read engine/)
         run: python tools/engine.py sync
       - name: Install ripgrep (the engine/ search test)
-        run: sudo apt-get install -y -qq ripgrep > /dev/null
+        run: |
+          if ! command -v rg > /dev/null
+          then
+            if ! sudo apt-get install -y -qq -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 ripgrep > /dev/null
+            then
+              apt_etc="${APT_ETC:-/etc/apt}"
+              for f in "$apt_etc/sources.list" "$apt_etc"/sources.list.d/*.list "$apt_etc"/sources.list.d/*.sources
+              do
+                if [ -f "$f" ]
+                then
+                  sudo perl -pi -e 's|https?://security\.ubuntu\.com/ubuntu|http://azure.archive.ubuntu.com/ubuntu|g' "$f"
+                fi
+              done
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq -o Acquire::Retries=3 ripgrep > /dev/null
+            fi
+          fi
+          command -v rg > /dev/null
       - name: Install the signing tool's package (tools/release_manifest.py)
         run: python -m pip install -r tools/requirements-release.txt
       - name: Patch, engine and release tool tests
