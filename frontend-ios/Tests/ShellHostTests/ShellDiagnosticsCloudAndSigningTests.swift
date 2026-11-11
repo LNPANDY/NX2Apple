@@ -89,10 +89,12 @@ private enum DMSyncTestWriter {
 }
 
 private final class JoinGate: @unchecked Sendable {
-    private let reached = DispatchSemaphore(value: 0)
     private let proceed = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var pausedOnce = false
+    private var midwayReached = false
+    private var midwayWaiter: CheckedContinuation<Bool, Never>?
+    private var released = false
     private var storedEvents: [DataParts.Progress] = []
 
     var events: [DataParts.Progress] {
@@ -102,25 +104,76 @@ private final class JoinGate: @unchecked Sendable {
     }
 
     func record(_ progress: DataParts.Progress, pauseWhenMidway: Bool = false) {
+        var waiterToResume: CheckedContinuation<Bool, Never>?
         var shouldPause = false
         lock.lock()
         storedEvents.append(progress)
         if pauseWhenMidway, !pausedOnce, progress.doneBytes > 0, progress.doneBytes < progress.totalBytes {
             pausedOnce = true
-            shouldPause = true
+            midwayReached = true
+            waiterToResume = midwayWaiter
+            midwayWaiter = nil
+            shouldPause = !released
         }
         lock.unlock()
+        waiterToResume?.resume(returning: true)
         if shouldPause {
-            reached.signal()
-            proceed.wait()
+            _ = proceed.wait(timeout: .now() + 15.0)
         }
     }
 
-    @discardableResult
-    func waitUntilMidway(timeoutSeconds: TimeInterval = 3.0) -> Bool {
-        reached.wait(timeout: .now() + timeoutSeconds) == .success
+    func waitUntilMidway(timeoutSeconds: TimeInterval = 15.0) async -> Bool {
+        let alreadyReached: Bool = {
+            lock.lock()
+            defer { lock.unlock() }
+            return midwayReached
+        }()
+        if alreadyReached {
+            return true
+        }
+        let timeoutNanoseconds = UInt64(max(0.1, timeoutSeconds) * 1_000_000_000)
+        let timeoutTask = Task.detached { [weak self] in
+            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+            self?.expireMidwayWaiter()
+        }
+        let result = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            var immediate: CheckedContinuation<Bool, Never>?
+            lock.lock()
+            if midwayReached {
+                immediate = continuation
+            } else {
+                midwayWaiter = continuation
+            }
+            lock.unlock()
+            immediate?.resume(returning: true)
+        }
+        timeoutTask.cancel()
+        return result
     }
-    func release() { proceed.signal() }
+
+    private func expireMidwayWaiter() {
+        var expired: CheckedContinuation<Bool, Never>?
+        lock.lock()
+        if !midwayReached {
+            expired = midwayWaiter
+            midwayWaiter = nil
+        }
+        lock.unlock()
+        expired?.resume(returning: false)
+    }
+
+    func release() {
+        var shouldSignal = false
+        lock.lock()
+        if !released {
+            released = true
+            shouldSignal = true
+        }
+        lock.unlock()
+        if shouldSignal {
+            proceed.signal()
+        }
+    }
 }
 
 // MARK: - 1. Wrong-folder data diagnostics (UX 3.3.1)
@@ -240,7 +293,7 @@ private final class JoinGate: @unchecked Sendable {
 
 // MARK: - 2. Real-time `.nxpart` join progress and generation protection (UX 3.3.1)
 
-@MainActor @Suite struct JoiningProgressModelTests {
+@MainActor @Suite(.serialized) struct JoiningProgressModelTests {
     @Test func joinAllReportsMonotonicByteProgressPerTitleID() throws {
         let box = try Sandbox()
         let dir = box.appData.appendingPathComponent(Fixtures.orbit, isDirectory: true)
@@ -282,6 +335,7 @@ private final class JoinGate: @unchecked Sendable {
         }
 
         let gate = JoinGate()
+        defer { gate.release() }
         var cfg = box.config()
         cfg.joinPartSize = Int64(partSize)
         cfg.onJoinProgress = { progress in
@@ -289,7 +343,7 @@ private final class JoinGate: @unchecked Sendable {
         }
 
         let model = ShellHostModel(config: cfg)
-        let reachedMidway = await Task.detached { gate.waitUntilMidway() }.value
+        let reachedMidway = await gate.waitUntilMidway()
         #expect(reachedMidway)
         for _ in 0..<40 {
             if let orbit = model.details.first(where: { $0.id == Fixtures.orbit }),
@@ -321,6 +375,7 @@ private final class JoinGate: @unchecked Sendable {
         try Data("4567".utf8).write(to: dir.appendingPathComponent("romfs.img.nxpart.0001.0002"))
 
         let gate = JoinGate()
+        defer { gate.release() }
         var cfg = box.config()
         cfg.joinPartSize = 4
         cfg.onJoinProgress = { progress in
@@ -328,7 +383,7 @@ private final class JoinGate: @unchecked Sendable {
         }
 
         let model = ShellHostModel(config: cfg)
-        let reachedDeleteMidway = await Task.detached { gate.waitUntilMidway() }.value
+        let reachedDeleteMidway = await gate.waitUntilMidway()
         #expect(reachedDeleteMidway)
 
         // Delete the game while the background join is still in flight, incrementing joinGeneration.
