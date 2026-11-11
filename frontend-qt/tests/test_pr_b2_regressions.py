@@ -1061,12 +1061,16 @@ class LibraryInputsAndModelTests(unittest.TestCase):
         )
         self.assertEqual(f_prof.kind, bf.PROFILE_UPDATE_MISMATCH)
 
-        # 3) Free Apple ID 3-app / 10-App-ID provisioning limit
+        # 3) Free Apple ID 10-App-ID (#1087) vs 3-app active sideload limit
         f_apple = bf.classify(
             'error: Communication with Apple failed: Your maximum App ID limit has been reached. '
             'You may create up to 10 App IDs every 7 days.'
         )
-        self.assertEqual(f_apple.kind, bf.FREE_APPLE_ID_LIMIT)
+        self.assertEqual(f_apple.kind, bf.APP_ID_LIMIT)
+        f_three = bf.classify(
+            'ERROR: This device has reached the maximum number of installed apps using a free developer profile (code -36607).'
+        )
+        self.assertEqual(f_three.kind, bf.FREE_APPLE_ID_LIMIT)
 
         # 4) All 12 new localization keys across all 10 languages contain zero ASCII or fullwidth semicolons
         new_keys = (

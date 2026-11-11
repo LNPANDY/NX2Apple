@@ -18,7 +18,7 @@ package enum BuildFailureKind: String, CaseIterable {
     /// The build's and the install's own steps.
     /// The offline Metal archive ran out of space or stopped at its own space estimate.
     case psoDiskFull
-    case diskFull, teamTaken, noSigningAccount, freeAccountLimit, deviceTransfer
+    case diskFull, teamTaken, noSigningAccount, freeAccountLimit, appIDLimit, deviceTransfer
     /// The build folder is in iCloud Drive or another cloud folder (CloudFolder.swift): the launcher stops before the build, and the
     /// codesign line of xcodebuild is the same stop for a build that got past that check.
     case cloudFolder

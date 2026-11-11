@@ -33,6 +33,7 @@ VOLUME_FORMAT = 'volumeFormat'
 STALE_PROFILE = 'staleProfile'
 METAL_TOOLCHAIN = 'metalToolchain'
 PROFILE_UPDATE_MISMATCH = 'profileUpdateMismatch'
+APP_ID_LIMIT = 'appIDLimit'
 FREE_APPLE_ID_LIMIT = 'freeAppleIdLimit'
 UNKNOWN = 'unknown'
 
@@ -74,7 +75,24 @@ KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_R
          KEYS, SEVERAL_GAMES, NO_TITLE_ID, KEYS_OLD, DISK_FULL, PSO_DISK_FULL, CLOUD_FOLDER, VOLUME_FORMAT, STALE_PROFILE]
 
 # Additional Qt failure classifications for high-frequency Xcode MetalToolchain, update/profile mismatch, and free Apple ID signing limits.
-EXTRA_KINDS = [METAL_TOOLCHAIN, PROFILE_UPDATE_MISMATCH, FREE_APPLE_ID_LIMIT]
+APP_ID_LIMIT_PATTERN = (
+    r'(?i)(?:maximum App ID limit|(?:create|register) (?:up to|more than) 10 App IDs'
+    r'|10 App IDs[^\n]{0,30}7[- ]day|Reached the maximum number of[^\n]{0,40}App IDs|MaximumAppIDLimitReached'
+    r'|(?:DVTPortal\w*|IDEProvisioning\w*|DVTProvisioning\w*|resultCode)\b[^\n]{0,80}(?<!\d)9120(?!\d)'
+    r'|(?:App ID|bundle identifier|provisioning|development team|Communication with Apple|Apple Developer|register bundle)'
+    r'[^\n]{0,160}(?:\(\s*9120\s*\)|(?:\bcode\b|\berror\b|resultCode)\s*[=:]?\s*9120(?!\d))'
+    r'|(?:\(\s*9120\s*\)|(?:\bcode\b|\berror\b|resultCode)\s*[=:]?\s*9120(?!\d))'
+    r'[^\n]{0,160}(?:App ID|bundle identifier|provisioning|development team|Communication with Apple|Apple))'
+)
+_APP_ID_RESET = re.compile(
+    r'(?i)(?:expires?|frees? up|available(?: again)?|resets?|try again|until)\s+(?:on|after|at)?\s*'
+    r'(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\s*(?:UTC|GMT|Z|[+-]\d{2}:?\d{2}))?)?'
+    r'|(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?'
+    r'|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}'
+    r'(?:\s+(?:at\s+)?\d{1,2}:\d{2}(?:\s*[AP]M)?(?:\s*(?:UTC|GMT))?)?)'
+)
+
+EXTRA_KINDS = [METAL_TOOLCHAIN, PROFILE_UPDATE_MISMATCH, APP_ID_LIMIT, FREE_APPLE_ID_LIMIT]
 EXTRA_TABLE: list[tuple[str, str, str]] = [
     (
         'metal.toolchain',
@@ -87,9 +105,14 @@ EXTRA_TABLE: list[tuple[str, str, str]] = [
         r'(?:no NSP for update [^\n]+the game profile needs these versions:|not the versions the profile registers|game profile [^\n]+(?:registers [^\n]+with its update in the folder|has no build for v\d+)|the version to pack \(-p / PACKAGE\) is not in the folder|requested version v?\d+ is not in the input folder)',
     ),
     (
+        'signing.appIDLimit',
+        APP_ID_LIMIT,
+        APP_ID_LIMIT_PATTERN,
+    ),
+    (
         'appleid.freeLimit',
         FREE_APPLE_ID_LIMIT,
-        r'(?:maximum number of provisioned iOS devices|maximum number of installed apps|cannot register more than 10 App IDs|App IDs in a 7[- ]day|up to 10 App IDs every 7 days|maximum App ID limit has been reached|Reached the maximum number of[^\n]*App IDs|free developer account[^\n]*(?:3 apps|10 App IDs)|MaximumAppIDLimitReached|code -36607)',
+        r'(?i)(?:maximum number of (?:provisioned iOS devices|installed apps|provisioning profiles|apps for free development profiles)|free developer account[^\n]*3 apps|code -36607)',
     ),
 ]
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
@@ -135,7 +158,18 @@ def _detail(kind: str, log: str) -> str | None:
     if kind == NO_TITLE_ID:   # "no game package with a readable content meta in /path" (engines before c78d7375: "no NSP with a readable title ID in /path")
         m = re.search(r'(?m)no (?:NSP|game package) with a readable (?:title ID|content meta) in (.+)$', log)
         return m.group(1).strip() if m else None
+    if kind == APP_ID_LIMIT:
+        return app_id_limit_reset(log)
     return None
+
+
+def app_id_limit_reset(log: str) -> str | None:
+    """Extracts the date when the oldest App ID slot frees up, when the signing log names it."""
+    m = _APP_ID_RESET.search(log)
+    if not m:
+        return None
+    val = m.group(1).strip(' \t\r\n.')
+    return val or None
 
 
 def _selectable_titles(log: str) -> tuple[str, ...]:

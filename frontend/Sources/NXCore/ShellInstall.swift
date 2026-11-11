@@ -136,6 +136,7 @@ package enum ShellInstall {
     /// "No profiles for" that identifier, and must still be retried under team B's. The variant itself is never retried.
     package static func retryUnderTeamVariant(_ output: String, attempted: String, variant: String) -> Bool {
         attempted != variant
+            && !BuildFailureClassifier.appIDLimitReached(output)
             && (output.contains("cannot be registered to your development team") || output.contains("No profiles for '\(attempted)'"))
     }
 
@@ -431,6 +432,17 @@ package struct ShellInstaller {
             }
         }
         if built.status != 0 {
+            if BuildFailureClassifier.appIDLimitReached(built.output) {
+                let line = built.output.split(whereSeparator: \.isNewline)
+                    .map(String.init)
+                    .last { BuildFailureClassifier.appIDLimitReached($0) }
+                let why = line ?? built.lastError ?? fmt("msg.exitCode", built.status)
+                end(Self.signStageID, signName, ok: false, detail: why)
+                var out = Outcome(ok: false, message: fmt("dev.signFailed", why), step: .sign, failure: .appIDLimit)
+                out.detail = BuildFailureClassifier.appIDLimitReset(in: built.output)
+                    ?? AppSignature.oldestFreeAppIDExpiry(forTeam: team, lang: lang) ?? ""
+                return out
+            }
             // Xcode follows a destination failure with reasons other destinations are ineligible.
             // Those entries can contain "error:" even though they do not describe the requested device.
             let destinationUnavailable = built.output.split(whereSeparator: \.isNewline).contains {

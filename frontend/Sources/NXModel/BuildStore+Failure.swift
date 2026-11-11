@@ -32,7 +32,11 @@ extension BuildStore {
     package func noteInstallFailure(_ step: BuildFailureClassifier.InstallStep, error: String) {
         let teamsOfMac = devices.readTeams
         let listed = teamsOfMac().contains { $0.id == devices.signingTeam }
-        guard let f = BuildFailureClassifier.classifyInstall(step, error: error, teamListed: listed) else { failure = nil; return }
+        var classified = BuildFailureClassifier.classifyInstall(step, error: error, teamListed: listed)
+        if classified?.kind != .appIDLimit, !logTail.isEmpty, BuildFailureClassifier.appIDLimitReached(logTail) {
+            classified = BuildFailureClassifier.classifyInstall(step, error: logTail, teamListed: listed)
+        }
+        guard let f = classified else { failure = nil; return }
         failure = f
         doneNote = failureWhat(f)
     }
@@ -44,6 +48,7 @@ extension BuildStore {
         if f.kind == .diskFull, let gb = f.detail { return String(format: t("fail.diskFull.whatNeeds"), gb) }
         if f.kind == .psoDiskFull, let gb = f.detail { return String(format: t("fail.psoDiskFull.whatNeeds"), gb) }
         if f.kind == .updateMismatch, let versions = f.detail { return String(format: t("macFail.updateMismatch.whatVersions"), versions) }
+        if f.kind == .appIDLimit, let date = f.detail, !date.isEmpty { return String(format: t("fail.appIDLimit.whatUntil"), date) }
         return t(f.kind.whatKey)
     }
 
@@ -99,7 +104,7 @@ extension BuildStore {
             showFailureFolder()
         case .cloudFolder, .volumeFormat:
             chooseBuildFolder()
-        case .teamTaken, .noSigningAccount, .freeAccountLimit:
+        case .teamTaken, .noSigningAccount, .freeAccountLimit, .appIDLimit:
             openXcode()
         case .deviceTransfer, .devicePairing:
             runBuild()

@@ -128,6 +128,46 @@ class Rows(unittest.TestCase):
                 self.assertTrue(TABLE[f'fail.psoDiskFull.{suffix}'][code], code)
             self.assertIn('%@', TABLE['fail.psoDiskFull.whatNeeds'][code])
         self.assertEqual(bf.classify('[RED] pso_offline: metal-tt failed for applegpu_g18p (exit 1): compiler error').kind, bf.UNKNOWN)
+
+    def test_apple_error_9120_and_lookalikes_across_all_languages(self):
+        real_9120 = (
+            "/tmp/shell/project/DmShell.xcodeproj: error: Failed to register bundle identifier: "
+            "The app identifier \"org.nxnative.shell\" cannot be registered to your development team "
+            "because it is not available. (9120) (in target 'DmShell' from project 'DmShell')\n"
+            "/tmp/shell/project/DmShell.xcodeproj: error: No profiles for 'org.nxnative.shell' were found\n"
+        )
+        f = bf.classify(real_9120)
+        self.assertEqual(f.kind, bf.APP_ID_LIMIT)
+        self.assertIsNone(f.detail)
+
+        with_reset = (
+            'Error Domain=DVTPortalServiceErrorDomain Code=9120 '
+            '"Your maximum App ID limit has been reached. You may create up to 10 App IDs every 7 days. '
+            'The oldest App ID expires on 2026-11-18."'
+        )
+        f_reset = bf.classify(with_reset)
+        self.assertEqual(f_reset.kind, bf.APP_ID_LIMIT)
+        self.assertEqual(f_reset.detail, '2026-11-18')
+
+        for lookalike in (
+            '[240/9120] Compiling App ID shader pipeline...',
+            'Communication with Apple failed on port 9120: connection reset',
+            'error: clang frontend command failed with exit code 1 (pid 9120)',
+            'error: Failed to register bundle identifier (91200)',
+            'error: Failed to register bundle identifier: The app identifier "org.nxnative.shell" cannot be registered to your development team because it is not available.',
+            "error: No profiles for 'org.nxnative.shell' were found",
+            'ERROR: This device has reached the maximum number of installed apps using a free developer profile (code -36607).',
+        ):
+            self.assertNotEqual(bf.classify(lookalike).kind, bf.APP_ID_LIMIT, lookalike)
+
+        for lang in Lang.all():
+            for key in ('fail.appIDLimit.what', 'fail.appIDLimit.whatUntil', 'fail.appIDLimit.next'):
+                text = TABLE[key][lang.code]
+                self.assertTrue(text, f'{lang.code}:{key}')
+                self.assertNotIn(';', text, f'{lang.code}:{key}')
+                self.assertNotIn('；', text, f'{lang.code}:{key}')
+                self.assertNotIn('nx2apple', text.lower(), f'{lang.code}:{key}')
+            self.assertIn('%@', TABLE['fail.appIDLimit.whatUntil'][lang.code])
         self.assertEqual(bf.classify('pso_offline: applegpu_g18p: batch 1/2: ready (compiled)').kind, bf.UNKNOWN)
 
     def test_a_keys_file_that_cannot_be_read_is_known_from_the_file(self):
