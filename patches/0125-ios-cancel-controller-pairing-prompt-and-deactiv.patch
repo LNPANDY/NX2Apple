@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Wed, 11 Nov 2026 11:47:42 +0800
+Subject: [PATCH] iOS: cancel controller pairing prompt and deactivate audio
+ session on teardown
+
+When dm_gamepad_teardown() runs while front_ctrl_support() is waiting on
+its dispatch semaphore, the guest thread previously stayed blocked forever
+in dm_threads_park_all() and the full-screen pairing scrim stayed attached
+to the window. Add cp_teardown() to set g_cp_ok = 0, detach and signal any
+active g_cp_done semaphore once, and remove g_cp_view and its child
+references on the main thread, while guarding front_ctrl_support() against
+late invocation after the host view or Metal layer is gone.
+
+In front_ios_teardown(), after dm_audio_teardown() stops and disposes the
+audio units and session observers are removed, reset the session tracking
+flags and deactivate AVAudioSession with
+AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation so background
+music resumes when returning to the DmShell game library.
+
+Upstream-Status: fork-only
+Reason: Prevent guest thread deadlock and scrim leak when quitting during front_ctrl_support and resume background audio when returning to the DmShell library
+Issue: LNPANDY/NX2Apple#809
+---
+ dm/ios/Sources/DmGamepad.m | 18 ++++++++++++++++--
+ dm/ios/Sources/front_ios.m |  2 ++
+ 2 files changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 6d9ff7d..0e3c942 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -834,6 +834,15 @@ static int cp_waiting(void) {   // connected controllers that are no player yet
+     g_cp_done_btn.enabled = cp_can_confirm(&g_cp);
+ }
+ void dm_gamepad_pads_read(void);
++static void cp_teardown(void) {
++    g_cp = (ctrl_prompt){0};
++    g_cp_confirm = g_cp_cancel = 0;
++    g_cp_ok = 0;
++    [g_cp_view removeFromSuperview];
++    g_cp_view = nil; g_cp_count = nil; g_cp_done_btn = nil; g_cp_target = nil;
++    dispatch_semaphore_t done = g_cp_done; g_cp_done = nil;
++    if (done) dispatch_semaphore_signal(done);
++}
+ // One step of the prompt (a button, a touch on the card, a controller joining, coming or going); returns whether it keeps the game's input
+ static int cp_poll(void) {
+     if (g_cp.phase == CP_IDLE) return 0;
+@@ -844,16 +853,19 @@ static int cp_poll(void) {
+     if (was == CP_OPEN && ph != CP_OPEN) {
+         [g_cp_view removeFromSuperview]; g_cp_view = nil; g_cp_count = nil; g_cp_done_btn = nil;
+         LOG("front end: controller prompt closed: %d players (%s)", joined, g_cp.ok ? "done" : "canceled");
+-        g_cp_ok = g_cp.ok; dispatch_semaphore_signal(g_cp_done);
++        g_cp_ok = g_cp.ok;
++        dispatch_semaphore_t done = g_cp_done; g_cp_done = nil;
++        if (done) dispatch_semaphore_signal(done);
+         ph = cp_step(&g_cp, joined, 0, a, b, 0, 0);   // nothing held: the game has its input at once
+     }
+     if (ph == CP_IDLE) { dm_gamepad_pads_read(); return 0; }   // each controller read as it is now
+     return 1;
+ }
+ int front_ctrl_support(int min, int max) {
+-    if (!front_metal_layer()) return -1;
++    if (!g_view || !front_metal_layer()) return -1;
+     dispatch_semaphore_t done = dispatch_semaphore_create(0);
+     dispatch_async(dispatch_get_main_queue(), ^{
++        if (!g_view || !front_metal_layer()) { g_cp_ok = 0; dispatch_semaphore_signal(done); return; }
+         [g_view reset]; dm_touch_set(NULL, 0);   // nothing the game held stays pressed while the prompt has the input
+         if (g_merge) dm_pad_set(0, 0, 0, 0, 0); else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p]) dm_pad_set_player(p, 0, 0, 0, 0, 0);
+         int a, b; cp_buttons(&a, &b);
+@@ -898,6 +910,8 @@ void dm_gamepad_teardown(void) {
+         [g_view reset];
+         g_view = nil;
+     }
++    if ([NSThread isMainThread]) cp_teardown();
++    else dispatch_sync(dispatch_get_main_queue(), ^{ cp_teardown(); });
+     for (GCController *c in GCController.controllers) {
+         c.extendedGamepad.valueChangedHandler = nil;
+         c.extendedGamepad.buttonHome.pressedChangedHandler = nil;
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index 312e050..17c8c25 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -676,6 +676,8 @@ static void front_ios_teardown(void) {
+     [g_fps_timer invalidate]; g_fps_timer = nil;
+     [g_hq_timer invalidate]; g_hq_timer = nil;
+     for (int i = 0; i < 5; i++) if (g_obs[i]) { [NSNotificationCenter.defaultCenter removeObserver:g_obs[i]]; g_obs[i] = nil; }
++    g_audio_bg = g_audio_intr = g_session_off = 0;
++    [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:nil];
+     if (g_notify_delegate) {
+         UNUserNotificationCenter.currentNotificationCenter.delegate = nil;
+         g_notify_delegate = nil;

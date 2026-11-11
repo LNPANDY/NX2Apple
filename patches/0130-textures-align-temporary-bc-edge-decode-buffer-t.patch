@@ -1,0 +1,124 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Wed, 11 Nov 2026 11:47:57 +0800
+Subject: [PATCH] Textures: align temporary BC edge decode buffer to 8 bytes
+ and wire t_bcdec
+
+Declare the 4x4 RGBA16F/RGBA8 edge decode scratch buffer in nvn_bc_decode()
+with _Alignas(8) because the BC1..BC7 block decoders store 64-bit rows
+through uint64_t pointers. Wire t_bcdec into the texture test Makefile run,
+asan and coverage targets and add edge alignment coverage across all
+supported BC formats under UBSan.
+
+Upstream-Status: fork-only (declined seedds/nxnative#488)
+Reason: Guarantee 8-byte alignment for 64-bit block stores in nvn_bc_decode edge trimming and run t_bcdec in texture test and ASan targets
+Issue: LNPANDY/NX2Apple#123
+---
+ dm/gfx/tex/nvn_bcdec.c      |  2 +-
+ dm/gfx/tex/tests/.gitignore |  1 +
+ dm/gfx/tex/tests/Makefile   | 16 ++++++++++------
+ dm/gfx/tex/tests/t_bcdec.c  | 22 ++++++++++++++++++++++
+ 4 files changed, 34 insertions(+), 7 deletions(-)
+
+diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
+index 21fc7fc..00ebd5e 100644
+--- a/dm/gfx/tex/nvn_bcdec.c
++++ b/dm/gfx/tex/nvn_bcdec.c
+@@ -75,7 +75,7 @@ static void block(uint32_t f, const uint8_t *b, uint8_t *o, int op) {   // 一
+ int nvn_bc_decode(uint32_t f, const uint8_t *src, size_t pitch, uint32_t w, uint32_t h, uint8_t *dst, size_t dpitch) {
+     uint32_t pf; int bpp; if (!nvn_bc_unpacked(f, &pf, &bpp)) return -1;
+     int bb = (f == 0x41 || f == 0x42 || f == 0x45 || f == 0x46 || f == 0x49 || f == 0x4a) ? 8 : 16;   // 每块字节 | bytes per block
+-    uint8_t tmp[4 * 4 * 8];
++    _Alignas(8) uint8_t tmp[4 * 4 * 8];
+     for (uint32_t by = 0; by * 4 < h; by++) for (uint32_t bx = 0; bx * 4 < w; bx++) {
+         const uint8_t *b = src + by * pitch + bx * bb;
+         uint32_t cw = w - bx * 4 < 4 ? w - bx * 4 : 4, ch = h - by * 4 < 4 ? h - by * 4 : 4;
+diff --git a/dm/gfx/tex/tests/.gitignore b/dm/gfx/tex/tests/.gitignore
+index ad72cd1..15d594e 100644
+--- a/dm/gfx/tex/tests/.gitignore
++++ b/dm/gfx/tex/tests/.gitignore
+@@ -1,4 +1,5 @@
+ t_tex
++t_bcdec
+ t_fmt_mtl
+ *.dSYM
+ asan/
+diff --git a/dm/gfx/tex/tests/Makefile b/dm/gfx/tex/tests/Makefile
+index feed9f8..af5f698 100644
+--- a/dm/gfx/tex/tests/Makefile
++++ b/dm/gfx/tex/tests/Makefile
+@@ -6,24 +6,28 @@ O ?=
+ CLANG = clang $(SAN)
+ $(O)t_tex: t_tex.c ../nvn_deswizzle.c ../nvn_deswizzle.h ../../nvn/nvn_tex.c ../../nvn/nvn_tex.h
+ 	$(CLANG) $(CFLAGS) -o $@ t_tex.c ../nvn_deswizzle.c ../../nvn/nvn_tex.c -lm
++$(O)t_bcdec: t_bcdec.c ../nvn_bcdec.c ../nvn_bcdec.h ../../../third_party/bcdec/bcdec.h
++	$(CLANG) $(CFLAGS) -o $@ t_bcdec.c ../nvn_bcdec.c -lm
+ $(O)t_fmt_mtl: t_fmt_mtl.m ../nvn_fmt_mtl.c ../nvn_fmt_mtl.h
+ 	$(CLANG) $(CFLAGS) -fobjc-arc -o $@ t_fmt_mtl.m ../nvn_fmt_mtl.c -framework Metal -framework Foundation
+-run: t_tex t_fmt_mtl
+-	./t_fmt_mtl && ./t_tex
++run: t_tex t_bcdec t_fmt_mtl
++	./t_fmt_mtl && ./t_tex && ./t_bcdec
+ .PHONY: run
+-# ASan and UBSan (../../../sanitizers/sanitizers.mk): the CPU test t_tex, built into asan/ (t_fmt_mtl creates Metal textures and stays local)
++# ASan and UBSan (../../../sanitizers/sanitizers.mk): the CPU tests t_tex and t_bcdec, built into asan/ (t_fmt_mtl creates Metal textures and stays local)
+ include ../../../sanitizers/sanitizers.mk
+ .PHONY: asan
+ asan:
+ 	@$(call san_fresh,asan,$(ASAN_FLAGS))
+-	$(MAKE) O=asan/ SAN="$(ASAN_FLAGS)" asan/t_tex
++	$(MAKE) O=asan/ SAN="$(ASAN_FLAGS)" asan/t_tex asan/t_bcdec
+ 	$(ASAN_ENV) ./asan/t_tex
+-# Line coverage (../../../sanitizers/coverage.mk): t_tex built into cov/ with COV_FLAGS and run; writes cov/coverage.lcov
++	$(ASAN_ENV) ./asan/t_bcdec
++# Line coverage (../../../sanitizers/coverage.mk): t_tex and t_bcdec built into cov/ with COV_FLAGS and run, writing cov/coverage.lcov
+ include ../../../sanitizers/coverage.mk
+ .PHONY: coverage
+ coverage:
+ 	@$(call san_fresh,cov,$(COV_FLAGS))
+ 	rm -rf cov/prof
+-	$(MAKE) O=cov/ SAN="$(COV_FLAGS)" cov/t_tex
++	$(MAKE) O=cov/ SAN="$(COV_FLAGS)" cov/t_tex cov/t_bcdec
+ 	-LLVM_PROFILE_FILE="$(call cov_profile,cov)" ./cov/t_tex
++	-LLVM_PROFILE_FILE="$(call cov_profile,cov)" ./cov/t_bcdec
+ 	@$(call cov_export,cov)
+diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
+index ad495fd..5a40608 100644
+--- a/dm/gfx/tex/tests/t_bcdec.c
++++ b/dm/gfx/tex/tests/t_bcdec.c
+@@ -167,6 +167,27 @@ static void test_bc6h_rgb9e5_switch(void) {
+     nvn_bc_set_bc6h_rgb9e5(0);
+ }
+ 
++__attribute__((noinline))
++static void decode_edge_with_odd_stack(int pad_byte, uint32_t fmt, const unsigned char *blk, int bpp) {
++    volatile char odd[3] = { (char)pad_byte, 1, 2 };
++    (void)odd;
++    _Alignas(8) unsigned char dst[3 * 3 * 8];
++    memset(dst, 0xCD, sizeof dst);
++    check(nvn_bc_decode(fmt, blk, fmt == 0x41 ? 8 : 16, 3, 3, dst, (size_t)(3 * bpp)) == 0, "edge decode stays aligned across stack layouts");
++}
++
++static void test_edge_tmp_alignment(void) {
++    unsigned char blk8[8] = { 0x00, 0xf8, 0xe0, 0x07, 0xaa, 0x55, 0x00, 0xff };
++    unsigned char blk16[16] = { 0x03, 0x20, 0x40, 0x61, 0x82, 0xA3, 0xC4, 0xE5, 0x16, 0x27, 0x38, 0x49, 0x5A, 0x6B, 0x7C, 0x8D };
++    nvn_bc_set_bc6h_rgb9e5(0);
++    decode_edge_with_odd_stack(7, 0x41, blk8, 4);
++    decode_edge_with_odd_stack(7, 0x4d, blk16, 4);
++    decode_edge_with_odd_stack(7, 0x50, blk16, 8);
++    nvn_bc_set_bc6h_rgb9e5(1);
++    decode_edge_with_odd_stack(7, 0x50, blk16, 4);
++    nvn_bc_set_bc6h_rgb9e5(0);
++}
++
+ int main(void) {
+     test_bc1_matches_reference();
+     test_formats_map();
+@@ -174,6 +195,7 @@ int main(void) {
+     test_bc4_single_channel();
+     test_rgb9e5_pack();
+     test_bc6h_rgb9e5_switch();
++    test_edge_tmp_alignment();
+     if (failures) { printf("%d check(s) failed\n", failures); return 1; }
+     printf("bc decode: BC1 matches an independent DXT1 decoder, format map, edge trimming, BC4 - all OK\n");
+     return 0;
