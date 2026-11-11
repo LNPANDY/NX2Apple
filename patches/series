@@ -89,3 +89,5 @@
 0128-haptics-reset-rumble-settings-on-teardown-and-ad.patch
 0129-mac-guard-background-hide-timer-generation-and-f.patch
 0130-textures-align-temporary-bc-edge-decode-buffer-t.patch
+0131-ios-isolate-dmshellgame-objective-c-classes-and.patch
+0132-ios-preserve-unaligned-bss-head-and-tail-bytes-i.patch
