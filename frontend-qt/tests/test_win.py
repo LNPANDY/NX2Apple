@@ -4020,6 +4020,10 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 self.assertEqual(Path(m.archive_path), dest)
                 self.assertEqual((dest / 'romfs.img').read_bytes(), img_new)
                 self.assertEqual((dest / 'romfs.img.id').read_bytes(), id_bytes)
+                self.assertFalse((v0 / 'RomFS.img').exists())
+                self.assertFalse((v65536 / 'RomFS.img').exists())
+                self.assertFalse((v131072 / 'RomFS.img').exists())
+                self.assertFalse((v131072 / 'RomFS.img.id').exists())
 
                 updated_launcher = json.loads((fw_dm / 'launcher.json').read_text(encoding='utf-8'))
                 lang_row = updated_launcher['settings'][0]
@@ -4030,7 +4034,7 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 self.assertEqual(lang_row['note'], '')
 
                 # When the extracted image has no .id file on a subsequent archive, any stale romfs.img.id is removed
-                (v131072 / 'RomFS.img.id').unlink()
+                (v131072 / 'RomFS.img').write_bytes(img_new)
                 self.assertEqual(m.pack_archive(title_id=tid), (True, ''))
                 self.assertFalse((dest / 'romfs.img.id').exists())
 

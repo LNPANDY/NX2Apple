@@ -35,12 +35,14 @@ import time
 from pathlib import Path
 
 if __package__:
+    from .. import post_build_cleanup as pbc
     from . import toolchain as tc
     from . import fix_ipa_modes
     from . import macho_sign
     from . import IOS_CPU, IOS_DEPLOYMENT
 else:                                       # pragma: no cover - script mode
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from nspb_qt import post_build_cleanup as pbc
     from nspb_qt.win import toolchain as tc
     from nspb_qt.win import fix_ipa_modes
     from nspb_qt.win import macho_sign
@@ -742,6 +744,7 @@ def build_pso_archive(repo: Path, w: Path, game: str, gd: Path, gp, gfx: str,
         t('[RED] pipeline archive: pso_offline.py failed; building without one')
         shutil.rmtree(pso, ignore_errors=True)
         return None
+    pbc.clean_pso_batches(w / 'build/ios/pso/work')
     return pso
 
 
@@ -1127,13 +1130,12 @@ def main(argv: list[str] | None = None) -> int:
             if not (target_img.is_file()
                     and target_img.stat().st_size == lib_src.stat().st_size
                     and abs(target_img.stat().st_mtime - lib_src.stat().st_mtime) < 1):
-                shutil.copy2(lib_src, target_img)
+                pbc.link_or_copy_file(lib_src, target_img)
             keep_name = f'{msldir}.img'
         else:
             (msl_dst / f'{msldir}.img').unlink(missing_ok=True)
             target_dir = msl_dst / msldir
-            shutil.rmtree(target_dir, ignore_errors=True)
-            shutil.copytree(lib_src, target_dir)
+            pbc.link_or_copy_tree(lib_src, target_dir)
             keep_name = msldir
         for old in list(msl_dst.iterdir()):
             if old.name != keep_name:
@@ -1143,8 +1145,7 @@ def main(argv: list[str] | None = None) -> int:
                     old.unlink(missing_ok=True)
 
         if pso and pso.is_dir():
-            shutil.rmtree(out_fw / 'pso', ignore_errors=True)
-            shutil.copytree(pso, out_fw / 'pso')
+            pbc.link_or_copy_tree(pso, out_fw / 'pso')
         else:
             shutil.rmtree(out_fw / 'pso', ignore_errors=True)
 

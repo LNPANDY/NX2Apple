@@ -1269,23 +1269,40 @@ class BuildFolderReport:
 
 class BuildFolder:
     PART_ORDER = ['extracted', 'shaders', 'oldShaders', 'xcode', 'caches']
+    _CHAIN_VER_RE = re.compile(r'^(?:mac-)?(b-[0-9a-f]{12})(?:\.key|\.img(?:\.part)?)?$')
 
     @staticmethod
-    def size(path: str) -> int:
-        if not path or not os.path.exists(path):
+    def size(path: str, seen_inodes: set[tuple[int, int]] | None = None) -> int:
+        if not path or not os.path.lexists(path):
             return 0
-        if os.path.isfile(path) or os.path.islink(path):
-            try:
-                return os.path.getsize(path)
-            except OSError:
-                return 0
+        seen = seen_inodes if seen_inodes is not None else set()
+        try:
+            st0 = os.lstat(path)
+        except OSError:
+            return 0
+        if stat.S_ISLNK(st0.st_mode):
+            return 0
+        if stat.S_ISREG(st0.st_mode):
+            if st0.st_ino != 0:
+                ident = (st0.st_dev, st0.st_ino)
+                if ident in seen:
+                    return 0
+                seen.add(ident)
+            return st0.st_size
         total = 0
-        for root, _, files in os.walk(path):
+        for root, _, files in os.walk(path, followlinks=False):
             for f in files:
                 fp = os.path.join(root, f)
                 try:
-                    if not os.path.islink(fp):
-                        total += os.path.getsize(fp)
+                    st = os.lstat(fp)
+                    if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+                        continue
+                    if st.st_ino != 0:
+                        ident = (st.st_dev, st.st_ino)
+                        if ident in seen:
+                            continue
+                        seen.add(ident)
+                    total += st.st_size
                 except OSError:
                     pass
         return total
@@ -1298,33 +1315,108 @@ class BuildFolder:
         return None
 
     @staticmethod
-    def inspect(folder: str, title_id: str) -> BuildFolderReport:
+    def part_of(name: str, title_id: str = '') -> str | None:
+        base = name
+        for suffix in ('.key', '.partial'):
+            if base.endswith(suffix) and len(base) > len(suffix):
+                base = base[:-len(suffix)]
+        tid_up = title_id.upper()
+        if base in ('extract', 'exefs', 'nsp') or (tid_up and base.upper() == tid_up):
+            return 'extracted'
+        if base in ('shader', 'pso', 'shaders', 'shader_cache', 'ios_shaders', 'mac_shaders'):
+            return 'shaders'
+        if base in ('xcode', 'xcode-derived-data', 'ipa', 'shell-framework', 'ios_xcode', 'app_build', 'build'):
+            return 'xcode'
+        if base in ('tools', 'tmp', 'aoc', 'font') or base.startswith('patched_') or base.startswith('nro_'):
+            return 'caches'
+        return None
+
+    @classmethod
+    def stale_shader_entries(cls, folder: str, chain: str | None = None) -> list[str]:
+        by_ver: dict[str, list[str]] = {}
+        sh = os.path.join(folder, 'shader')
+        if os.path.isdir(sh):
+            scans = (
+                (os.path.join(sh, 'cache'), True, True),
+                (os.path.join(sh, 'ios'), True, True),
+                (sh, False, True),
+            )
+            for d, allow_dir, allow_file in scans:
+                if not os.path.isdir(d):
+                    continue
+                try:
+                    names = sorted(os.listdir(d))
+                except OSError:
+                    continue
+                for n in names:
+                    m = cls._CHAIN_VER_RE.match(n)
+                    if not m:
+                        continue
+                    full = os.path.join(d, n)
+                    is_d = os.path.isdir(full) and not os.path.islink(full)
+                    is_f = os.path.isfile(full) and not os.path.islink(full)
+                    if (is_d and allow_dir and n == m.group(1)) or (is_f and allow_file and n != m.group(1)):
+                        by_ver.setdefault(m.group(1), []).append(full)
+
+        if chain:
+            keep = chain if chain.startswith('b-') else f'b-{chain}'
+            out: list[str] = []
+            for ver in sorted(by_ver):
+                if ver != keep:
+                    out.extend(by_ver[ver])
+            return out
+
+        if len(by_ver) > 1:
+            def _ver_mtime(ver: str) -> float:
+                mtimes = []
+                for p in by_ver[ver]:
+                    try:
+                        mtimes.append(os.path.getmtime(p))
+                    except OSError:
+                        pass
+                return max(mtimes) if mtimes else 0.0
+
+            ordered = sorted(by_ver.keys(), key=lambda v: (_ver_mtime(v), v))
+            out = []
+            for ver in ordered[:-1]:
+                out.extend(by_ver[ver])
+            return out
+        return []
+
+    @classmethod
+    def inspect(cls, folder: str, title_id: str, *, chain: str | None = None) -> BuildFolderReport:
         if not folder or not os.path.isdir(folder):
             return BuildFolderReport(folder=folder or '', items=[], kept_bytes=0)
 
         tid = title_id.upper()
-        extracted_paths: list[str] = []
-        shader_paths: list[str] = []
-        old_shader_paths: list[str] = []
-        xcode_paths: list[str] = []
-        cache_paths: list[str] = []
+        buckets: dict[str, list[str]] = {
+            'extracted': [],
+            'shaders': [],
+            'xcode': [],
+            'caches': [],
+        }
+        old_shader_paths: list[str] = cls.stale_shader_entries(folder, chain=chain)
         kept_paths: list[str] = []
 
-        tid_dir = os.path.join(folder, tid)
-        if os.path.isdir(tid_dir):
-            extracted_paths.append(tid_dir)
+        try:
+            entries = sorted(os.listdir(folder))
+        except OSError:
+            entries = []
 
-        for sub in ('shaders', 'shader_cache', 'ios_shaders', 'mac_shaders'):
-            p = os.path.join(folder, sub)
-            if os.path.exists(p):
-                shader_paths.append(p)
-                # Look for older shader chain directories inside
-                if os.path.isdir(p):
+        for name in entries:
+            full = os.path.join(folder, name)
+            part = cls.part_of(name, tid)
+            if part is None:
+                kept_paths.append(full)
+            else:
+                buckets[part].append(full)
+                # Legacy `shaders/b-*` fallback for older layouts
+                if name in ('shaders', 'shader_cache', 'ios_shaders', 'mac_shaders') and os.path.isdir(full):
                     try:
                         chains = [
-                            os.path.join(p, d)
-                            for d in os.listdir(p)
-                            if d.startswith('b-') and os.path.isdir(os.path.join(p, d))
+                            os.path.join(full, d)
+                            for d in os.listdir(full)
+                            if d.startswith('b-') and os.path.isdir(os.path.join(full, d))
                         ]
                         if len(chains) > 1:
                             chains.sort(key=lambda x: os.path.getmtime(x))
@@ -1332,38 +1424,21 @@ class BuildFolder:
                     except OSError:
                         pass
 
-        for sub in ('ios_xcode', 'xcode', 'app_build', 'build'):
-            p = os.path.join(folder, sub)
-            if os.path.exists(p):
-                xcode_paths.append(p)
-
-        known = {tid, 'shaders', 'shader_cache', 'ios_shaders', 'mac_shaders', 'ios_xcode', 'xcode', 'app_build', 'build'}
-        kept_names = {'run', 'saves', 'build.log', 'game.tsv'}
-        try:
-            for name in os.listdir(folder):
-                if name in known:
-                    continue
-                full = os.path.join(folder, name)
-                if name in kept_names or name.endswith('.log') or name.endswith('.tsv') or name.endswith('.nsp'):
-                    kept_paths.append(full)
-                else:
-                    cache_paths.append(full)
-        except OSError:
-            pass
-
+        seen_main: set[tuple[int, int]] = set()
         items: list[BuildFolderItem] = []
-        for part, plist in (
-            ('extracted', extracted_paths),
-            ('shaders', shader_paths),
-            ('oldShaders', old_shader_paths),
-            ('xcode', xcode_paths),
-            ('caches', cache_paths),
-        ):
-            b = sum(BuildFolder.size(p) for p in plist)
+        for part in cls.PART_ORDER:
+            if part == 'oldShaders':
+                seen_old: set[tuple[int, int]] = set()
+                b = sum(cls.size(p, seen_old) for p in old_shader_paths)
+                if b > 0:
+                    items.append(BuildFolderItem(part=part, bytes=b, paths=old_shader_paths))
+                continue
+            plist = buckets[part]
+            b = sum(cls.size(p, seen_main) for p in plist)
             if b > 0:
                 items.append(BuildFolderItem(part=part, bytes=b, paths=plist))
 
-        kept_bytes = sum(BuildFolder.size(p) for p in kept_paths)
+        kept_bytes = sum(cls.size(p, seen_main) for p in kept_paths)
         return BuildFolderReport(folder=folder, items=items, kept_bytes=kept_bytes)
 
     @staticmethod
