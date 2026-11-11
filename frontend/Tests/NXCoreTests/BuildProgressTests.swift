@@ -152,4 +152,75 @@ final class BuildProgressTests: XCTestCase {
         XCTAssertEqual(BuildProgress.psoArchiveProgress(workDir: tmp.path),
                        PSOArchiveProgress(done: 2, total: 5, merging: false))
     }
+
+    /// Issue #1131: Xcode 27.2 SDK emits `static Foundation.Date.>=(_:_:)` (`_$s10Foundation4DateV2geoiySbAC_ACtFZ`) as a
+    /// weak-imported symbol under `-O`, and early macOS 27.2 betas pass the version check while binding the symbol to NULL (`pc = 0`).
+    /// Compiling the affected sources under `-O` must never emit any weak-imported `Foundation.Date` symbol, while preserving `>=`
+    /// boundary timestamps at `rootMtime - 2`.
+    func testOptimizedDateComparisonsEmitNoWeakImportedFoundationDateSymbols() throws {
+        let fm = FileManager.default
+        let tmp = fm.temporaryDirectory.appendingPathComponent("pso-date-weak-" + UUID().uuidString)
+        try fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: tmp) }
+
+        // Verify exact `cutoff = rootMtime - 2` inclusive boundary in psoArchiveProgress.
+        let rootDate = Date(timeIntervalSince1970: 1_700_000_100)
+        let exactCutoff = rootDate.addingTimeInterval(-2)
+        let staleDate = rootDate.addingTimeInterval(-3)
+        let iosWork = tmp.appendingPathComponent("ipa/build/ios/pso/work")
+        let arch = "applegpu_g14g"
+        let b1 = iosWork.appendingPathComponent("batches.\(arch)/00001")
+        let b2 = iosWork.appendingPathComponent("batches.\(arch)/00002")
+        try fm.createDirectory(at: b1, withIntermediateDirectories: true)
+        try fm.createDirectory(at: b2, withIntermediateDirectories: true)
+        let entry = #"{"vertex_function_descriptor":"v"}"#
+        let jsText = "{\"pipelines\":[" + Array(repeating: entry, count: 1500).joined(separator: ",") + "]}\n"
+        let rootJS = iosWork.appendingPathComponent("bases.mtl4-json")
+        try Data(jsText.utf8).write(to: rootJS)
+        try fm.setAttributes([.modificationDate: rootDate], ofItemAtPath: rootJS.path)
+        for (dir, date) in [(b1, exactCutoff), (b2, staleDate)] {
+            let bjs = dir.appendingPathComponent("bases.mtl4-json")
+            try Data("{}".utf8).write(to: bjs)
+            try fm.setAttributes([.modificationDate: date], ofItemAtPath: bjs.path)
+            try Data("archive".utf8).write(to: dir.appendingPathComponent("\(arch).mtl4a"))
+            try Data("k\n".utf8).write(to: dir.appendingPathComponent("key.\(arch)"))
+        }
+        XCTAssertEqual(BuildProgress.psoArchiveProgress(workDir: tmp.path),
+                       PSOArchiveProgress(done: 1, total: 2, merging: false))
+
+        let frontend = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let stub = tmp.appendingPathComponent("ConsoleGlyphsStub.swift")
+        try Data("enum ConsoleGlyphs { struct Glyph: Equatable {} }\n".utf8).write(to: stub)
+
+        let units: [(name: String, sources: [String])] = [
+            ("BuildProgressCheck", [frontend.appendingPathComponent("Sources/NXCore/BuildProgress.swift").path]),
+            ("PlaySessionsCheck", [frontend.appendingPathComponent("Sources/NXCore/PlaySessions.swift").path]),
+            ("ConsoleNoticesCheck", [
+                frontend.appendingPathComponent("Sources/NX2Apple/ConsoleNotices.swift").path,
+                stub.path,
+            ]),
+        ]
+
+        let runner = SystemProcessRunner()
+        for unit in units {
+            let obj = tmp.appendingPathComponent(unit.name + ".o").path
+            let compile = runner.capture(ProcessLaunch(
+                executable: "/usr/bin/xcrun",
+                arguments: ["swiftc", "-O", "-wmo", "-parse-as-library", "-module-name", unit.name, "-package-name", "frontend", "-c"]
+                    + unit.sources + ["-o", obj],
+                mergesErrors: true
+            ))
+            XCTAssertEqual(compile.status, 0, "swiftc failed for \(unit.name): \(compile.out)")
+            let symbols = runner.capture(ProcessLaunch(executable: "/usr/bin/xcrun", arguments: ["nm", "-m", obj], mergesErrors: true))
+            XCTAssertEqual(symbols.status, 0, "nm failed for \(unit.name): \(symbols.out)")
+            let weakDateSymbols: [String] = symbols.out
+                .split(separator: "\n")
+                .map(String.init)
+                .filter { $0.contains("(undefined) weak") && $0.contains("Foundation4DateV") }
+            XCTAssertEqual(weakDateSymbols, [String](), "\(unit.name) emitted weak-imported Foundation.Date symbol(s)")
+        }
+    }
 }

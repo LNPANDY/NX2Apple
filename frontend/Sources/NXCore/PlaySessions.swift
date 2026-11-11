@@ -20,7 +20,10 @@ package struct PlayRecord: Codable, Equatable, Sendable {
     }
 
     /// When the game was last played: the end of the last session, or its start while it runs or when its end is not known.
-    package var lastPlayed: Date { max(lastEnd ?? lastStart, lastStart) }
+    package var lastPlayed: Date {
+        guard let lastEnd, lastEnd.timeIntervalSinceReferenceDate >= lastStart.timeIntervalSinceReferenceDate else { return lastStart }
+        return lastEnd
+    }
     /// A session started and has not ended yet.
     package var isOpen: Bool { lastEnd.map { $0 < lastStart } ?? true }
 }
@@ -51,7 +54,7 @@ package struct PlaySessions: Equatable, Sendable {
         guard var record = records[key], record.isOpen else { return }
         let played = date.timeIntervalSince(record.lastStart) - max(paused, 0)
         if played.isFinite, played > 0 { record.seconds += played }
-        record.lastEnd = max(date, record.lastStart)
+        record.lastEnd = date.timeIntervalSinceReferenceDate >= record.lastStart.timeIntervalSinceReferenceDate ? date : record.lastStart
         record.endedUnexpectedly = unexpectedly
         records[key] = record
     }
@@ -76,7 +79,9 @@ package struct PlaySessions: Equatable, Sendable {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let file = try? decoder.decode(File.self, from: data) else { return PlaySessions() }
-        return PlaySessions(records: Dictionary(file.games.map { (key($0.key), $0.value) }) { a, b in a.lastPlayed >= b.lastPlayed ? a : b })
+        return PlaySessions(records: Dictionary(file.games.map { (key($0.key), $0.value) }) { a, b in
+            a.lastPlayed.timeIntervalSinceReferenceDate >= b.lastPlayed.timeIntervalSinceReferenceDate ? a : b
+        })
     }
 
     package func encode() -> Data {
