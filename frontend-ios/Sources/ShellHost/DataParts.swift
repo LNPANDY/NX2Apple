@@ -16,6 +16,8 @@ import Foundation
 public enum DataParts {
     /// The size of every part but the last: 512 MiB. The same value as `ShellDataParts.partSize` in the launcher.
     public static let partSize: Int64 = 512 << 20
+    /// Upper bound on part count per file so a damaged or crafted filename cannot spin a huge loop or overflow offsets.
+    static let maxParts = 65_536
     static let marker = ".nxpart."
     static let joinSuffix = ".nxjoin"
     public static let featuresName = "shell-features.txt"
@@ -28,8 +30,10 @@ public enum DataParts {
         guard let range = name.range(of: marker, options: .backwards) else { return nil }
         let file = String(name[..<range.lowerBound])
         let numbers = name[range.upperBound...].split(separator: ".", omittingEmptySubsequences: false)
-        guard !file.isEmpty, numbers.count == 2, let index = Int(numbers[0]), let count = Int(numbers[1]),
-              count > 0, index >= 0, index < count else { return nil }
+        guard !file.isEmpty, file != ".", file != "..", numbers.count == 2,
+              numbers.allSatisfy({ !$0.isEmpty && $0.allSatisfy({ $0.isASCII && $0.isNumber }) }),
+              let index = Int(numbers[0]), let count = Int(numbers[1]),
+              count > 0, count <= maxParts, index >= 0, index < count else { return nil }
         return Name(file: file, index: index, count: count)
     }
 
@@ -44,6 +48,7 @@ public enum DataParts {
     /// Joins every complete set of parts under `appDataRoot` (`Documents/games`). Returns the files that were made whole.
     @discardableResult
     public static func joinAll(appDataRoot: URL, partSize: Int64 = partSize, fileManager fm: FileManager = .default) -> [URL] {
+        guard partSize > 0 else { return [] }
         var sets: [String: (folder: URL, file: String, count: Int, parts: [Int: URL])] = [:]
         guard let walk = fm.enumerator(at: appDataRoot, includingPropertiesForKeys: [.isRegularFileKey]) else { return [] }
         for case let url as URL in walk {
@@ -66,13 +71,21 @@ public enum DataParts {
     /// One set. True when `file` is whole now.
     static func join(file: URL, count: Int, parts: [Int: URL], partSize: Int64, fm: FileManager) -> Bool {
         func size(_ url: URL) -> Int64? { ((try? fm.attributesOfItem(atPath: url.path))?[.size] as? NSNumber)?.int64Value }
-        guard let first = parts.keys.min(), (first..<count).allSatisfy({ parts[$0] != nil }) else { return false }
+        guard partSize > 0, count > 0, count <= maxParts,
+              let first = parts.keys.min(), let last = parts.keys.max(),
+              first >= 0, last < count else { return false }
+        let fullParts = Int64(count - 1)
+        guard fullParts <= Int64.max / partSize,
+              (first..<count).allSatisfy({ parts[$0] != nil }) else { return false }
+        let prefixBytes = fullParts * partSize
         // Every part but the last is one part long, the last one at most that: anything else is not a set this app can join
         for (index, url) in parts {
-            guard let s = size(url), index == count - 1 ? (s > 0 && s <= partSize) : s == partSize else { return false }
+            guard let s = size(url),
+                  index == count - 1 ? (s > 0 && s <= partSize && s <= Int64.max - prefixBytes) : s == partSize else { return false }
         }
         let join = URL(fileURLWithPath: file.path + joinSuffix)
-        let done = Int64(first) * partSize
+        let (done, doneOverflow) = Int64(first).multipliedReportingOverflow(by: partSize)
+        guard !doneOverflow, done >= 0 else { return false }
         if first == 0 {
             try? fm.removeItem(at: join)
             guard fm.createFile(atPath: join.path, contents: nil) else { return false }

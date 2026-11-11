@@ -515,13 +515,16 @@ public struct ShellHostConfig: Sendable {
 
     // MARK: Delete
 
-    /// Deletes the game's folder in this app (its saves only when `saves`), forgets the folder the player picked for its data
-    /// (that folder is the player's and is not touched) and when it was played, and takes the game off the list. The game's
-    /// framework inside the app stays: see `GameDeletion`.
+    /// Deletes the game's folder in this app (its saves only when `saves`), forgets the folders the player picked for its data
+    /// and cloud saves (those folders are the player's and are not touched) and when it was played, and takes the game off the
+    /// list. The game's framework inside the app stays: see `GameDeletion`.
     public func deleteGame(_ id: String, saves: Bool) {
         guard let entry = entry(id) else { return }
         let failed = GameDeletion.delete(in: appFolder(for: id), saves: saves)
         dataStore(id).clear()
+        cloudStore(id).clear()
+        dataStores.removeValue(forKey: id)
+        cloudStores.removeValue(forKey: id)
         let defaults = config.defaults(id)
         defaults.removeObject(forKey: LastPlayedStore.key)
         defaults.set(GameDeletion.stamp(entry), forKey: GameDeletion.deletedKey)

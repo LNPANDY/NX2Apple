@@ -193,10 +193,12 @@ public struct DataResolution: Equatable, Sendable {
 
 /// The same order as the per-game app's `romfs_locate` (dm/ios/Sources/main.m): the picked location first, then the
 /// app's `Documents/games/<title ID>/`, each accepted only when it holds the game's image or marker. It differs by the
-/// shell-level folder, which the per-game app has no counterpart for: one folder serves every game. The order is the game's
-/// own pick, then in the shell folder `shellMatch` (the folder of the image with the game's identity, found by
-/// `ShellDataIndex` whatever the folder is called), `<folder>/<title ID>/` by name, the folder itself
-/// (the layout for a single game), and last the app's folder. All shell folder cases say `.shell`.
+/// `<picked>/<title ID>/` subfolder fallback (matching the launchers' Copy to drive export layout when the player picks
+/// the drive root for one game) and by the shell-level folder, which the per-game app has no counterpart for: one folder
+/// serves every game. The order is the game's own pick (`<picked>` then `<picked>/<title ID>/` in any letter case), then
+/// in the shell folder `shellMatch` (the folder of the image with the game's identity, found by `ShellDataIndex` whatever
+/// the folder is called), `<folder>/<title ID>/` by name, the folder itself (the layout for a single game), and last the
+/// app's folder. All shell folder cases say `.shell`.
 public enum DataLocator {
     public static func locate(manifest: GameManifest, picked: BookmarkResolution, appFolder: URL, fileManager fm: FileManager = .default,
                               global: BookmarkResolution = .none, shellMatch: URL? = nil) -> DataResolution {
@@ -209,8 +211,8 @@ public enum DataLocator {
                        global: BookmarkResolution, shellMatch: URL?, matchesIdentity: (URL, RomfsIdentity) -> Bool) -> DataResolution {
         var result = DataResolution.missing
         let expectedIdentity = RomfsIdentity.parse(manifest.romfsIdentity)
-        func select(_ url: URL, source: DataSource) -> Bool {
-            guard let candidate = romfs(in: url, manifest: manifest, fm, allowPickedFile: source == .picked, acceptsImage: { image in
+        func select(_ url: URL, source: DataSource, allowFile: Bool? = nil) -> Bool {
+            guard let candidate = romfs(in: url, manifest: manifest, fm, allowPickedFile: allowFile ?? (source == .picked), acceptsImage: { image in
                 guard source != .app, let expectedIdentity else { return true }
                 return matchesIdentity(image, expectedIdentity)
             }) else { return false }
@@ -223,17 +225,38 @@ public enum DataLocator {
         case .stale: result.pickedIsStale = true
         case .url(let url):
             if select(url, source: .picked) { return result }
+            for titleFolder in titleFolders(in: url, titleID: manifest.titleID, fm) where select(titleFolder, source: .picked, allowFile: false) {
+                return result
+            }
         case .none: break
         }
         switch global {   // the shell-level data folder: the game's own bookmark wins, this backs it up
         case .url(let url):
             if let match = shellMatch, select(match, source: .shell) { return result }
-            let titleFolder = url.appendingPathComponent(manifest.titleID, isDirectory: true)
-            if select(titleFolder, source: .shell) || select(url, source: .shell) { return result }
+            for titleFolder in titleFolders(in: url, titleID: manifest.titleID, fm) where select(titleFolder, source: .shell) {
+                return result
+            }
+            if select(url, source: .shell) { return result }
         case .stale, .none: break
         }
         _ = select(appFolder, source: .app)
         return result
+    }
+
+    /// `<folder>/<title ID>/` in any letter case of the hex ID, exact match first (Windows DriveCopy writes uppercase, a hand-named
+    /// folder may be lowercase, and iOS APFS is case-sensitive). Symbolic links and plain files are skipped.
+    static func titleFolders(in url: URL, titleID: String, _ fm: FileManager) -> [URL] {
+        var isDir: ObjCBool = false
+        guard !titleID.isEmpty, fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { return [] }
+        let entries = (try? fm.contentsOfDirectory(atPath: url.path)) ?? []
+        let exact = entries.contains(titleID) ? [titleID] : []
+        let otherCase = entries.filter { $0 != titleID && $0.caseInsensitiveCompare(titleID) == .orderedSame }.sorted()
+        return (exact + otherCase).compactMap { name in
+            let child = url.appendingPathComponent(name, isDirectory: true)
+            guard let attrs = try? fm.attributesOfItem(atPath: child.path),
+                  attrs[.type] as? FileAttributeType == .typeDirectory else { return nil }
+            return child
+        }
     }
 
     /// The exact image or tree and its data folder, where add-on content lives.
