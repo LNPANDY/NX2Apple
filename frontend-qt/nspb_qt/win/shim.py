@@ -108,6 +108,12 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
                 max_workers = _MAX_WIN_WORKERS
             super().__init__(max_workers, *a, **k)
 
+        # A worker's result is one pipe message, and Windows refuses one of 4 GiB or more
+        # (WinError 87). big_result.py sends a large result through a file instead (#858).
+        def submit(self, fn, /, *args, **kwargs):
+            import big_result as _big_result
+            return _big_result.submit(super().submit, fn, args, kwargs)
+
     _cf.ProcessPoolExecutor = _WinProcessPoolExecutor
     _mp_tls = _mp_threading.local()
     _orig_get_context = _mp.get_context

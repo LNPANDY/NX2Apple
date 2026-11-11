@@ -195,6 +195,7 @@ jobs:
             --hidden-import nspb_qt.win.driver \
             --hidden-import nspb_qt.win.shim \
             --hidden-import nspb_qt.win.mp_worker \
+            --hidden-import nspb_qt.win.big_result \
             --hidden-import nspb_qt.win.build_app \
             --hidden-import nspb_qt.win.shell_export \
             --hidden-import nspb_qt.win.fix_ipa_modes \
