@@ -98,9 +98,7 @@ struct OnboardingEnvironment {
     }
 
     static func homeVolumeFreeBytes() -> Int64? {
-        let values = try? URL(fileURLWithPath: NSHomeDirectory())
-            .resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
-        return values?.volumeAvailableCapacityForImportantUsage
+        BuildSpace.available(at: NSHomeDirectory())
     }
 
     static func xcodeFolders(in directory: String = "/Applications") -> [String] {

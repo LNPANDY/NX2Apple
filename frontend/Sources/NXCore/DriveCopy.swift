@@ -47,7 +47,9 @@ package enum DriveCopy {
         var info = statfs()
         guard statfs(probe, &info) == 0 else { return nil }
         let name = withUnsafePointer(to: &info.f_fstypename) { $0.withMemoryRebound(to: CChar.self, capacity: Int(MFSTYPENAMELEN)) { String(cString: $0) } }
-        return Volume(freeBytes: Int64(info.f_bavail) * Int64(info.f_bsize), fileSystem: name, readOnly: info.f_flags & UInt32(MNT_RDONLY) != 0)
+        let (prod, overflow) = info.f_bavail.multipliedReportingOverflow(by: UInt64(info.f_bsize))
+        let freeBytes = overflow || prod > UInt64(Int64.max) ? Int64.max : Int64(prod)
+        return Volume(freeBytes: freeBytes, fileSystem: name, readOnly: info.f_flags & UInt32(MNT_RDONLY) != 0)
     }
 
     /// What stops the copy of `files` (relative path to size) onto `volume`, nil when it can go ahead. `have` is what the folder holds
