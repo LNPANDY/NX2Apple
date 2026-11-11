@@ -5,6 +5,7 @@ import Foundation
 /// these win over the built-in defaults (ShellSettingsStore priority: game > shell > built-in).
 public final class ShellSettingsStore: @unchecked Sendable {
     public static let padMapKey = "padMap"
+    public static let padMergeKey = "padMerge"
     public static let suiteName = "shell-settings"
     public static let dataFolderKey = "globalDataBookmark"
     public static let cloudSavesKey = "globalCloudSavesBookmark"
@@ -105,10 +106,21 @@ public final class ShellSettingsStore: @unchecked Sendable {
     }
     public func resetPadMap() { defaults.removeObject(forKey: Self.padMapKey) }
 
+    /// Whether every connected controller and touch controls drive player 1 together (`DM_PAD_MERGE`).
+    public var padMerge: Bool { defaults.bool(forKey: Self.padMergeKey) }
+    public func storePadMerge(_ on: Bool) {
+        if on {
+            defaults.set(true, forKey: Self.padMergeKey)
+        } else {
+            defaults.removeObject(forKey: Self.padMergeKey)
+        }
+    }
+
     /// DM_PAD_MAP is deliberately excluded. The host merges it per button at launch.
     /// The shell's value for each `DM_*` switch a game's own settings leave alone.
     public var gameDefaults: [String: String] {
         var values = performanceHUD.map { ["DM_METAL_HUD": $0 ? "1" : "0"] } ?? [:]
+        if padMerge { values["DM_PAD_MERGE"] = "1" }
         if touchSize != "medium" { values["DM_TOUCH_SIZE"] = touchSize }
         if touchStick != "corner" { values["DM_TOUCH_STICK"] = touchStick }
         if let mode = defaults.string(forKey: Self.touchModeKey), mode == "2d" || mode == "3d" {

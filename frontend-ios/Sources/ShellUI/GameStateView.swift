@@ -37,6 +37,7 @@ public struct GameStateView: View {
         switch game.state {
         case .playable: actions.onPlay(game.id)
         case .needsGameData: actions.onPickGameData(game.id)
+        case .joiningGameData: break
         case .needsAppUpdate: actions.onAppUpdate()
         case .broken: actions.onShowLog(game.id)
         }

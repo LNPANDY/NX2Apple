@@ -81,12 +81,13 @@ struct SystemEchoWindow: Equatable {
 /// What sits on top of the library and owns the D-pad, the topmost first. Each one's focus targets start with its
 /// prefix; the library's own targets start with `FocusLayer.libraryPrefix`.
 enum FocusLayer: CaseIterable {
-    case buttonTest, padMapping, choice, touchLayout, controllers, shellSettings, help, delete, settings
+    case cloudConflict, buttonTest, padMapping, choice, touchLayout, controllers, shellSettings, help, restoreBackup, delete, settings
 
     static let libraryPrefix = "lib."
 
     var prefix: String {
         switch self {
+        case .cloudConflict: "cld."
         case .buttonTest: "test."
         case .padMapping: "map."
         case .choice: "pick."
@@ -94,6 +95,7 @@ enum FocusLayer: CaseIterable {
         case .controllers: "ctl."
         case .shellSettings: "shs."
         case .help: "help."
+        case .restoreBackup: "rst."
         case .delete: "del."
         case .settings: "set."
         }

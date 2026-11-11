@@ -103,10 +103,11 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(lines.count == 4 && lines.allSatisfy { !$0.isEmpty && !$0.contains(";") })
     }
 
-    /// #620: Exit Game closes the app and iOS does not let it start itself again, so the prompt's note says the player opens it again to get back.
-    @Test func theQuitPromptNoteSaysTheAppClosesAndMustBeOpenedAgain() {
+    /// BUG-23: Quit returns the player to the shell library rather than force-closing the whole app.
+    @Test func theQuitPromptNoteSaysYouReturnToYourGames() {
         let note = ShellHostModel.quitPromptText(gameName: "Orbit").components(separatedBy: "\n")[2]
-        #expect(note.contains("The app closes.") && note.contains("Open it again"), "\(note)")
+        #expect(note.contains("Unsaved progress will be lost.") && note.contains("You will return to your games."), "\(note)")
+        #expect(!note.contains("The app closes."))
     }
 
     /// The prompt's texts in every language: no semicolon, no line break (one text per line in DM_HOME_QUIT_TEXT), the title keeps the game's name.
@@ -732,7 +733,13 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         let ids = model.details.map(\.id)
         #expect(ids.first == Fixtures.orbit)
         let rank = model.details.map { d -> Int in
-            switch d.game.state { case .playable: 1; case .needsGameData: 2; case .needsAppUpdate: 3; case .broken: 4 }
+            switch d.game.state {
+            case .playable: return 1
+            case .joiningGameData: return 2
+            case .needsGameData: return 3
+            case .needsAppUpdate: return 4
+            case .broken: return 5
+            }
         }
         #expect(rank == rank.sorted())
         let broken = model.details.filter { if case .broken = $0.game.state { true } else { false } }.map(\.game.title)
