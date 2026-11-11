@@ -8,8 +8,10 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 IS_WIN = sys.platform.startswith('win')
@@ -447,6 +449,108 @@ def no_window_kwargs() -> dict:
     if IS_WIN:
         return {'creationflags': subprocess.CREATE_NO_WINDOW}
     return {}
+
+
+def process_group_kwargs() -> dict:
+    """Start a child process in its own process group so descendants can be terminated together."""
+    if IS_WIN:
+        if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP') or hasattr(subprocess, 'CREATE_NO_WINDOW'):
+            flags = (
+                getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)
+                | getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            )
+            return {'creationflags': flags}
+        return {'start_new_session': True}
+    return {'start_new_session': True}
+
+
+def kill_process_tree(proc: subprocess.Popen | None, *, grace_sec: float = 0.2) -> None:
+    """Terminate `proc` and all of its descendants so inherited stdout/stderr pipes close immediately."""
+    if proc is None:
+        return
+    pid = getattr(proc, 'pid', None)
+    valid_pid = isinstance(pid, int) and pid > 1
+    poll_fn = getattr(proc, 'poll', None)
+    kill_fn = getattr(proc, 'kill', None)
+    term_fn = getattr(proc, 'terminate', None)
+    wait_fn = getattr(proc, 'wait', None)
+
+    if IS_WIN:
+        if valid_pid:
+            try:
+                subprocess.run(
+                    ['taskkill', '/F', '/T', '/PID', str(pid)],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                    **no_window_kwargs(),
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+        try:
+            still_alive = (poll_fn() is None) if callable(poll_fn) else True
+            if still_alive and callable(kill_fn):
+                kill_fn()
+                if callable(wait_fn):
+                    try:
+                        wait_fn(timeout=0.5)
+                    except (TypeError, subprocess.SubprocessError):
+                        pass
+        except OSError:
+            pass
+        return
+
+    if valid_pid and hasattr(os, 'killpg'):
+        own_pgid = os.getpgrp() if hasattr(os, 'getpgrp') else -1
+        if pid != os.getpid() and pid != own_pgid:
+            sent_group = False
+            try:
+                os.killpg(pid, signal.SIGTERM)
+                sent_group = True
+            except ProcessLookupError:
+                pass
+            except OSError:
+                pass
+            if sent_group:
+                deadline = time.monotonic() + max(0.0, grace_sec)
+                while time.monotonic() < deadline:
+                    if callable(poll_fn):
+                        try:
+                            poll_fn()
+                        except OSError:
+                            pass
+                    try:
+                        os.killpg(pid, 0)
+                    except ProcessLookupError:
+                        sent_group = False
+                        break
+                    except OSError:
+                        break
+                    time.sleep(0.02)
+                if sent_group:
+                    try:
+                        os.killpg(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+    try:
+        still_alive = (poll_fn() is None) if callable(poll_fn) else False
+        if still_alive:
+            if callable(term_fn):
+                term_fn()
+            if callable(wait_fn):
+                try:
+                    wait_fn(timeout=max(0.05, grace_sec))
+                except subprocess.TimeoutExpired:
+                    if callable(kill_fn):
+                        kill_fn()
+                    try:
+                        wait_fn(timeout=0.5)
+                    except (TypeError, subprocess.SubprocessError):
+                        pass
+                except TypeError:
+                    pass
+    except OSError:
+        pass
 
 
 _ORIG_POPEN_INIT = subprocess.Popen.__init__

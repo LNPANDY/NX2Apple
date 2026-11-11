@@ -1167,11 +1167,17 @@ def ascii_temp_dir(prefix: str = 'nspb-'):
             return False
     candidates = [tempfile.gettempdir()]
     if os.name == 'nt' or 'PUBLIC' in os.environ:
-        candidates += [os.environ.get('PUBLIC', r'C:\Users\Public') + (r'\Temp' if os.name == 'nt' else '/Temp'),
-                       r'C:\Windows\Temp', 'C:\\Temp']
+        pub = os.environ.get('PUBLIC', r'C:\Users\Public' if os.name == 'nt' else '')
+        if pub:
+            sep = '\\' if ('\\' in pub or (len(pub) >= 2 and pub[1] == ':')) else '/'
+            candidates.append(pub.rstrip('\\/') + sep + 'Temp')
+        if os.sep == '\\':
+            candidates += [r'C:\Windows\Temp', r'C:\Temp']
     for allow_space in (False, True):
         for base in candidates:
             if not base or not ok(base) or (not allow_space and ' ' in base):
+                continue
+            if os.sep == '/' and not base.startswith('/'):
                 continue
             try:
                 os.makedirs(base, exist_ok=True)

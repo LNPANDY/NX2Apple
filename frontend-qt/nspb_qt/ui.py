@@ -159,6 +159,7 @@ class MainWindow(QMainWindow):
         self._library_filter = 'owned'  # 'owned' or 'built'
         self._search_query = ''
         self._drive_folder = ''
+        self._drive_status: tuple[str, str, str] | None = None
         self._options_expanded = True
         self._deps_expanded = True
         self._deps_sig: tuple | None = None
@@ -221,6 +222,12 @@ class MainWindow(QMainWindow):
         self.m.appUpdateFound.connect(self._on_app_update)
         self.m.appRelaunching.connect(QApplication.quit)
         self.m.libraryChanged.connect(self._refresh_library)
+        if hasattr(self.m, 'driveCopyStateChanged'):
+            self.m.driveCopyStateChanged.connect(self._refresh_install_card)
+        if hasattr(self.m, 'driveCopyProgress'):
+            self.m.driveCopyProgress.connect(self._on_drive_copy_progress)
+        if hasattr(self.m, 'driveCopyFinished'):
+            self.m.driveCopyFinished.connect(self._on_drive_copy_finished)
 
         if self.m.log_path:
             self._append_log(self.m.t('log.at', str(self.m.log_path)) + '\n\n')
@@ -1139,9 +1146,15 @@ class MainWindow(QMainWindow):
         self.step3_sub = QLabel(self.m.t('shell.copyExternalNote'))
         self.step3_sub.setObjectName('muted')
         self.step3_sub.setWordWrap(True)
+        self.drive_progress_bar = QProgressBar()
+        self.drive_progress_bar.setRange(0, 100)
+        self.drive_progress_bar.setValue(0)
+        self.drive_progress_bar.setTextVisible(False)
+        self.drive_progress_bar.hide()
         s3_col.addWidget(self.step3_title)
         s3_col.addWidget(self.drive_path_lbl)
         s3_col.addWidget(self.step3_sub)
+        s3_col.addWidget(self.drive_progress_bar)
         rs3_lay.addLayout(s3_col, 1)
 
         self.step3_open_romfs_btn = QPushButton(self.m.t('shell.showInFinder'))
@@ -1220,22 +1233,91 @@ class MainWindow(QMainWindow):
         self.drive_path_lbl.setText(self._drive_folder or self.m.t('shell.driveNone'))
         self.step3_open_romfs_btn.setText(self.m.t('shell.showInFinder'))
         self.drive_choose_btn.setText(self.m.t('shell.driveChoose'))
-        self.drive_copy_btn.setText(self.m.t('shell.driveCopy'))
         self.step3_container.setVisible(not one)
         arch_p = self._effective_archive_path()
         has_arch = bool(arch_p and os.path.isdir(arch_p))
         self.step3_open_romfs_btn.setToolTip(self.m.t('msg.archiveAt', arch_p) if has_arch else '')
         self.step3_open_romfs_btn.setVisible(has_arch)
-        self.drive_copy_btn.setEnabled(has_arch)
+
+        copying = bool(getattr(self.m, 'drive_copying', False))
+        cancelling = bool(getattr(self.m, 'drive_copy_cancelling', False))
+        self.drive_choose_btn.setEnabled(not copying)
+        if copying:
+            self.drive_copy_btn.setText(
+                self.m.t('transfer.cancelling' if cancelling else 'transfer.cancel')
+            )
+            btn_obj = 'danger'
+            self.drive_copy_btn.setEnabled(not cancelling)
+            self._update_drive_progress_widgets(
+                int(getattr(self.m, 'drive_copy_done', 0) or 0),
+                int(getattr(self.m, 'drive_copy_total', 0) or 0),
+            )
+        else:
+            self.drive_copy_btn.setText(self.m.t('shell.driveCopy'))
+            btn_obj = 'creamPill'
+            self.drive_copy_btn.setEnabled(has_arch)
+            self.drive_progress_bar.hide()
+            curr_tid = (getattr(self.m, 'packed_title_id', '') or '').upper()
+            if self._drive_status is not None and self._drive_status[0] == curr_tid:
+                _tid, kind, info = self._drive_status
+                if kind == 'done':
+                    self.step3_sub.setText(
+                        self.m.t('shell.driveDone', info, self.m.t('ios.ui.gameData'))
+                    )
+                elif kind == 'cancelled':
+                    self.step3_sub.setText(self.m.t('msg.stopped'))
+                else:
+                    self.step3_sub.setText(self.m.t('shell.driveFailed', info))
+            else:
+                self.step3_sub.setText(self.m.t('shell.copyExternalNote'))
+        if self.drive_copy_btn.objectName() != btn_obj:
+            self.drive_copy_btn.setObjectName(btn_obj)
+            self.drive_copy_btn.style().unpolish(self.drive_copy_btn)
+            self.drive_copy_btn.style().polish(self.drive_copy_btn)
+
+    def _update_drive_progress_widgets(self, done: int, total: int) -> None:
+        pct = int(min(100, (done * 100) // total)) if total > 0 else 0
+        game = getattr(self.m, 'drive_copy_game', '') or getattr(self.m, 'packed_title_id', '')
+        label = f'{game} ({pct}%)' if game else f'{pct}%'
+        self.step3_sub.setText(
+            self.m.t('shell.driveProgress', label, lib.format_bytes(done), lib.format_bytes(total))
+        )
+        self.drive_progress_bar.setValue(pct)
+        self.drive_progress_bar.show()
+
+    def _on_drive_copy_progress(self, done: int, total: int) -> None:
+        if not getattr(self.m, 'drive_copying', False):
+            return
+        self._update_drive_progress_widgets(int(done), int(total))
+
+    def _on_drive_copy_finished(self, ok: bool, cancelled: bool, info: str) -> None:
+        fin_tid = (
+            getattr(self.m, 'drive_copy_tid', '')
+            or getattr(self.m, 'packed_title_id', '')
+            or ''
+        ).upper()
+        if ok:
+            self._drive_status = (fin_tid, 'done', info)
+        elif cancelled:
+            self._drive_status = (fin_tid, 'cancelled', '')
+        else:
+            self._drive_status = (fin_tid, 'failed', info)
+        self._refresh_install_card()
 
     def _pick_drive_folder(self) -> None:
+        if getattr(self.m, 'drive_copying', False):
+            return
         d = QFileDialog.getExistingDirectory(self, self.m.t('shell.driveChoose'), self._drive_folder or str(Path.home()))
         if d:
             self._drive_folder = d
+            self._drive_status = None
             self.drive_path_lbl.setText(d)
             self._refresh_install_card()
 
     def _copy_archive_to_drive(self) -> None:
+        if getattr(self.m, 'drive_copying', False):
+            self.m.cancel_drive_copy()
+            return
         arch_p = self._effective_archive_path()
         if not arch_p or not os.path.isdir(arch_p):
             return
@@ -1245,11 +1327,12 @@ class MainWindow(QMainWindow):
                 return
             self._drive_folder = d
             self.drive_path_lbl.setText(d)
-        ok, info = self.m.copy_archive_to_drive(self._drive_folder)
-        if ok:
-            self.step3_sub.setText(self.m.t('shell.driveDone', info, self.m.t('ios.ui.gameData')))
+        self._drive_status = None
+        if hasattr(self.m, 'start_drive_copy'):
+            self.m.start_drive_copy(self._drive_folder, archive_dir=arch_p)
         else:
-            self.step3_sub.setText(self.m.t('shell.driveFailed', info))
+            ok, info = self.m.copy_archive_to_drive(self._drive_folder)
+            self._on_drive_copy_finished(ok, False, info)
 
     def _build_action_card(self) -> CardGroup:
         grp = CardGroup()

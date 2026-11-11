@@ -1906,11 +1906,20 @@ class ParityWindowTests(unittest.TestCase):
             w._drive_folder = str(drive_ui)
             g1_item = next(g for g in m.library.games if g.title_id == tid1)
             g2_item = next(g for g in m.library.games if g.title_id == tid2)
+            def wait_drive_copy() -> None:
+                deadline = time.monotonic() + 5.0
+                while getattr(m, 'drive_copying', False) and time.monotonic() < deadline:
+                    self.app.processEvents()
+                    time.sleep(0.01)
+                self.app.processEvents()
+
             m.load_game_from_library(g1_item)
             w._copy_archive_to_drive()
+            wait_drive_copy()
             self.assertEqual((drive_ui / tid1 / 'romfs.img').read_bytes(), b'DMROMFS1_game1')
             m.load_game_from_library(g2_item)
             w._copy_archive_to_drive()
+            wait_drive_copy()
             self.assertEqual((drive_ui / tid2 / 'romfs.img').read_bytes(), b'DMROMFS1_game2')
             self.assertEqual((drive_ui / tid1 / 'romfs.img').read_bytes(), b'DMROMFS1_game1')
 

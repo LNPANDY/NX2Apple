@@ -703,10 +703,7 @@ class OnboardingDialog(QDialog):
                 self.task_pill.hide()
                 self.overall_pct_lbl.hide()
 
-            visible_deps = list(self.m.deps[:5])
-            for extra in self.m.deps[5:]:
-                if getattr(extra, 'installing', False) and extra not in visible_deps:
-                    visible_deps.append(extra)
+            visible_deps = list(self.m.deps)
 
             llvm_dep = next((x for x in self.m.deps if x.id == 'llvm'), None)
             metas = [self._step1_row_meta(d, llvm_dep, any_busy) for d in visible_deps]
