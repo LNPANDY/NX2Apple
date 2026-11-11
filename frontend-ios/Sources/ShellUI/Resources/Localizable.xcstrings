@@ -5057,6 +5057,70 @@
         }
       }
     },
+    "Doubles Bluetooth controller polling and lowers audio latency in fullscreen. Leave off if frame rate drops after a few minutes on your Mac (macOS may hold the GPU at a low clock).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verdoppelt im Vollbild die Bluetooth-Abtastrate für Controller und senkt die Audiolatenz. Ausgeschaltet lassen, wenn die Bildrate nach einigen Minuten einbricht (macOS kann die GPU auf niedrigem Takt halten)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doubles Bluetooth controller polling and lowers audio latency in fullscreen. Leave off if frame rate drops after a few minutes on your Mac (macOS may hold the GPU at a low clock)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplica el muestreo Bluetooth de los mandos y reduce la latencia de audio en pantalla completa. Déjalo desactivado si los fotogramas caen tras unos minutos en tu Mac (macOS puede mantener la GPU a baja frecuencia)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Double la fréquence Bluetooth des manettes et réduit la latence audio en plein écran. Laissez désactivé si la fréquence d’images chute après quelques minutes sur votre Mac (macOS peut maintenir le GPU à basse fréquence)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raddoppia il campionamento Bluetooth dei controller e riduce la latenza audio a schermo intero. Lascia disattivato se il frame rate cala dopo alcuni minuti sul tuo Mac (macOS può mantenere la GPU a bassa frequenza)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルスクリーン時に Bluetooth コントローラのポーリングを倍増しオーディオ遅延を抑えます。数分後にフレームレートが落ちる Mac ではオフのままにしてください（macOS が GPU を低クロックに固定することがあります）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 화면에서 Bluetooth 컨트롤러 폴링 속도를 높이고 오디오 지연 시간을 줄입니다. 몇 분 뒤 프레임이 떨어지는 Mac에서는 꺼 두세요 (macOS가 GPU를 낮은 클럭으로 고정할 수 있습니다)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dobra a taxa Bluetooth dos controles e reduz a latência de áudio em tela cheia. Deixe desativado se a taxa de quadros cair após alguns minutos no seu Mac (o macOS pode manter a GPU em clock baixo)."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fördubblar Bluetooth-uppdateringen för handkontroller och sänker ljudfördröjningen i helskärm. Lämna av om bildfrekvensen sjunker efter några minuter på din Mac (macOS kan hålla GPU:n på låg klockfrekvens)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全屏游玩时提高蓝牙手柄采样率并降低音频延迟。如果在你的 Mac 上游玩几分钟后出现掉帧，请保持关闭（macOS 可能会将 GPU 锁定在低频）。"
+          }
+        }
+      }
+    },
     "Down": {
       "localizations": {
         "de": {
@@ -19133,6 +19197,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "iPhone Duo 屏幕（1.43:1）"
+          }
+        }
+      }
+    },
+    "macOS Game Mode": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS-Spielmodus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Game Mode"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo Juego de macOS"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mode Jeu de macOS"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modalità Gioco di macOS"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS ゲームモード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 게임 모드"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modo Jogo do macOS"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS Spelläge"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS 游戏模式"
           }
         }
       }
