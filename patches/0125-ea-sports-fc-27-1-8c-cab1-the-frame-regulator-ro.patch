@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: alonesniper <433307+alonesniper@users.noreply.github.com>
+Date: Sun, 8 Nov 2026 17:41:56 +0800
+Subject: [PATCH] EA SPORTS FC 27 1.8c.cab1: the frame regulator row, its
+ global found by walking a running main
+
+The update before 1.8d.310c (1.8c.cab1, main fb81983aa1cc3a2e...) has the same
+frame regulator, so the game ran at its own 30 fps there (menus at frame time
+p50 33.4 ms) while 1.8d.310c has had its row since the profile was written.
+
+The row could not come from the rewriter's function matching: main has unwind
+entries for 405 functions only, and nso_fnmap.py wants both mains on one
+machine, so only 1.8d's is here. Instead the global was found at runtime: of
+1.54 M pointers dereferenced in main's data and bss, exactly one points to an
+object holding the same frame rate twice at +0x8 and +0x10 (30.0, 30.0, with 1
+at +0x18), the shape of the known row, at main+0xda19e38, 0x7000 below 1.8d's
+global. Writing the target into both took that build's menus 33.4 -> 16.7 ms
+and it now holds 60.0 fps in the menus and a Classic Match, and nothing else in
+main looked like a frame limit, so this build gets one row.
+
+hle_fpslock.c gets the row. t_fpslock case 22 keys the same checks on the new
+build id and the lower global (23 cases). The game note says how a row is
+carried across updates now (disassembly where both mains exist, a pointer walk
+where only one does), and docs/reference/frame-rate.md records the walk as the
+fallback for a game's own frame limit.
+
+Upstream-Status: forwarded seedds/nxnative#2336
+Reason: EA SPORTS FC 27 1.8c.cab1 kept its own 30 fps: no frame regulator row for that build
+Issue: none (a frame rate row for a game build, no issue)
+---
+ dm/games/0100C49025D3E000/README.md |  6 +++---
+ dm/host/hle_fpslock.c               |  4 ++++
+ dm/host/tests/t_fpslock.c           | 10 +++++-----
+ docs/reference/frame-rate.md        |  4 ++--
+ 4 files changed, 14 insertions(+), 10 deletions(-)
+
+diff --git a/dm/games/0100C49025D3E000/README.md b/dm/games/0100C49025D3E000/README.md
+index ed35527..0c96d0d 100644
+--- a/dm/games/0100C49025D3E000/README.md
++++ b/dm/games/0100C49025D3E000/README.md
+@@ -37,11 +37,11 @@ On the Mac (2026-10-29): the accessibility settings, the EA SPORTS and FC 27 log
+ 
+ ## Frame rate
+ 
+-- **Current:** 60 fps in the menus and a Classic Match (1.8d.310c, Mac): frame time p50 16.66 ms, p95 18.2 ms; the match clock went 02:40 → 04:00 → 05:20 at 10.3 s steps, as at 30 fps (01:20 → 02:39). `fps_target 30` runs the game's own 30.
++- **Current:** 60 fps in the menus and a Classic Match (1.8d.310c, Mac): frame time p50 16.66 ms, p95 18.2 ms; the match clock went 02:40 → 04:00 → 05:20 at 10.3 s steps, as at 30 fps (01:20 → 02:39). `fps_target 30` runs the game's own 30. The update before it (1.8c.cab1, `main` fb81983aa1cc3a2e…, measured 2026-11-08) reaches the same pace, menus at frame time p50 16.7 ms where the game's own limit gives 33.4 ms.
+ - **What sets 30 on the Switch:** three things, each needed. Frostbite's `SimulationTimeSettings` (`ForceSimRate` 30, `MaxSimFps` 30) caps the simulation's ticks; the game's frame regulator, an object at `[main+0xda20e38]` whose tick (`main+0x99ea580`) waits 1 / `[+0x8]` s from the last frame (the constructor sets 60.0 at `main+0x99e80c8`), gets 30.0 in `[+0x8]` and `[+0x10]` from `main+0x5d501c0` whenever `GameRenderSettings.Enable` is 1, a constant of this build; and `BaseDisplaySettings.PresentInterval` is 2.
+-- **What the host does:** the simulation settings are found by name in `main`'s reflection data, on any build ([Frostbite's simulation rate, found by name](../../../docs/reference/frame-rate.md#frostbites-simulation-rate-found-by-name)); the regulator is a build-gated row of `hle_fpslock.c` (the game sets 30 again at some screen changes; the host writes 60 back); `present_interval display` ignores the interval. Only the simulation and the regulator at 60 together give 60 at the right speed: the regulator and present interval alone gave 60 frames a second with the match clock at half speed (3.65 game seconds a second); the simulation at 60 with the regulator at 30 (a build without the row) gives 30 fps at the right speed.
++- **What the host does:** the simulation settings are found by name in `main`'s reflection data, on any build ([Frostbite's simulation rate, found by name](../../../docs/reference/frame-rate.md#frostbites-simulation-rate-found-by-name)); the regulator is a build-gated row of `hle_fpslock.c` (1.8d.310c and 1.8c.cab1) (the game sets 30 again at some screen changes; the host writes 60 back); `present_interval display` ignores the interval. Only the simulation and the regulator at 60 together give 60 at the right speed: the regulator and present interval alone gave 60 frames a second with the match clock at half speed (3.65 game seconds a second); the simulation at 60 with the regulator at 30 (a build without the row) gives 30 fps at the right speed.
+ - **Not needed:** `GameplayFeatures.DeltaTicks` (4.0; it becomes the int at `main+0xd10b6d8` that sets the gameplay rate `60 / DeltaTicks` at `[regulator]+0x1e54c`) stays as the game sets it. Forcing that int to 1 instead crashed the match at kick-off (`main+0x4ccd66c`).
+-- **Open:** a new build needs the regulator row carried over (`nso_fnmap.py`, then check `main+0x5d501c0` and the regulator's global by disassembly): `main` has unwind entries for only 405 functions, so a function-matched cut cannot follow it. Until then such a build runs at 30 fps at the right speed.
++- **Carrying the row across updates:** `nso_fnmap.py` pairs the two mains, and disassembling the writer of 30.0 (`main+0x5d501c0` on 1.8d.310c) names the global to key the row on; `main` has unwind entries for only 405 functions, so the rewriter's function matching cannot carry the row by itself. The 1.8c.cab1 row did not come that way, as only one of the two mains is on this machine: a walk of that build's data and bss dereferenced 1.54 M pointers and left one object holding the same frame rate twice at `+0x8` and `+0x10` (30.0, 30.0, with 1 at `+0x18`), 0x7000 below the 1.8d.310c global, and writing the target into both took its menus 33.4 → 16.7 ms. A build with no row runs at 30 fps at the right speed.
+ 
+ ## On the Mac
+ 
+diff --git a/dm/host/hle_fpslock.c b/dm/host/hle_fpslock.c
+index 0137ad0..f6b8ba9 100644
+--- a/dm/host/hle_fpslock.c
++++ b/dm/host/hle_fpslock.c
+@@ -51,6 +51,10 @@ static const lock_t k_locks[] = {
+     // this row the game keeps 30 fps at the right speed (the simulation at 60 and the regulator at 30: match clock as at 30). The game asks for present interval 2
+     // (BaseDisplaySettings.PresentInterval), which the profile's present_interval display ignores
+     { "a48c0de3bc353efa0e4d359bde05ef24", "FIFA frame regulator", 0xda20e38, 0x8, FPS_F64, 2, 0 },
++    // EA SPORTS FC 27 1.8c.cab1 (the update before it): the same regulator, its global at main+0xda19e38, 0x7000 below 1.8d's. This address came from a running main, as the two mains cannot be paired
++    // here (nso_fnmap.py wants both, only one is on this machine): of 1.54 M pointers in main's data and bss, one points to an object holding the same frame rate twice at +0x8 and +0x10 (30.0, 30.0,
++    // with 1 at +0x18), the shape of the row above, and writing the target into both took its menus from 33.4 to 16.7 ms. Nothing else in main looked like a frame limit, so this build has one row
++    { "fb81983aa1cc3a2e97402497e2ca6528", "FIFA frame regulator", 0xda19e38, 0x8, FPS_F64, 2, 0 },
+ };
+ #define NLOCKS ((int)(sizeof k_locks / sizeof k_locks[0]))
+ 
+diff --git a/dm/host/tests/t_fpslock.c b/dm/host/tests/t_fpslock.c
+index cb1a4eb..ed20fc5 100644
+--- a/dm/host/tests/t_fpslock.c
++++ b/dm/host/tests/t_fpslock.c
+@@ -74,9 +74,9 @@ static void check(int which) {
+         *(uintptr_t *)(base + 0x7b32690 + 0x10) = (uintptr_t)(object + 16);
+         f = (float *)object; f[0] = f[1] = 30;
+         sync = (int32_t *)(object + 16); sync[0] = sync[1] = 2;
+-    } else if (which == 14) {
+-        strcpy(g_mod[0].build_id, "a48c0de3bc353efa0e4d359bde05ef24");
+-        *(uintptr_t *)(base + 0xda20e38) = (uintptr_t)object;
++    } else if (which == 14 || which == 30) {   // EA SPORTS FC 27's frame regulator: 1.8d.310c (14) and 1.8c.cab1 (30), its global 0x7000 lower
++        strcpy(g_mod[0].build_id, which == 14 ? "a48c0de3bc353efa0e4d359bde05ef24" : "fb81983aa1cc3a2e97402497e2ca6528");
++        *(uintptr_t *)(base + (which == 14 ? 0xda20e38 : 0xda19e38)) = (uintptr_t)object;
+         double *d = (double *)(object + 8); d[0] = d[1] = 30;
+     } else if (which == 15 || which == 16) {
+         strcpy(g_mod[0].build_id, "0123456789abcdef0123456789abcdef");
+@@ -185,7 +185,7 @@ static void check(int which) {
+         sync[0] = sync[1] = 2; dm_fps_lock_tick();
+         assert(sync[0] == 1 && sync[1] == 1 && writes == 4);
+     } else if (which == 10) assert(sync[0] == 2 && sync[1] == 2 && writes == 2);
+-    else if (which == 14) { double *d = (double *)(object + 8); assert(d[0] == 60 && d[1] == 60 && writes == 2); }
++    else if (which == 14 || which == 30) { double *d = (double *)(object + 8); assert(d[0] == 60 && d[1] == 60 && writes == 2); }
+     else if (which == 15) {
+         assert(*(float *)(object + 0x34) == 60 && *(int32_t *)(object + 0x38) == 60 && writes == 2);
+         dm_fps_lock_tick(); assert(writes == 2);
+@@ -209,7 +209,7 @@ static void check(int which) {
+ 
+ int main(void) {
+     // Each process starts the production one-time initialization with a fresh build and target.
+-    for (int i = 0; i < 30; i++) {
++    for (int i = 0; i < 31; i++) {
+         pid_t p = fork(); assert(p >= 0);
+         if (!p) { check(i); _exit(0); }
+         int status; assert(waitpid(p, &status, 0) == p); assert(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
+index bb991a7..1ecb7fc 100644
+--- a/docs/reference/frame-rate.md
++++ b/docs/reference/frame-rate.md
+@@ -223,8 +223,8 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+ 
+ - **Symptom:** a Frostbite game holds 30 fps with spare CPU and GPU time. Raising only the frame limit and the present interval gives 60 frames a second with the game at half speed (the match clock at 3.6 game seconds a second instead of 7.5).
+ - **Cause:** Frostbite's `SimulationTimeSettings` caps the simulation's ticks a second: `ForceSimRate` (int32) and `MaxSimFps` (float), both 30 in EA SPORTS FC 27. The game's other 30s (its own frame regulator, the present interval 2 of `BaseDisplaySettings.PresentInterval`) only pace the frames.
+-- **Fix:** `hle_fpslock.c` finds the settings by name, so no address is tied to a build. Frostbite reflects its settings classes: a class record (its name, then at +0x40 its field list) and a 0x20-byte record per field (name, hash, offset at +0x10, type). A static constructor stores the record's address into the class's type info (`adrp` / `add` of each, then `str`), and code that reads the settings asks the settings registry for the instance with the type info in `x1` and a cache word in `x2`, which keeps the instance's address; the instance holds its type info at +8, which checks the word. With `fps_target` 30 or 60 the host writes both fields to the target each frame they differ. A game's own frame limit still needs its row (EA SPORTS FC 27's frame regulator, build-gated) and `present_interval display`. Without the row, as on a build not yet registered, the simulation at 60 with the regulator at 30 runs at 30 fps at the right speed (match clock as at 30).
+-- **Found on:** [EA SPORTS FC 27](../../dm/games/0100C49025D3E000/README.md): 60 fps in a match with the match clock at the 30 fps rate. Its `main` has unwind entries for 405 functions only, so the rewriter's function matching cannot carry a cut of the regulator across updates either.
++- **Fix:** `hle_fpslock.c` finds the settings by name, so no address is tied to a build. Frostbite reflects its settings classes: a class record (its name, then at +0x40 its field list) and a 0x20-byte record per field (name, hash, offset at +0x10, type). A static constructor stores the record's address into the class's type info (`adrp` / `add` of each, then `str`), and code that reads the settings asks the settings registry for the instance with the type info in `x1` and a cache word in `x2`, which keeps the instance's address; the instance holds its type info at +8, which checks the word. With `fps_target` 30 or 60 the host writes both fields to the target each frame they differ. A game's own frame limit still needs its row (EA SPORTS FC 27's frame regulator, one per `main` build) and `present_interval display`. Without the row, as on a build not yet registered, the simulation at 60 with the regulator at 30 runs at 30 fps at the right speed (match clock as at 30). A row for a new build can come from a run of the game rather than from disassembly: walk the words of `main`'s data and bss, dereference the ones that look like pointers, and keep what points to an object holding the same frame rate twice where the known build's row writes it, then write the target there and read the frame time (EA SPORTS FC 27 1.8c.cab1: 1.54 M pointers dereferenced, one candidate, 33.4 → 16.7 ms).
++- **Found on:** [EA SPORTS FC 27](../../dm/games/0100C49025D3E000/README.md): 60 fps in a match with the match clock at the 30 fps rate, on the two `main` builds with a regulator row (1.8d.310c and 1.8c.cab1). Its `main` has unwind entries for 405 functions only, so the rewriter's function matching cannot carry a cut of the regulator across updates either.
+ - **Check:** `t_fpslock` builds a Frostbite module in miniature (strings, class record, field list, registration and lookup code, instance) and checks the writes, a repeated game write and a cache word whose instance has another type info.
+ 
+ ## Present interval and display rate
