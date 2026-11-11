@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "sv",
-      "swedish"
-    ],
-    "name": "Svenska",
-    "order": 2
-  },
+  "_language": {"locales": ["sv", "swedish"], "name": "Svenska", "order": 2},
   "activity.ios": "iPhone-byggning pågår",
   "activity.mac": "Mac-byggning pågår",
   "activity.transfer": "Överför spelfiler till iPhone",
@@ -1483,6 +1476,8 @@
   "launch.set.DM_TOUCH_STICK": "Vänster spak",
   "launch.set.DM_TOUCH_STICK.note": "Var den vänstra spaken bland kontrollerna på skärmen sitter.",
   "launch.set.DM_UPSCALER": "Spelets uppskalare",
+  "launch.set.MAC_GAME_MODE": "macOS Spelläge",
+  "launch.set.MAC_GAME_MODE.note": "Fördubblar Bluetooth-uppdateringen för handkontroller och sänker ljudfördröjningen i helskärm. Lämna av om bildfrekvensen sjunker efter några minuter på din Mac (macOS kan hålla GPU:n på låg klockfrekvens).",
   "launch.title": "Startalternativ",
   "launch.useForNew": "Använd för nya spel",
   "launch.useForNewDone": "Sparat. Spel du lägger till härefter startar med dessa.",

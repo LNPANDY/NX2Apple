@@ -1,13 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "de",
-      "german",
-      "deutsch"
-    ],
-    "name": "Deutsch",
-    "order": 3
-  },
+  "_language": {"locales": ["de", "german", "deutsch"], "name": "Deutsch", "order": 3},
   "activity.ios": "iPhone-Build läuft",
   "activity.mac": "Mac-Build läuft",
   "activity.transfer": "Spieldaten werden zum iPhone übertragen",
@@ -1484,6 +1476,8 @@
   "launch.set.DM_TOUCH_STICK": "Linker Stick",
   "launch.set.DM_TOUCH_STICK.note": "Wo der linke Stick der Bildschirmsteuerung sitzt.",
   "launch.set.DM_UPSCALER": "Upscaler des Spiels",
+  "launch.set.MAC_GAME_MODE": "macOS-Spielmodus",
+  "launch.set.MAC_GAME_MODE.note": "Verdoppelt im Vollbild die Bluetooth-Abtastrate für Controller und senkt die Audiolatenz. Ausgeschaltet lassen, wenn die Bildrate nach einigen Minuten einbricht (macOS kann die GPU auf niedrigem Takt halten).",
   "launch.title": "Startoptionen",
   "launch.useForNew": "Für neue Spiele",
   "launch.useForNewDone": "Gespeichert. Spiele, die du ab jetzt hinzufügst, starten damit.",

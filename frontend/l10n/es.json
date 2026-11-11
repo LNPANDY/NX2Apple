@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "es",
-      "spanish",
-      "español"
-    ],
-    "name": "Español"
-  },
+  "_language": {"locales": ["es", "spanish", "español"], "name": "Español"},
   "activity.ios": "Compilación de iPhone en curso",
   "activity.mac": "Compilación de Mac en curso",
   "activity.transfer": "Transfiriendo los archivos del juego al iPhone",
@@ -1483,6 +1476,8 @@
   "launch.set.DM_TOUCH_STICK": "Palanca izquierda",
   "launch.set.DM_TOUCH_STICK.note": "Dónde está la palanca izquierda de los controles en pantalla.",
   "launch.set.DM_UPSCALER": "Escalador del juego",
+  "launch.set.MAC_GAME_MODE": "Modo Juego de macOS",
+  "launch.set.MAC_GAME_MODE.note": "Duplica el muestreo Bluetooth de los mandos y reduce la latencia de audio en pantalla completa. Déjalo desactivado si los fotogramas caen tras unos minutos en tu Mac (macOS puede mantener la GPU a baja frecuencia).",
   "launch.title": "Opciones de inicio",
   "launch.useForNew": "Para juegos nuevos",
   "launch.useForNewDone": "Guardado. Los juegos que añadas desde ahora empiezan con esto.",

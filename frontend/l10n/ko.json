@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "ko",
-      "korean",
-      "한국어"
-    ],
-    "name": "한국어"
-  },
+  "_language": {"locales": ["ko", "korean", "한국어"], "name": "한국어"},
   "activity.ios": "iPhone 빌드 진행 중",
   "activity.mac": "Mac 빌드 진행 중",
   "activity.transfer": "게임 파일을 iPhone으로 전송하는 중",
@@ -1483,6 +1476,8 @@
   "launch.set.DM_TOUCH_STICK": "왼쪽 스틱",
   "launch.set.DM_TOUCH_STICK.note": "화면 속 컨트롤에서 왼쪽 스틱이 놓이는 위치입니다.",
   "launch.set.DM_UPSCALER": "게임 업스케일러",
+  "launch.set.MAC_GAME_MODE": "macOS 게임 모드",
+  "launch.set.MAC_GAME_MODE.note": "전체 화면에서 Bluetooth 컨트롤러 폴링 속도를 높이고 오디오 지연 시간을 줄입니다. 몇 분 뒤 프레임이 떨어지는 Mac에서는 꺼 두세요 (macOS가 GPU를 낮은 클럭으로 고정할 수 있습니다).",
   "launch.title": "실행 옵션",
   "launch.useForNew": "새 게임에 사용",
   "launch.useForNewDone": "저장했습니다. 지금부터 추가하는 게임은 이 설정으로 시작합니다.",

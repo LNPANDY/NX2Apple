@@ -1,11 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "en"
-    ],
-    "name": "English",
-    "order": 1
-  },
+  "_language": {"locales": ["en"], "name": "English", "order": 1},
   "activity.ios": "iPhone build in progress",
   "activity.mac": "Mac build in progress",
   "activity.transfer": "Transferring game files to the iPhone",
@@ -1482,6 +1476,8 @@
   "launch.set.DM_TOUCH_STICK": "Left stick",
   "launch.set.DM_TOUCH_STICK.note": "Where the left stick of the on-screen controls sits.",
   "launch.set.DM_UPSCALER": "Game's upscaler",
+  "launch.set.MAC_GAME_MODE": "macOS Game Mode",
+  "launch.set.MAC_GAME_MODE.note": "Doubles Bluetooth controller polling and lowers audio latency in fullscreen. Leave off if frame rate drops after a few minutes on your Mac (macOS may hold the GPU at a low clock).",
   "launch.title": "Launch options",
   "launch.useForNew": "Use for new games",
   "launch.useForNewDone": "Saved. Games you add from now on start with these.",

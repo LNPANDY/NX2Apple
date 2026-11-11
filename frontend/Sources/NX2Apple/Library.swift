@@ -103,14 +103,15 @@ extension LibraryGame {
     /// The value of a setting this launcher keeps itself (not a saved choice): the player's choice while the build still offers it,
     /// else the game's default. Saved choices are read through SavedChoices.
     func launchValue(_ s: LaunchSetting) -> String {
-        launchOptions[s.env].flatMap { s.accepts($0) ? $0 : nil } ?? s.def
+        if s.env == MacGameMode.optionEnv { return macGameModeDesired ? s.onValue : s.offValue }
+        return launchOptions[s.env].flatMap { s.accepts($0) ? $0 : nil } ?? s.def
     }
 
     /// The launch overrides of the settings only this launcher has (Display mode); one at its unset value (Window) stays out.
     /// The rows of launcher.json are saved choices (SavedChoices) and are not passed: the app reads them itself, and a value here
     /// would override a choice made elsewhere.
     func launchEnvironment(_ settings: [LaunchSetting]) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: settings.filter { !$0.storeBacked }.compactMap { s in
+        Dictionary(uniqueKeysWithValues: settings.filter { !$0.storeBacked && $0.env != MacGameMode.optionEnv }.compactMap { s in
             let v = launchValue(s)
             return s.unsetValue == v ? nil : (s.env, v)
         })
@@ -554,6 +555,9 @@ final class GameLibrary: ObservableObject {
         if !app.titleNames.isEmpty { game.titleNames = app.titleNames }
         game.toolsCommit = commit   // empty for a checkout without git: nothing to compare, rather than an older build's commit
         upsert(game)
+        if game.launchOptions[MacGameMode.optionEnv] == "1" {
+            applyMacGameModeOption(enabled: true, for: game.id, appPath: path)
+        }
         selectedID = game.id
     }
 
@@ -612,6 +616,9 @@ final class GameLibrary: ObservableObject {
         guard var game = games.first(where: { $0.id == id }) else { return }
         game.launchOptions[setting.env] = setting.isDefault(value) ? nil : value
         upsert(game)
+        if setting.env == MacGameMode.optionEnv {
+            applyMacGameModeOption(enabled: value == setting.onValue, for: id, appPath: game.appPath)
+        }
     }
 
     /// A mod switched on or off for one game.
@@ -643,8 +650,12 @@ final class GameLibrary: ObservableObject {
 
     func resetLaunchOptions(for id: UUID) {
         guard var game = games.first(where: { $0.id == id }) else { return }
+        let resetGameMode = game.macGameModeDesired
         game.launchOptions = [:]
         upsert(game)
+        if resetGameMode {
+            applyMacGameModeOption(enabled: false, for: id, appPath: game.appPath)
+        }
     }
 
     private var migrating: Set<UUID> = []   // the games whose copy is being made in the background: setArtwork leaves their folder alone

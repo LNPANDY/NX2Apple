@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "it",
-      "italian",
-      "italiano"
-    ],
-    "name": "Italiano"
-  },
+  "_language": {"locales": ["it", "italian", "italiano"], "name": "Italiano"},
   "activity.ios": "Build per iPhone in corso",
   "activity.mac": "Build per Mac in corso",
   "activity.transfer": "Trasferimento dei file di gioco su iPhone",
@@ -1483,6 +1476,8 @@
   "launch.set.DM_TOUCH_STICK": "Levetta sinistra",
   "launch.set.DM_TOUCH_STICK.note": "Dove si trova lo stick sinistro dei comandi sullo schermo.",
   "launch.set.DM_UPSCALER": "Upscaler del gioco",
+  "launch.set.MAC_GAME_MODE": "Modalità Gioco di macOS",
+  "launch.set.MAC_GAME_MODE.note": "Raddoppia il campionamento Bluetooth dei controller e riduce la latenza audio a schermo intero. Lascia disattivato se il frame rate cala dopo alcuni minuti sul tuo Mac (macOS può mantenere la GPU a bassa frequenza).",
   "launch.title": "Opzioni di avvio",
   "launch.useForNew": "Usa per i nuovi giochi",
   "launch.useForNewDone": "Salvato. I giochi che aggiungi da ora partono con queste impostazioni.",

@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "pt-br",
-      "pt",
-      "portuguese"
-    ],
-    "name": "Português (Brasil)"
-  },
+  "_language": {"locales": ["pt-br", "pt", "portuguese"], "name": "Português (Brasil)"},
   "activity.ios": "Build do iPhone em andamento",
   "activity.mac": "Build do Mac em andamento",
   "activity.transfer": "Transferindo os arquivos do jogo para o iPhone",
@@ -1483,6 +1476,8 @@
   "launch.set.DM_TOUCH_STICK": "Analógico esquerdo",
   "launch.set.DM_TOUCH_STICK.note": "Onde fica o analógico esquerdo dos controles na tela.",
   "launch.set.DM_UPSCALER": "Upscaler do jogo",
+  "launch.set.MAC_GAME_MODE": "Modo Jogo do macOS",
+  "launch.set.MAC_GAME_MODE.note": "Dobra a taxa Bluetooth dos controles e reduz a latência de áudio em tela cheia. Deixe desativado se a taxa de quadros cair após alguns minutos no seu Mac (o macOS pode manter a GPU em clock baixo).",
   "launch.title": "Opções de inicialização",
   "launch.useForNew": "Para jogos novos",
   "launch.useForNewDone": "Salvo. Os jogos que você adicionar daqui em diante começam com isto.",
