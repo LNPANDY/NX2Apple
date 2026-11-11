@@ -305,13 +305,25 @@ package enum LauncherHeroAction {
 }
 
 package struct LauncherHeroActionLabel: View {
-    package init(title: String, symbol: String) { self.title = title; self.symbol = symbol }
+    package init(title: String, symbol: String, loading: Bool = false) {
+        self.title = title
+        self.symbol = symbol
+        self.loading = loading
+    }
     package let title: String
     package let symbol: String
+    package let loading: Bool
 
     package var body: some View {
         HStack(spacing: LauncherHeroAction.iconSpacing) {
-            Image(systemName: symbol).frame(width: LauncherHeroAction.iconSlot)
+            if loading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(LauncherPalette.onCream)
+                    .frame(width: LauncherHeroAction.iconSlot)
+            } else {
+                Image(systemName: symbol).frame(width: LauncherHeroAction.iconSlot)
+            }
             Text(title).lineLimit(1).minimumScaleFactor(LauncherHeroAction.minimumScale)
         }
         .font(.manrope(18, .bold))

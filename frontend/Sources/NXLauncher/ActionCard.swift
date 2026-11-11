@@ -16,6 +16,10 @@ package struct ActionCard: View {
         self.repo = repo
     }
 
+    private var buildDisabled: Bool {
+        build.stopping || (!build.running && (!build.canBuild || build.keyProblem != nil))
+    }
+
     package var body: some View {
         HStack(spacing: 18) {
             statusText
@@ -30,8 +34,8 @@ package struct ActionCard: View {
                     .overlay(Capsule().strokeBorder(LauncherPalette.actionBorder))
             }
             .buttonStyle(.plain)
-            .disabled(build.stopping || (!build.running && !build.canBuild))
-            .opacity(build.stopping || (!build.running && !build.canBuild) ? 0.4 : 1)
+            .disabled(buildDisabled)
+            .opacity(buildDisabled ? 0.4 : 1)
             .keyboardShortcut(.return, modifiers: .command)
         }
         .padding(.top, 2)
@@ -52,6 +56,8 @@ package struct ActionCard: View {
             Text(loc.t("status.fixFolder")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
         } else if !build.inputsReady {
             Text(loc.t("status.needInputs")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
+        } else if let keyProblem = build.keyProblem, !keyProblem.isEmpty {
+            Text(keyProblem).font(.manrope(13)).foregroundStyle(LauncherPalette.building).lineLimit(3)
         } else {
             Text(String(format: loc.t("status.output"), build.shortPath(build.outDir.isEmpty ? build.inputFolder : build.outDir)))
                 .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.head)

@@ -43,6 +43,7 @@ extension BuildStore {
         if f.kind == .driveMissing, let name = f.detail { return String(format: t("fail.driveMissing.whatNamed"), name) }
         if f.kind == .diskFull, let gb = f.detail { return String(format: t("fail.diskFull.whatNeeds"), gb) }
         if f.kind == .psoDiskFull, let gb = f.detail { return String(format: t("fail.psoDiskFull.whatNeeds"), gb) }
+        if f.kind == .updateMismatch, let versions = f.detail { return String(format: t("macFail.updateMismatch.whatVersions"), versions) }
         return t(f.kind.whatKey)
     }
 
@@ -80,6 +81,8 @@ extension BuildStore {
             installRow("dotnet")
         case .iosSDK:
             installRow(Dep(id: "xcode", name: "dep.xcode", hint: "dep.xcode.hint", present: false, installCmd: Toolchain.iosPlatformCmd))
+        case .metalToolchain:
+            installRow(Dep(id: "metal", name: "dep.metal", hint: "dep.metal.hint", present: false, installCmd: Toolchain.metalToolchainCmd))
         case .cltSelected:
             if XcodeSelection.app(in: defaults) != nil {
                 openXcode()
@@ -90,11 +93,13 @@ extension BuildStore {
             installRow("python")   // the venv install, which now names zbic
         case .keys, .keysOld:
             if let chooseKeys { chooseKeys() } else { pickFiles(kind: .keys) }   // the same picker as the keys row
+        case .updateMismatch:
+            pickFiles(kind: .update)
         case .severalGames, .noTitleID, .diskFull, .staleProfile:
             showFailureFolder()
         case .cloudFolder, .volumeFormat:
             chooseBuildFolder()
-        case .teamTaken, .noSigningAccount:
+        case .teamTaken, .noSigningAccount, .freeAccountLimit:
             openXcode()
         case .deviceTransfer, .devicePairing:
             runBuild()
@@ -127,8 +132,8 @@ extension BuildStore {
 
     /// Whether the card's fix button is already running its command.
     package func fixBusy(_ kind: BuildFailureKind) -> Bool {
-        guard [.translator, .iosSDK, .cltSelected, .zbic].contains(kind) else { return false }
-        let id = kind == .translator ? "dotnet" : kind == .zbic ? "python" : "xcode"
+        guard [.translator, .iosSDK, .metalToolchain, .cltSelected, .zbic].contains(kind) else { return false }
+        let id = kind == .translator ? "dotnet" : kind == .zbic ? "python" : kind == .metalToolchain ? "metal" : "xcode"
         return deps.isInstalling(id)
     }
 

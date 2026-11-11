@@ -169,6 +169,12 @@ import NXModel
         build.openApp = { NSWorkspace.shared.openApplication(at: $0, configuration: NSWorkspace.OpenConfiguration()) }
         build.preflightApp = { app, done in Self.preflight(app, done: done) }
         build.runPreflight = { app, timeout in await Self.preflight(app, timeout: timeout) }
+        build.preflightKeyProblem = { [localizer] keys, files in
+            guard !keys.isEmpty, files.first.map({ !$0.isEmpty }) == true else { return nil }
+            let detailed = KeyCheck.runDetailed(KeyCheck.Inputs(keys: keys, files: files))
+            guard KeyCheck.blocksBuild(detailed) else { return nil }
+            return KeyCheck.detailedMessage(detailed, localizer.t)
+        }
     }
 
     /// The build's check of a new Mac app's first start (#1005, `MacPreflight`): opened through LaunchServices, as Play

@@ -5,7 +5,7 @@ import Foundation
 /// the log, cut to 200 characters. The classifier reads the whole log tail, because for a damaged NSP the
 /// last line is only "nx_extract exit code 3" and the message is a few lines above it.
 package enum BuildFailureKind: String, CaseIterable {
-    case rosetta, translator, zbic, iosSDK, cltSelected, otherMetal, shaderRegression, damagedNSP, a32Program
+    case rosetta, translator, zbic, iosSDK, cltSelected, metalToolchain, otherMetal, shaderRegression, damagedNSP, a32Program
     /// The inputs: the keys file, the game folder, a drive that is gone.
     case keys, severalGames, noTitleID, driveMissing
     /// prod.keys lacks the master key the game needs: the keys are older than the game (nx_extract's exit code 6, seedds/nxnative 3104c0a).
@@ -13,10 +13,12 @@ package enum BuildFailureKind: String, CaseIterable {
     /// A provisional profile kept from an earlier build registers other versions than the selected update (scripts/build_ipa_from_nsp.py provisional_version): the script stops
     /// rather than pack an older version, and keeps the profile. `detail` is the folder it names.
     case staleProfile
+    /// The selected update or game build does not match the versions registered by the game profile.
+    case updateMismatch
     /// The build's and the install's own steps.
     /// The offline Metal archive ran out of space or stopped at its own space estimate.
     case psoDiskFull
-    case diskFull, teamTaken, noSigningAccount, deviceTransfer
+    case diskFull, teamTaken, noSigningAccount, freeAccountLimit, deviceTransfer
     /// The build folder is in iCloud Drive or another cloud folder (CloudFolder.swift): the launcher stops before the build, and the
     /// codesign line of xcodebuild is the same stop for a build that got past that check.
     case cloudFolder
@@ -41,8 +43,23 @@ package enum BuildFailureKind: String, CaseIterable {
     }
 
     /// L10n keys: what happened, and the next step.
-    package var whatKey: String { "fail.\(rawValue).what" }
-    package var nextKey: String { "fail.\(rawValue).next" }
+    package var whatKey: String {
+        switch self {
+        case .metalToolchain: return "macFail.metalToolchain.what"
+        case .updateMismatch: return "macFail.updateMismatch.what"
+        case .freeAccountLimit: return "macFail.freeAccountLimit.what"
+        default: return "fail.\(rawValue).what"
+        }
+    }
+
+    package var nextKey: String {
+        switch self {
+        case .metalToolchain: return "macFail.metalToolchain.next"
+        case .updateMismatch: return "macFail.updateMismatch.next"
+        case .freeAccountLimit: return "macFail.freeAccountLimit.next"
+        default: return "fail.\(rawValue).next"
+        }
+    }
 }
 
 package struct BuildFailure: Equatable {

@@ -122,6 +122,22 @@ extension LauncherView {
                         .anchorPreference(key: ManageAnchorKey.self, value: .bounds) { $0 }
                         .padTarget("hero.manage", scope: "main", radius: 12) { manageOpenFor = game.id }
                 }
+                if isLaunchingMacGame(game) && showGatekeeperHint {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.shield").font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(LauncherPalette.cream.opacity(0.85))
+                        Text(loc.t("library.gatekeeperHint"))
+                            .font(.manrope(12.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
+                    Text(loc.t("library.olderToolsSafeNote"))
+                        .font(.manrope(12.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if game.switch2EditionContentFound, !GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {
                     Text(loc.t("library.switch2Content")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)   // #1057
                 }

@@ -266,10 +266,21 @@ import NXLauncher
               }
             }
             fixedCard {
-              VStack(alignment: .leading, spacing: 20) {
+              VStack(alignment: .leading, spacing: 15) {
                 Text(t("onboarding.background.title")).font(.manrope(14, .semibold))
                 ForEach(OnboardingBackgroundTask.allCases, id: \.self) { task in
-                    taskRow(task.titleKey, status: state.background[task] ?? .queued)
+                    taskRow(
+                        task.titleKey,
+                        status: state.background[task] ?? .queued,
+                        detail: state.backgroundDetails[task]
+                    )
+                }
+                if let transfer = state.engineTransfer {
+                    taskRow(
+                        "onboarding.background.engine",
+                        status: .running(transfer.fraction),
+                        detail: transfer.detail
+                    )
                 }
                 Text(t("onboarding.background.note")).font(.manrope(12)).foregroundStyle(LauncherPalette.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
@@ -295,7 +306,7 @@ import NXLauncher
         }
     }
 
-    private func taskRow(_ key: String, status: OnboardingTaskState) -> some View {
+    private func taskRow(_ key: String, status: OnboardingTaskState, detail: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Group {
@@ -308,11 +319,24 @@ import NXLauncher
                 }.frame(width: 20, height: 20).accessibilityHidden(true)
                 Text(t(key)).font(.manrope(13, .medium))
                 Spacer(minLength: 0)
+                if case let .running(progress) = status, let progress {
+                    Text("\(Int((progress * 100).rounded()))%")
+                        .font(.manrope(12, .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(LauncherPalette.secondaryText)
+                }
             }
             if case let .running(progress) = status, let progress {
                 LauncherProgressBar(value: progress, height: 4, tint: LauncherPalette.cream)
-                    .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
+                    .transaction { if reduceMotion { $0.animation = nil } }
                     .accessibilityHidden(true)
+            }
+            if case .running = status, let detail, !detail.isEmpty {
+                Text(detail)
+                    .font(.manrope(11.5))
+                    .monospacedDigit()
+                    .foregroundStyle(LauncherPalette.secondaryText)
+                    .lineLimit(1)
             }
             if case let .failed(failure) = status {
                 Text(failure.message).font(.manrope(12)).foregroundStyle(LauncherPalette.building)
@@ -498,7 +522,7 @@ import NXLauncher
     }
 }
 
-private let onboardingXcodeCardHeight: CGFloat = 270
+private let onboardingXcodeCardHeight: CGFloat = 350
 private let onboardingDropCardHeight: CGFloat = 250
 
 private struct OnboardingCard: ViewModifier {
