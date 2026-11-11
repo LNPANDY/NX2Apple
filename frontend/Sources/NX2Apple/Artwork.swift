@@ -138,7 +138,10 @@ actor ArtworkStore {
     /// Download the banners the given titles lack, and replace one saved before `BannerPick` when the list holds another
     /// product for its title. Returns the title IDs whose banner is new. While another fetch runs, a call returns at once with
     /// nothing, unless it `waits`: then it runs after that one (the Supported games covers, which ask for the rows on screen).
-    @discardableResult func fetchMissing(_ titleIDs: [String], language requested: String = "en", waits: Bool = false) async -> [String] {
+    /// When `lightweight` is true, uncached titles prefer `_image500w` (~35 KB) and shipped static URLs (`SupportedBanners`)
+    /// rather than pulling 2000px hero originals or the 90 MB regional title database.
+    @discardableResult func fetchMissing(_ titleIDs: [String], language requested: String = "en", waits: Bool = false,
+                                         lightweight: Bool = false) async -> [String] {
         let generation = noteLanguage(requested)
         while true {
             while running, waits || runningLanguage != requested {
@@ -147,29 +150,31 @@ actor ArtworkStore {
             }
             if !waits, languageGeneration != generation { return [] }
             let runGen = waits ? languageGeneration : generation
-            if let added = await fetchOnce(titleIDs, language: requested, generation: runGen) { return added }
+            if let added = await fetchOnce(titleIDs, language: requested, generation: runGen, lightweight: lightweight) { return added }
             guard waits else { return [] }   // turned away: another fetch in the same language started while this one looked up the catalogue
         }
     }
 
     /// Nil when another fetch is running and there was work to do.
-    private func fetchOnce(_ titleIDs: [String], language requested: String, generation: Int) async -> [String]? {
+    private func fetchOnce(_ titleIDs: [String], language requested: String, generation: Int, lightweight: Bool = false) async -> [String]? {
         let asked = Set(titleIDs.map { $0.uppercased() }.filter(Self.isTitleID))
         seen.formUnion(asked)
         let lang = listLanguage(requested)
         var sources = readSources()
         // Picked for another language (or before languages were recorded): every banner is picked again, once
         let sameLanguage = (sources[Self.languageKey] ?? "en") == lang
-        if !sameLanguage { sources = [Self.languageKey: lang] }
+        if !sameLanguage && !lightweight { sources = [Self.languageKey: lang] }
+        else if sources[Self.languageKey] == nil { sources[Self.languageKey] = lang }
         await lookUpClean(asked, language: requested, generation: generation)
         guard languageGeneration == generation else { return [] }
         let wanted = asked.filter { id in
-            Self.cachedBanner(id, in: directory) == nil || sources[id] == nil || clean(for: id).map { !Self.cleanIsCurrent($0, id: id, sources: sources) } == true
+            if lightweight { return Self.cachedBanner(id, in: directory) == nil }
+            return Self.cachedBanner(id, in: directory) == nil || sources[id] == nil || clean(for: id).map { !Self.cleanIsCurrent($0, id: id, sources: sources) } == true
         }
         // A title added since the list was last read has its banner and no media: read the list now, in the background, rather than
         // when the panel opens. An index without media is left for `media(for:)`, as it is not rewritten at launch.
         loadIndex()
-        let lacksMedia = index?.media.map { media in asked.contains { media[$0] == nil } } ?? false
+        let lacksMedia = !lightweight && (index?.media.map { media in asked.contains { media[$0] == nil } } ?? false)
         guard !wanted.isEmpty || (lacksMedia && !listFailed) else { return [] }
         guard !running else { return nil }
         running = true
@@ -189,54 +194,79 @@ actor ArtworkStore {
             if languageGeneration == generation { writeSources(sources) }
             return []
         }
-        // A title on the clean list needs no title list: the list is read only for the others
-        let fromList = wanted.filter { clean(for: $0) == nil }
-        let index = fromList.isEmpty ? nil : await index(for: fromList, language: lang, generation: generation)
+        // A title on the clean list (or, in lightweight network mode, in SupportedBanners) needs no 90 MB title list.
+        let useShippedBanners = lightweight && !allowsFileURLs
+        let fromList = wanted.filter { clean(for: $0) == nil && !(useShippedBanners && SupportedBanners.urls[$0] != nil) }
+        let resolvedIndex: Index?
+        if fromList.isEmpty {
+            resolvedIndex = nil
+        } else if useShippedBanners {
+            resolvedIndex = index   // never download the 90 MB regional list merely to browse uncached supported titles
+        } else {
+            resolvedIndex = await index(for: fromList, language: lang, generation: generation)
+        }
         guard languageGeneration == generation else { return [] }
-        guard fromList.isEmpty || index != nil else { writeSources(sources); return [] }
-        let current = index.map { $0.version == Self.indexVersion && $0.language == lang } ?? true
+        guard useShippedBanners || fromList.isEmpty || resolvedIndex != nil else { writeSources(sources); return [] }
+        let current = resolvedIndex.map { $0.version == Self.indexVersion && $0.language == lang } ?? true
         var added: [String] = []
         for id in wanted.sorted() {
             guard languageGeneration == generation else { return added }
             let cached = Self.cachedBanner(id, in: directory) != nil
             if let link = clean(for: id) {
-                if cached && Self.cleanIsCurrent(link, id: id, sources: sources) { continue }
-                // The original first (2000 pixels), then the 1600 pixel size. A banner saved at 1600 before is replaced once, and an
-                // original that is missing is recorded so it is not asked for at every launch.
-                var saved = false
-                for (attempt, file) in CleanArt.downloads(for: link).enumerated() {
-                    let isOriginal = attempt == 0 && file != link
-                    if !isOriginal && cached && sources[id] == link { saved = true; break }   // the 1600 copy is already the one there is
+                if lightweight {
+                    if cached { continue }
+                    let compact = CleanArt.compact(link)
                     do {
-                        let data = try await fetchImageData(file)
+                        let data = try await fetchImageData(compact)
                         guard languageGeneration == generation else { return added }
                         try writeImageData(data, to: directory.appendingPathComponent(id + ".jpg"))
-                        sources[id] = file
+                        sources[id] = compact   // upgraded to original/1600w automatically if the game is later owned
                         added.append(id)
-                        saved = true
-                        break
+                        continue
                     } catch {
-                        fputs("artwork: \(id): \(file): \(error.localizedDescription)\n", stderr)
-                        if isOriginal && Self.isMissing(error) { sources[Self.missingOriginalKey(id)] = file }   // offline: asked again next time
+                        fputs("artwork: \(id): \(compact): \(error.localizedDescription)\n", stderr)
+                        clean?.images[id] = nil
+                        saveClean()
                     }
+                } else {
+                    if cached && Self.cleanIsCurrent(link, id: id, sources: sources) { continue }
+                    // The original first (2000 pixels), then the 1600 pixel size. A banner saved at 1600 before is replaced once, and an
+                    // original that is missing is recorded so it is not asked for at every launch.
+                    var saved = false
+                    for (attempt, file) in CleanArt.downloads(for: link).enumerated() {
+                        let isOriginal = attempt == 0 && file != link
+                        if !isOriginal && cached && sources[id] == link { saved = true; break }   // the 1600 copy is already the one there is
+                        do {
+                            let data = try await fetchImageData(file)
+                            guard languageGeneration == generation else { return added }
+                            try writeImageData(data, to: directory.appendingPathComponent(id + ".jpg"))
+                            sources[id] = file
+                            added.append(id)
+                            saved = true
+                            break
+                        } catch {
+                            fputs("artwork: \(id): \(file): \(error.localizedDescription)\n", stderr)
+                            if isOriginal && Self.isMissing(error) { sources[Self.missingOriginalKey(id)] = file }   // offline: asked again next time
+                        }
+                    }
+                    // the catalogue's sizes are all missing: the list's banner next time
+                    if !saved, languageGeneration == generation {
+                        clean?.images[id] = nil
+                        saveClean()
+                    }
+                    continue
                 }
-                // the catalogue's sizes are all missing: the list's banner next time
-                if !saved, languageGeneration == generation {
-                    clean?.images[id] = nil
-                    saveClean()
-                }
-                continue
             }
-            guard let index else { continue }
-            guard let link = index.banners[id] ?? fallbackBanner(for: id) else {
-                if cached && current { sources[id] = "" }   // the list no longer has it: keep the banner, check it no more
+            let shipped = useShippedBanners ? SupportedBanners.urls[id] : nil
+            guard let link = resolvedIndex?.banners[id] ?? shipped ?? fallbackBanner(for: id) else {
+                if cached && current && resolvedIndex != nil { sources[id] = "" }   // the list no longer has it: keep the banner, check it no more
                 continue
             }
             if cached {
                 guard current else { continue }   // an old index: its pick may be the wrong product
                 if sources[id] == link { continue }
                 // one product and no record from an older launcher, in the same language: the saved banner is it
-                if sameLanguage, sources[id] == nil, !(index.several ?? []).contains(id) {
+                if sameLanguage, sources[id] == nil, !(resolvedIndex?.several ?? []).contains(id) {
                     sources[id] = link
                     continue
                 }

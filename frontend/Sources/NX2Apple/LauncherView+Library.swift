@@ -81,47 +81,71 @@ extension LauncherView {
     }
 
     func hero(_ game: LibraryGame, width: CGFloat, height: CGFloat) -> some View {
-        ZStack(alignment: .bottomLeading) {
+        let lightHero = colorScheme == .light
+        return ZStack(alignment: .bottomLeading) {
             ZStack {
                 if let image = heroImage(for: game) {
                     ArtworkFill(image: image, focus: displayed(game).artwork.focus(for: .hero))
                 } else {
                     LauncherPalette.surface
                     Image(systemName: "gamecontroller").font(.system(size: 160, weight: .ultraLight))
-                        .foregroundStyle(Color.white.opacity(0.05))
+                        .foregroundStyle(LauncherPalette.ink(0.05))
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing).padding(60)
                 }
             }
             .frame(width: width, height: max(0, height - 1)).clipped()
             .frame(width: width, height: height, alignment: .top)
-            LinearGradient(stops: [.init(color: .clear, location: 0.25),
-                                   .init(color: .black.opacity(0.25), location: 0.45),
-                                   .init(color: LauncherPalette.background, location: 0.98),
-                                   .init(color: LauncherPalette.background, location: 1)],
-                           startPoint: .top, endPoint: .bottom)
-            LinearGradient(colors: [.black.opacity(0.24), .clear], startPoint: .leading, endPoint: .trailing)
+            if lightHero {
+                LinearGradient(stops: [.init(color: .clear, location: 0),
+                                       .init(color: .clear, location: 0.44),
+                                       .init(color: LauncherPalette.background.opacity(0.68), location: 0.62),
+                                       .init(color: LauncherPalette.background.opacity(0.92), location: 0.78),
+                                       .init(color: LauncherPalette.background, location: 0.96),
+                                       .init(color: LauncherPalette.background, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+            } else {
+                LinearGradient(stops: [.init(color: .clear, location: 0.25),
+                                       .init(color: .black.opacity(0.25), location: 0.45),
+                                       .init(color: LauncherPalette.background, location: 0.98),
+                                       .init(color: LauncherPalette.background, location: 1)],
+                               startPoint: .top, endPoint: .bottom)
+                LinearGradient(colors: [.black.opacity(0.24), .clear], startPoint: .leading, endPoint: .trailing)
+            }
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 14) {
-                    status(game, prominent: true)
+                HStack(spacing: 10) {
+                    if lightHero {
+                        status(game, prominent: true)
+                            .padding(.horizontal, 11).padding(.vertical, 5)
+                            .background {
+                                Capsule().fill(.ultraThinMaterial)
+                                    .overlay(Capsule().fill(Color.white.opacity(0.76)))
+                            }
+                            .overlay(Capsule().strokeBorder(Color.black.opacity(0.10)))
+                            .shadow(color: .black.opacity(0.06), radius: 4, y: 1)
+                    } else {
+                        status(game, prominent: true)
+                    }
                     if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
                         // Never started by itself: the player adds the game, or every game built with older tools, to the build queue (#944)
-                        heroRebuildButton(loc.t("library.rebuildShort"), id: "hero.rebuild", games: [game])
+                        heroRebuildButton(loc.t("library.rebuildShort"), id: "hero.rebuild", games: [game], frosted: lightHero)
                         let others = olderToolsGames
                         if others.count > 1 {
-                            heroRebuildButton(String(format: loc.t("library.rebuildAll"), others.count), id: "hero.rebuildAll", games: others)
+                            heroRebuildButton(String(format: loc.t("library.rebuildAll"), others.count), id: "hero.rebuildAll", games: others, frosted: lightHero)
                         }
                     }
                 }
                 Text(game.displayName(loc.lang)).font(.manrope(min(68, width * 0.052), .heavy))
-                    .tracking(-1.6).lineLimit(2).shadow(color: .black.opacity(0.25), radius: 12)
+                    .tracking(-1.6).lineLimit(2)
+                    .shadow(color: lightHero ? .white.opacity(0.55) : .black.opacity(0.25), radius: 12)
                 HStack(alignment: width < 760 ? .top : .center, spacing: 18) {
                     heroPrimary(game, compact: width < 760)
                     if game.isReady {
                         Button { optionsFor = game.id } label: {
                             Image(systemName: "slider.horizontal.3").font(.system(size: 17))
+                                .foregroundStyle(LauncherPalette.textStrong)
                                 .frame(width: 48, height: 48)
-                                .background(Color.white.opacity(0.10), in: Circle())
-                                .overlay(Circle().strokeBorder(Color.white.opacity(0.14)))
+                                .background(lightHero ? Color.white.opacity(0.82) : Color.white.opacity(0.10), in: Circle())
+                                .overlay(Circle().strokeBorder(lightHero ? Color.black.opacity(0.12) : Color.white.opacity(0.14)))
                         }
                         .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).help(loc.t("launch.title")).accessibilityLabel(loc.t("launch.title"))
                         .padTarget("hero.options", scope: "main", radius: 24) { optionsFor = game.id }
@@ -191,7 +215,6 @@ extension LauncherView {
             .padding(.horizontal, 34).padding(.bottom, 34)
         }
         .frame(width: width, height: height).clipped()
-        .environment(\.colorScheme, .dark)   // the hero is drawn as on main in Light too: artwork, title, Play, version and actions
     }
 
     /// The way to the Supported games sheet in the collection's header, before Sort: the list is about the library, not about one game.
@@ -269,7 +292,10 @@ extension LauncherView {
                                         .frame(width: cardWidth, height: cardWidth / 1.8).clipped()
                                         .clipShape(RoundedRectangle(cornerRadius: 5))
                                         .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(
-                                            game.id == heroID ? LauncherPalette.cream : .clear, lineWidth: 2))
+                                            game.id == heroID
+                                                ? (colorScheme == .light ? LauncherPalette.focusRing : LauncherPalette.cream)
+                                                : (colorScheme == .light ? LauncherPalette.cardBorder : .clear),
+                                            lineWidth: game.id == heroID ? (colorScheme == .light ? 1.5 : 2) : 1))
                                         Text(game.displayName(loc.lang)).font(.manrope(16, .semibold)).lineLimit(1)
                                         status(game)
                                         Capsule().fill(game.id == heroID ? LauncherPalette.selectionUnderline : .clear)
@@ -329,8 +355,8 @@ extension LauncherView {
         library.games.filter { toolsAge.older.contains($0.id) && !$0.inputs["base", default: []].isEmpty }
     }
 
-    /// An amber-outlined pill that adds games to the build queue: one game, or all that were built with older tools. It starts nothing itself.
-    func heroRebuildButton(_ title: String, id: String, games: [LibraryGame]) -> some View {
+    /// An outlined pill that adds games to the build queue: one game, or all that were built with older tools. It starts nothing itself.
+    func heroRebuildButton(_ title: String, id: String, games: [LibraryGame], frosted: Bool = false) -> some View {
         let add = {
             if !m.running { stores.queue.enqueue(games.map { QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID) }) }
         }
@@ -338,7 +364,13 @@ extension LauncherView {
             Label(title, systemImage: "arrow.clockwise")
                 .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
                 .padding(.horizontal, 10).padding(.vertical, 4)
-                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(0.35)))
+                .background {
+                    if frosted {
+                        Capsule().fill(.ultraThinMaterial)
+                            .overlay(Capsule().fill(Color.white.opacity(0.76)))
+                    }
+                }
+                .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(frosted ? 0.25 : 0.35)))
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(m.running || games.isEmpty)
@@ -369,8 +401,8 @@ extension LauncherView {
                     .foregroundStyle(LauncherPalette.cream.opacity(0.84))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 2)
-                    .background(Color.white.opacity(0.08), in: Capsule())
-                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.22)))
+                    .background(LauncherPalette.ink(0.06), in: Capsule())
+                    .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.18)))
                     .help(loc.t("macLibVerify.note"))
             }
             if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning

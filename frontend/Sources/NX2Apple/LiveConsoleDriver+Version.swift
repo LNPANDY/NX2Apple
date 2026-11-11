@@ -16,7 +16,7 @@ extension LiveConsoleDriver {
     }
 
     /// The display version in a build: a .app (Contents/Info.plist), an iOS .app (Info.plist) or an IPA (Payload/*.app/Info.plist).
-    static func version(at path: String) -> String {
+    nonisolated static func version(at path: String) -> String {
         let url = URL(fileURLWithPath: path)
         if url.pathExtension.lowercased() == "ipa" {
             let process = Process(), pipe = Pipe()
@@ -37,7 +37,7 @@ extension LiveConsoleDriver {
     /// A Mac app packed with DMPackageVersion states its version in DMDisplayVersion, else (an update packed from a dump or a NUP without control data) only as the
     /// packed version, v458752: its CFBundleShortVersionString is then 1.0, not what runs (#953). The base game packed without a display version (v0) states none.
     /// Other builds state it in CFBundleShortVersionString.
-    static func version(plist data: Data) -> String {
+    nonisolated static func version(plist data: Data) -> String {
         guard let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return "" }
         let trimmed = { (key: String) in ((info[key] as? String) ?? "").trimmingCharacters(in: .whitespaces) }
         let package = trimmed("DMPackageVersion")

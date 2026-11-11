@@ -29,6 +29,7 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     /// The engine's commit (engine/ HEAD: the pin plus the series) the last finished build used (ToolsAge); empty for a build from before it was recorded.
     var toolsCommit = ""
     var titleNames: [String: String] = [:]   // the game's names by language, only what is shown (LibraryGame+Names.swift)
+    var sourceVersion = ""   // display version read off-thread from unbuilt package control data (TitleNameLookup.swift)
     var customName = ""   // the player's name (Manage > Rename), shown in every language
     var lastPlayed: Date?   // when Play last started the Mac app (the library's Recently played order, #937)
     /// False for a game the library has just added: LaunchSetting personal defaults (#680) are written once, before its first start.
@@ -45,6 +46,13 @@ struct LibraryGame: Codable, Identifiable, Equatable {
 
     /// The package Play opens, never the newer source inputs or an iPhone build.
     var playVersion: String? { playableMacBundle?.version }
+
+    /// The source package's version shown beside Set Up Build while no Mac or paired-device build is active.
+    var unbuiltVersion: String? {
+        guard primary == .build else { return nil }
+        let trimmed = sourceVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     /// Signed and installed on a paired device (installedDevice is its UDID): Play starts it there.
     var onDevice: Bool { !installedDevice.isEmpty && FileManager.default.fileExists(atPath: iosAppPath + "/Info.plist") }
@@ -93,6 +101,7 @@ extension LibraryGame {
         installedDevice = try c.decodeIfPresent(String.self, forKey: .installedDevice) ?? ""
         toolsCommit = try c.decodeIfPresent(String.self, forKey: .toolsCommit) ?? ""
         titleNames = (try? c.decodeIfPresent([String: String].self, forKey: .titleNames)) ?? [:]
+        sourceVersion = try c.decodeIfPresent(String.self, forKey: .sourceVersion) ?? ""
         customName = try c.decodeIfPresent(String.self, forKey: .customName) ?? ""
         lastPlayed = try c.decodeIfPresent(Date.self, forKey: .lastPlayed)
         defaultsApplied = try c.decodeIfPresent(Bool.self, forKey: .defaultsApplied) ?? true

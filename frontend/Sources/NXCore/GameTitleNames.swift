@@ -53,6 +53,20 @@ package enum GameTitleNames {
         return names
     }
 
+    /// The human-readable display version at `0x3060..<0x3070` of `control.nacp` (`dm/tools/nacp.py`), such as `"1.0.0"`,
+    /// `"1.2.1"` or `"1.0.0.2"`. Nil when the buffer is truncated, blank, non-printable or does not begin with an ASCII digit.
+    package static func displayVersion(nacp: Data) -> String? {
+        guard nacp.count >= 0x3070 else { return nil }
+        let slice = nacp.subdata(in: 0x3060..<0x3070)
+        let raw = slice.prefix { $0 != 0 }
+        guard !raw.isEmpty,
+              let text = String(bytes: raw, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !text.isEmpty,
+              !text.unicodeScalars.contains(where: { [.control, .format, .lineSeparator, .paragraphSeparator].contains($0.properties.generalCategory) }),
+              let first = text.unicodeScalars.first, ("0"..."9").contains(first) else { return nil }
+        return text
+    }
+
     /// The Horizon codes that fit a launcher language, best first: the code itself, then the regional ones it starts in the control
     /// data's order (`en` takes `en-US`, then `en-GB`, `es` takes `es`, then `es-419`, `fr` takes `fr`, then `fr-CA`). Chinese takes
     /// Simplified first, as the launcher's Chinese is, unless the first of `preferred` (the system's languages) is a Traditional Chinese one.

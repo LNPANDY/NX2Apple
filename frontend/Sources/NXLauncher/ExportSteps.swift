@@ -339,7 +339,7 @@ struct FinderCopySteps: View {
             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("\(index + 1)").font(.manrope(11, .semibold)).monospacedDigit().foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18).background(Circle().fill(Color.white.opacity(0.08)))
+                        .frame(width: 18, height: 18).background(Circle().fill(LauncherPalette.ink(0.08)))
                     Text(line).font(.manrope(12.5)).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
                 }
             }

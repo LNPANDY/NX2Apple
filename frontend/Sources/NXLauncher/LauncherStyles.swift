@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreText
 
 package struct LauncherWindowChrome: NSViewRepresentable {
     package init() {}
@@ -395,6 +396,27 @@ package struct LauncherSegmented: View {
         .padding(3)
         .background(LauncherPalette.segmentTrack, in: Capsule())
         .overlay(Capsule().strokeBorder(LauncherPalette.segmentTrackBorder))
+    }
+
+    /// Equal-share width sized so the longest option fits on one line at full size, at least `minWidth`.
+    package static func compactWidth(labels: [String], size: CGFloat = 12.5, minWidth: CGFloat) -> CGFloat {
+        guard !labels.isEmpty else { return minWidth }
+        let maxLabel: CGFloat
+        if let ct = Typography.manropeFont(size: size, weight: .bold) {
+            maxLabel = labels.map { label in
+                let attr = NSAttributedString(string: label, attributes: [kCTFontAttributeName as NSAttributedString.Key: ct])
+                return ceil(CTLineGetBoundsWithOptions(CTLineCreateWithAttributedString(attr), []).width) + 1
+            }.max() ?? 0
+        } else {
+            maxLabel = CGFloat(labels.map(\.count).max() ?? 0) * (size * 0.65)
+        }
+        let count = CGFloat(labels.count)
+        let needed = ceil((maxLabel + 24) * count + 6 + 2 * max(0, count - 1))
+        return min(max(minWidth, needed), 360)
+    }
+
+    package func compactFrame(minWidth: CGFloat) -> some View {
+        frame(width: Self.compactWidth(labels: options.map(\.label), size: size, minWidth: minWidth))
     }
 }
 
