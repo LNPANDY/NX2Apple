@@ -123,9 +123,39 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
 
     _mp_spawn.get_preparation_data = _safe_get_prep_data
 
+    def _guarded_main_script():
+        # A spawned worker imports the main script again, which is only safe when the script
+        # starts its work behind `if __name__ == '__main__':`.
+        import ast as _ast
+        path = getattr(sys.modules.get('__main__'), '__file__', None)
+        if not path:
+            return False
+        try:
+            with open(path, encoding='utf-8') as _f:
+                body = _ast.parse(_f.read()).body
+        except (OSError, SyntaxError, ValueError):
+            return False
+        for node in body:
+            if isinstance(node, _ast.If) and isinstance(node.test, _ast.Compare):
+                sides = [node.test.left] + list(node.test.comparators)
+                if (any(isinstance(n, _ast.Name) and n.id == '__name__' for n in sides)
+                        and any(isinstance(n, _ast.Constant) and n.value == '__main__' for n in sides)):
+                    return True
+        return False
+
+    def _spawnable(fn):
+        # Whether real worker processes can run fn: this is not already a worker, a worker can
+        # find fn by its name (so not a lambda or a nested function), and it can import the script.
+        if _mp.parent_process() is not None or not isinstance(fn, _mp_types.FunctionType):
+            return False
+        if getattr(sys.modules.get(fn.__module__), fn.__qualname__, None) is not fn:
+            return False
+        return _guarded_main_script()
+
     class _WinForkPool:
         def __init__(self, processes=None, initializer=None, initargs=(), *a, **k):
             self._workers = max(1, int(processes or os.cpu_count() or 4))
+            self._initializer, self._initargs = initializer, tuple(initargs)
             self._ex = _cf.ThreadPoolExecutor(max_workers=self._workers)
 
         def __enter__(self):
@@ -145,7 +175,22 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
             self._ex.shutdown(wait=False, cancel_futures=True)
 
         def map(self, fn, iterable, chunksize=1):
-            return list(self._ex.map(fn, iterable))
+            # Threads only help work that releases the GIL, as Capstone does for patch_nso.py.
+            # c1_guard.py and cb_extent.py check every shader in pure Python, which on threads
+            # is one core's work however many there are. Such a map goes to worker processes,
+            # which give the same list in the same order.
+            jobs = list(iterable)
+            chunksize = max(1, int(chunksize or 1))
+            n_procs = min(_MAX_WIN_WORKERS, self._workers, -(-len(jobs) // chunksize))
+            if n_procs >= 2 and _spawnable(fn):
+                try:
+                    pool = _orig_get_context('spawn').Pool(n_procs, self._initializer, self._initargs)
+                except OSError:
+                    pool = None   # no room for the workers: the threads still give the right list
+                if pool is not None:
+                    with pool:
+                        return pool.map(fn, jobs, chunksize)
+            return list(self._ex.map(fn, jobs))
 
         def imap_unordered(self, fn, iterable, chunksize=1):
             return self._ex.map(fn, iterable)
