@@ -8,12 +8,17 @@ public struct ControllersView: View {
     /// The ID the shell's own button mapping goes by where a game's ID would.
     public static let mappingID = "global-pad"
     public var padMap: PadMap
+    public var padMerge: Bool
+    public var onPadMergeChange: (Bool) -> Void
     @Environment(\.shellFocus) private var focus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     public var controllers: [ControllerInfo]
     public var onBack: () -> Void
-    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap()) {
+    public init(controllers: [ControllerInfo], onBack: @escaping () -> Void = {}, padMap: PadMap = PadMap(),
+                padMerge: Bool = false, onPadMergeChange: @escaping (Bool) -> Void = { _ in }) {
         self.padMap = padMap
+        self.padMerge = padMerge
+        self.onPadMergeChange = onPadMergeChange
         self.controllers = controllers
         self.onBack = onBack
     }
@@ -47,6 +52,18 @@ public struct ControllersView: View {
                     }
                 }
                 .id("ctl.top")
+
+                Section {
+                    Toggle(isOn: Binding(get: { padMerge }, set: { onPadMergeChange($0) })) {
+                        Label(ShellStrings.text("All controllers are player 1"), systemImage: "arrow.triangle.merge")
+                            .labelStyle(SettingsRowLabelStyle())
+                    }
+                    .toggleStyle(NativeCreamToggleStyle())
+                    .accessibilityIdentifier("controllers.padMerge")
+                    .shellTarget("ctl.merge") { onPadMergeChange(!padMerge) }
+                } footer: {
+                    Text(ShellStrings.text("Lets every connected controller and touch controls drive player 1 together."))
+                }
 
                 Section {
                     Button { openMapping?(Self.mappingID) } label: {

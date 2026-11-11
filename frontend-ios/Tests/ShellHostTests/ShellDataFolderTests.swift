@@ -419,4 +419,65 @@ final class MutablePicker: FolderPicker, @unchecked Sendable {
         orbit = try #require(m.details.first { $0.id == Fixtures.orbit })
         #expect(orbit.game.state == .needsGameData)
     }
+
+    @Test func pickingDriveRootFindsTitleSubfolderAndSurvivesReloadAndRelaunch() async throws {
+        let box = try Sandbox()
+        let fm = FileManager.default
+        let hexTitle = "0100ABCDEF000000"
+        defer { UserDefaults().removePersistentDomain(forName: box.suite + hexTitle) }
+        let oldDir = box.games.appendingPathComponent(Fixtures.orbit, isDirectory: true)
+        let hexDir = box.games.appendingPathComponent(hexTitle, isDirectory: true)
+        try fm.moveItem(at: oldDir, to: hexDir)
+        for file in ["game.manifest.json", "launcher.json"] {
+            let url = hexDir.appendingPathComponent(file)
+            let updated = try String(contentsOf: url, encoding: .utf8)
+                .replacingOccurrences(of: Fixtures.orbit, with: hexTitle)
+                .replacingOccurrences(of: "\"DMROMFSID1 fixture\"", with: "\"DMROMFSID1 title=\(hexTitle) version=1.0 build=v0 size=61 index=90b5abb4d1ea10d2\"")
+            try updated.write(to: url, atomically: true, encoding: .utf8)
+        }
+
+        // Export layout <Drive>/<lowercase titleid>/romfs.img plus aoc/0.img.
+        let drive = box.root.appendingPathComponent("ExternalDrive", isDirectory: true)
+        let titleFolder = drive.appendingPathComponent(hexTitle.lowercased(), isDirectory: true)
+        let images = ShellDataFolderTests()
+        try images.place(ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA), at: titleFolder.appendingPathComponent("romfs.img"))
+        try images.place(Data("dlc".utf8), at: titleFolder.appendingPathComponent("aoc/0.img"))
+
+        let launcher = RecordingLauncher()
+        let settings = ShellSettingsStore(defaults: UserDefaults(suiteName: "t-shell-\(UUID().uuidString)")!)
+        let picker = MutablePicker(drive)
+        let host = ShellHostModel(config: box.config(), launcher: launcher, picker: picker, shellSettings: settings)
+
+        await host.pickGameDataNow(hexTitle)
+        #expect(host.notice == nil)
+        let pickedDetail = try #require(host.details.first { $0.id == hexTitle })
+        #expect(pickedDetail.game.state == .playable)
+        #expect(pickedDetail.dataSource == hexTitle.lowercased())
+        #expect(pickedDetail.dlc == "1 additional content pack")
+
+        // The stored bookmark must keep pointing at the user-picked parent drive root so its security scope covers the subfolder.
+        let storedStore = BookmarkStore(defaults: box.defaults(hexTitle), key: BookmarkStore.gameDataKey)
+        guard case .url(let bookmarkedURL) = storedStore.resolve() else {
+            Issue.record("expected stored drive bookmark to resolve")
+            return
+        }
+        #expect(bookmarkedURL.resolvingSymlinksInPath().path == drive.resolvingSymlinksInPath().path)
+
+        // Remains playable across reload().
+        host.reload()
+        await host.waitForDataChecks()
+        #expect(host.details.first { $0.id == hexTitle }?.game.state == .playable)
+
+        // Remains playable across a full model relaunch and launches from the title subfolder with launchingGame reset.
+        let relaunched = ShellHostModel(config: box.config(), launcher: launcher, picker: MutablePicker(nil), shellSettings: settings)
+        await relaunched.waitForDataChecks()
+        #expect(relaunched.details.first { $0.id == hexTitle }?.game.state == .playable)
+        await relaunched.playNow(hexTitle)
+        #expect(!relaunched.launchingGame)
+        let launched = try #require(launcher.launched.last)
+        #expect(launched.dataURL.resolvingSymlinksInPath().path == titleFolder.resolvingSymlinksInPath().path)
+        let plan = EngineLaunchPlan.make(game: launched, appResources: box.root, documents: box.root, envFileText: nil)
+        #expect(URL(fileURLWithPath: try #require(plan.environment["DM_ROMFS"])).resolvingSymlinksInPath().path == titleFolder.appendingPathComponent("romfs.img").resolvingSymlinksInPath().path)
+        #expect(URL(fileURLWithPath: try #require(plan.environment["DM_AOC_DIR"])).resolvingSymlinksInPath().path == titleFolder.appendingPathComponent("aoc").resolvingSymlinksInPath().path)
+    }
 }

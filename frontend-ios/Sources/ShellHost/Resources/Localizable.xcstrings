@@ -961,6 +961,70 @@
         }
       }
     },
+    "Another device": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anderes Gerät"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another device"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro dispositivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un autre appareil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un altro dispositivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "別のデバイス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 기기"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outro dispositivo"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En annan enhet"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "另一台设备"
+          }
+        }
+      }
+    },
     "Can't read this game": {
       "localizations": {
         "de": {
@@ -1089,66 +1153,66 @@
         }
       }
     },
-    "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive.": {
+    "Choose the folder holding romfs.img (or the game's title ID folder) on this device, an external drive, or iCloud Drive.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wähle einen RomFS-Ordner oder eine romfs.img auf diesem Gerät, einem externen Laufwerk oder in iCloud Drive."
+            "value": "Wähle den Ordner mit romfs.img (oder den Title-ID-Ordner des Spiels) auf diesem Gerät, einem externen Laufwerk oder in iCloud Drive."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."
+            "value": "Choose the folder holding romfs.img (or the game's title ID folder) on this device, an external drive, or iCloud Drive."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Elige una carpeta RomFS o romfs.img en este dispositivo, un disco externo o iCloud Drive."
+            "value": "Elige la carpeta que contiene romfs.img (o la carpeta del ID de título del juego) en este dispositivo, una unidad externa o iCloud Drive."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choisissez un dossier RomFS ou un fichier romfs.img sur cet appareil, un disque externe ou iCloud Drive."
+            "value": "Choisissez le dossier contenant romfs.img (ou le dossier d’identifiant du jeu) sur cet appareil, un disque externe ou iCloud Drive."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scegli una cartella RomFS o un file romfs.img su questo dispositivo, su un disco esterno o su iCloud Drive."
+            "value": "Scegli la cartella che contiene romfs.img (o la cartella con l’ID titolo del gioco) su questo dispositivo, un’unità esterna o iCloud Drive."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このデバイス、外付けドライブ、または iCloud Drive にある RomFS フォルダか romfs.img を選んでください。"
+            "value": "このデバイス、外部ドライブ、または iCloud Drive 上で romfs.img が入ったフォルダ（またはゲームのタイトル ID フォルダ）を選択してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 기기, 외장 드라이브 또는 iCloud Drive에서 RomFS 폴더나 romfs.img를 선택하세요."
+            "value": "이 기기, 외장 드라이브 또는 iCloud Drive에서 romfs.img가 들어 있는 폴더(또는 게임의 타이틀 ID 폴더)를 선택하세요."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha uma pasta RomFS ou romfs.img neste dispositivo, em um disco externo ou no iCloud Drive."
+            "value": "Escolha a pasta que contém romfs.img (ou a pasta do ID do título do jogo) neste dispositivo, em uma unidade externa ou no iCloud Drive."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Välj en RomFS-mapp eller en romfs.img på den här enheten, en extern enhet eller iCloud Drive."
+            "value": "Välj mappen som innehåller romfs.img (eller spelets titel-ID-mapp) på den här enheten, en extern enhet eller iCloud Drive."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在此设备、外置硬盘或 Mac 上选择 RomFS 文件夹或 romfs.img。iOS 启动器会记住该位置。"
+            "value": "在此设备、外置硬盘或 iCloud Drive 上选择包含 romfs.img 的文件夹（或游戏的 Title ID 文件夹）。"
           }
         }
       }
@@ -1473,6 +1537,134 @@
         }
       }
     },
+    "Game data for %@ in “%@” has not been downloaded from iCloud Drive yet. Download it in Files first, then try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Spieldaten für %@ in „%@“ wurden noch nicht aus iCloud Drive geladen. Lade sie zuerst in „Dateien“ herunter und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game data for %@ in “%@” has not been downloaded from iCloud Drive yet. Download it in Files first, then try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos del juego de %@ en «%@» aún no se han descargado de iCloud Drive. Descárgalos primero en Archivos y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données de jeu de %@ dans « %@ » n’ont pas encore été téléchargées depuis iCloud Drive. Téléchargez-les d’abord dans Fichiers, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dati di gioco di %@ in «%@» non sono ancora stati scaricati da iCloud Drive. Scaricali prima nell’app File, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のゲームデータ（「%@」内）はまだ iCloud Drive からダウンロードされていません。先に「ファイル」でダウンロードしてからやり直してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 게임 데이터(‘%@’ 폴더)가 아직 iCloud Drive에서 다운로드되지 않았습니다. 먼저 ‘파일’ 앱에서 다운로드한 뒤 다시 시도하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os dados do jogo de %@ em “%@” ainda não foram baixados do iCloud Drive. Baixe-os primeiro no app Arquivos e tente novamente."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speldata för %@ i ”%@” har inte hämtats från iCloud Drive än. Hämta dem först i Filer och försök igen."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 在“%@”中的游戏数据尚未从 iCloud Drive 下载。请先在“文件”中下载后再试。"
+          }
+        }
+      }
+    },
+    "Game data for %@ is inside the subfolder “%@”. Choose that inner folder directly so the game can read its files.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Spieldaten für %@ liegen im Unterordner „%@“. Wähle diesen inneren Ordner direkt aus, damit das Spiel seine Dateien lesen kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game data for %@ is inside the subfolder “%@”. Choose that inner folder directly so the game can read its files."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los datos de juego de %@ están dentro de la subcarpeta «%@». Elige directamente esa carpeta interna para que el juego pueda leer sus archivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les données de jeu de %@ se trouvent dans le sous-dossier « %@ ». Choisissez directement ce dossier interne pour que le jeu puisse lire ses fichiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I dati di gioco di %@ si trovano nella sottocartella «%@». Scegli direttamente quella cartella interna così il gioco potrà leggere i suoi file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のゲームデータはサブフォルダ「%@」の中にあります。ゲームがファイルを読み取れるよう、その内側のフォルダを直接選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 게임 데이터가 하위 폴더 ‘%@’ 안에 있습니다. 게임이 파일을 읽을 수 있도록 해당 안쪽 폴더를 직접 선택하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os dados de jogo de %@ estão dentro da subpasta “%@”. Escolha essa pasta interna diretamente para que o jogo possa ler os arquivos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speldata för %@ ligger i undermappen ”%@”. Välj den inre mappen direkt så att spelet kan läsa sina filer."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的游戏数据位于子文件夹“%@”内。请直接选择该内层文件夹，以便游戏读取文件。"
+          }
+        }
+      }
+    },
     "Game files damaged": {
       "localizations": {
         "de": {
@@ -1601,6 +1793,70 @@
         }
       }
     },
+    "Joining .nxpart split files in this app's folder (%@ of %@).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammenfügen von .nxpart-Teildateien im Ordner dieser App (%@ von %@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Joining .nxpart split files in this app's folder (%@ of %@)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniendo archivos divididos .nxpart en la carpeta de esta app (%@ de %@)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assemblage des fichiers .nxpart dans le dossier de cette app (%@ sur %@)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unione dei file divisi .nxpart nella cartella di questa app (%@ di %@)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このアプリのフォルダ内で .nxpart 分割ファイルを結合しています（%@ / %@）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 앱의 폴더에서 .nxpart 분할 파일을 병합 중입니다(%@ / %@)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unindo arquivos divididos .nxpart na pasta deste app (%@ de %@)."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Slår ihop .nxpart-delfiler i den här appens mapp (%@ av %@)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在本应用的文件夹中合并 .nxpart 分片文件（%@ / %@）。"
+          }
+        }
+      }
+    },
     "Keep holding to quit": {
       "localizations": {
         "de": {
@@ -1725,6 +1981,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "切换式按键"
+          }
+        }
+      }
+    },
+    "Latest local backup: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letztes lokales Backup: %@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest local backup: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Última copia de seguridad local: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dernière sauvegarde de secours locale : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ultimo backup locale: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最新のローカルバックアップ: %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최근 로컬 백업: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup local mais recente: %@"
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senaste lokala säkerhetskopia: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近本地备份：%@"
           }
         }
       }
@@ -2689,6 +3009,70 @@
         }
       }
     },
+    "Restored the save backup from %@. Your previous save was backed up first.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Speicherdaten-Backup vom %@ wurde wiederhergestellt. Dein vorheriger Spielstand wurde zuvor gesichert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restored the save backup from %@. Your previous save was backed up first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se restauró la copia de seguridad de guardado de %@. Tu partida anterior se respaldó primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sauvegarde de secours du %@ a été restaurée. Votre sauvegarde précédente a d’abord été mise de côté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backup dei dati di salvataggio del %@ ripristinato. Il salvataggio precedente è stato prima copiato nei backup."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のセーブバックアップを復元しました。直前のセーブデータも先にバックアップされました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@의 세이브 백업을 복원했습니다. 이전 세이브 데이터도 먼저 백업되었습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O backup de salvamento de %@ foi restaurado. Seu salvamento anterior foi copiado antes."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Återställde säkerhetskopian från %@. Din tidigare sparfil säkerhetskopierades först."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已恢复 %@ 的存档备份，恢复前的存档也已先行备份。"
+          }
+        }
+      }
+    },
     "Right stick: drag here": {
       "localizations": {
         "de": {
@@ -3201,6 +3585,134 @@
         }
       }
     },
+    "That folder holds game data for %@, not %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner enthält Spieldaten für %@, nicht für %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That folder holds game data for %@, not %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa carpeta contiene datos de juego de %@, no de %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier contient les données de jeu de %@, pas de %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella cartella contiene i dati di gioco di %@, non di %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのフォルダに入っているのは %@ のゲームデータであり、%@ のものではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 폴더에는 %@의 게임 데이터가 들어 있으며 %@의 데이터가 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa pasta contém dados de jogo de %@, e não de %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den mappen innehåller speldata för %@, inte %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件夹包含的是 %@ 的游戏数据，而不是 %@。"
+          }
+        }
+      }
+    },
+    "That folder holds game data for another game, not %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner enthält Spieldaten für ein anderes Spiel, nicht für %@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That folder holds game data for another game, not %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa carpeta contiene datos de otro juego, no de %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier contient les données d’un autre jeu, pas de %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quella cartella contiene i dati di un altro gioco, non di %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのフォルダには別のゲームのゲームデータが入っており、%@ のものではありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 폴더에는 다른 게임의 데이터가 들어 있으며 %@의 데이터가 아닙니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essa pasta contém dados de outro jogo, e não de %@."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Den mappen innehåller speldata för ett annat spel, inte %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件夹包含的是其他游戏的数据，而不是 %@。"
+          }
+        }
+      }
+    },
     "That location could not be remembered. Try a different one.": {
       "localizations": {
         "de": {
@@ -3261,6 +3773,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法记住该位置。请换一个试试。"
+          }
+        }
+      }
+    },
+    "The cloud saves folder could not be reached on this device.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Ordner für Cloud-Speicherdaten konnte auf diesem Gerät nicht erreicht werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud saves folder could not be reached on this device."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo acceder a la carpeta de guardados en la nube en este dispositivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le dossier des sauvegardes cloud est inaccessible sur cet appareil."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile accedere alla cartella dei salvataggi cloud su questo dispositivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このデバイスでクラウドセーブ用フォルダにアクセスできませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 기기에서 클라우드 세이브 폴더에 접근할 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível acessar a pasta de salvamentos na nuvem neste dispositivo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen för molnsparfiler kunde inte nås på den här enheten."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在此设备上无法访问云存档文件夹。"
           }
         }
       }
@@ -3709,6 +4285,198 @@
           "stringUnit": {
             "state": "translated",
             "value": "清单中未列出任何模块。"
+          }
+        }
+      }
+    },
+    "The save backup could not be restored.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Speicherdaten-Backup konnte nicht wiederhergestellt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The save backup could not be restored."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo restaurar la copia de seguridad de guardado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La sauvegarde de secours n’a pas pu être restaurée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile ripristinare il backup dei dati di salvataggio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セーブデータのバックアップを復元できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "세이브 백업을 복원할 수 없습니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível restaurar o backup dos dados salvos."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Säkerhetskopian kunde inte återställas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法恢复该存档备份。"
+          }
+        }
+      }
+    },
+    "The save file in iCloud Drive belongs to another game.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Speicherdatei in iCloud Drive gehört zu einem anderen Spiel."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The save file in iCloud Drive belongs to another game."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de guardado en iCloud Drive pertenece a otro juego."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de sauvegarde dans iCloud Drive appartient à un autre jeu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file di salvataggio su iCloud Drive appartiene a un altro gioco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive 内のセーブファイルは別のゲームのものです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive의 세이브 파일이 다른 게임의 파일입니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O arquivo de salvamento no iCloud Drive pertence a outro jogo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparfilen på iCloud Drive tillhör ett annat spel."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive 中的存档文件属于另一款游戏。"
+          }
+        }
+      }
+    },
+    "The save file in iCloud Drive is damaged or incomplete.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Speicherdatei in iCloud Drive ist beschädigt oder unvollständig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The save file in iCloud Drive is damaged or incomplete."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El archivo de guardado en iCloud Drive está dañado o incompleto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le fichier de sauvegarde dans iCloud Drive est endommagé ou incomplet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il file di salvataggio su iCloud Drive è danneggiato o incompleto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive 内のセーブファイルが破損しているか不完全です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive의 세이브 파일이 손상되었거나 불완전합니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O arquivo de salvamento no iCloud Drive está danificado ou incompleto."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sparfilen på iCloud Drive är skadad eller ofullständig."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "iCloud Drive 中的存档文件已损坏或不完整。"
           }
         }
       }
@@ -4545,66 +5313,66 @@
         }
       }
     },
-    "Unsaved progress will be lost. The app closes. Open it again to get back to your games.": {
+    "Unsaved progress will be lost. You will return to your games.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht gesicherter Fortschritt geht verloren. Die App wird geschlossen. Öffne sie erneut, um zu deinen Spielen zurückzukehren."
+            "value": "Ungespeicherter Fortschritt geht verloren. Du kehrst zu deinen Spielen zurück."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unsaved progress will be lost. The app closes. Open it again to get back to your games."
+            "value": "Unsaved progress will be lost. You will return to your games."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Se perderá el progreso sin guardar. La app se cierra. Ábrela de nuevo para volver a tus juegos."
+            "value": "Se perderá el progreso no guardado. Volverás a tus juegos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "La progression non sauvegardée sera perdue. L’app se ferme. Rouvrez-la pour revenir à vos jeux."
+            "value": "La progression non enregistrée sera perdue. Vous reviendrez à vos jeux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I progressi non salvati andranno persi. L’app si chiude. Riaprila per tornare ai tuoi giochi."
+            "value": "I progressi non salvati andranno persi. Tornerai ai tuoi giochi."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "保存していない進行状況は失われます。アプリが閉じます。もう一度開くとゲーム一覧に戻ります。"
+            "value": "保存されていない進行状況は失われます。ゲーム一覧に戻ります。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "저장하지 않은 진행 상황은 사라집니다. 앱이 닫힙니다. 게임으로 돌아가려면 다시 여세요."
+            "value": "저장하지 않은 진행 상황은 사라집니다. 게임 목록으로 돌아갑니다."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O progresso não salvo será perdido. O app fecha. Abra-o de novo para voltar aos seus jogos."
+            "value": "O progresso não salvo será perdido. Você voltará aos seus jogos."
           }
         },
         "sv": {
           "stringUnit": {
             "state": "translated",
-            "value": "Osparade framsteg går förlorade. Appen stängs. Öppna den igen för att komma tillbaka till dina spel."
+            "value": "Osparade framsteg går förlorade. Du återvänder till dina spel."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未保存的进度将会丢失。App 会关闭，再次打开即可回到你的游戏。"
+            "value": "未保存的进度将会丢失。你将返回游戏库。"
           }
         }
       }
@@ -5117,6 +5885,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "title_id \"%@\" 不是 16 位十六进制。"
+          }
+        }
+      }
+    },
+    "“%@” holds unjoined .nxpart split files. External folders cannot read split parts directly. Copy them to games/%@ in this app's folder in Files to join automatically, or use a whole romfs.img.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ enthält nicht zusammengefügte .nxpart-Teildateien. Externe Ordner können Teildateien nicht direkt lesen. Kopiere sie in „Dateien“ nach games/%@ im Ordner dieser App, um sie automatisch zusammenzufügen, oder verwende eine vollständige romfs.img."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” holds unjoined .nxpart split files. External folders cannot read split parts directly. Copy them to games/%@ in this app's folder in Files to join automatically, or use a whole romfs.img."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» contiene archivos divididos .nxpart sin unir. Las carpetas externas no pueden leer partes divididas directamente. Cópialos en games/%@ dentro de la carpeta de esta app en Archivos para unirlos automáticamente, o usa un archivo romfs.img completo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« %@ » contient des fichiers .nxpart non assemblés. Les dossiers externes ne peuvent pas lire directement des parties découpées. Copiez-les dans games/%@ du dossier de cette app dans Fichiers pour les assembler automatiquement, ou utilisez un fichier romfs.img complet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "«%@» contiene file divisi .nxpart non uniti. Le cartelle esterne non possono leggere direttamente le parti divise. Copiali in games/%@ nella cartella di questa app in File per unirli automaticamente, oppure usa un file romfs.img intero."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」には未結合の .nxpart 分割ファイルがあります。外部フォルダからは分割ファイルを直接読み込めません。「ファイル」でこのアプリのフォルダ内の games/%@ にコピーして自動結合するか、結合済みの romfs.img を使用してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’ 폴더에 병합되지 않은 .nxpart 분할 파일이 있습니다. 외부 폴더에서는 분할 파일을 직접 읽을 수 없습니다. ‘파일’ 앱에서 이 앱 폴더의 games/%@ 경로로 복사해 자동 병합하거나 단일 romfs.img 파일을 사용하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” contém arquivos divididos .nxpart não unidos. Pastas externas não podem ler partes divididas diretamente. Copie-os para games/%@ na pasta deste app no Arquivos para unir automaticamente ou use um romfs.img completo."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "”%@” innehåller oihopsatta .nxpart-delfiler. Externa mappar kan inte läsa delfiler direkt. Kopiera dem till games/%@ i den här appens mapp i Filer för att slå ihop dem automatiskt, eller använd en hel romfs.img."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”中包含未合并的 .nxpart 分片文件。外部文件夹无法直接读取分片，请在“文件”中将它们拷贝到本应用文件夹下的 games/%@ 以自动合并，或使用完整的 romfs.img。"
           }
         }
       }

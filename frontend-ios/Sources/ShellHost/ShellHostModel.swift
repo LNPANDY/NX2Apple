@@ -19,11 +19,18 @@ public struct ShellHostConfig: Sendable {
     public var openURL: @MainActor @Sendable (URL) -> Void
     /// The clock, for the last-played date and its wording.
     public var now: @Sendable () -> Date
+    /// Expiration date of `embedded.mobileprovision`, or nil when absent or unreadable.
+    public var provisioningExpiration: @Sendable () -> Date?
+    /// Split-part byte size used by startup `DataParts.joinAll` (defaults to 512 MiB).
+    public var joinPartSize: Int64
+    var onJoinProgress: (@Sendable (DataParts.Progress) -> Void)?
 
     public init(gamesRoot: URL, appDataRoot: URL, environment: HostEnvironment = HostEnvironment(), updateURL: URL? = nil,
                 defaults: @escaping @Sendable (String) -> UserDefaults = GameDefaults.suite(for:),
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                now: @escaping @Sendable () -> Date = { Date() },
+                provisioningExpiration: @escaping @Sendable () -> Date? = { ProvisioningProfile.bundledExpiration() },
+                joinPartSize: Int64 = DataParts.partSize) {
         self.gamesRoot = gamesRoot
         self.appDataRoot = appDataRoot
         self.environment = environment
@@ -31,6 +38,9 @@ public struct ShellHostConfig: Sendable {
         self.defaults = defaults
         self.openURL = openURL
         self.now = now
+        self.provisioningExpiration = provisioningExpiration
+        self.joinPartSize = joinPartSize
+        self.onJoinProgress = nil
     }
 
     @MainActor public static func systemOpen(_ url: URL) {
@@ -59,10 +69,21 @@ public struct ShellHostConfig: Sendable {
     public var log: LogPresentation?
     /// Play is preparing the game's resources or handing over to the engine.
     public private(set) var launchingGame = false
+    /// Cloud save conflict or unreadable-archive prompt awaiting the player's decision before launch.
+    public var cloudConflict: CloudSavePrompt?
+    /// Mild heads-up when the app's provisioning profile expires within 48 hours.
+    public private(set) var signingWarning: SigningWarning?
 
     public private(set) var globalPadMap = PadMap()
+    public private(set) var padMerge = false
     /// The last controller state, sent only while the button test is open.
     public private(set) var padSnapshot: PadSnapshot?
+
+    private struct PendingCloudLaunch {
+        var generation: UInt64
+        var game: LaunchableGame
+        var report: CloudSaveSyncCheck.Report
+    }
 
     @ObservationIgnored private let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
@@ -81,6 +102,18 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var shellMatches: [String: URL] = [:]
     @ObservationIgnored private var shellScan: Task<Void, Never>?
     @ObservationIgnored private var romfsChecks: [URL: RomfsCheck] = [:]
+    @ObservationIgnored private var startupJoinTask: Task<Void, Never>?
+    @ObservationIgnored private var joinGeneration: UInt64 = 0
+    @ObservationIgnored private var joiningProgress: [String: DataParts.Progress] = [:]
+    @ObservationIgnored private var pickGeneration: [String: UInt64] = [:]
+    @ObservationIgnored private var pickedDataNotes: [String: String] = [:]
+    @ObservationIgnored private var cloudCheckGeneration: UInt64 = 0
+    @ObservationIgnored private var pendingCloudLaunch: PendingCloudLaunch?
+    @ObservationIgnored private var backupScanGeneration: UInt64 = 0
+    @ObservationIgnored private var backupScanTask: Task<Void, Never>?
+    @ObservationIgnored private var latestBackups: [String: String] = [:]
+    @ObservationIgnored private var signingCheckTask: Task<Void, Never>?
+    @ObservationIgnored private var signingWarningDismissed = false
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
@@ -93,18 +126,35 @@ public struct ShellHostConfig: Sendable {
         shellCloud = BookmarkStore(defaults: shellSettings.defaults, key: ShellSettingsStore.cloudSavesKey)
         shellChoices = Self.choices(of: shellSettings)
         globalPadMap = shellSettings.padMap
+        padMerge = shellSettings.padMerge
         // Off the main actor, it lists folders and may write GB: a file the Mac launcher sent in parts is joined first (#899), then
         // the game files are kept out of the iCloud backup (#618), also what an earlier version put there. A joined file can make a
         // game playable, so the library is read again.
         let dataRoot = config.appDataRoot
-        Task { [weak self] in
+        let joinGen = joinGeneration
+        let partSize = config.joinPartSize
+        let progressHook = config.onJoinProgress
+        let reportProgress: @Sendable (DataParts.Progress) -> Void = { [weak self] progress in
+            Task { @MainActor in
+                self?.applyJoinProgress(progress, generation: joinGen)
+            }
+            progressHook?(progress)
+        }
+        startupJoinTask = Task { [weak self] in
             let joined = await Task.detached(priority: .utility) { () -> Bool in
                 DataParts.writeFeatures(documents: dataRoot.deletingLastPathComponent())
-                let joined = DataParts.joinAll(appDataRoot: dataRoot)
+                let joined = DataParts.joinAll(appDataRoot: dataRoot, partSize: partSize, onProgress: reportProgress)
                 BackupExclusion.apply(appDataRoot: dataRoot)
                 return !joined.isEmpty
             }.value
-            if joined { self?.reload() }
+            self?.finishJoinRun(joined: joined, generation: joinGen)
+        }
+        let expirationReader = config.provisioningExpiration
+        let clock = config.now
+        signingCheckTask = Task { [weak self] in
+            let expiration = await Task.detached(priority: .utility) { expirationReader() }.value
+            guard let self, !self.signingWarningDismissed else { return }
+            self.signingWarning = ProvisioningProfile.warning(expiration: expiration, now: clock())
         }
         reload()
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
@@ -122,9 +172,75 @@ public struct ShellHostConfig: Sendable {
     /// Rebuilds the details in place after a shell folder, overlay or controller mapping changes.
     public func refreshAll() {
         globalPadMap = shellSettings.padMap
+        padMerge = shellSettings.padMerge
         shellChoices = Self.choices(of: shellSettings)
         startShellScan()
         details = entries.map(detail(for:))
+    }
+
+    public func setPadMerge(_ on: Bool) {
+        shellSettings.storePadMerge(on)
+        refreshAll()
+    }
+
+    public func dismissSigningWarning() {
+        signingWarningDismissed = true
+        signingWarning = nil
+    }
+
+    func waitForStartupTasks() async {
+        await startupJoinTask?.value
+        await signingCheckTask?.value
+        await backupScanTask?.value
+        for task in romfsChecks.values.compactMap(\.task) {
+            await task.value
+        }
+    }
+
+    private func applyJoinProgress(_ progress: DataParts.Progress, generation: UInt64) {
+        guard joinGeneration == generation, entries.contains(where: { $0.id == progress.titleID }) else { return }
+        joiningProgress[progress.titleID] = progress
+        refresh(progress.titleID)
+    }
+
+    private func finishJoinRun(joined: Bool, generation: UInt64) {
+        guard joinGeneration == generation else { return }
+        // Advance the generation so any queued progress update from this finished run is ignored.
+        joinGeneration &+= 1
+        let affected = Array(joiningProgress.keys)
+        joiningProgress.removeAll()
+        if joined {
+            reload()
+        } else {
+            for id in affected { refresh(id) }
+        }
+    }
+
+    private func startBackupScan() {
+        backupScanTask?.cancel()
+        backupScanGeneration &+= 1
+        let generation = backupScanGeneration
+        let targets = entries.map { ($0.id, appFolder(for: $0.id)) }
+        guard !targets.isEmpty else {
+            latestBackups.removeAll()
+            return
+        }
+        backupScanTask = Task { [weak self] in
+            let scanned = await Task.detached(priority: .utility) { () -> [String: String] in
+                var found: [String: String] = [:]
+                for (id, folder) in targets where !Task.isCancelled {
+                    if let backup = CloudSaveSyncCheck.latestBackup(in: folder) {
+                        found[id] = backup.label
+                    }
+                }
+                return found
+            }.value
+            guard let self, !Task.isCancelled, self.backupScanGeneration == generation else { return }
+            let previous = self.latestBackups
+            self.latestBackups = scanned
+            let changedIDs = Set(previous.keys).union(scanned.keys).filter { previous[$0] != scanned[$0] }
+            for id in changedIDs { self.refresh(id) }
+        }
     }
 
     /// Looks for every game's image by identity in the shell data folder. The drive is read off the main actor: until the scan is
@@ -162,6 +278,8 @@ public struct ShellHostConfig: Sendable {
     /// For tests: returns when the shell scan and the pending RomFS identity checks are done.
     func waitForDataChecks() async {
         await shellScan?.value
+        await signingCheckTask?.value
+        await backupScanTask?.value
         for entry in entries { _ = await verifiedData(for: entry) }
     }
 
@@ -183,6 +301,7 @@ public struct ShellHostConfig: Sendable {
         entries = scanned.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
         details = built.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
         startShellScan(force: true)
+        startBackupScan()
     }
 
     private func lastPlayed(_ id: String) -> Date? { LastPlayedStore(defaults: config.defaults(id)).date }
@@ -308,14 +427,25 @@ public struct ShellHostConfig: Sendable {
 
     private func detail(for entry: CatalogueEntry) -> GameDetail {
         let data = data(for: entry)
-        let state = GameStateResolver.state(for: entry, data: data, environment: config.environment)
+        if data.source == .picked {
+            pickedDataNotes.removeValue(forKey: entry.id)
+        }
+        var state = GameStateResolver.state(for: entry, data: data, environment: config.environment)
+        if state == .needsGameData, let progress = joiningProgress[entry.id], progress.totalBytes > 0 {
+            let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
+            let rawPercent = Int((Double(clampedDone) / Double(progress.totalBytes) * 100.0).rounded(.down))
+            let percent = min(99, max(0, rawPercent))
+            let doneSize = Self.formatByteSize(clampedDone)
+            let totalSize = Self.formatByteSize(progress.totalBytes)
+            state = .joiningGameData(percent: percent, doneSize: doneSize, totalSize: totalSize)
+        }
         let played = lastPlayed(entry.id)
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
                             isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
-            return GameDetail(game: tile, dataNote: dataNote(data, found: false))
+            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false))
         }
         let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
         var cloud: String?
@@ -327,6 +457,10 @@ public struct ShellHostConfig: Sendable {
         case .shell(let url): cloud = hostText("\(url.lastPathComponent) (from Settings)"); cloudFromShell = true
         case .off, .none: break
         }
+        let latestBackup = latestBackups[entry.id]
+        if let latestBackup, cloudNote.isEmpty {
+            cloudNote = hostText("Latest local backup: \(latestBackup)")
+        }
         var shellFolder = false
         if case .url = shellCloud.resolve() { shellFolder = true }
         let fromShell = Set(profile.settings.filter(store.isFromShell).map(\.env))
@@ -336,10 +470,11 @@ public struct ShellHostConfig: Sendable {
         let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
         return GameDetail(
             game: tile, sections: sections + padSections,
-            dataSource: dataSource(data), dataNote: dataNote(data, found: data.found),
+            dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found),
             cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings || !pad.entries.isEmpty,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
-            cloudCanUseShell: shellFolder && !cloudFromShell)
+            cloudCanUseShell: shellFolder && !cloudFromShell,
+            latestSaveBackup: latestBackup)
     }
 
     private func dataSource(_ data: DataResolution) -> String {
@@ -351,9 +486,21 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
-    private func dataNote(_ data: DataResolution, found: Bool) -> String {
-        if data.pickedIsStale && !found { return hostText("The location you picked before is no longer readable (the app was signed differently). Please choose it again.") }
-        return found ? "" : hostText("Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive.")
+    private func dataNote(for id: String, data: DataResolution, found: Bool) -> String {
+        if found { return "" }
+        if let progress = joiningProgress[id], progress.totalBytes > 0 {
+            let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
+            let doneSize = Self.formatByteSize(clampedDone)
+            let totalSize = Self.formatByteSize(progress.totalBytes)
+            return hostText("Joining .nxpart split files in this app's folder (\(doneSize) of \(totalSize)).")
+        }
+        if let customNote = pickedDataNotes[id], !customNote.isEmpty {
+            return customNote
+        }
+        if data.pickedIsStale {
+            return hostText("The location you picked before is no longer readable (the app was signed differently). Please choose it again.")
+        }
+        return hostText("Choose the folder holding romfs.img (or the game's title ID folder) on this device, an external drive, or iCloud Drive.")
     }
 
     private func dlc(_ data: DataResolution) -> String {
@@ -393,6 +540,8 @@ public struct ShellHostConfig: Sendable {
             },
             onGlobalPadMapReset: { [weak self] in self?.shellSettings.resetPadMap(); self?.refreshAll() },
             onButtonTest: { [weak self] open in self?.buttonTest(open) },
+            onPadMergeChange: { [weak self] on in self?.setPadMerge(on) },
+            onRestoreSaveBackup: { [weak self] id in self?.restoreLatestSaveBackup(id) },
             onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) })
     }
 
@@ -430,19 +579,45 @@ public struct ShellHostConfig: Sendable {
 
     func pickGameDataNow(_ id: String) async {
         guard let url = await pickedFolder() else { return }
+        let generation = (pickGeneration[id] ?? 0) &+ 1
+        pickGeneration[id] = generation
+        pickedDataNotes.removeValue(forKey: id)
         guard dataStore(id).store(url) else {
             notice = hostText("That location could not be remembered. Try a different one.")
             return
         }
         forgetCheckedRomfsImages()
-        if let entry = entry(id) { _ = await verifiedData(for: entry) }
+        guard let currentEntry = entry(id) else { return }
+        let resolved = await verifiedData(for: currentEntry)
+        guard pickGeneration[id] == generation else { return }
         refresh(id)
-        if let game = details.first(where: { $0.id == id })?.game, game.state == .needsGameData {
-            notice = hostText("No game data for \(game.title) was found in that folder.")
+        if resolved.source != .picked {
+            if let manifest = currentEntry.manifest, currentEntry.problem == nil {
+                let knownTitles = Dictionary(uniqueKeysWithValues: entries.map { ($0.id.uppercased(), $0.title) })
+                let finding = await Task.detached(priority: .userInitiated) {
+                    DataFolderDiagnostics.diagnose(folder: url, manifest: manifest, knownTitles: knownTitles)
+                }.value
+                guard pickGeneration[id] == generation, let latestEntry = entry(id) else { return }
+                let message = DataFolderDiagnostics.message(
+                    for: finding,
+                    gameTitle: latestEntry.title,
+                    gameID: id,
+                    folderName: url.lastPathComponent
+                )
+                if !data(for: latestEntry).found {
+                    pickedDataNotes[id] = message
+                    refresh(id)
+                }
+                notice = message
+            } else if let game = details.first(where: { $0.id == id })?.game, game.state == .needsGameData {
+                notice = hostText("No game data for \(game.title) was found in that folder.")
+            }
         }
     }
 
     public func useAppData(_ id: String) {
+        pickGeneration[id] = (pickGeneration[id] ?? 0) &+ 1
+        pickedDataNotes.removeValue(forKey: id)
         dataStore(id).clear()
         refresh(id)
         if details.first(where: { $0.id == id })?.game.state == .needsGameData {
@@ -515,13 +690,24 @@ public struct ShellHostConfig: Sendable {
 
     // MARK: Delete
 
-    /// Deletes the game's folder in this app (its saves only when `saves`), forgets the folder the player picked for its data
-    /// (that folder is the player's and is not touched) and when it was played, and takes the game off the list. The game's
-    /// framework inside the app stays: see `GameDeletion`.
+    /// Deletes the game's folder in this app (its saves only when `saves`), forgets the folders the player picked for its data
+    /// and cloud saves (those folders are the player's and are not touched) and when it was played, and takes the game off the
+    /// list. The game's framework inside the app stays: see `GameDeletion`.
     public func deleteGame(_ id: String, saves: Bool) {
         guard let entry = entry(id) else { return }
+        joinGeneration &+= 1
+        joiningProgress.removeValue(forKey: id)
+        pickGeneration[id] = (pickGeneration[id] ?? 0) &+ 1
+        pickedDataNotes.removeValue(forKey: id)
+        latestBackups.removeValue(forKey: id)
+        if pendingCloudLaunch?.game.titleID == id {
+            cancelCloudConflict()
+        }
         let failed = GameDeletion.delete(in: appFolder(for: id), saves: saves)
         dataStore(id).clear()
+        cloudStore(id).clear()
+        dataStores.removeValue(forKey: id)
+        cloudStores.removeValue(forKey: id)
         let defaults = config.defaults(id)
         defaults.removeObject(forKey: LastPlayedStore.key)
         defaults.set(GameDeletion.stamp(entry), forKey: GameDeletion.deletedKey)
@@ -550,13 +736,18 @@ public struct ShellHostConfig: Sendable {
     }
 
     func playNow(_ id: String) async {
-        guard !launchingGame, let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
+        guard !launchingGame, cloudConflict == nil,
+              let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
               details.first(where: { $0.id == id })?.game.state == .playable else { return }
+        cloudCheckGeneration &+= 1
+        let checkGeneration = cloudCheckGeneration
+        pendingCloudLaunch = nil
         launchingGame = true
         defer { launchingGame = false }
         forgetCheckedRomfsImages()
         let resolved = await verifiedData(for: entry)
-        guard self.entry(id)?.manifest == manifest, let dataURL = resolved.url,
+        guard cloudCheckGeneration == checkGeneration,
+              self.entry(id)?.manifest == manifest, let dataURL = resolved.url,
               let profile = profile(for: entry, data: resolved) else {
             refresh(id)
             return
@@ -566,16 +757,157 @@ public struct ShellHostConfig: Sendable {
         case .own(let url), .shell(let url): cloud = url
         case .off, .stale, .none: break
         }
-        // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
-        LastPlayedStore(defaults: config.defaults(id)).record(config.now())
-        refresh(id)
+        let gameAppFolder = appFolder(for: id)
         var game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
-            romfsURL: resolved.romfsURL, appFolder: appFolder(for: id), environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
+            romfsURL: resolved.romfsURL, appFolder: gameAppFolder, environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
+
+        if let cloudFolder = cloud {
+            let report = await Task.detached(priority: .userInitiated) {
+                CloudSaveSyncCheck.inspect(cloudFolder: cloudFolder, titleID: id, appFolder: gameAppFolder)
+            }.value
+            guard cloudCheckGeneration == checkGeneration, self.entry(id)?.manifest == manifest else { return }
+            if report.outcome.requiresPrompt {
+                let rawDevice = (report.cloud?.device ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let shownDevice = (rawDevice.isEmpty || rawDevice == "unknown") ? hostText("Another device") : rawDevice
+                pendingCloudLaunch = PendingCloudLaunch(generation: checkGeneration, game: game, report: report)
+                cloudConflict = CloudSavePrompt(
+                    gameID: id,
+                    gameTitle: entry.title,
+                    isUnreadable: report.outcome == .unreadable,
+                    reason: report.reason ?? "",
+                    cloudDevice: shownDevice,
+                    cloudSaved: Self.formatSaveDate(report.cloud?.saved),
+                    localSaved: Self.formatSaveDate(report.local.saved)
+                )
+                return
+            }
+            for (k, v) in CloudSaveSyncCheck.nonInteractiveEnvironment() {
+                game.environment[k] = v
+            }
+        }
+
+        await finishLaunch(game)
+    }
+
+    public func resolveCloudConflict(_ decision: CloudSaveDecision) {
+        Task { await resolveCloudConflictNow(decision) }
+    }
+
+    public func cancelCloudConflict() {
+        cloudCheckGeneration &+= 1
+        pendingCloudLaunch = nil
+        cloudConflict = nil
+    }
+
+    public func cancelCloudConflictIfPending() {
+        guard pendingCloudLaunch != nil else { return }
+        cancelCloudConflict()
+    }
+
+    func resolveCloudConflictNow(_ decision: CloudSaveDecision) async {
+        if decision == .cancel {
+            cancelCloudConflict()
+            return
+        }
+        guard !launchingGame, let pending = pendingCloudLaunch else { return }
+        let isUnreadable = pending.report.outcome == .unreadable
+        let syncChoice: CloudSaveSyncCheck.Choice
+        switch decision {
+        case .playOffline where isUnreadable:
+            syncChoice = .offline
+        case .useCloud where !isUnreadable:
+            syncChoice = .cloud
+        case .useDevice where !isUnreadable:
+            syncChoice = .local
+        default:
+            return
+        }
+
+        pendingCloudLaunch = nil
+        cloudConflict = nil
+        launchingGame = true
+        defer { launchingGame = false }
+
+        let now = config.now()
+        let report = pending.report
+        let folder = pending.game.appFolder
+        let choiceResult = await Task.detached(priority: .userInitiated) { () -> Result<[String: String], Error> in
+            Result { try CloudSaveSyncCheck.applyChoice(syncChoice, report: report, appFolder: folder, now: now) }
+        }.value
+
+        guard cloudCheckGeneration == pending.generation,
+              entry(pending.game.titleID)?.manifest == pending.game.manifest else {
+            return
+        }
+
+        switch choiceResult {
+        case .failure(let error):
+            notice = error.localizedDescription
+        case .success(let env):
+            var game = pending.game
+            for (k, v) in env {
+                game.environment[k] = v
+            }
+            startBackupScan()
+            await backupScanTask?.value
+            await finishLaunch(game)
+        }
+    }
+
+    public func restoreLatestSaveBackup(_ id: String) {
+        Task { await restoreLatestSaveBackupNow(id) }
+    }
+
+    func restoreLatestSaveBackupNow(_ id: String) async {
+        guard !launchingGame, entry(id) != nil else { return }
+        cloudCheckGeneration &+= 1
+        let checkGeneration = cloudCheckGeneration
+        let folder = appFolder(for: id)
+        let now = config.now()
+        let result = await Task.detached(priority: .userInitiated) { () -> CloudSaveSyncCheck.BackupInfo? in
+            try? CloudSaveSyncCheck.restoreLatestBackup(in: folder, now: now)
+        }.value
+        guard cloudCheckGeneration == checkGeneration, entry(id) != nil else { return }
+        guard let restored = result else {
+            notice = hostText("The save backup could not be restored.")
+            return
+        }
+        startBackupScan()
+        await backupScanTask?.value
+        refresh(id)
+        notice = hostText("Restored the save backup from \(restored.label). Your previous save was backed up first.")
+    }
+
+    private func finishLaunch(_ baseGame: LaunchableGame) async {
+        var game = baseGame
+        // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
+        LastPlayedStore(defaults: config.defaults(game.titleID)).record(config.now())
+        refresh(game.titleID)
         do {
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
             try await launcher.launch(game)
-        } catch { notice = error.localizedDescription }
+        } catch {
+            notice = error.localizedDescription
+        }
+    }
+
+    private static func formatByteSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowsNonnumericFormatting = false
+        return formatter.string(fromByteCount: max(0, bytes))
+    }
+
+    private static func formatSaveDate(_ date: Date?) -> String {
+        guard let date else { return "" }
+        let locale: Locale
+        if let code = HostStrings.captureBundle?.bundleURL.deletingPathExtension().lastPathComponent, !code.isEmpty {
+            locale = Locale(identifier: code)
+        } else {
+            locale = .autoupdatingCurrent
+        }
+        return date.formatted(Date.FormatStyle(date: .abbreviated, time: .shortened, locale: locale))
     }
 
     /// The right-stick hint's words: a few, no semicolon, short enough for the right third of a small phone.
@@ -586,7 +918,7 @@ public struct ShellHostConfig: Sendable {
     /// or Home is held. The menu item reads the title without its question mark.
     static func quitPromptText(gameName: String) -> String {
         [hostText("Keep holding to quit"), hostText("Quit \(gameName)?"),
-         hostText("Unsaved progress will be lost. The app closes. Open it again to get back to your games."), hostText("Quit"), hostText("Cancel")]
+         hostText("Unsaved progress will be lost. You will return to your games."), hostText("Quit"), hostText("Cancel")]
             .map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: "\n")
     }
 

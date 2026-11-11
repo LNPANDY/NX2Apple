@@ -69,4 +69,115 @@ import Testing
         guard case .url(let url) = store.resolve() else { Issue.record("did not follow the move"); return }
         #expect(url.lastPathComponent == "New")
     }
+
+    @Test func storeKeepsSecurityScopeOpenAndDeinitReleasesIt() throws {
+        let box = try Sandbox()
+        let folderA = box.root.appendingPathComponent("ScopedA", isDirectory: true)
+        let folderB = box.root.appendingPathComponent("ScopedB", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderA, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: folderB, withIntermediateDirectories: true)
+
+        final class ScopeRecorder: @unchecked Sendable {
+            private let lock = NSLock()
+            private(set) var started: [String] = []
+            private(set) var stopped: [String] = []
+            var activeCount: Int {
+                lock.lock()
+                defer { lock.unlock() }
+                return started.count - stopped.count
+            }
+            func start(_ url: URL) -> Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                started.append(url.resolvingSymlinksInPath().path)
+                return true
+            }
+            func stop(_ url: URL) {
+                lock.lock()
+                defer { lock.unlock() }
+                stopped.append(url.resolvingSymlinksInPath().path)
+            }
+        }
+
+        let recorder = ScopeRecorder()
+        let access = BookmarkStore.ScopeAccess(start: { recorder.start($0) }, stop: { recorder.stop($0) })
+        var store: BookmarkStore? = BookmarkStore(defaults: box.defaults(Fixtures.orbit), key: BookmarkStore.gameDataKey, scope: access)
+
+        #expect(store?.store(folderA) == true)
+        #expect(recorder.activeCount == 1, "store must keep the newly granted security scope open")
+        #expect(recorder.stopped.isEmpty)
+
+        guard case .url = store?.resolve() else {
+            Issue.record("did not resolve")
+            return
+        }
+        #expect(recorder.activeCount == 1)
+        let startsAfterFirstResolve = recorder.started.count
+        guard case .url = store?.resolve() else {
+            Issue.record("did not resolve on second call")
+            return
+        }
+        #expect(recorder.started.count == startsAfterFirstResolve, "resolving the same held path must not open a duplicate scope")
+        #expect(recorder.activeCount == 1)
+
+        #expect(store?.store(folderB) == true)
+        #expect(recorder.activeCount == 1, "storing a new folder releases the previous scope and holds the new one")
+        #expect(recorder.started.last == folderB.resolvingSymlinksInPath().path)
+
+        store = nil
+        #expect(recorder.activeCount == 0, "deinit must release the held security scope")
+        #expect(recorder.stopped.last == folderB.resolvingSymlinksInPath().path)
+    }
+
+    @Test func failedStoreClosesTemporaryScopeAndUnscopedResolveDoesNotStop() throws {
+        let box = try Sandbox()
+        let folder = box.root.appendingPathComponent("Plain", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+
+        final class Counter: @unchecked Sendable {
+            var starts = 0
+            var stops = 0
+        }
+
+        let scoped = Counter()
+        let failingStore = BookmarkStore(
+            defaults: box.defaults(Fixtures.orbit),
+            key: BookmarkStore.gameDataKey,
+            scope: BookmarkStore.ScopeAccess(
+                start: { _ in
+                    scoped.starts += 1
+                    return true
+                },
+                stop: { _ in
+                    scoped.stops += 1
+                }
+            )
+        )
+        #expect(!failingStore.store(box.root.appendingPathComponent("missing-folder")))
+        #expect(scoped.starts == 1 && scoped.stops == 1, "a failed store must close the scope it just opened")
+
+        let unscoped = Counter()
+        var plainStore: BookmarkStore? = BookmarkStore(
+            defaults: box.defaults(Fixtures.orbit),
+            key: BookmarkStore.gameDataKey,
+            scope: BookmarkStore.ScopeAccess(
+                start: { _ in
+                    unscoped.starts += 1
+                    return false
+                },
+                stop: { _ in
+                    unscoped.stops += 1
+                }
+            )
+        )
+        #expect(plainStore?.store(folder) == true)
+        guard case .url(let resolved) = plainStore?.resolve() else {
+            Issue.record("unscoped bookmark should still resolve")
+            return
+        }
+        #expect(resolved.resolvingSymlinksInPath().path == folder.resolvingSymlinksInPath().path)
+        plainStore?.clear()
+        plainStore = nil
+        #expect(unscoped.stops == 0, "must never call stopAccessingSecurityScopedResource when start returned false")
+    }
 }
