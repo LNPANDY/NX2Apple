@@ -3,13 +3,13 @@ import Foundation
 /// The title ID in a Switch file name and what follows from it: the owning base game, the update version and the key of a
 /// game's work folder. Pure functions of the name.
 package enum TitleID {
-    /// The title ID in a file name: `[0100F2C0115B6000]` first, else a bare 16-digit ID that starts with 01 as a token
+    /// The title ID in a file name: `[0100F2C0115B6000]` first, else a bare 16-digit ID that starts with 01 or 04 as a token
     /// (start of the name or after `_`, space, `-`, `.`, `(`, `[`). Only the file name counts, so a full path works and a folder named with an ID never
-    /// stands in for the file (#382). Like `01007EF00011E000_v0_420d1c5034ab.nsp`.
+    /// stands in for the file (#382). Like `01007EF00011E000_v0_420d1c5034ab.nsp` or `04007EF01F8AE000_v0.nsp`.
     package static func parse(_ path: String) -> UInt64? {
         let name = (path as NSString).lastPathComponent
         let found = firstGroup(#"\[([0-9A-Fa-f]{16})\]"#, in: name)
-            ?? firstGroup(#"(?:^|[_ \-.(\[])(01[0-9A-Fa-f]{14})(?![0-9A-Fa-f])"#, in: name)
+            ?? firstGroup(#"(?:^|[_ \-.(\[])(0[14][0-9A-Fa-f]{14})(?![0-9A-Fa-f])"#, in: name)
         return found.flatMap { UInt64($0, radix: 16) }
     }
 

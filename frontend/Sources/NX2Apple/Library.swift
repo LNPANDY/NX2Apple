@@ -171,6 +171,10 @@ final class GameLibrary: ObservableObject {
     @Published private(set) var scanning = false
     /// The keys saved in Settings: their header_key finds packages whose name has no title ID (#1012). The launcher sets it.
     var keysFile: () -> String = { "" }
+    /// Test hook run at the start of each background folder scan pass.
+    var onBackgroundScanStart: (@Sendable () -> Void)?
+    private var scanGeneration = 0
+    private var pendingRescanRepo: String?
     private let file: URL
     let artworkDirectory: URL   // where this library's artwork lives: the store's, or a temporary one in tests
     private struct Snapshot: Codable {
@@ -258,6 +262,15 @@ final class GameLibrary: ObservableObject {
     /// is not connected is not known to be gone), and its files are never touched.
     func removeFolder(_ path: String) {
         folders = LibraryRoots.removing(path, from: folders)
+        scanGeneration &+= 1
+        if scanning {
+            if LibraryRoots.scannable(folders).isEmpty {
+                pendingRescanRepo = nil
+                scanning = false
+            } else {
+                pendingRescanRepo = pendingRescanRepo ?? RepoLayout.find()
+            }
+        }
         save()
     }
 
@@ -410,52 +423,83 @@ final class GameLibrary: ObservableObject {
             game.inputs["keys"] = [gameRoot.appendingPathComponent("prod.keys"), root.appendingPathComponent("keys/prod.keys"), root.appendingPathComponent("prod.keys"), gameRoot.appendingPathComponent("keys/prod.keys")]
                 .filter { FileManager.default.fileExists(atPath: $0.path) }.prefix(1).map(\.path)
             game.sourceFolder = gameRoot.path
+            if LibraryGame.isRawName(game.name, titleID: tid), inside(gameRoot) != rootReal {
+                let folderName = title(for: gameRoot.path, repo: repo, titleID: tid)
+                if !LibraryGame.isRawName(folderName, titleID: tid) {
+                    game.name = folderName
+                }
+            }
             game.outputDirectory = url.deletingLastPathComponent().path
-            if let ipa = found.first(where: { $0.pathExtension.lowercased() == "ipa" }) { game.ipaPath = ipa.path }
             result[tid] = game
         }
         return result.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     func discover(repo: String = RepoLayout.find()) {
+        scanGeneration &+= 1
         let roots = LibraryRoots.scannable(folders).map { URL(fileURLWithPath: $0) }   // a root on a drive that is not connected is skipped
-        guard !roots.isEmpty, !scanning else { return }
+        guard !roots.isEmpty else {
+            pendingRescanRepo = nil
+            if scanning { scanning = false }
+            return
+        }
+        if scanning {
+            pendingRescanRepo = repo
+            return
+        }
+        pendingRescanRepo = nil
         scanning = true
-        let installed = applicationFolders, keys = keysFile()
+        runDiscoveryPass(roots: roots, repo: repo, generation: scanGeneration)
+    }
+
+    private func runDiscoveryPass(roots: [URL], repo: String, generation: Int) {
+        let installed = applicationFolders, keys = keysFile(), onStart = onBackgroundScanStart
         DispatchQueue.global(qos: .utility).async {
+            onStart?()
             let apps = Self.firstOfEach(roots.flatMap { Self.builtApps(in: $0) } + Self.installedApps(in: installed)) { $0.standardizedFileURL.path }
             let headerKey = PackageTitleID.headerKey(keysFile: keys)
             // Roots in their order: the first one that holds a game is its source, so the library does not depend on scan timing
             let sources = Self.firstOfEach(roots.flatMap { Self.sourceGames(in: $0, repo: repo, headerKey: headerKey) }) { $0.titleID }
             DispatchQueue.main.async {
-                let previousSelection = self.selectedID
-                for source in sources {
-                    if var existing = self.games.first(where: { $0.titleID == source.titleID }) {
-                        if existing.inputs["base", default: []].isEmpty { existing.inputs = source.inputs }
-                        else {
-                            // Slots the library has empty and the scan fills: an update or DLC added since, or a game
-                            // recorded before the scan climbed out of a "nsp本体" folder (nothing was found beside it then).
-                            for slot in ["update", "dlc", "keys"] where existing.inputs[slot, default: []].isEmpty {
-                                existing.inputs[slot] = source.inputs[slot] ?? []
+                if generation == self.scanGeneration {
+                    let previousSelection = self.selectedID
+                    for source in sources {
+                        if var existing = self.games.first(where: { $0.titleID == source.titleID }) {
+                            if existing.inputs["base", default: []].isEmpty { existing.inputs = source.inputs }
+                            else {
+                                // Slots the library has empty and the scan fills: an update or DLC added since, or a game
+                                // recorded before the scan climbed out of a "nsp本体" folder (nothing was found beside it then).
+                                for slot in ["update", "dlc", "keys"] where existing.inputs[slot, default: []].isEmpty {
+                                    existing.inputs[slot] = source.inputs[slot] ?? []
+                                }
+                                if existing.sourceFolder.isEmpty || (!source.sourceFolder.isEmpty && URL(fileURLWithPath: existing.sourceFolder).resolvingSymlinksInPath().path.hasPrefix(URL(fileURLWithPath: source.sourceFolder).resolvingSymlinksInPath().path + "/")) {
+                                    existing.sourceFolder = source.sourceFolder
+                                }
                             }
-                            if existing.sourceFolder.isEmpty || (!source.sourceFolder.isEmpty && URL(fileURLWithPath: existing.sourceFolder).resolvingSymlinksInPath().path.hasPrefix(URL(fileURLWithPath: source.sourceFolder).resolvingSymlinksInPath().path + "/")) {
-                                existing.sourceFolder = source.sourceFolder
-                            }
-                        }
-                        if existing.ipaPath.isEmpty { existing.ipaPath = source.ipaPath }
-                        // A name an older scan kept (a raw title ID, a size from the file name) gives way to the one the scan reads now
-                        if existing.name != source.name, LibraryGame.needsBetterName(existing) { existing.name = source.name }
-                        self.upsert(existing)
-                    } else { self.upsert(source) }
+                            // A name an older scan kept (a raw title ID, a size from the file name) gives way to the one the scan reads now
+                            if existing.name != source.name, LibraryGame.needsBetterName(existing) { existing.name = source.name }
+                            self.upsert(existing)
+                        } else { self.upsert(source) }
+                    }
+                    for url in apps {
+                        guard let info = try? MacGameBundle.read(url) else { continue }
+                        if let existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady { self.learnTitleNames(existing, from: info, at: url); continue }
+                        _ = try? self.addApp(url)
+                    }
+                    self.pruneMissingPaths()
+                    self.selectedID = previousSelection ?? self.games.first?.id
                 }
-                for url in apps {
-                    guard let info = try? MacGameBundle.read(url) else { continue }
-                    if let existing = self.games.first(where: { $0.titleID == info.titleID }), existing.isReady { self.learnTitleNames(existing, from: info, at: url); continue }
-                    _ = try? self.addApp(url)
+                if let nextRepo = self.pendingRescanRepo {
+                    self.pendingRescanRepo = nil
+                    let nextRoots = LibraryRoots.scannable(self.folders).map { URL(fileURLWithPath: $0) }
+                    guard !nextRoots.isEmpty else {
+                        self.scanning = false
+                        return
+                    }
+                    self.runDiscoveryPass(roots: nextRoots, repo: nextRepo, generation: self.scanGeneration)
+                } else {
+                    self.scanning = false
                 }
-                self.pruneMissingPaths()
-                self.selectedID = previousSelection ?? self.games.first?.id
-                self.scanning = false
             }
         }
     }

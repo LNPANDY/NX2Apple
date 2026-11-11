@@ -14,24 +14,92 @@ package struct MacGameBundle {
         var errorDescription: String? { L10n.string("library.notGame", Lang.initial()) }
     }
 
+    private struct CachedEntry {
+        let plistInode: UInt64
+        let plistSize: UInt64
+        let plistModified: TimeInterval
+        let executable: String
+        let titleID: String
+        let displayName: String?
+        let version: String?
+        let shaderChain: String?
+        let titleNames: [String: String]
+    }
+
+    private static let cacheLock = NSLock()
+    private static var cache: [String: CachedEntry] = [:]
+
     package static func read(_ url: URL) throws -> MacGameBundle {
         guard url.pathExtension.lowercased() == "app" else { throw Invalid.notGame }
+        let bundleURL = url.standardizedFileURL
+        let bundleKey = bundleURL.path
+        let plistURL = bundleURL.appendingPathComponent("Contents/Info.plist")
+        let fm = FileManager.default
+        guard let attr = try? fm.attributesOfItem(atPath: plistURL.path),
+              let plistSize = attr[.size] as? UInt64,
+              let plistModified = (attr[.modificationDate] as? Date)?.timeIntervalSince1970 else {
+            removeCached(bundleKey)
+            throw Invalid.notGame
+        }
+        let plistInode = attr[.systemFileNumber] as? UInt64 ?? 0
+        if let entry = cached(bundleKey),
+           entry.plistInode == plistInode,
+           entry.plistSize == plistSize,
+           entry.plistModified == plistModified {
+            guard fm.isExecutableFile(atPath: bundleURL.appendingPathComponent("Contents/MacOS/" + entry.executable).path),
+                  fm.isExecutableFile(atPath: bundleURL.appendingPathComponent("Contents/MacOS/dmhost").path) else {
+                removeCached(bundleKey)
+                throw Invalid.notGame
+            }
+            return MacGameBundle(titleID: entry.titleID, name: entry.displayName ?? url.deletingPathExtension().lastPathComponent,
+                                 version: entry.version, shaderChain: entry.shaderChain, displayName: entry.displayName,
+                                 titleNames: entry.titleNames)
+        }
         LauncherWork.count(.infoPlistRead)
-        guard let data = try? Data(contentsOf: url.appendingPathComponent("Contents/Info.plist")),
+        guard let data = try? Data(contentsOf: plistURL),
               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
               let rawID = info["DMTitleID"] as? String,
               rawID.range(of: "^[0-9A-Fa-f]{16}$", options: .regularExpression) != nil,
               let executable = info["CFBundleExecutable"] as? String,
               !executable.isEmpty, executable != ".", executable != "..", !executable.contains("/"),
-              FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/" + executable).path),
-              FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("Contents/MacOS/dmhost").path)
-        else { throw Invalid.notGame }
+              fm.isExecutableFile(atPath: bundleURL.appendingPathComponent("Contents/MacOS/" + executable).path),
+              fm.isExecutableFile(atPath: bundleURL.appendingPathComponent("Contents/MacOS/dmhost").path)
+        else {
+            removeCached(bundleKey)
+            throw Invalid.notGame
+        }
         let title = [info["CFBundleDisplayName"], info["CFBundleName"]]
             .compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
-        return MacGameBundle(titleID: rawID.uppercased(), name: title ?? url.deletingPathExtension().lastPathComponent,
-                             version: displayVersion(info), shaderChain: info["DMChain"] as? String, displayName: title,
-                             titleNames: GameTitleNames.read(info))
+        let upperID = rawID.uppercased()
+        let ver = displayVersion(info)
+        let chain = info["DMChain"] as? String
+        let names = GameTitleNames.read(info)
+        storeCached(CachedEntry(plistInode: plistInode, plistSize: plistSize, plistModified: plistModified,
+                                executable: executable, titleID: upperID, displayName: title, version: ver,
+                                shaderChain: chain, titleNames: names), for: bundleKey)
+        return MacGameBundle(titleID: upperID, name: title ?? url.deletingPathExtension().lastPathComponent,
+                             version: ver, shaderChain: chain, displayName: title,
+                             titleNames: names)
+    }
+
+    private static func cached(_ key: String) -> CachedEntry? {
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        return cache[key]
+    }
+
+    private static func storeCached(_ entry: CachedEntry, for key: String) {
+        cacheLock.lock()
+        if cache.count >= 512 { cache.removeAll(keepingCapacity: true) }
+        cache[key] = entry
+        cacheLock.unlock()
+    }
+
+    private static func removeCached(_ key: String) {
+        cacheLock.lock()
+        cache.removeValue(forKey: key)
+        cacheLock.unlock()
     }
 
     /// The version of the package the app was packed with. A Mac app packed with DMPackageVersion states it in DMDisplayVersion, else

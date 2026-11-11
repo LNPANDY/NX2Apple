@@ -47,6 +47,7 @@ struct LauncherView: View {
     @State var artworkSlot: ArtworkSlot?   // its tab: the part of the library not being edited dims
     @State var artworkPreview: GameArtwork?   // its draft, which the hero and the selected card draw instead of the saved artwork
     @State var previewGeneration = 0   // the latest preview decode: an older one that finishes late is dropped
+    @State var artworkFetchGeneration = 0   // the latest artwork language fetch: an older one that finishes late is dropped
     @State var artworkHeroAspect = ArtworkEditor.heroBandAspect   // the hero's proportions now, the band the panel frames for
     let artworkStore: ArtworkStore
     @StateObject private var controls: ControlLayout
@@ -54,7 +55,8 @@ struct LauncherView: View {
     @StateObject var padFocus: PadFocus
     @StateObject var row = RowScroller()
     @StateObject var toolsAge: ToolsAge
-    @State var signatureExpiry: [UUID: Date] = [:]   // installed apps' provisioning-profile expiry, per game
+    @StateObject var signatures = SignatureTracker()
+    var signatureExpiry: [UUID: Date] { signatures.expiry }
     @State var resignNote: String?   // the last re-sign's outcome, shown under the hero's expiry line
     private var performStartupChecks: Bool
     private let onRunSetup: (() -> Void)?   // Settings' "Run setup again"; the root view supplies it
@@ -268,7 +270,12 @@ struct LauncherView: View {
             readSignatures()
             if performStartupChecks { fetchArtwork(); library.fillMissingTitleNames() }
         }
-        .onChange(of: m.savedKeys) { _ in if performStartupChecks { library.discover() } }   // other keys may name other packages (#1012)
+        .onChange(of: m.savedKeys) { _ in
+            if performStartupChecks {
+                library.discover()
+                library.fillMissingTitleNames()
+            }
+        }   // other keys may name other packages (#1012) and unlock control-data lookups
         .onReceive(library.$scanning.removeDuplicates().dropFirst()) { scanning in if !scanning && performStartupChecks { checkTools() } }
         .onChange(of: m.shellCachePath) { root in
             if performStartupChecks { library.syncSharedApp(root: root); readSignatures() }
@@ -759,40 +766,5 @@ struct LauncherView: View {
         }
     }
 
-    /// The installed apps' profile expiries, read in the background: `security cms` per unique app path, so not in a view body.
-    private func readSignatures() {
-        let apps = library.games.filter(\.onDevice).map { ($0.id, $0.iosAppPath) }
-        guard !apps.isEmpty else { signatureExpiry = [:]; return }
-        let runner = stores.runner
-        DispatchQueue.global(qos: .utility).async {
-            let found = AppSignature.expirations(ofApps: apps, runner: runner)
-            DispatchQueue.main.async { signatureExpiry = found }
-        }
-    }
-
-    /// Sign the installed app again for another 7 days (a free Apple ID's profile), then install it: the game's code
-    /// is not rebuilt, and its Documents stay.
-    func resign(_ game: LibraryGame) {
-        resignNote = nil
-        m.resignOnDevice(app: game.iosAppPath, device: game.installedDevice) {
-            resignNote = m.doneNote
-            if !m.installedOn.isEmpty { library.recordSharedAppInstalled(app: m.installedAppPath, device: m.installedOn) }
-            readSignatures()
-        }
-    }
-
     private func checkTools() { toolsAge.check(games: library.games, repo: stores.repo.path) }
-
-    func chooseLibraryFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.message = loc.t("library.folderHint")
-        if !library.folder.isEmpty { panel.directoryURL = URL(fileURLWithPath: library.folder) }
-        if panel.runModal() == .OK, let url = panel.url {
-            let first = library.folders.isEmpty
-            library.addFolder(url)   // several folders are allowed (#992)
-            if first, !m.running { m.outDir = url.path }   // where a build goes stays the player's explicit choice
-        }
-    }
 }

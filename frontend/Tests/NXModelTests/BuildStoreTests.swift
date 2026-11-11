@@ -471,6 +471,50 @@ import XCTest
         XCTAssertTrue(store.stages[0].detail.contains("2 / 3 batches"))
     }
 
+    func testNonJSONGameFrameworkStageLinesPollPSOArchiveProgressFromFrameworkLogAndStopAtStageEnd() throws {
+        // Aligns with build_ipa_from_nsp.py (--shell-framework): W=<work>/ipa writes ipa/build/ios/pso/work/bases.mtl4-json
+        // while pso_offline.py batch lines stream to <work>/logs/build_framework.log.
+        let psoWorkDir = temporary.appendingPathComponent("ipa/build/ios/pso/work")
+        let logsDir = temporary.appendingPathComponent("logs")
+        try FileManager.default.createDirectory(at: psoWorkDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: logsDir, withIntermediateDirectories: true)
+        try Data("{\"bases\":[]}\n".utf8).write(to: psoWorkDir.appendingPathComponent("bases.mtl4-json"))
+        let frameworkLog = logsDir.appendingPathComponent("build_framework.log")
+        try Data("pso_offline: arm64: batch 2/4: ready\n".utf8).write(to: frameworkLog)
+
+        let store = makeStore()
+        store.effectiveWorkDir = temporary.path
+
+        // Non-JSON stage start line from --shell-framework mode.
+        store.ingest("[12:00:01] [7/8] game framework …\n")
+        XCTAssertEqual(store.stages.count, 1)
+        XCTAssertEqual(store.stages[0].id, 7)
+        XCTAssertEqual(store.stages[0].state, .running)
+
+        store.pollPSOArchive()
+        XCTAssertEqual(store.stages[0].percent ?? 0, 50.0, accuracy: 0.1)
+        XCTAssertTrue(store.stages[0].detail.contains("2 / 4 batches"), store.stages[0].detail)
+
+        // Heartbeat running line without native percent must preserve polled PSO progress.
+        store.ingest("[12:00:05] [7/8] game framework …\n")
+        XCTAssertEqual(store.stages[0].percent ?? 0, 50.0, accuracy: 0.1)
+        XCTAssertTrue(store.stages[0].detail.contains("2 / 4 batches"), store.stages[0].detail)
+
+        // Merging line in build_framework.log updates detail and caps percent at 99%.
+        try Data("pso_offline: arm64: batch 2/4: ready\npso_offline: arm64: merging 4 batches\n".utf8).write(to: frameworkLog)
+        store.pollPSOArchive()
+        XCTAssertEqual(store.stages[0].percent ?? 0, 99.0, accuracy: 0.1)
+        XCTAssertTrue(store.stages[0].detail.contains("4 / 4 batches"), store.stages[0].detail)
+        XCTAssertTrue(store.stages[0].detail.contains(store.t("prog.note.merging")), store.stages[0].detail)
+
+        // Non-JSON stage completion line stops PSO polling and records final detail.
+        store.ingest("[12:00:10] ✓ [7/8] game framework (0:09): DmGame0100CD801CE5E000.framework\n")
+        XCTAssertEqual(store.stages[0].state, .done)
+        XCTAssertEqual(store.stages[0].detail, "DmGame0100CD801CE5E000.framework")
+        store.pollPSOArchive()
+        XCTAssertEqual(store.stages[0].detail, "DmGame0100CD801CE5E000.framework")
+    }
+
     func testAChunkThatEndsInTheMiddleOfALineWaitsForTheRest() {
         let store = makeStore()
         store.ingest("{\"ev\":\"stage\",\"k\":2,\"n\":3,\"na")
