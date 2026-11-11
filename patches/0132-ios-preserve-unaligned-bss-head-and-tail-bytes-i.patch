@@ -1,0 +1,816 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Wed, 11 Nov 2026 13:55:24 +0800
+Subject: [PATCH] iOS: preserve unaligned __bss head and tail bytes in DmShell
+ segment snapshots
+
+save_seg_snap() rounded the __bss scan start up to an 8-byte boundary and
+advanced in 8-byte steps while restore_seg_snap() zeroed the entire [b0, b1)
+range before restoring only 8-byte aligned slots, dropping 1..7 non-zero
+initial bytes at an unaligned start, an unaligned end, or a sub-8-byte __bss
+section when returning to the library.
+
+Extract the segment snapshot helpers into dm/ios/Shell/SegSnap.h and
+partition [b0, b1) without unsigned underflow or unaligned 64-bit pointer
+casts into disjoint head bytes (0..7), 8-byte aligned interior words across
+resident pages, and tail bytes (0..7). Restore both head and tail slices
+alongside interior non-zero words after zeroing or anonymous page remapping.
+
+Add C unit tests under ASan/UBSan in dm/host/tests/t_seg_snap.c covering
+empty, sub-word, unaligned start/end, page-straddling and multi-page spans,
+plus end-to-end Mach-O dylib tests in dm/ios/tests/test_seg_snap.py.
+
+Upstream-Status: fork-only
+Reason: Preserve unaligned head and tail __bss bytes when resetting game framework segments in DmShell
+Issue: LNPANDY/NX2Apple#451
+---
+ dm/host/tests/Makefile        |   5 +-
+ dm/host/tests/t_seg_snap.c    | 208 ++++++++++++++++++++++++++++++++
+ dm/ios/Shell/SegSnap.h        | 183 ++++++++++++++++++++++++++++
+ dm/ios/Shell/ShellMain.m      |  92 +-------------
+ dm/ios/tests/test_seg_snap.py | 218 ++++++++++++++++++++++++++++++++++
+ 5 files changed, 618 insertions(+), 88 deletions(-)
+ create mode 100644 dm/host/tests/t_seg_snap.c
+ create mode 100644 dm/ios/Shell/SegSnap.h
+ create mode 100644 dm/ios/tests/test_seg_snap.py
+
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 64d9c09..2591d5d 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -83,6 +83,7 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
+ 	$(B)/t_pad_motion
+ 	$(B)/t_controllers_mac
+ 	$(B)/t_stick_deadzone
++	$(B)/t_seg_snap
+ run: $(B)/t_nro
+ run: $(B)/t_sync_wait
+ $(B)/t_sync_wait: t_sync_wait.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) ../hle_profile.c ../hle_profile.h | $(B)
+@@ -427,7 +428,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
+ profile-runtime: $(B)/t_profile_runtime
+ 	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
+ 
+-run: $(B)/t_pad_map $(B)/t_pad_motion $(B)/t_controllers_mac $(B)/t_stick_deadzone
++run: $(B)/t_pad_map $(B)/t_pad_motion $(B)/t_controllers_mac $(B)/t_stick_deadzone $(B)/t_seg_snap
++$(B)/t_seg_snap: t_seg_snap.c ../../ios/Shell/SegSnap.h | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -fsanitize=address,undefined -I../../ios/Shell -o $@ t_seg_snap.c
+ $(B)/t_stick_deadzone: t_stick_deadzone.c ../stick_deadzone.h ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_stick_deadzone.c ../hle_haptics.c
+ $(B)/t_pad_motion: t_pad_motion.c ../pad_motion.h ../dm_input.h | $(B)
+diff --git a/dm/host/tests/t_seg_snap.c b/dm/host/tests/t_seg_snap.c
+new file mode 100644
+index 0000000..75c344f
+--- /dev/null
++++ b/dm/host/tests/t_seg_snap.c
+@@ -0,0 +1,208 @@
++// Unit tests for DmSegSnap (dm/ios/Shell/SegSnap.h).
++// Exercises empty sections, every start modulo-8 alignment (0..7), page-straddling tiny spans,
++// and multi-page (>32 KB) sparse regions across repeated mutations and restores.
++#include "SegSnap.h"
++#include <assert.h>
++#include <stdio.h>
++
++#define GUARD_LEN 32U
++
++static uint8_t guard_byte(size_t idx, uint8_t salt) {
++    return (uint8_t)(((idx * 37U) + salt) ^ 0xA5U) | 1U;
++}
++
++static uint8_t init_pattern(size_t off, size_t sz) {
++    // Always put non-zero bytes at the very start and very end while leaving interior zero runs
++    // mixed with non-zero bytes so both bss_nz and zeroed regions are exercised together.
++    if (off < 7U || off + 7U >= sz) {
++        return (uint8_t)(((off * 53U) + 0x31U) | 1U);
++    }
++    size_t word_idx = off / 8U;
++    if ((word_idx % 3U) == 1U) {
++        return 0U;
++    }
++    return (uint8_t)(((off * 17U) + 0x5DU) & 0xFFU);
++}
++
++static void check_guards(const uint8_t *pre, const uint8_t *post, uint8_t salt) {
++    for (size_t i = 0; i < GUARD_LEN; i++) {
++        assert(pre[i] == guard_byte(i, salt));
++        assert(post[i] == guard_byte(i + GUARD_LEN, salt));
++    }
++}
++
++static void test_empty_and_null(size_t pg) {
++    dm_seg_snap_save_raw(NULL, NULL, 0, NULL, 0, NULL, 0);
++    dm_seg_snap_restore(NULL);
++    dm_seg_snap_free(NULL);
++
++    uint8_t *buf = (uint8_t *)mmap(NULL, pg, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
++    assert(buf != MAP_FAILED);
++    for (size_t i = 0; i < 64U; i++) buf[i] = guard_byte(i, 0x11U);
++
++    DmSegSnap snap;
++    memset(&snap, 0x7F, sizeof snap);
++    dm_seg_snap_save_raw(&snap, buf + 16U, 0, buf + 24U, 0, buf + 32U, 0);
++    assert(snap.bss_head_len == 0);
++    assert(snap.bss_tail_len == 0);
++    assert(snap.bss_nnz == 0);
++    dm_seg_snap_restore(&snap);
++    for (size_t i = 0; i < 64U; i++) assert(buf[i] == guard_byte(i, 0x11U));
++    dm_seg_snap_free(&snap);
++
++    assert(munmap(buf, pg) == 0);
++}
++
++static void run_one_span(uint8_t *ptr, size_t sz, uint8_t salt) {
++    uint8_t *pre = ptr - GUARD_LEN;
++    uint8_t *post = ptr + sz;
++    uint8_t *expected = (uint8_t *)malloc(sz);
++    assert(expected != NULL);
++
++    uint8_t data_buf[13];
++    uint8_t data_exp[13];
++    uint8_t common_buf[7];
++    uint8_t common_exp[7];
++    for (size_t i = 0; i < sizeof data_buf; i++) {
++        data_buf[i] = (uint8_t)(0x40U + i + salt);
++        data_exp[i] = data_buf[i];
++    }
++    for (size_t i = 0; i < sizeof common_buf; i++) {
++        common_buf[i] = (uint8_t)(0x80U + i + salt);
++        common_exp[i] = common_buf[i];
++    }
++
++    for (size_t i = 0; i < GUARD_LEN; i++) {
++        pre[i] = guard_byte(i, salt);
++        post[i] = guard_byte(i + GUARD_LEN, salt);
++    }
++    for (size_t i = 0; i < sz; i++) {
++        uint8_t v = init_pattern(i, sz);
++        ptr[i] = v;
++        expected[i] = v;
++    }
++
++    DmSegSnap snap;
++    dm_seg_snap_save_raw(&snap, data_buf, sizeof data_buf, common_buf, sizeof common_buf, ptr, sz);
++
++    // First mutation: clobber head and tail to zero and interior to non-zero garbage.
++    memset(data_buf, 0xEE, sizeof data_buf);
++    memset(common_buf, 0xDD, sizeof common_buf);
++    for (size_t i = 0; i < sz; i++) {
++        ptr[i] = (i < 8U || i + 8U >= sz) ? 0U : (uint8_t)(0xAAU ^ (i & 0xFFU));
++    }
++    dm_seg_snap_restore(&snap);
++    check_guards(pre, post, salt);
++    assert(memcmp(data_buf, data_exp, sizeof data_buf) == 0);
++    assert(memcmp(common_buf, common_exp, sizeof common_buf) == 0);
++    assert(memcmp(ptr, expected, sz) == 0);
++
++    // Second mutation: flip every byte and restore a second time to verify idempotence.
++    memset(data_buf, 0x00, sizeof data_buf);
++    memset(common_buf, 0xFF, sizeof common_buf);
++    for (size_t i = 0; i < sz; i++) {
++        ptr[i] = (uint8_t)(~expected[i]);
++    }
++    dm_seg_snap_restore(&snap);
++    check_guards(pre, post, salt);
++    assert(memcmp(data_buf, data_exp, sizeof data_buf) == 0);
++    assert(memcmp(common_buf, common_exp, sizeof common_buf) == 0);
++    assert(memcmp(ptr, expected, sz) == 0);
++
++    dm_seg_snap_free(&snap);
++    free(expected);
++}
++
++static void test_small_alignments_and_page_seams(size_t pg) {
++    size_t map_sz = pg * 3U;
++    uint8_t *region = (uint8_t *)mmap(NULL, map_sz, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
++    assert(region != MAP_FAILED);
++
++    // Every start alignment b0 % 8 in 0..7 and every length 1..35 inside page 0.
++    for (size_t rem = 0; rem < 8U; rem++) {
++        for (size_t sz = 1U; sz <= 35U; sz++) {
++            uint8_t *ptr = region + 64U + rem;
++            run_one_span(ptr, sz, (uint8_t)(rem * 41U + sz));
++        }
++    }
++
++    // Spans starting 1..15 bytes before the end of page 0 and crossing into page 1.
++    for (size_t back = 1U; back <= 15U; back++) {
++        for (size_t sz = 1U; sz <= 35U; sz++) {
++            uint8_t *ptr = region + pg - back;
++            run_one_span(ptr, sz, (uint8_t)(back * 29U + sz));
++        }
++    }
++
++    assert(munmap(region, map_sz) == 0);
++}
++
++static void test_multipage_sparse_and_unaligned(size_t pg) {
++    const size_t lengths[] = { 32771U, (pg * 3U) + 5U };
++    for (size_t li = 0; li < sizeof lengths / sizeof lengths[0]; li++) {
++        size_t sz = lengths[li];
++        for (size_t rem = 0; rem < 8U; rem++) {
++            size_t map_sz = sz + (pg * 2U);
++            map_sz = (map_sz + pg - 1U) & ~(pg - 1U);
++            uint8_t *region = (uint8_t *)mmap(NULL, map_sz, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
++            assert(region != MAP_FAILED);
++
++            uint8_t *ptr = region + 64U + rem;
++            uint8_t *pre = ptr - GUARD_LEN;
++            uint8_t *post = ptr + sz;
++            uint8_t salt = (uint8_t)(0x20U + rem + li * 9U);
++
++            uint8_t *expected = (uint8_t *)calloc(sz, 1U);
++            assert(expected != NULL);
++
++            for (size_t i = 0; i < GUARD_LEN; i++) {
++                pre[i] = guard_byte(i, salt);
++                post[i] = guard_byte(i + GUARD_LEN, salt);
++            }
++
++            // Touch only the first 24 bytes and the last 24 bytes (including unaligned head and
++            // tail bytes) while leaving interior whole pages untouched so mincore sees zero pages.
++            for (size_t i = 0; i < 24U && i < sz; i++) {
++                uint8_t v = (uint8_t)((0xC1U + i * 3U + rem) | 1U);
++                ptr[i] = v;
++                expected[i] = v;
++            }
++            for (size_t i = (sz > 24U ? sz - 24U : 0U); i < sz; i++) {
++                uint8_t v = (uint8_t)((0x91U + (sz - i) * 5U + rem) | 1U);
++                ptr[i] = v;
++                expected[i] = v;
++            }
++
++            DmSegSnap snap;
++            dm_seg_snap_save_raw(&snap, NULL, 0, NULL, 0, ptr, sz);
++
++            // Dirty every page in [ptr, ptr + sz), zeroing the head and tail to catch missed bytes.
++            memset(ptr, 0x5A, sz);
++            memset(ptr, 0x00, 16U);
++            memset(ptr + sz - 16U, 0x00, 16U);
++
++            dm_seg_snap_restore(&snap);
++            check_guards(pre, post, salt);
++            assert(memcmp(ptr, expected, sz) == 0);
++
++            // Dirty a second time after MAP_FIXED replacement and restore again.
++            memset(ptr, 0x33, sz);
++            dm_seg_snap_restore(&snap);
++            check_guards(pre, post, salt);
++            assert(memcmp(ptr, expected, sz) == 0);
++
++            dm_seg_snap_free(&snap);
++            free(expected);
++            assert(munmap(region, map_sz) == 0);
++        }
++    }
++}
++
++int main(void) {
++    size_t pg = (size_t)getpagesize();
++    test_empty_and_null(pg);
++    test_small_alignments_and_page_seams(pg);
++    test_multipage_sparse_and_unaligned(pg);
++    printf("t_seg_snap: ok (page=%zu)\n", pg);
++    return 0;
++}
+diff --git a/dm/ios/Shell/SegSnap.h b/dm/ios/Shell/SegSnap.h
+new file mode 100644
+index 0000000..5ce27ed
+--- /dev/null
++++ b/dm/ios/Shell/SegSnap.h
+@@ -0,0 +1,183 @@
++// Writable Mach-O segment snapshot and restore helpers for DmShell (LNPANDY/NX2Apple#451).
++// Preserves initial non-zero bytes in __data, __common and __bss (including unaligned head and
++// tail bytes in [0..7] around 8-byte aligned interior words) so returning to the library resets
++// a game framework's static state cleanly without losing dyld or initializer writes.
++#ifndef DM_SHELL_SEG_SNAP_H
++#define DM_SHELL_SEG_SNAP_H
++
++#include <mach-o/getsect.h>
++#include <mach-o/loader.h>
++#include <stddef.h>
++#include <stdint.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/mman.h>
++#include <unistd.h>
++
++typedef struct {
++    uint8_t *data_ptr;
++    uint8_t *data_snap;
++    size_t data_sz;
++    uint8_t *common_ptr;
++    uint8_t *common_snap;
++    size_t common_sz;
++    uint8_t *bss_ptr;
++    size_t bss_sz;
++    struct { size_t off; uint64_t val; } *bss_nz;
++    size_t bss_nnz;
++    uint8_t bss_head[7];
++    uint8_t bss_head_len;
++    uint8_t bss_tail[7];
++    uint8_t bss_tail_len;
++} DmSegSnap;
++
++static inline __attribute__((unused)) void dm_seg_snap_free(DmSegSnap *s) {
++    if (!s) return;
++    free(s->data_snap);
++    free(s->common_snap);
++    free(s->bss_nz);
++    memset(s, 0, sizeof *s);
++}
++
++static inline __attribute__((unused)) void dm_seg_snap_save_raw(
++    DmSegSnap *s,
++    uint8_t *data_ptr, size_t data_sz,
++    uint8_t *common_ptr, size_t common_sz,
++    uint8_t *bss_ptr, size_t bss_sz
++) {
++    if (!s) return;
++    memset(s, 0, sizeof *s);
++    s->data_ptr = data_ptr;
++    s->data_sz = data_sz;
++    s->common_ptr = common_ptr;
++    s->common_sz = common_sz;
++    s->bss_ptr = bss_ptr;
++    s->bss_sz = bss_sz;
++
++    if (s->data_ptr && s->data_sz) {
++        s->data_snap = (uint8_t *)malloc(s->data_sz);
++        if (s->data_snap) memcpy(s->data_snap, s->data_ptr, s->data_sz);
++    }
++    if (s->common_ptr && s->common_sz) {
++        s->common_snap = (uint8_t *)malloc(s->common_sz);
++        if (s->common_snap) memcpy(s->common_snap, s->common_ptr, s->common_sz);
++    }
++    if (s->bss_ptr && s->bss_sz) {
++        uintptr_t b0 = (uintptr_t)s->bss_ptr;
++        size_t sz = s->bss_sz;
++        if (sz > UINTPTR_MAX - b0) return;
++        uintptr_t b1 = b0 + sz;
++        size_t pg = (size_t)getpagesize();
++        if (pg < 8U || (pg & (pg - 1U)) != 0) pg = 4096U;
++        uintptr_t pmask = (uintptr_t)(pg - 1U);
++        uintptr_t p0 = b0 & ~pmask;
++        size_t b1_rem = (size_t)(b1 & pmask);
++        uintptr_t p1 = b1_rem ? (b1 <= UINTPTR_MAX - (pg - b1_rem) ? b1 + (pg - b1_rem) : b1) : b1;
++        size_t np = p1 >= p0 ? (size_t)((p1 - p0) / pg) : 0;
++        char *vec = np ? (char *)malloc(np) : NULL;
++        int mc_ok = vec && np && mincore((const void *)p0, p1 - p0, vec) == 0;
++
++        // Partition [b0, b1) into disjoint [b0, mid0) head (0..7 B), [mid0, mid1) 8-byte aligned
++        // interior words, and [mid1, b1) tail (0..7 B). Because page sizes are multiples of 8,
++        // neither the head nor the tail ever crosses a page boundary.
++        size_t rem0 = (size_t)(b0 & (uintptr_t)7U);
++        size_t head_len = rem0 ? (sz < (8U - rem0) ? sz : (8U - rem0)) : 0;
++        uintptr_t mid0 = b0 + head_len;
++        size_t rem_sz = sz - head_len;
++        size_t mid_sz = rem_sz & ~(size_t)7U;
++        uintptr_t mid1 = mid0 + mid_sz;
++        size_t tail_len = rem_sz & (size_t)7U;
++
++        s->bss_head_len = (uint8_t)head_len;
++        if (head_len) {
++            if (!mc_ok || (vec[0] & (MINCORE_INCORE | MINCORE_PAGED_OUT))) {
++                memcpy(s->bss_head, (const void *)b0, head_len);
++            }
++        }
++
++        size_t cap = 0;
++        if (mid_sz && np) {
++            for (size_t p = 0; p < np; p++) {
++                if (mc_ok && !(vec[p] & (MINCORE_INCORE | MINCORE_PAGED_OUT))) continue;
++                uintptr_t a0 = p0 + p * pg;
++                uintptr_t a1 = a0 + pg;
++                if (a0 < mid0) a0 = mid0;
++                if (a1 > mid1) a1 = mid1;
++                for (uintptr_t a = a0; a < a1 && a <= UINTPTR_MAX - 8U && a + 8U <= a1; a += 8U) {
++                    uint64_t v = 0;
++                    memcpy(&v, (const void *)a, sizeof v);
++                    if (!v) continue;
++                    if (s->bss_nnz == cap) {
++                        if (cap > SIZE_MAX / (2U * sizeof s->bss_nz[0])) break;
++                        size_t ncap = cap ? cap * 2U : 64U;
++                        void *nb = realloc(s->bss_nz, ncap * sizeof s->bss_nz[0]);
++                        if (!nb) break;
++                        s->bss_nz = nb;
++                        cap = ncap;
++                    }
++                    s->bss_nz[s->bss_nnz].off = (size_t)(a - b0);
++                    s->bss_nz[s->bss_nnz].val = v;
++                    s->bss_nnz++;
++                }
++            }
++        }
++
++        s->bss_tail_len = (uint8_t)tail_len;
++        if (tail_len) {
++            size_t tail_page = (size_t)((mid1 - p0) / pg);
++            if (!mc_ok || tail_page >= np || (vec[tail_page] & (MINCORE_INCORE | MINCORE_PAGED_OUT))) {
++                memcpy(s->bss_tail, (const void *)mid1, tail_len);
++            }
++        }
++
++        free(vec);
++    }
++}
++
++static inline __attribute__((unused)) void dm_seg_snap_save(const struct mach_header_64 *mh, const char *segname, DmSegSnap *s) {
++    if (!mh || !segname || !s) return;
++    unsigned long dsz = 0, csz = 0, bsz = 0;
++    uint8_t *dptr = getsectiondata(mh, segname, "__data", &dsz);
++    uint8_t *cptr = getsectiondata(mh, segname, "__common", &csz);
++    uint8_t *bptr = getsectiondata(mh, segname, "__bss", &bsz);
++    dm_seg_snap_save_raw(s, dptr, (size_t)dsz, cptr, (size_t)csz, bptr, (size_t)bsz);
++}
++
++static inline __attribute__((unused)) void dm_seg_snap_restore(const DmSegSnap *s) {
++    if (!s) return;
++    if (s->data_ptr && s->data_snap && s->data_sz) memcpy(s->data_ptr, s->data_snap, s->data_sz);
++    if (s->common_ptr && s->common_snap && s->common_sz) memcpy(s->common_ptr, s->common_snap, s->common_sz);
++    if (s->bss_ptr && s->bss_sz) {
++        uintptr_t b0 = (uintptr_t)s->bss_ptr;
++        size_t sz = s->bss_sz;
++        if (sz > UINTPTR_MAX - b0) return;
++        uintptr_t b1 = b0 + sz;
++        size_t pg = (size_t)getpagesize();
++        if (pg < 8U || (pg & (pg - 1U)) != 0) pg = 4096U;
++        uintptr_t pmask = (uintptr_t)(pg - 1U);
++        size_t b0_rem = (size_t)(b0 & pmask);
++        uintptr_t p0 = b0_rem ? (b0 <= UINTPTR_MAX - (pg - b0_rem) ? b0 + (pg - b0_rem) : b1) : b0;
++        uintptr_t p1 = b1 & ~pmask;
++        if (p1 > p0) {
++            if (p0 > b0) memset((void *)b0, 0, p0 - b0);
++            if (mmap((void *)p0, p1 - p0, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE | MAP_FIXED, -1, 0) == MAP_FAILED)
++                memset((void *)p0, 0, p1 - p0);
++            if (b1 > p1) memset((void *)p1, 0, b1 - p1);
++        } else {
++            memset(s->bss_ptr, 0, sz);
++        }
++        if (s->bss_head_len && s->bss_head_len <= sz) {
++            memcpy(s->bss_ptr, s->bss_head, s->bss_head_len);
++        }
++        for (size_t i = 0; i < s->bss_nnz; i++) {
++            if (sz >= sizeof s->bss_nz[i].val && s->bss_nz[i].off <= sz - sizeof s->bss_nz[i].val) {
++                memcpy(s->bss_ptr + s->bss_nz[i].off, &s->bss_nz[i].val, sizeof s->bss_nz[i].val);
++            }
++        }
++        if (s->bss_tail_len && s->bss_tail_len <= sz) {
++            memcpy(s->bss_ptr + (sz - s->bss_tail_len), s->bss_tail, s->bss_tail_len);
++        }
++    }
++}
++
++#endif
+diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
+index 6024d8c..ce3f22c 100644
+--- a/dm/ios/Shell/ShellMain.m
++++ b/dm/ios/Shell/ShellMain.m
+@@ -15,25 +15,13 @@
+ #include <string.h>
+ #include <sys/mman.h>
+ #include <unistd.h>
++#include "SegSnap.h"
+ #include "ShellEngine.h"
+ #include "ShellGlue.h"
+ #import "DmShell-Swift.h"
+ 
+ extern char **environ;
+ 
+-typedef struct {
+-    uint8_t *data_ptr;
+-    uint8_t *data_snap;
+-    size_t data_sz;
+-    uint8_t *common_ptr;
+-    uint8_t *common_snap;
+-    size_t common_sz;
+-    uint8_t *bss_ptr;
+-    size_t bss_sz;
+-    struct { size_t off; uint64_t val; } *bss_nz;
+-    size_t bss_nnz;
+-} DmSegSnap;
+-
+ typedef struct {
+     const void *fbase;
+     DmSegSnap seg[2];
+@@ -72,76 +60,6 @@ static void clear_game_env(void) {
+     for (int i = 0; i < count; i++) unsetenv(names[i]);
+ }
+ 
+-static void save_seg_snap(const struct mach_header_64 *mh, const char *segname, DmSegSnap *s) {
+-    unsigned long dsz = 0, csz = 0, bsz = 0;
+-    s->data_ptr = getsectiondata(mh, segname, "__data", &dsz); s->data_sz = dsz;
+-    s->common_ptr = getsectiondata(mh, segname, "__common", &csz); s->common_sz = csz;
+-    s->bss_ptr = getsectiondata(mh, segname, "__bss", &bsz); s->bss_sz = bsz;
+-    if (s->data_ptr && s->data_sz) {
+-        s->data_snap = malloc(s->data_sz);
+-        if (s->data_snap) memcpy(s->data_snap, s->data_ptr, s->data_sz);
+-    }
+-    if (s->common_ptr && s->common_sz) {
+-        s->common_snap = malloc(s->common_sz);
+-        if (s->common_snap) memcpy(s->common_snap, s->common_ptr, s->common_sz);
+-    }
+-    if (s->bss_ptr && s->bss_sz) {
+-        size_t pg = (size_t)getpagesize();
+-        uintptr_t b0 = (uintptr_t)s->bss_ptr;
+-        uintptr_t b1 = b0 + s->bss_sz;
+-        uintptr_t p0 = b0 & ~(pg - 1);
+-        uintptr_t p1 = (b1 + pg - 1) & ~(pg - 1);
+-        size_t np = (p1 - p0) / pg;
+-        char *vec = np ? malloc(np) : NULL;
+-        int mc_ok = vec && mincore((const void *)p0, p1 - p0, vec) == 0;
+-        size_t cap = 0;
+-        for (size_t p = 0; p < np; p++) {
+-            if (mc_ok && !(vec[p] & (MINCORE_INCORE | MINCORE_PAGED_OUT))) continue;
+-            uintptr_t a0 = p0 + p * pg;
+-            uintptr_t a1 = a0 + pg;
+-            if (a0 < b0) a0 = (b0 + 7ULL) & ~7ULL;
+-            if (a1 > b1) a1 = b1;
+-            for (uintptr_t a = a0; a + 8 <= a1; a += 8) {
+-                uint64_t v = *(const uint64_t *)a;
+-                if (!v) continue;
+-                if (s->bss_nnz == cap) {
+-                    size_t ncap = cap ? cap * 2 : 64;
+-                    void *nb = realloc(s->bss_nz, ncap * sizeof s->bss_nz[0]);
+-                    if (!nb) break;
+-                    s->bss_nz = nb; cap = ncap;
+-                }
+-                s->bss_nz[s->bss_nnz].off = (size_t)(a - b0);
+-                s->bss_nz[s->bss_nnz].val = v;
+-                s->bss_nnz++;
+-            }
+-        }
+-        free(vec);
+-    }
+-}
+-
+-static void restore_seg_snap(const DmSegSnap *s) {
+-    if (s->data_ptr && s->data_snap && s->data_sz) memcpy(s->data_ptr, s->data_snap, s->data_sz);
+-    if (s->common_ptr && s->common_snap && s->common_sz) memcpy(s->common_ptr, s->common_snap, s->common_sz);
+-    if (s->bss_ptr && s->bss_sz) {
+-        size_t pg = (size_t)getpagesize();
+-        uintptr_t b0 = (uintptr_t)s->bss_ptr;
+-        uintptr_t b1 = b0 + s->bss_sz;
+-        uintptr_t p0 = (b0 + pg - 1) & ~(pg - 1);
+-        uintptr_t p1 = b1 & ~(pg - 1);
+-        if (p1 > p0) {
+-            if (p0 > b0) memset((void *)b0, 0, p0 - b0);
+-            if (mmap((void *)p0, p1 - p0, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE | MAP_FIXED, -1, 0) == MAP_FAILED)
+-                memset((void *)p0, 0, p1 - p0);
+-            if (b1 > p1) memset((void *)p1, 0, b1 - p1);
+-        } else {
+-            memset(s->bss_ptr, 0, s->bss_sz);
+-        }
+-        for (size_t i = 0; i < s->bss_nnz; i++) {
+-            *(uint64_t *)(s->bss_ptr + s->bss_nz[i].off) = s->bss_nz[i].val;
+-        }
+-    }
+-}
+-
+ static void save_framework_data(const void *fbase) {
+     if (!fbase) return;
+     for (int i = 0; i < g_nfw_snaps; i++) if (g_fw_snaps[i].fbase == fbase) return;
+@@ -150,8 +68,8 @@ static void save_framework_data(const void *fbase) {
+     DmFwSnap *s = &g_fw_snaps[g_nfw_snaps++];
+     memset(s, 0, sizeof *s);
+     s->fbase = fbase;
+-    save_seg_snap(mh, "__DATA", &s->seg[0]);
+-    save_seg_snap(mh, "__DATA_DIRTY", &s->seg[1]);
++    dm_seg_snap_save(mh, "__DATA", &s->seg[0]);
++    dm_seg_snap_save(mh, "__DATA_DIRTY", &s->seg[1]);
+     fprintf(stderr, "shell: saved framework state for %p (__data=%#zx, __common=%#zx, __bss=%#zx with %zu initial non-zero words)\n",
+             fbase, s->seg[0].data_sz + s->seg[1].data_sz, s->seg[0].common_sz + s->seg[1].common_sz,
+             s->seg[0].bss_sz + s->seg[1].bss_sz, s->seg[0].bss_nnz + s->seg[1].bss_nnz);
+@@ -162,8 +80,8 @@ static void restore_framework_data(const void *fbase) {
+     DmFwSnap *s = NULL;
+     for (int i = 0; i < g_nfw_snaps; i++) if (g_fw_snaps[i].fbase == fbase) { s = &g_fw_snaps[i]; break; }
+     if (!s) return;
+-    restore_seg_snap(&s->seg[0]);
+-    restore_seg_snap(&s->seg[1]);
++    dm_seg_snap_restore(&s->seg[0]);
++    dm_seg_snap_restore(&s->seg[1]);
+     fprintf(stderr, "shell: restored framework state for %p\n", fbase);
+ }
+ 
+diff --git a/dm/ios/tests/test_seg_snap.py b/dm/ios/tests/test_seg_snap.py
+new file mode 100644
+index 0000000..83bbaa9
+--- /dev/null
++++ b/dm/ios/tests/test_seg_snap.py
+@@ -0,0 +1,218 @@
++"""End-to-end Mach-O __DATA,__bss snapshot and restore test through dm_seg_snap_save."""
++from __future__ import annotations
++
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++import tempfile
++import textwrap
++import unittest
++
++REPO = Path(__file__).resolve().parents[3]
++SHELL_DIR = REPO / 'dm/ios/Shell'
++
++
++@unittest.skipUnless(sys.platform == 'darwin' and shutil.which('clang'), 'needs macOS clang')
++class MachOSegSnapTests(unittest.TestCase):
++    """Compile a real Mach-O dylib whose __DATA,__bss has an unaligned size and initial non-zero tail."""
++
++    DYLIB_C = """\
++    #include <stdint.h>
++    #include <string.h>
++
++    __attribute__((used, visibility("default")))
++    const char dmgame_image_marker[] = "DmGame";
++
++    // Static zero-initialized storage goes into __DATA,__bss on Mach-O with an odd total size
++    // (32771 B) so both multi-page zeroing and unaligned tail bytes are exercised on a real dylib.
++    __attribute__((aligned(1), used))
++    static uint8_t g_bss_blob[32771];
++
++    static int g_data_val = 0x13572468;
++
++    __attribute__((used, visibility("default")))
++    uint8_t *get_bss_blob(void) {
++        return g_bss_blob;
++    }
++
++    __attribute__((constructor))
++    static void init_bss_before_snapshot(void) {
++        uint8_t *p = g_bss_blob;
++        __asm__ volatile("" : "+r"(p));
++        p[0] = 0xA7;
++        p[1] = 0x5B;
++        p[16] = 0x42;
++        p[32768] = 0xC3;
++        p[32769] = 0xD4;
++        p[32770] = 0xE5;
++    }
++
++    __attribute__((used, visibility("default")))
++    void mutate_game_state(void) {
++        g_data_val = 99;
++        memset(g_bss_blob, 0x77, sizeof g_bss_blob);
++        g_bss_blob[0] = 0;
++        g_bss_blob[32770] = 0;
++    }
++
++    __attribute__((used, visibility("default")))
++    int verify_initial_state(void) {
++        if (g_data_val != 0x13572468) return 10;
++        if (g_bss_blob[0] != 0xA7 || g_bss_blob[1] != 0x5B) return 11;
++        if (g_bss_blob[16] != 0x42) return 12;
++        for (size_t i = 100; i < 32700; i++) {
++            if (g_bss_blob[i] != 0) return 13;
++        }
++        if (g_bss_blob[32768] != 0xC3 || g_bss_blob[32769] != 0xD4 || g_bss_blob[32770] != 0xE5) {
++            return 14;
++        }
++        return 0;
++    }
++    """
++
++    HOST_C = """\
++    #include "SegSnap.h"
++    #include <dlfcn.h>
++    #include <stdio.h>
++
++    typedef void (*mutate_fn)(void);
++    typedef int (*verify_fn)(void);
++
++    int main(int argc, char **argv) {
++        if (argc != 2) return 1;
++        void *h = dlopen(argv[1], RTLD_LAZY | RTLD_LOCAL);
++        if (!h) {
++            fprintf(stderr, "dlopen: %s\\n", dlerror());
++            return 2;
++        }
++        void *sym = dlsym(h, "dmgame_image_marker");
++        Dl_info info;
++        if (!sym || !dladdr(sym, &info) || !info.dli_fbase) return 3;
++        mutate_fn mutate = (mutate_fn)dlsym(h, "mutate_game_state");
++        verify_fn verify = (verify_fn)dlsym(h, "verify_initial_state");
++        if (!mutate || !verify) return 4;
++
++        if (verify() != 0) return 5;
++
++        const struct mach_header_64 *mh = (const struct mach_header_64 *)info.dli_fbase;
++        DmSegSnap seg[2];
++        dm_seg_snap_save(mh, "__DATA", &seg[0]);
++        dm_seg_snap_save(mh, "__DATA_DIRTY", &seg[1]);
++        if (seg[0].bss_sz < 32771 || (seg[0].bss_sz & 7U) == 0) {
++            fprintf(stderr, "unexpected __DATA,__bss size %zu\\n", seg[0].bss_sz);
++            return 7;
++        }
++
++        for (int round = 0; round < 2; round++) {
++            mutate();
++            if (verify() == 0) return 6;
++            dm_seg_snap_restore(&seg[0]);
++            dm_seg_snap_restore(&seg[1]);
++            int rc = verify();
++            if (rc != 0) {
++                fprintf(stderr, "verify failed on round %d with code %d\\n", round, rc);
++                return rc;
++            }
++        }
++
++        dm_seg_snap_free(&seg[0]);
++        dm_seg_snap_free(&seg[1]);
++        return 0;
++    }
++    """
++
++    def test_macho_dylib_bss_unaligned_tail_and_pages_restore_cleanly(self):
++        root = Path(tempfile.mkdtemp(prefix='test_macho_segsnap_')).resolve()
++        self.addCleanup(shutil.rmtree, root)
++
++        dylib_c = root / 'game.c'
++        dylib = root / 'libgame.dylib'
++        host_c = root / 'host.c'
++        host = root / 'host'
++
++        dylib_c.write_text(textwrap.dedent(self.DYLIB_C), encoding='utf-8')
++        host_c.write_text(textwrap.dedent(self.HOST_C), encoding='utf-8')
++
++        r_lib = subprocess.run(['clang', '-O1', '-Wall', '-Werror', '-dynamiclib', str(dylib_c), '-o', str(dylib)],
++                               capture_output=True, text=True)
++        self.assertEqual(r_lib.returncode, 0, r_lib.stderr)
++
++        r_host = subprocess.run(['clang', '-O1', '-Wall', '-Werror', f'-I{SHELL_DIR}', str(host_c), '-o', str(host)],
++                                capture_output=True, text=True)
++        self.assertEqual(r_host.returncode, 0, r_host.stderr)
++
++        r_run = subprocess.run([str(host), str(dylib)], capture_output=True, text=True)
++        self.assertEqual(r_run.returncode, 0, r_run.stderr)
++
++    def test_macho_dylib_tiny_subword_bss_restores_cleanly(self):
++        root = Path(tempfile.mkdtemp(prefix='test_macho_segsnap_tiny_')).resolve()
++        self.addCleanup(shutil.rmtree, root)
++
++        tiny_c = root / 'tiny.c'
++        dylib = root / 'libtiny.dylib'
++        host_c = root / 'host_tiny.c'
++        host = root / 'host_tiny'
++
++        tiny_c.write_text(
++            textwrap.dedent(
++                """\
++                #include <stdint.h>
++
++                __attribute__((used, visibility("default")))
++                const char dmgame_image_marker[] = "DmGame";
++
++                __attribute__((aligned(1), used))
++                static uint8_t g_tiny_bss[3];
++
++                __attribute__((used, visibility("default")))
++                uint8_t *get_tiny_bss(void) {
++                    return g_tiny_bss;
++                }
++
++                __attribute__((constructor))
++                static void init_tiny(void) {
++                    uint8_t *p = g_tiny_bss;
++                    __asm__ volatile("" : "+r"(p));
++                    p[0] = 0x12;
++                    p[1] = 0x34;
++                    p[2] = 0x56;
++                }
++
++                __attribute__((used, visibility("default")))
++                void mutate_game_state(void) {
++                    g_tiny_bss[0] = 0xFE;
++                    g_tiny_bss[1] = 0xDC;
++                    g_tiny_bss[2] = 0xBA;
++                }
++
++                __attribute__((used, visibility("default")))
++                int verify_initial_state(void) {
++                    return (g_tiny_bss[0] == 0x12 && g_tiny_bss[1] == 0x34 && g_tiny_bss[2] == 0x56) ? 0 : 21;
++                }
++                """
++            ),
++            encoding='utf-8',
++        )
++        host_c.write_text(
++            textwrap.dedent(self.HOST_C).replace(
++                'seg[0].bss_sz < 32771 || (seg[0].bss_sz & 7U) == 0',
++                'seg[0].bss_sz == 0 || seg[0].bss_sz >= 8',
++            ),
++            encoding='utf-8',
++        )
++
++        r_lib = subprocess.run(['clang', '-O1', '-Wall', '-Werror', '-dynamiclib', str(tiny_c), '-o', str(dylib)],
++                               capture_output=True, text=True)
++        self.assertEqual(r_lib.returncode, 0, r_lib.stderr)
++
++        r_host = subprocess.run(['clang', '-O1', '-Wall', '-Werror', f'-I{SHELL_DIR}', str(host_c), '-o', str(host)],
++                                capture_output=True, text=True)
++        self.assertEqual(r_host.returncode, 0, r_host.stderr)
++
++        r_run = subprocess.run([str(host), str(dylib)], capture_output=True, text=True)
++        self.assertEqual(r_run.returncode, 0, r_run.stderr)
++
++
++if __name__ == '__main__':
++    unittest.main()
