@@ -102,6 +102,11 @@ package struct MacGameBundle {
         cacheLock.unlock()
     }
 
+    package static func invalidateCache(forApp path: String) {
+        guard !path.isEmpty else { return }
+        removeCached(URL(fileURLWithPath: path).standardizedFileURL.path)
+    }
+
     /// The version of the package the app was packed with. A Mac app packed with DMPackageVersion states it in DMDisplayVersion, else
     /// (an update packed from a dump or a NUP without control data) only as the packed version, whose CFBundleShortVersionString is 1.0
     /// and not what runs (#953). The base game packed without a display version (v0) states none. An older app states it in

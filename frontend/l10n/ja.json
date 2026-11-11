@@ -1,11 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "ja",
-      "japanese"
-    ],
-    "name": "日本語"
-  },
+  "_language": {"locales": ["ja", "japanese"], "name": "日本語"},
   "activity.ios": "iPhone 向けビルド中",
   "activity.mac": "Mac 向けビルド中",
   "activity.transfer": "ゲームファイルを iPhone に転送中",
@@ -1485,6 +1479,8 @@
   "launch.set.DM_TOUCH_STICK": "左スティック",
   "launch.set.DM_TOUCH_STICK.note": "画面上のコントロールの左スティックの位置です。",
   "launch.set.DM_UPSCALER": "ゲームのアップスケーラー",
+  "launch.set.MAC_GAME_MODE": "macOS ゲームモード",
+  "launch.set.MAC_GAME_MODE.note": "フルスクリーン時に Bluetooth コントローラのポーリングを倍増しオーディオ遅延を抑えます。数分後にフレームレートが落ちる Mac ではオフのままにしてください（macOS が GPU を低クロックに固定することがあります）。",
   "launch.title": "起動オプション",
   "launch.useForNew": "新しいゲームに使う",
   "launch.useForNewDone": "保存しました。今後追加するゲームはこの設定で始まります。",

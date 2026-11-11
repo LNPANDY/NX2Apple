@@ -1,4 +1,5 @@
 import Foundation
+import NXCore
 
 /// The four parts of a game's options sheet (#675): Game, Performance, Mods and cheats, Saves. Where a setting of the game's
 /// launcher.json goes is decided here from its variable (and, for one this table does not know, from its section), so a new
@@ -9,8 +10,9 @@ enum LaunchCategory: String, CaseIterable, Identifiable {
     var labelKey: String { "launch.cat." + rawValue }
 
     /// Language, display, picture and input: what a player sets once for how the game looks and answers.
-    static let gameEnvs: Set<String> = ["DM_LANG", "DM_FULLSCREEN", "DM_PICTURE_FIT", "DM_SCREEN_ASPECT", "DM_SHOW_FPS", "DM_TOUCH_HAPTICS",
-                                        "DM_RUMBLE", "DM_RUMBLE_GAIN", "DM_RUMBLE_MIN", "DM_PAD_PRESS_TO_JOIN"]
+    static let gameEnvs: Set<String> = ["DM_LANG", "DM_FULLSCREEN", MacGameMode.optionEnv, "DM_PICTURE_FIT", "DM_SCREEN_ASPECT",
+                                        "DM_SHOW_FPS", "DM_TOUCH_HAPTICS", "DM_RUMBLE", "DM_RUMBLE_GAIN", "DM_RUMBLE_MIN",
+                                        "DM_PAD_PRESS_TO_JOIN"]
     /// Frame rate, resolution, console mode, upscaling and the engine's tuning switches.
     static let performanceEnvs: Set<String> = ["DM_FPS_TARGET", "DM_DYNAMIC_RESOLUTION", "DM_RENDER_SCALE", "DM_OPMODE", "DM_PRESENT_UPSCALE",
                                                "DM_UPSCALER", "DM_PRESENT_SNAP", "DM_PSO_MTL4", "DM_PSO_PREBUILD", "DM_NVN_ENC_THREAD",

@@ -106,45 +106,56 @@ extension LauncherView {
     }
 
     private func startMacGame(_ game: LibraryGame, cloudChoice: [String: String]) {
+        let currentGame = library.games.first(where: { $0.id == game.id }) ?? game
         let configuration = NSWorkspace.OpenConfiguration()
         let environment = GameStart.environment(
-            for: game,
+            for: currentGame,
             library: library,
             controls: controls,
             repo: stores.repo.path,
             labels: loc.t,
             lang: loc.lang,
             player: stores.players.active,
-            saves: (stores.saveSettings.global, stores.saveSettings.game(game.titleID)),
+            saves: (stores.saveSettings.global, stores.saveSettings.game(currentGame.titleID)),
             sticks: stores.sticks.settings
         )
         let withRecording = environment
-            .merging(FrameTimes.recordingEnvironment(for: game, library: library.folder)) { $1 }
+            .merging(FrameTimes.recordingEnvironment(for: currentGame, library: library.folder)) { $1 }
             .merging(cloudChoice) { $1 }
         if !withRecording.isEmpty { configuration.environment = withRecording }
         let generation = launchHintGeneration
-        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: game.appPath), configuration: configuration) { app, error in
-            let pid = app?.processIdentifier
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    if let error {
-                        if launchHintGeneration == generation { endGameLaunch() }
-                        launchError = error.localizedDescription
-                        return
-                    }
-                    library.recordPlayed(game.id)
-                    if let pid { GameReturnWatcher.shared.didStart(pid: pid) }
-                    if let app, !app.isFinishedLaunching, !app.isTerminated {
-                        Task { @MainActor in
-                            let deadline = Date().addingTimeInterval(5.0)
-                            while !app.isFinishedLaunching && !app.isTerminated && Date() < deadline {
-                                try? await Task.sleep(nanoseconds: 150_000_000)
-                                if launchHintGeneration != generation { return }
+        MacGameMode.shared.prepareForLaunch(enabled: currentGame.macGameModeDesired, forApp: currentGame.appPath) { error in
+            MainActor.assumeIsolated {
+                guard launchHintGeneration == generation else { return }
+                if let error {
+                    endGameLaunch()
+                    launchError = error.localizedDescription
+                    return
+                }
+                NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: currentGame.appPath), configuration: configuration) { app, error in
+                    let pid = app?.processIdentifier
+                    DispatchQueue.main.async {
+                        MainActor.assumeIsolated {
+                            if let error {
+                                if launchHintGeneration == generation { endGameLaunch() }
+                                launchError = error.localizedDescription
+                                return
                             }
-                            if launchHintGeneration == generation { endGameLaunch() }
+                            library.recordPlayed(currentGame.id)
+                            if let pid { GameReturnWatcher.shared.didStart(pid: pid) }
+                            if let app, !app.isFinishedLaunching, !app.isTerminated {
+                                Task { @MainActor in
+                                    let deadline = Date().addingTimeInterval(5.0)
+                                    while !app.isFinishedLaunching && !app.isTerminated && Date() < deadline {
+                                        try? await Task.sleep(nanoseconds: 150_000_000)
+                                        if launchHintGeneration != generation { return }
+                                    }
+                                    if launchHintGeneration == generation { endGameLaunch() }
+                                }
+                            } else if launchHintGeneration == generation {
+                                endGameLaunch()
+                            }
                         }
-                    } else if launchHintGeneration == generation {
-                        endGameLaunch()
                     }
                 }
             }

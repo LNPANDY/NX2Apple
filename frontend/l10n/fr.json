@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "fr",
-      "french"
-    ],
-    "name": "Français",
-    "order": 4
-  },
+  "_language": {"locales": ["fr", "french"], "name": "Français", "order": 4},
   "activity.ios": "Compilation iPhone en cours",
   "activity.mac": "Compilation Mac en cours",
   "activity.transfer": "Transfert des fichiers du jeu vers l’iPhone",
@@ -1486,6 +1479,8 @@
   "launch.set.DM_TOUCH_STICK": "Stick gauche",
   "launch.set.DM_TOUCH_STICK.note": "L'emplacement du stick gauche des commandes à l'écran.",
   "launch.set.DM_UPSCALER": "Upscaler du jeu",
+  "launch.set.MAC_GAME_MODE": "Mode Jeu de macOS",
+  "launch.set.MAC_GAME_MODE.note": "Double la fréquence Bluetooth des manettes et réduit la latence audio en plein écran. Laissez désactivé si la fréquence d’images chute après quelques minutes sur votre Mac (macOS peut maintenir le GPU à basse fréquence).",
   "launch.title": "Options de lancement",
   "launch.useForNew": "Pour les nouveaux jeux",
   "launch.useForNewDone": "Enregistré. Les jeux ajoutés à partir de maintenant démarrent avec ces réglages.",

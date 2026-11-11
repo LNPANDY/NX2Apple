@@ -255,7 +255,15 @@ struct ConsolePadSnapshot: Equatable {
             self.prepareLaunch { [weak self] in
                 guard let self else { return }
                 guard self.state.startingGameID == gameID else { self.gameEnded(); return }
-                self.openGame(game, environment: environment.merging(choice) { $1 }, gameID: gameID)
+                let latest = self.library.games.first(where: { $0.id == game.id }) ?? game
+                MacGameMode.shared.prepareForLaunch(enabled: latest.macGameModeDesired, forApp: latest.appPath) { [weak self] error in
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        guard self.state.startingGameID == gameID else { self.gameEnded(); return }
+                        if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
+                        self.openGame(latest, environment: environment.merging(choice) { $1 }, gameID: gameID)
+                    }
+                }
             }
         }, ended: { [weak self] in self?.state.returnFromGame() })
     }
@@ -356,7 +364,7 @@ struct ConsolePadSnapshot: Equatable {
         // Reset to defaults shows once something differs. Only that is read again here: the rest of the details (the cloud save's
         // state reads the whole game log) stays as the options page loaded it, so a slider moves without waiting on the disk.
         if let updated = library.games.first(where: { $0.id == game.id }), let i = state.games.firstIndex(where: { $0.id == gameID }) {
-            state.games[i].canReset = !updated.launchOptions.isEmpty
+            state.games[i].canReset = updated.hasLauncherOptions
                 || SavedChoices(app: updated.appPath, titleID: updated.titleID).hasChoices(state.games[i].settings)
         }
     }

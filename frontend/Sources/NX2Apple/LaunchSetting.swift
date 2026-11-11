@@ -88,6 +88,27 @@ struct LaunchSetting: Decodable, Identifiable {
                 list.insert(row, at: idx)
             }
         }
+        if MacGameMode.canConfigure(app: app), !list.contains(where: { $0.env == MacGameMode.optionEnv }) {
+            let gameMode = LaunchSetting(
+                env: MacGameMode.optionEnv,
+                kind: "toggle",
+                label: labels("launch.set.MAC_GAME_MODE"),
+                note: labels("launch.set.MAC_GAME_MODE.note"),
+                def: "0",
+                section: "Game",
+                options: nil,
+                min: nil,
+                max: nil,
+                step: nil,
+                on: "1",
+                off: "0",
+                level: "basic",
+                unsetValue: "0"
+            )
+            let idx = list.firstIndex { $0.env == "DM_FULLSCREEN" }.map { $0 + 1 }
+                ?? list.lastIndex { $0.sectionTitle == "Game" }.map { $0 + 1 } ?? 0
+            list.insert(gameMode, at: idx)
+        }
         if let i = list.firstIndex(where: { $0.env == "DM_RENDER_SCALE" && $0.base == nil }), let base = renderBase(titleID: titleID, repo: repo) {
             list[i].base = base
         }

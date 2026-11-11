@@ -1,12 +1,5 @@
 {
-  "_language": {
-    "locales": [
-      "zh",
-      "chinese"
-    ],
-    "name": "中文",
-    "order": 0
-  },
+  "_language": {"locales": ["zh", "chinese"], "name": "中文", "order": 0},
   "activity.ios": "正在构建 iPhone 版",
   "activity.mac": "正在构建 Mac 版",
   "activity.transfer": "正在传输游戏文件到 iPhone",
@@ -1486,6 +1479,8 @@
   "launch.set.DM_TOUCH_STICK": "左摇杆",
   "launch.set.DM_TOUCH_STICK.note": "屏幕控件中左摇杆所在的位置。",
   "launch.set.DM_UPSCALER": "游戏自带超分",
+  "launch.set.MAC_GAME_MODE": "macOS 游戏模式",
+  "launch.set.MAC_GAME_MODE.note": "全屏游玩时提高蓝牙手柄采样率并降低音频延迟。如果在你的 Mac 上游玩几分钟后出现掉帧，请保持关闭（macOS 可能会将 GPU 锁定在低频）。",
   "launch.title": "启动选项",
   "launch.useForNew": "用于新游戏",
   "launch.useForNewDone": "已保存。今后添加的游戏将使用这些设置。",

@@ -58,7 +58,7 @@ extension LiveConsoleDriver {
         state.games[i].mods = mods.map { ConsoleMod(name: $0.name, usable: $0.usable, on: $0.usable && game.mods.contains($0.name)) }
         state.games[i].cheats = cheats(game)
         let settings = state.games[i].settings
-        state.games[i].canReset = !game.launchOptions.isEmpty || SavedChoices(app: game.appPath, titleID: game.titleID).hasChoices(settings)
+        state.games[i].canReset = game.hasLauncherOptions || SavedChoices(app: game.appPath, titleID: game.titleID).hasChoices(settings)
         state.games[i].save = game.isReady
             ? ConsoleCloudSaves.row(id: gameID, title: game.name, saves: GameCloudSaves(titleID: game.titleID, appPath: game.appPath)) : nil
     }
