@@ -364,7 +364,8 @@ jobs:
     needs: [stack, changes]
     if: ${{ !cancelled() && (needs.stack.result != 'success' || needs.stack.outputs.is_tip == 'true') && (needs.changes.result != 'success' || needs.changes.outputs.launcher == 'true') }}
     runs-on: xcode-27
-    timeout-minutes: 20
+    # Pull requests build debug once and run ~1,650 XCTest cases (~14m). Pushes to main also run `swift build -c release` (~5.5m) first.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
