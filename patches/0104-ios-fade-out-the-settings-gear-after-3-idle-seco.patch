@@ -19,7 +19,7 @@ Issue: LNPANDY/NX2Apple#809
  4 files changed, 168 insertions(+), 8 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 027fa6c..9705efb 100644
+index 027fa6c8..9705efbd 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -1,6 +1,6 @@
@@ -145,7 +145,7 @@ index 027fa6c..9705efb 100644
  - (void)padsChanged:(NSNotification *)note {
      GCController *c = note.object, *gone = [note.name isEqual:GCControllerDidDisconnectNotification] ? c : nil;
 diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
-index 418d0ec..87b3b10 100644
+index 418d0ecb..87b3b104 100644
 --- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 +++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
 @@ -94,6 +94,7 @@ void dm_motion_clear(int player) {
@@ -157,7 +157,7 @@ index 418d0ec..87b3b10 100644
  static int g_opmode;   // handheld, until a test or the in-game menu docks it
  int dm_opmode(void) { return g_opmode; }
 diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
-index 1241c54..7570ca0 100644
+index 1241c547..7570ca07 100644
 --- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 +++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
 @@ -47,6 +47,13 @@ @implementation DuoFakeTouch
@@ -303,7 +303,7 @@ index 1241c54..7570ca0 100644
          [self setHarnessControllers:@[] notification:GCControllerDidDisconnectNotification];
          [self waitForView:menu hidden:NO];
 diff --git a/docs/settings.md b/docs/settings.md
-index be22bd1..f78498d 100644
+index 529952f4..089b4d4c 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -251,7 +251,7 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t

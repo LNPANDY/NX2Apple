@@ -33,7 +33,7 @@ Issue: LNPANDY/NX2Apple#123
  2 files changed, 106 insertions(+), 22 deletions(-)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 1d258aa..945bbd5 100644
+index 39e88f2e..444cf8ba 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -23,6 +23,7 @@
@@ -169,7 +169,7 @@ index 1d258aa..945bbd5 100644
      for (CFIndex i = 0; rules && i < CFArrayGetCount(rules); i++) { char env[128]; if (rule_env(CFArrayGetValueAtIndex(rules, i), env, sizeof env) && getenv(env)) add_key(&g_launch_keys, env); }
      for (const char **key=(const char *[]){"DM_KEYMAP","DM_PAD_MAP",NULL}; *key; key++) if(getenv(*key)) add_key(&g_launch_keys,*key);
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index d3bc98b..8e89ff7 100644
+index 859382b8..d6e4f1bf 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -743,6 +743,50 @@ int main(void) { @autoreleasepool {

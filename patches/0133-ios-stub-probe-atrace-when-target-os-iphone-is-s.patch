@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 12 Nov 2026 07:12:47 +0800
+Subject: [PATCH] iOS: stub probe_atrace when TARGET_OS_IPHONE is set
+
+Upstream ccd834e0 calls probe_atrace unconditionally from ctl_main in dm/host/hle_hid.c, while probe_atrace in dm/host/probe.c is compiled only under #if !TARGET_OS_IPHONE. Define the function outside the guard, matching probe_install right below it, so iOS targets link cleanly.
+
+Upstream-Status: pending
+Reason: stub probe_atrace on iOS so DmIOS and DmShellGame link after ccd834e0
+Issue: LNPANDY/NX2Apple#1153
+
+---
+ dm/host/probe.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/dm/host/probe.c b/dm/host/probe.c
+index 239bd6cf..1480a848 100644
+--- a/dm/host/probe.c
++++ b/dm/host/probe.c
+@@ -390,15 +390,19 @@ static int atrace_fault(void *addr, int is_write, void *uc_) {
+     }
+     return 0;
+ }
++#endif
+ void probe_atrace(uint64_t lo, uint64_t n) {
++#if !TARGET_OS_IPHONE
+     static int hooked; if (!hooked) { hooked = 1; dm_fault_hook_register(atrace_fault); }
+     int i = atomic_load(&g_atn); if (i >= 64 || !n) { LOG("atrace: 64 ranges at most"); return; }
+     uint64_t pg = (uint64_t)getpagesize(); lo &= ~(pg - 1); n = (n + pg - 1) & ~(pg - 1);
+     g_at[i].lo = lo; g_at[i].hi = lo + n; atomic_store(&g_atn, i + 1);
+     int r = mprotect((void *)(uintptr_t)lo, n, PROT_NONE);
+     LOG("DM_CTL: atrace range %d %#llx + %#llx armed%s", i, (unsigned long long)lo, (unsigned long long)n, r ? " (mprotect failed)" : "");
+-}
++#else
++    (void)lo; (void)n;
+ #endif
++}
+ void probe_install(void) {
+ #if !TARGET_OS_IPHONE
+     crash_set_trap_hook(probe_hit);

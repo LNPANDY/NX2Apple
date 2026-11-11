@@ -32,7 +32,7 @@ Issue: LNPANDY/NX2Apple#426, LNPANDY/NX2Apple#475
  3 files changed, 154 insertions(+), 10 deletions(-)
 
 diff --git a/dm/host/hle_sf.c b/dm/host/hle_sf.c
-index 9c5c81f..d1ffe05 100644
+index 9c5c81ff..d1ffe058 100644
 --- a/dm/host/hle_sf.c
 +++ b/dm/host/hle_sf.c
 @@ -1,7 +1,7 @@
@@ -199,7 +199,7 @@ index 9c5c81f..d1ffe05 100644
      return RES_OK;
  }
 diff --git a/dm/host/tests/t_sf.c b/dm/host/tests/t_sf.c
-index 9d237c8..417276a 100644
+index 9d237c86..417276a5 100644
 --- a/dm/host/tests/t_sf.c
 +++ b/dm/host/tests/t_sf.c
 @@ -1,6 +1,9 @@
@@ -280,7 +280,7 @@ index 9d237c8..417276a 100644
      return fails != 0;
  }
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index 230aecf..03afaaa 100644
+index bd480154..53b87029 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
 @@ -55,6 +55,13 @@ Most service calls can be found before they crash, before the first boot or the

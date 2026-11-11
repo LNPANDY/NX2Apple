@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#303
  3 files changed, 23 insertions(+), 7 deletions(-)
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index 2a4e642..aa9f8b2 100644
+index 2a4e6424..aa9f8b2a 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -25,6 +25,13 @@ Update 1.4.3 (v720896) over the base game, SDK 20.5.22. Nintendo EPD's engine (s
@@ -56,7 +56,7 @@ index 2a4e642..aa9f8b2 100644
  
  - **Current (issue #147): confirmed transient upload-memory bug on the Mac; iOS validation pending.** With update 1.4.3, the corrected issue #70 SDK module, shader chain `dec5ee141a9f` and 30 fps, walking from the Great Sky Island save produced 10.70 GiB peak footprint after about 474 s; a shorter repeat reached 12.81 GiB after about 150 s. Live staging peaked at 4.48 / 5.82 GiB and the open batch at 4.41 / 5.75 GiB, then memory fell back near 4 GiB. The shorter burst logged 3,084.2 MB of uploads in one frame. A temporary 50 ms sampler and the kernel footprint-peak ledger caught peaks missed by the periodic reports and the 8 GiB sampled watchdog. With [bounded batches and upload-completion retirement](../../../docs/reference/memory.md#upload-staging-grows-within-one-rendering-submission), the 220 s shortened route with deferred encoding enabled peaked at 4.24 GiB footprint and 216 MiB live staging, without GPU errors. A 520 s replay of the original input timings peaked at 4.23 GiB / 200 MiB, but landed differently and reached Game Over earlier, so it is not an equivalent traversal comparison. These local results do not establish the cause of the reporter's full-device reboot or rule out longer-term cache growth; the requested save/route, full logs and Jetsam/panic reports are still needed for that comparison.
 diff --git a/dm/games/0100F2C0115B6000/game.tsv b/dm/games/0100F2C0115B6000/game.tsv
-index 223a7f7..fb0af7d 100644
+index 223a7f71..fb0af7d6 100644
 --- a/dm/games/0100F2C0115B6000/game.tsv
 +++ b/dm/games/0100F2C0115B6000/game.tsv
 @@ -16,7 +16,9 @@ app_category	public.app-category.adventure-games
@@ -70,7 +70,7 @@ index 223a7f7..fb0af7d 100644
  shader_versions	v720896
  
 diff --git a/dm/games/0100F2C0115B6000/patches.py b/dm/games/0100F2C0115B6000/patches.py
-index 520da73..53cc1fe 100644
+index 520da739..53cc1fe1 100644
 --- a/dm/games/0100F2C0115B6000/patches.py
 +++ b/dm/games/0100F2C0115B6000/patches.py
 @@ -8,9 +8,11 @@ from nso_asm import ADRP, B, NOP, STP_PRE

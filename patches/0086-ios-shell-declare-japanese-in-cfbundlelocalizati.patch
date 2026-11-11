@@ -11,7 +11,7 @@ Issue: LNPANDY/NX2Apple#718
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/dm/ios/project-shell.yml b/dm/ios/project-shell.yml
-index 60fda10..aecb47f 100644
+index 60fda102..aecb47fd 100644
 --- a/dm/ios/project-shell.yml
 +++ b/dm/ios/project-shell.yml
 @@ -40,7 +40,7 @@ targets:

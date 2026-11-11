@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#1043
  7 files changed, 18 insertions(+), 5 deletions(-)
 
 diff --git a/dm/games/010051701FB46000/README.md b/dm/games/010051701FB46000/README.md
-index c50630f..04fc660 100644
+index c50630ff..04fc660f 100644
 --- a/dm/games/010051701FB46000/README.md
 +++ b/dm/games/010051701FB46000/README.md
 @@ -19,7 +19,7 @@ Update 1.1.1 (v131072) over the base game, SDK 18.3.5. Unity 2022.3.54f1 IL2CPP
@@ -51,7 +51,7 @@ index c50630f..04fc660 100644
  
  ## Memory
 diff --git a/dm/games/010051701FB46000/game.tsv b/dm/games/010051701FB46000/game.tsv
-index 3c6b1b4..292a6ec 100644
+index 3c6b1b43..292a6ecb 100644
 --- a/dm/games/010051701FB46000/game.tsv
 +++ b/dm/games/010051701FB46000/game.tsv
 @@ -45,7 +45,7 @@ pad_layout	full
@@ -64,10 +64,10 @@ index 3c6b1b4..292a6ec 100644
  
  # ---- Shader split (shader_split.py; Unity Shader and ComputeShader objects, read by unityfs.py) ----
 diff --git a/dm/games/README.md b/dm/games/README.md
-index 97b0d54..c816a19 100644
+index b013b4bc..89257166 100644
 --- a/dm/games/README.md
 +++ b/dm/games/README.md
-@@ -224,7 +224,7 @@ One row per profile; the notes are each profile's `README.md`.
+@@ -228,7 +228,7 @@ One row per profile; the notes are each profile's `README.md`.
  | `jit_key_data`, `jit_out_code`, `jit_route` | A game whose code comes through `nn::jit`, for the image an iPhone serves it from (`dm/tools/jit_capture.py`): per command, the data bytes that make a request (`4:0-7,24-27`), where its output lists the code's entry points (`4:entries=4,count=0x20004,size=0x20000`), and `jit_route`, a `DM_KEYS` route from a fresh save that the capture plays, for what the game compiles past its boot. |
  | `mem_map_limit` | `on` / `off` (the default): `MapPhysicalMemory` fails with ResultLimitReached when it would take the process past the application pool (the pool less the used memory `GetInfo` reports), as on Horizon (`hle_svc.c`). Pokémon Legends: Z-A allocates and frees everything it can at startup and the SDK keeps the freed pages mapped until a map fails, then unmaps them and retries; without the limit they stay mapped and the game maps past the pool. Off by default: Ace Attorney Investigations Collection maps a little more than the 1 GB pool its profile reports |
  | `stdalloc_cap` | With virtual address memory, the address space `StandardAllocator::Initialize(nullptr, size)` gets when `size` is more than the alias region has room for (`hle_svc.c` "StandardAllocator's address space", a gate the rewriter places by symbol in every `sdk`). Default `0`: the room, the alias region less the regions already made (at least the 62 MB node area) and 256 MB for the regions made after it. Needed when those need more (Absolum's .NET garbage collector takes 1.5 GB after its `malloc`): the NSP script's address region check sets it in a provisional or derived profile from what it measured, and checks a value set by hand. A request that fits is never changed |
@@ -77,7 +77,7 @@ index 97b0d54..c816a19 100644
  | `pso_mtl4` | `on` / `off` (the default): on iOS, render pipelines through MTL4Compiler by default, with the pipeline archive, the prepare step, the hybrid pipelines and the prebuild (on by default on the Mac; `DM_PSO_MTL4=1` / `0` overrides). A setting the game was tested with on an iPhone. It also gives the app the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) (`build_ipa.sh` builds it for the `pso_gpu` key's list when present, else for `g18p`, unless `DM_PSO_GPUS` says otherwise). An iOS build carries the pulling libraries (`_bp`) whatever this key says, since the launcher's Metal 4 pipelines toggle can turn the path on. Profiles with `pso_mtl4 off` get no archive unless a build override selects one. Breath of the Wild sets it on |
  | `pso_gpu` | Optional, whitespace-separated GPU architectures: the ones the [pipeline archive made offline](../../docs/development.md#the-pipeline-archive-made-offline) is made for when the profile also sets `pso_mtl4 on`. The bases are made per GPU family and each family's archive costs its own `metal-tt` run, so a profile names exactly the devices it serves. 1-4 tokens, each alphanumeric, with or without the `applegpu_` prefix (for example `g18p applegpu_g19p`); `none` is not a value. Without this key, `pso_mtl4 on` keeps the A19 / A19 Pro default `g18p`; `pso_mtl4 off` gets no archive. The `DM_PSO_GPUS` switch / the NSP script's `--gpu` overrides the archive selection; this key does not enable Metal 4 pipelines |
 diff --git a/dm/games/settings.py b/dm/games/settings.py
-index 5061344..7b7e253 100644
+index 50613442..7b7e2530 100644
 --- a/dm/games/settings.py
 +++ b/dm/games/settings.py
 @@ -73,6 +73,7 @@ def build(gid, patched, control):
@@ -89,7 +89,7 @@ index 5061344..7b7e253 100644
          if cond == 'languages>1': return len(langs) > 1
          if cond.startswith('fixups:'): return cond[7:] in keys
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 7f23186..bed9160 100644
+index 7f23186f..bed9160b 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -7,7 +7,7 @@
@@ -110,7 +110,7 @@ index 7f23186..bed9160 100644
  DM_RENDER_SCALE	range	0.5:1.0:0.05	1.0	fixups:RENDER_SCALE	Game	Render scale		level=basic
  DM_OPMODE	choice	1=Docked,0=Handheld	DM_GAME_OPMODE	always	Game	Console mode		level=basic
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 55df23c..de17ca7 100644
+index 55df23c1..de17ca7d 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -74,6 +74,16 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -131,7 +131,7 @@ index 55df23c..de17ca7 100644
          s = build(BOTW, 'nvn')['DM_FPS_HOLD']
          self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
 diff --git a/docs/settings.md b/docs/settings.md
-index c11388b..cf6a510 100644
+index c6a81cc6..195b1189 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -23,7 +23,7 @@ A Mac app carries the same list (`Contents/Resources/dm/launcher.json`), without

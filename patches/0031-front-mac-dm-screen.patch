@@ -14,10 +14,10 @@ Issue: LNPANDY/NX2Apple#221
  4 files changed, 14 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 267fbd3..539757b 100644
+index a2548d2d..a1fc7ef0 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1529,6 +1529,17 @@ void front_run(void (*guest)(void)) {
+@@ -1536,6 +1536,17 @@ void front_run(void (*guest)(void)) {
          if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) LOG("front end: Metal performance HUD on (DM_METAL_HUD)");
          v.layer = g_layer; [(DmGameView *)v fitDrawable];
          [win center];
@@ -36,7 +36,7 @@ index 267fbd3..539757b 100644
          screen_refresh(win.screen ?: NSScreen.mainScreen);
          g_win = win;
 diff --git a/docs/development.md b/docs/development.md
-index 7c1c27a..024e60c 100644
+index 6690f28a..9b293dd3 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -49,11 +49,11 @@ index 7c1c27a..024e60c 100644
  | Known gaps | Conditional render is always drawn; [indirect-count multi-draws](reference/rendering.md#indirect-count-multi-draws) can wait for a GPU-written count when the records need conversion, cannot be GPU-masked, or exceed the mask table capacity; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 3148b1b..baab691 100644
+index 1cc5ed19..b23bbe87 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -329,6 +329,7 @@ DM_SAVED_CHOICES	switch	`0` ignores the player's saved choices (launcher.<VAR> i
- DM_SAVE_SYNC	player	Cloud saves: the folder whose `<title ID>/save.dmsync` the save is synced through, `icloud` for iCloud Drive/nxnative Saves (the Mac); `0` or unset, off. The Mac launcher sets the folder chosen in its settings window's Cloud saves, the iPhone app the one picked in its launcher (dm/host/save_sync.h)
+@@ -339,6 +339,7 @@ DM_SAVED_CHOICES	switch	`0` ignores the player's saved choices (launcher.<VAR> i
+ DM_SAVE_SYNC	player	Cloud saves: the folder whose `<title ID>/save.dmsync` the save is synced through, `icloud` for iCloud Drive/nxnative Saves (the Mac); `0` or unset, off. The Mac launcher sets the folder chosen in its settings window's Cloud saves, the iPhone app the one picked in its launcher (dm/host/save_sync.h); regress.py, bench.py and the NSP script's own host runs set `0`
  DM_SAVE_SYNC_CHOICE	switch	Cloud saves: set by a front end that asks the player when the cloud's save and this device's both changed (any value: a save that changed on both sides is replaced on neither without a choice); `ask`: no choice yet, `cloud:<hash>` brings in the cloud's save with that hash, `local:<hash>` sends this device's over it (`local:none`: the cloud had none), `offline`: the cloud could not be read before the start, so the host does not wait for it; unset, the newer save wins (dm/host/save_sync.c, docs/frontends.md)
  DM_SCHEME_NAME	switch	Set by `build_ipa.sh` itself for xcodegen's `project.yml`: the Xcode scheme name, `DmIOS`, or `<display name> (<title ID>)` for a project prepared with `--prepare-xcode`
 +DM_SCREEN	player	`=<number>` opens the Mac window on the connected screen with that `NSScreenNumber` (`CGDirectDisplayID`), centred, before any `DM_FULLSCREEN` request; an unknown number is logged and ignored. The NX2Apple launcher sets it to its own window's screen
@@ -61,7 +61,7 @@ index 3148b1b..baab691 100644
  DM_SCREEN_ASPECT_SITES	diagnostic	`=<mask>` with DM_SCREEN_ASPECT: which of the profile's layout-size conversion stubs follow the taller layout, one bit each (default all)
  DM_SCREEN_FOV	diagnostic	`off` with DM_SCREEN_ASPECT: the scene keeps the game's vertical angle (narrower sides) instead of 16:9's sides with more above and below
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 498cbfb..ea1e0e7 100644
+index 0b9b7d68..54bb05ef 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -76,6 +76,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID

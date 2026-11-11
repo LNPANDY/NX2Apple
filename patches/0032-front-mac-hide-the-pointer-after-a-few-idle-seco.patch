@@ -16,10 +16,10 @@ Issue: LNPANDY/NX2Apple#272
  3 files changed, 25 insertions(+)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 539757b..27df186 100644
+index a1fc7ef0..ba9469ef 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1595,6 +1595,22 @@ void front_run(void (*guest)(void)) {
+@@ -1602,6 +1602,22 @@ void front_run(void (*guest)(void)) {
                  (void)n; want = 0; entering = 0; g_fs_failed = nil; }];   // startup succeeded: later manual refusals have no startup request to retry
              dispatch_async(dispatch_get_main_queue(), enter);
          }
@@ -43,11 +43,11 @@ index 539757b..27df186 100644
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index baab691..914d5f0 100644
+index b23bbe87..970015fe 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -23,6 +23,7 @@ DM_COPY_GAME_RESOURCES	switch	`NO` skips the Xcode build phase that copies the g
- DM_COPY_ROMFS	switch	`NO` keeps the game files out of the app, in the Xcode build phase (`stage_resources.sh`) and in the unsigned IPA of `build_ipa.sh` (on by default): `main.m` takes the validated `Documents/romfs.img` copied by `scripts/push_romfs.sh`, then a `Documents/romfs` folder; the build writes the image's identity as `romfs.id` into the app, and `main.m` uses only a matching image (`--romfs separate` of the NSP script sets this)
+@@ -24,6 +24,7 @@ DM_COPY_ROMFS	switch	`NO` keeps the game files out of the app, in the Xcode buil
+ DM_CRASH_PEEK	diagnostic	`="sp+0x248*,x22-0x20"` adds 0x100 bytes at each address to the crash report: `sp` or a register plus or minus an offset, a trailing `*` reading the pointer stored there first
  DM_CTL	diagnostic	`=<file>` (Mac): the host polls the file every 100 ms and runs each appended line: button presses, `shot`, `passdump`, `texdump`, `env KEY=VALUE`, `peek`, `memdump`, `drag` and more
  DM_CTRL_PROMPT_TEXT	switch	The texts of the controller applet's prompt (a game wants more players than have joined; `ctrl_prompt.h`) in the player's language, one per line: the title, the hint, the count, the done and the cancel button, with `{min}`, `{max}` and `{joined}` replaced by the numbers; a front end sets it ([Starting a game](frontends.md#starting-a-game)), an empty or missing line keeps the English text
 +DM_CURSOR_HIDE	player	`=<seconds>` hides the Mac pointer after that many seconds without movement over the game window (3 by default) and shows it again on the next movement, click or scroll; `0` keeps it
@@ -55,10 +55,10 @@ index baab691..914d5f0 100644
  DM_DBG_AU_FRAMES	diagnostic	`=<frames>` asks the Mac's Core Audio output for that many frames per callback instead of about 5 ms (1024 reproduces the iOS default that caused crackling)
  DM_DETCLOCK	switch	`=<step ns>`: from the first present on, the guest clock advances a fixed step per present instead of following the wall clock, and the random source becomes a fixed-seed stream (replay and test runs)
 diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
-index e7b2010..bb991a7 100644
+index 9c6461e9..b82af491 100644
 --- a/docs/reference/frame-rate.md
 +++ b/docs/reference/frame-rate.md
-@@ -380,6 +380,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+@@ -386,6 +386,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
  - **Check:** the reporter confirmed that the deferred request entered fullscreen on its first attempt and stayed there, without a refusal. A harness of the startup callbacks checks both readiness orders, bounded refusal recovery, and cancellation before startup or a queued retry, plus later manual failures after successful startup.
  - **Not checked:** the revised lifecycle handling in a real game through the launcher's console mode; native refusal recovery (the reporter's deferred request succeeded without it).
  

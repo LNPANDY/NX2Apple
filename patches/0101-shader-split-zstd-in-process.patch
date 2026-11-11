@@ -20,10 +20,10 @@ Issue: LNPANDY/NX2Apple#837
  create mode 100644 dm/tools/tests/test_split_zstd.py
 
 diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
-index 202c5da..2827eec 100644
+index 6307cca2..80ff435d 100644
 --- a/dm/gfx/tools/shader_split.py
 +++ b/dm/gfx/tools/shader_split.py
-@@ -2626,12 +2626,14 @@ def unzs_dict(d, did, where):
+@@ -2712,12 +2712,14 @@ def unzs_dict(d, did, where):
      return zstd.decompress(d, zstd_dict=_ZD[did])
  
  def unzs(path):
@@ -45,7 +45,7 @@ index 202c5da..2827eec 100644
      """The uncompressed size a zstd or LZ4 frame header records, None when it records none"""
 diff --git a/dm/tools/tests/test_split_zstd.py b/dm/tools/tests/test_split_zstd.py
 new file mode 100644
-index 0000000..9693d56
+index 00000000..9693d568
 --- /dev/null
 +++ b/dm/tools/tests/test_split_zstd.py
 @@ -0,0 +1,63 @@
@@ -113,7 +113,7 @@ index 0000000..9693d56
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
-index 7092689..c16d277 100644
+index 8d86dd92..d101516e 100644
 --- a/docs/reference/shaders.md
 +++ b/docs/reference/shaders.md
 @@ -89,6 +89,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b

@@ -53,9 +53,6 @@
 0088-nvn-decode-bc-uploads-before-copying-into-unpack.patch
 0090-ios-duo-outer-custom-control-bounds.patch
 0091-ios-hide-the-settings-gear-during-tv-play-with-a.patch
-0092-scale-ocarina-s-decoded-ndve-movie-frames-direct.patch
-0093-skip-the-matched-ndve-movie-reconstruction-seque.patch
-0094-turn-the-direct-ndve-movie-scaling-on-by-default.patch
 0095-keep-the-mac-game-in-focus-while-its-window-is-u.patch
 0098-nsp-script-package-names-which-upstream-dropped.patch
 0099-host-serve-nsd-services.patch
@@ -74,7 +71,6 @@
 0113-shader-prefetch-a-launcher-setting-and-a-profile.patch
 0114-launcher-a-frame-rate-choice-for-games-shown-at.patch
 0115-ios-write-the-game-s-console-into-game-manifest.patch
-0116-build-ipa-from-nsp-a-front-end-s-stand-in-icon-f.patch
 0117-textures-decode-bc6h-into-rgb9e5-on-gpus-without.patch
 0118-launcher-touch-controls-size-and-left-stick-rows.patch
 0119-controllers-a-radial-deadzone-for-each-stick.patch
@@ -91,3 +87,4 @@
 0130-textures-align-temporary-bc-edge-decode-buffer-t.patch
 0131-ios-isolate-dmshellgame-objective-c-classes-and.patch
 0132-ios-preserve-unaligned-bss-head-and-tail-bytes-i.patch
+0133-ios-stub-probe-atrace-when-target-os-iphone-is-s.patch

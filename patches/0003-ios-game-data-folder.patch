@@ -26,7 +26,7 @@ Issue: LNPANDY/NX2Apple#123
 
 diff --git a/dm/ios/Sources/DataBookmark.h b/dm/ios/Sources/DataBookmark.h
 new file mode 100644
-index 0000000..3aef333
+index 00000000..3aef3338
 --- /dev/null
 +++ b/dm/ios/Sources/DataBookmark.h
 @@ -0,0 +1,32 @@
@@ -64,7 +64,7 @@ index 0000000..3aef333
 +void dm_clear_picked_data(void);
 diff --git a/dm/ios/Sources/DataBookmark.m b/dm/ios/Sources/DataBookmark.m
 new file mode 100644
-index 0000000..3dcc383
+index 00000000..3dcc3834
 --- /dev/null
 +++ b/dm/ios/Sources/DataBookmark.m
 @@ -0,0 +1,79 @@
@@ -148,21 +148,22 @@ index 0000000..3dcc383
 +    [NSUserDefaults.standardUserDefaults removeObjectForKey:kPickedData];
 +}
 diff --git a/dm/ios/Sources/DmIOS-Bridging-Header.h b/dm/ios/Sources/DmIOS-Bridging-Header.h
-index 7ba971c..4ea3995 100644
+index 2c4aad68..02c292b5 100644
 --- a/dm/ios/Sources/DmIOS-Bridging-Header.h
 +++ b/dm/ios/Sources/DmIOS-Bridging-Header.h
-@@ -1,3 +1,8 @@
--// The Objective-C functions Launcher.swift and GameMenu.swift call (CloudSaves.h, DmGameMenu.h). project.yml points SWIFT_OBJC_BRIDGING_HEADER here.
-+// The Objective-C functions Launcher.swift and GameMenu.swift call (CloudSaves.h, DataBookmark.h, DmGameMenu.h). project.yml points SWIFT_OBJC_BRIDGING_HEADER here.
+@@ -1,4 +1,9 @@
+-// The C and Objective-C functions Launcher.swift and GameMenu.swift call (CloudSaves.h, DmGameMenu.h, save_sync.h's report before Play). project.yml points SWIFT_OBJC_BRIDGING_HEADER here.
++// The C and Objective-C functions Launcher.swift and GameMenu.swift call (CloudSaves.h, DataBookmark.h, DmGameMenu.h, save_sync.h's report before Play). project.yml points SWIFT_OBJC_BRIDGING_HEADER here.
  #import "CloudSaves.h"
 +#import "DataBookmark.h"
  #import "DmGameMenu.h"
+ #include "save_sync.h"
 +
 +// main.m: set when the game data found is an old shard archive (romfs.idx), which is no longer read. The sentence names the
 +// action (re-send the game data as romfs.img from the launcher), or NULL. The launcher's Game data section shows it.
 +const char *dm_old_archive_message(void);
 diff --git a/dm/ios/Sources/Launcher.swift b/dm/ios/Sources/Launcher.swift
-index 517e593..6013b30 100644
+index 0f9d8b66..2eacba29 100644
 --- a/dm/ios/Sources/Launcher.swift
 +++ b/dm/ios/Sources/Launcher.swift
 @@ -10,6 +10,64 @@ import os
@@ -247,7 +248,7 @@ index 517e593..6013b30 100644
          let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
          picker.allowsMultipleSelection = false
          picker.delegate = context.coordinator
-@@ -129,6 +187,7 @@ private struct LauncherView: View {
+@@ -133,6 +191,7 @@ private struct LauncherView: View {
                      } footer: {
                          Text("Brings back all settings this game was tested with.")
                      }
@@ -256,7 +257,7 @@ index 517e593..6013b30 100644
                      Section {
                          HStack {
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 8ebee3c..3b606f3 100644
+index 1495d647..22cd1bb2 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -24,6 +24,7 @@
@@ -301,7 +302,7 @@ index 8ebee3c..3b606f3 100644
  }
  - (BOOL)prefersHomeIndicatorAutoHidden { return YES; }
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 7cd198e..bd3bafa 100644
+index 7cd198ec..bd3bafa0 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -8,9 +8,10 @@
@@ -517,7 +518,7 @@ index 7cd198e..bd3bafa 100644
  }
  static int g_boot_ok;
 diff --git a/dm/ios/project.yml b/dm/ios/project.yml
-index d89d0ae..4835c62 100644
+index d89d0aed..4835c62e 100644
 --- a/dm/ios/project.yml
 +++ b/dm/ios/project.yml
 @@ -83,7 +83,7 @@ targets:
@@ -531,7 +532,7 @@ index d89d0ae..4835c62 100644
  schemes:
 diff --git a/dm/ios/tests/test_aoc_layouts.py b/dm/ios/tests/test_aoc_layouts.py
 new file mode 100644
-index 0000000..3b042cd
+index 00000000..3b042cd6
 --- /dev/null
 +++ b/dm/ios/tests/test_aoc_layouts.py
 @@ -0,0 +1,92 @@
@@ -628,7 +629,7 @@ index 0000000..3b042cd
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/dm/ios/tests/test_romfs_startup.py b/dm/ios/tests/test_romfs_startup.py
-index efc36f4..4792b5e 100644
+index efc36f41..4792b5ef 100644
 --- a/dm/ios/tests/test_romfs_startup.py
 +++ b/dm/ios/tests/test_romfs_startup.py
 @@ -24,12 +24,19 @@ class Startup(unittest.TestCase):

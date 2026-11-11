@@ -36,7 +36,7 @@ Issue: LNPANDY/NX2Apple#144
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
 new file mode 100644
-index 0000000..fee9e53
+index 00000000..fee9e53e
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -0,0 +1,211 @@
@@ -253,7 +253,7 @@ index 0000000..fee9e53
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_link.py b/dm/ios/tests/test_framework_link.py
 new file mode 100644
-index 0000000..ccbba80
+index 00000000..ccbba80e
 --- /dev/null
 +++ b/dm/ios/tests/test_framework_link.py
 @@ -0,0 +1,125 @@
@@ -383,7 +383,7 @@ index 0000000..ccbba80
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
-index b8a1025..e3f4f43 100644
+index b8a10252..e3f4f43e 100644
 --- a/dm/ios/tests/test_xcode_workflow.py
 +++ b/dm/ios/tests/test_xcode_workflow.py
 @@ -29,7 +29,12 @@ class XcodePipelineTests(unittest.TestCase):

@@ -30,7 +30,7 @@ Issue: LNPANDY/NX2Apple#895
  create mode 100644 dm/tools/tests/test_nacp.py
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 0ecb3ee..c7a2e0f 100755
+index 66f0074a..1520aba1 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -5,7 +5,8 @@
@@ -96,7 +96,7 @@ index 0ecb3ee..c7a2e0f 100755
      return ap.parse_args(argv)
  
 diff --git a/dm/tools/fuzz/fuzz_nacp.py b/dm/tools/fuzz/fuzz_nacp.py
-index 2400cab..48e9bae 100644
+index 2400cabb..48e9bae6 100644
 --- a/dm/tools/fuzz/fuzz_nacp.py
 +++ b/dm/tools/fuzz/fuzz_nacp.py
 @@ -1,7 +1,7 @@
@@ -120,7 +120,7 @@ index 2400cab..48e9bae 100644
  
  if __name__ == '__main__':
 diff --git a/dm/tools/nacp.py b/dm/tools/nacp.py
-index d5c4b59..0c3a98f 100644
+index d5c4b593..0c3a98f5 100644
 --- a/dm/tools/nacp.py
 +++ b/dm/tools/nacp.py
 @@ -2,7 +2,7 @@
@@ -179,7 +179,7 @@ index d5c4b59..0c3a98f 100644
  def version(path):
 diff --git a/dm/tools/tests/test_nacp.py b/dm/tools/tests/test_nacp.py
 new file mode 100644
-index 0000000..e49f785
+index 00000000..e49f7854
 --- /dev/null
 +++ b/dm/tools/tests/test_nacp.py
 @@ -0,0 +1,69 @@
@@ -253,7 +253,7 @@ index 0000000..e49f785
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 48ba155..d8c347a 100644
+index c185cb37..e0680517 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -118,7 +118,7 @@ class PackReuse(unittest.TestCase):
@@ -262,7 +262,7 @@ index 48ba155..d8c347a 100644
              'env.txt': b'DM_TEST=1', 'split.tsv': b'split', 'icon.jpg': b'jpeg', 'source/launcher.c': b'launcher',
 -            'host/romfs_image.h': b'validator', 'host/input_map.h': b'maps', 'host/dm_input.h': b'buttons', 'host/save_sync.c': b'sync', 'host/save_sync.h': b'sync api', 'tools/romfs.py': b'reader',
 +            'host/romfs_image.h': b'validator', 'host/input_map.h': b'maps', 'host/dm_input.h': b'buttons', 'host/save_sync.c': b'sync', 'host/save_sync.h': b'sync api', 'tools/romfs.py': b'reader', 'tools/nacp.py': b'names', 'control.nacp': b'nacp',
-             'source/Launcher.swift': b'window', 'ios/Sources/LauncherSettings.swift': b'model', 'ios/Sources/LauncherRow.swift': b'rows',
+             'source/Launcher.swift': b'window', 'ios/Sources/LauncherSettings.swift': b'model', 'ios/Sources/LauncherRow.swift': b'rows', 'ios/Sources/SaveSyncReport.swift': b'report',
          }
          for n in pack_app.TABLES: files['profile/' + n] = n.encode()
 @@ -128,7 +128,7 @@ class PackReuse(unittest.TestCase):
@@ -276,7 +276,7 @@ index 48ba155..d8c347a 100644
          self.clang, self.swiftc, self.sdk = t / 'bin/clang', t / 'bin/swiftc', t / 'sdk'
 @@ -213,7 +213,8 @@ class PackReuse(unittest.TestCase):
                   'pso/gpu.mtl4a', 'pso/prebuilt.tsv', 'pso/rest_pairs.tsv', 'pso/archive.tsv', 'env.txt', 'icon.jpg', 'source/launcher.c',
-                  'source/Launcher.swift', 'ios/Sources/LauncherSettings.swift', 'ios/Sources/LauncherRow.swift',   # the settings window's sources
+                  'source/Launcher.swift', 'ios/Sources/LauncherSettings.swift', 'ios/Sources/LauncherRow.swift', 'ios/Sources/SaveSyncReport.swift',   # the settings window's sources
                   'host/input_map.h', 'host/dm_input.h',   # the launcher's headers
 -                 'host/save_sync.c', 'host/save_sync.h']   # the cloud-save code the launcher links (its send after the host exits)
 +                 'host/save_sync.c', 'host/save_sync.h',   # the cloud-save code the launcher links (its send after the host exits)
@@ -326,10 +326,10 @@ index 48ba155..d8c347a 100644
          self.assertEqual((self.settings_env['SETTINGS_PLATFORM'], self.settings_env['GFXAPI'], self.settings_env['DM_LANG']), ('mac', 'nvn', 'en-US'))
          o, tmp = self.pack_cmd('vulkan', aoc=Path('/x/aoc'), sign='Developer ID Application: X (T)')
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index f9ca196..bc726d4 100755
+index dce7deca..e22df54e 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -3048,7 +3048,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+@@ -3019,7 +3019,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
      split_pairs = work / 'shader/pso_pairs.tsv'   # the split's copy of pso_pairs.tsv, for a profile without the table (as mac_run's DM_PSO_PAIRS)
      for opt, v in (('--version', version), ('--category', g.get('app_category')), ('--marker', g.get('romfs_marker')), ('--aoc', aoc), ('--icon', icon),
                     ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),

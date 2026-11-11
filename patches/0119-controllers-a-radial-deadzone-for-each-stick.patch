@@ -29,7 +29,7 @@ Issue: LNPANDY/NX2Apple#1025
  create mode 100644 dm/host/tests/t_stick_deadzone.c
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 3d229cb..e836810 100644
+index 36e07919..47517d55 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -7,6 +7,7 @@
@@ -59,7 +59,7 @@ index 3d229cb..e836810 100644
  }
 diff --git a/dm/host/stick_deadzone.h b/dm/host/stick_deadzone.h
 new file mode 100644
-index 0000000..36fa9e7
+index 00000000..36fa9e79
 --- /dev/null
 +++ b/dm/host/stick_deadzone.h
 @@ -0,0 +1,27 @@
@@ -91,10 +91,10 @@ index 0000000..36fa9e7
 +    *y = (int32_t)lrintf(fmaxf(-1, fminf(1, fy * scale)) * DM_STICK_MAX);
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 6f2c451..a72ec86 100644
+index 91e95c7e..25c34b39 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -426,7 +426,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
+@@ -429,7 +429,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
  profile-runtime: $(B)/t_profile_runtime
  	TMPDIR="$(abspath $(B))" $(B)/t_profile_runtime
  
@@ -107,7 +107,7 @@ index 6f2c451..a72ec86 100644
  $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_stick_deadzone.c b/dm/host/tests/t_stick_deadzone.c
 new file mode 100644
-index 0000000..d9ac75c
+index 00000000..d9ac75c2
 --- /dev/null
 +++ b/dm/host/tests/t_stick_deadzone.c
 @@ -0,0 +1,52 @@
@@ -164,10 +164,10 @@ index 0000000..d9ac75c
 +    return 0;
 +}
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index b672e10..3363f23 100644
+index 652e23cd..b2639445 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -362,6 +362,8 @@ DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it
+@@ -371,6 +371,8 @@ DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it
  DM_SPIN_POLL	switch	`=<µs>`: how long a spin-gate wait polls before it sleeps with the yield back-off (default 2000; `0` yields on every pass)
  DM_STEAM_DEADZONE	switch	`=0..0.9` (exclusive upper bound) sets the radial deadzone for both raw Steam Controller sticks; default 0.10, `0` disables it; invalid values use the default
  DM_STEAM_HID	switch	`=0` disables the Mac direct Steam Controller HID adapter and leaves input to Apple GameController; enabled otherwise

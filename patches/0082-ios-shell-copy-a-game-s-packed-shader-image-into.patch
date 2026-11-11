@@ -33,7 +33,7 @@ Issue: LNPANDY/NX2Apple#781
  2 files changed, 91 insertions(+), 6 deletions(-)
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index 0d20b82..cfba21f 100644
+index 0d20b82a..cfba21ff 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -1,13 +1,15 @@
@@ -143,7 +143,7 @@ index 0d20b82..cfba21f 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 035c9af..b0e84ae 100755
+index 035c9af1..b0e84aec 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -257,7 +257,7 @@ if [ "$PREPARE_XCODE" = YES ]; then

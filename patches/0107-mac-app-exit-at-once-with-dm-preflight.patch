@@ -27,7 +27,7 @@ Issue: LNPANDY/NX2Apple#1005
  3 files changed, 3 insertions(+), 1 deletion(-)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index f36f73b..1d258aa 100644
+index 83a77f29..39e88f2e 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -220,6 +220,7 @@ static void programs_table(const char *contents, const char *res, const char *su
@@ -39,10 +39,10 @@ index f36f73b..1d258aa 100644
      snprintf(contents, sizeof contents, "%s", exe); *strrchr(contents, '/') = 0; *strrchr(contents, '/') = 0;   // .../Contents/MacOS/<launcher> → .../Contents
      snprintf(res, sizeof res, "%s/Resources", contents); snprintf(host, sizeof host, "%s/MacOS/dmhost", contents);
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 8f11e57..d262c9e 100644
+index a8a24fe8..7e4fd6f7 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -262,6 +262,7 @@ DM_PATCH_FRONT	switch	`=<bytes>`: the size of the patch area right before the mo
+@@ -270,6 +270,7 @@ DM_PATCH_FRONT	switch	`=<bytes>`: the size of the patch area right before the mo
  DM_PHONE_MOTION	switch	On iOS, whether the phone's own device motion drives player 1's six-axis sensor: `auto` (default) while no controller supplies fresh motion, `1` phone only, `0` never; each source keeps its own orientation
  DM_PICTURE_FIT	player	`fill` scales the 16:9 picture on the iPhone and iPad until it covers the screen in landscape and crops the edges (a portrait or tabletop split and a TV stay fitted); `fit` or unset, the largest 16:9 rectangle with black bars. Launcher and in-game menu setting
  DM_PREEMPT	switch	`0` / `1` overrides the profile's `core_preempt`: also check already-runnable higher-priority peers on the caller's core after every thread SVC
@@ -51,7 +51,7 @@ index 8f11e57..d262c9e 100644
  DM_PRESENT_FIFO	switch	`0` makes the display link take the newest queued frame each tick, as before; by default it shows frames in order, at most one tick behind
  DM_PRESENT_HZ	switch	`=<N>`: the frequency of presentation pacing (default 60); `0` means no frame limit and is for performance profiling only
 diff --git a/docs/frontends.md b/docs/frontends.md
-index ae0e675..214ac82 100644
+index fa6c57ac..17dae2b3 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -54,7 +54,7 @@ A built app carries the settings its game supports, as the iPhone app's settings

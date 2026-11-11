@@ -19,7 +19,7 @@ Issue: LNPANDY/NX2Apple#719
  create mode 100644 dm/ios/tests/test_bc_device_check.py
 
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 71f5be5..757d875 100644
+index 71f5be56..757d875d 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -9,7 +9,6 @@
@@ -41,7 +41,7 @@ index 71f5be5..757d875 100644
      fprintf(stderr, "[RED] boot: %s\n", msg);
 diff --git a/dm/ios/tests/test_bc_device_check.py b/dm/ios/tests/test_bc_device_check.py
 new file mode 100644
-index 0000000..6c443e5
+index 00000000..6c443e5b
 --- /dev/null
 +++ b/dm/ios/tests/test_bc_device_check.py
 @@ -0,0 +1,56 @@
@@ -102,7 +102,7 @@ index 0000000..6c443e5
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index fee9e53..0d20b82 100644
+index fee9e53e..0d20b82a 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -120,6 +120,27 @@ class ProjectTemplateTests(unittest.TestCase):
@@ -134,7 +134,7 @@ index fee9e53..0d20b82 100644
      """The signing and pack steps on a stand-in app; no Xcode, no game files."""
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index bd3df9f..035c9af 100755
+index bd3df9f7..035c9af1 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -203,7 +203,8 @@ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi

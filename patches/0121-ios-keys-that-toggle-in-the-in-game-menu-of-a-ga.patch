@@ -27,7 +27,7 @@ Issue: LNPANDY/NX2Apple#658
  5 files changed, 72 insertions(+), 5 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
-index a7e9c69..8384701 100644
+index a7e9c692..8384701a 100644
 --- a/dm/ios/Sources/DmGameMenu.h
 +++ b/dm/ios/Sources/DmGameMenu.h
 @@ -10,6 +10,9 @@ void *dm_game_menu(void);   // GameMenu.swift: a retained UIMenu, rebuilt each t
@@ -41,7 +41,7 @@ index a7e9c69..8384701 100644
  bool dm_setting_live(const char *env, const char *value);
  void *dm_quit_menu(void);   // front_ios.m: the menu's last item, Quit <game>, which opens the quit prompt (a retained UIMenu, shown inline)   // front_ios.m: value NULL asks whether the running game takes env at once; otherwise applies it
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index d283f74..6d9ff7d 100644
+index d283f741..6d9ff7d9 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -14,6 +14,8 @@
@@ -135,7 +135,7 @@ index d283f74..6d9ff7d 100644
      if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) read_pad(c.extendedGamepad); }
      else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) read_pad(g_held[p].extendedGamepad);
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
-index e5b749f..8515ca0 100644
+index e5b749f9..8515ca00 100644
 --- a/dm/ios/Sources/DmPadGeometry.h
 +++ b/dm/ios/Sources/DmPadGeometry.h
 @@ -297,6 +297,16 @@ static inline unsigned dm_pad_toggle_parse(const char *_Nullable v) {   // the c
@@ -156,7 +156,7 @@ index e5b749f..8515ca0 100644
  // The drawn shapes (dm_pad_shapes ids) of a control.
  static inline BOOL dm_pad_is_shape_of(int id, int c) {
 diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
-index f91b002..c32f51e 100644
+index f91b0027..c32f51ec 100644
 --- a/dm/ios/Sources/GameMenu.swift
 +++ b/dm/ios/Sources/GameMenu.swift
 @@ -19,21 +19,38 @@ private func gameMenuItems() -> [UIMenuElement] {
@@ -201,7 +201,7 @@ index f91b002..c32f51e 100644
      let now = m.values[s.env] ?? s.def, fixed = m.fixed.contains(s.env)
      let attributes: UIMenuElement.Attributes = fixed ? .disabled : []
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-index fa8d893..5c31ffc 100644
+index fa8d8938..5c31ffc0 100644
 --- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -47,6 +47,15 @@ static void check_toggle_values(void) {

@@ -13,10 +13,10 @@ Issue: LNPANDY/NX2Apple#1063
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index bdd9719..f7d435b 100644
+index ce5e5be6..fb8f5a5e 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -14010,7 +14010,7 @@ static void dispatch(const p_dispatch *dp, const uint8_t *next) {
+@@ -14603,7 +14603,7 @@ static void dispatch(const p_dispatch *dp) {
          if (!mtl_addr(u->addr, 4, &ub, &uo) || !mtl_addr(a0->addr, 8, &sb, &so) || !mtl_addr(a1->addr, 8, &db, &dof)) { RED_ONCE(30, "embedded compute kernel %s does not have all its buffers bound", cs->builtin); return; }
          if (!cs->logged++) {
              module_t *m = module_of((void *)dp->caller);

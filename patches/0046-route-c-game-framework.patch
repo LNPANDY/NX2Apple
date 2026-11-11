@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#144
 
 diff --git a/dm/ios/Sources/FrameworkBootstrap.h b/dm/ios/Sources/FrameworkBootstrap.h
 new file mode 100644
-index 0000000..a2049d4
+index 00000000..a2049d4d
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.h
 @@ -0,0 +1,25 @@
@@ -69,7 +69,7 @@ index 0000000..a2049d4
 +#endif
 diff --git a/dm/ios/Sources/FrameworkBootstrap.m b/dm/ios/Sources/FrameworkBootstrap.m
 new file mode 100644
-index 0000000..663ebe8
+index 00000000..663ebe8d
 --- /dev/null
 +++ b/dm/ios/Sources/FrameworkBootstrap.m
 @@ -0,0 +1,47 @@
@@ -121,7 +121,7 @@ index 0000000..663ebe8
 +}
 +#endif
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index 076d4ef..71f5be5 100644
+index 076d4efe..71f5be56 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -18,6 +18,14 @@
@@ -169,7 +169,7 @@ index 076d4ef..71f5be5 100644
      // the app's shared <App>/msl (the program's <App>/msl/p<N> in a game of several programs).
 diff --git a/dm/ios/framework/DmGameMarker.m b/dm/ios/framework/DmGameMarker.m
 new file mode 100644
-index 0000000..c03357d
+index 00000000..c03357d4
 --- /dev/null
 +++ b/dm/ios/framework/DmGameMarker.m
 @@ -0,0 +1,10 @@
@@ -185,7 +185,7 @@ index 0000000..c03357d
 +const char dmgame_image_marker[] = "DmGame";
 diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
 new file mode 100644
-index 0000000..d5d00b3
+index 00000000..d5d00b3d
 --- /dev/null
 +++ b/dm/ios/project-framework.yml
 @@ -0,0 +1,144 @@
