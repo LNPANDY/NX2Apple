@@ -395,7 +395,9 @@ def ld64_lld() -> Path | None:
     for base in ([root / 'bin'] if root else []) + [Path(p) for p in os.environ.get('PATH', '').split(os.pathsep) if p]:
         for n in ('ld64.lld.exe', 'ld64.lld'):
             p = base / n
-            if p.is_file():
+            # not Path.is_file: before Python 3.14 it raises what stat raises, and Windows refuses
+            # stat in some PATH folders (WinError 448 in one an app keeps for itself)
+            if os.path.isfile(p):
                 return p
     return None
 
