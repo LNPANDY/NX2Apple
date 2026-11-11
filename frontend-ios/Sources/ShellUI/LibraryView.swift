@@ -36,8 +36,11 @@ public struct LibraryView: View {
     public let games: [GameDetail]
     public let controllers: [ControllerInfo]
     public let globalPadMap: PadMap
+    public let padMerge: Bool
     /// The controller's state while the button test is open, from the host.
     public let padSnapshot: PadSnapshot?
+    public let signingWarning: SigningWarning?
+    public var onDismissSigningWarning: () -> Void
     public var actions: ShellActions
     public var input: ShellInputLog
     /// The sequence of the last input event acted on.
@@ -52,6 +55,9 @@ public struct LibraryView: View {
     @State var controllersOpen: Bool
     /// The game whose How to fix or How to update explanation is open.
     @State var helpGameID: String?
+    /// The game whose save-backup restore confirmation is open, and its backup timestamp label.
+    @State var restoreBackupGameID: String?
+    @State var restoreBackupLabel = ""
     /// The game whose Delete question is open, and whether its saves go too.
     @State var deleteGameID: String?
     @State var deleteSaves = false
@@ -85,13 +91,17 @@ public struct LibraryView: View {
     public init(games: [GameDetail], controllers: [ControllerInfo] = [], actions: ShellActions = ShellActions(),
                 input: ShellInputLog = ShellInputLog(), initialSelection: String? = nil, initialDetailOpen: Bool = false,
                 initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false,
-                globalPadMap: PadMap = PadMap(), padSnapshot: PadSnapshot? = nil,
+                globalPadMap: PadMap = PadMap(), padMerge: Bool = false, padSnapshot: PadSnapshot? = nil,
+                signingWarning: SigningWarning? = nil, onDismissSigningWarning: @escaping () -> Void = {},
                 initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false) {
         ShellPalette.configureNativeAppearance()
         self.games = games
         self.controllers = controllers
         self.globalPadMap = globalPadMap
+        self.padMerge = padMerge
         self.padSnapshot = padSnapshot
+        self.signingWarning = signingWarning
+        self.onDismissSigningWarning = onDismissSigningWarning
         _padMapping = State(initialValue: initialPadMapping.map { PadMappingState(gameID: $0) })
         _buttonTestOpen = State(initialValue: initialButtonTestOpen)
         self.actions = actions
@@ -148,6 +158,12 @@ public struct LibraryView: View {
                         .allowsHitTesting(!menuPresented)
                         .accessibilityHidden(menuPresented)
                 }
+                if !menuPresented, let signingWarning {
+                    SigningWarningBanner(warning: signingWarning, onDismiss: onDismissSigningWarning)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .frame(width: width, alignment: .top)
+                }
 
             }
             .coordinateSpace(name: "shell")
@@ -190,6 +206,7 @@ public struct LibraryView: View {
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: controllersOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: shellSettingsOpen)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: helpGameID)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: restoreBackupGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: deleteGameID)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: choice)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: padMapping)
@@ -200,6 +217,7 @@ public struct LibraryView: View {
         .environment(\.shellOpenButtonTest, { openButtonTest() })
         .environment(\.shellIgnoresPress, { [gate] in gate.isSystemEcho })
         .environment(\.shellShowHelp, { game in openHelp(game.id) })
+        .environment(\.shellAskRestoreBackup, { game, label in openRestoreBackup(game.id, label: label) })
         .environment(\.shellAskDelete, { game in openDelete(game.id) })
         .environment(\.shellFocus, focus)
         .environment(\.shellInputDevice, device)
@@ -239,7 +257,7 @@ public struct LibraryView: View {
 
     var menuPresented: Bool {
         touchLayout != nil || settingsOpen || controllersOpen || shellSettingsOpen || helpGameID != nil
-            || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
+            || restoreBackupGameID != nil || deleteGameID != nil || choice != nil || padMapping != nil || buttonTestOpen
     }
 
     // Host-owned alerts and sheets must wait until the menu presentation finishes closing.
@@ -248,6 +266,7 @@ public struct LibraryView: View {
         routed.onPlay = { id in handOffMenu { actions.onPlay(id) } }
         routed.onShowLog = { id in handOffMenu { actions.onShowLog(id) } }
         routed.onAppUpdate = { handOffMenu { actions.onAppUpdate() } }
+        routed.onRestoreSaveBackup = { id in handOffMenu { actions.onRestoreSaveBackup(id) } }
         return routed
     }
 
@@ -269,6 +288,7 @@ public struct LibraryView: View {
         choice = nil
         padMapping = nil
         helpGameID = nil
+        restoreBackupGameID = nil
         deleteGameID = nil
         let leaving: PanelRetention.Panel? = controllersOpen ? .controllers : shellSettingsOpen ? .shellSettings : nil
         controllersOpen = false
@@ -340,10 +360,11 @@ public struct LibraryView: View {
             ZStack {
                 if settingsOpen, let selected {
                     settingsPane(selected, width: geometry.size.width)
-                        .accessibilityHidden(controllersOpen || shellSettingsOpen || choice != nil || padMapping != nil || helpGameID != nil || deleteGameID != nil)
+                        .accessibilityHidden(controllersOpen || shellSettingsOpen || choice != nil || padMapping != nil || helpGameID != nil || restoreBackupGameID != nil || deleteGameID != nil)
                 }
                 if retention.draws(.controllers, open: controllersOpen) {
-                    ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap)
+                    ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap,
+                                    padMerge: padMerge, onPadMergeChange: menuActions.onPadMergeChange)
                         .background(ShellPalette.background)
                         .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen || retention.isLeaving(.controllers, open: controllersOpen))
                         .allowsHitTesting(!retention.isLeaving(.controllers, open: controllersOpen))
@@ -357,6 +378,13 @@ public struct LibraryView: View {
                 if let id = helpGameID, let game = games.first(where: { $0.id == id })?.game {
                     ScrollView { StateHelpView(game: game, actions: menuActions, onClose: closeHelp).padding(24) }
                         .background(ShellPalette.background)
+                }
+                if let id = restoreBackupGameID, let game = games.first(where: { $0.id == id })?.game {
+                    ScrollView {
+                        RestoreSaveBackupView(game: game, backup: restoreBackupLabel,
+                                              restore: { confirmRestoreBackup(id) }, cancel: closeRestoreBackup)
+                    }
+                    .background(ShellPalette.background)
                 }
                 if let id = deleteGameID, let game = games.first(where: { $0.id == id })?.game {
                     ScrollView { DeleteGameView(game: game, saves: $deleteSaves, delete: { confirmDelete(id) }, cancel: closeDelete) }
@@ -383,11 +411,11 @@ public struct LibraryView: View {
 
     var tabletopSettings: Bool {
         horizontalDivision && settingsOpen && !controllersOpen && !shellSettingsOpen && choice == nil
-            && padMapping == nil && !buttonTestOpen && helpGameID == nil && deleteGameID == nil
+            && padMapping == nil && !buttonTestOpen && helpGameID == nil && restoreBackupGameID == nil && deleteGameID == nil
     }
 
     var menuTitle: String {
-        guard choice == nil, padMapping == nil, !buttonTestOpen, helpGameID == nil, deleteGameID == nil else { return "" }
+        guard choice == nil, padMapping == nil, !buttonTestOpen, helpGameID == nil, restoreBackupGameID == nil, deleteGameID == nil else { return "" }
         if controllersOpen { return ShellStrings.text("Controllers") }
         if shellSettingsOpen { return ShellStrings.text("Settings") }
         return settingsOpen && (horizontalDivision || !settingsHeroVisible) ? selected?.game.title ?? "" : ""
@@ -472,7 +500,7 @@ public struct LibraryView: View {
                     .buttonStyle(.borderedProminent).tint(ShellPalette.cream).foregroundStyle(.black)
             }
         }
-        if settingsOpen, helpGameID == nil, deleteGameID == nil, choice == nil, padMapping == nil,
+        if settingsOpen, helpGameID == nil, restoreBackupGameID == nil, deleteGameID == nil, choice == nil, padMapping == nil,
            !controllersOpen, !shellSettingsOpen, let selected {
             ToolbarItem(placement: .primaryAction) {
                 toolbarButton(selected.game.state.actionTitle, selected.game.state.actionSymbol, "state.action", "set.play") { primary(selected, fromSettings: true) }
@@ -480,6 +508,7 @@ public struct LibraryView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(ShellPalette.cream)
                     .foregroundStyle(.black)
+                    .disabled(selected.game.state.isJoining)
             }
         }
     }
@@ -553,6 +582,7 @@ public struct LibraryView: View {
                     .init(title: "Done", symbol: "checkmark", id: "touchLayout.done", target: "lay.done", placement: .done, action: confirmTouchLayout)]
         }
         if helpGameID != nil { return [.init(title: settingsOpen ? "Game settings" : "Close", symbol: settingsOpen ? "chevron.left" : "xmark", id: "help.done", target: "help.done", placement: .close, action: closeHelp)] }
+        if restoreBackupGameID != nil { return [] }
         if deleteGameID != nil { return [] }
         if controllersOpen { return [.init(title: "Close controllers", symbol: "xmark", id: "controllers.close", target: "ctl.close", placement: .close, action: back)] }
         if shellSettingsOpen { return [.init(title: "Close", symbol: "xmark", id: "shellSettings.close", target: "shs.close", placement: .close, action: closeShellSettings)] }
@@ -605,6 +635,7 @@ public struct LibraryView: View {
         else if choice != nil { prefix = "pick." }
         else if touchLayout != nil { prefix = "lay." }
         else if helpGameID != nil { prefix = "help." }
+        else if restoreBackupGameID != nil { prefix = "rst." }
         else if deleteGameID != nil { prefix = "del." }
         else if controllersOpen { prefix = "ctl." }
         else if shellSettingsOpen { prefix = "shs." }

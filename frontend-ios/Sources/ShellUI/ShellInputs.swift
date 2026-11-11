@@ -5,11 +5,52 @@ import CoreGraphics
 public enum GameState: Equatable, Sendable {
     case playable
     case needsGameData
+    /// Background `.nxpart` split-file assembly in `Documents/games/<titleID>/` with percentage and formatted byte counts.
+    case joiningGameData(percent: Int, doneSize: String, totalSize: String)
     case needsAppUpdate
     /// `reason` is one short line for under the title, such as "Game files damaged". `detail` is a plain sentence
     /// for the player (what happened, what to do), shown under the title and in the How to fix sheet. `technical`
     /// is the underlying message, shown only as small secondary Details in the sheet.
     case broken(reason: String, detail: String = "", technical: String = "")
+}
+
+/// Mild heads-up shown when the app's provisioning profile expires within 48 hours (such as a 7-day free Apple ID signature).
+public enum SigningWarning: Equatable, Sendable {
+    case expiringHours(Int)
+    case expiringSoon
+    case expired
+}
+
+/// Player choice in `CloudSaveConflictView`.
+public enum CloudSaveDecision: Equatable, Sendable {
+    case useCloud
+    case useDevice
+    case playOffline
+    case cancel
+}
+
+/// Pre-launch cloud save prompt data supplied by `ShellHost` when both sides changed or the cloud save could not be read.
+public struct CloudSavePrompt: Identifiable, Equatable, Sendable {
+    public var id: String
+    public var gameID: String
+    public var gameTitle: String
+    public var isUnreadable: Bool
+    public var reason: String
+    public var cloudDevice: String
+    public var cloudSaved: String
+    public var localSaved: String
+
+    public init(id: String = UUID().uuidString, gameID: String, gameTitle: String, isUnreadable: Bool = false,
+                reason: String = "", cloudDevice: String = "", cloudSaved: String = "", localSaved: String = "") {
+        self.id = id
+        self.gameID = gameID
+        self.gameTitle = gameTitle
+        self.isUnreadable = isUnreadable
+        self.reason = reason
+        self.cloudDevice = cloudDevice
+        self.cloudSaved = cloudSaved
+        self.localSaved = localSaved
+    }
 }
 
 public struct GameTile: Identifiable, Equatable, Sendable {
@@ -110,9 +151,12 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
     public var cloudFromShell: Bool
     /// The shell settings have a cloud-saves folder this game does not use now, so the game can follow it.
     public var cloudCanUseShell: Bool
+    /// Readable timestamp label of the newest backup in `<appFolder>/save-backups/`, or nil when none exists.
+    public var latestSaveBackup: String?
     public init(game: GameTile, sections: [SettingSection] = [], dataSource: String = "", dataNote: String = "",
                 cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false,
-                dataFromShell: Bool = false, cloudFromShell: Bool = false, cloudCanUseShell: Bool = false) {
+                dataFromShell: Bool = false, cloudFromShell: Bool = false, cloudCanUseShell: Bool = false,
+                latestSaveBackup: String? = nil) {
         self.game = game
         self.sections = sections
         self.dataSource = dataSource
@@ -124,6 +168,7 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
         self.dataFromShell = dataFromShell
         self.cloudFromShell = cloudFromShell
         self.cloudCanUseShell = cloudCanUseShell
+        self.latestSaveBackup = latestSaveBackup
     }
 }
 
@@ -245,6 +290,10 @@ public struct ShellActions {
     public var onGlobalPadMapReset: () -> Void
     /// The button test opened (true) or closed: the host sends `PadSnapshot`s only in between.
     public var onButtonTest: (Bool) -> Void
+    /// Toggles `DM_PAD_MERGE` so every connected controller and touch controls drive player 1 together.
+    public var onPadMergeChange: (Bool) -> Void
+    /// Restores the newest backup in `<appFolder>/save-backups/` for `gameID` after backing up the current local save.
+    public var onRestoreSaveBackup: (String) -> Void
     /// Deletes the game's data on this device and takes it off the list. `saves`: its saves go too.
     public var onDeleteGame: (_ gameID: String, _ saves: Bool) -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
@@ -258,6 +307,8 @@ public struct ShellActions {
                 onClearShellCloud: @escaping () -> Void = {},
                 onGlobalPadMapChange: @escaping (String, String) -> Void = { _, _ in },
                 onGlobalPadMapReset: @escaping () -> Void = {}, onButtonTest: @escaping (Bool) -> Void = { _ in },
+                onPadMergeChange: @escaping (Bool) -> Void = { _ in },
+                onRestoreSaveBackup: @escaping (String) -> Void = { _ in },
                 onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in }) {
         self.onSelect = onSelect
         self.onPlay = onPlay
@@ -278,6 +329,8 @@ public struct ShellActions {
         self.onGlobalPadMapChange = onGlobalPadMapChange
         self.onGlobalPadMapReset = onGlobalPadMapReset
         self.onButtonTest = onButtonTest
+        self.onPadMergeChange = onPadMergeChange
+        self.onRestoreSaveBackup = onRestoreSaveBackup
         self.onDeleteGame = onDeleteGame
     }
 }

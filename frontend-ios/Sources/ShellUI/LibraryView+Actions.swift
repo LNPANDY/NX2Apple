@@ -31,6 +31,8 @@ extension LibraryView {
         a.onClearShellCloud = { if !echo() { o.onClearShellCloud() } }
         a.onGlobalPadMapChange = { if !echo() { o.onGlobalPadMapChange($0, $1) } }
         a.onGlobalPadMapReset = { if !echo() { o.onGlobalPadMapReset() } }
+        a.onPadMergeChange = { if !echo() { o.onPadMergeChange($0) } }
+        a.onRestoreSaveBackup = { if !echo() { o.onRestoreSaveBackup($0) } }
         a.onDeleteGame = { if !echo() { o.onDeleteGame($0, $1) } }
         return a
     }
@@ -56,6 +58,7 @@ extension LibraryView {
         switch detail.game.state {
         case .playable: targetActions.onPlay(detail.id)
         case .needsGameData: targetActions.onPickGameData(detail.id)
+        case .joiningGameData: break
         case .needsAppUpdate: targetActions.onAppUpdate()
         case .broken: targetActions.onShowLog(detail.id)
         }
@@ -98,6 +101,23 @@ extension LibraryView {
     }
     func openHelp(_ id: String) { guard !fromSystemEcho else { return }; returnFocus = focus.id; helpGameID = id; focus.id = "help.done" }
     func closeHelp() { guard !fromSystemEcho else { return }; helpGameID = nil; focus.id = returnFocus }
+    func openRestoreBackup(_ id: String, label: String) {
+        guard noteTouch() else { return }
+        returnFocus = focus.id
+        restoreBackupLabel = label
+        restoreBackupGameID = id
+        focus.id = "rst.cancel"
+    }
+    func closeRestoreBackup() {
+        guard !fromSystemEcho else { return }
+        restoreBackupGameID = nil
+        focus.id = returnFocus
+    }
+    func confirmRestoreBackup(_ id: String) {
+        guard !fromSystemEcho else { return }
+        restoreBackupGameID = nil
+        menuActions.onRestoreSaveBackup(id)
+    }
     /// The question starts on Cancel, with the saves kept.
     func openDelete(_ id: String) { guard noteTouch() else { return }; returnFocus = focus.id; deleteSaves = false; deleteGameID = id; focus.id = "del.cancel" }
     func closeDelete() { guard !fromSystemEcho else { return }; deleteGameID = nil; focus.id = returnFocus }
@@ -190,6 +210,7 @@ extension LibraryView {
             if touchLayout.held { touchLayout.putDown() } else if touchLayout.confirmingExit { touchLayout.confirmingExit = false } else if touchLayout.requestExit() { closeTouchLayout() }
         }
         else if helpGameID != nil { closeHelp() }
+        else if restoreBackupGameID != nil { closeRestoreBackup() }
         else if deleteGameID != nil { closeDelete() }
         else if controllersOpen { controllersOpen = false; retention.closed(.controllers, sheetStaysOpen: menuPresented); focus.id = settingsOpen ? "set.back" : "lib.controllers" }
         else if shellSettingsOpen { closeShellSettings() }
@@ -245,6 +266,7 @@ extension LibraryView {
         if controllersOpen { return .controllers }
         if shellSettingsOpen { return .shellSettings }
         if helpGameID != nil { return .help }
+        if restoreBackupGameID != nil { return .restoreBackup }
         if deleteGameID != nil { return .delete }
         if settingsOpen { return .settings }
         return nil
@@ -262,6 +284,7 @@ extension LibraryView {
         if let choice { return "pick." + choice.row.value }
         if touchLayout != nil { return activeTargets.contains { $0.id == "lay.done" } ? "lay.done" : "lay.options" }
         if helpGameID != nil { return "help.done" }
+        if restoreBackupGameID != nil { return "rst.cancel" }
         if deleteGameID != nil { return "del.cancel" }
         if controllersOpen { return "ctl.close" }
         if shellSettingsOpen { return "shs.close" }

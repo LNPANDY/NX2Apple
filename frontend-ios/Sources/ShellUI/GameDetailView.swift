@@ -12,6 +12,8 @@ public struct GameDetailView: View {
     /// The parent Form owns scrolling, section backgrounds and separators.
     public var nativeSections: Bool
     @Environment(\.shellAskDelete) private var askDelete
+    @Environment(\.shellAskRestoreBackup) private var askRestoreBackup
+    @State private var localRestoreBackup = false
     public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true, nativeSections: Bool = false) {
         self.detail = detail
         self.actions = actions
@@ -24,7 +26,20 @@ public struct GameDetailView: View {
             if nativeSections { contents } else {
                 VStack(alignment: .leading, spacing: 30) { contents }
             }
-        }.foregroundStyle(.white)
+        }
+        .foregroundStyle(.white)
+        .sheet(isPresented: $localRestoreBackup) {
+            if let backup = detail.latestSaveBackup {
+                RestoreSaveBackupView(game: detail.game, backup: backup, restore: {
+                    localRestoreBackup = false
+                    actions.onRestoreSaveBackup(detail.id)
+                }, cancel: {
+                    localRestoreBackup = false
+                })
+                .presentationDetents([.medium])
+                .presentationBackground(ShellPalette.background)
+            }
+        }
     }
     @ViewBuilder private var contents: some View {
         if showsHeader || showsPrimaryAction {
@@ -75,6 +90,16 @@ public struct GameDetailView: View {
                 if detail.cloudSaves != nil {
                     GameSettingsGlassButton(title: ShellStrings.text("Turn off")) { actions.onDisableCloudSaves(detail.id) }.accessibilityLabel(ShellStrings.text("Turn off cloud saves"))
                         .shellTarget("set.cloud.off") { actions.onDisableCloudSaves(detail.id) }
+                }
+            }
+            if let backup = detail.latestSaveBackup, !backup.isEmpty {
+                divider
+                GameSettingsGlassButton(title: ShellStrings.text("Restore backup…")) {
+                    requestRestoreBackup(backup)
+                }
+                .accessibilityIdentifier("cloud.restoreBackup")
+                .shellTarget("set.cloud.restore") {
+                    requestRestoreBackup(backup)
                 }
             }
         }
@@ -147,6 +172,14 @@ public struct GameDetailView: View {
     @ViewBuilder private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         if nativeSections { Section { content() } header: { Text(title) } }
         else { SettingsGroup(title: title, content: content) }
+    }
+
+    private func requestRestoreBackup(_ backup: String) {
+        if let askRestoreBackup {
+            askRestoreBackup(detail.game, backup)
+        } else {
+            localRestoreBackup = true
+        }
     }
 }
 
