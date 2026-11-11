@@ -1560,4 +1560,87 @@ import NXModel
         wait(for: [empty], timeout: 10)
         XCTAssertEqual(model.doneNote, String(format: model.t("dev.resignNoProject"), model.shortPath(f.root + "/project/DmShell.xcodeproj")))
     }
+
+    @MainActor func testInstallShellForwardsCompileSignInstallAndWeightedTransferProgressToBuildStoreStages() throws {
+        let f = try makeFixture()
+        try write(f.archive + "/romfs.img", String(repeating: "a", count: 60))
+        try write(f.archive + "/aoc/1.img", String(repeating: "b", count: 40))
+
+        let customXcrun = path("xcrun-progress")
+        let baseXcrun = try String(contentsOfFile: f.xcrun, encoding: .utf8)
+        let patchedXcrun = baseXcrun
+            .replacingOccurrences(
+                of: "print('CodeSign ' + app, flush=True)",
+                with: "print('CompileC /tmp/ShellMain.o /tmp/ShellMain.m', flush=True), print('CodeSign ' + app, flush=True)"
+            )
+            .replacingOccurrences(
+                of: "print('60%', flush=True)",
+                with: "sys.stdout.write('20%\\r50%\\n') or sys.stdout.flush()"
+            )
+        try patchedXcrun.write(toFile: customXcrun, atomically: true, encoding: .utf8)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: customXcrun)
+
+        var custom = f
+        custom.xcrun = customXcrun
+        testDefaults.set(custom.root, forKey: "shellRoot")
+        let stores = try makeModel(custom)
+        let model = stores.build
+        let asked = stores.deviceStore.$shellCopy.compactMap { $0 }.sink { _ in
+            stores.deviceStore.answerCopy(.copy)
+        }
+
+        var signDetails: [String] = []
+        var installSnapshots: [(String, Double?)] = []
+        var copySnapshots: [(String, Double?)] = []
+        let sub = model.$stages.sink { stages in
+            if let sign = stages.first(where: { $0.id == ShellInstaller.signStageID && $0.state == .running }), !sign.detail.isEmpty {
+                signDetails.append(sign.detail)
+            }
+            if let inst = stages.first(where: { $0.id == ShellInstaller.installStageID && $0.state == .running }), !inst.detail.isEmpty {
+                installSnapshots.append((inst.detail, inst.percent))
+            }
+            if let copy = stages.first(where: { $0.id == ShellInstaller.copyStageID && $0.state == .running }), !copy.detail.isEmpty {
+                copySnapshots.append((copy.detail, copy.percent))
+            }
+        }
+
+        let finished = expectation(description: "installShell finished")
+        let doneSub = model.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in finished.fulfill() }
+        model.installShell(framework: custom.framework, titleID: titleID, name: "Test Game", archive: custom.archive)
+        wait(for: [finished], timeout: 30)
+        withExtendedLifetime(asked) {}
+        withExtendedLifetime(sub) {}
+        withExtendedLifetime(doneSub) {}
+
+        XCTAssertTrue(model.done, model.doneNote)
+        XCTAssertTrue(signDetails.contains("compiling"), "expected compiling detail in \(signDetails)")
+        XCTAssertTrue(signDetails.contains("signing"), "expected signing detail in \(signDetails)")
+        XCTAssertTrue(installSnapshots.contains { $0.0 == "installing" && $0.1 == 45 }, "expected 45% install progress in \(installSnapshots)")
+        // localFiles orders aoc/1.img (40 B) before romfs.img (60 B): 20% and 50% of 40 B = 8% and 20%, then 40 + 20%/50% of 60 B = 52% and 70%.
+        XCTAssertTrue(copySnapshots.contains { $0.0 == "1/2" && $0.1 == 8 }, "expected weighted 8% on first file in \(copySnapshots)")
+        XCTAssertTrue(copySnapshots.contains { $0.0 == "1/2" && $0.1 == 20 }, "expected weighted 20% on first file in \(copySnapshots)")
+        XCTAssertTrue(copySnapshots.contains { $0.0 == "2/2" && $0.1 == 52 }, "expected weighted 52% on second file in \(copySnapshots)")
+        XCTAssertTrue(copySnapshots.contains { $0.0 == "2/2" && $0.1 == 70 }, "expected weighted 70% on second file in \(copySnapshots)")
+
+        var partStages: [ShellStage] = []
+        var partBytes: [(Int64, Int64)] = []
+        let partArchive = path("out/part-games", titleID)
+        try write(partArchive + "/romfs.img", String(repeating: "z", count: 25))
+        var chunked = installer(custom)
+        chunked.partSize = 10
+        chunked.stage = { partStages.append($0) }
+        chunked.copyProgress = { partBytes.append(($0, $1)) }
+        let partOutcome = chunked.installData(titleID: titleID, archive: partArchive)
+        XCTAssertTrue(partOutcome.ok, partOutcome.message)
+        let runningParts = partStages.filter { $0.id == ShellInstaller.copyStageID && $0.state == .running && $0.percent != nil }
+        let percents = runningParts.compactMap(\.percent)
+        XCTAssertFalse(percents.isEmpty)
+        for pair in zip(percents, percents.dropFirst()) {
+            XCTAssertLessThanOrEqual(pair.0, pair.1, "part percentages must never regress across chunks: \(percents)")
+        }
+        XCTAssertTrue(runningParts.contains { $0.detail == "1/3" && $0.percent == 20 }, "\(runningParts)")
+        XCTAssertTrue(runningParts.contains { $0.detail == "2/3" && $0.percent == 60 }, "\(runningParts)")
+        XCTAssertTrue(runningParts.contains { $0.detail == "3/3" && $0.percent == 90 }, "\(runningParts)")
+        XCTAssertEqual(partBytes.last?.0, 25)
+    }
 }

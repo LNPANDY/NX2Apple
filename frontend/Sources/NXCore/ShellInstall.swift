@@ -34,39 +34,6 @@ package enum ShellInstall {
         frameworksMirror(root: root) + "/DmGame\(titleID).framework"
     }
 
-    /// Mirrors a framework into the shell folder as a copy. On APFS the copy is a clone: it costs no space, and a later write to
-    /// the build folder does not reach it. On another volume it is a real copy. It replaces the previous mirror, so a rebuilt
-    /// game's mirror follows. The copy goes to a hidden folder first and is renamed into place when it is whole, so a failed or
-    /// interrupted copy never leaves a half mirror where shell.json points (ShellFrameworks.swift).
-    /// With `keepPrevious`, the previous mirror is renamed aside instead of deleted, and its hidden path is returned (nil when there
-    /// was none): the caller puts it back when the new framework is refused, or discards it. A launcher quit in between leaves it to
-    /// `sweepDiscarded`, like any discarded folder.
-    @discardableResult
-    package static func mirrorFramework(framework: String, root: String, titleID: String? = nil, keepPrevious: Bool = false) throws -> String? {
-        let fm = FileManager.default
-        let mirror = mirroredFramework(root: root, titleID: titleID ?? Self.titleID(ofFramework: framework))
-        let folder = (mirror as NSString).deletingLastPathComponent
-        try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
-        let copy = folder + "/" + discardPrefix + UUID().uuidString
-        var previous: String? = nil
-        do {
-            try fm.copyItem(atPath: framework, toPath: copy)
-            if keepPrevious, fm.fileExists(atPath: mirror) {
-                let aside = folder + "/" + discardPrefix + UUID().uuidString
-                try fm.moveItem(atPath: mirror, toPath: aside)
-                previous = aside
-            } else {
-                guard discard(mirror) else { throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: mirror]) }
-            }
-            try fm.moveItem(atPath: copy, toPath: mirror)
-        } catch {
-            try? fm.removeItem(atPath: copy)
-            if let previous { try? fm.moveItem(atPath: previous, toPath: mirror) }
-            throw error
-        }
-        return previous
-    }
-
     /// The title ID a framework path carries (`DmGame0100…framework`, the build script's name).
     package static func titleID(ofFramework framework: String) -> String {
         let name = (framework as NSString).lastPathComponent
@@ -438,7 +405,7 @@ package struct ShellInstaller {
         func sign(_ bundleID: String) -> ToolResult {
             begin(Self.signStageID, signName)
             return run(ShellInstall.buildCommand(xcrun: xcrun, root: root, device: device, team: team, bundleID: bundleID),
-                       env: nil, label: signName, step: BuildProgress.xcodeStep)
+                       env: nil, label: signName, stageID: Self.signStageID, step: BuildProgress.xcodeStep)
         }
         var bundleID = library.bundleID
         var built = sign(bundleID)
@@ -489,7 +456,8 @@ package struct ShellInstaller {
         }
         let installName = fmt("dev.installStage", deviceName)
         begin(Self.installStageID, installName)
-        let installed = run(ShellInstall.installCommand(xcrun: xcrun, device: device, app: app), env: nil, label: installName, step: BuildProgress.installStep)
+        let installed = run(ShellInstall.installCommand(xcrun: xcrun, device: device, app: app), env: nil, label: installName,
+                            stageID: Self.installStageID, step: BuildProgress.installStep)
         if installed.status != 0 {
             let why = installed.lastError ?? fmt("msg.exitCode", installed.status)
             end(Self.installStageID, installName, ok: false, detail: why)
@@ -640,9 +608,20 @@ package struct ShellInstaller {
                 }
                 staged = path; source = path; destination = ShellDataParts.name(of: file, index: index, count: count)
             }
+            let finishedBytes = copiedBytes
+            let itemBytes = ShellDataParts.bytes(of: item, local: local, partSize: partSize)
+            let itemDetail = "\(i + 1)/\(missing.count)"
             let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID,
                                                  source: source, relativePath: destination),
-                        env: nil, label: copyName, step: BuildProgress.installStep)
+                        env: nil, label: copyName, stageID: Self.copyStageID) { line in
+                guard let parsed = BuildProgress.installStep(line), let raw = parsed.percent else { return nil }
+                let clamped = min(max(raw, 0), 100)
+                guard needed > 0 else { return (itemDetail, clamped > 0 ? clamped : nil) }
+                let doneBytes = Double(finishedBytes) + Double(itemBytes) * clamped / 100.0
+                copyProgress(min(Int64(doneBytes.rounded()), needed), needed)
+                let weighted = min(doneBytes / Double(needed) * 100.0, 100.0)
+                return (itemDetail, weighted > 0 ? weighted : nil)
+            }
             if let staged { try? FileManager.default.removeItem(atPath: staged) }
             if r.status != 0 {
                 let why = r.lastError ?? fmt("msg.exitCode", r.status)
@@ -655,7 +634,7 @@ package struct ShellInstaller {
                 return incomplete
             }
             outcome.copied = i + 1
-            copiedBytes += ShellDataParts.bytes(of: item, local: local, partSize: partSize)
+            copiedBytes += itemBytes
         }
         if let identity, missing.contains(where: { $0.file == "romfs.img" }) {
             defaults.set(identity, forKey: receipt)
@@ -686,20 +665,28 @@ package struct ShellInstaller {
         stage(ShellStage(id: id, name: name, state: ok ? .done : .failed, detail: detail, percent: ok ? 100 : nil))
     }
 
-    /// One tool, blocking: its output lines go to `log`, the last error line is kept. `env` nil is the plain tool environment of the
-    /// per-game install (xcodebuild, devicectl).
-    func run(_ command: [String], env: [String: String]?, label: String,
-                     step: (String) -> (detail: String, percent: Double?)?) -> ToolResult {
+    /// One tool, blocking: its output lines go to `log`, the last error line is kept, and parsed step progress updates `stage`.
+    /// `env` nil is the plain tool environment of the per-game install (xcodebuild, devicectl).
+    func run(_ command: [String], env: [String: String]?, label: String, stageID: Int? = nil,
+             step: (String) -> (detail: String, percent: Double?)?) -> ToolResult {
         log("[\(label)] \(command.joined(separator: " "))\n")
         var output = "", lastError: String?
         let launch = ProcessLaunch(
             executable: command[0], arguments: Array(command.dropFirst()),
             environment: env ?? ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": NSHomeDirectory(), "USER": NSUserName(), "LANG": "en_US.UTF-8"],
             groupPython: ownGroup ? python : nil)
-        let result = runner.streamLines(launch, started: processStarted) { line in
-            log(line + "\n")
-            output += line + "\n"
-            if line.contains("error:") || line.hasPrefix("ERROR:") { lastError = line.trimmingCharacters(in: .whitespaces) }
+        let result = withoutActuallyEscaping(step) { escapingStep in
+            runner.streamLines(launch, started: processStarted) { line in
+                log(line + "\n")
+                output += line + "\n"
+                for segment in line.split(separator: "\r", omittingEmptySubsequences: true) {
+                    let text = String(segment)
+                    if text.contains("error:") || text.hasPrefix("ERROR:") { lastError = text.trimmingCharacters(in: .whitespaces) }
+                    if let stageID, let s = escapingStep(text) {
+                        stage(ShellStage(id: stageID, name: label, state: .running, detail: s.detail, percent: s.percent))
+                    }
+                }
+            }
         }
         guard result.started else { return ToolResult(status: 127, output: result.out, lastError: result.out) }
         return ToolResult(status: result.status, output: output, lastError: lastError)

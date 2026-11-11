@@ -24,9 +24,11 @@ extension ShellInstall {
         return true
     }
 
-    /// Deletes what an earlier `discard` renamed but could not finish deleting (the launcher was quit), in the background.
+    /// Deletes what an earlier `discard` or interrupted mirror backup renamed but could not finish deleting, in the background.
     package static func sweepDiscarded(in folder: String, fm: FileManager = .default) {
-        let leftovers = ((try? fm.contentsOfDirectory(atPath: folder)) ?? []).filter { $0.hasPrefix(discardPrefix) }.map { folder + "/" + $0 }
+        let leftovers = ((try? fm.contentsOfDirectory(atPath: folder)) ?? [])
+            .filter { $0.hasPrefix(discardPrefix) || $0.hasPrefix(backupPrefix) }
+            .map { folder + "/" + $0 }
         guard !leftovers.isEmpty else { return }
         DispatchQueue.global(qos: .utility).async { for path in leftovers { try? FileManager.default.removeItem(atPath: path) } }
     }
