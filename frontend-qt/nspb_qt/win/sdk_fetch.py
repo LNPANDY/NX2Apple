@@ -29,6 +29,7 @@ import zlib
 from pathlib import Path
 from typing import Callable, Iterator
 
+from . import archive_guard as ag
 from . import toolchain as tc
 
 XIP_WANT = '/Platforms/iPhoneOS.platform/Developer/SDKs/'
@@ -43,81 +44,23 @@ class SdkError(Exception):
 
 
 def _clean_archive_relpath(raw: str) -> str | None:
-    """Validate and normalize an archive member path under both POSIX and Windows rules.
-
-    Rejects empty paths, leading slashes/backslashes, drive letters or NTFS stream colons (`C:foo`,
-    `C:\\foo`, `file:stream`), control characters, and `.` or `..` segments.
-    """
-    if not raw or '\x00' in raw or ':' in raw or raw.startswith(('/', '\\')):
-        return None
-    norm = raw.replace('\\', '/').strip('/')
-    if not norm:
-        return None
-    parts = [p for p in norm.split('/') if p]
-    if not parts or any(p in ('.', '..') or ':' in p for p in parts):
-        return None
-    return '/'.join(parts)
+    return ag.clean_archive_relpath(raw)
 
 
 def _is_within(child: Path, root: Path) -> bool:
-    """True when `child` (both lexical abspath and resolved realpath) stays strictly inside `root`."""
-    try:
-        root_abs = Path(os.path.abspath(os.fspath(root)))
-        child_abs = Path(os.path.abspath(os.fspath(child)))
-        if child_abs == root_abs or not child_abs.is_relative_to(root_abs):
-            return False
-        root_real = root_abs.resolve()
-        child_real = child_abs.resolve()
-        return child_real != root_real and child_real.is_relative_to(root_real)
-    except (OSError, ValueError):
-        return False
+    return ag.is_within(child, root)
 
 
 def _is_same_or_within(child: Path, root: Path) -> bool:
-    """True when `child` is `root` itself or stays strictly inside `root`."""
-    try:
-        root_abs = Path(os.path.abspath(os.fspath(root)))
-        child_abs = Path(os.path.abspath(os.fspath(child)))
-        if child_abs == root_abs and child_abs.resolve() == root_abs.resolve():
-            return True
-    except (OSError, ValueError):
-        return False
-    return _is_within(child, root)
+    return ag.is_same_or_within(child, root)
 
 
 def _win_path(p: Path | str) -> str:
-    """Return an extended-length path (`\\\\?\\...`) on Windows so paths past MAX_PATH (260) work."""
-    s = os.path.abspath(os.fspath(p))
-    if os.name == 'nt' and not s.startswith('\\\\?\\'):
-        if s.startswith('\\\\'):
-            return '\\\\?\\UNC\\' + s[2:]
-        return '\\\\?\\' + s
-    return s
+    return ag.win_path(p)
 
 
 def rmtree(path: Path) -> None:
-    """Remove a tree, clearing the read-only bits git leaves on Windows.
-
-    `shutil.rmtree` fails on a read-only file and `ignore_errors=True` then leaves the directory
-    half-removed. Git marks its pack files read-only, so the stale clone survived every cleanup
-    and the next `git clone` refused the non-empty destination. Retried once after chmodding the
-    survivors, and only then given up on.
-    """
-    import stat
-    wp = Path(_win_path(path))
-    if not wp.exists() and not path.exists():
-        return
-
-    def clear(func, p, _exc):                  # onerror: drop the read-only bit and retry
-        try:
-            os.chmod(_win_path(p), stat.S_IWRITE | stat.S_IREAD)
-            func(_win_path(p))
-        except OSError:
-            pass
-
-    shutil.rmtree(str(wp), onerror=clear)
-    if wp.exists() or path.exists():           # a file locked by another process (an indexer)
-        shutil.rmtree(str(wp), ignore_errors=True)
+    ag.rmtree_force(path)
 
 
 # ---------------------------------------------------------------- git route
@@ -188,6 +131,15 @@ def materialize_symlinks(repo: Path, sub: str, log: Callable[[str], None]) -> in
             wreal = Path(_win_path(cand.resolve()))
             try:
                 if wreal.is_dir():
+                    p_real = p.resolve()
+                    cand_real = cand.resolve()
+                    if (
+                        p_real == cand_real
+                        or p_real.is_relative_to(cand_real)
+                        or cand_real.is_relative_to(p_real)
+                    ):
+                        pending.discard(p)
+                        continue
                     wp.unlink()
                     shutil.copytree(str(wreal), str(wp), dirs_exist_ok=True)
                     pending.discard(p)
@@ -309,16 +261,16 @@ def clone_sdk(version: str = tc.SDK_PINNED, dest: Path | None = None,
         rmtree(work)
         raise last
     src = work / version
-    if not tc.is_sdk_dir(src):
-        raise SdkError(f'{tc.SDK_REPO} has no usable {version}: pick another version, or use a .xip')
-    # The .git folder is deleted with `work` after the move, so this has to happen here, while
-    # the index can still tell symlinks from the text files a Windows checkout left behind.
-    materialize_symlinks(work, version, log=log)
-    if target.exists():
-        rmtree(target)
-    shutil.move(_win_path(src), _win_path(target))
-    rmtree(work)
-    repair_tbd_stubs(target, log=log)
+    try:
+        if not tc.is_sdk_dir(src):
+            raise SdkError(f'{tc.SDK_REPO} has no usable {version}: pick another version, or use a .xip')
+        # The .git folder is deleted with `work` after the move, so this has to happen here, while
+        # the index can still tell symlinks from the text files a Windows checkout left behind.
+        materialize_symlinks(work, version, log=log)
+        repair_tbd_stubs(src, log=log, error_cls=SdkError)
+        ag.install_staged_tree(src, target, validator=tc.is_sdk_dir, error_cls=SdkError)
+    finally:
+        rmtree(work)
     log(f'SDK ready: {target} ({tc.sdk_version(target)[0]})')
     return target
 
@@ -341,95 +293,21 @@ def install_sdk_from_zip(zip_path: Path, dest: Path | None = None,
         rmtree(stale)
     staging = Path(tempfile.mkdtemp(prefix='.s-', dir=str(dest)))
     log(f'unpacking {src_zip.name} → {dest}')
-    links: list[tuple[str, str]] = []
     try:
+        quota = ag.ArchiveQuota(max_entries=MAX_ZIP_MEMBERS, max_bytes=MAX_ZIP_BYTES)
         try:
-            with zipfile.ZipFile(src_zip) as z:
-                infos = z.infolist()
-                if len(infos) > MAX_ZIP_MEMBERS:
-                    raise SdkError(
-                        f'{src_zip.name} has too many entries ({len(infos)} > {MAX_ZIP_MEMBERS})'
-                    )
-                bad_paths: list[str] = []
-                cleaned_members: list[tuple[zipfile.ZipInfo, str]] = []
-                for i in infos:
-                    raw = i.filename.rstrip('/\\') if i.is_dir() else i.filename
-                    if not raw:
-                        continue
-                    clean = _clean_archive_relpath(raw)
-                    if clean is None or not _is_within(staging / clean, staging):
-                        bad_paths.append(i.filename)
-                    elif not i.is_dir():
-                        cleaned_members.append((i, clean))
-                if bad_paths:
-                    raise SdkError(f'unsafe paths inside {src_zip.name}: {bad_paths[:3]}')
-                grand_raw = sum(max(0, i.file_size) for i, _ in cleaned_members)
-                if grand_raw > MAX_ZIP_BYTES:
-                    raise SdkError(
-                        f'{src_zip.name} exceeds unpacked size limit ({grand_raw} > {MAX_ZIP_BYTES} bytes)'
-                    )
-                grand = grand_raw or 1
-                if unpack_progress:
-                    unpack_progress(0, grand)
-                done = 0
-                written_total = 0
-                for info, rel in cleaned_members:
-                    is_sym = ((info.external_attr >> 16) & 0o170000) == 0o120000
-                    if is_sym:
-                        if info.file_size > 4096:
-                            raise SdkError(f'symlink entry too large in {src_zip.name}: {rel}')
-                        target_rel = z.read(info).decode('utf-8', 'surrogateescape').strip()
-                        if target_rel:
-                            if (
-                                '\x00' in target_rel
-                                or ':' in target_rel
-                                or target_rel.startswith(('/', '\\'))
-                                or not _is_within((staging / rel).parent / target_rel.replace('\\', '/'), staging)
-                            ):
-                                raise SdkError(
-                                    f'unsafe symlink target inside {src_zip.name}: {rel} -> {target_rel!r}'
-                                )
-                            links.append((rel, target_rel))
-                        done += info.file_size
-                        if unpack_progress:
-                            unpack_progress(done, grand)
-                        continue
-                    out_file = staging / rel
-                    if not _is_within(out_file, staging):
-                        raise SdkError(f'unsafe path inside {src_zip.name}: {info.filename}')
-                    Path(_win_path(out_file.parent)).mkdir(parents=True, exist_ok=True)
-                    with z.open(info) as zsrc, open(_win_path(out_file), 'wb') as zdst:
-                        while True:
-                            chunk = zsrc.read(1 << 20)
-                            if not chunk:
-                                break
-                            written_total += len(chunk)
-                            if written_total > MAX_ZIP_BYTES:
-                                raise SdkError(
-                                    f'{src_zip.name} exceeds unpacked size limit ({MAX_ZIP_BYTES} bytes)'
-                                )
-                            zdst.write(chunk)
-                    done += info.file_size
-                    if unpack_progress:
-                        unpack_progress(done, grand)
+            ag.extract_zip_safely(
+                src_zip,
+                staging,
+                quota=quota,
+                unpack_progress=unpack_progress,
+                log=log,
+                error_cls=SdkError,
+            )
         except zipfile.BadZipFile as e:
             raise SdkError(f'{src_zip.name} is not a valid zip archive ({e})') from e
         except OSError as e:
             raise SdkError(f'failed to unpack {src_zip.name}: {e}') from e
-
-        entries_used = len(infos)
-        bytes_used = written_total
-        if links:
-            entries_used, bytes_used = _materialize(
-                staging,
-                links,
-                log,
-                strict=True,
-                max_bytes=MAX_ZIP_BYTES,
-                bytes_used=bytes_used,
-                max_entries=MAX_ZIP_MEMBERS,
-                entries_used=entries_used,
-            )
 
         sdk_src = tc.resolve_sdk_dir(staging)
         if sdk_src is None or not _is_same_or_within(sdk_src, staging):
@@ -440,10 +318,7 @@ def install_sdk_from_zip(zip_path: Path, dest: Path | None = None,
         repair_tbd_stubs(
             sdk_src,
             log=log,
-            max_bytes=MAX_ZIP_BYTES,
-            bytes_used=bytes_used,
-            max_entries=MAX_ZIP_MEMBERS,
-            entries_used=entries_used,
+            quota=quota,
             error_cls=SdkError,
         )
         ver, _ = tc.sdk_version(sdk_src)
@@ -463,37 +338,12 @@ def install_sdk_from_zip(zip_path: Path, dest: Path | None = None,
         if target_real.parent != dest_real:
             raise SdkError(f'target SDK path escapes destination directory: {target}')
 
-        backup = dest / f'.{folder_name}.old'
-        if backup.exists():
-            if not tc.is_sdk_dir(target):
-                rmtree(target)
-                try:
-                    shutil.move(_win_path(backup), _win_path(target))
-                except OSError:
-                    pass
-            else:
-                rmtree(backup)
-        had_existing = target.exists()
-        if had_existing:
-            rmtree(backup)
-            shutil.move(_win_path(target), _win_path(backup))
-        try:
-            shutil.move(_win_path(sdk_src), _win_path(target))
-            if not tc.is_sdk_dir(target):
-                raise OSError(f'moved SDK at {target} is incomplete')
-        except Exception as e:
-            try:
-                rmtree(target)
-            except OSError:
-                pass
-            if had_existing and backup.exists():
-                try:
-                    shutil.move(_win_path(backup), _win_path(target))
-                except OSError:
-                    pass
-            raise SdkError(f'failed to install SDK into {target}: {e}') from e
-        if had_existing:
-            rmtree(backup)
+        ag.install_staged_tree(
+            sdk_src,
+            target,
+            validator=tc.is_sdk_dir,
+            error_cls=SdkError,
+        )
         log(f'SDK ready: {target} ({tc.sdk_version(target)[0]})')
         return target
     finally:
@@ -572,16 +422,36 @@ def import_local(src: Path, dest: Path | None = None,
                            'System/Library/Frameworks/UIKit.framework)')
         cand = inner[0]
     dest = Path(dest or tc.sdk_cache_dir())
-    target = dest / cand.name
+    dest.mkdir(parents=True, exist_ok=True)
+    ver, _ = tc.sdk_version(cand)
+    if ver and not _VALID_SDK_VER_RE.match(ver):
+        raise SdkError(f'invalid SDK version in SDKSettings.json: {ver!r}')
+    folder_name = cand.name if _VALID_SDK_DIR_RE.match(cand.name) else (f'iPhoneOS{ver}.sdk' if ver else tc.SDK_PINNED)
+    if not _VALID_SDK_DIR_RE.match(folder_name):
+        raise SdkError(f'invalid SDK directory name: {folder_name!r}')
+    target = dest / folder_name
     if cand.resolve() == target.resolve():
         log(f'SDK is already in place: {target}')
         return target
-    dest.mkdir(parents=True, exist_ok=True)
     log(f'copying {cand} → {target} (several GB, a few minutes)')
-    shutil.rmtree(target, ignore_errors=True)
-    shutil.copytree(cand, target, symlinks=False, dirs_exist_ok=True)
-    if not tc.is_sdk_dir(target):
-        raise SdkError(f'the copy at {target} is not a usable SDK (the source may be incomplete)')
+    for stale in dest.glob('.imp-*'):
+        rmtree(stale)
+    staging = Path(tempfile.mkdtemp(prefix='.imp-', dir=str(dest)))
+    staged_sdk = staging / folder_name
+    try:
+        try:
+            shutil.copytree(_win_path(cand), _win_path(staged_sdk), symlinks=False, dirs_exist_ok=True)
+        except (OSError, shutil.Error) as e:
+            raise SdkError(f'failed to copy SDK from {cand}: {e}') from e
+        repair_tbd_stubs(staged_sdk, log=log, error_cls=SdkError)
+        ag.install_staged_tree(
+            staged_sdk,
+            target,
+            validator=tc.is_sdk_dir,
+            error_cls=SdkError,
+        )
+    finally:
+        rmtree(staging)
     log(f'SDK ready: {target} ({tc.sdk_version(target)[0]})')
     return target
 
@@ -634,9 +504,12 @@ def _settle_sdk_dir(out: Path, produced: Path | None, log: Callable[[str], None]
             raise SdkError(f'invalid SDK version in SDKSettings.json: {ver!r}')
         want = out / f'iPhoneOS{ver}.sdk' if ver else produced
         if produced != want:
-            if want.exists():
-                shutil.rmtree(want, ignore_errors=True)
-            shutil.move(str(produced), str(want))
+            ag.install_staged_tree(
+                produced,
+                want,
+                validator=tc.is_sdk_dir,
+                error_cls=SdkError,
+            )
         return want
     for p in sorted((x for x in out.glob('iPhoneOS*.sdk') if x.is_dir()), reverse=True):
         if tc.is_sdk_dir(p):
@@ -874,107 +747,21 @@ def _materialize(
     max_entries: int | None = None,
     entries_used: int = 0,
 ) -> tuple[int, int]:
-    """Write each symlink as a copy of its target (Windows symlinks need extra privileges).
-
-    Links are resolved through other links (`Headers → Versions/Current/Headers`, where
-    `Versions/Current` is itself a link), so this loops until nothing new resolves. Every link
-    destination and resolved target must stay strictly inside `out`, and materialized files and
-    directories count against `max_bytes` / `max_entries` when provided.
-    """
-    todo = list(links) if strict else [(rel, t) for rel, t in links if '/' in rel.rstrip('/')]
-
-    def _charge(added_entries: int, added_bytes: int) -> None:
-        nonlocal entries_used, bytes_used
-        entries_used += added_entries
-        bytes_used += added_bytes
-        if max_entries is not None and entries_used > max_entries:
-            raise SdkError(
-                f'symlink materialization exceeds entry limit ({entries_used} > {max_entries})'
-            )
-        if max_bytes is not None and bytes_used > max_bytes:
-            raise SdkError(
-                f'symlink materialization exceeds unpacked size limit ({bytes_used} > {max_bytes} bytes)'
-            )
-
-    while True:
-        left = []
-        for rel, target in todo:
-            clean_rel = _clean_archive_relpath(rel)
-            if clean_rel is None:
-                if strict:
-                    raise SdkError(f'unsafe symlink path: {rel!r}')
-                log(f'  link {rel} → {target}: unsafe path, skipped')
-                continue
-            dst = out / clean_rel
-            if (
-                not target
-                or '\x00' in target
-                or ':' in target
-                or target.startswith(('/', '\\'))
-            ):
-                if strict:
-                    raise SdkError(f'unsafe symlink target: {rel} -> {target!r}')
-                log(f'  link {rel} → {target}: absolute or drive-qualified, skipped')
-                continue
-            src = dst.parent / target.replace('\\', '/')
-            if not _is_within(dst, out) or not _is_within(src, out):
-                if strict:
-                    raise SdkError(f'symlink target escapes SDK root: {rel} -> {target!r}')
-                log(f'  link {rel} → {target}: escapes SDK root, skipped')
-                continue
-            wdst = Path(_win_path(dst))
-            wsrc = Path(_win_path(src))
-            if wdst.exists():
-                continue
-            if not wsrc.exists():
-                left.append((rel, target))
-                continue
-            try:
-                if wsrc.is_dir():
-                    src_abs = Path(os.path.abspath(os.fspath(src)))
-                    dst_abs = Path(os.path.abspath(os.fspath(dst)))
-                    src_real = src_abs.resolve()
-                    dst_real = dst_abs.parent.resolve() / dst_abs.name
-                    if (
-                        src_abs == dst_abs
-                        or dst_abs.is_relative_to(src_abs)
-                        or src_abs.is_relative_to(dst_abs)
-                        or src_real == dst_real
-                        or dst_real.is_relative_to(src_real)
-                        or src_real.is_relative_to(dst_real)
-                    ):
-                        if strict:
-                            raise SdkError(f'recursive directory symlink: {rel} -> {target!r}')
-                        log(f'  link {rel} → {target}: recursive directory symlink, skipped')
-                        continue
-                    items = sorted(wsrc.rglob('*'))
-                    _charge(1, 0)
-                    wdst.mkdir(parents=True, exist_ok=True)
-                    for item in items:
-                        rel_item = item.relative_to(wsrc)
-                        target_item = wdst / rel_item
-                        if item.is_dir():
-                            _charge(1, 0)
-                            target_item.mkdir(parents=True, exist_ok=True)
-                        elif item.is_file():
-                            fsize = max(0, item.stat().st_size)
-                            _charge(1, fsize)
-                            target_item.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copyfile(str(item), str(target_item))
-                else:
-                    fsize = max(0, wsrc.stat().st_size)
-                    _charge(1, fsize)
-                    wdst.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(str(wsrc), str(wdst))
-            except (OSError, shutil.Error) as e:
-                if strict:
-                    raise SdkError(f'failed to materialize symlink {rel} -> {target}: {e}') from e
-                log(f'  link {rel} → {target}: copy warning ({e}), skipped')
-        if len(left) == len(todo):
-            for rel, target in left:
-                log(f'  link {rel} → {target}: target not in the SDK, skipped')
-            return entries_used, bytes_used
-        todo = left
+    quota = ag.ArchiveQuota(
+        max_entries=max_entries if max_entries is not None else 10**12,
+        max_bytes=max_bytes if max_bytes is not None else 10**18,
+        entries_used=entries_used,
+        bytes_used=bytes_used,
+    )
+    ag.materialize_unix_symlinks(
+        out,
+        links,
+        quota=quota,
+        log=log,
+        strict=strict,
+        error_cls=SdkError,
+    )
+    return quota.entries_used, quota.bytes_used
 
 
 def _remaining_canaries(out: Path) -> list[Path]:

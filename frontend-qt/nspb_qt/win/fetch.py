@@ -25,10 +25,22 @@ from pathlib import Path
 from typing import Callable
 
 if __package__:
+    from . import archive_guard as ag
     from . import toolchain as tc
 else:                                       # pragma: no cover - script mode
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from nspb_qt.win import archive_guard as ag
     from nspb_qt.win import toolchain as tc
+
+
+MAX_LLVM_ENTRIES = 80_000
+MAX_LLVM_BYTES = 3 * 1024 * 1024 * 1024
+MAX_DOTNET_ENTRIES = 80_000
+MAX_DOTNET_BYTES = 3 * 1024 * 1024 * 1024
+MAX_ZSTD_ENTRIES = 1_000
+MAX_ZSTD_BYTES = 128 * 1024 * 1024
+MAX_METAL_ENTRIES = 80_000
+MAX_METAL_BYTES = 4 * 1024 * 1024 * 1024
 
 
 class DownloadError(Exception):
@@ -217,49 +229,40 @@ def install_llvm(arch: str | None = None, dest: Path | None = None,
         if not zpath.is_file():
             raise DownloadError(f'{zpath.name} is not in the download cache: download it first')
         log(f'unpacking {zpath.name} → {target} (about 1 GiB on disk)')
-        staging = root / f'.unpack-{tc.LLVM_MINGW_VERSION}'
-        shutil.rmtree(staging, ignore_errors=True)
-        staging.mkdir(parents=True)
+        staging_root = root / f'.unpack-{tc.LLVM_MINGW_VERSION}'
+        ag.rmtree_force(staging_root)
+        staging_root.mkdir(parents=True, exist_ok=True)
         try:
-            with zipfile.ZipFile(zpath) as z:
-                # Unpacking 1 GiB takes long enough to look stuck (reported: "can unpacking also
-                # have progress"). Count uncompressed bytes against the archive's own total, which
-                # is the only measure that advances evenly — a file count stalls on the big files.
-                members = [i for i in z.infolist() if not i.is_dir()]
-                grand = sum(i.file_size for i in members) or 1
-                if unpack_progress:
-                    unpack_progress(0, grand)
-                bad = z.testzip()
-                if bad:
-                    raise DownloadError(f'{zpath.name} is corrupt (first bad member: {bad})')
-                done = 0
-                for info in members:
-                    rel = _strip_root(info.filename)
-                    if not rel:
-                        continue
-                    out = staging / rel
-                    out.parent.mkdir(parents=True, exist_ok=True)
-                    with z.open(info) as src, open(out, 'wb') as dst:
-                        shutil.copyfileobj(src, dst, 1 << 20)
-                    done += info.file_size
-                    if unpack_progress:
-                        unpack_progress(done, grand)
-                    # the zip stores no Unix modes: mark everything in bin/ executable
-                    if out.parent.name == 'bin':
+            quota = ag.ArchiveQuota(max_entries=MAX_LLVM_ENTRIES, max_bytes=MAX_LLVM_BYTES)
+            ag.extract_zip_safely(
+                zpath,
+                staging_root,
+                quota=quota,
+                unpack_progress=unpack_progress,
+                verify_crc=True,
+                log=log,
+                error_cls=DownloadError,
+            )
+            inner = [p for p in staging_root.iterdir()]
+            staged_src = inner[0] if (len(inner) == 1 and inner[0].is_dir()) else staging_root
+            bin_dir = staged_src / 'bin'
+            if bin_dir.is_dir():
+                for item in bin_dir.iterdir():
+                    if item.is_file():
                         try:
-                            out.chmod(0o755)
+                            item.chmod(0o755)
                         except OSError:
                             pass
+            ag.install_staged_tree(
+                staged_src,
+                target,
+                validator=lambda d: (d / 'bin' / 'clang.exe').is_file(),
+                error_cls=DownloadError,
+            )
         except zipfile.BadZipFile as e:
-            shutil.rmtree(staging, ignore_errors=True)
             raise DownloadError(f'{zpath.name} is not a valid zip: {e}') from e
-        # the archive's single top folder becomes our versioned folder
-        inner = [p for p in staging.iterdir()]
-        if len(inner) == 1 and inner[0].is_dir():
-            staging = inner[0]
-        shutil.rmtree(target, ignore_errors=True)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        staging.replace(target)
+        finally:
+            ag.rmtree_force(staging_root)
         log(f'LLVM-MinGW {tc.LLVM_MINGW_VERSION} unpacked: {target}')
 
     def clang_runs() -> tuple[bool, str]:
@@ -337,41 +340,34 @@ def install_dotnet(dest: Path | None = None,
                      log=log, progress=progress, algo=asset.get('algo', 'sha256'))
     log(f'unpacking {zpath.name} → {target} (about 900 MB on disk)')
     staging = root / f'.unpack-dotnet-{tc.DOTNET_VERSION}'
-    shutil.rmtree(staging, ignore_errors=True)
-    staging.mkdir(parents=True)
+    ag.rmtree_force(staging)
+    staging.mkdir(parents=True, exist_ok=True)
     try:
-        with zipfile.ZipFile(zpath) as z:
-            # No top-level folder in this zip: members are host/, sdk/, shared/ directly. Every
-            # path is taken as-is, which is what makes dotnet.exe land at the root.
-            members = [i for i in z.infolist() if not i.is_dir()]
-            grand = sum(i.file_size for i in members) or 1
-            if unpack_progress:
-                unpack_progress(0, grand)
-            bad = z.testzip()
-            if bad:
-                raise DownloadError(f'{zpath.name} is corrupt (first bad member: {bad})')
-            done = 0
-            for info in members:
-                out = staging / info.filename
-                # a zip member may try to escape the target (../ in the name)
-                if not str(out.resolve()).startswith(str(staging.resolve())):
-                    continue
-                out.parent.mkdir(parents=True, exist_ok=True)
-                with z.open(info) as src, open(out, 'wb') as dst:
-                    shutil.copyfileobj(src, dst, 1 << 20)
-                done += info.file_size
-                if unpack_progress:
-                    unpack_progress(done, grand)
+        quota = ag.ArchiveQuota(max_entries=MAX_DOTNET_ENTRIES, max_bytes=MAX_DOTNET_BYTES)
+        ag.extract_zip_safely(
+            zpath,
+            staging,
+            quota=quota,
+            unpack_progress=unpack_progress,
+            verify_crc=True,
+            log=log,
+            error_cls=DownloadError,
+        )
+        if not (staging / 'dotnet.exe').is_file():
+            raise DownloadError(
+                f'{zpath.name} unpacked without dotnet.exe at its root: the release '
+                'layout changed, so install the SDK from dotnet.microsoft.com instead'
+            )
+        ag.install_staged_tree(
+            staging,
+            target,
+            validator=lambda d: (d / 'dotnet.exe').is_file(),
+            error_cls=DownloadError,
+        )
     except zipfile.BadZipFile as e:
-        shutil.rmtree(staging, ignore_errors=True)
         raise DownloadError(f'{zpath.name} is not a valid zip: {e}') from e
-    if not (staging / 'dotnet.exe').is_file():
-        shutil.rmtree(staging, ignore_errors=True)
-        raise DownloadError(f'{zpath.name} unpacked without dotnet.exe at its root: the release '
-                            'layout changed; install the SDK from dotnet.microsoft.com instead')
-    shutil.rmtree(target, ignore_errors=True)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    staging.replace(target)
+    finally:
+        ag.rmtree_force(staging)
     log(f'.NET SDK {tc.DOTNET_VERSION} installed: {target}')
     return target
 
@@ -391,66 +387,47 @@ def _unpack_python_nupkg(nupkg: Path, root: Path, target: Path,
     the user's existing system Python.
     """
     staging = root / f'.unpack-python-{tc.PYTHON_VERSION}'
-    shutil.rmtree(staging, ignore_errors=True)
-    files_seen = 0
-    bytes_written = 0
+    ag.rmtree_force(staging)
     try:
         staging.mkdir(parents=True, exist_ok=True)
-        with zipfile.ZipFile(nupkg) as z:
-            for info in z.infolist():
-                name = info.filename.replace('\\', '/')
-                if not name.startswith('tools/'):
-                    continue
-                rel = name[len('tools/'):]
-                if not rel or rel.endswith('/'):
-                    continue
-                if ':' in rel or rel.startswith(('/', '\\')):
-                    raise DownloadError(f'unsafe path in {nupkg.name}: {info.filename!r}')
-                parts = [p for p in rel.split('/') if p]
-                if not parts or any(p in ('.', '..') for p in parts):
-                    raise DownloadError(f'unsafe path in {nupkg.name}: {info.filename!r}')
-                mode = (info.external_attr >> 16) & 0o170000
-                if mode == 0o120000:
-                    raise DownloadError(f'unexpected symlink entry in {nupkg.name}: {info.filename!r}')
-                files_seen += 1
-                if files_seen > _MAX_PYTHON_FILES:
-                    raise DownloadError(
-                        f'{nupkg.name} exceeds file limit ({files_seen} > {_MAX_PYTHON_FILES})'
-                    )
-                dest = staging.joinpath(*parts)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                with z.open(info) as src, open(dest, 'wb') as dst:
-                    while True:
-                        chunk = src.read(65536)
-                        if not chunk:
-                            break
-                        bytes_written += len(chunk)
-                        if bytes_written > _MAX_PYTHON_BYTES:
-                            raise DownloadError(
-                                f'{nupkg.name} exceeds size limit ({bytes_written} > {_MAX_PYTHON_BYTES})'
-                            )
-                        dst.write(chunk)
-                if dest.suffix.lower() in ('.exe', '.dll', '.pyd'):
-                    try:
-                        dest.chmod(0o755)
-                    except OSError:
-                        pass
+        quota = ag.ArchiveQuota(max_entries=_MAX_PYTHON_FILES, max_bytes=_MAX_PYTHON_BYTES)
+
+        def _select_tools_member(clean_rel: str) -> str | None:
+            if not clean_rel.startswith('tools/'):
+                return None
+            sub = clean_rel[len('tools/'):]
+            return sub if sub else None
+
+        ag.extract_zip_safely(
+            nupkg,
+            staging,
+            quota=quota,
+            allow_symlinks=False,
+            map_relpath=_select_tools_member,
+            log=log,
+            error_cls=DownloadError,
+        )
+        for item in staging.rglob('*'):
+            if item.is_file() and item.suffix.lower() in ('.exe', '.dll', '.pyd'):
+                try:
+                    item.chmod(0o755)
+                except OSError:
+                    pass
         if not (staging / 'python.exe').is_file():
             raise DownloadError(f'{nupkg.name} did not contain tools/python.exe')
-        shutil.rmtree(target, ignore_errors=True)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            staging.replace(target)
-        except BaseException:
-            shutil.rmtree(target, ignore_errors=True)
-            raise
+        ag.install_staged_tree(
+            staging,
+            target,
+            validator=lambda d: (d / 'python.exe').is_file(),
+            error_cls=DownloadError,
+        )
     except (OSError, zipfile.BadZipFile, DownloadError) as e:
+        if not tc._runs_quiet(target / 'python.exe'):
+            ag.rmtree_force(target)
         log(f'standalone Python package unpack failed: {e}')
-        shutil.rmtree(staging, ignore_errors=True)
-        shutil.rmtree(target, ignore_errors=True)
         return False
     finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        ag.rmtree_force(staging)
 
     try:
         subprocess.run(
@@ -556,37 +533,36 @@ def install_zstd(dest: Path | None = None,
     zpath = download(asset['url'], cache / asset['name'], asset['sha256'], asset['size'],
                      log=log, progress=progress)
     log(f'unpacking {zpath.name} → {target}')
-    staging = root / '.unpack-zstd'
-    shutil.rmtree(staging, ignore_errors=True)
-    staging.mkdir(parents=True)
+    staging_root = root / '.unpack-zstd'
+    ag.rmtree_force(staging_root)
+    staging_root.mkdir(parents=True, exist_ok=True)
     try:
-        with zipfile.ZipFile(zpath) as z:
-            members = [m for m in z.infolist() if not m.is_dir()]
-            grand = sum(m.file_size for m in members) or 1
-            if unpack_progress:
-                unpack_progress(0, grand)
-            done = 0
-            for info in members:
-                out = staging / _strip_root(info.filename)
-                out.parent.mkdir(parents=True, exist_ok=True)
-                with z.open(info) as src, open(out, 'wb') as dst:
-                    shutil.copyfileobj(src, dst, 1 << 20)
-                done += info.file_size
-                if unpack_progress:
-                    unpack_progress(done, grand)
+        quota = ag.ArchiveQuota(max_entries=MAX_ZSTD_ENTRIES, max_bytes=MAX_ZSTD_BYTES)
+        ag.extract_zip_safely(
+            zpath,
+            staging_root,
+            quota=quota,
+            unpack_progress=unpack_progress,
+            log=log,
+            error_cls=DownloadError,
+        )
+        inner = [q for q in staging_root.iterdir()]
+        staged_src = inner[0] if (len(inner) == 1 and inner[0].is_dir()) else staging_root
+        if not (staged_src / 'zstd.exe').is_file():
+            raise DownloadError(
+                f'{zpath.name} unpacked without zstd.exe: the release layout changed, so '
+                'install zstd by hand and point "zstd_dir" in toolchain.json at it'
+            )
+        ag.install_staged_tree(
+            staged_src,
+            target,
+            validator=lambda d: (d / 'zstd.exe').is_file(),
+            error_cls=DownloadError,
+        )
     except zipfile.BadZipFile as e:
-        shutil.rmtree(staging, ignore_errors=True)
         raise DownloadError(f'{zpath.name} is not a valid zip: {e}') from e
-    inner = [q for q in staging.iterdir()]
-    if len(inner) == 1 and inner[0].is_dir():
-        staging = inner[0]
-    shutil.rmtree(target, ignore_errors=True)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    staging.replace(target)
-    if not exe.is_file():
-        shutil.rmtree(target, ignore_errors=True)
-        raise DownloadError(f'{zpath.name} unpacked without zstd.exe: the release layout changed; '
-                            'install zstd by hand and point "zstd_dir" in toolchain.json at it')
+    finally:
+        ag.rmtree_force(staging_root)
     log(f'zstd installed: {exe}')
     return exe
 
@@ -703,26 +679,34 @@ def install_metal_from_zip(zip_path: Path, dest: Path | None = None,
         log(f'unpacking {src.name} …')
     dest = Path(dest) if dest else tc.tools_dir() / 'metal-developer-tools'
     staging = dest.parent / (dest.name + '-staging')
-    shutil.rmtree(staging, ignore_errors=True)
-    staging.mkdir(parents=True)
+    ag.rmtree_force(staging)
+    staging.mkdir(parents=True, exist_ok=True)
     try:
-        with _zf.ZipFile(src) as z:
-            bad = [i.filename for i in z.infolist() if i.filename.startswith('/') or '..' in Path(i.filename).parts]
-            if bad:
-                raise DownloadError(f'unsafe paths inside {src.name}: {bad[:3]}')
-            z.extractall(staging)
+        quota = ag.ArchiveQuota(max_entries=MAX_METAL_ENTRIES, max_bytes=MAX_METAL_BYTES)
+        ag.extract_zip_safely(
+            src,
+            staging,
+            quota=quota,
+            log=log,
+            error_cls=DownloadError,
+        )
+        hit = tc.resolve_metal_dir(staging)
+        if hit is None or not ag.is_same_or_within(hit, staging):
+            raise DownloadError(
+                f'{src.name} does not look like Metal Developer Tools '
+                '(no metal.exe in bin/ or ios/bin/)'
+            )
+        tc.repair_tbd_stubs(hit, log=log, quota=quota, error_cls=DownloadError)
+        ag.install_staged_tree(
+            hit,
+            dest,
+            validator=lambda d: tc.resolve_metal_dir(d) is not None,
+            error_cls=DownloadError,
+        )
     except _zf.BadZipFile as e:
-        shutil.rmtree(staging, ignore_errors=True)
         raise DownloadError(f'{src.name} is not a zip file ({e})') from e
-
-    hit = tc.resolve_metal_dir(staging)
-    if hit is None:
-        shutil.rmtree(staging, ignore_errors=True)
-        raise DownloadError(f'{src.name} does not look like Metal Developer Tools '
-                            '(no metal.exe in bin/ or ios/bin/)')
-    shutil.rmtree(dest, ignore_errors=True)
-    hit.rename(dest)
-    shutil.rmtree(staging, ignore_errors=True)
+    finally:
+        ag.rmtree_force(staging)
     if log:
         log(f'Metal Developer Tools unpacked to {dest}')
     return dest

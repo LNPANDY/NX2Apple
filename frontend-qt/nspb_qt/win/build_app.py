@@ -985,7 +985,11 @@ def main(argv: list[str] | None = None) -> int:
     if not env.get('DM_LANG'):
         try:
             import json
-            lang = json.loads((gen / 'launcher.json').read_text(encoding='utf-8')).get('language') or lang
+            lang = extract_default_lang(
+                json.loads((gen / 'launcher.json').read_text(encoding='utf-8')),
+                fallback=lang,
+                nacp_path=nacp,
+            )
         except Exception:
             pass
     t(f'launcher: {launcher}')
@@ -1090,22 +1094,21 @@ def main(argv: list[str] | None = None) -> int:
                 die(f'identity of {romfs}: {r_id.stderr.strip() or r_id.stdout.strip()}')
             romfs_id = r_id.stdout.strip()
 
-        manifest_args = [
-            repo / 'dm/ios/tools/gen_manifest.py',
-            out_fw / 'game.manifest.json',
-            '--game', game,
-            '--name', name,
-            '--display-version', version,
-            '--package-version', pkg or '',
-            '--modules', ' '.join(mods),
-            '--chain', f'b-{v}',
-            '--romfs-marker', marker,
-            '--romfs-identity', romfs_id,
-            '--framework-name', fw_name,
-            '--loader', 'FH',
-        ]
-        if (patched / 'nro.tsv').is_file():
-            manifest_args += ['--nro-table', patched / 'nro.tsv']
+        manifest_args = build_manifest_args(
+            repo=repo,
+            out_manifest=out_fw / 'game.manifest.json',
+            game=game,
+            name=name,
+            version=version,
+            pkg=pkg or '',
+            mods=mods,
+            chain_ver=v,
+            marker=marker,
+            romfs_id=romfs_id,
+            fw_name=fw_name,
+            patched=patched,
+            gd=gd,
+        )
         py(*manifest_args)
 
         with open(out_fw / 'Info.plist', 'wb') as f:
@@ -1224,6 +1227,86 @@ def main(argv: list[str] | None = None) -> int:
     t(f'IPA modes: {fixed}')
     t(f'done: {out_ipa} ({out_ipa.stat().st_size / 2**30:.2f} GiB)')
     return 0
+
+
+_NACP_LANG_CODES = (
+    'en-US', 'en-GB', 'ja', 'fr', 'de', 'es-419', 'es', 'it',
+    'nl', 'fr-CA', 'pt', 'ru', 'ko', 'zh-Hant', 'zh-Hans', 'pt-BR',
+)
+
+
+def extract_default_lang(
+    launcher_obj: object,
+    fallback: str = 'en-US',
+    nacp_path: Path | str | None = None,
+) -> str:
+    """Extract the `DM_LANG` default from `settings.py` output (`{"settings": [{"env": "DM_LANG", ...}]}`).
+
+    Also handles single-language non-English games where `settings.py` omits the `DM_LANG` row
+    (`languages>1` is false) by reading `SupportedLanguageFlag` at `0x302C` from `control.nacp`,
+    and falls back to a legacy top-level `language` string or `fallback` otherwise.
+    """
+    if isinstance(launcher_obj, dict):
+        settings = launcher_obj.get('settings')
+        if isinstance(settings, list):
+            for entry in settings:
+                if isinstance(entry, dict) and entry.get('env') == 'DM_LANG':
+                    default_val = entry.get('default')
+                    if isinstance(default_val, str) and default_val.strip():
+                        return default_val.strip()
+        legacy = launcher_obj.get('language')
+        if isinstance(legacy, str) and legacy.strip():
+            return legacy.strip()
+    if nacp_path is not None:
+        try:
+            raw = Path(nacp_path).read_bytes()
+            if len(raw) >= 0x3030:
+                import struct as _st
+                mask = _st.unpack_from('<I', raw, 0x302C)[0]
+                supported = [c for i, c in enumerate(_NACP_LANG_CODES) if (mask >> i) & 1]
+                if supported and fallback not in supported:
+                    return supported[0]
+        except OSError:
+            pass
+    return fallback
+
+
+def build_manifest_args(
+    *,
+    repo: Path,
+    out_manifest: Path,
+    game: str,
+    name: str,
+    version: str,
+    pkg: str,
+    mods: list[str],
+    chain_ver: str,
+    marker: str,
+    romfs_id: str,
+    fw_name: str,
+    patched: Path,
+    gd: Path,
+) -> list[Path | str]:
+    """Build argument vector for `dm/ios/tools/gen_manifest.py`, forwarding `--profile` when present."""
+    args: list[Path | str] = [
+        repo / 'dm/ios/tools/gen_manifest.py',
+        out_manifest,
+        '--game', game,
+        '--name', name,
+        '--display-version', version,
+        '--package-version', pkg,
+        '--modules', ' '.join(mods),
+        '--chain', f'b-{chain_ver}',
+        '--romfs-marker', marker,
+        '--romfs-identity', romfs_id,
+        '--framework-name', fw_name,
+        '--loader', 'FH',
+    ]
+    if (patched / 'nro.tsv').is_file():
+        args += ['--nro-table', patched / 'nro.tsv']
+    if (gd / 'game.tsv').is_file():
+        args += ['--profile', gd / 'game.tsv']
+    return args
 
 
 if __name__ == '__main__':

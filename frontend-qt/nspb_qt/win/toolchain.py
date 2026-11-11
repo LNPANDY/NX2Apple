@@ -688,6 +688,7 @@ def repair_tbd_stubs(
     sdk: Path | str,
     log=None,
     *,
+    quota=None,
     max_bytes: int | None = None,
     bytes_used: int = 0,
     max_entries: int | None = None,
@@ -709,6 +710,14 @@ def repair_tbd_stubs(
 
     def _charge(added_entries: int, added_bytes: int) -> None:
         nonlocal entries_used, bytes_used
+        if quota is not None:
+            quota.charge(
+                added_entries,
+                added_bytes,
+                label='text-stub materialization',
+                error_cls=exc_type,
+            )
+            return
         entries_used += added_entries
         bytes_used += added_bytes
         if max_entries is not None and entries_used > max_entries:

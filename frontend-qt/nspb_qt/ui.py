@@ -536,7 +536,55 @@ class MainWindow(QMainWindow):
         self.lib_stack.addWidget(pop)
 
         lay.addWidget(self.lib_stack, 1)
+
+        self.skipped_wrap = QWidget()
+        sw_lay = QVBoxLayout(self.skipped_wrap)
+        sw_lay.setContentsMargins(36, 0, 36, 14)
+        sw_lay.setSpacing(0)
+        self.skipped_banner = QFrame()
+        self.skipped_banner.setObjectName('skippedBanner')
+        self.skipped_banner.setStyleSheet(
+            'QFrame#skippedBanner {'
+            ' background: rgba(255, 189, 56, 0.08);'
+            ' border: 1px solid rgba(255, 189, 56, 0.25);'
+            ' border-radius: 12px;'
+            '}'
+        )
+        sb_lay = QHBoxLayout(self.skipped_banner)
+        sb_lay.setContentsMargins(14, 9, 14, 9)
+        sb_lay.setSpacing(10)
+        self.skipped_dot = _dot(style.AMBER)
+        sb_lay.addWidget(self.skipped_dot)
+        self.skipped_lbl = QLabel('')
+        self.skipped_lbl.setWordWrap(True)
+        self.skipped_lbl.setStyleSheet(f'color: {style.TEXT}; font-size: 12.5px;')
+        sb_lay.addWidget(self.skipped_lbl, 1)
+        self.skipped_btn = QPushButton(self.m.t('library.skippedDetails'))
+        self.skipped_btn.setCursor(Qt.PointingHandCursor)
+        self.skipped_btn.clicked.connect(self._show_skipped_files_dialog)
+        sb_lay.addWidget(self.skipped_btn)
+        sw_lay.addWidget(self.skipped_banner)
+        self.skipped_wrap.hide()
+        lay.addWidget(self.skipped_wrap)
         return page
+
+    def _show_skipped_files_dialog(self) -> None:
+        skipped = list(getattr(self.m.library, 'skipped_files', []))
+        if not skipped:
+            return
+        lines: list[str] = []
+        for item in skipped:
+            if item.kind == 'orphan':
+                lines.append('• ' + self.m.t('library.skippedOrphan', item.name))
+            else:
+                lines.append('• ' + self.m.t('library.skippedArchive', item.name))
+        box = QMessageBox(
+            QMessageBox.Icon.Information,
+            self.m.t('library.skippedTitle'),
+            '\n'.join(lines),
+            parent=self,
+        )
+        box.exec()
 
     def _filtered_games(self) -> list[lib.LibraryGame]:
         games = list(self.m.library.games)
@@ -559,6 +607,14 @@ class MainWindow(QMainWindow):
             selected=self._library_filter,
         )
         self.rescan_lib_btn.setText(self.m.t('library.rescan'))
+
+        skipped = list(getattr(self.m.library, 'skipped_files', []))
+        if skipped:
+            self.skipped_lbl.setText(self.m.t('library.skippedBanner', len(skipped)))
+            self.skipped_btn.setText(self.m.t('library.skippedDetails'))
+            self.skipped_wrap.show()
+        else:
+            self.skipped_wrap.hide()
 
         if not self.m.library.games:
             self.lib_stack.setCurrentIndex(0)
@@ -1179,8 +1235,15 @@ class MainWindow(QMainWindow):
         """The shared app's only output, whatever mode ran last."""
         return lib.shell_ipa_path(self.m.shell_cache_path)
 
+    def _effective_out_dir(self) -> str:
+        if self.m.out_dir:
+            return self.m.out_dir
+        if self.m.game_folder is not None:
+            return self.m.game_folder.folder
+        return str(Path(self.m.base_path).parent) if self.m.base_path else ''
+
     def _one_game_ipa_path(self) -> str:
-        return lib.one_game_ipa_path(self.m.out_dir, self.m.build_key)
+        return lib.one_game_ipa_path(self._effective_out_dir(), self.m.build_key)
 
     def _effective_ipa_path(self) -> str:
         # The two kinds write different files, so the reveal button answers for the kind that is
@@ -1189,7 +1252,7 @@ class MainWindow(QMainWindow):
         return lib.reveal_ipa_path(
             ipa_kind=self.m.ipa_kind,
             shell_cache=self.m.shell_cache_path,
-            out_dir=self.m.out_dir,
+            out_dir=self._effective_out_dir(),
             build_key=self.m.build_key,
             last_ipa=self.m.ipa_path,
             library_ipa=sel.ipa_path if (sel and sel.has_ipa) else '',
@@ -2022,7 +2085,12 @@ class MainWindow(QMainWindow):
             self.act_stop_btn.setText(self.m.t('btn.stop'))
             self.act_stop_btn.show()
         else:
-            self.act_dot.set_color(style.GREEN if self.m.can_build else style.NEUTRAL_DOT)
+            has_block = bool(
+                self.m.repo_ok and self.m.deps_checked and self.m.all_deps_ok and self.m.prebuild_block_reason()
+            )
+            self.act_dot.set_color(
+                style.GREEN if self.m.can_build else (style.AMBER if has_block else style.NEUTRAL_DOT)
+            )
             self.act_title.setText(self.m.t('library.localNote'))
             self.act_detail.setText(self.footer.text())
             self.act_progress.hide()
@@ -2554,6 +2622,7 @@ class MainWindow(QMainWindow):
             self.build_btn.setObjectName('primary')
             self.build_btn.setEnabled(self.m.can_build)
             if not self.m.can_build and not self._failed:
+                is_prebuild_block = False
                 if not self.m.repo_ok:
                     why = t('status.chooseRepo')
                 elif not self.m.deps_checked:
@@ -2563,10 +2632,15 @@ class MainWindow(QMainWindow):
                 elif self.m.game_folder_problem:
                     # the real reason the folder was refused, not a generic line and never "the base game and keys are missing" (#696)
                     why = self.m.game_folder_problem
+                elif (block_why := self.m.prebuild_block_reason()):
+                    why = block_why
+                    is_prebuild_block = True
                 else:
                     why = t('status.needInputs')
+                self.footer.setStyleSheet(f'color: {style.AMBER}; font-size: 12.5px;' if is_prebuild_block else '')
                 self.footer.setText(why)
             elif self.m.can_build and not self.m.ipa_path and not self.m.mac_app_path and self.m.failure is None and not self._failed:
+                self.footer.setStyleSheet('')
                 self.footer.setText('')
 
         if not self.m.running:

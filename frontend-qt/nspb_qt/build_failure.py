@@ -31,6 +31,9 @@ PSO_DISK_FULL = 'psoDiskFull'
 CLOUD_FOLDER = 'cloudFolder'
 VOLUME_FORMAT = 'volumeFormat'
 STALE_PROFILE = 'staleProfile'
+METAL_TOOLCHAIN = 'metalToolchain'
+PROFILE_UPDATE_MISMATCH = 'profileUpdateMismatch'
+FREE_APPLE_ID_LIMIT = 'freeAppleIdLimit'
 UNKNOWN = 'unknown'
 
 # (id, kind, regular expression searched in the log)
@@ -69,6 +72,26 @@ OVERRIDE_FLAGS = {
 
 KINDS = [ROSETTA, TRANSLATOR, ZBIC, IOS_SDK, CLT_SELECTED, OTHER_METAL, SHADER_REGRESSION, DAMAGED_NSP, A32_PROGRAM,
          KEYS, SEVERAL_GAMES, NO_TITLE_ID, KEYS_OLD, DISK_FULL, PSO_DISK_FULL, CLOUD_FOLDER, VOLUME_FORMAT, STALE_PROFILE]
+
+# Additional Qt failure classifications for high-frequency Xcode MetalToolchain, update/profile mismatch, and free Apple ID signing limits.
+EXTRA_KINDS = [METAL_TOOLCHAIN, PROFILE_UPDATE_MISMATCH, FREE_APPLE_ID_LIMIT]
+EXTRA_TABLE: list[tuple[str, str, str]] = [
+    (
+        'metal.toolchain',
+        METAL_TOOLCHAIN,
+        r'(?:downloadComponent MetalToolchain|missing Metal Toolchain|cannot execute tool [\'"]?metal[\'"]?|the Metal compiler does not run)',
+    ),
+    (
+        'profile.updateMismatch',
+        PROFILE_UPDATE_MISMATCH,
+        r'(?:no NSP for update [^\n]+the game profile needs these versions:|not the versions the profile registers|game profile [^\n]+(?:registers [^\n]+with its update in the folder|has no build for v\d+)|the version to pack \(-p / PACKAGE\) is not in the folder|requested version v?\d+ is not in the input folder)',
+    ),
+    (
+        'appleid.freeLimit',
+        FREE_APPLE_ID_LIMIT,
+        r'(?:maximum number of provisioned iOS devices|maximum number of installed apps|cannot register more than 10 App IDs|App IDs in a 7[- ]day|up to 10 App IDs every 7 days|maximum App ID limit has been reached|Reached the maximum number of[^\n]*App IDs|free developer account[^\n]*(?:3 apps|10 App IDs)|MaximumAppIDLimitReached|code -36607)',
+    ),
+]
 # The Swift app has four more rows that no log line sets (a drive that is gone, a signing team, a device transfer):
 # they belong to the Mac launcher's install on a device and to /Volumes, which this front end does not have.
 # cloudFolder is a row of the table, so it is here, but the check that stops a build before it starts is the Mac launcher's.
@@ -132,7 +155,7 @@ def classify(log: str, keys_readable: bool | None = None) -> Failure:
 
     keys_readable: what the window knows of the keys file (False = gone or unreadable). The script's own line for a missing
     file is a row of the table, and nx_extract says nothing of its own about a file it cannot read."""
-    for _id, kind, pattern in TABLE:
+    for _id, kind, pattern in (*TABLE, *EXTRA_TABLE):
         if re.search(pattern, log):
             if kind == SEVERAL_GAMES:
                 return Failure(kind, title_ids=_selectable_titles(log))
