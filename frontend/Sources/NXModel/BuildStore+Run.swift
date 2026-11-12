@@ -8,6 +8,8 @@ extension BuildStore {
     package func startBuild() {
         guard !running else { return }
         selectedTitleID = nil
+        queuedExportIPA = nil
+        queuedExportOneGame = nil
         runBuild()
     }
 
@@ -21,7 +23,9 @@ extension BuildStore {
             return
         }
         shellDeviceChecked = false
-        if target != BuildTarget.mac, !exportsOneGame, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
+        let skipStale = skipStaleCheckForQueuedEntry
+        skipStaleCheckForQueuedEntry = false
+        if target != BuildTarget.mac, !exportsOneGame, !skipStale, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
         if let message = spaceProblem() { doneNote = message; done = false; return }
         stopping = false; stoppedByPlayer = false; archiveGeneration &+= 1
         buildingGame = true; runningTarget = target
@@ -239,7 +243,7 @@ extension BuildStore {
                             ?? ShellInstall.frameworkPath(workDir: self.effectiveWorkDir, titleID: key)
                         let tid = ShellInstall.titleID(ofFramework: fw)
                         self.packArchive(workDir: self.effectiveWorkDir, titleID: tid) {
-                            if self.deferShellPackaging && self.exportsShell { self.deferShellPackage(framework: fw, titleID: tid, name: name) }
+                            if self.deferShellPackaging { self.deferShellPackage(framework: fw, titleID: tid, name: name, archive: $0) }
                             else if self.exportsShell { self.exportShell(framework: fw, titleID: tid, name: name) }
                             else { self.installShell(framework: fw, titleID: tid, name: name, archive: $0) }
                         }
@@ -390,11 +394,13 @@ extension BuildStore {
                 self.installPhaseActive = false
                 self.running = false
                 if self.stopping {
+                    self.skipStaleCheckForQueuedEntry = false
                     self.stopping = false
                     self.doneNote = self.t("msg.stopped")
                     return
                 }
                 if link == .notPaired {
+                    self.skipStaleCheckForQueuedEntry = false
                     self.failure = BuildFailure(kind: .devicePairing, gameName: nil)
                     self.doneNote = String(format: self.t("shell.notPaired"), self.devices.deviceName(device))
                     return

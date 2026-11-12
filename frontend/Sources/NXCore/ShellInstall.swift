@@ -391,14 +391,25 @@ package struct ShellInstaller {
     }
 
     package func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
+        let signed = signAndInstallApp(framework: framework, titleID: titleID, name: name)
+        guard signed.outcome.ok else { return signed.outcome }
+        // 7: the game data, only what the device does not have yet
+        var result = copyGameData(titleID: titleID, archive: archive, app: signed.outcome.appPath,
+                                  bundleID: signed.outcome.bundleID, outcome: signed.outcome, appJoinsParts: true)
+        if result.ok, !signed.notes.isEmpty { result.message = ([result.message] + signed.notes).joined(separator: "\n") }
+        return result
+    }
+
+    /// Steps 3 to 6: prepare the shared app's library and project, sign it, and install the app bundle on the device.
+    func signAndInstallApp(framework: String, titleID: String, name: String) -> (outcome: Outcome, notes: [String]) {
         guard FileManager.default.fileExists(atPath: framework) else {
-            return missingFramework(framework, name: name)
+            return (missingFramework(framework, name: name), [])
         }
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
-        if let refused = pairingRefusal() { return refused }
+        if let refused = pairingRefusal() { return (refused, []) }
         // 3 and 4: the library and the project
         let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
-        guard var library = prepared.library, let env = prepared.env else { return prepared.failure! }
+        guard var library = prepared.library, let env = prepared.env else { return (prepared.failure!, []) }
         let projectName = t("shell.projectStage")
 
         // 5: sign and build, with one retry under this team's own identifier
@@ -441,7 +452,7 @@ package struct ShellInstaller {
                 var out = Outcome(ok: false, message: fmt("dev.signFailed", why), step: .sign, failure: .appIDLimit)
                 out.detail = BuildFailureClassifier.appIDLimitReset(in: built.output)
                     ?? AppSignature.oldestFreeAppIDExpiry(forTeam: team, lang: lang) ?? ""
-                return out
+                return (out, [])
             }
             // Xcode follows a destination failure with reasons other destinations are ineligible.
             // Those entries can contain "error:" even though they do not describe the requested device.
@@ -451,7 +462,7 @@ package struct ShellInstaller {
             let why = destinationUnavailable ? t("shell.destinationUnavailable") : built.lastError ?? fmt("msg.exitCode", built.status)
             end(Self.signStageID, signName, ok: false, detail: why)
             let message = destinationUnavailable ? t("shell.destinationUnavailableNext") : fmt("dev.signFailed", why)
-            return Outcome(ok: false, message: message, step: .sign)
+            return (Outcome(ok: false, message: message, step: .sign), [])
         }
         end(Self.signStageID, signName, ok: true)
         // The identifier that signed is the one the device's app gets: stored once the signing passed, also when the sign without the
@@ -464,7 +475,7 @@ package struct ShellInstaller {
         // 6: install over the existing app, which keeps its Documents
         let app = ShellInstall.appPath(root: root)
         guard FileManager.default.fileExists(atPath: app) else {
-            return Outcome(ok: false, message: fmt("dev.noProject", app), step: .install)
+            return (Outcome(ok: false, message: fmt("dev.noProject", app), step: .install), [])
         }
         let installName = fmt("dev.installStage", deviceName)
         begin(Self.installStageID, installName)
@@ -473,17 +484,14 @@ package struct ShellInstaller {
         if installed.status != 0 {
             let why = installed.lastError ?? fmt("msg.exitCode", installed.status)
             end(Self.installStageID, installName, ok: false, detail: why)
-            return Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install)
+            return (Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install), [])
         }
         ShellLibrary.recordInstalled(root: root)
         end(Self.installStageID, installName, ok: true)
 
-        // 7: the game data, only what the device does not have yet
         var outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID)
         outcome.noMemoryCapability = noMemoryCapability
-        var result = copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID, outcome: outcome, appJoinsParts: true)
-        if result.ok, !prepared.notes.isEmpty { result.message = ([result.message] + prepared.notes).joined(separator: "\n") }
-        return result
+        return (outcome, prepared.notes)
     }
 
     /// Step 7 on its own, for a Retry after a copy that failed midway: the listing, the diff and the copy, nothing else. The app
@@ -502,7 +510,7 @@ package struct ShellInstaller {
         return Outcome(ok: false, message: fmt("shell.notPaired", deviceName), failure: .devicePairing)
     }
 
-    private func connection() -> ShellInstall.Connection {
+    func connection() -> ShellInstall.Connection {
         ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20, runner: runner))
     }
 
@@ -657,7 +665,7 @@ package struct ShellInstaller {
         return outcome
     }
 
-    private func copyPlan(files: Int, bytes: Int64, connection: ShellInstall.Connection) -> ShellCopyPlan {
+    func copyPlan(files: Int, bytes: Int64, connection: ShellInstall.Connection) -> ShellCopyPlan {
         let connectionText: String
         switch connection {
         case .network:

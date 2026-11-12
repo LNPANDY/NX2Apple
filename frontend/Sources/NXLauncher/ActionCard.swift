@@ -17,7 +17,13 @@ package struct ActionCard: View {
     }
 
     private var buildDisabled: Bool {
-        build.stopping || (!build.running && (!build.canBuild || build.keyProblem != nil))
+        build.stopping || (!build.running && !build.canStartBuildOrQueue)
+    }
+
+    private var buttonLabel: String {
+        if build.running { return loc.t(build.stopping ? "library.stopping" : "btn.stop") }
+        if build.hasQueuedBuilds { return loc.t("build.start") }
+        return build.done ? loc.t("btn.rebuild") : loc.t("build.startGame")
     }
 
     package var body: some View {
@@ -25,9 +31,9 @@ package struct ActionCard: View {
             statusText
             Spacer(minLength: 12)
             Button {
-                build.running ? build.stop() : build.startBuild()
+                build.running ? build.stop() : build.startBuildOrQueue()
             } label: {
-                Label(build.running ? loc.t(build.stopping ? "library.stopping" : "btn.stop") : (build.done ? loc.t("btn.rebuild") : loc.t("build.startGame")),
+                Label(buttonLabel,
                       systemImage: build.running ? "stop.fill" : "hammer.fill")
                     .font(.manrope(15, .semibold)).padding(.horizontal, 24).padding(.vertical, 13)
                     .foregroundStyle(build.running ? LauncherPalette.onBuilding : LauncherPalette.onCream).background(build.running ? LauncherPalette.building : LauncherPalette.cream, in: Capsule())
@@ -52,6 +58,13 @@ package struct ActionCard: View {
             Text(loc.t("status.installFirst")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
         } else if !repo.isRepo {
             Text(loc.t("status.chooseRepo")).font(.manrope(13)).foregroundStyle(LauncherPalette.building)
+        } else if build.hasQueuedBuilds {
+            if build.queueNeedsDevice {
+                Text(loc.t("shell.needsDevice")).font(.manrope(13)).foregroundStyle(LauncherPalette.building).lineLimit(3)
+            } else {
+                Text(String(format: loc.t("queue.readyStatus"), build.queuedCount))
+                    .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(2)
+            }
         } else if build.gameFolderRefused {
             Text(loc.t("status.fixFolder")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
         } else if !build.inputsReady {

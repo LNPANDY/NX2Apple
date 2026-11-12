@@ -33,9 +33,43 @@ import NXCore
                    outputDirectory: "/out", engineID: engine ?? "release-1", batch: batch, packageAfter: package)
     }
 
+    func testEnqueueWaitsForStartAndSurvivesARestartUnstarted() {
+        let q = store()
+        q.enqueue([entry("A"), entry("B")])
+        XCTAssertEqual(started, [], "adding games waits for Start build")
+        XCTAssertEqual(q.entries.map(\.status), [.queued, .queued])
+
+        let again = store()
+        XCTAssertFalse(again.awaitingResume, "an unstarted queue was not interrupted mid-build")
+        XCTAssertFalse(again.paused)
+        again.processNext()
+        XCTAssertEqual(started, [], "background ticks do not start a waiting queue on their own")
+
+        again.start(target: BuildTarget.ios, packageAfter: true)
+        XCTAssertEqual(started, ["A"])
+        XCTAssertEqual(again.entries.map(\.target), [BuildTarget.ios, BuildTarget.ios])
+        XCTAssertEqual(again.entries.map(\.packageAfter), [true, true])
+        XCTAssertEqual(Set(again.entries.map(\.batch)).count, 1)
+    }
+
+    func testAppendingWhileRunningInheritsActiveBatchTargetAndPackaging() {
+        let q = store()
+        q.enqueue([entry("A")])
+        q.start(target: BuildTarget.ios, packageAfter: true)
+        XCTAssertEqual(started, ["A"])
+        q.enqueue([entry("B")])   // added with default Mac/false while the iOS batch runs
+        XCTAssertEqual(q.entries[1].target, BuildTarget.ios)
+        XCTAssertTrue(q.entries[1].packageAfter)
+        XCTAssertEqual(q.entries[1].batch, q.entries[0].batch)
+        busy = false; q.buildEnded(succeeded: true)
+        busy = false; q.buildEnded(succeeded: true)
+        XCTAssertEqual(packaged, [["A", "B"]])
+    }
+
     func testEntriesBuildOneAfterTheOtherInOrder() {
         let q = store()
         q.enqueue([entry("A"), entry("B"), entry("C")])
+        q.start()
         XCTAssertEqual(started, ["A"])
         busy = false; q.buildEnded(succeeded: true)
         XCTAssertEqual(started, ["A", "B"])
@@ -50,6 +84,7 @@ import NXCore
         busy = true
         let q = store()
         q.enqueue([entry("A")])
+        q.start()
         XCTAssertEqual(started, [])
         busy = false; q.processNext()
         XCTAssertEqual(started, ["A"])
@@ -57,7 +92,8 @@ import NXCore
 
     func testMoveControlsStopAtTheBoundariesAndLeaveTheRunningEntryAlone() {
         let q = store()
-        q.enqueue([entry("A"), entry("B"), entry("C")])   // A runs
+        q.enqueue([entry("A"), entry("B"), entry("C")])
+        q.start()   // A runs
         let b = q.entries[1].id, c = q.entries[2].id, a = q.entries[0].id
         XCTAssertFalse(q.canMoveUp(b)); XCTAssertTrue(q.canMoveDown(b))
         XCTAssertFalse(q.canMoveDown(c)); XCTAssertTrue(q.canMoveUp(c))
@@ -75,6 +111,7 @@ import NXCore
     func testCancelQueuedKeepsTheRunningEntryAndTheResults() {
         let q = store()
         q.enqueue([entry("A"), entry("B"), entry("C")])
+        q.start()
         q.cancelQueued()
         XCTAssertEqual(q.entries.map(\.titleID), ["A"])
         busy = false; q.buildEnded(succeeded: true)
@@ -85,6 +122,7 @@ import NXCore
     func testStopEndsTheRunningBuildAndPausesTheQueueUntilResume() {
         let q = store()
         q.enqueue([entry("A"), entry("B")])
+        q.start()
         busy = false; q.buildEnded(succeeded: false, reason: "Stopped", stopped: true)
         XCTAssertTrue(q.paused)
         XCTAssertEqual(started, ["A"], "the next game does not start")
@@ -98,6 +136,7 @@ import NXCore
     func testAPausedQueueIsStillPausedAfterARestartAndStartsNothing() {
         let q = store()
         q.enqueue([entry("A"), entry("B")])
+        q.start()
         busy = false; q.buildEnded(succeeded: false, reason: "Stopped", stopped: true)
         started = []
         let again = store()
@@ -112,6 +151,7 @@ import NXCore
     func testAFailureThatIsNotAStopKeepsTheQueueGoing() {
         let q = store()
         q.enqueue([entry("A"), entry("B")])
+        q.start()
         busy = false; q.buildEnded(succeeded: false, reason: "no keys")
         XCTAssertFalse(q.paused)
         XCTAssertEqual(started, ["A", "B"])
@@ -119,7 +159,8 @@ import NXCore
 
     func testQueueSurvivesARestartAndAsksBeforeStartingAgain() {
         let q = store()
-        q.enqueue([entry("A"), entry("B")])   // A running, B waiting, then the app quits
+        q.enqueue([entry("A"), entry("B")])
+        q.start()   // A running, B waiting, then the app quits
         started = []; busy = false
         let again = store()
         XCTAssertTrue(again.awaitingResume)
@@ -133,8 +174,10 @@ import NXCore
     func testEntryBuiltUnderAnotherEngineIsSkippedWithItsReasonNotRebuiltWithTheNewOne() {
         let q = store()
         q.enqueue([entry("A", engine: "release-1")])
+        q.start()
         busy = false; q.buildEnded(succeeded: true)
         q.enqueue([entry("B", engine: "release-1"), entry("C", engine: "release-2")])
+        q.start()
         engine = "release-2"; busy = false
         q.buildEnded(succeeded: true)   // B was running under release-1 when the engine changed
         XCTAssertEqual(q.entries.first { $0.titleID == "C" }?.status, .running)
@@ -143,6 +186,7 @@ import NXCore
         engine = "release-3"
         busy = false; q.buildEnded(succeeded: true)
         q.enqueue([entry("D", engine: "release-2")])
+        q.start()
         XCTAssertEqual(q.entries.first { $0.titleID == "D" }?.status, .skipped)
         XCTAssertEqual(q.entries.first { $0.titleID == "D" }?.reason, "engine changed")
     }
@@ -151,6 +195,7 @@ import NXCore
         refuse = ["A"]
         let q = store()
         q.enqueue([entry("A"), entry("B")])
+        q.start()
         XCTAssertEqual(q.entries.map(\.status), [.skipped, .running])
         XCTAssertEqual(q.entries[0].reason, "refused")
     }
@@ -159,6 +204,7 @@ import NXCore
         let batch = UUID()
         let q = store()
         q.enqueue([entry("A", batch: batch, package: true), entry("B", batch: batch, package: true), entry("C", batch: batch, package: true)])
+        q.start()
         busy = false; q.buildEnded(succeeded: true)
         busy = false; q.buildEnded(succeeded: false, reason: "failed")
         XCTAssertEqual(packaged, [])
@@ -171,10 +217,12 @@ import NXCore
         q.enqueue([entry("A"), entry("B")])
         q.enqueue([entry("B")])
         XCTAssertEqual(q.entries.count, 2)
+        q.start()
         busy = false; q.buildEnded(succeeded: true)
         busy = false; q.buildEnded(succeeded: true)
         q.enqueue([entry("C")])
         XCTAssertEqual(q.entries.map(\.titleID), ["C"])
+        XCTAssertEqual(q.entries.map(\.status), [.queued])
     }
 
     func testInputSummaryNamesTheRowsThatHaveFiles() {

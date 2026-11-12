@@ -26,6 +26,8 @@ import NXModel
     let queue: BuildQueueStore
     /// The transfer queue (#1036): game data on its way to devices, beside any build.
     let transfers: TransferQueueStore
+    /// Set by `BuildRecorder` so a finished queued build is recorded in `GameLibrary` before the next queued game overwrites `BuildStore`.
+    var settleFinishedBuild: () -> Void = {}
     private var transferWatch: AnyCancellable?
     private var queueWatch: AnyCancellable?
     let players: PlayerProfileStore
@@ -92,6 +94,7 @@ import NXModel
             file: queueFile, engineID: { engineSync.selection.engineID }, busy: { build.running },
             start: { build.startQueued($0) }, packageBatch: { _ in build.packageDeferred() }, engineChangedReason: { localizer.t("queue.engineChanged") })
         self.queue = queue
+        build.queue = queue
         let transferFile = queueFile?.deletingLastPathComponent().appendingPathComponent("transfer-queue.json")
         let transfers = TransferQueueStore(
             file: transferFile,
@@ -108,22 +111,28 @@ import NXModel
                     devices.refresh()
                 }
             }
+        self.saveSettings = SaveSettingsStore(defaults: defaults)
+        self.sticks = StickDeadzoneStore(defaults: defaults)
+        self.players = PlayerProfileStore(defaults: defaults, defaultName: { localizer.t("players.default") })
         // A build that ended settles the queue's running entry and starts the next. The hop lets the install step that follows a
         // build raise `running` again first (the BuildRecorder waits the same way).
-        queueWatch = build.$running.removeDuplicates().sink { [weak build, weak queue] running in
+        queueWatch = build.$running.removeDuplicates().sink { [weak self, weak build, weak queue] running in
             guard !running else { return }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let build, let queue, !build.running, queue.running != nil else { return }
+                    self?.settleFinishedBuild()
                     let outcome = build.queueOutcome
+                    build.activeQueuedGameID = nil
                     queue.buildEnded(succeeded: outcome.succeeded, reason: outcome.reason, stopped: outcome.stopped)
-                    if queue.running == nil { build.deferShellPackaging = false }
+                    if queue.running == nil {
+                        build.deferShellPackaging = false
+                        build.queuedExportIPA = nil
+                        build.queuedExportOneGame = nil
+                    }
                 }
             }
         }
-        self.saveSettings = SaveSettingsStore(defaults: defaults)
-        self.sticks = StickDeadzoneStore(defaults: defaults)
-        self.players = PlayerProfileStore(defaults: defaults, defaultName: { localizer.t("players.default") })
 
         // The staged update goes in as the app quits, so the next launch is the new version without interrupting anyone.
         quitObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { [weak updates] _ in

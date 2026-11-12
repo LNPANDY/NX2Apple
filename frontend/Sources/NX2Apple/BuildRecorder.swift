@@ -26,6 +26,25 @@ import NXLauncher
         build = stores.build; self.library = library; engine = stores.engineSync
         repoPath = { [repo = stores.repo] in repo.path }
         self.activeBuildID = activeBuildID
+        stores.settleFinishedBuild = { [weak self] in self?.settleBeforeNextQueuedBuild() }
+        build.onBatchShellInstalled = { [weak self] games, app, device in
+            guard let self else { return }
+            for item in games {
+                let found = item.gameID.flatMap { id in self.library.games.first { $0.id == id } }
+                    ?? self.library.games.first { $0.titleID.caseInsensitiveCompare(item.titleID) == .orderedSame }
+                if let game = found {
+                    let commit = game.toolsCommit.isEmpty ? self.buildCommit : game.toolsCommit
+                    self.library.recordCompletedIOS(archive: item.archive, app: app, device: device, commit: commit, for: game.id)
+                }
+            }
+            self.library.recordSharedAppInstalled(app: app, device: device)
+            self.recorded.send()
+        }
+        build.onBuiltGamesInstalled = { [weak self] app, device in
+            guard let self else { return }
+            self.library.recordSharedAppInstalled(app: app, device: device)
+            self.recorded.send()
+        }
         build.$running.removeDuplicates().sink { [weak self] in self?.runningChanged($0) }.store(in: &watching)
         build.$done.removeDuplicates().sink { [weak self] done in
             if done { DispatchQueue.main.async { self?.record() } }
@@ -58,10 +77,23 @@ import NXLauncher
         }
     }
 
+    private func settleBeforeNextQueuedBuild() {
+        if build.done { record() }
+        activeBuildID = nil
+    }
+
     private func record() {
         guard build.done, build.buildingGame, let id = activeBuildID else { return }
-        if build.runningTarget == BuildTarget.mac { library.recordCompletedApp(path: build.macAppPath, commit: buildCommit, for: id) }
-        else { library.recordCompletedIOS(archive: build.archivePath, app: build.installedAppPath, device: build.installedOn, commit: buildCommit, for: id) }
+        if build.runningTarget == BuildTarget.mac {
+            library.recordCompletedApp(path: build.macAppPath, commit: buildCommit, for: id)
+        } else if !build.installedAppPath.isEmpty {
+            library.recordCompletedIOS(archive: build.archivePath, app: build.installedAppPath, device: build.installedOn, commit: buildCommit, for: id)
+        } else if !build.archivePath.isEmpty, var game = library.games.first(where: { $0.id == id }) {
+            game.archivePath = build.archivePath
+            game.lastTarget = BuildTarget.ios
+            if !buildCommit.isEmpty { game.toolsCommit = buildCommit }
+            library.upsert(game)
+        }
         recorded.send()
     }
 }
