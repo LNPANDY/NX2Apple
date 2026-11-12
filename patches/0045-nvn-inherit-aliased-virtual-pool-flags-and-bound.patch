@@ -1,0 +1,522 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Fri, 13 Nov 2026 05:29:58 +0800
+Subject: [PATCH] nvn: inherit aliased virtual pool flags and bound sampler
+ pool IDs
+
+Two NVN issues found when bringing up Super Mario Party (010036B0034E4000):
+
+1. Aliased virtual memory pools (vmode == 1) now keep the physical backing pool storage flags in host_flags (read via pool_host_flags) for texture initial fills, storage uploads, and FlushMappedRange dirty tracking, while nvnBufferMap and nvnMemoryPoolMap still inspect the virtual pool flags so CPU_NO_ACCESS remains enforced. If any texture, buffer, or pool GPU address is obtained before the first MapVirtual call, vpool_note_used marks the pool used so MapVirtual preserves sparse mode (vmode == 2) instead of aliasing over it. Frame capture and replay preserve host_flags.
+
+2. nvnSamplerPoolInitialize now records the sampler pool capacity via mtl_set_samp_pool_n, and samp_by_id treats out-of-range sentinel sampler IDs (such as 4095) as empty slots returning nil without [RED] errors, while in-pool unregistered IDs still report [RED]. Frame capture and replay preserve samp_pool_n. dm_gfx_teardown also resets g_spool_n and g_stat_samp_oob between iOS shell game sessions.
+
+Includes regression test dm/gfx/tests/t_vpool_alias.m covering uncached (0x22) and cached (0x24) aliased texture uploads, pre-mapping vmode == 2 preservation, and sampler pool capacity bounds.
+
+Upstream-Status: forwarded seedds/nxnative#2519
+Reason: Inherit physical pool storage flags on 1:1 aliased virtual pools, guard pre-mapping pool use, bound out-of-range sampler pool IDs, and reset sampler pool state across iOS shell game teardowns.
+Issue: seedds/nxnative#2513
+---
+ dm/gfx/nvn/hle_nvn.c         |  32 ++++----
+ dm/gfx/nvn/nvn_capture.h     |   2 +-
+ dm/gfx/nvn/nvn_capture.inc   |   4 +-
+ dm/gfx/nvn/nvn_mtl.m         |  28 ++++---
+ dm/gfx/nvn/nvn_obj.h         |   4 +-
+ dm/gfx/tests/Makefile        |   6 ++
+ dm/gfx/tests/nvn_replay.m    |   3 +-
+ dm/gfx/tests/t_vpool_alias.m | 144 +++++++++++++++++++++++++++++++++++
+ 8 files changed, 195 insertions(+), 28 deletions(-)
+ create mode 100644 dm/gfx/tests/t_vpool_alias.m
+
+diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
+index 5a92d5d3..013ccbe0 100644
+--- a/dm/gfx/nvn/hle_nvn.c
++++ b/dm/gfx/nvn/hle_nvn.c
+@@ -252,10 +252,10 @@ NVN(nvnMemoryPoolBuilderSetDefaults, void, NVNmemoryPoolBuilder *b) { memset(b,
+ NVN(nvnMemoryPoolBuilderSetDevice, void, NVNmemoryPoolBuilder *b, NVNdevice *d) { ((pool_builder_t *)b)->dev = d; }
+ NVN(nvnMemoryPoolBuilderSetStorage, void, NVNmemoryPoolBuilder *b, void *m, size_t n) { ((pool_builder_t *)b)->mem = m; ((pool_builder_t *)b)->size = n; }
+ NVN(nvnMemoryPoolBuilderSetFlags, void, NVNmemoryPoolBuilder *b, int f) { ((pool_builder_t *)b)->flags = f; }
+-static uint8_t *vpool_reserve(pool_t *o); static void vpool_release(pool_t *o);   // sparse virtual pools, see MapVirtual
++static uint8_t *vpool_reserve(pool_t *o); static void vpool_release(pool_t *o); static void vpool_note_used(const pool_t *o);   // sparse virtual pools, see MapVirtual
+ NVN(nvnMemoryPoolInitialize, NVNboolean, NVNmemoryPool *p, const NVNmemoryPoolBuilder *b) {
+     const pool_builder_t *s = (const pool_builder_t *)b; pool_t *o = (pool_t *)p;
+-    o->magic = MAGIC('P', 'O', 'O', 'L'); o->flags = s->flags; o->mem = s->mem; o->size = s->size; o->vp = NULL; o->vmode = 0;
++    o->magic = MAGIC('P', 'O', 'O', 'L'); o->flags = s->flags; o->mem = s->mem; o->size = s->size; o->vp = NULL; o->vmode = 0; o->host_flags = s->flags;
+     if (!o->mem && (o->flags & 0x200)) { uint8_t *vr = vpool_reserve(o); if (vr) o->mem = vr; }   // a virtual pool's own address range until its first mapping decides (see MapVirtual)
+     else if (o->mem) { mtl_pool_add(o->mem, o->size); nvn_dirty_add_range(o->mem, o->size); }
+     if (o->mem && !(o->flags & 0x200)) dm_device_share(o->mem, o->size, 1);   // the GPU maps the storage: the host refuses to unmap it until Finalize, as Horizon does (hle_svc.c)
+@@ -276,11 +276,11 @@ static void ft_flush(const uint8_t *a, uint64_t n);
+ NVN(nvnMemoryPoolFlushMappedRange, void, const NVNmemoryPool *p, ptrdiff_t off, size_t n) {   // see ft_add and nvn_flushed
+     const pool_t *o = (const pool_t *)p;
+     if (!o->mem) return;
+-    if (!(o->flags & 0x200)) fl_add(o->mem + off, n);
++    if (!(pool_host_flags(o) & 0x200)) fl_add(o->mem + off, n);
+     ft_flush(o->mem + off, n);
+ }
+ // A GPU address exists only once the driver has given one: here, by a buffer (nvnBufferInitialize) or by a texture (nvnTextureGetTextureAddress). Raw global memory can reach only what these name (mtl_pool_addressed)
+-static void pool_mark_addressed(const pool_t *o) { static __thread const uint8_t *last; if (o->mem && o->mem != last) { last = o->mem; mtl_pool_addressed(o->mem, o->size); } }
++static void pool_mark_addressed(const pool_t *o) { vpool_note_used(o); static __thread const uint8_t *last; if (o->mem && o->mem != last) { last = o->mem; mtl_pool_addressed(o->mem, o->size); } }
+ NVN(nvnMemoryPoolGetBufferAddress, NVNbufferAddress, const NVNmemoryPool *p) { pool_mark_addressed((const pool_t *)p); return (NVNbufferAddress)((const pool_t *)p)->mem; }
+ 
+ // ---------- Descriptor pools ----------
+@@ -323,7 +323,7 @@ NVN(nvnTexturePoolRegisterImage, void, const NVNtexturePool *tp, int id, const N
+     mtl_reg_image(dpool_base(g_tpb, g_ntpb, tp) + id, (const tex_t *)t, (const view_t *)v);
+ }
+ NVN(nvnSamplerPoolInitialize, NVNboolean, NVNsamplerPool *sp, const NVNmemoryPool *p, ptrdiff_t off, int n) {
+-    *(dpool_t *)sp = (dpool_t){(const pool_t *)p, off, n}; OLOG("SamplerPool n=%d", n); dpool_add(g_spb, &g_nspb, &g_snext, sp, n, "sampler"); return 1;
++    *(dpool_t *)sp = (dpool_t){(const pool_t *)p, off, n}; OLOG("SamplerPool n=%d", n); dpool_add(g_spb, &g_nspb, &g_snext, sp, n, "sampler"); mtl_set_samp_pool_n(g_snext); return 1;
+ }
+ NVN(nvnSamplerPoolFinalize, void, NVNsamplerPool *sp) { (void)sp; }
+ NVN(nvnSamplerPoolRegisterSampler, void, const NVNsamplerPool *sp, int id, const NVNsampler *s) { mtl_reg_samp(dpool_base(g_spb, g_nspb, sp) + id, &((const samp_t *)s)->p); }
+@@ -436,7 +436,7 @@ static void ft_add(const tex_t *t) {
+     // background never appeared). A CPU_NO_ACCESS pool keeps the exclusion: there the compression tags may really be there.
+     // A sparse pool's addresses are no memory the CPU writes or flushes, and no range nvn_dirty tracks, so they read as dirty at once: every texture in one, a render target too, came out CPU-written at its first
+     // use in a profile with tex_dirty_upload. What the CPU wrote into the physical pages behind one is seen through the page table instead (tex_from_storage, sparse_look)
+-    if (!dm_prof()->tex_flush_upload || !t->mem || !t->pool || t->pool->vp || t->has_layout || t->d.target == NVN_TEXTURE_TARGET_BUFFER || (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ||
++    if (!dm_prof()->tex_flush_upload || !t->mem || !t->pool || t->pool->vp || t->has_layout || t->d.target == NVN_TEXTURE_TARGET_BUFFER || (pool_host_flags(t->pool) & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) ||
+         (t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET))) return;
+     flush_tex f = {t->mem, t->L.size, *t, nvn_dirty_now(), NULL, {0, 0}, 0};
+     if (dm_prof()->tex_dirty_upload) nvn_dirty_protect(t->mem, t->L.size);   // see nvn_ft_written
+@@ -592,6 +592,7 @@ NVN(nvnTextureInitialize, NVNboolean, NVNtexture *t, const NVNtextureBuilder *b)
+     o->magic = MAGIC('T', 'E', 'X', 0); o->d = s->d; o->pool = s->pool; o->off = s->off;
+     o->has_layout = s->has_layout; memcpy(o->layout, s->layout, 8); o->set_swz = s->set_swz; o->stencil = s->stencil; o->swz = s->swz;
+     nvn_tex_layout(&o->d, &o->L);
++    if (s->pool && s->pool->mem) vpool_note_used(s->pool);
+     o->mem = s->pool && s->pool->mem ? s->pool->mem + s->off : NULL;
+     o->serial = nvn_new_serial(); mtl_tex_init(o);
+     {   // DM_NVN_TEXINFO=WxH also logs every texture of that size as it is initialized (render targets included): which ones share storage, and how their descriptions differ
+@@ -625,7 +626,7 @@ NVN(nvnTextureGetSamples, int, const NVNtexture *t) { return CTX(t)->d.samples;
+ NVN(nvnTextureGetMemoryPool, NVNmemoryPool *, const NVNtexture *t) { return (NVNmemoryPool *)CTX(t)->pool; }
+ NVN(nvnTextureGetMemoryOffset, ptrdiff_t, const NVNtexture *t) { return (ptrdiff_t)CTX(t)->off; }
+ // The GPU address of the texture's storage (DRAGON QUEST XI S, Unreal Engine 4.18, asks for it at start): pool address + offset, the same address space as nvnMemoryPoolGetBufferAddress
+-NVN(nvnTextureGetTextureAddress, NVNtextureAddress, const NVNtexture *t) { const tex_t *o = CTX(t); if (o->pool) mtl_pool_addressed(o->pool->mem + o->off, o->L.size ? o->L.size : 1); return o->pool ? (NVNtextureAddress)(o->pool->mem + o->off) : 0; }
++NVN(nvnTextureGetTextureAddress, NVNtextureAddress, const NVNtexture *t) { const tex_t *o = CTX(t); if (o->pool) { vpool_note_used(o->pool); mtl_pool_addressed(o->pool->mem + o->off, o->L.size ? o->L.size : 1); } return o->pool ? (NVNtextureAddress)(o->pool->mem + o->off) : 0; }
+ // The size of a texture's ZCull save area (SaveZCullData / RestoreZCullData). The host does no ZCull and never touches the area, but games allocate it from their own pools, and NVN
+ // does not report 0. Cuphead (Unity 2017.4) allocates one per depth target (main+0x1948060) from its pool allocator, which gives a zero-size request the offset of a live block; its
+ // map of allocations then loses that block (the zero-size one's size overwrites it, and freeing the zero-size one deletes it), and the block's own free later pushes a garbage-sized
+@@ -1032,6 +1033,7 @@ NVN(nvnCommandBufferAddCommandMemory, void, NVNcommandBuffer *c, const NVNmemory
+     if (pl) __atomic_store_n(&CB(c)->cmd_size, n, __ATOMIC_RELAXED);   // GetCommandMemorySize: the memory the game added, whether the host records into it or into a segment it lends
+     if (!pl || n < 64) { if (cs_on()) { pthread_mutex_lock(&g_cs_mu); g_cs.hostseg++; pthread_mutex_unlock(&g_cs_mu); } size_t sz = hostseg_size(CB(c), !pl, n); cmd_new_segment(CB(c), hostseg_take(CB(c), sz), sz); return; }
+     if (!pl->mem) { LOG("[RED] AddCommandMemory: pool has no CPU storage"); return; }
++    vpool_note_used(pl);
+     hostseg_release((uintptr_t)(pl->mem + off), (uintptr_t)(pl->mem + off + n));
+     if (cs_on()) { pthread_mutex_lock(&g_cs_mu); g_cs.grants++; g_cs.grant_bytes += n; if (!g_cs.grant_min || n < g_cs.grant_min) g_cs.grant_min = n; if (n > g_cs.grant_max) g_cs.grant_max = n; pthread_mutex_unlock(&g_cs_mu); }
+     { static int cblog = -1; if (cblog < 0) cblog = getenv("DM_NVN_CBLOG") != NULL; static uint64_t ng; if (cblog && (++ng <= 60 || ng % 500 == 0)) LOG("[nvn] AddCommandMemory #%llu cmd=%p pool %p +%#lx length %#zx (recording %d)", (unsigned long long)ng, (void *)c, (const void *)pl, (long)off, n, CB(c)->recording); }
+@@ -2630,11 +2632,11 @@ NVN(nvnBufferInitialize, NVNboolean, NVNbuffer *buf, const NVNbufferBuilder *b)
+ }
+ NVN(nvnBufferFinalize, void, NVNbuffer *buf) { ((buf_t *)buf)->magic = 0; }
+ NVN(nvnBufferSetDebugLabel, void, NVNbuffer *buf, const char *s) { (void)buf; (void)s; }
+-NVN(nvnBufferGetAddress, NVNbufferAddress, const NVNbuffer *buf) { return (NVNbufferAddress)(BF(buf)->pool->mem + BF(buf)->off); }
++NVN(nvnBufferGetAddress, NVNbufferAddress, const NVNbuffer *buf) { vpool_note_used(BF(buf)->pool); return (NVNbufferAddress)(BF(buf)->pool->mem + BF(buf)->off); }
+ // A buffer or pool the CPU has no access to (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) maps to NULL, as in NVN, though the host's storage is CPU memory: EA SPORTS FC 27's Frostbite
+ // renderer takes a buffer's GPU address as GetAddress + (its data pointer − Map), with a null data pointer for such a buffer (OpcodeCopySubresource), so a real pointer made the
+ // copy's destination address 0 (FATAL buffer copy address is in no memory pool)
+-NVN(nvnBufferMap, void *, const NVNbuffer *buf) { return BF(buf)->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS ? NULL : BF(buf)->pool->mem + BF(buf)->off; }
++NVN(nvnBufferMap, void *, const NVNbuffer *buf) { const pool_t *p = BF(buf)->pool; if (p->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) return NULL; vpool_note_used(p); return p->mem + BF(buf)->off; }
+ NVN(nvnBufferGetSize, size_t, const NVNbuffer *buf) { return (size_t)BF(buf)->size; }
+ NVN(nvnBufferGetMemoryPool, NVNmemoryPool *, const NVNbuffer *buf) { return (NVNmemoryPool *)BF(buf)->pool; }
+ NVN(nvnBufferGetMemoryOffset, ptrdiff_t, const NVNbuffer *buf) { return (ptrdiff_t)BF(buf)->off; }
+@@ -2643,7 +2645,7 @@ NVN(nvnBufferInvalidateMappedRange, void, const NVNbuffer *buf, ptrdiff_t off, s
+ 
+ // Memory pool queries
+ NVN(nvnMemoryPoolGetFlags, NVNmemoryPoolFlags, const NVNmemoryPool *p) { return (NVNmemoryPoolFlags)((const pool_t *)p)->flags; }
+-NVN(nvnMemoryPoolMap, void *, const NVNmemoryPool *p) { return ((const pool_t *)p)->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS ? NULL : ((const pool_t *)p)->mem; }   // NULL without CPU access (nvnBufferMap)
++NVN(nvnMemoryPoolMap, void *, const NVNmemoryPool *p) { const pool_t *o = (const pool_t *)p; if (o->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) return NULL; vpool_note_used(o); return o->mem; }   // NULL without CPU access (nvnBufferMap)
+ NVN(nvnMemoryPoolGetSize, size_t, const NVNmemoryPool *p) { return (size_t)((const pool_t *)p)->size; }
+ NVN(nvnMemoryPoolInvalidateMappedRange, void, const NVNmemoryPool *p, ptrdiff_t off, size_t n) { (void)p; (void)off; (void)n; }
+ NVN(nvnMemoryPoolSetDebugLabel, void, NVNmemoryPool *p, const char *s) { (void)p; (void)s; }
+@@ -2677,13 +2679,14 @@ _Static_assert(sizeof(map_req) == 0x28, "NVNmappingRequest");
+ // mapping) and the later mappings were refused (`[RED] MapVirtual: non-contiguous mapping`). A pool larger than the application pool is sparse from the start
+ enum { VPT_LEAF = 512 };   // a page-table leaf covers 2 MB
+ typedef struct { const uint8_t *phys; uint64_t gen; uint32_t live; } vpte;   // live: the page has been mapped and may still be under a zero-copy buffer the GPU uses (see vunmap_defer)
+-struct vpool { const pool_t *pool; uint8_t *base; uint64_t len, size, top; int nrun; struct vrun { uint64_t lo, hi; } *run; vpte **pt; struct vlog_ent *log; _Atomic uint64_t nlog; };   // len: reserved; size: the pool's; top: highest mapped end so far (logged per 128 MB)
++struct vpool { const pool_t *pool; uint8_t *base; uint64_t len, size, top; int nrun, used; struct vrun { uint64_t lo, hi; } *run; vpte **pt; struct vlog_ent *log; _Atomic uint64_t nlog; };   // len: reserved; size: the pool's; top: highest mapped end so far (logged per 128 MB)
+ struct vlog_ent { uint64_t off, len; };   // a mapping request: the pool's change log (nvn_sparse_log_read), kept once a placement sparse texture asks for it
+ enum { VLOG_N = 4096 };
+ static struct vpool **g_vp; static int g_nvp, g_cvp;   // the pools with a range of their own, under g_vp_mu
+ static pthread_mutex_t g_vp_mu = PTHREAD_MUTEX_INITIALIZER;
+ static _Atomic uint64_t g_vp_gen;   // bumped per mapping request
+ static struct vpool *vpool_of(const pool_t *o) { return o->vp; }
++static void vpool_note_used(const pool_t *o) { if (!o || !o->vp || o->vmode != 0) return; pthread_mutex_lock(&g_vp_mu); if (o->vp && o->vmode == 0) o->vp->used = 1; pthread_mutex_unlock(&g_vp_mu); }
+ static uint8_t *vpool_reserve(pool_t *o) {   // → the reserved range, or NULL
+     if (!(o->flags & 0x200)) return NULL;
+ #if TARGET_OS_IPHONE   // 1 GB: Monster Hunter Rise's buffers stay under 0x20100000 through its opening, its textures (32 GB in) are read through the page table, and 4 GB guest + 1 GB stays near the 5 GB proven on a phone
+@@ -2839,8 +2842,11 @@ NVN(nvnMemoryPoolMapVirtual, NVNboolean, NVNmemoryPool *p, int n, const NVNmappi
+     pool_t *o = (pool_t *)p; const map_req *r = (const map_req *)rq;
+     pthread_mutex_lock(&g_vp_mu);
+     if (o->vp && o->vmode == 0 && n > 0) {   // the first mapping decides (see the sparse pools above)
+-        if (r[0].phys && r[0].voff == 0 && r[0].size == o->size) { vpool_drop(o); o->mem = NULL; o->vmode = 1; }
+-        else o->vmode = 2;
++        const pool_t *ph0 = (const pool_t *)r[0].phys;
++        if (!o->vp->used && n == 1 && ph0 && ph0->mem && r[0].voff == 0 && r[0].size == o->size
++            && r[0].poff >= 0 && r[0].size <= ph0->size && (uint64_t)r[0].poff <= ph0->size - r[0].size) {
++            vpool_drop(o); o->mem = NULL; o->vmode = 1; o->host_flags = pool_host_flags(ph0);
++        } else o->vmode = 2;
+     }
+     struct vpool *v = o->vmode == 2 ? vpool_of(o) : NULL; int ok = 1;
+     if (g_nvun) vunmap_run(0);   // pages kept by earlier unmaps whose work has completed
+diff --git a/dm/gfx/nvn/nvn_capture.h b/dm/gfx/nvn/nvn_capture.h
+index 1518f924..60bbc6c2 100644
+--- a/dm/gfx/nvn/nvn_capture.h
++++ b/dm/gfx/nvn/nvn_capture.h
+@@ -61,7 +61,7 @@ static inline uint64_t cap_obj_index(uint64_t v) { return v & ((1ull << 56) - 1)
+ // Chunk payloads
+ typedef struct { uint32_t index, kind; uint64_t old_lo, size; } cap_regn;   // kind 0: pool storage, 1: memory a record points to outside the pools (deferred handles, event words)
+ typedef struct { uint64_t mem, size; } cap_padd;                             // mem: CAP_ADDR
+-typedef struct { uint32_t index, flags; uint64_t mem, size; int32_t vmode, pad; } cap_pobj;
++typedef struct { uint32_t index, flags; uint64_t mem, size; int32_t vmode; uint32_t host_flags; } cap_pobj;
+ // ok: bit i = stage i has a key; iface[s]: fingerprint of the bindings and vertex inputs the replay layer resolved for NVN stage s (0 = none), so a replay
+ // whose translated shaders take other bindings than the records were made for stops (nvn_replay) instead of drawing with them
+ typedef struct { uint32_t index, nstage; uint64_t serial; uint8_t key[6][8]; uint8_t ok, pad[7]; uint64_t iface[6]; } cap_prog;
+diff --git a/dm/gfx/nvn/nvn_capture.inc b/dm/gfx/nvn/nvn_capture.inc
+index 4228aded..0b187991 100644
+--- a/dm/gfx/nvn/nvn_capture.inc
++++ b/dm/gfx/nvn/nvn_capture.inc
+@@ -129,7 +129,7 @@ static uint64_t cap_pool_obj(const pool_t *p) {
+     uint8_t k[8 + sizeof(pool_t)]; memcpy(k, &p, 8); memcpy(k + 8, p, sizeof *p);
+     void *have = nvn_hm_get(&g_cap_pool, k); if (have) return cap_obj(CAP_K_POOL, (uint64_t)(uintptr_t)have - 1);
+     uint32_t idx = g_cap_npool++; nvn_hm_put(&g_cap_pool, k, (void *)(uintptr_t)(idx + 1));
+-    cap_pobj o = {idx, p->flags, (uint64_t)(uintptr_t)p->mem, p->size, p->vmode, 0};
++    cap_pobj o = {idx, p->flags, (uint64_t)(uintptr_t)p->mem, p->size, p->vmode, p->host_flags};
+     if (p->vmode == 2) cap_fail("a sparse virtual pool (step 1 does not capture page tables)");
+     cap_enc_addr(NULL, &o.mem, 0, 0); cap_buf_put(&g_cap_pobj, &o, sizeof o);
+     return cap_obj(CAP_K_POOL, idx);
+@@ -347,7 +347,7 @@ static void cap_head(void) {
+ #undef KV
+     cap_put(&g_cap_w, CAP_HEAD, 0, h.p, h.n, 0); cap_buf_free(&h);
+     const char *lay = cap_layout(); cap_put(&g_cap_w, CAP_LAYT, 0, lay, strlen(lay), 0);
+-    snprintf(line, sizeof line, "tex_pool_n\t%d\norigin_ll\t%d\nqueue_origin_ll\t%d\ndepth_zero\t%d\n", g_tpool_n, atomic_load(&g_origin_ll), g_queue_origin_ll, atomic_load(&g_depth_zero));
++    snprintf(line, sizeof line, "tex_pool_n\t%d\nsamp_pool_n\t%d\norigin_ll\t%d\nqueue_origin_ll\t%d\ndepth_zero\t%d\n", g_tpool_n, g_spool_n, atomic_load(&g_origin_ll), g_queue_origin_ll, atomic_load(&g_depth_zero));
+     cap_put(&g_cap_w, CAP_STAT, 0, line, strlen(line), 0);
+ }
+ static void cap_pools(uint32_t submit) {   // regions for pools not covered yet (all of them at submit 1), and the replay layer's pool list
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 49938ad8..4aa8feab 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -414,7 +414,7 @@ - (void)dealloc { rh_wait(heap); atomic_fetch_sub(&g_image_heap_n, 1); }
+ // the host holds of it (tex_init_fill) or zeroed, as a new allocation is. NVN asks no flag of a render target (Mario Kart World's resized targets include some without COMPRESSIBLE),
+ // so the test is the Metal usage the host gives it: a texture of a block-compressed format, which is an asset the game copied in, keeps an allocation of its own and so its exact size
+ static id<MTLTexture> rh_texture(const tex_t *t, MTLTextureDescriptor *d) {
+-    if (!t->pool || !(t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) || !(d.usage & (MTLTextureUsageRenderTarget | MTLTextureUsageShaderWrite))
++    if (!t->pool || !(pool_host_flags(t->pool) & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) || !(d.usage & (MTLTextureUsageRenderTarget | MTLTextureUsageShaderWrite))
+         || (t->d.flags & (NVN_TEXTURE_FLAGS_DISPLAY | NVN_TEXTURE_FLAGS_VIDEO_DECODE | NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_SPARSE | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET))) return nil;
+     return rh_place(d);
+ }
+@@ -3918,9 +3918,9 @@ static int mem_any(const uint8_t *p, uint64_t n) {   // whether any byte is non-
+     return 0;
+ }
+ static int tex_init_fill(const tex_t *t, id<MTLTexture> mt) {
+-    if (!t->mem || !t->pool || (t->pool->flags & NVN_MEMORY_POOL_FLAGS_VIRTUAL) || t->has_layout) return 0;
++    if (!t->mem || !t->pool || (pool_host_flags(t->pool) & NVN_MEMORY_POOL_FLAGS_VIRTUAL) || t->has_layout) return 0;
+     if (t->d.samples > 1 || ((int)mt.pixelFormat >= 250 && (int)mt.pixelFormat <= 262)) return 0;   // 250..262: Depth16Unorm … X24_Stencil8 (some names are macOS-only)
+-    int no_cpu = (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) != 0, uncached = (t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_UNCACHED) != 0;
++    int no_cpu = (pool_host_flags(t->pool) & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) != 0, uncached = (pool_host_flags(t->pool) & NVN_MEMORY_POOL_FLAGS_CPU_UNCACHED) != 0;
+     // COMPRESSIBLE is a memory-compression hint, not a data format. In a CPU_NO_ACCESS pool the game never writes the storage, so the memory may mean nothing to the CPU (Rhythm Heaven Groove's render
+     // targets). In a pool the CPU writes the texels are plain: SD GUNDAM G GENERATION CROSS RAYS (SDK 9.4.1) sets it on every texture it creates in 0xa2 pools and writes ordinary texels into them,
+     // and skipping the fill left all 74 of them with content 0, the screen black but for text
+@@ -3968,7 +3968,7 @@ static int linear_fit(const tex_t *t, uint32_t *pf, void **mb, uint64_t *mo, siz
+ static int linear_storage_ok(const tex_t *t) {
+     if (!(t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) || !t->mem) return 0;
+     if (!linear_gpu_may_write(t)) return 1;
+-    return t->pool && !(t->pool->flags & (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_VIRTUAL)) && !gws_owned((uintptr_t)t->mem, (uintptr_t)t->mem + t->L.size);
++    return t->pool && !(pool_host_flags(t->pool) & (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_VIRTUAL)) && !gws_owned((uintptr_t)t->mem, (uintptr_t)t->mem + t->L.size);
+ }
+ // Linear textures (LINEAR) in a CPU-visible pool: the game writes the pool memory directly from the CPU (SMBW's glyph cache: 2048×8192 R8, IMAGE|LINEAR, pool CPU_UNCACHED|GPU_CACHED,
+ // the font engine rasterizes glyphs into it on the CPU). A GPU-private texture never sees those writes → all menu / dialog text is blank. On unified memory, create a linear texture directly on the pool buffer (zero copy): the GPU reads the current content at execution time, same as NVN.
+@@ -4124,7 +4124,7 @@ static void gws_room(size_t more) {   // g_gws_mu held
+     atomic_store(&g_gws_new, 1);
+ }
+ void mtl_tex_gpu_written(const tex_t *t) {
+-    if (!t || !t->mem || !t->L.size || !t->pool || (t->pool->flags & (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_VIRTUAL))) {
++    if (!t || !t->mem || !t->L.size || !t->pool || (pool_host_flags(t->pool) & (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_VIRTUAL))) {
+         return;
+     }
+ 
+@@ -4250,7 +4250,7 @@ static int tex_storage_ok(const tex_t *t, int unc) {
+     if (!t->mem || !t->pool || t->has_layout || t->d.samples > 1 || t->d.target == NVN_TEXTURE_TARGET_BUFFER) return 0;
+     // not what only the GPU or the decoder fills (a display or video-decode texture, depth or stencil)
+     if (unc && (fmt_depth(t->d.format) || (t->d.flags & (NVN_TEXTURE_FLAGS_DISPLAY | NVN_TEXTURE_FLAGS_VIDEO_DECODE)))) return 0;
+-    if (t->pool->flags & (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_VIRTUAL)) return 0;   // the CPU cannot write it (tex_init_fill fills it once) / sparse (tex_from_storage)
++    if (pool_host_flags(t->pool) & (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_VIRTUAL)) return 0;   // the CPU cannot write it (tex_init_fill fills it once) / sparse (tex_from_storage)
+     // IMAGE only matters for an uncompressed texture: shaders cannot write a block-compressed one. Pokopia gives nearly every texture IMAGE (flags 0x4), its icons BC1 / BC7 in a
+     // CPU_UNCACHED pool; left to the one-time fill, a new icon over reused storage got the previous icon's picture from the sharing table (xFractals/pokopia-native issue #1)
+     return !((t->d.flags & (NVN_TEXTURE_FLAGS_COMPRESSIBLE | NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET | NVN_TEXTURE_FLAGS_SPARSE))
+@@ -4280,7 +4280,7 @@ static int tex_cpu_content(const tex_t *t) {
+         cpu_unc_take(t);
+     }
+     static uint64_t n[2]; if (n[unc]++ < 4) MLOG("texture written by the CPU before its first use ser=%llu %ux%ux%u format %#x%s pool flags %#x: uploaded from its storage, re-uploaded when it changes (%llu so far)",
+-                                         (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format, unc ? " (uncompressed, in storage the GPU has not written)" : "", t->pool->flags, (unsigned long long)n[unc]);
++                                         (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format, unc ? " (uncompressed, in storage the GPU has not written)" : "", pool_host_flags(t->pool), (unsigned long long)n[unc]);
+     return 1;
+ }
+ // nvn_ft_poll (hle_nvn.c, tex_dirty_upload): the CPU wrote the pages of a registered texture after its first use. It is taken from its storage by the rule tex_cpu_content uses at first
+@@ -4383,7 +4383,7 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
+ // Different formats, offsets, CPU-visible, sparse, linear, display, layered and multisample images keep their existing path. Inherited texels are not translated between incompatible
+ // layouts: a changed layout is initialized by its GPU writer. Creating its descriptor must not zero another alias's live content in the earlier upload batch.
+ static id<MTLTexture> image_texture(const tex_t *t, MTLTextureDescriptor *d0) {
+-    if (!image_shape(t) || !t->pool->mem || !(t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) || nvn_sparse_pool(t->pool)) return nil;
++    if (!image_shape(t) || !t->pool->mem || !(pool_host_flags(t->pool) & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS) || nvn_sparse_pool(t->pool)) return nil;
+     // Family members are written uncompressed (DM_NVN_FAMILY_NOCOMPRESS, on unless =0). With lossless compression a member read after another resolution wrote the shared bytes
+     // decodes the other's compressed blocks as garbage: ASTRAL CHAIN's 1600x900 HDR targets (loaded, never cleared) came back from the 1440x810 pause menu with 1.1M non-finite
+     // pixels, which bloom spread into a strobing pink / white glow. Uncompressed, the inherited bytes are only misplaced texels of the same format, as on the console
+@@ -4632,7 +4632,7 @@ static void sparse_view(NvPkg *pk, const tex_t *t) {
+         MLOG("large texture ser=%llu %ux%ux%u format %#x target %d levels %u: %llu MB%s", (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format, t->d.target, t->d.levels,
+              (unsigned long long)(mt.allocatedSize >> 20), t->pool && nvn_sparse_pool(t->pool) ? ", in a sparse virtual pool" : t->pool && (t->pool->flags & NVN_MEMORY_POOL_FLAGS_VIRTUAL) ? ", in a virtual pool" : ""); }
+     if (g_allocprof > 0) { static int n; if (n++ < 30 || n % 500 == 0) MLOG("new texture (%s) #%d ser=%llu %ux%ux%u format %#x target %d levels %u storage %p", __func__, n, (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format, t->d.target, t->d.levels, (void *)t->mem); }
+-    if (getenv("DM_NVN_TEXCPU") && t->pool && !(t->pool->flags & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS)) MLOG("non-swizzled texture on a CPU-visible pool ser=%llu %ux%ux%u format %#x target %d levels %u texture flags %#x pool flags %#x storage %p", (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format, t->d.target, t->d.levels, t->d.flags, t->pool->flags, (void *)t->mem);
++    if (getenv("DM_NVN_TEXCPU") && t->pool && !(pool_host_flags(t->pool) & NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS)) MLOG("non-swizzled texture on a CPU-visible pool ser=%llu %ux%ux%u format %#x target %d levels %u texture flags %#x pool flags %#x storage %p", (unsigned long long)t->serial, t->d.width, t->d.height, t->d.depth, t->d.format, t->d.target, t->d.levels, t->d.flags, pool_host_flags(t->pool), (void *)t->mem);
+     res_add(mt);
+     // The takeover of the storage, the entry and the serial's publication in one hold (nvn_owner.m). A texture another thread registered under the key since the lookup above is the
+     // one the storage's serials share: this one is retired
+@@ -6757,6 +6757,7 @@ static MTLTextureType ttype(int target, int fallback) {
+ // Out-of-pool texture ID = empty slot: the game itself uses GetSeparateTextureHandle(0xFFFFF) to get a handle and bind it to unused slots (measured call site main+0x1746820,
+ // texture pool capacity 15256) and never registers that ID. Read 0 per D3D / empty-slot semantics (the same all-zero dummy textures as unbound), no failure; unregistered IDs inside the pool are still reported a failure
+ static int g_tpool_n; static uint64_t g_stat_tex_oob;
++static int g_spool_n; static uint64_t g_stat_samp_oob;
+ // NVN window origin. In lower-left mode (GL convention, NVN's default) NDC y = -1 lands on a render target's first memory row and window y grows with the row; Metal puts NDC y = +1 on the first row.
+ // Viewport and scissor rectangles, fragment coordinates, copies and texture coordinates all address the same memory rows in both conventions, so only the direction inside the viewport differs:
+ // lower-left draws get a viewport of negative height (and the opposite front-face winding), and the window image, stored bottom-up, is flipped at present (and in raw screenshots).
+@@ -6767,6 +6768,7 @@ static MTLTextureType ttype(int target, int fallback) {
+ static int g_queue_origin_ll;   // SET_WINDOW_ORIGIN's raster flip is queue state, independent of later device-origin changes.
+ void mtl_set_queue_origin_lower_left(int on) { g_queue_origin_ll = on != 0; }
+ void mtl_set_tex_pool_n(int n) { g_tpool_n = n; }
++void mtl_set_samp_pool_n(int n) { g_spool_n = n; }
+ static id<MTLTexture> treg_tex(const treg_t *r) { return r->gone ? tex_made(&r->t) : tex_mtl(&r->t); }   // Caller holds g_rmu
+ // The upload stamp of the packaged texture an ID's view was made from (tex_by_id's guest-write shortcut); none for sparse ones (their page table changes too) or another base. Caller holds g_rmu
+ static void treg_pkg_stamp(treg_t *rp, id<MTLTexture> base) {
+@@ -7063,6 +7065,10 @@ static MTLSamplerAddressMode wrapm(int w) {
+     return MTLSamplerAddressModeRepeat;
+ }
+ static id<MTLSamplerState> samp_by_id(int sid) {   // Caller holds g_rmu
++    if (g_spool_n && sid >= g_spool_n) {
++        if (!g_stat_samp_oob++) MLOG("sampler ID %d outside the pool (capacity %d) treated as an empty slot", sid, g_spool_n);
++        return nil;
++    }
+     if (sid < 0 || sid >= g_nsreg || !g_sreg_ok[sid]) { RED_ONCE(12, "sampler ID %d not registered", sid); return nil; }
+     if (g_sview[sid]) return (__bridge id<MTLSamplerState>)g_sview[sid];
+     samp_par p = g_sreg[sid];
+@@ -14939,7 +14945,7 @@ void mtl_read_texels(const tex_t *t, unsigned level, unsigned layer0, const NVNc
+ // the hardware writes it, so that an upload from the storage carries it. A LINEAR texture counts once it is CPU-written (linear_storage_ok, one no view can take): a view's writes land in
+ // the storage it is made on. One the GPU may render or store into does not: a GPU write makes it a GPU texture (cpu_unc_drop)
+ static int tex_storage_dst(const tex_t *t) {
+-    if (!t->mem || !t->pool || (t->pool->flags & (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_VIRTUAL)) || t->d.samples > 1 || t->d.target == NVN_TEXTURE_TARGET_BUFFER
++    if (!t->mem || !t->pool || (pool_host_flags(t->pool) & (NVN_MEMORY_POOL_FLAGS_CPU_NO_ACCESS | NVN_MEMORY_POOL_FLAGS_VIRTUAL)) || t->d.samples > 1 || t->d.target == NVN_TEXTURE_TARGET_BUFFER
+         || (t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET | NVN_TEXTURE_FLAGS_COMPRESSIBLE | NVN_TEXTURE_FLAGS_IMAGE))
+         || ((t->d.flags & NVN_TEXTURE_FLAGS_LINEAR) && !tex_cpu_written(t->serial))) return 0;
+     if (t->has_layout || tex_cpu_written(t->serial) || nvn_ft_tracked(t->serial)) return !mtl_tex_gpu_owned(t->serial);
+@@ -17429,6 +17435,8 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+ 
+     g_tpool_n = 0;
+     g_stat_tex_oob = 0;
++    g_spool_n = 0;
++    g_stat_samp_oob = 0;
+ 
+     nvn_hm_clear(&g_cpu_unc, free);
+     nvn_hm_clear(&g_cpu_tex, NULL);
+diff --git a/dm/gfx/nvn/nvn_obj.h b/dm/gfx/nvn/nvn_obj.h
+index b3bcc474..dff83e59 100644
+--- a/dm/gfx/nvn/nvn_obj.h
++++ b/dm/gfx/nvn/nvn_obj.h
+@@ -22,7 +22,8 @@ typedef struct { uint32_t magic; NVNdevice *dev; uint64_t submits; int origin_ll
+ 
+ typedef struct { NVNdevice *dev; void *mem; uint64_t size; uint32_t flags; } pool_builder_t;  FITS(pool_builder_t, NVNmemoryPoolBuilder);
+ // A virtual pool (flags 0x200) keeps its sparse state in vp (hle_nvn.c struct vpool, NULL for an aliased one); vmode: 0 not mapped yet, 1 aliased onto one physical pool, 2 sparse
+-typedef struct { uint32_t magic, flags; uint8_t *mem; uint64_t size; struct vpool *vp; int vmode; } pool_t;   FITS(pool_t, NVNmemoryPool);
++typedef struct { uint32_t magic, flags; uint8_t *mem; uint64_t size; struct vpool *vp; int vmode; uint32_t host_flags; } pool_t;   FITS(pool_t, NVNmemoryPool);
++static inline uint32_t pool_host_flags(const pool_t *p) { return p ? (p->vmode == 1 ? p->host_flags : p->flags) : 0; }
+ 
+ typedef struct { const pool_t *pool; int64_t off; int32_t n; } dpool_t;                       // Texture / sampler descriptor pool
+ FITS(dpool_t, NVNtexturePool); FITS(dpool_t, NVNsamplerPool);
+@@ -286,6 +287,7 @@ void mtl_present_flush(void);                              // Wait until all enq
+ void mtl_present_test_stall(uint64_t ns);                  // Unit test: extra pause in ns before each present on the present thread
+ int mtl_display_hz(void);                                   // Maximum refresh rate of the screen (Hz) when there is a window, 0 without a window
+ void mtl_set_tex_pool_n(int n);                            // Texture descriptor pool capacity: texture IDs outside the pool are treated as 'empty slots' (read 0)
++void mtl_set_samp_pool_n(int n);                           // Sampler descriptor pool capacity: sampler IDs outside the pool are treated as 'empty slots'
+ // Timing instrumentation (shared by Mac / iOS): submissions are tagged with the frame number; GPU time = sum of GPUEnd−GPUStart over all of that frame's command buffers, readable only after all complete (otherwise −1)
+ void mtl_set_frame(uint64_t f);
+ void mtl_ub_present(double iv_ms);   // Same-process alternating measurement (DM_NVN_UB): the present thread reports the actual present interval every frame
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index 80674c59..9f1cf343 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -661,3 +661,9 @@ check_t_pool_standin: t_pool_standin
+ t_bc_cpu: t_bc_cpu.m $(MTL_T_DEP)
+ 	clang $(CFLAGS) -fobjc-arc -o $@ t_bc_cpu.m $(MTL_T_SRC) $(FW)
+ check_t_bc_cpu: RUN_ENV = MTL_DEBUG_LAYER=1
++
++t_vpool_alias: t_vpool_alias.m $(MTL_T_DEP)
++	clang $(CFLAGS) -fobjc-arc -o $@ t_vpool_alias.m ../../host/crash.c ../../host/hle_bigstack.c t_host_stubs.c $(filter-out ../nvn/nvn_mtl.m,$(GFX)) $(FW)
++.PHONY: check_t_vpool_alias
++check_t_vpool_alias: t_vpool_alias
++	MTL_DEBUG_LAYER=1 ./t_vpool_alias
+diff --git a/dm/gfx/tests/nvn_replay.m b/dm/gfx/tests/nvn_replay.m
+index 27e6752c..b58ddbd8 100644
+--- a/dm/gfx/tests/nvn_replay.m
++++ b/dm/gfx/tests/nvn_replay.m
+@@ -258,6 +258,7 @@ int main(int argc, char **argv) { @autoreleasepool {
+     apply_env(head, hn);
+     mtl_init();
+     if (head_get(stat, sn, "tex_pool_n", v, sizeof v)) mtl_set_tex_pool_n(atoi(v));
++    if (head_get(stat, sn, "samp_pool_n", v, sizeof v)) mtl_set_samp_pool_n(atoi(v));
+     if (head_get(stat, sn, "origin_ll", v, sizeof v)) mtl_set_origin_lower_left(atoi(v));
+     if (head_get(stat, sn, "depth_zero", v, sizeof v)) mtl_set_depth_zero(atoi(v));
+     int qll = head_get(stat, sn, "queue_origin_ll", v, sizeof v) ? atoi(v) : 1;
+@@ -282,7 +283,7 @@ int main(int argc, char **argv) { @autoreleasepool {
+     for (size_t i = 0; i < rp_nch; i++) {   // pools first: descriptor pools and textures point at them
+         cap_chunk *c = &rp_ch[i].c; const uint8_t *d = rp_ch[i].d; if (c->tag != CAP_POBJ) continue;
+         for (size_t o = 0; o + sizeof(cap_pobj) <= c->raw; o += sizeof(cap_pobj)) { cap_pobj p; memcpy(&p, d + o, sizeof p);
+-            uint64_t m = p.mem; dec_addr(NULL, &m, 0, 0); rp_po[p.index] = (pool_t){MAGIC('P', 'O', 'O', 'L'), p.flags, (uint8_t *)(uintptr_t)m, p.size, NULL, p.vmode}; }
++            uint64_t m = p.mem; dec_addr(NULL, &m, 0, 0); rp_po[p.index] = (pool_t){MAGIC('P', 'O', 'O', 'L'), p.flags, (uint8_t *)(uintptr_t)m, p.size, NULL, p.vmode, p.vmode == 1 && p.host_flags ? p.host_flags : p.flags}; }
+     }
+     for (size_t i = 0; i < rp_nch; i++) {
+         cap_chunk *c = &rp_ch[i].c; const uint8_t *d = rp_ch[i].d;
+diff --git a/dm/gfx/tests/t_vpool_alias.m b/dm/gfx/tests/t_vpool_alias.m
+new file mode 100644
+index 00000000..ccfbb899
+--- /dev/null
++++ b/dm/gfx/tests/t_vpool_alias.m
+@@ -0,0 +1,144 @@
++// Aliased virtual memory pools inherit physical storage flags (vmode == 1) while preserving guest CPU_NO_ACCESS map behavior, pre-mapping pool use forces sparse mode (vmode == 2), and sampler pool capacity bounds out-of-range sampler IDs without false [RED] errors.
++#define nvn_game_fps nvn_game_fps_mtl_default
++#define nvn_hle_teardown nvn_hle_teardown_mtl_stub
++#include "../nvn/nvn_mtl.m"
++#undef nvn_hle_teardown
++#undef nvn_game_fps
++#define g_ft g_ft_hle
++#include "../nvn/hle_nvn.c"
++#undef g_ft
++uint64_t g_t0_ns;
++void *front_metal_layer(void) { return NULL; }
++module_t *module_of(const void *p) { (void)p; return NULL; }
++module_t *g_mod; int g_nmod;
++void svc_thread_dump(void) {}
++uint64_t now_ns(void) { return bp_now(); }
++
++static int checks, failed;
++#define CHECK(label, c) do { checks++; if (!(c)) { failed++; fprintf(stderr, "FAIL: %s (line %d)\n", label, __LINE__); } } while (0)
++static void finish(void) { CHECK("submission completes", mtl_wait(mtl_sub_commit(), 5000000000ull)); CHECK("GPU has no submission error", !mtl_last_commit_error()); }
++
++static int texels_match(id<MTLTexture> m, unsigned w, unsigned h, const uint32_t *want) {
++    if (!m) return 0;
++    id<MTLBuffer> rb = [g_dev newBufferWithLength:(size_t)w * h * 4 options:MTLResourceStorageModeShared];
++    if (!rb) return 0;
++    id<MTLCommandBuffer> cb = q_cb(); id<MTLBlitCommandEncoder> ce = [cb blitCommandEncoder];
++    [ce copyFromTexture:m sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1) toBuffer:rb destinationOffset:0 destinationBytesPerRow:w * 4 destinationBytesPerImage:(NSUInteger)w * h * 4];
++    [ce endEncoding]; [cb commit]; [cb waitUntilCompleted];
++    return memcmp(rb.contents, want, (size_t)w * h * 4) == 0;
++}
++
++static void init_rgba8_2d(NVNtexture *tx, const pool_t *pool, unsigned w, unsigned h) {
++    NVNtextureBuilder tb; h_nvnTextureBuilderSetDefaults(&tb);
++    h_nvnTextureBuilderSetTarget(&tb, NVN_TEXTURE_TARGET_2D);
++    h_nvnTextureBuilderSetWidth(&tb, (int)w); h_nvnTextureBuilderSetHeight(&tb, (int)h);
++    h_nvnTextureBuilderSetLevels(&tb, 1); h_nvnTextureBuilderSetFormat(&tb, NVN_FORMAT_RGBA8);
++    h_nvnTextureBuilderSetStorage(&tb, (NVNmemoryPool *)pool, 0);
++    CHECK("texture initialize", h_nvnTextureInitialize(tx, &tb));
++}
++
++int main(void) { @autoreleasepool {
++    mtl_init();
++    enum { W = 32, H = 32, POOL_SZ = 128u << 10 };
++
++    uint8_t *phys_u_mem = mmap(NULL, POOL_SZ, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
++    uint8_t *phys_c_mem = mmap(NULL, POOL_SZ, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
++    uint8_t *phys_s_mem = mmap(NULL, POOL_SZ, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
++    CHECK("mmap physical backing", phys_u_mem != MAP_FAILED && phys_c_mem != MAP_FAILED && phys_s_mem != MAP_FAILED);
++
++    pool_t phys_u, phys_c, vpool_u, vpool_c;
++    pool_builder_t pb = {.mem = phys_u_mem, .size = POOL_SZ, .flags = 0x22};
++    CHECK("phys uncached pool", h_nvnMemoryPoolInitialize((NVNmemoryPool *)&phys_u, (const NVNmemoryPoolBuilder *)&pb));
++    pb = (pool_builder_t){.mem = phys_c_mem, .size = POOL_SZ, .flags = 0x24};
++    CHECK("phys cached pool", h_nvnMemoryPoolInitialize((NVNmemoryPool *)&phys_c, (const NVNmemoryPoolBuilder *)&pb));
++
++    pb = (pool_builder_t){.size = POOL_SZ, .flags = 0x221};
++    CHECK("virtual uncached alias candidate", h_nvnMemoryPoolInitialize((NVNmemoryPool *)&vpool_u, (const NVNmemoryPoolBuilder *)&pb));
++    pb = (pool_builder_t){.size = POOL_SZ, .flags = 0x221};
++    CHECK("virtual cached alias candidate", h_nvnMemoryPoolInitialize((NVNmemoryPool *)&vpool_c, (const NVNmemoryPoolBuilder *)&pb));
++
++    // Prepare distinct swizzled non-zero RGBA8 payloads in the two physical pools.
++    NVNtexture probe; init_rgba8_2d(&probe, &phys_u, W, H);
++    const tex_t *pt = (const tex_t *)&probe;
++    uint32_t lin_u[W * H], lin_c[W * H];
++    for (size_t i = 0; i < W * H; i++) {
++        lin_u[i] = 0xFF000001u + (uint32_t)(i * 2654435761u);
++        lin_c[i] = 0x80204060u ^ (uint32_t)(i * 2246822519u);
++    }
++    CHECK("swizzle uncached", !nvn_swizzle(&pt->d, 0, 0, lin_u, W * 4, phys_u_mem));
++    CHECK("swizzle cached", !nvn_swizzle(&pt->d, 0, 0, lin_c, W * 4, phys_c_mem));
++    h_nvnTextureFinalize(&probe);
++
++    map_req req_u = {.phys = (NVNmemoryPool *)&phys_u, .poff = 0, .voff = 0, .size = POOL_SZ};
++    CHECK("map uncached 1:1", h_nvnMemoryPoolMapVirtual((NVNmemoryPool *)&vpool_u, 1, (const NVNmappingRequest *)&req_u));
++    CHECK("vmode == 1 for uncached alias", vpool_u.vmode == 1 && vpool_u.host_flags == 0x22 && pool_host_flags(&vpool_u) == 0x22 && vpool_u.flags == 0x221);
++
++    NVNbufferBuilder bb; NVNbuffer buf;
++    h_nvnBufferBuilderSetDefaults(&bb);
++    h_nvnBufferBuilderSetStorage(&bb, (NVNmemoryPool *)&vpool_u, 0, 256);
++    CHECK("buffer init on aliased virtual pool", h_nvnBufferInitialize(&buf, &bb));
++    CHECK("nvnBufferMap preserves virtual CPU_NO_ACCESS", h_nvnBufferMap(&buf) == NULL);
++    CHECK("nvnMemoryPoolMap preserves virtual CPU_NO_ACCESS", h_nvnMemoryPoolMap((const NVNmemoryPool *)&vpool_u) == NULL);
++
++    map_req req_c = {.phys = (NVNmemoryPool *)&phys_c, .poff = 0, .voff = 0, .size = POOL_SZ};
++    CHECK("map cached 1:1", h_nvnMemoryPoolMapVirtual((NVNmemoryPool *)&vpool_c, 1, (const NVNmappingRequest *)&req_c));
++    CHECK("vmode == 1 for cached alias", vpool_c.vmode == 1 && vpool_c.host_flags == 0x24 && pool_host_flags(&vpool_c) == 0x24);
++    h_nvnMemoryPoolFlushMappedRange((const NVNmemoryPool *)&vpool_c, 0, POOL_SZ);
++
++    NVNtexture tx_u, tx_c;
++    init_rgba8_2d(&tx_u, &vpool_u, W, H);
++    init_rgba8_2d(&tx_c, &vpool_c, W, H);
++    mtl_sub_begin();
++    id<MTLTexture> mu = tex_mtl((const tex_t *)&tx_u);
++    id<MTLTexture> mc = tex_mtl((const tex_t *)&tx_c);
++    finish();
++    CHECK("uncached aliased virtual texture uploads non-zero texels", texels_match(mu, W, H, lin_u));
++    CHECK("cached aliased virtual texture uploads flushed texels", texels_match(mc, W, H, lin_c));
++
++    // Pre-mapping address or texture use prevents aliasing and forces sparse mode (vmode == 2).
++    pool_t phys_s, vpool_addr, vpool_tex;
++    pb = (pool_builder_t){.mem = phys_s_mem, .size = POOL_SZ, .flags = 0x22};
++    CHECK("phys sparse test pool", h_nvnMemoryPoolInitialize((NVNmemoryPool *)&phys_s, (const NVNmemoryPoolBuilder *)&pb));
++    pb = (pool_builder_t){.size = POOL_SZ, .flags = 0x221};
++    CHECK("vpool_addr init", h_nvnMemoryPoolInitialize((NVNmemoryPool *)&vpool_addr, (const NVNmemoryPoolBuilder *)&pb));
++    CHECK("GetBufferAddress returns reserved range", h_nvnMemoryPoolGetBufferAddress((const NVNmemoryPool *)&vpool_addr) != 0);
++    CHECK("used marked before MapVirtual (addr)", vpool_addr.vp && vpool_addr.vp->used == 1);
++    map_req req_s = {.phys = (NVNmemoryPool *)&phys_s, .poff = 0, .voff = 0, .size = POOL_SZ};
++    CHECK("map vpool_addr 1:1", h_nvnMemoryPoolMapVirtual((NVNmemoryPool *)&vpool_addr, 1, (const NVNmappingRequest *)&req_s));
++    CHECK("vpool_addr stays sparse (vmode == 2)", vpool_addr.vmode == 2 && vpool_addr.vp != NULL);
++
++    pb = (pool_builder_t){.size = POOL_SZ, .flags = 0x221};
++    CHECK("vpool_tex init", h_nvnMemoryPoolInitialize((NVNmemoryPool *)&vpool_tex, (const NVNmemoryPoolBuilder *)&pb));
++    NVNtexture tx_pre; init_rgba8_2d(&tx_pre, &vpool_tex, W, H);
++    CHECK("used marked before MapVirtual (tex)", vpool_tex.vp && vpool_tex.vp->used == 1);
++    CHECK("map vpool_tex 1:1", h_nvnMemoryPoolMapVirtual((NVNmemoryPool *)&vpool_tex, 1, (const NVNmappingRequest *)&req_s));
++    CHECK("vpool_tex stays sparse (vmode == 2)", vpool_tex.vmode == 2 && vpool_tex.vp != NULL);
++
++    // Sampler pool capacity bounds out-of-range IDs cleanly while keeping in-pool errors strict.
++    NVNsamplerPool sp;
++    CHECK("sampler pool init n=512", h_nvnSamplerPoolInitialize(&sp, (const NVNmemoryPool *)&phys_u, 0, 512));
++    CHECK("g_spool_n recorded", g_spool_n == 512);
++    os_unfair_lock_lock(&g_rmu);
++    id<MTLSamplerState> s_oob = samp_by_id(4095);
++    id<MTLSamplerState> s_in = samp_by_id(300);
++    id<MTLSamplerState> s_zero = samp_by_id(0);
++    os_unfair_lock_unlock(&g_rmu);
++    CHECK("OOB sampler ID 4095 returns nil without RED", s_oob == nil && g_stat_samp_oob == 1);
++    CHECK("in-pool unregistered sampler ID 300 and slot 0 trigger RED, not OOB", s_in == nil && s_zero == nil && g_red_once[12] == 2 && g_stat_samp_oob == 1);
++
++    h_nvnTextureFinalize(&tx_pre);
++    h_nvnTextureFinalize(&tx_u);
++    h_nvnTextureFinalize(&tx_c);
++    h_nvnMemoryPoolFinalize((NVNmemoryPool *)&vpool_tex);
++    h_nvnMemoryPoolFinalize((NVNmemoryPool *)&vpool_addr);
++    h_nvnMemoryPoolFinalize((NVNmemoryPool *)&vpool_c);
++    h_nvnMemoryPoolFinalize((NVNmemoryPool *)&vpool_u);
++    h_nvnMemoryPoolFinalize((NVNmemoryPool *)&phys_s);
++    h_nvnMemoryPoolFinalize((NVNmemoryPool *)&phys_c);
++    h_nvnMemoryPoolFinalize((NVNmemoryPool *)&phys_u);
++    munmap(phys_s_mem, POOL_SZ); munmap(phys_c_mem, POOL_SZ); munmap(phys_u_mem, POOL_SZ);
++
++    if (failed) { fprintf(stderr, "t_vpool_alias: %d/%d failed\n", failed, checks); return 1; }
++    printf("t_vpool_alias: ok (%d checks)\n", checks);
++    return 0;
++}}
