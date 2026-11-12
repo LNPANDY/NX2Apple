@@ -72,7 +72,11 @@ class ChecksFor(unittest.TestCase):
         self.assertEqual(cmds['triage scripts'], 'python3 -m unittest discover -s .github/scripts/tests')
         self.assertEqual(cmds['Mac launcher (slow)'], 'swift build && swift test')
         ios = next(c for c in H.CHECKS if c.name == 'iOS shell (slow)')
-        self.assertEqual((ios.command, ios.cwd, ios.sync), ('swift build && swift test', 'frontend-ios', True))
+        self.assertEqual((ios.command, ios.cwd, ios.sync), ('swift build && swift test && swift test --package-path PayloadKit', 'frontend-ios', True))
+
+    def test_shared_payload_package_checks_both_consumers(self):
+        self.assertEqual(names(['frontend-ios/PayloadKit/Sources/PayloadKit/PayloadStore.swift']),
+                         ['Mac launcher (slow)', 'iOS shell (slow)'])
 
 
 def snapshot(repo):

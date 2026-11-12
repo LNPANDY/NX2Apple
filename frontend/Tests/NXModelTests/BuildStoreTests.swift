@@ -1,4 +1,5 @@
 import XCTest
+import Combine
 @testable import NXModel
 @testable import NXCore
 
@@ -729,6 +730,148 @@ import XCTest
         let store = makeStore()
         store.retryShellData()
         XCTAssertFalse(store.running, "no install ran: nothing to retry")
+    }
+
+    func testPayloadDataRetryKeepsItsGenerationDestination() throws {
+        let runner = FakeProcessRunner()
+        devices.installDevice = "DEVICE"
+        runner.answer = { launch in
+            if launch.arguments.starts(with: ["devicectl", "list", "devices"]),
+               let index = launch.arguments.firstIndex(of: "--json-output") {
+                let device: [String: Any] = ["hardwareProperties": ["reality": "physical", "platform": "iOS", "udid": "DEVICE"],
+                                              "connectionProperties": ["pairingState": "paired", "transportType": "wired"]]
+                try! JSONSerialization.data(withJSONObject: ["result": ["devices": [device]]])
+                    .write(to: URL(fileURLWithPath: launch.arguments[index + 1]))
+            }
+            return ProcessResult()
+        }
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices,
+                               defaults: defaults)
+        store.home = temporary.appendingPathComponent("home").path
+        let title = "0100000000000000"
+        let folder = "Documents/games/\(title)/payload-data/00000000-0000-0000-0000-000000000001"
+        devices.signingTeam = "TEAM"
+        let root = store.shellRoot
+        let bundle = ShellLibrary.load(root: root).bundleID
+        store.shellRetry = ("framework", title, "Fixture", temporary.path, folder)
+        store.payloadRetryHost = ("DEVICE", "TEAM", root, bundle)
+        store.payloadDelivery = .restartRequired
+        let ended = expectation(description: "data retry")
+        let subscription = store.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in ended.fulfill() }
+        store.retryShellData()
+        wait(for: [ended], timeout: 5)
+        withExtendedLifetime(subscription) {}
+        XCTAssertEqual(store.shellRetry?.dataFolder, folder)
+        XCTAssertEqual(store.payloadDelivery, .restartRequired)
+        XCTAssertTrue(runner.launches.contains { $0.arguments.contains("--subdirectory") && $0.arguments.contains(folder) })
+        XCTAssertFalse(runner.launches.contains { $0.arguments.contains("xcodebuild") || $0.executable == "/usr/bin/codesign" })
+
+        for changed in ["device", "team", "cache", "bundle"] {
+            switch changed {
+            case "device": devices.installDevice = "OTHER-DEVICE"
+            case "team": devices.signingTeam = "OTHER-TEAM"
+            case "cache": defaults.set(root + "-other", forKey: "shellRoot")
+            default: try ShellLibrary(bundleID: "org.nxnative.other").save(root: root)
+            }
+            let before = runner.launches.count
+            store.retryShellData()
+            if store.running {
+                let stopped = expectation(description: "incorrect retry on changed \(changed)")
+                let observer = store.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in stopped.fulfill() }
+                wait(for: [stopped], timeout: 5)
+                withExtendedLifetime(observer) {}
+            }
+            XCTAssertEqual(runner.launches.count, before, "a changed \(changed) cannot receive the previous host's generation")
+            XCTAssertEqual(store.doneNote, store.t("payload.retryTargetChanged"))
+            devices.installDevice = "DEVICE"
+            devices.signingTeam = "TEAM"
+            defaults.set(root, forKey: "shellRoot")
+            try ShellLibrary(bundleID: bundle).save(root: root)
+        }
+        store.shellRetry?.dataFolder = nil
+        store.payloadDelivery = nil
+        devices.signingTeam = "LEGACY-TEAM"
+        let legacyBefore = runner.launches.count
+        let legacyEnded = expectation(description: "legacy data retry")
+        let legacyObserver = store.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in legacyEnded.fulfill() }
+        store.retryShellData()
+        wait(for: [legacyEnded], timeout: 5)
+        withExtendedLifetime(legacyObserver) {}
+        XCTAssertGreaterThan(runner.launches.count, legacyBefore, "legacy data retries retain their existing target behavior")
+    }
+
+    func testStopCancelsAShellInstallWhileNoChildProcessIsRunning() throws {
+        for directSend in [false, true] {
+            let runner = FakeProcessRunner()
+            let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices,
+                                   defaults: defaults)
+            store.home = temporary.appendingPathComponent("home").path
+            let framework = temporary.appendingPathComponent("DmGame.framework")
+            try FileManager.default.createDirectory(at: framework, withIntermediateDirectories: true)
+            let checking = expectation(description: "checking device without a tracked child")
+            let release = DispatchSemaphore(value: 0)
+            runner.answer = { launch in
+                if launch.arguments.starts(with: ["devicectl", "list", "devices"]) {
+                    checking.fulfill()
+                    release.wait()
+                }
+                return ProcessResult(status: 1)
+            }
+            let ended = expectation(description: "cancelled install")
+            let subscription = store.$running.dropFirst().filter { !$0 }.prefix(1).sink { _ in ended.fulfill() }
+            if directSend {
+                devices.installDevice = "DEVICE"
+                store.archivePath = temporary.path
+                store.exportedIPAPath = "fixture.ipa"
+                store.sendGameData(bundle: "org.nxnative.shell")
+            } else {
+                store.installShell(framework: framework.path, titleID: "0100000000000000", name: "Fixture", archive: "")
+            }
+            wait(for: [checking], timeout: 5)
+            XCTAssertNil(store.proc)
+            store.stop()
+            XCTAssertTrue(store.stopping)
+            XCTAssertTrue(store.installCancel.value, "the general install Stop path is cancelled")
+            XCTAssertTrue(store.installCancellation.value, "payload signing and transfer share the same Stop flag")
+            XCTAssertTrue(store.makeInstaller().cancelled(), "no payload command may start after Stop")
+            release.signal()
+            wait(for: [ended], timeout: 5)
+            withExtendedLifetime(subscription) {}
+            XCTAssertEqual(store.doneNote, store.t("msg.stopped"))
+            XCTAssertFalse(store.shellInstallActive)
+            XCTAssertFalse(runner.launches.contains { $0.arguments.contains("xcodebuild") || $0.executable == "/usr/bin/codesign" })
+        }
+    }
+
+    func testAQueuedTransferKeepsTheMainOperationsProcessHandle() {
+        for hasMainProcess in [false, true] {
+            let runner = FakeProcessRunner()
+            runner.answer = { launch in
+                if launch.arguments.starts(with: ["devicectl", "list", "devices"]),
+                   let index = launch.arguments.firstIndex(of: "--json-output") {
+                    let device: [String: Any] = ["hardwareProperties": ["reality": "physical", "platform": "iOS", "udid": "DEVICE"],
+                                                  "connectionProperties": ["pairingState": "paired", "transportType": "wired"]]
+                    try! JSONSerialization.data(withJSONObject: ["result": ["devices": [device]]])
+                        .write(to: URL(fileURLWithPath: launch.arguments[index + 1]))
+                }
+                return ProcessResult()
+            }
+            let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices,
+                                   defaults: defaults)
+            store.home = temporary.appendingPathComponent("home").path
+            let original: RunningProcess? = hasMainProcess ? FakeRunningProcess() : nil
+            store.proc = original
+            store.running = true
+            let entry = TransferEntry(titleID: "0100000000000000", name: "Fixture", archive: temporary.path,
+                                      deviceID: "DEVICE", deviceName: "Fixture device")
+            let ended = expectation(description: "independent queued transfer")
+            store.performTransfer(entry, report: { _, _ in }, finish: { _ in ended.fulfill() })
+            wait(for: [ended], timeout: 5)
+            XCTAssertTrue(runner.launches.contains { $0.arguments.starts(with: ["devicectl", "device", "info", "apps"]) },
+                          "the fake runner must invoke the queued tool's process-start callback")
+            XCTAssertTrue(store.proc === original, "a queued tool cannot replace the process that the main Stop action owns")
+            XCTAssertTrue(store.running)
+        }
     }
 
     func testWhatTheStoreWritesItselfIsInTheLanguageOfTheLocalizer() {

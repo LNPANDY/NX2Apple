@@ -1,10 +1,14 @@
 import SwiftUI
 import ShellUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// `LibraryView` on a `ShellHostModel`: the real shell screen, plus the read-only log sheet and the notice alert. The
 /// launch arguments of the demo (initial selection and so on) are not part of it.
 public struct ShellHostView: View {
     @Bindable private var model: ShellHostModel
+    @Environment(\.scenePhase) private var scenePhase
     private let initialSelection: String?
     private let initialDetailOpen: Bool
 
@@ -20,7 +24,7 @@ public struct ShellHostView: View {
                     padMerge: model.padMerge, padSnapshot: model.padSnapshot,
                     signingWarning: model.signingWarning,
                     onDismissSigningWarning: { model.dismissSigningWarning() })
-            .disabled(model.launchingGame)
+            .disabled(model.launchingGame || model.processingPayloads)
             .overlay {
                 if model.launchingGame {
                     ZStack {
@@ -47,8 +51,23 @@ public struct ShellHostView: View {
             .alert(Text(verbatim: hostText("Shell")), isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
                 Button(hostText("OK")) { model.notice = nil }
             } message: { Text(model.notice ?? "") }
-            .onAppear { model.startControllers() }
-            .onDisappear { model.stopControllers() }
+            .onAppear {
+                #if canImport(UIKit)
+                model.payloadSceneActive(UIApplication.shared.applicationState == .active)
+                #else
+                model.payloadSceneActive(scenePhase == .active)
+                #endif
+                model.payloadLibraryVisibility(true)
+                model.startControllers()
+                model.refreshPayloads()
+            }
+            .onChange(of: scenePhase) { _, phase in
+                #if !canImport(UIKit)
+                model.payloadSceneActive(phase == .active)
+                if phase == .active { model.refreshPayloads() }
+                #endif
+            }
+            .onDisappear { model.payloadLibraryVisibility(false); model.stopControllers() }
     }
 }
 

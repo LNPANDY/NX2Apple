@@ -34,7 +34,7 @@ on:
     branches: [main]
     tags: ['v*']
     # GitHub does not evaluate path filters for tag pushes: every v* tag builds. On main only a change to these paths builds.
-    paths: ['frontend/**', 'tools/engine.py', 'tools/release_manifest.py', 'tools/requirements-release.txt', 'patches/**', '.upstream-ref', '.github/workflows/build-mac-app.yml']
+    paths: ['frontend/**', 'frontend-ios/PayloadKit/**', 'tools/engine.py', 'tools/release_manifest.py', 'tools/requirements-release.txt', 'patches/**', '.upstream-ref', '.github/workflows/build-mac-app.yml']
   # No paths filter here: a workflow that does not start reports nothing. The `stack` job decides per job whether a pull request builds the app
   # (it is the tip of its stack, and it changes a packaging file or has the label full-build), see .github/scripts/build_wanted.py.
   # Explicit types: not `edited` or `labeled` (GitHub sends `edited` when it retargets a stack, and the second run only cancels the first).

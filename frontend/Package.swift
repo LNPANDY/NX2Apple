@@ -7,8 +7,9 @@ import PackageDescription
 let package = Package(
     name: "NX2Apple",
     platforms: [.macOS(.v13)],
+    dependencies: [.package(path: "../frontend-ios/PayloadKit")],
     targets: [
-        .target(name: "NXCore", path: "Sources/NXCore"),
+        .target(name: "NXCore", dependencies: [.product(name: "PayloadKit", package: "PayloadKit")], path: "Sources/NXCore"),
         .target(name: "NXModel", dependencies: ["NXCore"], path: "Sources/NXModel"),
         .target(name: "NXLauncher", dependencies: ["NXModel", "NXCore"], path: "Sources/NXLauncher"),
         .executableTarget(name: "NX2Apple", dependencies: ["NXLauncher", "NXModel", "NXCore"], path: "Sources/NX2Apple"),

@@ -41,6 +41,26 @@ import Testing
         #expect(!listed(model))
     }
 
+    @Test func deletingAMarkerlessGameKeepsSavesWithoutRestoringItsTile() throws {
+        let box = try Sandbox()
+        let file = box.games.appendingPathComponent(Fixtures.orbit).appendingPathComponent("game.manifest.json")
+        var manifest = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        manifest["romfs_marker"] = ""
+        manifest["romfs_identity"] = ""
+        try JSONSerialization.data(withJSONObject: manifest).write(to: file)
+        let folder = box.appData.appendingPathComponent(Fixtures.orbit)
+        try box.write("image", to: folder.appendingPathComponent("romfs.img"))
+        let save = folder.appendingPathComponent("save/progress")
+        try box.write("keep", to: save)
+        let model = ShellHostModel(config: box.config())
+        model.deleteGame(Fixtures.orbit, saves: false)
+        #expect(!listed(model))
+        #expect(!listed(ShellHostModel(config: box.config())), "saves alone cannot restore a deleted tile on reopen")
+        #expect(try String(contentsOf: save, encoding: .utf8) == "keep")
+        try box.write("image again", to: folder.appendingPathComponent("romfs.img"))
+        #expect(listed(ShellHostModel(config: box.config())), "sending actual game data again still restores the title")
+    }
+
     @Test func gameDataSentAgainBringsTheGameBack() throws {
         let box = try Sandbox()
         _ = try fill(box)

@@ -81,6 +81,8 @@ extension BuildStore {
     /// the player chose when the device has several.
     package func sendGameData(bundle: String? = nil) {
         guard canSendToDevice else { return }
+        installCancellation.set(false)
+        shellInstallActive = true
         buildingGame = false; runningTarget = BuildTarget.ios
         beginOperation(.sendingGameData, game: packedGameName, titleID: packedTitleID, destination: .target)
         stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
@@ -107,6 +109,7 @@ extension BuildStore {
             hop {
                 self.installPhaseActive = false
                 target.copyEnded()
+                self.shellInstallActive = false
                 self.running = false
                 if self.stopping {
                     self.stopping = false

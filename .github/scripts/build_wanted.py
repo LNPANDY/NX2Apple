@@ -42,6 +42,7 @@ PACKAGING = (
     'frontend/fonts/',
     'frontend/tools/',
     'frontend-ios/Package.swift',
+    'frontend-ios/PayloadKit/Package.swift',
 )
 
 

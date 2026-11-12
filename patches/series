@@ -88,3 +88,4 @@
 0131-ios-isolate-dmshellgame-objective-c-classes-and.patch
 0132-ios-preserve-unaligned-bss-head-and-tail-bytes-i.patch
 0133-ios-stub-probe-atrace-when-target-os-iphone-is-s.patch
+0134-ios-shell-load-transferred-payloads.patch

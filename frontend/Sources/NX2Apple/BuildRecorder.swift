@@ -61,7 +61,10 @@ import NXLauncher
     private func record() {
         guard build.done, build.buildingGame, let id = activeBuildID else { return }
         if build.runningTarget == BuildTarget.mac { library.recordCompletedApp(path: build.macAppPath, commit: buildCommit, for: id) }
-        else { library.recordCompletedIOS(archive: build.archivePath, app: build.installedAppPath, device: build.installedOn, commit: buildCommit, for: id) }
+        else {
+            library.recordCompletedIOS(archive: build.archivePath, app: build.installedAppPath, device: build.installedOn,
+                                       commit: buildCommit, payloadOnly: build.payloadDelivery != nil, for: id)
+        }
         recorded.send()
     }
 }

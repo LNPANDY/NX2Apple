@@ -159,16 +159,16 @@ package enum ShellInstall {
     }
 
     /// devicectl's recursive listing of the game's folder in the app's container, written as JSON to `json`.
-    package static func listCommand(xcrun: String, device: String, bundleID: String, titleID: String, json: String) -> [String] {
+    package static func listCommand(xcrun: String, device: String, bundleID: String, titleID: String, json: String, dataFolder: String? = nil) -> [String] {
         [xcrun, "devicectl", "device", "info", "files", "--device", device, "--domain-type", "appDataContainer",
-         "--domain-identifier", bundleID, "--subdirectory", gameFolder(titleID: titleID), "--json-output", json]
+         "--domain-identifier", bundleID, "--subdirectory", dataFolder ?? gameFolder(titleID: titleID), "--json-output", json]
     }
 
     /// One file into the game's folder. A file destination creates the parent folders and names the file. Never
     /// `--remove-existing-content true`: on a real device it deletes the destination's siblings too (#266).
-    package static func copyCommand(xcrun: String, device: String, bundleID: String, titleID: String, source: String, relativePath: String) -> [String] {
+    package static func copyCommand(xcrun: String, device: String, bundleID: String, titleID: String, source: String, relativePath: String, dataFolder: String? = nil) -> [String] {
         [xcrun, "devicectl", "device", "copy", "to", "--device", device, "--source", source,
-         "--destination", gameFolder(titleID: titleID) + "/" + relativePath,
+         "--destination", (dataFolder ?? gameFolder(titleID: titleID)) + "/" + relativePath,
          "--domain-type", "appDataContainer", "--domain-identifier", bundleID]
     }
 
@@ -300,6 +300,8 @@ package struct ShellInstaller {
     /// player cancelled.
     package var waiting: (Bool) -> Void = { _ in }
     package var waitCancelled: () -> Bool = { false }
+    /// Stop for this install, separate from the cable wait's remembered answer.
+    package var cancelled: () -> Bool = { false }
     /// The bytes copied so far and the bytes to copy, told before each file and after it (the data send shows them).
     package var copyProgress: (Int64, Int64) -> Void = { _, _ in }
     /// Seconds between two looks at `devicectl list devices` while waiting for a cable.
@@ -337,6 +339,9 @@ package struct ShellInstaller {
         package var failure: BuildFailureKind? = nil
         /// Signed without the Increased Memory Limit, because the team's profile cannot carry it yet.
         package var noMemoryCapability = false
+        package var payloadDelivery: PayloadDelivery? = nil
+        /// The immutable generation's data destination, retained for a data-only retry.
+        package var payloadDataFolder: String? = nil
 
         package init(ok: Bool, message: String, step: BuildFailureClassifier.InstallStep? = nil, appPath: String = "", bundleID: String = "", copied: Int = 0, copySkipped: Bool = false, failure: BuildFailureKind? = nil, noMemoryCapability: Bool = false) {
             self.ok = ok; self.message = message; self.step = step; self.appPath = appPath; self.bundleID = bundleID; self.copied = copied
@@ -396,6 +401,7 @@ package struct ShellInstaller {
         }
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
         if let refused = pairingRefusal() { return refused }
+        if let payload = installPayloadIfSupported(framework: framework, titleID: titleID, name: name, archive: archive) { return payload }
         // 3 and 4: the library and the project
         let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
         guard var library = prepared.library, let env = prepared.env else { return prepared.failure! }
@@ -488,12 +494,14 @@ package struct ShellInstaller {
 
     /// Step 7 on its own, for a Retry after a copy that failed midway: the listing, the diff and the copy, nothing else. The app
     /// is on the device already, under the identifier shell.json holds.
-    package func installData(titleID: String, archive: String) -> Outcome {
+    package func installData(titleID: String, archive: String, dataFolder: String? = nil) -> Outcome {
         if let refused = pairingRefusal() { return refused }
         let bundleID = ShellLibrary.load(root: root).bundleID, app = ShellInstall.appPath(root: root)
-        return copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID,
+        var result = copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID,
                             outcome: Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID),
-                            appJoinsParts: true)
+                            appJoinsParts: true, dataFolder: dataFolder)
+        result.payloadDataFolder = dataFolder
+        return result
     }
 
     /// The pairing steps as a failure when this Mac does not know the device, else nil.
@@ -510,19 +518,19 @@ package struct ShellInstaller {
     /// device joins parts (`ShellDataParts`): true for the shared app this launcher just built, nil to ask the app (its
     /// `shell-features.txt`). A file larger than one part goes as parts to an app that joins them; to any other app only a file
     /// devicectl cannot copy whole (`singleCopyLimit`) does, since the whole copy would stall anyway.
-    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome, appJoinsParts: Bool? = nil) -> Outcome {
+    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome, appJoinsParts: Bool? = nil, dataFolder: String? = nil) -> Outcome {
         var outcome = start
         let checkName = fmt("shell.checkStage", deviceName)
         begin(Self.checkStageID, checkName)
         let listing = NSTemporaryDirectory() + "nspb-shell-files-\(UUID().uuidString.prefix(8)).json"
         defer { try? FileManager.default.removeItem(atPath: listing) }
         // A folder that does not exist yet makes devicectl exit non-zero with an error JSON: nothing on the device, not a failure
-        _ = run(ShellInstall.listCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID, json: listing),
+        _ = run(ShellInstall.listCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID, json: listing, dataFolder: dataFolder),
                 env: nil, label: checkName, step: { _ in nil })
         let onDevice = ShellInstall.parseListing(FileManager.default.contents(atPath: listing))
         let local = ShellInstall.localFiles(in: archive)
         // The listing still catches missing and interrupted copies. Two releases can also have the same image size.
-        let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)"
+        let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)" + (dataFolder.map { "/" + $0 } ?? "")
         let previous = defaults.string(forKey: receipt)
         let identity = local["romfs.img"] == nil ? nil : imageIdentity(archive: archive, titleID: titleID)
         // The image's parts on the device count only when they are parts of this image: a send of it that stopped halfway records
@@ -572,13 +580,13 @@ package struct ShellInstaller {
         if decision == .waitForCable {
             log(fmt("shell.copyWaiting", deviceName) + "\n")
             waiting(true)
-            while !waitCancelled() {
+            while !waitCancelled() && !cancelled() {
                 Thread.sleep(forTimeInterval: pollInterval)
                 link = connection()
                 if link == .wired { break }
             }
             waiting(false)
-            decision = link == .wired && !waitCancelled() ? .copy : .skip
+            decision = link == .wired && !waitCancelled() && !cancelled() ? .copy : .skip
         }
         guard decision == .copy else {
             outcome.copySkipped = true
@@ -589,6 +597,7 @@ package struct ShellInstaller {
         begin(Self.copyStageID, copyName)
         var copiedBytes: Int64 = 0
         for (i, item) in missing.enumerated() {
+            if cancelled() { return Outcome(ok: false, message: fmt("payload.failed", "cancelled"), appPath: app, bundleID: bundleID) }
             if waitCancelled() {
                 end(Self.copyStageID, copyName, ok: false, detail: "")
                 outcome.copySkipped = true
@@ -624,7 +633,7 @@ package struct ShellInstaller {
             let itemBytes = ShellDataParts.bytes(of: item, local: local, partSize: partSize)
             let itemDetail = "\(i + 1)/\(missing.count)"
             let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID,
-                                                 source: source, relativePath: destination),
+                                                 source: source, relativePath: destination, dataFolder: dataFolder),
                         env: nil, label: copyName, stageID: Self.copyStageID) { line in
                 guard let parsed = BuildProgress.installStep(line), let raw = parsed.percent else { return nil }
                 let clamped = min(max(raw, 0), 100)
@@ -681,6 +690,7 @@ package struct ShellInstaller {
     /// `env` nil is the plain tool environment of the per-game install (xcodebuild, devicectl).
     func run(_ command: [String], env: [String: String]?, label: String, stageID: Int? = nil,
              step: (String) -> (detail: String, percent: Double?)?) -> ToolResult {
+        if cancelled() { return ToolResult(status: 130, output: "cancelled", lastError: "cancelled") }
         log("[\(label)] \(command.joined(separator: " "))\n")
         var output = "", lastError: String?
         let launch = ProcessLaunch(

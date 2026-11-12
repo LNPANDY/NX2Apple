@@ -1073,6 +1073,8 @@
   "ios.host.padOn": "På",
   "ios.host.padSameAsAllGames": "Standard",
   "ios.host.padSwapAB": "Byt A och B",
+  "ios.host.payloadFailed": "Ett spelpaket kunde inte läggas till. Se appens logg för mer information.",
+  "ios.host.payloadRestart": "Speluppdatering mottagen. Stäng och öppna appen igen för att använda den.",
   "ios.host.player": "Spelare %@",
   "ios.host.preparingGame": "Förbereder spelet…",
   "ios.host.quitButton": "Avsluta",

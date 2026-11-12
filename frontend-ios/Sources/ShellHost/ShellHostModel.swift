@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import ShellControllers
 import ShellUI
+import PayloadKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -19,6 +20,8 @@ public struct ShellHostConfig: Sendable {
     public var openURL: @MainActor @Sendable (URL) -> Void
     /// The clock, for the last-played date and its wording.
     public var now: @Sendable () -> Date
+    /// Nil in previews and legacy hosts. Live shells supply ShellPayloads.live().
+    public var payloads: PayloadStore?
     /// Expiration date of `embedded.mobileprovision`, or nil when absent or unreadable.
     public var provisioningExpiration: @Sendable () -> Date?
     /// Split-part byte size used by startup `DataParts.joinAll` (defaults to 512 MiB).
@@ -30,7 +33,7 @@ public struct ShellHostConfig: Sendable {
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
                 now: @escaping @Sendable () -> Date = { Date() },
                 provisioningExpiration: @escaping @Sendable () -> Date? = { ProvisioningProfile.bundledExpiration() },
-                joinPartSize: Int64 = DataParts.partSize) {
+                joinPartSize: Int64 = DataParts.partSize, payloads: PayloadStore? = nil) {
         self.gamesRoot = gamesRoot
         self.appDataRoot = appDataRoot
         self.environment = environment
@@ -38,6 +41,7 @@ public struct ShellHostConfig: Sendable {
         self.defaults = defaults
         self.openURL = openURL
         self.now = now
+        self.payloads = payloads
         self.provisioningExpiration = provisioningExpiration
         self.joinPartSize = joinPartSize
         self.onJoinProgress = nil
@@ -69,6 +73,7 @@ public struct ShellHostConfig: Sendable {
     public var log: LogPresentation?
     /// Play is preparing the game's resources or handing over to the engine.
     public private(set) var launchingGame = false
+    public private(set) var processingPayloads = false
     /// Cloud save conflict or unreadable-archive prompt awaiting the player's decision before launch.
     public var cloudConflict: CloudSavePrompt?
     /// Mild heads-up when the app's provisioning profile expires within 48 hours.
@@ -115,6 +120,13 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var signingCheckTask: Task<Void, Never>?
     @ObservationIgnored private var signingWarningDismissed = false
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var importedFrameworks: [String: URL] = [:]
+    @ObservationIgnored private var payloadTask: Task<Void, Never>?
+    @ObservationIgnored private var payloadsStarted = false
+    @ObservationIgnored private var libraryVisible = true
+    @ObservationIgnored private var payloadForeground = true
+    @ObservationIgnored private var payloadWatchTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var payloadObservers: [any NSObjectProtocol] = []
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
                 shellSettings: ShellSettingsStore = .current) {
@@ -160,9 +172,34 @@ public struct ShellHostConfig: Sendable {
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
         }
+        #if canImport(UIKit)
+        if config.payloads != nil {
+            // The production shell embeds SwiftUI in a UIKit scene. Its
+            // SwiftUI scenePhase does not supply the app's lifecycle here.
+            let events: [(Notification.Name, Bool)] = [
+                (UIApplication.didBecomeActiveNotification, true),
+                (UIApplication.willResignActiveNotification, false),
+                (UIScene.didActivateNotification, true),
+                (UIScene.willDeactivateNotification, false)
+            ]
+            for (name, active) in events {
+                let observer = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated {
+                        self?.payloadSceneActive(active)
+                        if active { self?.refreshPayloads() }
+                    }
+                }
+                payloadObservers.append(observer)
+            }
+        }
+        #endif
     }
 
-    deinit { defaultsObserver.map(NotificationCenter.default.removeObserver) }
+    deinit {
+        payloadWatchTask?.cancel()
+        defaultsObserver.map(NotificationCenter.default.removeObserver)
+        payloadObservers.forEach(NotificationCenter.default.removeObserver)
+    }
 
     /// Shell choices that change the displayed game defaults.
     private static func choices(of settings: ShellSettingsStore) -> [String] {
@@ -293,7 +330,9 @@ public struct ShellHostConfig: Sendable {
     /// a change to one game updates it in place.
     public func reload() {
         forgetCheckedRomfsImages()
-        let scanned = GameCatalogue.scan(root: config.gamesRoot).filter { !isDeleted($0) }
+        var byTitle = Dictionary(GameCatalogue.scan(root: config.gamesRoot).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for (id, framework) in importedFrameworks { byTitle[id] = GameCatalogue.readFramework(at: framework) }
+        let scanned = byTitle.values.filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
             lastPlayed(e.id).map { (e.id, $0) } }))
@@ -314,6 +353,18 @@ public struct ShellHostConfig: Sendable {
     private func entry(_ id: String) -> CatalogueEntry? { entries.first { $0.id == id } }
 
     public func appFolder(for id: String) -> URL { config.appDataRoot.appendingPathComponent(id, isDirectory: true) }
+
+    /// Imported resources follow the selected code generation. Retain the
+    /// legacy location until a generation-specific transfer starts. Saves and
+    /// caches continue to use `appFolder`, independently of this selection.
+    private func appDataFolder(for id: String) -> URL {
+        guard let framework = importedFrameworks[id], let store = config.payloads else { return appFolder(for: id) }
+        let generation = framework.deletingLastPathComponent().lastPathComponent
+        let folder = store.documents.appendingPathComponent(PayloadStore.gameDataPath(titleID: id, generation: generation), isDirectory: true)
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory) && isDirectory.boolValue
+            ? folder : appFolder(for: id)
+    }
 
     private func dataStore(_ id: String) -> BookmarkStore {
         if let s = dataStores[id] { return s }
@@ -389,7 +440,7 @@ public struct ShellHostConfig: Sendable {
 
     private func data(for entry: CatalogueEntry, pending: (Task<Void, Never>) -> Void = { _ in }) -> DataResolution {
         guard let manifest = entry.manifest, entry.problem == nil else { return .missing }
-        return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appFolder(for: entry.id),
+        return DataLocator.locate(manifest: manifest, picked: dataStore(entry.id).resolve(), appFolder: appDataFolder(for: entry.id),
                                   global: shellData.resolve(), shellMatch: shellMatches[manifest.titleID]) { url, identity in
             matchesRomfs(url, expected: identity, title: entry.id, pending: pending)
         }
@@ -720,7 +771,7 @@ public struct ShellHostConfig: Sendable {
     private func isDeleted(_ entry: CatalogueEntry) -> Bool {
         let defaults = config.defaults(entry.id)
         guard let deleted = defaults.string(forKey: GameDeletion.deletedKey) else { return false }
-        let hasData = entry.manifest.map { DataLocator.romfs(in: appFolder(for: entry.id), manifest: $0, .default) != nil } ?? false
+        let hasData = entry.manifest.map { GameDeletion.hasRestoredData(in: appDataFolder(for: entry.id), manifest: $0) } ?? false
         if deleted == GameDeletion.stamp(entry) && !hasData { return true }
         defaults.removeObject(forKey: GameDeletion.deletedKey)
         return false
@@ -731,12 +782,89 @@ public struct ShellHostConfig: Sendable {
         config.openURL(url)
     }
 
+    /// Startup, foreground and return-to-library all share one serialized intake.
+    /// Only the first call in a process promotes pending, previously loaded code.
+    @discardableResult public func refreshPayloads() -> Task<Void, Never>? {
+        guard let store = config.payloads, !launchingGame, cloudConflict == nil, libraryVisible, payloadForeground else { return nil }
+        if let payloadTask { return payloadTask }
+        let coldStart = !payloadsStarted
+        payloadsStarted = true
+        processingPayloads = true
+        let task = Task { [weak self] in
+            var receipts: [PayloadReceipt] = []
+            var failed = false
+            do {
+                if coldStart { receipts += try await store.activatePending() }
+                receipts += try await store.processInbox()
+            } catch {
+                failed = true
+                if let batch = error as? PayloadProcessingError { receipts += batch.receipts }
+                ShellPayloads.record(String(describing: error))
+            }
+            // Intake and receipt errors must not hide already committed games,
+            // including at the first refresh of a thin shell with no bundles.
+            let frameworks = await store.activeFrameworks()
+            guard let self else { return }
+            for receipt in receipts where receipt.state == .active {
+                self.config.defaults(receipt.titleID).removeObject(forKey: GameDeletion.deletedKey)
+            }
+            self.importedFrameworks = frameworks
+            self.reload()
+            if failed || receipts.contains(where: { $0.state == .rejected }) {
+                self.notice = hostText("A game payload could not be added. See the shell log for details.")
+            } else if receipts.contains(where: { $0.state == .restartRequired }) {
+                self.notice = hostText("Game update received. Close and reopen the app to use it.")
+            }
+            for receipt in receipts { ShellPayloads.record("\(receipt.generation) \(receipt.state.rawValue) \(receipt.detail)") }
+            self.processingPayloads = false
+            self.payloadTask = nil
+        }
+        payloadTask = task
+        return task
+    }
+
+    public func payloadLibraryVisibility(_ visible: Bool) {
+        libraryVisible = visible
+        updatePayloadWatch()
+    }
+
+    public func payloadSceneActive(_ active: Bool) {
+        payloadForeground = active
+        updatePayloadWatch()
+    }
+
+    /// Game data arrives separately from the code receipt. Recheck only
+    /// imports still waiting for it, without rescanning the catalogue.
+    private func refreshImportedData() {
+        guard !launchingGame, !processingPayloads else { return }
+        for detail in details where detail.game.state == .needsGameData && importedFrameworks[detail.id] != nil {
+            refresh(detail.id)
+        }
+    }
+
+    /// Watch only while the library is visible and foregrounded. This makes a
+    /// desktop transfer appear automatically without a permanent background task.
+    private func updatePayloadWatch() {
+        guard libraryVisible, payloadForeground, let store = config.payloads else {
+            payloadWatchTask?.cancel(); payloadWatchTask = nil; return
+        }
+        guard payloadWatchTask == nil else { return }
+        payloadWatchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(2)) } catch { break }
+                guard self != nil else { break }
+                if await store.hasReadyTransactions() { await self?.refreshPayloads()?.value }
+                self?.refreshImportedData()
+            }
+        }
+    }
+
     public func play(_ id: String) {
         Task { await playNow(id) }
     }
 
     func playNow(_ id: String) async {
-        guard !launchingGame, cloudConflict == nil,
+        guard !launchingGame, !processingPayloads, cloudConflict == nil,
               let entry = entry(id), let manifest = entry.manifest, let framework = entry.frameworkURL,
               details.first(where: { $0.id == id })?.game.state == .playable else { return }
         cloudCheckGeneration &+= 1
@@ -810,7 +938,7 @@ public struct ShellHostConfig: Sendable {
             cancelCloudConflict()
             return
         }
-        guard !launchingGame, let pending = pendingCloudLaunch else { return }
+        guard !launchingGame, !processingPayloads, let pending = pendingCloudLaunch else { return }
         let isUnreadable = pending.report.outcome == .unreadable
         let syncChoice: CloudSaveSyncCheck.Choice
         switch decision {
@@ -885,6 +1013,7 @@ public struct ShellHostConfig: Sendable {
         LastPlayedStore(defaults: config.defaults(game.titleID)).record(config.now())
         refresh(game.titleID)
         do {
+            try await config.payloads?.prepareLaunch(titleID: game.titleID, framework: game.frameworkURL)
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
             try await launcher.launch(game)
         } catch {

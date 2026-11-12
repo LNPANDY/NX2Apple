@@ -74,6 +74,14 @@ package struct ShellLibrary: Codable, Equatable {
         return Set(installed.map { $0.uppercased() }).intersection(current)
     }
 
+    /// A separately delivered payload no longer identifies the device of an
+    /// earlier whole-shell install. Keep the other receipt members available.
+    package static func removeFromInstalledReceipt(root: String, titleID: String) {
+        var titles = installedReceipt(root: root)
+        guard titles.remove(titleID.uppercased()) != nil else { return }
+        try? JSONEncoder().encode(titles.sorted()).write(to: URL(fileURLWithPath: receiptFile(root: root)), options: .atomic)
+    }
+
     /// The folder a shell root may live in: an absolute path that is not the root of a volume. `""` (no game or output
     /// folder chosen yet) and `/` both gave `/NX2Apple-shell` on the read-only system volume (#492); `home` stands in.
     package static func parentFolder(_ parent: String, home: String = NSHomeDirectory()) -> String {

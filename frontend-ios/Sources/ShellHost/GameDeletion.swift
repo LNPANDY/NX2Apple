@@ -24,6 +24,14 @@ public enum GameDeletion {
         return ["manifest", m.displayVersion, m.packageVersion, m.chain, m.romfsIdentity, String(m.bytes ?? 0)].joined(separator: ":")
     }
 
+    /// Readiness for a markerless game can accept its app folder alone. That
+    /// folder may contain only retained saves after deletion, which is not a
+    /// new data transfer and must not clear the player's deletion mark.
+    static func hasRestoredData(in folder: URL, manifest: GameManifest) -> Bool {
+        guard let found = DataLocator.romfs(in: folder, manifest: manifest, .default) else { return false }
+        return !manifest.romfsMarker.isEmpty || found.romfs.standardizedFileURL != folder.standardizedFileURL
+    }
+
     /// What deleting removes from the game's folder: everything, or everything except the saves. Paths of the folder's
     /// top-level entries, sorted. Empty when the folder does not exist.
     public static func removals(in folder: URL, saves: Bool, fileManager fm: FileManager = .default) -> [URL] {

@@ -1,3 +1,5 @@
+import ast
+import fnmatch
 import os
 import sys
 import tempfile
@@ -35,6 +37,13 @@ class Decide(unittest.TestCase):
     def test_not_a_pull_request_always_builds(self):
         for ev in ('push', 'workflow_dispatch', ''):
             self.assertTrue(decide({'EVENT_NAME': ev}, files=['README.md'])[0], ev)
+        # The push decision only runs if the workflow's source filter starts it.
+        workflow = Path(__file__).resolve().parents[2] / 'workflows/build-mac-app.yml'
+        filters = ast.literal_eval(next(line.split('paths:', 1)[1].strip()
+                                        for line in workflow.read_text().splitlines() if line.strip().startswith('paths:')))
+        for source in ('frontend/Sources/NXCore/ShellPayload.swift',
+                       'frontend-ios/PayloadKit/Sources/PayloadKit/PayloadStore.swift'):
+            self.assertTrue(any(fnmatch.fnmatchcase(source, pattern) for pattern in filters), source)
 
     def test_docs_only_does_not_build(self):
         self.assertFalse(decide(files=['README.md', 'frontend/Sources/NXCore/A.swift', 'frontend/Tests/T.swift', '.github/scripts/x.py'])[0])
@@ -42,7 +51,7 @@ class Decide(unittest.TestCase):
     def test_packaging_files_build(self):
         for f in ('.github/workflows/build-mac-app.yml', 'frontend/Package.swift', 'frontend/Package.resolved', 'frontend/Resources/a.png',
                   'frontend/tools/bundle_tools.sh', 'frontend/AppIcon.icon/icon.json', '.upstream-ref', 'patches/series',
-                  'tools/engine.py', 'frontend-ios/Package.swift'):
+                  'tools/engine.py', 'frontend-ios/Package.swift', 'frontend-ios/PayloadKit/Package.swift'):
             self.assertTrue(decide(files=['README.md', f])[0], f)
 
     def test_a_patch_file_alone_does_not_build_but_the_series_does(self):

@@ -19,7 +19,7 @@ import NXCore
         let title = "04007EF01F8AE000"
         model.target = "ios"
         model.failure = BuildFailure(kind: .shellDataIncomplete, gameName: nil)
-        model.shellRetry = ("/fixture/DmGame.framework", title, "Fixture Game", "/fixture/games/" + title)
+        model.shellRetry = ("/fixture/DmGame.framework", title, "Fixture Game", "/fixture/games/" + title, nil)
         model.revealItem = { _ in } // Capture the recovery instructions without opening Finder.
         model.copyWithFinder(oneGame: false)
         NSApplication.shared.setActivationPolicy(.accessory)

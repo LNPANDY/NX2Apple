@@ -34,7 +34,8 @@ package struct OutcomeCard: View {
         }
         if build.done && build.runningTarget != BuildTarget.mac && !build.installedOn.isEmpty {
             CardGroup(String(format: loc.t("dev.installed"), devices.deviceName(build.installedOn))) {
-                CardRow(loc.t("dev.installedNote"), dot: LauncherPalette.ready) {
+                CardRow(loc.t(build.payloadDelivery?.textKey ?? "dev.installedNote"),
+                        dot: build.payloadDelivery == .awaiting || build.payloadDelivery == .restartRequired ? LauncherPalette.building : LauncherPalette.ready) {
                     Button(String(format: loc.t("dev.open"), devices.deviceName(build.installedOn))) {
                         build.openOnDevice(udid: build.installedOn, app: build.installedAppPath) { error in
                             if let error { build.doneNote = error }

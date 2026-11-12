@@ -216,6 +216,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     // folder (romfs.img, aoc/) into its Documents, as a sideloaded copy has it. Without a device or a team the build stays an unsigned IPA, as before.
     @Published package var installedOn = ""       // the device the last build went to (its UDID)
     @Published package var installedAppPath = ""  // the signed app that went there
+    @Published package var payloadDelivery: PayloadDelivery?
     @Published package var exportedIPAPath = ""   // the unsigned IPA of an export (#416)
     @Published package var send: DataSend = .idle {  // step 3 of the export: the game data on its way (BuildStore+Send.swift)
         didSet { if send != oldValue { finderShown = false } }
@@ -223,7 +224,11 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     /// The player chose the Finder way after the copy to the device did not work: step 3 shows its three steps (#491).
     @Published package var finderShown = false
     @Published package var drive: DriveState?      // the chosen folder's volume and what stops the copy (BuildStore+Send.swift)
-    var shellRetry: (framework: String, titleID: String, name: String, archive: String)?
+    var shellRetry: (framework: String, titleID: String, name: String, archive: String, dataFolder: String?)?
+    var payloadRetryHost: (device: String, team: String, root: String, bundleID: String)?
+    // Payload delivery and the generic install Stop path must share one cancellation flag.
+    var installCancellation: LockedFlag { installCancel }
+    var shellInstallActive = false
     var shellDeviceChecked = false
     package let driveCancel = LockedFlag()   // Stop of the copy to a drive (BuildStore+Send.swift)
     @Published package var shellMove: ShellMove = .idle   // Move cache folder (BuildStore+ShellRoot.swift, #427)
@@ -370,6 +375,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         guard running, !stopping, let proc, proc.isRunning else { return }
         archiveGeneration &+= 1
         stopping = true
+        if shellInstallActive { installCancellation.set(true) }
         stopPSOPoll()
         ProcessGroups.endGroup(proc.processIdentifier)   // the script and every tool it started
     }

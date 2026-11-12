@@ -110,6 +110,12 @@ Controller first: the D-pad and stick move a cream focus ring, A activates, B ba
 
 Manrope and its SIL OFL licence are bundled and registered at runtime, with the system font as fallback. Reduce Motion turns the Cover Flow tilt and the slides into plain crossfades. Shell strings are lines of `frontend/l10n/<code>.json` (`ios.ui.*` for ShellUI, `ios.host.*` for ShellHost), and `Resources/Localizable.xcstrings` of ShellUI and ShellHost is generated from them by `python3 tools/l10n_shell_catalogs.py`. Do not edit the catalogs by hand, see `frontend/README.md`, section "Language". Every shell text has all seven languages, and the tests fail otherwise. `ShellTextsCaptureTests` renders the library in each state, a game's settings, the help cards, Controllers and Cover Flow from the fixture games in one language (`NX_SHELL_CAPTURE_DIR`, `NX_SHELL_CAPTURE_LANG`). The rows of a game's settings screen come from its English `launcher.json`: `SettingRow`, `SettingOption` and `SettingSection` look their texts up in the ShellUI catalog by the English words (`ShellStrings.setting`), and a text with no entry stays English. The catalog has the `launch.*` texts of the Mac launcher for this, and `tools/tests/test_launcher_texts.py` fails with the missing text when a pin bump brings a new one.
 
+## Signed game payloads
+
+Import-capable shells keep existing bundled games and also discover signed game frameworks transferred by the Mac launcher. Successful adds and updates change only the app's data container, with no shell rebuild or reinstall. Saves, settings, and picked folders keep their existing title-based locations. An update of an already loaded title is staged until the next cold launch.
+
+The shell processes complete transfers on startup and foreground entry, and watches for transfers while its library is visible. It publishes acceptance receipts for the launcher. Phone-side import and signing are deferred. See [PayloadKit](PayloadKit/README.md) for the shared protocol and validation.
+
 ## Demo
 
 The test launcher uses one nine-game Nintendo metadata catalog. Installed versions, readiness and play history are simulated. Public cover art and app icons are supplied locally in the ignored `Demo/ReviewCatalog/` folder; metadata-only builds use the same Nintendo titles with standard artwork placeholders. Fictional launcher catalogs and legacy artwork switches have been removed. Separate host-test fixtures remain for automated tests.

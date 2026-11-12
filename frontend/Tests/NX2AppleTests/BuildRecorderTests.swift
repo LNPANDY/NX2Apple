@@ -75,6 +75,44 @@ import NXModel
         XCTAssertEqual(GameLibrary(file: file).games.first { $0.id == id }?.appPath, app.path, "library.json holds it")
     }
 
+    func testPayloadDeliveryRecordsOnlyTheTransferredGame() throws {
+        let stores = LauncherStores(defaults: testDefaults)
+        stores.repo.path = temporary.path
+        let root = temporary.appendingPathComponent("shell")
+        let app = URL(fileURLWithPath: ShellInstall.appPath(root: root.path))
+        try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: app.appendingPathComponent("Info.plist"))
+        try Data("profile".utf8).write(to: app.appendingPathComponent("embedded.mobileprovision"))
+        let delivered = LibraryGame(titleID: titleID, name: "Transferred", iosAppPath: app.path, installedDevice: "OTHER-DEVICE")
+        let other = LibraryGame(titleID: "01007EF00011E000", name: "Other", iosAppPath: app.path, installedDevice: "OTHER-DEVICE")
+        let file = temporary.appendingPathComponent("library.json")
+        try JSONEncoder().encode([delivered, other]).write(to: file)
+        let library = GameLibrary(file: file)
+        try ShellLibrary(games: [delivered, other].map {
+            .init(titleID: $0.titleID, name: $0.name, framework: "DmGame\($0.titleID).framework")
+        }).save(root: root.path)
+        ShellLibrary.recordInstalled(root: root.path)   // both titles belonged to an earlier whole-shell install
+        let recorder = BuildRecorder(stores: stores, library: library, activeBuildID: delivered.id)
+        let build = stores.build
+        build.buildingGame = true
+        build.runningTarget = BuildTarget.ios
+        build.running = true
+        build.installedOn = "TARGET-DEVICE"
+        build.installedAppPath = app.path
+        build.payloadDelivery = .active
+        build.done = true
+        build.running = false
+        drainMainQueue()
+
+        XCTAssertEqual(library.games.first { $0.id == delivered.id }?.installedDevice, "TARGET-DEVICE")
+        XCTAssertEqual(library.games.first { $0.id == other.id }?.installedDevice, "OTHER-DEVICE")
+        XCTAssertEqual(ShellLibrary.installedReceipt(root: root.path), [other.titleID], "a moved payload title cannot identify the old whole-shell install's device")
+        let reopened = GameLibrary(file: file)
+        reopened.syncSharedApp(root: root.path)
+        XCTAssertEqual(reopened.games.first { $0.id == other.id }?.installedDevice, "OTHER-DEVICE")
+        withExtendedLifetime(recorder) {}
+    }
+
     func testStandaloneIOSActionsKeepMacTargetOutOfBuildingStateAndBuildStepsRestoreBuildingGame() throws {
         final class InstantRunner: ProcessRunner {
             var captureHandler: (ProcessLaunch) -> ProcessResult = { _ in ProcessResult(status: 0, out: "") }

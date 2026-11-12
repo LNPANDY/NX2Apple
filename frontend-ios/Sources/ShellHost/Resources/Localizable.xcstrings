@@ -961,6 +961,70 @@
         }
       }
     },
+    "A game payload could not be added. See the shell log for details.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Spielpaket konnte nicht hinzugefügt werden. Details stehen im App-Protokoll."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A game payload could not be added. See the shell log for details."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo añadir un paquete de juego. Consulta el registro de la app para más información."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ajouter un paquet de jeu. Consultez le journal de l’app pour plus de détails."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile aggiungere un pacchetto di gioco. Consulta il registro dell’app per i dettagli."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームパッケージを追加できませんでした。詳細はアプリのログを確認してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 패키지를 추가하지 못했습니다. 자세한 내용은 앱 로그를 확인하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível adicionar um pacote de jogo. Consulte o registro do app para obter detalhes."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ett spelpaket kunde inte läggas till. Se appens logg för mer information."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法添加游戏包。请查看应用日志了解详情。"
+          }
+        }
+      }
+    },
     "Another device": {
       "localizations": {
         "de": {
@@ -1789,6 +1853,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "游戏清单缺失"
+          }
+        }
+      }
+    },
+    "Game update received. Close and reopen the app to use it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spielupdate empfangen. Schließe die App und öffne sie erneut, um es zu verwenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Game update received. Close and reopen the app to use it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualización del juego recibida. Cierra y vuelve a abrir la app para usarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mise à jour du jeu reçue. Fermez puis rouvrez l’app pour l’utiliser."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamento del gioco ricevuto. Chiudi e riapri l’app per usarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームの更新を受信しました。アプリを完全に終了して再度開くと更新が適用されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 업데이트를 받았습니다. 앱을 완전히 닫았다가 다시 열면 적용됩니다."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualização do jogo recebida. Feche e reabra o app para usá-la."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speluppdatering mottagen. Stäng och öppna appen igen för att använda den."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已收到游戏更新。请完全关闭并重新打开应用以使用更新。"
           }
         }
       }

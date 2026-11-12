@@ -117,7 +117,7 @@ jobs:
               # ubuntu-latest by launcher-qt's test_localization_*.py and patch-queue's test_l10n_shell_catalogs.py / test_launcher_texts.py),
               # the synced engine (.upstream-ref, patches/, tools/engine.py, dm/, scripts/), and this file. A Windows-only (frontend-qt/) or
               # l10n-only change skips the xcode-27 runner.
-              if echo "$files" | grep -v '^frontend/l10n/' | grep -Eq '^(frontend/|dm/|scripts/|patches/|tools/engine\.py$|\.upstream-ref$|\.github/workflows/tests\.yml$)'; then
+              if echo "$files" | grep -v '^frontend/l10n/' | grep -Eq '^(frontend/|frontend-ios/PayloadKit/|dm/|scripts/|patches/|tools/engine\.py$|\.upstream-ref$|\.github/workflows/tests\.yml$)'; then
                 launcher=true
               else
                 launcher=false
@@ -464,6 +464,7 @@ jobs:
           set -o pipefail
           mkdir -p ../logs
           swift test 2>&1 | tee ../logs/shell-package-tests.log
+          swift test --package-path PayloadKit 2>&1 | tee ../logs/payload-package-tests.log
       - name: Host unit tests (dm/host/tests)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |

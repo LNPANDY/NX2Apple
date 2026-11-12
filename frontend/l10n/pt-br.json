@@ -1073,6 +1073,8 @@
   "ios.host.padOn": "Ligado",
   "ios.host.padSameAsAllGames": "Padrão",
   "ios.host.padSwapAB": "Trocar A e B",
+  "ios.host.payloadFailed": "Não foi possível adicionar um pacote de jogo. Consulte o registro do app para obter detalhes.",
+  "ios.host.payloadRestart": "Atualização do jogo recebida. Feche e reabra o app para usá-la.",
   "ios.host.player": "Jogador %@",
   "ios.host.preparingGame": "Preparando o jogo…",
   "ios.host.quitButton": "Sair",

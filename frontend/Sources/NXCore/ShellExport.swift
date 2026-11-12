@@ -1,4 +1,5 @@
 import Foundation
+import PayloadKit
 
 // The shared app as an unsigned IPA (LNPANDY/NX2Apple#416): no device and no signing team. The same project as the install
 // (build_shell.sh --prepare-xcode), built by xcodebuild with signing off, the executable signed ad-hoc to carry its entitlements
@@ -261,6 +262,88 @@ extension ShellInstaller {
         )
     }
 
+    /// Resolve the device's selection rather than a Mac cache which may describe
+    /// a different phone or an update still waiting for restart.
+    private func payloadDataFolder(titleID: String, archive: String, bundle: String) throws -> String? {
+        try checkPayloadCancellation()
+        let fm = FileManager.default
+        let stage = fm.temporaryDirectory.appendingPathComponent("nx-payload-data-" + UUID().uuidString)
+        try fm.createDirectory(at: stage, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: stage) }
+        func read(_ name: String) -> URL? {
+            let file = stage.appendingPathComponent((name as NSString).lastPathComponent)
+            let command = Self.payloadCopy(xcrun: xcrun, device: device, bundle: bundle, toDevice: false,
+                source: "Documents/" + name, destination: file.path)
+            let result = runner.capture(ProcessLaunch(executable: command[0], arguments: Array(command.dropFirst()), mergesErrors: true, timeout: 30))
+            return result.ok && fm.fileExists(atPath: file.path) ? file : nil
+        }
+        guard let capabilitiesFile = read(PayloadCapabilities.fileName) else {
+            if fm.fileExists(atPath: payloadHostFile(bundle: bundle).path) { throw PayloadError.incompatible(t("payload.unavailable")) }
+            return nil
+        }
+        let host = try JSONDecoder().decode(PayloadCapabilities.self, from: Data(contentsOf: capabilitiesFile))
+        guard host.version == PayloadCapabilities.protocolVersion, host.bundleID == bundle else {
+            throw PayloadError.incompatible("shell protocol or bundle")
+        }
+        let remembered = payloadHostFile(bundle: bundle)
+        try fm.createDirectory(at: remembered.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PayloadArchive.encode(host).write(to: remembered, options: .atomic)
+        let inboxFile = stage.appendingPathComponent("inbox.json")
+        let inbox = runner.capture(ProcessLaunch(executable: xcrun,
+            arguments: ["devicectl", "device", "info", "files", "--device", device, "--domain-type", "appDataContainer",
+                        "--domain-identifier", bundle, "--subdirectory", "Documents/" + PayloadStore.inboxName,
+                        "--json-output", inboxFile.path], mergesErrors: true, timeout: 30))
+        guard inbox.ok, let data = try? Data(contentsOf: inboxFile),
+              let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let files = (json["result"] as? [String: Any])?["files"] as? [[String: Any]] else {
+            throw PayloadError.incompatible(t("payload.unavailable"))
+        }
+        guard !files.contains(where: {
+            let path = ($0["relativePath"] as? String) ?? ($0["name"] as? String) ?? ""
+            return path == PayloadArchive.readyName || path.hasSuffix("/" + PayloadArchive.readyName)
+        }) else { throw PayloadError.incompatible(t("payload.dataSelectionUnavailable")) }
+        guard let registryFile = read(PayloadStore.registryName) else { throw PayloadError.incompatible(t("payload.unavailable")) }
+        guard let selected = try PayloadStore.selectedManifest(in: Data(contentsOf: registryFile), titleID: titleID) else { return nil }
+        func identity(_ line: String) -> (size: UInt64, index: UInt64)? {
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            guard fields.first == "DMROMFSID1" else { return nil }
+            func value(_ name: String) -> Substring? {
+                fields.dropFirst().first { $0.hasPrefix(name + "=") }?.dropFirst(name.count + 1)
+            }
+            guard let bytes = value("size"), let size = UInt64(bytes), size > 0,
+                  let hash = value("index"), let index = UInt64(hash, radix: 16) else { return nil }
+            return (size, index)
+        }
+        let gamePath = PayloadStore.bundlesName + "/" + titleID + "/" + selected.generation + "/" + selected.framework + "/game.manifest.json"
+        guard let gameFile = read(gamePath),
+              let game = try JSONSerialization.jsonObject(with: Data(contentsOf: gameFile)) as? [String: Any],
+              game["title_id"] as? String == titleID,
+              let expectedLine = game["romfs_identity"] as? String, let expected = identity(expectedLine),
+              let actualLine = imageIdentity(archive: archive, titleID: titleID), let actual = identity(actualLine),
+              actual == expected else {
+            throw PayloadError.incompatible(t("payload.dataSelectionUnavailable"))
+        }
+        // Header/index identity alone does not distinguish changed file bytes
+        // across game versions. Bind the source to its package version and hash.
+        struct SourceImageID: Decodable {
+            let title: String
+            let version: String
+            let bytes: UInt64
+            let sha256: String
+        }
+        let source = URL(fileURLWithPath: archive).appendingPathComponent("romfs.img")
+        guard let metadata = try? Data(contentsOf: URL(fileURLWithPath: archive).appendingPathComponent("romfs.img.id")),
+              let sourceID = try? JSONDecoder().decode(SourceImageID.self, from: metadata),
+              sourceID.title.uppercased() == titleID,
+              sourceID.version == game["package_version"] as? String,
+              try PayloadArchive.size(source) == sourceID.bytes,
+              try PayloadArchive.digest(source, checkCancellation: checkPayloadCancellation) == sourceID.sha256 else {
+            throw PayloadError.incompatible(t("payload.dataSelectionUnavailable"))
+        }
+        try checkPayloadCancellation()
+        return "Documents/" + PayloadStore.gameDataPath(titleID: titleID, generation: selected.generation)
+    }
+
     /// The game data into the shared app that is installed already and signed by another tool (LNPANDY/NX2Apple#416). The app is found
     /// on the device by its bundle ID prefix (a sideloading tool may add a team ID): none is `.appNotFound`, several come back in
     /// `apps` for the player to choose from (`bundleID` then names the one). The copy is the install's own data step (listing, diff,
@@ -293,8 +376,13 @@ extension ShellInstaller {
             }
             chosen = first.bundle; name = first.name
         }
+        let dataFolder: String?
+        do { dataFolder = try payloadDataFolder(titleID: titleID, archive: archive, bundle: chosen!) }
+        catch {
+            return Outcome(ok: false, message: fmt("payload.failed", String(describing: error)), bundleID: chosen!)
+        }
         var outcome = copyGameData(titleID: titleID, archive: archive, app: "", bundleID: chosen!,
-                                   outcome: Outcome(ok: true, message: "", bundleID: chosen!))
+                                   outcome: Outcome(ok: true, message: "", bundleID: chosen!), dataFolder: dataFolder)
         outcome.appName = name
         if outcome.ok, !outcome.copySkipped {
             outcome.message = t("shell.sendDone")

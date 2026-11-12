@@ -720,7 +720,7 @@ import NXModel
         let r = run(f)
         XCTAssertEqual(r.status, 1)
         XCTAssertTrue(r.output.contains("FAIL: The shared app could not be prepared: games of different profiles in one shell: A (x), B (y)"), r.output)
-        XCTAssertFalse(calls.contains { $0.hasPrefix("xcodebuild") || $0.hasPrefix("devicectl device") })   // nothing was signed or installed
+        XCTAssertFalse(calls.contains { $0.hasPrefix("xcodebuild") || $0.hasPrefix("devicectl device install") || $0.hasPrefix("devicectl device copy to") })
     }
 
     func testARefusedProjectLeavesShellJsonAsItWas() throws {

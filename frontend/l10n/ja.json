@@ -1073,6 +1073,8 @@
   "ios.host.padOn": "オン",
   "ios.host.padSameAsAllGames": "デフォルト",
   "ios.host.padSwapAB": "A と B を入れ替える",
+  "ios.host.payloadFailed": "ゲームパッケージを追加できませんでした。詳細はアプリのログを確認してください。",
+  "ios.host.payloadRestart": "ゲームの更新を受信しました。アプリを完全に終了して再度開くと更新が適用されます。",
   "ios.host.player": "プレイヤー %@",
   "ios.host.preparingGame": "ゲームを準備中…",
   "ios.host.quitButton": "終了",

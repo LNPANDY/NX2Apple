@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: ^^ <11072158+n3crosis@users.noreply.github.com>
+Date: Wed, 11 Nov 2026 01:56:50 +0800
+Subject: [PATCH] iOS shell: load transferred payloads and allow an empty library
+
+Start the fork shell's signed payload intake before constructing its hosting
+view, then await that task before environment-selected launches. Allow building the thin shell without
+embedded games.
+Existing bundled frameworks remain supported.
+
+Front-ends: the fork's frontend-ios supplies ShellPayloads and payload intake.
+Upstream-Status: fork-only
+Reason: NX2Apple-specific Route C shell bootstrap and import-only packaging, built on the fork's shell patches.
+Issue: none (local maintainer-requested implementation)
+---
+
+diff --git a/dm/ios/Shell/ShellApp.swift b/dm/ios/Shell/ShellApp.swift
+--- a/dm/ios/Shell/ShellApp.swift
++++ b/dm/ios/Shell/ShellApp.swift
+@@ -53,8 +53,10 @@
+         let frameworks = Bundle.main.privateFrameworksURL ?? Bundle.main.bundleURL.appendingPathComponent("Frameworks", isDirectory: true)
+         let config = ShellHostConfig(gamesRoot: frameworks, appDataRoot: ShellHostConfig.defaultAppDataRoot(),
+                                      environment: HostEnvironment(chain: chain),
+-                                     updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"))
++                                     updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"), payloads: ShellPayloads.live())
+         let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker())
++        // Begin startup intake before the hosting view observes an inactive scene.
++        let startupPayloads = model.refreshPayloads()
+         model.startControllers()
+         for entry in model.entries {
+             fputs("shell: game \(entry.id) \(entry.title) at \(entry.frameworkURL?.lastPathComponent ?? "-")\(entry.problem.map { ", broken: \($0.reason), \($0.detail)" } ?? "")\n", stderr)
+@@ -62,9 +64,12 @@
+         // DM_SHELL_PLAY=<title ID> in the launch environment (devicectl process launch --environment-variables, the Mac launcher's
+         // Play on device) starts that game as Play in the library would, through the same launcher
+         if let id = ProcessInfo.processInfo.environment["DM_SHELL_PLAY"], !id.isEmpty {
+-            let state = model.details.first { $0.id == id }.map { "\($0.game.state)" } ?? "not in the library"
+-            fputs("shell: DM_SHELL_PLAY=\(id) (\(state))\n", stderr)
+-            DispatchQueue.main.async { model.play(id) }
++            Task { @MainActor in
++                await startupPayloads?.value
++                let state = model.details.first { $0.id == id }.map { "\($0.game.state)" } ?? "not in the library"
++                fputs("shell: DM_SHELL_PLAY=\(id) (\(state))\n", stderr)
++                model.play(id)
++            }
+         }
+         let host = UIHostingController(rootView: ShellHostView(model: model))
+         host.view.backgroundColor = .black
+diff --git a/dm/ios/tests/test_shell_build.py b/dm/ios/tests/test_shell_build.py
+--- a/dm/ios/tests/test_shell_build.py
++++ b/dm/ios/tests/test_shell_build.py
+@@ -85,6 +85,12 @@
+     def test_a_framework_without_its_host_is_refused(self):
+         self.refused([framework(self.root, loader='FR')], 'built without a host in the framework')
+
++    def test_empty_framework_list_reaches_project_generation(self):
++        r = run_script('--prepare-xcode', [], self.shell, PATH='/usr/bin:/bin')
++        self.assertTrue((self.shell / 'frameworks.txt').exists(), r.stdout + r.stderr)
++        self.assertEqual((self.shell / 'frameworks.txt').read_text(), '')
++        self.assertTrue((self.shell / 'Gen').is_dir(), r.stdout + r.stderr)
++
+     def test_two_frameworks_of_one_title_are_refused(self):
+         a = framework(self.root / 'a')
+         b = framework(self.root / 'b')
+@@ -104,10 +110,7 @@
+     def test_a_framework_without_its_executable_is_refused(self):
+         self.refused([framework(self.root, executable=False)], f'no executable DmGame{GAME}')
+
+-    def test_no_frameworks_and_no_mode_are_refused(self):
+-        r = run_script('--prepare-xcode', [], self.shell)
+-        self.assertNotEqual(r.returncode, 0)
+-        self.assertIn('DM_SHELL_FRAMEWORKS is not set', r.stdout)
++    def test_an_unknown_mode_is_refused(self):
+         r = run_script('--sign', [framework(self.root)], self.shell)
+         self.assertNotEqual(r.returncode, 0)
+         self.assertIn('usage', r.stdout)
+diff --git a/dm/ios/tools/build_shell.sh b/dm/ios/tools/build_shell.sh
+--- a/dm/ios/tools/build_shell.sh
++++ b/dm/ios/tools/build_shell.sh
+@@ -8,7 +8,7 @@
+ #   --build          also builds it for iOS, unsigned (CODE_SIGNING_ALLOWED=NO), to check it compiles and links (CI, off a device)
+ # Environment:
+ #   SHELL_DIR            the shell's project folder (required; outside dm/ios, on the drive with the games: Gen/, the project, derived data)
+-#   DM_SHELL_FRAMEWORKS  the games' framework folders, one per line (required, at least one; <folder>/DmGame<title ID>.framework)
++#   DM_SHELL_FRAMEWORKS  the games' framework folders, one per line (empty builds an import-only shell)
+ #   DM_BUNDLE_ID         the shell's bundle ID (default org.nxnative.shell). Keep it for the life of the install: the same ID installed
+ #                        over the existing app keeps its Documents (game data, saves) when it is signed again after 7 days
+ #   DM_TEAM_ID           the signing team for the prepared project (default 0000000000, a placeholder)
+@@ -26,7 +26,7 @@
+ t() { echo "[$(date +%T)] $*"; }; die() { t "FAIL: $*"; exit 1; }
+ MODE=${1:-}; case "$MODE" in --prepare-xcode|--build) ;; *) die "usage: $0 --prepare-xcode | --build";; esac
+ [ -n "${SHELL_DIR:-}" ] || die "SHELL_DIR is not set: the shell's project folder"
+-[ -n "${DM_SHELL_FRAMEWORKS:-}" ] || die "DM_SHELL_FRAMEWORKS is not set: the games' framework folders, one per line"
++export DM_SHELL_FRAMEWORKS=${DM_SHELL_FRAMEWORKS:-}
+ mkdir -p "$SHELL_DIR" || die "mkdir $SHELL_DIR"; S=$(cd "$SHELL_DIR" && pwd)
+ [ "$S" != "$IOS_SOURCE" ] || die "the shell project must be outside dm/ios"
+ [ -n "${DM_SHELL_PACKAGE:-}" ] || { [ -f "$REPO/frontend-ios/Package.swift" ] && DM_SHELL_PACKAGE=$REPO/frontend-ios || DM_SHELL_PACKAGE=$(cd "$REPO/.." && pwd)/frontend-ios; }
+@@ -43,7 +43,6 @@
+ import json, os, sys
+ out = sys.argv[1]
+ paths = [p.strip() for p in os.environ['DM_SHELL_FRAMEWORKS'].splitlines() if p.strip()]
+-if not paths: sys.exit('[RED] no framework named')
+ seen, rows = {}, []
+ for p in paths:
+     p = os.path.abspath(p)

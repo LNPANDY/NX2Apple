@@ -75,9 +75,11 @@ extension BuildStore {
         installer.device = entry.deviceID
         installer.deviceName = entry.deviceName
         installer.stage = { _ in }
+        installer.processStarted = { _ in }   // The main Stop action owns the build/install process.
         let cancelled = LockedFlag()
         transferCancels[entry.id] = cancelled
         installer.waitCancelled = { cancelled.value }
+        installer.cancelled = { cancelled.value }
         installer.decideCopy = { plan in plan.connection == .notConnected ? .skip : .copy }
         installer.copyProgress = { done, total in hop { report(done, total) } }
         let ready = installer

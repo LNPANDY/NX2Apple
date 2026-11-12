@@ -570,7 +570,7 @@ final class GameLibrary: ObservableObject {
         selectedID = game.id
     }
 
-    func recordCompletedIOS(archive: String, app: String, device: String = "", commit: String = "", for id: UUID) {
+    func recordCompletedIOS(archive: String, app: String, device: String = "", commit: String = "", payloadOnly: Bool = false, for id: UUID) {
         guard var game = games.first(where: { $0.id == id }),
               FileManager.default.fileExists(atPath: app + "/Info.plist") else { return }
         // The shared app replaces an older build's single IPA: the file stays on disk, the library stops listing it
@@ -579,8 +579,16 @@ final class GameLibrary: ObservableObject {
         game.iosAppPath = app
         game.installedDevice = device
         game.toolsCommit = commit
+        // A payload delivered only this game. Full-shell installs also carry the
+        // cache's other titles. Retire the old receipt before persisting a new
+        // per-game device, so interruption cannot reassign its old peers.
+        if payloadOnly {
+            if let shell = ShellInstall.paths(ofApp: app) {
+                ShellLibrary.removeFromInstalledReceipt(root: shell.root, titleID: game.titleID)
+            }
+        }
         upsert(game)
-        recordSharedAppInstalled(app: app, device: device)
+        if !payloadOnly { recordSharedAppInstalled(app: app, device: device) }
     }
 
     /// Every game in the shared app's shell.json is inside `app` on `device` once the shared app is signed and installed there.
