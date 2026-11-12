@@ -51,7 +51,6 @@ import NXLauncher
     func setMenuSwapAB(_ on: Bool) { base.setMenuSwapAB(on) }
     func finishMapping(save: Bool) { base.finishMapping(save: save) }
     func setPadMerge(_ enabled: Bool) { base.setPadMerge(enabled) }
-    func setJoyconSplit(_ enabled: Bool) { base.setJoyconSplit(enabled) }
     func dismissToast() { base.dismissToast() }
     func back() { base.back() }
     func exitToDesktop() { base.exitToDesktop() }
@@ -261,13 +260,6 @@ struct ConsoleToastView: View {
     var scope = "console.controllers"
     /// The row that opens the button mapping. The desktop's Controllers sheet has the Controls page for that instead.
     var showsMapping = true
-    /// The Joy-Con split only while a Joy-Con is connected (or the split is on, so it can be turned off). The desktop's sheet lists no
-    /// controllers, so it always shows it.
-    var joyconSplitOnlyWithJoyCon = true
-    private var showsJoyconSplit: Bool {
-        !joyconSplitOnlyWithJoyCon || state.joyconSplit
-            || state.controllers.contains { $0.kind == .paired || $0.name.hasPrefix("Joy-Con") }
-    }
     @EnvironmentObject private var pad: PadFocus
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var state: ConsoleState { driver.state }
@@ -281,7 +273,6 @@ struct ConsoleToastView: View {
                 VStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 22) {
                     mergeToggle
-                    if showsJoyconSplit { joyconSplitToggle }
                     if showsMapping { menuSwapToggle }   // in reach here too, not only at the top of the button mapping (#1129)
                     if showsMapping { mappingEntry }
                     if showsMapping && state.homeButtonAvailable { homeEntry }
@@ -399,26 +390,6 @@ struct ConsoleToastView: View {
         .accessibilityLabel(t("controls.homeQuit")).accessibilityHint(t("controls.homeQuitNote"))
     }
 
-    /// "Split Joy-Con pair into two controllers" (#740) as a switch with its state spelled out.
-    private var joyconSplitToggle: some View {
-        let flip = { driver.setJoyconSplit(!state.joyconSplit) }
-        return Button(action: flip) {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Label(t("console.joyconSplit"), systemImage: "rectangle.split.2x1").font(.manrope(compact ? 16 : 18, .semibold))
-                    Text(t(state.joyconSplit ? "console.on" : "console.off")).font(.manrope(compact ? 16 : 20)).foregroundStyle(state.joyconSplit ? LauncherPalette.cream : LauncherPalette.secondaryText)
-                }
-                Spacer(minLength: 8)
-                Toggle(t("console.joyconSplit"), isOn: Binding(get: { state.joyconSplit }, set: { _ in flip() })).labelsHidden().toggleStyle(LauncherSwitchStyle()).allowsHitTesting(false)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(14)
-            .background(LauncherPalette.ink(0.045), in: RoundedRectangle(cornerRadius: 10)).contentShape(RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-        .padTarget("console.controller.joyconSplit", scope: scope, radius: 10, activate: flip, adjust: { _ in flip() })
-        .accessibilityLabel(t("console.joyconSplit")).accessibilityValue(t(state.joyconSplit ? "console.on" : "console.off"))
-    }
-
     /// Swap A and B in menus, as the button mapping page has it. Here it applies at once (the mapping page applies it on Save).
     private var menuSwapToggle: some View {
         let flip = { driver.setMenuSwapAB(!state.menuSwapAB) }
@@ -509,7 +480,7 @@ struct ConsoleToastView: View {
                     .buttonStyle(.plain).accessibilityLabel(L10n.string("console.close", lang))
                     .padTarget("console.sheet.close", scope: "console.controllers", radius: 24, activate: close)
             }.padding(24)
-            ConsoleControllerList(driver: driver, lang: lang, compact: true, showsMapping: false, joyconSplitOnlyWithJoyCon: false)
+            ConsoleControllerList(driver: driver, lang: lang, compact: true, showsMapping: false)
         }
         .frame(minWidth: 360, idealWidth: 580, maxWidth: 580, minHeight: 600, idealHeight: 720, maxHeight: 720).background(LauncherPalette.background).launcherAppearance()
         .foregroundStyle(LauncherPalette.textStrong).padScope("console.controllers", pad)

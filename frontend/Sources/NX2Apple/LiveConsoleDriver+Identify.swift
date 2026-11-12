@@ -55,14 +55,7 @@ extension LiveConsoleDriver {
 
     func makeEngine(_ pad: GCController, id: String) -> CHHapticEngine? {
         guard let haptics = pad.haptics else { Self.log.debug("identify: no haptics on this controller"); return nil }
-        let localities: [GCHapticsLocality]
-        if id.hasSuffix(".L") {
-            localities = [.leftHandle, .default, .all, .handles]
-        } else if id.hasSuffix(".R") {
-            localities = [.rightHandle, .default, .all, .handles]
-        } else {
-            localities = [.default, .all, .handles, .leftHandle, .rightHandle]
-        }
+        let localities: [GCHapticsLocality] = [.default, .all, .handles, .leftHandle, .rightHandle]
         guard let engine = localities.lazy.compactMap({ haptics.createEngine(withLocality: $0) }).first else {
             Self.log.debug("identify: haptics exist but no engine could be created (supported localities: \(haptics.supportedLocalities.map(\.rawValue).joined(separator: ","), privacy: .public))")
             return nil
