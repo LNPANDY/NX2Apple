@@ -28,11 +28,11 @@ import AppKit
     }
     func testActualLaunchImportsOnceAndResetIsNotReseeded() throws {
         let game = try game()
+        testDefaults.set(true, forKey: "joyconSplit")   // legacy setting from older builds must not pass DM_JOYCON_SPLIT
         let layout = ControlLayout(defaults: testDefaults)
         layout.assign(ControlLayout.functions.first { $0.id == "A" }!, key: 40)
         layout.setSends("A", "B")
         layout.padMerge = true
-        layout.joyconSplit = true
         let storage = SystemControllerPreferences(domain: domain)
         storage.write("launcher.DM_PAD_MAP", value: "A=Shake")
         storage.write("launcher.DM_FPS_TARGET", value: "60")
@@ -41,7 +41,7 @@ import AppKit
         XCTAssertNil(env["DM_KEYMAP"])
         XCTAssertNil(env["DM_PAD_MAP"])
         XCTAssertEqual(env["DM_PAD_MERGE"], "1")
-        XCTAssertEqual(env["DM_JOYCON_SPLIT"], "1")
+        XCTAssertNil(env["DM_JOYCON_SPLIT"])
         XCTAssertEqual(storage.read("launcher.DM_KEYMAP") as? String, "A=40,B=none")
         XCTAssertEqual(storage.read("launcher.DM_PAD_MAP") as? String, "A=Shake")
         XCTAssertEqual(storage.read("launcher.DM_FPS_TARGET") as? String, "60")

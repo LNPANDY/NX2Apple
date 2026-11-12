@@ -12,12 +12,9 @@ import Combine
     init(layout: ControlLayout) {
         self.layout = layout
         state.padMerge = layout.padMerge
-        state.joyconSplit = layout.joyconSplit
         layout.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }.store(in: &cancellables)
-        layout.$joyconSplit.sink { [weak self] split in self?.state.joyconSplit = split }.store(in: &cancellables)
     }
     func setPadMerge(_ enabled: Bool) { layout.padMerge = enabled }
-    func setJoyconSplit(_ enabled: Bool) { layout.joyconSplit = enabled }
     func openControllers() { state.openControllers() }
     func back() { if !state.sheets.isEmpty { state.back() } }   // the desktop has no console mode to leave
     func dismissToast() { state.toast = nil }
