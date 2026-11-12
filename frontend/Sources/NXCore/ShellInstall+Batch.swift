@@ -46,6 +46,16 @@ extension ShellInstaller {
         for game in games where !fm.fileExists(atPath: game.framework) {
             return missingFramework(game.framework, name: game.name)
         }
+        if let hot = tryHotInstall(games: games.map {
+            HotGame(framework: $0.framework, titleID: $0.titleID, name: $0.name, pickedArtwork: $0.pickedArtwork)
+        }) {
+            guard hot.outcome.ok else { return hot.outcome }
+            var result = copyBatchGameData(games, app: hot.outcome.appPath, bundleID: hot.outcome.bundleID, start: hot.outcome)
+            if result.ok, !hot.notes.isEmpty {
+                result.message = ([result.message] + hot.notes).joined(separator: "\n")
+            }
+            return result
+        }
         if let refused = pairingRefusal() { return refused }
 
         let stateFile = ShellLibrary.stateFile(root: root)

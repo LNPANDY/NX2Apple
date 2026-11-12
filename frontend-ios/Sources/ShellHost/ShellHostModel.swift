@@ -8,8 +8,10 @@ import UIKit
 
 /// Where the host finds things. Everything the model touches outside itself is here, so tests point it at a temporary folder.
 public struct ShellHostConfig: Sendable {
-    /// `Games/`: one `<title ID>/` bundle folder per game.
+    /// `Games/`: one `<title ID>/` bundle folder per game, or `Bundle.main.privateFrameworksURL`.
     public var gamesRoot: URL
+    /// Optional writable `Documents/Frameworks/` directory where hot-pushed `DmGame<ID>.framework` bundles live.
+    public var hotFrameworksRoot: URL?
     /// The app's `Documents/games/`: `<title ID>/` holds a game's data, save, temp and log.txt (patch 0003's layout).
     public var appDataRoot: URL
     public var environment: HostEnvironment
@@ -25,13 +27,15 @@ public struct ShellHostConfig: Sendable {
     public var joinPartSize: Int64
     var onJoinProgress: (@Sendable (DataParts.Progress) -> Void)?
 
-    public init(gamesRoot: URL, appDataRoot: URL, environment: HostEnvironment = HostEnvironment(), updateURL: URL? = nil,
+    public init(gamesRoot: URL, appDataRoot: URL, hotFrameworksRoot: URL? = nil,
+                environment: HostEnvironment = HostEnvironment(), updateURL: URL? = nil,
                 defaults: @escaping @Sendable (String) -> UserDefaults = GameDefaults.suite(for:),
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
                 now: @escaping @Sendable () -> Date = { Date() },
                 provisioningExpiration: @escaping @Sendable () -> Date? = { ProvisioningProfile.bundledExpiration() },
                 joinPartSize: Int64 = DataParts.partSize) {
         self.gamesRoot = gamesRoot
+        self.hotFrameworksRoot = hotFrameworksRoot
         self.appDataRoot = appDataRoot
         self.environment = environment
         self.updateURL = updateURL
@@ -53,6 +57,12 @@ public struct ShellHostConfig: Sendable {
     public static func defaultAppDataRoot() -> URL {
         (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("games", isDirectory: true)
+    }
+
+    /// The app's writable `Documents/Frameworks/` directory for hot-pushed game frameworks.
+    public static func defaultHotFrameworksRoot() -> URL {
+        (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("Frameworks", isDirectory: true)
     }
 }
 
@@ -115,6 +125,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var signingCheckTask: Task<Void, Never>?
     @ObservationIgnored private var signingWarningDismissed = false
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
+    @ObservationIgnored nonisolated(unsafe) private var foregroundObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
                 shellSettings: ShellSettingsStore = .current) {
@@ -160,9 +171,20 @@ public struct ShellHostConfig: Sendable {
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
         }
+        #if canImport(UIKit)
+        foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.launchingGame else { return }
+                self.reload()
+            }
+        }
+        #endif
     }
 
-    deinit { defaultsObserver.map(NotificationCenter.default.removeObserver) }
+    deinit {
+        defaultsObserver.map(NotificationCenter.default.removeObserver)
+        foregroundObserver.map(NotificationCenter.default.removeObserver)
+    }
 
     /// Shell choices that change the displayed game defaults.
     private static func choices(of settings: ShellSettingsStore) -> [String] {
@@ -293,7 +315,7 @@ public struct ShellHostConfig: Sendable {
     /// a change to one game updates it in place.
     public func reload() {
         forgetCheckedRomfsImages()
-        let scanned = GameCatalogue.scan(root: config.gamesRoot).filter { !isDeleted($0) }
+        let scanned = GameCatalogue.scan(root: config.gamesRoot, hotRoot: config.hotFrameworksRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
             lastPlayed(e.id).map { (e.id, $0) } }))
@@ -710,14 +732,28 @@ public struct ShellHostConfig: Sendable {
         if pendingCloudLaunch?.game.titleID == id {
             cancelCloudConflict()
         }
-        let failed = GameDeletion.delete(in: appFolder(for: id), saves: saves)
+        var failed = GameDeletion.delete(in: appFolder(for: id), saves: saves)
+        if let hotRoot = config.hotFrameworksRoot {
+            let entryParent = entry.directory.deletingLastPathComponent().standardizedFileURL
+            if entryParent == hotRoot.standardizedFileURL {
+                if !GameCatalogue.discardFolder(entry.directory, in: hotRoot) {
+                    failed.append(entry.directory)
+                }
+            }
+            let canonicalHot = hotRoot.appendingPathComponent("DmGame\(id.uppercased()).framework", isDirectory: true)
+            if FileManager.default.fileExists(atPath: canonicalHot.path),
+               !GameCatalogue.discardFolder(canonicalHot, in: hotRoot) {
+                failed.append(canonicalHot)
+            }
+        }
         dataStore(id).clear()
         cloudStore(id).clear()
         dataStores.removeValue(forKey: id)
         cloudStores.removeValue(forKey: id)
         let defaults = config.defaults(id)
         defaults.removeObject(forKey: LastPlayedStore.key)
-        defaults.set(GameDeletion.stamp(entry), forKey: GameDeletion.deletedKey)
+        let bundledAfterHotRemoval = GameCatalogue.scan(root: config.gamesRoot).first { $0.id.caseInsensitiveCompare(id) == .orderedSame }
+        defaults.set(GameDeletion.stamp(bundledAfterHotRemoval ?? entry), forKey: GameDeletion.deletedKey)
         reload()
         if !failed.isEmpty { notice = hostText("Some files of \(entry.title) could not be deleted.") }
     }

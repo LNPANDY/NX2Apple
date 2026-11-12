@@ -20,8 +20,16 @@ struct EngineGameLauncher: GameLauncher {
     @MainActor func launch(_ game: LaunchableGame) async throws {
         let fm = FileManager.default
         let documents = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let bundleURL = Bundle.main.bundleURL
         let envFile = try? String(contentsOf: documents.appendingPathComponent("env.txt"), encoding: .utf8)
-        let plan = EngineLaunchPlan.make(game: game, appResources: Bundle.main.resourceURL ?? Bundle.main.bundleURL, documents: documents, envFileText: envFile)
+        let plan = EngineLaunchPlan.make(game: game, appResources: Bundle.main.resourceURL ?? bundleURL, documents: documents, envFileText: envFile)
+        let executableURL = plan.frameworkExecutable
+        if let refusal = await Task.detached(priority: .userInitiated, operation: {
+            FrameworkSignature.preflightExternal(executable: executableURL, appBundleURL: bundleURL,
+                                                 hostTeamID: ProvisioningProfile.bundledTeamIdentifier())
+        }).value {
+            throw Failure.engine(refusal)
+        }
         try plan.createFolders()
         let pairs = plan.environment.sorted { $0.key < $1.key }
         let failure = withCStrings(pairs.map(\.key)) { keys in
@@ -50,8 +58,14 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
         let info = Bundle.main.infoDictionary ?? [:]
         // The shader chain the host was compiled with (build_shell.sh writes DMChain): a framework built for another one needs an app update
         let chain = (info["DMChain"] as? String).map { "b-" + $0 }
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory
+        let glueVer = Int(DM_SHELL_GLUE_VERSION)
+        Task.detached(priority: .utility) {
+            ShellHostBeacon.write(to: documents, glueVersion: glueVer)
+        }
         let frameworks = Bundle.main.privateFrameworksURL ?? Bundle.main.bundleURL.appendingPathComponent("Frameworks", isDirectory: true)
         let config = ShellHostConfig(gamesRoot: frameworks, appDataRoot: ShellHostConfig.defaultAppDataRoot(),
+                                     hotFrameworksRoot: ShellHostConfig.defaultHotFrameworksRoot(),
                                      environment: HostEnvironment(chain: chain),
                                      updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"))
         let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker())
