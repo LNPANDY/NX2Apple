@@ -62,7 +62,12 @@ struct GameDeletion: Equatable {
         var saves = [mac.save, mac.legacy ?? SaveTransfer.legacyMacSave(titleID: game.titleID, support: support)].flatMap { save in
             [save.path, save.path + "_device", save.path + "-backups"]
         }
-        if let build { saves.append(build + "/run") }
+        if let build {
+            let run = build + "/run"
+            if exists(run + "/playtime") {
+                saves += ((try? fm.contentsOfDirectory(atPath: run)) ?? []).filter { $0 != "playtime" }.map { run + "/" + $0 }
+            } else { saves.append(run) }
+        }
         saves = Array(Set(saves)).sorted().filter(exists)
         var plan = GameDeletion(titleID: game.titleID, items: items, saves: saves.isEmpty ? nil : Item(kind: .saves, paths: saves), shellRoot: root)
         if measure {

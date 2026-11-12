@@ -135,6 +135,7 @@ public struct LibraryView: View {
             }
             .toolbar { libraryToolbar }
         }
+        .onAppear { if let selectedID { actions.onSelect(selectedID) } }
         .environment(\.shellNativeBars, true)
         .environment(\.shellFocus, focus)
         .coordinateSpace(name: "shell")

@@ -406,7 +406,7 @@ class HostSourcesTest(unittest.TestCase):
         names = {p.name for p in files}
         # from SRC=
         for must in ('loader.c', 'hle.c', 'crash.c', 'probe.c', 'thread.c',
-                     'memstat.m', 'haptics_apple.m', 'entry.S', 'main.c'):
+                     'memstat.m', 'haptics_apple.m', 'entry.S', 'main.c', 'play_time.m', 'DMGameTime.m'):
             self.assertIn(must, names, f'{must} missing from the host source list')
         # Mac-only sources are dropped
         self.assertNotIn('front_mac.m', names)
@@ -419,6 +419,7 @@ class HostSourcesTest(unittest.TestCase):
         # include dirs include the ones the Makefile's compile line names
         inc_str = ' '.join(str(i) for i in incs)
         self.assertIn('gfx/nvn/include', inc_str.replace('\\', '/'))
+        self.assertIn('apple/GameTime/Sources/GameTime/include', inc_str.replace('\\', '/'))
         self.assertIn('stb_vorbis', inc_str.replace('\\', '/'))
         self.assertIn('libvpx', inc_str.replace('\\', '/'))
 

@@ -262,4 +262,17 @@ import XCTest
         second.driver.gameDidTerminate(pid: 4001)
         XCTAssertNil(second.driver.tracking.lookup)
     }
+    func testCanonicalRuntimeSummaryReplacesConsoleEstimateWithoutAddingIt() throws {
+        let h = try makeHarness()
+        let game = try XCTUnwrap(h.driver.library.games.first { $0.name == "Hades" })
+        h.driver.sessions.started(titleID: game.titleID, at: Date(timeIntervalSince1970: 1))
+        h.driver.sessions.ended(titleID: game.titleID, at: Date(timeIntervalSince1970: 7201))
+        let date = Date(timeIntervalSince1970: 100)
+        h.driver.library.applyPlayTime(PlayTimeStats(totalMilliseconds: 3_600_000, lastActivityAt: date, dated: true), to: game.id)
+        h.driver.refresh()
+        let shown = try XCTUnwrap(h.driver.state.games.first { $0.id == game.id.uuidString })
+        XCTAssertEqual(shown.playSeconds, 3600)
+        XCTAssertEqual(shown.lastPlayed, date)
+    }
+
 }

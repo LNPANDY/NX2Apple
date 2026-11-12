@@ -74,8 +74,8 @@ extension LiveConsoleDriver {
     func withHistory(of game: LibraryGame, _ console: ConsoleGame) -> ConsoleGame {
         var console = console
         let record = sessions[game.titleID]
-        console.lastPlayed = [record?.lastPlayed, game.lastPlayed].compactMap { $0 }.max()
-        console.playSeconds = record?.seconds ?? 0
+        console.lastPlayed = game.playTime?.dated == true ? game.activityDate : [game.activityDate, record?.lastPlayed].compactMap { $0 }.max()
+        console.playSeconds = game.playTime.map { Double($0.totalMilliseconds) / 1000 } ?? record?.seconds ?? 0
         console.olderTools = toolsAge.older.contains(game.id)
         return console
     }
@@ -247,6 +247,7 @@ extension LiveConsoleDriver {
         let next = state.pausedGameEnded()
         if !wasPaused { state.returnFromGame() }   // a paused game's quit leaves the console as it is: the player is in it
         gameEnded()
+        if let game { refreshPlayTimeAfterSession(game) }
         refresh()   // Continue playing and the play time
         switch next {
         case let .play(other)?: play(other); return

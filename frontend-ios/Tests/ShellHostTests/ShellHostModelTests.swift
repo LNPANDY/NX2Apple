@@ -748,15 +748,16 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(model.details.first?.game.title != "Bad Settings Fixture")
     }
 
-    @Test func recentlyPlayedComesFirstAndPlayRecordsTheDate() async throws {
+    @Test func failedPlayDoesNotInventActivityAndLegacyDatesStillSort() async throws {
         let box = try Sandbox()
         try box.giveAppData()
         let clock = Clock(Date(timeIntervalSince1970: 1_000_000))
         let config = box.config(now: { clock.date })
         let model = ShellHostModel(config: config)
-        await model.playNow(Fixtures.orbit)   // the stub launcher fails, the date is stored anyway
-        #expect(LastPlayedStore(defaults: box.defaults(Fixtures.orbit)).date == clock.date)
-        #expect(try detail(model).game.recentlyPlayed == "Played today")
+        await model.playNow(Fixtures.orbit)
+        #expect(LastPlayedStore(defaults: box.defaults(Fixtures.orbit)).date == nil)
+        #expect(try detail(model).game.recentlyPlayed == nil)
+        LastPlayedStore(defaults: box.defaults(Fixtures.orbit)).record(clock.date)
         #expect(model.details.first?.id == Fixtures.orbit, "no reorder under the player's finger")
         // A second playable game, played later, goes first after the next reload.
         try box.giveAppData(Fixtures.chain)
@@ -765,6 +766,8 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         clock.date = clock.date.addingTimeInterval(3600)
         let other = ShellHostModel(config: config)
         await other.playNow(quiet)
+        #expect(LastPlayedStore(defaults: box.defaults(quiet)).date == nil)
+        LastPlayedStore(defaults: box.defaults(quiet)).record(clock.date)
         #expect(other.details.first?.id == Fixtures.orbit || other.details.first?.id == quiet)
         other.reload()
         #expect(other.details.prefix(2).map(\.id) == [quiet, Fixtures.orbit])

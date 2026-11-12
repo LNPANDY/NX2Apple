@@ -7,7 +7,7 @@ import NXLauncher
 /// The hero's primary action, the built version beside it (#868, #849), and Mac / device launch lifecycle tracking.
 extension LauncherView {
     static func needsImmediateGatekeeperHint(for game: LibraryGame) -> Bool {
-        game.isReady && game.lastPlayed == nil
+        game.isReady && game.activityDate == nil
     }
 
     func isLaunchingMacGame(_ game: LibraryGame) -> Bool {
@@ -141,7 +141,6 @@ extension LauncherView {
                                 launchError = error.localizedDescription
                                 return
                             }
-                            library.recordPlayed(currentGame.id)
                             if let pid { GameReturnWatcher.shared.didStart(pid: pid) }
                             if let app, !app.isFinishedLaunching, !app.isTerminated {
                                 Task { @MainActor in

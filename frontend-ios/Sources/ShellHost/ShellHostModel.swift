@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import ShellControllers
 import ShellUI
+import GameTimeLibrary
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -85,6 +86,7 @@ public struct ShellHostConfig: Sendable {
         var report: CloudSaveSyncCheck.Report
     }
 
+    @ObservationIgnored private let timeIndex: GameTimeLibrary
     @ObservationIgnored private let config: ShellHostConfig
     @ObservationIgnored private let launcher: any GameLauncher
     @ObservationIgnored private let picker: any FolderPicker
@@ -119,6 +121,7 @@ public struct ShellHostConfig: Sendable {
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
                 shellSettings: ShellSettingsStore = .current) {
         self.config = config
+        self.timeIndex = GameTimeLibrary(indexURL: config.appDataRoot.deletingLastPathComponent().appendingPathComponent("playtime-index.json"))
         self.launcher = launcher
         self.picker = picker
         self.shellSettings = shellSettings
@@ -176,6 +179,7 @@ public struct ShellHostConfig: Sendable {
         shellChoices = Self.choices(of: shellSettings)
         startShellScan()
         details = entries.map(detail(for:))
+        refreshSelectedGameTime()
     }
 
     public func setPadMerge(_ on: Bool) {
@@ -302,9 +306,13 @@ public struct ShellHostConfig: Sendable {
         details = built.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
         startShellScan(force: true)
         startBackupScan()
+        refreshLibraryGameTime()
     }
 
-    private func lastPlayed(_ id: String) -> Date? { LastPlayedStore(defaults: config.defaults(id)).date }
+    private func lastPlayed(_ id: String) -> Date? {
+        if let stats = gameStats[id], stats.dated { return stats.lastActivityAt }
+        return gameStats[id]?.lastActivityAt ?? LastPlayedStore(defaults: config.defaults(id)).date
+    }
 
     private func refresh(_ id: String) {
         guard let e = entries.firstIndex(where: { $0.id == id }), let d = details.firstIndex(where: { $0.id == id }) else { return }
@@ -443,7 +451,7 @@ public struct ShellHostConfig: Sendable {
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
-                            isSwitch2: entry.manifest?.console == "switch2")
+                            playTime: gameStats[entry.id].flatMap { $0.totalMilliseconds > 0 ? ShellFormat.playTime($0.totalMilliseconds) : nil }, isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
             return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false))
         }
@@ -513,11 +521,71 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
+    private var gameStats: [String: GameTimeStats] = [:]
+    private var gameTimeSources: [String: String] = [:]
+    private var gameTimeTask: Task<Void, Never>?
+    private var gameTimeLibraryTask: Task<Void, Never>?
+    private var selectedTimeGame: String?
+
+    private func refreshLibraryGameTime() {
+        gameTimeLibraryTask?.cancel()
+        let ids = entries.map(\.id)
+        gameTimeLibraryTask = Task { [weak self] in
+            guard let self else { return }
+            for id in ids {
+                guard !Task.isCancelled, entry(id) != nil else { return }
+                let folder: String?
+                switch cloudSaves(id) { case .own(let url), .shell(let url): folder = url.path; default: folder = nil }
+                let save = appFolder(for: id).appendingPathComponent("save")
+                let value = await timeIndex.refresh(save: save, cloudFolder: folder, titleID: id, synchronize: false)
+                guard !Task.isCancelled else { return }
+                // Selection owns a newer synchronized result; this pass only warms other local summaries.
+                if selectedTimeGame != id { gameStats[id] = value; refresh(id) }
+            }
+        }
+    }
+
+    func waitForGameTime() async { await gameTimeTask?.value }
+
+    public func refreshSelectedGameTime() {
+        if let id = selectedTimeGame { loadGameTime(id) }
+    }
+
+    private func loadGameTime(_ id: String) {
+        selectedTimeGame = id
+        gameTimeTask?.cancel()
+        let folder: String?
+        switch cloudSaves(id) {
+        case .own(let url), .shell(let url): folder = url.path
+        default: folder = nil
+        }
+        let save = appFolder(for: id).appendingPathComponent("save")
+        let source = save.path + "|" + (folder ?? "")
+        if gameTimeSources[id] != source {
+            gameStats[id] = nil
+            gameTimeSources[id] = source
+            refresh(id)
+        }
+        let index = timeIndex
+        gameTimeTask = Task { [weak self] in
+            let show: @MainActor (GameTimeStats?) -> Void = { [weak self] value in
+                guard !Task.isCancelled, let self, self.gameTimeSources[id] == source else { return }
+                self.gameStats[id] = value
+                if let date = value?.lastActivityAt { LastPlayedStore(defaults: self.config.defaults(id)).record(date) }
+                self.refresh(id)
+            }
+            show(await index.cached(save: save, cloudFolder: folder, titleID: id))
+            guard !Task.isCancelled else { return }
+            show(await index.refresh(save: save, cloudFolder: folder, titleID: id))
+        }
+    }
+
     // MARK: Actions
 
     /// The closures for `LibraryView`.
     public var actions: ShellActions {
         ShellActions(
+            onSelect: { [weak self] id in self?.loadGameTime(id) },
             onPlay: { [weak self] id in self?.play(id) },
             onChange: { [weak self] id, setting, value in self?.change(id, setting: setting, value: value) },
             onPickGameData: { [weak self] id in self?.pickGameData(id) },
@@ -633,6 +701,7 @@ public struct ShellHostConfig: Sendable {
         guard let url = await pickedFolder() else { return }
         if cloudStore(id).store(url) { config.defaults(id).removeObject(forKey: GameDefaults.cloudSavesOffKey) }
         else { notice = hostText("That folder could not be remembered. Try a different one.") }
+        if selectedTimeGame == id { loadGameTime(id) }
         refresh(id)
     }
 
@@ -655,6 +724,7 @@ public struct ShellHostConfig: Sendable {
     public func disableCloudSaves(_ id: String) {
         cloudStore(id).clear()
         config.defaults(id).set(true, forKey: GameDefaults.cloudSavesOffKey)
+        if selectedTimeGame == id { loadGameTime(id) }
         refresh(id)
     }
 
@@ -662,6 +732,7 @@ public struct ShellHostConfig: Sendable {
     public func useShellCloudSaves(_ id: String) {
         cloudStore(id).clear()
         config.defaults(id).removeObject(forKey: GameDefaults.cloudSavesOffKey)
+        if selectedTimeGame == id { loadGameTime(id) }
         refresh(id)
     }
 
@@ -705,11 +776,10 @@ public struct ShellHostConfig: Sendable {
         }
         let failed = GameDeletion.delete(in: appFolder(for: id), saves: saves)
         dataStore(id).clear()
-        cloudStore(id).clear()
+        // Keep the metric source setting with retained history so re-adding the title finds the same records.
         dataStores.removeValue(forKey: id)
         cloudStores.removeValue(forKey: id)
         let defaults = config.defaults(id)
-        defaults.removeObject(forKey: LastPlayedStore.key)
         defaults.set(GameDeletion.stamp(entry), forKey: GameDeletion.deletedKey)
         reload()
         if !failed.isEmpty { notice = hostText("Some files of \(entry.title) could not be deleted.") }
@@ -881,9 +951,6 @@ public struct ShellHostConfig: Sendable {
 
     private func finishLaunch(_ baseGame: LaunchableGame) async {
         var game = baseGame
-        // Remembered when Play is triggered, even if the launcher then fails (the stub). The order changes at the next load.
-        LastPlayedStore(defaults: config.defaults(game.titleID)).record(config.now())
-        refresh(game.titleID)
         do {
             game.shaderResourcesURL = try await ShaderResources.shared.prepare(game)
             try await launcher.launch(game)

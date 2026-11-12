@@ -51,8 +51,8 @@ enum LibrarySort: String, CaseIterable, Identifiable {
 
     func ordered(_ games: [LibraryGame], lang: Lang) -> [LibraryGame] {
         games.sorted { left, right in
-            if self == .recent, left.lastPlayed != right.lastPlayed {
-                switch (left.lastPlayed, right.lastPlayed) {
+            if self == .recent, left.activityDate != right.activityDate {
+                switch (left.activityDate, right.activityDate) {
                 case let (l?, r?): return l > r
                 case (_?, nil): return true
                 default: return false

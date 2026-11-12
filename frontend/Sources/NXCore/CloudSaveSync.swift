@@ -30,8 +30,9 @@ package enum CloudSaveSync {
     /// The first `DM_SAVE_SYNC` value of an env.txt, read as launcher.c's env_file does: `KEY=VALUE` lines, `#` starts a comment,
     /// spaces around the key and at the end of the value are dropped, the first line for a key wins.
     package static func envValue(_ text: String) -> String? { envLine(text)?.value }
+    package static func envValue(_ text: String, key: String) -> String? { envLine(text, key: key)?.value }
 
-    private static func envLine(_ text: String) -> (index: Int, value: String, ending: String)? {
+    private static func envLine(_ text: String, key: String = CloudSaveSync.key) -> (index: Int, value: String, ending: String)? {
         for (i, raw) in text.components(separatedBy: "\n").enumerated() {
             let line = raw.drop(while: { $0 == " " || $0 == "\t" })
             guard !line.hasPrefix("#"), let eq = line.firstIndex(of: "="), eq != line.startIndex,

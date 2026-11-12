@@ -140,6 +140,7 @@ extension LauncherView {
                 Text(game.displayName(loc.lang)).font(.manrope(min(68, width * 0.052), .heavy))
                     .tracking(-1.6).lineLimit(2)
                     .shadow(color: lightHero ? .white.opacity(0.55) : .black.opacity(0.25), radius: 12)
+                GameTimeLabel(game: game, library: library, settings: stores.saveSettings, players: stores.players).id(game.id)
                 HStack(alignment: width < 760 ? .top : .center, spacing: 18) {
                     heroPrimary(game, compact: width < 760)
                     if game.isReady {

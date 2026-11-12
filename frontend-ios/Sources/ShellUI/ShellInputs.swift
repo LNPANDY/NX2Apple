@@ -59,6 +59,7 @@ public struct GameTile: Identifiable, Equatable, Sendable {
     /// One short line under the title, such as the version.
     public var subtitle: String
     public var version: String
+    public var playTime: String?
     /// The game's 16:9 key art, such as its eShop banner. Covers, Cover Flow cards and the hero all use it.
     public var banner: Artwork?
     /// The square app icon beside metadata. Without a banner, also shown whole inside the 16:9 card.
@@ -69,12 +70,13 @@ public struct GameTile: Identifiable, Equatable, Sendable {
     /// The engine's manifest says it is a Switch 2 game: the detail view marks it and warns about its memory.
     public var isSwitch2: Bool
     public init(id: String, title: String, subtitle: String = "", banner: Artwork? = nil, icon: Artwork? = nil,
-                state: GameState = .playable, recentlyPlayed: String? = nil, version: String = "", isSwitch2: Bool = false) {
+                state: GameState = .playable, recentlyPlayed: String? = nil, version: String = "", playTime: String? = nil, isSwitch2: Bool = false) {
         self.isSwitch2 = isSwitch2
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.version = version
+        self.playTime = playTime
         self.banner = banner
         self.icon = icon
         self.state = state

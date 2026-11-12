@@ -4,6 +4,7 @@ import ShellUI
 /// `LibraryView` on a `ShellHostModel`: the real shell screen, plus the read-only log sheet and the notice alert. The
 /// launch arguments of the demo (initial selection and so on) are not part of it.
 public struct ShellHostView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @Bindable private var model: ShellHostModel
     private let initialSelection: String?
     private let initialDetailOpen: Bool
@@ -49,6 +50,7 @@ public struct ShellHostView: View {
             } message: { Text(model.notice ?? "") }
             .onAppear { model.startControllers() }
             .onDisappear { model.stopControllers() }
+            .onChange(of: scenePhase) { _, phase in if phase == .active { model.refreshSelectedGameTime() } }
     }
 }
 

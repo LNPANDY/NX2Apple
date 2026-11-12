@@ -103,6 +103,10 @@ public struct GameDetailView: View {
                 }
             }
         }
+        if let playTime = detail.game.playTime {
+            LabeledContent(ShellStrings.text("Play time"), value: playTime)
+                .accessibilityIdentifier("detail.playTime")
+        }
         if !detail.game.version.isEmpty {
             if nativeSections {
                 Section { versionRow }
