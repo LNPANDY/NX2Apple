@@ -28,10 +28,10 @@ Reason: the launcher reuses the other platform's romfs.img until upstream merges
 Issue: LNPANDY/NX2Apple#708
 ---
  dm/mac/pack_app.py                     |   4 +-
- dm/tools/tests/test_nsp_mac_app.py     |  12 +++
- dm/tools/tests/test_nsp_romfs_reuse.py | 143 +++++++++++++++++++++++++
+ dm/tools/tests/test_nsp_mac_app.py     |  12 ++
+ dm/tools/tests/test_nsp_romfs_reuse.py | 146 +++++++++++++++++++++++++
  scripts/build_ipa_from_nsp.py          |  81 +++++++++++++-
- 4 files changed, 237 insertions(+), 3 deletions(-)
+ 4 files changed, 240 insertions(+), 3 deletions(-)
  create mode 100644 dm/tools/tests/test_nsp_romfs_reuse.py
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
@@ -81,10 +81,10 @@ index 2ccb8077..acfde926 100644
          for name, value in [('name', 'New Game'), ('version', '2.0'), ('bundle_id', 'org.test.new'), ('category', 'public.app-category.action-games'),
 diff --git a/dm/tools/tests/test_nsp_romfs_reuse.py b/dm/tools/tests/test_nsp_romfs_reuse.py
 new file mode 100644
-index 00000000..e25226e1
+index 00000000..400dbbc3
 --- /dev/null
 +++ b/dm/tools/tests/test_nsp_romfs_reuse.py
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,146 @@
 +"""NSP script RomFS image reuse across platforms (scripts/build_ipa_from_nsp.py --romfs-from, LNPANDY/NX2Apple#708): an extraction writes the image's identity beside it (title, program,
 +version, the packages' NCA content IDs, size, SHA-256), and a build that finds an image of this title and version left by the other platform's build checks its bytes and its files against the packages
 +(nx_extract --manifest) and takes it instead of extracting the RomFS again. Anything that does not match is extracted as before. nx_extract is faked; the images are real."""
@@ -114,7 +114,10 @@ index 00000000..e25226e1
 +        self.game = t / 'game'   # what the packages hold
 +        for name, data in {'Data/marker': b'marker bytes', 'Data/big.bin': bytes(range(256)) * 64, 'Data/sub/small': b'x'}.items():
 +            (self.game / name).parent.mkdir(parents=True, exist_ok=True); (self.game / name).write_bytes(data)
-+        self.base, self.logs, self.ex = t / 'base.nsp', t / 'logs', t / 'extract'
++        self.base, self.logs, self.ex, self.repo = t / 'base.nsp', t / 'logs', t / 'extract', t / 'repo'
++        (self.repo / 'dm/tools/nx_extract').mkdir(parents=True)
++        (self.repo / 'dm/tools/nx_extract/Program.cs').write_text('// stub\n')
++        (self.repo / 'dm/tools/nx_extract/nx_extract.csproj').write_text('<Project/>\n')
 +        self.base.write_bytes(b'nsp'); self.ex.mkdir()
 +        self.calls = []
 +        self.packages = {'base.nsp': ['0123456789abcdef0123456789abcdef.nca', 'fedcba9876543210fedcba9876543210.cnmt.nca', 'ticket.tik']}
@@ -136,7 +139,7 @@ index 00000000..e25226e1
 +        return 0
 +
 +    def extract(self, name='v0', marker='Data/marker'):
-+        return nsp.extract(Path('nx_extract'), Path('prod.keys'), self.ex, name, self.base, None, None, self.logs, {'romfs_marker': marker}, APP)
++        return nsp.extract(Path('nx_extract'), Path('prod.keys'), self.ex, name, self.base, None, self.logs, {'romfs_marker': marker}, APP, self.repo)
 +
 +    def donor(self, name='v0'):   # what the other platform's build left: the image with its identity file, as the launcher's games/<title ID>/romfs.img
 +        d = self.extract(name)
