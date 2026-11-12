@@ -707,8 +707,13 @@ def _count_tree_entries(root: Path, cap: int) -> int:
     return total
 
 
-def _estimate_ipa_entries(staged_app: Path, fw_paths: list[Path], limit: int) -> int:
-    """Estimate total ZIP entries for `Payload/`, `DmShell.app`, and mapped frameworks."""
+def _estimate_ipa_entries(staged_app: Path, fw_paths: list[Path], limit: int,
+                          skip_shader_dirs: bool = False) -> int:
+    """Estimate total ZIP entries for `Payload/`, `DmShell.app`, and mapped frameworks.
+
+    `skip_shader_dirs` leaves each framework's `msl` folder out of the count, which is what an
+    export with `external_shaders` writes: those entries never reach the archive.
+    """
     cap = limit + 1
     # 1 for Payload/, plus DmShell.app tree, plus Frameworks/ container when frameworks exist.
     total = 1 + _count_tree_entries(staged_app, cap)
@@ -717,7 +722,12 @@ def _estimate_ipa_entries(staged_app: Path, fw_paths: list[Path], limit: int) ->
     for fw in fw_paths:
         if total > cap:
             return total
-        total += _count_tree_entries(fw, cap - total + 1)
+        entries = _count_tree_entries(fw, cap - total + 1)
+        if skip_shader_dirs:
+            shaders = fw / SHADER_DIR
+            if shaders.is_dir():
+                entries -= _count_tree_entries(shaders, entries)
+        total += entries
     return total
 
 
@@ -941,7 +951,10 @@ def export_shell(
         # 3. Pack Payload/DmShell.app and every game's framework into a temporary archive first,
         # then atomically replace export/NX2Apple.ipa so an existing IPA is preserved on failure.
         raw_fw_paths = [Path(g.framework) for g in library.games]
-        if _estimate_ipa_entries(staged_app, raw_fw_paths, entry_limit) > entry_limit:
+        # With the libraries beside the IPA their folders are skipped, so they cost no entries and
+        # packing them into images first would only write files nobody sends.
+        if _estimate_ipa_entries(staged_app, raw_fw_paths, entry_limit,
+                                 skip_shader_dirs=external_shaders) > entry_limit:
             effective_fw_paths = _pack_loose_shader_dirs(
                 raw_fw_paths,
                 stage_dir=stage_dir,
@@ -954,7 +967,8 @@ def export_shell(
         else:
             effective_fw_paths = raw_fw_paths
 
-        est_entries = _estimate_ipa_entries(staged_app, effective_fw_paths, entry_limit)
+        est_entries = _estimate_ipa_entries(staged_app, effective_fw_paths, entry_limit,
+                                            skip_shader_dirs=external_shaders)
         if est_entries > entry_limit:
             raise RuntimeError(
                 f'IPA entry count exceeds the {entry_limit:,}-entry ZIP32 sideloader limit '

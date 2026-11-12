@@ -542,6 +542,7 @@ class WindowsEngineContractTests(unittest.TestCase):
                  mock.patch.object(shell_export, '_prepare_fonts', lambda *_a, **_k: None), \
                  mock.patch.object(shell_export, '_update_shell_plist', lambda *_a, **_k: None):
                 # 1) Unpacked count > 10 triggers `_pack_loose_shader_dirs` via real `shader_lib.py` -> fits <= 10!
+                # The libraries are packed inside on purpose: with them beside the IPA they cost no entries.
                 ok, ipa_path, _msg, _notes = shell_export.export_shell(
                     root=root,
                     repo=ROOT / 'engine',
@@ -550,6 +551,7 @@ class WindowsEngineContractTests(unittest.TestCase):
                     name='Test Game',
                     python_exe=sys.executable,
                     entry_limit=10,
+                    external_shaders=False,
                 )
                 self.assertTrue(ok, _msg)
                 with zipfile.ZipFile(ipa_path, 'r') as zf:
@@ -569,6 +571,7 @@ class WindowsEngineContractTests(unittest.TestCase):
                     name='Test Game',
                     python_exe=sys.executable,
                     entry_limit=3,
+                    external_shaders=False,
                 )
                 self.assertFalse(ok_over)
                 self.assertEqual(ipa_over, '')
