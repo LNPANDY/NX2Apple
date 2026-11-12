@@ -1,5 +1,12 @@
 {
-  "_language": {"locales": ["sv", "swedish"], "name": "Svenska", "order": 2},
+  "_language": {
+    "locales": [
+      "sv",
+      "swedish"
+    ],
+    "name": "Svenska",
+    "order": 2
+  },
   "activity.ios": "iPhone-byggning pågår",
   "activity.mac": "Mac-byggning pågår",
   "activity.transfer": "Överför spelfiler till iPhone",
@@ -1053,6 +1060,7 @@
   "ios.host.menuKeysThatToggle": "Knappar som växlar",
   "ios.host.menuMoreSettings": "Fler inställningar på startskärmen",
   "ios.host.menuNone": "Ingen",
+  "ios.host.missingExternalShaders": "Shaderfilerna (msl) för det här spelet saknas i dess datamapp. Skicka eller kopiera speldatan igen från NX2Apple.",
   "ios.host.missingKey": "%@ saknar ”%@”.",
   "ios.host.missingKeyIn": "%@ saknar ”%@” (i %@).",
   "ios.host.noAdditional": "Inget extrainnehåll",
@@ -1994,9 +2002,11 @@
   "settings.updates": "Appuppdateringar",
   "shell.builtTitle": "Byggda spel",
   "shell.checkStage": "Jämför speldata på %@",
+  "shell.clearSelection": "Rensa",
   "shell.copyExternalNote": "Du kan också kopiera speldata-img-filen till extern lagring själv och peka iOS-startprogrammet på speldata-platsen — ingen överföring från den här Macen behövs.",
   "shell.copyIncomplete": "Speldatan på %@ är ofullständig: %@. Försök igen så blir den klar.",
   "shell.copyNotConnected": "%@ är inte ansluten just nu. Anslut den med kabel och låt den vara olåst.",
+  "shell.copySelectedConfirm": "Kopiera markerade",
   "shell.copySize": "Speldata att kopiera: %@ i %d filer.",
   "shell.copySkip": "Inte nu",
   "shell.copyStart": "Starta överföringen",
@@ -2054,6 +2064,11 @@
   "shell.projectStage": "Förbereder den gemensamma appen",
   "shell.retry": "Försök igen",
   "shell.rootUnwritable": "Den gemensamma appen sparas i %@, och mappen går inte att skriva i (skrivskyddad volym eller ingen behörighet). Välj en annan mapp under Spara till först.",
+  "shell.selectAll": "Markera alla",
+  "shell.selectGamesButton": "Välj spel…",
+  "shell.selectGamesDeviceNote": "Lägger till varje markerat spel i överföringskön för den valda enheten. Ett bygge kan köras samtidigt.",
+  "shell.selectGamesDriveNote": "Kopierar packad speldata (och externa shaderfiler vid behov) för varje markerat spel till den valda mappen.",
+  "shell.selectGamesTitle": "Välj spel",
   "shell.sendAllButton": "Skicka all speldata",
   "shell.sendAllNote": "Lägger till alla spel med packad data i överföringarna. Ett bygge kan köras under tiden.",
   "shell.sendButton": "Skicka speldata",
@@ -2067,6 +2082,7 @@
   "shell.sendNoApp": "Appen finns inte på den här enheten än. Installera IPA-filen först och skicka sedan speldata. Om den redan är installerad, kopiera med Finder.",
   "shell.sendProgress": "Skickar %@, %@ av %@.",
   "shell.sendRefused": "Enheten nekade kopieringen till appen. Finder kan kopiera speldata i stället.",
+  "shell.sendSelectedConfirm": "Skicka markerade",
   "shell.sendSeveral": "Den här enheten har flera kopior av appen. Välj en.",
   "shell.sendStage": "Leta efter appen på enheten",
   "shell.showInFinder": "Visa i Finder",

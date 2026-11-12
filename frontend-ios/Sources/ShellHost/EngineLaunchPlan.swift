@@ -46,8 +46,17 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         env["DM_TEMP"] = temp.path
         env["DM_NVN_SHMAP"] = fw.appendingPathComponent(manifest.shaderMap).path
         let ownMSL = gdir.appendingPathComponent("msl", isDirectory: true)
+        let dataMSL = game.dataURL.appendingPathComponent("msl", isDirectory: true)
         let bundledMSL = game.shaderResourcesURL ?? fw.appendingPathComponent("msl", isDirectory: true)
-        env["DM_MSL_DIR"] = (isDirectory(ownMSL) ? ownMSL : bundledMSL).path
+        let resolvedMSL: URL
+        if ExternalShaders.isUsableOverride(at: ownMSL, fileManager: fm) {
+            resolvedMSL = ownMSL
+        } else if ExternalShaders.isUsableOverride(at: dataMSL, fileManager: fm) {
+            resolvedMSL = dataMSL
+        } else {
+            resolvedMSL = bundledMSL
+        }
+        env["DM_MSL_DIR"] = resolvedMSL.path
         let ownPSO = gdir.appendingPathComponent("pso", isDirectory: true), fwPSO = fw.appendingPathComponent("pso", isDirectory: true)
         let dataAOC = game.dataURL.appendingPathComponent("aoc", isDirectory: true), ownAOC = gdir.appendingPathComponent("aoc", isDirectory: true)
         if isDirectory(dataAOC) { env["DM_AOC_DIR"] = dataAOC.path } else if isDirectory(ownAOC) { env["DM_AOC_DIR"] = ownAOC.path }

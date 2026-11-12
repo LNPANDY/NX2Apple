@@ -1,5 +1,12 @@
 {
-  "_language": {"locales": ["zh", "chinese"], "name": "中文", "order": 0},
+  "_language": {
+    "locales": [
+      "zh",
+      "chinese"
+    ],
+    "name": "中文",
+    "order": 0
+  },
   "activity.ios": "正在构建 iPhone 版",
   "activity.mac": "正在构建 Mac 版",
   "activity.transfer": "正在传输游戏文件到 iPhone",
@@ -1053,6 +1060,7 @@
   "ios.host.menuKeysThatToggle": "切换式按键",
   "ios.host.menuMoreSettings": "更多设置在开始界面",
   "ios.host.menuNone": "无",
+  "ios.host.missingExternalShaders": "该游戏的数据文件夹中缺少着色器文件（msl）。请从 NX2Apple 重新发送或复制游戏数据。",
   "ios.host.missingKey": "%@ 缺少 \"%@\"。",
   "ios.host.missingKeyIn": "%@ 缺少 \"%@\"（位于 %@）。",
   "ios.host.noAdditional": "无附加内容",
@@ -1994,9 +2002,11 @@
   "settings.updates": "应用更新",
   "shell.builtTitle": "已构建的游戏",
   "shell.checkStage": "比较 %@ 上的游戏数据",
+  "shell.clearSelection": "清空",
   "shell.copyExternalNote": "也可以把游戏数据 img 文件自行拷贝到外置存储设备，然后在 iOS 启动器里指定游戏数据位置，不必经由此 Mac 传输。",
   "shell.copyIncomplete": "%@ 上的游戏数据不完整：%@。重试会补全。",
   "shell.copyNotConnected": "%@ 目前没有连接。请用数据线连接并保持解锁。",
+  "shell.copySelectedConfirm": "复制所选游戏",
   "shell.copySize": "要复制的游戏数据：%@，共 %d 个文件。",
   "shell.copySkip": "暂不复制",
   "shell.copyStart": "开始传输",
@@ -2054,6 +2064,11 @@
   "shell.projectStage": "准备共用应用",
   "shell.retry": "重试",
   "shell.rootUnwritable": "共用应用要保存在 %@，但那里无法写入（只读卷或没有权限）。请先在“保存到”里换一个目录。",
+  "shell.selectAll": "全选",
+  "shell.selectGamesButton": "选择游戏…",
+  "shell.selectGamesDeviceNote": "将勾选的游戏加入所选设备的传输队列。传输期间可同时运行构建。",
+  "shell.selectGamesDriveNote": "将所选游戏的已打包数据（及所需的外置着色器文件）依次复制到所选文件夹中。",
+  "shell.selectGamesTitle": "选择游戏",
   "shell.sendAllButton": "发送全部游戏数据",
   "shell.sendAllNote": "把所有已打包数据的游戏加入传输。传输期间可以同时构建。",
   "shell.sendButton": "发送游戏数据",
@@ -2067,6 +2082,7 @@
   "shell.sendNoApp": "应用还不在这台设备上。请先安装 IPA，再发送游戏数据。如果已经安装，请用访达复制。",
   "shell.sendProgress": "正在发送 %@，%@ / %@。",
   "shell.sendRefused": "设备拒绝了向应用复制。可以改用访达复制游戏数据。",
+  "shell.sendSelectedConfirm": "发送所选游戏",
   "shell.sendSeveral": "这台设备上有多份该应用。请选择一份。",
   "shell.sendStage": "在设备上查找应用",
   "shell.showInFinder": "在访达中显示",

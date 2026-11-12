@@ -1,5 +1,11 @@
 {
-  "_language": {"locales": ["ja", "japanese"], "name": "日本語"},
+  "_language": {
+    "locales": [
+      "ja",
+      "japanese"
+    ],
+    "name": "日本語"
+  },
   "activity.ios": "iPhone 向けビルド中",
   "activity.mac": "Mac 向けビルド中",
   "activity.transfer": "ゲームファイルを iPhone に転送中",
@@ -1053,6 +1059,7 @@
   "ios.host.menuKeysThatToggle": "切り替えるキー",
   "ios.host.menuMoreSettings": "その他の設定は開始画面で",
   "ios.host.menuNone": "なし",
+  "ios.host.missingExternalShaders": "このゲームのデータフォルダにシェーダーファイル（msl）がありません。NX2Apple からゲームデータをもう一度送信またはコピーしてください。",
   "ios.host.missingKey": "%@ に \"%@\" がありません。",
   "ios.host.missingKeyIn": "%@ に \"%@\" がありません（%@ 内）。",
   "ios.host.noAdditional": "追加コンテンツなし",
@@ -1994,9 +2001,11 @@
   "settings.updates": "アプリのアップデート",
   "shell.builtTitle": "ビルド済みのゲーム",
   "shell.checkStage": "%@ 上のゲームデータを比較",
+  "shell.clearSelection": "選択を解除",
   "shell.copyExternalNote": "ゲームデータの img ファイルを自分で外部ストレージにコピーし、iOS のランチャーでゲームデータの場所を指定することもできます — この Mac からの転送は不要です。",
   "shell.copyIncomplete": "%@ 上のゲームデータが不完全です：%@。「再試行」で完了させます。",
   "shell.copyNotConnected": "%@ は現在接続されていません。ケーブルで接続し、ロックを解除したままにしてください。",
+  "shell.copySelectedConfirm": "選択項目をコピー",
   "shell.copySize": "コピーするゲームデータ：%@（%d 個のファイル）。",
   "shell.copySkip": "今はしない",
   "shell.copyStart": "転送を開始",
@@ -2054,6 +2063,11 @@
   "shell.projectStage": "共有アプリを準備",
   "shell.retry": "再試行",
   "shell.rootUnwritable": "共有アプリは %@ に保存されますが、そのフォルダに書き込めません（読み出し専用のボリュームか、権限がありません）。先に「保存先」で別のフォルダを選んでください。",
+  "shell.selectAll": "すべて選択",
+  "shell.selectGamesButton": "ゲームを選択…",
+  "shell.selectGamesDeviceNote": "選択した各ゲームを対象デバイスの転送キューに追加します。転送中もビルドを実行できます。",
+  "shell.selectGamesDriveNote": "選択した各ゲームのパック済みデータ（および必要な外部シェーダーファイル）を指定フォルダへ順番にコピーします。",
+  "shell.selectGamesTitle": "ゲームを選択",
   "shell.sendAllButton": "全データを送信",
   "shell.sendAllNote": "パッケージ済みのデータがあるすべてのゲームを転送に追加します。その間もビルドを実行できます。",
   "shell.sendButton": "ゲームデータを送信",
@@ -2067,6 +2081,7 @@
   "shell.sendNoApp": "このデバイスにはまだアプリがありません。先に IPA をインストールしてから、ゲームデータを送ってください。すでにインストール済みの場合は、Finder でコピーしてください。",
   "shell.sendProgress": "%@ を送信中、%@ / %@。",
   "shell.sendRefused": "デバイスがアプリへのコピーを拒否しました。代わりに Finder でゲームデータをコピーできます。",
+  "shell.sendSelectedConfirm": "選択項目を送信",
   "shell.sendSeveral": "このデバイスにはアプリのコピーが複数あります。1 つ選んでください。",
   "shell.sendStage": "デバイス上でアプリを探す",
   "shell.showInFinder": "Finder で表示",

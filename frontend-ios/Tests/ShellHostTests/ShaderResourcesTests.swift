@@ -1,5 +1,6 @@
 import AppleArchive
 import Foundation
+import ShellUI
 import System
 import Testing
 @testable import ShellHost
@@ -146,5 +147,57 @@ import Testing
         #expect(game.shaderResourcesURL == nil && game.environment["DM_MSL_DIR"] == custom.path)
         #expect(try msl(game, in: box) == custom.path)
         #expect(!FileManager.default.fileExists(atPath: gameFolder.appendingPathComponent(".shader-resources").path))
+    }
+
+    @Test func externalizedShadersRequireExternalMslFolderAndLaunchFromDataURL() async throws {
+        let box = try Sandbox()
+        let externalData = box.root.appendingPathComponent("external-drive/\(Fixtures.orbit)", isDirectory: true)
+        try box.write("", to: externalData.appendingPathComponent("romfs/fixture.marker"))
+        let framework = box.games.appendingPathComponent(Fixtures.orbit + "/DmGame.framework")
+        try box.write(#"{"schema":1,"external_msl":true}"#, to: framework.appendingPathComponent("external-msl.json"))
+
+        let cfg = box.config()
+        let defaults = cfg.defaults("shell")
+        // Point the game directly at externalData via per-game folder bookmark stand-in: put data in Documents/games/<ID> first, or test external dataURL directly.
+        let appGameFolder = try box.giveAppData()
+        let launcher = RecordingLauncher(), model = ShellHostModel(config: cfg, launcher: launcher)
+
+        // Missing msl/ marks the game as needing game data and blocks launch.
+        let detailMissing = try #require(model.details.first { $0.game.id == Fixtures.orbit })
+        #expect(detailMissing.game.state == .needsGameData)
+        #expect(detailMissing.dataNote.contains("msl"))
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.isEmpty)
+
+        // An unjoined .nxpart file inside msl/ still blocks launch.
+        let partialPart = appGameFolder.appendingPathComponent("msl/b-3f9a2c/shaders.img.nxpart.0000.0002")
+        try box.write("half", to: partialPart)
+        model.reload()
+        #expect(model.details.first { $0.game.id == Fixtures.orbit }?.game.state == .needsGameData)
+        await model.playNow(Fixtures.orbit)
+        #expect(launcher.launched.isEmpty)
+
+        // Once the external msl/ tree is whole in dataURL (or appFolder), launch succeeds and DM_MSL_DIR points to it.
+        try FileManager.default.removeItem(at: appGameFolder.appendingPathComponent("msl"))
+        let planGame = LaunchableGame(
+            titleID: Fixtures.orbit,
+            name: "Orbit",
+            manifest: try #require(GameCatalogue.read(directory: box.games.appendingPathComponent(Fixtures.orbit)).manifest),
+            directory: box.games.appendingPathComponent(Fixtures.orbit),
+            frameworkURL: framework,
+            dataURL: externalData,
+            appFolder: appGameFolder,
+            environment: [:]
+        )
+        try box.write("external-shader", to: externalData.appendingPathComponent("msl/" + shader))
+        #expect(try msl(planGame, in: box) == externalData.appendingPathComponent("msl").path)
+
+        try box.write("app-folder-shader", to: appGameFolder.appendingPathComponent("msl/" + shader))
+        model.reload()
+        #expect(model.details.first { $0.game.id == Fixtures.orbit }?.game.state == .playable)
+        await model.playNow(Fixtures.orbit)
+        let launched = try #require(launcher.launched.first)
+        #expect(try msl(launched, in: box) == appGameFolder.appendingPathComponent("msl").path)
+        _ = defaults
     }
 }

@@ -1,5 +1,12 @@
 {
-  "_language": {"locales": ["it", "italian", "italiano"], "name": "Italiano"},
+  "_language": {
+    "locales": [
+      "it",
+      "italian",
+      "italiano"
+    ],
+    "name": "Italiano"
+  },
   "activity.ios": "Build per iPhone in corso",
   "activity.mac": "Build per Mac in corso",
   "activity.transfer": "Trasferimento dei file di gioco su iPhone",
@@ -1053,6 +1060,7 @@
   "ios.host.menuKeysThatToggle": "Tasti che alternano",
   "ios.host.menuMoreSettings": "Altre impostazioni nella schermata iniziale",
   "ios.host.menuNone": "Nessuno",
+  "ios.host.missingExternalShaders": "Nella cartella dati di questo gioco mancano i file shader (msl). Invia o copia di nuovo i dati di gioco da NX2Apple.",
   "ios.host.missingKey": "%@ non ha “%@”.",
   "ios.host.missingKeyIn": "%@ non ha “%@” (in %@).",
   "ios.host.noAdditional": "Nessun contenuto aggiuntivo",
@@ -1994,9 +2002,11 @@
   "settings.updates": "Aggiornamenti dell’app",
   "shell.builtTitle": "Giochi compilati",
   "shell.checkStage": "Confronto dei dati di gioco su %@",
+  "shell.clearSelection": "Deseleziona",
   "shell.copyExternalNote": "Puoi anche copiare tu il file img dei dati di gioco su un’unità esterna e indicare al launcher iOS dove si trovano i dati di gioco, senza alcun trasferimento da questo Mac.",
   "shell.copyIncomplete": "I dati di gioco su %@ sono incompleti: %@. Riprova li completa.",
   "shell.copyNotConnected": "%@ non è collegato in questo momento. Collegalo con un cavo e tienilo sbloccato.",
+  "shell.copySelectedConfirm": "Copia selezionati",
   "shell.copySize": "Dati di gioco da copiare: %@ in %d file.",
   "shell.copySkip": "Non ora",
   "shell.copyStart": "Avvia il trasferimento",
@@ -2054,6 +2064,11 @@
   "shell.projectStage": "Preparazione dell’app condivisa",
   "shell.retry": "Riprova",
   "shell.rootUnwritable": "L’app condivisa viene salvata in %@, e in quella cartella non si può scrivere (un volume di sola lettura o permessi mancanti). Prima scegli un’altra cartella in Salva in.",
+  "shell.selectAll": "Seleziona tutto",
+  "shell.selectGamesButton": "Scegli giochi…",
+  "shell.selectGamesDeviceNote": "Aggiunge ogni gioco selezionato alla coda di trasferimento per il dispositivo scelto. Nel frattempo può essere eseguita una compilazione.",
+  "shell.selectGamesDriveNote": "Copia i dati di gioco impacchettati (e i file shader esterni quando necessari) di ogni gioco selezionato nella cartella scelta.",
+  "shell.selectGamesTitle": "Scegli i giochi",
   "shell.sendAllButton": "Invia tutti i dati",
   "shell.sendAllNote": "Aggiunge ai trasferimenti ogni gioco con dati impacchettati. Nel frattempo una build può continuare.",
   "shell.sendButton": "Invia i dati di gioco",
@@ -2067,6 +2082,7 @@
   "shell.sendNoApp": "L’app non è ancora su questo dispositivo. Installa prima l’IPA, poi invia i dati di gioco. Se è già installata, copia con il Finder.",
   "shell.sendProgress": "Invio di %@, %@ di %@.",
   "shell.sendRefused": "Il dispositivo ha rifiutato la copia nell’app. Il Finder può copiare i dati di gioco al suo posto.",
+  "shell.sendSelectedConfirm": "Invia selezionati",
   "shell.sendSeveral": "Questo dispositivo ha più copie dell’app. Scegline una.",
   "shell.sendStage": "Cerca l’app sul dispositivo",
   "shell.showInFinder": "Mostra nel Finder",
