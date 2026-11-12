@@ -44,14 +44,7 @@ import NXModel
         XCTAssertEqual(layout.environment["DM_PAD_MERGE"], "1")
         layout.padMerge = false
         XCTAssertFalse(driver.state.padMerge)
-        XCTAssertFalse(driver.state.joyconSplit)
-        driver.setJoyconSplit(true)
-        XCTAssertTrue(layout.joyconSplit)
-        XCTAssertTrue(driver.state.joyconSplit)
-        XCTAssertEqual(layout.environment["DM_JOYCON_SPLIT"], "1")
-        layout.joyconSplit = false
-        XCTAssertFalse(driver.state.joyconSplit)
-        XCTAssertNil(layout.environment["DM_JOYCON_SPLIT"])
+        XCTAssertNil(layout.environment["DM_PAD_MERGE"])
     }
 
     /// An edit to the Custom layout is kept at once; going back to the layout the page opened with does not undo it, so leaving

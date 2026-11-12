@@ -41,3 +41,5 @@
 0040-ios-touch-settings-and-toggle.patch
 0041-ios-host-teardown.patch
 0042-ios-stub-probe-atrace-when-target-os-iphone-is-s.patch
+0043-nvn-post-wait-for-an-unclaimed-ring-slot-and-siz.patch
+0044-host-haptics-drive-joycon-l-and-joycon-r-on-sepa.patch
