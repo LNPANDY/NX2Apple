@@ -21,12 +21,14 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 FORK_PATCHES = 'dm/fork_patches.txt'
+FORK_ENV_SWITCHES = 'patches/fork_env_switches.tsv'
 # Generated files inside the engine: upstream's tests require each to equal what its tool writes from the tree
-# (test_docs.py), and the tree differs from upstream's once the series is in, so a patch cannot carry them (they would
-# conflict on every bump). sync runs the tools on the patched tree and commits the result; export and check keep patches away
-# from these paths.
+# (test_docs.py, test_env_switches.py), and the tree differs from upstream's once the series is in, so a patch cannot carry them
+# (they would conflict on every bump). sync runs the tools on the patched tree and commits the result; export and check keep
+# patches away from these paths.
 GENERATED = (('docs/agents/game-patches.md', 'dm/tools/docs_patches.py'),
-             ('docs/agents/symptoms.md', 'dm/tools/docs_symptoms.py'))
+             ('docs/agents/symptoms.md', 'dm/tools/docs_symptoms.py'),
+             ('docs/env_switches.tsv', 'dm/tools/env_switches.py'))
 # What git exports to a hook (GIT_DIR in a worktree) and what points git at a repository. Every git command here names its repository
 # with cwd, so none of these may reach it: they would send the command to the repository that runs the hook.
 REPO_ENV = ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_PREFIX', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY',
@@ -205,6 +207,22 @@ def apply_series(wt, patches, stop=True):
 
 def fork_patch_list(patches):
     return ''.join(p.name + '\n' for p in patches)
+
+
+def merge_env_switches(root, eng):
+    """Overlay `patches/fork_env_switches.tsv` onto `engine/docs/env_switches.tsv` before `dm/tools/env_switches.py` runs."""
+    fork_tsv = Path(root) / FORK_ENV_SWITCHES
+    eng_tsv = Path(eng) / 'docs/env_switches.tsv'
+    if not fork_tsv.is_file() or not eng_tsv.is_file():
+        return
+    rows = {}
+    head = 'name\tclass\tmeaning\n'
+    for src in (eng_tsv, fork_tsv):
+        for line in src.read_text(encoding='utf-8').splitlines():
+            if not line.strip() or line.startswith('name\t'):
+                continue
+            rows[line.split('\t', 1)[0]] = line
+    eng_tsv.write_text(head + ''.join(rows[k] + '\n' for k in sorted(rows)), encoding='utf-8')
 
 
 # ---- subcommands ----

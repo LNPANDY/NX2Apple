@@ -31,7 +31,7 @@ Issue: LNPANDY/NX2Apple#144
  create mode 100644 dm/ios/tools/gen_manifest.py
 
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index dd92a349..008a3ba1 100755
+index dd92a34..008a3ba 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -8,6 +8,9 @@
@@ -130,7 +130,7 @@ index dd92a349..008a3ba1 100755
  # the entitlements of the signature they replace; the Xcode project gets them through CODE_SIGN_ENTITLEMENTS, above). The executable gets an ad-hoc signature that carries them: the sideloader
  # replaces the signature and keeps the entitlements. Only the executable is signed: the bundle's resources are packed from elsewhere and the signature is replaced anyway
 diff --git a/dm/ios/tools/compile_check.py b/dm/ios/tools/compile_check.py
-index 4925cc60..b832115e 100755
+index 4925cc6..b832115 100755
 --- a/dm/ios/tools/compile_check.py
 +++ b/dm/ios/tools/compile_check.py
 @@ -4,7 +4,9 @@
@@ -172,7 +172,7 @@ index 4925cc60..b832115e 100755
  sys.exit(1 if bad else 0)
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
 new file mode 100644
-index 00000000..ec2c33be
+index 0000000..ec2c33b
 --- /dev/null
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -0,0 +1,105 @@
@@ -282,7 +282,7 @@ index 00000000..ec2c33be
 +if __name__ == '__main__':
 +    main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 9bbf1e25..3767930e 100755
+index 9bbf1e2..3767930 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -2796,6 +2796,7 @@ def parse_args(argv):

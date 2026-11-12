@@ -35,7 +35,7 @@ Issue: LNPANDY/NX2Apple#451
  create mode 100644 dm/ios/tests/test_seg_snap.py
 
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 061e80f9..12cf9583 100644
+index 061e80f..12cf958 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -84,6 +84,7 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
@@ -59,7 +59,7 @@ index 061e80f9..12cf9583 100644
  $(B)/t_pad_motion: t_pad_motion.c ../pad_motion.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_seg_snap.c b/dm/host/tests/t_seg_snap.c
 new file mode 100644
-index 00000000..75c344fd
+index 0000000..75c344f
 --- /dev/null
 +++ b/dm/host/tests/t_seg_snap.c
 @@ -0,0 +1,208 @@
@@ -273,7 +273,7 @@ index 00000000..75c344fd
 +}
 diff --git a/dm/ios/Shell/SegSnap.h b/dm/ios/Shell/SegSnap.h
 new file mode 100644
-index 00000000..5ce27ed5
+index 0000000..5ce27ed
 --- /dev/null
 +++ b/dm/ios/Shell/SegSnap.h
 @@ -0,0 +1,183 @@
@@ -461,7 +461,7 @@ index 00000000..5ce27ed5
 +
 +#endif
 diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
-index 6024d8c1..ce3f22cb 100644
+index 6024d8c..ce3f22c 100644
 --- a/dm/ios/Shell/ShellMain.m
 +++ b/dm/ios/Shell/ShellMain.m
 @@ -15,25 +15,13 @@
@@ -592,7 +592,7 @@ index 6024d8c1..ce3f22cb 100644
  
 diff --git a/dm/ios/tests/test_seg_snap.py b/dm/ios/tests/test_seg_snap.py
 new file mode 100644
-index 00000000..83bbaa97
+index 0000000..83bbaa9
 --- /dev/null
 +++ b/dm/ios/tests/test_seg_snap.py
 @@ -0,0 +1,218 @@

@@ -22,7 +22,7 @@ Issue: LNPANDY/NX2Apple#1025
  3 files changed, 141 insertions(+), 8 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 47517d55..1f753e2a 100644
+index 47517d5..1f753e2 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -62,12 +62,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
@@ -56,7 +56,7 @@ index 47517d55..1f753e2a 100644
      atomic_store(&g_joy_axes[p][side], pack(sx, sy, 0, 0));
  }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 25c34b39..061e80f9 100644
+index 25c34b3..061e80f 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -83,6 +83,7 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
@@ -79,7 +79,7 @@ index 25c34b39..061e80f9 100644
  	$(CLANG) -O1 -Wall -Werror -o $@ t_pad_motion.c
  $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_stick_deadzone.c b/dm/host/tests/t_stick_deadzone.c
-index d9ac75c2..6b1b97bc 100644
+index d9ac75c..6b1b97b 100644
 --- a/dm/host/tests/t_stick_deadzone.c
 +++ b/dm/host/tests/t_stick_deadzone.c
 @@ -1,7 +1,53 @@

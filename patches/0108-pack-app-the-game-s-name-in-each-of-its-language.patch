@@ -30,7 +30,7 @@ Issue: LNPANDY/NX2Apple#895
  create mode 100644 dm/tools/tests/test_nacp.py
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 66f0074a..1520aba1 100755
+index 66f0074..1520aba 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -5,7 +5,8 @@
@@ -96,7 +96,7 @@ index 66f0074a..1520aba1 100755
      return ap.parse_args(argv)
  
 diff --git a/dm/tools/fuzz/fuzz_nacp.py b/dm/tools/fuzz/fuzz_nacp.py
-index 2400cabb..48e9bae6 100644
+index 2400cab..48e9bae 100644
 --- a/dm/tools/fuzz/fuzz_nacp.py
 +++ b/dm/tools/fuzz/fuzz_nacp.py
 @@ -1,7 +1,7 @@
@@ -120,7 +120,7 @@ index 2400cabb..48e9bae6 100644
  
  if __name__ == '__main__':
 diff --git a/dm/tools/nacp.py b/dm/tools/nacp.py
-index d5c4b593..0c3a98f5 100644
+index d5c4b59..0c3a98f 100644
 --- a/dm/tools/nacp.py
 +++ b/dm/tools/nacp.py
 @@ -2,7 +2,7 @@
@@ -179,7 +179,7 @@ index d5c4b593..0c3a98f5 100644
  def version(path):
 diff --git a/dm/tools/tests/test_nacp.py b/dm/tools/tests/test_nacp.py
 new file mode 100644
-index 00000000..e49f7854
+index 0000000..e49f785
 --- /dev/null
 +++ b/dm/tools/tests/test_nacp.py
 @@ -0,0 +1,69 @@
@@ -253,7 +253,7 @@ index 00000000..e49f7854
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index c185cb37..e0680517 100644
+index c185cb3..e068051 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -118,7 +118,7 @@ class PackReuse(unittest.TestCase):
@@ -326,7 +326,7 @@ index c185cb37..e0680517 100644
          self.assertEqual((self.settings_env['SETTINGS_PLATFORM'], self.settings_env['GFXAPI'], self.settings_env['DM_LANG']), ('mac', 'nvn', 'en-US'))
          o, tmp = self.pack_cmd('vulkan', aoc=Path('/x/aoc'), sign='Developer ID Application: X (T)')
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index dce7deca..e22df54e 100755
+index dce7dec..e22df54 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -3019,7 +3019,8 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,

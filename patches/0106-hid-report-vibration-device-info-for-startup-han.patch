@@ -36,7 +36,7 @@ Issue: LNPANDY/NX2Apple#1063
  3 files changed, 34 insertions(+), 7 deletions(-)
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index bad98bb1..36e07919 100644
+index bad98bb..36e0791 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -1103,7 +1103,7 @@ HLE_FORCE("_ZN2nn3hid22GetSixAxisSensorStatesEPNS0_18SixAxisSensorStateEiRKNS0_1
@@ -103,7 +103,7 @@ index bad98bb1..36e07919 100644
  // The SDK's own call reaches the hid service (a null read in hid::detail::IsVibrationDeviceMounted; Super Mario Odyssey asks for each handle of a controller).
  // On Horizon a device is mounted when the npad's connected controller has that style and an actuator on that side: here, when the channel has an output, as GetVibrationDeviceInfo reports it
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index ad5cc389..510f1728 100644
+index ad5cc38..510f172 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
 @@ -346,9 +346,14 @@ static void t_vibration(void) {
@@ -133,7 +133,7 @@ index ad5cc389..510f1728 100644
  
  static void *vibration_sender(void *arg) {
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 9705efbd..5f719bcc 100644
+index 9705efb..5f719bc 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -624,7 +624,7 @@ static void read_pad(GCExtendedGamepad *g) {

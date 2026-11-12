@@ -35,13 +35,12 @@ Issue: LNPANDY/NX2Apple#451
  dm/ios/tools/build_ipa.sh           |  12 +-
  dm/ios/tools/compile_check.py       |  16 +-
  dm/ios/tools/gen_objc_namespace.py  | 345 ++++++++++++++++++++
- docs/env_switches.tsv               |   3 +
- 8 files changed, 902 insertions(+), 20 deletions(-)
+ 7 files changed, 899 insertions(+), 20 deletions(-)
  create mode 100644 dm/ios/tests/test_objc_namespace.py
  create mode 100644 dm/ios/tools/gen_objc_namespace.py
 
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 74fbdaa1..b504c96c 100644
+index 74fbdaa..b504c96 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -88,6 +88,10 @@ - (void)updateConstraints {
@@ -75,7 +74,7 @@ index 74fbdaa1..b504c96c 100644
  - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
      self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
 diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
-index 89a2df5f..b9399418 100644
+index 89a2df5..b939941 100644
 --- a/dm/ios/project-framework.yml
 +++ b/dm/ios/project-framework.yml
 @@ -11,6 +11,9 @@ options:
@@ -110,7 +109,7 @@ index 89a2df5f..b9399418 100644
        DEBUG_INFORMATION_FORMAT: dwarf
        GCC_WARN_INHIBIT_ALL_WARNINGS: YES
 diff --git a/dm/ios/tests/test_framework_link.py b/dm/ios/tests/test_framework_link.py
-index b5d4279c..a0622aea 100644
+index b5d4279..a0622ae 100644
 --- a/dm/ios/tests/test_framework_link.py
 +++ b/dm/ios/tests/test_framework_link.py
 @@ -145,9 +145,17 @@ class FrameworkLinkTests(unittest.TestCase):
@@ -179,7 +178,7 @@ index b5d4279c..a0622aea 100644
  
 diff --git a/dm/ios/tests/test_objc_namespace.py b/dm/ios/tests/test_objc_namespace.py
 new file mode 100644
-index 00000000..876e1b28
+index 0000000..876e1b2
 --- /dev/null
 +++ b/dm/ios/tests/test_objc_namespace.py
 @@ -0,0 +1,488 @@
@@ -672,7 +671,7 @@ index 00000000..876e1b28
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 945bb609..b035395a 100755
+index 945bb60..b035395 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -42,10 +42,13 @@ PATCHED=${PATCHED:-$W/build/patched_$PKG}; ROMFS=${ROMFS:-$W/data/$PKG/RomFS}; M
@@ -711,7 +710,7 @@ index 945bb609..b035395a 100755
      || { grep -E 'error:' "$O/build-framework.log" | head -20; die "xcodebuild, log $O/build-framework.log"; }
    BUILT=$DD/Build/Products/Release-iphoneos/$FW_NAME.framework
 diff --git a/dm/ios/tools/compile_check.py b/dm/ios/tools/compile_check.py
-index b832115e..8b596ecf 100755
+index b832115..8b596ec 100755
 --- a/dm/ios/tools/compile_check.py
 +++ b/dm/ios/tools/compile_check.py
 @@ -7,7 +7,7 @@ Each file is compiled to nothing (-c -o /dev/null), so the assembler sees entry.
@@ -750,7 +749,7 @@ index b832115e..8b596ecf 100755
  sys.exit(1 if bad else 0)
 diff --git a/dm/ios/tools/gen_objc_namespace.py b/dm/ios/tools/gen_objc_namespace.py
 new file mode 100644
-index 00000000..a5a762b1
+index 0000000..a5a762b
 --- /dev/null
 +++ b/dm/ios/tools/gen_objc_namespace.py
 @@ -0,0 +1,345 @@
@@ -1099,31 +1098,3 @@ index 00000000..a5a762b1
 +
 +if __name__ == '__main__':
 +    raise SystemExit(main())
-diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index a1781882..1fdd784c 100644
---- a/docs/env_switches.tsv
-+++ b/docs/env_switches.tsv
-@@ -15,6 +15,7 @@ DM_AV1_DAV1D	switch	`=1` decodes AV1 movies with dav1d even where VideoToolbox d
- DM_BC6H_RGB9E5	switch	`=1` decodes BC6H (HDR) textures into RGB9E5Float, 4 bytes per pixel, instead of RGBA16Float, 8 bytes, when the BC textures are decoded on the CPU (profile `tex_bc_cpu` on a GPU without BC support): half the memory, negative values become 0 and each colour keeps 9 bits of mantissa. Off by default. The launcher's Downsample HDR textures sets it
- DM_BOOTPROF	diagnostic	When set, logs boot timing: the loader's breakdown (mapping, relocation, probes), Metal library loading, pipeline creation, texture uploads and the first present
- DM_BUNDLE_ID	switch	Overrides the iOS app's bundle ID in `build_ipa.sh` (default `org.nxnative.<title ID in lowercase>`)
-+DM_CHAIN_INDEX	switch	`=<index>` appends `_<index>` to the default shell framework name (`DmGame<title ID>_<index>`) and its Objective-C/Swift namespace tag in `build_ipa.sh` when building chained NRO sub-frameworks for the shared shell
- DM_CHEATS	path	Folder of Atmosphère cheat files: `<folder>/<build ID>.txt` or an SD-card layout (`atmosphere/contents/<title ID>/cheats/`) under it (default `<DM_ROOT>/cheats`); the Mac menu lists and toggles them
- DM_CHEATS_ANY_BUILD	switch	`1` loads a cheat file written for another build of the game when it is the only one (its addresses may not fit: for `cheat_anchor.py` checks)
- DM_CHEATS_DEBUG	diagnostic	Logs every memory write a cheat makes and the cheat file context the menu's "another version" rows come from
-@@ -50,6 +51,7 @@ DM_FPS	switch	`30` or `60` pins the frame rate the display link and frame pacing
- DM_FPS_HOLD	player	`on` / `off` overrides the profile's `fps_hold`: whether late frames may raise the hold above the frame cap's vsyncs (on by default)
- DM_FPS_TARGET	player	Frame-rate cap: `30` or `60`, `120` for a game whose profile has `fps_max 120` (60 otherwise), or `0` for the game's own limit; overrides the profile's `fps_target`
- DM_FRAMEWORK	switch	`=1` (route C M1) compiles the game's modules into `DmIOS.app/Frameworks/DmGame.framework` instead of the executable, which `dlopen`s it at launch (`dm/ios/project-framework.yml`; the NSP script's `--framework` sets it); the default 0 keeps the usual in-executable build
-+DM_FRAMEWORK_NAME	switch	`=<name>` overrides the game framework product name (`FW_NAME`) in `build_ipa.sh` (default `DmGame`, or `DmGame<title ID>` with `DM_FRAMEWORK_ONLY`)
- DM_FRAMEWORK_ONLY	path	`=<folder>` (route C shell) makes build_ipa.sh build only the game's framework, `<folder>/DmGame<title ID>.framework` with its shader libraries, pipeline archive, settings list and icon, unsigned, for build_shell.sh (the NSP script's `--shell-framework` sets it)
- DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and a read summary every 64 MiB or 1000 reads
- DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
-@@ -131,6 +133,7 @@ DM_NICK	switch	The account nickname the game sees (default `Player`)
- DM_NRO	switch	`0` turns off loading of the NRO modules the game's NRR files register (on by default): every `nn::ro::LoadModule` then fails
- DM_NRO_CAPTURE	diagnostic	folder: a `nn::ro::LoadModule` with no rewritten copy writes the image to `<folder>/<SHA-256>.nro` and ends the run (the NSP script's capture of an NRO the game decodes at run time)
- DM_NRO_DIR	path	folder of NROs the shader split reads like `main`, and in which it finds a CRA archive's file table (the NSP script sets it for a captured NRO)
-+DM_NS_TAG	switch	`=<tag>` overrides the per-framework Objective-C class and Swift module namespace tag (`DmFw_<tag>_*` and `DmGame_<tag>`) passed to `gen_objc_namespace.py` and `xcodebuild` in `build_ipa.sh`
- DM_NVN_ALLOCPROF	diagnostic	`=1` charges Metal allocation growth to each replayed op type and function, and logs command allocator sizes and each new texture (serial, size, format, storage); `=2` also gives each main submission a fresh command allocator and reports command memory by operation, by encoder, by submission size and the indirect-count multi-draws encoded
- DM_NVN_API	switch	`=<major>.<minor>` overrides the NVN API version `nvnDeviceGetInteger` reports (by default decided by the SDK version or the profile's `device_api`: 55.15 for SDK 11 and later, 53.313 before)
- DM_NVN_BARRIER	switch	How draw passes are ordered: `full` (default) waits for all earlier GPU work, `game` only for the previous pass's fragment stage unless the game set a barrier, `ab` alternates with the `DM_AB` phases
