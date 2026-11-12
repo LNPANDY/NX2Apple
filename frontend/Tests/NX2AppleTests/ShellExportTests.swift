@@ -117,7 +117,7 @@ import NXModel
     /// A checkout with a stand-in build_shell.sh: it records its environment and writes the project with its entitlements file.
     private func makeRepo(entitlements: Bool = true) throws -> String {
         let repo = path("repo")
-        try write(repo + "/dm/ios/tools/build_shell.sh", """
+        try write(repo + "/frontend-ios/Shell/build_shell.sh", """
         #!/bin/bash
         [ "$1" = "--prepare-xcode" ] || { echo "FAIL: no --prepare-xcode"; exit 1; }
         mkdir -p "$SHELL_DIR/DmShell.xcodeproj" "$SHELL_DIR/Gen"

@@ -1034,7 +1034,7 @@ def main(argv: list[str] | None = None) -> int:
             if not p.is_file():
                 die(f'missing framework source: {p}')
             files.append(p.resolve())
-        for extra_inc in (repo / 'dm/ios/Sources', repo / 'dm/ios/Shell', repo / 'dm/ios/framework'):
+        for extra_inc in (repo / 'dm/ios/Sources', repo / 'dm/ios/framework'):
             ri = extra_inc.resolve()
             if ri not in incs:
                 incs.append(ri)

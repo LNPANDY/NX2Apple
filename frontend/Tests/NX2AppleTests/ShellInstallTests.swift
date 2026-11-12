@@ -141,14 +141,16 @@ import NXModel
 
     /// The failure of the report: the repo is an engine in the store (no frontend-ios in it), the release app carries the package.
     func testStoreEngineGetsTheBundledPackage() throws {
-        let store = try makeTree(["engine/id/dm/ios/tools/build_shell.sh"]) + "/engine/id"
-        let bundle = try makeTree(["frontend-ios/Package.swift", "frontend-ios/AppIcon.icon/icon.json"])
+        let store = try makeTree(["engine/id/dm/gfx/nvn/dmsh_chain.h"]) + "/engine/id"
+        let bundle = try makeTree(["frontend-ios/Package.swift", "frontend-ios/AppIcon.icon/icon.json", "frontend-ios/Shell/build_shell.sh"])
         let package = try XCTUnwrap(ShellInstall.shellPackage(resources: bundle, repo: store))
         let env = ShellInstall.projectEnvironment(root: "/R", frameworks: [], bundleID: "b", team: "T", python: "/py", path: "/p",
-                                                  home: "/h", user: "u", package: package)
+                                                  home: "/h", user: "u", package: package, engine: store)
         let path = try XCTUnwrap(env["DM_SHELL_PACKAGE"])
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + "/Package.swift"))
         XCTAssertTrue(FileManager.default.fileExists(atPath: path + "/AppIcon.icon"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: path + "/Shell/build_shell.sh"))
+        XCTAssertEqual(env["DM_ENGINE_DIR"], store)
         XCTAssertFalse(path.hasPrefix(store))
         XCTAssertNil(ShellInstall.projectEnvironment(root: "/R", frameworks: [], bundleID: "b", team: "T", python: "/py", path: "/p",
                                                      home: "/h", user: "u")["DM_SHELL_PACKAGE"])
@@ -180,7 +182,7 @@ import NXModel
         let root = "/R/NX2Apple-shell"
         XCTAssertEqual(ShellInstall.buildArguments(workDir: "/W", team: "T"), ["--shell-framework", "/W/shell-framework", "--team-id", "T"])
         XCTAssertEqual(ShellInstall.frameworkPath(workDir: "/W", titleID: "01"), "/W/shell-framework/DmGame01.framework")
-        XCTAssertEqual(ShellInstall.projectCommand(repo: "/repo"), ["/bin/bash", "/repo/dm/ios/tools/build_shell.sh", "--prepare-xcode"])
+        XCTAssertEqual(ShellInstall.projectCommand(package: "/pkg/frontend-ios"), ["/bin/bash", "/pkg/frontend-ios/Shell/build_shell.sh", "--prepare-xcode"])
         let env = ShellInstall.projectEnvironment(root: root, frameworks: ["/f/a", "/f/b"], bundleID: "org.nxnative.shell", team: "T",
                                                   python: "/py", path: "/opt/homebrew/bin:/usr/bin", home: "/h", user: "u")
         XCTAssertEqual(env, ["SHELL_DIR": root + "/project", "DM_SHELL_FRAMEWORKS": "/f/a\n/f/b", "DM_BUNDLE_ID": "org.nxnative.shell",
@@ -201,7 +203,7 @@ import NXModel
         let copy = ShellInstall.copyCommand(xcrun: "/x", device: "D", bundleID: "b", titleID: "01", source: "/a/aoc/1.img", relativePath: "aoc/1.img")
         XCTAssertEqual(copy, ["/x", "devicectl", "device", "copy", "to", "--device", "D", "--source", "/a/aoc/1.img",
                               "--destination", "Documents/games/01/aoc/1.img", "--domain-type", "appDataContainer", "--domain-identifier", "b"])
-        for command in [build, list, copy, ShellInstall.projectCommand(repo: "/r"), ShellInstall.installCommand(xcrun: "/x", device: "D", app: "/a")] {
+        for command in [build, list, copy, ShellInstall.projectCommand(package: "/p"), ShellInstall.installCommand(xcrun: "/x", device: "D", app: "/a")] {
             XCTAssertFalse(command.contains("--remove-existing-content"))
         }
     }
@@ -408,7 +410,7 @@ import NXModel
     /// A checkout with a stand-in build_shell.sh: it records its environment, makes the project folder, and refuses when asked to.
     private func makeRepo() throws -> String {
         let repo = path("repo")
-        try write(repo + "/dm/ios/tools/build_shell.sh", """
+        try write(repo + "/frontend-ios/Shell/build_shell.sh", """
         #!/bin/bash
         [ "$1" = "--prepare-xcode" ] || { echo "FAIL: no --prepare-xcode"; exit 1; }
         if [ -f "\(state)/refuse" ]; then
@@ -433,7 +435,7 @@ import NXModel
         if [ "${DM_ENTITLEMENTS+set}" = set ] && [ -z "$DM_ENTITLEMENTS" ]; then touch "$SHELL_DIR/entitlements-empty"; else rm -f "$SHELL_DIR/entitlements-empty"; fi
         """)
         try write(repo + "/frontend-ios/Package.swift", "// swift-tools-version: 5.9\n")
-        try fm.createDirectory(atPath: repo + "/dm/ios/Shell", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: repo + "/frontend-ios/Shell/App", withIntermediateDirectories: true)
         return repo
     }
 
@@ -1357,18 +1359,18 @@ import NXModel
         XCTAssertEqual(try String(contentsOfFile: container + "/org.nxnative.shell/Documents/save/slot1.bin"), "my save")
         XCTAssertEqual(model.doneNote, String(format: model.t("dev.resigned"), "iPhone"))
         XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: pkgLink), f.repo + "/frontend-ios")
-        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: shellLink), f.repo + "/dm/ios/Shell")
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: shellLink), f.repo + "/frontend-ios/Shell/App")
         let repairedPbx = try String(contentsOfFile: pbxPath, encoding: .utf8)
         XCTAssertFalse(repairedPbx.contains("AppTranslocation"), repairedPbx)
         XCTAssertTrue(repairedPbx.contains(#"relativePath = "frontend-ios";"#), repairedPbx)
 
-        // When repo is an NX2Apple checkout (tools/engine.py + .upstream-ref), engine symlinks resolve under <checkout>/engine/dm/ios/
+        // When repo moves to another checkout, Shell resolves under <checkout>/frontend-ios/Shell/App and legacy dangling links are removed
         let checkout = path("moved-checkout")
         try write(checkout + "/tools/engine.py", "")
         try write(checkout + "/.upstream-ref", "deadbeef\n")
         try write(checkout + "/frontend-ios/Package.swift", "// swift-tools-version: 5.9\n")
+        try fm.createDirectory(atPath: checkout + "/frontend-ios/Shell/App", withIntermediateDirectories: true)
         for item in ["Sources", "Shell", "tools"] {
-            try fm.createDirectory(atPath: checkout + "/engine/dm/ios/" + item, withIntermediateDirectories: true)
             let link = f.root + "/project/" + item
             try? fm.removeItem(atPath: link)
             try fm.createSymbolicLink(atPath: link, withDestinationPath: "/missing/" + item)
@@ -1377,8 +1379,9 @@ import NXModel
         try fm.createSymbolicLink(atPath: pkgLink, withDestinationPath: "/missing/frontend-ios")
         ShellInstall.refreshProjectLinks(root: f.root, resources: nil, repo: checkout)
         XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: pkgLink), checkout + "/frontend-ios")
-        for item in ["Sources", "Shell", "tools"] {
-            XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: f.root + "/project/" + item), checkout + "/engine/dm/ios/" + item)
+        XCTAssertEqual(try fm.destinationOfSymbolicLink(atPath: f.root + "/project/Shell"), checkout + "/frontend-ios/Shell/App")
+        for item in ["Sources", "tools"] {
+            XCTAssertNil(try? fm.attributesOfItem(atPath: f.root + "/project/" + item))
         }
     }
 

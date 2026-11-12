@@ -92,9 +92,8 @@ class RequiredDylibSymbolsTest(unittest.TestCase):
         self.assertIn('_dmgame_image_marker', build_app.REQUIRED_DYLIB_SYMBOLS)
 
     def test_the_glue_symbols_the_shell_dlsyms_are_all_required(self) -> None:
-        shell_main = _engine_ios_dir() / 'Shell' / 'ShellMain.m'
-        if not shell_main.is_file():
-            self.skipTest('engine/ is missing: run python3 tools/engine.py sync')
+        shell_main = ROOT / 'frontend-ios' / 'Shell' / 'App' / 'ShellMain.m'
+        self.assertTrue(shell_main.is_file(), f'missing shell source: {shell_main}')
         text = shell_main.read_text(encoding='utf-8', errors='replace')
         for name in ('dm_glue_version', 'dm_glue_start_game', 'dm_glue_present_game',
                      'dm_glue_focus_event'):
