@@ -120,18 +120,11 @@ struct ConsolePadSnapshot: Equatable {
         }
         if pads == nil { self.devicePads = true }
         state.padMerge = controls.padMerge
-        state.joyconSplit = controls.joyconSplit
         library.objectWillChange.sink { [weak self] _ in self?.queueRefresh() }.store(in: &cancellables)
         controls.$padMerge.sink { [weak self] merged in self?.state.padMerge = merged }.store(in: &cancellables)
         // A @Published sink runs before the value is stored: the layout is read on the next turn of the run loop.
         controls.$pad.combineLatest(controls.$padMode).dropFirst().receive(on: DispatchQueue.main)
             .sink { [weak self] _ in MainActor.assumeIsolated { self?.refreshPadLayout() } }.store(in: &cancellables)
-        controls.$joyconSplit.dropFirst().sink { [weak self] split in
-            guard let self, self.state.joyconSplit != split else { return }
-            self.state.joyconSplit = split
-            self.resetPairedDevicePlayerIndices()
-            self.refreshControllers(announce: false)
-        }.store(in: &cancellables)
         watchCloudGate()
         watchTools()
         refresh()
@@ -421,17 +414,8 @@ struct ConsolePadSnapshot: Equatable {
     /// hand are taken and ignored.
     func consumePress(controllerID: String, isBack: Bool) -> Bool {
         guard let player = state.assigningPlayer, state.presentedSheet == .controllers else { return false }
-        let resolvedID: String
-        if let target = state.assigningControllerID {
-            guard target == controllerID || Self.baseControllerID(target) == controllerID else { return true }
-            resolvedID = target
-        } else if state.controllers.contains(where: { $0.id == controllerID }) {
-            resolvedID = controllerID
-        } else if let split = state.controllers.first(where: { Self.baseControllerID($0.id) == controllerID }) {
-            resolvedID = split.id
-        } else {
-            resolvedID = controllerID
-        }
+        if let target = state.assigningControllerID, target != controllerID { return true }
+        let resolvedID = state.assigningControllerID ?? controllerID
         if isBack { cancelCapture(); showToast(t("console.assignCancelled"), kind: "controller"); return true }
         assignPlayer(controllerID: resolvedID, player: player)
         return true
@@ -446,49 +430,13 @@ struct ConsolePadSnapshot: Equatable {
         overrides[controllerID] = player
         state.assigningPlayer = nil; state.assigningControllerID = nil
         assignTimeout?.cancel()
-        for (id, value) in overrides where !id.hasSuffix(".R") {
+        for (id, value) in overrides {
             devices[id]?.playerIndex = value == 0 ? .indexUnset : (GCControllerPlayerIndex(rawValue: value - 1) ?? .indexUnset)
         }
         refreshControllers(announce: false)
         showToast(String(format: t("console.assignedTo"), pad.name, player), kind: "controller")
     }
     func setPadMerge(_ enabled: Bool) { controls.padMerge = enabled }
-    func setJoyconSplit(_ enabled: Bool) {
-        controls.joyconSplit = enabled
-        state.joyconSplit = enabled
-        resetPairedDevicePlayerIndices()
-        refreshControllers(announce: false)
-    }
-
-    /// Clears hardware playerIndex on paired Joy-Con `GCController` instances when toggling split mode so auto-assignment starts cleanly from P1/P2.
-    private func resetPairedDevicePlayerIndices() {
-        guard devicePads else { return }
-        for c in GCController.controllers() {
-            let cat = c.productCategory.lowercased().replacingOccurrences(of: "-", with: "")
-            if cat.contains("joycon") { c.playerIndex = .indexUnset }
-        }
-    }
-
-    static func baseControllerID(_ id: String) -> String {
-        (id.hasSuffix(".L") || id.hasSuffix(".R")) ? String(id.dropLast(2)) : id
-    }
-
-    /// Expands each paired Joy-Con snapshot into separate `Joy-Con (L)` and `Joy-Con (R)` sideways controller snapshots when `enabled` is true (#740).
-    static func splitJoyConSnapshots(_ pads: [ConsolePadSnapshot], enabled: Bool) -> [ConsolePadSnapshot] {
-        guard enabled else { return pads }
-        var out: [ConsolePadSnapshot] = []
-        for pad in pads {
-            if pad.controller.kind == .paired {
-                out.append(ConsolePadSnapshot(id: pad.id + ".L", name: "Joy-Con (L)", category: "Nintendo Switch Joy-Con (L)",
-                                              playerIndex: pad.playerIndex, battery: pad.battery, charging: pad.charging, canIdentify: pad.canIdentify, kindOverride: .gamepad))
-                out.append(ConsolePadSnapshot(id: pad.id + ".R", name: "Joy-Con (R)", category: "Nintendo Switch Joy-Con (R)",
-                                              playerIndex: nil, battery: pad.battery, charging: pad.charging, canIdentify: pad.canIdentify, kindOverride: .gamepad))
-            } else {
-                out.append(pad)
-            }
-        }
-        return out
-    }
 
     /// What this controller can do for Identify. The player lights have no capability flag in GameController, so any gamepad counts.
     static func identifyActions(_ c: GCController) -> [IdentifyPlan.Action] {
@@ -554,12 +502,10 @@ struct ConsolePadSnapshot: Equatable {
             guard let player = pad.playerIndex, primedPlayer[pad.id] != player else { continue }
             primedPlayer[pad.id] = player
             if let sendPlayerOutput {
-                if !pad.id.hasSuffix(".R") { sent = true; sendPlayerOutput(pad.id, player) }
+                sent = true; sendPlayerOutput(pad.id, player)
                 continue
             }
-            // A split Joy-Con pair shares one underlying GCController instance between `.L` and `.R`. Writing `.R`'s playerIndex back to
-            // that shared instance overwrites `.L`'s hardware playerIndex and causes P1/P2 to ping-pong on every reread (#740).
-            guard let device = devices[pad.id], !pad.id.hasSuffix(".R") else { continue }
+            guard let device = devices[pad.id] else { continue }
             sent = true
             device.playerIndex = GCControllerPlayerIndex(rawValue: player - 1) ?? .indexUnset
             if let light = device.light {
@@ -634,15 +580,13 @@ struct ConsolePadSnapshot: Equatable {
     private func tearDown(_ pad: GCController) {
         let id = String(UInt(bitPattern: ObjectIdentifier(pad).hashValue), radix: 16)
         pad.physicalInputProfile.valueDidChangeHandler = nil
-        for key in [id, id + ".L", id + ".R"] {
-            stopRumble(key)
-            identifyEngines.removeValue(forKey: key)
-            if identifyRunning == key { identifyRunning = nil }
-            if state.identifyingControllerID == key { identifyTask?.cancel(); state.identifyingControllerID = nil }
-            devices[key] = nil
-            overrides[key] = nil
-            primedPlayer[key] = nil
-        }
+        stopRumble(id)
+        identifyEngines.removeValue(forKey: id)
+        if identifyRunning == id { identifyRunning = nil }
+        if state.identifyingControllerID == id { identifyTask?.cancel(); state.identifyingControllerID = nil }
+        devices[id] = nil
+        overrides[id] = nil
+        primedPlayer[id] = nil
         batteryWatchers[id] = nil
         Self.hidLog.debug("torn down \(id, privacy: .public)")
     }
@@ -681,16 +625,8 @@ struct ConsolePadSnapshot: Equatable {
             }
         }
         snapshots += steamPads()
-        snapshots = Self.splitJoyConSnapshots(snapshots, enabled: controls.joyconSplit)
-        if devicePads, controls.joyconSplit {
-            for snap in snapshots where snap.id.hasSuffix(".L") || snap.id.hasSuffix(".R") {
-                let base = Self.baseControllerID(snap.id)
-                if let dev = devices[base] { devices[snap.id] = dev }
-            }
-        }
         let live = Set(snapshots.map(\.id))
-        let liveBase = Set(snapshots.map { Self.baseControllerID($0.id) })
-        batteryWatchers = batteryWatchers.filter { liveBase.contains($0.key) || !devicePads }
+        batteryWatchers = batteryWatchers.filter { live.contains($0.key) || !devicePads }
         overrides = overrides.filter { live.contains($0.key) }
         snapshots = snapshots.map { snap in
             guard let chosen = overrides[snap.id] else { return snap }
@@ -698,7 +634,7 @@ struct ConsolePadSnapshot: Equatable {
             return s
         }
         let assigned = Self.autoAssigned(snapshots, remembered: remembered)
-        for (old, new) in zip(snapshots, assigned) where old.playerIndex != new.playerIndex && !new.id.hasSuffix(".R") {
+        for (old, new) in zip(snapshots, assigned) where old.playerIndex != new.playerIndex {
             devices[new.id]?.playerIndex = GCControllerPlayerIndex(rawValue: (new.playerIndex ?? 1) - 1) ?? .indexUnset
         }
         for pad in assigned { if let p = pad.playerIndex { remembered[Self.memoryKey(pad)] = p } }
