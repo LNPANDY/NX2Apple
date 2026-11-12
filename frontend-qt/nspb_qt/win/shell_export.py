@@ -518,25 +518,59 @@ def place_shader_library(framework: str | os.PathLike, root: str | os.PathLike,
         return None
     dest = external_shader_folder(root, title_id) / SHADER_DIR
     try:
-        if dest.is_dir():
-            shutil.rmtree(dest)
         dest.mkdir(parents=True, exist_ok=True)
-        for member in source.iterdir():
-            target = dest / member.name
-            try:
-                if member.is_file():
-                    try:
-                        os.link(member, target)
-                    except OSError:
-                        shutil.copy2(member, target)
-                elif member.is_dir():
-                    shutil.copytree(member, target, symlinks=True)
-            except OSError as e:
-                log(f'shader library: {member} was not copied to {target}: {e}\n')
+        # A library of 10 GB is moved once, not once per export: a file already there with the
+        # same name and size is left alone, and only what the framework no longer carries goes.
+        _copy_shaders(source, dest, log)
         return dest
     except OSError as e:
         log(f'shader library: {source} was not copied to {dest}: {e}\n')
         return None
+
+
+def _copy_shaders(source: Path, dest: Path, log: Callable[[str], None]) -> None:
+    """Make `dest` hold `source`, copying only what is missing or a different size."""
+    try:
+        wanted = {member.name for member in source.iterdir()}
+    except OSError:
+        wanted = set()
+    try:
+        stale = sorted(dest.iterdir(), key=lambda p: p.name)
+    except OSError:
+        stale = []
+    for old in stale:
+        if old.name in wanted:
+            continue
+        try:
+            if old.is_dir() and not old.is_symlink():
+                shutil.rmtree(old, ignore_errors=True)
+            else:
+                old.unlink()
+        except OSError as e:
+            log(f'shader library: {old} was not removed: {e}\n')
+    for member in sorted(source.iterdir(), key=lambda p: p.name):
+        target = dest / member.name
+        try:
+            if member.is_dir():
+                if target.exists() and not target.is_dir():
+                    target.unlink()
+                target.mkdir(parents=True, exist_ok=True)
+                _copy_shaders(member, target, log)
+                continue
+            if target.is_dir():
+                shutil.rmtree(target, ignore_errors=True)
+            if target.is_file() and target.stat().st_size == member.stat().st_size:
+                continue
+            if target.exists():
+                target.unlink()
+            try:
+                os.link(member, target)
+            except OSError:
+                if target.exists():
+                    target.unlink()
+                shutil.copy2(member, target)
+        except OSError as e:
+            log(f'shader library: {member} was not copied to {target}: {e}\n')
 
 
 def find_shell_template(repo: str | os.PathLike, root: str | os.PathLike | None = None,

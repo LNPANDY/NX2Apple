@@ -117,6 +117,31 @@ class PlaceShaderLibraryTest(unittest.TestCase):
         self.assertFalse((dest / 'gone.metal').exists())
         self.assertTrue((dest / 'b-0123456789ab' / 'a.metal').is_file())
 
+    def test_a_library_already_beside_the_ipa_is_left_alone(self):
+        """Exporting again must not copy the gigabytes that are already there."""
+        fw = make_framework(self.temp / 'fw', '0100000000000001')
+        placed = se.place_shader_library(fw, self.temp / 'shell', '0100000000000001')
+        kept = placed / 'b-0123456789ab' / 'a.metal'
+        os.utime(kept, (1_000_000_000, 1_000_000_000))
+
+        se.place_shader_library(fw, self.temp / 'shell', '0100000000000001')
+
+        self.assertEqual(kept.stat().st_mtime, 1_000_000_000, 'the file was written again')
+        self.assertEqual(kept.read_bytes(), b'metal a')
+
+    def test_a_changed_shader_of_the_same_name_is_copied_over(self):
+        """A rebuilt shader replaces the link, so the copy beside the IPA has to follow it."""
+        fw = make_framework(self.temp / 'fw', '0100000000000001')
+        placed = se.place_shader_library(fw, self.temp / 'shell', '0100000000000001')
+        # A rebuild writes a new file, so the link to the copy beside the IPA is gone.
+        (fw / 'msl' / 'b-0123456789ab' / 'a.metal').unlink()
+        (fw / 'msl' / 'b-0123456789ab' / 'a.metal').write_bytes(b'metal a, rebuilt and longer')
+
+        se.place_shader_library(fw, self.temp / 'shell', '0100000000000001')
+
+        self.assertEqual((placed / 'b-0123456789ab' / 'a.metal').read_bytes(),
+                         b'metal a, rebuilt and longer')
+
     def test_a_framework_without_a_library_writes_nothing(self):
         fw = make_framework(self.temp / 'fw', '0100000000000001', shaders=False)
         self.assertIsNone(se.place_shader_library(fw, self.temp / 'shell', '0100000000000001'))
