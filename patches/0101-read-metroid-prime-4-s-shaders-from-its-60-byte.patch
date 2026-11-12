@@ -8,8 +8,8 @@ Prime 4's packs list resources in 60-byte ADIR entries and store each material a
 
 Co-authored-by: Cursor <cursoragent@cursor.com>
 
-Upstream-Status: pending
-Reason: Metroid Prime 4's packs use 60-byte ADIR entries and zstd SNVN records, so the split found no shaders
+Upstream-Status: backport 430ace1
+Reason: the pin's reader stops on Prime 4's 60-byte ADIR entries and zstd records; upstream main 430ace1 has a fuller reader, so the next bump drops this
 Issue: none
 
 ---
