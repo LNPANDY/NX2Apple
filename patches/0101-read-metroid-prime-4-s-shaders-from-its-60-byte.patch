@@ -1,0 +1,124 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RaffDevs <rveronezdeveloper@gmail.com>
+Date: Thu, 12 Nov 2026 03:23:03 -0300
+Subject: [PATCH] Read Metroid Prime 4's shaders from its 60-byte pack index
+ and zstd records.
+
+Prime 4's packs list resources in 60-byte ADIR entries and store each material as zstd, and the SNVN records are zstd too, so the split left every shader out.
+
+Co-authored-by: Cursor <cursoragent@cursor.com>
+
+Upstream-Status: pending
+Reason: Metroid Prime 4's packs use 60-byte ADIR entries and zstd SNVN records, so the split found no shaders
+Issue: none
+
+---
+ dm/gfx/tools/shader_split.py | 46 ++++++++++++++++++++++++------------
+ docs/reference/shaders.md    |  3 ++-
+ 2 files changed, 33 insertions(+), 16 deletions(-)
+
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index c9175aa..e972c05 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -1094,27 +1094,40 @@ def rfrm_chunk(d, o):   # a Retro Studios RFRM chunk at o: fourcc, u64 data leng
+     e = rfrm_order(d, o)
+     return d[o:o + 4], o + 0x18, o + 0x18 + struct.unpack_from(e + 'Q', d, o + 4)[0], e
+ 
++ZSTD_FRAME = bytes.fromhex('28b52ffd')
+ def snvn_records(d, a, b, label, e='>'):
+     """The program records of an SNVN chunk's data d[a:b]: each a u32 code length, u32 control length, a byte (0), u32 stream length (in the chunk's byte order e), then a zlib stream that inflates to
+     exactly the two lengths: every stage's code area back to back, then their control sections in the same order (0x840 bytes each on SDK 4, 0x880 on SDK 12; control +0x704 = its code length).
++    Metroid Prime 4's streams are zstd instead (a frame with the data, then an empty one), and its control lengths are not all multiples of 0x40 (GLSLC's extra data, 0xc or 0x18 bytes on some stages).
+     The tables before the records differ between files (MaterialArchive.arc's SNVN has one of 1,374 (offset, length) pairs, a material's has none), so the records are found by their
+-    own lengths: a zlib header whose preceding 13 bytes give a stream that ends at exactly that length and inflates to exactly code + control bytes. → [(offset, [(ctl, code), …])]"""
++    own lengths: a zlib or zstd header whose preceding 13 bytes give a stream that ends at exactly that length and inflates to exactly code + control bytes. → [(offset, [(ctl, code), …])]"""
+     import zlib
+-    out, i = [], a + 12
+-    while (i := d.find(b'\x78', i + 1, b)) >= 0:
++    zstd, out, i = None, [], a + 12
++    zl = zs = i
++    while True:
++        if zl <= i: zl = d.find(b'\x78', i + 1, b) % (b + 1)
++        if zs <= i: zs = d.find(ZSTD_FRAME, i + 1, b) % (b + 1)
++        if (i := min(zl, zs)) >= b: break
+         ncode, nctl, _, nz = struct.unpack_from(e + 'IIBI', d, i - 13)
+-        if not (nctl and not nctl % 0x40 and nctl < 1 << 20 and ncode < 1 << 24 and 0 < nz <= b - i): continue
+-        z = zlib.decompressobj()
+-        try: y = z.decompress(d[i:i + nz])
+-        except zlib.error: continue
+-        if not z.eof or z.unused_data or len(y) != ncode + nctl: continue
++        if not (nctl and not nctl % 4 and nctl < 1 << 20 and ncode < 1 << 24 and 0 < nz <= b - i): continue
++        if i == zs:
++            zstd = zstd or zstd_mod()
++            try: y = zstd.decompress(d[i:i + nz])
++            except zstd.ZstdError: continue
++        else:
++            z = zlib.decompressobj()
++            try: y = z.decompress(d[i:i + nz])
++            except zlib.error: continue
++            if not z.eof or z.unused_data: continue
++        if len(y) != ncode + nctl: continue
+         stages, k, c = [], 0, ncode
+         while c < len(y):
+             if y[c:c + 4] != CTL_MAGIC: red(f'{label} SNVN record @{i:#x}: no control section at {c:#x}')
+             n, nk = struct.unpack_from('<I', y, c + 0x20)[0], struct.unpack_from('<I', y, c + 0x704)[0]
+             x, xn = struct.unpack_from('<II', y, c + 0x7e8)   # data GLSLC put after the section, not in its own length: 4 vertex stages of Metroid Prime Remastered's
+             if xn and x >= n: n = x + xn                       # MaterialArchive.arc have 16 12-byte entries at +0x880 (+0x7e8 0x880, +0x7ec 0xc0, +0x7f0 16)
+-            stages.append((y[c:c + n], y[k:k + nk])); k += nk; c += n
++            stages.append((y[c:c + n], y[k:k + nk])); k += nk  # the next section starts 8-aligned: Metroid Prime 4's 0xc bytes of such data are followed by 4 of padding
++            c += -n % 8 + n
+         if k != ncode: red(f'{label} SNVN record @{i:#x}: the code areas end at {k:#x}, the control sections start at {ncode:#x}')
+         out.append((i, stages)); i += nz - 1
+     return out
+@@ -1171,8 +1184,9 @@ def rfrm_shaders(d, label):
+     """A Retro Studios RFRM file: a 'PACK' archive (the .pak files) or a single form (MaterialArchive.arc, an 'MTRL' form). A pack's 'ADIR' chunk lists its resources: u32 count, then
+     the entries, in the chunk's byte order. Tropical Freeze's (big-endian, the chunk right in the pack) are 36 bytes {fourcc type, 16-byte GUID, u64 offset, u64 length}; Metroid Prime
+     Remastered's (little-endian, the chunk in a 'TOCC' form, the pack's first) are 52 bytes {fourcc type, 16-byte GUID, u32 version, u32 version, u64 offset, u64 length, u64 stored length},
+-    the stored length shorter for a compressed resource (none of its 778 MTRL resources is). Only 'MTRL' resources hold shaders (795 in Tropical Freeze's packs): an RFRM form whose data
+-    after its 0x20-byte header is a zlib stream, holding an RFRM 'MTRL' form with an SNVN chunk (in Metroid Prime Remastered after an 'EXPT' chunk)"""
++    the stored length shorter for a compressed resource (none of its 778 MTRL resources is); Metroid Prime 4's are 60 bytes, the same with a u64 after them (0 in every MTRL entry; none of
++    the 1,961 MTRL resources of its 441 packs or of the update's Patch/Z_198_NXPatch.pak.patch is compressed either). Only 'MTRL' resources hold shaders (795 in Tropical Freeze's packs): an
++    RFRM form whose data after its 0x20-byte header is a zlib stream (zstd in Metroid Prime 4), holding an RFRM 'MTRL' form with an SNVN chunk (in Metroid Prime Remastered after an 'EXPT' chunk)"""
+     import zlib
+     if d[0x14:0x18] != b'PACK': return snvn_shaders(d, label)
+     out, a = [], d.find(b'ADIR', 0x20)
+@@ -1180,16 +1194,18 @@ def rfrm_shaders(d, label):
+     _, _, end, o = rfrm_chunk(d, a)
+     n = struct.unpack_from(o + 'I', d, a + 0x18)[0]
+     size = (end - a - 0x1c) // n if n else 36
+-    if size not in (36, 52) or a + 0x1c + n * size != end: red(f'{label}: ADIR of {n} entries in {end - a - 0x1c:#x} bytes, neither 36 nor 52 bytes each')
++    if size not in (36, 52, 60) or a + 0x1c + n * size != end: red(f'{label}: ADIR of {n} entries in {end - a - 0x1c:#x} bytes, neither 36, 52 nor 60 bytes each')
+     for i in range(n):
+         e = a + 0x1c + size * i
+         if d[e:e + 4] != b'MTRL': continue
+-        off, ln = struct.unpack_from(o + 'QQ', d, e + (28 if size == 52 else 20))
+-        stored = struct.unpack_from(o + 'Q', d, e + 44)[0] if size == 52 else ln
++        off, ln = struct.unpack_from(o + 'QQ', d, e + (20 if size == 36 else 28))
++        stored = ln if size == 36 else struct.unpack_from(o + 'Q', d, e + 44)[0]
+         if stored != ln: red(f'{label}: MTRL resource {d[e + 4:e + 20].hex()} is stored compressed ({stored:#x} of {ln:#x} bytes), which this reader does not decode')
+         r = d[off:off + ln]
+         if r[:4] != RFRM: red(f'{label}: MTRL resource {d[e + 4:e + 20].hex()} is not an RFRM form')
+-        out += snvn_shaders(zlib.decompress(r[0x20:]) if r[0x20:0x21] == b'\x78' else r, f'{label}/{d[e + 4:e + 20].hex()}')
++        if r[0x20:0x21] == b'\x78': r = zlib.decompress(r[0x20:])
++        elif r[0x20:0x24] == ZSTD_FRAME: r = zstd_mod().decompress(r[0x20:])
++        out += snvn_shaders(r, f'{label}/{d[e + 4:e + 20].hex()}')
+     return out
+ 
+ GFPAK = b'GFLXPACK'
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index 82dfa31..5e0987c 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -352,9 +352,10 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **How it is stored:** Retro's files are RFRM forms (`RFRM`, big-endian u64 data length, u64, then the form type and two u32 versions; chunks inside are a fourcc, u64 length, two u32 versions, then the data). `MaterialArchive.arc` is one `MTRL` form holding an `SDX ` chunk (the same materials' D3D bytecode, 3,468 DXBC programs) and an `SNVN` chunk (the NVN ones). The `.pak` files are `PACK` forms whose `ADIR` chunk lists the resources (u32 count, then 36-byte entries: fourcc type, 16-byte GUID, big-endian u64 offset and length); each `MTRL` resource is an RFRM form whose data is one zlib stream holding another `MTRL` form with an `SNVN` chunk. An SNVN program record is a big-endian u32 code length, u32 control length, a byte, u32 stream length, then a zlib stream that inflates to the program's code areas back to back followed by their control sections in the same order (0x840 bytes each on SDK 4). The chunk's tables differ between files, so the reader finds the records by their own lengths: a stream whose header ends where it says and that inflates to exactly code + control bytes.
+ - **Startup archive in `main`:** the first programs the game builds (the `CGraphicsUtilCache` quads that draw the title logo) come from a startup material archive compressed into `main` (`NMaterialStartup::get_startup_archive_compressed_buffer`, 5,870 bytes; `NMaterialArchive::ImportStartupArchive` inflates it at boot). Its `CBufferedCompression` header is a type byte (1: LZSS on 8-bit units, `CLZSSDecompressor::DecompressBuffer8`) and three zero bytes; the data inflates to an `MTRL` form like `MaterialArchive.arc`'s. Its programs share code areas with `MaterialArchive.arc`'s but differ in control +0x7d0 (a per-program value), so their keys are their own.
+ - **Little-endian forms (Metroid Prime Remastered):** the same forms with every length, count and record header little-endian (`rfrm_order` tells the order from the u64 length: the reading that is a length is the small one). A pack's first chunk is a `TOCC` form holding the `ADIR` chunk, whose entries are 52 bytes: fourcc type, GUID, two u32 versions, u64 offset, u64 length and u64 stored length (shorter for a compressed resource; none of the 778 `MTRL` resources is). An `MTRL` resource's zlib stream inflates to an `EXPT` chunk and then the `MTRL` form. Control sections are SDK 12's 0x880 bytes, and four vertex stages of `MaterialArchive.arc` carry 0xc0 bytes more than their own length (+0x20) says: GLSLC's extra data at +0x7e8 (offset 0x880) / +0x7ec (length) / +0x7f0 (16 entries of 12 bytes), which the reader steps over to reach the next stage's section.
++- **zstd records (Metroid Prime 4 Beyond):** the little-endian forms again, with three changes. `ADIR` entries are 60 bytes, the 52 above and a u64 more (0 in every `MTRL` entry), which the reader stopped on before (`[RED] … ADIR of 13 entries in 0x30c bytes, neither 36 nor 52 bytes each`, then no shaders at all). An `MTRL` resource's data after the form header is a zstd stream instead of zlib, and so is each SNVN record's stream (a frame with the data and an empty frame after it, both in the record's stream length). GLSLC's extra data after a control section is 0xc or 0x18 bytes on some stages, so control lengths are only multiples of 4, and the next section starts at the following 8-byte boundary. `MaterialArchive.arc` also has an `NVN2` chunk (the Switch 2 programs) between `SDX ` and `SNVN`. The reader takes only the `SNVN` one.
+ - **Reader:** `rfrm_shaders`, `snvn_records`, `retro_main_forms` and `retro_lzss8` in `shader_split.py`; each record is one program, so its stages pair with each other.
+ - **Found on:** [Donkey Kong Country: Tropical Freeze](../../dm/games/0100C1F0051B6000/README.md) (SDK 4.4.0): 24,098 shaders (11,644 vertex, 11,734 pixel, 720 geometry, which run as compute kernels): 3,460 first seen in `MaterialArchive.arc` (its 3,468 stages), the rest in the 795 `MTRL` resources of the packs, 8 in the startup archive and 294 GLSLC outputs in `main`; about 8 s.
+-- **Also found on:** [Metroid Prime Remastered](../../dm/games/010012101468C000/README.md) (SDK 12.3.1, little-endian): 40,483 shaders (20,233 vertex, 20,233 pixel, 12 geometry, 5 compute): 1,141 stages in `MaterialArchive.arc`, the rest in the 778 `MTRL` resources of the world, preload and UI packs, and 8 in the startup archive (`main+0x1d0e7a4`, the same `CBufferedCompression` type 1); `main` holds no GLSLC output. Tropical Freeze's split gives the same 80,212 stages from its 76 RFRM files with the byte-order-aware reader.
++- **Also found on:** [Metroid Prime Remastered](../../dm/games/010012101468C000/README.md) (SDK 12.3.1, little-endian): 40,483 shaders (20,233 vertex, 20,233 pixel, 12 geometry, 5 compute): 1,141 stages in `MaterialArchive.arc`, the rest in the 778 `MTRL` resources of the world, preload and UI packs, and 8 in the startup archive (`main+0x1d0e7a4`, the same `CBufferedCompression` type 1); `main` holds no GLSLC output. Tropical Freeze's split gives the same 80,212 stages from its 76 RFRM files with the byte-order-aware reader. Metroid Prime 4 Beyond (010019A01E2F2000, no profile yet): 3,473 stages in the 1,740 records of `MaterialArchive.arc`'s `SNVN` chunk, and the `MTRL` resources of 144 of the 441 packs and of the update's `Patch/Z_198_NXPatch.pak.patch` (another `PACK` form).
+ 
+ ### MGFX effects in MonoGame XNB files
+ 
