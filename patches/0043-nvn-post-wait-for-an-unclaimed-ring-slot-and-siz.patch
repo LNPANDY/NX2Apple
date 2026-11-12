@@ -10,18 +10,17 @@ Size POST_RING to 1024 (>= ALLOC_MAX * ALLOC_SHARE, matching GRING and SEG_CLK_N
 Upstream-Status: forwarded seedds/nxnative#2469
 Reason: Wait for an unclaimed post-ring slot outside g_post_mu and size POST_RING to 1024 so games with 70+ submissions per frame do not abort
 Issue: seedds/nxnative#2469
-
 ---
  dm/gfx/nvn/nvn_mtl.m          | 27 +++++++++++++++++++--------
- dm/gfx/tests/t_perf_order.m   | 29 +++++++++++++++++++++++++++--
+ dm/gfx/tests/t_perf_order.m   | 21 +++++++++++++++++++++
  docs/reference/nvn-objects.md |  7 +++++++
- 3 files changed, 53 insertions(+), 10 deletions(-)
+ 3 files changed, 47 insertions(+), 8 deletions(-)
 
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 5107b30f..8a9c2799 100644
+index b549f1af..49938ad8 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -249,9 +249,9 @@ static int gpu_lost_test(void) {
+@@ -256,9 +256,9 @@ static int gpu_lost_test(void) {
  static pthread_mutex_t g_res_mu = PTHREAD_MUTEX_INITIALIZER;   // Dedicated lock for the residency set: res_add is called on paths that hold g_mu (arena_new), so it cannot share g_mu
  // Wait ledger (DM_NVN_WAITS=1): every place a thread of the host or the game waits on the CPU for the GPU or for the encode thread, counted per frame (calls, calls that blocked,
  // the time they blocked) and logged every 300 frames with the frame's GPU idle. The game's own SyncWait is split by how far its fence is behind the newest one (0: the last submission)
@@ -33,7 +32,7 @@ index 5107b30f..8a9c2799 100644
  static _Atomic uint64_t g_ws_n[WS_N], g_ws_blk[WS_N], g_ws_ns[WS_N];
  static int ws_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_WAITS"); v = e && atoi(e) > 0; } return v; }
  static inline uint64_t ws_t0(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
-@@ -2391,7 +2391,8 @@ int mtl_gpu_span(uint64_t f, uint64_t *t0, uint64_t *t1) {
+@@ -2434,7 +2434,8 @@ int mtl_gpu_span(uint64_t f, uint64_t *t0, uint64_t *t1) {
  // A submission's CPU-side writes at its end (events, samples-passed and counter reports): run once, by its feedback handler or, when a game's SyncWait wakes on the
  // GPU's own signal of the fence first, by that waiter (DM_NVN_FAST_WAKE, on by default): the feedback handler comes 0.26 ms after the GPU end on an M2 Max
  typedef struct { _Atomic uint64_t fence; _Atomic int claimed; int n; post_op *ops; seg_clk *sc; uint32_t seg_last; uint64_t t_commit; } post_rec;   // t_commit: guest ns when it was committed
@@ -43,7 +42,7 @@ index 5107b30f..8a9c2799 100644
  static post_rec g_postr[POST_RING];
  static pthread_mutex_t g_post_mu = PTHREAD_MUTEX_INITIALIZER;
  // A successful claim holds the lock until post_run finishes. Ownership alone
-@@ -2446,6 +2447,19 @@ static void post_complete(uint64_t fence, uint64_t c0, uint64_t c1) {
+@@ -2489,6 +2490,19 @@ static void post_complete(uint64_t fence, uint64_t c0, uint64_t c1) {
      nvn_queue_gpu_progress();
  }
  static _Atomic int g_seg_inflight;   // main command buffers committed and not reported back yet (sub_cut)
@@ -63,7 +62,7 @@ index 5107b30f..8a9c2799 100644
  static void rt_preserve_bound(void);
  static void queue_program_preserve(void);
  uint64_t mtl_sub_commit(void) {
-@@ -2465,7 +2479,7 @@ uint64_t mtl_sub_commit(void) {
+@@ -2509,7 +2523,7 @@ uint64_t mtl_sub_commit(void) {
      gw_commit(fence); rc_commit(fence);
      if (g_vis_ring_i >= 0) g_vis_ring[g_vis_ring_i].fence = fence;
      // CPU-visible effects after completion: copy the op table into the callback
@@ -72,7 +71,7 @@ index 5107b30f..8a9c2799 100644
      if (ws_on()) for (int i = 0; i < n; i++) { int k = g_post[i].kind == 2 ? (g_post[i].type == 0 || g_post[i].type == 0x10 ? 3 : 4) : g_post[i].kind == 3 ? (g_post[i].mode == VIS_REPORT ? 2 : 0) : 1; atomic_fetch_add(&g_ws_post[k], 1); }   // 1 event, 2 samples passed, 3 timestamp, 4 other counter
      if (n) memcpy(ops, g_post, n * sizeof *ops);
      NSArray<dispatch_block_t> *commit_blocks = [g_commit_blocks copy];
-@@ -2476,10 +2490,7 @@ uint64_t mtl_sub_commit(void) {
+@@ -2520,10 +2534,7 @@ uint64_t mtl_sub_commit(void) {
      NSString *cctx = @(cctx_snap());
      cbs_list *cbs = cbs_take(); cbs_fly_put(fence, cbs);
      seg_clk *sc = g_sclk; uint32_t seg_last = g_seg; g_sclk = NULL;
@@ -85,39 +84,10 @@ index 5107b30f..8a9c2799 100644
      [o addFeedbackHandler:^(id<MTL4CommitFeedback> cb) {
          gpu_tag_done(gpu_f, cb.GPUStartTime, cb.GPUEndTime);
 diff --git a/dm/gfx/tests/t_perf_order.m b/dm/gfx/tests/t_perf_order.m
-index 3dcf2b44..1a4445e9 100644
+index 536f7653..1a4445e9 100644
 --- a/dm/gfx/tests/t_perf_order.m
 +++ b/dm/gfx/tests/t_perf_order.m
-@@ -10,7 +10,7 @@
- static struct {
-     uint64_t now, event_elapsed, event_ms, event_fence;
-     int event_calls, event_success, cond_calls;
--    int64_t cond_remaining;
-+    int64_t cond_remaining, cond_first;   // the last and the first condition wait's deadline, from the virtual now
- } test_budget;
- static uint64_t test_clock_gettime_nsec_np(clockid_t clock) {
-     return test_budget_active ? test_budget.now : clock_gettime_nsec_np(clock);
-@@ -26,6 +26,7 @@ static int test_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mu
-     test_budget.cond_calls++;
-     test_budget.cond_remaining = (int64_t)deadline->tv_sec * 1000000000ll + deadline->tv_nsec
-         - (int64_t)(test_budget.now + 1000000000000ull);
-+    if (test_budget.cond_calls == 1) test_budget.cond_first = test_budget.cond_remaining;
-     return ETIMEDOUT;
- }
- @interface WaitBudgetEvent : NSObject
-@@ -231,7 +232,10 @@ static void wait_budgets(void) {
-             CHECK("only the virtual event advances time", test_budget.now == 1999750000 + (fast ? c->elapsed : 0));
-             int fallback = fast ? c->fallback : 1;
-             uint64_t remaining = fast ? c->remaining : (c->timeout > hour ? hour : c->timeout);
--            CHECK("feedback wait count", test_budget.cond_calls == fallback);
-+            // An unbounded wait first waits to the 10 s mark, where it reports a hang (mtl_wait_at, "[RED] the host has waited 10 s"), then on to its deadline
-+            int hang_mark = fallback && c->timeout == UINT64_MAX;
-+            CHECK("feedback wait count", test_budget.cond_calls == fallback + hang_mark);
-+            CHECK("an unbounded wait reports a hang at 10 s first", !hang_mark || test_budget.cond_first == 10000000000ll);
-             CHECK("feedback absolute deadline has only remaining budget", !fallback
-                 || test_budget.cond_remaining == (int64_t)remaining);
-         }
-@@ -264,6 +268,9 @@ static void wait_budgets(void) {
+@@ -268,6 +268,9 @@ static void wait_budgets(void) {
  static void *early_waiter(void *arg) {
      dispatch_semaphore_signal(waiter_started); post_early((uintptr_t)arg); dispatch_semaphore_signal(waiter_done); return NULL;
  }
@@ -127,7 +97,7 @@ index 3dcf2b44..1a4445e9 100644
  static void posts(void) {
      // Pause the real completion owner between claim and its first event write.
      uint64_t f=g_fence+1; post_rec *r=&g_postr[f%POST_RING]; volatile uint32_t event=0;
-@@ -296,6 +303,24 @@ static void posts(void) {
+@@ -300,6 +303,24 @@ static void posts(void) {
      CHECK("later completion applies earlier events in order",event==15 && g_done==f+2);
      post_complete(f+1,0,0); post_complete(f+2,0,0);
      CHECK("callbacks never repeat an event",event==15);
@@ -153,10 +123,10 @@ index 3dcf2b44..1a4445e9 100644
  int main(int argc, char **argv) { @autoreleasepool {
      if(argc==2 && !strcmp(argv[1],"--cpu")) {
 diff --git a/docs/reference/nvn-objects.md b/docs/reference/nvn-objects.md
-index 21b5d467..bcde18ad 100644
+index c70f16b0..bcc486ad 100644
 --- a/docs/reference/nvn-objects.md
 +++ b/docs/reference/nvn-objects.md
-@@ -429,6 +429,13 @@ Games read this count as a position in their own command memory and size their h
+@@ -464,6 +464,13 @@ Games read this count as a position in their own command memory and size their h
  - **Budget regression:** the `--cpu` path also uses a synthetic event, clock and condition-wait deadline to exercise the actual `mtl_wait_at` function without a Metal device. Run with `DM_NVN_FAST_WAKE=0/1` and `DM_NVN_WAITS=0/1`; no gameplay or FPS improvement is inferred from these timeout cases.
  - **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md): it reads 5 timestamp reports a frame right after the wait (its interval controller and dynamic resolution), which is why the waiter makes them itself. Wake after the GPU end 0.29 → 0.08 ms on an M2 Max, 0.147 ms on an iPhone 17 Pro Max.
  

@@ -34,7 +34,7 @@ Issue: LNPANDY/NX2Apple#953
  6 files changed, 62 insertions(+), 13 deletions(-)
 
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 1520aba..760e671 100755
+index 9bd4dc59..fbbd181d 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -134,6 +134,9 @@ def info_plist(a, minos, icon):
@@ -59,10 +59,10 @@ index 1520aba..760e671 100755
      ap.add_argument('--control', help='the game\'s control data (control.nacp): its title in each language goes into Info.plist as DMTitleNames')
      ap.add_argument('--sign', default='-', help='codesign identity (default: - = ad-hoc)')
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index e068051..859382b 100644
+index 1f62dc19..daeac184 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
-@@ -475,7 +475,7 @@ class App(unittest.TestCase):
+@@ -477,7 +477,7 @@ class App(unittest.TestCase):
          cls.app = t / 'Game - Test.app'
          cls.args = pack_app.parse([str(cls.app), '--host', str(t / 'dmhost'), '--patched', str(t / 'patched'), '--romfs', str(t / 'romfs'), '--msl', str(t / 'cache/b-0123456789ab'),
                                     '--tables', str(t / 'profile'), '--font', str(t / 'font'), '--aoc', str(t / 'aoc'), '--pso', str(t / 'pso'), '--env-file', str(t / 'env.txt'), '--settings', str(t / 'launcher.json'), '--title-id', TID.lower(),
@@ -71,7 +71,7 @@ index e068051..859382b 100644
                                     '--category', 'public.app-category.games', '--control', str(t / 'control.nacp')])
          with contextlib.redirect_stdout(io.StringIO()): pack_app.pack(cls.args)
  
-@@ -525,11 +525,20 @@ class App(unittest.TestCase):
+@@ -527,11 +527,20 @@ class App(unittest.TestCase):
              a.out = str(self.tmp / 'Own.app'); a.tables = self.args.tables; pack_app.pack(a)
              self.assertEqual((self.tmp / 'Own.app/Contents/Resources/dm/pso_pairs.tsv').read_text(), 'other-vertex\tother-pixel\n')
  
@@ -93,7 +93,7 @@ index e068051..859382b 100644
          self.assertEqual(p['DMSettings'], [])   # launcher.json's settings, as the saved choices they accept: none here
          self.assertRegex(p['DMCommit'], r'^[0-9a-f]{12}(\+dirty)?$')   # the packing checkout (scripts/bug_report.py, the host's start line)
 diff --git a/dm/tools/tests/test_nsp_nup.py b/dm/tools/tests/test_nsp_nup.py
-index 059cf91..ce69e85 100644
+index 059cf913..ce69e852 100644
 --- a/dm/tools/tests/test_nsp_nup.py
 +++ b/dm/tools/tests/test_nsp_nup.py
 @@ -467,6 +467,23 @@ class Pack(Base):
@@ -121,10 +121,10 @@ index 059cf91..ce69e85 100644
          self.assertIn('CONTROL=str(control)', (REPO / 'scripts/build_ipa_from_nsp.py').read_text(encoding='utf-8'))
          script = (REPO / 'dm/ios/tools/build_ipa.sh').read_text(encoding='utf-8')
 diff --git a/docs/development.md b/docs/development.md
-index db76613..2206288 100644
+index d0c27ddd..b936a2b9 100644
 --- a/docs/development.md
 +++ b/docs/development.md
-@@ -576,7 +576,7 @@ The bundle holds what the IPA holds, with the Mac's shader libraries:
+@@ -587,7 +587,7 @@ The bundle holds what the IPA holds, with the Mac's shader libraries:
  
  ```
  <game name>.app/Contents/
@@ -134,7 +134,7 @@ index db76613..2206288 100644
    MacOS/dmhost               the Mac host built for the profile
    Resources/romfs.img        the packed version's RomFS image
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 17dae2b..fe657b0 100644
+index 279be606..794f85e6 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -52,7 +52,7 @@ A built app carries the settings its game supports, as the iPhone app's settings
@@ -147,10 +147,10 @@ index 17dae2b..fe657b0 100644
  A Mac app shows its own settings window before the game, drawn from its `launcher.json` and keeping its choices in the same store ([Saved choices](#saved-choices), [The Mac settings window](settings.md#the-mac-settings-window)). It shows a variable the launch environment or an `env.txt` sets as fixed. A front end that draws the settings itself starts the app with `DM_LAUNCHER=0` in its environment (or `--no-launcher` on its command line) to skip the window. The saved choices still apply, so a front end that writes them gets the same game as the window would. With `DM_PREFLIGHT` set in its environment the app exits at once, before it reads anything, rolls its log or touches the saves: a front end opens a new build that way (through LaunchServices, `NSWorkspace.openApplication`), so macOS runs its first-start check of the bundle then, not when the player starts the game. The check scans every file of an ad hoc signed app and takes minutes with a RomFS of several GB, and macOS remembers it until the app changes.
  
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index f95b8af..13d6175 100755
+index 6a497d89..3b73ebb0 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -1131,6 +1131,25 @@ def frame_step_builds(path, table='FRAME_STEP'):   # the keys of a table of a pa
+@@ -1162,6 +1162,25 @@ def frame_step_builds(path, table='FRAME_STEP'):   # the keys of a table of a pa
      return set()
  
  
@@ -176,7 +176,7 @@ index f95b8af..13d6175 100755
  def derive_profile(g, pdir, ver, d, mods, app=None, shader_only=False):
      """The game's profile for a version it was not brought up on (the folder has no update, another update, files of other builds, or a registered build under another title ID: app),
      in pdir (outside the repository, where a provisional profile goes): its keys as they are, with this version's build row, package and shader versions, and app's title ID and
-@@ -1144,9 +1163,7 @@ def derive_profile(g, pdir, ver, d, mods, app=None, shader_only=False):
+@@ -1175,9 +1194,7 @@ def derive_profile(g, pdir, ver, d, mods, app=None, shader_only=False):
      # The display version: the package's control data, else the one the profile registers for this main build. A NUP update or a dump carries no control data, and the game asks
      # the host for the version by its main's build ID (hle_sdk16.c GetDisplayVersion, the build rows): a row with ? is what the game then shows (Super Mario Bros. Wonder 1.2.1
      # from an update-only NUP: "Ver. ?" on its title screen, though the profile registers that build as 1.2.1)
@@ -187,12 +187,12 @@ index f95b8af..13d6175 100755
      add = pg.main_modules(d / 'ExeFS', mods) if not shader_only and (d / 'ExeFS/main').exists() else {}   # a module's slot can change between versions: what main imports and the profile's list leaves out (Absolum 1.2.1's movie module). The host loads what the row names
      mods = sorted({*mods, *add}, key=pg.load_order) if add else mods
      row = T.join(['build', ver, disp] + [f'{m}={build_id(d / "ExeFS" / m)}' for m in mods if (d / 'ExeFS' / m).exists()])
-@@ -2967,12 +2984,13 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
+@@ -3159,12 +3176,13 @@ def mac_app_name(name):   # the app's file name: the game name with the characte
      return re.sub(r'\s*[:/]\s*', ' - ', name).strip(' .-') or 'nxnative'
  
  
--def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', programs=None, control=None):
-+def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', programs=None, control=None, package=''):
+-def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', programs=None, control=None, prebake=False):
++def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx, lang, g, name, version, bundle_id, icon, sign, env, logs, env_file='', gpus='', programs=None, control=None, prebake=False, package=''):
      """The last stage of PLATFORM 'mac-app': pack the Mac app (dm/mac/pack_app.py) from what a Mac-only build made: the Mac host and font (mac_host), the packed version's RomFS and rewritten
      modules, the Mac shader libraries (msl: <shader>/cache, whose b-<chain> goes in, or a Vulkan or GL game's <shader>, whose vk / gl goes in), the DLC, the profile's tables (with the shader pairs
      the pipeline prebuild reads), the pipeline archive made offline for this Mac (mac_pso; gpus: --gpu / PSO_GPUS), the launcher settings and an environment file.
@@ -202,8 +202,8 @@ index f95b8af..13d6175 100755
 +    package: the packed version (v458752), which the app carries beside its display version (version, empty when the packed update has none: app_display_version)"""
      lib = msl / (f'b-{chain_of(repo)}' if gfx == 'nvn' else 'vk' if gfx == 'vulkan' else 'gl')
      pso = mac_pso(py, repo, work, lib, g, gpus, env, logs) if gfx == 'nvn' and g.table('shader_pairs.tsv').is_file() else None   # a stage of its own, before the app's
-     PROG.stage('Mac app', step='starting')
-@@ -2982,7 +3000,7 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
+     if prebake and pso: pso = mac_prebake(py, repo, work, msl, g, host, pso, env, logs)   # --prebake: a stage of its own, after the archive
+@@ -3178,7 +3196,7 @@ def mac_app(py, repo, out, app, work, game, patched, host, font, msl, aoc, gfx,
      cmd = [py, repo / 'dm/mac/pack_app.py', out, '--host', host, '--patched', patched, '--romfs', rfs.source(game), '--msl', lib, '--tables', g.table('shader_map.tsv').parent,
             '--font', font, '--title-id', f'{app:016X}', '--name', name, '--bundle-id', bundle_id, '--lang', lang, '--sign', sign or '-']
      split_pairs = work / 'shader/pso_pairs.tsv'   # the split's copy of pso_pairs.tsv, for a profile without the table (as mac_run's DM_PSO_PAIRS)
@@ -212,7 +212,7 @@ index f95b8af..13d6175 100755
                     ('--pso', pso), ('--pso-pairs', split_pairs if gfx == 'nvn' and not g.table('pso_pairs.tsv').is_file() and split_pairs.is_file() else None),
                     ('--env-file', Path(os.path.expanduser(env_file)).resolve() if env_file else None), ('--settings', settings),
                     ('--control', control or game / 'control.nacp')):   # the game's name in each language (DMTitleNames), from the same control data as its languages
-@@ -3340,8 +3358,8 @@ def main(args=None):
+@@ -3541,8 +3559,8 @@ def main(args=None):
      if prepare_xcode:
          try: xcode_projects.check_bundle_id(workspace, project, bundle_id)
          except ValueError as e: raise BuildError(str(e)) from e
@@ -223,12 +223,12 @@ index f95b8af..13d6175 100755
      if mac_pack and not (args.out or OUT_IPA): out_ipa = work.parent / f'{mac_app_name(app_name)}{"-provisional" if shadowed else ""}.app'
      icon, stand_in = app_icon(user_icon, spare_icon, game, base)
      if (not mac or mac_pack) and getattr(args, 'in_programs', None) is None:   # an app is made, once: a program packed with the application's first (in_programs) is part of its app
-@@ -3408,7 +3426,7 @@ def main(args=None):
+@@ -3609,7 +3627,7 @@ def main(args=None):
          programs = other_programs(args, g)
          if not icon: say(('no game icon: the NUP carries none' if nup else 'no game icon: a dump folder has no control data') + '; the app\'s icon will be blank; --icon / ICON or --fallback-icon / FALLBACK_ICON gives it one' if dump else '[RED] no game icon in the extraction (an older extraction did not save it: delete extract/ and run again); the app\'s icon will be blank')
          mac_app(py, repo, out_ipa, app, work, game, patched, host, font, ios, aoc, gfx, lang, g, app_name, app_version, bundle_id, icon, args.mac_sign or MAC_SIGN, env, logs, env_file,
--                (args.gpu or PSO_GPUS).strip(), programs, control)
-+                (args.gpu or PSO_GPUS).strip(), programs, control, pkg_ver)
+-                (args.gpu or PSO_GPUS).strip(), programs, control, PREBAKE if args.prebake is None else args.prebake)
++                (args.gpu or PSO_GPUS).strip(), programs, control, PREBAKE if args.prebake is None else args.prebake, pkg_ver)
          rmtree(work / 'tmp')
          say(f'done: {out_ipa} ({tree_size(out_ipa)[1] / 2**30:.1f} GB); '
              f'open it from Finder. Its save is in ~/Library/Application Support/nxnative/{app:016X}/, its log in ~/Library/Logs/nxnative/{app:016X}.log')

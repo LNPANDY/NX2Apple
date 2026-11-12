@@ -16,7 +16,7 @@ Issue: https://github.com/LNPANDY/NX2Apple/issues/922
  create mode 100644 dm/tools/tests/test_ipa_tables.py
 
 diff --git a/dm/games/0400A3A01EE4C000/README.md b/dm/games/0400A3A01EE4C000/README.md
-index e4b4a1b..6ce540e 100644
+index e4b4a1b8..6ce540e5 100644
 --- a/dm/games/0400A3A01EE4C000/README.md
 +++ b/dm/games/0400A3A01EE4C000/README.md
 @@ -15,7 +15,7 @@ A Switch 2 game: update v655360 (the title screen says Ver. 2.0.1), SDK 20.5.25
@@ -38,7 +38,7 @@ index e4b4a1b..6ce540e 100644
  - [KTGL on NVN2: Switch 2 GLSLC outputs and LD_ / LI_ LINKDATA](../../../docs/reference/shaders.md#ktgl-on-nvn2-switch-2-glslc-outputs-and-ld_--li_-linkdata): the split found almost none of its shaders.
  - [HADD2 and HMUL2 with an immediate](../../../docs/reference/shaders.md#hadd2-and-hmul2-with-an-immediate): the GPU hang and 88 ms frames.
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index dd92a34..9763c53 100755
+index dd92a349..9763c534 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -119,11 +119,14 @@ echo "OTHER_LDFLAGS = \$(inherited) \$(DM_FRAMEWORKS) $F" >> Gen/dm.xcconfig
@@ -60,7 +60,7 @@ index dd92a34..9763c53 100755
  }
 diff --git a/dm/tools/tests/test_ipa_tables.py b/dm/tools/tests/test_ipa_tables.py
 new file mode 100644
-index 0000000..121294c
+index 00000000..121294c0
 --- /dev/null
 +++ b/dm/tools/tests/test_ipa_tables.py
 @@ -0,0 +1,70 @@
@@ -135,20 +135,20 @@ index 0000000..121294c
 +
 +if __name__ == '__main__': unittest.main()
 diff --git a/docs/development.md b/docs/development.md
-index ae982f2..db76613 100644
+index dce4bc70..d0c27ddd 100644
 --- a/docs/development.md
 +++ b/docs/development.md
-@@ -427,7 +427,7 @@ What the script does:
+@@ -436,7 +436,7 @@ What the script does:
     Captured `.glslc` and decoded Unreal `.ushaderbytecode` inputs exclude only macOS AppleDouble `._` metadata, including `DM_GLSLC_CAPTURE` and `DM_UE_SHADERS` overrides. Other hidden names remain inputs and malformed shader files still stop the build ([external shader metadata](reference/packing.md#external-shader-directories-contain-appledouble-metadata)).
  6. It builds the iOS shader libraries with the in-repo SPIRV-Cross (`dm/gfx/tools/spirv_cross_bin`) and the Metal compiler in `dmsh_chain.lock` (Xcode 27.2). Another Metal compiler stops an NVN game's build before its shader steps; the compiler is the selected Xcode's, so a Mac with a newer Xcode installs 27.2 beside it and selects it ([Metal compiler of a newer Xcode](reference/shaders.md#metal-compiler-of-a-newer-xcode)). Issue #242 reported corruption with an untested compiler; its role remains unconfirmed. `--allow-other-metal` (`ALLOW_OTHER_METAL = True` in Spyder; `DM_ALLOW_OTHER_METAL=1` for `own_compilers.py`) permits it and reports the actual version. If a registered profile's `dmsh_chain.h` does not hold the version the source tree gives (a chain change left it behind), the script writes it again before any host is built, so it shows as changed in the checkout (`dmsh_build.py` would stop otherwise). Then the script makes the profile's `c1_full.tsv` and `cb_extent.tsv` from this build's Mac outputs when they are missing or name another chain. These two tables are not committed and git ignores them; `build_ipa.sh` stops without a current `c1_full.tsv`. Each line in the output names the file.
     It then compares the build with the game's previous one, the newest other `b-*/` in `<id>_build/shader/cache/` (the one the last chain change left: a build that succeeds removes the older chain folders and their keys, so each game keeps one) (`dm/gfx/tools/shader_regressions.py`, which reads the two `_b_build.json` reports). The translation chain is one for every game, so a translator change is tested only on the games its author owns; shaders that translated before and fail now are listed in `logs/shader_regressions.log` and stop the build ([GitHub issue #272](https://github.com/seedds/nxnative/issues/272)). Report them; `--allow-shader-regressions` (`ALLOW_SHADER_REGRESSIONS = True` in Spyder) packs the app without them.
 -7. It calls `build_ipa.sh`. Xcode builds the app in the game's own build folder (`<id>_build/ipa/build/ios/pkg/dd`: `build_ipa.sh` sets `SYMROOT` and `OBJROOT`, which a custom build location in Xcode's settings does not override), so a repeat build compiles only what changed and two games built at once never write the same app. Then `dm/ios/tools/pack_ipa.py` packs it with the shader libraries, the add-on content and the RomFS straight from where they are. It reads and deflates files on all cores and writes at about the T7's write speed (300 MB/s): Breath of the Wild's 16 GB IPA takes 57 s, Info-ZIP's copy and zip took 2 min 50 s. A repeat pack reuses the previous IPA through `<ipa>.idx`, which records each packed file's size, times and inode: the unchanged leading entries stay in place in an APFS clone of the old IPA, and after the first changed entry, an unchanged file is copied compressed from it (both only when the source folder is on APFS; elsewhere every file is deflated again). `build_ipa.sh` passes the RomFS, the add-on content, the pipeline archive and the shader libraries before the app, so after a host fix only the app is written: Breath of the Wild repacks in 12-23 s instead of 105-163 s.
 +7. It calls `build_ipa.sh`. A profile's recorded `pso_manifest.tsv` is copied when present. Without one the build continues with no bundled prewarm seeds, and the host can still use the device's own recorded list. This does not change shader cache or rebuild decisions. Xcode builds the app in the game's own build folder (`<id>_build/ipa/build/ios/pkg/dd`: `build_ipa.sh` sets `SYMROOT` and `OBJROOT`, which a custom build location in Xcode's settings does not override), so a repeat build compiles only what changed and two games built at once never write the same app. Then `dm/ios/tools/pack_ipa.py` packs it with the shader libraries, the add-on content and the RomFS straight from where they are. It reads and deflates files on all cores and writes at about the T7's write speed (300 MB/s): Breath of the Wild's 16 GB IPA takes 57 s, Info-ZIP's copy and zip took 2 min 50 s. A repeat pack reuses the previous IPA through `<ipa>.idx`, which records each packed file's size, times and inode: the unchanged leading entries stay in place in an APFS clone of the old IPA, and after the first changed entry, an unchanged file is copied compressed from it (both only when the source folder is on APFS; elsewhere every file is deflated again). `build_ipa.sh` passes the RomFS, the add-on content, the pipeline archive and the shader libraries before the app, so after a host fix only the app is written: Breath of the Wild repacks in 12-23 s instead of 105-163 s.
  
- A repeat build skips work whose inputs have not changed. The extraction is kept (`extract/`). The DLC, the rewrite, the shader split and the iOS (or Vulkan) shaders each write a key beside their output: a sha256 of their inputs (the game files, the tools, the profile, Xcode's version and the in-repo spirv-cross; for the DLC, the DLC NSPs' names, sizes and times and nx_extract's sources). When the key matches, the stage line says `reused (inputs unchanged)` and the step does not run. Any change to a tool or the profile runs the step again; deleting the `.key` file forces it. The rewrite's key covers the patch files that name one of the modules' builds, the selected game's own, and always `dm/tools/sdk_patches.py`, whose SDK-wide `MATCH_CUTS` apply to builds it does not name (a new reviewed implementation was left out of a reused rewrite of Pokémon Legends: Arceus before). The iOS shaders' inputs are the shader package's content and only the tools `dmsh_build.py` loads (the modules it imports, at any depth): a split that runs again because a reader for another engine changed (a pull that touches `shader_split.py` or `unityfs.py`) writes the same package, and the iOS shaders stay reused.
+ A repeat build skips work whose inputs have not changed. The extraction (`extract/<version>/`, its offline pages `html/`), the DLC, the rewrite, the shader split and the iOS (or Vulkan) shaders each write a key beside their output: a sha256 of their inputs (the game files, the tools, the profile, Xcode's version and the in-repo spirv-cross; for what nx_extract writes, the packages' names, sizes and times, nx_extract's source and its options: [Extractions kept from an older nx_extract or another copy of the game](reference/packing.md#extractions-kept-from-an-older-nx_extract-or-another-copy-of-the-game)). When the key matches, the stage line says `reused (inputs unchanged)` and the step does not run. Any change to a tool or the profile runs the step again; deleting the `.key` file forces it. The rewrite's key covers the patch files that name one of the modules' builds, the selected game's own, and always `dm/tools/sdk_patches.py`, whose SDK-wide `MATCH_CUTS` apply to builds it does not name (a new reviewed implementation was left out of a reused rewrite of Pokémon Legends: Arceus before). The iOS shaders' inputs are the shader package's content and only the tools `dmsh_build.py` loads (the modules it imports, at any depth): a split that runs again because a reader for another engine changed (a pull that touches `shader_split.py` or `unityfs.py`) writes the same package, and the iOS shaders stay reused.
  
 diff --git a/docs/reference/packing.md b/docs/reference/packing.md
-index b02e8fe..053dbae 100644
+index a2a734d1..a7285573 100644
 --- a/docs/reference/packing.md
 +++ b/docs/reference/packing.md
 @@ -2,6 +2,13 @@

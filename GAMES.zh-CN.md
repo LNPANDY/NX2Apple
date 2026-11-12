@@ -1,6 +1,6 @@
 # 游戏
 
-本 fork 有 profile 的全部游戏，以及每款需要的更新包。玩家主页是 [README.zh-CN.md](README.zh-CN.md)。[dm/games/README.md](https://github.com/seedds/nxnative/blob/ccd834e06a3938834bb5579e2ccc6a0ad13d3970/dm/games/README.md)（英文）是引擎对每款游戏的笔记。截图和 IPA 大小在英文页的[图库](GAMES.md#gallery)里。
+本 fork 有 profile 的全部游戏，以及每款需要的更新包。玩家主页是 [README.zh-CN.md](README.zh-CN.md)。[dm/games/README.md](https://github.com/seedds/nxnative/blob/0c078130f6db7d0d32c1dc28146feaf97713f008/dm/games/README.md)（英文）是引擎对每款游戏的笔记。截图和 IPA 大小在英文页的[图库](GAMES.md#gallery)里。
 
 ## Switch 2 游戏
 

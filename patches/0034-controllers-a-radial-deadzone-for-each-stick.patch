@@ -28,10 +28,10 @@ Issue: LNPANDY/NX2Apple#1025
  create mode 100644 dm/host/tests/t_stick_deadzone.c
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 36e0791..47517d5 100644
+index 6a2b6a1c..85b49a3c 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -7,6 +7,7 @@
+@@ -8,6 +8,7 @@
  #include "hle.h"
  #include "hle_haptics.h"
  #include "dm_input.h"
@@ -39,7 +39,7 @@ index 36e0791..47517d5 100644
  #include "front.h"
  #include <stdatomic.h>
  #include <stdbool.h>
-@@ -61,8 +62,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
+@@ -62,8 +63,16 @@ void dm_input_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t
      uint64_t old = atomic_exchange(&g_btn, buttons); atomic_fetch_or(&g_latch, buttons & ~old); atomic_fetch_or(&g_peek_latch, buttons & ~old); atomic_store(&g_axes, pack(lx, ly, rx, ry));
      shake_note(0);
  }
@@ -58,7 +58,7 @@ index 36e0791..47517d5 100644
  }
 diff --git a/dm/host/stick_deadzone.h b/dm/host/stick_deadzone.h
 new file mode 100644
-index 0000000..36fa9e7
+index 00000000..36fa9e79
 --- /dev/null
 +++ b/dm/host/stick_deadzone.h
 @@ -0,0 +1,27 @@
@@ -90,7 +90,7 @@ index 0000000..36fa9e7
 +    *y = (int32_t)lrintf(fmaxf(-1, fminf(1, fy * scale)) * DM_STICK_MAX);
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 91e95c7..25c34b3 100644
+index 91e95c7e..25c34b39 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -429,7 +429,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
@@ -106,7 +106,7 @@ index 91e95c7..25c34b3 100644
  $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_stick_deadzone.c b/dm/host/tests/t_stick_deadzone.c
 new file mode 100644
-index 0000000..d9ac75c
+index 00000000..d9ac75c2
 --- /dev/null
 +++ b/dm/host/tests/t_stick_deadzone.c
 @@ -0,0 +1,52 @@

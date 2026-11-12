@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple#221
  3 files changed, 13 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index a2548d2..a1fc7ef 100644
+index a2548d2d..a1fc7ef0 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1536,6 +1536,17 @@ void front_run(void (*guest)(void)) {
@@ -35,7 +35,7 @@ index a2548d2..a1fc7ef 100644
          screen_refresh(win.screen ?: NSScreen.mainScreen);
          g_win = win;
 diff --git a/docs/development.md b/docs/development.md
-index 6690f28..9b293dd 100644
+index bb69dff1..94d0930f 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -10,7 +10,7 @@ The README covers packing and playing. This page is for working on nxnative itse
@@ -48,7 +48,7 @@ index 6690f28..9b293dd 100644
  | Known gaps | Conditional render is always drawn; [indirect-count multi-draws](reference/rendering.md#indirect-count-multi-draws) can wait for a GPU-written count when the records need conversion, cannot be GPU-masked, or exceed the mask table capacity; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
  
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 0b9b7d6..54bb05e 100644
+index ff949d8e..ec740639 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -76,6 +76,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID
