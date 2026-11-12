@@ -145,7 +145,8 @@ final class GameLibrary: ObservableObject {
     /// The first root: where a build goes when nothing else was chosen, and what the single-folder code reads.
     var folder: String { folders.first ?? "" }
     @Published private(set) var scanning = false
-    @Published private(set) var skippedItems: [SkippedLibraryItem] = []
+    @Published var skippedItems: [SkippedLibraryItem] = []
+    @Published var dismissedSkippedPaths: Set<String> = []
     /// The keys saved in Settings: their header_key finds packages whose name has no title ID (#1012). The launcher sets it.
     var keysFile: () -> String = { "" }
     /// Test hook run at the start of each background folder scan pass.
@@ -223,6 +224,7 @@ final class GameLibrary: ObservableObject {
 
     /// Makes `url` the library's only root (the single-folder way, kept for the first choice and for tests).
     func setFolder(_ url: URL) {
+        resetSkippedBannerDismissal()
         folders = LibraryRoots.adding(url.path, to: [])
         save()
         discover()
@@ -230,6 +232,7 @@ final class GameLibrary: ObservableObject {
 
     /// Adds a root unless it is already one (another spelling of the same folder counts as the same), then scans.
     func addFolder(_ url: URL) {
+        resetSkippedBannerDismissal()
         folders = LibraryRoots.adding(url.path, to: folders)
         save()
         discover()
@@ -239,7 +242,7 @@ final class GameLibrary: ObservableObject {
     /// is not connected is not known to be gone), and its files are never touched.
     func removeFolder(_ path: String) {
         folders = LibraryRoots.removing(path, from: folders)
-        skippedItems = Self.filterSkippedItems(skippedItems, forRemainingFolders: folders)
+        applySkippedItems(Self.filterSkippedItems(skippedItems, forRemainingFolders: folders))
         scanGeneration &+= 1
         if scanning {
             if LibraryRoots.scannable(folders).isEmpty {
@@ -431,7 +434,7 @@ final class GameLibrary: ObservableObject {
         let roots = LibraryRoots.scannable(folders).map { URL(fileURLWithPath: $0) }   // a root on a drive that is not connected is skipped
         guard !roots.isEmpty else {
             pendingRescanRepo = nil
-            skippedItems = []
+            applySkippedItems([])
             if scanning { scanning = false }
             return
         }
@@ -484,7 +487,7 @@ final class GameLibrary: ObservableObject {
                         _ = try? self.addApp(url)
                     }
                     let knownIDs = Self.knownBaseTitleIDSet(from: self.games.map(\.titleID) + sources.map(\.titleID))
-                    self.skippedItems = Self.resolveSkippedItems(rawSkipped, knownBaseTitleIDs: knownIDs)
+                    self.applySkippedItems(Self.resolveSkippedItems(rawSkipped, knownBaseTitleIDs: knownIDs))
                     self.pruneMissingPaths()
                     self.selectedID = previousSelection ?? self.games.first?.id
                 }
@@ -492,7 +495,7 @@ final class GameLibrary: ObservableObject {
                     self.pendingRescanRepo = nil
                     let nextRoots = LibraryRoots.scannable(self.folders).map { URL(fileURLWithPath: $0) }
                     guard !nextRoots.isEmpty else {
-                        self.skippedItems = []
+                        self.applySkippedItems([])
                         self.scanning = false
                         return
                     }
@@ -762,7 +765,7 @@ final class GameLibrary: ObservableObject {
         else { games.append(game) }
         if !skippedItems.isEmpty, game.titleID.count == 16, UInt64(game.titleID, radix: 16) != nil {
             let baseUpper = game.titleID.uppercased()
-            skippedItems.removeAll { $0.expectedBaseTitleID == baseUpper }
+            applySkippedItems(skippedItems.filter { $0.expectedBaseTitleID != baseUpper })
         }
         return save()
     }

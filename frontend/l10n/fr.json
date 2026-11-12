@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "Changer de dossier…",
   "library.clearSearch": "Effacer la recherche",
   "library.collection": "Votre collection",
+  "library.dismissSkipped": "Fermer l’avis des fichiers ignorés",
   "library.error": "Impossible de terminer l’action",
   "library.firstBuild": "Compilez votre premier jeu",
   "library.folderHint": "Nous trouverons ici les jeux terminés et utiliserons aussi ce dossier pour les nouvelles compilations.",

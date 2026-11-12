@@ -343,6 +343,103 @@ import NXLauncher
         XCTAssertFalse(warmTracker.isUnverified(verified))
     }
 
+    func testSkippedBannerDismissesForSessionAndRearmsOnNewFileManualRescanOrFreshLaunch() throws {
+        for lang in Lang.all {
+            let label = L10n.string("library.dismissSkipped", lang)
+            XCTAssertFalse(label.isEmpty, "Missing library.dismissSkipped in \(lang.code)")
+            XCTAssertNotEqual(label, "library.dismissSkipped", "Untranslated key in \(lang.code)")
+            XCTAssertFalse(label.contains(";"))
+            XCTAssertFalse(label.contains("；"))
+        }
+
+        let root = temporary.appendingPathComponent("DismissSessionRoot")
+        let firstArchive = root.appendingPathComponent("FirstArchive.7z")
+        let secondArchive = root.appendingPathComponent("SecondArchive.rar")
+        try writeBytes(Array("7z".utf8), to: firstArchive)
+        try writeBytes(Array("Rar!".utf8), to: secondArchive)
+
+        let libFile = temporary.appendingPathComponent("dismiss-session-lib.json")
+        let repoPath = realRepoRoot().path
+        let library = GameLibrary(file: libFile)
+        scanSync(library, folder: root, repo: repoPath)
+        XCTAssertEqual(library.skippedItems.count, 2)
+        XCTAssertTrue(library.showsSkippedBanner)
+
+        // Dismiss hides the banner for this session without deleting skippedItems.
+        library.dismissSkippedBanner()
+        XCTAssertFalse(library.showsSkippedBanner)
+        XCTAssertEqual(library.skippedItems.count, 2)
+
+        // Background re-discovery of the exact same set (or a subset) keeps the banner dismissed.
+        let sameDone = expectation(description: "same set rediscovery")
+        let sameToken = library.$scanning.dropFirst().filter { !$0 }.first().sink { _ in sameDone.fulfill() }
+        library.discover(repo: repoPath)
+        wait(for: [sameDone], timeout: 5)
+        sameToken.cancel()
+        XCTAssertFalse(library.showsSkippedBanner, "Automatic rediscovery of the same skipped files must stay dismissed")
+
+        try FileManager.default.removeItem(at: secondArchive)
+        let subsetDone = expectation(description: "subset rediscovery")
+        let subsetToken = library.$scanning.dropFirst().filter { !$0 }.first().sink { _ in subsetDone.fulfill() }
+        library.discover(repo: repoPath)
+        wait(for: [subsetDone], timeout: 5)
+        subsetToken.cancel()
+        XCTAssertEqual(library.skippedItems.count, 1)
+        XCTAssertFalse(library.showsSkippedBanner, "A subset of already-dismissed skipped files must stay dismissed")
+
+        // A brand-new skipped file in the folder re-arms the banner automatically.
+        let thirdArchive = root.appendingPathComponent("NewArrival.zip")
+        try writeBytes([0x50, 0x4B, 0x03, 0x04], to: thirdArchive)
+        let newDone = expectation(description: "new file rediscovery")
+        let newToken = library.$scanning.dropFirst().filter { !$0 }.first().sink { _ in newDone.fulfill() }
+        library.discover(repo: repoPath)
+        wait(for: [newDone], timeout: 5)
+        newToken.cancel()
+        XCTAssertEqual(library.skippedItems.count, 2)
+        XCTAssertTrue(library.showsSkippedBanner, "A newly added skipped file must show the banner again")
+
+        // Dismiss again, then verify manual rescan (`library.rescan`) re-shows the banner.
+        library.dismissSkippedBanner()
+        XCTAssertFalse(library.showsSkippedBanner)
+        let manualDone = expectation(description: "manual rescan")
+        let manualToken = library.$scanning.dropFirst().filter { !$0 }.first().sink { _ in manualDone.fulfill() }
+        library.rescan(repo: repoPath)
+        wait(for: [manualDone], timeout: 5)
+        manualToken.cancel()
+        XCTAssertTrue(library.showsSkippedBanner, "Manual rescan from Settings must re-show the banner")
+
+        // Dismiss again, then simulate a fresh NX2Apple launch (new GameLibrary instance reading the saved library.json).
+        library.dismissSkippedBanner()
+        XCTAssertFalse(library.showsSkippedBanner)
+        let relaunched = GameLibrary(file: libFile)
+        let launchDone = expectation(description: "fresh launch discovery")
+        let launchToken = relaunched.$scanning.dropFirst().filter { !$0 }.first().sink { _ in launchDone.fulfill() }
+        relaunched.discover(repo: repoPath)
+        wait(for: [launchDone], timeout: 5)
+        launchToken.cancel()
+        XCTAssertEqual(relaunched.skippedItems.count, 2)
+        XCTAssertTrue(relaunched.showsSkippedBanner, "Relaunching NX2Apple must scan and show the banner again")
+
+        // Clearing all skipped files resets dismissal so re-adding the same path later notifies again.
+        relaunched.dismissSkippedBanner()
+        XCTAssertFalse(relaunched.showsSkippedBanner)
+        try FileManager.default.removeItem(at: firstArchive)
+        try FileManager.default.removeItem(at: thirdArchive)
+        let emptyDone = expectation(description: "empty folder rediscovery")
+        let emptyToken = relaunched.$scanning.dropFirst().filter { !$0 }.first().sink { _ in emptyDone.fulfill() }
+        relaunched.discover(repo: repoPath)
+        wait(for: [emptyDone], timeout: 5)
+        emptyToken.cancel()
+        XCTAssertTrue(relaunched.skippedItems.isEmpty)
+        try writeBytes(Array("7z".utf8), to: firstArchive)
+        let readdedDone = expectation(description: "re-added archive discovery")
+        let readdedToken = relaunched.$scanning.dropFirst().filter { !$0 }.first().sink { _ in readdedDone.fulfill() }
+        relaunched.discover(repo: repoPath)
+        wait(for: [readdedDone], timeout: 5)
+        readdedToken.cancel()
+        XCTAssertTrue(relaunched.showsSkippedBanner)
+    }
+
     private func renderWindow(_ view: some View, size: NSSize = NSSize(width: 1280, height: 820)) throws -> NSBitmapImageRep {
         NSApplication.shared.setActivationPolicy(.accessory)
         let host = NSHostingView(rootView: view)

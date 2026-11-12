@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "游戏文件夹…",
   "library.clearSearch": "清除搜索",
   "library.collection": "你的游戏",
+  "library.dismissSkipped": "关闭已跳过文件提示",
   "library.error": "无法完成操作",
   "library.firstBuild": "构建第一个游戏",
   "library.folderHint": "在此处查找已构建的游戏。新构建也将保存在这里。",

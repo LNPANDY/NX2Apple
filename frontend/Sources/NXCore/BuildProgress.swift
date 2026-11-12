@@ -256,9 +256,35 @@ package enum BuildProgress {
         return total - done <= 16
     }
 
+    private static let notCachedNumber = #"(?:\d{1,3}(?:[,.\u00A0\u202F ]\d{3})+|\d+)"#
+    private static let parenNotCachedRe = try? NSRegularExpression(
+        pattern: #"\s*\(\s*"# + notCachedNumber + #"\s+not\s+cached\s*\)"#,
+        options: [.caseInsensitive]
+    )
+    private static let leadingSepNotCachedRe = try? NSRegularExpression(
+        pattern: #"(?:\s*·\s*|(?<!\d)\s*[,;]\s*|\s*[,;]\s+)"# + notCachedNumber + #"\s+not\s+cached\b"#,
+        options: [.caseInsensitive]
+    )
+    private static let standaloneNotCachedRe = try? NSRegularExpression(
+        pattern: #"(?<![\d,.\u00A0\u202F])"# + notCachedNumber + #"\s+not\s+cached\b(?:\s*·\s*|\s*[,;]\s+|\s{2,})?"#,
+        options: [.caseInsensitive]
+    )
+
+    /// Removes redundant `<N> not cached` counts from a stage's detail or note while keeping counts, cached hit notes, and error text intact.
+    package static func strippingNotCached(_ text: String) -> String {
+        guard !text.isEmpty, text.range(of: "not", options: .caseInsensitive) != nil else { return text }
+        var out = text
+        for re in [parenNotCachedRe, leadingSepNotCachedRe, standaloneNotCachedRe].compactMap({ $0 }) {
+            let ns = out as NSString
+            out = re.stringByReplacingMatches(in: out, range: NSRange(location: 0, length: ns.length), withTemplate: "")
+        }
+        return out.trimmingCharacters(in: .whitespaces)
+    }
+
     /// "splitting · 1.2 / 3.4 GB", "1,203 / 19,592 shaders", "2,301 files": the step and the count (the time left is the Stage's clock).
     package static func progressDetail(_ e: [String: Any]) -> String {
-        let step = e["step"] as? String ?? "", unit = e["unit"] as? String ?? "", note = e["note"] as? String ?? ""
+        let step = e["step"] as? String ?? "", unit = e["unit"] as? String ?? ""
+        let note = strippingNotCached(e["note"] as? String ?? "")
         let done = (e["done"] as? NSNumber)?.doubleValue, total = (e["total"] as? NSNumber)?.doubleValue
         let estimate = (e["est"] as? Bool ?? false) ? "~" : ""
         var count = ""
@@ -308,7 +334,7 @@ package enum BuildProgress {
             let v = Double(rest[pct].dropLast()) ?? 0
             var name = String(rest[..<pct.lowerBound]).trimmingCharacters(in: CharacterSet(charactersIn: " :·"))
             if let dot = name.range(of: " · ", options: .backwards) { name = String(name[..<dot.lowerBound]) }
-            let after = String(rest[pct.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: ", :"))
+            let after = strippingNotCached(String(rest[pct.upperBound...]).trimmingCharacters(in: CharacterSet(charactersIn: ", :")))
             return (k, n, name, .running, after, v)
         }
         let ok = line.contains("✓") || line.contains("⚠"), bad = line.contains("✗")
@@ -328,7 +354,7 @@ package enum BuildProgress {
         }
         var detail = ""
         if let col = rest.range(of: ": ") {
-            detail = String(rest[col.upperBound...]).trimmingCharacters(in: .whitespaces)
+            detail = strippingNotCached(String(rest[col.upperBound...]).trimmingCharacters(in: .whitespaces))
             rest = String(rest[..<col.lowerBound])
         }
         if let dot = rest.range(of: " · ", options: .backwards), !rest.hasPrefix("survey") { rest = String(rest[..<dot.lowerBound]) }

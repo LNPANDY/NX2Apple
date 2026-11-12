@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "Change folder…",
   "library.clearSearch": "Clear search",
   "library.collection": "Your collection",
+  "library.dismissSkipped": "Dismiss skipped files notice",
   "library.error": "Couldn’t complete the action",
   "library.firstBuild": "Build your first game",
   "library.folderHint": "We’ll find finished games here and use this folder for new builds, too.",

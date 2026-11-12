@@ -1074,6 +1074,7 @@ class LibraryInputsAndModelTests(unittest.TestCase):
 
         # 4) All 12 new localization keys across all 10 languages contain zero ASCII or fullwidth semicolons
         new_keys = (
+            'library.dismissSkipped',
             'library.skippedArchive',
             'library.skippedBanner',
             'library.skippedDetails',
@@ -1093,6 +1094,80 @@ class LibraryInputsAndModelTests(unittest.TestCase):
                 self.assertIn(k, table, f'{p.name} missing {k}')
                 self.assertNotIn(';', table[k], f'{p.name}:{k} contains ASCII semicolon')
                 self.assertNotIn('；', table[k], f'{p.name}:{k} contains fullwidth semicolon')
+
+    def test_skipped_banner_session_dismissal_and_rearm(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            games_dir = tmp / 'Games'
+            games_dir.mkdir()
+            first = games_dir / 'ArchiveOne.7z'
+            second = games_dir / 'ArchiveTwo.nsp.00'
+            first.write_bytes(b'7z' + b'\x00' * 16)
+            second.write_bytes(b'\x00' * 16)
+
+            state_dir = tmp / 'state'
+            gl = lib.GameLibrary(state_dir=state_dir)
+            gl.set_games_folder(str(games_dir), repo_path=str(ROOT / 'engine'))
+            self.assertEqual(len(gl.skipped_files), 2)
+            self.assertTrue(gl.shows_skipped_banner)
+
+            # Session dismissal hides the banner and survives silent rescans of the same/subset paths.
+            gl.dismiss_skipped_banner()
+            self.assertFalse(gl.shows_skipped_banner)
+            gl.rescan_games_folder(repo_path=str(ROOT / 'engine'))
+            self.assertFalse(gl.shows_skipped_banner)
+
+            second.unlink()
+            gl.rescan_games_folder(repo_path=str(ROOT / 'engine'))
+            self.assertEqual(len(gl.skipped_files), 1)
+            self.assertFalse(gl.shows_skipped_banner)
+
+            # A newly added skipped file re-arms the banner automatically.
+            third = games_dir / 'NewSkipped.rar'
+            third.write_bytes(b'Rar!' + b'\x00' * 16)
+            gl.rescan_games_folder(repo_path=str(ROOT / 'engine'))
+            self.assertEqual(len(gl.skipped_files), 2)
+            self.assertTrue(gl.shows_skipped_banner)
+
+            # Fresh app launch (new GameLibrary instance reading saved state) starts undismissed.
+            gl.dismiss_skipped_banner()
+            self.assertFalse(gl.shows_skipped_banner)
+            relaunched = lib.GameLibrary(state_dir=state_dir)
+            relaunched.rescan_games_folder(repo_path=str(ROOT / 'engine'))
+            self.assertTrue(relaunched.shows_skipped_banner)
+
+            # Explicit reset (used by manual Rescan button) re-shows the banner.
+            relaunched.dismiss_skipped_banner()
+            self.assertFalse(relaunched.shows_skipped_banner)
+            relaunched.reset_skipped_banner_dismissal()
+            relaunched.rescan_games_folder(repo_path=str(ROOT / 'engine'))
+            self.assertTrue(relaunched.shows_skipped_banner)
+
+            # Exercise real MainWindow button wiring when PySide6 is installed.
+            try:
+                from PySide6.QtWidgets import QApplication
+                import nspb_qt.model as qt_model
+                import nspb_qt.ui as qt_ui
+            except ImportError:
+                qt_ui = None
+            if qt_ui is not None:
+                os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+                app = QApplication.instance() or QApplication([])
+                m = qt_model.Model()
+                m._save = lambda: None
+                m.library = relaunched
+                win = qt_ui.MainWindow(m)
+                try:
+                    win._init_timer.stop()
+                    win._refresh_library()
+                    self.assertFalse(win.skipped_wrap.isHidden())
+                    win.skipped_dismiss_btn.click()
+                    self.assertTrue(win.skipped_wrap.isHidden())
+                    win._rescan_library()
+                    self.assertFalse(win.skipped_wrap.isHidden())
+                finally:
+                    win.close()
+                    app.processEvents()
 
 
 if __name__ == '__main__':

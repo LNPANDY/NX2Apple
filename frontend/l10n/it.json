@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "Cambia cartella…",
   "library.clearSearch": "Cancella ricerca",
   "library.collection": "La tua collezione",
+  "library.dismissSkipped": "Chiudi avviso file ignorati",
   "library.error": "Impossibile completare l’azione",
   "library.firstBuild": "Compila il tuo primo gioco",
   "library.folderHint": "Qui cercheremo i giochi già compilati e salveremo le nuove build.",

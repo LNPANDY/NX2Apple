@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "Cambiar carpeta…",
   "library.clearSearch": "Borrar búsqueda",
   "library.collection": "Tu colección",
+  "library.dismissSkipped": "Cerrar aviso de archivos omitidos",
   "library.error": "No se pudo completar la acción",
   "library.firstBuild": "Compila tu primer juego",
   "library.folderHint": "Aquí encontraremos los juegos terminados y usaremos esta carpeta también para las compilaciones nuevas.",

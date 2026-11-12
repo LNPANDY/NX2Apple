@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "폴더 변경…",
   "library.clearSearch": "검색 지우기",
   "library.collection": "내 컬렉션",
+  "library.dismissSkipped": "건너뛴 파일 알림 닫기",
   "library.error": "작업을 완료하지 못했습니다",
   "library.firstBuild": "첫 게임 빌드",
   "library.folderHint": "완성된 게임을 여기서 찾고 새 빌드에도 이 폴더를 사용합니다.",
