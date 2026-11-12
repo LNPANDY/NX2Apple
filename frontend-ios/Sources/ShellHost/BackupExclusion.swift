@@ -7,7 +7,7 @@ import Foundation
 /// The saves stay in the backup. They are small (a few MB for a game), they cannot be made again, and a player who gets a new phone
 /// from a backup wants them. Every entry of a game's folder whose name starts with `save` is left alone (`GameDeletion.isSave`, the same
 /// rule that decides what deleting a game may remove), and so are small plain files (`env.txt`, `profile.tsv`, `log.txt`, settings
-/// text). Everything else in `Documents/games/<title ID>/` is marked, and so are the old single-game names at the top of `Documents`
+/// text). The playtime folder also stays in the backup. Everything else in `Documents/games/<title ID>/` is marked, and so are the old single-game names at the top of `Documents`
 /// (`romfs*`, `aoc`, `temp`, which `dm/ios/Sources/main.m` marks for the one-game app). A framework is part of the app bundle, which
 /// is never backed up, and the engine's own caches are in `Library/Caches`, which is not either, so nothing else needs a mark.
 ///
@@ -33,7 +33,7 @@ public enum BackupExclusion {
 
     /// Whether `name` in a game's folder is game data (to mark) and not a save or a small setting file.
     static func isGameData(_ url: URL, fileManager fm: FileManager) -> Bool {
-        if GameDeletion.isSave(url.lastPathComponent) { return false }
+        if GameDeletion.isSave(url.lastPathComponent) || url.lastPathComponent == "playtime" { return false }
         let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
         if values?.isDirectory == true { return true }
         return (values?.fileSize ?? Int.max) > smallFileLimit
@@ -58,6 +58,13 @@ public enum BackupExclusion {
         var changed: [URL] = []
         let games = (try? fm.contentsOfDirectory(at: appDataRoot, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         for folder in games where (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true {
+            var metrics = folder.appendingPathComponent("playtime")
+            if isExcluded(metrics) {
+                // Older rules mark every non-save folder as rebuildable; play time cannot be regenerated.
+                var values = URLResourceValues()
+                values.isExcludedFromBackup = false
+                try? metrics.setResourceValues(values)
+            }
             for url in gameData(in: folder, fileManager: fm) where exclude(url) { changed.append(url) }
         }
         let documents = appDataRoot.deletingLastPathComponent()

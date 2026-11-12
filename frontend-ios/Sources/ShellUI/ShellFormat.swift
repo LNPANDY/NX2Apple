@@ -3,6 +3,16 @@ import Foundation
 /// The wording of the version and last-played line, shared by every view and by the host and the demo that fill it:
 /// "Version 1.0.0", "Played today", "Played yesterday", "Played 3 days ago", joined as "Version 1.0.0 · Played today".
 public enum ShellFormat {
+    public static func playTime(_ milliseconds: UInt64, locale: Locale = .current) -> String {
+        let formatter = DateComponentsFormatter()
+        var calendar = Calendar.current
+        calendar.locale = locale
+        formatter.calendar = calendar
+        formatter.allowedUnits = [.hour, .minute]
+        formatter.unitsStyle = .abbreviated
+        return formatter.string(from: Double(milliseconds) / 1000) ?? ""
+    }
+
     /// "Version 1.0.0", empty for an empty version.
     public static func version(_ version: String) -> String {
         version.isEmpty ? "" : ShellStrings.text("Version \(version)")

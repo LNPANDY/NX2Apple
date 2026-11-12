@@ -37,6 +37,16 @@ struct GameCloudSaves {
                               preference: readPreference(), home: home)
     }
 
+    /// An env-file save override wins when Play did not supply an explicit save location.
+    func savePath(default base: URL) -> URL {
+        for file in [playerEnv, appEnv] {
+            if let text = Self.text(file), let path = CloudSaveSync.envValue(text, key: "DM_SAVE"), !path.isEmpty {
+                return URL(fileURLWithPath: path, relativeTo: base.deletingLastPathComponent()).standardizedFileURL
+            }
+        }
+        return base
+    }
+
     /// Whether a line of an env.txt sets the folder: then the player's env.txt is where a change counts.
     private var envDecides: Bool { [.playerEnv, .appEnv].contains(setting.source) }
 

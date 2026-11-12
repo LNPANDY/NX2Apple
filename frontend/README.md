@@ -335,6 +335,8 @@ The Qt front end has no switch for it: nxbuild is built for macOS on Apple silic
 
 ## Run
 
+From the repository root, run `python3 tools/engine.py sync` first. The synchronized engine supplies the shared Foundation game-time module used by the launcher and game runtimes.
+
 ```bash
 cd frontend
 swift run

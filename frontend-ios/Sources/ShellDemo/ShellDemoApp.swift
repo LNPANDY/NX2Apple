@@ -84,6 +84,9 @@ struct DemoScreen: View {
             Button("OK") { notice = nil }
         } message: { Text(notice ?? "") }
         .onAppear {
+            if let value = value("--play-time-minutes"), let minutes = UInt64(value), minutes <= UInt64.max / 60_000 {
+                for i in games.indices { games[i].game.playTime = ShellFormat.playTime(minutes * 60_000) }
+            }
             gamepads.onInput = { action, device in send(action, from: device) }
             gamepads.onRelease = { action, device in input.append(action, device: device, released: true) }
             gamepads.onControllersChange = { connected = $0 }

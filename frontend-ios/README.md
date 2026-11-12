@@ -4,11 +4,16 @@ A Swift 6 package for iOS and iPadOS 26 and later. `ShellUI` is the view layer o
 
 ## Run
 
+Run these from the repository root. The synchronized engine supplies the shared Foundation game-time module used by `ShellHost` and the game runtimes.
+
 ```sh
+python3 tools/engine.py sync
 swift build --package-path frontend-ios
 swift test --package-path frontend-ios
 open frontend-ios/Demo/ShellDemo.xcodeproj
 ```
+
+Game settings show accumulated play time once recorded by a rebuilt game runtime. Loading, game menus and in-game pause screens count, while runtime suspension and device sleep do not. The chosen cloud-save folder carries one `playtime.json` per title, separate from the save archive. Offline and restored histories merge by run identity, so copied history counts once. Existing last-played dates cannot reconstruct earlier durations. Cloud time is published on suspension or exit and may arrive later on another device.
 
 Select the `ShellDemo` scheme and an iOS Simulator. After changing targets, regenerate the project with `xcodegen generate --spec frontend-ios/Demo/project.yml`. A command-line build:
 

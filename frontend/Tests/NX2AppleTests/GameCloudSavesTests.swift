@@ -38,6 +38,16 @@ final class GameCloudSavesTests: IsolatedDefaultsTestCase {
     }
     private var env: String { "support/nxnative/\(titleID)/env.txt" }
 
+    func testGameTimeUsesTheFirstSaveOverrideAndPlayerFilePrecedence() throws {
+        let base = root.appendingPathComponent("standard/title/save")
+        let s = saves()
+        XCTAssertEqual(s.savePath(default: base), base)
+        try write("DM_SAVE=/app/save\n", "lib/Hades.app/Contents/Resources/dm/env.txt")
+        XCTAssertEqual(s.savePath(default: base).path, "/app/save")
+        try write("# saved choices\nDM_SAVE_SYNC=/Cloud\nDM_SAVE=../custom-save\nDM_SAVE=/ignored\n", env)
+        XCTAssertEqual(s.savePath(default: base).path, root.appendingPathComponent("standard/custom-save").path)
+    }
+
     func testWithoutAnyLineThePreferenceIsWhatChanges() throws {
         let s = saves()
         XCTAssertFalse(s.setting.isOn)

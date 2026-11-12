@@ -12,10 +12,11 @@ let package = Package(
         .library(name: "ShellHost", targets: ["ShellHost"]),
         .executable(name: "ShellDemo", targets: ["ShellDemo"])
     ],
+    dependencies: [.package(path: "../engine/dm/apple/GameTime")],
     targets: [
         .target(name: "ShellUI", resources: [.process("Resources")]),
         .target(name: "ShellControllers", dependencies: ["ShellUI"]),
-        .target(name: "ShellHost", dependencies: ["ShellUI", "ShellControllers"], resources: [.process("Resources")]),
+        .target(name: "ShellHost", dependencies: ["ShellUI", "ShellControllers", .product(name: "GameTime", package: "GameTime")], resources: [.process("Resources")]),
         .executableTarget(name: "ShellDemo", dependencies: ["ShellUI", "ShellControllers", "ShellHost"], resources: [.process("Resources")]),
         .testTarget(name: "ShellUITests", dependencies: ["ShellUI"]),
         .testTarget(name: "ShellHostTests", dependencies: ["ShellHost", "ShellUI", "ShellControllers"], resources: [.copy("Fixtures")]),

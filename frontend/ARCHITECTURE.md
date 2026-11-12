@@ -4,7 +4,7 @@ The launcher is one SwiftPM package with four targets. The compiler keeps the la
 
 | Target | Holds | May import |
 |---|---|---|
-| `NXCore` | pure logic and services | Foundation |
+| `NXCore` | pure logic and services | Foundation, GameTime (Foundation only) |
 | `NXModel` | stores | `NXCore`, Foundation, Combine |
 | `NXLauncher` | views | `NXModel`, `NXCore`, SwiftUI, AppKit |
 | `NX2Apple` (app) | entry point, wiring | all |
@@ -70,6 +70,7 @@ A view observes only the stores it shows. A change in one store invalidates only
 
 ## Where a new feature goes
 
+- `GameTimeMetrics` adapts the shared Foundation `GameTime` module from `engine/dm/apple/GameTime`. Its document validation, coordinated persistence and union/max merge are also compiled into Mac/iOS game runtimes. The engine must be synchronized before resolving either front-end package. Views receive formatted totals through the existing layers, never perform cloud I/O on the main thread, and do not infer duration from last-played dates.
 - Parsing, formatting, classification, anything that is a function of its input: `NXCore`, as a value type or a static function, with a test.
 - Running a process or reading and writing files: a service in `NXCore` behind a protocol.
 - State that a view shows and changes: a store in `NXModel`.

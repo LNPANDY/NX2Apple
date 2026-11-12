@@ -214,6 +214,16 @@ import XCTest
         }
     }
 
+    func testGameTimeAppearsWithExistingMetadata() {
+        extraArguments = ["--samples", "--select", "orbit", "--play-time-minutes", "125"]
+        launch("settings")
+        let row = settingsScroll.descendants(matching: .any)["detail.playTime"].firstMatch
+        for _ in 0..<5 where !row.isHittable { settingsScroll.swipeUp() }
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        XCTAssertTrue(settingsScroll.staticTexts["Play time"].exists)
+        capture("game-time-metadata")
+    }
+
     func testGameSettingsMetadataHierarchy() {
         for (game, number, subtitle) in [("orbit", "1.4.0", ""), ("paper", "1.0.0", "Missing Data")] {
             extraArguments = ["--samples", "--select", game]

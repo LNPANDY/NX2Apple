@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import ShellControllers
 import ShellUI
+import GameTime
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -176,6 +177,7 @@ public struct ShellHostConfig: Sendable {
         shellChoices = Self.choices(of: shellSettings)
         startShellScan()
         details = entries.map(detail(for:))
+        refreshSelectedGameTime()
     }
 
     public func setPadMerge(_ on: Bool) {
@@ -443,7 +445,7 @@ public struct ShellHostConfig: Sendable {
         let tile = GameTile(id: entry.id, title: entry.title, subtitle: entry.manifest.map { ShellFormat.version($0.displayVersion) } ?? "",
                             banner: image(entry.bannerURL), icon: image(entry.iconURL), state: state,
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
-                            isSwitch2: entry.manifest?.console == "switch2")
+                            playTime: gameTimes[entry.id], isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
             return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false))
         }
@@ -513,11 +515,59 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
+    private var gameTimes: [String: String] = [:]
+    private var gameTimeSources: [String: URL] = [:]
+    private var gameTimeTask: Task<Void, Never>?
+    private var selectedTimeGame: String?
+
+    func waitForGameTime() async { await gameTimeTask?.value }
+
+    public func refreshSelectedGameTime() {
+        if let id = selectedTimeGame { loadGameTime(id) }
+    }
+
+    private func loadGameTime(_ id: String) {
+        selectedTimeGame = id
+        gameTimeTask?.cancel()
+        let folder: String?
+        switch cloudSaves(id) {
+        case .own(let url), .shell(let url): folder = url.path
+        default: folder = nil
+        }
+        let cloud = DMGameTimeCloudURL(folder, id)
+        guard let local = DMGameTimeLocalURL(appFolder(for: id).appendingPathComponent("save"), cloud, id) else { return }
+        if gameTimeSources[id] != local {
+            gameTimes[id] = nil
+            gameTimeSources[id] = local
+            refresh(id)
+        }
+        gameTimeTask = Task { [weak self] in
+            let show: @MainActor (UInt64?) -> Void = { [weak self] milliseconds in
+                guard !Task.isCancelled, let self else { return }
+                self.gameTimes[id] = milliseconds.flatMap { $0 > 0 ? ShellFormat.playTime($0) : nil }
+                self.refresh(id)
+            }
+            let cached = await Task.detached(priority: .utility) { () -> UInt64? in
+                var error: NSError?
+                return DMGameTimeTotal(local, &error)?.uint64Value
+            }.value
+            show(cached)
+            guard !Task.isCancelled, cloud != nil else { return }
+            let milliseconds = await Task.detached(priority: .utility) { () -> UInt64? in
+                var error: NSError?
+                _ = DMGameTimeSynchronize(local, cloud, &error)
+                return DMGameTimeTotal(local, &error)?.uint64Value
+            }.value
+            show(milliseconds)
+        }
+    }
+
     // MARK: Actions
 
     /// The closures for `LibraryView`.
     public var actions: ShellActions {
         ShellActions(
+            onSelect: { [weak self] id in self?.loadGameTime(id) },
             onPlay: { [weak self] id in self?.play(id) },
             onChange: { [weak self] id, setting, value in self?.change(id, setting: setting, value: value) },
             onPickGameData: { [weak self] id in self?.pickGameData(id) },
@@ -655,6 +705,7 @@ public struct ShellHostConfig: Sendable {
     public func disableCloudSaves(_ id: String) {
         cloudStore(id).clear()
         config.defaults(id).set(true, forKey: GameDefaults.cloudSavesOffKey)
+        if selectedTimeGame == id { loadGameTime(id) }
         refresh(id)
     }
 
@@ -662,6 +713,7 @@ public struct ShellHostConfig: Sendable {
     public func useShellCloudSaves(_ id: String) {
         cloudStore(id).clear()
         config.defaults(id).removeObject(forKey: GameDefaults.cloudSavesOffKey)
+        if selectedTimeGame == id { loadGameTime(id) }
         refresh(id)
     }
 
