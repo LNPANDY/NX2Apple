@@ -18,10 +18,10 @@ Issue: LNPANDY/NX2Apple#976
  1 file changed, 35 insertions(+)
 
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index b89fe3b3..f64b4d36 100755
+index 2fb32264..dce7deca 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -581,6 +581,41 @@ def nxb_split(roms, mains, tmp, names, logs, g):
+@@ -585,6 +585,41 @@ def nxb_split(roms, mains, tmp, names, logs, g):
  
  
  # ---- NSP identification ----

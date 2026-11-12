@@ -4,11 +4,11 @@ import UniformTypeIdentifiers
 
 /// A stand-in app icon for a game whose package carries no control data (a Switch 2 game from a NUP or a dump folder, LNPANDY/NX2Apple#784):
 /// the engine finds no icon in it and the Mac app's icon stays blank. The launcher makes a 256×256 JPEG, the size the engine's own icon has,
-/// from the artwork it already cached for the game, and a build hands its path to the engine as `NX_FALLBACK_ICON`. The game's own icon
+/// from the artwork it already cached for the game, and a build hands its path to the engine as `--fallback-icon`. The game's own icon
 /// always wins, the iOS app and the shared shell never use it (so the shell's icon is not touched), and no artwork is fetched for it.
 enum FallbackIcon {
     static let size = 256
-    static let environmentKey = "NX_FALLBACK_ICON"
+    static let option = "--fallback-icon"
 
     /// A square crop around the middle of `image`, scaled to `size`, as JPEG data. nil for an image with no pixels.
     static func jpeg(from image: CGImage, size: Int = FallbackIcon.size) -> Data? {
@@ -40,8 +40,8 @@ enum FallbackIcon {
         } catch { return nil }
     }
 
-    /// The environment a build adds for a game: the stand-in's path, or nothing.
-    static func environment(titleID: String, banners: URL, folder: URL) -> [String: String] {
-        file(titleID: titleID, banners: banners, folder: folder).map { [environmentKey: $0.path] } ?? [:]
+    /// The arguments a Mac app build adds for a game: `--fallback-icon` and the stand-in's path, or nothing.
+    static func arguments(titleID: String, banners: URL, folder: URL) -> [String] {
+        file(titleID: titleID, banners: banners, folder: folder).map { [option, $0.path] } ?? []
     }
 }

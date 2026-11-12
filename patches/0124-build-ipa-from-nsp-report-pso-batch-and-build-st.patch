@@ -11,7 +11,6 @@ Update IpaWatch to accept None, directory and .framework targets without looking
 Upstream-Status: fork-only
 Reason: Report offline PSO batch progress and build steps during --shell-framework
 Issue: LNPANDY/NX2Apple#1142
-
 ---
  dm/ios/tools/build_ipa.sh           |   1 +
  dm/tools/tests/test_nsp_progress.py | 329 ++++++++++++++++++++++++++++
@@ -19,7 +18,7 @@ Issue: LNPANDY/NX2Apple#1142
  3 files changed, 492 insertions(+), 32 deletions(-)
 
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index ef52be2..945bb60 100755
+index ef52be27..945bb609 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -272,6 +272,7 @@ if [ -n "$FRAMEWORK_ONLY" ]; then
@@ -31,7 +30,7 @@ index ef52be2..945bb60 100755
    # An NVN game's libraries may be the one file b-<chain>.img (dm/tools/shader_lib.py): it goes in as msl/<MSLDIR>.img, where the host reads it (nvn_mtl.m), as stage_resources.sh copies it into an app
    LIB=$(lib_path "$MSL_IOS/$MSLDIR") || die "shader libraries $MSL_IOS/$MSLDIR"
 diff --git a/dm/tools/tests/test_nsp_progress.py b/dm/tools/tests/test_nsp_progress.py
-index cd34db9..7a7fbfe 100644
+index cd34db90..7a7fbfe9 100644
 --- a/dm/tools/tests/test_nsp_progress.py
 +++ b/dm/tools/tests/test_nsp_progress.py
 @@ -236,5 +236,334 @@ class HumanModes(unittest.TestCase):
@@ -370,10 +369,10 @@ index cd34db9..7a7fbfe 100644
  if __name__ == '__main__':
      unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index c29bded..2dd8af8 100755
+index f7e92590..64adf0f0 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
-@@ -2809,58 +2809,187 @@ def build_gl_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, p
+@@ -2814,58 +2814,187 @@ def build_gl_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, p
  
  
  class IpaWatch:
@@ -590,7 +589,7 @@ index c29bded..2dd8af8 100755
  
  
  def env_file_pairs(path):   # an environment file's switches (one KEY=VALUE per line, # starts a comment), read as the iOS app reads them (dm/ios/Sources/main.m)
-@@ -3509,11 +3638,12 @@ def main(args=None):
+@@ -3521,11 +3650,12 @@ def main(args=None):
          rows = [(0, g.id, patched, rfs.source(game), ios, gfx)] + [programs[n]['row'] for n in sorted(programs)]
          tsv.write_text('# program\tprofile\trewritten modules\tRomFS\tiOS shaders\tgraphics API (build_ipa.sh PROGRAMS_TSV)\n' + ''.join('\t'.join(map(str, r)) + '\n' for r in rows))
          say(f'one app holding programs {", ".join(str(r[0]) for r in rows)}')

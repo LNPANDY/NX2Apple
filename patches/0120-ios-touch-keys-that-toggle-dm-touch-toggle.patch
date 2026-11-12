@@ -30,7 +30,7 @@ Issue: LNPANDY/NX2Apple#658
  4 files changed, 58 insertions(+), 5 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 5f719bc..d283f74 100644
+index 5f719bcc..d283f741 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -12,6 +12,8 @@
@@ -124,7 +124,7 @@ index 5f719bc..d283f74 100644
  // ---- Shapes ----
  static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
-index d2efd77..e5b749f 100644
+index d2efd777..e5b749f9 100644
 --- a/dm/ios/Sources/DmPadGeometry.h
 +++ b/dm/ios/Sources/DmPadGeometry.h
 @@ -277,6 +277,27 @@ static inline int dm_pad_layout_count(const DmPadLayout *l) {   // the moved con
@@ -156,7 +156,7 @@ index d2efd77..e5b749f 100644
  static inline BOOL dm_pad_is_shape_of(int id, int c) {
      switch (c) {
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-index b78567b..fa8d893 100644
+index b78567b7..fa8d8938 100644
 --- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -33,6 +33,22 @@ static void check_fits(const Screen *s, BOOL full, const char *size, DmPadOption
@@ -191,14 +191,14 @@ index b78567b..fa8d893 100644
      check_duo_outer_custom_bounds();
  
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 3363f23..f8111e9 100644
+index b2639445..1c3c971d 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -405,6 +405,7 @@ DM_TOUCH_LAYOUT	player	The player's per-layout touch-control arrangement, encode
+@@ -414,6 +414,7 @@ DM_TOUCH_LAYOUT	player	The player's per-layout touch-control arrangement, encode
  DM_TOUCH_LOG	diagnostic	`=1` logs each touch-screen read with touch points (sample, finger, position, attributes) and each gesture entry, up to 500 lines
  DM_TOUCH_SIZE	player	iOS touch-control size: small, medium (default) or large. Controls move toward medium when the requested size does not fit
  DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or inward
 +DM_TOUCH_TOGGLE	player	iOS touch keys set to Toggle in the shell's touch layout editor, as control names joined by commas (for example `zl,zr,a`): a tap turns the key on, the next tap off. Also set by the in-game menu of a game's own app (the Touch keys that toggle row), which has no layout editor. Unset, every key is held
+ DM_T_DUMP	test	`tests/t_blend_zero.m` prints the red channel each draw stored, row by row
  DM_UDC_SELFTEST	diagnostic	`=1` runs a start-up check of DontCare load and store on private depth-stencil and RGBA8 textures (clear, Load + DontCare, read back) and logs one result line
  DM_UE_SHADERS	path	Folder of the Unreal shader code archives decoded by `uepak.py`, for `shader_split.py` (default `ue_shaders` beside the RomFS); needed when the RomFS has Unreal paks
- DM_UE_TEXTURE_POOL	switch	Megabytes Unreal's texture streaming pool (`r.Streaming.PoolSize`) is raised to, overriding the profile's `ue_texture_pool`; `0` keeps the game's own pool. On iOS only this switch turns it on (`Documents/env.txt`)

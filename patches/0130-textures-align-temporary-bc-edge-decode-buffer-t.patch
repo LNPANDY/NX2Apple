@@ -21,7 +21,7 @@ Issue: LNPANDY/NX2Apple#123
  4 files changed, 34 insertions(+), 7 deletions(-)
 
 diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
-index 21fc7fc..00ebd5e 100644
+index 21fc7fcc..00ebd5e5 100644
 --- a/dm/gfx/tex/nvn_bcdec.c
 +++ b/dm/gfx/tex/nvn_bcdec.c
 @@ -75,7 +75,7 @@ static void block(uint32_t f, const uint8_t *b, uint8_t *o, int op) {   // 一
@@ -34,7 +34,7 @@ index 21fc7fc..00ebd5e 100644
          const uint8_t *b = src + by * pitch + bx * bb;
          uint32_t cw = w - bx * 4 < 4 ? w - bx * 4 : 4, ch = h - by * 4 < 4 ? h - by * 4 : 4;
 diff --git a/dm/gfx/tex/tests/.gitignore b/dm/gfx/tex/tests/.gitignore
-index ad72cd1..15d594e 100644
+index ad72cd17..15d594ea 100644
 --- a/dm/gfx/tex/tests/.gitignore
 +++ b/dm/gfx/tex/tests/.gitignore
 @@ -1,4 +1,5 @@
@@ -44,7 +44,7 @@ index ad72cd1..15d594e 100644
  *.dSYM
  asan/
 diff --git a/dm/gfx/tex/tests/Makefile b/dm/gfx/tex/tests/Makefile
-index feed9f8..af5f698 100644
+index feed9f8e..af5f698f 100644
 --- a/dm/gfx/tex/tests/Makefile
 +++ b/dm/gfx/tex/tests/Makefile
 @@ -6,24 +6,28 @@ O ?=
@@ -83,7 +83,7 @@ index feed9f8..af5f698 100644
 +	-LLVM_PROFILE_FILE="$(call cov_profile,cov)" ./cov/t_bcdec
  	@$(call cov_export,cov)
 diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
-index ad495fd..5a40608 100644
+index ad495fd5..5a406084 100644
 --- a/dm/gfx/tex/tests/t_bcdec.c
 +++ b/dm/gfx/tex/tests/t_bcdec.c
 @@ -167,6 +167,27 @@ static void test_bc6h_rgb9e5_switch(void) {

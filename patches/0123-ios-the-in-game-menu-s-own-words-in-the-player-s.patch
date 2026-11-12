@@ -13,14 +13,13 @@ and n. A missing or empty line stays English.
 Upstream-Status: pending [builds on 0121, forwarded once the touch patches land upstream]
 Reason: The in-game menu's own words in the player's language
 Issue: LNPANDY/NX2Apple#1129
-
 ---
  dm/ios/Sources/GameMenu.swift | 27 ++++++++++++++++++++++++---
  docs/env_switches.tsv         |  1 +
  2 files changed, 25 insertions(+), 3 deletions(-)
 
 diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
-index c32f51e..0ce1484 100644
+index c32f51ec..0ce14848 100644
 --- a/dm/ios/Sources/GameMenu.swift
 +++ b/dm/ios/Sources/GameMenu.swift
 @@ -6,9 +6,30 @@ import UIKit
@@ -74,14 +73,14 @@ index c32f51e..0ce1484 100644
  
  private func gameMenuRow(_ m: LauncherModel, _ s: Setting) -> UIMenuElement {
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index dffbe0a..cbe09e6 100644
+index 3734d553..a1781882 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -60,6 +60,7 @@ DM_GAME	switch	Selects the game profile (a title ID under `dm/games` or `DM_GAME
+@@ -61,6 +61,7 @@ DM_GAME	switch	Selects the game profile (a title ID under `dm/games` or `DM_GAME
  DM_GAMES_DIR	path	Profile folders outside the repository, separated by `:`, searched after `dm/games`; the NSP script points it at a provisional or derived profile
  DM_GAMES_FIRST	switch	`=1` searches `DM_GAMES_DIR` before `dm/games`, so a provisional or derived profile wins over the game's own (the NSP script's `--provisional`)
  DM_GAME_ENV	switch	`KEY=VALUE` pairs, separated by spaces, that the game's own `getenv` returns, in place of the profile's `game_env` (`hle_os.c`); any other name goes to the SDK's empty environment
 +DM_GAME_MENU_TEXT	switch	The iOS in-game menu's own words in the player's language, one per line: the menu's title (more settings on the start screen), Controller layout, Keys that toggle and None (GameMenu.swift). A missing or empty line stays English. The shell passes it at launch, a game's own app gets it in its bundled `dm/env.txt` with the lines joined by `\n`
  DM_GFX_FIXTURE_OUT	test	`=<dir>`: graphics tests write their raw result textures and buffers there
+ DM_GFX_SCALE	diagnostic	The graphics scale tier `oe::GetCurrentGraphicsScale` answers: `0` (default, both modes), or `1` or `2`, the reduced tiers at which a Switch 2 game renders smaller
  DM_GLSLC_CAPTURE	path	`=<dir>` saves every GLSLC output the game compiles at run time; `shader_split.py` reads it (default `<version dir>/glslc_capture`)
- DM_GL_CAPTURE	path	`=<dir>`: the GL layer writes every shader source the game compiles (`<key>.vert` / `<key>.frag`) for `gl_shaders.py`; the NSP script uses it to capture run-time shaders

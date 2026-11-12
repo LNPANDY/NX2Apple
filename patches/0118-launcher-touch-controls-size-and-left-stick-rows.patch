@@ -23,7 +23,7 @@ Issue: LNPANDY/NX2Apple#991
  3 files changed, 17 insertions(+), 2 deletions(-)
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index 141b0d8..89c69f1 100644
+index 141b0d86..89c69f17 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -26,6 +26,8 @@ DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		lev
@@ -36,7 +36,7 @@ index 141b0d8..89c69f1 100644
  DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1
  DM_RUMBLE_MIN	range	0:0.9:0.05	0	always	Controls	Rumble cutoff
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index 9a48a50..c796c51 100644
+index 9a48a505..c796c51b 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -92,6 +92,13 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -63,7 +63,7 @@ index 9a48a50..c796c51 100644
          self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
          s = mac['DM_FULLSCREEN']
 diff --git a/docs/settings.md b/docs/settings.md
-index 8d75ce0..2f166f3 100644
+index 44a6fe9e..051bd255 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -4,7 +4,7 @@ The screen before the game starts shows the settings the game supports. A settin

@@ -18,7 +18,7 @@ Issue: LNPANDY/NX2Apple#696
  3 files changed, 36 insertions(+), 3 deletions(-)
 
 diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
-index cfba21f..f1c8992 100644
+index cfba21ff..f1c89929 100644
 --- a/dm/ios/tests/test_framework_build.py
 +++ b/dm/ios/tests/test_framework_build.py
 @@ -81,6 +81,21 @@ class ManifestTests(unittest.TestCase):
@@ -53,7 +53,7 @@ index cfba21f..f1c8992 100644
              self.assertTrue((root / 'Gen/framework/dm/env.txt').is_file(), 'the built framework must carry its environment')
              self.assertEqual((root / 'Gen/framework/dm/env.txt').read_text(), 'DM_PROF_TEX_BC_CPU=1\n')
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index be74dd6..ef52be2 100755
+index be74dd66..ef52be27 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -222,7 +222,7 @@ if [ "$FRAMEWORK" = 1 ]; then
@@ -66,7 +66,7 @@ index be74dd6..ef52be2 100755
    t "framework: Gen/framework (modules $MODS, profile.tsv, game.manifest.json)"
  fi
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
-index 058b02d..963156f 100644
+index 058b02dc..963156fd 100644
 --- a/dm/ios/tools/gen_manifest.py
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -9,7 +9,7 @@ cross-checks the sections it names. Writing it now keeps the schema honest, and

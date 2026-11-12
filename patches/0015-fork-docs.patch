@@ -28,7 +28,7 @@ Issue: LNPANDY/NX2Apple#123
 
 diff --git a/docs/MULTIPLAYER.md b/docs/MULTIPLAYER.md
 new file mode 100644
-index 0000000..8b5460c
+index 00000000..8b5460c3
 --- /dev/null
 +++ b/docs/MULTIPLAYER.md
 @@ -0,0 +1,139 @@
@@ -173,7 +173,7 @@ index 0000000..8b5460c
 +  clients for it), and the constant table above matches what mush8 implements.
 diff --git a/docs/RELEASE-NOTES-GUIDE.md b/docs/RELEASE-NOTES-GUIDE.md
 new file mode 100644
-index 0000000..ba1f332
+index 00000000..ba1f3323
 --- /dev/null
 +++ b/docs/RELEASE-NOTES-GUIDE.md
 @@ -0,0 +1,105 @@
@@ -284,7 +284,7 @@ index 0000000..ba1f332
 +into two lists.
 diff --git a/docs/RELEASE_NOTES.md b/docs/RELEASE_NOTES.md
 new file mode 100644
-index 0000000..2f1132c
+index 00000000..2f1132cb
 --- /dev/null
 +++ b/docs/RELEASE_NOTES.md
 @@ -0,0 +1,77 @@
@@ -367,7 +367,7 @@ index 0000000..2f1132c
 +- **GabeThe21stGamer**：暴露了旧工具与无证书两条路径的报告（#87），以及免证书安装的免费 Apple ID 实测。
 diff --git a/docs/ROADMAP.md b/docs/ROADMAP.md
 new file mode 100644
-index 0000000..25ab8a5
+index 00000000..25ab8a5c
 --- /dev/null
 +++ b/docs/ROADMAP.md
 @@ -0,0 +1,139 @@
@@ -512,7 +512,7 @@ index 0000000..25ab8a5
 +carrier).
 diff --git a/docs/WORK-IN-PROGRESS.md b/docs/WORK-IN-PROGRESS.md
 new file mode 100644
-index 0000000..7364c2c
+index 00000000..7364c2c8
 --- /dev/null
 +++ b/docs/WORK-IN-PROGRESS.md
 @@ -0,0 +1,88 @@
@@ -606,7 +606,7 @@ index 0000000..7364c2c
 +- Anything finished goes to the top table with its commit, so the list stays short.
 diff --git a/docs/launcher-c-design.md b/docs/launcher-c-design.md
 new file mode 100644
-index 0000000..476a1c1
+index 00000000..476a1c1e
 --- /dev/null
 +++ b/docs/launcher-c-design.md
 @@ -0,0 +1,339 @@
@@ -951,7 +951,7 @@ index 0000000..476a1c1
 +> **Update (merged):** the dlopen probe now exists — `dm/ios/probe/` with `build_probe.sh`, committed alongside this document, and `probe-out/DmProbe.ipa` is built. W1 step 1 is done. What remains is running it on an iOS 26 device and reading `Documents/probe-log.txt`.
 diff --git a/docs/launcher-c-plan.md b/docs/launcher-c-plan.md
 new file mode 100644
-index 0000000..3c3d980
+index 00000000..3c3d9804
 --- /dev/null
 +++ b/docs/launcher-c-plan.md
 @@ -0,0 +1,233 @@
@@ -1189,7 +1189,7 @@ index 0000000..3c3d980
 +- `docs/development.md`, `docs/reference/packing.md`, `docs/frontends.md`: `--framework`,
 +  `build_shell.sh`, `pack_launcher_ipa.py`, signing order, incremental cache, and what the shell is.
 diff --git a/docs/probe-dlopen.md b/docs/probe-dlopen.md
-index 625759c..f50079d 100644
+index 625759c0..f50079dd 100644
 --- a/docs/probe-dlopen.md
 +++ b/docs/probe-dlopen.md
 @@ -7,10 +7,10 @@ iPhone, can a sideloaded IPA — installed outside the App Store review with Alt

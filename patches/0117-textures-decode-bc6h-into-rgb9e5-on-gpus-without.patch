@@ -34,7 +34,7 @@ Issue: LNPANDY/NX2Apple#544
  8 files changed, 102 insertions(+), 3 deletions(-)
 
 diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
-index bed9160..141b0d8 100644
+index bed9160b..141b0d86 100644
 --- a/dm/games/settings.tsv
 +++ b/dm/games/settings.tsv
 @@ -37,5 +37,6 @@ DM_PSO_MTL4	toggle	-	DM_GAME_PSO_MTL4|1	gfxapi:nvn	Performance	Metal 4 pipelines
@@ -45,10 +45,10 @@ index bed9160..141b0d8 100644
  DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	DM_GAME_FPS_TARGET!=0	Performance	Hold frames when late
  DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index f7d435b..167c0ce 100644
+index fb8f5a5e..ec9d3d68 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
-@@ -664,6 +664,8 @@ void mtl_init(void) {
+@@ -679,6 +679,8 @@ void mtl_init(void) {
      g_bc_gpu = [g_dev supportsBCTextureCompression];
      g_bc_cpu = !g_bc_gpu && dm_prof()->tex_bc_cpu;
      if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
@@ -58,7 +58,7 @@ index f7d435b..167c0ce 100644
      // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
      // Vulkan layers draw on classic queues of their own and need only the device (mtl_device_classic): there the classic part starts and presents are dropped, which is all a
 diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
-index 7b2d83c..21fc7fc 100644
+index 7b2d83c9..21fc7fcc 100644
 --- a/dm/gfx/tex/nvn_bcdec.c
 +++ b/dm/gfx/tex/nvn_bcdec.c
 @@ -4,9 +4,32 @@
@@ -119,7 +119,7 @@ index 7b2d83c..21fc7fc 100644
              uint16_t *d = (uint16_t *)(o + y * op) + x * 4; const uint16_t *s = rgb + (y * 4 + x) * 3;
              d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 0x3c00;
 diff --git a/dm/gfx/tex/nvn_bcdec.h b/dm/gfx/tex/nvn_bcdec.h
-index abf3d2d..ac82a27 100644
+index abf3d2d1..ac82a275 100644
 --- a/dm/gfx/tex/nvn_bcdec.h
 +++ b/dm/gfx/tex/nvn_bcdec.h
 @@ -12,3 +12,10 @@ int nvn_bc_unpacked(uint32_t nvn_fmt, uint32_t *mtl_pf, int *bpp);
@@ -134,7 +134,7 @@ index abf3d2d..ac82a27 100644
 +// One RGB triple packed as RGB9E5 (the shared-exponent format of Metal's RGB9E5Float): negative, NaN and out-of-range inputs clamp.
 +uint32_t nvn_rgb9e5_pack(float r, float g, float b);
 diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
-index 5fd5efe..ad495fd 100644
+index 5fd5efe4..ad495fd5 100644
 --- a/dm/gfx/tex/tests/t_bcdec.c
 +++ b/dm/gfx/tex/tests/t_bcdec.c
 @@ -126,11 +126,54 @@ static void test_bc4_single_channel(void) {
@@ -193,7 +193,7 @@ index 5fd5efe..ad495fd 100644
      printf("bc decode: BC1 matches an independent DXT1 decoder, format map, edge trimming, BC4 - all OK\n");
      return 0;
 diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
-index de17ca7..9a48a50 100644
+index de17ca7d..9a48a505 100644
 --- a/dm/tools/tests/test_launcher_settings.py
 +++ b/dm/tools/tests/test_launcher_settings.py
 @@ -84,6 +84,14 @@ class LauncherSettingsTests(unittest.TestCase):
@@ -212,7 +212,7 @@ index de17ca7..9a48a50 100644
          s = build(BOTW, 'nvn')['DM_FPS_HOLD']
          self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index d262c9e..b672e10 100644
+index 7e4fd6f7..652e23cd 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
 @@ -12,6 +12,7 @@ DM_AUDIO_DUMP	diagnostic	`=<file>` writes every PCM block the game appends as is
@@ -224,7 +224,7 @@ index d262c9e..b672e10 100644
  DM_BUNDLE_ID	switch	Overrides the iOS app's bundle ID in `build_ipa.sh` (default `org.nxnative.<title ID in lowercase>`)
  DM_CHEATS	path	Folder of Atmosphère cheat files: `<folder>/<build ID>.txt` or an SD-card layout (`atmosphere/contents/<title ID>/cheats/`) under it (default `<DM_ROOT>/cheats`); the Mac menu lists and toggles them
 diff --git a/docs/settings.md b/docs/settings.md
-index cf6a510..8d75ce0 100644
+index 195b1189..44a6fe9e 100644
 --- a/docs/settings.md
 +++ b/docs/settings.md
 @@ -5,7 +5,7 @@ The screen before the game starts shows the settings the game supports. A settin

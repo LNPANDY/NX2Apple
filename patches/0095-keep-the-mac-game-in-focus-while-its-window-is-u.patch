@@ -21,7 +21,7 @@ Issue: LNPANDY/NX2Apple#911
  2 files changed, 4 insertions(+), 4 deletions(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 052f230..42eac55 100644
+index 052f230e..42eac55f 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1370,9 +1370,9 @@ void front_run(void (*guest)(void)) {
@@ -38,10 +38,10 @@ index 052f230..42eac55 100644
          [nc addObserverForName:NSWindowDidBecomeKeyNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_resume(); dm_focus_set(1); }];
          [nc addObserverForName:NSWindowDidMiniaturizeNotification object:win queue:nil usingBlock:^(NSNotification *n) { (void)n; input_release(); dm_focus_set(3); dm_audio_suspend(1); dm_gfx_suspend(1); }];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index b9189aa..8f11e57 100644
+index 0935c5da..a8a24fe8 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -40,7 +40,7 @@ DM_EXEC_OUT	path	File `oe::ExecuteProgram` records the next program and its para
+@@ -41,7 +41,7 @@ DM_EXEC_OUT	path	File `oe::ExecuteProgram` records the next program and its para
  DM_EXPERIMENTAL_BUILDER	switch	`1` makes the NSP script run the extraction and the shader split through nxbuild's binaries beside `NXB_BIN` (the path of its `nxb` binary) where nxbuild supports the case, with the same outputs; any other case, an unsupported stage or an output that fails the checks runs the standard way (the Mac launcher's Use experimental builder setting)
  DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and kinds of file descriptors the process has open
  DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison

@@ -30,10 +30,10 @@ Issue: LNPANDY/NX2Apple#123
  create mode 100644 dm/host/tests/t_layout_runtime.c
 
 diff --git a/dm/games/game.py b/dm/games/game.py
-index 53e23ee..b8277f3 100644
+index 94268224..1974ca18 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
-@@ -281,6 +281,40 @@ if __name__ == '__main__':
+@@ -278,6 +278,40 @@ if __name__ == '__main__':
      elif len(a) == 3 and a[0] == 'modules':   # the modules to load from a folder of rewritten modules: its main build's row, else all the profile's (main.c profile_modules)
          g, bid = load(a[1]), re.search(r'^# BUILD_ID\s+(\w+)', (Path(a[2]) / 'main.fixups.tsv').read_text(errors='replace'), re.M)
          print(' '.join(g.build_modules().get(bid.group(1) if bid else '', g.words('modules'))))
@@ -75,7 +75,7 @@ index 53e23ee..b8277f3 100644
          print(load(a[1]).dir)
      elif len(a) == 3 and a[0] == 'link':   # link → the profile folder (replaced when it points elsewhere)
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index fe61d59..a3379ef 100644
+index 03e6405a..372383b1 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -7,6 +7,7 @@
@@ -87,7 +87,7 @@ index fe61d59..a3379ef 100644
  // Explicit host work does not occupy a guest core (Metal submission, or a blocked native codec lock). A contended host mutex must count as blocked: a signal's same-core handoff
  // can otherwise wait forever for a peer that needs the signaller's native lock. Uncontended locks retain guest ordering; the counter nests inside existing host work.
 diff --git a/dm/host/hle_fpslock.c b/dm/host/hle_fpslock.c
-index ff2e781..0137ad0 100644
+index ff2e7816..0137ad0e 100644
 --- a/dm/host/hle_fpslock.c
 +++ b/dm/host/hle_fpslock.c
 @@ -257,7 +257,7 @@ void dm_fps_lock_tick(void) {
@@ -100,7 +100,7 @@ index ff2e781..0137ad0 100644
          if (t == 120 && DM_GAME_FPS_MAX < 120) { LOG("[RED] DM_FPS_TARGET=120: this game's speed at 120 fps is not checked (profile fps_max); running at 60"); t = 60; }
          high = t == 120;
 diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
-index 7f40189..f772eb3 100644
+index da9809f0..ddf4ac75 100644
 --- a/dm/host/hle_fs.c
 +++ b/dm/host/hle_fs.c
 @@ -687,7 +687,7 @@ HLE_FORCE("_ZN2nn2fs14ExtendSaveDataERKNS_7account3UidEll", "fsp-srv; extend sav
@@ -113,7 +113,7 @@ index 7f40189..f772eb3 100644
  HLE_FORCE("_ZN2nn2fs21MountSaveDataReadOnlyEPKcNS_13ApplicationIdERKNS_7account3UidE", "fsp-srv; another program's save data: none", Result, h_fs_MountSaveRO, const char *name, uint64_t app, const void *uid) {
      (void)uid; LOG("[RED] fs read-only mount of another program's save data %s: program %016llx, the host has none", name, (unsigned long long)app); return 0x7d402u;   // fs ResultTargetNotFound
 diff --git a/dm/host/hle_os.c b/dm/host/hle_os.c
-index 462dfc9..8d97417 100644
+index 462dfc9e..8d974176 100644
 --- a/dm/host/hle_os.c
 +++ b/dm/host/hle_os.c
 @@ -133,7 +133,7 @@ HLE_FORCE("_ZN2nn6crypto36GenerateCryptographicallyRandomBytesEPvm", "csrng serv
@@ -136,7 +136,7 @@ index 462dfc9..8d97417 100644
  HLE_FORCE("_ZN2nn3mem17StandardAllocator8AllocateEm", "passed straight to the SDK; with the profile's alloc_big_align (13 Sentinels, Unicorn Overlord) allocations ≥ 64 KB are 64 KB aligned (memory pool start)", void *, h_mem_SAAllocate, void *self, size_t size) {
 diff --git a/dm/host/hle_profile.c b/dm/host/hle_profile.c
 new file mode 100644
-index 0000000..7543e08
+index 00000000..7543e083
 --- /dev/null
 +++ b/dm/host/hle_profile.c
 @@ -0,0 +1,281 @@
@@ -423,7 +423,7 @@ index 0000000..7543e08
 +}
 diff --git a/dm/host/hle_profile.h b/dm/host/hle_profile.h
 new file mode 100644
-index 0000000..a2febeb
+index 00000000..a2febeb3
 --- /dev/null
 +++ b/dm/host/hle_profile.h
 @@ -0,0 +1,37 @@
@@ -465,7 +465,7 @@ index 0000000..a2febeb
 +const struct dm_profile *dm_profile(void);   // loaded once; never NULL
 +void dm_profile_log(void);                   // one line per differing value (called after loading)
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index e87442e..c4bdc28 100644
+index e87442e2..c4bdc289 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
 @@ -26,7 +26,7 @@
@@ -573,7 +573,7 @@ index e87442e..c4bdc28 100644
          // nn::os::GetFreeThreadCount (SDK 11+): the thread resource limit less the threads alive, as the kernel answers it (Atmosphère kern_svc_info.cpp). pm gives an application a limit of
          // 96 threads (pm_spec.cpp BaseApplicationThreads; a boost raises it to 256). Monster Train 2's Unity 2022.3 player creates a thread only when this is at least 1: the 0 it got here
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 0b680c0..bd50c6c 100644
+index 1a2610e6..785a3732 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -316,7 +316,7 @@ static void install_fps_state(module_t *m) {
@@ -586,10 +586,10 @@ index 0b680c0..bd50c6c 100644
      float f = (float)t; memcpy(dm_fps_state, &f, sizeof f);
      // Render scale of the 3D views (the stubs at Tears of the Kingdom's main+0xd5cc0, Breath of the Wild's main+0x1266880, Hades II's render size): 1.0 keeps the game's own size
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 8029418..718810a 100644
+index 1c20254e..4a64fa4a 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -85,7 +85,7 @@ sync-wait: $(B)/t_sync_wait
+@@ -86,7 +86,7 @@ sync-wait: $(B)/t_sync_wait
  .PHONY: sync-wait
  run: $(B)/t_symbols
  $(B)/t_symbols: t_symbols.c ../hle.c ../loader.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -598,7 +598,7 @@ index 8029418..718810a 100644
  .PHONY: symbols
  symbols: $(B)/t_symbols
  	$(B)/t_symbols
-@@ -103,12 +103,12 @@ $(B)/t_audren_layout: t_audren_layout.c ../hle_audren.c ../hle.h ../dm.h $(GAME_
+@@ -104,12 +104,12 @@ $(B)/t_audren_layout: t_audren_layout.c ../hle_audren.c ../hle.h ../dm.h $(GAME_
  audren-layout: $(B)/t_audren_layout
  	$(B)/t_audren_layout
  $(B)/t_system_event: t_system_event.c ../hle_thread.c ../hle_sdk16.c ../hle_misc.c ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -613,7 +613,7 @@ index 8029418..718810a 100644
  .PHONY: nro
  nro: $(B)/t_nro
  	$(B)/t_nro
-@@ -122,7 +122,7 @@ cheats: $(B)/t_cheats
+@@ -123,7 +123,7 @@ cheats: $(B)/t_cheats
  $(GAME_H): FORCE
  	$(MAKE) -C .. game_profile GAME=$(GAME)
  $(B)/t_heap_size: t_heap_size.c ../hle_svc.c ../dm.h $(GAME_H) | $(B)
@@ -622,7 +622,7 @@ index 8029418..718810a 100644
  .PHONY: heap_size
  heap_size: $(B)/t_heap_size
  	$(B)/t_heap_size
-@@ -132,27 +132,27 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
+@@ -133,27 +133,27 @@ $(B)/t_gesture: t_gesture.c ../hle_touch.c ../front.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Wno-unused-function -I.. $(GINC) -o $@ t_gesture.c ../hle_touch.c
  $(B)/t_thread_leak: t_thread_leak.c ../thread.c ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wno-unused-function -I.. $(GINC) -o $@ t_thread_leak.c
@@ -662,7 +662,7 @@ index 8029418..718810a 100644
  $(B)/t_save_sync_metadata: t_save_sync_metadata.c ../save_sync.c ../save_sync.h | $(B)
  	$(CLANG) -O1 -Wall -Wno-unused-function -I.. -o $@ t_save_sync_metadata.c
  .PHONY: save-sync
-@@ -178,7 +178,7 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle_bigstack.c ../hle.h
+@@ -179,7 +179,7 @@ $(B)/t_audio_spsc_tsan: t_audio_spsc.c ../hle_audio.c ../hle_bigstack.c ../hle.h
  	$(CLANG) -O1 -g -O1 -fsanitize=thread -Wno-unused-function -I.. $(GINC) -o $@ t_audio_spsc.c ../hle_bigstack.c -framework AudioToolbox
  run: $(B)/t_fpslock
  $(B)/t_fpslock: t_fpslock.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -671,7 +671,7 @@ index 8029418..718810a 100644
  run: $(B)/t_ue_heap_span
  $(B)/t_ue_heap_span: t_ue_heap_span.c ../hle_uemalloc.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function $(GINC) -o $@ t_ue_heap_span.c
-@@ -206,7 +206,7 @@ $(B)/t_pctl: t_pctl.c ../hle_misc.c ../hle.h ../dm.h $(GAME_H) | $(B)
+@@ -207,7 +207,7 @@ $(B)/t_pctl: t_pctl.c ../hle_misc.c ../hle.h ../dm.h $(GAME_H) | $(B)
  $(B)/t_sf: t_sf.c ../hle_sf.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_sf.c
  $(B)/t_shared_font: t_shared_font.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -680,7 +680,7 @@ index 8029418..718810a 100644
  # nn::vi::ListFrameHistory: the SDK's FrameInfo, newest first, from the present queue's progress
  run: $(B)/t_vi_history
  $(B)/t_vi_history: t_vi_history.c ../../gfx/hle_vi.c ../hle.h ../dm.h $(GAME_H) | $(B)
-@@ -216,13 +216,13 @@ $(B)/t_nv: t_nv.c ../../gfx/hle_nv.c ../hle.h ../dm.h $(GAME_H) | $(B)
+@@ -217,13 +217,13 @@ $(B)/t_nv: t_nv.c ../../gfx/hle_nv.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_nv.c
  # nn::nfc answered without nfc:user (NFC disabled), beside the nfp no-tag answers
  run: $(B)/t_nfc
@@ -697,7 +697,7 @@ index 8029418..718810a 100644
  $(B)/t_motion: t_motion.c ../motion_fusion.h | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -o $@ t_motion.c -lm
  run: $(B)/t_motion_apple
-@@ -255,22 +255,22 @@ $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ..
+@@ -258,22 +258,22 @@ $(B)/t_haptics_apple: t_haptics_apple.m ../haptics_apple.m ../haptics_apple.h ..
  $(B)/t_time: t_time.c ../hle_time.c ../hle.h ../dm.h $(GAME_H) | $(B)
  	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_time.c
  $(B)/t_oe: t_oe.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -728,7 +728,7 @@ index 8029418..718810a 100644
  .PHONY: preempt
  preempt: $(B)/t_preempt
  	$(B)/t_preempt
-@@ -307,7 +307,7 @@ $(B):
+@@ -310,7 +310,7 @@ $(B):
  	mkdir -p $@
  .PHONY: run tsan
  $(B)/t_resolution: t_resolution.c ../hle_fpslock.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -737,7 +737,7 @@ index 8029418..718810a 100644
  .PHONY: resolution
  run: resolution
  resolution: $(B)/t_resolution
-@@ -320,17 +320,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
+@@ -323,17 +323,17 @@ tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
  	TMPDIR="$(abspath $(B))" $(B)/t_hid_tsan
  
  MEM_FLAGS = -O1 -Wall -Werror -Wno-unused-function -Imemory_profile -I.. -framework CoreFoundation
@@ -761,7 +761,7 @@ index 8029418..718810a 100644
  .PHONY: memory memory-tsan memory-dirty memory-profile
  memory: $(B)/t_svc_memory $(B)/t_svc_memory_unlimited $(B)/t_svc_memory_16k
  	$(B)/t_svc_memory
-@@ -354,7 +354,7 @@ run: memory memory-dirty memory-profile memory-file
+@@ -357,7 +357,7 @@ run: memory memory-dirty memory-profile memory-file
  
  # A native blocking notification wait must release the thread's guest core.
  $(B)/t_notify_sched: t_notify_sched.c t_condvar_stub.c ../hle_thread.c ../hle_oe.c ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -772,7 +772,7 @@ index 8029418..718810a 100644
  	$(B)/t_notify_sched
 diff --git a/dm/host/tests/t_layout_runtime.c b/dm/host/tests/t_layout_runtime.c
 new file mode 100644
-index 0000000..20b210d
+index 00000000..20b210d4
 --- /dev/null
 +++ b/dm/host/tests/t_layout_runtime.c
 @@ -0,0 +1,103 @@
@@ -880,7 +880,7 @@ index 0000000..20b210d
 +    return bad ? 1 : 0;
 +}
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 1f2040e..46a33d5 100644
+index 1f2040e7..46a33d5d 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -218,7 +218,7 @@ - (instancetype)initWithFrame:(CGRect)f {
@@ -893,10 +893,10 @@ index 1f2040e..46a33d5 100644
          _full = l == 1; _tap = l == 2;
          [self applyLayout];
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index e47883d..01ec6a2 100644
+index 435f71ee..2c6d2e47 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -273,6 +273,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav
+@@ -282,6 +282,7 @@ DM_PROBE_LIMIT	diagnostic	Maximum printed hits per guest probe; 0 or absent leav
  DM_PROBE_POLL	diagnostic	`=<address>[+<length>]` (hex, 4 bytes by default, up to 8): a host thread spins on the bytes and on each change snapshots every thread's pc, lr and frames, for writes the watch misses
  DM_PROBE_WATCH	diagnostic	`=<address>[+<length>]` (hex, 8 bytes by default): write-protects that host page and reports who writes these bytes, without a debugger
  DM_PROBE_X2	diagnostic	`=<bytes>` (hex): probe hits also dump that many bytes of the memory x2 points to

@@ -24,10 +24,10 @@ Issue: LNPANDY/NX2Apple#809
  2 files changed, 54 insertions(+), 5 deletions(-)
 
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
-index 6228394..5b9eeaf 100644
+index 205a96df..9f816866 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
-@@ -427,7 +427,20 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
+@@ -429,7 +429,20 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
                  channels[p] = [NSMutableArray new];
                  GCHapticsLocality both = [localities containsObject:GCHapticsLocalityHandles] ? GCHapticsLocalityHandles : GCHapticsLocalityDefault;
                  add_engine(p, -1, @"controller handles", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:both]; });
@@ -49,7 +49,7 @@ index 6228394..5b9eeaf 100644
                  dm_haptics_route(p, 1);
                  fprintf(stderr, "haptics: player %d plays both motors on one engine (%s)\n", p + 1, both.UTF8String);
              };
-@@ -530,6 +543,10 @@ void dm_haptics_apple_teardown(void) {
+@@ -532,6 +545,10 @@ void dm_haptics_apple_teardown(void) {
          }
          queue = nil;
      }
@@ -60,7 +60,7 @@ index 6228394..5b9eeaf 100644
      g_haptics_inited = 0;
      pthread_mutex_unlock(&routeLock);
  }
-@@ -540,12 +557,15 @@ void dm_haptics_apple_init(void) {
+@@ -542,12 +559,15 @@ void dm_haptics_apple_init(void) {
          return;
      }
      g_haptics_inited = 1;
@@ -81,7 +81,7 @@ index 6228394..5b9eeaf 100644
      dm_haptics_init(apply, !e || atoi(e) != 0);
  #if TARGET_OS_IPHONE
 diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
-index 964dbc9..5f281d3 100644
+index 2243e380..b2aed52b 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
 @@ -131,6 +131,7 @@ - (void)stopWithCompletionHandler:(CHHapticCompletionHandler)handler { self.stop
@@ -116,10 +116,10 @@ index 964dbc9..5f281d3 100644
 +    assert(split4.haptics.engines.lastObject.plainPlayers == 1);
 +    assert(fabsf(split4.haptics.engines.lastObject.testPlayer.levels.lastObject.floatValue - 0.5f) < 1e-6f);
 +    send_pair(0, 0); drain();
-     dm_haptics_apple_controller(0, nil); drain();   // disconnect discards the controller factory and its old callbacks
-     assert(!(dm_haptics_available() & 1));
-     TestController *unsupported = [TestController new]; unsupported.haptics = [TestHaptics new];
-@@ -517,6 +531,21 @@ int main(void) { @autoreleasepool {
+     // A DualSense keeps its handle route when advanced players are refused: each handle moves to plain players on a new engine of its own
+     // locality, at its own level
+     TestController *sense = [TestController new]; sense.haptics = [TestHaptics new]; sense.haptics.noAdvanced = YES;
+@@ -541,6 +555,21 @@ int main(void) { @autoreleasepool {
      assert(nativeStops && !outputOwners[0] && !nativeOutputs[0] && channels[0].count==1 && [controllerLocalities[0] isEqual:GCHapticsLocalityLeftHandle]);
      dm_haptics_apple_controller(0, nil); dm_haptics_apple_controller(1, nil); drain();
      assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
@@ -139,5 +139,5 @@ index 964dbc9..5f281d3 100644
 +    assert(gain == 1 && rumble_min == 0 && dm_haptics_apple_controller_intensity(0.4f) == 0.4f);
      dm_haptics_apple_shutdown();
 +    dm_haptics_apple_teardown();
-     puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, level cutoff and the DualShock 4 route passed");
+     puts("Apple haptics: channels, pulses, idle release, startup handlers, engine replacement, backoff, stale callbacks, plain players, the DualSense's handles, level cutoff and the DualShock 4 route passed");
  } }

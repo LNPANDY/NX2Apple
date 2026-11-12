@@ -31,7 +31,7 @@ Issue: LNPANDY/NX2Apple#414
  3 files changed, 87 insertions(+), 1 deletion(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index c724fe0..552639c 100644
+index c724fe02..552639ca 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -7,6 +7,7 @@
@@ -120,7 +120,7 @@ index c724fe0..552639c 100644
  - (void)refresh {   // pressed state → fill, sticks → knob position
      uint64_t all = _faceBits | _dpadBits | _btnBits;
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
-index 86083ad..a0b915b 100644
+index 86083ad7..a0b915bc 100644
 --- a/dm/ios/Sources/DmPadGeometry.h
 +++ b/dm/ios/Sources/DmPadGeometry.h
 @@ -196,4 +196,26 @@ static inline DmPadGeo dm_pad_geo(CGRect bounds, UIEdgeInsets insets, DmLayout l
@@ -151,7 +151,7 @@ index 86083ad..a0b915b 100644
 +
  NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-index 8f4b4b0..12479ac 100644
+index 8f4b4b06..12479aca 100644
 --- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -118,6 +118,24 @@ int main(void) {

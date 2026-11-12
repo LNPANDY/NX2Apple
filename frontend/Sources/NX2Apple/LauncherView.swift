@@ -251,9 +251,9 @@ struct LauncherView: View {
                 library.games.filter { !$0.archivePath.isEmpty && FileManager.default.fileExists(atPath: $0.archivePath) }
                     .map { TransferSource(titleID: $0.titleID, name: $0.name, archive: $0.archivePath) }
             }
-            m.macBuildEnvironment = { [library] titleID in   // the engine takes it only for a game without an icon of its own (#784)
+            m.macFallbackIconArguments = { [library] titleID in   // the engine takes it only for a game without an icon of its own (#784)
                 let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("NX2Apple/fallback-icons", isDirectory: true)
-                return FallbackIcon.environment(titleID: titleID, banners: library.artworkDirectory, folder: support)
+                return FallbackIcon.arguments(titleID: titleID, banners: library.artworkDirectory, folder: support)
             }
             library.keysFile = { [m] in m.savedKeys }   // the scan reads renamed packages' title IDs with them (#1012)
             if performStartupChecks { library.discover(); fetchArtwork(); library.fillMissingTitleNames(); _ = stores.deviceStore.refresh(); checkTools() }

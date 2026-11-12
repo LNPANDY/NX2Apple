@@ -35,7 +35,7 @@ Issue: LNPANDY/NX2Apple#347
  create mode 100644 dm/ios/tests/test_pad_geometry.py
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 3a1b524..bcf566a 100644
+index 3a1b5245..bcf566a7 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -10,6 +10,7 @@
@@ -249,7 +249,7 @@ index 3a1b524..bcf566a 100644
      in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
 new file mode 100644
-index 0000000..92697ef
+index 00000000..92697efc
 --- /dev/null
 +++ b/dm/ios/Sources/DmPadGeometry.h
 @@ -0,0 +1,176 @@
@@ -431,7 +431,7 @@ index 0000000..92697ef
 +NS_ASSUME_NONNULL_END
 diff --git a/dm/ios/tests/pad_geometry/UIKit/UIKit.h b/dm/ios/tests/pad_geometry/UIKit/UIKit.h
 new file mode 100644
-index 0000000..6643574
+index 00000000..6643574f
 --- /dev/null
 +++ b/dm/ios/tests/pad_geometry/UIKit/UIKit.h
 @@ -0,0 +1,11 @@
@@ -448,7 +448,7 @@ index 0000000..6643574
 +@class UIView;
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 new file mode 100644
-index 0000000..2a6cab4
+index 00000000..2a6cab40
 --- /dev/null
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -0,0 +1,102 @@
@@ -556,7 +556,7 @@ index 0000000..2a6cab4
 +}
 diff --git a/dm/ios/tests/test_pad_geometry.py b/dm/ios/tests/test_pad_geometry.py
 new file mode 100644
-index 0000000..9854dfd
+index 00000000..9854dfda
 --- /dev/null
 +++ b/dm/ios/tests/test_pad_geometry.py
 @@ -0,0 +1,34 @@

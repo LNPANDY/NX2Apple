@@ -27,7 +27,7 @@ Issue: LNPANDY/NX2Apple#558
  3 files changed, 51 insertions(+), 4 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index bcf566a..c724fe0 100644
+index bcf566a7..c724fe02 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -10,7 +10,7 @@
@@ -59,7 +59,7 @@ index bcf566a..c724fe0 100644
              [(UIView *)environment setNeedsLayout];
          }];
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
-index 92697ef..86083ad 100644
+index 92697efc..86083ad7 100644
 --- a/dm/ios/Sources/DmPadGeometry.h
 +++ b/dm/ios/Sources/DmPadGeometry.h
 @@ -2,6 +2,7 @@
@@ -116,7 +116,7 @@ index 92697ef..86083ad 100644
  }
  
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-index 2a6cab4..8f4b4b0 100644
+index 2a6cab40..8f4b4b06 100644
 --- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -76,10 +76,31 @@ int main(void) {

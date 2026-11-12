@@ -31,7 +31,7 @@ Issue: LNPANDY/NX2Apple#740
  3 files changed, 323 insertions(+), 28 deletions(-)
 
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index 7d6d447..82e1a38 100644
+index c19a57f4..68784a4b 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
 @@ -168,6 +168,69 @@ static void s2_sink(int player, BOOL on) {
@@ -126,7 +126,7 @@ index 7d6d447..82e1a38 100644
      return NO;
  }
  static void controller_merge_haptics(void) {
-@@ -504,13 +562,21 @@ static void hidpad_detach(hid_pad *hid) {
+@@ -512,13 +570,21 @@ static void hidpad_detach(hid_pad *hid) {
  static void joycon_read(joycon_pad *pad) {
      DMController *d=controller_for_joycon(pad); if(!d) return;
      joycon_pad *pri=d->joycon;
@@ -148,7 +148,7 @@ index 7d6d447..82e1a38 100644
      }
      if(!g_merge && d->slot>=0) {
          dm_joy_set(d->slot,joycon_side(pad->st.pid),g_focus ? pad->st.joy_buttons : 0,g_focus ? controller_axis(pad->st.joy_sx) : 0,g_focus ? controller_axis(pad->st.joy_sy) : 0);
-@@ -543,7 +609,10 @@ static void joycon_read_motion(joycon_pad *pad, const uint8_t *rep, size_t len)
+@@ -551,7 +617,10 @@ static void joycon_read_motion(joycon_pad *pad, const uint8_t *rep, size_t len)
  static void joycon_attach(joycon_pad *pad) {
      DMController *d=[DMController new]; d->joycon=pad;
      d.name=@(pad->name); d.model=[@"Nintendo / " stringByAppendingString:d.name];
@@ -160,7 +160,7 @@ index 7d6d447..82e1a38 100644
  }
  static void joycon_detach(joycon_pad *pad) {
      DMController *d=controller_for_joycon(pad); if(!d) return;
-@@ -564,6 +633,7 @@ static void joycon_pair_changed(joycon_pad *pri) {
+@@ -572,6 +641,7 @@ static void joycon_pair_changed(joycon_pad *pri) {
  }
  static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
      DMController *d=controller_for_joycon(pri);
@@ -168,7 +168,7 @@ index 7d6d447..82e1a38 100644
      int slot=d ? d->slot : -1;
      if(!g_merge && slot>=0) {
          int sec_side=joycon_side(sec->st.pid);
-@@ -573,6 +643,7 @@ static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
+@@ -581,6 +651,7 @@ static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
      joycon_pair_changed(pri);
      joycon_attach(sec);
      DMController *sd=controller_for_joycon(sec);
@@ -176,7 +176,7 @@ index 7d6d447..82e1a38 100644
      if(!sd || sd->slot<0) {
          if(sd) { controller_disconnect(sd); sd->joycon=NULL; [g_devices removeObject:sd]; }
          pri->partner=sec; sec->partner=pri; pri->primary=1; sec->primary=0;
-@@ -580,19 +651,21 @@ static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
+@@ -588,19 +659,21 @@ static void joycon_split_pair(joycon_pad *pri, joycon_pad *sec) {
          joycon_pair_changed(pri);
          return;
      }
@@ -200,7 +200,7 @@ index 7d6d447..82e1a38 100644
  }
  static void joycon_unpair_removed(joycon_pad *gone_pad, joycon_pad *keep_pad) {
      DMController *d=controller_for_joycon(gone_pad);
-@@ -605,25 +678,24 @@ static void joycon_unpair_removed(joycon_pad *gone_pad, joycon_pad *keep_pad) {
+@@ -613,25 +686,24 @@ static void joycon_unpair_removed(joycon_pad *gone_pad, joycon_pad *keep_pad) {
          }
          d->joycon=keep_pad;
      }
@@ -232,7 +232,7 @@ index 7d6d447..82e1a38 100644
          else dm_haptics_apple_controller_locality(d->slot,pair,d->joycon->st.pid==JOYCON_PID_L ? GCHapticsLocalityLeftHandle : GCHapticsLocalityRightHandle);
      }
 diff --git a/dm/host/pad_joycon_mac.h b/dm/host/pad_joycon_mac.h
-index 0ac115d..fa5d174 100644
+index 0ac115d1..fa5d1744 100644
 --- a/dm/host/pad_joycon_mac.h
 +++ b/dm/host/pad_joycon_mac.h
 @@ -19,6 +19,7 @@ typedef struct joycon_pad {
@@ -324,7 +324,7 @@ index 0ac115d..fa5d174 100644
  
  static void joycon_start(void) {
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index 5eab427..ef6f705 100644
+index d9a28f4b..9619d973 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -5,6 +5,8 @@
@@ -565,7 +565,7 @@ index 5eab427..ef6f705 100644
  static void test_split_joycon_routing(void) {
      for(int merged=0;merged<2;merged++) {
          g_merge=merged; g_slots=(pad_slots){0}; g_joycon_split=1; g_joycon_force_split=0;
-@@ -1007,6 +1198,7 @@ int main(int argc, char **argv) {
+@@ -1012,6 +1203,7 @@ int main(int argc, char **argv) {
          front_controllers_window(0); assert(ntouches==1 && touches[0].x==.25);
          front_controllers_window(1); dm_touch_set(NULL,0);
          test_split_joycon_routing();

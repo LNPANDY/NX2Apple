@@ -31,7 +31,7 @@ Issue: LNPANDY/NX2Apple#695
  5 files changed, 64 insertions(+), 14 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 7a5f7cb..d36c4ce 100644
+index 7a5f7cb7..d36c4ce9 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -276,7 +276,8 @@ - (void)setTouchFeedback:(BOOL)on {
@@ -45,7 +45,7 @@ index 7a5f7cb..d36c4ce 100644
      _layout = layout; _geoValid = NO;
      [self setNeedsLayout];
 diff --git a/dm/ios/Sources/DmLayout.h b/dm/ios/Sources/DmLayout.h
-index bb3631f..bfc19b7 100644
+index bb3631f7..bfc19b76 100644
 --- a/dm/ios/Sources/DmLayout.h
 +++ b/dm/ios/Sources/DmLayout.h
 @@ -5,7 +5,11 @@
@@ -80,7 +80,7 @@ index bb3631f..bfc19b7 100644
  // Fill covers the full view only in the overlay layout (landscape). A portrait or tabletop split keeps the picture fitted in its
  // area above the controls, where cropping a small picture would cost more than the bars.
 diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
-index df8eebf..d2efd77 100644
+index df8eebf3..d2efd777 100644
 --- a/dm/ios/Sources/DmPadGeometry.h
 +++ b/dm/ios/Sources/DmPadGeometry.h
 @@ -37,7 +37,7 @@ typedef struct {
@@ -137,7 +137,7 @@ index df8eebf..d2efd77 100644
      return g;
  }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 9666d9e..3400f69 100644
+index 04c79d12..0560fdb8 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -215,6 +215,11 @@ - (void)viewDidLayoutSubviews {
@@ -153,7 +153,7 @@ index 9666d9e..3400f69 100644
                        (long)self.hingeStatus, self.partiallyOpen ? " (half open)" : "", regionLog, NSStringFromCGRect(layout.game), NSStringFromCGRect(layout.controls)];
      if (![line isEqualToString:self.layoutLog]) { self.layoutLog = line; LOG("front end: layout %s", line.UTF8String); }
 diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
-index 99925b6..b78567b 100644
+index 99925b64..b78567b7 100644
 --- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
 +++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
 @@ -214,6 +214,42 @@ static void check_arrangement(const Screen *screens, int nscreens) {

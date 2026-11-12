@@ -16,10 +16,10 @@ Issue: LNPANDY/NX2Apple#144
  1 file changed, 8 insertions(+)
 
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 914d5f0..3868a3a 100644
+index 970015fe..3898c81f 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -41,9 +41,12 @@ DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and t
+@@ -42,9 +42,12 @@ DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and t
  DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
  DM_FONT_DIR	path	Folder of the shared-font stand-ins (`standard.ttf`, `nintendo_ext.ttf` with the button icons); the app, the Mac launcher and the NSP script set it
  DM_FORCE_STRICT	diagnostic	`=1` makes the loader fail on forced-hook entries no module references, instead of only noting them (for checking a mistyped list)
@@ -32,7 +32,7 @@ index 914d5f0..3868a3a 100644
  DM_FS	diagnostic	When set, logs file opens, paths not found or not mounted, and a read summary every 64 MiB or 1000 reads
  DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since boot, guest path, offset, length and guest buffer address
  DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
-@@ -81,6 +84,7 @@ DM_HOME_QUIT	player	`0` turns off quitting with the controller's Home button (Ma
+@@ -83,6 +86,7 @@ DM_HOME_QUIT	player	`0` turns off quitting with the controller's Home button (Ma
  DM_HOME_QUIT_CAPTURE	test	`=<folder>`: `tests/t_home_quit_mac.m` also draws the Home button's quit prompt and hold indicator into PNG files there
  DM_HOME_QUIT_TEXT	switch	The texts of the Home button's quit prompt in the player's language, one per line: the hold indicator, the title, the note, the quit and the cancel button; a front end such as NX2Apple sets it ([Starting a game](frontends.md#starting-a-game)), an empty or missing line keeps the English text
  DM_HTML	path	Folder of the offline HTML pages (default: `html` beside the RomFS)
@@ -40,7 +40,7 @@ index 914d5f0..3868a3a 100644
  DM_ICON	path	`=<image>` gives `build_ipa.sh` another app icon (default the `icon.jpg` beside the RomFS)
  DM_IMPORTS	diagnostic	When set, logs each import the loader binds to a host function and each forced takeover
  DM_JCMS_LOG	diagnostic	`=1` logs the game's Joy-Con mouse sensor and pointer calls (JcmsState reads, Nmouse handles, states and positions), at most once a second each
-@@ -341,6 +345,10 @@ DM_SHADER_FILES	switch	`1` packs an NVN game's shader library into the unsigned
+@@ -351,6 +355,10 @@ DM_SHADER_FILES	switch	`1` packs an NVN game's shader library into the unsigned
  DM_SHAKE_G	switch	`=<G>`: on iOS, the acceleration beyond gravity above which a flick of the phone shakes the controller's six-axis sensor (default 1.5)
  DM_SHARED_FONT	path	Font file served for every shared-font type except the Nintendo extension (default `$DM_FONT_DIR/standard.ttf`, then macOS's Arial Unicode)
  DM_SHARED_FONT_EXT	path	Font file served for shared-font type 5, the Nintendo extension with the button icons (default `$DM_FONT_DIR/nintendo_ext.ttf`, made by `make_ext_font.py`)

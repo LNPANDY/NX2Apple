@@ -15,10 +15,10 @@ Issue: LNPANDY/NX2Apple#368
  2 files changed, 8 insertions(+), 2 deletions(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 0c82bd1..6800260 100644
+index 49a2741c..6cb52095 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
-@@ -1601,14 +1601,19 @@ void front_run(void (*guest)(void)) {
+@@ -1608,14 +1608,19 @@ void front_run(void (*guest)(void)) {
          const char *ch = getenv("DM_CURSOR_HIDE"); double idle = ch && *ch ? atof(ch) : 3.0;
          if (idle > 0) {
              win.acceptsMouseMovedEvents = YES;
@@ -41,11 +41,11 @@ index 0c82bd1..6800260 100644
          }
          for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
 diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 3868a3a..412f3ab 100644
+index 3898c81f..b38fa437 100644
 --- a/docs/env_switches.tsv
 +++ b/docs/env_switches.tsv
-@@ -23,6 +23,7 @@ DM_COPY_GAME_RESOURCES	switch	`NO` skips the Xcode build phase that copies the g
- DM_COPY_ROMFS	switch	`NO` keeps the game files out of the app, in the Xcode build phase (`stage_resources.sh`) and in the unsigned IPA of `build_ipa.sh` (on by default): `main.m` takes the validated `Documents/romfs.img` copied by `scripts/push_romfs.sh`, then a `Documents/romfs` folder; the build writes the image's identity as `romfs.id` into the app, and `main.m` uses only a matching image (`--romfs separate` of the NSP script sets this)
+@@ -24,6 +24,7 @@ DM_COPY_ROMFS	switch	`NO` keeps the game files out of the app, in the Xcode buil
+ DM_CRASH_PEEK	diagnostic	`="sp+0x248*,x22-0x20"` adds 0x100 bytes at each address to the crash report: `sp` or a register plus or minus an offset, a trailing `*` reading the pointer stored there first
  DM_CTL	diagnostic	`=<file>` (Mac): the host polls the file every 100 ms and runs each appended line: button presses, `shot`, `passdump`, `texdump`, `env KEY=VALUE`, `peek`, `memdump`, `drag` and more
  DM_CTRL_PROMPT_TEXT	switch	The texts of the controller applet's prompt (a game wants more players than have joined; `ctrl_prompt.h`) in the player's language, one per line: the title, the hint, the count, the done and the cancel button, with `{min}`, `{max}` and `{joined}` replaced by the numbers; a front end sets it ([Starting a game](frontends.md#starting-a-game)), an empty or missing line keeps the English text
 +DM_CURSOR_HIDDEN	player	`=1` (Mac) starts the game with the pointer already hidden, as the launcher sets it when its console had hidden the pointer, so it does not show up for a moment between the two windows. The usual rule of `DM_CURSOR_HIDE` takes over once the pointer is over the game window
