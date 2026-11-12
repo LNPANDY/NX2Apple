@@ -171,5 +171,12 @@ import NXModel
         let r = SystemProcessRunner().runQuiet(["/usr/bin/env", "python3", "-c", code, tools, repo], env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"])
         try XCTSkipUnless(r.ok, "python3 did not run: \(r.out)")
         XCTAssertEqual(r.out.trimmingCharacters(in: .whitespacesAndNewlines), EngineLayout.stampKey(repo))
+
+        try syncedEngine()
+        XCTAssertFalse(EngineLayout.isStale(repo))
+        try touch("patches/fork_env_switches.tsv", "# name\tclass\twhere\tmeaning\nDM_TEST\tdebug\tdm/a.c\ttest\n")
+        XCTAssertTrue(EngineLayout.isStale(repo))
+        let r2 = SystemProcessRunner().runQuiet(["/usr/bin/env", "python3", "-c", code, tools, repo], env: ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"])
+        XCTAssertEqual(r2.out.trimmingCharacters(in: .whitespacesAndNewlines), EngineLayout.stampKey(repo))
     }
 }

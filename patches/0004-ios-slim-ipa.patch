@@ -16,11 +16,10 @@ Issue: LNPANDY/NX2Apple#123
  dm/ios/tests/test_profile_pack.py |  3 ++-
  dm/ios/tools/build_ipa.sh         |  9 +++++++-
  dm/ios/tools/xcode_projects.py    | 34 ++++++++++++++++++++++++++++++-
- docs/env_switches.tsv             |  1 +
- 5 files changed, 53 insertions(+), 7 deletions(-)
+ 4 files changed, 52 insertions(+), 7 deletions(-)
 
 diff --git a/dm/ios/tests/test_ipa_unsigned.py b/dm/ios/tests/test_ipa_unsigned.py
-index 028d5067..42086883 100644
+index 028d506..4208688 100644
 --- a/dm/ios/tests/test_ipa_unsigned.py
 +++ b/dm/ios/tests/test_ipa_unsigned.py
 @@ -54,8 +54,13 @@ class UnsignedIpaTests(unittest.TestCase):
@@ -59,7 +58,7 @@ index 028d5067..42086883 100644
      def test_slim_ipa_of_a_folder_has_no_identity(self):
          self.assertNotIn('Payload/DmIOS.app/romfs.id', self.pack(DM_COPY_ROMFS='NO'))
 diff --git a/dm/ios/tests/test_profile_pack.py b/dm/ios/tests/test_profile_pack.py
-index 3d849315..6558530f 100644
+index 3d84931..6558530 100644
 --- a/dm/ios/tests/test_profile_pack.py
 +++ b/dm/ios/tests/test_profile_pack.py
 @@ -71,7 +71,8 @@ class ProfilePackTests(unittest.TestCase):
@@ -73,7 +72,7 @@ index 3d849315..6558530f 100644
  
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 57a16dbc..8531caaa 100755
+index 57a16db..8531caa 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -248,6 +248,9 @@ if [ -n "${PROGRAMS_TSV:-}" ]; then   # each program's shader libraries, RomFS,
@@ -100,7 +99,7 @@ index 57a16dbc..8531caaa 100755
  MAPS+=("$P/msl/$MSLDIR=$MSL_IOS/$MSLDIR" "$P=$APP")
    if [ -d "$(dirname "$ROMFS")/html" ]; then MAPS+=("$P/html=$(dirname "$ROMFS")/html"); t "offline HTML pages: $(dirname "$ROMFS")/html"; fi   # beside its RomFS, where the host finds them (hle_web.c)
 diff --git a/dm/ios/tools/xcode_projects.py b/dm/ios/tools/xcode_projects.py
-index a832ad5a..0f5485df 100644
+index a832ad5..0f5485d 100644
 --- a/dm/ios/tools/xcode_projects.py
 +++ b/dm/ios/tools/xcode_projects.py
 @@ -33,10 +33,42 @@ def workspace_projects(workspace):
@@ -147,15 +146,3 @@ index a832ad5a..0f5485df 100644
          if used.lower() == bundle_id.lower():
              raise ValueError(f'bundle ID {bundle_id} is already used by {other}; choose a different --bundle-id for this game')
  
-diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 2c6d2e47..ac2ec7c8 100644
---- a/docs/env_switches.tsv
-+++ b/docs/env_switches.tsv
-@@ -49,6 +49,7 @@ DM_FSLOG	diagnostic	`=<file>` writes one TSV line per ReadFile: seconds since bo
- DM_FSLOG_HASH	diagnostic	With `DM_FSLOG`, adds a column with the FNV-1a 64 hash of the bytes read
- DM_FSTEP_PROBE_RAMP	switch	`0` ends a frame-step probe's grace after its 30 frames as before; by default the grace is renewed while the probe's frames keep getting cheaper (macOS raises the GPU clock for the shorter deadline over seconds); `ab` alternates with `DM_AB`
- DM_FULLSCREEN	player	`1` (any value but `0`) starts the Mac window in fullscreen; `0` or unset, a window. The Mac settings window's Display mode
-+DM_FULL_ROMFS	diagnostic	`=1` in `build_ipa.sh` packs the game data into the IPA as it did before the slim package; the default leaves it in `Documents/games/<id>/` (`romfs.img`, `aoc/<index>.img`) and the DLC beside it. Only for small games — a full package of a large one is many GB and iOS refuses it (`PackageExtractionFailed`)
- DM_GAME	switch	Selects the game profile (a title ID under `dm/games` or `DM_GAMES_DIR`) for the Python tools and the rewriter; there is no default
- DM_GAMES_DIR	path	Profile folders outside the repository, separated by `:`, searched after `dm/games`; the NSP script points it at a provisional or derived profile
- DM_GAMES_FIRST	switch	`=1` searches `DM_GAMES_DIR` before `dm/games`, so a provisional or derived profile wins over the game's own (the NSP script's `--provisional`)

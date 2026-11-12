@@ -45,11 +45,10 @@ Issue: seedds/nxnative#221
  dm/tools/impact_map.tsv             |    9 +
  dm/tools/tests/test_nsp_mac_app.py  |  109 ++-
  docs/development.md                 |    4 +
- docs/env_switches.tsv               |    7 +-
  docs/frontends.md                   |   32 +
  docs/mac-controllers.md             |  253 ++++++
  docs/reference/services.md          |   36 +-
- 34 files changed, 3861 insertions(+), 649 deletions(-)
+ 33 files changed, 3856 insertions(+), 647 deletions(-)
  create mode 100644 dm/host/controllers_mac.h
  create mode 100644 dm/host/controllers_mac.m
  create mode 100644 dm/host/input_preferences_mac.h
@@ -62,7 +61,7 @@ Issue: seedds/nxnative#221
  create mode 100644 docs/mac-controllers.md
 
 diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
-index aa9f8b2a..4b0c16de 100644
+index aa9f8b2..4b0c16d 100644
 --- a/dm/games/0100F2C0115B6000/README.md
 +++ b/dm/games/0100F2C0115B6000/README.md
 @@ -65,6 +65,8 @@ Game-specific findings. The general host changes they led to are listed under [F
@@ -86,7 +85,7 @@ index aa9f8b2a..4b0c16de 100644
  
  - **Resolved in the host (#342): recurring startup crash during archive compaction**, with a workaround for Metal's serializer defect: [Pipeline archive compaction crashes in Metal's serializer](../../../docs/reference/shaders.md#a-compaction-flush-that-crashes-then-crashes-every-start). Confirmed with local manifest replays; no new gameplay or iOS validation.
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index 09591801..b1ef48b1 100644
+index 0959180..b1ef48b 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -22,7 +22,7 @@ include ../mac/min_os.mk
@@ -109,7 +108,7 @@ index 09591801..b1ef48b1 100644
  	rm -rf gen dmhost dmhost_* *.dSYM
 diff --git a/dm/host/controllers_mac.h b/dm/host/controllers_mac.h
 new file mode 100644
-index 00000000..bd852c4e
+index 0000000..bd852c4
 --- /dev/null
 +++ b/dm/host/controllers_mac.h
 @@ -0,0 +1,27 @@
@@ -142,7 +141,7 @@ index 00000000..bd852c4e
 +int front_cp_poll(void);
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
 new file mode 100644
-index 00000000..773d3481
+index 0000000..773d348
 --- /dev/null
 +++ b/dm/host/controllers_mac.m
 @@ -0,0 +1,1210 @@
@@ -1357,7 +1356,7 @@ index 00000000..773d3481
 +        [NSNotificationCenter.defaultCenter addObserverForName:name object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) { front_controllers_focus([n.name isEqual:NSApplicationDidBecomeActiveNotification]); }];
 +}
 diff --git a/dm/host/dm_input.h b/dm/host/dm_input.h
-index ab2c8074..3f7cef8f 100644
+index ab2c807..3f7cef8 100644
 --- a/dm/host/dm_input.h
 +++ b/dm/host/dm_input.h
 @@ -21,7 +21,7 @@ uint64_t dm_input_samples(void);   // Cumulative number of times the game has sa
@@ -1381,7 +1380,7 @@ index ab2c8074..3f7cef8f 100644
  // Optional diagnostic DM_HID_RECEIPT_LOG=<writable JSONL path>: received samples of real GetNpadState returns.
  // Fields read_start_ns/time_ns use the same host now_ns(); the front-end publish window must use the same helper, and a read interval that spans a publish must not be force-matched.
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index 5ac5c2e8..052f230e 100644
+index 5ac5c2e..052f230 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -7,7 +7,7 @@
@@ -2136,7 +2135,7 @@ index 5ac5c2e8..052f230e 100644
      if (!r) return 0;
      (void)max_chars;                              // Truncation is done uniformly in hle_swkbd.c in UTF-16 units
 diff --git a/dm/host/haptics_apple.h b/dm/host/haptics_apple.h
-index 6c54cdc0..b41a2bb6 100644
+index 6c54cdc..b41a2bb 100644
 --- a/dm/host/haptics_apple.h
 +++ b/dm/host/haptics_apple.h
 @@ -8,4 +8,14 @@ void dm_haptics_apple_controller(int player, GCController *controller);
@@ -2155,7 +2154,7 @@ index 6c54cdc0..b41a2bb6 100644
 +// Mac game-window/modal gate, independent of application activation.
 +void dm_haptics_apple_focus(int active);
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
-index 6a02108d..dbf82d05 100644
+index 6a02108..dbf82d0 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
 @@ -40,6 +40,9 @@ - (void)stop;
@@ -2271,7 +2270,7 @@ index 6a02108d..dbf82d05 100644
      if (queue) suspend(DM_HAPTICS_INACTIVE, YES);
  }
 diff --git a/dm/host/hle_haptics.h b/dm/host/hle_haptics.h
-index d808df0d..3fb623bf 100644
+index d808df0..3fb623b 100644
 --- a/dm/host/hle_haptics.h
 +++ b/dm/host/hle_haptics.h
 @@ -6,7 +6,7 @@ typedef struct { float amplitude_low, frequency_low, amplitude_high, frequency_h
@@ -2284,7 +2283,7 @@ index d808df0d..3fb623bf 100644
  // The sink copies/enqueues each snapshot in order; called under the state lock, it must not reenter.
  // No hardware calls on the sending thread. A changed epoch invalidates all older queued snapshots.
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 7d1a751b..bad98bb1 100644
+index 7d1a751..bad98bb 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -2,7 +2,7 @@
@@ -2591,7 +2590,7 @@ index 7d1a751b..bad98bb1 100644
  HLE_FORCE("_ZN2nn3hid28InitializeSevenSixAxisSensorEPvm", "console six-axis sensor initialization; not provided by the host", Result, h_hid_SevenInit, void *buf, size_t n) { (void)buf; (void)n; return RES_OK; }
  HLE_FORCE("_ZN2nn3hid26FinalizeSevenSixAxisSensorEv", "console six-axis sensor", Result, h_hid_SevenFini, void) { return RES_OK; }
 diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
-index 64b6b9de..ddab1156 100644
+index 64b6b9d..ddab115 100644
 --- a/dm/host/home_quit.h
 +++ b/dm/host/home_quit.h
 @@ -1,9 +1,9 @@
@@ -2607,7 +2606,7 @@ index 64b6b9de..ddab1156 100644
  // Games app or the player's chosen app), the game window loses the focus and whatever was shown closes (hq_cancel). DM_HOME_QUIT=0 turns it off. A front end passes the
  // texts in the player's language as DM_HOME_QUIT_TEXT (hq_text_line, docs/frontends.md), English otherwise.
 diff --git a/dm/host/input_map.h b/dm/host/input_map.h
-index 56fa4993..64419adc 100644
+index 56fa499..64419ad 100644
 --- a/dm/host/input_map.h
 +++ b/dm/host/input_map.h
 @@ -1,10 +1,11 @@
@@ -2690,7 +2689,7 @@ index 56fa4993..64419adc 100644
      uint64_t out = btn & ~0xffffull;
 diff --git a/dm/host/input_preferences_mac.h b/dm/host/input_preferences_mac.h
 new file mode 100644
-index 00000000..b3a2deef
+index 0000000..b3a2dee
 --- /dev/null
 +++ b/dm/host/input_preferences_mac.h
 @@ -0,0 +1,47 @@
@@ -2742,7 +2741,7 @@ index 00000000..b3a2deef
 +    return value;
 +}
 diff --git a/dm/host/pad_hid_mac.h b/dm/host/pad_hid_mac.h
-index 3df247c5..81911379 100644
+index 3df247c..8191137 100644
 --- a/dm/host/pad_hid_mac.h
 +++ b/dm/host/pad_hid_mac.h
 @@ -1,6 +1,6 @@
@@ -2972,7 +2971,7 @@ index 3df247c5..81911379 100644
          IOHIDManagerUnscheduleFromRunLoop(g_hidpad_manager, CFRunLoopGetMain(), kCFRunLoopCommonModes);
 diff --git a/dm/host/pad_map.h b/dm/host/pad_map.h
 new file mode 100644
-index 00000000..2f482e5c
+index 0000000..2f482e5
 --- /dev/null
 +++ b/dm/host/pad_map.h
 @@ -0,0 +1,17 @@
@@ -2995,7 +2994,7 @@ index 00000000..2f482e5c
 +}
 diff --git a/dm/host/pad_motion.h b/dm/host/pad_motion.h
 new file mode 100644
-index 00000000..27b19e26
+index 0000000..27b19e2
 --- /dev/null
 +++ b/dm/host/pad_motion.h
 @@ -0,0 +1,36 @@
@@ -3037,7 +3036,7 @@ index 00000000..27b19e26
 +}
 diff --git a/dm/host/steam_input.h b/dm/host/steam_input.h
 new file mode 100644
-index 00000000..a2525732
+index 0000000..a252573
 --- /dev/null
 +++ b/dm/host/steam_input.h
 @@ -0,0 +1,97 @@
@@ -3139,7 +3138,7 @@ index 00000000..a2525732
 +    memset(out, 0, 64); out[0] = 1; out[1] = 0x87; out[2] = 3; out[3] = 48; out[4] = enabled ? 0x18 : 0;
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index c70ac5e9..91e95c7e 100644
+index c70ac5e..91e95c7 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -80,6 +80,9 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
@@ -3166,7 +3165,7 @@ index c70ac5e9..91e95c7e 100644
 +	$(CLANG) $(GINC) -O1 -fobjc-arc -Wall -Werror -Wno-unused-function -o $@ t_controllers_mac.m -framework Cocoa -framework GameController -framework IOKit
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
 new file mode 100644
-index 00000000..42c55c10
+index 0000000..42c55c1
 --- /dev/null
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -0,0 +1,1123 @@
@@ -4294,7 +4293,7 @@ index 00000000..42c55c10
 +    }
 +}
 diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
-index 490e2439..2243e380 100644
+index 490e243..2243e38 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
 @@ -100,7 +100,7 @@ @interface TestEngine : NSObject
@@ -4376,7 +4375,7 @@ index 490e2439..2243e380 100644
      assert(ds4_crc((const uint8_t *)"123456789", 9) == 0xCBF43926u);   // the report's CRC32 (IEEE, reflected)
      dm_haptics_apple_shutdown();
 diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
-index 4d5dcb28..ad5cc389 100644
+index 4d5dcb2..ad5cc38 100644
 --- a/dm/host/tests/t_hid.c
 +++ b/dm/host/tests/t_hid.c
 @@ -18,15 +18,16 @@ static int g_prompt_answer = -1, g_prompt_calls, g_prompt_min, g_prompt_max; sta
@@ -4719,7 +4718,7 @@ index 4d5dcb28..ad5cc389 100644
      return fails != 0;
  }
 diff --git a/dm/host/tests/t_input_map.c b/dm/host/tests/t_input_map.c
-index 96736ad6..8ea0ab70 100644
+index 96736ad..8ea0ab7 100644
 --- a/dm/host/tests/t_input_map.c
 +++ b/dm/host/tests/t_input_map.c
 @@ -28,6 +28,29 @@ int main(void) {
@@ -4772,7 +4771,7 @@ index 96736ad6..8ea0ab70 100644
      return fails != 0;
  }
 diff --git a/dm/host/tests/t_pad_hid_mac.m b/dm/host/tests/t_pad_hid_mac.m
-index 80b58e6a..07b47682 100644
+index 80b58e6..07b4768 100644
 --- a/dm/host/tests/t_pad_hid_mac.m
 +++ b/dm/host/tests/t_pad_hid_mac.m
 @@ -42,6 +42,8 @@ static void test_report_cb(IOHIDDeviceRef device, uint8_t *buffer, CFIndex len,
@@ -4802,7 +4801,7 @@ index 80b58e6a..07b47682 100644
  static void hidpad_read(hid_pad *d) { (void)d; }
 diff --git a/dm/host/tests/t_pad_map.c b/dm/host/tests/t_pad_map.c
 new file mode 100644
-index 00000000..6035d6ed
+index 0000000..6035d6e
 --- /dev/null
 +++ b/dm/host/tests/t_pad_map.c
 @@ -0,0 +1,104 @@
@@ -4912,7 +4911,7 @@ index 00000000..6035d6ed
 +}
 diff --git a/dm/host/tests/t_pad_motion.c b/dm/host/tests/t_pad_motion.c
 new file mode 100644
-index 00000000..f785cf02
+index 0000000..f785cf0
 --- /dev/null
 +++ b/dm/host/tests/t_pad_motion.c
 @@ -0,0 +1,19 @@
@@ -4936,7 +4935,7 @@ index 00000000..f785cf02
 +    puts("motion timestamp wrap, units, orientation and stale-gap handling: OK");
 +}
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index bbd687de..83a77f29 100644
+index dc0eee1..fd6eba7 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -6,6 +6,8 @@
@@ -5013,7 +5012,7 @@ index bbd687de..83a77f29 100644
      setenv("DM_ROOT", sup, 0); setenv("DM_ROMFS", romfs, 0); setenv("DM_TEMP", temp, 0);
      snprintf(p, sizeof p, "%s/msl", res); setenv("DM_MSL_DIR", p, 0);
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 3cf865ab..915a3917 100755
+index 3cf865a..915a391 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -131,7 +131,7 @@ def info_plist(a, minos, icon):
@@ -5035,7 +5034,7 @@ index 3cf865ab..915a3917 100755
                    'trees': [(p, inventory(Path(p))) for p in (a.romfs, a.aoc, a.html, *(str(x[1]) for x in programs), *(str(x[3]) for x in programs)) if p and Path(p).exists()],
                    'tools': [[str(c), c.stat().st_mode, c.stat().st_size, c.stat().st_mtime_ns, c.stat().st_ctime_ns, run([c, '--version']).strip()] for c in (clang, swiftc)] + [
 diff --git a/dm/tools/impact_map.tsv b/dm/tools/impact_map.tsv
-index 3018bd40..82dcffed 100644
+index 3018bd4..82dcffe 100644
 --- a/dm/tools/impact_map.tsv
 +++ b/dm/tools/impact_map.tsv
 @@ -150,6 +150,15 @@ dm/host/motion_pro_mac.h	hle:*SixAxisSensor*	Mac Pro Controller raw motion trans
@@ -5055,7 +5054,7 @@ index 3018bd40..82dcffed 100644
  dm/ios/*	*:*	the iOS app
  dm/third_party/ryujinx/src/Ryujinx.Graphics.Shader/Translation/Transforms/GeometryToCompute.cs	shader:stage:gs	geometry compute input and output lowering
 diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
-index 58ae7878..8c0aa2e9 100644
+index 58ae787..8c0aa2e 100644
 --- a/dm/tools/tests/test_nsp_mac_app.py
 +++ b/dm/tools/tests/test_nsp_mac_app.py
 @@ -118,7 +118,7 @@ class PackReuse(unittest.TestCase):
@@ -5203,7 +5202,7 @@ index 58ae7878..8c0aa2e9 100644
          for target in (self.app, self.app / 'Contents/MacOS/dmhost'):
              subprocess.run(['codesign', '--verify', '--strict', target], check=True, capture_output=True)
 diff --git a/docs/development.md b/docs/development.md
-index 9b293dd3..ae982f29 100644
+index 9b293dd..ae982f2 100644
 --- a/docs/development.md
 +++ b/docs/development.md
 @@ -603,6 +603,10 @@ Why the host is a child process: macOS privacy checks (TCC) cover files on remov
@@ -5217,47 +5216,8 @@ index 9b293dd3..ae982f29 100644
  ## Build and run on a device with Xcode
  
  With an Apple developer account, Xcode can sign and install the app itself:
-diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 9335d529..0935c5da 100644
---- a/docs/env_switches.tsv
-+++ b/docs/env_switches.tsv
-@@ -99,7 +99,7 @@ DM_JIT_SERVE	path	Folder of a `nn::jit` image (`jit.img`, `jit.tsv`, `jit.out`):
- DM_JOYCON_SPLIT	switch	Bluetooth Nintendo Switch Joy-Con (L/R) on macOS (`0x057e:0x2006` and `0x057e:0x2007`) over `IOHIDManager` (`pad_joycon_mac.h`, on by default; `0` falls back to GameController, `1` starts split into two sideways player slots instead of paired on one slot with SL+SR / L+R 3 s hold switching)
- DM_KBD	switch	`=<text>`: the system keyboard returns that text as OK without showing an input box; unset with no window, it returns cancel
- DM_KBD_PLAYER	switch	`own` makes the Mac keyboard player 1 on its own, with controllers from player 2 on (by default the first controller shares player 1 with the keyboard)
--DM_KEYMAP	player	Mac keyboard: `<name>=<key code>,…` puts a button (`A` … `Down`), a stick direction (`LUp` … `RRight`) or `Shake` on another key (macOS virtual key code, or `none`); one key holds one function (`input_map.h`)
-+DM_KEYMAP	player	Mac keyboard: `<name>=<key code>,…` puts a button (`A` … `Down`), a stick direction (`LUp` … `RRight`) or `Shake` on another key (macOS virtual key code, or `none`); one key holds one function (`input_map.h`); a Mac app also keeps it as the saved choice `launcher.DM_KEYMAP`, used when the host takes the whole value
- DM_KEYS	switch	Scripted input: `<seconds or f<frame>>:<key>[+key][~hold or ~f<frames>][*count/interval],…` presses buttons, sticks, touches and `Shake` at those times; `=@<file>` reads the steps from the file
- DM_LANG	player	Game language as a language code (default `en-US`; the iOS app sets the one the IPA was packed with)
- DM_LAUNCHER	switch	`0` skips the iOS settings screen or the Mac settings window and starts the game at once, with the saved choices (on the Mac also `--no-launcher`)
-@@ -263,7 +263,7 @@ DM_OODLE_MODULES	path	The rewritten modules the Mac host's Oodle tool mode loads
- DM_OODLE_SERVE	switch	`=1`: the host answers decode requests on stdin / stdout with the game's own Oodle (or LZ5) decoder from the guest main thread before the SDK starts, until stdin ends
- DM_OPMODE	player	The operation mode the game sees: `0` handheld, `1` console (default: the profile's `op_mode`, console unless set); read once at startup
- DM_PAD_IDENTICAL	switch	`0` stops reading identical pads here when GameController lists fewer of their model than IOKit has, such as two Pro Controllers over USB (each a player of its own: a Pro Controller from its report 0x30, another model from its HID elements; `pad_hid_mac.h`, `pad_pro.h`); `DM_HID_PADS=0` stops it too; Mac only
--DM_PAD_MAP	player	Mac controllers: `<name>=<name>,…` makes the button that sends the first by default send the second (or `none`), e.g. `A=B,B=A` swaps them (`input_map.h`)
-+DM_PAD_MAP	player	Mac controllers: `<name>=<name>,…` makes the button that sends the first by default send the second (or `none` / `Shake`), e.g. `A=B,B=A` swaps them (`input_map.h`); a Mac app also keeps it as the saved choice `launcher.DM_PAD_MAP`, used when the host takes the whole value
- DM_PAD_MERGE	switch	`=1` merges every controller into player 1, as before, instead of giving each controller a player of its own (Mac and iOS)
- DM_PAD_PRESS_TO_JOIN	player	`1`: a controller is no player until one of its buttons is pressed, then it is the lowest player free, whatever its port, link or model, identical pads included (`front_mac.m`, `DmGamepad.m`, `pad_slots.h`); not with `DM_PAD_MERGE`. Launcher setting
- DM_PATCH_FRONT	switch	`=<bytes>`: the size of the patch area right before the module base for a long text (`BIG_TEXT`); set only by the rewriter's own rerun with the size it needs
-@@ -367,6 +367,8 @@ DM_SLOWFRAME	diagnostic	`=1` writes the per-frame timing breakdown to the log on
- DM_SPIN	switch	`0` makes the rewriter's spin gate return at once, so guest poll loops spin with no sleep; the gate stays (on by default)
- DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it found and sends through a spin gate
- DM_SPIN_POLL	switch	`=<µs>`: how long a spin-gate wait polls before it sleeps with the yield back-off (default 2000; `0` yields on every pass)
-+DM_STEAM_DEADZONE	switch	`=0..0.9` (exclusive upper bound) sets the radial deadzone for both raw Steam Controller sticks; default 0.10, `0` disables it; invalid values use the default
-+DM_STEAM_HID	switch	`=0` disables the Mac direct Steam Controller HID adapter and leaves input to Apple GameController; enabled otherwise
- DM_SVC	diagnostic	`=1` logs memory SVCs (`SetHeapSize`, `MapMemory`, `Map`/`UnmapPhysicalMemory`) with their addresses and sizes
- DM_SW2	player	`=1` turns on Switch 2 controllers over Bluetooth LE (Joy-Con 2, Pro Controller 2): the settings window's Switch 2 controllers. Off, no Bluetooth client is created and macOS asks nothing. The host also stays off when the app's Info.plist has no NSBluetoothAlwaysUsageDescription, without which macOS ends the process at the first Bluetooth scan
- DM_SW2_GYRO_DPS	diagnostic	`=<degrees per second per count>` is the Switch 2 controllers' gyro scale (default 0.0607, measured on a left and a right Joy-Con 2; the Switch family's nominal 0.070 turned a 90 degree tilt into 104)
-@@ -412,6 +414,7 @@ DM_T_DUMP	test	`tests/t_blend_zero.m` prints the red channel each draw stored, r
- DM_UDC_SELFTEST	diagnostic	`=1` runs a start-up check of DontCare load and store on private depth-stencil and RGBA8 textures (clear, Load + DontCare, read back) and logs one result line
- DM_UE_SHADERS	path	Folder of the Unreal shader code archives decoded by `uepak.py`, for `shader_split.py` (default `ue_shaders` beside the RomFS); needed when the RomFS has Unreal paks
- DM_UE_TEXTURE_POOL	switch	Megabytes Unreal's texture streaming pool (`r.Streaming.PoolSize`) is raised to, overriding the profile's `ue_texture_pool`; `0` keeps the game's own pool. On iOS only this switch turns it on (`Documents/env.txt`)
-+DM_UI_HOLD	test	When set, keeps the controller mapping test window open for 60 seconds after its UI screenshot for manual inspection
- DM_UPSCALER	player	`metalfx` draws the game's own upscaler shaders (agl's NDSR network, found by the shader map) with MetalFX's spatial scaler; `game` (the default) runs them
- DM_VK_CAPTURE	path	`=<dir>` (Mac) writes every SPIR-V module the game creates to `<dir>/<key>.spv`; the NSP script's Vulkan shader capture stage sets it
- DM_VK_LOG	diagnostic	`=1` logs Vulkan object creation in the Vulkan-on-Metal layer
 diff --git a/docs/frontends.md b/docs/frontends.md
-index 54bb05ef..fa6c57ac 100644
+index 54bb05e..fa6c57a 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -68,6 +68,7 @@ Each app keeps the player's choices in its own preferences domain, its bundle ID
@@ -5308,7 +5268,7 @@ index 54bb05ef..fa6c57ac 100644
  The folder a Mac app's save is synced through ([Cloud saves](settings.md#cloud-saves)) is not a row of the settings list, since a folder is none of its kinds. It has a key of its own in the same store: `cloudSaves.folder`, a string with the folder's absolute path (`defaults write org.nxnative.<title ID> cloudSaves.folder "$HOME/Library/Mobile Documents/com~apple~CloudDocs/My Saves"`). Remove the key, or write an empty string, to turn cloud saves off. The app's settings window shows and changes the same key, so the player sees the folder a front end chose.
 diff --git a/docs/mac-controllers.md b/docs/mac-controllers.md
 new file mode 100644
-index 00000000..e633df5a
+index 0000000..e633df5
 --- /dev/null
 +++ b/docs/mac-controllers.md
 @@ -0,0 +1,253 @@
@@ -5566,7 +5526,7 @@ index 00000000..e633df5a
 +first. For repeated development builds, the packer's existing `--mac-sign`
 +option can use a stable signing identity, see [Mac app signing](development.md#a-mac-app).
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index 31602fd5..bd480154 100644
+index 31602fd..bd48015 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
 @@ -317,6 +317,27 @@ Most service calls can be found before they crash, before the first boot or the

@@ -67,7 +67,7 @@ Issue: LNPANDY/NX2Apple#809
  48 files changed, 1802 insertions(+), 248 deletions(-)
 
 diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
-index 5fef5ed4..d82eeec2 100644
+index 5fef5ed..d82eeec 100644
 --- a/dm/gfx/gl/hle_gl.m
 +++ b/dm/gfx/gl/hle_gl.m
 @@ -540,15 +540,16 @@ static MTLTextureSwizzleChannels tex_swz(const tex_t *t) {
@@ -216,7 +216,7 @@ index 5fef5ed4..d82eeec2 100644
 +    g_ev = nil; g_q = nil; g_dev = nil;
 +} }
 diff --git a/dm/gfx/nvn/hle_nvn.c b/dm/gfx/nvn/hle_nvn.c
-index 9040ccc4..e35f1fac 100644
+index 9040ccc..e35f1fa 100644
 --- a/dm/gfx/nvn/hle_nvn.c
 +++ b/dm/gfx/nvn/hle_nvn.c
 @@ -483,10 +483,12 @@ int nvn_ft_tracked(uint64_t serial) {   // registered and not resolved yet: its
@@ -372,7 +372,7 @@ index 9040ccc4..e35f1fac 100644
 +    nvn_dirty_teardown();
 +}
 diff --git a/dm/gfx/nvn/nvn_dirty.c b/dm/gfx/nvn/nvn_dirty.c
-index 5fc22941..b012e1da 100644
+index 5fc2294..b012e1d 100644
 --- a/dm/gfx/nvn/nvn_dirty.c
 +++ b/dm/gfx/nvn/nvn_dirty.c
 @@ -347,3 +347,28 @@ void nvn_dirty_mp_stats(uint64_t *calls, uint64_t *pages, uint64_t *ns) {
@@ -405,7 +405,7 @@ index 5fc22941..b012e1da 100644
 +    pthread_mutex_unlock(&g_slot_mu);
 +}
 diff --git a/dm/gfx/nvn/nvn_dirty.h b/dm/gfx/nvn/nvn_dirty.h
-index 2bccb811..6fadcf9e 100644
+index 2bccb81..6fadcf9 100644
 --- a/dm/gfx/nvn/nvn_dirty.h
 +++ b/dm/gfx/nvn/nvn_dirty.h
 @@ -27,3 +27,4 @@ size_t nvn_dirty_since_except(const void *span, const void *addr, size_t len, ui
@@ -414,7 +414,7 @@ index 2bccb811..6fadcf9e 100644
  void nvn_dirty_slot_stats(int *live, int *used_slots, uint64_t *adds_total); // Currently live slots, slot table high-water mark, total number of registrations
 +void nvn_dirty_teardown(void);                                     // Release all tracked range blocks and per-page arrays at game teardown
 diff --git a/dm/gfx/nvn/nvn_geometry.inc b/dm/gfx/nvn/nvn_geometry.inc
-index fc1abe54..c3111381 100644
+index fc1abe5..c311138 100644
 --- a/dm/gfx/nvn/nvn_geometry.inc
 +++ b/dm/gfx/nvn/nvn_geometry.inc
 @@ -435,7 +435,7 @@ static id<MTLRenderPipelineState> geo_mesh_pso_for(NvProg *pr, id<MTLFunction> f
@@ -489,7 +489,7 @@ index fc1abe54..c3111381 100644
 +    g_geo_nrun = 0;
 +}
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 271a8f48..ce5e5be6 100644
+index 271a8f4..ce5e5be 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -90,6 +90,17 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
@@ -1112,7 +1112,7 @@ index 271a8f48..ce5e5be6 100644
 +} }
  #pragma clang attribute pop
 diff --git a/dm/gfx/nvn/nvn_ndve.inc b/dm/gfx/nvn/nvn_ndve.inc
-index 74f5e82d..233e858c 100644
+index 74f5e82..233e858 100644
 --- a/dm/gfx/nvn/nvn_ndve.inc
 +++ b/dm/gfx/nvn/nvn_ndve.inc
 @@ -67,7 +67,7 @@ static int ndve_index(NvShader *cs, int from) { for (int i = from; i < NDVE_N; i
@@ -1132,7 +1132,7 @@ index 74f5e82d..233e858c 100644
 +    g_nd = (typeof(g_nd)){0};
 +}
 diff --git a/dm/gfx/nvn/nvn_queue.inc b/dm/gfx/nvn/nvn_queue.inc
-index bdb2beb5..c17e6d68 100644
+index bdb2beb..c17e6d6 100644
 --- a/dm/gfx/nvn/nvn_queue.inc
 +++ b/dm/gfx/nvn/nvn_queue.inc
 @@ -42,7 +42,9 @@ typedef struct nq_queue {
@@ -1290,7 +1290,7 @@ index bdb2beb5..c17e6d68 100644
 +    pthread_mutex_unlock(&nq_mu);
 +}
 diff --git a/dm/gfx/nvn/nvn_rec.h b/dm/gfx/nvn/nvn_rec.h
-index 90a3390b..b89b1960 100644
+index 90a3390..b89b196 100644
 --- a/dm/gfx/nvn/nvn_rec.h
 +++ b/dm/gfx/nvn/nvn_rec.h
 @@ -28,6 +28,9 @@ static _Alignas(128) _Atomic uint64_t g_ubc_head;   // ops queued (monotonic; th
@@ -1415,7 +1415,7 @@ index 90a3390b..b89b1960 100644
  // submitted before it presents is published by then (a submission publishes its records before it returns), so the block runs after the frame's work, and the presenting thread
  // does not wait for the encode thread
 diff --git a/dm/gfx/tests/t_dirty_slots.c b/dm/gfx/tests/t_dirty_slots.c
-index f7e63116..f348a105 100644
+index f7e6311..f348a10 100644
 --- a/dm/gfx/tests/t_dirty_slots.c
 +++ b/dm/gfx/tests/t_dirty_slots.c
 @@ -98,7 +98,24 @@ int main(void) {
@@ -1445,7 +1445,7 @@ index f7e63116..f348a105 100644
  
      // Written pages but those holding a byte of the host's own write (nvn_dirty_since_except: a GPU copy's bytes the host wrote into a texture's storage, nvn_mtl.m pkg_copy_absorb)
 diff --git a/dm/gfx/tests/t_host_stubs.c b/dm/gfx/tests/t_host_stubs.c
-index 05bfee14..09c24c83 100644
+index 05bfee1..09c24c8 100644
 --- a/dm/gfx/tests/t_host_stubs.c
 +++ b/dm/gfx/tests/t_host_stubs.c
 @@ -7,5 +7,7 @@ int g_shape_w, g_shape_h; void front_picture_shape(int w, int h) { g_shape_w = w
@@ -1457,7 +1457,7 @@ index 05bfee14..09c24c83 100644
  // The runtime profile the NVN layer reads (dm_profile in hle_profile.c): no DM_PROFILE in a test, so these are the compiled game_profile.h values
  #include "../../host/hle_profile.c"
 diff --git a/dm/gfx/tests/t_rt_recycle.m b/dm/gfx/tests/t_rt_recycle.m
-index 49af5a69..4e627da5 100644
+index 49af5a6..4e627da 100644
 --- a/dm/gfx/tests/t_rt_recycle.m
 +++ b/dm/gfx/tests/t_rt_recycle.m
 @@ -105,6 +105,18 @@ int main(void) { @autoreleasepool {
@@ -1481,7 +1481,7 @@ index 49af5a69..4e627da5 100644
      printf("t_rt_recycle: %d checks, %d failed\n", checks, failed); return failed != 0;
  } }
 diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
-index 2d250cb2..55eb507d 100644
+index 2d250cb..55eb507 100644
 --- a/dm/gfx/vk/hle_vk.m
 +++ b/dm/gfx/vk/hle_vk.m
 @@ -238,6 +238,31 @@ static void dev_init_once(void) {
@@ -1747,7 +1747,7 @@ index 2d250cb2..55eb507d 100644
 +    g_dev = nil;
 +} }
 diff --git a/dm/host/crash.c b/dm/host/crash.c
-index fad00dda..043c2ccb 100644
+index fad00dd..043c2cc 100644
 --- a/dm/host/crash.c
 +++ b/dm/host/crash.c
 @@ -240,8 +240,8 @@ static void on_crash(int sig, siginfo_t *si, void *uc_) {
@@ -1762,7 +1762,7 @@ index fad00dda..043c2ccb 100644
  static void altstack_key_init(void) { if (pthread_key_create(&g_altstack_key, altstack_free)) die("altstack key"); }
  void crash_thread_init(void) {
 diff --git a/dm/host/dm.h b/dm/host/dm.h
-index 372383b1..f25138d8 100644
+index 372383b..f25138d 100644
 --- a/dm/host/dm.h
 +++ b/dm/host/dm.h
 @@ -225,3 +225,5 @@ void dm_gfx_shot_at(long k, const char *path);
@@ -1772,7 +1772,7 @@ index 372383b1..f25138d8 100644
 +int dm_teardown_is_parking(void);
 +void dm_teardown_check_current_thread(void);
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
-index dbf82d05..205a96df 100644
+index dbf82d0..205a96d 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
 @@ -47,7 +47,7 @@ - (void)stop;
@@ -1892,7 +1892,7 @@ index dbf82d05..205a96df 100644
 +    pthread_mutex_unlock(&routeLock);
  }
 diff --git a/dm/host/hle_audio.c b/dm/host/hle_audio.c
-index 40a3b767..67ff83eb 100644
+index 40a3b76..67ff83e 100644
 --- a/dm/host/hle_audio.c
 +++ b/dm/host/hle_audio.c
 @@ -50,7 +50,10 @@ typedef struct {
@@ -1974,7 +1974,7 @@ index 40a3b767..67ff83eb 100644
 +    }
 +}
 diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
-index 3e4cf88c..4b9d493a 100644
+index 3e4cf88..4b9d493 100644
 --- a/dm/host/hle_audren.c
 +++ b/dm/host/hle_audren.c
 @@ -612,3 +612,26 @@ HLE_FORCE("_ZN2nn5audio38AcquireAudioDeviceNotificationForInputEPNS_2os11SystemE
@@ -2005,7 +2005,7 @@ index 3e4cf88c..4b9d493a 100644
 +    }
 +}
 diff --git a/dm/host/hle_bigstack.c b/dm/host/hle_bigstack.c
-index 9a28966a..37bf094e 100644
+index 9a28966..37bf094 100644
 --- a/dm/host/hle_bigstack.c
 +++ b/dm/host/hle_bigstack.c
 @@ -21,8 +21,8 @@ int dm_guest_as_contains(uintptr_t a);   // hle_svc.c
@@ -2020,7 +2020,7 @@ index 9a28966a..37bf094e 100644
  static void bs_init(void) { if (pthread_key_create(&g_bs_key, bs_free)) die("big stack pthread_key_create"); }
  
 diff --git a/dm/host/hle_cheats.c b/dm/host/hle_cheats.c
-index b728052e..c27edc52 100644
+index b728052..c27edc5 100644
 --- a/dm/host/hle_cheats.c
 +++ b/dm/host/hle_cheats.c
 @@ -1066,7 +1066,7 @@ static void *cheat_tick_thread(void *arg) {
@@ -2043,7 +2043,7 @@ index b728052e..c27edc52 100644
      return q;
  }
 diff --git a/dm/host/hle_fs.c b/dm/host/hle_fs.c
-index 850d8089..19b88b81 100644
+index 850d808..19b88b8 100644
 --- a/dm/host/hle_fs.c
 +++ b/dm/host/hle_fs.c
 @@ -78,8 +78,8 @@ static void save_test_init(void) {
@@ -2082,7 +2082,7 @@ index 850d8089..19b88b81 100644
 +    pthread_mutex_unlock(&g_lock);
 +}
 diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
-index 53fb4faa..0794371a 100644
+index 53fb4fa..0794371 100644
 --- a/dm/host/hle_lifecycle.c
 +++ b/dm/host/hle_lifecycle.c
 @@ -23,10 +23,47 @@ void dm_host_shutdown_then(const char *why, void (*then)(void *), void *arg) {
@@ -2138,7 +2138,7 @@ index 53fb4faa..0794371a 100644
 +    LOG("host torn down for shell game switch");
  }
 diff --git a/dm/host/hle_movie.c b/dm/host/hle_movie.c
-index 4caec269..d04639ba 100644
+index 4caec26..d04639b 100644
 --- a/dm/host/hle_movie.c
 +++ b/dm/host/hle_movie.c
 @@ -67,7 +67,8 @@ HLE_FORCE("_ZN5movie9Extractor13SetDataSourceEPKc", "movie demuxer: the host doe
@@ -2254,7 +2254,7 @@ index 4caec269..d04639ba 100644
 +    g_df_stop = 0;
 +}
 diff --git a/dm/host/hle_net.c b/dm/host/hle_net.c
-index 17f5eef1..aa82a2ac 100644
+index 17f5eef..aa82a2a 100644
 --- a/dm/host/hle_net.c
 +++ b/dm/host/hle_net.c
 @@ -73,10 +73,18 @@ static int efd_close(int fd) {
@@ -2285,7 +2285,7 @@ index 17f5eef1..aa82a2ac 100644
          if (left <= 0) break;
          dm_guest_cond_wait_ns(&g_efd_c, &g_efd_m, dm_detclock_enabled() && left > 1000000 ? 1000000 : left);
 diff --git a/dm/host/hle_oe.c b/dm/host/hle_oe.c
-index 984839ab..d6cde27f 100644
+index 984839a..d6cde27 100644
 --- a/dm/host/hle_oe.c
 +++ b/dm/host/hle_oe.c
 @@ -419,17 +419,24 @@ HLE_FORCE("_ZN2nn2oe25TryPopNotificationMessageEPj", "system notification queue;
@@ -2315,7 +2315,7 @@ index 984839ab..d6cde27f 100644
      }
  }
 diff --git a/dm/host/hle_os.c b/dm/host/hle_os.c
-index 8d974176..23d247cc 100644
+index 8d97417..23d247c 100644
 --- a/dm/host/hle_os.c
 +++ b/dm/host/hle_os.c
 @@ -89,12 +89,16 @@ static pthread_mutex_t g_gfz_mu = PTHREAD_MUTEX_INITIALIZER; static unsigned g_g
@@ -2352,7 +2352,7 @@ index 8d974176..23d247cc 100644
  // Entropy source: true random by default (arc4random); with DM_DETCLOCK on it becomes a fixed-seed splitmix64 stream (so that replay pictures are byte-for-byte comparable, the camp blue fire particles differed between two passes).
  // The two outlets (libc getentropy, svc GetInfo RandomEntropy) share one stream; the call count is reported in the log (first call and every 1000 calls)
 diff --git a/dm/host/hle_sdk16.c b/dm/host/hle_sdk16.c
-index 8010d5bd..e656b6ea 100644
+index 8010d5b..e656b6e 100644
 --- a/dm/host/hle_sdk16.c
 +++ b/dm/host/hle_sdk16.c
 @@ -289,13 +289,15 @@ void dm_host_helper_qos(qos_class_t q);   // hle_thread.c
@@ -2374,7 +2374,7 @@ index 8010d5bd..e656b6ea 100644
  }
  __attribute__((weak)) int mtl_link_wait_vsync(uint64_t *seen, uint64_t timeout_ns) { (void)seen; (void)timeout_ns; return 0; }   // nvn_mtl.m
 diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
-index 344abd29..5346111b 100644
+index 344abd2..5346111 100644
 --- a/dm/host/hle_svc.c
 +++ b/dm/host/hle_svc.c
 @@ -82,6 +82,22 @@ static size_t g_gf_chunk;          // each file's size; the last one holds the r
@@ -2574,7 +2574,7 @@ index 344abd29..5346111b 100644
      return NULL;
  }
 diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
-index 90955347..207fa0ce 100644
+index 9095534..207fa0c 100644
 --- a/dm/host/hle_thread.c
 +++ b/dm/host/hle_thread.c
 @@ -104,7 +104,7 @@ static int g_core_preempt;   // also check already-runnable peers after every th
@@ -2894,7 +2894,7 @@ index 90955347..207fa0ce 100644
 +    pthread_mutex_unlock(&G);
 +}
 diff --git a/dm/host/hle_uemalloc.c b/dm/host/hle_uemalloc.c
-index 1bd3494f..500ecfe5 100644
+index 1bd3494..500ecfe 100644
 --- a/dm/host/hle_uemalloc.c
 +++ b/dm/host/hle_uemalloc.c
 @@ -156,3 +156,12 @@ void dm_ue_malloc_install(void) {
@@ -2911,7 +2911,7 @@ index 1bd3494f..500ecfe5 100644
 +    atomic_store(&g_peak, 0);
 +}
 diff --git a/dm/host/hle_web.c b/dm/host/hle_web.c
-index 98918002..3285671a 100644
+index 9891800..3285671 100644
 --- a/dm/host/hle_web.c
 +++ b/dm/host/hle_web.c
 @@ -136,7 +136,20 @@ static void web_return(void *rv) {   // the ended page's result into the return
@@ -2937,7 +2937,7 @@ index 98918002..3285671a 100644
  // The page as a session the game drives while it runs (Super Mario 3D All-Stars' Sunshine: its launcher pause menu, launcher_pause_menu.htdocs, started hidden at boot and shown with
  // Appear when the player suspends; Super Mario 64 imports the same). The SDK's own Start creates a library applet (null read in applet::StartLibraryAppletImmediately)
 diff --git a/dm/host/loader.c b/dm/host/loader.c
-index 1f79a657..f48aee73 100644
+index 1f79a65..f48aee7 100644
 --- a/dm/host/loader.c
 +++ b/dm/host/loader.c
 @@ -19,7 +19,10 @@ int g_nmod;
@@ -3002,7 +3002,7 @@ index 1f79a657..f48aee73 100644
 +    dm_fps_state = NULL; g_fps_mod = NULL;
 +}
 diff --git a/dm/host/main.c b/dm/host/main.c
-index af89a94a..959430ea 100644
+index af89a94..959430e 100644
 --- a/dm/host/main.c
 +++ b/dm/host/main.c
 @@ -177,6 +177,8 @@ int main(int argc, char **argv) {
@@ -3015,7 +3015,7 @@ index af89a94a..959430ea 100644
          void crash_thread_init(void); crash_thread_init();   // The signal alternate stack is per thread: loading installed it on another thread, so add it for this thread
          LOG("host loading already finished early in the background (dm_host_preload_start)");
 diff --git a/dm/host/save_sync.c b/dm/host/save_sync.c
-index 9b4086c7..4fd8b078 100644
+index 9b4086c..4fd8b07 100644
 --- a/dm/host/save_sync.c
 +++ b/dm/host/save_sync.c
 @@ -504,29 +504,34 @@ done:
@@ -3090,7 +3090,7 @@ index 9b4086c7..4fd8b078 100644
      char cloud[PATH_MAX], dd[PATH_MAX];
      if (!save || !*save) return 1;
 diff --git a/dm/host/tests/t_audio_device.c b/dm/host/tests/t_audio_device.c
-index a3ca2fc3..f4e6c81e 100644
+index a3ca2fc..f4e6c81 100644
 --- a/dm/host/tests/t_audio_device.c
 +++ b/dm/host/tests/t_audio_device.c
 @@ -214,6 +214,28 @@ static void blocked_start(void *out) {
@@ -3132,7 +3132,7 @@ index a3ca2fc3..f4e6c81e 100644
      return 0;
  }
 diff --git a/dm/host/tests/t_codec_video.c b/dm/host/tests/t_codec_video.c
-index c73dd0f7..4c197998 100644
+index c73dd0f..4c19799 100644
 --- a/dm/host/tests/t_codec_video.c
 +++ b/dm/host/tests/t_codec_video.c
 @@ -12,6 +12,7 @@
@@ -3144,7 +3144,7 @@ index c73dd0f7..4c197998 100644
  static int ev_slot(void *e) { for (int i = 0; i < 16; i++) if (g_ev[i].ev == e) return i; for (int i = 0; i < 16; i++) if (!g_ev[i].ev) { g_ev[i].ev = e; return i; } abort(); }
  void hle_bind_system_event(void *e, int autoclear) { (void)autoclear; g_ev[ev_slot(e)].bound = 1; }
 diff --git a/dm/host/tests/t_condvar_stub.c b/dm/host/tests/t_condvar_stub.c
-index 8d5980d6..fee8b463 100644
+index 8d5980d..fee8b46 100644
 --- a/dm/host/tests/t_condvar_stub.c
 +++ b/dm/host/tests/t_condvar_stub.c
 @@ -6,6 +6,8 @@ void crash_thread_init(void) {}
@@ -3157,7 +3157,7 @@ index 8d5980d6..fee8b463 100644
  #ifndef DM_TEST_THREAD_ENTER
  void dm_thread_enter(uint64_t entry, uint64_t arg, uint64_t sp) { (void)entry; (void)arg; (void)sp; abort(); }
 diff --git a/dm/host/tests/t_oe.c b/dm/host/tests/t_oe.c
-index 89da526b..084154f7 100644
+index 89da526..084154f 100644
 --- a/dm/host/tests/t_oe.c
 +++ b/dm/host/tests/t_oe.c
 @@ -13,6 +13,8 @@ void guest_clock_freeze_for(int reason, int on) { (void)reason; (void)on; }
@@ -3170,7 +3170,7 @@ index 89da526b..084154f7 100644
  static int ev_bound, ev_sig;
  void hle_bind_system_event(void *g, int autoclear) { (void)g; (void)autoclear; ev_bound = 1; }
 diff --git a/dm/host/tests/t_svc_memory.c b/dm/host/tests/t_svc_memory.c
-index f24fd747..ce3f4da1 100644
+index f24fd74..ce3f4da 100644
 --- a/dm/host/tests/t_svc_memory.c
 +++ b/dm/host/tests/t_svc_memory.c
 @@ -621,7 +621,21 @@ int main(int argc, char **argv) {
@@ -3198,7 +3198,7 @@ index f24fd747..ce3f4da1 100644
      return 0;
  }
 diff --git a/dm/host/tests/t_system_event.c b/dm/host/tests/t_system_event.c
-index 331ed670..bab79791 100644
+index 331ed67..bab7979 100644
 --- a/dm/host/tests/t_system_event.c
 +++ b/dm/host/tests/t_system_event.c
 @@ -41,6 +41,7 @@ static int test_sleep(const struct timespec *ts, struct timespec *left) {
@@ -3210,7 +3210,7 @@ index 331ed670..bab79791 100644
  struct dm_flags g_flag;
  module_t *g_mod;
 diff --git a/dm/host/thread.c b/dm/host/thread.c
-index b1345d40..2dfbb883 100644
+index b1345d4..2dfbb88 100644
 --- a/dm/host/thread.c
 +++ b/dm/host/thread.c
 @@ -7,8 +7,8 @@
@@ -3261,7 +3261,7 @@ index b1345d40..2dfbb883 100644
      uintptr_t prev = (uintptr_t)pthread_getspecific(g_keygslot);
      int k;
 diff --git a/dm/ios/Shell/ShellApp.swift b/dm/ios/Shell/ShellApp.swift
-index 8dbe45f0..6e0e849f 100644
+index 8dbe45f..6e0e849 100644
 --- a/dm/ios/Shell/ShellApp.swift
 +++ b/dm/ios/Shell/ShellApp.swift
 @@ -60,7 +60,7 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
@@ -3274,7 +3274,7 @@ index 8dbe45f0..6e0e849f 100644
              let state = model.details.first { $0.id == id }.map { "\($0.game.state)" } ?? "not in the library"
              fputs("shell: DM_SHELL_PLAY=\(id) (\(state))\n", stderr)
 diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
-index 7fb0bfc2..6024d8c1 100644
+index 7fb0bfc..6024d8c 100644
 --- a/dm/ios/Shell/ShellMain.m
 +++ b/dm/ios/Shell/ShellMain.m
 @@ -4,22 +4,201 @@
@@ -3521,7 +3521,7 @@ index 7fb0bfc2..6024d8c1 100644
  }
  // Forwarded to the running game framework's front_ios.m once a game has started
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index ca91b770..027fa6c8 100644
+index ca91b77..027fa6c 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -207,12 +207,11 @@ - (instancetype)initWithFrame:(CGRect)f {
@@ -3567,7 +3567,7 @@ index ca91b770..027fa6c8 100644
 +    k_idle = nil; k_on = nil; k_line = nil; k_ringFill = nil; k_text = nil; k_textOn = nil;
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 0560fdb8..48905f2e 100644
+index 0560fdb..48905f2 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -8,6 +8,8 @@
@@ -3728,7 +3728,7 @@ index 0560fdb8..48905f2e 100644
      hq_phase was = g_hq.phase;
      if (hq_touch_open(&g_hq, home, a, b) != was) quit_changed(was, HQ_PROMPT, nil);
 diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
-index 810c4ad2..05db7004 100644
+index 810c4ad..05db700 100644
 --- a/dm/ios/framework/ShellGlue.m
 +++ b/dm/ios/framework/ShellGlue.m
 @@ -19,13 +19,17 @@
@@ -3760,7 +3760,7 @@ index 810c4ad2..05db7004 100644
      fprintf(stderr, "boot: dm_main returned %d\n", rc);
      return NULL;
 diff --git a/dm/ios/tests/test_framework_link.py b/dm/ios/tests/test_framework_link.py
-index 5c6d3d03..b5d4279c 100644
+index 5c6d3d0..b5d4279 100644
 --- a/dm/ios/tests/test_framework_link.py
 +++ b/dm/ios/tests/test_framework_link.py
 @@ -183,6 +183,10 @@ class FrameworkLinkTests(unittest.TestCase):
@@ -3775,7 +3775,7 @@ index 5c6d3d03..b5d4279c 100644
          self.assertNotIn('__mh_execute_header', undef, 'the framework must read its own image header (__dso_handle), not the executable\'s')
  
 diff --git a/dm/ios/tests/test_shell_build.py b/dm/ios/tests/test_shell_build.py
-index 2f5b1ad5..fca4e188 100644
+index 2f5b1ad..fca4e18 100644
 --- a/dm/ios/tests/test_shell_build.py
 +++ b/dm/ios/tests/test_shell_build.py
 @@ -125,6 +125,10 @@ class ShellMainProvidesWhatFrontIosTakes(unittest.TestCase):

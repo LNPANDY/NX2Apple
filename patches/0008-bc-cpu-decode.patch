@@ -32,7 +32,7 @@ Issue: LNPANDY/NX2Apple#123
  create mode 100644 dm/third_party/bcdec/bcdec.h
 
 diff --git a/dm/games/0100F2C0115B6000/game.tsv b/dm/games/0100F2C0115B6000/game.tsv
-index 8a8adb89..223a7f71 100644
+index 8a8adb8..223a7f7 100644
 --- a/dm/games/0100F2C0115B6000/game.tsv
 +++ b/dm/games/0100F2C0115B6000/game.tsv
 @@ -39,6 +39,9 @@ app_pool	0xCD500000
@@ -46,7 +46,7 @@ index 8a8adb89..223a7f71 100644
  tex_dirty_upload	on
  # 60 fps (30 on the Switch): the host decides each frame's step in whole vsyncs and holds the frame that long (rewriter stubs at FPSLocker's sites, patches.py FRAME_STEP);
 diff --git a/dm/games/game.py b/dm/games/game.py
-index 1974ca18..8239c99c 100644
+index 1974ca1..8239c99 100644
 --- a/dm/games/game.py
 +++ b/dm/games/game.py
 @@ -197,6 +197,8 @@ def header_one(g):
@@ -67,7 +67,7 @@ index 1974ca18..8239c99c 100644
           f'#define DM_GAME_DRAW_BARRIERS_GAME {int(dbr == "game")}',
           f'#define DM_GAME_UPSCALER_KEYS {q(",".join(ups))}', f'#define DM_GAME_UPSCALER_N {len(ups)}',
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 1db5ed4f..2ca73e63 100644
+index 1db5ed4..2ca73e6 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -23,6 +23,7 @@
@@ -179,7 +179,7 @@ index 1db5ed4f..2ca73e63 100644
      up_flush();
      return mt;
 diff --git a/dm/gfx/tex/README.md b/dm/gfx/tex/README.md
-index 1968759d..5ce86696 100644
+index 1968759..5ce8669 100644
 --- a/dm/gfx/tex/README.md
 +++ b/dm/gfx/tex/README.md
 @@ -21,7 +21,7 @@ The offsets of each level and layer within the storage, and the block height and
@@ -193,7 +193,7 @@ index 1968759d..5ce86696 100644
  
 diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
 new file mode 100644
-index 00000000..7b2d83c9
+index 0000000..7b2d83c
 --- /dev/null
 +++ b/dm/gfx/tex/nvn_bcdec.c
 @@ -0,0 +1,58 @@
@@ -257,7 +257,7 @@ index 00000000..7b2d83c9
 +}
 diff --git a/dm/gfx/tex/nvn_bcdec.h b/dm/gfx/tex/nvn_bcdec.h
 new file mode 100644
-index 00000000..abf3d2d1
+index 0000000..abf3d2d
 --- /dev/null
 +++ b/dm/gfx/tex/nvn_bcdec.h
 @@ -0,0 +1,14 @@
@@ -277,7 +277,7 @@ index 00000000..abf3d2d1
 +int nvn_bc_decode(uint32_t nvn_fmt, const uint8_t *src, size_t pitch, uint32_t w, uint32_t h, uint8_t *dst, size_t dpitch);
 diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
 new file mode 100644
-index 00000000..5fd5efe4
+index 0000000..5fd5efe
 --- /dev/null
 +++ b/dm/gfx/tex/tests/t_bcdec.c
 @@ -0,0 +1,137 @@
@@ -419,7 +419,7 @@ index 00000000..5fd5efe4
 +    return 0;
 +}
 diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
-index bd3bafa0..56267e11 100644
+index bd3bafa..56267e1 100644
 --- a/dm/ios/Sources/main.m
 +++ b/dm/ios/Sources/main.m
 @@ -9,6 +9,7 @@
@@ -441,7 +441,7 @@ index bd3bafa0..56267e11 100644
      fprintf(stderr, "[RED] boot: %s\n", msg);
 diff --git a/dm/third_party/bcdec/LICENSE b/dm/third_party/bcdec/LICENSE
 new file mode 100644
-index 00000000..78e53f19
+index 0000000..78e53f1
 --- /dev/null
 +++ b/dm/third_party/bcdec/LICENSE
 @@ -0,0 +1,52 @@
@@ -499,7 +499,7 @@ index 00000000..78e53f19
 +For more information, please refer to <https://unlicense.org>
 diff --git a/dm/third_party/bcdec/README.md b/dm/third_party/bcdec/README.md
 new file mode 100644
-index 00000000..baf2d240
+index 0000000..baf2d24
 --- /dev/null
 +++ b/dm/third_party/bcdec/README.md
 @@ -0,0 +1,2 @@
@@ -507,7 +507,7 @@ index 00000000..baf2d240
 +用途：不支持 BC 压缩格式的显卡上，翻译层把 BC 贴图在 CPU 上解压（dm/gfx/tex/nvn_bcdec.c）。
 diff --git a/dm/third_party/bcdec/bcdec.h b/dm/third_party/bcdec/bcdec.h
 new file mode 100644
-index 00000000..553c3ec5
+index 0000000..553c3ec
 --- /dev/null
 +++ b/dm/third_party/bcdec/bcdec.h
 @@ -0,0 +1,1512 @@
@@ -2024,7 +2024,7 @@ index 00000000..553c3ec5
 +
 +*/
 diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
-index 30223567..fa416b53 100644
+index 3022356..fa416b5 100644
 --- a/dm/tools/docs_patches.py
 +++ b/dm/tools/docs_patches.py
 @@ -140,6 +140,8 @@ SWITCH_BINDING = [

@@ -31,7 +31,7 @@ Issue: LNPANDY/NX2Apple#740
  3 files changed, 323 insertions(+), 28 deletions(-)
 
 diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
-index c19a57f4..68784a4b 100644
+index c19a57f..68784a4 100644
 --- a/dm/host/controllers_mac.m
 +++ b/dm/host/controllers_mac.m
 @@ -168,6 +168,69 @@ static void s2_sink(int player, BOOL on) {
@@ -232,7 +232,7 @@ index c19a57f4..68784a4b 100644
          else dm_haptics_apple_controller_locality(d->slot,pair,d->joycon->st.pid==JOYCON_PID_L ? GCHapticsLocalityLeftHandle : GCHapticsLocalityRightHandle);
      }
 diff --git a/dm/host/pad_joycon_mac.h b/dm/host/pad_joycon_mac.h
-index 0ac115d1..fa5d1744 100644
+index 0ac115d..fa5d174 100644
 --- a/dm/host/pad_joycon_mac.h
 +++ b/dm/host/pad_joycon_mac.h
 @@ -19,6 +19,7 @@ typedef struct joycon_pad {
@@ -324,7 +324,7 @@ index 0ac115d1..fa5d1744 100644
  
  static void joycon_start(void) {
 diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
-index d9a28f4b..9619d973 100644
+index d9a28f4..9619d97 100644
 --- a/dm/host/tests/t_controllers_mac.m
 +++ b/dm/host/tests/t_controllers_mac.m
 @@ -5,6 +5,8 @@
