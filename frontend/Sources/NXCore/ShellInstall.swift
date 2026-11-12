@@ -341,6 +341,9 @@ package struct ShellInstaller {
     /// (`ShellDataParts`). A test makes them small.
     package var partSize: Int64 = ShellDataParts.partSize
     package var singleCopyLimit: Int64 = ShellDataParts.singleCopyLimit()
+    package var signingIdentity: (String, ProcessRunner) -> String? = ShellHotInstall.defaultSigningIdentity
+    package var codesignPath = "/usr/bin/codesign"
+    package var now: () -> Date = { Date() }
 
     package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {
         self.xcrun = xcrun; self.repo = repo; self.python = python; self.root = root; self.device = device; self.team = team
@@ -433,6 +436,9 @@ package struct ShellInstaller {
     func signAndInstallApp(framework: String, titleID: String, name: String) -> (outcome: Outcome, notes: [String]) {
         guard FileManager.default.fileExists(atPath: framework) else {
             return (missingFramework(framework, name: name), [])
+        }
+        if let hot = tryHotInstall(games: [HotGame(framework: framework, titleID: titleID, name: name, pickedArtwork: pickedArtwork)]) {
+            return hot
         }
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
         if let refused = pairingRefusal() { return (refused, []) }

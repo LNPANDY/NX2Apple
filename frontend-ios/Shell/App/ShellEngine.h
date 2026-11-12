@@ -1,6 +1,8 @@
 // Route C shell: the engine side of Play (ShellMain.m), called by ShellApp.swift's EngineGameLauncher. See ShellMain.m.
 #pragma once
 
+#define DM_SHELL_GLUE_VERSION 1
+
 // Sets the log, the environment (keys[i]=values[i], overwriting) and the working folder, dlopens the game's framework, hands its mach
 // header to the loader and starts the host's early loading with argv. NULL on success, else a message for the player (the log has
 // the details). Once per process.
