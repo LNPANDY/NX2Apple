@@ -338,10 +338,16 @@ extension BuildStore {
         let engineRoot = EngineLayout.root(repoPath)
         let python = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
         let toolPath = BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
-        let package = ShellInstall.shellPackage(resources: resources, repo: repoPath)
+        guard let package = ShellInstall.shellPackage(resources: resources, repo: repoPath) else {
+            let looked = ([resources, repoPath].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
+            self.installPhaseActive = false
+            self.running = false
+            self.doneNote = String(format: self.t("shell.projectFailed"), "no frontend-ios Swift package (Package.swift) in " + looked)
+            then?(); return
+        }
         var env = ShellInstall.projectEnvironment(root: shell.root, frameworks: library.games.map(\.framework), bundleID: bundle,
                                                   team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
-                                                  tmp: NSTemporaryDirectory(), package: package)
+                                                  tmp: NSTemporaryDirectory(), package: package, engine: engineRoot)
         env.merge(BundledTools.environment(for: python)) { $1 }
         let xcconfig = shell.root + "/project/Gen/dm.xcconfig"
         if (try? String(contentsOfFile: xcconfig, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
@@ -349,7 +355,7 @@ extension BuildStore {
             env["DM_ENTITLEMENTS"] = ""
         }
         runTool(id: ShellInstaller.projectStageID, name: t("shell.projectStage"),
-                ShellInstall.projectCommand(repo: engineRoot), environment: env, step: { _ in nil }) { projectError in
+                ShellInstall.projectCommand(package: package), environment: env, step: { _ in nil }) { projectError in
             if let projectError, !projectError.isEmpty {
                 self.installPhaseActive = false
                 self.running = false

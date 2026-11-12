@@ -34,16 +34,16 @@ def _chain_version(engine: Path) -> str:
 
 def build_template(out_app: Path, engine: Path | None = None) -> Path:
     engine = (engine or (REPO / 'engine')).resolve()
-    ios_src = engine / 'dm' / 'ios'
     pkg_dir = engine / 'frontend-ios'
     if not (pkg_dir / 'Package.swift').is_file():
         pkg_dir = engine.parent / 'frontend-ios'
     if not (pkg_dir / 'Package.swift').is_file():
         pkg_dir = REPO / 'frontend-ios'
-    if not (ios_src / 'project-shell.yml').is_file():
-        raise SystemExit(f'no {ios_src / "project-shell.yml"}: run `python3 tools/engine.py sync` first')
     if not (pkg_dir / 'Package.swift').is_file():
         raise SystemExit(f'no {pkg_dir / "Package.swift"}')
+    shell_root = pkg_dir / 'Shell'
+    if not (shell_root / 'project-shell.yml').is_file():
+        raise SystemExit(f'no {shell_root / "project-shell.yml"}')
 
     chain = _chain_version(engine)
     fork_patches_file = engine / 'dm' / 'fork_patches.txt'
@@ -63,8 +63,7 @@ def build_template(out_app: Path, engine: Path | None = None) -> Path:
         dd = Path(td) / 'dd'
         s.mkdir(parents=True)
         dd.mkdir(parents=True)
-        for item in ('Sources', 'Shell', 'tools'):
-            os.symlink(ios_src / item, s / item)
+        os.symlink(shell_root / 'App', s / 'Shell')
         gen = s / 'Gen'
         (gen / 'dm' / 'font').mkdir(parents=True)
         (gen / 'dm.xcconfig').write_text('', encoding='utf-8')
@@ -74,7 +73,7 @@ def build_template(out_app: Path, engine: Path | None = None) -> Path:
         )
         # Drop `# @FRAMEWORKS@`: the Windows shell exporter embeds each game's framework into
         # `DmShell.app/Frameworks/` when packing `NX2Apple.ipa`.
-        tpl_lines = (ios_src / 'project-shell.yml').read_text(encoding='utf-8').splitlines()
+        tpl_lines = (shell_root / 'project-shell.yml').read_text(encoding='utf-8').splitlines()
         proj_lines = [ln for ln in tpl_lines if not ln.lstrip().startswith('# @FRAMEWORKS@')]
         (s / 'project.yml').write_text('\n'.join(proj_lines) + '\n', encoding='utf-8')
 

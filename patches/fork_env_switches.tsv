@@ -24,10 +24,6 @@ DM_PAD_MAP	player	Mac controllers: `<name>=<name>,…` makes the button that sen
 DM_PREFLIGHT	switch	Set: a Mac app exits at once with status 0, before it reads its Info.plist, rolls its log or touches the saves, so a front end can open a new build through LaunchServices and macOS runs its first-start check of the bundle then (`launcher.c`, docs/frontends.md)
 DM_PROFILE	path	`=<file>`: the runtime game profile (layout, switches, tables) the host reads at start, which is how one host binary serves every game (the launcher architecture); the compiled `game_profile.h` stays the fallback, and `DM_PROF_<key>` overrides sit on top of it (`hle_profile.h`)
 DM_SCREEN	player	`=<number>` opens the Mac window on the connected screen with that `NSScreenNumber` (`CGDirectDisplayID`), centred, before any `DM_FULLSCREEN` request; an unknown number is logged and ignored. The NX2Apple launcher sets it to its own window's screen
-DM_SHELL_FRAMEWORKS	path	the game frameworks build_shell.sh embeds in the shell app, one folder per line
-DM_SHELL_NAME	switch	the shell app's name under its icon (build_shell.sh, default NX2Apple)
-DM_SHELL_PACKAGE	path	the frontend-ios Swift package build_shell.sh links into the shell app (default: frontend-ios in this checkout)
-DM_SHELL_PLAY	diagnostic	`=<title ID>` in the shell app's launch environment (devicectl) starts that game as Play in its library would, for a test run, and a launch from the home screen never has it
 DM_STEAM_DEADZONE	switch	`=0..0.9` (exclusive upper bound) sets the radial deadzone for both raw Steam Controller sticks; default 0.10, `0` disables it; invalid values use the default
 DM_STEAM_HID	switch	`=0` disables the Mac direct Steam Controller HID adapter and leaves input to Apple GameController; enabled otherwise
 DM_STICK_DEADZONE_L	switch	`=1..50` sets a radial deadzone of that many percent of the travel for the left stick of every physical controller (inside it the stick reads centred, outside it the rest of the travel is rescaled to the full range); unset, `0` or anything else leaves the stick as the controller reports it. The Mac launcher's Controls settings write it (Use custom deadzones)

@@ -1237,14 +1237,14 @@ class LibraryAndSpaceTests(unittest.TestCase):
         self.assertEqual(saved_g['lastTarget'], 'iPhone / iPad')
         self.assertEqual(saved_g['toolsCommit'], 'b2d46b86d03f')
 
-        # 2. Verify REQUIRED_DYLIB_SYMBOLS against real C/ObjC sources in engine/ and win/ios/Launcher.m
+        # 2. Verify REQUIRED_DYLIB_SYMBOLS against real C/ObjC sources in engine/, frontend-ios/Shell/App/ and win/ios/Launcher.m
         eng = ROOT / 'engine'
         marker_file = eng / 'dm' / 'ios' / 'framework' / 'DmGameMarker.m'
         glue_file = eng / 'dm' / 'ios' / 'framework' / 'ShellGlue.m'
-        main_file = eng / 'dm' / 'ios' / 'Shell' / 'ShellMain.m'
+        main_file = ROOT / 'frontend-ios' / 'Shell' / 'App' / 'ShellMain.m'
         boot_hdr_file = eng / 'dm' / 'ios' / 'Sources' / 'FrameworkBootstrap.h'
         for required_src in (marker_file, glue_file, main_file, boot_hdr_file):
-            self.assertTrue(required_src.is_file(), f'missing synced engine source: {required_src}')
+            self.assertTrue(required_src.is_file(), f'missing source: {required_src}')
         marker_src = marker_file.read_text(encoding='utf-8')
         glue_src = glue_file.read_text(encoding='utf-8')
         main_src = main_file.read_text(encoding='utf-8')
