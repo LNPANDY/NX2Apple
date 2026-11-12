@@ -22,7 +22,7 @@ import zipfile
 from . import archive_guard as ag
 
 #: Bump together with each release tag and `AppUpdateStore.appVersion` in Swift.
-APP_VERSION = '1.4.0'
+APP_VERSION = '1.5.0'
 
 MAX_UPDATE_ENTRIES = 40_000
 MAX_UPDATE_BYTES = 2 * 1024 * 1024 * 1024
