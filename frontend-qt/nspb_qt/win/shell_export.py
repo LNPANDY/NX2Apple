@@ -101,7 +101,9 @@ class ShellLibrary:
         known = {g.title_id for g in self.games}
         added: list[ShellGame] = []
         try:
-            entries = list(folder.iterdir())
+            # Sorted by name: `iterdir` order differs between NTFS and ext4, and this order is the
+            # order the games are registered and reported in, so it has to be predictable.
+            entries = sorted(folder.iterdir(), key=lambda p: p.name)
         except OSError:
             return added
         for entry in entries:
