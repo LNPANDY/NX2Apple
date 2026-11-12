@@ -10,8 +10,10 @@ struct BuildSelectedSheet: View {
     let library: GameLibrary
     let queue: BuildQueueStore
     let engineID: String
-    /// The iPhone target exports the shared app as an IPA: a batch then packages it once, when it ends (#997).
-    let exportsIPA: Bool
+    /// Default target from the Build page (`BuildTarget.mac` or `BuildTarget.ios`). Starting the queue applies the player's final choice.
+    var target: String = BuildTarget.mac
+    /// Whether the Build page currently builds into the shared app (either direct install or shared IPA export).
+    var packagesSharedApp: Bool = false
     let close: () -> Void
     @EnvironmentObject var loc: Localizer
     @State private var checked: Set<UUID> = []
@@ -68,18 +70,19 @@ struct BuildSelectedSheet: View {
     private func add() {
         let batch = UUID()
         queue.enqueue(candidates.filter { checked.contains($0.id) }.map {
-            QueueEntry(game: $0, engineID: engineID, batch: batch, packageAfter: exportsIPA && $0.lastTarget != BuildTarget.mac)
+            QueueEntry(game: $0, engineID: engineID, target: target, batch: batch,
+                       packageAfter: packagesSharedApp && target != BuildTarget.mac)
         })
         close()
     }
 }
 
 extension QueueEntry {
-    /// The snapshot of a library game for the build queue: the inputs, target and output folder the library holds for it now.
+    /// The snapshot of a library game for the build queue: the inputs and output folder the library holds for it now, and the target.
     /// The hero's "Rebuild" is `stores.queue.enqueue([QueueEntry(game: game, engineID: engine.selection.engineID)])`, "Rebuild all" the
     /// same for `library.games.filter { toolsAge.older.contains($0.id) }`.
-    init(game: LibraryGame, engineID: String, batch: UUID = UUID(), packageAfter: Bool = false) {
-        self.init(gameID: game.id, titleID: game.titleID, name: game.name, target: game.lastTarget,
+    init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false) {
+        self.init(gameID: game.id, titleID: game.titleID, name: game.name, target: target ?? game.lastTarget,
                   inputs: game.inputs.filter { $0.key != GameLibrary.folderInput }, gameFolder: game.inputs[GameLibrary.folderInput]?.first,
                   outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter)
     }

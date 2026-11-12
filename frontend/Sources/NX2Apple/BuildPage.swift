@@ -13,7 +13,7 @@ struct BuildPage: View {
     let repo: RepoStore
     let dependencies: DependencyStore
     let devices: DeviceStore
-    let queue: BuildQueueStore
+    @ObservedObject var queue: BuildQueueStore
     let transfers: TransferQueueStore
     var onSelectGames: () -> Void = {}
     @Binding var extrasOpen: Bool   // the optional input rows of the files card
@@ -24,6 +24,7 @@ struct BuildPage: View {
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
+        let stagingQueue = !running && queue.hasWaiting
         CardPageHeading(loc.t("build.heading"), note: loc.t("build.intro"))
         if running {
             ProgressCard(build: build)
@@ -35,11 +36,17 @@ struct BuildPage: View {
         }
         if !running || showRunningSetup {
             SetupHintCard(repo: repo, dependencies: dependencies, onOpenSettings: onOpenSettings)
-            FilesCard(build: build, extrasOpen: $extrasOpen)
+            if stagingQueue {
+                BuildQueueCard(queue: queue, onSelectGames: onSelectGames)
+            } else if !queue.hasWaiting {
+                FilesCard(build: build, extrasOpen: $extrasOpen)
+            }
             TargetCard(build: build)
         }
         InstallCard(devices: devices, build: build, showLocked: showRunningSetup)
-        BuildQueueCard(queue: queue, onSelectGames: onSelectGames)
+        if !stagingQueue {
+            BuildQueueCard(queue: queue, onSelectGames: onSelectGames)
+        }
         TransferCard(transfers: transfers) { build.revealTransfer($0) }
         LogCard(log: build.log, devices: devices, isOpen: $logOpen,
                 showRequests: BuildNotifier.shared.$showLog.eraseToAnyPublisher(),   // a clicked notification of a failed build

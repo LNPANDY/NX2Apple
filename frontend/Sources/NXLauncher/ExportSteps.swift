@@ -46,7 +46,7 @@ package struct ExportSteps: View {
                             action(loc.t("shell.exportBuilt"), enabled: true) { build.exportBuiltGames() }
                                 .help(loc.t("shell.exportBuiltNote"))
                         }
-                        action(loc.t("shell.step1Button"), enabled: build.canBuild && !build.running) { build.startBuild() }
+                        action(loc.t("shell.step1Button"), enabled: build.canStartBuildOrQueue && !build.running) { build.startBuildOrQueue() }
                     }
                 }
             }

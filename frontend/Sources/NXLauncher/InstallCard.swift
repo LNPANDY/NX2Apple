@@ -67,6 +67,24 @@ package struct InstallCard: View {
                         }
                     }
                 }
+                if !build.builtShellGames().isEmpty {
+                    CardDivider()
+                    CardRow(loc.t("shell.builtTitle"), detail: loc.t("shell.installBuiltNote")) {
+                        Button(loc.t("shell.installBuilt")) { build.installBuiltGames() }
+                            .buttonStyle(LauncherSecondaryButtonStyle())
+                            .disabled(!build.canInstallBuiltGames)
+                            .help(loc.t("shell.installBuiltNote"))
+                    }
+                    if !build.sharedAppDataSources().isEmpty {
+                        CardDivider()
+                        CardRow(loc.t("shell.step3Title"), detail: loc.t("shell.sendAllNote")) {
+                            Button(loc.t("shell.sendAllButton")) { build.sendAllGameData() }
+                                .buttonStyle(LauncherSecondaryButtonStyle())
+                                .disabled(!build.canSendAllGameData)
+                                .help(loc.t("shell.sendAllNote"))
+                        }
+                    }
+                }
             }
         }
         .onAppear { if !devices.checked { _ = devices.refresh() } }
