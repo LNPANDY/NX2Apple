@@ -23,13 +23,12 @@ Issue: LNPANDY/NX2Apple#1025
  dm/host/stick_deadzone.h         | 27 +++++++++++++++++
  dm/host/tests/Makefile           |  4 ++-
  dm/host/tests/t_stick_deadzone.c | 52 ++++++++++++++++++++++++++++++++
- docs/env_switches.tsv            |  2 ++
- 5 files changed, 93 insertions(+), 1 deletion(-)
+ 4 files changed, 91 insertions(+), 1 deletion(-)
  create mode 100644 dm/host/stick_deadzone.h
  create mode 100644 dm/host/tests/t_stick_deadzone.c
 
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index 36e07919..47517d55 100644
+index 36e0791..47517d5 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
 @@ -7,6 +7,7 @@
@@ -59,7 +58,7 @@ index 36e07919..47517d55 100644
  }
 diff --git a/dm/host/stick_deadzone.h b/dm/host/stick_deadzone.h
 new file mode 100644
-index 00000000..36fa9e79
+index 0000000..36fa9e7
 --- /dev/null
 +++ b/dm/host/stick_deadzone.h
 @@ -0,0 +1,27 @@
@@ -91,7 +90,7 @@ index 00000000..36fa9e79
 +    *y = (int32_t)lrintf(fmaxf(-1, fminf(1, fy * scale)) * DM_STICK_MAX);
 +}
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 91e95c7e..25c34b39 100644
+index 91e95c7..25c34b3 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
 @@ -429,7 +429,9 @@ $(B)/t_profile_runtime: t_profile_runtime.c ../hle_profile.c ../hle_profile.h ..
@@ -107,7 +106,7 @@ index 91e95c7e..25c34b39 100644
  $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
 diff --git a/dm/host/tests/t_stick_deadzone.c b/dm/host/tests/t_stick_deadzone.c
 new file mode 100644
-index 00000000..d9ac75c2
+index 0000000..d9ac75c
 --- /dev/null
 +++ b/dm/host/tests/t_stick_deadzone.c
 @@ -0,0 +1,52 @@
@@ -163,16 +162,3 @@ index 00000000..d9ac75c2
 +    puts("t_stick_deadzone: ok");
 +    return 0;
 +}
-diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index 652e23cd..b2639445 100644
---- a/docs/env_switches.tsv
-+++ b/docs/env_switches.tsv
-@@ -371,6 +371,8 @@ DM_SPIN_LIST	diagnostic	`=1` makes `patch_nso.py` print every guest poll loop it
- DM_SPIN_POLL	switch	`=<µs>`: how long a spin-gate wait polls before it sleeps with the yield back-off (default 2000; `0` yields on every pass)
- DM_STEAM_DEADZONE	switch	`=0..0.9` (exclusive upper bound) sets the radial deadzone for both raw Steam Controller sticks; default 0.10, `0` disables it; invalid values use the default
- DM_STEAM_HID	switch	`=0` disables the Mac direct Steam Controller HID adapter and leaves input to Apple GameController; enabled otherwise
-+DM_STICK_DEADZONE_L	switch	`=1..50` sets a radial deadzone of that many percent of the travel for the left stick of every physical controller (inside it the stick reads centred, outside it the rest of the travel is rescaled to the full range); unset, `0` or anything else leaves the stick as the controller reports it. The Mac launcher's Controls settings write it (Use custom deadzones)
-+DM_STICK_DEADZONE_R	switch	`=1..50` the same for the right stick
- DM_SVC	diagnostic	`=1` logs memory SVCs (`SetHeapSize`, `MapMemory`, `Map`/`UnmapPhysicalMemory`) with their addresses and sizes
- DM_SW2	player	`=1` turns on Switch 2 controllers over Bluetooth LE (Joy-Con 2, Pro Controller 2): the settings window's Switch 2 controllers. Off, no Bluetooth client is created and macOS asks nothing. The host also stays off when the app's Info.plist has no NSBluetoothAlwaysUsageDescription, without which macOS ends the process at the first Bluetooth scan
- DM_SW2_GYRO_DPS	diagnostic	`=<degrees per second per count>` is the Switch 2 controllers' gyro scale (default 0.0607, measured on a left and a right Joy-Con 2; the Switch family's nominal 0.070 turned a 90 degree tilt into 104)

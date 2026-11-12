@@ -32,14 +32,13 @@ Reason: the launcher's opt-in experimental builder (nxbuild) runs the extraction
 Issue: LNPANDY/NX2Apple#749
 ---
  .../tests/test_nsp_experimental_builder.py    | 211 ++++++++++++++++++
- docs/env_switches.tsv                         |   1 +
  scripts/build_ipa_from_nsp.py                 | 164 +++++++++++++-
- 3 files changed, 370 insertions(+), 6 deletions(-)
+ 2 files changed, 369 insertions(+), 6 deletions(-)
  create mode 100644 dm/tools/tests/test_nsp_experimental_builder.py
 
 diff --git a/dm/tools/tests/test_nsp_experimental_builder.py b/dm/tools/tests/test_nsp_experimental_builder.py
 new file mode 100644
-index 00000000..444e1864
+index 0000000..444e186
 --- /dev/null
 +++ b/dm/tools/tests/test_nsp_experimental_builder.py
 @@ -0,0 +1,211 @@
@@ -254,20 +253,8 @@ index 00000000..444e1864
 +
 +if __name__ == '__main__':
 +    unittest.main()
-diff --git a/docs/env_switches.tsv b/docs/env_switches.tsv
-index d479fe4d..0d89ed6d 100644
---- a/docs/env_switches.tsv
-+++ b/docs/env_switches.tsv
-@@ -38,6 +38,7 @@ DM_ENV_FILE	path	`=<file>` makes `build_ipa.sh` bake its `KEY=VALUE` lines into
- DM_ENV_FILE_KEYS	switch	Set by the iOS app and the Mac launcher at launch to the space-separated names an env file set; the settings screen keeps those values and shows them greyed out
- DM_ENV_LAUNCH_KEYS	switch	Set at launch by the Mac launcher (the launcher settings already in the environment) and the iOS app (every DM_* variable already in it) to the space-separated names; the settings screen keeps those values and shows them greyed out
- DM_EXEC_OUT	path	File `oe::ExecuteProgram` records the next program and its parameters in, then the app ends (the iOS app of a game of several programs sets it to `Documents/program.bin`)
-+DM_EXPERIMENTAL_BUILDER	switch	`1` makes the NSP script run the extraction and the shader split through nxbuild's binaries beside `NXB_BIN` (the path of its `nxb` binary) where nxbuild supports the case, with the same outputs; any other case, an unsupported stage or an output that fails the checks runs the standard way (the Mac launcher's Use experimental builder setting)
- DM_FD_LOG	diagnostic	`=<seconds>` logs, every that many seconds, the number and kinds of file descriptors the process has open
- DM_FIXED_TIME	switch	`=<seconds>`: the user clock always returns that time and the host time zone is pinned to UTC, for deterministic comparison
- DM_FOCUS_KEEP	switch	`1` keeps the game in focus while its Mac window is up, whichever app is active (minimizing still counts); `scripts/regress.py` sets it, so another app taking the key window during a run does not pause a game that stops out of focus
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index c15507f9..3ff54810 100755
+index c15507f..3ff5481 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@

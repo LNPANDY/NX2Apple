@@ -27,7 +27,7 @@ Issue: LNPANDY/NX2Apple#809
  2 files changed, 18 insertions(+), 2 deletions(-)
 
 diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
-index 6d9ff7d9..0e3c942b 100644
+index 6d9ff7d..0e3c942 100644
 --- a/dm/ios/Sources/DmGamepad.m
 +++ b/dm/ios/Sources/DmGamepad.m
 @@ -834,6 +834,15 @@ static int cp_waiting(void) {   // connected controllers that are no player yet
@@ -78,7 +78,7 @@ index 6d9ff7d9..0e3c942b 100644
          c.extendedGamepad.valueChangedHandler = nil;
          c.extendedGamepad.buttonHome.pressedChangedHandler = nil;
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 48905f2e..74fbdaa1 100644
+index 48905f2..74fbdaa 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -690,6 +690,8 @@ static void front_ios_teardown(void) {

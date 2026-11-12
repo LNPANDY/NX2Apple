@@ -24,7 +24,7 @@ Issue: LNPANDY/NX2Apple#809
  2 files changed, 54 insertions(+), 5 deletions(-)
 
 diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
-index 205a96df..9f816866 100644
+index 205a96d..9f81686 100644
 --- a/dm/host/haptics_apple.m
 +++ b/dm/host/haptics_apple.m
 @@ -429,7 +429,20 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
@@ -81,7 +81,7 @@ index 205a96df..9f816866 100644
      dm_haptics_init(apply, !e || atoi(e) != 0);
  #if TARGET_OS_IPHONE
 diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
-index 2243e380..b2aed52b 100644
+index 2243e38..b2aed52 100644
 --- a/dm/host/tests/t_haptics_apple.m
 +++ b/dm/host/tests/t_haptics_apple.m
 @@ -131,6 +131,7 @@ - (void)stopWithCompletionHandler:(CHHapticCompletionHandler)handler { self.stop

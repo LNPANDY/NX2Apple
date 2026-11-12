@@ -20,12 +20,12 @@ Issue: LNPANDY/NX2Apple#144
  dm/ios/Shell/ShellEngine.h           |  10 ++
  dm/ios/Shell/ShellMain.m             | 172 +++++++++++++++++++++++++++
  dm/ios/Sources/front_ios.m           |   1 +
- dm/ios/project-shell.yml             | 114 ++++++++++++++++++
+ dm/ios/project-shell.yml             | 115 ++++++++++++++++++
  dm/ios/tests/test_shell_build.py     | 172 +++++++++++++++++++++++++++
  dm/ios/tools/build_ipa.sh            |  39 +++++-
- dm/ios/tools/build_shell.sh          | 117 ++++++++++++++++++
+ dm/ios/tools/build_shell.sh          | 127 ++++++++++++++++++++
  dm/ios/tools/gen_manifest.py         |   9 +-
- 10 files changed, 705 insertions(+), 4 deletions(-)
+ 10 files changed, 716 insertions(+), 4 deletions(-)
  create mode 100644 dm/ios/Shell/Shell-Bridging-Header.h
  create mode 100644 dm/ios/Shell/ShellApp.swift
  create mode 100644 dm/ios/Shell/ShellEngine.h
@@ -36,7 +36,7 @@ Issue: LNPANDY/NX2Apple#144
 
 diff --git a/dm/ios/Shell/Shell-Bridging-Header.h b/dm/ios/Shell/Shell-Bridging-Header.h
 new file mode 100644
-index 00000000..bf778b2c
+index 0000000..bf778b2
 --- /dev/null
 +++ b/dm/ios/Shell/Shell-Bridging-Header.h
 @@ -0,0 +1,2 @@
@@ -44,7 +44,7 @@ index 00000000..bf778b2c
 +#include "ShellEngine.h"
 diff --git a/dm/ios/Shell/ShellApp.swift b/dm/ios/Shell/ShellApp.swift
 new file mode 100644
-index 00000000..8dbe45f0
+index 0000000..8dbe45f
 --- /dev/null
 +++ b/dm/ios/Shell/ShellApp.swift
 @@ -0,0 +1,73 @@
@@ -123,7 +123,7 @@ index 00000000..8dbe45f0
 +}
 diff --git a/dm/ios/Shell/ShellEngine.h b/dm/ios/Shell/ShellEngine.h
 new file mode 100644
-index 00000000..40f6f04e
+index 0000000..40f6f04
 --- /dev/null
 +++ b/dm/ios/Shell/ShellEngine.h
 @@ -0,0 +1,10 @@
@@ -139,7 +139,7 @@ index 00000000..40f6f04e
 +void dm_shell_present_game(void);
 diff --git a/dm/ios/Shell/ShellMain.m b/dm/ios/Shell/ShellMain.m
 new file mode 100644
-index 00000000..0cb8cdd0
+index 0000000..0cb8cdd
 --- /dev/null
 +++ b/dm/ios/Shell/ShellMain.m
 @@ -0,0 +1,172 @@
@@ -316,7 +316,7 @@ index 00000000..0cb8cdd0
 +    @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(App.class)); }
 +}
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index 22cd1bb2..6a069b54 100644
+index 22cd1bb..6a069b5 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -178,6 +178,7 @@ - (void)startGame {
@@ -329,10 +329,10 @@ index 22cd1bb2..6a069b54 100644
      self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 diff --git a/dm/ios/project-shell.yml b/dm/ios/project-shell.yml
 new file mode 100644
-index 00000000..1fc29561
+index 0000000..1184da7
 --- /dev/null
 +++ b/dm/ios/project-shell.yml
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,115 @@
 +# Route C shell project (docs/launcher-c-plan.md M2/M3): one app that hosts the engine and every game the player added, each game's
 +# code and per-game files in its own framework (build_ipa.sh DM_FRAMEWORK_ONLY), the library and settings from the frontend-ios Swift
 +# package. dm/ios/tools/build_shell.sh copies this template to the shell's project folder, puts the frameworks in at the FRAMEWORKS line and
@@ -383,6 +383,7 @@ index 00000000..1fc29561
 +      path: Gen/Info.plist
 +      properties:
 +        CFBundleDisplayName: ${DM_SHELL_NAME}
++        CFBundleLocalizations: [en, de, es, fr, it, ja, ko, pt-BR, sv, zh-Hans]   # one per file of frontend/l10n (tools/l10n_shell_catalogs.py), iOS offers only the declared ones to the package bundles
 +        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
 +        CFBundleShortVersionString: $(MARKETING_VERSION)
 +        UILaunchScreen: {}
@@ -449,7 +450,7 @@ index 00000000..1fc29561
 +      config: Release
 diff --git a/dm/ios/tests/test_shell_build.py b/dm/ios/tests/test_shell_build.py
 new file mode 100644
-index 00000000..042513f9
+index 0000000..042513f
 --- /dev/null
 +++ b/dm/ios/tests/test_shell_build.py
 @@ -0,0 +1,172 @@
@@ -626,7 +627,7 @@ index 00000000..042513f9
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 008a3ba1..2069a4eb 100755
+index 008a3ba..2069a4e 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -11,6 +11,9 @@
@@ -705,10 +706,10 @@ index 008a3ba1..2069a4eb 100755
  xcodebuild -project DmIOS.xcodeproj -scheme DmIOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$DD" \
 diff --git a/dm/ios/tools/build_shell.sh b/dm/ios/tools/build_shell.sh
 new file mode 100755
-index 00000000..d3cc308b
+index 0000000..1a4b33a
 --- /dev/null
 +++ b/dm/ios/tools/build_shell.sh
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,127 @@
 +#!/bin/bash
 +# Route C shell (docs/launcher-c-plan.md M2/M3): one iPhone and iPad app for every game the player added. It hosts the engine and
 +# embeds each game's framework (build_ipa.sh DM_FRAMEWORK_ONLY=<folder>: the game's modules, tables, profile, settings list, shader
@@ -789,7 +790,7 @@ index 00000000..d3cc308b
 +elif [ "$MODE" = --prepare-xcode ]; then t "entitlements: none (DM_ENTITLEMENTS is empty): no Increased Memory Limit"; fi
 +# The template with one embedded, unlinked framework per game where it says @FRAMEWORKS@
 +python3 -I - "$IOS_SOURCE/project-shell.yml" "$FWLIST" project.yml <<'PY' || die "project.yml"
-+import sys
++import os, sys
 +template, fwlist, out = sys.argv[1:]
 +lines, done = [], False
 +for line in open(template, encoding='utf-8').read().splitlines():
@@ -800,6 +801,16 @@ index 00000000..d3cc308b
 +            lines += [f'{pad}- framework: "{path}"', f'{pad}  embed: true', f'{pad}  link: false', f'{pad}  codeSign: true']
 +        done = True
 +        continue
++    if line.lstrip().startswith('CFBundleLocalizations:'):
++        pad = line[:len(line) - len(line.lstrip())]
++        xc = os.path.join(os.environ.get('DM_SHELL_PACKAGE', ''), 'Sources/ShellUI/Resources/Localizable.xcstrings')
++        if os.path.isfile(xc):
++            import json as _j
++            _d = _j.load(open(xc, encoding='utf-8')).get('strings', {})
++            _locs = sorted({k for v in _d.values() for k in v.get('localizations', {}) if k != 'en'})
++            if _locs:
++                lines.append(f'{pad}CFBundleLocalizations: [' + ', '.join(['en', *_locs]) + ']')
++                continue
 +    lines.append(line)
 +if not done: sys.exit('[RED] project-shell.yml has no @FRAMEWORKS@ line')
 +open(out, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
@@ -827,7 +838,7 @@ index 00000000..d3cc308b
 +done < "$FWLIST"
 +t "done: $APP ($(du -sh "$APP" | cut -f1)), unsigned"
 diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
-index ec2c33be..e1d302ff 100644
+index ec2c33b..e1d302f 100644
 --- a/dm/ios/tools/gen_manifest.py
 +++ b/dm/ios/tools/gen_manifest.py
 @@ -48,6 +48,8 @@ def manifest(args):

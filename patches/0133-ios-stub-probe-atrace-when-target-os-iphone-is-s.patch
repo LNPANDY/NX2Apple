@@ -8,13 +8,12 @@ Upstream ccd834e0 calls probe_atrace unconditionally from ctl_main in dm/host/hl
 Upstream-Status: pending
 Reason: stub probe_atrace on iOS so DmIOS and DmShellGame link after ccd834e0
 Issue: LNPANDY/NX2Apple#1153
-
 ---
  dm/host/probe.c | 6 +++++-
  1 file changed, 5 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/probe.c b/dm/host/probe.c
-index 239bd6cf..1480a848 100644
+index 239bd6c..1480a84 100644
 --- a/dm/host/probe.c
 +++ b/dm/host/probe.c
 @@ -390,15 +390,19 @@ static int atrace_fault(void *addr, int is_write, void *uc_) {

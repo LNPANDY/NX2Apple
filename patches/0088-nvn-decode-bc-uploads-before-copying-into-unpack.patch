@@ -20,7 +20,7 @@ Issue: LNPANDY/NX2Apple#732
  create mode 100644 dm/gfx/tests/t_bc_cpu.m
 
 diff --git a/dm/games/010015100B514000/README.md b/dm/games/010015100B514000/README.md
-index b9f3d4ea..4f8ac92d 100644
+index b9f3d4e..4f8ac92 100644
 --- a/dm/games/010015100B514000/README.md
 +++ b/dm/games/010015100B514000/README.md
 @@ -101,6 +101,7 @@ Game-specific findings; the general host changes they led to are listed under [F
@@ -40,7 +40,7 @@ index b9f3d4ea..4f8ac92d 100644
 +
 +With the fork's CPU BC option enabled, an iPhone 13 Pro Max on iOS 27.0.1 showed striped rectangles in version 1.0.0 character selection, followed by an invalid decoded-texture view abort. The equivalent upload and view fix restored that screen in a historical local build. See [CPU-decoded BC uploads and format views](../../../docs/reference/rendering.md#cpu-decoded-bc-uploads-and-format-views) for the mechanism, regression coverage and limits. Current-pin verification is through synthetic GPU tests, not a new full-game phone run.
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index a9e94584..271a8f48 100644
+index a9e9458..271a8f4 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -2993,6 +2993,14 @@ static int tex_atomic_alias(id<MTLTexture> base) {
@@ -152,7 +152,7 @@ index a9e94584..271a8f48 100644
          if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf)) {
              id<MTLTexture> v = [t newTextureViewWithPixelFormat:(MTLPixelFormat)vpf];
 diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
-index 10f0b530..c9bc9458 100644
+index 10f0b53..c9bc945 100644
 --- a/dm/gfx/tests/Makefile
 +++ b/dm/gfx/tests/Makefile
 @@ -626,3 +626,7 @@ check_t_pool_standin: t_pool_standin
@@ -165,7 +165,7 @@ index 10f0b530..c9bc9458 100644
 +check_t_bc_cpu: RUN_ENV = MTL_DEBUG_LAYER=1
 diff --git a/dm/gfx/tests/t_bc_cpu.m b/dm/gfx/tests/t_bc_cpu.m
 new file mode 100644
-index 00000000..b395b557
+index 0000000..b395b55
 --- /dev/null
 +++ b/dm/gfx/tests/t_bc_cpu.m
 @@ -0,0 +1,90 @@
@@ -260,7 +260,7 @@ index 00000000..b395b557
 +    printf("t_bc_cpu: %d checks, %d failed\n",checks,failed); return failed!=0;
 +}}
 diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
-index 657d15be..541e0b57 100644
+index 657d15b..541e0b5 100644
 --- a/docs/reference/rendering.md
 +++ b/docs/reference/rendering.md
 @@ -1795,3 +1795,12 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
