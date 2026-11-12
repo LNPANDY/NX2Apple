@@ -81,7 +81,7 @@ there once at start (a rename on the same volume, shell.json's paths are rewritt
 it is the folder the launcher made, shell.json can be read and the new place is free. On any doubt
 the old folder stays where it is and keeps being used, and nothing is deleted. Uninstalling the
 launcher leaves this folder alone. The launcher
-generates the app's project with `dm/ios/tools/build_shell.sh --prepare-xcode`, signs it with
+generates the app's project with `frontend-ios/Shell/build_shell.sh --prepare-xcode`, signs it with
 `xcodebuild -allowProvisioningUpdates` and installs it over the one already there with
 `xcrun devicectl device install app`, which keeps the app's Documents. The game files are packed
 into `games/<title ID>/romfs.img`, with any DLC in `aoc/` beside it. They are compared with the

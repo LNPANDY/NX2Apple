@@ -136,7 +136,7 @@ import XCTest
         try write(repo + "/dm/tools/nx_extract/Program.cs", "// marker\n")
         try write(repo + "/dm/tools/romfs_image.py", "# placeholder\n")
         try write(repo + "/frontend-ios/Package.swift", "// swift-tools-version: 5.9\n")
-        try fm.createDirectory(atPath: repo + "/dm/ios/Shell", withIntermediateDirectories: true)
+        try fm.createDirectory(atPath: repo + "/frontend-ios/Shell/App", withIntermediateDirectories: true)
 
         try write(repo + "/scripts/build_ipa_from_nsp.py", """
         #!/usr/bin/python3
@@ -171,7 +171,7 @@ import XCTest
                 open(out_app + '/Contents/Info.plist', 'w').write('<plist/>')
         """, executable: true)
 
-        try write(repo + "/dm/ios/tools/build_shell.sh", """
+        try write(repo + "/frontend-ios/Shell/build_shell.sh", """
         #!/bin/bash
         echo "$*" >> "\(stateDir)/shell-calls.txt"
         mkdir -p "$SHELL_DIR/DmShell.xcodeproj" "$SHELL_DIR/Gen"

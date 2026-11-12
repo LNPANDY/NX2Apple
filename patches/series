@@ -37,7 +37,7 @@
 0036-controllers-apply-radial-stick-deadzones-in-dm-j.patch
 0037-mac-controller-followups.patch
 0038-bc-cpu-decode.patch
-0039-ios-route-c-framework-and-shell.patch
+0039-ios-game-framework.patch
 0040-ios-touch-settings-and-toggle.patch
 0041-ios-host-teardown.patch
 0042-ios-stub-probe-atrace-when-target-os-iphone-is-s.patch

@@ -2,7 +2,7 @@ import Foundation
 
 // Route C: one app on the iPhone or iPad that holds several games. The build script makes only each game's framework
 // (`--shell-framework`), and this file does the rest: the shell's library file (shell.json), the shell's Xcode project
-// (dm/ios/tools/build_shell.sh), signing, the install, and the game data. Everything pure (the file, the commands, the listing
+// (frontend-ios/Shell/build_shell.sh), signing, the install, and the game data. Everything pure (the file, the commands, the listing
 // parser, the diff) is a static function with its own tests. `ShellInstaller` strings them together, blocking, so the same code
 // runs under the build model (on a background queue) and from the terminal (`NSPortBuilder --install-shell`).
 
@@ -66,13 +66,13 @@ package enum ShellInstall {
 
     // ---- 4: the project ----
 
-    package static func projectCommand(repo: String) -> [String] {
-        ["/bin/bash", repo + "/dm/ios/tools/build_shell.sh", "--prepare-xcode"]
+    package static func projectCommand(package: String) -> [String] {
+        ["/bin/bash", package + "/Shell/build_shell.sh", "--prepare-xcode"]
     }
 
-    /// The `frontend-ios` Swift package the shell project links (build_shell.sh's DM_SHELL_PACKAGE). The script defaults to
-    /// `frontend-ios` beside `dm/`, which is the engine root, and an engine tree has none since #214. So: the release app's
-    /// Contents/Resources/frontend-ios, else the source checkout's `frontend-ios` (`repo`). nil when neither has a Package.swift.
+    /// The `frontend-ios` Swift package the shell project links (build_shell.sh's DM_SHELL_PACKAGE), which also holds
+    /// `Shell/build_shell.sh`, `Shell/project-shell.yml` and `Shell/App/`. In a release app this is Contents/Resources/frontend-ios,
+    /// else the source checkout's `frontend-ios` (`repo`). nil when neither has a Package.swift.
     package static func shellPackage(resources: String?, repo: String, fm: FileManager = .default) -> String? {
         ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }
             .first { fm.fileExists(atPath: $0 + "/Package.swift") }
@@ -80,7 +80,8 @@ package enum ShellInstall {
 
     /// What build_shell.sh reads. `path` is the build's own tool PATH (xcodegen must be found on it).
     package static func projectEnvironment(root: String, frameworks: [String], bundleID: String, team: String, python: String,
-                                   path: String, home: String, user: String, tmp: String? = nil, package: String? = nil) -> [String: String] {
+                                   path: String, home: String, user: String, tmp: String? = nil, package: String? = nil,
+                                   engine: String? = nil) -> [String: String] {
         var env = ["SHELL_DIR": projectFolder(root: root),
                    "DM_SHELL_FRAMEWORKS": frameworks.joined(separator: "\n"),
                    "DM_BUNDLE_ID": bundleID,
@@ -90,6 +91,7 @@ package enum ShellInstall {
                    "PATH": path, "HOME": home, "USER": user, "LANG": "en_US.UTF-8"]
         if let tmp { env["TMPDIR"] = tmp }
         if let package { env["DM_SHELL_PACKAGE"] = package }
+        if let engine { env["DM_ENGINE_DIR"] = engine }
         return env
     }
 
@@ -435,7 +437,8 @@ package struct ShellInstaller {
         if built.status != 0, ShellInstall.memoryCapabilityMissing(built.output) {
             log("signing: the team's provisioning profile cannot carry the Increased Memory Limit capability; signing without it (a large game may run out of memory)\n")
             var plain = env; plain["DM_ENTITLEMENTS"] = ""
-            let again = run(ShellInstall.projectCommand(repo: repo), env: plain, label: projectName, step: { _ in nil })
+            let package = plain["DM_SHELL_PACKAGE"] ?? (repo + "/frontend-ios")
+            let again = run(ShellInstall.projectCommand(package: package), env: plain, label: projectName, step: { _ in nil })
             if again.status == 0 {
                 ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
                 noMemoryCapability = true

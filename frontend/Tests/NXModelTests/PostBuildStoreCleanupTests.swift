@@ -201,7 +201,7 @@ import XCTest
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: xcrun)
 
         let fakeRepo = temporary.appendingPathComponent("repo")
-        let shellSh = try write("dm/ios/tools/build_shell.sh", in: fakeRepo, """
+        let shellSh = try write("frontend-ios/Shell/build_shell.sh", in: fakeRepo, """
         #!/bin/bash
         mkdir -p "$SHELL_DIR/DmShell.xcodeproj" "$SHELL_DIR/Gen"
         exit 0

@@ -34,7 +34,7 @@ targets:
       - path: ../Tests/ShellHostTests/Fixtures/Games
         type: folder
         buildPhase: resources
-      - path: ../AppIcon.icon   # the app icon, shared with the shell app (dm/ios/project-shell.yml)
+      - path: ../AppIcon.icon   # the app icon, shared with the shell app (frontend-ios/Shell/project-shell.yml)
     info:
       path: Gen/Info.plist
       properties:

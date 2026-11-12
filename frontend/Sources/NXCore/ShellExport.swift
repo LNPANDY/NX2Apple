@@ -61,16 +61,21 @@ extension ShellInstall {
                 if isSymlink { try? fm.removeItem(atPath: link) }
                 try? fm.createSymbolicLink(atPath: link, withDestinationPath: pkg)
             }
+            let shellLink = proj + "/Shell", shellTarget = pkg + "/Shell/App"
+            if fm.fileExists(atPath: shellTarget) {
+                let sAttrs = try? fm.attributesOfItem(atPath: shellLink)
+                let sIsSymlink = (sAttrs?[.type] as? FileAttributeType) == .typeSymbolicLink
+                if sIsSymlink || sAttrs == nil, (try? fm.destinationOfSymbolicLink(atPath: shellLink)) != shellTarget {
+                    if sIsSymlink { try? fm.removeItem(atPath: shellLink) }
+                    try? fm.createSymbolicLink(atPath: shellLink, withDestinationPath: shellTarget)
+                }
+            }
         }
-        let engine = EngineLayout.root(repo)
-        for item in ["Sources", "Shell", "tools"] {
-            let itemLink = proj + "/" + item, target = engine + "/dm/ios/" + item
-            guard !fm.fileExists(atPath: itemLink), fm.fileExists(atPath: target) else { continue }
-            let attrs = try? fm.attributesOfItem(atPath: itemLink)
-            let isSymlink = (attrs?[.type] as? FileAttributeType) == .typeSymbolicLink
-            if isSymlink || attrs == nil {
-                if isSymlink { try? fm.removeItem(atPath: itemLink) }
-                try? fm.createSymbolicLink(atPath: itemLink, withDestinationPath: target)
+        for item in ["Sources", "tools"] {
+            let itemLink = proj + "/" + item
+            if (try? fm.attributesOfItem(atPath: itemLink))?[.type] as? FileAttributeType == .typeSymbolicLink,
+               !fm.fileExists(atPath: itemLink) {
+                try? fm.removeItem(atPath: itemLink)
             }
         }
         let pbxPath = proj + "/" + projectName + "/project.pbxproj"
@@ -150,13 +155,14 @@ extension ShellInstaller {
             restoreLibrary()
             return (nil, nil, Outcome(ok: false, message: fmt("shell.projectFailed", "no frontend-ios Swift package (Package.swift) in " + looked)), [])
         }
+        let engineRoot = EngineLayout.root(repo)
         var env = ShellInstall.projectEnvironment(root: root, frameworks: library.games.map(\.framework), bundleID: library.bundleID,
                                                   team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
-                                                  tmp: NSTemporaryDirectory(), package: package)
+                                                  tmp: NSTemporaryDirectory(), package: package, engine: engineRoot)
         env.merge(BundledTools.environment(for: python)) { $1 }
         let projectName = t("shell.projectStage")
         begin(Self.projectStageID, projectName)
-        let project = run(ShellInstall.projectCommand(repo: repo), env: env, label: projectName, step: { _ in nil })
+        let project = run(ShellInstall.projectCommand(package: package), env: env, label: projectName, step: { _ in nil })
         if project.status != 0 {
             let why = ShellInstall.scriptFailure(project.output) ?? fmt("msg.exitCode", project.status)
             end(Self.projectStageID, projectName, ok: false, detail: why)
