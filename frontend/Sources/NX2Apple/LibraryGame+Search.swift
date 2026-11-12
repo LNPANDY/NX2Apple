@@ -18,12 +18,3 @@ extension LibraryGame {
         }
     }
 }
-
-extension GameLibrary {
-    /// Play started the Mac app: the game goes to the front of the Recently played order.
-    func recordPlayed(_ id: UUID, at date: Date = Date()) {
-        guard var game = games.first(where: { $0.id == id }) else { return }
-        game.lastPlayed = date
-        upsert(game)
-    }
-}

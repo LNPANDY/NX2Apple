@@ -6,6 +6,9 @@ import NXLauncher
 
 /// Only paths and presentation metadata live here. Game data stays on its original drive.
 struct LibraryGame: Codable, Identifiable, Equatable {
+    enum CodingKeys: String, CodingKey {
+        case id, titleID, name, appPath, ipaPath, archivePath, lastTarget, inputs, outputDirectory, sourceFolder, artworkPath, artwork, launchOptions, mods, iosAppPath, installedDevice, toolsCommit, titleNames, sourceVersion, customName, lastPlayed, defaultsApplied
+    }
     var id: UUID = UUID()
     var titleID: String
     var name: String
@@ -31,7 +34,9 @@ struct LibraryGame: Codable, Identifiable, Equatable {
     var titleNames: [String: String] = [:]   // the game's names by language, only what is shown (LibraryGame+Names.swift)
     var sourceVersion = ""   // display version read off-thread from unbuilt package control data (TitleNameLookup.swift)
     var customName = ""   // the player's name (Manage > Rename), shown in every language
-    var lastPlayed: Date?   // when Play last started the Mac app (the library's Recently played order, #937)
+    var playTime: PlayTimeStats? = nil
+    var activityDate: Date? { playTime?.lastActivityAt ?? (playTime?.dated == true ? nil : lastPlayed) }
+    var lastPlayed: Date?   // Legacy launch date, used only until runtime activity is available.
     /// False for a game the library has just added: LaunchSetting personal defaults (#680) are written once, before its first start.
     /// A library written before the defaults existed decodes true, so no existing choice is touched.
     var defaultsApplied = false
@@ -153,6 +158,12 @@ final class GameLibrary: ObservableObject {
     var onBackgroundScanStart: (@Sendable () -> Void)?
     private var scanGeneration = 0
     private var pendingRescanRepo: String?
+    func applyPlayTime(_ stats: PlayTimeStats?, to id: UUID) {
+        guard let i = games.firstIndex(where: { $0.id == id }), games[i].playTime != stats else { return }
+        games[i].playTime = stats
+    }
+
+    let timeIndex: PlayTimeIndex
     private let file: URL
     let artworkDirectory: URL   // where this library's artwork lives: the store's, or a temporary one in tests
     private struct Snapshot: Codable {
@@ -167,6 +178,7 @@ final class GameLibrary: ObservableObject {
         artworkDirectory = artwork ?? file.map { $0.deletingLastPathComponent().appendingPathComponent("artwork", isDirectory: true) } ?? ArtworkStore.shared.directory
         self.file = file ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("NS Port Builder/library.json")
+        timeIndex = PlayTimeIndex(indexURL: self.file.deletingLastPathComponent().appendingPathComponent("playtime-index.json"))
         if FileManager.default.fileExists(atPath: self.file.path) {
             do {
                 let data = try Data(contentsOf: self.file)

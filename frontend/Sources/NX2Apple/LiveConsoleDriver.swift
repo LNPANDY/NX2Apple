@@ -268,6 +268,16 @@ struct ConsolePadSnapshot: Equatable {
         }, ended: { [weak self] in self?.state.returnFromGame() })
     }
 
+    func refreshPlayTimeAfterSession(_ game: LibraryGame) {
+        let chosen = player() ?? PlayerProfile(id: PlayerProfile.defaultID, name: "")
+        let settings = saves(game.titleID) ?? (SaveGlobalSettings(), SaveGameOverride())
+        Task { [weak self] in
+            guard let self else { return }
+            await library.refreshPlayTime(game, player: chosen, global: settings.0, override: settings.1,
+                                          current: { [weak self] in self?.player()?.id ?? PlayerProfile.defaultID == chosen.id })
+        }
+    }
+
     private func openGame(_ game: LibraryGame, environment: [String: String], gameID: String) {
         launch(game, environment) { [weak self] pid, error in
             DispatchQueue.main.async {
@@ -275,7 +285,6 @@ struct ConsolePadSnapshot: Equatable {
                     guard let self, self.state.startingGameID == gameID else { return }
                     if let error { self.state.returnFromGame(); self.gameEnded(); self.showToast(error.localizedDescription, kind: "error"); return }
                     self.launchedPID = pid
-                    self.library.recordPlayed(game.id)   // the Recently played order (#937)
                     if let pid { self.beginTracking(game, pid: pid, environment: environment) }   // the session, its pause and its end (+Sessions)
                     self.launchedGame = game
                     if let pid { GameReturnWatcher.shared.didStart(pid: pid) { [weak self] in self?.gameDidTerminate(pid: pid) } }   // the launcher's one watcher and its switch (ReturnAfterPlay.swift)

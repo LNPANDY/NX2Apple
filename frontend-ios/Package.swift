@@ -16,7 +16,7 @@ let package = Package(
     targets: [
         .target(name: "ShellUI", resources: [.process("Resources")]),
         .target(name: "ShellControllers", dependencies: ["ShellUI"]),
-        .target(name: "ShellHost", dependencies: ["ShellUI", "ShellControllers", .product(name: "GameTime", package: "GameTime")], resources: [.process("Resources")]),
+        .target(name: "ShellHost", dependencies: ["ShellUI", "ShellControllers", .product(name: "GameTime", package: "GameTime"), .product(name: "GameTimeLibrary", package: "GameTime")], resources: [.process("Resources")]),
         .executableTarget(name: "ShellDemo", dependencies: ["ShellUI", "ShellControllers", "ShellHost"], resources: [.process("Resources")]),
         .testTarget(name: "ShellUITests", dependencies: ["ShellUI"]),
         .testTarget(name: "ShellHostTests", dependencies: ["ShellHost", "ShellUI", "ShellControllers"], resources: [.copy("Fixtures")]),

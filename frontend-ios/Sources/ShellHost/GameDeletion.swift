@@ -24,11 +24,11 @@ public enum GameDeletion {
         return ["manifest", m.displayVersion, m.packageVersion, m.chain, m.romfsIdentity, String(m.bytes ?? 0)].joined(separator: ":")
     }
 
-    /// What deleting removes from the game's folder: everything, or everything except saves and play time. Paths of the folder's
+    /// What deleting removes from the game's folder: game data and optionally saves; play history stays for a title added again. Paths of the folder's
     /// top-level entries, sorted. Empty when the folder does not exist.
     public static func removals(in folder: URL, saves: Bool, fileManager fm: FileManager = .default) -> [URL] {
         let names = (try? fm.contentsOfDirectory(atPath: folder.path)) ?? []
-        return names.filter { saves || (!isSave($0) && $0 != "playtime") }.sorted().map { folder.appendingPathComponent($0) }
+        return names.filter { $0 != "playtime" && (saves || !isSave($0)) }.sorted().map { folder.appendingPathComponent($0) }
     }
 
     /// Deletes what `removals` names, and the folder itself when nothing is left in it. Returns the paths that could not be

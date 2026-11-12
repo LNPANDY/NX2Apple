@@ -1,5 +1,9 @@
 import Foundation
 import GameTime
+import GameTimeLibrary
+
+package typealias PlayTimeIndex = GameTimeLibrary
+package typealias PlayTimeStats = GameTimeStats
 
 package enum GameTimeMetrics {
     package static func cached(save: URL, cloudFolder: String?, titleID: String) -> UInt64? {
@@ -13,9 +17,9 @@ package enum GameTimeMetrics {
         let cloud = DMGameTimeCloudURL(cloudFolder, titleID)
         guard let local = DMGameTimeLocalURL(save, cloud, titleID) else { return nil }
         var error: NSError?
-        _ = DMGameTimeSynchronize(local, cloud, &error)
+        let summary = DMGameTimeSynchronizeSummary(local, cloud, &error)
         if let error { NSLog("Play time: %@", error.localizedDescription) }
-        return DMGameTimeTotal(local, &error)?.uint64Value
+        return (summary?["totalMs"] as? NSNumber)?.uint64Value ?? DMGameTimeTotal(local, &error)?.uint64Value
     }
 
     package static func duration(_ milliseconds: UInt64, locale: Locale) -> String {

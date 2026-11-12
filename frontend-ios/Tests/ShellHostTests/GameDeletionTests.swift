@@ -83,7 +83,7 @@ import Testing
         #expect(FileManager.default.fileExists(atPath: picked.appendingPathComponent("romfs/fixture.marker").path))
         #expect(FileManager.default.fileExists(atPath: cloud.appendingPathComponent("slot0.bin").path))
         #expect(box.defaults(Fixtures.orbit).data(forKey: BookmarkStore.gameDataKey) == nil, "the data pick is forgotten")
-        #expect(box.defaults(Fixtures.orbit).data(forKey: BookmarkStore.cloudSavesKey) == nil, "the cloud-saves pick is forgotten too")
+        #expect(box.defaults(Fixtures.orbit).data(forKey: BookmarkStore.cloudSavesKey) != nil, "the metric destination stays for re-adding the title")
         #expect(!listed(model))
     }
 

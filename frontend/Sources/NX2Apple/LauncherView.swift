@@ -233,6 +233,12 @@ struct LauncherView: View {
         .font(.manrope(13))   // the default for text without a font of its own
         .frame(minWidth: 900, idealWidth: 1280, minHeight: 680, idealHeight: 900)
         .onDisappear { gamepad.deactivate() }
+        .task(id: "\(library.games.map { "\($0.id)|\($0.appPath)" }.joined())|\(stores.saveSettings.revision)|\(stores.players.active.id)") {
+            for game in library.games {
+                guard !Task.isCancelled else { return }
+                await library.refreshPlayTime(game, settings: stores.saveSettings, players: stores.players, synchronize: false)
+            }
+        }
         .onAppear {
             gamepad.perform = padAction
             gamepad.capture = { [consoleDriver] id, action in consoleDriver.consumePress(controllerID: id, isBack: action == .b) }

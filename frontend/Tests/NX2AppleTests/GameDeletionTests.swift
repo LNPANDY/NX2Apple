@@ -56,6 +56,14 @@ final class GameDeletionTests: IsolatedDefaultsTestCase {
         GameDeletion.plan(for: game, shellRoot: path + "/shell", home: path + "/home", support: root.appendingPathComponent("support"))
     }
 
+    func testDeletingDevelopmentSavesRetainsPlayHistory() throws {
+        let game = try makeGame()
+        try file("out/\(titleID)_build/run/playtime/\(titleID)/local.json")
+        XCTAssertEqual(plan(game).run(saves: true, trash: { try FileManager.default.removeItem(at: $0) }), [])
+        XCTAssertTrue(exists("out/\(titleID)_build/run/playtime/\(titleID)/local.json"))
+        XCTAssertFalse(exists("out/\(titleID)_build/run/save/0"))
+    }
+
     func testThePlanListsWhatGoesAndKeepsTheSavesApart() throws {
         let plan = plan(try makeGame())
         XCTAssertEqual(plan.items.map(\.kind), [.macApp, .ipa, .archive, .shellFramework, .buildFolder, .log],

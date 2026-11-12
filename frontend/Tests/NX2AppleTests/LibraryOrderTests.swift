@@ -54,7 +54,7 @@ final class LibraryOrderTests: IsolatedDefaultsTestCase {
         XCTAssertEqual(found("   ").count, 2, "a blank search shows everything")
     }
 
-    func testPlayingRecordsTheDateAndAnOldLibraryStillDecodes() throws {
+    func testAnOldLibraryStillDecodesAndRetainsItsLegacyDate() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("order-" + UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: folder) }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -62,10 +62,11 @@ final class LibraryOrderTests: IsolatedDefaultsTestCase {
         let old = #"[{"id":"\#(UUID().uuidString)","titleID":"0100000000000001","name":"A"}]"#
         try old.write(to: file, atomically: true, encoding: .utf8)
         let library = GameLibrary(file: file)
-        let first = try XCTUnwrap(library.games.first)
+        var first = try XCTUnwrap(library.games.first)
         XCTAssertNil(first.lastPlayed)
         XCTAssertTrue(first.defaultsApplied, "a game the library already had keeps what it has")
-        library.recordPlayed(first.id, at: Date(timeIntervalSince1970: 500))
+        first.lastPlayed = Date(timeIntervalSince1970: 500)
+        library.upsert(first)
         XCTAssertEqual(GameLibrary(file: file).games.first?.lastPlayed, Date(timeIntervalSince1970: 500))
     }
 }
