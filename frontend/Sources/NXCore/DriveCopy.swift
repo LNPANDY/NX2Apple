@@ -76,8 +76,8 @@ package enum DriveCopy {
     /// Copies `files` (paths relative to `archive`) into `destination`. A file already there at the same size is left alone, so a
     /// second run finishes a first that stopped. Each file is written under a temporary name and renamed when whole, so a drive pulled
     /// out midway never leaves a cut-off `romfs.img` that looks complete. `progress` gets the bytes done and the total to copy.
-    package static func copy(archive: String, files: [String: Int64], to destination: String, chunk: Int = 8 << 20,
-                             progress: (Int64, Int64) -> Void, cancelled: () -> Bool = { false }) throws {
+    package static func copy(archive: String, files: [String: Int64], origins: [String: String] = [:], to destination: String,
+                             chunk: Int = 8 << 20, progress: (Int64, Int64) -> Void, cancelled: () -> Bool = { false }) throws {
         let fm = FileManager.default
         let have = ShellInstall.localFiles(in: destination)
         let pending = files.filter { have[$0.key] != $0.value }.keys.sorted()
@@ -87,12 +87,13 @@ package enum DriveCopy {
         for relative in pending {
             if cancelled() { throw CopyError.cancelled }
             let target = destination + "/" + relative, partial = target + ".partial"
+            let sourcePath = origins[relative] ?? (archive + "/" + relative)
             try fm.createDirectory(atPath: (target as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
             try? fm.removeItem(atPath: partial)
             guard fm.createFile(atPath: partial, contents: nil) else {
                 throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: partial])
             }
-            let input = try FileHandle(forReadingFrom: URL(fileURLWithPath: archive + "/" + relative))
+            let input = try FileHandle(forReadingFrom: URL(fileURLWithPath: sourcePath))
             let output = try FileHandle(forWritingTo: URL(fileURLWithPath: partial))
             defer { try? input.close(); try? output.close() }
             while true {

@@ -204,6 +204,33 @@ package enum ShellInstall {
         return found
     }
 
+    /// Collects the game data files from `archive` and, when `includeExternalMSL` is true and the last exported shared IPA
+    /// externalized `titleID`'s shaders (#947), merges `<mirroredFramework>/msl/*` as `msl/*` without touching `archive` on disk.
+    package static func transferSources(
+        archive: String,
+        shellRoot: String? = nil,
+        titleID: String = "",
+        includeExternalMSL: Bool = false,
+        fm: FileManager = .default
+    ) -> (sizes: [String: Int64], origins: [String: String]) {
+        var sizes = localFiles(in: archive)
+        var origins = Dictionary(uniqueKeysWithValues: sizes.keys.map { ($0, archive + "/" + $0) })
+        let upper = titleID.uppercased()
+        guard includeExternalMSL, !upper.isEmpty, let root = shellRoot, !root.isEmpty,
+              ShellExport.externalizedTitles(root: root, fm: fm).contains(upper) else {
+            return (sizes, origins)
+        }
+        let fwPath = ShellLibrary.load(root: root).games.first { $0.titleID.uppercased() == upper }?.framework
+            ?? mirroredFramework(root: root, titleID: upper)
+        let mslDir = fwPath + "/msl"
+        for (subrel, sz) in localFiles(in: mslDir) {
+            let rel = "msl/" + subrel
+            sizes[rel] = sz
+            origins[rel] = mslDir + "/" + subrel
+        }
+        return (sizes, origins)
+    }
+
     /// The local files to copy: missing on the device, or of another size. Sorted, so the copies run in a stable order.
     /// The caller also checks the last RomFS transfer before treating a same-size device image as a match.
     package static func filesToCopy(local: [String: Int64], device: [String: Int64]) -> [String] {
@@ -521,7 +548,8 @@ package struct ShellInstaller {
     /// device joins parts (`ShellDataParts`): true for the shared app this launcher just built, nil to ask the app (its
     /// `shell-features.txt`). A file larger than one part goes as parts to an app that joins them; to any other app only a file
     /// devicectl cannot copy whole (`singleCopyLimit`) does, since the whole copy would stall anyway.
-    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome, appJoinsParts: Bool? = nil) -> Outcome {
+    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome,
+                      appJoinsParts: Bool? = nil, includeExternalMSL: Bool = false) -> Outcome {
         var outcome = start
         let checkName = fmt("shell.checkStage", deviceName)
         begin(Self.checkStageID, checkName)
@@ -531,7 +559,8 @@ package struct ShellInstaller {
         _ = run(ShellInstall.listCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID, json: listing),
                 env: nil, label: checkName, step: { _ in nil })
         let onDevice = ShellInstall.parseListing(FileManager.default.contents(atPath: listing))
-        let local = ShellInstall.localFiles(in: archive)
+        let transfer = ShellInstall.transferSources(archive: archive, shellRoot: root, titleID: titleID, includeExternalMSL: includeExternalMSL)
+        let local = transfer.sizes
         // The listing still catches missing and interrupted copies. Two releases can also have the same image size.
         let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)"
         let previous = defaults.string(forKey: receipt)
@@ -613,7 +642,7 @@ package struct ShellInstaller {
                              percent: copiedBytes > 0 && needed > 0 ? Double(copiedBytes) / Double(needed) * 100 : nil))
             // Once an overwrite begins, the old receipt cannot vouch for what a failed copy leaves behind.
             if item.file == "romfs.img", previous != nil { defaults.removeObject(forKey: receipt) }
-            var source = archive + "/" + item.file, destination = item.file, staged: String?
+            var source = transfer.origins[item.file] ?? (archive + "/" + item.file), destination = item.file, staged: String?
             if case .part(let file, let index, let count) = item {
                 // The part is cut into a file of its own, which devicectl reads whole, and removed after the copy
                 if file == "romfs.img", let identity { defaults.set(identity, forKey: partsReceipt) }

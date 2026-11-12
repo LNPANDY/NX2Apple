@@ -65,6 +65,11 @@ extension BuildStore {
     /// Step 3 can run once a build packed the game's data and the IPA exists, and nothing else runs.
     package var canSendGameData: Bool { !running && !archivePath.isEmpty && !exportedIPAPath.isEmpty }
 
+    /// Multi-game drive copy is available whenever a drive folder is valid, nothing is running, and at least one game has packed data.
+    package var canSelectGamesForDrive: Bool {
+        !running && !exportedIPAPath.isEmpty && !devices.driveFolder.isEmpty && !sharedAppDataSources().isEmpty
+    }
+
     /// The device button needs a device too, the drive button a folder without a problem.
     package var canSendToDevice: Bool { canSendGameData && !devices.installDevice.isEmpty }
     package var canCopyToDrive: Bool { canSendGameData && drive != nil && drive?.problem == nil && drive?.volume != nil }
@@ -151,11 +156,74 @@ extension BuildStore {
         refreshDrive()
     }
 
+    /// Total transfer size (archive + externalized `msl/` when applicable) for one `TransferSource`.
+    package func transferSourceBytes(_ source: TransferSource) -> Int64 {
+        let transfer = ShellInstall.transferSources(
+            archive: source.archive,
+            shellRoot: shellRoot,
+            titleID: source.titleID,
+            includeExternalMSL: true
+        )
+        return transfer.sizes.values.reduce(Int64(0)) { partial, value in
+            let (sum, overflow) = partial.addingReportingOverflow(value)
+            return overflow ? Int64.max : sum
+        }
+    }
+
+    /// Combined volume check across multiple `TransferSource` items targeting `folder`.
+    package func driveBatchState(for sources: [TransferSource], folder: String? = nil) -> DriveState? {
+        let targetFolder = folder ?? devices.driveFolder
+        guard !targetFolder.isEmpty, !sources.isEmpty else { return nil }
+        let root = shellRoot
+        var totalNeeded: Int64 = 0
+        var maxSingleFile: Int64 = 0
+        for item in sources {
+            let transfer = ShellInstall.transferSources(
+                archive: item.archive,
+                shellRoot: root,
+                titleID: item.titleID,
+                includeExternalMSL: true
+            )
+            let have = ShellInstall.localFiles(in: DriveCopy.destination(folder: targetFolder, titleID: item.titleID))
+            let needed = DriveCopy.bytesToCopy(files: transfer.sizes, have: have)
+            let (sum, overflow) = totalNeeded.addingReportingOverflow(needed)
+            totalNeeded = overflow ? Int64.max : sum
+            if let biggest = transfer.sizes.values.max(), biggest > maxSingleFile {
+                maxSingleFile = biggest
+            }
+        }
+        guard let volume = DriveCopy.volume(at: targetFolder) else {
+            return DriveState(volume: nil, needed: totalNeeded, problem: nil)
+        }
+        let problem: DriveCopy.Problem?
+        if volume.readOnly {
+            problem = .readOnly
+        } else if DriveCopy.fileSystemName(volume.fileSystem) == "FAT32", maxSingleFile > DriveCopy.fat32FileLimit {
+            problem = .fat32(largest: maxSingleFile)
+        } else if totalNeeded > volume.freeBytes {
+            problem = .noSpace(needed: totalNeeded, free: volume.freeBytes)
+        } else {
+            problem = nil
+        }
+        return DriveState(volume: volume, needed: totalNeeded, problem: problem)
+    }
+
     /// The volume of the chosen folder against the game data the copy still has to write.
     package func refreshDrive() {
         let folder = devices.driveFolder
-        guard !folder.isEmpty, !archivePath.isEmpty else { drive = nil; return }
-        let files = ShellInstall.localFiles(in: archivePath)
+        guard !folder.isEmpty else { drive = nil; return }
+        guard !archivePath.isEmpty else {
+            let all = sharedAppDataSources()
+            drive = all.isEmpty ? nil : driveBatchState(for: all, folder: folder)
+            return
+        }
+        let transfer = ShellInstall.transferSources(
+            archive: archivePath,
+            shellRoot: shellRoot,
+            titleID: packedTitleID,
+            includeExternalMSL: true
+        )
+        let files = transfer.sizes
         let have = ShellInstall.localFiles(in: DriveCopy.destination(folder: folder, titleID: packedTitleID))
         let needed = DriveCopy.bytesToCopy(files: files, have: have)
         guard let volume = DriveCopy.volume(at: folder) else { drive = DriveState(volume: nil, needed: needed, problem: nil); return }
@@ -166,28 +234,83 @@ extension BuildStore {
     package func copyToDrive() {
         refreshDrive()
         guard canCopyToDrive else { return }
+        copySourcesToDrive([TransferSource(titleID: packedTitleID, name: packedGameName, archive: archivePath)], singleGame: true)
+    }
+
+    /// Copies the checked games from `sharedAppDataSources()` into `<driveFolder>/<title ID>/` sequentially on a background queue.
+    package func copySelectedToDrive(titleIDs: Set<String>) {
+        guard !running else { return }
+        let wanted = Set(titleIDs.map { $0.uppercased() })
+        let chosen = sharedAppDataSources().filter { wanted.contains($0.titleID.uppercased()) }
+        guard !chosen.isEmpty else { return }
+        let state = driveBatchState(for: chosen)
+        drive = state
+        guard let state, state.problem == nil, state.volume != nil else { return }
+        copySourcesToDrive(chosen, singleGame: chosen.count == 1)
+    }
+
+    private func copySourcesToDrive(_ sources: [TransferSource], singleGame: Bool) {
+        guard let first = sources.first else { return }
+        let folder = devices.driveFolder, root = shellRoot, cancel = driveCancel
+        let prepared: [(source: TransferSource, sizes: [String: Int64], origins: [String: String], needed: Int64)] = sources.map { src in
+            let transfer = ShellInstall.transferSources(archive: src.archive, shellRoot: root, titleID: src.titleID, includeExternalMSL: true)
+            let have = ShellInstall.localFiles(in: DriveCopy.destination(folder: folder, titleID: src.titleID))
+            let needed = DriveCopy.bytesToCopy(files: transfer.sizes, have: have)
+            return (src, transfer.sizes, transfer.origins, needed)
+        }
+        let overallTotal = prepared.reduce(Int64(0)) { partial, item in
+            let (sum, overflow) = partial.addingReportingOverflow(item.needed)
+            return overflow ? Int64.max : sum
+        }
         buildingGame = false; runningTarget = BuildTarget.ios
-        beginOperation(.sendingGameData, game: packedGameName, titleID: packedTitleID, destination: .folder)
+        beginOperation(.sendingGameData, game: singleGame ? first.name : "\(sources.count)", titleID: first.titleID, destination: .folder)
         running = true; done = false; doneNote = ""; failure = nil; stages = []
+        driveBatchLabel = singleGame ? first.name : "1/\(sources.count) · \(first.name)"
         driveCancel.set(false)
-        send = .copying(done: 0, total: drive?.needed ?? 0)
-        let folder = devices.driveFolder, titleID = packedTitleID, archive = archivePath, cancel = driveCancel
-        let files = ShellInstall.localFiles(in: archive)
+        send = .copying(done: 0, total: overallTotal)
         DispatchQueue.global(qos: .userInitiated).async {
-            let destination = DriveCopy.destination(folder: folder, titleID: titleID)
+            var completedBytes: Int64 = 0
+            var lastDest = DriveCopy.destination(folder: folder, titleID: first.titleID)
             var failed: String?
-            do {
-                try DriveCopy.copy(archive: archive, files: files, to: destination,
-                                   progress: { done, total in hop { if case .copying = self.send { self.send = .copying(done: done, total: total) } } },
-                                   cancelled: { cancel.value })
-            } catch DriveCopy.CopyError.cancelled { failed = "" }
-            catch { failed = error.localizedDescription }
+            for (index, item) in prepared.enumerated() {
+                if cancel.value { failed = ""; break }
+                let label = singleGame ? item.source.name : "\(index + 1)/\(prepared.count) · \(item.source.name)"
+                hop { self.driveBatchLabel = label }
+                let destination = DriveCopy.destination(folder: folder, titleID: item.source.titleID)
+                lastDest = destination
+                let baseDone = completedBytes
+                do {
+                    try DriveCopy.copy(
+                        archive: item.source.archive,
+                        files: item.sizes,
+                        origins: item.origins,
+                        to: destination,
+                        progress: { itemDone, _ in
+                            let current = min(overallTotal, baseDone + itemDone)
+                            hop {
+                                if case .copying = self.send {
+                                    self.send = .copying(done: current, total: overallTotal)
+                                }
+                            }
+                        },
+                        cancelled: { cancel.value }
+                    )
+                    completedBytes = min(overallTotal, baseDone + item.needed)
+                } catch DriveCopy.CopyError.cancelled {
+                    failed = ""
+                    break
+                } catch {
+                    failed = error.localizedDescription
+                    break
+                }
+            }
             hop {
                 self.running = false
+                self.driveBatchLabel = ""
                 if let failed {
                     self.send = failed.isEmpty ? .idle : .failed(String(format: self.t("shell.driveFailed"), failed))
                 } else {
-                    self.send = .copied(folder: destination)
+                    self.send = .copied(folder: lastDest)
                     self.refreshDrive()
                 }
             }

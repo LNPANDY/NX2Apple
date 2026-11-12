@@ -1,5 +1,12 @@
 {
-  "_language": {"locales": ["ko", "korean", "한국어"], "name": "한국어"},
+  "_language": {
+    "locales": [
+      "ko",
+      "korean",
+      "한국어"
+    ],
+    "name": "한국어"
+  },
   "activity.ios": "iPhone 빌드 진행 중",
   "activity.mac": "Mac 빌드 진행 중",
   "activity.transfer": "게임 파일을 iPhone으로 전송하는 중",
@@ -1054,6 +1061,7 @@
   "ios.host.menuKeysThatToggle": "전환하는 키",
   "ios.host.menuMoreSettings": "더 많은 설정은 시작 화면에서",
   "ios.host.menuNone": "없음",
+  "ios.host.missingExternalShaders": "이 게임의 데이터 폴더에 셰이더 파일(msl)이 없습니다. NX2Apple에서 게임 데이터를 다시 보내거나 복사하세요.",
   "ios.host.missingKey": "%@에 “%@”이(가) 없습니다.",
   "ios.host.missingKeyIn": "%@에 “%@”이(가) 없습니다 (%@ 안).",
   "ios.host.noAdditional": "추가 콘텐츠 없음",
@@ -1995,9 +2003,11 @@
   "settings.updates": "앱 업데이트",
   "shell.builtTitle": "빌드된 게임",
   "shell.checkStage": "%@의 게임 데이터 비교",
+  "shell.clearSelection": "선택 해제",
   "shell.copyExternalNote": "게임 데이터 img 파일을 직접 외부 저장소에 복사하고 iOS 런처가 그 위치를 가리키게 할 수도 있습니다. 이 Mac에서 전송할 필요가 없습니다.",
   "shell.copyIncomplete": "%@의 게임 데이터가 불완전합니다: %@. 다시 시도하면 완료됩니다.",
   "shell.copyNotConnected": "%@이(가) 지금 연결되어 있지 않습니다. 케이블로 연결하고 잠금을 푼 상태로 두세요.",
+  "shell.copySelectedConfirm": "선택 항목 복사",
   "shell.copySize": "복사할 게임 데이터: 파일 %2$d개, %1$@.",
   "shell.copySkip": "나중에",
   "shell.copyStart": "전송 시작",
@@ -2055,6 +2065,11 @@
   "shell.projectStage": "공유 앱 준비",
   "shell.retry": "다시 시도",
   "shell.rootUnwritable": "공유 앱은 %@에 저장되는데 그 폴더에 쓸 수 없습니다 (읽기 전용 볼륨이거나 권한 없음). 먼저 저장 위치에서 다른 폴더를 선택하세요.",
+  "shell.selectAll": "모두 선택",
+  "shell.selectGamesButton": "게임 선택…",
+  "shell.selectGamesDeviceNote": "선택한 각 게임을 대상 기기의 전송 대기열에 추가합니다. 전송 중에도 빌드를 실행할 수 있습니다.",
+  "shell.selectGamesDriveNote": "선택한 각 게임의 패키지된 데이터(필요한 외부 셰이더 파일 포함)를 지정한 폴더로 차례대로 복사합니다.",
+  "shell.selectGamesTitle": "게임 선택",
   "shell.sendAllButton": "모든 게임 데이터 보내기",
   "shell.sendAllNote": "패킹된 데이터가 있는 모든 게임을 전송 목록에 추가합니다. 그동안 빌드를 실행할 수 있습니다.",
   "shell.sendButton": "게임 데이터 보내기",
@@ -2068,6 +2083,7 @@
   "shell.sendNoApp": "앱이 아직 이 기기에 없습니다. 먼저 IPA를 설치한 뒤 게임 데이터를 보내세요. 이미 설치되어 있다면 Finder로 복사하세요.",
   "shell.sendProgress": "%@ 전송 중, %@ / %@.",
   "shell.sendRefused": "기기가 앱으로의 복사를 거부했습니다. 대신 Finder로 게임 데이터를 복사할 수 있습니다.",
+  "shell.sendSelectedConfirm": "선택 항목 보내기",
   "shell.sendSeveral": "이 기기에는 앱 사본이 여러 개 있습니다. 하나를 선택하세요.",
   "shell.sendStage": "기기에서 앱 찾기",
   "shell.showInFinder": "Finder에서 보기",

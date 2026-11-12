@@ -1,5 +1,11 @@
 {
-  "_language": {"locales": ["en"], "name": "English", "order": 1},
+  "_language": {
+    "locales": [
+      "en"
+    ],
+    "name": "English",
+    "order": 1
+  },
   "activity.ios": "iPhone build in progress",
   "activity.mac": "Mac build in progress",
   "activity.transfer": "Transferring game files to the iPhone",
@@ -1054,6 +1060,7 @@
   "ios.host.menuKeysThatToggle": "Keys that toggle",
   "ios.host.menuMoreSettings": "More settings on the start screen",
   "ios.host.menuNone": "None",
+  "ios.host.missingExternalShaders": "Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple.",
   "ios.host.missingKey": "%@ has no \"%@\".",
   "ios.host.missingKeyIn": "%@ has no \"%@\" (in %@).",
   "ios.host.noAdditional": "No additional content",
@@ -1995,9 +2002,11 @@
   "settings.updates": "App updates",
   "shell.builtTitle": "Built games",
   "shell.checkStage": "Compare the game data on %@",
+  "shell.clearSelection": "Clear",
   "shell.copyExternalNote": "You can also copy the game data img file to external storage yourself and point the iOS launcher at the game data location — no transfer from this Mac needed.",
   "shell.copyIncomplete": "The game data on %@ is incomplete: %@. Retry finishes it.",
   "shell.copyNotConnected": "%@ is not connected right now. Connect it with a cable and keep it unlocked.",
+  "shell.copySelectedConfirm": "Copy selected",
   "shell.copySize": "Game data to copy: %@ in %d files.",
   "shell.copySkip": "Not now",
   "shell.copyStart": "Start the transfer",
@@ -2055,6 +2064,11 @@
   "shell.projectStage": "Prepare the shared app",
   "shell.retry": "Retry",
   "shell.rootUnwritable": "The shared app is saved to %@, and that folder cannot be written (a read-only volume or no permission). Choose another folder under Save to first.",
+  "shell.selectAll": "Select all",
+  "shell.selectGamesButton": "Select games…",
+  "shell.selectGamesDeviceNote": "Adds each checked game to the transfer queue for the selected device. A build can run meanwhile.",
+  "shell.selectGamesDriveNote": "Copies the packed game data (and external shader files when needed) of each checked game into the chosen folder.",
+  "shell.selectGamesTitle": "Select games",
   "shell.sendAllButton": "Send all game data",
   "shell.sendAllNote": "Adds every game with packed data to the transfers. A build can run meanwhile.",
   "shell.sendButton": "Send game data",
@@ -2068,6 +2082,7 @@
   "shell.sendNoApp": "The app isn’t on this device yet. Install the IPA first, then send the game data. If it is installed already, copy with Finder.",
   "shell.sendProgress": "Sending %@, %@ of %@.",
   "shell.sendRefused": "The device refused the copy into the app. Finder can copy the game data instead.",
+  "shell.sendSelectedConfirm": "Send selected",
   "shell.sendSeveral": "This device has several copies of the app. Choose one.",
   "shell.sendStage": "Look for the app on the device",
   "shell.showInFinder": "Show in Finder",
