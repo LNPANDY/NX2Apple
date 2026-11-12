@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "Byt mapp …",
   "library.clearSearch": "Rensa sökning",
   "library.collection": "Din samling",
+  "library.dismissSkipped": "Stäng avisering om överhoppade filer",
   "library.error": "Åtgärden kunde inte slutföras",
   "library.firstBuild": "Bygg ditt första spel",
   "library.folderHint": "Här hittar vi färdiga spel och använder mappen även för nya byggen.",

@@ -673,6 +673,7 @@ class GameLibrary:
         self.file_path = self.state_dir / 'library.json'
         self.games: list[LibraryGame] = []
         self.skipped_files: list[SkippedFile] = []
+        self.dismissed_skipped_paths: set[str] = set()
         self.selected_id: str | None = None
         self.games_folder: str = ''
         self._extra_top: dict = {}
@@ -723,12 +724,33 @@ class GameLibrary:
         except OSError:
             pass
 
+    @property
+    def shows_skipped_banner(self) -> bool:
+        if not self.skipped_files:
+            return False
+        return not {item.path for item in self.skipped_files}.issubset(self.dismissed_skipped_paths)
+
+    def dismiss_skipped_banner(self) -> None:
+        if self.skipped_files:
+            self.dismissed_skipped_paths = {item.path for item in self.skipped_files}
+
+    def reset_skipped_banner_dismissal(self) -> None:
+        self.dismissed_skipped_paths.clear()
+
+    def _apply_skipped_files(self, items: list[SkippedFile]) -> None:
+        self.skipped_files = items
+        if not items:
+            self.dismissed_skipped_paths.clear()
+        elif self.dismissed_skipped_paths and not {item.path for item in items}.issubset(self.dismissed_skipped_paths):
+            self.dismissed_skipped_paths.clear()
+
     def set_games_folder(self, folder: str, repo_path: str = '', default_keys: str = '') -> None:
+        self.reset_skipped_banner_dismissal()
         self.games_folder = folder
         if folder and os.path.isdir(folder):
             self.rescan_games_folder(repo_path=repo_path, default_keys=default_keys)
         else:
-            self.skipped_files = []
+            self._apply_skipped_files([])
         self.save()
 
     def remove(self, title_id: str) -> None:
@@ -895,7 +917,7 @@ class GameLibrary:
     def rescan_games_folder(self, repo_path: str = '', default_keys: str = '') -> int:
         folder = self.games_folder
         if not folder or not os.path.isdir(folder):
-            self.skipped_files = []
+            self._apply_skipped_files([])
             return 0
         skipped: list[SkippedFile] = []
         discovered = self.discover_in_folder(
@@ -904,7 +926,7 @@ class GameLibrary:
             default_keys=default_keys,
             out_skipped=skipped,
         )
-        self.skipped_files = skipped
+        self._apply_skipped_files(skipped)
         count = 0
         for g in discovered:
             self.upsert(g)

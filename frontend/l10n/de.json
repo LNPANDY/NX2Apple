@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "Ordner ändern …",
   "library.clearSearch": "Suche löschen",
   "library.collection": "Deine Sammlung",
+  "library.dismissSkipped": "Hinweis zu übersprungenen Dateien schließen",
   "library.error": "Die Aktion konnte nicht abgeschlossen werden",
   "library.firstBuild": "Erstes Spiel bauen",
   "library.folderHint": "Hier finden wir fertige Spiele, und dieser Ordner dient auch für neue Builds.",

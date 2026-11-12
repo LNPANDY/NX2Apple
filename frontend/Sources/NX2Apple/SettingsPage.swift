@@ -149,10 +149,10 @@ struct LibraryFoldersCard: View {
                 // The path in the middle-truncating mono line, then the state in words
                 CardRow(name.isEmpty ? root : name, detail: stateText(state), detail2: RepoLayout.shortPath(root), dot: dot(state), help: root) {
                     if library.scanning { ProgressView().controlSize(.small) }
-                    Button(loc.t("library.rescan")) { library.discover() }
+                    Button(loc.t("library.rescan")) { library.rescan() }
                         .disabled(library.scanning || state != .connected)
                         .accessibilityLabel(String(format: loc.t("library.rescanFolder"), name))
-                        .padTarget("set.rescan.\(index)", scope: "main") { if !library.scanning, state == .connected { library.discover() } }
+                        .padTarget("set.rescan.\(index)", scope: "main") { if !library.scanning, state == .connected { library.rescan() } }
                     Button(loc.t("library.removeFolder")) { library.removeFolder(root) }
                         .accessibilityLabel(String(format: loc.t("library.removeFolderNamed"), name))
                         .padTarget("set.removeFolder.\(index)", scope: "main") { library.removeFolder(root) }

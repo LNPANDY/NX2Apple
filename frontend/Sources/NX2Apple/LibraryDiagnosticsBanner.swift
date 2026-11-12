@@ -10,59 +10,80 @@ struct LibrarySkippedBanner: View {
     let items: [SkippedLibraryItem]
     var enabled: Bool = true
     let openDetails: () -> Void
+    var dismiss: (() -> Void)? = nil
     @EnvironmentObject var loc: Localizer
 
     var body: some View {
         let title = items.count == 1
             ? loc.t("macLibDiag.bannerOne")
             : String(format: loc.t("macLibDiag.bannerMany"), items.count)
-        Button(action: openDetails) {
-            HStack(spacing: 14) {
-                ZStack {
-                    Circle().fill(LauncherPalette.building.opacity(0.14))
-                    Image(systemName: "tray.full")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(LauncherPalette.building)
-                }
-                .frame(width: 32, height: 32)
-                .accessibilityHidden(true)
+        HStack(spacing: 8) {
+            Button(action: openDetails) {
+                HStack(spacing: 14) {
+                    ZStack {
+                        Circle().fill(LauncherPalette.building.opacity(0.14))
+                        Image(systemName: "tray.full")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(LauncherPalette.building)
+                    }
+                    .frame(width: 32, height: 32)
+                    .accessibilityHidden(true)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.manrope(13.5, .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                    Text(loc.t("macLibDiag.bannerNote"))
-                        .font(.manrope(12))
-                        .foregroundStyle(LauncherPalette.secondaryText)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
-                }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.manrope(13.5, .semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text(loc.t("macLibDiag.bannerNote"))
+                            .font(.manrope(12))
+                            .foregroundStyle(LauncherPalette.secondaryText)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
 
-                Spacer(minLength: 12)
+                    Spacer(minLength: 12)
 
-                HStack(spacing: 5) {
-                    Text(loc.t("macLibDiag.details"))
-                        .font(.manrope(12.5, .semibold))
-                        .fixedSize()
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .bold))
+                    HStack(spacing: 5) {
+                        Text(loc.t("macLibDiag.details"))
+                            .font(.manrope(12.5, .semibold))
+                            .fixedSize()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .foregroundStyle(LauncherPalette.accent)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(LauncherPalette.menuFill, in: Capsule())
+                    .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
                 }
-                .foregroundStyle(LauncherPalette.accent)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(LauncherPalette.menuFill, in: Capsule())
-                .overlay(Capsule().strokeBorder(LauncherPalette.secondaryBorder))
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LauncherPalette.cardBorder))
-            .contentShape(RoundedRectangle(cornerRadius: 12))
+            .buttonStyle(.plain)
+            .launcherHover(enabled: enabled)
+            .padTarget("library.skippedBanner", scope: "main", radius: 8, activate: openDetails)
+
+            if let dismiss {
+                Button(action: dismiss) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(LauncherPalette.secondaryText)
+                        .frame(width: 28, height: 28)
+                        .background(LauncherPalette.menuFill, in: Circle())
+                        .overlay(Circle().strokeBorder(LauncherPalette.secondaryBorder))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .launcherHover(enabled: enabled)
+                .help(loc.t("library.dismissSkipped"))
+                .accessibilityLabel(loc.t("library.dismissSkipped"))
+                .accessibilityIdentifier("library.skippedBanner.dismiss")
+                .padTarget("library.skippedDismiss", scope: "main", radius: 14, activate: dismiss)
+            }
         }
-        .buttonStyle(.plain)
-        .launcherHover(enabled: enabled)
-        .padTarget("library.skippedBanner", scope: "main", radius: 12, activate: openDetails)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(LauncherPalette.card, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(LauncherPalette.cardBorder))
     }
 }
 

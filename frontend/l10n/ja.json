@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "フォルダを変更…",
   "library.clearSearch": "検索をクリア",
   "library.collection": "コレクション",
+  "library.dismissSkipped": "スキップ通知を閉じる",
   "library.error": "操作を完了できませんでした",
   "library.firstBuild": "最初のゲームをビルド",
   "library.folderHint": "完成したゲームをここから探し、新しいビルドの保存先にもこのフォルダを使います。",

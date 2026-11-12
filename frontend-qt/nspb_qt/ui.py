@@ -563,10 +563,34 @@ class MainWindow(QMainWindow):
         self.skipped_btn.setCursor(Qt.PointingHandCursor)
         self.skipped_btn.clicked.connect(self._show_skipped_files_dialog)
         sb_lay.addWidget(self.skipped_btn)
+        self.skipped_dismiss_btn = QPushButton('✕')
+        self.skipped_dismiss_btn.setObjectName('skippedDismissBtn')
+        self.skipped_dismiss_btn.setFixedSize(26, 26)
+        self.skipped_dismiss_btn.setCursor(Qt.PointingHandCursor)
+        self.skipped_dismiss_btn.setToolTip(self.m.t('library.dismissSkipped'))
+        self.skipped_dismiss_btn.setAccessibleName(self.m.t('library.dismissSkipped'))
+        self.skipped_dismiss_btn.setStyleSheet(
+            'QPushButton#skippedDismissBtn {'
+            f' background: rgba(255, 255, 255, 0.06); color: {style.MUTED};'
+            f' border: 1px solid {style.BORDER}; border-radius: 13px;'
+            ' font-size: 11px; font-weight: 600; padding: 0;'
+            '}'
+            'QPushButton#skippedDismissBtn:hover {'
+            f' background: rgba(255, 255, 255, 0.12); color: {style.TEXT};'
+            '}'
+        )
+        self.skipped_dismiss_btn.clicked.connect(self._dismiss_skipped_banner)
+        sb_lay.addWidget(self.skipped_dismiss_btn)
         sw_lay.addWidget(self.skipped_banner)
         self.skipped_wrap.hide()
         lay.addWidget(self.skipped_wrap)
         return page
+
+    def _dismiss_skipped_banner(self) -> None:
+        dismiss_fn = getattr(self.m.library, 'dismiss_skipped_banner', None)
+        if callable(dismiss_fn):
+            dismiss_fn()
+        self._refresh_library()
 
     def _show_skipped_files_dialog(self) -> None:
         skipped = list(getattr(self.m.library, 'skipped_files', []))
@@ -609,9 +633,16 @@ class MainWindow(QMainWindow):
         self.rescan_lib_btn.setText(self.m.t('library.rescan'))
 
         skipped = list(getattr(self.m.library, 'skipped_files', []))
-        if skipped:
+        show_skipped = (
+            self.m.library.shows_skipped_banner
+            if hasattr(self.m.library, 'shows_skipped_banner')
+            else bool(skipped)
+        )
+        if skipped and show_skipped:
             self.skipped_lbl.setText(self.m.t('library.skippedBanner', len(skipped)))
             self.skipped_btn.setText(self.m.t('library.skippedDetails'))
+            self.skipped_dismiss_btn.setToolTip(self.m.t('library.dismissSkipped'))
+            self.skipped_dismiss_btn.setAccessibleName(self.m.t('library.dismissSkipped'))
             self.skipped_wrap.show()
         else:
             self.skipped_wrap.hide()
@@ -832,6 +863,9 @@ class MainWindow(QMainWindow):
         if not self.m.library.games_folder:
             self._pick_library_folder()
             return
+        reset_fn = getattr(self.m.library, 'reset_skipped_banner_dismissal', None)
+        if callable(reset_fn):
+            reset_fn()
         self.m.library.rescan_games_folder(repo_path=self.m.engine_path, default_keys=self.m.keys_path)
         for g in self.m.library.games:
             self.m.artwork.request_banner_async(g.title_id)

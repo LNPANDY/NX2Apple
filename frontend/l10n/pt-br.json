@@ -1498,6 +1498,7 @@
   "library.chooseFolder": "Mudar pasta…",
   "library.clearSearch": "Limpar busca",
   "library.collection": "Sua coleção",
+  "library.dismissSkipped": "Fechar aviso de arquivos ignorados",
   "library.error": "Não foi possível concluir a ação",
   "library.firstBuild": "Faça o build do seu primeiro jogo",
   "library.folderHint": "Vamos encontrar os jogos prontos aqui e usar esta pasta também para os builds novos.",
