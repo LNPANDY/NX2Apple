@@ -1,0 +1,555 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: fly2xj <fly2xj@msn.com>
+Date: Thu, 12 Nov 2026 13:36:56 +0800
+Subject: [PATCH] Switch 2 controllers: a low-latency link and a queue of their
+ own
+
+The controllers send one input report a Bluetooth LE connection event, so macOS's default 30 ms connection interval held them to about 33 reports a second. Connect with kCBConnectOptionRequiresLowLatency, which gets the 15 ms interval, about 66 reports a second, as WaveBird (github.com/murphyjt/wavebird) does for the same controllers.
+
+Run the transport (the central's delegate, timeouts, the LED keepalive, the rumble tick) on a serial queue of its own at user-interactive priority, so a busy main thread neither delays nor bunches the reports. The front end's callbacks still run on the main queue, each with a copy of the pad's state; read() is coalesced to one pending call a pad, with buttons pressed meanwhile kept, so a stalled main thread gets no backlog.
+
+The clock no longer assumes 30 ms: s2_clock_sample learns the interval from the controller clock's steps, so a lost report is counted against the link's own interval, and the second of rest that sets the gyro offset is as many reports as the link's rate makes.
+
+Not checked on hardware: the interval the controllers get with the key (DM_SW2_VERBOSE=1 logs it), and rumble and motion with the new queue.
+
+Upstream-Status: forwarded seedds/nxnative#2422
+Reason: Switch 2 controllers report at about 66 Hz instead of 33, on a queue of their own
+Issue: LNPANDY/NX2Apple#1202
+
+---
+ dm/host/pad_switch2_apple.h |   3 +-
+ dm/host/pad_switch2_apple.m | 183 ++++++++++++++++++++++++------------
+ dm/host/switch2_proto.h     |  36 ++++---
+ dm/host/tests/t_switch2.c   |  23 +++++
+ docs/reference/services.md  |   3 +-
+ 5 files changed, 175 insertions(+), 73 deletions(-)
+
+diff --git a/dm/host/pad_switch2_apple.h b/dm/host/pad_switch2_apple.h
+index cf7b96d..a63c2b4 100644
+--- a/dm/host/pad_switch2_apple.h
++++ b/dm/host/pad_switch2_apple.h
+@@ -22,7 +22,8 @@
+ 
+ typedef struct s2_pad { s2_pad_state st; char name[48]; struct s2_pad *next; } s2_pad;
+ 
+-// The front end's side. All calls come on the main queue.
++// The front end's side. All calls come on the main queue, though the transport runs on a queue of its own: p->st is a copy of the pad's state as it was when the call
++// was made, and stays as it is between calls.
+ typedef struct {
+     int (*attach)(s2_pad *p);    // a new pad: take it a player slot (player() then names it). 1: kept, with a player or waiting for its first button press (DM_PAD_PRESS_TO_JOIN:
+                                  // player() is -1 until read() gives it one); 0: no free player, and the controller is let go
+diff --git a/dm/host/pad_switch2_apple.m b/dm/host/pad_switch2_apple.m
+index bbf10fa..2a08fb9 100644
+--- a/dm/host/pad_switch2_apple.m
++++ b/dm/host/pad_switch2_apple.m
+@@ -1,5 +1,6 @@
+ // CoreBluetooth transport for Switch 2 controllers, shared by the Mac and iOS front ends (pad_switch2_apple.h says what it does; switch2_proto.h is the protocol).
+-// Everything runs on the main queue, where the front ends' own pad callbacks run.
++// Everything runs on a serial queue of its own (g_queue), so a busy main thread neither delays nor bunches the reports; the front end's callbacks still run on the main queue
++// (s2_publish, s2_front_attach, s2_front_release), each pad's state copied to it there.
+ #import "pad_switch2_apple.h"
+ #import <CoreBluetooth/CoreBluetooth.h>
+ #import <TargetConditionals.h>
+@@ -13,9 +14,17 @@
+ #include <stdatomic.h>
+ #include <os/lock.h>
+ 
++// A pad as the transport keeps it: st and next belong to g_queue, pub (the front end's s2_pad, whose st is a copy) and its list to the main queue. player is the front end's
++// answer to player() at its last call, which the queue reads.
++// queued and pend: the state the next read() gets, while one is on its way (s2_publish), under lk.
++typedef struct s2_tpad { s2_pad pub; s2_pad_state st; _Atomic int player; struct s2_tpad *next; os_unfair_lock lk; s2_pad_state pend; int queued; } s2_tpad;
++
+ static dm_switch2_front g_front;
+-static s2_pad *g_pads;
+-static int g_verbose, g_motion_right = 1, g_motion = 1, g_active = 1, g_joy = 1;   // g_joy: each Joy-Con reported on its own (not with DM_PAD_MERGE)
++static dispatch_queue_t g_queue;
++static s2_pad *g_pads;              // the front end's list (main queue)
++static s2_tpad *g_tpads;            // the transport's (g_queue)
++static int g_verbose, g_motion_right = 1, g_motion = 1, g_joy = 1;   // g_joy: each Joy-Con reported on its own (not with DM_PAD_MERGE)
++static _Atomic int g_active = 1, g_blocked;   // g_blocked: the front end's blocked() at its last read
+ static float g_gyro = S2_GYRO_RAD;
+ static int8_t g_map[6];
+ static int g_map_set;               // DM_SW2_MAP overrides the per-layout maps
+@@ -24,7 +33,7 @@ static int g_host_known;
+ 
+ s2_pad *dm_switch2_pads(void) { return g_pads; }
+ 
+-// Rumble: each player's values as the game sets them, with their times (s2_rumble_log), written by the rumble queue (dm_switch2_rumble) and read by the main queue's tick. Every
++// Rumble: each player's values as the game sets them, with their times (s2_rumble_log), written by the rumble queue (dm_switch2_rumble) and read by g_queue's tick. Every
+ // 15 ms each controller sends a packet of the next three 5 ms slots (switch2_proto.h, Rumble timing), the last one ending S2_RUMBLE_LAG_NS before the tick
+ static s2_rumble_log g_rlog[DM_PLAYERS];
+ static os_unfair_lock g_rlog_lock = OS_UNFAIR_LOCK_INIT;
+@@ -37,7 +46,7 @@ void dm_switch2_rumble(const dm_haptic_state *st) {
+     uint64_t t = now_ns();
+     os_unfair_lock_lock(&g_rlog_lock); s2_rumble_log_add(&g_rlog[st->player], t, m); os_unfair_lock_unlock(&g_rlog_lock);
+ }
+-static NSTimer *g_rumble_timer;
++static dispatch_source_t g_rumble_timer;
+ static struct { uint64_t last, maxgap, ticks, sent, busy, t0; } g_rstat;   // DM_SW2_VERBOSE: the rumble tick's spacing and the packets sent, each second
+ // One sample as the console treats it before coding: both bands scaled so that they add up to at most 0.98 (switch2_proto.h s2_rumble_cap)
+ static void s2_rumble_limit(s2_haptic *v) { float lo = v->lf_amp / 1023.f, hi = v->hf_amp / 1023.f; s2_rumble_cap(&lo, &hi); v->lf_amp = s2_amp_code(lo); v->hf_amp = s2_amp_code(hi); }
+@@ -52,7 +61,7 @@ static void s2_rumble_limit(s2_haptic *v) { float lo = v->lf_amp / 1023.f, hi =
+ @property (nonatomic, strong) CBPeripheral *peripheral;
+ @property (nonatomic) uint16_t pid;
+ @property (nonatomic) int use;      // S2_ADV_PAIR, S2_ADV_TAKE or S2_ADV_WAKE: why it was connected
+-@property (nonatomic) s2_pad *pad;
++@property (nonatomic) s2_tpad *pad;
+ @property (nonatomic) BOOL live;
+ @end
+ 
+@@ -62,24 +71,75 @@ static void s2_session_closed(S2Session *s);
+ static void s2_rumble_timer(void);
+ 
+ static const char *s2_kind(uint16_t pid) { return pid == S2_PID_PRO ? "Pro Controller 2" : pid == S2_PID_JOYCON_L ? "Joy-Con 2 (L)" : "Joy-Con 2 (R)"; }
+-static s2_dev *s2_dev_of(s2_pad *p, uint16_t pid) { return pid == S2_PID_PRO ? &p->st.pro : pid == S2_PID_JOYCON_L ? &p->st.left : &p->st.right; }
+-static int s2_pad_empty(const s2_pad *p) { return !p->st.pro.have && !p->st.left.have && !p->st.right.have; }
+-static int s2_player(s2_pad *p) { return p && g_front.player ? g_front.player(p) : -1; }
+-static int s2_blocked(void) { return !g_active || (g_front.blocked && g_front.blocked()); }
++static s2_dev *s2_dev_of(s2_tpad *p, uint16_t pid) { return pid == S2_PID_PRO ? &p->st.pro : pid == S2_PID_JOYCON_L ? &p->st.left : &p->st.right; }
++static int s2_pad_empty(const s2_tpad *p) { return !p->st.pro.have && !p->st.left.have && !p->st.right.have; }
++static int s2_player(s2_tpad *p) { return p ? atomic_load(&p->player) : -1; }
++static int s2_blocked(void) { return !atomic_load(&g_active) || atomic_load(&g_blocked); }
++static void s2_after(double s, dispatch_block_t b) { dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(s * NSEC_PER_SEC)), g_queue, b); }
++static dispatch_source_t s2_every(double s, double leeway, dispatch_block_t b) {
++    dispatch_source_t t = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, g_queue);
++    dispatch_source_set_timer(t, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(s * NSEC_PER_SEC)), (uint64_t)(s * NSEC_PER_SEC), (uint64_t)(leeway * NSEC_PER_SEC));
++    dispatch_source_set_event_handler(t, b); dispatch_resume(t);
++    return t;
++}
++// ---- the front end's side, on the main queue: each call gets the pad's state as it is when the call is made ----
++static void s2_front_note(s2_tpad *p) {   // what the queue reads of the front end: the pad's player, and whether the game takes input
++    atomic_store(&p->player, g_front.player ? g_front.player(&p->pub) : -1);
++    atomic_store(&g_blocked, g_front.blocked ? g_front.blocked() : 0);
++}
++static void s2_pub_unlink(s2_pad *p) { s2_pad **link = &g_pads; while (*link && *link != p) link = &(*link)->next; if (*link) *link = p->next; }
++// read(): one at a time per pad. While one waits for the main queue, newer reports only update the state it will carry, with the buttons pressed since kept pressed in it,
++// so a busy main thread gets the latest state once instead of a backlog, and a short press is not lost
++static void s2_publish(s2_tpad *p) {
++    if (!g_front.read) return;
++    os_unfair_lock_lock(&p->lk);
++    if (p->queued) {
++        s2_pad_state was = p->pend; p->pend = p->st;
++        p->pend.pro.r.buttons |= was.pro.r.buttons; p->pend.left.r.buttons |= was.left.r.buttons; p->pend.right.r.buttons |= was.right.r.buttons;
++        os_unfair_lock_unlock(&p->lk); return;
++    }
++    p->pend = p->st; p->queued = 1;
++    os_unfair_lock_unlock(&p->lk);
++    dispatch_async(dispatch_get_main_queue(), ^{
++        os_unfair_lock_lock(&p->lk); p->pub.st = p->pend; p->queued = 0; os_unfair_lock_unlock(&p->lk);
++        g_front.read(&p->pub); s2_front_note(p);
++    });
++}
++// attach(), then read() when asked, waited for: its answer decides whether the controller is kept. The main queue never waits for g_queue, so this cannot deadlock
++static int s2_front_attach(s2_tpad *p, BOOL read) {
++    s2_pad_state st = p->st; __block int ok = 0;
++    dispatch_sync(dispatch_get_main_queue(), ^{
++        p->pub.st = st; p->pub.next = g_pads; g_pads = &p->pub;
++        ok = g_front.attach && g_front.attach(&p->pub);
++        if (!ok) { s2_pub_unlink(&p->pub); return; }
++        if (read && g_front.read) g_front.read(&p->pub);
++        s2_front_note(p);
++    });
++    return ok;
++}
++// The pad's last controller went: off the front end's list, detach(), then freed, after every read() queued before it
++static void s2_front_release(s2_tpad *p) {
++    dispatch_async(dispatch_get_main_queue(), ^{ s2_pub_unlink(&p->pub); if (g_front.detach) g_front.detach(&p->pub); free(p); });
++}
+ // Which Joy-Cons a pad holds, to the npad layer (dm_joy_attach): a Pro Controller 2 is 0
+-static void s2_sync_sides(s2_pad *p) {
++static void s2_sync_sides(s2_tpad *p) {
+     int pl = g_joy ? s2_player(p) : -1; if (pl < 0) return;
+     dm_joy_attach(pl, p->st.pro.have ? 0 : (uint32_t)((p->st.left.have ? 1 : 0) | (p->st.right.have ? 2 : 0) | DM_JOY_2));
+ }
+ static void s2_joy_release(int pl, int side) { if (g_joy && pl >= 0) { dm_joy_set(pl, side, 0, 0, 0); dm_motion_clear_joy(pl, side); } }
+-static void s2_pad_unlink(s2_pad *p) { s2_pad **link = &g_pads; while (*link && *link != p) link = &(*link)->next; if (*link) *link = p->next; }
+-static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has the other one alone; anything else starts a pad
++static void s2_pad_unlink(s2_tpad *p) { s2_tpad **link = &g_tpads; while (*link && *link != p) link = &(*link)->next; if (*link) *link = p->next; }
++static s2_tpad *s2_pad_new(const char *name) {
++    s2_tpad *p = calloc(1, sizeof *p); if (!p) return NULL;
++    atomic_init(&p->player, -1); p->lk = OS_UNFAIR_LOCK_INIT;
++    snprintf(p->pub.name, sizeof p->pub.name, "%s", name);
++    return p;
++}
++static s2_tpad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has the other one alone; anything else starts a pad
+     if (pid != S2_PID_PRO)
+-        for (s2_pad *p = g_pads; p; p = p->next)
++        for (s2_tpad *p = g_tpads; p; p = p->next)
+             if (!p->st.pro.have && ((pid == S2_PID_JOYCON_L && p->st.right.have && !p->st.left.have) || (pid == S2_PID_JOYCON_R && p->st.left.have && !p->st.right.have))) return p;
+-    s2_pad *p = calloc(1, sizeof *p); if (!p) return NULL;
+-    snprintf(p->name, sizeof p->name, "%s", pid == S2_PID_PRO ? "Pro Controller 2" : "Joy-Con 2");
+-    p->next = g_pads; g_pads = p;
++    s2_tpad *p = s2_pad_new(pid == S2_PID_PRO ? "Pro Controller 2" : "Joy-Con 2"); if (!p) return NULL;
++    p->next = g_tpads; g_tpads = p;
+     return p;
+ }
+ 
+@@ -88,14 +148,15 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+     NSMutableArray<S2Command *> *_queue;
+     BOOL _pending; uint8_t _pendingCmd; NSUInteger _seq; void (^_cb)(NSData *);
+     s2_cal _cal[2];
+-    NSTimer *_tick; uint64_t _reports; BOOL _handshaken; s2_rest _rest;
++    dispatch_source_t _tick; uint64_t _reports; BOOL _handshaken; s2_rest _rest;
+     s2_clock _clk; uint64_t _lost; char _serial[15]; uint64_t _restSaved;   // sample times from the controller's clock; the serial its learned gyro offset is kept under
+     CBCharacteristic *_vib; uint8_t _vseq; int _offLeft; s2_rumble_cursor _rcur;   // _rcur: where this controller is in its player's rumble log
+     int _player;   // the player at the last read (playerSync): a pad waiting for its first button press (DM_PAD_PRESS_TO_JOIN) gets one later
+     int16_t _mouseX, _mouseY; BOOL _mouseSeen, _mouseOn;   // _mouseOn: its mouse sensor is turned on (features)   // the mouse sensor's counters at the last report
+     s2_hold _hold;   // the choosing gesture this Joy-Con holds now (s2_gesture)
++    uint32_t _ivLogged;   // the report interval last logged
+ }
+-- (void)dealloc { [self saveRest]; }
++- (void)dealloc { if (_tick) dispatch_source_cancel(_tick); [self saveRest]; }
+ - (instancetype)initWith:(CBPeripheral *)p pid:(uint16_t)pid use:(int)use {
+     if ((self = [super init])) { _peripheral = p; _pid = pid; _use = use; p.delegate = self; _queue = [NSMutableArray new]; s2_cal_default(&_cal[0]); s2_cal_default(&_cal[1]); }
+     return self;
+@@ -103,7 +164,7 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+ - (void)begin {
+     [_peripheral discoverServices:nil];
+     __weak S2Session *w = self;   // a controller that connects but never finishes the handshake is dropped
+-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 20 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{ S2Session *s = w; if (s && !s->_handshaken) [s fail:@"handshake timed out"]; });
++    s2_after(20, ^{ S2Session *s = w; if (s && !s->_handshaken) [s fail:@"handshake timed out"]; });
+ }
+ - (void)fail:(NSString *)why {
+     LOG("[sw2] %s: %s", s2_kind(_pid), why.UTF8String);
+@@ -111,9 +172,9 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+     if (!_live) s2_session_closed(self);
+ }
+ - (void)teardown {
+-    [_tick invalidate]; _tick = nil;
++    if (_tick) { dispatch_source_cancel(_tick); _tick = nil; }
+     if (_pad) {
+-        s2_pad *p = _pad; _pad = NULL;
++        s2_tpad *p = _pad; _pad = NULL;
+         int player = s2_player(p);
+         s2_dev *d = s2_dev_of(p, _pid); memset(d, 0, sizeof *d);
+         if (player >= 0) dm_motion_clear_hid(player);
+@@ -121,9 +182,8 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+         if (s2_pad_empty(p)) {
+             if (player >= 0 && g_joy) dm_joy_attach(player, 0);
+             s2_pad_unlink(p);
+-            if (g_front.detach) g_front.detach(p);
+-            free(p);
+-        } else { s2_sync_sides(p); if (g_front.read) g_front.read(p); }
++            s2_front_release(p);
++        } else { s2_sync_sides(p); s2_publish(p); }
+     }
+ }
+ // ---- commands: one in flight (the controller has one reply channel) ----
+@@ -138,7 +198,7 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+     if (!n) { if (c.done) c.done(nil); [self pump]; return; }
+     _pending = YES; _pendingCmd = c.cmd; _cb = c.done; NSUInteger mine = ++_seq; uint8_t id = c.cmd;
+     __weak S2Session *w = self;
+-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++    s2_after(2, ^{
+         S2Session *s = w; if (!s || !s->_pending || s->_seq != mine) return;
+         s->_pending = NO; void (^d)(NSData *) = s->_cb; s->_cb = nil;
+         LOG("[sw2] %s: command 0x%02x timed out", s2_kind(s->_pid), id);
+@@ -276,7 +336,7 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+     }];
+ }
+ - (void)attachPad {
+-    s2_pad *p = s2_pad_for(_pid);
++    s2_tpad *p = s2_pad_for(_pid);
+     if (!p) { [self fail:@"out of memory"]; return; }
+     BOOL fresh = s2_pad_empty(p);
+     s2_dev *d = s2_dev_of(p, _pid); memset(d, 0, sizeof *d);
+@@ -284,8 +344,8 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+     _pad = p; _live = YES; _handshaken = YES;
+     s2_rumble_timer();
+     if (fresh) {
+-        if (!g_front.attach || !g_front.attach(p)) { LOG("[sw2] %s: no free player, not used", s2_kind(_pid)); [self fail:@"all players are taken"]; return; }
+-    } else if (g_front.read) g_front.read(p);
++        if (!s2_front_attach(p, NO)) { LOG("[sw2] %s: no free player, not used", s2_kind(_pid)); [self fail:@"all players are taken"]; return; }
++    } else s2_publish(p);
+     s2_sync_sides(p);
+     _player = s2_player(p);
+     if (_player < 0) LOG("[sw2] %s connected: a player once a button is pressed%s", s2_kind(_pid), fresh ? "" : " (joined the Joy-Con already there)");
+@@ -293,13 +353,14 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+     [self setLEDs:nil];
+     [_peripheral setNotifyValue:YES forCharacteristic:_inp];
+     __weak S2Session *w = self;   // the link drops after about ten seconds without a write from the host, so the LEDs are written once a second
+-    _tick = [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
+-        S2Session *s = w; if (!s) { [t invalidate]; return; }
++    if (_tick) dispatch_source_cancel(_tick);
++    _tick = s2_every(1.0, 0.1, ^{
++        S2Session *s = w; if (!s) return;
+         int pl = s2_player(s->_pad); uint8_t l[4] = {s2_led_pattern[pl >= 0 && pl < 8 ? pl : 0], 0, 0, 0}; uint8_t f[12];
+         size_t n = s2_command(f, sizeof f, S2_CMD_LEDS, S2_SUB_LEDS_SET, l, 4);
+         if (s->_wr && n) [s->_peripheral writeValue:[NSData dataWithBytes:f length:n] forCharacteristic:s->_wr type:CBCharacteristicWriteWithoutResponse];
+         if (!s->_mouseOn && [s features] != S2_FEATURES) [s mouseOn];
+-    }];
++    });
+ }
+ // Every 15 ms: this controller's share of the player's motors (s2_rumble_pick) over its next three 5 ms slots (switch2_proto.h, Rumble timing).
+ // A buzz ends with three packets of silence, since one write without response can be lost
+@@ -327,12 +388,14 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+     s2_report r; if (!_pad || !s2_report_parse(d.bytes, d.length, &r)) return;
+     s2_dev *dev = s2_dev_of(_pad, _pid); dev->r = r; _reports++;
+     unsigned lost; uint64_t ts = s2_clock_sample(&_clk, r.clock_ms, now_ns(), &lost); _lost += lost;
++    uint32_t iv = s2_clock_interval(&_clk);
++    if (_clk.iv && (iv + 2 < _ivLogged || iv > _ivLogged + 2)) { _ivLogged = iv; LOG("[sw2] %s: a report every %u ms (%u a second)", s2_kind(_pid), iv, 1000 / iv); }
+     int had = _rest.have; float was[3] = {_rest.bias[0], _rest.bias[1], _rest.bias[2]};
+-    s2_rest_update(&_rest, r.raw);
++    if (_clk.iv) { _rest.need = (int)s2_clock_reports(&_clk, 1000); s2_rest_update(&_rest, r.raw); }   // from the second report: a second of rest is counted at the link's rate
+     if (_rest.have && (!had || was[0] != _rest.bias[0] || was[1] != _rest.bias[1] || was[2] != _rest.bias[2]) && ts - _restSaved > 30000000000ull) { [self saveRest]; _restSaved = ts; }
+-    if (g_verbose && _reports % 33 == 1)
++    if (g_verbose && (_reports - 1) % s2_clock_reports(&_clk, 1000) == 0)   // the first report of each second
+         LOG("[sw2] %s: clock %u ms, %llu reports lost so far; buttons 0x%08x sticks %u,%u %u,%u accel %d,%d,%d gyro %d,%d,%d battery %u mV mouse %d,%d %u,%u", s2_kind(_pid), r.clock_ms, (unsigned long long)_lost, r.buttons, r.lx, r.ly, r.rx, r.ry, r.raw[0], r.raw[1], r.raw[2], r.raw[3], r.raw[4], r.raw[5], r.battery_mv, r.mouse_x, r.mouse_y, r.mouse_q, r.mouse_s);
+-    if (g_front.read) g_front.read(_pad);
++    s2_publish(_pad);
+     int player = s2_player(_pad), blocked = s2_blocked();
+     [self playerSync];
+     if (g_motion && !blocked && player >= 0 && s2_pad_motion_dev(&_pad->st, g_motion_right) == dev) {
+@@ -358,7 +421,7 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+ }
+ // SL + SR held on a Joy-Con of a pair: it plays alone. L on a left one alone and R on a right one alone, held together: they pair (switch2_proto.h, s2_gesture)
+ - (void)gesture:(uint32_t)b right:(int)right {
+-    s2_pad *p = _pad; int paired = p->st.left.have && p->st.right.have;
++    s2_tpad *p = _pad; int paired = p->st.left.have && p->st.right.have;
+     if (!s2_hold_update(&_hold, s2_gesture(b, right, paired), now_ns()) || _hold.done) return;
+     if (_hold.kind == S2_GESTURE_SPLIT) { _hold.done = 1; [self leavePair]; return; }
+     for (S2Session *o in g_sessions.allValues) {   // the partner: the other side, alone, holding its own L or R as long
+@@ -371,30 +434,28 @@ static s2_pad *s2_pad_for(uint16_t pid) {   // a Joy-Con joins a pad that has th
+     }
+ }
+ - (void)leavePair {
+-    s2_pad *old = _pad; int was = s2_player(old), side = _pid == S2_PID_JOYCON_R;
+-    s2_pad *p = calloc(1, sizeof *p); if (!p) return;
+-    snprintf(p->name, sizeof p->name, "%s", "Joy-Con 2");
++    s2_tpad *old = _pad; int was = s2_player(old), side = _pid == S2_PID_JOYCON_R;
++    s2_tpad *p = s2_pad_new("Joy-Con 2"); if (!p) return;
+     s2_dev *d = s2_dev_of(old, _pid), *nd = s2_dev_of(p, _pid); *nd = *d; memset(d, 0, sizeof *d);
+-    s2_joy_release(was, side); s2_sync_sides(old); if (g_front.read) g_front.read(old);
+-    p->next = g_pads; g_pads = p; _pad = p;
+-    if (!g_front.attach || !g_front.attach(p)) {   // no free player: back into the pair
++    s2_joy_release(was, side); s2_sync_sides(old); s2_publish(old);
++    p->next = g_tpads; g_tpads = p; _pad = p;
++    if (!s2_front_attach(p, YES)) {   // no free player: back into the pair
+         LOG("[sw2] %s: no free player to play alone, it stays in the pair", s2_kind(_pid));
+-        s2_pad_unlink(p); *d = *nd; _pad = old; free(p); s2_sync_sides(old); return;
++        s2_pad_unlink(p); *d = *nd; _pad = old; free(p); s2_sync_sides(old); s2_publish(old); return;
+     }
+-    s2_sync_sides(p); _player = s2_player(p);
+-    if (g_front.read) g_front.read(p);
+-    [self playerSync];   // waiting for a press, the held SL + SR are that press: read() made it a player just now
++    s2_sync_sides(p);
++    [self playerSync];   // waiting for a press, the held SL + SR are that press: the read() in s2_front_attach made it a player just now
+     if (_player < 0) LOG("[sw2] %s plays alone once a button is pressed (SL + SR held); the other Joy-Con stays player %d", s2_kind(_pid), was + 1);
+     else LOG("[sw2] %s plays alone now: player %d (SL + SR held); the other Joy-Con stays player %d", s2_kind(_pid), _player + 1, was + 1);
+     [self setLEDs:nil];
+ }
+ - (void)joinPadOf:(S2Session *)stay {
+-    s2_pad *old = _pad, *into = stay->_pad; int was = s2_player(old), side = _pid == S2_PID_JOYCON_R;
++    s2_tpad *old = _pad, *into = stay->_pad; int was = s2_player(old), side = _pid == S2_PID_JOYCON_R;
+     s2_dev *d = s2_dev_of(old, _pid), *nd = s2_dev_of(into, _pid); *nd = *d; memset(d, 0, sizeof *d);
+     s2_joy_release(was, side);
+     if (was >= 0) { dm_motion_clear_hid(was); if (g_joy) dm_joy_attach(was, 0); }
+-    s2_pad_unlink(old); if (g_front.detach) g_front.detach(old); free(old);
+-    _pad = into; s2_sync_sides(into); if (g_front.read) g_front.read(into);
++    s2_pad_unlink(old); s2_front_release(old);
++    _pad = into; s2_sync_sides(into); s2_publish(into);
+     LOG("[sw2] %s and %s play as one pair now: player %d (L + R held)", s2_kind(stay->_pid), s2_kind(_pid), s2_player(into) + 1);
+     [self setLEDs:nil];
+ }
+@@ -452,7 +513,7 @@ static void s2_session_closed(S2Session *s) { [s teardown]; [g_sessions removeOb
+                 unsigned a[6]; BOOL ok = addr && sscanf(addr, "%x%*c%x%*c%x%*c%x%*c%x%*c%x", &a[0], &a[1], &a[2], &a[3], &a[4], &a[5]) == 6 && (a[0] | a[1] | a[2] | a[3] | a[4] | a[5]);
+                 uint8_t le[6]; for (int i = 0; i < 6; i++) le[i] = ok ? (uint8_t)a[5 - i] : 0;
+                 NSData *leData = [NSData dataWithBytes:le length:6];
+-                dispatch_async(dispatch_get_main_queue(), ^{
++                dispatch_async(g_queue, ^{
+                     if (ok) { memcpy(g_host, leData.bytes, 6); g_host_known = 1; }
+                     else LOG("[sw2] this Mac's Bluetooth address could not be read: controllers are used without pairing (DM_SW2_HOST=aa:bb:cc:dd:ee:ff names it)");
+                     CBCentralManager *cm = wc; if (cm && cm.state == CBManagerStatePoweredOn) [self scan:cm];
+@@ -484,9 +545,9 @@ static void s2_session_closed(S2Session *s) { [s teardown]; [g_sessions removeOb
+     S2Session *s = [[S2Session alloc] initWith:p pid:a.pid use:use];
+     g_sessions[p.identifier] = s;
+     LOG("[sw2] %s %s (rssi %d), connecting", use == S2_ADV_WAKE ? "woke:" : "pairing:", s2_kind(a.pid), rssi.intValue);
+-    [c connectPeripheral:p options:nil];
++    [c connectPeripheral:p options:@{@"kCBConnectOptionRequiresLowLatency": @YES}];   // the 15 ms connection interval (switch2_proto.h, sample times), not macOS's default 30 ms
+     NSUUID *id = p.identifier; __weak CBCentralManager *wc = c;
+-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
++    s2_after(10, ^{
+         S2Session *t = g_sessions[id];
+         if (t && t.peripheral.state != CBPeripheralStateConnected) { LOG("[sw2] connecting timed out"); [wc cancelPeripheralConnection:t.peripheral]; s2_session_closed(t); }
+     });
+@@ -504,20 +565,21 @@ static void s2_session_closed(S2Session *s) { [s teardown]; [g_sessions removeOb
+ @end
+ 
+ void dm_switch2_active(int on) {
+-    g_active = on;
+-    if (!on) for (s2_pad *p = g_pads; p; p = p->next) { int pl = s2_player(p); if (pl >= 0) { dm_motion_clear_hid(pl); s2_joy_release(pl, 0); s2_joy_release(pl, 1); } }
++    atomic_store(&g_active, on);
++    atomic_store(&g_blocked, g_front.blocked ? g_front.blocked() : 0);   // the front end's focus as it is now, not at the last read
++    if (!on && g_queue) dispatch_async(g_queue, ^{ for (s2_tpad *p = g_tpads; p; p = p->next) { int pl = s2_player(p); if (pl >= 0) { dm_motion_clear_hid(pl); s2_joy_release(pl, 0); s2_joy_release(pl, 1); } } });
+ }
+ 
+ static S2Central *g_delegate;
+-static void s2_central_start(void) { g_central = [[CBCentralManager alloc] initWithDelegate:g_delegate queue:nil options:nil]; }
++static void s2_central_start(void) { g_central = [[CBCentralManager alloc] initWithDelegate:g_delegate queue:g_queue options:nil]; }
+ // The rumble tick runs while a controller is connected (attachPad starts it, s2_session_closed stops it with the last one), not for the whole game
+ static void s2_rumble_timer(void) {
+     BOOL any = NO; for (S2Session *s in g_sessions.allValues) if (s.live) { any = YES; break; }
+-    if (!any) { [g_rumble_timer invalidate]; g_rumble_timer = nil; return; }
++    if (!any) { if (g_rumble_timer) dispatch_source_cancel(g_rumble_timer); g_rumble_timer = nil; return; }
+     if (g_rumble_timer) return;
+     memset(&g_rstat, 0, sizeof g_rstat);
+-    g_rumble_timer = [NSTimer scheduledTimerWithTimeInterval:S2_RUMBLE_TICK_S repeats:YES block:^(NSTimer *t) {
+-        (void)t; uint64_t now = now_ns();
++    g_rumble_timer = s2_every(S2_RUMBLE_TICK_S, 0.001, ^{
++        uint64_t now = now_ns();
+         if (g_rstat.last && now - g_rstat.last > g_rstat.maxgap) g_rstat.maxgap = now - g_rstat.last;
+         g_rstat.last = now; g_rstat.ticks++;
+         for (S2Session *s in g_sessions.allValues) [s rumbleTick];
+@@ -526,7 +588,7 @@ static void s2_rumble_timer(void) {
+             if (g_verbose && g_rstat.sent) LOG("[sw2] rumble: %llu ticks (longest gap %.1f ms), %llu packets, %llu while Bluetooth was not ready", (unsigned long long)g_rstat.ticks, g_rstat.maxgap / 1e6, (unsigned long long)g_rstat.sent, (unsigned long long)g_rstat.busy);
+             g_rstat.ticks = g_rstat.sent = g_rstat.busy = g_rstat.maxgap = 0; g_rstat.t0 = now;
+         }
+-    }];
++    });
+ }
+ 
+ int dm_switch2_start(const dm_switch2_front *front) {
+@@ -542,10 +604,11 @@ int dm_switch2_start(const dm_switch2_front *front) {
+     e = getenv("DM_SW2_MOTION_SIDE"); g_motion_right = !(e && (e[0] == 'L' || e[0] == 'l'));
+     e = getenv("DM_SW2_MAP"); if (e && !(g_map_set = s2_map_parse(e, g_map))) LOG("[sw2] DM_SW2_MAP is not six numbers of 1..6 (signs allowed), like -1,-2,-3,4,5,6: using the built-in maps");
+     e = getenv("DM_SW2_GYRO_DPS"); if (e && atof(e) > 0) g_gyro = (float)atof(e) * 3.14159265358979323846f / 180.f;
++    g_queue = dispatch_queue_create("dm.switch2", dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INTERACTIVE, 0));
+     g_sessions = [NSMutableDictionary new];
+     g_delegate = [S2Central new];
+     unsigned v[6]; char sep; e = getenv("DM_SW2_HOST");
+     if (e && sscanf(e, "%x%c%x%c%x%c%x%c%x%c%x", &v[0], &sep, &v[1], &sep, &v[2], &sep, &v[3], &sep, &v[4], &sep, &v[5]) == 11) { for (int i = 0; i < 6; i++) g_host[i] = (uint8_t)v[5 - i]; g_host_known = 1; }
+-    s2_central_start();   // the main queue: the pad callbacks run where the front end's do. On the Mac this Mac's address is read once Bluetooth is allowed (centralManagerDidUpdateState)
++    s2_central_start();   // on g_queue; the front end's callbacks still run on the main queue. On the Mac this Mac's address is read once Bluetooth is allowed (centralManagerDidUpdateState)
+     return 1;
+ }
+diff --git a/dm/host/switch2_proto.h b/dm/host/switch2_proto.h
+index 801251b..c87790d 100644
+--- a/dm/host/switch2_proto.h
++++ b/dm/host/switch2_proto.h
+@@ -364,20 +364,21 @@ static inline const int8_t *s2_pad_map(const s2_pad_state *p, const s2_dev *dev)
+     return dev == &p->left ? s2_map_left_alone : s2_map_right_alone;
+ }
+ // Gyro rest offset: a Joy-Con 2 at rest reads about 1.3 degrees per second off. About a second of samples in which the gyro and accelerometer hardly vary is a controller lying or held
+-// still; its mean is the offset (blended with the one before). An offset past 4 degrees per second is not taken: that is a slow turn, not rest.
++// still; its mean is the offset (blended with the one before). An offset past 4 degrees per second is not taken: that is a slow turn, not rest. need is the number of samples in
++// that second at the link's report rate (s2_clock_reports; 0: S2_REST_N, a second at 30 ms), read when a window starts.
+ #define S2_REST_N 33
+-typedef struct { int n, have; int32_t sum[3]; int16_t gmin[3], gmax[3], amin[3], amax[3]; float bias[3]; } s2_rest;
++typedef struct { int n, have, need, want; int32_t sum[3]; int16_t gmin[3], gmax[3], amin[3], amax[3]; float bias[3]; } s2_rest;
+ static inline void s2_rest_update(s2_rest *r, const int16_t raw[6]) {
+-    if (!r->n) for (int i = 0; i < 3; i++) { r->sum[i] = 0; r->gmin[i] = r->gmax[i] = raw[3 + i]; r->amin[i] = r->amax[i] = raw[i]; }
++    if (!r->n) { r->want = r->need > 0 ? r->need : S2_REST_N; for (int i = 0; i < 3; i++) { r->sum[i] = 0; r->gmin[i] = r->gmax[i] = raw[3 + i]; r->amin[i] = r->amax[i] = raw[i]; } }
+     for (int i = 0; i < 3; i++) {
+         r->sum[i] += raw[3 + i];
+         if (raw[3 + i] < r->gmin[i]) r->gmin[i] = raw[3 + i]; if (raw[3 + i] > r->gmax[i]) r->gmax[i] = raw[3 + i];
+         if (raw[i] < r->amin[i]) r->amin[i] = raw[i]; if (raw[i] > r->amax[i]) r->amax[i] = raw[i];
+         if (r->gmax[i] - r->gmin[i] > 100 || r->amax[i] - r->amin[i] > 300) { r->n = 0; return; }   // moving: start the second again
+     }
+-    if (++r->n < S2_REST_N) return;
++    if (++r->n < r->want) return;
+     r->n = 0;
+-    float m[3]; for (int i = 0; i < 3; i++) { m[i] = (float)r->sum[i] / S2_REST_N; if (fabsf(m[i]) > 60.f) return; }
++    float m[3]; for (int i = 0; i < 3; i++) { m[i] = (float)r->sum[i] / r->want; if (fabsf(m[i]) > 60.f) return; }
+     for (int i = 0; i < 3; i++) r->bias[i] = r->have ? 0.5f * r->bias[i] + 0.5f * m[i] : m[i];
+     r->have = 1;
+ }
+@@ -398,13 +399,18 @@ static inline int s2_gyro_cal_parse(const uint8_t *d, size_t n, float off[3]) {
+ // Controller 2's is not measured, so those wait for the rest offset (or the one remembered for the controller, pad_switch2_apple.m)
+ static inline int s2_gyro_cal_usable(uint16_t pid) { return pid == 0x2066; }
+ 
+-// Sample times from the controller's own clock (the report's first four bytes: milliseconds, +30 a report on a Mac's 30 ms connection interval, +60 or +90 when a report was
+-// lost). Arrival times come in bursts (a few reports of a connection event at once), and a lost report leaves a gap that only the clock shows, so the sample time is the
+-// previous one plus the clock's step, never later than the arrival and never more than S2_CLOCK_LAG_NS before it (the clocks drift apart slowly; a long silence or a clock
+-// that went back starts over at the arrival). *lost is the number of reports the step skipped.
++// Sample times from the controller's own clock (the report's first four bytes: milliseconds, one connection interval a report: +30 on a Mac's default 30 ms interval, +15 on
++// the 15 ms one a low-latency connection gets, twice or three times that when a report was lost). Arrival times come in bursts (a few reports of a connection event at once),
++// and a lost report leaves a gap that only the clock shows, so the sample time is the previous one plus the clock's step, never later than the arrival and never more than
++// S2_CLOCK_LAG_NS before it (the clocks drift apart slowly; a long silence or a clock that went back starts over at the arrival). *lost is the number of reports the step
++// skipped, counted in the link's own interval: the smallest step of the last S2_CLOCK_WINDOW reports (S2_CLOCK_REPORT_MS until the first step), so an interval the host
++// changes during the connection is followed within a window. Steps under S2_CLOCK_MIN_MS (shorter than any Bluetooth LE interval this host gets) do not count as one.
+ #define S2_CLOCK_LAG_NS 60000000ull
+ #define S2_CLOCK_REPORT_MS 30u
+-typedef struct { int have; uint32_t ms; uint64_t ns; } s2_clock;
++#define S2_CLOCK_MIN_MS 5u
++#define S2_CLOCK_WINDOW 64u
++typedef struct { int have; uint32_t ms; uint64_t ns; uint32_t iv, win_min; unsigned win_n; } s2_clock;   // iv: the report interval in milliseconds, 0 until the first step
++static inline uint32_t s2_clock_interval(const s2_clock *c) { return c->iv ? c->iv : S2_CLOCK_REPORT_MS; }
+ static inline uint64_t s2_clock_sample(s2_clock *c, uint32_t ms, uint64_t arrival, unsigned *lost) {
+     uint32_t step = ms - c->ms; uint64_t t;
+     if (lost) *lost = 0;
+@@ -415,11 +421,19 @@ static inline uint64_t s2_clock_sample(s2_clock *c, uint32_t ms, uint64_t arriva
+         if (t > arrival) t = arrival;
+         if (arrival - t > S2_CLOCK_LAG_NS) t = arrival - S2_CLOCK_LAG_NS;
+         if (t <= c->ns) t = c->ns + 1000;
+-        if (lost && step > S2_CLOCK_REPORT_MS + S2_CLOCK_REPORT_MS / 2) *lost = (step + S2_CLOCK_REPORT_MS / 2) / S2_CLOCK_REPORT_MS - 1;
++        if (step >= S2_CLOCK_MIN_MS) {
++            if (!c->iv || step < c->iv) c->iv = step;
++            if (!c->win_min || step < c->win_min) c->win_min = step;
++            if (++c->win_n >= S2_CLOCK_WINDOW) { c->iv = c->win_min; c->win_min = 0; c->win_n = 0; }
++        }
++        uint32_t iv = s2_clock_interval(c);
++        if (lost && step > iv + iv / 2) *lost = (step + iv / 2) / iv - 1;
+     }
+     c->have = 1; c->ms = ms; c->ns = t;
+     return t;
+ }
++// The number of reports in a span of ms milliseconds at the link's interval, at least 1
++static inline unsigned s2_clock_reports(const s2_clock *c, uint32_t ms) { uint32_t iv = s2_clock_interval(c); return ms / iv ? ms / iv : 1; }
+ // bias: the gyro offset in counts (s2_rest.bias), NULL for none
+ static inline void s2_motion(const int16_t raw[6], const int8_t map[6], const float *bias, float gyro_scale, float acc[3], float rot[3]) {
+     for (int i = 0; i < 6; i++) {
+diff --git a/dm/host/tests/t_switch2.c b/dm/host/tests/t_switch2.c
+index c570a7d..9121249 100644
+--- a/dm/host/tests/t_switch2.c
++++ b/dm/host/tests/t_switch2.c
+@@ -47,6 +47,25 @@ int main(void) {
+         CHECK(s2_clock_sample(&c, 1210, base + 400 * ms, &lost) == base + 340 * ms);   // arriving late: held to 60 ms behind the arrival
+         CHECK(s2_clock_sample(&c, 9000, base + 9000 * ms, &lost) == base + 9000 * ms && lost == 0);   // seconds of silence: starts over at the arrival
+         CHECK(s2_clock_sample(&c, 100, base + 9030 * ms, &lost) == base + 9030 * ms);   // the clock went back: starts over too
++        // A low-latency link (15 ms): a 30 ms step is one report lost, 45 ms two. Under the old fixed 30 ms both counted as none or one
++        s2_clock f = {0};
++        CHECK(s2_clock_interval(&f) == 30 && s2_clock_reports(&f, 1000) == 33);   // before the first step: the default interval
++        s2_clock_sample(&f, 2000, base, &lost); s2_clock_sample(&f, 2015, base + 15 * ms, &lost);
++        CHECK(lost == 0 && s2_clock_interval(&f) == 15 && s2_clock_reports(&f, 1000) == 66);
++        s2_clock_sample(&f, 2045, base + 45 * ms, &lost); CHECK(lost == 1);
++        s2_clock_sample(&f, 2090, base + 90 * ms, &lost); CHECK(lost == 2);
++        s2_clock_sample(&f, 2093, base + 93 * ms, &lost); CHECK(lost == 0 && s2_clock_interval(&f) == 15);   // a step under S2_CLOCK_MIN_MS is not an interval
++        // The host moves the link back to 30 ms: within a window the interval follows, and a 30 ms step is no longer a loss
++        for (unsigned i = 1; i <= S2_CLOCK_WINDOW; i++) s2_clock_sample(&f, 2093 + 30 * i, base + (93 + 30 * i) * ms, &lost);
++        CHECK(s2_clock_interval(&f) == 15);   // the window that saw the 15 ms steps ends with them in it
++        for (unsigned i = 1; i <= S2_CLOCK_WINDOW; i++) s2_clock_sample(&f, 2093 + 30 * (S2_CLOCK_WINDOW + i), base + (93 + 30 * (S2_CLOCK_WINDOW + i)) * ms, &lost);
++        CHECK(s2_clock_interval(&f) == 30 && lost == 0);
++        // The controller's clock jitters by a millisecond: the interval is the shortest step, and neither a long step nor a short one is a loss; a doubled step still is
++        s2_clock j = {0}; const uint32_t steps[] = {15, 16, 14, 15, 16, 15};
++        uint32_t at = 3000; s2_clock_sample(&j, at, base, &lost); unsigned jl = 0;
++        for (int i = 0; i < 6; i++) { at += steps[i]; s2_clock_sample(&j, at, base + (at - 3000) * ms, &lost); jl += lost; }
++        CHECK(jl == 0 && s2_clock_interval(&j) == 14);
++        at += 30; s2_clock_sample(&j, at, base + (at - 3000) * ms, &lost); CHECK(lost == 1);
+         // steady reports with jittered arrivals integrate a constant rotation exactly: 34 reports of 30 ms at 100 counts
+         s2_clock d = {0}; uint64_t prev = 0; double deg = 0;
+         for (int i = 0; i < 34; i++) {
+@@ -166,6 +185,10 @@ int main(void) {
+     s2_rest big; memset(&big, 0, sizeof big); int16_t z[6] = {0, 0, 4096, 200, 0, 0};
+     for (int i = 0; i < S2_REST_N; i++) s2_rest_update(&big, z);
+     CHECK(!big.have);   // 200 counts (14 degrees per second) is a turn, not rest
++    // At 15 ms a report the second of rest is 66 samples: 33 still ones (half a second) are not rest yet
++    s2_rest fast; memset(&fast, 0, sizeof fast); fast.need = 66; int16_t still[6] = {0, 0, 4096, 18, -20, -4};
++    for (int i = 0; i < 65; i++) s2_rest_update(&fast, still);
++    CHECK(!fast.have); s2_rest_update(&fast, still); CHECK(fast.have && fabsf(fast.bias[0] - 18.f) < 0.01f);
+     int8_t mp[6] = {1, 2, 3, 4, 5, 6};
+     CHECK(s2_map_parse("3,-2,1,6,-5,4", mp) && mp[0] == 3 && mp[1] == -2 && mp[2] == 1 && mp[3] == 6 && mp[4] == -5 && mp[5] == 4);
+     CHECK(!s2_map_parse("1,2,3,4,5", mp) && !s2_map_parse("1,2,3,4,5,7", mp) && !s2_map_parse("1,2,3,4,5,0", mp) && !s2_map_parse("1,2,3,4,5,6,7", mp) && !s2_map_parse("x", mp) && !s2_map_parse(NULL, mp) && mp[0] == 3);
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index 53b8702..ea02296 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -380,7 +380,8 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Symptom:** a Joy-Con 2 or Pro Controller 2 does not appear in the Mac's Bluetooth menu, or as a GameController or HID device; the game sees no controller.
+ - **Cause:** these controllers are Bluetooth LE devices with Nintendo's own GATT service, not HID gamepads (Apple's controller driver list on macOS 27.2 has no Switch 2 products), and a Joy-Con 2 forgets a connection the moment it drops: one that is let go stays silent until Sync is held again, unless it is bonded to the host.
+ - **Fix:** `switch2_proto.h` (pure C: the advertisement and what the host does with it, command framing, bonding, the input report, stick calibration, the motion maps) and `pad_switch2_apple.m` (a CoreBluetooth central the Mac and iOS front ends share, behind the off-by-default `DM_SW2`). A controller held in Sync advertises no host: on the Mac the host bonds it with the console's `0x15` commands (this Mac's Bluetooth address, then two keys, which may be fresh random ones), and from then on a button press makes it advertise toward this Mac and the host connects. A controller advertising another host is never written to. After connecting, the host runs the handshake (identity read, stick calibration, player lights, features) and takes the 63-byte reports; a player light write once a second keeps the link up.
+-- **Report layout (a left and a right Joy-Con 2, macOS 27):** the controller's own clock in milliseconds at offset 0 (four bytes; +30 a report on a Mac, +60 or +90 when one was lost), buttons at offset 4 (the same bits as the Pro Controller 2; the right Joy-Con's rail buttons are `0x10` / `0x20`, the left's `0x100000` / `0x200000`), the left Joy-Con's stick in the first stick field and the right one's in the second, both calibrated from the first slot (`0x130A8`); accelerometer at `0x30`, gyro at `0x36`. A Joy-Con held upright reports raw x right, y forward, z up, and its gyro channels are right-handed rotations about the same axes, which is the Switch frame, so its map is the identity for rotation and the negated reading for gravity. The gyro scale is 0.0607 degrees per second per count, measured: 14 tilts from lying on an edge to standing against a wall (90 degrees by the accelerometer) integrated to 1.153 times as much at the Switch family's nominal 0.070, on both Joy-Cons. Each sample is timed by the controller's clock, not by when its notification arrived (they come in bursts, and a lost report leaves a gap only the clock shows). At rest the gyro reads up to about 1.5 degrees per second off, a fixed offset per controller: it is there from the first sample, the one learned for that controller before (kept under its serial number) or, for a right Joy-Con 2, its factory offset (16 bytes at `0x13040`: a temperature and the offset in radians per second, which matches its rest offset); about a second of nearly constant samples refines it.
++- **Report layout (a left and a right Joy-Con 2, macOS 27):** the controller's own clock in milliseconds at offset 0 (four bytes; one connection interval a report, and two or three when one was lost), buttons at offset 4 (the same bits as the Pro Controller 2; the right Joy-Con's rail buttons are `0x10` / `0x20`, the left's `0x100000` / `0x200000`), the left Joy-Con's stick in the first stick field and the right one's in the second, both calibrated from the first slot (`0x130A8`); accelerometer at `0x30`, gyro at `0x36`. A Joy-Con held upright reports raw x right, y forward, z up, and its gyro channels are right-handed rotations about the same axes, which is the Switch frame, so its map is the identity for rotation and the negated reading for gravity. The gyro scale is 0.0607 degrees per second per count, measured: 14 tilts from lying on an edge to standing against a wall (90 degrees by the accelerometer) integrated to 1.153 times as much at the Switch family's nominal 0.070, on both Joy-Cons. Each sample is timed by the controller's clock, not by when its notification arrived (they come in bursts, and a lost report leaves a gap only the clock shows). At rest the gyro reads up to about 1.5 degrees per second off, a fixed offset per controller: it is there from the first sample, the one learned for that controller before (kept under its serial number) or, for a right Joy-Con 2, its factory offset (16 bytes at `0x13040`: a temperature and the offset in radians per second, which matches its rest offset); about a second of nearly constant samples refines it.
++- **Report rate:** one input report a connection event, so the connection interval the host grants sets the rate; the controller samples far faster. With no options, macOS gives a connection 30 ms (33 reports a second, the clock above stepping by 30). Connected with the private CoreBluetooth key `kCBConnectOptionRequiresLowLatency` (macOS 27.2's `bluetoothd` knows it; [WaveBird](https://github.com/murphyjt/wavebird) uses it for the same controllers), the interval is 15 ms, about 66 reports a second. The host follows the interval from the clock's steps (`s2_clock_sample`), so a lost report is counted against the link's own interval, and the second of rest that sets the gyro offset is as many reports as that rate makes. The transport runs on a serial queue of its own at user-interactive priority, so a busy main thread does not delay the reports; the front end's callbacks still run on the main queue with a copy of the pad's state. Not measured yet: the interval the controllers get on hardware with the key (`DM_SW2_VERBOSE=1` logs it at connection, `a report every N ms`), and whether macOS ever gives a link back the default interval mid-session (the clock's window follows such a change within 64 reports).
+ - **Rumble:** each controller lists its own vibration channel (the right Joy-Con 2's `FA19B0FB-CD1F-46A7-84A1-BBB09E00C149`, the left one's `289326CB-A471-485D-A8F4-240C14F18241`). The report is a zero byte and a 16-byte block per actuator: `0x40 | samples << 4 | sequence`, then up to three five-byte samples, played in turn. A sample is two bands, low then high, each a 10-bit frequency code and a 10-bit amplitude. The frequency code is logarithmic, 96 steps an octave, with 333 at 110 Hz (about 9.9 Hz to 16 kHz); the amplitude is linear, 1023 at full; both bands together are limited to 0.98. Hertz and amplitude are rounded as the console rounds them: truncate, then the nearer of that code and the next. Checked against the Switch 2's own encoder on 200,000 random values: no byte differed. An earlier reading (hertz as the code, a single sample per block) played effects 3 to 5 times too low in pitch and dropped two samples of three. A game sets its vibration about every 5 ms, and each value plays once in its own 5 ms sample, three to a packet every 15 ms (`switch2_proto.h`, Rumble timing), as the console plays them: a one-step pulse stays one sample long. Before that, a value played until the next packet, so short pulses lasted two to three times as long; replayed against a recording of Nintendo Switch 2 Welcome Tour's rumble exhibits, their energy came to 1.8 to 2.2 times the console's, and now matches it. The game's two full-key motors reach the pad through `haptics_apple.m` (`dm_haptics_apple_set_sink`, with Rumble strength and cutoff applied): each Joy-Con of a pair plays its side, a Joy-Con alone the stronger of the two, a Pro Controller 2 one per grip (its channel from the notes, untested). The console also corrects the amplitude by frequency with tables of its own per controller model; that is not done here.
+ - **Bonding (a left and a right Joy-Con 2):** each bonded with fresh random keys, then woke toward the Mac on a button press and reconnected with no Sync. The answer to the first key was the same bytes on both Joy-Cons and with any key; the answer to the second changes with the key.
+ - **Permission:** macOS asks once for each game app, at the first scan. A rebuilt app with the same bundle ID asked again (a fresh ad-hoc signature); a second start of the same app did not.
