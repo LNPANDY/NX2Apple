@@ -6,7 +6,7 @@ Newest first. The fork follows upstream daily, so its game list and host fixes a
 
 ## Unreleased
 
-- Track running time per game on Mac and iOS, excluding runtime suspension and sleep. Show accumulated hours/minutes and merge offline or restored histories through the chosen cloud-save folder, independently of game saves. Record dated time and actual last activity, cache library summaries, and retain play history when removing a game. Game-save commits checkpoint time; lifecycle flushes include both save and time sync. Games need rebuilding with the updated engine to record time.
+- Track running time per game on Mac and iOS, excluding runtime suspension and sleep. Show accumulated hours/minutes and merge offline or restored histories through the chosen cloud-save folder, independently of game saves. Record dated time and actual last activity, cache library summaries, and retain play history when removing a game. Local checkpoints update changed SQLite records and import existing JSON history safely. Timeout and background expiration cancel pending synchronization. Game-save commits checkpoint time; lifecycle flushes include both save and time sync. Games need rebuilding with the updated engine to record time.
 
 | Date | Version | What changed |
 |---|---|---|

@@ -5,16 +5,16 @@ Subject: [PATCH] Record and merge game running time across Apple devices
 
 Keep dated cumulative durations under fresh segment IDs in one document per title.
 Merge restored and offline histories by union of IDs and maximum duration
-per ID, independently of game save archives. Checkpoint locally and publish
+per ID, independently of game save archives. Checkpoint changed records transactionally in a local SQLite database and publish
 on lifecycle transitions, retaining failed publications for later retry.
 
 Upstream-Status: pending
 Reason: Record per-game running time and merge offline histories on Mac and iOS
-Issue: none
+Issue: LNPANDY/NX2Apple#1223
 ---
 diff --git a/dm/apple/GameTime/Package.swift b/dm/apple/GameTime/Package.swift
 new file mode 100644
-index 0000000000000000000000000000000000000000..9d56e015a58b1501928b2d68f9575f7283ad97fe
+index 0000000000000000000000000000000000000000..07734316bf4c365a7fced9e32e1411bde36a5a9c
 --- /dev/null
 +++ b/dm/apple/GameTime/Package.swift
 @@ -0,0 +1,10 @@
@@ -25,19 +25,21 @@ index 0000000000000000000000000000000000000000..9d56e015a58b1501928b2d68f9575f72
 +    name: "GameTime",
 +    platforms: [.macOS(.v13), .iOS(.v16)],
 +    products: [.library(name: "GameTime", targets: ["GameTime"]), .library(name: "GameTimeLibrary", targets: ["GameTimeLibrary"])],
-+    targets: [.target(name: "GameTime", linkerSettings: [.linkedFramework("Foundation")]), .target(name: "GameTimeLibrary", dependencies: ["GameTime"])],
++    targets: [.target(name: "GameTime", linkerSettings: [.linkedFramework("Foundation"), .linkedLibrary("sqlite3")]), .target(name: "GameTimeLibrary", dependencies: ["GameTime"])],
 +    swiftLanguageModes: [.v5]
 +)
 diff --git a/dm/apple/GameTime/Sources/GameTime/DMGameTime.m b/dm/apple/GameTime/Sources/GameTime/DMGameTime.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..594c6342e5a393a8861454bdef0543a113b06c32
+index 0000000000000000000000000000000000000000..f64a92a344bbb1298226b03f5330dc32b29dee7f
 --- /dev/null
 +++ b/dm/apple/GameTime/Sources/GameTime/DMGameTime.m
-@@ -0,0 +1,269 @@
+@@ -0,0 +1,430 @@
 +#import "DMGameTime.h"
 +#import <CommonCrypto/CommonDigest.h>
 +#import <TargetConditionals.h>
 +#import <math.h>
++#import <sqlite3.h>
++#import <errno.h>
 +
 +static const NSUInteger MaxBytes = 32 * 1024 * 1024;
 +static NSError *invalid(NSString *why) {
@@ -82,7 +84,7 @@ index 0000000000000000000000000000000000000000..594c6342e5a393a8861454bdef0543a1
 +    }
 +    NSURL *dir = [saveURL.URLByDeletingLastPathComponent URLByAppendingPathComponent:@"playtime" isDirectory:YES];
 +    dir = [dir URLByAppendingPathComponent:titleID.uppercaseString isDirectory:YES];
-+    return [dir URLByAppendingPathComponent:[scope stringByAppendingString:@".json"]];
++    return [dir URLByAppendingPathComponent:[scope stringByAppendingString:@".sqlite"]];
 +}
 +static BOOL integer(id n) {
 +    if (![n isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)n) == CFBooleanGetTypeID()) return NO;
@@ -162,20 +164,6 @@ index 0000000000000000000000000000000000000000..594c6342e5a393a8861454bdef0543a1
 +    }
 +    return summary(out, error) ? out : nil;
 +}
-+static NSMutableDictionary *joinDocs(NSDictionary *a, NSDictionary *b) {
-+    NSMutableDictionary *out = [@{@"version": @(MAX([a[@"version"] intValue], [b[@"version"] intValue])), @"runs": [a[@"runs"] mutableCopy] ?: [NSMutableDictionary dictionary]} mutableCopy];
-+    joinRuns(out[@"runs"], b[@"runs"] ?: @{});
-+    if ([out[@"version"] intValue] == 2) {
-+        NSMutableDictionary *days = [NSMutableDictionary dictionary];
-+        for (NSDictionary *doc in @[a, b]) for (NSString *day in doc[@"days"]) {
-+            NSMutableDictionary *runs = days[day] ?: [NSMutableDictionary dictionary]; joinRuns(runs, doc[@"days"][day]); days[day] = runs;
-+        }
-+        out[@"days"] = days;
-+        uint64_t last = MAX([a[@"lastActivityAt"] unsignedLongLongValue], [b[@"lastActivityAt"] unsignedLongLongValue]);
-+        if (last) out[@"lastActivityAt"] = @(last);
-+    }
-+    return out;
-+}
 +static BOOL writeDoc(NSDictionary *doc, NSURL *url, NSError **error) {
 +    if (!summary(doc, error)) return NO;
 +    NSMutableDictionary *stored = doc.mutableCopy;
@@ -189,23 +177,185 @@ index 0000000000000000000000000000000000000000..594c6342e5a393a8861454bdef0543a1
 +    NSDictionary *a = [NSFileManager.defaultManager attributesOfItemAtPath:url.path error:nil];
 +    return a ? @{@"size": a[NSFileSize], @"modified": @([a[NSFileModificationDate] timeIntervalSince1970]), @"inode": a[NSFileSystemFileNumber]} : nil;
 +}
-+static NSDictionary *mergeLocal(NSURL *local, NSDictionary *incoming, NSDictionary **signature, NSError **error) {
-+    if (![NSFileManager.defaultManager createDirectoryAtURL:local.URLByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:error]) return nil;
-+    __block NSDictionary *out = nil, *capturedSignature = nil; __block NSError *failure = nil; NSError *coordination = nil;
-+    [[[NSFileCoordinator alloc] initWithFilePresenter:nil] coordinateWritingItemAtURL:local options:NSFileCoordinatorWritingForMerging error:&coordination byAccessor:^(NSURL *url) {
-+        NSDictionary *before = readDoc(url, YES, &failure); if (!before) return;
-+        NSDictionary *merged = joinDocs(before, incoming);
-+        if (!summary(merged, &failure) || (![before isEqual:merged] && !writeDoc(merged, url, &failure))) return;
-+        out = merged; capturedSignature = sourceSignature(url);
++static BOOL cancelled(NSProgress *progress, NSError **error) {
++    if (!progress.cancelled) return NO;
++    if (error) *error = [NSError errorWithDomain:NSCocoaErrorDomain code:NSUserCancelledError userInfo:nil];
++    return YES;
++}
++NSProgress *DMGameTimeSyncProgress(void) {
++    NSProgress *progress = [NSProgress discreteProgressWithTotalUnitCount:1];
++    NSFileCoordinator *cloud = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
++    NSFileCoordinator *local = [[NSFileCoordinator alloc] initWithFilePresenter:nil];
++    [progress setUserInfoObject:cloud forKey:@"GameTimeCloudCoordinator"];
++    [progress setUserInfoObject:local forKey:@"GameTimeLocalCoordinator"];
++    progress.cancellationHandler = ^{ [cloud cancel]; [local cancel]; };
++    return progress;
++}
++static BOOL sql(sqlite3 *db, const char *command, NSError **error) {
++    int rc = sqlite3_exec(db, command, NULL, NULL, NULL);
++    if (rc == SQLITE_OK) return YES;
++    if (error) *error = invalid([NSString stringWithFormat:@"Play time database: %s", sqlite3_errmsg(db)]);
++    return NO;
++}
++static sqlite3_stmt *statement(sqlite3 *db, const char *command, NSError **error) {
++    sqlite3_stmt *s = NULL;
++    if (sqlite3_prepare_v2(db, command, -1, &s, NULL) == SQLITE_OK) return s;
++    if (error) *error = invalid([NSString stringWithFormat:@"Play time database: %s", sqlite3_errmsg(db)]);
++    return NULL;
++}
++static BOOL stepDone(sqlite3_stmt *s, NSError **error) {
++    int rc = sqlite3_step(s);
++    if (rc == SQLITE_DONE) return YES;
++    if (error) *error = invalid([NSString stringWithFormat:@"Play time database: %s", sqlite3_errmsg(sqlite3_db_handle(s))]);
++    return NO;
++}
++static int pragmaValue(sqlite3 *db, const char *command) {
++    sqlite3_stmt *s = NULL; int value = -1;
++    if (sqlite3_prepare_v2(db, command, -1, &s, NULL) == SQLITE_OK && sqlite3_step(s) == SQLITE_ROW) value = sqlite3_column_int(s, 0);
++    sqlite3_finalize(s); return value;
++}
++static int databaseBusy(void *context, int count) {
++    NSProgress *progress = (__bridge NSProgress *)context;
++    if (progress.cancelled || count >= 100) return 0;
++    sqlite3_sleep(10); return !progress.cancelled;
++}
++static BOOL openDatabase(NSURL *url, sqlite3 **out, NSProgress *progress, NSError **error) {
++    if (cancelled(progress, error)) return NO;
++    NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:url.path error:nil];
++    if ([attributes[NSFileSize] unsignedLongLongValue] > 128ULL * 1024 * 1024) { if (error) *error = invalid(@"Play time database exceeds 128 MiB."); return NO; }
++    sqlite3 *db = NULL;
++    if (sqlite3_open_v2(url.fileSystemRepresentation, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, NULL) != SQLITE_OK) {
++        if (error) *error = invalid(@"Could not open the play time database."); sqlite3_close(db); return NO;
++    }
++    sqlite3_busy_handler(db, databaseBusy, (__bridge void *)progress);
++    sqlite3_limit(db, SQLITE_LIMIT_LENGTH, (int)MaxBytes);
++    int version = pragmaValue(db, "PRAGMA user_version"), app = pragmaValue(db, "PRAGMA application_id");
++    if (version == 0 && app == 0 && pragmaValue(db, "SELECT count(*) FROM sqlite_master") == 0) {
++        if (!sql(db, "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; BEGIN IMMEDIATE;"
++                     "CREATE TABLE segments(day TEXT NOT NULL,id TEXT NOT NULL,ms INTEGER NOT NULL CHECK(ms BETWEEN 0 AND 9007199254740991),PRIMARY KEY(day,id)) WITHOUT ROWID;"
++                     "CREATE TABLE stats(id INTEGER PRIMARY KEY CHECK(id=1),total TEXT NOT NULL,dated INTEGER NOT NULL,last INTEGER NOT NULL);"
++                     "INSERT INTO stats VALUES(1,'0',0,0); PRAGMA application_id=1145915220; PRAGMA user_version=1; COMMIT;", error)) { sqlite3_exec(db, "ROLLBACK", NULL, NULL, NULL); sqlite3_close(db); return NO; }
++    } else if (version != 1 || app != 1145915220) {
++        if (error) *error = invalid(@"Unsupported play time database."); sqlite3_close(db); return NO;
++    }
++    // A local transaction may need a recovery journal; neither it nor a live database is synced as a cloud document.
++    sqlite3_stmt *mode = statement(db, "PRAGMA journal_mode", error);
++    BOOL rollback = mode && sqlite3_step(mode) == SQLITE_ROW && !strcmp((const char *)sqlite3_column_text(mode, 0), "delete");
++    sqlite3_finalize(mode);
++    if (pragmaValue(db, "PRAGMA page_size") != 4096) rollback = NO;
++    if (!rollback || !sql(db, "PRAGMA synchronous=FULL; PRAGMA trusted_schema=OFF; PRAGMA max_page_count=32768; BEGIN IMMEDIATE", error)) {
++        if (!rollback && error) *error = invalid(@"Unsupported play time journal mode."); cancelled(progress, error); sqlite3_close(db); return NO;
++    }
++    *out = db; return YES;
++}
++static NSMutableDictionary *databaseStats(sqlite3 *db, NSError **error) {
++    sqlite3_stmt *s = statement(db, "SELECT total,dated,last FROM stats WHERE id=1", error);
++    NSMutableDictionary *out = nil;
++    if (s && sqlite3_step(s) == SQLITE_ROW) {
++        const char *text = (const char *)sqlite3_column_text(s, 0); char *end = NULL; errno = 0;
++        uint64_t total = text ? strtoull(text, &end, 10) : 0;
++        int dated = sqlite3_column_int(s, 1); sqlite3_int64 last = sqlite3_column_int64(s, 2);
++        if (text && *text >= '0' && *text <= '9' && end && !*end && !errno && (dated == 0 || dated == 1) && last >= 0 && last <= 9007199254740991LL) {
++            out = [@{@"totalMs": @(total), @"dated": @(dated)} mutableCopy]; if (last) out[@"lastActivityAt"] = @(last);
++        }
++    }
++    sqlite3_finalize(s);
++    if (!out && error) *error = invalid(@"Invalid play time database summary.");
++    return out;
++}
++static BOOL applyDocument(sqlite3 *db, NSDictionary *doc, NSProgress *progress, NSError **error) {
++    if (!doc) return YES;
++    NSMutableDictionary *stats = databaseStats(db, error); if (!stats) return NO;
++    uint64_t total = [stats[@"totalMs"] unsignedLongLongValue], original = total;
++    sqlite3_stmt *get = statement(db, "SELECT ms FROM segments WHERE day=? AND id=?", error);
++    sqlite3_stmt *put = statement(db, "INSERT INTO segments VALUES(?,?,?) ON CONFLICT(day,id) DO UPDATE SET ms=excluded.ms WHERE excluded.ms>segments.ms", error);
++    if (!get || !put) { sqlite3_finalize(get); sqlite3_finalize(put); return NO; }
++    NSMutableDictionary *groups = [doc[@"days"] mutableCopy] ?: [NSMutableDictionary dictionary]; groups[@""] = doc[@"runs"] ?: @{};
++    BOOL ok = YES;
++    for (NSString *day in groups) {
++        for (NSString *identifier in groups[day]) {
++            if (cancelled(progress, error)) { ok = NO; break; }
++            uint64_t value = [groups[day][identifier] unsignedLongLongValue];
++            sqlite3_reset(get); sqlite3_bind_text(get, 1, day.UTF8String, -1, SQLITE_TRANSIENT); sqlite3_bind_text(get, 2, identifier.UTF8String, -1, SQLITE_TRANSIENT);
++            int rc = sqlite3_step(get); uint64_t old = rc == SQLITE_ROW ? (uint64_t)sqlite3_column_int64(get, 0) : 0;
++            if (rc != SQLITE_ROW && rc != SQLITE_DONE) { if (error) *error = invalid(@"Could not read a play time segment."); ok = NO; break; }
++            if (rc == SQLITE_ROW && value <= old) continue;
++            if (UINT64_MAX - total < value - old) { if (error) *error = invalid(@"Play time total overflow."); ok = NO; break; }
++            total += value - old;
++            sqlite3_reset(put); sqlite3_bind_text(put, 1, day.UTF8String, -1, SQLITE_TRANSIENT); sqlite3_bind_text(put, 2, identifier.UTF8String, -1, SQLITE_TRANSIENT); sqlite3_bind_int64(put, 3, (sqlite3_int64)value);
++            if (!stepDone(put, error)) { ok = NO; break; }
++        }
++        if (!ok) break;
++    }
++    sqlite3_finalize(get); sqlite3_finalize(put); if (!ok) return NO;
++    BOOL dated = [stats[@"dated"] boolValue] || [doc[@"version"] intValue] == 2;
++    uint64_t last = MAX([stats[@"lastActivityAt"] unsignedLongLongValue], [doc[@"lastActivityAt"] unsignedLongLongValue]);
++    if (total == original && dated == [stats[@"dated"] boolValue] && last == [stats[@"lastActivityAt"] unsignedLongLongValue]) return YES;
++    sqlite3_stmt *putStats = statement(db, "UPDATE stats SET total=?,dated=?,last=? WHERE id=1", error); if (!putStats) return NO;
++    NSString *text = [NSString stringWithFormat:@"%llu", (unsigned long long)total];
++    sqlite3_bind_text(putStats, 1, text.UTF8String, -1, SQLITE_TRANSIENT); sqlite3_bind_int(putStats, 2, dated); sqlite3_bind_int64(putStats, 3, (sqlite3_int64)last);
++    ok = stepDone(putStats, error); sqlite3_finalize(putStats); return ok;
++}
++static NSMutableDictionary *databaseDocument(sqlite3 *db, NSDictionary *stats, NSError **error) {
++    NSMutableDictionary *doc = [@{@"version": [stats[@"dated"] boolValue] ? @2 : @1, @"runs": [NSMutableDictionary dictionary], @"days": [NSMutableDictionary dictionary]} mutableCopy];
++    if (stats[@"lastActivityAt"]) doc[@"lastActivityAt"] = stats[@"lastActivityAt"];
++    if (![stats[@"dated"] boolValue]) [doc removeObjectForKey:@"days"];
++    NSMutableDictionary *empty = [doc mutableCopy]; if ([stats[@"dated"] boolValue]) [empty removeObjectForKey:@"runs"];
++    NSUInteger bytes = [NSJSONSerialization dataWithJSONObject:empty options:NSJSONWritingSortedKeys error:error].length;
++    sqlite3_stmt *s = statement(db, "SELECT day,id,ms FROM segments", error); if (!s) return nil;
++    int rc;
++    while ((rc = sqlite3_step(s)) == SQLITE_ROW) {
++        const char *dayText = (const char *)sqlite3_column_text(s, 0), *idText = (const char *)sqlite3_column_text(s, 1);
++        NSString *day = dayText ? @(dayText) : nil, *identifier = idText ? @(idText) : nil; sqlite3_int64 ms = sqlite3_column_int64(s, 2);
++        if (!day || !identifier || ms < 0 || ms > 9007199254740991LL || (day.length && !validDay(day)) || ![[NSUUID alloc] initWithUUIDString:identifier]) { rc = SQLITE_CORRUPT; break; }
++        NSMutableDictionary *runs = doc[@"runs"];
++        if (day.length) {
++            runs = doc[@"days"][day];
++            if (!runs) { bytes += 15 + ([doc[@"days"] count] ? 1 : 0); runs = [NSMutableDictionary dictionary]; doc[@"days"][day] = runs; }
++        } else if (!runs.count && [stats[@"dated"] boolValue]) bytes += 10;
++        bytes += 39 + [[NSString stringWithFormat:@"%lld", ms] length] + (runs.count ? 1 : 0);
++        if (bytes > MaxBytes) { rc = SQLITE_TOOBIG; break; }
++        runs[identifier] = @(ms);
++    }
++    sqlite3_finalize(s);
++    if (rc != SQLITE_DONE) { if (error) *error = invalid(rc == SQLITE_TOOBIG ? @"Play time document exceeds 32 MiB." : @"Invalid play time database records."); return nil; }
++    if (![stats[@"dated"] boolValue]) [doc removeObjectForKey:@"days"];
++    NSDictionary *actual = summary(doc, error);
++    if (!actual || ![actual isEqual:stats]) { if (error) *error = invalid(@"Play time database summary does not match its records."); return nil; }
++    return doc;
++}
++static NSDictionary *localOperation(NSURL *local, NSDictionary *incoming, BOOL document, NSProgress *progress, NSError **error) {
++    if (![local.pathExtension isEqual:@"sqlite"]) { if (error) *error = invalid(@"Expected a local play time database."); return nil; }
++    NSFileManager *fm = NSFileManager.defaultManager;
++    NSURL *legacy = [[local URLByDeletingPathExtension] URLByAppendingPathExtension:@"json"];
++    if (!incoming && ![fm fileExistsAtPath:local.path] && ![fm fileExistsAtPath:legacy.path]) return @{@"totalMs": @0, @"dated": @NO};
++    if (![fm createDirectoryAtURL:local.URLByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:error]) return nil;
++    __block NSDictionary *out = nil; __block NSError *failure = nil; NSError *coordination = nil;
++    NSFileCoordinator *coordinator = progress.userInfo[@"GameTimeLocalCoordinator"] ?: [[NSFileCoordinator alloc] initWithFilePresenter:nil];
++    [coordinator coordinateWritingItemAtURL:local options:NSFileCoordinatorWritingForMerging writingItemAtURL:legacy options:NSFileCoordinatorWritingForMerging error:&coordination byAccessor:^(NSURL *url, NSURL *old) {
++        if (cancelled(progress, &failure)) return;
++        BOOL exists = [fm fileExistsAtPath:old.path]; NSDictionary *import = exists ? readDoc(old, NO, &failure) : nil;
++        if (exists && !import) return;
++        if (!incoming && !import && ![fm fileExistsAtPath:url.path]) { out = @{@"totalMs": @0, @"dated": @NO}; return; }
++        sqlite3 *db = NULL; if (!openDatabase(url, &db, progress, &failure)) return;
++        BOOL ok = !cancelled(progress, &failure) && applyDocument(db, import, progress, &failure) && applyDocument(db, incoming, progress, &failure);
++        NSMutableDictionary *stats = ok ? databaseStats(db, &failure) : nil;
++        NSDictionary *doc = stats && (document || import) ? databaseDocument(db, stats, &failure) : nil;
++        if ((document || import) && !doc) ok = NO;
++        if (ok) ok = sql(db, "COMMIT", &failure); else sqlite3_exec(db, "ROLLBACK", NULL, NULL, NULL);
++        if (sqlite3_close(db) != SQLITE_OK) { ok = NO; failure = invalid(@"Could not close the play time database."); }
++        if (!ok) return;
++        if (import && !cancelled(progress, &failure) && ![fm removeItemAtURL:old error:&failure]) return;
++        if (cancelled(progress, &failure)) return;
++        NSMutableDictionary *result = [(document ? doc : stats) mutableCopy]; result[@"source"] = sourceSignature(url); out = result;
 +    }];
-+    if (signature) *signature = capturedSignature;
 +    if (!out && error) *error = coordination ?: failure ?: invalid(@"Could not read play time.");
 +    return out;
 +}
 +BOOL DMGameTimeUpdateRun(NSURL *local, NSString *runID, uint64_t ms, NSError **error) {
 +    NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:runID];
 +    if (!uuid || ms > 9007199254740991ULL) { if (error) *error = invalid(@"Invalid play time entry."); return NO; }
-+    return mergeLocal(local, @{@"version": @1, @"runs": @{uuid.UUIDString.lowercaseString: @(ms)}}, NULL, error) != nil;
++    return localOperation(local, @{@"version": @1, @"runs": @{uuid.UUIDString.lowercaseString: @(ms)}}, NO, nil, error) != nil;
 +}
 +BOOL DMGameTimeUpdateSegments(NSURL *local, NSArray<NSDictionary *> *segments, uint64_t last, NSError **error) {
 +    if (last > 9007199254740991ULL) { if (error) *error = invalid(@"Invalid last-played time."); return NO; }
@@ -218,52 +368,50 @@ index 0000000000000000000000000000000000000000..594c6342e5a393a8861454bdef0543a1
 +    }
 +    if (!days.count) return YES;
 +    NSMutableDictionary *doc = [@{@"version": @2, @"runs": @{}, @"days": days} mutableCopy]; if (last) doc[@"lastActivityAt"] = @(last);
-+    return mergeLocal(local, doc, NULL, error) != nil;
++    return localOperation(local, doc, NO, nil, error) != nil;
 +}
-+NSDictionary *DMGameTimeSummary(NSURL *local, NSError **error) {
-+    NSError *missing = nil;
-+    if (![NSFileManager.defaultManager attributesOfItemAtPath:local.path error:&missing]) {
-+        if ([missing.domain isEqual:NSCocoaErrorDomain] && (missing.code == NSFileReadNoSuchFileError || missing.code == NSFileNoSuchFileError)) return @{@"totalMs": @0, @"dated": @NO};
-+        if (error) *error = missing; return nil;
-+    }
-+    __block NSDictionary *out = nil; __block NSError *failure = nil; NSError *coordination = nil;
-+    [[[NSFileCoordinator alloc] initWithFilePresenter:nil] coordinateReadingItemAtURL:local options:0 error:&coordination byAccessor:^(NSURL *url) {
-+        NSDictionary *doc = readDoc(url, NO, &failure); if (doc) { NSMutableDictionary *stats = [summary(doc, &failure) mutableCopy]; if (stats) { stats[@"source"] = sourceSignature(url); out = stats; } }
-+    }];
-+    if (!out && error) *error = coordination ?: failure;
-+    return out;
-+}
++NSDictionary *DMGameTimeSummary(NSURL *local, NSError **error) { return localOperation(local, nil, NO, nil, error); }
 +NSNumber *DMGameTimeTotal(NSURL *local, NSError **error) { return DMGameTimeSummary(local, error)[@"totalMs"]; }
 +NSDictionary *DMGameTimeDailyTotals(NSURL *local, NSError **error) {
-+    __block NSDictionary *out = nil; __block NSError *failure = nil; NSError *coordination = nil;
-+    [[[NSFileCoordinator alloc] initWithFilePresenter:nil] coordinateReadingItemAtURL:local options:0 error:&coordination byAccessor:^(NSURL *url) {
-+        NSDictionary *doc = readDoc(url, YES, &failure); if (!doc) return;
-+        NSMutableDictionary *days = [NSMutableDictionary dictionary];
-+        for (NSString *day in doc[@"days"]) { uint64_t total = 0; for (NSNumber *n in [doc[@"days"][day] allValues]) total += n.unsignedLongLongValue; days[day] = @(total); }
-+        out = days;
-+    }];
-+    if (!out && error) *error = coordination ?: failure;
-+    return out;
++    NSDictionary *doc = localOperation(local, nil, YES, nil, error); if (!doc) return nil;
++    NSMutableDictionary *days = [NSMutableDictionary dictionary];
++    for (NSString *day in doc[@"days"]) { uint64_t total = 0; for (NSNumber *n in [doc[@"days"][day] allValues]) total += n.unsignedLongLongValue; days[day] = @(total); }
++    return days;
 +}
-+NSDictionary *DMGameTimeSynchronizeSummary(NSURL *local, NSURL *cloud, NSError **error) {
-+    if (!cloud) return DMGameTimeSummary(local, error);
++NSDictionary *DMGameTimeSynchronizeSummaryWithProgress(NSURL *local, NSURL *cloud, NSProgress *progress, NSError **error) {
++    if (cancelled(progress, error)) return nil;
++    if (!cloud) return localOperation(local, nil, NO, progress, error);
 +    NSFileManager *fm = NSFileManager.defaultManager;
 +    if (![fm createDirectoryAtURL:cloud.URLByDeletingLastPathComponent withIntermediateDirectories:YES attributes:nil error:error]) return nil;
 +    [fm startDownloadingUbiquitousItemAtURL:cloud error:nil];
 +    __block NSDictionary *out = nil; __block NSError *failure = nil; NSError *coordination = nil;
-+    [[[NSFileCoordinator alloc] initWithFilePresenter:nil] coordinateWritingItemAtURL:cloud options:NSFileCoordinatorWritingForMerging error:&coordination byAccessor:^(NSURL *url) {
++    [progress.userInfo[@"GameTimeCloudCoordinator"] coordinateWritingItemAtURL:cloud options:NSFileCoordinatorWritingForMerging error:&coordination byAccessor:^(NSURL *url) {
++        if (cancelled(progress, &failure)) return;
 +        NSDictionary *before = readDoc(url, YES, &failure); if (!before) return;
-+        NSDictionary *remote = before;
++        NSMutableDictionary *remote = [before mutableCopy];
 +        NSArray<NSFileVersion *> *versions = [NSFileVersion unresolvedConflictVersionsOfItemAtURL:url];
 +        for (NSFileVersion *version in versions) {
 +            NSDictionary *doc = readDoc(version.URL, NO, &failure); if (!doc) return;
-+            remote = joinDocs(remote, doc);
++            joinRuns(remote[@"runs"], doc[@"runs"] ?: @{});
++            if ([doc[@"version"] intValue] == 2) {
++                remote[@"version"] = @2;
++                if (!remote[@"days"]) remote[@"days"] = [NSMutableDictionary dictionary];
++                for (NSString *day in doc[@"days"]) {
++                    if (!remote[@"days"][day]) remote[@"days"][day] = [NSMutableDictionary dictionary];
++                    joinRuns(remote[@"days"][day], doc[@"days"][day]);
++                }
++                remote[@"lastActivityAt"] = @(MAX([remote[@"lastActivityAt"] unsignedLongLongValue], [doc[@"lastActivityAt"] unsignedLongLongValue]));
++            }
 +        }
 +        // Cloud then local: checkpoints never acquire the cloud coordinator.
-+        NSDictionary *localSource = nil;
-+        NSDictionary *merged = mergeLocal(local, remote, &localSource, &failure); if (!merged) return;
++        NSDictionary *merged = localOperation(local, remote, YES, progress, &failure); if (!merged) return;
++        NSDictionary *localSource = merged[@"source"];
++        NSMutableDictionary *snapshot = [merged mutableCopy]; [snapshot removeObjectForKey:@"source"];
++        merged = snapshot;
++        if (cancelled(progress, &failure)) return;
 +        if (![before isEqual:merged] && !writeDoc(merged, url, &failure)) return;
-+        for (NSFileVersion *version in versions) { version.resolved = YES; if (![version removeAndReturnError:&failure]) return; }
++        if (cancelled(progress, &failure)) return;
++        for (NSFileVersion *version in versions) { if (cancelled(progress, &failure)) return; version.resolved = YES; if (![version removeAndReturnError:&failure]) return; }
 +        NSMutableDictionary *stats = [summary(merged, &failure) mutableCopy];
 +        if (localSource) stats[@"source"] = localSource;
 +        if (sourceSignature(url)) stats[@"cloudSource"] = sourceSignature(url);
@@ -272,6 +420,7 @@ index 0000000000000000000000000000000000000000..594c6342e5a393a8861454bdef0543a1
 +    if (!out && error) *error = coordination ?: failure ?: invalid(@"Could not synchronize play time.");
 +    return out;
 +}
++NSDictionary *DMGameTimeSynchronizeSummary(NSURL *local, NSURL *cloud, NSError **error) { return DMGameTimeSynchronizeSummaryWithProgress(local, cloud, DMGameTimeSyncProgress(), error); }
 +BOOL DMGameTimeSynchronize(NSURL *local, NSURL *cloud, NSError **error) { return DMGameTimeSynchronizeSummary(local, cloud, error) != nil; }
 +NSArray<NSDictionary *> *DMGameTimeSplitInterval(NSDate *start, NSDate *end, uint64_t ms, NSString *previousZone, NSString *currentZone) {
 +    if (!ms) return @[];
@@ -294,21 +443,33 @@ index 0000000000000000000000000000000000000000..594c6342e5a393a8861454bdef0543a1
 +
 +int DMGameTimeSynchronizePaths(const char *save, const char *title, const char *folder, int timeout) { @autoreleasepool {
 +    if (!save || !title || !folder) return 1;
-+    NSURL *cloud = DMGameTimeCloudURL(@(folder), @(title)); if (!cloud) return 1;
-+    NSURL *local = DMGameTimeLocalURL([NSURL fileURLWithPath:@(save)], cloud, @(title)); if (!local) return 0;
++    NSString *savePath = @(save), *titleID = @(title), *cloudFolder = @(folder);
++    NSProgress *progress = DMGameTimeSyncProgress();
 +    dispatch_semaphore_t done = dispatch_semaphore_create(0);
 +    __block BOOL ok = NO;
 +    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ @autoreleasepool {
-+        NSError *error = nil; ok = DMGameTimeSynchronize(local, cloud, &error); dispatch_semaphore_signal(done);
++        if (!progress.cancelled) {
++            NSURL *cloud = DMGameTimeCloudURL(cloudFolder, titleID);
++            if (!progress.cancelled) {
++                if (!cloud) ok = YES;
++                else {
++                    NSURL *local = DMGameTimeLocalURL([NSURL fileURLWithPath:savePath], cloud, titleID);
++                    NSError *error = nil;
++                    if (local) ok = DMGameTimeSynchronizeSummaryWithProgress(local, cloud, progress, &error) != nil;
++                }
++            }
++        }
++        dispatch_semaphore_signal(done);
 +    }});
-+    return !dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)MAX(0, timeout) * NSEC_PER_MSEC)) && ok;
++    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)MAX(0, timeout) * NSEC_PER_MSEC))) { [progress cancel]; return 0; }
++    return ok;
 +} }
 diff --git a/dm/apple/GameTime/Sources/GameTime/include/DMGameTime.h b/dm/apple/GameTime/Sources/GameTime/include/DMGameTime.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..cd51b2b5f522a74315a565cbce64a8ee60e41514
+index 0000000000000000000000000000000000000000..062c7dafb34fb1cbbafa60dc2cfc0d398c67b3b4
 --- /dev/null
 +++ b/dm/apple/GameTime/Sources/GameTime/include/DMGameTime.h
-@@ -0,0 +1,17 @@
+@@ -0,0 +1,20 @@
 +#import <Foundation/Foundation.h>
 +
 +NS_ASSUME_NONNULL_BEGIN
@@ -322,12 +483,178 @@ index 0000000000000000000000000000000000000000..cd51b2b5f522a74315a565cbce64a8ee
 +NSDictionary * _Nullable DMGameTimeSummary(NSURL *localURL, NSError **error);
 +NSDictionary * _Nullable DMGameTimeDailyTotals(NSURL *localURL, NSError **error);
 +// Blocking provider work: call off the UI/game thread. A summary reuses the coordinated merge, without rereading the file.
++// Cancelling stops pending coordination; an entered transaction finishes or rolls back safely.
++NSProgress *DMGameTimeSyncProgress(void);
++NSDictionary * _Nullable DMGameTimeSynchronizeSummaryWithProgress(NSURL *localURL, NSURL * _Nullable cloudURL, NSProgress *progress, NSError **error);
 +NSDictionary * _Nullable DMGameTimeSynchronizeSummary(NSURL *localURL, NSURL * _Nullable cloudURL, NSError **error);
 +BOOL DMGameTimeSynchronize(NSURL *localURL, NSURL * _Nullable cloudURL, NSError **error);
 +int DMGameTimeSynchronizePaths(const char *save, const char *titleID, const char * _Nullable folder, int timeoutMilliseconds);
 +NS_ASSUME_NONNULL_END
+diff --git a/dm/apple/GameTime/Sources/GameTimeLibrary/GameTimeLibrary.swift b/dm/apple/GameTime/Sources/GameTimeLibrary/GameTimeLibrary.swift
+new file mode 100644
+index 0000000000000000000000000000000000000000..cd21641caf45e128f0dfcfdb1fabb9eea8002f52
+--- /dev/null
++++ b/dm/apple/GameTime/Sources/GameTimeLibrary/GameTimeLibrary.swift
+@@ -0,0 +1,157 @@
++import Foundation
++import GameTime
++
++public struct GameTimeStats: Codable, Equatable, Sendable {
++    public var totalMilliseconds: UInt64
++    public var lastActivityAt: Date?
++    public var dated: Bool
++    public init(totalMilliseconds: UInt64, lastActivityAt: Date? = nil, dated: Bool = false) {
++        self.totalMilliseconds = totalMilliseconds; self.lastActivityAt = lastActivityAt; self.dated = dated
++    }
++    fileprivate init?(_ value: NSDictionary) {
++        guard let total = value["totalMs"] as? NSNumber else { return nil }
++        totalMilliseconds = total.uint64Value
++        lastActivityAt = (value["lastActivityAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
++        dated = (value["dated"] as? NSNumber)?.boolValue ?? false
++    }
++}
++
++/// Rebuildable launcher summaries. History, including removed games, stays in the per-game documents.
++public actor GameTimeLibrary {
++    private struct Signature: Codable, Equatable, Sendable {
++        let size: UInt64
++        let modified: Double
++        let inode: UInt64
++        init?(_ value: NSDictionary?) {
++            guard let value, let size = value["size"] as? NSNumber, let modified = value["modified"] as? NSNumber,
++                  let inode = value["inode"] as? NSNumber else { return nil }
++            self.size = size.uint64Value; self.modified = modified.doubleValue; self.inode = inode.uint64Value
++        }
++        static func read(_ url: URL?) -> Self? {
++            guard let url, let a = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
++            return Signature(["size": a[.size] ?? 0, "modified": (a[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0,
++                              "inode": a[.systemFileNumber] ?? 0] as NSDictionary)
++        }
++    }
++    private struct Entry: Codable, Equatable, Sendable {
++        var stats: GameTimeStats
++        var source: Signature?
++        var cloudSource: Signature?
++        var synchronized: Bool
++    }
++    private struct Index: Codable, Sendable {
++        var version = 1
++        var games: [String: Entry]
++    }
++    private let indexURL: URL
++    private var entries: [String: Entry] = [:]
++    private var loadTask: Task<[String: Entry], Never>?
++    private var loaded = false
++    private struct Flight { let id: UUID; let task: Task<Entry?, Never> }
++    private var work: [String: Flight] = [:]
++    private var writeTask: Task<Void, Never>?
++    private var revision = 0
++
++    public init(indexURL: URL) { self.indexURL = indexURL }
++    private func load() async {
++        guard !loaded else { return }
++        if loadTask == nil {
++            let url = indexURL
++            loadTask = Task.detached(priority: .utility) {
++                guard let data = try? Data(contentsOf: url), data.count <= 32 * 1024 * 1024,
++                      let file = try? JSONDecoder().decode(Index.self, from: data), file.version == 1 else { return [:] }
++                return file.games
++            }
++        }
++        let value = await loadTask!.value
++        if !loaded { entries = value; loaded = true; loadTask = nil }
++    }
++    private static func locations(save: URL, cloudFolder: String?, titleID: String) -> (URL, URL?)? {
++        let cloud = DMGameTimeCloudURL(cloudFolder, titleID)
++        guard let local = DMGameTimeLocalURL(save, cloud, titleID) else { return nil }
++        return (local, cloud)
++    }
++    public func cached(save: URL, cloudFolder: String?, titleID: String) async -> GameTimeStats? {
++        await load()
++        guard let (local, _) = Self.locations(save: save, cloudFolder: cloudFolder, titleID: titleID) else { return nil }
++        return (entries[local.path] ?? entries[local.deletingPathExtension().appendingPathExtension("json").path])?.stats
++    }
++    public func refresh(save: URL, cloudFolder: String?, titleID: String, synchronize: Bool = true) async -> GameTimeStats? {
++        await load()
++        guard let (local, cloud) = Self.locations(save: save, cloudFolder: cloudFolder, titleID: titleID) else { return nil }
++        let key = local.path
++        if let pending = work[key] {
++            let value = await pending.task.value
++            complete(pending.id, key: key, value: value)
++            if !synchronize || cloud == nil || value?.synchronized == true { return value?.stats }
++        }
++        let old = entries[key] ?? entries[local.deletingPathExtension().appendingPathExtension("json").path]
++        let task = Task.detached(priority: .utility) { () -> Entry? in
++            let recovery = FileManager.default.fileExists(atPath: local.path + "-journal") || FileManager.default.fileExists(atPath: local.deletingPathExtension().appendingPathExtension("json").path)
++            let source = Signature.read(local), remote = synchronize ? Signature.read(cloud) : nil
++            let placeholder = cloud.map { $0.deletingLastPathComponent().appendingPathComponent(".\($0.lastPathComponent).icloud") }
++            let downloading = placeholder.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
++            let conflicts = (synchronize ? cloud : nil).map { !(NSFileVersion.unresolvedConflictVersionsOfItem(at: $0) ?? []).isEmpty } ?? false
++            if let old, !recovery, old.source == source, !synchronize || cloud == nil || (old.synchronized && old.cloudSource == remote && !downloading && !conflicts) { return old }
++            // Missing source history is retained in the index for removal/re-add; it is never added as a new run.
++            if source == nil && !recovery && (cloud == nil || remote == nil && !downloading) { return old }
++            var failure: NSError?
++            var value: NSDictionary?
++            var synced = cloud == nil || !synchronize
++            if synchronize, cloud != nil {
++                for delay in [0.0, 0.25, 0.75, 1.5] {
++                    if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
++                    failure = nil; value = DMGameTimeSynchronizeSummary(local, cloud, &failure) as NSDictionary?
++                    if value != nil { synced = true; break }
++                    guard downloading else { break }
++                }
++            }
++            if value == nil { value = DMGameTimeSummary(local, nil) as NSDictionary? }
++            guard let value, let stats = GameTimeStats(value) else { return old }
++            let signature = Signature(value["source"] as? NSDictionary)
++            if signature == nil { return old }
++            if let failure { NSLog("Play time: %@", failure.localizedDescription) }
++            return Entry(stats: stats, source: signature,
++                         cloudSource: synced ? Signature(value["cloudSource"] as? NSDictionary) ?? remote : old?.cloudSource,
++                         synchronized: Self.synchronizedCloud(cloud, requested: synchronize, succeeded: synced))
++        }
++        let id = UUID()
++        work[key] = Flight(id: id, task: task)
++        let result = await task.value
++        complete(id, key: key, value: result)
++        return result?.stats
++    }
++    private func complete(_ id: UUID, key: String, value: Entry?) {
++        guard work[key]?.id == id else { return }
++        work[key] = nil
++        if let value, value != entries[key] { entries[key] = value; revision += 1; scheduleWrite() }
++    }
++    private static func synchronizedCloud(_ cloud: URL?, requested: Bool, succeeded: Bool) -> Bool { cloud == nil || requested && succeeded }
++    private func scheduleWrite() {
++        guard writeTask == nil else { return }
++        writeTask = Task { [weak self] in
++            try? await Task.sleep(nanoseconds: 200_000_000)
++            await self?.persist()
++        }
++    }
++    private func persist() async {
++        let snapshot = entries, url = indexURL, savedRevision = revision
++        await Task.detached(priority: .utility) {
++            guard !snapshot.isEmpty else { return }
++            do {
++                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
++                var error: NSError?
++                NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forMerging, error: &error) { target in
++                    var games = ((try? Data(contentsOf: target)).flatMap { try? JSONDecoder().decode(Index.self, from: $0) })?.games ?? [:]
++                    games.merge(snapshot) { _, new in new }
++                    do { try JSONEncoder().encode(Index(games: games)).write(to: target, options: .atomic) }
++                    catch { NSLog("Play time cache: %@", error.localizedDescription) }
++                }
++                if let error { NSLog("Play time cache: %@", error.localizedDescription) }
++            } catch { NSLog("Play time cache: %@", error.localizedDescription) }
++        }.value
++        writeTask = nil
++        if savedRevision != revision { scheduleWrite() }
++    }
++    public func flush() async { while let pending = writeTask { await pending.value } }
++}
 diff --git a/dm/host/Makefile b/dm/host/Makefile
-index b1ef48b1dada79ccddc718194c79ee2ad60bf46c..eb36b7d222e9cd44935c2eeed501f02b0261924a 100644
+index b1ef48b1dada79ccddc718194c79ee2ad60bf46c..97d0949715f5ac7a3c7e812d110ec4a33214b0e7 100644
 --- a/dm/host/Makefile
 +++ b/dm/host/Makefile
 @@ -22,7 +22,7 @@ include ../mac/min_os.mk
@@ -346,7 +673,7 @@ index b1ef48b1dada79ccddc718194c79ee2ad60bf46c..eb36b7d222e9cd44935c2eeed501f02b
 -dmhost: Makefile $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_joycon.h pad_joycon_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
 -	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreBluetooth -framework IOBluetooth -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
 +dmhost: Makefile $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h play_time.h ../apple/GameTime/Sources/GameTime/include/DMGameTime.h dm_input.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_joycon.h pad_joycon_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
-+	clang $(CFLAGS) -I../apple/GameTime/Sources/GameTime/include -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreBluetooth -framework IOBluetooth -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
++	clang $(CFLAGS) -I../apple/GameTime/Sources/GameTime/include -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -lsqlite3 -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreBluetooth -framework IOBluetooth -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
  clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
  	rm -rf gen dmhost dmhost_* *.dSYM
  .PHONY: clean
@@ -434,10 +761,10 @@ index 0794371a2d3fa334e510a4d1963048863e39825e..ed5b34c508409f8019378c9dedbfd10a
      dm_audren_stop_all();
 diff --git a/dm/host/play_time.h b/dm/host/play_time.h
 new file mode 100644
-index 0000000000000000000000000000000000000000..6f03b5a57e6699adf613b12a6e969d2c8fb218e7
+index 0000000000000000000000000000000000000000..d5a1738af357b32db78e4625f4747052b37ad35e
 --- /dev/null
 +++ b/dm/host/play_time.h
-@@ -0,0 +1,14 @@
+@@ -0,0 +1,16 @@
 +#pragma once
 +#include <stdint.h>
 +void dm_play_time_start(void);
@@ -445,6 +772,8 @@ index 0000000000000000000000000000000000000000..6f03b5a57e6699adf613b12a6e969d2c
 +void dm_play_time_committed(void);
 +void dm_play_time_sync(void);
 +int dm_play_time_flush(int timeout_ms);
++// Background expiry cancels publication until resume; local checkpoints remain durable.
++void dm_play_time_cancel_sync(void);
 +void dm_play_time_finish(void);
 +
 +typedef struct { uint64_t elapsed, anchor; int running; } dm_play_clock;
@@ -454,10 +783,10 @@ index 0000000000000000000000000000000000000000..6f03b5a57e6699adf613b12a6e969d2c
 +}
 diff --git a/dm/host/play_time.m b/dm/host/play_time.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..6cb6e6e8e44ac20cb48c079401abb30b601118f6
+index 0000000000000000000000000000000000000000..f940b7f6ee83de4c2752b1144fc6bcdc2377a229
 --- /dev/null
 +++ b/dm/host/play_time.m
-@@ -0,0 +1,148 @@
+@@ -0,0 +1,163 @@
 +#import <Foundation/Foundation.h>
 +#import "../apple/GameTime/Sources/GameTime/include/DMGameTime.h"
 +#include "play_time.h"
@@ -469,7 +798,7 @@ index 0000000000000000000000000000000000000000..6cb6e6e8e44ac20cb48c079401abb30b
 +
 +static pthread_mutex_t g_time_mu = PTHREAD_MUTEX_INITIALIZER;
 +static dm_play_clock g_time_clock;
-+static int g_time_paused;
++static int g_time_paused, g_time_publication_suspended;
 +static NSString *g_time_run, *g_time_day, *g_time_zone;
 +static NSDate *g_time_wall;
 +static uint64_t g_time_remainder;
@@ -528,12 +857,14 @@ index 0000000000000000000000000000000000000000..6cb6e6e8e44ac20cb48c079401abb30b
 +    schedule_write(g_time_state, g_time_local_queue);
 +}
 +static void request_sync_state(NSMutableDictionary *state, dispatch_queue_t writes, NSOperationQueue *sync) {
-+    if (!state[@"cloud"] || sync.operationCount > 1) return;
++    if (!state[@"cloud"] || [state[@"suspended"] boolValue] || sync.operationCount > 1) return;
++    NSProgress *progress = DMGameTimeSyncProgress(); [state[@"attempts"] addObject:progress];
 +    dispatch_group_t group = state[@"group"]; dispatch_group_enter(group);
 +    [sync addOperationWithBlock:^{ @autoreleasepool {
-+        dispatch_sync(writes, ^{});
-+        NSError *error = nil; BOOL ok = DMGameTimeSynchronize(state[@"local"], state[@"cloud"], &error); time_error(error);
-+        pthread_mutex_lock(&g_time_mu); state[@"syncOK"] = @(ok); pthread_mutex_unlock(&g_time_mu);
++        if (!progress.cancelled) dispatch_sync(writes, ^{});
++        NSError *error = nil; BOOL ok = DMGameTimeSynchronizeSummaryWithProgress(state[@"local"], state[@"cloud"], progress, &error) != nil;
++        if (!progress.cancelled) time_error(error);
++        pthread_mutex_lock(&g_time_mu); state[@"syncOK"] = @(ok); [state[@"attempts"] removeObject:progress]; pthread_mutex_unlock(&g_time_mu);
 +        dispatch_group_leave(group);
 +    }}];
 +}
@@ -545,7 +876,7 @@ index 0000000000000000000000000000000000000000..6cb6e6e8e44ac20cb48c079401abb30b
 +    NSURL *cloud = DMGameTimeCloudURL(getenv("DM_SAVE_SYNC") ? @(getenv("DM_SAVE_SYNC")) : nil, @(dm_profile()->id));
 +    NSURL *local = DMGameTimeLocalURL([NSURL fileURLWithPath:@(save)], cloud, @(dm_profile()->id));
 +    if (!local) { pthread_mutex_unlock(&g_time_mu); return; }
-+    g_time_state = [@{@"local": local, @"pending": [NSMutableDictionary dictionary], @"last": @0, @"segmentMs": @0, @"group": dispatch_group_create()} mutableCopy];
++    g_time_state = [@{@"local": local, @"pending": [NSMutableDictionary dictionary], @"last": @0, @"segmentMs": @0, @"group": dispatch_group_create(), @"attempts": [NSMutableArray array], @"suspended": @(g_time_publication_suspended)} mutableCopy];
 +    if (cloud) g_time_state[@"cloud"] = cloud;
 +    g_time_state[@"syncOK"] = @(!cloud);
 +    g_time_run = NSUUID.UUID.UUIDString.lowercaseString; g_time_day = nil; g_time_remainder = 0;
@@ -574,6 +905,7 @@ index 0000000000000000000000000000000000000000..6cb6e6e8e44ac20cb48c079401abb30b
 +}
 +void dm_play_time_pause(int paused) {
 +    pthread_mutex_lock(&g_time_mu); g_time_paused = paused;
++    if (!paused) { g_time_publication_suspended = 0; g_time_state[@"suspended"] = @NO; }
 +    if (g_time_state) {
 +        checkpoint(now_ns()); dm_play_clock_set(&g_time_clock, now_ns(), !paused);
 +        g_time_wall = dm_play_time_wall_now(); g_time_zone = dm_play_time_zone_now();
@@ -588,12 +920,24 @@ index 0000000000000000000000000000000000000000..6cb6e6e8e44ac20cb48c079401abb30b
 +    if (g_time_state) { checkpoint(now_ns()); request_sync(); }
 +    else if (state) { schedule_write(state, g_time_finished_queue); request_sync_state(state, g_time_finished_queue, g_time_finished_sync); }
 +    dispatch_group_t group = state[@"group"];
++    NSArray *attempts = [state[@"attempts"] copy];
 +    pthread_mutex_unlock(&g_time_mu);
 +    if (!group) return 1;
-+    if (dispatch_group_wait(group, dispatch_time(DISPATCH_TIME_NOW, (int64_t)MAX(0, timeout_ms) * NSEC_PER_MSEC))) return 0;
++    if (dispatch_group_wait(group, dispatch_time(DISPATCH_TIME_NOW, (int64_t)MAX(0, timeout_ms) * NSEC_PER_MSEC))) {
++        for (NSProgress *attempt in attempts) [attempt cancel];
++        return 0;
++    }
 +    pthread_mutex_lock(&g_time_mu);
 +    int ok = ![state[@"pending"] count] && [state[@"syncOK"] boolValue];
 +    pthread_mutex_unlock(&g_time_mu); return ok;
++}
++void dm_play_time_cancel_sync(void) {
++    pthread_mutex_lock(&g_time_mu);
++    g_time_publication_suspended = 1; g_time_state[@"suspended"] = @YES; g_time_finished_state[@"suspended"] = @YES;
++    NSMutableArray *attempts = [NSMutableArray arrayWithArray:g_time_state[@"attempts"] ?: @[]];
++    [attempts addObjectsFromArray:g_time_finished_state[@"attempts"] ?: @[]];
++    pthread_mutex_unlock(&g_time_mu);
++    for (NSProgress *attempt in attempts) [attempt cancel];
 +}
 +void dm_play_time_finish(void) {
 +    pthread_mutex_lock(&g_time_mu); dispatch_queue_t writes = nil;
@@ -637,40 +981,46 @@ index 4fd8b07827611d3b67271858c1b45e93e3d720f9..be3eeab4f681dd6c5dd81c495acfebed
      pthread_mutex_lock(&g_mu); g_commits++; pthread_cond_broadcast(&g_cv); pthread_mutex_unlock(&g_mu);
  }
 diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
-index 12cf958327e46e8143017e4d0450370f5950c806..cd2b806c4bbae242f56d6574454cfa6a7f5179c2 100644
+index 12cf958327e46e8143017e4d0450370f5950c806..11d7e7e5074f41672882be4dc425b054214c5202 100644
 --- a/dm/host/tests/Makefile
 +++ b/dm/host/tests/Makefile
-@@ -13,6 +13,8 @@ GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME
+@@ -13,6 +13,9 @@ GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME
  $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
  GAME_H = ../gen/$(GAME)/game_profile.h
  run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_clockwait $(B)/t_pause $(B)/t_pause_stress $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_switch2 $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
 +	$(B)/t_game_time
 +	$(B)/t_game_time_runtime
++	$(B)/t_game_time_store
  	$(B)/t_language
  	$(B)/t_heap_size
  	$(B)/t_touch
-@@ -442,3 +444,15 @@ $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
+@@ -442,3 +445,20 @@ $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
  	$(CLANG) -O1 -Wall -Werror -o $@ t_pad_map.c
  $(B)/t_controllers_mac: t_controllers_mac.m ../home_quit.h ../pad_hid.h ../pad_hid_mac.h ../pad_apple.h ../input_map.h ../input_preferences_mac.h ../controllers_mac.m ../controllers_mac.h ../pad_joycon.h ../pad_joycon_mac.h ../pad_map.h ../pad_motion.h ../steam_input.h ../pad_slots.h ../front.h ../dm_input.h ../haptics_apple.h ../hle_haptics.h ../dm.h ../motion_apple.h ../motion_pro_mac.h ../motion_pro.h $(GAME_H) | $(B)
  	$(CLANG) $(GINC) -O1 -fobjc-arc -Wall -Werror -Wno-unused-function -o $@ t_controllers_mac.m -framework Cocoa -framework GameController -framework IOKit
 +
 +run: $(B)/t_game_time
 +$(B)/t_game_time: t_game_time.m ../play_time.h ../../apple/GameTime/Sources/GameTime/DMGameTime.m ../../apple/GameTime/Sources/GameTime/include/DMGameTime.h | $(B)
-+	$(CLANG) -fobjc-arc -fblocks -I../../apple/GameTime/Sources/GameTime/include -framework Foundation -o $@ t_game_time.m ../../apple/GameTime/Sources/GameTime/DMGameTime.m
++	$(CLANG) -fobjc-arc -fblocks -I../../apple/GameTime/Sources/GameTime/include -framework Foundation -lsqlite3 -o $@ t_game_time.m ../../apple/GameTime/Sources/GameTime/DMGameTime.m
 +.PHONY: game-time
-+game-time: $(B)/t_game_time $(B)/t_game_time_runtime
++game-time: $(B)/t_game_time $(B)/t_game_time_runtime $(B)/t_game_time_store
 +	$(B)/t_game_time
 +	$(B)/t_game_time_runtime
++	$(B)/t_game_time_store
 +
 +run: $(B)/t_game_time_runtime
 +$(B)/t_game_time_runtime: t_game_time_runtime.m ../play_time.m ../play_time.h ../../apple/GameTime/Sources/GameTime/DMGameTime.m | $(B)
-+	$(CLANG) -fobjc-arc -fblocks -I../../apple/GameTime/Sources/GameTime/include -framework Foundation -o $@ t_game_time_runtime.m ../play_time.m ../../apple/GameTime/Sources/GameTime/DMGameTime.m
++	$(CLANG) -fobjc-arc -fblocks -I../../apple/GameTime/Sources/GameTime/include -framework Foundation -lsqlite3 -o $@ t_game_time_runtime.m ../play_time.m ../../apple/GameTime/Sources/GameTime/DMGameTime.m
++
++run: $(B)/t_game_time_store
++$(B)/t_game_time_store: t_game_time_store.m ../../apple/GameTime/Sources/GameTime/DMGameTime.m ../../apple/GameTime/Sources/GameTime/include/DMGameTime.h | $(B)
++	$(CLANG) -fobjc-arc -fblocks -I../../apple/GameTime/Sources/GameTime/include -framework Foundation -lsqlite3 -o $@ t_game_time_store.m ../../apple/GameTime/Sources/GameTime/DMGameTime.m
 diff --git a/dm/host/tests/t_game_time.m b/dm/host/tests/t_game_time.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..2b476b9f0a36811d0c611b979deb2ac63acfd453
+index 0000000000000000000000000000000000000000..3214d8318a00d72529dbe8636feb1c2e5b2e1c3a
 --- /dev/null
 +++ b/dm/host/tests/t_game_time.m
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,148 @@
 +#import <Foundation/Foundation.h>
 +#import "DMGameTime.h"
 +#include "../play_time.h"
@@ -702,7 +1052,7 @@ index 0000000000000000000000000000000000000000..2b476b9f0a36811d0c611b979deb2ac6
 +    NSURL *root = [[NSURL fileURLWithPath:NSTemporaryDirectory()] URLByAppendingPathComponent:NSUUID.UUID.UUIDString];
 +    NSFileManager *fm = NSFileManager.defaultManager;
 +    assert([fm createDirectoryAtURL:root withIntermediateDirectories:YES attributes:nil error:nil]);
-+    NSURL *local = [root URLByAppendingPathComponent:@"local.json"], *other = [root URLByAppendingPathComponent:@"other.json"];
++    NSURL *local = [root URLByAppendingPathComponent:@"local.sqlite"], *other = [root URLByAppendingPathComponent:@"other.sqlite"];
 +    NSURL *cloud = [root URLByAppendingPathComponent:@"cloud/playtime.json"];
 +    NSURL *scopeCloud = DMGameTimeCloudURL([[root URLByAppendingPathComponent:@"missing/folder"] path], @"0100000000000000");
 +    NSURL *scopeBefore = DMGameTimeLocalURL(local, scopeCloud, @"0100000000000000");
@@ -775,7 +1125,7 @@ index 0000000000000000000000000000000000000000..2b476b9f0a36811d0c611b979deb2ac6
 +    dm_play_clock_set(&clock, 1000, 1); dm_play_clock_set(&clock, 1125, 1);
 +    assert(clock.elapsed == 275); // pause and a delayed checkpoint use elapsed time, not timer ticks
 +
-+    NSURL *v2 = [root URLByAppendingPathComponent:@"dated.json"], *replica = [root URLByAppendingPathComponent:@"replica.json"], *remote2 = [root URLByAppendingPathComponent:@"dated-cloud/playtime.json"];
++    NSURL *v2 = [root URLByAppendingPathComponent:@"dated.sqlite"], *replica = [root URLByAppendingPathComponent:@"replica.sqlite"], *remote2 = [root URLByAppendingPathComponent:@"dated-cloud/playtime.json"];
 +    update(v2, A, 600000); NSData *legacy = [NSData dataWithContentsOfURL:v2];
 +    assert(DMGameTimeSummary(v2, nil) && [[NSData dataWithContentsOfURL:v2] isEqual:legacy]);
 +    assert((DMGameTimeUpdateSegments(v2, @[@{@"id": B, @"day": @"2026-11-11", @"milliseconds": @1200000}], 1794438000000ULL, nil)));
@@ -804,7 +1154,8 @@ index 0000000000000000000000000000000000000000..2b476b9f0a36811d0c611b979deb2ac6
 +            NSString *id = [NSString stringWithFormat:@"550e8400-e29b-41d4-a716-%012lx", (unsigned long)i];
 +            runs[id] = @3600000;
 +        }
-+        writeDoc(local, runs);
++        [fm removeItemAtURL:local error:nil];
++        writeDoc([[local URLByDeletingPathExtension] URLByAppendingPathExtension:@"json"], runs);
 +        assert([fm removeItemAtURL:cloud error:nil]);
 +        NSTimeInterval start = NSProcessInfo.processInfo.systemUptime;
 +        update(local, B, 7200000);
@@ -820,10 +1171,10 @@ index 0000000000000000000000000000000000000000..2b476b9f0a36811d0c611b979deb2ac6
 +} }
 diff --git a/dm/host/tests/t_game_time_runtime.m b/dm/host/tests/t_game_time_runtime.m
 new file mode 100644
-index 0000000000000000000000000000000000000000..7f93370eec39c3d5a7ce6b3b0106e31616b9210f
+index 0000000000000000000000000000000000000000..d2cdf5faeae27421aac140090ab189fa0bf58e11
 --- /dev/null
 +++ b/dm/host/tests/t_game_time_runtime.m
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,71 @@
 +#import <Foundation/Foundation.h>
 +#import "DMGameTime.h"
 +#include "../play_time.h"
@@ -869,15 +1220,167 @@ index 0000000000000000000000000000000000000000..7f93370eec39c3d5a7ce6b3b0106e316
 +    setenv("DM_SAVE_SYNC", cloudRoot.path.fileSystemRepresentation, 1);
 +    NSURL *cloud = DMGameTimeCloudURL(cloudRoot.path, @"0100000000000000");
 +    dm_play_time_start(); advance(17000000000); dm_play_time_committed(); dm_play_time_sync();
-+    assert(dm_play_time_flush(5000)); assert(DMGameTimeTotal(cloud, &error).unsignedLongLongValue == 17000);
++    assert(dm_play_time_flush(5000));
++    NSURL *replica = [root URLByAppendingPathComponent:@"replica.sqlite"];
++    assert(DMGameTimeSynchronize(replica, cloud, &error)); assert(DMGameTimeTotal(replica, &error).unsignedLongLongValue == 17000);
++    dispatch_semaphore_t held = dispatch_semaphore_create(0), release = dispatch_semaphore_create(0), released = dispatch_semaphore_create(0);
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
++        [[[NSFileCoordinator alloc] initWithFilePresenter:nil] coordinateWritingItemAtURL:cloud options:0 error:nil byAccessor:^(NSURL *url) {
++            dispatch_semaphore_signal(held); dispatch_semaphore_wait(release, DISPATCH_TIME_FOREVER);
++        }]; dispatch_semaphore_signal(released);
++    });
++    assert(!dispatch_semaphore_wait(held, dispatch_time(DISPATCH_TIME_NOW, 3*NSEC_PER_SEC)));
++    advance(1000000000); assert(!dm_play_time_flush(30));
++    dm_play_time_cancel_sync(); // expiration must suppress queued/new publication until foreground resume
++    NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
++    assert(!dm_play_time_flush(3000));
++    assert(NSProcessInfo.processInfo.systemUptime-started < 1.5);
++    NSURL *scoped = DMGameTimeLocalURL(save, cloud, @"0100000000000000");
++    assert(DMGameTimeTotal(scoped, &error).unsignedLongLongValue == 18000);
++    dispatch_semaphore_signal(release); assert(!dispatch_semaphore_wait(released, dispatch_time(DISPATCH_TIME_NOW, 3*NSEC_PER_SEC)));
++    dm_play_time_pause(0); assert(dm_play_time_flush(5000));
++    assert(DMGameTimeSynchronize(replica, cloud, &error)); assert(DMGameTimeTotal(replica, &error).unsignedLongLongValue == 18000);
 +    dm_play_time_finish(); assert(dm_play_time_flush(5000));
 +    unsetenv("DM_SAVE"); dm_play_time_start(); dm_play_time_finish();
 +    assert([NSFileManager.defaultManager removeItemAtURL:root error:nil]);
 +    puts("game time runtime: commit checkpoint/publication, midnight, paused last-activity, background startup, fresh IDs, remainder and finish passed");
 +    return 0;
 +} }
+diff --git a/dm/host/tests/t_game_time_store.m b/dm/host/tests/t_game_time_store.m
+new file mode 100644
+index 0000000000000000000000000000000000000000..0006f90cd9c07b8e583b32c9f35c66bd04d4bfdf
+--- /dev/null
++++ b/dm/host/tests/t_game_time_store.m
+@@ -0,0 +1,127 @@
++#import <Foundation/Foundation.h>
++#import "DMGameTime.h"
++#import <sqlite3.h>
++#include <assert.h>
++#include <unistd.h>
++@interface CancelAfterCommitCoordinator : NSFileCoordinator
++@property(nonatomic, weak) NSProgress *progress;
++@end
++@implementation CancelAfterCommitCoordinator
++- (void)coordinateWritingItemAtURL:(NSURL *)first options:(NSFileCoordinatorWritingOptions)firstOptions writingItemAtURL:(NSURL *)second options:(NSFileCoordinatorWritingOptions)secondOptions error:(NSError **)error byAccessor:(void (^)(NSURL *, NSURL *))writer {
++    [super coordinateWritingItemAtURL:first options:firstOptions writingItemAtURL:second options:secondOptions error:error byAccessor:^(NSURL *one, NSURL *two) {
++        writer(one, two); [self.progress cancel];
++    }];
++}
++@end
++static NSString *const A = @"550e8400-e29b-41d4-a716-446655440000";
++static void fixture(NSURL *url, NSDictionary *runs) {
++    assert(([[NSJSONSerialization dataWithJSONObject:@{@"version": @1, @"runs": runs} options:0 error:nil] writeToURL:url atomically:YES]));
++}
++static uint64_t total(NSURL *url) { NSError *e = nil; NSNumber *n = DMGameTimeTotal(url, &e); assert(n && !e); return n.unsignedLongLongValue; }
++static void exec(sqlite3 *db, const char *command) { assert(sqlite3_exec(db, command, NULL, NULL, NULL) == SQLITE_OK); }
++static void crashTransaction(NSURL *url) {
++    sqlite3 *db = NULL; assert(sqlite3_open(url.fileSystemRepresentation, &db) == SQLITE_OK);
++    exec(db, "PRAGMA cache_size=1; BEGIN IMMEDIATE; UPDATE segments SET ms=ms+1");
++    assert(sqlite3_db_cacheflush(db) == SQLITE_OK); _exit(0);
++}
++static void cancelBlocked(NSURL *local, NSURL *cloud, NSURL *held) {
++    dispatch_semaphore_t entered = dispatch_semaphore_create(0), release = dispatch_semaphore_create(0), holderDone = dispatch_semaphore_create(0), done = dispatch_semaphore_create(0);
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
++        [[[NSFileCoordinator alloc] initWithFilePresenter:nil] coordinateWritingItemAtURL:held options:0 error:nil byAccessor:^(NSURL *url) {
++            dispatch_semaphore_signal(entered); dispatch_semaphore_wait(release, DISPATCH_TIME_FOREVER);
++        }]; dispatch_semaphore_signal(holderDone);
++    });
++    assert(!dispatch_semaphore_wait(entered, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)));
++    NSProgress *progress = DMGameTimeSyncProgress(); __block NSError *failure = nil; __block NSDictionary *result = nil;
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
++        result = DMGameTimeSynchronizeSummaryWithProgress(local, cloud, progress, &failure); dispatch_semaphore_signal(done);
++    });
++    usleep(30000); [progress cancel];
++    // Cancelling both levels must finish without the held local/cloud accessor being released.
++    assert(!dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)));
++    assert(!result && failure.code == NSUserCancelledError);
++    dispatch_semaphore_signal(release); assert(!dispatch_semaphore_wait(holderDone, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC)));
++}
++int main(int argc, const char **argv) { @autoreleasepool {
++    if (argc == 3 && !strcmp(argv[1], "crash")) crashTransaction([NSURL fileURLWithPath:@(argv[2])]);
++    NSFileManager *fm = NSFileManager.defaultManager;
++    NSURL *root = [[NSURL fileURLWithPath:NSTemporaryDirectory()] URLByAppendingPathComponent:NSUUID.UUID.UUIDString];
++    assert([fm createDirectoryAtURL:root withIntermediateDirectories:YES attributes:nil error:nil]);
++    NSURL *local = [root URLByAppendingPathComponent:@"local.sqlite"], *legacy = [root URLByAppendingPathComponent:@"local.json"], *cloud = [root URLByAppendingPathComponent:@"cloud.json"];
++    fixture(legacy, @{A: @100}); assert(total(local) == 100); assert(![fm fileExistsAtPath:legacy.path]);
++    fixture(legacy, @{A: @150}); assert(total(local) == 150); // an older built runtime can recreate the old file
++    NSData *before = [NSData dataWithContentsOfURL:local];
++    assert(DMGameTimeUpdateRun(local, A, 140, nil)); assert([[NSData dataWithContentsOfURL:local] isEqual:before]);
++    NSMutableDictionary *runs = [NSMutableDictionary dictionary];
++    for (unsigned i = 0; i < 91250; i++) runs[[NSString stringWithFormat:@"550e8400-e29b-41d4-a716-%012x", i]] = @1000;
++    fixture(legacy, runs); assert(total(local) == 91250150);
++    before = [NSData dataWithContentsOfURL:local];
++    assert(DMGameTimeUpdateRun(local, A, 2000, nil)); NSData *after = [NSData dataWithContentsOfURL:local];
++    assert(before.length == after.length); NSUInteger changed = 0;
++    for (NSUInteger i = 0; i < before.length; i += 4096) if (memcmp((const char *)before.bytes+i, (const char *)after.bytes+i, MIN(4096, before.length-i))) changed++;
++    assert(changed > 0 && changed <= 8); assert(![fm fileExistsAtPath:[local.path stringByAppendingString:@"-journal"]]);
++    printf("SQLite checkpoint: %lu changed pages (%lu bytes) in %lu-byte database\n", (unsigned long)changed, (unsigned long)changed*4096, (unsigned long)after.length);
++    uint64_t committed = total(local);
++    NSTask *child = [NSTask new]; child.executableURL = [NSURL fileURLWithPath:@(argv[0])]; child.arguments = @[@"crash", local.path];
++    assert([child launchAndReturnError:nil]); [child waitUntilExit]; assert(child.terminationStatus == 0);
++    assert([fm fileExistsAtPath:[local.path stringByAppendingString:@"-journal"]]); assert(total(local) == committed);
++    assert(![fm fileExistsAtPath:[local.path stringByAppendingString:@"-journal"]]);
++    assert(DMGameTimeSynchronize(local, cloud, nil)); NSData *remote = [NSData dataWithContentsOfURL:cloud];
++    cancelBlocked(local, cloud, cloud); cancelBlocked(local, cloud, local);
++    assert([[NSData dataWithContentsOfURL:cloud] isEqual:remote] && total(local) == committed);
++    NSProgress *cancel = DMGameTimeSyncProgress(); [cancel cancel]; NSError *failure = nil;
++    assert(!DMGameTimeSynchronizeSummaryWithProgress(local, cloud, cancel, &failure) && failure.code == NSUserCancelledError);
++    assert(DMGameTimeSynchronize(local, cloud, nil)); // fresh attempts are not poisoned by earlier cancellation
++    sqlite3 *locked = NULL; assert(sqlite3_open(local.fileSystemRepresentation, &locked) == SQLITE_OK); exec(locked, "BEGIN IMMEDIATE");
++    NSProgress *busy = DMGameTimeSyncProgress(); dispatch_semaphore_t done = dispatch_semaphore_create(0);
++    __block NSError *busyError = nil; __block NSDictionary *busyResult = nil;
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
++        busyResult = DMGameTimeSynchronizeSummaryWithProgress(local, nil, busy, &busyError); dispatch_semaphore_signal(done);
++    });
++    usleep(30000); [busy cancel];
++    assert(!dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 3*NSEC_PER_SEC)));
++    assert(!busyResult && busyError.code == NSUserCancelledError);
++    exec(locked, "ROLLBACK"); assert(sqlite3_close(locked) == SQLITE_OK); assert(total(local) == committed);
++    NSURL *partial = [root URLByAppendingPathComponent:@"partial.sqlite"], *partialCloud = [root URLByAppendingPathComponent:@"partial-cloud.json"];
++    assert(DMGameTimeUpdateRun(partial, A, 100, nil));
++    fixture(partialCloud, @{@"650e8400-e29b-41d4-a716-446655440000": @200});
++    NSData *partialRemote = [NSData dataWithContentsOfURL:partialCloud];
++    NSProgress *afterCommit = DMGameTimeSyncProgress(); CancelAfterCommitCoordinator *coordinator = [[CancelAfterCommitCoordinator alloc] initWithFilePresenter:nil]; coordinator.progress = afterCommit;
++    [afterCommit setUserInfoObject:coordinator forKey:@"GameTimeLocalCoordinator"];
++    failure = nil; assert(!DMGameTimeSynchronizeSummaryWithProgress(partial, partialCloud, afterCommit, &failure) && failure.code == NSUserCancelledError);
++    assert(total(partial) == 300 && [[NSData dataWithContentsOfURL:partialCloud] isEqual:partialRemote]);
++    assert(DMGameTimeSynchronize(partial, partialCloud, nil));
++    NSURL *large = [root URLByAppendingPathComponent:@"large.sqlite"], *largeLegacy = [root URLByAppendingPathComponent:@"large.json"];
++    [runs removeAllObjects];
++    for (unsigned i = 0; i < 2048; i++) runs[[NSString stringWithFormat:@"550e8400-e29b-41d4-a716-%012x", i]] = @9007199254740991ULL;
++    fixture(largeLegacy, runs); uint64_t expected = 2048ULL * 9007199254740991ULL;
++    assert(total(large) == expected && expected > INT64_MAX);
++    failure = nil; assert(!DMGameTimeUpdateRun(large, @"650e8400-e29b-41d4-a716-446655440000", 9007199254740991ULL, &failure) && failure);
++    assert(total(large) == expected);
++    NSURL *bounded = [root URLByAppendingPathComponent:@"bounded.sqlite"], *boundedCloud = [root URLByAppendingPathComponent:@"bounded-cloud.json"];
++    assert(DMGameTimeUpdateRun(bounded, A, 0, nil));
++    sqlite3 *many = NULL; assert(sqlite3_open(bounded.fileSystemRepresentation, &many) == SQLITE_OK);
++    exec(many, "BEGIN IMMEDIATE; WITH RECURSIVE seq(n) AS (VALUES(0) UNION ALL SELECT n+1 FROM seq WHERE n<799999) INSERT INTO segments SELECT '',printf('550e8400-e29b-41d4-a716-%012x',n),1000 FROM seq; UPDATE stats SET total='800000000'; COMMIT");
++    assert(sqlite3_close(many) == SQLITE_OK); assert(total(bounded) == 800000000);
++    failure = nil; assert(!DMGameTimeSynchronize(bounded, boundedCloud, &failure) && failure);
++    assert(![fm fileExistsAtPath:boundedCloud.path] && total(bounded) == 800000000);
++    NSURL *pathSave = [root URLByAppendingPathComponent:@"save"], *pathFolder = [root URLByAppendingPathComponent:@"sync"], *pathCloud = DMGameTimeCloudURL(pathFolder.path, @"0100000000000000");
++    NSURL *pathLocal = DMGameTimeLocalURL(pathSave, pathCloud, @"0100000000000000");
++    assert(DMGameTimeUpdateRun(pathLocal, A, 100, nil)); assert(DMGameTimeSynchronize(pathLocal, pathCloud, nil));
++    dispatch_semaphore_t pathHeld = dispatch_semaphore_create(0), pathRelease = dispatch_semaphore_create(0), pathDone = dispatch_semaphore_create(0);
++    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
++        [[[NSFileCoordinator alloc] initWithFilePresenter:nil] coordinateWritingItemAtURL:pathCloud options:0 error:nil byAccessor:^(NSURL *url) {
++            dispatch_semaphore_signal(pathHeld); dispatch_semaphore_wait(pathRelease, DISPATCH_TIME_FOREVER);
++        }]; dispatch_semaphore_signal(pathDone);
++    });
++    assert(!dispatch_semaphore_wait(pathHeld, dispatch_time(DISPATCH_TIME_NOW, 3*NSEC_PER_SEC)));
++    NSTimeInterval pathStart = NSProcessInfo.processInfo.systemUptime;
++    assert(!DMGameTimeSynchronizePaths(pathSave.path.UTF8String, "0100000000000000", pathFolder.path.UTF8String, 30));
++    assert(NSProcessInfo.processInfo.systemUptime-pathStart < 1.5 && total(pathLocal) == 100);
++    dispatch_semaphore_signal(pathRelease); assert(!dispatch_semaphore_wait(pathDone, dispatch_time(DISPATCH_TIME_NOW, 3*NSEC_PER_SEC)));
++    sqlite3 *future = NULL; assert(sqlite3_open(large.fileSystemRepresentation, &future) == SQLITE_OK); exec(future, "PRAGMA user_version=999"); assert(sqlite3_close(future) == SQLITE_OK);
++    NSData *unknown = [NSData dataWithContentsOfURL:large]; failure = nil;
++    assert(!DMGameTimeSummary(large, &failure) && failure); assert([[NSData dataWithContentsOfURL:large] isEqual:unknown]);
++    assert([fm removeItemAtURL:root error:nil]);
++    puts("SQLite: migration/recreated legacy, no-op, changed pages, crash recovery, UInt64 overflow and pending/nested cancellation passed");
++} return 0; }
 diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
-index b504c96c54bc2caba70b4e2747129db3b0778a72..ce27250f53c251ff1577017be5fbc8d838e90df0 100644
+index b504c96c54bc2caba70b4e2747129db3b0778a72..a2ad1165f4d7c089feb1a9ba8c4d9cabf9be3b18 100644
 --- a/dm/ios/Sources/front_ios.m
 +++ b/dm/ios/Sources/front_ios.m
 @@ -1,3 +1,4 @@
@@ -894,7 +1397,7 @@ index b504c96c54bc2caba70b4e2747129db3b0778a72..ce27250f53c251ff1577017be5fbc8d8
  
  // Software keyboard: show a UIAlertController on the main thread, the calling thread waits for the result
  int front_text_input(const char *title, const char *sub, const char *guide, const char *initial, int max_chars, char *out, int out_cap) {
-@@ -561,19 +562,31 @@ static void front_ios_audio_watch(void) {
+@@ -561,19 +562,34 @@ static void front_ios_audio_watch(void) {
  // Scene lifecycle (called by SceneDelegate in main.m): 0 resign active, 1 enter background, 2 return to foreground, 3 become active. On entering background, freeze the guest clock and suspend after in-flight GPU work completes (submitting GPU work in background gets the process killed).
  // The screen stays on while the game is active: only touches reset the idle timer, so with a controller (or during a cutscene) the screen dimmed and locked mid-game
  // Cloud saves (save_sync.h): what the game committed goes out before iOS suspends the app, without the sender's quiet wait. iOS gives a background task about half a minute
@@ -907,11 +1410,15 @@ index b504c96c54bc2caba70b4e2747129db3b0778a72..ce27250f53c251ff1577017be5fbc8d8
 +    if (dispatch_group_wait(attempts, deadline) || !time_ok) LOG("front end: play time remains local; synchronization retries on return");
 +    return archive_ok;
 +}
++static dispatch_block_t g_save_background_end;
  static void save_sync_background(void) {
++    if (g_save_background_end) g_save_background_end();
      UIApplication *app = UIApplication.sharedApplication;
      __block UIBackgroundTaskIdentifier task = UIBackgroundTaskInvalid;
      void (^end)(void) = ^{ if (task != UIBackgroundTaskInvalid) { [app endBackgroundTask:task]; task = UIBackgroundTaskInvalid; } };   // on the main queue, as the expiry handler runs
-     task = [app beginBackgroundTaskWithName:@"cloud save" expirationHandler:end];
+-    task = [app beginBackgroundTaskWithName:@"cloud save" expirationHandler:end];
++    g_save_background_end = end;
++    task = [app beginBackgroundTaskWithName:@"cloud save" expirationHandler:^{ if (task != UIBackgroundTaskInvalid) dm_play_time_cancel_sync(); end(); }];
      dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
 -        if (!save_sync_flush(20000)) LOG("front end: the save did not reach the cloud before the app was suspended; it goes after the next save or at the next start");
 +        if (!flush_save_and_play_time(20000)) LOG("front end: the save did not reach the cloud before the app was suspended; it goes after the next save or at the next start");
@@ -923,11 +1430,11 @@ index b504c96c54bc2caba70b4e2747129db3b0778a72..ce27250f53c251ff1577017be5fbc8d8
  void front_ios_focus_event(int ev) {
 +    if (atomic_load(&g_quitting)) return;
 +    if (ev == 1) dm_play_time_pause(1);
-+    if (ev == 2) dm_play_time_pause(0);
++    if (ev == 2) { if (g_save_background_end) g_save_background_end(); dm_play_time_pause(0); }
      if (!g_layer || atomic_load(&g_quitting)) return;
      switch (ev) {
          case 0: quit_close(); dm_gamepad_reset(); dm_focus_set(2); break;
-@@ -727,7 +740,8 @@ static void quit_now(void) {
+@@ -727,7 +743,8 @@ static void quit_now(void) {
          dm_gamepad_teardown();
      }
      dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -937,6 +1444,33 @@ index b504c96c54bc2caba70b4e2747129db3b0778a72..ce27250f53c251ff1577017be5fbc8d8
          if (shell_return) {
              dm_host_teardown_for_shell();
              dispatch_async(dispatch_get_main_queue(), ^{
+diff --git a/dm/ios/tools/gen_build.py b/dm/ios/tools/gen_build.py
+index df7ccd494d19a525e1f69a1036ea0c17d59d044e..50c38aada948967fb28236df54de3d06ff96cf72 100644
+--- a/dm/ios/tools/gen_build.py
++++ b/dm/ios/tools/gen_build.py
+@@ -14,7 +14,7 @@ cmd = subprocess.run(['make', '-s', '-n', '-B', '-C', host, 'dmhost', 'MSL_SDK=i
+ # The host's own link command (-o dmhost) first, then the per-file compile commands of the libraries it depends on (libvpx): header paths keep this order, so the host's headers are found first
+ lines = [shlex.split(l) for l in cmd.splitlines() if l.lstrip().startswith('clang')]
+ lines.sort(key=lambda t: 'dmhost' not in t)
+-srcs, incs, defs, fws = [], [], [], []
++srcs, incs, defs, fws, libs = [], [], [], [], []
+ for toks in lines:
+     i = 0
+     while i < len(toks):
+@@ -24,6 +24,7 @@ for toks in lines:
+             d = os.path.normpath(os.path.join(host, t[2:]))
+             if d not in incs: incs.append(d)
+         elif t.startswith('-D'): defs.append(t)
++        elif t.startswith('-l'): libs.append(t)
+         elif t.endswith(('.c', '.m', '.S')): srcs.append(os.path.normpath(os.path.join(host, t)))
+         i += 1
+ assert srcs, 'no source files in the compile command'
+@@ -46,4 +47,4 @@ sdk = subprocess.run(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], capture_
+ fws = list(dict.fromkeys(fws))
+ mac_only = [f for f in fws if not os.path.isdir(f'{sdk}/System/Library/Frameworks/{f}.framework')]
+ if mac_only: print('gen_build: not in the iOS SDK, left out of the link: ' + ' '.join(mac_only), file=sys.stderr)
+-print('DM_FRAMEWORKS = ' + ' '.join(f'-framework {f}' for f in fws if f not in mac_only))
++print('DM_FRAMEWORKS = ' + ' '.join(f'-framework {f}' for f in fws if f not in mac_only) + ' ' + ' '.join(dict.fromkeys(libs)))
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
 index 444cf8ba5bb2d725a47fbcf71bfc12dbecec2856..29e628d2e539fdbd0e7452fca29e062032deb4cb 100644
 --- a/dm/mac/launcher.c
@@ -951,10 +1485,10 @@ index 444cf8ba5bb2d725a47fbcf71bfc12dbecec2856..29e628d2e539fdbd0e7452fca29e0620
      if (WIFSIGNALED(status)) { fprintf(stderr, "launcher: the host stopped on signal %d\n", WTERMSIG(status)); return 128 + WTERMSIG(status); }
      fprintf(stderr, "launcher: the host exited with %d\n", WEXITSTATUS(status));
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 760e67111eae168d41ec09fe714b9cc5d1d6fc15..5aa8d83f1d4ee6b4445496dc86228edb5b1fdec9 100755
+index 760e67111eae168d41ec09fe714b9cc5d1d6fc15..e6cc8d0700f062541f5bcbb4ceb4bf35e10d81d3 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
-@@ -95,9 +95,9 @@ def swift_sources():   # the settings window, with the iOS launcher's model, row
+@@ -95,11 +95,11 @@ def swift_sources():   # the settings window, with the iOS launcher's model, row
  
  def build_launcher(out, minos, clang, swiftc, sdk):   # launcher.c's main and the host's cloud-save code (its send after the host exits), linked by swiftc with the settings window (no Swift main: -parse-as-library)
      with tempfile.TemporaryDirectory(dir=out.parents[3]) as t:
@@ -965,8 +1499,11 @@ index 760e67111eae168d41ec09fe714b9cc5d1d6fc15..5aa8d83f1d4ee6b4445496dc86228edb
 +        for obj, src in zip(objs, (HERE / 'launcher.c', HERE.parent / 'host/save_sync.c', HERE.parent / 'apple/GameTime/Sources/GameTime/DMGameTime.m')):
 +            run([clang, '-isysroot', sdk, '-arch', 'arm64', f'-mmacosx-version-min={minos}', '-O2', '-Wall', '-fobjc-arc', '-fblocks', '-I', HERE.parent / 'host', '-I', HERE.parent / 'apple/GameTime/Sources/GameTime/include', '-c', '-o', obj, src])
          run([swiftc, '-sdk', sdk, '-target', f'arm64-apple-macos{minos}', '-O', '-swift-version', '5', '-parse-as-library', '-module-cache-path', Path(t) / 'module-cache',
-              '-o', out, *swift_sources(), *objs, '-framework', 'CoreFoundation', '-framework', 'AppKit', '-framework', 'SwiftUI'])
+-             '-o', out, *swift_sources(), *objs, '-framework', 'CoreFoundation', '-framework', 'AppKit', '-framework', 'SwiftUI'])
++             '-o', out, *swift_sources(), *objs, '-lsqlite3', '-framework', 'CoreFoundation', '-framework', 'AppKit', '-framework', 'SwiftUI'])
  
+ 
+ def make_icns(jpg, out):   # the game's icon (256x256 JPEG) at every size an .icns holds
 @@ -303,7 +303,7 @@ def pack(a):
          if not codesign: raise SystemExit('codesign is not available')
          codesign = Path(codesign).resolve()
@@ -976,165 +1513,67 @@ index 760e67111eae168d41ec09fe714b9cc5d1d6fc15..5aa8d83f1d4ee6b4445496dc86228edb
          inputs = {'options': vars(a), 'files': [(str(p), p.stat().st_mode, digest(p), os.readlink(p) if p.is_symlink() else None) for p in files + sources],
                    'trees': [(p, inventory(Path(p))) for p in (a.romfs, a.romfs and f'{a.romfs}.id', a.aoc, a.html, *(str(x[1]) for x in programs), *(str(x[3]) for x in programs)) if p and Path(p).exists()],
                    'tools': [[str(c), c.stat().st_mode, c.stat().st_size, c.stat().st_mtime_ns, c.stat().st_ctime_ns, run([c, '--version']).strip()] for c in (clang, swiftc)] + [
-diff --git a/dm/apple/GameTime/Sources/GameTimeLibrary/GameTimeLibrary.swift b/dm/apple/GameTime/Sources/GameTimeLibrary/GameTimeLibrary.swift
-new file mode 100644
-index 0000000..694ad38
---- /dev/null
-+++ b/dm/apple/GameTime/Sources/GameTimeLibrary/GameTimeLibrary.swift
-@@ -0,0 +1,156 @@
-+import Foundation
-+import GameTime
+diff --git a/dm/tools/tests/test_nsp_mac_app.py b/dm/tools/tests/test_nsp_mac_app.py
+index d6e4f1bfd18bc55b7be32004bcb70b501eba5697..e6ccc535ac95eff2d74827d26959ac2d9eeee41b 100644
+--- a/dm/tools/tests/test_nsp_mac_app.py
++++ b/dm/tools/tests/test_nsp_mac_app.py
+@@ -109,9 +109,11 @@ class PackReuse(unittest.TestCase):
+         self.tmp = Path(tempfile.mkdtemp(prefix='pack-reuse-', dir=TEST_ROOT)).resolve()
+         self.addCleanup(shutil.rmtree, self.tmp)
+         t = self.tmp
+-        for d in ('patched', 'romfs/empty', 'msl', 'profile', 'font', 'aoc/1', 'pso', 'bin', 'sdk', 'source', 'host', 'tools', 'ios/Sources'):
++        for d in ('patched', 'romfs/empty', 'msl', 'profile', 'font', 'aoc/1', 'pso', 'bin', 'sdk', 'source', 'host', 'tools', 'ios/Sources', 'apple/GameTime/Sources/GameTime/include'):
+             (t / d).mkdir(parents=True)
+         files = {
++            'apple/GameTime/Sources/GameTime/DMGameTime.m': b'game time',
++            'apple/GameTime/Sources/GameTime/include/DMGameTime.h': b'game time api',
+             'dmhost': b'host', 'patched/main.patched.bin': b'code', 'patched/main.fixups.tsv': b'fixups',
+             'patched/main.gates.tsv': b'gates', 'patched/main.cuts.tsv': b'cuts', 'patched/main.obs.tsv': b'obs', 'patched/nro.tsv': b'nro',
+             'romfs/marker': b'game', 'msl/k.metallib': b'lib', 'msl/k.json': b'{}', 'msl/inputs.tsv': b'stamp',
+@@ -213,6 +215,7 @@ class PackReuse(unittest.TestCase):
+                  'pso/gpu.mtl4a', 'pso/prebuilt.tsv', 'pso/rest_pairs.tsv', 'pso/archive.tsv', 'env.txt', 'icon.jpg', 'source/launcher.c',
+                  'source/Launcher.swift', 'ios/Sources/LauncherSettings.swift', 'ios/Sources/LauncherRow.swift', 'ios/Sources/SaveSyncReport.swift',   # the settings window's sources
+                  'host/input_map.h', 'host/dm_input.h',   # the launcher's headers
++                 'apple/GameTime/Sources/GameTime/DMGameTime.m', 'apple/GameTime/Sources/GameTime/include/DMGameTime.h',
+                  'host/save_sync.c', 'host/save_sync.h',   # the cloud-save code the launcher links (its send after the host exits)
+                  'control.nacp', 'tools/nacp.py']   # the game's names in Info.plist (DMTitleNames) and their reader
+         names += ['profile/' + n for n in pack_app.TABLES]
+diff --git a/docs/frontends.md b/docs/frontends.md
+index bbffbd09411109dd6cb19f7fe63adb7d06eda130..ed6e186a638fa6cc6398d7c7372fdafb0643a144 100644
+--- a/docs/frontends.md
++++ b/docs/frontends.md
+@@ -123,6 +123,17 @@ The folder a Mac app's save is synced through ([Cloud saves](settings.md#cloud-s
+ - **The iPhone app** keeps its folder as a security-scoped bookmark that only its own folder picker can make, so it is chosen there.
+ - **The player's choice.** When the cloud's save and this device's both changed since the last sync (or the device has never synced and both have a save), the host takes the newer one, and the other is kept in `<DM_SAVE>-backups`. A front end that asks the player instead sets `DM_SAVE_SYNC_CHOICE` at every start; then the host replaces neither until the player has chosen: it plays with this device's and sends nothing. The front end compares the two before the start with `save_sync_report()` (`dm/host/save_sync.h`: one line of the two saves' hashes, dates, sizes and the cloud's device, found and fetched as the mount will; the Mac and iPhone launchers read it through `SaveSyncReport.swift`), or by itself (the header of `save.dmsync` has the cloud's hash, save time and device; `<DM_SAVE>.sync` has the hash last synced, in a `base` line; `dm/host/save_sync.c` has both formats), and passes what the player chose (a Mac app whose `Info.plist` has the integer `DMSaveSyncChoice=1` reads it): `ask` when there was nothing to choose (the two were the same, or only one changed), `cloud:<hash>` brings in the cloud's save with that hash, `local:<hash>` lets this device's replace it (`local:none` when the cloud had none), and the one not chosen is kept in `<DM_SAVE>-backups`. A choice holds only for the cloud save it names: if that save changed after the check, the choice is not used, and a save that changed on both sides is replaced on neither. `offline` says the cloud could not be read before the start: the host does not wait for it. Pass `ask` only after a comparison: with a choice set and nothing compared, a save that changed on both sides stays on neither side's until a start that asks. With or without a front end, a send never replaces a cloud save that changed after the start compared it, or one the start could not read: the next start decides.
+ 
++### Per-game running time
 +
-+public struct GameTimeStats: Codable, Equatable, Sendable {
-+    public var totalMilliseconds: UInt64
-+    public var lastActivityAt: Date?
-+    public var dated: Bool
-+    public init(totalMilliseconds: UInt64, lastActivityAt: Date? = nil, dated: Bool = false) {
-+        self.totalMilliseconds = totalMilliseconds; self.lastActivityAt = lastActivityAt; self.dated = dated
-+    }
-+    fileprivate init?(_ value: NSDictionary) {
-+        guard let total = value["totalMs"] as? NSNumber else { return nil }
-+        totalMilliseconds = total.uint64Value
-+        lastActivityAt = (value["lastActivityAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
-+        dated = (value["dated"] as? NSNumber)?.boolValue ?? false
-+    }
-+}
++Rebuilt Apple runtimes record awake running time, including loading and menus but excluding runtime suspension and sleep. `dm/apple/GameTime` exposes the shared local summary and synchronization API. `GameTimeLibrary` provides a rebuildable local library index.
 +
-+/// Rebuildable launcher summaries. History, including removed games, stays in the per-game documents.
-+public actor GameTimeLibrary {
-+    private struct Signature: Codable, Equatable, Sendable {
-+        let size: UInt64
-+        let modified: Double
-+        let inode: UInt64
-+        init?(_ value: NSDictionary?) {
-+            guard let value, let size = value["size"] as? NSNumber, let modified = value["modified"] as? NSNumber,
-+                  let inode = value["inode"] as? NSNumber else { return nil }
-+            self.size = size.uint64Value; self.modified = modified.doubleValue; self.inode = inode.uint64Value
-+        }
-+        static func read(_ url: URL?) -> Self? {
-+            guard let url, let a = try? FileManager.default.attributesOfItem(atPath: url.path) else { return nil }
-+            return Signature(["size": a[.size] ?? 0, "modified": (a[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0,
-+                              "inode": a[.systemFileNumber] ?? 0] as NSDictionary)
-+        }
-+    }
-+    private struct Entry: Codable, Equatable, Sendable {
-+        var stats: GameTimeStats
-+        var source: Signature?
-+        var cloudSource: Signature?
-+        var synchronized: Bool
-+    }
-+    private struct Index: Codable, Sendable {
-+        var version = 1
-+        var games: [String: Entry]
-+    }
-+    private let indexURL: URL
-+    private var entries: [String: Entry] = [:]
-+    private var loadTask: Task<[String: Entry], Never>?
-+    private var loaded = false
-+    private struct Flight { let id: UUID; let task: Task<Entry?, Never> }
-+    private var work: [String: Flight] = [:]
-+    private var writeTask: Task<Void, Never>?
-+    private var revision = 0
++- The local store is one SQLite database per title and save/cloud source, beside `DM_SAVE` in `playtime/<title>/<scope>.sqlite`. Transactions update changed segments and last activity. Retain the directory, including a recovery journal left by a crash, with play history when removing game files.
++- Existing local `<scope>.json` files are imported transactionally. An older built runtime can recreate one, so readers check for it before reusing a cached summary.
++- The chosen cloud folder carries `<title>/playtime.json`, independently of `save.dmsync`. Version 2 groups cumulative milliseconds by local Gregorian date and fresh segment UUID. Legacy `runs` remain undated. Merge uses the maximum per segment and the union of identities. `lastActivityAt` is a maximum UTC timestamp in milliseconds.
++- Call summaries off the UI thread. A snapshot includes its source fingerprint after database recovery and commit. A pending recovery journal invalidates cached fingerprints. Cloud JSON remains capped at 32 MiB, and local databases at 128 MiB.
++- `DMGameTimeSyncProgress` creates an attempt that can cancel pending cloud and local coordination. Pass it to `DMGameTimeSynchronizeSummaryWithProgress`. An accessor already executing must finish or roll back safely. A timeout is not a hard filesystem completion deadline.
++- Display runtime totals without adding independently observed launcher session durations. Keep legacy recency as a fallback, and never reconstruct duration from a last-played timestamp. These files are application-generated but not authenticated.
 +
-+    public init(indexURL: URL) { self.indexURL = indexURL }
-+    private func load() async {
-+        guard !loaded else { return }
-+        if loadTask == nil {
-+            let url = indexURL
-+            loadTask = Task.detached(priority: .utility) {
-+                guard let data = try? Data(contentsOf: url), data.count <= 32 * 1024 * 1024,
-+                      let file = try? JSONDecoder().decode(Index.self, from: data), file.version == 1 else { return [:] }
-+                return file.games
-+            }
-+        }
-+        let value = await loadTask!.value
-+        if !loaded { entries = value; loaded = true; loadTask = nil }
-+    }
-+    private static func locations(save: URL, cloudFolder: String?, titleID: String) -> (URL, URL?)? {
-+        let cloud = DMGameTimeCloudURL(cloudFolder, titleID)
-+        guard let local = DMGameTimeLocalURL(save, cloud, titleID) else { return nil }
-+        return (local, cloud)
-+    }
-+    public func cached(save: URL, cloudFolder: String?, titleID: String) async -> GameTimeStats? {
-+        await load()
-+        guard let (local, _) = Self.locations(save: save, cloudFolder: cloudFolder, titleID: titleID) else { return nil }
-+        return entries[local.path]?.stats
-+    }
-+    public func refresh(save: URL, cloudFolder: String?, titleID: String, synchronize: Bool = true) async -> GameTimeStats? {
-+        await load()
-+        guard let (local, cloud) = Self.locations(save: save, cloudFolder: cloudFolder, titleID: titleID) else { return nil }
-+        let key = local.path
-+        if let pending = work[key] {
-+            let value = await pending.task.value
-+            complete(pending.id, key: key, value: value)
-+            if !synchronize || cloud == nil || value?.synchronized == true { return value?.stats }
-+        }
-+        let old = entries[key]
-+        let task = Task.detached(priority: .utility) { () -> Entry? in
-+            let source = Signature.read(local), remote = synchronize ? Signature.read(cloud) : nil
-+            let placeholder = cloud.map { $0.deletingLastPathComponent().appendingPathComponent(".\($0.lastPathComponent).icloud") }
-+            let downloading = placeholder.map { FileManager.default.fileExists(atPath: $0.path) } ?? false
-+            let conflicts = (synchronize ? cloud : nil).map { !(NSFileVersion.unresolvedConflictVersionsOfItem(at: $0) ?? []).isEmpty } ?? false
-+            if let old, old.source == source, !synchronize || cloud == nil || (old.synchronized && old.cloudSource == remote && !downloading && !conflicts) { return old }
-+            // Missing source history is retained in the index for removal/re-add; it is never added as a new run.
-+            if source == nil && (cloud == nil || remote == nil && !downloading) { return old }
-+            var failure: NSError?
-+            var value: NSDictionary?
-+            var synced = cloud == nil || !synchronize
-+            if synchronize, cloud != nil {
-+                for delay in [0.0, 0.25, 0.75, 1.5] {
-+                    if delay > 0 { try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) }
-+                    failure = nil; value = DMGameTimeSynchronizeSummary(local, cloud, &failure) as NSDictionary?
-+                    if value != nil { synced = true; break }
-+                    guard downloading else { break }
-+                }
-+            }
-+            if value == nil { value = DMGameTimeSummary(local, nil) as NSDictionary? }
-+            guard let value, let stats = GameTimeStats(value) else { return old }
-+            let signature = Signature(value["source"] as? NSDictionary)
-+            if signature == nil { return old }
-+            if let failure { NSLog("Play time: %@", failure.localizedDescription) }
-+            return Entry(stats: stats, source: signature,
-+                         cloudSource: synced ? Signature(value["cloudSource"] as? NSDictionary) ?? remote : old?.cloudSource,
-+                         synchronized: Self.synchronizedCloud(cloud, requested: synchronize, succeeded: synced))
-+        }
-+        let id = UUID()
-+        work[key] = Flight(id: id, task: task)
-+        let result = await task.value
-+        complete(id, key: key, value: result)
-+        return result?.stats
-+    }
-+    private func complete(_ id: UUID, key: String, value: Entry?) {
-+        guard work[key]?.id == id else { return }
-+        work[key] = nil
-+        if let value, value != entries[key] { entries[key] = value; revision += 1; scheduleWrite() }
-+    }
-+    private static func synchronizedCloud(_ cloud: URL?, requested: Bool, succeeded: Bool) -> Bool { cloud == nil || requested && succeeded }
-+    private func scheduleWrite() {
-+        guard writeTask == nil else { return }
-+        writeTask = Task { [weak self] in
-+            try? await Task.sleep(nanoseconds: 200_000_000)
-+            await self?.persist()
-+        }
-+    }
-+    private func persist() async {
-+        let snapshot = entries, url = indexURL, savedRevision = revision
-+        await Task.detached(priority: .utility) {
-+            guard !snapshot.isEmpty else { return }
-+            do {
-+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-+                var error: NSError?
-+                NSFileCoordinator(filePresenter: nil).coordinate(writingItemAt: url, options: .forMerging, error: &error) { target in
-+                    var games = ((try? Data(contentsOf: target)).flatMap { try? JSONDecoder().decode(Index.self, from: $0) })?.games ?? [:]
-+                    games.merge(snapshot) { _, new in new }
-+                    do { try JSONEncoder().encode(Index(games: games)).write(to: target, options: .atomic) }
-+                    catch { NSLog("Play time cache: %@", error.localizedDescription) }
-+                }
-+                if let error { NSLog("Play time cache: %@", error.localizedDescription) }
-+            } catch { NSLog("Play time cache: %@", error.localizedDescription) }
-+        }.value
-+        writeTask = nil
-+        if savedRevision != revision { scheduleWrite() }
-+    }
-+    public func flush() async { while let pending = writeTask { await pending.value } }
-+}
+ ## Cheats
+ 
+ Cheats are files, not settings: the host (`dm/host/hle_cheats.c`) reads Atmosphère-format cheat files for the running game's build and keeps the player's toggles beside them. A front end that wants to install cheats or pick which ones run, before the game starts, writes the same files; the Mac game window's Cheats menu and panel are one view of them. The engine itself and the format of a cheat line are described in [the cheats reference](reference/cheats.md); this section is the contract for the files.
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index 98828a2eed40e108f1adfec879f33f7c0ccb34bc..0012c626c74fecf1c3ffb44a608bc218dcb32d95 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -1331,3 +1331,12 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Cause:** an NRR with 1 in the byte at +5 (the Switch 2's) has a header 0x180 bytes longer. The same fields follow it: program ID +0x4b0, size +0x4b8, hash table +0x4c0, its count +0x4c4.
+ - **Fix:** `hle_ro.c` and `nro_collect.py` read the table by that byte.
+ - **Found on:** [Mario Tennis Fever](../../dm/games/0400D4201C6EA000/README.md).
++
++## Runtime statistics
++
++### Play-time checkpoints rewrite history and timed-out synchronization keeps coordinating
++
++- **Symptom:** each play-time checkpoint rewrites a growing JSON history, or a timed-out publication still waits for local file access.
++- **Cause:** atomic JSON replacement rewrites the whole document. A semaphore timeout stops its caller waiting but does not cancel coordinated work.
++- **Fix:** `dm/apple/GameTime` stores local segments in SQLite transactions, updating only increased values and summary metadata. It preserves segment IDs when importing old local JSON and merging the cloud JSON snapshot. `DMGameTimeSyncProgress` cancels both coordinators, with checks before transactions, publication and conflict cleanup. Entered transactions finish or roll back. Runtime flush timeout cancels its own attempts, and iOS background expiration cancels pending publication until resume. No live database is synchronized through the cloud folder.
++- **Found on:** synthetic native timing, restore/clone, concurrent-process, crash-recovery and blocked-coordination tests in `dm/host/tests/t_game_time*.m`. No game-specific timing or physical iCloud transfer is claimed.

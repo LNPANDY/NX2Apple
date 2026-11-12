@@ -2,7 +2,6 @@ import Foundation
 import Observation
 import ShellControllers
 import ShellUI
-import GameTime
 import GameTimeLibrary
 #if canImport(UIKit)
 import UIKit
@@ -523,7 +522,7 @@ public struct ShellHostConfig: Sendable {
     }
 
     private var gameStats: [String: GameTimeStats] = [:]
-    private var gameTimeSources: [String: URL] = [:]
+    private var gameTimeSources: [String: String] = [:]
     private var gameTimeTask: Task<Void, Never>?
     private var gameTimeLibraryTask: Task<Void, Never>?
     private var selectedTimeGame: String?
@@ -560,18 +559,17 @@ public struct ShellHostConfig: Sendable {
         case .own(let url), .shell(let url): folder = url.path
         default: folder = nil
         }
-        let cloud = DMGameTimeCloudURL(folder, id)
-        guard let local = DMGameTimeLocalURL(appFolder(for: id).appendingPathComponent("save"), cloud, id) else { return }
-        if gameTimeSources[id] != local {
+        let save = appFolder(for: id).appendingPathComponent("save")
+        let source = save.path + "|" + (folder ?? "")
+        if gameTimeSources[id] != source {
             gameStats[id] = nil
-            gameTimeSources[id] = local
+            gameTimeSources[id] = source
             refresh(id)
         }
-        let save = appFolder(for: id).appendingPathComponent("save")
         let index = timeIndex
         gameTimeTask = Task { [weak self] in
             let show: @MainActor (GameTimeStats?) -> Void = { [weak self] value in
-                guard !Task.isCancelled, let self, self.gameTimeSources[id] == local else { return }
+                guard !Task.isCancelled, let self, self.gameTimeSources[id] == source else { return }
                 self.gameStats[id] = value
                 if let date = value?.lastActivityAt { LastPlayedStore(defaults: self.config.defaults(id)).record(date) }
                 self.refresh(id)

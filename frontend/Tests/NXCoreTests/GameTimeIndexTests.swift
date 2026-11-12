@@ -11,6 +11,29 @@ final class GameTimeIndexTests: XCTestCase {
         XCTAssertTrue(DMGameTimeUpdateSegments(local, [["id": UUID().uuidString, "day": "2026-11-12", "milliseconds": NSNumber(value: ms)]], 1_794_480_000_000, &error))
         XCTAssertNil(error)
     }
+    func testLegacyMigrationAndRecreatedFileInvalidateCachedSummary() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let save = root.appendingPathComponent("save")
+        let local = try XCTUnwrap(DMGameTimeLocalURL(save, nil, title))
+        let legacy = local.deletingPathExtension().appendingPathExtension("json")
+        try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let id = UUID().uuidString
+        func oldWriter(_ milliseconds: Int) throws {
+            try JSONSerialization.data(withJSONObject: ["version": 1, "runs": [id: milliseconds]]).write(to: legacy, options: .atomic)
+        }
+        try oldWriter(100)
+        let index = PlayTimeIndex(indexURL: root.appendingPathComponent("index.json"))
+        let initial = await index.refresh(save: save, cloudFolder: nil, titleID: title)
+        XCTAssertEqual(initial?.totalMilliseconds, 100)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+        try oldWriter(150)
+        let updated = await index.refresh(save: save, cloudFolder: nil, titleID: title)
+        XCTAssertEqual(updated?.totalMilliseconds, 150)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: legacy.path))
+        await index.flush()
+    }
+
     func testSummarySurvivesReloadInvalidatesOneChangeAndRetainsMissingHistory() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }

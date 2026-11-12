@@ -417,7 +417,7 @@ def link(clang: Path, sdk: Path, objs: list[Path], frameworks: list[str], out: P
     """Link the app, then prove the result is an arm64 iOS executable and sign its entitlements."""
     entitle = os.environ.get('NSPB_ENTITLEMENTS', '1') != '0'
     args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
-            '-fuse-ld=lld', '-fobjc-arc', '-o', str(out), *map(str, objs),
+            '-fuse-ld=lld', '-lsqlite3', '-fobjc-arc', '-o', str(out), *map(str, objs),
             '-Wl,-rpath,@executable_path/Frameworks', '-lobjc', '-lSystem',
             *(('-Wl,-adhoc_codesign',) if entitle else ()),
             *[x for fw in frameworks for x in ('-framework', fw)], *embed_flags]
@@ -461,7 +461,7 @@ def link_framework(clang: Path, sdk: Path, objs: list[Path], frameworks: list[st
                    lld_dir: Path, bundle_id: str = 'org.nxnative.app.DmGame') -> None:
     """Link the game's `DmGame<title ID>.framework` dylib and sign it ad-hoc without entitlements."""
     args = [str(clang), '-target', f'arm64-apple-ios{deployment}', '-isysroot', str(sdk),
-            '-fuse-ld=lld', '-dynamiclib',
+            '-fuse-ld=lld', '-lsqlite3', '-dynamiclib',
             f'-Wl,-install_name,@rpath/{fw_name}.framework/{fw_name}',
             '-Wl,-rpath,@executable_path/Frameworks',
             '-fobjc-arc', '-o', str(out), *map(str, objs),
