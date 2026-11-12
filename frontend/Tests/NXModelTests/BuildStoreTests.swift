@@ -343,6 +343,52 @@ import XCTest
         }
     }
 
+    func testFallbackIconArgumentsGoToMacScriptBuildsOnly() throws {
+        let runner = FakeProcessRunner()
+        runner.answer = { _ in ProcessResult(status: 0, out: "nxb 0.6.4\n") }
+        let store = BuildStore(localizer: localizer, runner: runner, repo: repo, deps: deps, engine: engine, devices: devices, defaults: defaults)
+        let iconPath = temporary.appendingPathComponent("fallback-icon.jpg").path
+        store.macFallbackIconArguments = { ["--fallback-icon", "\(iconPath)-\($0)"] }
+        let scriptURL = temporary.appendingPathComponent(RepoLayout.buildScript)
+        for path in [EngineLayout.marker] + RepoLayout.requiredTools {
+            let url = temporary.appendingPathComponent(path)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try "'--work-dir'".write(to: url, atomically: true, encoding: .utf8)
+        }
+        repo.path = temporary.path
+        let key = "0100000000010000"
+        store.take(picked: [try file("Cartridge [\(key)].xci")], kind: .base)
+        store.take(picked: [try file("test.keys")], kind: .keys)
+        store.outDir = temporary.path
+        defaults.set(temporary.appendingPathComponent("shell").path, forKey: "shellRoot")
+        devices.exportIPA = true
+        let nxb = temporary.path + "/nxbuild/nxb"
+        try FileManager.default.createDirectory(atPath: (nxb as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        try Data([0]).write(to: URL(fileURLWithPath: nxb))
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: nxb)
+        store.experimentalBuilderPath = nxb
+
+        store.target = BuildTarget.mac
+        store.experimentalBuilder = false
+        store.startBuild()
+        XCTAssertFalse(store.lastBuildCommand.contains("--fallback-icon"), "older scripts without --fallback-icon do not receive it")
+
+        try "'--work-dir' '--fallback-icon'".write(to: scriptURL, atomically: true, encoding: .utf8)
+        store.startBuild()
+        var args = store.lastBuildCommand
+        XCTAssertEqual(args.firstIndex(of: "--fallback-icon").map { args[$0 + 1] }, "\(iconPath)-\(key)")
+
+        store.experimentalBuilder = true
+        store.startBuild()
+        XCTAssertFalse(store.lastBuildCommand.contains("--fallback-icon"), "nxb build rejects unknown script options")
+
+        store.experimentalBuilder = false
+        store.target = BuildTarget.ios
+        store.startBuild()
+        args = store.lastBuildCommand
+        XCTAssertFalse(args.contains("--fallback-icon"), "the iOS app and shared shell never take the Mac stand-in icon")
+    }
+
     func testRetryBuildsTheChosenTitleAndKeepsItsOutputsSeparate() throws {
         let store = makeStore()
         for path in [EngineLayout.marker] + RepoLayout.requiredTools {

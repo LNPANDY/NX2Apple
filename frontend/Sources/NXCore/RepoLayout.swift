@@ -45,6 +45,13 @@ package enum RepoLayout {
         return text.contains("'--romfs-from'") || text.contains("\"--romfs-from\"")
     }
 
+    /// Whether the checkout's build script takes `--fallback-icon` (upstream `5714e328`, #784), which an older engine stops at with
+    /// "unrecognized arguments". Read from the script's argparse, as for `--romfs-from`.
+    package static func supportsFallbackIcon(_ dir: String) -> Bool {
+        guard let text = try? String(contentsOfFile: EngineLayout.root(dir) + "/" + buildScript, encoding: .utf8) else { return false }
+        return text.contains("'--fallback-icon'") || text.contains("\"--fallback-icon\"")
+    }
+
     /// The checkout of this repository the app drives. A released .app ships on its own,
     /// so the path is not known at build time: look next to the app bundle, walk up from
     /// it, then fall back to a saved choice. A repository is identified by
