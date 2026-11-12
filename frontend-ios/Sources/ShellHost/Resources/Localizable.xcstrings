@@ -3329,6 +3329,70 @@
         }
       }
     },
+    "Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Datenordner dieses Spiels fehlen die Shader-Dateien (msl). Sende oder kopiere die Spieldaten erneut aus NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faltan los archivos de shaders (msl) de este juego en su carpeta de datos. Vuelve a enviar o copiar los datos del juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers de shaders (msl) de ce jeu sont absents de son dossier de données. Renvoyez ou recopiez les données du jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella cartella dati di questo gioco mancano i file shader (msl). Invia o copia di nuovo i dati di gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのデータフォルダにシェーダーファイル（msl）がありません。NX2Apple からゲームデータをもう一度送信またはコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 데이터 폴더에 셰이더 파일(msl)이 없습니다. NX2Apple에서 게임 데이터를 다시 보내거나 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos de shaders (msl) deste jogo estão faltando na pasta de dados. Envie ou copie os dados do jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaderfilerna (msl) för det här spelet saknas i dess datamapp. Skicka eller kopiera speldatan igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该游戏的数据文件夹中缺少着色器文件（msl）。请从 NX2Apple 重新发送或复制游戏数据。"
+          }
+        }
+      }
+    },
     "Shell": {
       "localizations": {
         "de": {

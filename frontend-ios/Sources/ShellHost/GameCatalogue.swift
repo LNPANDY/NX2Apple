@@ -38,6 +38,8 @@ public struct CatalogueEntry: Equatable, Sendable, Identifiable {
     /// The game's framework folder: inside `directory` for a `Games/<title ID>/` bundle, `directory` itself for an
     /// embedded `<Name>.framework`. Nil while the manifest could not be read.
     public var frameworkURL: URL?
+    /// Set when the unsigned shared IPA externalized this framework's `msl/` shader tree alongside game data (#947).
+    public var requiresExternalShaders: Bool = false
 }
 
 /// Discovers games from a folder of bundles: `Games/<title ID>/` with `game.manifest.json`, `launcher.json`, the
@@ -78,7 +80,9 @@ public enum GameCatalogue {
             }
             let manifest = try GameManifest.parse(data)
             entry.manifest = manifest
-            entry.frameworkURL = dir.appendingPathComponent(manifest.framework, isDirectory: true)
+            let fwURL = dir.appendingPathComponent(manifest.framework, isDirectory: true)
+            entry.frameworkURL = fwURL
+            entry.requiresExternalShaders = ExternalShaders.isRequired(in: fwURL, fileManager: fm)
             guard manifest.titleID == id else {
                 throw GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: hostText("The folder is named \(id) but the manifest says \(manifest.titleID)."))
             }
@@ -123,6 +127,7 @@ public enum GameCatalogue {
             entry.manifest = manifest
             entry.id = manifest.titleID
             entry.frameworkURL = fw
+            entry.requiresExternalShaders = ExternalShaders.isRequired(in: fw, fileManager: fm)
             guard manifest.framework == folder else {
                 throw GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: hostText("The folder is named \(folder) but the manifest says \(manifest.framework)."))
             }

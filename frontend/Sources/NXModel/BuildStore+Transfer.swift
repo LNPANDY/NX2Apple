@@ -50,6 +50,14 @@ extension BuildStore {
 
     /// "Export IPA": the shell's project with every built framework, unsigned, zipped. No game is built or packed again.
     package func exportBuiltGames() {
+        guard canExportBuiltGames else { return }
+        if askAboutStaleFrameworks(except: Set(), then: { [weak self] in self?.exportBuiltGamesAfterStaleCheck() }) {
+            return
+        }
+        exportBuiltGamesAfterStaleCheck()
+    }
+
+    private func exportBuiltGamesAfterStaleCheck() {
         guard canExportBuiltGames, let last = builtShellGames().last else { return }
         exportShell(framework: last.framework, titleID: last.titleID, name: last.name)
     }
@@ -57,6 +65,14 @@ extension BuildStore {
     /// "Install built games": signs and installs the shared app from the frameworks already built, without rebuilding any game or
     /// transferring `romfs.img` game data.
     package func installBuiltGames() {
+        guard canInstallBuiltGames else { return }
+        if askAboutStaleFrameworks(except: Set(), then: { [weak self] in self?.installBuiltGamesAfterStaleCheck() }) {
+            return
+        }
+        installBuiltGamesAfterStaleCheck()
+    }
+
+    private func installBuiltGamesAfterStaleCheck() {
         guard canInstallBuiltGames, let last = builtShellGames().last else { return }
         installBuiltShell(framework: last.framework, titleID: last.titleID, name: last.name)
     }
@@ -96,9 +112,17 @@ extension BuildStore {
 
     /// "Send game data" for every game with packed data: one transfer each, for the chosen device. Nothing is built.
     package func sendAllGameData() {
+        sendSelectedGameData(titleIDs: Set(sharedAppDataSources().map { $0.titleID.uppercased() }))
+    }
+
+    /// Enqueues the checked games from `sharedAppDataSources()` onto `TransferQueueStore` in library order.
+    package func sendSelectedGameData(titleIDs: Set<String>) {
         guard canSendAllGameData, let transfers else { return }
+        let wanted = Set(titleIDs.map { $0.uppercased() })
+        let chosen = sharedAppDataSources().filter { wanted.contains($0.titleID.uppercased()) }
+        guard !chosen.isEmpty else { return }
         let device = devices.installDevice, name = devices.deviceName(device)
-        transfers.enqueue(sharedAppDataSources().map {
+        transfers.enqueue(chosen.map {
             TransferEntry(titleID: $0.titleID, name: $0.name, archive: $0.archive, deviceID: device, deviceName: name)
         })
     }

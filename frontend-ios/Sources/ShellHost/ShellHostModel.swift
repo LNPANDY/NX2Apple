@@ -431,6 +431,10 @@ public struct ShellHostConfig: Sendable {
             pickedDataNotes.removeValue(forKey: entry.id)
         }
         var state = GameStateResolver.state(for: entry, data: data, environment: config.environment)
+        let shadersSatisfied = ExternalShaders.isSatisfied(entry: entry, appFolder: appFolder(for: entry.id), dataURL: data.url)
+        if state == .playable && !shadersSatisfied {
+            state = .needsGameData
+        }
         if state == .needsGameData, let progress = joiningProgress[entry.id], progress.totalBytes > 0 {
             let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
             let rawPercent = Int((Double(clampedDone) / Double(progress.totalBytes) * 100.0).rounded(.down))
@@ -445,7 +449,7 @@ public struct ShellHostConfig: Sendable {
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
                             isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
-            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false))
+            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, shadersSatisfied: shadersSatisfied))
         }
         let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
         var cloud: String?
@@ -470,7 +474,7 @@ public struct ShellHostConfig: Sendable {
         let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
         return GameDetail(
             game: tile, sections: sections + padSections,
-            dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found),
+            dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found, shadersSatisfied: shadersSatisfied),
             cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings || !pad.entries.isEmpty,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell,
@@ -486,13 +490,16 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
-    private func dataNote(for id: String, data: DataResolution, found: Bool) -> String {
-        if found { return "" }
+    private func dataNote(for id: String, data: DataResolution, found: Bool, shadersSatisfied: Bool = true) -> String {
+        if found && shadersSatisfied { return "" }
         if let progress = joiningProgress[id], progress.totalBytes > 0 {
             let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
             let doneSize = Self.formatByteSize(clampedDone)
             let totalSize = Self.formatByteSize(progress.totalBytes)
             return hostText("Joining .nxpart split files in this app's folder (\(doneSize) of \(totalSize)).")
+        }
+        if found && !shadersSatisfied {
+            return hostText("Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple.")
         }
         if let customNote = pickedDataNotes[id], !customNote.isEmpty {
             return customNote
@@ -746,9 +753,11 @@ public struct ShellHostConfig: Sendable {
         defer { launchingGame = false }
         forgetCheckedRomfsImages()
         let resolved = await verifiedData(for: entry)
+        let gameAppFolder = appFolder(for: id)
         guard cloudCheckGeneration == checkGeneration,
-              self.entry(id)?.manifest == manifest, let dataURL = resolved.url,
-              let profile = profile(for: entry, data: resolved) else {
+              let latestEntry = self.entry(id), latestEntry.manifest == manifest, let dataURL = resolved.url,
+              ExternalShaders.isSatisfied(entry: latestEntry, appFolder: gameAppFolder, dataURL: dataURL),
+              let profile = profile(for: latestEntry, data: resolved) else {
             refresh(id)
             return
         }
@@ -757,7 +766,6 @@ public struct ShellHostConfig: Sendable {
         case .own(let url), .shell(let url): cloud = url
         case .off, .stale, .none: break
         }
-        let gameAppFolder = appFolder(for: id)
         var game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
             romfsURL: resolved.romfsURL, appFolder: gameAppFolder, environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
