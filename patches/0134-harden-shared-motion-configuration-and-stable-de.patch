@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Thu, 12 Nov 2026 05:15:24 -0300
+Subject: [PATCH] Harden shared motion configuration and stable device identity
+
+Upstream-Status: forwarded seedds/nxnative#2429
+Reason: Validate saved motion devices and keep identities stable
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/mac/Motion/DSUConfiguration.swift          | 1 +
+ dm/mac/Motion/MotionView.swift                | 3 ++-
+ dm/mac/Motion/Store.swift                     | 2 +-
+ dm/mac/Motion/Tests/MotionContractTests.swift | 5 ++++-
+ 4 files changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/dm/mac/Motion/DSUConfiguration.swift b/dm/mac/Motion/DSUConfiguration.swift
+index 752e388..e9967a3 100644
+--- a/dm/mac/Motion/DSUConfiguration.swift
++++ b/dm/mac/Motion/DSUConfiguration.swift
+@@ -21,6 +21,7 @@ struct DSUDevice: Codable, Equatable, Identifiable {
+         } && (1...8).contains(player) && (1...65535).contains(port) && (0...3).contains(slot)
+             && axes.count==3 && axes.allSatisfy { (-3...3).contains($0) && $0 != 0 }
+             && Set(axes.map { abs($0) })==Set([1,2,3])
++            && (displayAxes == nil || (displayAxes!.count==3 && displayAxes!.allSatisfy { (-3...3).contains($0) && $0 != 0 } && Set(displayAxes!.map { abs($0) })==Set([1,2,3])))
+             && bias.count==3 && bias.allSatisfy { $0.isFinite && abs($0)<=10000 }
+     }
+     var environmentValue: String? {
+diff --git a/dm/mac/Motion/MotionView.swift b/dm/mac/Motion/MotionView.swift
+index a870a0a..c2c37fb 100644
+--- a/dm/mac/Motion/MotionView.swift
++++ b/dm/mac/Motion/MotionView.swift
+@@ -4,7 +4,8 @@ import SceneKit
+ import simd
+ 
+ @MainActor final class Sensor: ObservableObject, Identifiable {
+-    let id = UUID()
++    let id:UUID
++    init(id:UUID = UUID()) { self.id=id }
+     var onEdit: (() -> Void)?
+     @Published var axes = AxisMap() { didSet { orientation = Orientation(); onEdit?() } }
+     @Published var name = "Phone" { didSet { onEdit?() } }
+diff --git a/dm/mac/Motion/Store.swift b/dm/mac/Motion/Store.swift
+index 23fa779..e883ac8 100644
+--- a/dm/mac/Motion/Store.swift
++++ b/dm/mac/Motion/Store.swift
+@@ -11,7 +11,7 @@ import Combine
+         do {
+             let config=try DSUConfiguration.load(from:url)
+             for d in config.devices {
+-                let s=Sensor();s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
++                let s=Sensor(id:d.id);s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
+                 // Switch x/right,y/forward,z/up -> preview x/right,y/up,z/back.
+                 s.axes=AxisMap(x:d.axes[0],y:d.axes[2],z:-d.axes[1]);s.gyroBias=SIMD3(d.bias[0],d.bias[1],d.bias[2]);s.calibrated=d.calibrated ?? d.enabled
+                 if let axes=d.displayAxes,axes.count==3 { s.axes=AxisMap(x:axes[0],y:axes[1],z:axes[2]) }
+diff --git a/dm/mac/Motion/Tests/MotionContractTests.swift b/dm/mac/Motion/Tests/MotionContractTests.swift
+index 483e3eb..5d98efb 100644
+--- a/dm/mac/Motion/Tests/MotionContractTests.swift
++++ b/dm/mac/Motion/Tests/MotionContractTests.swift
+@@ -13,12 +13,15 @@ final class MotionContractTests:XCTestCase {
+         XCTAssertEqual(saved.devices[0].axes,[2,-3,-1])
+         XCTAssertEqual(try saved.environment()["DM_DSU_1"],"127.0.0.1,26760,1,2,-3,-1,0.1,0.2,0.3")
+         let restored=SensorStore(url:url)
++        XCTAssertEqual(restored.sensors.first?.id,phone.id)
+         XCTAssertEqual(restored.sensors.first?.axes,phone.axes)
+         XCTAssertEqual(restored.sensors.first?.gyroBias,phone.gyroBias)
+     }
+     func testInvalidDisabledRecordRejected() throws {
+         var d=DSUDevice(id:UUID(),name:"Bad",player:1,host:"127.0.0.1",port:26760,slot:1,axes:[1,2,3],bias:[0,0,0],enabled:false)
+-        d.axes=[]
++        d.displayAxes=[Int.min,2,3]
++        XCTAssertThrowsError(try DSUConfiguration(devices:[d]).environment())
++        d.displayAxes=nil;d.axes=[]
+         XCTAssertThrowsError(try DSUConfiguration(devices:[d]).environment())
+     }
+ }

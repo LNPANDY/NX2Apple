@@ -92,3 +92,4 @@
 0131-ios-isolate-dmshellgame-objective-c-classes-and.patch
 0132-ios-preserve-unaligned-bss-head-and-tail-bytes-i.patch
 0133-add-shared-dsu-motion-management-and-per-player.patch
+0134-harden-shared-motion-configuration-and-stable-de.patch
