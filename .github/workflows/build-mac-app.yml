@@ -339,6 +339,9 @@ jobs:
           rm -rf "$APP"
           mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
           cp .build/release/NX2Apple "$APP/Contents/MacOS/NSPortBuilder"
+          for bundle in .build/release/NXMotion_*.bundle; do
+            [ ! -d "$bundle" ] || ditto "$bundle" "$APP/Contents/Resources/$(basename "$bundle")"
+          done
           # Assets.car and AppIcon.icns come from the icon job (AppIcon.icon compiled by actool). Info.plist names both
           # (CFBundleIconName for macOS 26 and later, CFBundleIconFile for 13 to 25).
           cp "$RUNNER_TEMP/app-icon/Assets.car" "$RUNNER_TEMP/app-icon/AppIcon.icns" "$APP/Contents/Resources/"

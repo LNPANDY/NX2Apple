@@ -1,0 +1,1606 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Thu, 12 Nov 2026 04:33:15 -0300
+Subject: [PATCH] Add shared DSU motion management and per-player guest routing
+
+Upstream-Status: forwarded seedds/nxnative#2429
+Reason: Provide shared phone motion management before upstream integration
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/dm_input.h                            |   1 +
+ dm/host/dsu_motion.h                          |   4 +
+ dm/host/dsu_protocol.h                        |  32 ++
+ dm/host/hle_dsu.c                             |  82 ++++
+ dm/host/hle_hid.c                             |   6 +
+ dm/host/main.c                                |   3 +
+ dm/mac/Launcher.swift                         |   3 +
+ dm/mac/Motion/.gitignore                      |   2 +
+ dm/mac/Motion/AxisMap.swift                   |  13 +
+ dm/mac/Motion/Calibration.swift               | 189 ++++++++++
+ dm/mac/Motion/DSUConfiguration.swift          |  68 ++++
+ dm/mac/Motion/DSUMotionTranslations.json      | 352 ++++++++++++++++++
+ dm/mac/Motion/Discovery.swift                 |  87 +++++
+ dm/mac/Motion/LaunchEnvironment.swift         |  10 +
+ dm/mac/Motion/Localization.swift              |  44 +++
+ dm/mac/Motion/MotionView.swift                | 268 +++++++++++++
+ dm/mac/Motion/Package.swift                   |   3 +
+ dm/mac/Motion/Protocol.swift                  |  90 +++++
+ dm/mac/Motion/Store.swift                     |  42 +++
+ dm/mac/Motion/Tests/MotionContractTests.swift |  24 ++
+ dm/mac/launcher.c                             |   1 +
+ dm/mac/pack_app.py                            |   7 +-
+ 22 files changed, 1328 insertions(+), 3 deletions(-)
+ create mode 100644 dm/host/dsu_motion.h
+ create mode 100644 dm/host/dsu_protocol.h
+ create mode 100644 dm/host/hle_dsu.c
+ create mode 100644 dm/mac/Motion/.gitignore
+ create mode 100644 dm/mac/Motion/AxisMap.swift
+ create mode 100644 dm/mac/Motion/Calibration.swift
+ create mode 100644 dm/mac/Motion/DSUConfiguration.swift
+ create mode 100644 dm/mac/Motion/DSUMotionTranslations.json
+ create mode 100644 dm/mac/Motion/Discovery.swift
+ create mode 100644 dm/mac/Motion/LaunchEnvironment.swift
+ create mode 100644 dm/mac/Motion/Localization.swift
+ create mode 100644 dm/mac/Motion/MotionView.swift
+ create mode 100644 dm/mac/Motion/Package.swift
+ create mode 100644 dm/mac/Motion/Protocol.swift
+ create mode 100644 dm/mac/Motion/Store.swift
+ create mode 100644 dm/mac/Motion/Tests/MotionContractTests.swift
+
+diff --git a/dm/host/dm_input.h b/dm/host/dm_input.h
+index 3f7cef8..a2c252e 100644
+--- a/dm/host/dm_input.h
++++ b/dm/host/dm_input.h
+@@ -30,6 +30,7 @@ void dm_pad_players(uint32_t mask);   // bit p: player p + 1 has a controller; p
+ int dm_players_reported(void);   // the players the game sees: player 1 and each player whose npad it supports, a split pair of Joy-Cons as two (hle_hid.c), as the controller applet counts them (ctrl_prompt.h). Any thread
+ // Live controller motion (hle_hid.c, motion_fusion.h): player 0..DM_PLAYERS-1's gyro and accelerometer as GameController reports them, acceleration in G (gravity direction,
+ // (0, 0, -1) face up) and rotation rate in rad/s, in Apple's controller frame. While samples keep coming the player's six-axis sensor follows the controller; dm_motion_clear stops it
++void dm_motion_set_dsu(int player, const float acc[3], const float rot[3], uint64_t sample_ns);
+ void dm_motion_set(int player, const float acc[3], const float rot[3]);
+ void dm_motion_set_switch(int player, const float acc[3], const float rot[3]);   // player 0 only: the phone's own sensors in the Switch frame, kept separate; DM_MOTION_AXES does not apply
+ void dm_motion_clear(int player);   // clears GameController motion; another fresh source can take over
+diff --git a/dm/host/dsu_motion.h b/dm/host/dsu_motion.h
+new file mode 100644
+index 0000000..9d82a8d
+--- /dev/null
++++ b/dm/host/dsu_motion.h
+@@ -0,0 +1,4 @@
++// Optional DSU client lifecycle. Configuration is explicit and local to this run.
++#pragma once
++void dm_dsu_start(void);
++void dm_dsu_stop(void);
+diff --git a/dm/host/dsu_protocol.h b/dm/host/dsu_protocol.h
+new file mode 100644
+index 0000000..71eb6a9
+--- /dev/null
++++ b/dm/host/dsu_protocol.h
+@@ -0,0 +1,32 @@
++// Cemuhook DSU v1001 wire decoder. No network or host state, safe for unit tests.
++#pragma once
++#include <stdint.h>
++#include <stddef.h>
++#include <string.h>
++#include <math.h>
++static uint32_t dsu_u32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24; }
++static uint64_t dsu_u64(const uint8_t *p) { return dsu_u32(p) | (uint64_t)dsu_u32(p+4)<<32; }
++static void dsu_put(uint8_t *p, uint32_t v) { for (int i=0;i<4;i++) p[i]=(uint8_t)(v>>(i*8)); }
++static uint32_t dsu_crc(const uint8_t *p, size_t n) {
++    uint32_t c=~0u;
++    for (size_t i=0;i<n;i++) { c ^= i>=8 && i<12 ? 0 : p[i]; for (int j=0;j<8;j++) c=(c>>1)^((0u-(c&1))&0xedb88320u); }
++    return ~c;
++}
++typedef struct { uint32_t server, sequence; uint64_t timestamp_us; uint8_t slot; float acceleration[3], degrees[3]; } dsu_sample;
++static int dsu_decode(const uint8_t *p, size_t n, dsu_sample *s) {
++    if (n<100 || memcmp(p,"DSUS",4) || p[4]!=0xe9 || p[5]!=3) return 0;
++    size_t size=16+(size_t)p[6]+((size_t)p[7]<<8);
++    if (size<100 || size>n || dsu_u32(p+16)!=0x100002 || dsu_crc(p,size)!=dsu_u32(p+8) || p[20]>3 || p[21]!=2 || p[31]!=1) return 0;
++    memset(s,0,sizeof *s);s->server=dsu_u32(p+12);s->sequence=dsu_u32(p+32);s->slot=p[20];s->timestamp_us=dsu_u64(p+68);
++    if (!s->timestamp_us) return 0;
++    for (int i=0;i<3;i++) {
++        uint32_t a=dsu_u32(p+76+i*4),g=dsu_u32(p+88+i*4);memcpy(&s->acceleration[i],&a,4);memcpy(&s->degrees[i],&g,4);
++        if (!isfinite(s->acceleration[i]) || !isfinite(s->degrees[i]) || fabsf(s->acceleration[i])>100 || fabsf(s->degrees[i])>100000) return 0;
++    }
++    return 1;
++}
++static void dsu_request(uint8_t p[28], uint32_t id, int slot) {
++    memset(p,0,28);memcpy(p,"DSUC",4);p[4]=0xe9;p[5]=3;p[6]=12;dsu_put(p+12,id);dsu_put(p+16,0x100002);
++    if (slot>=0 && slot<=3) { p[20]=1;p[21]=(uint8_t)slot; }
++    dsu_put(p+8,dsu_crc(p,28));
++}
+diff --git a/dm/host/hle_dsu.c b/dm/host/hle_dsu.c
+new file mode 100644
+index 0000000..8acdab9
+--- /dev/null
++++ b/dm/host/hle_dsu.c
+@@ -0,0 +1,82 @@
++// Opt-in DSU phone motion. One connected UDP socket per configured player.
++// DM_DSU_1..8: IPv4,port,slot,x,y,z,biasX,biasY,biasZ. Signed axes 1..3
++// map DSU gyro to Switch axes. Bias is degrees/s. Accelerometer mapping uses
++// the determinant too: gyro is axial, acceleration is a polar vector.
++#include "dm.h"
++#include "dm_input.h"
++#include "dsu_motion.h"
++#include "dsu_protocol.h"
++#include <arpa/inet.h>
++#include <sys/socket.h>
++#include <poll.h>
++#include <pthread.h>
++#include <stdatomic.h>
++#include <errno.h>
++#include <stdlib.h>
++#include <unistd.h>
++#include <time.h>
++static struct { int fd,slot,axes[3],have,det; float bias[3]; uint32_t server,sequence; uint64_t timestamp,arrival,local; } peers[DM_PLAYERS];
++static pthread_t worker;
++static _Atomic int active;
++static int launched;
++static uint32_t client_id;
++static uint64_t dsu_now(void) { struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000000000ull+t.tv_nsec; }
++static void *dsu_run(void *unused) {
++    (void)unused;uint64_t sent=0;
++    while (atomic_load(&active)) {
++        uint64_t now=dsu_now();
++        if (now-sent>=1000000000ull) { for (int i=0;i<DM_PLAYERS;i++) if (peers[i].fd>=0) { uint8_t req[28];dsu_request(req,client_id,peers[i].slot);send(peers[i].fd,req,sizeof req,0); }sent=now; }
++        struct pollfd fds[DM_PLAYERS];for (int i=0;i<DM_PLAYERS;i++) fds[i]=(struct pollfd){peers[i].fd,POLLIN,0};
++        if (poll(fds,DM_PLAYERS,100)<=0) continue;
++        for (int i=0;i<DM_PLAYERS;i++) if (fds[i].revents&POLLERR) {
++            int error=0;socklen_t length=sizeof error;getsockopt(peers[i].fd,SOL_SOCKET,SO_ERROR,&error,&length);
++        }
++        for (int i=0;i<DM_PLAYERS;i++) if (fds[i].revents&POLLIN) {
++            uint8_t bytes[2048];ssize_t n=recv(peers[i].fd,bytes,sizeof bytes,0);dsu_sample s;
++            if (n<0 || !dsu_decode(bytes,(size_t)n,&s) || s.slot!=peers[i].slot) continue;
++            now=dsu_now();
++            if (peers[i].have && now-peers[i].arrival<300000000ull && s.server==peers[i].server) {
++                uint32_t diff=s.sequence-peers[i].sequence;
++                if (!diff || diff>=0x80000000u || s.timestamp_us<=peers[i].timestamp) continue;
++                uint64_t dt=s.timestamp_us-peers[i].timestamp;
++                if (dt>300000) continue;
++                peers[i].local+=dt*1000;
++                if (peers[i].local>now) peers[i].local=now;
++            } else peers[i].local=now;
++            peers[i].have=1;peers[i].server=s.server;peers[i].sequence=s.sequence;peers[i].timestamp=s.timestamp_us;peers[i].arrival=now;
++            float acc[3],rot[3];
++            for (int a=0;a<3;a++) { int k=abs(peers[i].axes[a])-1;float sign=peers[i].axes[a]<0 ? -1:1;acc[a]=s.acceleration[k]*sign*peers[i].det;rot[a]=(s.degrees[k]-peers[i].bias[k])*sign*(float)(3.141592653589793/180.0); }
++            dm_motion_set_dsu(i,acc,rot,peers[i].local);
++        }
++    }
++    return NULL;
++}
++void dm_dsu_start(void) {
++    if (launched) return;
++    for (int i=0;i<DM_PLAYERS;i++) peers[i].fd=-1;
++    int count=0;
++    for (int i=0;i<DM_PLAYERS;i++) {
++        char key[24],host[64],extra;int port,slot,x,y,z;float bx,by,bz;
++        snprintf(key,sizeof key,"DM_DSU_%d",i+1);const char *value=getenv(key);if (!value || !*value) continue;
++        if (sscanf(value,"%63[^,],%d,%d,%d,%d,%d,%f,%f,%f%c",host,&port,&slot,&x,&y,&z,&bx,&by,&bz,&extra)!=9 || port<1 || port>65535 || slot<0 || slot>3 || x < -3 || x > 3 || y < -3 || y > 3 || z < -3 || z > 3 || x==0 || y==0 || z==0 || abs(x)==abs(y) || abs(x)==abs(z) || abs(y)==abs(z) || !isfinite(bx) || !isfinite(by) || !isfinite(bz)) { LOG("[RED] DSU player %d: invalid configuration",i+1);continue; }
++        struct sockaddr_in addr={0};addr.sin_family=AF_INET;addr.sin_port=htons((uint16_t)port);
++        if (inet_pton(AF_INET,host,&addr.sin_addr)!=1) { LOG("[RED] DSU player %d: numeric IPv4 required",i+1);continue; }
++        int fd=socket(AF_INET,SOCK_DGRAM,0);if (fd<0) continue;
++        if (connect(fd,(struct sockaddr *)&addr,sizeof addr)) { close(fd);continue; }
++        peers[i].fd=fd;peers[i].slot=slot;peers[i].axes[0]=x;peers[i].axes[1]=y;peers[i].axes[2]=z;peers[i].bias[0]=bx;peers[i].bias[1]=by;peers[i].bias[2]=bz;
++        int a=abs(x)-1,b=abs(y)-1,c=abs(z)-1;int inversions=(a>b)+(a>c)+(b>c);
++        peers[i].det=((inversions%2) ? -1:1)*(x<0?-1:1)*(y<0?-1:1)*(z<0?-1:1);count++;
++        LOG("DSU player %d: configured slot %d (motion only, physical buttons unchanged)",i+1,slot);
++    }
++    if (!count) return;
++    client_id=arc4random();
++    atomic_store(&active,1);
++    if (pthread_create(&worker,NULL,dsu_run,NULL)) { atomic_store(&active,0);for(int i=0;i<DM_PLAYERS;i++) if(peers[i].fd>=0) close(peers[i].fd);return; }
++    launched=1;
++}
++void dm_dsu_stop(void) {
++    if (!launched) return;
++    atomic_store(&active,0);pthread_join(worker,NULL);
++    for(int i=0;i<DM_PLAYERS;i++) if(peers[i].fd>=0) { close(peers[i].fd);peers[i].fd=-1; }
++    launched=0;
++}
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index d64f39f..b0add0c 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -719,6 +719,7 @@ static live_motion g_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHRE
+ static live_motion g_hid_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
+ static live_motion g_joy_motion[DM_PLAYERS][2] = {[0 ... DM_PLAYERS - 1] = {[0 ... 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}}};   // each Joy-Con's own sensor (dm_motion_set_joy)
+ static live_motion g_direct_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
++static live_motion g_dsu_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
+ static live_motion g_phone_motion = {.mu = PTHREAD_MUTEX_INITIALIZER};
+ static pthread_once_t g_motion_once = PTHREAD_ONCE_INIT;
+ static motion_map g_motion_map; static float g_motion_gain = 0.5f; static int g_motion_off, g_motion_log, g_phone_mode;
+@@ -754,6 +755,9 @@ static void motion_set_to(live_motion *m, int p, const float acc[3], const float
+     m->last_ns = t; m->received_ns = now; m->count = 0;
+     pthread_mutex_unlock(&m->mu);
+ }
++void dm_motion_set_dsu(int p, const float acc[3], const float rot[3], uint64_t t) {
++    if (t && p >= 0 && p < DM_PLAYERS) motion_set_to(&g_dsu_motion[p], p, acc, rot, 3, t);
++}
+ void dm_motion_set(int p, const float acc[3], const float rot[3]) { motion_set(p, acc, rot, 0, 0); }
+ void dm_motion_set_switch(int p, const float acc[3], const float rot[3]) { motion_set(p, acc, rot, 1, 0); }
+ void dm_motion_set_hid(int p, const float acc[3], const float rot[3], uint64_t t) { if (t) motion_set(p, acc, rot, 2, t); }
+@@ -807,6 +811,7 @@ enum { MOTION_NONE, MOTION_LIVE, MOTION_DIRECT };
+ static int physical_motion(int p, uint64_t time, dm_motion *out) {
+     if (p < 0 || p >= DM_PLAYERS) return 0;
+     pthread_once(&g_motion_once, motion_env); if (g_motion_off) return 0;
++    if (motion_copy(&g_dsu_motion[p], time, out)) return MOTION_LIVE;
+     if (!p && g_phone_mode > 0) return motion_copy(&g_phone_motion, time, out) != 0;
+     // Match the button path: a one-player game also accepts the other players' controllers.
+     uint32_t src = p ? 1u << p : 1u | merged_players(); uint64_t newest = 0; int selected = MOTION_NONE;
+@@ -824,6 +829,7 @@ static int physical_motion(int p, uint64_t time, dm_motion *out) {
+ }
+ // One Joy-Con's sensor: its own stream while fresh, else the pad's merged one (a controller that reports no per-Joy-Con motion)
+ static int motion_joy(int p, int side, uint64_t time, dm_motion *out) {
++    if (p >= 0 && p < DM_PLAYERS) { pthread_once(&g_motion_once, motion_env); if (!g_motion_off && motion_copy(&g_dsu_motion[p], time, out)) return MOTION_LIVE; }
+     if (p >= 0 && p < DM_PLAYERS && (side == 0 || side == 1)) { pthread_once(&g_motion_once, motion_env); if (!g_motion_off && motion_copy(&g_joy_motion[p][side], time, out)) return MOTION_LIVE; }
+     return physical_motion(p, time, out);
+ }
+diff --git a/dm/host/main.c b/dm/host/main.c
+index 959430e..7a9fe78 100644
+--- a/dm/host/main.c
++++ b/dm/host/main.c
+@@ -1,6 +1,7 @@
+ // Bootstrap: after loading the modules, initialize the SDK runtime in the real order of nn::init::Start (sdk+0x2b0470) in the SDK, then enter nnMain.
+ #include "dm.h"
+ #include "front.h"
++#include "dsu_motion.h"
+ #include "../gfx/nvn/dmsh_chain.h"
+ #include <CoreFoundation/CoreFoundation.h>
+ #include <stdatomic.h>
+@@ -184,6 +185,8 @@ int main(int argc, char **argv) {
+         LOG("host loading already finished early in the background (dm_host_preload_start)");
+     } else host_preload(argc, argv);
+     { void dm_fps_state_apply(void); dm_fps_state_apply(); }   // frame rate and render scale into the frame step state page (loader.c): the iOS launcher sets them after the loading began
++    dm_dsu_start();
+     front_run(guest_main);
++    dm_dsu_stop();
+     return 0;
+ }
+diff --git a/dm/mac/Launcher.swift b/dm/mac/Launcher.swift
+index 4a96434..c36b23b 100644
+--- a/dm/mac/Launcher.swift
++++ b/dm/mac/Launcher.swift
+@@ -14,6 +14,7 @@ struct LauncherView: View {
+     @ObservedObject var m: LauncherModel
+     let done: (Bool) -> Void
+     let fit: (CGFloat) -> Void
++    @State private var motionOpen = false
+     @AppStorage("window.show") private var show = true
+     @AppStorage("window.advanced") private var advanced = false
+ 
+@@ -30,6 +31,7 @@ struct LauncherView: View {
+             .padding([.horizontal, .top], 20)
+             Form {
+                 settingSections(basic: true)
++                Section("Controls") { Button("Phone motion…") { motionOpen=true } }
+                 CloudSavesSection()
+                 Section {
+                     DisclosureGroup("Advanced settings", isExpanded: $advanced) {}
+@@ -59,6 +61,7 @@ struct LauncherView: View {
+             .padding(20)
+         }
+         .frame(minWidth: 520, idealWidth: 560)
++        .sheet(isPresented:$motionOpen) { DSUMotionView().frame(width:1000,height:760) }
+     }
+ 
+     @ViewBuilder private func settingSections(basic: Bool) -> some View {
+diff --git a/dm/mac/Motion/.gitignore b/dm/mac/Motion/.gitignore
+new file mode 100644
+index 0000000..2d9f16e
+--- /dev/null
++++ b/dm/mac/Motion/.gitignore
+@@ -0,0 +1,2 @@
++.build/
++.swiftpm/
+diff --git a/dm/mac/Motion/AxisMap.swift b/dm/mac/Motion/AxisMap.swift
+new file mode 100644
+index 0000000..17d046b
+--- /dev/null
++++ b/dm/mac/Motion/AxisMap.swift
+@@ -0,0 +1,13 @@
++import Foundation
++import simd
++
++struct AxisMap: Codable, Equatable {
++    var x = 1
++    var y = 2
++    var z = 3
++    func apply(_ v: SIMD3<Double>) -> SIMD3<Double> {
++        func component(_ a: Int) -> Double { guard (1...3).contains(abs(a)) else { return 0 }; return v[abs(a)-1] * (a < 0 ? -1 : 1) }
++        return SIMD3(component(x),component(y),component(z))
++    }
++    var valid: Bool { Set([abs(x),abs(y),abs(z)]) == Set([1,2,3]) }
++}
+diff --git a/dm/mac/Motion/Calibration.swift b/dm/mac/Motion/Calibration.swift
+new file mode 100644
+index 0000000..953faf3
+--- /dev/null
++++ b/dm/mac/Motion/Calibration.swift
+@@ -0,0 +1,189 @@
++import SwiftUI
++import simd
++
++struct MotionCapture {
++    var integral = SIMD3<Double>.zero
++    var travel = SIMD3<Double>.zero
++    var last: UInt64?
++    var samples = 0
++    mutating func add(_ s: DSU.Sample) {
++        defer { last = s.timestamp }
++        guard let last, s.timestamp > last else { return }
++        let dt = Double(s.timestamp-last)/1_000_000
++        guard dt > 0, dt < 0.2 else { return }
++        integral += s.gyro*dt
++        travel += SIMD3(abs(s.gyro.x),abs(s.gyro.y),abs(s.gyro.z))*dt
++        samples += 1
++    }
++    var axis: Int? {
++        let ranked = (0..<3).sorted { travel[$0] > travel[$1] }
++        let a = ranked[0], b = ranked[1]
++        guard samples >= 8,travel[a] >= 20,travel[a] > travel[b]*1.8,abs(integral[a]) > 15,abs(integral[a]) > travel[a]*0.55 else { return nil }
++        return (a+1) * (integral[a] >= 0 ? 1 : -1)
++    }
++}
++
++struct AutoCalibration {
++    var step = 0
++    var pickedUp = false
++    var flatReady = false
++    var flatMeasured = false
++    mutating func confirmFlat() {
++        guard flatMeasured else { return }
++        flatReady=true;stillSeconds=0;sum = .zero;count=0;progress=0;message="Pick up your phone."
++    }
++    var flatGravity = SIMD3<Double>.zero
++    var preview = Orientation()
++    var previewReady = false
++    var phase: Int {
++        if step == 0 { return !flatReady ? -1 : (pickedUp ? 1 : 0) }
++        if step == 7 { return 14 }
++        return settling ? step*2 : step*2+1
++    }
++    var progress = 0.0
++    var bias = SIMD3<Double>.zero
++    var capture = MotionCapture()
++    var captured: [Int] = []
++    var stillSeconds = 0.0
++    var sum = SIMD3<Double>.zero
++    var count = 0
++    var last: UInt64?
++    var settling = true
++    var firstSign: Int?
++    var forwardAxis: Int?
++    var message = "Hold still in the steering-wheel grip"
++    var result: AxisMap? { captured.count == 3 ? AxisMap(x:captured[1],y:captured[0],z:captured[2]) : nil }
++    mutating func add(_ sample: DSU.Sample) {
++        if step == 7 {
++            guard let map=result else { return }
++            if !previewReady {
++                defer { last=sample.timestamp }
++                guard let last,sample.timestamp>last else { return }
++                let dt=Double(sample.timestamp-last)/1_000_000
++                if dt<0.2 && simd_length(sample.gyro-bias)<4 { stillSeconds += dt } else { stillSeconds=0 }
++                if stillSeconds>0.6 { preview=Orientation();previewReady=true;message="Move freely to test. Press OK to save, or Start over." }
++                return
++            }
++            var s=sample;s.gyro=map.apply(sample.gyro-bias);preview.update(s);return
++        }
++        defer { last = sample.timestamp }
++        guard let last, sample.timestamp > last else { return }
++        let dt = Double(sample.timestamp-last)/1_000_000
++        guard dt < 0.2 else { stillSeconds=0;capture=MotionCapture();return }
++        if step == 0 {
++            if !flatReady {
++                // Stillness and approximately one g establish a baseline, not proof
++                // of a tabletop or compass heading. User follows the flat pose.
++                if flatMeasured {
++                    if simd_length(sample.gyro)>3 { flatMeasured=false;stillSeconds=0;sum = .zero;flatGravity = .zero;count=0;progress=0 }
++                    return
++                }
++                let g=simd_length(sample.acceleration)
++                if simd_length(sample.gyro)<3 && g>0.8 && g<1.2 {
++                    stillSeconds += dt;sum += sample.gyro;flatGravity += sample.acceleration;count += 1;progress=min(1,stillSeconds/1.2)
++                    if stillSeconds>=1.2 {
++                        bias=sum/Double(count);flatGravity /= Double(count);flatMeasured=true
++                        stillSeconds=0;sum = .zero;count=0;progress=1;message="Phone is still. Confirm it is flat on the table, then Continue."
++                    }
++                } else { stillSeconds=0;sum = .zero;flatGravity = .zero;count=0;progress=0 }
++                return
++            }
++            if !pickedUp {
++                if simd_length(sample.gyro)>8 { pickedUp=true;message="Now HOLD STILL in your normal steering-wheel grip." }
++                return
++            }
++            if simd_length(sample.gyro) < 3 {
++                stillSeconds += dt;sum += sample.gyro;count += 1;progress=min(1,stillSeconds/1.0)
++                if stillSeconds >= 1 { step=1;settling=false;progress=0;stillSeconds=0;message="Turn clockwise first, then back, like the animation" }
++            } else { stillSeconds=0;sum = .zero;count=0;progress=0 }
++            return
++        }
++        var s=sample;s.gyro -= bias
++        if settling {
++            if simd_length(s.gyro)<4 { stillSeconds += dt } else { stillSeconds=0 }
++            progress=min(1,stillSeconds/0.55)
++            if stillSeconds>0.55 { settling=false;stillSeconds=0;capture=MotionCapture();firstSign=nil;message="Follow the first direction shown, then sweep back" }
++            return
++        }
++        capture.add(s)
++        let ranked=(0..<3).sorted { capture.travel[$0]>capture.travel[$1] }
++        let a=ranked[0]
++        progress=min(1,capture.travel[a]/50)
++        guard capture.travel[a]>=50,let sign=capture.axis else { return }
++        if step % 2 == 1 {
++            guard !captured.contains(where:{abs($0)==abs(sign)}) else { capture=MotionCapture();progress=0;message="Wrong axis. Follow this demonstration.";return }
++            forwardAxis=sign
++        } else {
++            guard let forwardAxis,sign == -forwardAxis else { capture=MotionCapture();progress=0;message="Direction not confirmed. Move only in the direction shown.";return }
++            captured.append(forwardAxis)
++        }
++        step += 1;progress=0;settling=true;stillSeconds=0;capture=MotionCapture()
++        message=step==7 ? "Return to your normal grip and HOLD STILL to center the live test." : "Recognized. Return to center, then HOLD STILL."
++    }
++}
++
++@available(macOS 14.0, *)
++struct CalibrationView: View {
++    @ObservedObject var sensor: Sensor
++    @Environment(\.dismiss) private var dismiss
++    @State private var started = Date()
++    let titles=["Hold still", "Steer RIGHT / clockwise", "Steer LEFT / counterclockwise", "Tilt TOP away", "Tilt TOP toward you", "RIGHT hand away", "LEFT hand away", "Test live"]
++    let instructions=["Hold still", "From center, steer RIGHT only, as seen by you. Stop after a broad stroke. Do not reverse until asked.", "From center, steer LEFT only, as seen by you. Stop after a broad stroke.", "From center, tilt the TOP edge AWAY only. Stop there.", "From center, tilt the TOP edge TOWARD you only. Stop there.", "From center, push your RIGHT hand AWAY only. Stop there.", "From center, push your LEFT hand AWAY only. Stop there.", "Move freely and check all directions before OK."]
++    var body: some View {
++        let step=sensor.autoCalibration.step
++        let phase=sensor.autoCalibration.phase
++        let paused = step==0 || sensor.autoCalibration.settling
++        let heading = step==0 ? (!sensor.autoCalibration.flatReady ? "Place Flat and Click Continue" : (sensor.autoCalibration.pickedUp ? "Hold still" : "Hold like a wheel")) : (step==7 ? "You Got It! Move Freely To Test" : (paused ? "Hold still" : (step<=2 ? "Steer" : (step<=4 ? "Tilt" : "Rotate"))))
++        VStack(alignment:.leading,spacing:16) {
++            LocalizedText("Calibrate " + sensor.name).font(.title.bold())
++            HStack { ForEach(Array((-1..<15).filter { $0 != 2 }), id: \.self) { i in
++                let small = i == -1 || i==1 || (i>1 && i%2==0 && i<14)
++                LocalizedText(small ? "Ⅱ" : String(i==0 ? 0:(i==14 ? 7:(i-1)/2))).font(.headline).frame(width:small ? 23:38,height:small ? 23:38).background(i<phase ? Color.green : (i==phase ? Color.orange:Color.gray.opacity(0.3)),in:Circle())
++                if i<14 { Rectangle().fill(i<phase ? Color.green:Color.gray.opacity(0.3)).frame(height:3) }
++            } }
++
++
++            TimelineView(.animation(minimumInterval:1.0/30)) { context in
++                let t=context.date.timeIntervalSince(started)
++                let direction = step%2==1 ? 1.0 : -1.0
++                let a = direction * min(t.truncatingRemainder(dividingBy:2.5)/1.5,1.0)*1.1
++                let base=simd_quatd(angle:Double.pi/2,axis:SIMD3(1,0,0))
++                let axis = step<=2 ? SIMD3<Double>(0,1,0) : (step<=4 ? SIMD3<Double>(1,0,0):SIMD3<Double>(0,0,1))
++                let q = step==0 && !sensor.autoCalibration.flatReady ? simd_quatd(angle:0,axis:SIMD3(1,0,0)) : (step==7 ? base * sensor.autoCalibration.preview.displayed : (paused ? base : base * simd_quatd(angle:a,axis:axis)))
++                MotionBox(rotation:q, arrowAxis: paused || step==7 ? nil : axis, arrowDirection:direction, obliqueView:step==3 || step==4).frame(height:320)
++                    .overlay(alignment:.top) { LocalizedText(sensor.confirmed ? heading : "Waiting").font(.title2.bold()).foregroundStyle(.white).padding(16) }
++                    .overlay {
++                        if step==0 && !sensor.autoCalibration.flatReady && sensor.autoCalibration.flatMeasured && sensor.confirmed && t >= 2 {
++                            VStack(spacing:10) {
++                                Image(systemName:"checkmark.circle.fill").font(.system(size:38))
++                                Button(L("Continue")) { sensor.autoCalibration.confirmFlat() }
++                                    .font(.title.bold()).buttonStyle(.borderedProminent).controlSize(.extraLarge)
++                                    .disabled(!sensor.confirmed || !sensor.autoCalibration.flatMeasured)
++                            }.padding(24).background(.ultraThinMaterial,in:RoundedRectangle(cornerRadius:20)).offset(y:35)
++                        }
++                        if step==0 && sensor.autoCalibration.flatReady && !sensor.autoCalibration.pickedUp {
++                            let approach=min(t.truncatingRemainder(dividingBy:3)/1.5,1.0)
++                            HStack {
++                                Image(systemName:"hand.point.up.left.fill").scaleEffect(x:-1,y:1)
++                                Spacer().frame(width:CGFloat(220-approach*95))
++                                Image(systemName:"hand.point.up.left.fill")
++                            }.font(.system(size:46)).foregroundStyle(.white.opacity(0.85)).offset(y:CGFloat(65-approach*22)).allowsHitTesting(false)
++                        }
++                    }
++                    .clipShape(RoundedRectangle(cornerRadius:12))
++            }
++            LocalizedText(!sensor.confirmed ? "Keep the phone app open and wait for motion data." : (step==0 ? (!sensor.autoCalibration.flatReady ? "Place the phone screen-up on a flat, stable table. When the bar fills, click Continue to confirm its position." : (sensor.autoCalibration.pickedUp ? "Hold still until the bar fills." : "Pick up your phone and hold it like the controller shown.")) : (step==7 ? sensor.autoCalibration.message : (paused ? "Return to your starting grip and hold still. Wait for the next arrow." : "Make one broad movement following the arrow, then stop.")))).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true)
++            ProgressView(value:step==7 ? 1:sensor.autoCalibration.progress)
++
++            HStack {
++                Button(L("Start over")) { sensor.autoCalibration=AutoCalibration();started=Date() }
++                Spacer();Button(L("Cancel")) { dismiss() }
++
++                if step==7 { Button(L("OK")) { if let map=sensor.autoCalibration.result { sensor.applyCalibration(map:map,bias:sensor.autoCalibration.bias,gravity:sensor.autoCalibration.flatGravity,preview:sensor.autoCalibration.preview) };dismiss() }.keyboardShortcut(.defaultAction).disabled(!sensor.autoCalibration.previewReady) }
++            }
++        }.padding(24).frame(width:780)
++        .onChange(of:sensor.autoCalibration.phase) { _,_ in started=Date() }
++        .onAppear { sensor.autoCalibration=AutoCalibration();sensor.calibrating=true }
++        .onDisappear { sensor.calibrating=false }
++    }
++}
+diff --git a/dm/mac/Motion/DSUConfiguration.swift b/dm/mac/Motion/DSUConfiguration.swift
+new file mode 100644
+index 0000000..752e388
+--- /dev/null
++++ b/dm/mac/Motion/DSUConfiguration.swift
+@@ -0,0 +1,68 @@
++// Shared, per-user motion configuration. Never embed LAN endpoints in game bundles.
++import Foundation
++
++struct DSUDevice: Codable, Equatable, Identifiable {
++    var id: UUID
++    var name: String
++    var player: Int
++    var host: String
++    var port: Int
++    var slot: Int
++    // Axial gyro transform: signed DSU axes -> Switch coordinates.
++    var axes: [Int]
++    var bias: [Double]
++    var enabled: Bool
++    var calibrated: Bool? = nil
++    var displayAxes: [Int]? = nil
++    var valid: Bool {
++        let octets=host.split(separator:".",omittingEmptySubsequences:false)
++        return octets.count==4 && octets.allSatisfy { part in
++            !part.isEmpty && part.allSatisfy { $0.isASCII && $0.isNumber } && UInt8(part) != nil
++        } && (1...8).contains(player) && (1...65535).contains(port) && (0...3).contains(slot)
++            && axes.count==3 && axes.allSatisfy { (-3...3).contains($0) && $0 != 0 }
++            && Set(axes.map { abs($0) })==Set([1,2,3])
++            && bias.count==3 && bias.allSatisfy { $0.isFinite && abs($0)<=10000 }
++    }
++    var environmentValue: String? {
++        guard valid else { return nil }
++        return ([host,String(port),String(slot)] + axes.map(String.init) + bias.map { String($0) }).joined(separator:",")
++    }
++}
++struct DSUConfiguration: Codable, Equatable {
++    var version = 1
++    var devices: [DSUDevice] = []
++    static var userURL: URL {
++        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/nxnative/motion/dsu-v1.json")
++    }
++    // Duplicate enabled player assignments fail closed, rather than silently choosing a phone.
++    func environment() throws -> [String:String] {
++        guard version==1,devices.count<=32 else { throw Failure.invalid }
++        var result: [String:String]=[:]
++        guard Set(devices.map(\.id)).count==devices.count else { throw Failure.invalid }
++        for device in devices {
++            guard device.valid else { throw Failure.invalid }
++        }
++        for device in devices where device.enabled {
++            guard let value=device.environmentValue else { throw Failure.invalid }
++            let key="DM_DSU_"+String(device.player)
++            guard result[key]==nil else { throw Failure.duplicatePlayer }
++            result[key]=value
++        }
++        return result
++    }
++    static func load(from url: URL = userURL) throws -> DSUConfiguration {
++        guard FileManager.default.fileExists(atPath:url.path) else { return DSUConfiguration() }
++        let size=(try url.resourceValues(forKeys:[.fileSizeKey])).fileSize ?? 0
++        guard size<=65536 else { throw Failure.invalid }
++        let config=try JSONDecoder().decode(Self.self,from:Data(contentsOf:url))
++        _ = try config.environment();return config
++    }
++    func save(to url:URL = userURL) throws {
++        _ = try environment()
++        try FileManager.default.createDirectory(at:url.deletingLastPathComponent(),withIntermediateDirectories:true)
++        let data=try JSONEncoder().encode(self)
++        try data.write(to:url,options:.atomic)
++        try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:url.path)
++    }
++    enum Failure: Error { case invalid,duplicatePlayer }
++}
+diff --git a/dm/mac/Motion/DSUMotionTranslations.json b/dm/mac/Motion/DSUMotionTranslations.json
+new file mode 100644
+index 0000000..e0f91ab
+--- /dev/null
++++ b/dm/mac/Motion/DSUMotionTranslations.json
+@@ -0,0 +1,352 @@
++{
++  "Name": {
++    "pt-BR": "Nome",
++    "es": "Nombre",
++    "zh-Hant": "名稱"
++  },
++  "Player": {
++    "pt-BR": "Jogador",
++    "es": "Jugador",
++    "zh-Hant": "玩家"
++  },
++  "Remove": {
++    "pt-BR": "Remover",
++    "es": "Eliminar",
++    "zh-Hant": "移除"
++  },
++  "Phone IP": {
++    "pt-BR": "IP do celular",
++    "es": "IP del teléfono",
++    "zh-Hant": "手機 IP"
++  },
++  "Port": {
++    "pt-BR": "Porta",
++    "es": "Puerto",
++    "zh-Hant": "連接埠"
++  },
++  "DSU slot": {
++    "pt-BR": "Slot DSU",
++    "es": "Ranura DSU",
++    "zh-Hant": "DSU 插槽"
++  },
++  "Auto": {
++    "pt-BR": "Automático",
++    "es": "Automático",
++    "zh-Hant": "自動"
++  },
++  "Connect": {
++    "pt-BR": "Conectar",
++    "es": "Conectar",
++    "zh-Hant": "連線"
++  },
++  "Disconnect": {
++    "pt-BR": "Desconectar",
++    "es": "Desconectar",
++    "zh-Hant": "中斷連線"
++  },
++  "Disconnected": {
++    "pt-BR": "Desconectado",
++    "es": "Desconectado",
++    "zh-Hant": "未連線"
++  },
++  "Calibrate…": {
++    "pt-BR": "Calibrar…",
++    "es": "Calibrar…",
++    "zh-Hant": "校正…"
++  },
++  "Add connection": {
++    "pt-BR": "Adicionar conexão",
++    "es": "Añadir conexión",
++    "zh-Hant": "新增連線"
++  },
++  "Automatic discovery": {
++    "pt-BR": "Busca automática",
++    "es": "Búsqueda automática",
++    "zh-Hant": "自動搜尋"
++  },
++  "UDP port": {
++    "pt-BR": "Porta UDP",
++    "es": "Puerto UDP",
++    "zh-Hant": "UDP 連接埠"
++  },
++  "Start over": {
++    "pt-BR": "Recomeçar",
++    "es": "Reiniciar",
++    "zh-Hant": "重新開始"
++  },
++  "Cancel": {
++    "pt-BR": "Cancelar",
++    "es": "Cancelar",
++    "zh-Hant": "取消"
++  },
++  "Continue": {
++    "pt-BR": "Continuar",
++    "es": "Continuar",
++    "zh-Hant": "繼續"
++  },
++  "OK": {
++    "pt-BR": "OK",
++    "es": "Aceptar",
++    "zh-Hant": "確定"
++  },
++  "Place flat": {
++    "pt-BR": "Coloque na mesa",
++    "es": "Colócalo plano",
++    "zh-Hant": "平放手機"
++  },
++  "Hold still": {
++    "pt-BR": "Fique parado",
++    "es": "Mantén inmóvil",
++    "zh-Hant": "保持靜止"
++  },
++  "Hold like a wheel": {
++    "pt-BR": "Segure como volante",
++    "es": "Sujeta como volante",
++    "zh-Hant": "像方向盤般握住"
++  },
++  "Steer": {
++    "pt-BR": "Gire",
++    "es": "Gira",
++    "zh-Hant": "轉動"
++  },
++  "Tilt": {
++    "pt-BR": "Incline",
++    "es": "Inclina",
++    "zh-Hant": "傾斜"
++  },
++  "Rotate": {
++    "pt-BR": "Rotacione",
++    "es": "Rota",
++    "zh-Hant": "旋轉"
++  },
++  "Waiting": {
++    "pt-BR": "Aguardando",
++    "es": "Esperando",
++    "zh-Hant": "等候中"
++  },
++  "You Got It! Move Freely To Test": {
++    "pt-BR": "Conseguiu! Mova para testar",
++    "es": "¡Lo lograste! Muévete para probar",
++    "zh-Hant": "成功了！自由移動以測試"
++  },
++  "Calibrate {0}": {
++    "pt-BR": "Calibrar {0}",
++    "es": "Calibrar {0}",
++    "zh-Hant": "校正 {0}"
++  },
++  "{0} samples": {
++    "pt-BR": "{0} amostras",
++    "es": "{0} muestras",
++    "zh-Hant": "{0} 筆樣本"
++  },
++  "Phone": {
++    "pt-BR": "Celular",
++    "es": "Teléfono",
++    "zh-Hant": "手機"
++  },
++  "Phone {0}": {
++    "pt-BR": "Celular {0}",
++    "es": "Teléfono {0}",
++    "zh-Hant": "手機 {0}"
++  },
++  "Language": {
++    "pt-BR": "Idioma",
++    "es": "Idioma",
++    "zh-Hant": "語言"
++  },
++  "Keep the phone app open and wait for motion data.": {
++    "pt-BR": "Mantenha o app do celular aberto e aguarde os dados de movimento.",
++    "es": "Mantén abierta la app del teléfono y espera los datos de movimiento.",
++    "zh-Hant": "請保持手機應用程式開啟，並等候動作資料。"
++  },
++  "Place the phone screen-up on a flat, stable table. When the bar fills, click Continue to confirm its position.": {
++    "pt-BR": "Coloque o celular com a tela para cima numa mesa plana e estável. Quando a barra encher, clique em Continuar para confirmar.",
++    "es": "Coloca el teléfono con la pantalla hacia arriba sobre una mesa plana y estable. Cuando se llene la barra, pulsa Continuar.",
++    "zh-Hant": "將手機螢幕朝上平放在穩固的桌面上。進度條填滿後，按「繼續」確認位置。"
++  },
++  "Hold still until the bar fills.": {
++    "pt-BR": "Fique parado até a barra encher.",
++    "es": "Mantén inmóvil hasta que se llene la barra.",
++    "zh-Hant": "保持靜止，直到進度條填滿。"
++  },
++  "Pick up your phone and hold it like the controller shown.": {
++    "pt-BR": "Pegue o celular e segure como o controle mostrado.",
++    "es": "Levanta el teléfono y sujétalo como el mando mostrado.",
++    "zh-Hant": "拿起手機，像畫面中的控制器一樣握住。"
++  },
++  "Return to your starting grip and hold still. Wait for the next arrow.": {
++    "pt-BR": "Volte à posição inicial e fique parado. Aguarde a próxima seta.",
++    "es": "Vuelve a la posición inicial y mantén inmóvil. Espera la siguiente flecha.",
++    "zh-Hant": "回到起始握姿並保持靜止，等候下一個箭頭。"
++  },
++  "Make one broad movement following the arrow, then stop.": {
++    "pt-BR": "Faça um movimento amplo seguindo a seta e pare.",
++    "es": "Haz un movimiento amplio siguiendo la flecha y detente.",
++    "zh-Hant": "沿箭頭方向做一次大幅度動作，然後停下。"
++  },
++  "Move freely to test. Press OK to save, or Start over.": {
++    "pt-BR": "Mova livremente para testar. Clique em OK para salvar ou Recomeçar.",
++    "es": "Muévete libremente para probar. Pulsa Aceptar para guardar o Reiniciar.",
++    "zh-Hant": "自由移動以測試。按「確定」儲存，或按「重新開始」。"
++  },
++  "Return to your normal grip and HOLD STILL to center the live test.": {
++    "pt-BR": "Volte à posição normal e FIQUE PARADO para centralizar o teste.",
++    "es": "Vuelve a la posición normal y MANTÉN INMÓVIL para centrar la prueba.",
++    "zh-Hant": "回到正常握姿並保持靜止，以置中即時測試。"
++  },
++  "No packets received": {
++    "pt-BR": "Nenhum pacote recebido",
++    "es": "Ningún paquete recibido",
++    "zh-Hant": "未收到封包"
++  },
++  "Invalid IP or port": {
++    "pt-BR": "IP ou porta inválidos",
++    "es": "IP o puerto inválido",
++    "zh-Hant": "IP 或連接埠無效"
++  },
++  "Contacting phone — not confirmed": {
++    "pt-BR": "Contatando celular — não confirmado",
++    "es": "Contactando teléfono — sin confirmar",
++    "zh-Hant": "正在聯絡手機，尚未確認"
++  },
++  "Waiting for a valid reply — not connected yet": {
++    "pt-BR": "Aguardando resposta válida — ainda não conectado",
++    "es": "Esperando respuesta válida — aún sin conexión",
++    "zh-Hant": "等候有效回覆，尚未連線"
++  },
++  "NO RESPONSE YET — still sending requests. Check IP, port, slot and Local Network permission.": {
++    "pt-BR": "SEM RESPOSTA — continuamos enviando pedidos. Confira IP, porta, slot e permissão de rede local.",
++    "es": "SIN RESPUESTA — seguimos enviando solicitudes. Revisa IP, puerto, ranura y permiso de red local.",
++    "zh-Hant": "尚無回覆，仍在傳送請求。請檢查 IP、連接埠、插槽及區域網路權限。"
++  },
++  "SIGNAL LOST — no reply for 3 seconds": {
++    "pt-BR": "SINAL PERDIDO — sem resposta há 3 segundos",
++    "es": "SEÑAL PERDIDA — sin respuesta durante 3 segundos",
++    "zh-Hant": "訊號中斷，已 3 秒未收到回覆"
++  },
++  "REPLY RECEIVED — inspect packet details below": {
++    "pt-BR": "RESPOSTA RECEBIDA — confira os pacotes abaixo",
++    "es": "RESPUESTA RECIBIDA — revisa los paquetes abajo",
++    "zh-Hant": "已收到回覆，請查看下方封包資訊"
++  },
++  "SIGNAL LOST — no valid motion for 3 seconds": {
++    "pt-BR": "SINAL PERDIDO — sem movimento válido há 3 segundos",
++    "es": "SEÑAL PERDIDA — sin movimiento válido durante 3 segundos",
++    "zh-Hant": "訊號中斷，已 3 秒無有效動作"
++  },
++  "CONNECTED — receiving DSU slot {0}": {
++    "pt-BR": "CONECTADO — recebendo slot DSU {0}",
++    "es": "CONECTADO — recibiendo ranura DSU {0}",
++    "zh-Hant": "已連線，正在接收 DSU 插槽 {0}"
++  },
++  "Send error: {0}": {
++    "pt-BR": "Erro de envio: {0}",
++    "es": "Error de envío: {0}",
++    "zh-Hant": "傳送錯誤：{0}"
++  },
++  "Axis mapping (saved for this phone)": {
++    "pt-BR": "Mapeamento de eixos (salvo neste celular)",
++    "es": "Ejes (guardados para este teléfono)",
++    "zh-Hant": "軸向設定（儲存於此手機）"
++  },
++  "Display X · tilt toward you": {
++    "pt-BR": "Eixo X · inclinar para você",
++    "es": "Eje X · inclinar hacia ti",
++    "zh-Hant": "顯示 X 軸・朝自己傾斜"
++  },
++  "Display Y · turn flat on table": {
++    "pt-BR": "Eixo Y · girar sobre a mesa",
++    "es": "Eje Y · girar sobre la mesa",
++    "zh-Hant": "顯示 Y 軸・在桌面上轉動"
++  },
++  "Display Z · lean left/right": {
++    "pt-BR": "Eixo Z · inclinar para os lados",
++    "es": "Eje Z · inclinar a los lados",
++    "zh-Hant": "顯示 Z 軸・左右傾斜"
++  },
++  "Choose three different input axes.": {
++    "pt-BR": "Escolha três eixos de entrada diferentes.",
++    "es": "Elige tres ejes de entrada diferentes.",
++    "zh-Hant": "請選擇三個不同的輸入軸。"
++  },
++  "Swap X / Y": {
++    "pt-BR": "Trocar X / Y",
++    "es": "Intercambiar X / Y",
++    "zh-Hant": "交換 X / Y"
++  },
++  "Buttons face you · white shoulder edge = top · two grips = bottom": {
++    "pt-BR": "Botões para você · borda branca = topo · duas alças = base",
++    "es": "Botones hacia ti · borde blanco = arriba · dos empuñaduras = abajo",
++    "zh-Hant": "按鈕朝向自己・白色肩部邊緣為頂端・兩個握把為底部"
++  },
++  "Recent packets (all types and slots)": {
++    "pt-BR": "Pacotes recentes (todos os tipos e slots)",
++    "es": "Paquetes recientes (todos los tipos y ranuras)",
++    "zh-Hant": "最近封包（所有類型及插槽）"
++  },
++  "Phone motion over Cemuhook UDP · local network only": {
++    "pt-BR": "Movimento por Cemuhook UDP · apenas rede local",
++    "es": "Movimiento por Cemuhook UDP · solo red local",
++    "zh-Hant": "透過 Cemuhook UDP 傳送動作・僅限區域網路"
++  },
++  "Automatic discovery off": {
++    "pt-BR": "Busca automática desligada",
++    "es": "Búsqueda automática desactivada",
++    "zh-Hant": "自動搜尋已關閉"
++  },
++  "Invalid discovery port": {
++    "pt-BR": "Porta de busca inválida",
++    "es": "Puerto de búsqueda inválido",
++    "zh-Hant": "搜尋連接埠無效"
++  },
++  "No small local IPv4 subnet found (limit 1024 addresses). Use manual connection.": {
++    "pt-BR": "Nenhuma sub-rede IPv4 pequena encontrada (limite de 1024 endereços). Conecte manualmente.",
++    "es": "No se encontró una subred IPv4 pequeña (máximo 1024 direcciones). Conecta manualmente.",
++    "zh-Hant": "找不到小型本機 IPv4 子網路（最多 1024 個位址）。請手動連線。"
++  },
++  "Place Flat and Click Continue": {
++    "pt-BR": "Coloque na mesa e clique em Continuar",
++    "es": "Colócalo plano y pulsa Continuar",
++    "zh-Hant": "平放手機並按繼續"
++  },
++  "Input X = DSU pitch, Y = yaw, Z = roll. Choose each input once. Minus reverses direction. Mapping changes reset orientation.": {
++    "pt-BR": "Entrada X = pitch, Y = yaw, Z = roll do DSU. Use cada eixo uma vez. O sinal negativo inverte o sentido. Alterar reinicia a orientação.",
++    "es": "Entrada X = pitch, Y = yaw, Z = roll de DSU. Usa cada eje una vez. El signo negativo invierte el sentido. Cambiar reinicia la orientación.",
++    "zh-Hant": "輸入 X 為 DSU pitch，Y 為 yaw，Z 為 roll。每個軸只能選一次。負號會反轉方向，變更設定會重設姿態。"
++  },
++  "Open DSUController on your phone. Enter its IP, port and slot. Use Calibrate for three guided movements. Hold the phone horizontally like a controller. Orientation integrates the gyroscope and may drift.": {
++    "pt-BR": "Abra o DSUController no celular. Informe IP, porta e slot. Use Calibrar para seguir os movimentos guiados. Segure o celular como controle. A orientação pode apresentar deriva.",
++    "es": "Abre DSUController en el teléfono. Introduce IP, puerto y ranura. Usa Calibrar para seguir los movimientos guiados. Sujeta el teléfono como un mando. La orientación puede derivar.",
++    "zh-Hant": "在手機開啟 DSUController，輸入 IP、連接埠及插槽。按校正並跟隨引導動作，像控制器般握住手機。姿態可能隨時間漂移。"
++  },
++  "Phone is still. Confirm it is flat on the table, then Continue.": {
++    "pt-BR": "Celular parado. Confirme que está plano na mesa e clique em Continuar.",
++    "es": "Teléfono inmóvil. Confirma que está plano sobre la mesa y pulsa Continuar.",
++    "zh-Hant": "手機已靜止。請確認已平放桌面，再按繼續。"
++  },
++  "Recenter": {
++    "pt-BR": "Recentrar",
++    "es": "Recentrar",
++    "zh-Hant": "重新置中"
++  },
++  "Recenter without changing axes": {
++    "pt-BR": "Recentrar sem alterar eixos",
++    "es": "Recentrar sin cambiar ejes",
++    "zh-Hant": "重新置中而不變更軸向"
++  },
++  "Flat on table": {
++    "pt-BR": "Plano na mesa",
++    "es": "Plano sobre la mesa",
++    "zh-Hant": "平放桌面"
++  },
++  "Holding like a wheel": {
++    "pt-BR": "Segurando como volante",
++    "es": "Sujetando como volante",
++    "zh-Hant": "像方向盤般握住"
++  },
++  "Hold still, then choose the current pose. Axis mapping and gyro bias stay unchanged.": {
++    "pt-BR": "Fique parado e escolha a posição atual. Os eixos e a compensação do giroscópio serão mantidos.",
++    "es": "Mantén inmóvil y elige la postura actual. Se mantienen los ejes y la compensación del giroscopio.",
++    "zh-Hant": "保持靜止，然後選擇目前姿勢。軸向設定與陀螺儀偏差補償保持不變。"
++  }
++}
+diff --git a/dm/mac/Motion/Discovery.swift b/dm/mac/Motion/Discovery.swift
+new file mode 100644
+index 0000000..98cd56d
+--- /dev/null
++++ b/dm/mac/Motion/Discovery.swift
+@@ -0,0 +1,87 @@
++import Foundation
++import Network
++import Darwin
++
++enum LocalNetwork {
++    static func hosts() -> [String] {
++        var first: UnsafeMutablePointer<ifaddrs>?
++        guard getifaddrs(&first) == 0 else { return [] }
++        defer { freeifaddrs(first) }
++        var result = Set<String>()
++        var next = first
++        while let item = next {
++            defer { next = item.pointee.ifa_next }
++            let flags = Int32(item.pointee.ifa_flags)
++            guard flags & IFF_UP != 0, flags & IFF_LOOPBACK == 0,
++                  let a = item.pointee.ifa_addr, let m = item.pointee.ifa_netmask,
++                  a.pointee.sa_family == UInt8(AF_INET) else { continue }
++            let name = String(cString:item.pointee.ifa_name)
++            guard name.hasPrefix("en") || name.hasPrefix("bridge") else { continue }
++            let ip = a.withMemoryRebound(to:sockaddr_in.self,capacity:1) { UInt32(bigEndian:$0.pointee.sin_addr.s_addr) }
++            let mask = m.withMemoryRebound(to:sockaddr_in.self,capacity:1) { UInt32(bigEndian:$0.pointee.sin_addr.s_addr) }
++            let start = ip & mask, end = start | ~mask
++            // Never expand a large corporate/VPN subnet into an unbounded scan.
++            guard end > start, end-start <= 1023 else { continue }
++            for h in (start+1)..<end where h != ip {
++                result.insert([24,16,8,0].map { String((h >> $0)&255) }.joined(separator:"."))
++            }
++        }
++        return result.sorted()
++    }
++}
++
++@MainActor final class Discovery: ObservableObject {
++    @Published var enabled = false
++    @Published var port = "26760"
++    @Published var status = "Automatic discovery off"
++    var found: ((String,Int)->Void)?
++    private var task: Task<Void,Never>?
++    private var probes: [UUID:NWConnection] = [:]
++    private var reported = Set<String>()
++    func start() {
++        stop(); enabled = true; reported = []
++        guard let p = UInt16(port),p>0 else { enabled=false;status="Invalid discovery port";return }
++        task = Task { [weak self] in
++            guard let self else { return }
++            while !Task.isCancelled {
++                let hosts=LocalNetwork.hosts()
++                self.status=hosts.isEmpty ? "No small local IPv4 subnet found (limit 1024 addresses). Use manual connection." : "Searching \(hosts.count) local addresses on UDP \(p)…"
++                for i in stride(from:0,to:hosts.count,by:24) {
++                    if Task.isCancelled { return }
++                    for host in hosts[i..<min(i+24,hosts.count)] { self.probe(host,p) }
++                    try? await Task.sleep(for:.seconds(1))
++                }
++                if Task.isCancelled { return }
++                self.status="Found \(self.reported.count) active controller(s). Searching again in 15 seconds."
++                try? await Task.sleep(for:.seconds(15))
++            }
++        }
++    }
++    func probe(_ host:String,_ port:UInt16) {
++        let id=UUID(), c=NWConnection(host:NWEndpoint.Host(host),port:NWEndpoint.Port(rawValue:port)!,using:.udp)
++        probes[id]=c
++        c.stateUpdateHandler = { [weak self,weak c] state in Task { @MainActor in
++            guard let self,let c,self.probes[id] === c else { return }
++            if case .ready = state {
++                c.send(content:DSU.packet(type:0x100001,payload:[4,0,0,0,0,1,2,3],id:0x4d4c4142),completion:.contentProcessed { _ in })
++                self.receive(c,id,host,port)
++            }
++        } }
++        c.start(queue:DispatchQueue(label:"dsu.discovery"))
++        Task { [weak self,weak c] in
++            try? await Task.sleep(for:.seconds(1))
++            c?.cancel();self?.probes.removeValue(forKey:id)
++        }
++    }
++    func receive(_ c:NWConnection,_ id:UUID,_ host:String,_ port:UInt16) {
++        c.receiveMessage { [weak self,weak c] data,_,_,error in Task { @MainActor in
++            guard let self,let c,self.enabled,self.probes[id] === c else { return }
++            if let data,let slot=DSU.connectedSlot(data) {
++                let key=host+":"+String(port)+":"+String(slot)
++                if self.reported.insert(key).inserted { self.found?(host,Int(slot)) }
++            }
++            if error == nil { self.receive(c,id,host,port) }
++        } }
++    }
++    func stop() { task?.cancel();task=nil;for c in probes.values { c.cancel() };probes=[:];enabled=false;status="Automatic discovery off" }
++}
+diff --git a/dm/mac/Motion/LaunchEnvironment.swift b/dm/mac/Motion/LaunchEnvironment.swift
+new file mode 100644
+index 0000000..73632cd
+--- /dev/null
++++ b/dm/mac/Motion/LaunchEnvironment.swift
+@@ -0,0 +1,10 @@
++import Foundation
++// Explicit launch overrides always win. Configuration is loaded at launch, never baked into a bundle.
++@_cdecl("dm_mac_motion_apply")
++public func dmMacMotionApply() {
++    do {
++        for (key,value) in try DSUConfiguration.load().environment() {
++            if getenv(key)==nil { setenv(key,value,0) }
++        }
++    } catch { fputs("[RED] launcher: invalid shared DSU configuration, phone motion disabled\n",stderr) }
++}
+diff --git a/dm/mac/Motion/Localization.swift b/dm/mac/Motion/Localization.swift
+new file mode 100644
+index 0000000..d2b8b89
+--- /dev/null
++++ b/dm/mac/Motion/Localization.swift
+@@ -0,0 +1,44 @@
++import SwiftUI
++
++@MainActor final class AppLanguage: ObservableObject {
++    static let shared = AppLanguage()
++    @Published var code: String { didSet { UserDefaults.standard.set(code,forKey:"DSUMotionLab.language") } }
++    init() {
++        let saved=UserDefaults.standard.string(forKey:"DSUMotionLab.language")
++        let system=Locale.preferredLanguages.first ?? "en"
++        code=saved ?? (system.hasPrefix("pt") ? "pt-BR" : (system.hasPrefix("es") ? "es" : (system.hasPrefix("zh") ? "zh-Hant" : "en")))
++    }
++}
++
++enum Catalog {
++    static let translations: [String:[String:String]] = {
++        #if SWIFT_PACKAGE
++        let bundle=Bundle.module
++        #else
++        let bundle=Bundle.main
++        #endif
++        guard let url=bundle.url(forResource:"DSUMotionTranslations",withExtension:"json"),let data=try? Data(contentsOf:url),let rows=try? JSONDecoder().decode([String:[String:String]].self,from:data) else { return [:] }
++        return rows
++    }()
++    static func translate(_ text:String,language:String) -> String {
++        guard language != "en" else { return text }
++        if let result=translations[text]?[language] { return result }
++        // Dynamic strings use numbered placeholders, not concatenated translated fragments.
++        for (key,values) in translations where key.contains("{0}") {
++            guard let translated=values[language] else { continue }
++            let parts=key.components(separatedBy:"{0}")
++            guard parts.count==2 else { continue }
++            let pattern="^"+NSRegularExpression.escapedPattern(for:parts[0])+"(.+?)"+NSRegularExpression.escapedPattern(for:parts[1])+"$"
++            guard let regex=try? NSRegularExpression(pattern:pattern),let match=regex.firstMatch(in:text,range:NSRange(text.startIndex...,in:text)),let range=Range(match.range(at:1),in:text) else { continue }
++            return translated.replacingOccurrences(of:"{0}",with:String(text[range]))
++        }
++        return text
++    }
++}
++struct LocalizedText: View {
++    @ObservedObject private var language = AppLanguage.shared
++    var text:String
++    init(_ text:String) { self.text=text }
++    var body: some View { Text(verbatim:Catalog.translate(text,language:language.code)) }
++}
++@MainActor func L(_ text:String) -> String { Catalog.translate(text,language:AppLanguage.shared.code) }
+diff --git a/dm/mac/Motion/MotionView.swift b/dm/mac/Motion/MotionView.swift
+new file mode 100644
+index 0000000..a870a0a
+--- /dev/null
++++ b/dm/mac/Motion/MotionView.swift
+@@ -0,0 +1,268 @@
++import SwiftUI
++import Network
++import SceneKit
++import simd
++
++@MainActor final class Sensor: ObservableObject, Identifiable {
++    let id = UUID()
++    var onEdit: (() -> Void)?
++    @Published var axes = AxisMap() { didSet { orientation = Orientation(); onEdit?() } }
++    @Published var name = "Phone" { didSet { onEdit?() } }
++    @Published var player = 1 { didSet { onEdit?() } }
++    @Published var host = "192.168.1.100" { didSet { onEdit?() } }
++    @Published var port = "26760" { didSet { onEdit?() } }
++    @Published var slot = -1 { didSet { onEdit?() } }
++    @Published var detectedSlot: Int?
++    @Published var status = "Disconnected"
++    @Published var running = false
++    @Published var confirmed = false
++    private var startedAt = Date()
++    @Published var samples = 0
++    @Published var received = 0
++    @Published var sent = 0
++    @Published var lastPacket = "No packets received"
++    @Published var packetLog: [String] = []
++    private var lastReply = Date.distantPast
++    @Published var acceleration = SIMD3<Double>.zero
++    @Published var gyro = SIMD3<Double>.zero
++    @Published var orientation = Orientation()
++    @Published var calibrating = false
++    @Published var capture = MotionCapture()
++    @Published var autoCalibration = AutoCalibration()
++    var gyroBias = SIMD3<Double>.zero
++    var flatGravity = SIMD3<Double>.zero
++    var calibrated = false
++    @Published var flatCentered = false
++    func recenter(flat:Bool) {
++        orientation.tare();orientation.resetClock();flatCentered=flat;onEdit?()
++    }
++    var displayRotation: simd_quatd {
++        let base=simd_quatd(angle:Double.pi/2,axis:SIMD3(1,0,0))
++        return calibrated && !flatCentered ? base * orientation.displayed : orientation.displayed
++    }
++    func applyCalibration(map:AxisMap,bias:SIMD3<Double>,gravity:SIMD3<Double>,preview:Orientation) {
++        axes=map;gyroBias=bias;flatGravity=gravity;orientation=preview;calibrated=true;flatCentered=false;onEdit?()
++    }
++    private var connection: NWConnection?
++    private var timer: Timer?
++    private var lastSeen = Date.distantPast
++    private var previous: (UInt32, UInt32)?
++    private let clientID = UInt32.random(in: 1...UInt32.max)
++    func connect() {
++        disconnect()
++        guard !host.trimmingCharacters(in:.whitespaces).isEmpty, let p = UInt16(port), p > 0, let endpoint = NWEndpoint.Port(rawValue:p) else { status = "Invalid IP or port"; return }
++        detectedSlot = nil
++        received = 0; sent = 0; packetLog = []; lastPacket = "No packets received"; lastReply = .distantPast
++        running = true; confirmed = false; startedAt = Date(); lastSeen = .distantPast
++        status = "Contacting phone — not confirmed"; samples = 0; previous = nil; orientation.resetClock()
++        let c = NWConnection(host:NWEndpoint.Host(host),port:endpoint,using:.udp); connection = c
++        c.stateUpdateHandler = { [weak self, weak c] state in
++            Task { @MainActor in
++                guard let self, let c, self.connection === c else { return }
++                switch state {
++                case .ready: self.status = "Waiting for a valid reply — not connected yet"; self.subscribe(); self.receive(c)
++                case .failed(let e): self.disconnect(); self.status = e.localizedDescription
++                default: break
++                }
++            }
++        }
++        c.start(queue:DispatchQueue(label:"dsu.(id)"))
++        timer = Timer.scheduledTimer(withTimeInterval:1,repeats:true) { [weak self] _ in Task { @MainActor in
++            guard let self else { return }; self.subscribe()
++            let now = Date()
++            if self.received == 0 && now.timeIntervalSince(self.startedAt) >= 6 {
++                self.status = "NO RESPONSE YET — still sending requests. Check IP, port, slot and Local Network permission."
++            } else if self.received > 0 && now.timeIntervalSince(self.lastReply) > 3 {
++                self.confirmed = false; self.status = "SIGNAL LOST — no reply for 3 seconds"
++            } else if self.received > 0 && self.samples == 0 {
++                self.status = "REPLY RECEIVED — inspect packet details below"
++            } else if self.samples > 0 && now.timeIntervalSince(self.lastSeen) > 3 {
++                self.confirmed = false; self.status = "SIGNAL LOST — no valid motion for 3 seconds"; self.orientation.resetClock()
++            }
++        } }
++    }
++    func subscribe() {
++        let payload: [UInt8] = slot < 0 ? [0,0,0,0,0,0,0,0] : [1,UInt8(slot),0,0,0,0,0,0]
++        send(type:0x100000,payload:[])
++        send(type:0x100001,payload:[4,0,0,0,0,1,2,3])
++        send(type:0x100002,payload:payload)
++    }
++    func send(type: UInt32, payload: [UInt8]) {
++        sent += 1
++        connection?.send(content: DSU.packet(type:type,payload:payload,id:clientID),completion:.contentProcessed { [weak self] error in
++            if let error { Task { @MainActor in self?.status = "Send error: " + error.localizedDescription } }
++        })
++    }
++    func inspect(_ data: Data) {
++        received += 1; lastReply = Date()
++        let detail = DSU.describe(data, selectedSlot:slot)
++        lastPacket = detail
++        packetLog.insert(detail,at:0); if packetLog.count > 16 { packetLog.removeLast() }
++    }
++    func receive(_ c: NWConnection) {
++        c.receiveMessage { [weak self, weak c] data, _, _, error in
++            Task { @MainActor in
++                guard let self, let c, self.connection === c else { return }
++                if let error { self.disconnect(); self.status = error.localizedDescription; return }
++                if let data { self.inspect(data) }
++                if let data, let s = DSU.decode(data), self.slot < 0 || Int(s.slot) == self.slot {
++                    if self.slot < 0 {
++                        if self.detectedSlot == nil || Date().timeIntervalSince(self.lastSeen) > 3 {
++                            self.detectedSlot = Int(s.slot); self.previous = nil; self.orientation.resetClock()
++                        }
++                        // Lock to one live stream: never mix the orientations of different slots.
++                        if self.detectedSlot != Int(s.slot) { self.receive(c); return }
++                    }
++                    let old = self.previous
++                    let delta = old.map { s.sequence &- $0.1 } ?? 1
++                    if old == nil || old!.0 != s.server || (delta > 0 && delta < 0x80000000) || Date().timeIntervalSince(self.lastSeen)>3 {
++                        if old?.0 != s.server { self.orientation.resetClock() }
++                        self.previous = (s.server,s.sequence); self.lastSeen = Date(); self.samples += 1
++                        self.acceleration = s.acceleration; self.gyro = s.gyro; if self.calibrating { self.autoCalibration.add(s) }
++                        var mapped = s; mapped.gyro = self.axes.apply(s.gyro-self.gyroBias)
++                        if self.axes.valid { self.orientation.update(mapped) }; self.confirmed = true; self.status = "CONNECTED — receiving DSU slot " + String(s.slot)
++                    }
++                }
++                self.receive(c)
++            }
++        }
++    }
++    func disconnect() { timer?.invalidate(); timer=nil; connection?.cancel(); connection=nil; running=false; confirmed=false; status="Disconnected" }
++}
++
++struct MotionBox: NSViewRepresentable {
++    var rotation: simd_quatd
++    var arrowAxis: SIMD3<Double>? = nil
++    var arrowDirection: Double = 1
++    var obliqueView = false
++    func makeNSView(context:Context) -> SCNView {
++        let v = SCNView(); let scene=SCNScene(); v.scene=scene; v.backgroundColor=NSColor(calibratedWhite:0.07,alpha:1)
++        let node=SCNNode();node.name="sensor";scene.rootNode.addChildNode(node)
++        func part(_ geometry:SCNGeometry,_ position:SCNVector3,_ color:NSColor,_ angle:Float=0) {
++            geometry.firstMaterial?.diffuse.contents=color
++            geometry.firstMaterial?.roughness.contents=0.65
++            let n=SCNNode(geometry:geometry);n.position=position;n.eulerAngles.y=CGFloat(angle);node.addChildNode(n)
++        }
++        part(SCNBox(width:2.8,height:0.32,length:1.15,chamferRadius:0.25),SCNVector3(0,0,-0.1),.lightGray)
++        part(SCNBox(width:0.85,height:0.38,length:1.65,chamferRadius:0.32),SCNVector3(-1.03,-0.02,0.48),.lightGray,-0.22)
++        part(SCNBox(width:0.85,height:0.38,length:1.65,chamferRadius:0.32),SCNVector3(1.03,-0.02,0.48),.lightGray,0.22)
++        // Four dark direction buttons on the left, four colored action buttons right.
++        for (x,z) in [(-0.98,-0.40),(-0.98,0.06),(-1.21,-0.17),(-0.75,-0.17)] {
++            part(SCNBox(width:0.19,height:0.10,length:0.19,chamferRadius:0.04),SCNVector3(x,0.22,z),.darkGray)
++        }
++        for (i,p) in [(0,SCNVector3(0.98,0.23,-0.40)),(1,SCNVector3(0.98,0.23,0.06)),(2,SCNVector3(0.75,0.23,-0.17)),(3,SCNVector3(1.21,0.23,-0.17))] {
++            part(SCNSphere(radius:0.105),p,[NSColor.systemYellow,.systemBlue,.systemGreen,.systemRed][i])
++        }
++        for x:Float in [-0.21,0.21] { part(SCNBox(width:0.23,height:0.08,length:0.12,chamferRadius:0.04),SCNVector3(x,0.22,-0.05),.white) }
++        for x:Float in [-0.52,0.52] { part(SCNCylinder(radius:0.17,height:0.12),SCNVector3(x,0.22,0.36),.darkGray) }
++        for x:Float in [-0.9,0.9] { part(SCNBox(width:0.6,height:0.17,length:0.18,chamferRadius:0.07),SCNVector3(x,0.05,-0.72),.darkGray) }
++        // Bright shoulder edge and two grips are readable even without text.
++        part(SCNBox(width:0.65,height:0.08,length:0.10,chamferRadius:0.03),SCNVector3(0,0.18,-0.66),.white)
++        let camera=SCNNode(); camera.name="camera"; camera.camera=SCNCamera(); camera.camera?.usesOrthographicProjection=true; camera.camera?.orthographicScale=2.15; camera.position=SCNVector3(0,3.4,4.8); camera.look(at:SCNVector3Zero); scene.rootNode.addChildNode(camera)
++        v.autoenablesDefaultLighting=true; return v
++    }
++    func updateNSView(_ view:SCNView,context:Context) {
++        if let camera=view.scene?.rootNode.childNode(withName:"camera",recursively:false) {
++            camera.position=obliqueView ? SCNVector3(3.5,2.8,4.8) : SCNVector3(0,3.4,4.8)
++            camera.look(at:SCNVector3Zero)
++        }
++        updateArrow(view)
++        view.scene?.rootNode.childNode(withName:"sensor",recursively:false)?.simdOrientation = simd_quatf(ix:Float(rotation.imag.x),iy:Float(rotation.imag.y),iz:Float(rotation.imag.z),r:Float(rotation.real))
++    }
++}
++extension MotionBox {
++    func updateArrow(_ view:SCNView) {
++        guard let scene=view.scene else { return }
++        scene.rootNode.childNode(withName:"guide",recursively:false)?.removeFromParentNode()
++        guard let axis=arrowAxis else { return }
++        let guide=SCNNode();guide.name="guide";guide.simdOrientation=simd_quatf(angle:Float.pi/2,axis:SIMD3<Float>(1,0,0));scene.rootNode.addChildNode(guide)
++        let n=SIMD3<Float>(Float(axis.x),Float(axis.y),Float(axis.z))
++        let u=simd_normalize(simd_cross(n,abs(n.x)<0.9 ? SIMD3<Float>(1,0,0):SIMD3<Float>(0,0,1)))
++        let v=simd_cross(n,u);let sign=Float(arrowDirection)
++        func point(_ t:Float)->SIMD3<Float> { (u*cos(t)+v*sin(t))*1.8 }
++        for i in 0..<30 {
++            let a=sign*(Float(i)/30*2-0.7),b=sign*(Float(i+1)/30*2-0.7)
++            let from=point(a),to=point(b),d=to-from
++            let g=SCNCylinder(radius:0.035,height:CGFloat(simd_length(d)));g.firstMaterial?.diffuse.contents=NSColor.systemOrange
++            let part=SCNNode(geometry:g);part.simdPosition=(from+to)/2;part.simdOrientation=simd_quatf(from:SIMD3<Float>(0,1,0),to:simd_normalize(d));guide.addChildNode(part)
++        }
++        let t=sign*1.3,tip=point(t),tangent=simd_normalize((-u*sin(t)+v*cos(t))*sign)
++        let cone=SCNCone(topRadius:0,bottomRadius:0.15,height:0.35);cone.firstMaterial?.diffuse.contents=NSColor.systemOrange
++        let head=SCNNode(geometry:cone);head.simdPosition=tip+tangent*0.1;head.simdOrientation=simd_quatf(from:SIMD3<Float>(0,1,0),to:tangent);guide.addChildNode(head)
++    }
++}
++struct AxisPicker: View {
++    var title:String
++    @Binding var selection:Int
++    var body: some View { Picker(title,selection:$selection) { ForEach([1,-1,2,-2,3,-3],id: \.self) { a in LocalizedText((a<0 ? "−" : "+") + ["X / pitch","Y / yaw","Z / roll"][abs(a)-1]).tag(a) } } }
++}
++@available(macOS 14.0, *)
++struct SensorCard: View {
++    @ObservedObject var sensor:Sensor
++    @State private var showCalibration = false
++    @State private var showRecenter = false
++    var index:Int
++    var remove:()->Void
++    func vector(_ v:SIMD3<Double>) -> String { String(format:"% .3f   % .3f   % .3f",v.x,v.y,v.z) }
++    var body:some View {
++        VStack(alignment:.leading,spacing:12) {
++            HStack { TextField(L("Name"),text:$sensor.name).font(.title2.bold()); Picker(L("Player"),selection:$sensor.player) { ForEach(1..<9) { LocalizedText(String($0)).tag($0) } }.frame(width:120); Button(L("Remove"),action:remove) }
++            HStack {
++                TextField(L("Phone IP"),text:$sensor.host).frame(minWidth:130)
++                TextField(L("Port"),text:$sensor.port).frame(width:75)
++                Picker(L("DSU slot"),selection:$sensor.slot) { LocalizedText("Auto").tag(-1); ForEach(0..<4) { LocalizedText("\($0)").tag($0) } }.frame(width:125)
++            }.disabled(sensor.running)
++            HStack {
++                Button(L(sensor.running ? "Disconnect":"Connect")) { if sensor.running { sensor.disconnect() } else { sensor.connect() } }
++                Button(L("Calibrate…")) { showCalibration = true }.disabled(!sensor.confirmed)
++                Button(L("Recenter")) { showRecenter=true }.disabled(!sensor.confirmed)
++                Spacer(); LocalizedText("\(sensor.samples) samples").monospacedDigit()
++            }
++            DisclosureGroup(L("Axis mapping (saved for this phone)")) {
++                AxisPicker(title:"Display X · tilt toward you",selection:$sensor.axes.x)
++                AxisPicker(title:"Display Y · turn flat on table",selection:$sensor.axes.y)
++                AxisPicker(title:"Display Z · lean left/right",selection:$sensor.axes.z)
++                LocalizedText("Input X = DSU pitch, Y = yaw, Z = roll. Choose each input once. Minus reverses direction. Mapping changes reset orientation.").font(.caption)
++                if !sensor.axes.valid { LocalizedText("Choose three different input axes.").foregroundStyle(.red) }
++                Button(L("Swap X / Y")) { let a=sensor.axes; sensor.axes=AxisMap(x:a.y,y:a.x,z:a.z) }
++            }
++            MotionBox(rotation:sensor.displayRotation).frame(height:210).clipShape(RoundedRectangle(cornerRadius:12))
++            LocalizedText("Buttons face you · white shoulder edge = top · two grips = bottom").font(.caption)
++            HStack { Circle().fill(sensor.confirmed ? Color.green : (sensor.running ? Color.orange : Color.red)).frame(width:10,height:10); LocalizedText(sensor.status).fontWeight(.semibold) }
++            LocalizedText("Sent: \(sensor.sent) requests · Received: \(sensor.received) packets").monospacedDigit()
++            LocalizedText(sensor.lastPacket).font(.system(.caption,design:.monospaced)).textSelection(.enabled)
++            DisclosureGroup(L("Recent packets (all types and slots)")) {
++                ScrollView { LocalizedText(sensor.packetLog.joined(separator:"\n\n")).font(.system(.caption2,design:.monospaced)).textSelection(.enabled).frame(maxWidth:.infinity,alignment:.leading) }.frame(height:150)
++            }
++            LocalizedText("Acceleration (g): \(vector(sensor.acceleration))").font(.system(.caption,design:.monospaced))
++            LocalizedText("Gyro (°/s):       \(vector(sensor.gyro))").font(.system(.caption,design:.monospaced))
++        }.padding(18).background(.background,in:RoundedRectangle(cornerRadius:16))
++        .sheet(isPresented:$showCalibration) { CalibrationView(sensor:sensor) }
++        .confirmationDialog(L("Recenter without changing axes"),isPresented:$showRecenter,titleVisibility:.visible) {
++            Button(L("Flat on table")) { sensor.recenter(flat:true) }
++            Button(L("Holding like a wheel")) { sensor.recenter(flat:false) }
++            Button(L("Cancel"),role:.cancel) {}
++        } message: { LocalizedText("Hold still, then choose the current pose. Axis mapping and gyro bias stay unchanged.") }
++    }
++}
++@available(macOS 14.0, *)
++public struct DSUMotionView:View {
++    public init() {}
++    @StateObject private var store = SensorStore()
++    @ObservedObject private var language = AppLanguage.shared
++    @StateObject private var discovery = Discovery()
++    public var body:some View {
++        VStack(alignment:.leading,spacing:14) {
++            HStack { VStack(alignment:.leading) { LocalizedText("DSU Motion Lab").font(.largeTitle.bold()); LocalizedText("Phone motion over Cemuhook UDP · local network only").foregroundStyle(.secondary) }; Spacer(); Button(L("Add connection")) { store.add() } }
++            Picker(L("Language"),selection:$language.code) { LocalizedText("Português").tag("pt-BR"); LocalizedText("English").tag("en"); LocalizedText("Español").tag("es"); LocalizedText("繁體中文").tag("zh-Hant") }.frame(width:260)
++            HStack { Toggle(L("Automatic discovery"),isOn:$discovery.enabled).onChange(of:discovery.enabled) { _,on in if on { discovery.start() } else { discovery.stop() } }; TextField(L("UDP port"),text:$discovery.port).frame(width:85).disabled(discovery.enabled); LocalizedText(discovery.status).font(.caption) }
++            LocalizedText("Open DSUController on your phone. Enter its IP, port and slot. Use Calibrate for three guided movements. Hold the phone horizontally like a controller. Orientation integrates the gyroscope and may drift.").font(.callout).foregroundStyle(.secondary)
++            if let error=store.error { LocalizedText(error).foregroundStyle(.red) }
++            ScrollView { LazyVGrid(columns:[GridItem(.adaptive(minimum:420),spacing:16)],spacing:16) {
++                ForEach(Array(store.sensors.enumerated()),id: \.element.id) { i,s in SensorCard(sensor:s,index:i+1) { s.disconnect(); store.remove(s) } }
++            } }
++        }.padding(22).frame(minWidth:520,minHeight:580).background(Color(nsColor:.windowBackgroundColor))
++        .onAppear { store.connectSavedOnce();discovery.found = { host,slot in store.discovered(host:host,port:discovery.port,slot:slot) } }
++        .onDisappear { discovery.stop();store.sensors.forEach { $0.disconnect() } }
++    }
++}
+diff --git a/dm/mac/Motion/Package.swift b/dm/mac/Motion/Package.swift
+new file mode 100644
+index 0000000..c3aba2d
+--- /dev/null
++++ b/dm/mac/Motion/Package.swift
+@@ -0,0 +1,3 @@
++// swift-tools-version: 6.0
++import PackageDescription
++let package = Package(name:"NXMotion",platforms:[.macOS(.v13)],products:[.library(name:"NXMotion",targets:["NXMotion"])],targets:[.target(name:"NXMotion",path:".",exclude:["Package.swift","Tests"],resources:[.process("DSUMotionTranslations.json")]),.testTarget(name:"NXMotionTests",dependencies:["NXMotion"],path:"Tests")],swiftLanguageModes:[.v5])
+diff --git a/dm/mac/Motion/Protocol.swift b/dm/mac/Motion/Protocol.swift
+new file mode 100644
+index 0000000..6bdec8d
+--- /dev/null
++++ b/dm/mac/Motion/Protocol.swift
+@@ -0,0 +1,90 @@
++import Foundation
++import simd
++
++enum DSU {
++    static func crc(_ bytes: [UInt8]) -> UInt32 {
++        var c: UInt32 = 0xffffffff
++        for b in bytes { c ^= UInt32(b); for _ in 0..<8 { c = (c >> 1) ^ (c & 1 == 1 ? 0xedb88320 : 0) } }
++        return ~c
++    }
++    static func number(_ b: [UInt8], _ o: Int, _ n: Int) -> UInt64 {
++        (0..<n).reduce(0) { $0 | UInt64(b[o+$1]) << (8*$1) }
++    }
++    static func packet(type: UInt32, payload: [UInt8], id: UInt32) -> Data {
++        var b: [UInt8] = Array("DSUC".utf8)
++        func add(_ v: UInt64, _ n: Int) { for i in 0..<n { b.append(UInt8(truncatingIfNeeded: v >> (8*i))) } }
++        add(1001,2); add(UInt64(payload.count+4),2); add(0,4); add(UInt64(id),4); add(UInt64(type),4); b += payload
++        let c = crc(b); for i in 0..<4 { b[8+i] = UInt8(truncatingIfNeeded: c >> (8*i)) }
++        return Data(b)
++    }
++    static func connectedSlot(_ data: Data) -> UInt8? {
++        var b = [UInt8](data)
++        guard b.count >= 32,Array(b.prefix(4)) == Array("DSUS".utf8),number(b,4,2)==1001 else { return nil }
++        let size=Int(number(b,6,2))+16
++        guard size>=32,size<=b.count else { return nil };b=Array(b.prefix(size))
++        let expected=UInt32(number(b,8,4));for i in 8..<12 { b[i]=0 }
++        let type=number(b,16,4)
++        guard crc(b)==expected,(type==0x100001 || type==0x100002),b[20]<4,b[21]==2 else { return nil }
++        return b[20]
++    }
++    static func describe(_ data: Data, selectedSlot: Int) -> String {
++        var b = [UInt8](data)
++        let hex = b.prefix(24).map { String(format:"%02x",$0) }.joined(separator:" ")
++        guard b.count >= 20 else { return "Short packet: \(b.count) bytes · " + hex }
++        let magic = String(bytes:b.prefix(4),encoding:.ascii) ?? "?"
++        let type = number(b,16,4), size = Int(number(b,6,2))+16
++        var detail = String(format:"%d bytes · %@ · type 0x%06llx",b.count,magic,type)
++        guard magic == "DSUS", size >= 20, size <= b.count else { return detail + " · rejected header/length · " + hex }
++        b = Array(b.prefix(size)); let expected = UInt32(number(b,8,4)); for i in 8..<12 { b[i] = 0 }
++        guard crc(b) == expected else { return detail + " · rejected CRC" }
++        detail += " · CRC OK"
++        guard number(b,4,2) == 1001 else { return detail + " · unsupported protocol" }
++        if type == 0x100000, b.count >= 22 { return detail + " · server version \(number(b,20,2))" }
++        if (type == 0x100001 || type == 0x100002), b.count >= 32 {
++            detail += " · slot \(b[20]) · state \(b[21]) · model \(b[22])"
++            if selectedSlot >= 0 && Int(b[20]) != selectedSlot { detail += " · OTHER SLOT (selected \(selectedSlot))" }
++        }
++        if type == 0x100002, b.count >= 100 {
++            detail += String(format:" · buttons %02x %02x · home %d · touch %d",b[36],b[37],b[38],b[39])
++            let values = stride(from:76,to:100,by:4).map { Double(Float(bitPattern:UInt32(number(b,$0,4)))) }
++            detail += " · acc " + values.prefix(3).map { String(format:"%.3f",$0) }.joined(separator:", ")
++            detail += " · gyro " + values.suffix(3).map { String(format:"%.3f",$0) }.joined(separator:", ")
++            if decode(data) == nil { detail += " · motion rejected (inactive/nonfinite)" }
++        }
++        return detail
++    }
++    struct Sample {
++        var slot: UInt8; var server: UInt32; var sequence: UInt32; var timestamp: UInt64
++        var acceleration: SIMD3<Double>; var gyro: SIMD3<Double>
++    }
++    static func decode(_ data: Data) -> Sample? {
++        var b = [UInt8](data)
++        guard b.count >= 100, Array(b[0..<4]) == Array("DSUS".utf8), number(b,4,2) == 1001 else { return nil }
++        let size = Int(number(b,6,2))+16
++        guard size >= 100, size <= b.count else { return nil }; b = Array(b.prefix(size))
++        let expected = UInt32(number(b,8,4)); for i in 8..<12 { b[i] = 0 }
++        guard crc(b) == expected, number(b,16,4) == 0x100002, b[21] == 2, b[31] == 1 else { return nil }
++        func f(_ o: Int) -> Double { Double(Float(bitPattern: UInt32(number(b,o,4)))) }
++        let a = SIMD3(f(76),f(80),f(84)), g = SIMD3(f(88),f(92),f(96))
++        guard [a.x,a.y,a.z,g.x,g.y,g.z].allSatisfy({ $0.isFinite }) else { return nil }
++        return Sample(slot:b[20],server:UInt32(number(b,12,4)),sequence:UInt32(number(b,32,4)),timestamp:number(b,68,8),acceleration:a,gyro:g)
++    }
++}
++
++struct Orientation {
++    var attitude = simd_quatd(angle: 0, axis: SIMD3(0,1,0))
++    var reference = simd_quatd(angle: 0, axis: SIMD3(0,1,0))
++    var last: UInt64?
++    mutating func update(_ s: DSU.Sample) {
++        defer { last = s.timestamp }
++        guard let t = last, s.timestamp > t else { return }
++        let dt = Double(s.timestamp-t)/1_000_000
++        guard dt < 0.5 else { return }
++        // DSU pitch/yaw/roll mapped to display X/Y/Z. Raw values remain visible.
++        let w = s.gyro * (.pi/180), speed = simd_length(w)
++        if speed > 0.00001 { attitude = simd_normalize(attitude * simd_quatd(angle:speed*dt,axis:w/speed)) }
++    }
++    mutating func tare() { reference = attitude }
++    var displayed: simd_quatd { reference.inverse * attitude }
++    mutating func resetClock() { last = nil }
++}
+diff --git a/dm/mac/Motion/Store.swift b/dm/mac/Motion/Store.swift
+new file mode 100644
+index 0000000..23fa779
+--- /dev/null
++++ b/dm/mac/Motion/Store.swift
+@@ -0,0 +1,42 @@
++import Foundation
++import Combine
++
++@MainActor final class SensorStore:ObservableObject {
++    @Published var sensors:[Sensor]=[]
++    @Published var error: String?
++    private var startupConnected=false
++    private let url:URL
++    init(url:URL = DSUConfiguration.userURL) {
++        self.url=url
++        do {
++            let config=try DSUConfiguration.load(from:url)
++            for d in config.devices {
++                let s=Sensor();s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
++                // Switch x/right,y/forward,z/up -> preview x/right,y/up,z/back.
++                s.axes=AxisMap(x:d.axes[0],y:d.axes[2],z:-d.axes[1]);s.gyroBias=SIMD3(d.bias[0],d.bias[1],d.bias[2]);s.calibrated=d.calibrated ?? d.enabled
++                if let axes=d.displayAxes,axes.count==3 { s.axes=AxisMap(x:axes[0],y:axes[1],z:axes[2]) }
++                sensors.append(s);observe(s)
++            }
++        } catch { self.error=String(describing:error) }
++    }
++    func observe(_ s:Sensor) { s.onEdit = { [weak self] in self?.save() } }
++    func add() { let s=Sensor();s.player=(1...8).first { p in !sensors.contains { $0.player==p } } ?? 1;s.name="Phone " + String(s.player);sensors.append(s);observe(s);save() }
++    func remove(_ s:Sensor) { s.disconnect();sensors.removeAll { $0.id==s.id };save() }
++    func connectSavedOnce() { guard !startupConnected else { return };startupConnected=true;for s in sensors { s.connect() } }
++    func configuration() throws -> DSUConfiguration {
++        var devices:[DSUDevice]=[]
++        for s in sensors {
++            let slot=s.slot<0 ? (s.detectedSlot ?? 0) : s.slot
++            guard let port=Int(s.port) else { throw DSUConfiguration.Failure.invalid }
++            devices.append(DSUDevice(id:s.id,name:s.name,player:s.player,host:s.host,port:port,slot:slot,axes:[s.axes.x,-s.axes.z,s.axes.y],bias:[s.gyroBias.x,s.gyroBias.y,s.gyroBias.z],enabled:s.calibrated,calibrated:s.calibrated,displayAxes:[s.axes.x,s.axes.y,s.axes.z]))
++        }
++        let config=DSUConfiguration(devices:devices);_ = try config.environment();return config
++    }
++    func save() {
++        do { try configuration().save(to:url);error=nil } catch { self.error="Cannot save motion configuration: " + String(describing:error) }
++    }
++    func discovered(host:String,port:String,slot:Int) {
++        if let existing=sensors.first(where: { $0.host==host && $0.port==port && ($0.slot==slot || $0.slot == -1) }) { if !existing.running { existing.connect() };return }
++        add();guard let s=sensors.last else { return };s.onEdit=nil;s.host=host;s.port=port;s.slot=slot;observe(s);save();s.connect()
++    }
++}
+diff --git a/dm/mac/Motion/Tests/MotionContractTests.swift b/dm/mac/Motion/Tests/MotionContractTests.swift
+new file mode 100644
+index 0000000..483e3eb
+--- /dev/null
++++ b/dm/mac/Motion/Tests/MotionContractTests.swift
+@@ -0,0 +1,24 @@
++import XCTest
++@testable import NXMotion
++final class MotionContractTests:XCTestCase {
++    @MainActor func testSharedPersistenceAndCoordinates() throws {
++        let dir=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
++        defer { try? FileManager.default.removeItem(at:dir) }
++        let url=dir.appendingPathComponent("dsu.json"),store=SensorStore(url:url)
++        XCTAssertTrue(store.sensors.isEmpty)
++        store.add();let phone=try XCTUnwrap(store.sensors.first)
++        phone.host="127.0.0.1";phone.port="26760";phone.slot=1
++        phone.applyCalibration(map:AxisMap(x:2,y:-1,z:3),bias:SIMD3(0.1,0.2,0.3),gravity:SIMD3(0,-1,0),preview:Orientation())
++        let saved=try DSUConfiguration.load(from:url)
++        XCTAssertEqual(saved.devices[0].axes,[2,-3,-1])
++        XCTAssertEqual(try saved.environment()["DM_DSU_1"],"127.0.0.1,26760,1,2,-3,-1,0.1,0.2,0.3")
++        let restored=SensorStore(url:url)
++        XCTAssertEqual(restored.sensors.first?.axes,phone.axes)
++        XCTAssertEqual(restored.sensors.first?.gyroBias,phone.gyroBias)
++    }
++    func testInvalidDisabledRecordRejected() throws {
++        var d=DSUDevice(id:UUID(),name:"Bad",player:1,host:"127.0.0.1",port:26760,slot:1,axes:[1,2,3],bias:[0,0,0],enabled:false)
++        d.axes=[]
++        XCTAssertThrowsError(try DSUConfiguration(devices:[d]).environment())
++    }
++}
+diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
+index 945bbd5..dcd5eff 100644
+--- a/dm/mac/launcher.c
++++ b/dm/mac/launcher.c
+@@ -354,6 +354,7 @@ int main(int argc, char **argv) {
+     int shown = window ? dm_mac_launcher() : 2;
+     if (!shown) return 0;   // Quit: no game
+     saved_choices(shown == 1);   // the window applied its settings; the controls are not among them
++    { void dm_mac_motion_apply(void); dm_mac_motion_apply(); }
+     cloud_saves_folder();
+     setenv("DM_ROOT", sup, 0); setenv("DM_ROMFS", romfs, 0); setenv("DM_SAVE", save, 0); setenv("DM_TEMP", temp, 0);
+     snprintf(p, sizeof p, "%s/msl", res); setenv("DM_MSL_DIR", p, 0);
+diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
+index 989a410..12ea495 100755
+--- a/dm/mac/pack_app.py
++++ b/dm/mac/pack_app.py
+@@ -90,7 +90,7 @@ def min_os(host):   # the host's deployment target (LC_BUILD_VERSION minos): the
+ 
+ 
+ def swift_sources():   # the settings window, with the iOS launcher's model and rows
+-    return [HERE / 'Launcher.swift', HERE.parent / 'ios/Sources/LauncherSettings.swift', HERE.parent / 'ios/Sources/LauncherRow.swift']
++    return [p for p in sorted((HERE / 'Motion').glob('*.swift')) if p.name != 'Package.swift'] + [HERE / 'Launcher.swift', HERE.parent / 'ios/Sources/LauncherSettings.swift', HERE.parent / 'ios/Sources/LauncherRow.swift']
+ 
+ 
+ def build_launcher(out, minos, clang, swiftc, sdk):   # launcher.c's main and the host's cloud-save code (its send after the host exits), linked by swiftc with the settings window (no Swift main: -parse-as-library)
+@@ -99,7 +99,7 @@ def build_launcher(out, minos, clang, swiftc, sdk):   # launcher.c's main and th
+         for obj, src in zip(objs, (HERE / 'launcher.c', HERE.parent / 'host/save_sync.c')):
+             run([clang, '-isysroot', sdk, '-arch', 'arm64', f'-mmacosx-version-min={minos}', '-O2', '-Wall', '-I', HERE.parent / 'host', '-c', '-o', obj, src])
+         run([swiftc, '-sdk', sdk, '-target', f'arm64-apple-macos{minos}', '-O', '-swift-version', '5', '-parse-as-library', '-module-cache-path', Path(t) / 'module-cache',
+-             '-o', out, *swift_sources(), *objs, '-framework', 'CoreFoundation', '-framework', 'AppKit', '-framework', 'SwiftUI'])
++             '-o', out, *swift_sources(), *objs, '-framework', 'CoreFoundation', '-framework', 'AppKit', '-framework', 'SwiftUI', '-framework', 'SceneKit', '-framework', 'Network'])
+ 
+ 
+ def make_icns(jpg, out):   # the game's icon (256x256 JPEG) at every size an .icns holds
+@@ -303,7 +303,7 @@ def pack(a):
+         if not codesign: raise SystemExit('codesign is not available')
+         codesign = Path(codesign).resolve()
+         minos = min_os(a.host)
+-        sources = [Path(__file__).resolve(), HERE / 'launcher.c', HERE.parent / 'host/romfs_image.h', HERE.parent / 'host/input_map.h', HERE.parent / 'host/dm_input.h', HERE.parent / 'host/save_sync.c', HERE.parent / 'host/save_sync.h', HERE.parent / 'tools/romfs.py', HERE.parent / 'tools/nacp.py'] + swift_sources()
++        sources = [Path(__file__).resolve(), HERE / 'launcher.c', HERE.parent / 'host/romfs_image.h', HERE.parent / 'host/input_map.h', HERE.parent / 'host/dm_input.h', HERE.parent / 'host/save_sync.c', HERE.parent / 'host/save_sync.h', HERE.parent / 'tools/romfs.py', HERE.parent / 'tools/nacp.py', HERE / 'Motion/DSUMotionTranslations.json'] + swift_sources()
+         inputs = {'options': vars(a), 'files': [(str(p), p.stat().st_mode, digest(p), os.readlink(p) if p.is_symlink() else None) for p in files + sources],
+                   'trees': [(p, inventory(Path(p))) for p in (a.romfs, a.romfs and f'{a.romfs}.id', a.aoc, a.html, *(str(x[1]) for x in programs), *(str(x[3]) for x in programs)) if p and Path(p).exists()],
+                   'tools': [[str(c), c.stat().st_mode, c.stat().st_size, c.stat().st_mtime_ns, c.stat().st_ctime_ns, run([c, '--version']).strip()] for c in (clang, swiftc)] + [
+@@ -332,6 +332,7 @@ def pack(a):
+         if need + (1 << 30) > free: raise SystemExit(f'the app needs {need / 2**30:.1f} GB on the volume of {out.parent} (no APFS clones from the build there) and {free / 2**30:.1f} GB are free')
+     step(f'launcher and host ({"clones" if clone["romfs"] else "copies"} of the game files)')
+     build_launcher(mac / EXE, minos, clang, swiftc, sdk)
++    shutil.copyfile(HERE / 'Motion/DSUMotionTranslations.json', res / 'DSUMotionTranslations.json')
+     shutil.copy(a.host, mac / 'dmhost')   # data and mode, not the build's extended attributes (copy2 would carry them into the app)
+     copy(mods, dm, clone['mods'])
+     if tables: copy(tables, dm, False)
