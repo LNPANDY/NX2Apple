@@ -44,6 +44,7 @@ from .widgets import (
     CardGroup,
     CardPageHeading,
     DropOverlayWidget,
+    ElidedLabel,
     GameCardWidget,
     HeroBannerWidget,
     HorizontalStripViewport,
@@ -2075,9 +2076,10 @@ class MainWindow(QMainWindow):
 
         self.act_title = QLabel(self.m.t('library.localNote'))
         self.act_title.setStyleSheet('font-size: 12px; font-weight: 600;')
+        self.act_title.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
         row.addWidget(self.act_title)
 
-        self.act_detail = QLabel('')
+        self.act_detail = ElidedLabel('', elide_mode=Qt.ElideMiddle)
         self.act_detail.setObjectName('muted')
         row.addWidget(self.act_detail, 1)
 
@@ -2598,8 +2600,10 @@ class MainWindow(QMainWindow):
     def _refresh_stages(self) -> None:
         while self.stages_col.count():
             item = self.stages_col.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w_old = item.widget()
+            if w_old:
+                w_old.hide()
+                w_old.deleteLater()
         self._refresh_progress_visibility()
         for st in self.m.stages:
             r = QHBoxLayout()
@@ -2611,14 +2615,19 @@ class MainWindow(QMainWindow):
             }.get(st.state, style.NEUTRAL_DOT)
             r.addWidget(_dot(color))
             name = QLabel(st.name)
+            name.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
             if st.state == 'running':
                 name.setStyleSheet('font-weight: 700;')
             elif st.state != 'done':
                 name.setObjectName('muted')
             r.addWidget(name)
-            detail = QLabel(st.detail if st.state == 'running' else '')
+            detail = ElidedLabel(
+                st.detail if st.state == 'running' else '',
+                elide_mode=Qt.ElideMiddle,
+                alignment=Qt.AlignRight | Qt.AlignVCenter,
+            )
             detail.setObjectName('mono')
-            r.addWidget(detail, 1, Qt.AlignRight)
+            r.addWidget(detail, 1)
             w = QWidget()
             w.setLayout(r)
             self.stages_col.addWidget(w)

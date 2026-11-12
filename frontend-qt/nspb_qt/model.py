@@ -20,6 +20,7 @@ from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, 
 
 from . import app_update
 from . import build_failure as bf
+from . import build_notes
 from . import engine
 from . import input_staging
 from . import inputs
@@ -2998,7 +2999,7 @@ class Model(QObject):
                         self._pso_native_progress = True
                         self._stop_pso_poll()
                     existing.percent = min(float(pct_m.group(1)), 100.0)
-                    after = rest[pct_m.end():].lstrip(' ·,:')
+                    after = build_notes.strip_not_cached(rest[pct_m.end():].lstrip(' ·,:'))
                     if after:
                         existing.detail = after
                 elif rest.endswith(' …'):
@@ -3013,7 +3014,7 @@ class Model(QObject):
                 elif ': ' in rest:
                     _head_part, hb_detail = rest.split(': ', 1)
                     if not (self._is_pso_stage_text(existing.name) and existing.percent > 0):
-                        existing.detail = hb_detail.strip()
+                        existing.detail = build_notes.strip_not_cached(hb_detail.strip())
             else:
                 for st in self.stages:
                     if st.state == 'running':
@@ -3024,9 +3025,10 @@ class Model(QObject):
                 if pct_m:
                     pct = min(float(pct_m.group(1)), 100.0)
                     clean_name = rest[:pct_m.start()].rstrip(' ·:')
-                    detail = rest[pct_m.end():].lstrip(' ·,:')
+                    detail = build_notes.strip_not_cached(rest[pct_m.end():].lstrip(' ·,:'))
                 elif ': ' in clean_name:
                     clean_name, detail = [p.strip() for p in clean_name.split(': ', 1)]
+                    detail = build_notes.strip_not_cached(detail)
                 self.stages.append(Stage(id=k, name=clean_name, state='running', detail=detail, percent=pct))
                 if self._is_pso_stage_text(clean_name):
                     if pct_m:
