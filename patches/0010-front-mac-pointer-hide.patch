@@ -13,7 +13,7 @@ Issue: LNPANDY/NX2Apple#280
  2 files changed, 36 insertions(+), 1 deletion(-)
 
 diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
-index f14b496..41c13c6 100644
+index f14b4963..41c13c66 100644
 --- a/dm/host/front_mac.m
 +++ b/dm/host/front_mac.m
 @@ -1516,6 +1516,12 @@ void front_run(void (*guest)(void)) {
@@ -67,10 +67,10 @@ index f14b496..41c13c6 100644
              [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
                  GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
 diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
-index 9c6461e..b82af49 100644
+index 69f0b169..c2c6e840 100644
 --- a/docs/reference/frame-rate.md
 +++ b/docs/reference/frame-rate.md
-@@ -386,6 +386,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+@@ -402,6 +402,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
  - **Check:** the reporter confirmed that the deferred request entered fullscreen on its first attempt and stayed there, without a refusal. A harness of the startup callbacks checks both readiness orders, bounded refusal recovery, and cancellation before startup or a queued retry, plus later manual failures after successful startup.
  - **Not checked:** the revised lifecycle handling in a real game through the launcher's console mode; native refusal recovery (the reporter's deferred request succeeded without it).
  

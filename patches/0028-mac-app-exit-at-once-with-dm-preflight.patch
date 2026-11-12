@@ -26,7 +26,7 @@ Issue: LNPANDY/NX2Apple#1005
  2 files changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index b03a258..08879b1 100644
+index b03a258d..08879b16 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
 @@ -182,6 +182,7 @@ static void programs_table(const char *contents, const char *res, const char *su
@@ -38,7 +38,7 @@ index b03a258..08879b1 100644
      snprintf(contents, sizeof contents, "%s", exe); *strrchr(contents, '/') = 0; *strrchr(contents, '/') = 0;   // .../Contents/MacOS/<launcher> → .../Contents
      snprintf(res, sizeof res, "%s/Resources", contents); snprintf(host, sizeof host, "%s/MacOS/dmhost", contents);
 diff --git a/docs/frontends.md b/docs/frontends.md
-index fa6c57a..17dae2b 100644
+index 91f2b595..279be606 100644
 --- a/docs/frontends.md
 +++ b/docs/frontends.md
 @@ -54,7 +54,7 @@ A built app carries the settings its game supports, as the iPhone app's settings

@@ -11,7 +11,6 @@ Create motor 0 on "JoyCon (L)" and motor 1 on "JoyCon (R)" when both localities 
 Upstream-Status: forwarded seedds/nxnative#2472
 Reason: Drive paired Bluetooth Joy-Con (L) and JoyCon (R) on separate channels without plain-player merge
 Issue: seedds/nxnative#2472
-
 ---
  dm/host/haptics_apple.m         | 39 ++++++++++++++++++------
  dm/host/tests/t_haptics_apple.m | 53 +++++++++++++++++++++++++++++++++
@@ -162,10 +161,10 @@ index b2aed52b..9efa8f9c 100644
      // route, and switching back stops native output before restoring locality.
      __block unsigned nativeStops=0;
 diff --git a/docs/reference/services.md b/docs/reference/services.md
-index 53b87029..98828a2e 100644
+index bfbd02bc..d533e13a 100644
 --- a/docs/reference/services.md
 +++ b/docs/reference/services.md
-@@ -541,6 +541,13 @@ Most service calls can be found before they crash, before the first boot or the
+@@ -614,6 +614,13 @@ Most service calls can be found before they crash, before the first boot or the
  - **Low levels on rotating motors (open).** Controller motors and the Switch's resonant actuators disagree at low amplitudes, in two directions. The Xbox controller's motors showed nothing at intensity 0.05, a faint buzz from about 0.1 and a soft one at 0.3, so Breath of the Wild's charged attack (0.07 for about 3 s, `DM_RUMBLE_LOG=1`) was not felt even at `DM_RUMBLE_GAIN=2.5`. Mario Kart 8 Deluxe holds its low band at 0.1–0.4 all race long (about 30 changes a second, 0.84 peaks every few seconds): a texture on a Joy-Con, rumble that never lets up on a DualShock 4's motors. A floor with a square-root rise (0.15 + 0.85·√x) fixed the first and would make the second much worse, so the mapping stays linear. `DM_RUMBLE_MIN=0..0.9` (default 0) silences controller levels below it and stretches the rest over the full range, on every controller route; 0.45 leaves Mario Kart 8 Deluxe's crashes and drifts, as an emulator gives them on that controller. `t_haptics_apple` covers the cutoff.
  - **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md) (1.9.0), on macOS 27.0.1 with an Xbox Wireless Controller over Bluetooth and an Xbox 360 USB receiver; [NieR:Automata The End of YoRHa Edition](../../dm/games/010056B015FE8000/README.md) (the Asian release, `0100B8E016F76000`) on an iPhone with a GameSir Super Nova in DualShock 4 mode, which plain players fixed; [Mario Kart 8 Deluxe](../../dm/games/0100152000022000/README.md) (4.0.1) on macOS 27.0.1 with a GameSir Cyclone; the same error in issue #219 (Sifu, provisional profile), controller unnamed.
  

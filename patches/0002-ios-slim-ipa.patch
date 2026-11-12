@@ -19,7 +19,7 @@ Issue: LNPANDY/NX2Apple#123
  4 files changed, 52 insertions(+), 7 deletions(-)
 
 diff --git a/dm/ios/tests/test_ipa_unsigned.py b/dm/ios/tests/test_ipa_unsigned.py
-index 028d506..4208688 100644
+index 028d5067..42086883 100644
 --- a/dm/ios/tests/test_ipa_unsigned.py
 +++ b/dm/ios/tests/test_ipa_unsigned.py
 @@ -54,8 +54,13 @@ class UnsignedIpaTests(unittest.TestCase):
@@ -58,7 +58,7 @@ index 028d506..4208688 100644
      def test_slim_ipa_of_a_folder_has_no_identity(self):
          self.assertNotIn('Payload/DmIOS.app/romfs.id', self.pack(DM_COPY_ROMFS='NO'))
 diff --git a/dm/ios/tests/test_profile_pack.py b/dm/ios/tests/test_profile_pack.py
-index 3d84931..6558530 100644
+index 3d849315..6558530f 100644
 --- a/dm/ios/tests/test_profile_pack.py
 +++ b/dm/ios/tests/test_profile_pack.py
 @@ -71,7 +71,8 @@ class ProfilePackTests(unittest.TestCase):
@@ -72,7 +72,7 @@ index 3d84931..6558530 100644
  
  
 diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
-index 57a16db..8531caa 100755
+index 57a16dbc..8531caaa 100755
 --- a/dm/ios/tools/build_ipa.sh
 +++ b/dm/ios/tools/build_ipa.sh
 @@ -248,6 +248,9 @@ if [ -n "${PROGRAMS_TSV:-}" ]; then   # each program's shader libraries, RomFS,
@@ -99,7 +99,7 @@ index 57a16db..8531caa 100755
  MAPS+=("$P/msl/$MSLDIR=$MSL_IOS/$MSLDIR" "$P=$APP")
    if [ -d "$(dirname "$ROMFS")/html" ]; then MAPS+=("$P/html=$(dirname "$ROMFS")/html"); t "offline HTML pages: $(dirname "$ROMFS")/html"; fi   # beside its RomFS, where the host finds them (hle_web.c)
 diff --git a/dm/ios/tools/xcode_projects.py b/dm/ios/tools/xcode_projects.py
-index a832ad5..0f5485d 100644
+index a832ad5a..0f5485df 100644
 --- a/dm/ios/tools/xcode_projects.py
 +++ b/dm/ios/tools/xcode_projects.py
 @@ -33,10 +33,42 @@ def workspace_projects(workspace):

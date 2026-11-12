@@ -38,7 +38,7 @@ Issue: LNPANDY/NX2Apple#749
 
 diff --git a/dm/tools/tests/test_nsp_experimental_builder.py b/dm/tools/tests/test_nsp_experimental_builder.py
 new file mode 100644
-index 0000000..444e186
+index 00000000..444e1864
 --- /dev/null
 +++ b/dm/tools/tests/test_nsp_experimental_builder.py
 @@ -0,0 +1,211 @@
@@ -254,7 +254,7 @@ index 0000000..444e186
 +if __name__ == '__main__':
 +    unittest.main()
 diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
-index 9bbf1e2..6ea466a 100755
+index a10b29ae..14744e98 100755
 --- a/scripts/build_ipa_from_nsp.py
 +++ b/scripts/build_ipa_from_nsp.py
 @@ -33,6 +33,7 @@
@@ -265,8 +265,8 @@ index 9bbf1e2..6ea466a 100755
  import ast, collections, contextlib, ctypes, errno, getpass, hashlib, importlib.util, json, os, re, shlex, shutil, signal, struct, subprocess, sys, tempfile, threading, time, types
  from pathlib import Path
  sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dm/tools"))
-@@ -447,6 +448,141 @@ def tool_env(environ=os.environ):
-     return dict(environ, PATH=os.pathsep.join([environ.get('PATH') or '/usr/bin:/bin:/usr/sbin:/sbin'] + TOOL_PATHS), DM_SAVE_SYNC='0')
+@@ -478,6 +479,141 @@ def tool_env(environ=os.environ):
+     return run_saves.cloud_off(dict(environ, PATH=os.pathsep.join([environ.get('PATH') or '/usr/bin:/bin:/usr/sbin:/sbin'] + TOOL_PATHS)))
  
  
 +# ---- The experimental builder (nxbuild) ----
@@ -407,23 +407,23 @@ index 9bbf1e2..6ea466a 100755
  # ---- NSP identification ----
  def is_package(path):   # what nx_extract's OpenNsp opens: an XCI / XCZ by the card header's magic at 0x100, else a PFS0 (NSP, NSZ)
      with open(path, 'rb') as f: h = f.read(0x104)
-@@ -1217,7 +1353,8 @@ def extract(nx, keys, ex, name, base, upd, cmp_dir, logs, g, app):   # the build
+@@ -1252,7 +1388,8 @@ def extract(nx, keys, ex, name, base, upd, logs, g, app, repo):
      def poll():
          n, b = tree_size(tmp); return {'done': b, 'note': f'{n:,} files'}
      PROG.stage(f'extract {name}', poll=poll, unit='B', total=last[1] if last else base.stat().st_size + (upd.stat().st_size if upd and upd != base else 0), est=not last)
 -    run([nx, keys, base, upd or '-', tmp, '--romfs-image'] + extract_flags(app), log)
 +    if not nxb_extract(keys, base, upd, tmp, logs, name, app, marker):   # the experimental builder, when it is on and can (else nothing happens there)
 +        run([nx, keys, base, upd or '-', tmp, '--romfs-image'] + extract_flags(app), log)
-     swap_in(tmp, dst)
+     swap_in(tmp, dst)   # the old folder goes whole, its key and offline pages with it
      n, b = extracted(log) or (0, 0)
-     PROG.end(f'{n:,} files, {amount(b, "B")}')
-@@ -1257,13 +1394,15 @@ def scan_nup(path, want=None):   # a NUP as scan_nsps gives a folder of NSPs, wi
+     kf.write_text(f'{key}\n{n:,} files, {amount(b, "B")}\n')
+@@ -1296,13 +1433,15 @@ def scan_nup(path, want=None):   # a NUP as scan_nsps gives a folder of NSPs, wi
      return app, {'base': base, 'updates': sorted(vers.items()), 'dlc': [(tid, None, k) for tid, k in sorted(dlc.items())], 'nup': n}
  
  
 -def extract_nup(ex, name, k, base, app, n):   # one version of a NUP (k: its base or an update package) into the layout extract makes; the code modules and the image are kept while unchanged
 +def extract_nup(ex, name, k, base, app, n, marker=None):   # one version of a NUP (k: its base or an update package) into the layout extract makes; the code modules and the image are kept while unchanged
-     dst = ex / name; part = dst / 'RomFS.img.part'
+     dst = ex / name; part = dst / 'RomFS.img.part'; rmtree(dst / 'extract.key')   # not nx_extract's output: an NSP build of this version extracts it again
      def poll():
          try: return {'done': part.stat().st_size}
          except OSError: return None
@@ -434,7 +434,7 @@ index 9bbf1e2..6ea466a 100755
          how = pack_nup.pack_version(n, k, base, app, dst, say=lambda s: None, step=lambda s: PROG.set(step=s))
      except pack_nup.Error as e: raise BuildError(str(e)) from e
      PROG.end(amount((dst / 'RomFS.img').stat().st_size, 'B') + {'kept': ', reused (inputs unchanged)', 'verified': ', reused (image checked)'}.get(how, ''))
-@@ -1321,6 +1460,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
+@@ -1360,6 +1499,11 @@ def extract_aoc(nx, keys, repo, work, app, fam, logs):
      if not fam['dlc']: return None
      if fam.get('nup'):
          PROG.stage('unpack DLC', step='unpacking')
@@ -446,7 +446,7 @@ index 9bbf1e2..6ea466a 100755
          try: pack_nup.pack_dlc(fam['nup'], app, {tid: k for tid, _, k in fam['dlc']}, work / 'aoc', say=lambda s: None)
          except pack_nup.Error as e: raise BuildError(str(e)) from e
          PROG.end(f'{len(fam["dlc"])} DLC')
-@@ -2187,9 +2331,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
+@@ -2240,9 +2384,17 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
      tmp = pkg.with_name(pkg.name + '.partial'); rmtree(tmp); (tmp / 'tables').mkdir(parents=True)
      def counted(ln):   # shader_split.py's 'progress: <done>/<total>'
          if m := re.fullmatch(r'progress: (\d+)/(\d+)', ln): PROG.set(done=int(m[1]), total=int(m[2]), unit='files')
@@ -467,12 +467,12 @@ index 9bbf1e2..6ea466a 100755
      m = re.search(r'shaders: (\d+) \(', text)
      bad = re.search(r'^\[RED\] (\d+) file\(s\) could not be read.*$', text, re.M)   # the split leaves out a file no reader reads (its own red line per file in the log) and goes on
      if bad and not provisional:   # the profile's tables were split from every file: one that does not read now is a reader change
-@@ -3065,7 +3217,7 @@ def main(args=None):
+@@ -3266,7 +3418,7 @@ def main(args=None):
      dirs = {}
      for ver in versions:   # each merged version streams directly into its own image
          b, u = picks[ver]
--        dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup']) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
-+        dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup'], g.get('romfs_marker')) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, None, logs, g, app)
-         if not nup and not dump: extract_html(nx, keys, dirs[ver], b, u, logs, app)
+-        dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup']) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, logs, g, app, repo)
++        dirs[ver] = extract_nup(ex, ver, u or b, b, app, fam['nup'], g.get('romfs_marker')) if nup else extract_dump(ex, ver, u or b, app) if dump else extract(nx, keys, ex, ver, b, u, logs, g, app, repo)
+         if not nup and not dump: extract_html(nx, keys, dirs[ver], b, u, logs, app, repo)
      check_formats(dirs)
      check_versions_aarch64(dirs, logs, g, nacp.name(dirs[versions[0]] / 'control.nacp') or f'{app:016X}')   # before build_mismatch, derive_profile and build_sources read the modules
