@@ -93,3 +93,5 @@
 0132-ios-preserve-unaligned-bss-head-and-tail-bytes-i.patch
 0133-add-shared-dsu-motion-management-and-per-player.patch
 0134-harden-shared-motion-configuration-and-stable-de.patch
+0135-stop-exclusive-windows-at-control-flow-terminato.patch
+0136-handle-legacy-console-body-motion-initialization.patch
