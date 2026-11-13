@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sat, 14 Nov 2026 00:47:44 +0800
+Subject: [PATCH] ios: record built_at timestamp in embedded game manifests
+
+Upstream-Status: pending
+Reason: Record built_at UTC timestamp in embedded iOS game manifests
+Issue: LNPANDY/NX2Apple (v1.5.0 local)
+
+---
+ dm/ios/tests/test_framework_build.py | 15 +++++++++++++--
+ dm/ios/tools/build_ipa.sh            |  3 ++-
+ dm/ios/tools/gen_manifest.py         |  5 +++++
+ 3 files changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
+index f1c899294..448a23367 100644
+--- a/dm/ios/tests/test_framework_build.py
++++ b/dm/ios/tests/test_framework_build.py
+@@ -104,15 +104,26 @@ class ManifestTests(unittest.TestCase):
+ 
+     def test_values_the_schema_cannot_carry_are_refused(self):
+         cases = [('--game', '1234'), ('--modules', ''), ('--modules', 'main_sdk'), ('--chain', 'fixture'),
+-                 ('--romfs-identity', 'not-an-identity')]
++                 ('--romfs-identity', 'not-an-identity'), ('--built-at', '2026-11-13')]
+         for flag, value in cases:
+             with self.subTest(flag=flag, value=value):
+                 base = [sys.executable, str(REPO / 'dm/ios/tools/gen_manifest.py'), '/dev/null', '--game', GAME, '--name', 'x',
+                         '--display-version', '1', '--package-version', 'v0', '--modules', 'main', '--chain', 'b-1',
+                         '--romfs-marker', 'marker', '--romfs-identity', 'DMROMFSID1 title=x size=1 index=2']
+-                base[base.index(flag) + 1] = value
++                if flag in base:
++                    base[base.index(flag) + 1] = value
++                else:
++                    base += [flag, value]
+                 self.assertNotEqual(subprocess.run(base, capture_output=True).returncode, 0)
+ 
++    def test_optional_built_at_is_omitted_by_default_and_kept_when_given(self):
++        result, without_ts = self.manifest()
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertNotIn('built_at', without_ts)
++        result, with_ts = self.manifest('--built-at', '2026-11-13T16:30:00Z')
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertEqual(with_ts['built_at'], '2026-11-13T16:30:00Z')
++
+ 
+ class ProjectTemplateTests(unittest.TestCase):
+     """build_ipa.sh --prepare-xcode copies the template the build asks for in as project.yml."""
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index b035395ad..9bb334e71 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -225,7 +225,8 @@ if [ "$FRAMEWORK" = 1 ]; then
+   FW_LOADER=FR; [ -z "$FRAMEWORK_ONLY" ] || FW_LOADER=FH
+   python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
+     --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
+-    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" --profile "$GD/game.tsv" > /dev/null || die "game manifest (gen_manifest.py)"
++    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" --profile "$GD/game.tsv" \
++    --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /dev/null || die "game manifest (gen_manifest.py)"
+   DM_NS_TAG=$(python3 tools/gen_objc_namespace.py --print-tag ${DM_NS_TAG:+--tag "$DM_NS_TAG"} --game "$GAME" --framework-name "$FW_NAME" ${DM_CHAIN_INDEX:+--chain-index "$DM_CHAIN_INDEX"} \
+     --header Gen/framework/objc_namespace.h --exports Gen/framework/exported_symbols.txt \
+     "$DM/host" "$DM/gfx" "$DM/ios/Sources" "$DM/ios/framework") || die "framework ObjC namespace"
+diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
+index 963156fd8..105b8530b 100644
+--- a/dm/ios/tools/gen_manifest.py
++++ b/dm/ios/tools/gen_manifest.py
+@@ -93,6 +93,10 @@ def manifest(args):
+         data['console'] = console   # the shell marks a Switch 2 game and warns about its memory (LNPANDY/NX2Apple#696)
+     if args.built_by:
+         data['built_by'] = args.built_by
++    if args.built_at:
++        if not re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$', args.built_at):
++            raise SystemExit(f'[RED] gen_manifest: --built-at {args.built_at!r} is not UTC ISO-8601 (YYYY-MM-DDTHH:MM:SSZ)')
++        data['built_at'] = args.built_at
+     return data
+ 
+ 
+@@ -116,6 +120,7 @@ def main(argv=None):
+                     help='FR: a module container whose host is the app (M1); FH: the framework carries its own host (the shell, #451)')
+     ap.add_argument('--profile', help='the game\'s dm/games/<title ID>/game.tsv: console in the manifest comes from its first line')
+     ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
++    ap.add_argument('--built-at', default='', help='UTC ISO-8601 build timestamp (YYYY-MM-DDTHH:MM:SSZ, optional)')
+     args = ap.parse_args(argv)
+     data = manifest(args)
+     out = Path(args.out)

@@ -234,28 +234,67 @@ extension LibraryView {
             default: break
             }
         }
+        let hadTileFocus = focus.id?.hasPrefix("lib.tile.") == true
         if focus.id == nil || !activeTargets.contains(where: { $0.id == focus.id }) {
             focus.id = defaultFocus
-            if action != .activate && action != .back && action != .settings && action != .controllers && action != .shellSettings { return }
+            if !Self.shouldDispatchWhenFocusMissing(action: action, topLayer: topLayer, hadTileFocus: hadTileFocus, isCoverFlow: layout.isCoverFlow, hasGames: !games.isEmpty) { return }
         }
+        let tileFocused = focus.id == nil || focus.id?.hasPrefix("lib.tile.") == true
         switch action {
-        case .activate: activeTargets.first { $0.id == focus.id }?.activate()
+        case .activate:
+            if let target = activeTargets.first(where: { $0.id == focus.id }) {
+                target.activate()
+            } else if topLayer == nil, let game = Self.fallbackActivatedGame(games: games, selected: selected, focusID: focus.id) {
+                primary(game)
+            }
         case .back: back()
         case .settings: openSettings()
         case .controllers: openControllers()
         case .shellSettings:   // Options: the gear's panel from the library or a game's settings, and Options again closes it
             if shellSettingsOpen { closeShellSettings() } else if Self.optionsOpensShellSettings(under: topLayer) { openShellSettings() }
-        case .left, .right:
-            // In Cover Flow the focused cover is always the middle one: left and right move the carousel by one.
-            if layout.isCoverFlow, let id = focus.id, id.hasPrefix("lib.tile."), let index = games.firstIndex(where: { $0.id == selected?.id }) {
-                let next = min(games.count - 1, max(0, index + (action == .left ? -1 : 1)))
-                select(games[next].id)
-                focus.id = "lib.tile.\(games[next].id)"
+        case .left, .right, .up, .down:
+            let hasTileTargets = activeTargets.contains { $0.id.hasPrefix("lib.tile.") }
+            if tileFocused, let nextID = Self.fallbackSteppedGameID(games: games, selectedID: selected?.id, focusID: focus.id, action: action, isCoverFlow: layout.isCoverFlow, topLayer: topLayer, hasTileTargets: hasTileTargets) {
+                select(nextID)
+                focus.id = "lib.tile.\(nextID)"
                 return
             }
             move(action)
-        default: move(action)
         }
+    }
+    static func shouldDispatchWhenFocusMissing(action: ShellInput.Action, topLayer: FocusLayer?, hadTileFocus: Bool, isCoverFlow: Bool, hasGames: Bool) -> Bool {
+        if action == .activate || action == .back || action == .settings || action == .controllers || action == .shellSettings {
+            return true
+        }
+        if action == .left || action == .right || action == .up || action == .down {
+            return topLayer == nil && hasGames && (hadTileFocus || isCoverFlow)
+        }
+        return false
+    }
+    static func fallbackActivatedGame(games: [GameDetail], selected: GameDetail?, focusID: String?) -> GameDetail? {
+        if let focusID {
+            guard focusID.hasPrefix("lib.tile.") else { return nil }
+            let id = String(focusID.dropFirst("lib.tile.".count))
+            return games.first { $0.id == id } ?? selected
+        }
+        return selected
+    }
+    static func fallbackSteppedGameID(games: [GameDetail], selectedID: String?, focusID: String?, action: ShellInput.Action, isCoverFlow: Bool, topLayer: FocusLayer?, hasTileTargets: Bool) -> String? {
+        guard topLayer == nil, !games.isEmpty,
+              let index = games.firstIndex(where: { $0.id == selectedID }) ?? (games.isEmpty ? nil : 0) else {
+            return nil
+        }
+        if isCoverFlow, (action == .left || action == .right), focusID?.hasPrefix("lib.tile.") == true {
+            let next = min(games.count - 1, max(0, index + (action == .left ? -1 : 1)))
+            return games[next].id
+        }
+        if !hasTileTargets, (action == .left || action == .right || action == .up || action == .down),
+           focusID == nil || focusID?.hasPrefix("lib.tile.") == true {
+            let delta = (action == .left || action == .up) ? -1 : 1
+            let next = min(games.count - 1, max(0, index + delta))
+            return games[next].id
+        }
+        return nil
     }
     /// The dialog or panel on top, in the order of `FocusLayer`.
     var topLayer: FocusLayer? {
