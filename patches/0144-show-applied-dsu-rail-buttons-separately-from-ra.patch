@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 07:54:29 -0300
+Subject: [PATCH] Show applied DSU rail buttons separately from raw packet
+ state
+
+Upstream-Status: pending
+Reason: Verify all horizontal rail-source combinations and distinguish applied input from raw receiver data
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/controllers_mac.m         | 2 ++
+ dm/host/dm_input.h                | 1 +
+ dm/host/hle_hid.c                 | 4 ++++
+ dm/host/tests/t_controllers_mac.m | 1 +
+ 4 files changed, 8 insertions(+)
+
+diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
+index 9c7c1d0..66ca2c1 100644
+--- a/dm/host/controllers_mac.m
++++ b/dm/host/controllers_mac.m
+@@ -1202,6 +1202,8 @@ void dm_dsu_load_configuration(void) {
+     for(int i=0;i<16;i++) [text appendFormat:@"%@ %@%@",s->buttons&(1u<<i) ? @"●" : @"○",names[i],i%4==3 ? @"\n" : @"  "];
+     [text appendFormat:@"\nSTICKS (received, signed 16-bit)\nLeft  X %+6d  Y %+6d\nRight X %+6d  Y %+6d\n",s->sticks[0],s->sticks[1],s->sticks[2],s->sticks[3]];
+     if(!s->connected) [text appendString:@"Not live: values above are not current input.\n"];
++    uint64_t applied=dm_dsu_applied_buttons(player-1);
++    [text appendFormat:@"Applied native buttons: 0x%llx · SL %@ · SR %@\n",(unsigned long long)applied,applied&(DM_BTN_LSL|DM_BTN_RSL)?@"pressed":@"released",applied&(DM_BTN_LSR|DM_BTN_RSR)?@"pressed":@"released"];
+     uint64_t reads;float guestGyro[3];dm_dsu_game_reads(player-1,&reads,guestGyro);
+     [text appendFormat:@"Game SDK motion reads: %llu · last gyro %+.3f %+.3f %+.3f rev/s\n",(unsigned long long)reads,guestGyro[0],guestGyro[1],guestGyro[2]];
+     if(!reads)[text appendString:@"No DSU motion history consumed by the game yet. Check player/style and in-game motion setting.\n"];
+diff --git a/dm/host/dm_input.h b/dm/host/dm_input.h
+index 7303dba..a9bf213 100644
+--- a/dm/host/dm_input.h
++++ b/dm/host/dm_input.h
+@@ -27,6 +27,7 @@ uint64_t dm_cheats_keys(void);
+ void dm_pad_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);
+ enum { DM_DSU_FULL, DM_DSU_LEFT, DM_DSU_RIGHT };
+ void dm_dsu_configure(int player, int role, int buttons_enabled); // independent source; never writes physical Joy-Con state
++uint64_t dm_dsu_applied_buttons(int player);
+ void dm_dsu_game_reads(int player,uint64_t *reads,float gyro[3]);
+ void dm_dsu_input(int player,uint64_t buttons,int32_t lx,int32_t ly,int32_t rx,int32_t ry,uint64_t sample_ns);
+ void dm_pad_set_player(int player, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);   // player 0..DM_PLAYERS-1 (player 1..8)
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index b5a0a58..3b02ce2 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -42,6 +42,10 @@ static _Atomic int g_dsu_role[DM_PLAYERS], g_dsu_enabled[DM_PLAYERS];
+ static uint32_t dsu_sides(int p) { return atomic_load(&g_dsu_enabled[p]) ? (atomic_load(&g_dsu_role[p]) == DM_DSU_LEFT ? 1u : atomic_load(&g_dsu_role[p]) == DM_DSU_RIGHT ? 2u : 0u) : 0u; }
+ static uint32_t dsu_players(void) { uint32_t m=0; for(int p=0;p<DM_PLAYERS;p++) if(atomic_load(&g_dsu_enabled[p]))m|=1u<<p;return m; }
+ static _Atomic uint64_t g_dsu_btn[DM_PLAYERS],g_dsu_axes[DM_PLAYERS],g_dsu_latch[DM_PLAYERS],g_dsu_input_time[DM_PLAYERS];
++uint64_t dm_dsu_applied_buttons(int p) {
++    if(p<0 || p>=DM_PLAYERS)return 0;uint64_t t=atomic_load(&g_dsu_input_time[p]),now=now_ns();
++    return t && now>=t && now-t<=300000000ull ? atomic_load(&g_dsu_btn[p]):0;
++}
+ void dm_dsu_input(int p,uint64_t buttons,int32_t lx,int32_t ly,int32_t rx,int32_t ry,uint64_t t) {
+     if(p<0 || p>=DM_PLAYERS)return;
+     // Native upright halves: no sideways rotation, remapping or synthetic SL/SR.
+diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
+index 6383a28..c623395 100644
+--- a/dm/host/tests/t_controllers_mac.m
++++ b/dm/host/tests/t_controllers_mac.m
+@@ -1213,6 +1213,7 @@ static void test_dsu_preview(void) {
+ }
+ void dm_dsu_start(void) {}
+ void dm_dsu_stop(void) {}
++uint64_t dm_dsu_applied_buttons(int player) { (void)player;return 0; }
+ void dm_dsu_game_reads(int player,uint64_t *reads,float gyro[3]) { (void)player;*reads=0;memset(gyro,0,3*sizeof(float)); }
+ void dm_dsu_report(char *out,size_t size) { if(size)out[0]=0; }
+ static void test_dsu_configuration(void) {
