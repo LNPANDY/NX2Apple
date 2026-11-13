@@ -3690,6 +3690,7 @@ class Model(QObject):
             t_func=self.t,
             log=self.log,
             stage_cb=on_stage,
+            extra_dirs=self._shell_framework_search_dirs(),
         )
         if ok:
             self.ipa_path = out_ipa
