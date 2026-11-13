@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 08:12:35 -0300
+Subject: [PATCH] Serialize explicit rail sources correctly and test both
+ config readers
+
+Upstream-Status: pending
+Reason: Validate explicit rail sources across Swift saved JSON and native host configuration readers
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/tests/t_controllers_mac.m             | 4 ++++
+ dm/mac/Motion/DSUConfiguration.swift          | 2 +-
+ dm/mac/Motion/Tests/MotionContractTests.swift | 6 ++++++
+ 3 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
+index c623395..a9fdf5d 100644
+--- a/dm/host/tests/t_controllers_mac.m
++++ b/dm/host/tests/t_controllers_mac.m
+@@ -1226,6 +1226,10 @@ static void test_dsu_configuration(void) {
+         NSMutableDictionary *d=[device mutableCopy];d[@"role"]=role;assert(dsu_apply_configuration(encode(d)));
+         assert(!strcmp(getenv("DM_DSU_ROLE_1"),role.UTF8String));
+     }
++    NSMutableDictionary *rails=[device mutableCopy];rails[@"railSL"]=@7;rails[@"railSR"]=@9;
++    assert(dsu_apply_configuration(encode(rails)) && !strcmp(getenv("DM_DSU_RAIL_1"),"7,9"));
++    rails[@"railSL"]=@16;assert(!dsu_apply_configuration(encode(rails)));
++    assert(!strcmp(getenv("DM_DSU_RAIL_1"),"7,9"));
+     NSMutableDictionary *invalidRole=[device mutableCopy];invalidRole[@"role"]=@"slot0";assert(!dsu_apply_configuration(encode(invalidRole)));
+     NSString *saved=@(getenv("DM_DSU_1"));
+     for(NSString *field in @[@"player",@"port",@"slot",@"enabled",@"buttons",@"host",@"axes",@"bias"]) {
+diff --git a/dm/mac/Motion/DSUConfiguration.swift b/dm/mac/Motion/DSUConfiguration.swift
+index 5286762..ea85021 100644
+--- a/dm/mac/Motion/DSUConfiguration.swift
++++ b/dm/mac/Motion/DSUConfiguration.swift
+@@ -58,7 +58,7 @@ struct DSUConfiguration: Codable, Equatable {
+             let key="DM_DSU_"+String(device.player)
+             guard result[key]==nil else { throw Failure.duplicatePlayer }
+             result[key]=value
+-            result["DM_DSU_RAIL_"+String(device.player)]="(device.railSL ?? -1),(device.railSR ?? -1)"
++            result["DM_DSU_RAIL_"+String(device.player)]=String(device.railSL ?? -1)+","+String(device.railSR ?? -1)
+             result["DM_DSU_ROLE_"+String(device.player)]=(device.role ?? .full).rawValue
+             result["DM_DSU_BUTTONS_"+String(device.player)]=(device.buttons ?? false) ? "1":"0"
+         }
+diff --git a/dm/mac/Motion/Tests/MotionContractTests.swift b/dm/mac/Motion/Tests/MotionContractTests.swift
+index fffec8f..8f063c8 100644
+--- a/dm/mac/Motion/Tests/MotionContractTests.swift
++++ b/dm/mac/Motion/Tests/MotionContractTests.swift
+@@ -45,6 +45,12 @@ final class MotionContractTests:XCTestCase {
+         XCTAssertEqual(restored.sensors.first?.axes,phone.axes)
+         XCTAssertEqual(restored.sensors.first?.gyroBias,phone.gyroBias)
+         XCTAssertEqual(try saved.environment()["DM_DSU_BUTTONS_1"],"0")
++        phone.railSL=7;phone.railSR=9
++        let railSaved=try DSUConfiguration.load(from:url)
++        XCTAssertEqual(try railSaved.environment()["DM_DSU_RAIL_1"],"7,9")
++        let railRestored=SensorStore(url:url)
++        XCTAssertEqual(railRestored.sensors.first?.railSL,7)
++        XCTAssertEqual(railRestored.sensors.first?.railSR,9)
+         phone.buttons=true
+         XCTAssertEqual(try DSUConfiguration.load(from:url).environment()["DM_DSU_BUTTONS_1"],"1")
+     }

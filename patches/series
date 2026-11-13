@@ -56,3 +56,4 @@
 0144-show-applied-dsu-rail-buttons-separately-from-ra.patch
 0145-verify-dsu-motion-reaches-sdk-sensors-for-every.patch
 0146-avoid-duplicate-menu-actions-when-those-sources.patch
+0147-serialize-explicit-rail-sources-correctly-and-te.patch
