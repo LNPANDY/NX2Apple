@@ -80,7 +80,9 @@ package enum AppSignature {
         let base = (!team.isEmpty && bundleID.hasSuffix(suffix))
             ? String(bundleID.dropLast(suffix.count))
             : bundleID
-        let candidates: Set<String> = team.isEmpty ? [bundleID] : [base, "\(base).\(team)"]
+        let candidates: Set<String> = team.isEmpty
+            ? [bundleID, "\(bundleID).widget"]
+            : [base, "\(base).widget", "\(base).\(team)", "\(base).\(team).widget"]
         let teamsToCheck = !team.isEmpty ? [team] : profileTeams
         guard let entitlements = plist["Entitlements"] as? [String: Any],
               let appID = entitlements["application-identifier"] as? String else {
@@ -119,7 +121,12 @@ package enum AppSignature {
             guard !settled else { return }
             settled = true
             let fm = FileManager.default
-            for path in [app + "/" + AppSignature.profileName, app + "/_CodeSignature"] {
+            for path in [
+                app + "/" + AppSignature.profileName,
+                app + "/_CodeSignature",
+                app + "/PlugIns/DmShellWidget.appex/" + AppSignature.profileName,
+                app + "/PlugIns/DmShellWidget.appex/_CodeSignature",
+            ] {
                 if !fm.fileExists(atPath: path),
                    let saved = moved.first(where: { $0.original == path }) {
                     try? fm.moveItem(atPath: saved.staged, toPath: saved.original)
@@ -172,12 +179,30 @@ package enum AppSignature {
             }
         }
 
+        let widgetAppex = app + "/PlugIns/DmShellWidget.appex"
+        let widgetEmbedded = widgetAppex + "/" + profileName
+        let widgetUUID = plist(ofProfile: widgetEmbedded, runner: runner)?["UUID"] as? String
+        if fm.fileExists(atPath: widgetEmbedded) {
+            let dest = staging.appendingPathComponent("widget-embedded.mobileprovision").path
+            if (try? fm.moveItem(atPath: widgetEmbedded, toPath: dest)) != nil {
+                moved.append((original: widgetEmbedded, staged: dest))
+            }
+        }
+        let widgetSig = widgetAppex + "/_CodeSignature"
+        if fm.fileExists(atPath: widgetSig) {
+            let dest = staging.appendingPathComponent("widget-_CodeSignature").path
+            if (try? fm.moveItem(atPath: widgetSig, toPath: dest)) != nil {
+                moved.append((original: widgetSig, staged: dest))
+            }
+        }
+
         for (dirIndex, dir) in profileDirectories(home: home).enumerated() {
             guard let names = try? fm.contentsOfDirectory(atPath: dir) else { continue }
             for name in names where name.hasSuffix(".mobileprovision") || name.hasSuffix(".provisionprofile") {
                 let full = dir + "/" + name
                 guard let dict = plist(ofProfile: full, runner: runner),
-                      profileMatches(dict, bundleID: bundleID, team: team, embeddedUUID: embeddedUUID) else { continue }
+                      profileMatches(dict, bundleID: bundleID, team: team, embeddedUUID: embeddedUUID)
+                          || (widgetUUID != nil && profileMatches(dict, bundleID: bundleID, team: team, embeddedUUID: widgetUUID)) else { continue }
                 let dest = staging.appendingPathComponent("\(dirIndex)-\(name)").path
                 if (try? fm.moveItem(atPath: full, toPath: dest)) != nil {
                     moved.append((original: full, staged: dest))

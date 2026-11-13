@@ -51,5 +51,6 @@ struct HostDemoScreen: View {
                        initialDetailOpen: ProcessInfo.processInfo.arguments.firstIndex(of: "--screen")
             .flatMap { ProcessInfo.processInfo.arguments.indices.contains($0 + 1) ? ProcessInfo.processInfo.arguments[$0 + 1] : nil } == "settings")
             .background(ShellPalette.background)
+            .onOpenURL { url in _ = model.open(url) }
     }
 }

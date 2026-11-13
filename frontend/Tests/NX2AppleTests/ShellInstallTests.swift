@@ -191,9 +191,9 @@ import NXModel
         let build = ["/x", "xcodebuild", "-project", root + "/project/DmShell.xcodeproj", "-scheme", "DmShell", "-configuration", "Release",
                      "-destination", "id=D", "-derivedDataPath", root + "/derived-data", "-allowProvisioningUpdates", "DEVELOPMENT_TEAM=T"]
         XCTAssertEqual(ShellInstall.buildCommand(xcrun: "/x", root: root, device: "D", team: "T", bundleID: "org.nxnative.shell"),
-                       build + ["PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.shell", "build"])
+                       build + ["DM_APP_BUNDLE_ID=org.nxnative.shell", "build"])
         XCTAssertEqual(ShellInstall.buildCommand(xcrun: "/x", root: root, device: "D", team: "T", bundleID: ShellLibrary.teamVariant(team: "T")),
-                       build + ["PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.shell.T", "build"])
+                       build + ["DM_APP_BUNDLE_ID=org.nxnative.shell.T", "build"])
         XCTAssertEqual(ShellInstall.installCommand(xcrun: "/x", device: "D", app: ShellInstall.appPath(root: root)),
                        ["/x", "devicectl", "device", "install", "app", "--device", "D",
                         root + "/derived-data/Build/Products/Release-iphoneos/DmShell.app"])
@@ -316,7 +316,7 @@ import NXModel
             if os.path.exists(STATE + '/xcodebuild-error'):
                 sys.stderr.write(open(STATE + '/xcodebuild-error').read())
                 sys.exit(70)
-            bundle = [x.split('=', 1)[1] for x in a if x.startswith('PRODUCT_BUNDLE_IDENTIFIER=')][0]
+            bundle = [x.split('=', 1)[1] for x in a if x.startswith('DM_APP_BUNDLE_ID=')][0]
             if os.path.exists(STATE + '/taken') and bundle == 'org.nxnative.shell':
                 print('error: The app identifier "' + bundle + '" cannot be registered to your development team because it is not available. Change your bundle identifier to a unique string to try again.', flush=True)
                 sys.exit(65)
@@ -702,15 +702,15 @@ import NXModel
         XCTAssertEqual(ShellLibrary.load(root: f.root).bundleID, variant)
         var builds = calls.filter { $0.hasPrefix("xcodebuild") }
         XCTAssertEqual(builds.count, 2)
-        XCTAssertTrue(builds[0].contains("PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.shell build"))
-        XCTAssertTrue(builds[1].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variant) build"))
+        XCTAssertTrue(builds[0].contains("DM_APP_BUNDLE_ID=org.nxnative.shell build"))
+        XCTAssertTrue(builds[1].contains("DM_APP_BUNDLE_ID=\(variant) build"))
         XCTAssertEqual(try String(contentsOfFile: container + "/\(variant)/Documents/games/\(titleID)/romfs.img"), "0123456789")
 
         r = run(f)   // the plain identifier is not tried again
         XCTAssertEqual(r.status, 0, r.output)
         builds = calls.filter { $0.hasPrefix("xcodebuild") }
         XCTAssertEqual(builds.count, 3)
-        XCTAssertTrue(builds[2].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variant) build"))
+        XCTAssertTrue(builds[2].contains("DM_APP_BUNDLE_ID=\(variant) build"))
         XCTAssertEqual(copies().count, 2)
         XCTAssertEqual(try String(contentsOfFile: save), "my save")
         XCTAssertFalse(calls.contains { $0.contains("--remove-existing-content") })
@@ -782,8 +782,8 @@ import NXModel
         XCTAssertEqual(r.bundleID, variantB)
         XCTAssertEqual(ShellLibrary.load(root: f.root).bundleID, variantB)
         let builds = calls.filter { $0.hasPrefix("xcodebuild") }
-        XCTAssertTrue(builds[builds.count - 2].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variantA) build"))
-        XCTAssertTrue(builds[builds.count - 1].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variantB) build"))
+        XCTAssertTrue(builds[builds.count - 2].contains("DM_APP_BUNDLE_ID=\(variantA) build"))
+        XCTAssertTrue(builds[builds.count - 1].contains("DM_APP_BUNDLE_ID=\(variantB) build"))
     }
 
     func testTheRetryRuleIsApartFromTheCardRule() {
@@ -817,9 +817,9 @@ import NXModel
         XCTAssertEqual(ShellLibrary.load(root: f.root).bundleID, variant)
         let builds = calls.filter { $0.hasPrefix("xcodebuild") }
         XCTAssertEqual(builds.count, 3)   // the plain identifier, the variant with the request, the variant without it
-        XCTAssertTrue(builds[2].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variant) build"))
+        XCTAssertTrue(builds[2].contains("DM_APP_BUNDLE_ID=\(variant) build"))
         XCTAssertTrue(install(installer(f), f).ok)
-        XCTAssertTrue(calls.filter { $0.hasPrefix("xcodebuild") }[3].contains("PRODUCT_BUNDLE_IDENTIFIER=\(variant) build"),
+        XCTAssertTrue(calls.filter { $0.hasPrefix("xcodebuild") }[3].contains("DM_APP_BUNDLE_ID=\(variant) build"),
                       "the next install starts with the stored variant")
     }
 
@@ -1353,7 +1353,7 @@ import NXModel
         let log = Array(calls.dropFirst(before))
         let build = try XCTUnwrap(log.first { $0.hasPrefix("xcodebuild") })
         XCTAssertTrue(build.contains("-project \(f.root)/project/DmShell.xcodeproj -scheme DmShell"), build)
-        XCTAssertTrue(build.contains("PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.shell build"), build)
+        XCTAssertTrue(build.contains("DM_APP_BUNDLE_ID=org.nxnative.shell build"), build)
         XCTAssertEqual(log.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
         XCTAssertTrue(log.allSatisfy { !$0.contains("--remove-existing-content") })
         XCTAssertEqual(try String(contentsOfFile: container + "/org.nxnative.shell/Documents/save/slot1.bin"), "my save")

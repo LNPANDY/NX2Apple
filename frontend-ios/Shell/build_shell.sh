@@ -75,25 +75,41 @@ t "shell: $DM_SHELL_NAME ($DM_BUNDLE_ID), games: $(cut -f3 "$FWLIST" | paste -sd
 t "generate Gen/ (shared files, the project)"
 rm -f "$S/Sources" "$S/tools"
 ln -sfn "$SHELL_ROOT/App" "$S/Shell" || die "link Shell"
+ln -sfn "$SHELL_ROOT/Widget" "$S/ShellWidget" || die "link ShellWidget"
 cd "$S" || die "cd $S"
 rm -rf Gen && mkdir -p Gen/dm/font || die "mkdir Gen"
 : > Gen/dm.xcconfig || die "dm.xcconfig"
 cp "${STD_FONT:-/System/Library/Fonts/Supplemental/Arial Unicode.ttf}" Gen/dm/font/standard.ttf || die "copy standard font (STD_FONT=a TTF)"
 "${FONT_PY:-python3}" "$DM/tools/make_ext_font.py" Gen/dm/font/nintendo_ext.ttf > /dev/null || die "make_ext_font.py (pip install fonttools, or FONT_PY=python with fontTools)"
 mkdir -p Gen/Assets.xcassets && printf '{"info":{"author":"xcode","version":1}}\n' > Gen/Assets.xcassets/Contents.json || die "asset catalog"
+cp "$DM_SHELL_PACKAGE/Sources/ShellUI/Resources/Localizable.xcstrings" Gen/Localizable.xcstrings || die "widget strings"
 # The shell asks for the Increased Memory Limit capability, as the one-game app does; a framework cannot hold entitlements
 printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
   '<plist version="1.0"><dict><key>com.apple.developer.kernel.increased-memory-limit</key><true/></dict></plist>' > Gen/DmShell.entitlements || die "entitlements"
+printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+  '<plist version="1.0"><dict><key>keychain-access-groups</key><array><string>$(AppIdentifierPrefix)$(DM_APP_BUNDLE_ID)</string></array></dict></plist>' > Gen/DmShellWidget.entitlements || die "widget entitlements"
 # DM_ENTITLEMENTS= (empty) leaves the request out, for a team whose profiles cannot carry the capability yet (the game may then run
 # out of memory on the device)
-if [ "$MODE" = --prepare-xcode ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then echo "CODE_SIGN_ENTITLEMENTS = Gen/DmShell.entitlements" >> Gen/dm.xcconfig
+if [ "$MODE" = --prepare-xcode ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
+  printf '%s\n' "CODE_SIGN_ENTITLEMENTS = Gen/DmShell.entitlements" "DM_WIDGET_ENTITLEMENTS = Gen/DmShellWidget.entitlements" >> Gen/dm.xcconfig
 elif [ "$MODE" = --prepare-xcode ]; then t "entitlements: none (DM_ENTITLEMENTS is empty): no Increased Memory Limit"; fi
 # The template with one embedded, unlinked framework per game where it says @FRAMEWORKS@
 python3 -I - "$SHELL_ROOT/project-shell.yml" "$FWLIST" project.yml <<'PY' || die "project.yml"
 import os, sys
 template, fwlist, out = sys.argv[1:]
-lines, done = [], False
+with_widget = os.environ.get('DM_WIDGET', '1') != '0'
+lines, done, skip_widget = [], False, False
 for line in open(template, encoding='utf-8').read().splitlines():
+    if skip_widget:
+        if line and not line.startswith('  '):
+            skip_widget = False
+        else:
+            continue
+    if not with_widget and line.lstrip() == '- target: DmShellWidget':
+        continue
+    if not with_widget and line == '  DmShellWidget:':
+        skip_widget = True
+        continue
     if line.lstrip().startswith('# @FRAMEWORKS@'):
         pad = line[:len(line) - len(line.lstrip())]
         for row in open(fwlist, encoding='utf-8').read().splitlines():
@@ -115,7 +131,8 @@ for line in open(template, encoding='utf-8').read().splitlines():
 if not done: sys.exit('[RED] project-shell.yml has no @FRAMEWORKS@ line')
 open(out, 'w', encoding='utf-8').write('\n'.join(lines) + '\n')
 PY
-xcodegen generate -q > /dev/null || die "xcodegen"
+XCODEGEN=xcodegen; [ -x /opt/homebrew/bin/xcodegen ] && XCODEGEN=/opt/homebrew/bin/xcodegen
+"$XCODEGEN" generate -q > /dev/null || die "xcodegen"
 COMMIT=$(git -C "$DM" rev-parse --short=12 HEAD 2> /dev/null) && { [ -z "$(git -C "$DM" status --porcelain --untracked-files=no 2> /dev/null)" ] || COMMIT=$COMMIT+dirty
   /usr/libexec/PlistBuddy -c "Add :DMCommit string $COMMIT" Gen/Info.plist > /dev/null || die "DMCommit"; t "source: $COMMIT"; }
 /usr/libexec/PlistBuddy -c "Add :DMChain string $V" Gen/Info.plist > /dev/null || die "DMChain"

@@ -97,12 +97,12 @@ package enum ShellInstall {
 
     // ---- 5 and 6: sign, build, install ----
 
-    /// `bundleID` goes in as PRODUCT_BUNDLE_IDENTIFIER every time: the identifier stored in shell.json is the one the device's
-    /// copy of the app has, and installing under another would start an app with empty Documents.
+    /// `bundleID` goes in as DM_APP_BUNDLE_ID every time so DmShell gets `<bundleID>` and DmShellWidget gets `<bundleID>.widget`:
+    /// installing under another identifier would start an app with empty Documents.
     package static func buildCommand(xcrun: String, root: String, device: String, team: String, bundleID: String) -> [String] {
         [xcrun, "xcodebuild", "-project", projectFolder(root: root) + "/" + projectName, "-scheme", scheme,
          "-configuration", "Release", "-destination", "id=\(device)", "-derivedDataPath", derivedData(root: root),
-         "-allowProvisioningUpdates", "DEVELOPMENT_TEAM=\(team)", "PRODUCT_BUNDLE_IDENTIFIER=\(bundleID)", "build"]
+         "-allowProvisioningUpdates", "DEVELOPMENT_TEAM=\(team)", "DM_APP_BUNDLE_ID=\(bundleID)", "build"]
     }
 
     /// Installing over the existing app keeps its Documents.

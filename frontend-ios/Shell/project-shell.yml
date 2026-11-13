@@ -33,6 +33,7 @@ targets:
         product: ShellControllers
       - package: ShellUI
         product: ShellHost
+      - target: DmShellWidget
       # @FRAMEWORKS@ (build_shell.sh: one "- framework: <path>" entry per game, embedded and signed with the app, not linked: the shell dlopens the chosen one)
     info:
       path: Gen/Info.plist
@@ -67,8 +68,13 @@ targets:
             UIWindowSceneSessionRoleApplication:
               - UISceneConfigurationName: Default
                 UISceneDelegateClassName: SceneDelegate
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.nx2apple.shell.url
+            CFBundleURLSchemes:
+              - nx2apple
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: ${DM_BUNDLE_ID}
+      DM_APP_BUNDLE_ID: ${DM_BUNDLE_ID}
+      PRODUCT_BUNDLE_IDENTIFIER: $(DM_APP_BUNDLE_ID)
       PRODUCT_NAME: DmShell
       PRODUCT_MODULE_NAME: DmShell   # ShellMain.m imports DmShell-Swift.h
       MARKETING_VERSION: ${DM_APP_VERSION}
@@ -89,6 +95,43 @@ targets:
       CLANG_ENABLE_MODULES: YES
       SWIFT_VERSION: "5.0"
       SWIFT_OBJC_BRIDGING_HEADER: Shell/Shell-Bridging-Header.h
+      DEBUG_INFORMATION_FORMAT: dwarf
+      GCC_WARN_INHIBIT_ALL_WARNINGS: YES
+  DmShellWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShellWidget
+      - path: Gen/Localizable.xcstrings
+    dependencies:
+      - package: ShellUI
+        product: ShellUI
+      - package: ShellUI
+        product: ShellWidget
+    info:
+      path: Gen/WidgetInfo.plist
+      properties:
+        CFBundleDisplayName: ${DM_SHELL_NAME}
+        CFBundleLocalizations: [en, de, es, fr, it, ja, ko, pt-BR, sv, zh-Hans]
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      DM_APP_BUNDLE_ID: ${DM_BUNDLE_ID}
+      PRODUCT_BUNDLE_IDENTIFIER: $(DM_APP_BUNDLE_ID).widget
+      PRODUCT_NAME: DmShellWidget
+      PRODUCT_MODULE_NAME: DmShellWidget
+      MARKETING_VERSION: ${DM_APP_VERSION}
+      CURRENT_PROJECT_VERSION: ${DM_APP_VERSION}
+      DEVELOPMENT_TEAM: ${DM_TEAM_ID}
+      CODE_SIGN_STYLE: Automatic
+      CODE_SIGN_ENTITLEMENTS: $(DM_WIDGET_ENTITLEMENTS)
+      ENABLE_USER_SCRIPT_SANDBOXING: NO
+      SKIP_INSTALL: YES
+      TARGETED_DEVICE_FAMILY: "1,2"
+      ENABLE_BITCODE: NO
+      SWIFT_VERSION: "5.0"
       DEBUG_INFORMATION_FORMAT: dwarf
       GCC_WARN_INHIBIT_ALL_WARNINGS: YES
 schemes:

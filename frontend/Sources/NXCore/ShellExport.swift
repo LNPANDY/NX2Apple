@@ -25,7 +25,7 @@ extension ShellInstall {
     package static func exportBuildCommand(xcrun: String, root: String, bundleID: String) -> [String] {
         [xcrun, "xcodebuild", "-project", projectFolder(root: root) + "/" + projectName, "-scheme", scheme,
          "-configuration", "Release", "-destination", "generic/platform=iOS", "-derivedDataPath", exportDerivedData(root: root),
-         "PRODUCT_BUNDLE_IDENTIFIER=\(bundleID)", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGN_IDENTITY=", "build"]
+         "DM_APP_BUNDLE_ID=\(bundleID)", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "CODE_SIGN_IDENTITY=", "build"]
     }
 
     /// The entitlements file `build_shell.sh --prepare-xcode` writes into the project (the Increased Memory Limit request).
@@ -63,13 +63,15 @@ extension ShellInstall {
                 if isSymlink { try? fm.removeItem(atPath: link) }
                 try? fm.createSymbolicLink(atPath: link, withDestinationPath: pkg)
             }
-            let shellLink = proj + "/Shell", shellTarget = pkg + "/Shell/App"
-            if fm.fileExists(atPath: shellTarget) {
-                let sAttrs = try? fm.attributesOfItem(atPath: shellLink)
-                let sIsSymlink = (sAttrs?[.type] as? FileAttributeType) == .typeSymbolicLink
-                if sIsSymlink || sAttrs == nil, (try? fm.destinationOfSymbolicLink(atPath: shellLink)) != shellTarget {
-                    if sIsSymlink { try? fm.removeItem(atPath: shellLink) }
-                    try? fm.createSymbolicLink(atPath: shellLink, withDestinationPath: shellTarget)
+            for (name, sub) in [("Shell", "/Shell/App"), ("ShellWidget", "/Shell/Widget")] {
+                let sLink = proj + "/" + name, sTarget = pkg + sub
+                if fm.fileExists(atPath: sTarget) {
+                    let sAttrs = try? fm.attributesOfItem(atPath: sLink)
+                    let sIsSymlink = (sAttrs?[.type] as? FileAttributeType) == .typeSymbolicLink
+                    if sIsSymlink || sAttrs == nil, (try? fm.destinationOfSymbolicLink(atPath: sLink)) != sTarget {
+                        if sIsSymlink { try? fm.removeItem(atPath: sLink) }
+                        try? fm.createSymbolicLink(atPath: sLink, withDestinationPath: sTarget)
+                    }
                 }
             }
         }
@@ -241,6 +243,11 @@ extension ShellInstaller {
         }
         // Signing the executable also seals its bundle resources. Sign the staged app after packing the shaders.
         // Failure only costs the Increased Memory Limit request, so it does not stop the export.
+        let widgetAppex = stagedApp.appendingPathComponent("PlugIns/DmShellWidget.appex").path
+        if fm.fileExists(atPath: widgetAppex) {
+            _ = run(["/usr/bin/xattr", "-cr", widgetAppex], env: nil, label: packName, step: { _ in nil })
+            _ = run(["/usr/bin/codesign", "--force", "--sign", "-", widgetAppex], env: nil, label: packName, step: { _ in nil })
+        }
         let entitlements = ShellInstall.entitlementsPath(root: root)
         if fm.fileExists(atPath: entitlements) {
             _ = run(ShellInstall.cleanAttributesCommand(app: stagedApp.path), env: nil, label: packName, step: { _ in nil })
