@@ -1,0 +1,155 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Sat, 14 Nov 2026 08:28:28 +0900
+Subject: [PATCH] tools/shader_lib: a failed write removes its .part, and
+ to_file its temporary file
+
+On a full drive, shader_lib.write left the half-written <library>.img.part on disk, up to the
+size of the whole library, and dmsh_build.py's fallback then tried to write the same shaders
+into the folder with that space still taken (LNPANDY/NX2Apple#1265: 131,426 iOS shaders, the
+image and then the folder failed with ENOSPC). A failed write or rename now removes the .part
+and raises the same error; _Files.to_file does the same with its .tmp file. A killed write
+still leaves only the .part, which remove_image clears before the next full build.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#2610
+Reason: A full drive at the end of an iOS shader build leaves the failed library image on the drive
+Issue: #1265
+
+---
+ dm/tools/shader_cache.py            |  9 +++++++--
+ dm/tools/shader_lib.py              | 12 ++++++++++--
+ dm/tools/tests/test_shader_cache.py | 22 +++++++++++++++++++++-
+ dm/tools/tests/test_shader_lib.py   | 20 +++++++++++++++++++-
+ 4 files changed, 57 insertions(+), 6 deletions(-)
+
+diff --git a/dm/tools/shader_cache.py b/dm/tools/shader_cache.py
+index 5788d1b..632f03f 100644
+--- a/dm/tools/shader_cache.py
++++ b/dm/tools/shader_cache.py
+@@ -66,8 +66,13 @@ class _Files:   # an entry from or to a file, by get and put
+         data = self.get(name)
+         if data is None: return False
+         tmp = f'{path}.tmp-{os.getpid()}-{threading.get_ident()}'
+-        with open(tmp, 'wb') as f: f.write(data)
+-        os.replace(tmp, path)
++        try:
++            with open(tmp, 'wb') as f: f.write(data)
++            os.replace(tmp, path)
++        except BaseException:
++            try: os.unlink(tmp)
++            except OSError: pass
++            raise
+         return True
+ 
+ 
+diff --git a/dm/tools/shader_lib.py b/dm/tools/shader_lib.py
+index ed6f105..7cb49bd 100644
+--- a/dm/tools/shader_lib.py
++++ b/dm/tools/shader_lib.py
+@@ -73,8 +73,17 @@ def _names(folder):
+ 
+ def write(files, dst):
+     """files: {name: path to read (a romfs path may name a file inside an image), the bytes, or a function returning them (read only when its file is written: dmsh_build.py's outputs staged in the
+-    shader cache, so that no library is held in memory whole)} → the image dst, by way of dst.part. A stopped write leaves only the .part, and an image is whole or absent"""
++    shader cache, so that no library is held in memory whole)} → the image dst, by way of dst.part. A failed write removes its .part, so a full drive gets its space back; a killed one leaves
++    only the .part. An image is whole or absent"""
+     part = dst + '.part'
++    try: _write_part(files, part); os.replace(part, dst)
++    except BaseException:
++        try: os.unlink(part)
++        except OSError: pass
++        raise
++
++
++def _write_part(files, part):   # write()'s image, at part
+     names = sorted((n.encode() for n in files))
+     ents, off = [], romfs.HEAD.size
+     with builtins.open(part, 'wb') as out:
+@@ -98,7 +107,6 @@ def write(files, dst):
+         out.write(idx); out.write(pool)
+         out.seek(0); out.write(romfs.HEAD.pack(romfs.MAGIC, off, len(idx) + len(pool), len(names) + 1))
+     romfs.Image(part)   # a read of it, as the host's check: nothing is published that a reader refuses
+-    os.replace(part, dst)
+ 
+ 
+ def pack(lib, say=print, leave_out=False):
+diff --git a/dm/tools/tests/test_shader_cache.py b/dm/tools/tests/test_shader_cache.py
+index cdb2991..d393f8e 100644
+--- a/dm/tools/tests/test_shader_cache.py
++++ b/dm/tools/tests/test_shader_cache.py
+@@ -1,7 +1,8 @@
+ #!/usr/bin/env python3
+ # The compile cache as one file (dm/tools/shader_cache.py): entries in and out, bytes stored once, several threads and processes, a damaged file, pruning, and taking in a cache from before it.
+-import hashlib, os, subprocess, sys, tarfile, tempfile, threading, time, unittest
++import contextlib, errno, hashlib, os, subprocess, sys, tarfile, tempfile, threading, time, unittest
+ from pathlib import Path
++from unittest import mock
+ 
+ REPO = Path(__file__).resolve().parents[3]
+ sys.path.insert(0, str(REPO / 'dm/tools'))
+@@ -98,6 +99,25 @@ class Entries(Base):
+         self.assertTrue(self.store.to_file('f', dst)); self.assertEqual(dst.read_bytes(), b'data')
+         self.assertFalse(self.store.to_file('absent', self.root / 'none')); self.assertFalse((self.root / 'none').exists())
+ 
++    def test_to_file_removes_tmp_after_failed_write_or_rename(self):
++        dst = self.root / 'dst'; dst.write_bytes(b'old')
++        self.store.put('f', b'new data')
++        @contextlib.contextmanager
++        def failing_open(path, mode):
++            with open(path, mode) as file:
++                def write(data):
++                    file.write(data[:2])
++                    raise OSError(errno.ENOSPC, 'No space left on device')
++                yield mock.Mock(write=write)
++        for action in ('write', 'rename'):
++            with self.subTest(action=action):
++                patch = mock.patch.object(shader_cache, 'open', failing_open, create=True) if action == 'write' else mock.patch.object(shader_cache.os, 'replace', side_effect=OSError(errno.ENOSPC, 'No space left on device'))
++                with patch:
++                    with self.assertRaises(OSError) as raised: self.store.to_file('f', dst)
++                self.assertEqual(raised.exception.errno, errno.ENOSPC)
++                self.assertEqual(dst.read_bytes(), b'old')
++                self.assertEqual(list(self.root.glob('dst.tmp-*')), [])
++
+     def test_one_file_is_left(self):
+         self.store.put('x', b'1'); self.store.close()
+         self.assertEqual(os.listdir(self.root), ['cas.db'])
+diff --git a/dm/tools/tests/test_shader_lib.py b/dm/tools/tests/test_shader_lib.py
+index 0fe8eb4..cffe7ad 100644
+--- a/dm/tools/tests/test_shader_lib.py
++++ b/dm/tools/tests/test_shader_lib.py
+@@ -1,7 +1,8 @@
+ #!/usr/bin/env python3
+ # A game's shader libraries as one file (dm/tools/shader_lib.py): the folder and image states, and a read by the host's C reader (dm/gfx/nvn/msl_image.h, dm/host/romfs_image.h).
+-import os, subprocess, sys, tempfile, unittest
++import errno, os, subprocess, sys, tempfile, unittest
+ from pathlib import Path
++from unittest import mock
+ 
+ REPO = Path(__file__).resolve().parents[3]
+ sys.path.insert(0, str(REPO / 'dm/tools'))
+@@ -44,6 +45,23 @@ class Base(unittest.TestCase):
+ 
+ 
+ class States(Base):
++    def test_failed_write_removes_part_and_keeps_existing_image(self):
++        self.image.write_bytes(b'old image')
++        def full(): raise OSError(errno.ENOSPC, 'No space left on device')
++        with self.assertRaises(OSError) as raised:
++            shader_lib.write({'a': b'written', 'b': full}, str(self.image))
++        self.assertEqual(raised.exception.errno, errno.ENOSPC)
++        self.assertFalse(Path(f'{self.image}.part').exists())
++        self.assertEqual(self.image.read_bytes(), b'old image')
++
++    def test_failed_rename_removes_part_and_keeps_existing_image(self):
++        self.image.write_bytes(b'old image')
++        with mock.patch.object(shader_lib.os, 'replace', side_effect=OSError(errno.ENOSPC, 'No space left on device')):
++            with self.assertRaises(OSError) as raised: shader_lib.write({'a': b'new'}, str(self.image))
++        self.assertEqual(raised.exception.errno, errno.ENOSPC)
++        self.assertFalse(Path(f'{self.image}.part').exists())
++        self.assertEqual(self.image.read_bytes(), b'old image')
++
+     def test_pack_replaces_the_folder_and_reads_in_place(self):
+         self.folder(k_b__metallib=b'lib', k_b__json=b'{}', k_b__metal=b'src')
+         self.assertTrue(self.pack())
