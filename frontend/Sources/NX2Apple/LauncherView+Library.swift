@@ -361,16 +361,19 @@ extension LauncherView {
         library.games.filter { toolsAge.older.contains($0.id) && !$0.inputs["base", default: []].isEmpty }
     }
 
+    func enqueueBuilds(_ games: [LibraryGame]) {
+        let batch = UUID()
+        queue.enqueue(games.filter { !m.running || $0.id != activeBuildID }.map {
+            QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID, target: m.target, batch: batch,
+                       packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame)
+        })
+    }
+
     /// An outlined pill that adds games to the build queue: one game, or all that were built with older tools. It starts nothing itself.
     func heroRebuildButton(_ title: String, id: String, games: [LibraryGame], frosted: Bool = false) -> some View {
         let add = {
-            guard !m.running else { return }
-            let batch = UUID()
-            stores.queue.enqueue(games.map {
-                QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID, target: m.target, batch: batch,
-                           packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame)
-            })
-            page = .builds
+            enqueueBuilds(games)
+            if !m.running { page = .builds }
         }
         return Button(action: add) {
             Label(title, systemImage: "arrow.clockwise")
@@ -385,15 +388,19 @@ extension LauncherView {
                 .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(frosted ? 0.25 : 0.35)))
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(m.running || games.isEmpty)
+        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil)
+        .disabled(games.isEmpty || games.allSatisfy { game in
+            (m.running && activeBuildID == game.id) || queue.queued.contains { $0.titleID == game.titleID }
+        })
         .help(loc.t("library.olderToolsHelp"))
         .padTarget(id, scope: "main", radius: 12, activate: add)
     }
 
     func status(_ game: LibraryGame, prominent: Bool = false) -> some View {
         let building = m.running && activeBuildID == game.id
-        let color = building ? LauncherPalette.building : ((game.isReady || game.hasIOSBuild) ? LauncherPalette.ready : LauncherPalette.unbuilt)
-        let key = building ? "library.building" : (game.isReady ? "library.ready" : (game.hasIOSBuild ? (game.isOlderIOSBuild ? "library.olderIOS" : "library.readyIOS") : "library.notBuilt"))
+        let queued = queue.queued.contains { $0.titleID == game.titleID }
+        let color = building || queued ? LauncherPalette.building : ((game.isReady || game.hasIOSBuild) ? LauncherPalette.ready : LauncherPalette.unbuilt)
+        let key = building ? "library.building" : (queued ? "library.queued" : (game.isReady ? "library.ready" : (game.hasIOSBuild ? (game.isOlderIOSBuild ? "library.olderIOS" : "library.readyIOS") : "library.notBuilt")))
         return HStack(spacing: 7) {
             Circle().fill(color).frame(width: prominent ? 9 : 7, height: prominent ? 9 : 7)
             Text(prominent ? loc.t(key).uppercased() : loc.t(key))
