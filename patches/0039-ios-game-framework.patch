@@ -1,0 +1,2133 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 12 Nov 2026 20:01:59 +0800
+Subject: [PATCH] ios: build per-game dynamic frameworks for the shared shell
+
+Upstream-Status: fork-only (declined seedds/nxnative#492)
+Reason: Build self-contained DmGame frameworks so the shared iOS shell can dlopen multiple games
+Issue: LNPANDY/NX2Apple#392
+---
+ dm/ios/Sources/FrameworkBootstrap.h  |  25 ++
+ dm/ios/Sources/FrameworkBootstrap.m  |  47 ++++
+ dm/ios/Sources/front_ios.m           |   1 +
+ dm/ios/Sources/main.m                |  25 +-
+ dm/ios/framework/DmGameMarker.m      |  10 +
+ dm/ios/framework/ShellGlue.h         |  11 +
+ dm/ios/framework/ShellGlue.m         |  77 +++++++
+ dm/ios/project-framework.yml         | 200 ++++++++++++++++
+ dm/ios/tests/test_bc_device_check.py |  56 +++++
+ dm/ios/tests/test_framework_build.py | 323 ++++++++++++++++++++++++++
+ dm/ios/tests/test_framework_link.py  | 191 ++++++++++++++++
+ dm/ios/tests/test_xcode_workflow.py  |  11 +-
+ dm/ios/tools/build_ipa.sh            | 100 +++++++-
+ dm/ios/tools/compile_check.py        |  22 +-
+ dm/ios/tools/gen_manifest.py         | 130 +++++++++++
+ dm/tools/tests/test_nsp_progress.py  | 329 +++++++++++++++++++++++++++
+ scripts/build_ipa_from_nsp.py        | 249 +++++++++++++++++---
+ 17 files changed, 1762 insertions(+), 45 deletions(-)
+ create mode 100644 dm/ios/Sources/FrameworkBootstrap.h
+ create mode 100644 dm/ios/Sources/FrameworkBootstrap.m
+ create mode 100644 dm/ios/framework/DmGameMarker.m
+ create mode 100644 dm/ios/framework/ShellGlue.h
+ create mode 100644 dm/ios/framework/ShellGlue.m
+ create mode 100644 dm/ios/project-framework.yml
+ create mode 100644 dm/ios/tests/test_bc_device_check.py
+ create mode 100644 dm/ios/tests/test_framework_build.py
+ create mode 100644 dm/ios/tests/test_framework_link.py
+ create mode 100644 dm/ios/tools/gen_manifest.py
+
+diff --git a/dm/ios/Sources/FrameworkBootstrap.h b/dm/ios/Sources/FrameworkBootstrap.h
+new file mode 100644
+index 00000000..a2049d4d
+--- /dev/null
++++ b/dm/ios/Sources/FrameworkBootstrap.h
+@@ -0,0 +1,25 @@
++// Route C (docs/launcher-c-plan.md M1): the game's modules are in DmIOS.app/Frameworks/DmGame.framework, not in the
++// executable, so the loader needs that image's mach header before it runs. dm_open_game_framework() dlopen()s the framework
++// from the app bundle, finds its marker symbol, takes the image base with dladdr() and hands it to the loader
++// (dm_set_game_image_header, dm/host/front.h). A failure is logged as a [RED] line with the dlerror text and the boot
++// stops: without the framework's sections there are no modules to run.
++// Compiled only into a DM_FRAMEWORK_BUILD app (project-framework.yml). The default build calls none of this.
++#pragma once
++
++// M1 ships one game per app, so the framework has fixed names (build_ipa.sh DM_FRAMEWORK=1, project-framework.yml).
++// M2's shell picks them from game.manifest.json instead (framework / framework_executable / image_marker).
++#define DM_FRAMEWORK_DIRECTORY "DmGame.framework"
++#define DM_FRAMEWORK_EXECUTABLE "DmGame"
++#define DM_FRAMEWORK_MARKER "dmgame_image_marker"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// dir: the framework's directory inside the app bundle, e.g. <App>/Frameworks/DmGame.framework.
++// 1 when the image header was set, 0 after the [RED] line that says which step failed.
++int dm_open_game_framework(const char *dir);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/dm/ios/Sources/FrameworkBootstrap.m b/dm/ios/Sources/FrameworkBootstrap.m
+new file mode 100644
+index 00000000..663ebe8d
+--- /dev/null
++++ b/dm/ios/Sources/FrameworkBootstrap.m
+@@ -0,0 +1,47 @@
++// Route C (docs/launcher-c-plan.md M1): load the game framework and give the loader its image header. See
++// FrameworkBootstrap.h for the contract; main.m calls this before dm_host_preload_start().
++#import <Foundation/Foundation.h>
++#include <dlfcn.h>
++#include <stdio.h>
++#include "FrameworkBootstrap.h"
++#include "front.h"
++
++#ifndef DM_FRAMEWORK_BUILD
++#define DM_FRAMEWORK_BUILD 0
++#endif
++
++#if DM_FRAMEWORK_BUILD
++int dm_open_game_framework(const char *dir) {
++    NSString *exe = [@(dir) stringByAppendingPathComponent:@DM_FRAMEWORK_EXECUTABLE];
++    const char *path = exe.fileSystemRepresentation;
++    // RTLD_LAZY, as the dlopen probe (docs/probe-dlopen.md) and the design use: only the framework's own sections and the
++    // marker are needed, and its initializers must not run anything (DmGameMarker.m has none).
++    void *h = dlopen(path, RTLD_LAZY);
++    if (!h) {
++        // The dlerror text names the refusal verbatim (code signature, architecture, missing file); the log is the only
++        // channel a sideloaded build has.
++        fprintf(stderr, "[RED] boot: dlopen %s failed: %s\n", path, dlerror() ?: "(no dlerror text)");
++        return 0;
++    }
++    dlerror();   // clear any stale text before dlsym, so a missing marker reports its own dlerror
++    void *marker = dlsym(h, DM_FRAMEWORK_MARKER);
++    if (!marker) {
++        fprintf(stderr, "[RED] boot: %s has no %s symbol: %s\n", path, DM_FRAMEWORK_MARKER, dlerror() ?: "(no dlerror text)");
++        return 0;
++    }
++    Dl_info info;
++    if (!dladdr(marker, &info) || !info.dli_fbase) {
++        fprintf(stderr, "[RED] boot: dladdr(%s) in %s did not name the image\n", DM_FRAMEWORK_MARKER, path);
++        return 0;
++    }
++    // The header stays valid for the process's life: the framework is never dlclose()d (the loader holds its sections)
++    dm_set_game_image_header(info.dli_fbase);
++    fprintf(stderr, "boot: game framework %s (handle %p, image base %p)\n", path, h, info.dli_fbase);
++    return 1;
++}
++#else
++int dm_open_game_framework(const char *dir) {
++    (void)dir;
++    return 0;
++}
++#endif
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index 1b5c586d..0560fdb8 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -183,6 +183,7 @@ - (void)startGame {
+     [self.view addSubview:self.game];
+     g_layer = (CAMetalLayer *)self.game.layer;
+     if (getenv("DM_METAL_HUD") && atoi(getenv("DM_METAL_HUD"))) { g_layer.developerHUDProperties = @{@"mode": @"default"}; LOG("front end: Metal performance HUD on (DM_METAL_HUD)"); }   // Apple's HUD over the game: frame rate, frame and GPU time, memory
++    else if (getenv("DM_HUD_PER_LAYER")) { g_layer.developerHUDProperties = @{@"mode": @"disabled"}; LOG("front end: Metal performance HUD off (DM_METAL_HUD)"); }   // the shell turns Metal's HUD on for every start (ShellMain.m)
+     dm_haptics_apple_init();
+     self.pad = dm_gamepad_view(self.view.bounds);
+     self.pad.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
+index 076d4efe..757d875d 100644
+--- a/dm/ios/Sources/main.m
++++ b/dm/ios/Sources/main.m
+@@ -9,7 +9,6 @@
+ #include <sys/stat.h>
+ #include <unistd.h>
+ #include "hle_profile.h"   // the runtime game profile (DM_PROFILE): the RomFS marker path comes from it
+-#include "game_profile.h"   // DM_GAME_TEX_BC_CPU: a game whose BC textures are decoded on the CPU runs on a GPU without BC
+ #include "front.h"
+ #include "romfs_image.h"
+ #include "DataBookmark.h"
+@@ -18,6 +17,14 @@
+ #ifndef DM_PLAYER_BUILD
+ #define DM_PLAYER_BUILD 0
+ #endif
++// Route C (docs/launcher-c-plan.md M1): DM_FRAMEWORK_BUILD is set by project-framework.yml, whose app carries the game's
++// modules in Frameworks/DmGame.framework instead of Gen/embed.S. The default project never defines it.
++#ifndef DM_FRAMEWORK_BUILD
++#define DM_FRAMEWORK_BUILD 0
++#endif
++#if DM_FRAMEWORK_BUILD
++#include "FrameworkBootstrap.h"
++#endif
+ 
+ extern char **environ;
+ 
+@@ -204,7 +211,7 @@ static void aoc_locate(void) {
+     static char msg[320]; static int done;
+     if (done++) return msg[0] ? msg : NULL;
+     id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();   // the system default device, the one the graphics layers take (mtl_init repeats this check for the other routes)
+-    if (gpu.supportsBCTextureCompression || DM_GAME_TEX_BC_CPU) return NULL;   // tex_bc_cpu: nvn_mtl.m decodes BC on the CPU (nvn_bcdec.c)
++    if (gpu.supportsBCTextureCompression || dm_profile()->tex_bc_cpu) return NULL;   // tex_bc_cpu: nvn_mtl.m decodes BC on the CPU (nvn_bcdec.c)
+     snprintf(msg, sizeof msg, "This device's GPU (%s) cannot read BC-compressed textures, which the games use. It needs an iPhone 15 Pro or newer (A17 Pro chip or later) or an iPad with an M1 chip or later.",
+              gpu ? gpu.name.UTF8String : "no Metal device");
+     fprintf(stderr, "[RED] boot: %s\n", msg);
+@@ -237,6 +244,14 @@ static int boot_env(void) {
+     // First line of the log: the fork's patches this build carries (Info.plist DMForkPatches), so a report says whether it comes from a build beyond upstream's support
+     NSString *fork_patches = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMForkPatches"];
+     fprintf(stderr, "fork patches: %s\n", [fork_patches isKindOfClass:NSString.class] && fork_patches.length ? fork_patches.UTF8String : "none");
++#if DM_FRAMEWORK_BUILD
++    // Route C: the runtime profile ships inside the game framework, and dm_profile() (hle_profile.c) reads DM_PROFILE on its
++    // first call below (front_hud_env, romfs_locate, the per-game data folders). Before the env files, and forced: the game
++    // this app carries is the framework's, not whatever a diagnostic file names.
++    NSString *fwd = [NSBundle.mainBundle.privateFrameworksURL URLByAppendingPathComponent:@DM_FRAMEWORK_DIRECTORY].path;
++    setenv("DM_PROFILE", [fwd stringByAppendingPathComponent:@"profile.tsv"].fileSystemRepresentation, 1);
++    fprintf(stderr, "boot: game framework %s\n", fwd.fileSystemRepresentation);
++#endif
+     // Environment switch files (for on-device diagnostics: a sideloaded app cannot be given environment variables from outside): one KEY=VALUE per line, # starts a comment; Documents/env.txt takes precedence over dm/env.txt in the bundle (put there by build_ipa.sh's DM_ENV_FILE)
+     NSMutableArray<NSString *> *from_file = [NSMutableArray array], *from_launch = [NSMutableArray array];
+     for (char **e = environ; *e; e++) {   // set at launch (Xcode, devicectl): before the env files, and the launcher keeps them
+@@ -283,6 +298,12 @@ static int boot_env(void) {
+     if (!set_data_env(romfs, NO)) { if (!romfs) romfs_identity_report(doc);   // a slim build says why its romfs.img was not used
+         fprintf(stderr, "boot: no game data yet (Documents/romfs.img, Documents/romfs or <App>/romfs); the launcher asks for it\n"); }
+     setenv("DM_GUEST_FILE_DIR", NSTemporaryDirectory().fileSystemRepresentation, 0);   // DM_GUEST_FILE (hle_svc.c) keeps the guest's memory in files there
++#if DM_FRAMEWORK_BUILD
++    // Route C: the modules, their rewriter tables and the shader map are the framework's. dlopen + dlsym + dladdr hand its
++    // mach header to the loader here, after the data went to DM_ROMFS and before loading starts (the design's order).
++    if (!dm_open_game_framework(fwd.fileSystemRepresentation)) return 0;
++    dm = [fwd stringByAppendingPathComponent:@"dm"];
++#endif
+     setenv("DM_NVN_SHMAP", [dm stringByAppendingPathComponent:@"shader_map.tsv"].fileSystemRepresentation, 0);
+     // Shader libraries: a game's own <gdir>/msl first (a per-game layout may carry its own), else
+     // the app's shared <App>/msl (the program's <App>/msl/p<N> in a game of several programs).
+diff --git a/dm/ios/framework/DmGameMarker.m b/dm/ios/framework/DmGameMarker.m
+new file mode 100644
+index 00000000..c03357d4
+--- /dev/null
++++ b/dm/ios/framework/DmGameMarker.m
+@@ -0,0 +1,10 @@
++// The DmGame framework's only symbol. The framework carries the game's rewritten modules in Mach-O sections (Gen/embed.S,
++// the same file the default build compiles into the executable) and no host code; dlopen()ing it maps and signs those
++// sections, and dm/ios/Sources/FrameworkBootstrap.m finds this marker with dlsym() and reports the framework's mach header
++// through dladdr(). The loader (dm/host/loader.c, front.h) then reads the module sections from it.
++// Its value is not read: the symbol's address alone names the image, so it must stay externally visible (default visibility,
++// not static) and survive the linker.
++#include <stdint.h>
++
++__attribute__((used, visibility("default")))
++const char dmgame_image_marker[] = "DmGame";
+diff --git a/dm/ios/framework/ShellGlue.h b/dm/ios/framework/ShellGlue.h
+new file mode 100644
+index 00000000..e5b52e21
+--- /dev/null
++++ b/dm/ios/framework/ShellGlue.h
+@@ -0,0 +1,11 @@
++// Route C shell (LNPANDY/NX2Apple#451): the entry points each game's DmGame<title ID>.framework exports for ShellMain.m to
++// look up with dlsym on the handle it dlopens at Play. Each game framework links its own dm/host, front_ios.m and shaders, so an
++// engine update never invalidates the games already in the shell.
++#pragma once
++
++// Bumped only when a signature below changes: a shell refuses a framework whose dm_glue_version does not match.
++#define DM_GLUE_VERSION 1
++
++typedef const char *(*dm_glue_start_fn)(const char *const *argv, int argc, const void *game_image);
++typedef void (*dm_glue_present_fn)(void *window);
++typedef void (*dm_glue_focus_fn)(int ev);
+diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
+new file mode 100644
+index 00000000..5ddd0e4f
+--- /dev/null
++++ b/dm/ios/framework/ShellGlue.m
+@@ -0,0 +1,77 @@
++// Route C shell (LNPANDY/NX2Apple#451): compiled into each game's DmGame<title ID>.framework (project-framework.yml DmShellGame)
++// alongside dm/host, front_ios.m and Gen/embed.S. ShellMain.m sets the environment, dlopens the chosen game's framework and calls
++// dm_glue_start_game and dm_glue_present_game through dlsym.
++// This file also provides the symbols front_ios.m takes from main.m and Launcher.swift in the one-game app, so the framework
++// compiles front_ios.m, DmGamepad.m and GameMenu.swift unchanged.
++#import <UIKit/UIKit.h>
++#include <pthread.h>
++#include <signal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/stat.h>
++#include "front.h"
++#include "ShellGlue.h"
++
++int dm_main(int argc, char **argv);   // dm/host/main.c compiled in with -Dmain=dm_main
++UIViewController *front_ios_root(void);
++void front_ios_focus_event(int ev);
++
++__attribute__((used, visibility("default"))) const int dm_glue_version = DM_GLUE_VERSION;
++
++static char **g_argv; static int g_argc; static int g_boot_ok;
++
++__attribute__((used, visibility("default")))
++const char *dm_glue_start_game(const char *const *argv, int argc, const void *game_image) {
++    if (argc < 2 || !game_image) return "The game's start arguments are incomplete.";
++    front_hud_env();   // before the early loading below can make a device (main.m's order)
++    dm_set_game_image_header(game_image);
++    g_argc = argc; g_argv = calloc((size_t)argc + 1, sizeof(char *));
++    for (int i = 0; i < argc; i++) g_argv[i] = strdup(argv[i]);
++    dm_host_preload_start(g_argc, g_argv);   // module tables, relocation and take-over in the background while the game view comes up
++    g_boot_ok = 1;
++    return NULL;
++}
++
++__attribute__((used, visibility("default")))
++void dm_glue_present_game(void *win) {
++    UIWindow *window = (__bridge UIWindow *)win;
++    if (!window) { fprintf(stderr, "[RED] shell: no window for the game view\n"); return; }
++    UIViewController *game = front_ios_root();   // DmRootVC: landscape, its viewDidAppear starts the game (no settings screen: dm_show_launcher)
++    window.rootViewController = game;
++    [game setNeedsUpdateOfSupportedInterfaceOrientations];
++    [window.windowScene requestGeometryUpdateWithPreferences:[[UIWindowSceneGeometryPreferencesIOS alloc] initWithInterfaceOrientations:UIInterfaceOrientationMaskLandscape]
++                                                errorHandler:^(NSError *e) { fprintf(stderr, "shell: landscape request: %s\n", e.localizedDescription.UTF8String); }];
++}
++
++__attribute__((used, visibility("default")))
++void dm_glue_focus_event(int ev) {
++    front_ios_focus_event(ev);
++}
++
++// ---- what front_ios.m takes from main.m and Launcher.swift ----
++static void *boot_thread(void *p) {
++    (void)p;
++    static char alt[65536]; stack_t ss = {.ss_sp = alt, .ss_size = sizeof alt}; sigaltstack(&ss, 0);   // crash printing must work on the host thread too
++    int rc = dm_main(g_argc, g_argv);
++    fprintf(stderr, "boot: dm_main returned %d\n", rc);
++    return NULL;
++}
++void front_ios_boot(void) {   // front_ios.m, once the game view exists
++    static int once; if (once++ || !g_boot_ok) return;
++    void front_ios_audio_session(void); front_ios_audio_session();
++    pthread_attr_t a; pthread_attr_init(&a); pthread_attr_setstacksize(&a, 64u << 20);
++    pthread_t t; pthread_create(&t, &a, boot_thread, NULL); pthread_detach(t);
++}
++int front_ios_boot_ok(void) { return g_boot_ok; }
++const char *front_ios_boot_message(void) { return NULL; }
++const char *front_ios_device_check(void) { return NULL; }   // main.m checks the GPU for the games (no BC textures, seedds#704) when Play is pressed, the shell does its own device handling: NULL = supported
++// The shell found the data before Play (DataLocator, EngineLaunchPlan): DM_ROMFS is set and the game view only checks it is still there
++int dm_locate_game_data(void) {
++    const char *r = getenv("DM_ROMFS"); struct stat st;
++    if (r && !stat(r, &st)) return 1;
++    fprintf(stderr, "[RED] shell: the game data at %s is gone\n", r ?: "(not set)");
++    return 0;
++}
++// The shell showed its own settings before Play: the game view starts the game at once
++bool dm_show_launcher(void *view_controller, void (*done)(void)) { (void)view_controller; (void)done; return false; }
+diff --git a/dm/ios/project-framework.yml b/dm/ios/project-framework.yml
+new file mode 100644
+index 00000000..89a2df5f
+--- /dev/null
++++ b/dm/ios/project-framework.yml
+@@ -0,0 +1,200 @@
++# Route C framework project (docs/launcher-c-plan.md M1): the same app as project.yml, except that the game's rewritten
++# modules are not compiled into the executable (no Gen/embed.S) but into DmGame.framework, which the app dlopens at launch.
++# build_ipa.sh DM_FRAMEWORK=1 generates Gen/ and Gen/framework before xcodegen runs; the app source reads the framework's
++# mach header before the loader starts (dm/ios/Sources/FrameworkBootstrap.m, dm/host/front.h).
++# The default project (project.yml) is untouched: without DM_FRAMEWORK the build is what it was.
++name: DmIOS
++options:
++  bundleIdPrefix: ${DM_BUNDLE_ID}
++  deploymentTarget:
++    iOS: "26.0"   # Graphics replay uses Metal 4 (MTL4CommandQueue etc., from iOS 26)
++configFiles:     # Generated by build_ipa.sh: embedded-segment link flags + header paths and frameworks taken from dm/host/Makefile
++  Release: Gen/dm.xcconfig
++  Debug: Gen/dm.xcconfig
++targets:
++  DmIOS:
++    type: application
++    platform: iOS
++    sources:
++      - path: Sources
++        excludes: [Info.plist]  # generated per project under Gen/, so games never share the generated plist
++      # No Gen/embed.S: the modules are the DmGame framework's (below)
++      - path: Gen/dm          # Rewriter tables (*.fixups.tsv / gates / cuts / obs) + shader map / c1 list / warm-up list
++        type: folder
++        buildPhase: resources
++      - path: Gen/Assets.xcassets   # app icon (generated by build_ipa.sh from the game icon; an empty catalog when there is none, since xcodegen lists it in the project whether or not it exists)
++      - path: Gen/src         # Source files from the compile commands of dm/host/Makefile (linked in by tools/gen_build.py)
++      - path: Gen/main/main.c
++        compilerFlags: "-Dmain=dm_main"
++    dependencies:             # The framework is dlopen()ed at launch, not linked: embed it, add no load command (link: false)
++      - target: DmGame
++        embed: true
++        link: false
++    postBuildScripts:
++      - name: Copy game resources
++        script: /bin/bash "${SRCROOT}/tools/stage_resources.sh"
++        basedOnDependencyAnalysis: false   # rsync checks the game's files; no huge Xcode input/output lists
++    info:
++      path: Gen/Info.plist
++      properties:
++        CFBundleDisplayName: ${DM_DISPLAY_NAME}   # the game name in the base NSP (set by build_ipa.sh)
++        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
++        CFBundleShortVersionString: $(MARKETING_VERSION)
++        UILaunchStoryboardName: ""
++        UIFileSharingEnabled: true          # Documents (log.txt, saves) visible in the Files app
++        LSSupportsOpeningDocumentsInPlace: true
++        UISupportedInterfaceOrientations:
++          - UIInterfaceOrientationLandscapeRight
++          - UIInterfaceOrientationLandscapeLeft
++        UIRequiresFullScreen: true
++        UIStatusBarHidden: true
++        UIViewControllerBasedStatusBarAppearance: false
++        LSApplicationCategoryType: ${DM_APP_CATEGORY}   # game profile app_category
++        DMShowFPS: ${DM_SHOW_FPS}           # YES = the frame-rate counter is on (front_ios.m; set by build_ipa.sh)
++        DMLanguage: ${DM_LANG}              # the game language code (main.m sets DM_LANG from it; set by build_ipa.sh)
++        LSSupportsGameMode: true
++        GCSupportsControllerUserInteraction: true   # Physical controllers (GameController)
++        GCSupportedGameControllers:
++          - ProfileName: ExtendedGamepad
++        CADisableMinimumFrameDurationOnPhone: true
++        UIApplicationSceneManifest:
++          UIApplicationSupportsMultipleScenes: false
++          UISceneConfigurations:
++            UIWindowSceneSessionRoleApplication:
++              - UISceneConfigurationName: Default
++                UISceneDelegateClassName: SceneDelegate
++    settings:
++      PRODUCT_BUNDLE_IDENTIFIER: ${DM_BUNDLE_ID}
++      PRODUCT_NAME: DmIOS
++      MARKETING_VERSION: ${DM_APP_VERSION}         # the game's display version: the packed update's, else the base game's (set by build_ipa.sh)
++      CURRENT_PROJECT_VERSION: ${DM_APP_VERSION}
++      DEVELOPMENT_TEAM: ${DM_TEAM_ID}
++      CODE_SIGN_STYLE: Automatic
++      ENABLE_USER_SCRIPT_SANDBOXING: NO    # the game's files live on the external drive
++      DM_COPY_GAME_RESOURCES: YES          # build_ipa.sh overrides this only for its unsigned archive build
++      SYMROOT: $(DM_XCODE_OUTPUT_ROOT)/Build/Products
++      OBJROOT: $(DM_XCODE_OUTPUT_ROOT)/Build/Intermediates.noindex
++      # Workspaces can override SYMROOT/OBJROOT. Keep app bundles and compiles separate even then.
++      CONFIGURATION_BUILD_DIR: $(DM_XCODE_OUTPUT_ROOT)/Build/Products/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)
++      CONFIGURATION_TEMP_DIR: $(DM_XCODE_OUTPUT_ROOT)/Build/Intermediates.noindex/$(PROJECT_NAME).build/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)
++      ASSETCATALOG_COMPILER_APPICON_NAME: $(DM_APPICON)   # Gen/dm.xcconfig sets DM_APPICON = AppIcon when there is a game icon; empty = no icon (xcodegen's default is AppIcon, which fails the build when the catalog lacks it)
++      TARGETED_DEVICE_FAMILY: "1,2"
++      ENABLE_BITCODE: NO
++      GCC_C_LANGUAGE_STANDARD: gnu11
++      OTHER_CFLAGS: $(inherited) -mcpu=apple-a18 -DDM_FRAMEWORK_BUILD=1   # The host assembly contains LSE atomic instructions, which the default baseline does not accept; the framework build compiles main.m's dlopen path
++      LD_RUNPATH_SEARCH_PATHS: $(inherited) @executable_path/Frameworks   # where the embedded DmGame.framework is
++      CLANG_ENABLE_OBJC_ARC: YES
++      SWIFT_VERSION: "5.0"                         # Launcher.swift (SwiftUI)
++      SWIFT_OBJC_BRIDGING_HEADER: Sources/DmIOS-Bridging-Header.h   # DataBookmark (the Files app pick)
++      DEBUG_INFORMATION_FORMAT: dwarf
++      GCC_WARN_INHIBIT_ALL_WARNINGS: YES
++  DmGame:
++    type: framework
++    platform: iOS
++    # The framework has no link flags from the app's xcconfig: only the embedded modules' segment permissions, which
++    # build_ipa.sh writes from gen_embed.py's output (Gen/framework.xcconfig)
++    configFiles:
++      Release: Gen/framework.xcconfig
++      Debug: Gen/framework.xcconfig
++    sources:
++      - path: Gen/embed.S
++      - path: framework/DmGameMarker.m   # the only symbol: dlsym + dladdr name this image's header (FrameworkBootstrap.m)
++      - path: Gen/framework/dm           # the loader's tables (argv[1]): *.fixups.tsv / gates / cuts / obs, shader map, nro.tsv
++        type: folder
++        buildPhase: resources
++      - path: Gen/framework/profile.tsv  # the runtime game profile: main.m points DM_PROFILE at it before dm_profile() runs
++        buildPhase: resources
++      - path: Gen/framework/game.manifest.json   # the game this framework carries (docs/launcher-c-plan.md, Manifest)
++        buildPhase: resources
++    info:
++      path: Gen/framework/Info.plist
++      properties:
++        CFBundleDisplayName: ${DM_DISPLAY_NAME}
++        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
++        CFBundleShortVersionString: $(MARKETING_VERSION)
++    settings:
++      PRODUCT_BUNDLE_IDENTIFIER: ${DM_BUNDLE_ID}.DmGame
++      PRODUCT_NAME: DmGame
++      MARKETING_VERSION: ${DM_APP_VERSION}
++      CURRENT_PROJECT_VERSION: ${DM_APP_VERSION}
++      DEVELOPMENT_TEAM: ${DM_TEAM_ID}
++      CODE_SIGN_STYLE: Automatic
++      SKIP_INSTALL: YES
++      DYLIB_INSTALL_NAME_BASE: "@rpath"
++      DEFINES_MODULE: NO   # no module map: nothing imports this framework, the app dlopen()s it (xcodegen would otherwise want an umbrella header)
++      ENABLE_BITCODE: NO
++      GCC_C_LANGUAGE_STANDARD: gnu11
++      OTHER_CFLAGS: $(inherited) -mcpu=apple-a18
++      CLANG_ENABLE_OBJC_ARC: YES
++      DEBUG_INFORMATION_FORMAT: dwarf
++      GCC_WARN_INHIBIT_ALL_WARNINGS: YES
++      # No SYMROOT/OBJROOT/CONFIGURATION_BUILD_DIR of its own: the framework builds where the app does (xcodebuild's
++      # SYMROOT in build_ipa.sh, the pinned DerivedData of a prepared workspace in Xcode), and the app's embed phase copies
++      # it from there. The app target keeps project.yml's paths, which reference the generated DM_XCODE_OUTPUT_ROOT.
++  DmShellGame:
++    type: framework
++    platform: iOS
++    # Route C shell (LNPANDY/NX2Apple#451): each game's DmGame<title ID>.framework links its own dm/host, front_ios.m and
++    # embedded modules (Gen/dm.xcconfig: gen_build.py's header paths, defines and frameworks + gen_embed.py's segment flags),
++    # so an engine update never invalidates the games already in the shell.
++    configFiles:
++      Release: Gen/dm.xcconfig
++      Debug: Gen/dm.xcconfig
++    sources:
++      - path: Gen/embed.S
++      - path: Gen/src
++      - path: Gen/main/main.c
++        compilerFlags: "-Dmain=dm_main"
++      - path: framework/DmGameMarker.m
++      - path: framework/ShellGlue.m
++      - path: Sources/front_ios.m
++      - path: Sources/DmGamepad.m
++      - path: Sources/GameMenu.swift
++      - path: Sources/LauncherSettings.swift
++      - path: Sources/CloudSaves.m
++      - path: Sources/SaveSync.m
++      - path: Sources/DataBookmark.m
++      - path: Gen/framework/dm
++        type: folder
++        buildPhase: resources
++      - path: Gen/framework/profile.tsv
++        buildPhase: resources
++      - path: Gen/framework/game.manifest.json
++        buildPhase: resources
++    info:
++      path: Gen/framework/ShellGame-Info.plist
++      properties:
++        CFBundleDisplayName: ${DM_DISPLAY_NAME}
++        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
++        CFBundleShortVersionString: $(MARKETING_VERSION)
++    settings:
++      PRODUCT_BUNDLE_IDENTIFIER: ${DM_BUNDLE_ID}.DmGame
++      PRODUCT_NAME: DmGame
++      MARKETING_VERSION: ${DM_APP_VERSION}
++      CURRENT_PROJECT_VERSION: ${DM_APP_VERSION}
++      DEVELOPMENT_TEAM: ${DM_TEAM_ID}
++      CODE_SIGN_STYLE: Automatic
++      CODE_SIGN_ENTITLEMENTS: ""
++      SKIP_INSTALL: YES
++      DYLIB_INSTALL_NAME_BASE: "@rpath"
++      DEFINES_MODULE: NO
++      ENABLE_BITCODE: NO
++      GCC_C_LANGUAGE_STANDARD: gnu11
++      SWIFT_VERSION: "5.0"
++      OTHER_SWIFT_FLAGS: $(inherited) -import-objc-header $(SRCROOT)/Sources/DmGameMenu.h
++      OTHER_CFLAGS: $(inherited) -mcpu=apple-a18
++      OTHER_LDFLAGS: $(inherited) -framework UIKit -framework UserNotifications
++      CLANG_ENABLE_OBJC_ARC: YES
++      DEBUG_INFORMATION_FORMAT: dwarf
++      GCC_WARN_INHIBIT_ALL_WARNINGS: YES
++schemes:
++  ${DM_SCHEME_NAME}:
++    build:
++      targets:
++        DmIOS: all
++    run:
++      config: Release
++    profile:
++      config: Release
++    archive:
++      config: Release
+diff --git a/dm/ios/tests/test_bc_device_check.py b/dm/ios/tests/test_bc_device_check.py
+new file mode 100644
+index 00000000..6c443e5b
+--- /dev/null
++++ b/dm/ios/tests/test_bc_device_check.py
+@@ -0,0 +1,56 @@
++"""Exercise the one-game iOS device check with synthetic GPU capabilities and a runtime profile."""
++from pathlib import Path
++import subprocess
++import sys
++import tempfile
++import unittest
++
++REPO = Path(__file__).resolve().parents[3]
++
++
++@unittest.skipUnless(sys.platform == 'darwin', 'needs Foundation and Metal')
++class BCDeviceCheckTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.temporary = tempfile.TemporaryDirectory()
++        cls.addClassCleanup(cls.temporary.cleanup)
++        root = Path(cls.temporary.name)
++        main = (REPO / 'dm/ios/Sources/main.m').read_text()
++        check = main[main.index('const char *front_ios_device_check(void)'):main.index('static void romfs_identity_report')]
++        source = root / 'check.m'
++        source.write_text('''#import <Foundation/Foundation.h>
++#import <Metal/Metal.h>
++#include <stdio.h>
++#include <stdlib.h>
++#define DM_GAME_TEX_BC_CPU 0
++static int supports_bc, cpu_decode;
++typedef struct { int tex_bc_cpu; } dm_game_profile;
++static const dm_game_profile *dm_profile(void) { static dm_game_profile p; p.tex_bc_cpu = cpu_decode; return &p; }
++@interface FixtureGPU : NSObject
++@property(readonly) BOOL supportsBCTextureCompression;
++@property(readonly) NSString *name;
++@end
++@implementation FixtureGPU
++- (BOOL)supportsBCTextureCompression { return supports_bc; }
++- (NSString *)name { return @"Fixture GPU"; }
++@end
++static id<MTLDevice> fixture_device(void) { return (id<MTLDevice>)[FixtureGPU new]; }
++#define MTLCreateSystemDefaultDevice fixture_device
++''' + check + '''
++int main(int argc, char **argv) { @autoreleasepool {
++    supports_bc = atoi(argv[1]); cpu_decode = atoi(argv[2]);
++    return front_ios_device_check() ? 1 : 0;
++} }
++''')
++        cls.executable = root / 'check'
++        subprocess.run(['clang', '-fobjc-arc', '-framework', 'Foundation', '-framework', 'Metal', str(source), '-o', str(cls.executable)], check=True)
++
++    def test_effective_runtime_profile_allows_cpu_decoding_on_older_gpu(self):
++        for supports_bc, cpu_decode, expected in [(0, 0, 1), (0, 1, 0), (1, 0, 0)]:
++            with self.subTest(supports_bc=supports_bc, cpu_decode=cpu_decode):
++                result = subprocess.run([str(self.executable), str(supports_bc), str(cpu_decode)], capture_output=True, text=True)
++                self.assertEqual(result.returncode, expected, result.stderr)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
+new file mode 100644
+index 00000000..f1c89929
+--- /dev/null
++++ b/dm/ios/tests/test_framework_build.py
+@@ -0,0 +1,323 @@
++"""Route C M1 (docs/launcher-c-plan.md): the opt-in framework build's packaging and signing, off a device.
++
++Four parts, each on synthetic inputs, no game files or Xcode:
++  - gen_manifest.py writes the schema's keys, and refuses values the schema cannot carry;
++  - build_ipa.sh's --prepare-xcode block copies project-framework.yml in as the project when DM_FRAMEWORK=1, and
++    project.yml when it is not (the default template is never edited);
++  - the framework is signed before the app's executable, the framework's signature carries no entitlements, the app's
++    keeps the Increased Memory Limit request, and the packed IPA has the framework where the app dlopens it. A default
++    pack (no DM_FRAMEWORK) still has no Frameworks/ entry at all;
++  - DM_FRAMEWORK_ONLY puts the game's shader libraries into the framework in the form they have: an NVN game's one file
++    b-<chain>.img (dm/tools/shader_lib.py) as msl/b-<chain>.img, a folder as msl/<folder>, and a rebuild leaves only that one.
++Only the signing and packing steps run (a stand-in app and framework, no Xcode); codesign is required for the third part.
++"""
++import json
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++import zipfile
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/games'))
++import game
++
++GAME = '010015100B514000'
++SCRIPT = (REPO / 'dm/ios/tools/build_ipa.sh').read_text()
++# The three steps, each self-contained: the framework's signature, the app executable's entitlements, the pack.
++FRAMEWORK_SIGNING = SCRIPT[SCRIPT.index('# Route C: the framework is signed first'):SCRIPT.index('# The entitlements of an unsigned IPA')]
++SIGNING = SCRIPT[SCRIPT.index('# The entitlements of an unsigned IPA'):SCRIPT.index('\nP=Payload/DmIOS.app\n')]
++PACKING = SCRIPT[SCRIPT.index('\nP=Payload/DmIOS.app\n'):]
++PREPARE = SCRIPT[SCRIPT.index('if [ "$PREPARE_XCODE" = YES ]; then'):SCRIPT.index('\nelse DM_SCHEME_NAME=DmIOS; fi')] + '\nfi\n'
++# DM_FRAMEWORK_ONLY's block, after the helper it finds the shader libraries with
++FRAMEWORK_ONLY = (next(line for line in SCRIPT.splitlines() if line.startswith('lib_path() ')) + '\n' +
++                  SCRIPT[SCRIPT.index('# DM_FRAMEWORK_ONLY: the framework target alone'):SCRIPT.index('\nt "xcodebuild (Release, unsigned, iPhone + iPad)"')] + '\n')
++PREAMBLE = 'set -u\nt() { :; }; die() { echo "$*" >&2; exit 1; }\ngp() { python3 "$PROFILE_TOOL" "$GAME" "$1"; }\n'
++CAN_SIGN = sys.platform == 'darwin' and shutil.which('codesign') and shutil.which('cc')
++
++
++def run_step(script, root, **extra):
++    env = {k: v for k, v in os.environ.items() if not k.startswith('DM_') and k not in ('IOS_PULL', 'AOC', 'PSO', 'FRAMEWORK')}
++    env.update(GAME=GAME, DM=str(root / 'dm'), PROFILE_TOOL=str(REPO / 'dm/games/game.py'), **extra)
++    return subprocess.run(['/bin/bash', '-c', PREAMBLE + script], cwd=root, env=env, capture_output=True, text=True)
++
++
++class ManifestTests(unittest.TestCase):
++    def manifest(self, *extra, nro=True):
++        """gen_manifest.py's output for the fixture's profile; a two-row nro.tsv (one loadable, one refused)."""
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary)
++            (root / 'nro.tsv').write_text('# name\tpath\nnrotest\tfixture.nro\nrefused\tonline.nro\n')
++            out = root / 'game.manifest.json'
++            args = [sys.executable, str(REPO / 'dm/ios/tools/gen_manifest.py'), str(out), '--game', GAME, '--name', 'Fixture Game',
++                    '--display-version', '1.2.1', '--package-version', 'v327680', '--modules', 'main sdk', '--chain', 'b-fixture',
++                    '--romfs-marker', 'System/Resource/marker', '--romfs-identity', 'DMROMFSID1 title=x size=1 index=2', *extra]
++            if nro: args += ['--nro-table', str(root / 'nro.tsv')]
++            result = subprocess.run(args, capture_output=True, text=True)
++            return result, (json.loads(out.read_text()) if out.exists() else None)
++
++    def test_the_schema_keys_and_values(self):
++        result, data = self.manifest()
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertEqual(list(data), ['schema', 'title_id', 'name', 'display_version', 'package_version', 'modules', 'nro_count',
++                                      'chain', 'loader', 'framework', 'framework_executable', 'image_marker', 'profile', 'shader_map',
++                                      'launcher', 'romfs_marker', 'romfs_identity', 'min_os'])
++        self.assertEqual(data['schema'], 1)
++        self.assertEqual(data['title_id'], GAME)
++        self.assertEqual(data['modules'], ['main', 'sdk'])
++        self.assertEqual(data['nro_count'], 1, 'the refused row is not an NRO gen_embed.py packs')
++        self.assertEqual(data['chain'], 'b-fixture')
++        self.assertEqual(data['loader'], 'FR')
++        self.assertEqual(data['framework'], 'DmGame.framework')
++        self.assertEqual(data['framework_executable'], 'DmGame')
++        self.assertEqual(data['image_marker'], 'dmgame_image_marker')
++        self.assertEqual(data['profile'], 'profile.tsv')
++        self.assertEqual(data['shader_map'], 'dm/shader_map.tsv')
++        self.assertEqual(data['launcher'], 'dm/launcher.json')
++        self.assertEqual(data['romfs_marker'], 'System/Resource/marker')
++        self.assertEqual(data['romfs_identity'], 'DMROMFSID1 title=x size=1 index=2')
++        self.assertEqual(data['min_os'], '26.0')
++
++    def test_the_console_comes_from_the_profiles_first_line(self):
++        with tempfile.TemporaryDirectory() as temporary:
++            for first, expected in (('# Donkey Kong Bananza (Switch 2, update v458752)', 'switch2'), ('# Fixture Game (update v1)', 'switch1')):
++                profile = Path(temporary) / 'game.tsv'
++                profile.write_text(first + '\nname\tx\n')
++                result, data = self.manifest('--profile', str(profile))
++                self.assertEqual(result.returncode, 0, result.stderr)
++                self.assertEqual(data['console'], expected)
++                self.assertEqual(list(data)[-2:], ['min_os', 'console'], 'after the schema keys, which keep their order')
++
++    def test_without_a_profile_the_manifest_says_nothing_about_the_console(self):
++        result, data = self.manifest()
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertNotIn('console', data)
++
++    def test_a_romfs_folder_has_no_identity_and_no_nro_table_counts_zero(self):
++        result, data = self.manifest('--romfs-identity', '', nro=False)
++        self.assertEqual(result.returncode, 0, result.stderr)
++        self.assertEqual(data['romfs_identity'], '')
++        self.assertEqual(data['nro_count'], 0)
++
++    def test_values_the_schema_cannot_carry_are_refused(self):
++        cases = [('--game', '1234'), ('--modules', ''), ('--modules', 'main_sdk'), ('--chain', 'fixture'),
++                 ('--romfs-identity', 'not-an-identity')]
++        for flag, value in cases:
++            with self.subTest(flag=flag, value=value):
++                base = [sys.executable, str(REPO / 'dm/ios/tools/gen_manifest.py'), '/dev/null', '--game', GAME, '--name', 'x',
++                        '--display-version', '1', '--package-version', 'v0', '--modules', 'main', '--chain', 'b-1',
++                        '--romfs-marker', 'marker', '--romfs-identity', 'DMROMFSID1 title=x size=1 index=2']
++                base[base.index(flag) + 1] = value
++                self.assertNotEqual(subprocess.run(base, capture_output=True).returncode, 0)
++
++
++class ProjectTemplateTests(unittest.TestCase):
++    """build_ipa.sh --prepare-xcode copies the template the build asks for in as project.yml."""
++
++    def prepare(self, framework):
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary).resolve()
++            source = root / 'ios'
++            for name in ('Sources', 'tools', 'framework'):
++                (source / name).mkdir(parents=True)
++            (source / 'project.yml').write_text('name: default\n')
++            (source / 'project-framework.yml').write_text('name: framework\n')
++            environment = dict(IOS_SOURCE=str(source), DM_XCODE_PROJECT_DIR=str(root / 'xcode'), W=str(root), GAME=GAME,
++                               DM_DISPLAY_NAME='Fixture Game', FRAMEWORK=str(framework))
++            result = subprocess.run(['/bin/bash', '-c', PREAMBLE + 'PREPARE_XCODE=YES\n' + PREPARE], env=environment, capture_output=True, text=True)
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++            copied = (root / 'xcode/project.yml').read_text()
++            linked = (root / 'xcode/framework').is_symlink()
++            return copied, linked
++
++    def test_framework_mode_selects_project_framework_yml(self):
++        self.assertEqual(self.prepare(1), ('name: framework\n', True))
++
++    def test_the_default_mode_still_selects_project_yml(self):
++        self.assertEqual(self.prepare(0), ('name: default\n', False))
++
++
++class FrameworkEnvironmentTests(unittest.TestCase):
++    def test_build_environment_stays_with_its_framework(self):
++        block = SCRIPT[SCRIPT.index('if [ "$FRAMEWORK" = 1 ]; then\n  rm -rf Gen/framework'):SCRIPT.index('# A prepared Xcode project is signed')]
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary)
++            (root / 'Gen/dm/font').mkdir(parents=True)
++            (root / 'patched').mkdir()
++            (root / 'dm').symlink_to(REPO / 'dm', target_is_directory=True)
++            (root / 'Gen/dm/env.txt').write_text('DM_PROF_TEX_BC_CPU=1\n')
++            (root / 'Gen/dm/font/font.ttf').write_text('font')
++            (root / 'Gen/dm/launcher.json').write_text('{}')
++            (root / 'tools').symlink_to(REPO / 'dm/ios/tools', target_is_directory=True)
++            result = run_step(block, root, FRAMEWORK='1', FRAMEWORK_ONLY='out', FW_NAME='DmGame' + GAME,
++                              PATCHED=str(root / 'patched'), ROMFS=str(root / 'none'), PREPARE_XCODE='NO', DM_COPY_ROMFS='NO',
++                              DM_DISPLAY_NAME='Fixture', DM_APP_VERSION='1.0', MODS='main', V='fixture', MARKER='marker', F='', GD=str(root / 'gd'))
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++            self.assertTrue((root / 'Gen/framework/dm/env.txt').is_file(), 'the built framework must carry its environment')
++            self.assertEqual((root / 'Gen/framework/dm/env.txt').read_text(), 'DM_PROF_TEX_BC_CPU=1\n')
++            self.assertFalse((root / 'Gen/framework/dm/font').exists())
++
++
++class FrameworkPackagingTests(unittest.TestCase):
++    """The signing and pack steps on a stand-in app; no Xcode, no game files."""
++
++    def stand_in(self, root, compiled):
++        header = root / 'dm/host/gen' / GAME / 'game_profile.h'
++        header.parent.mkdir(parents=True)
++        header.write_text(game.header(game.Game(REPO / 'dm/games' / GAME)))
++        for folder in ('DmIOS.app', 'shaders/b-fixture', 'romfs', 'aoc/0', 'pkg'): (root / folder).mkdir(parents=True)
++        (root / 'shaders/b-fixture/fixture_b.metallib').write_text('lib')
++        (root / 'romfs/marker').write_text('romfs')
++        (root / 'aoc/0/file').write_text('aoc')
++        (root / 'tools').symlink_to(REPO / 'dm/ios/tools', target_is_directory=True)
++        (root / 'dm/tools').symlink_to(REPO / 'dm/tools', target_is_directory=True)
++        if compiled:   # only the signing step needs a Mach-O executable
++            (root / 'main.c').write_text('int main(void) { return 0; }\n')
++            subprocess.run(['cc', '-o', str(root / 'DmIOS.app/DmIOS'), str(root / 'main.c')], check=True)
++        else:
++            (root / 'DmIOS.app/DmIOS').write_text('app')
++        (root / 'DmIOS.app/Info.plist').write_text(
++            '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>' +
++            '<key>CFBundleExecutable</key><string>DmIOS</string>' +
++            '<key>CFBundleIdentifier</key><string>org.nxnative.fixture</string></dict></plist>\n')
++
++    def framework(self, root):
++        """What project-framework.yml embeds: the dylib, its Info.plist and the resources at the framework's root."""
++        framework = root / 'DmIOS.app/Frameworks/DmGame.framework'
++        (framework / 'dm').mkdir(parents=True)
++        (root / 'marker.c').write_text('const char dmgame_image_marker[] = "DmGame";\n')
++        subprocess.run(['cc', '-dynamiclib', '-install_name', '@rpath/DmGame.framework/DmGame',
++                        '-o', str(framework / 'DmGame'), str(root / 'marker.c')], check=True)
++        (framework / 'Info.plist').write_text(
++            '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict>' +
++            '<key>CFBundleExecutable</key><string>DmGame</string>' +
++            '<key>CFBundleIdentifier</key><string>org.nxnative.fixture.DmGame</string>' +
++            '<key>CFBundlePackageType</key><string>FMWK</string>' +
++            '<key>CFBundleVersion</key><string>1.0</string></dict></plist>\n')
++        (framework / 'dm/shader_map.tsv').write_text('key\tfixture\n')
++        (framework / 'profile.tsv').write_text('id\t' + GAME + '\n')
++        (framework / 'game.manifest.json').write_text('{"schema": 1}\n')
++        return framework
++
++    def pack(self, framework):
++        """Sign what the build signs and pack a stand-in app; the files outlive the call for the caller's checks."""
++        root = Path(tempfile.mkdtemp()).resolve()
++        self.addCleanup(shutil.rmtree, root)
++        self.stand_in(root, compiled=framework)
++        signing = []
++        if framework:
++            self.framework(root)
++            signing = [(FRAMEWORK_SIGNING, dict(FRAMEWORK='1')), (SIGNING, {})]   # the build's order: framework, then the app's executable
++        for script, extra in signing:
++            result = run_step(script, root, APP=str(root / 'DmIOS.app'), O=str(root / 'pkg'), **extra)
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        result = run_step(PACKING, root, APP=str(root / 'DmIOS.app'), MSL_IOS=str(root / 'shaders'), MSLDIR='b-fixture',
++                          ROMFS=str(root / 'romfs'), AOC=str(root / 'aoc'), OUT_IPA=str(root / 'out.ipa'), O=str(root / 'pkg'),
++                          DM_APP_VERSION='1.2.1', PKG='v327680')
++        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        with zipfile.ZipFile(root / 'out.ipa') as archive:
++            names = set(archive.namelist())
++            archive.extractall(root / 'extracted')
++        return names, root
++
++    def test_the_default_build_has_no_frameworks(self):
++        names, _ = self.pack(framework=False)
++        self.assertFalse([n for n in names if '/Frameworks/' in n], 'the default project has no framework target')
++        self.assertIn('Payload/DmIOS.app/DmIOS', names)
++
++    @unittest.skipUnless(CAN_SIGN, 'needs macOS codesign and a C compiler')
++    def test_the_framework_is_packed_and_signed_without_entitlements(self):
++        names, root = self.pack(framework=True)
++        base = 'Payload/DmIOS.app/Frameworks/DmGame.framework'
++        for name in ('DmGame', 'Info.plist', 'dm/shader_map.tsv', 'profile.tsv', 'game.manifest.json'):
++            self.assertIn(f'{base}/{name}', names)
++        extracted = root / 'extracted/Payload/DmIOS.app'
++
++        def entitlements(path):
++            return subprocess.run(['codesign', '-d', '--entitlements', ':-', str(path)], capture_output=True, text=True).stdout
++
++        self.assertEqual(entitlements(extracted / 'Frameworks/DmGame.framework/DmGame'), '',
++                         'a dylib cannot carry entitlements; the request belongs to the app')
++        self.assertIn('com.apple.developer.kernel.increased-memory-limit', entitlements(extracted / 'DmIOS'),
++                      'the app executable keeps the Increased Memory Limit request')
++        verified = subprocess.run(['codesign', '-vvv', '--verify', '--strict', str(extracted / 'Frameworks/DmGame.framework')],
++                                  capture_output=True, text=True)
++        self.assertEqual(verified.returncode, 0, verified.stdout + verified.stderr)
++
++
++@unittest.skipUnless(sys.platform == 'darwin', 'build_ipa.sh copies an image with macOS cp -c (clonefile)')
++class FrameworkOnlyShaderLibrariesTests(unittest.TestCase):
++    """DM_FRAMEWORK_ONLY's copy of the shader libraries into the game's framework, after a stand-in xcodebuild; no Xcode, no game files."""
++    FW = 'DmGame' + GAME
++
++    def setUp(self):
++        self.root = root = Path(tempfile.mkdtemp()).resolve()
++        self.addCleanup(shutil.rmtree, root)
++        (root / 'dm').mkdir()
++        (root / 'dm/tools').symlink_to(REPO / 'dm/tools', target_is_directory=True)
++        (root / 'bin').mkdir()
++        (root / 'bin/xcodebuild').write_text('#!/bin/sh\nexit 0\n')
++        (root / 'bin/xcodebuild').chmod(0o755)
++        built = root / 'dd/Build/Products/Release-iphoneos' / f'{self.FW}.framework'   # what the framework target builds
++        built.mkdir(parents=True)
++        (built / self.FW).write_text('dylib')
++        (built / 'game.manifest.json').write_text(json.dumps({'framework_executable': self.FW}))
++        self.out = root / 'out' / f'{self.FW}.framework'
++
++    def library(self, packed, content='shader'):
++        """The NSP script's shader libraries: the folder dmsh_build.py writes, or the one file shader_lib.py packs it into."""
++        folder, image = self.root / 'shaders/b-fixture', self.root / 'shaders/b-fixture.img'
++        shutil.rmtree(folder, ignore_errors=True)
++        image.unlink(missing_ok=True)
++        folder.mkdir(parents=True)
++        (folder / 'fixture_b.metallib').write_text(content)
++        if packed:
++            result = subprocess.run([sys.executable, str(REPO / 'dm/tools/shader_lib.py'), 'pack', str(folder)], capture_output=True, text=True)
++            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++            self.assertFalse(folder.exists())
++            self.assertTrue(image.is_file())
++        return image if packed else folder
++
++    def build(self):
++        root = self.root
++        result = run_step(FRAMEWORK_ONLY, root, FRAMEWORK_ONLY=str(root / 'out'), FW_NAME=self.FW, O=str(root / 'pkg'), DD=str(root / 'dd'),
++                          DM_BUNDLE_ID='org.nxnative.fixture', MSL_IOS=str(root / 'shaders'), MSLDIR='b-fixture', PSO='',
++                          ICON=str(root / 'no-icon.jpg'), PATH=f'{root / "bin"}:{os.environ["PATH"]}')
++        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
++        self.assertTrue((self.out / self.FW).is_file())
++
++    def shaders(self):
++        return sorted(p.name for p in (self.out / 'msl').iterdir())
++
++    def test_a_packed_library_goes_in_as_its_one_file(self):
++        image = self.library(packed=True)
++        self.build()
++        self.assertEqual(self.shaders(), ['b-fixture.img'])
++        self.assertEqual((self.out / 'msl/b-fixture.img').read_bytes(), image.read_bytes())
++
++    def test_a_library_folder_goes_in_as_a_folder(self):
++        self.library(packed=False)
++        self.build()
++        self.assertEqual(self.shaders(), ['b-fixture'])
++        self.assertEqual((self.out / 'msl/b-fixture/fixture_b.metallib').read_text(), 'shader')
++
++    def test_a_rebuild_leaves_only_the_current_library(self):
++        (self.out / 'msl/b-fixture').mkdir(parents=True)   # an earlier build's folder, and another chain's library
++        (self.out / 'msl/b-fixture/stale_b.metallib').write_text('stale')
++        (self.out / 'msl/b-otherchain.img').write_text('other chain')
++        self.library(packed=True)
++        self.build()
++        self.assertEqual(self.shaders(), ['b-fixture.img'])
++        image = self.library(packed=True, content='a newer shader')
++        self.build()
++        self.assertEqual((self.out / 'msl/b-fixture.img').read_bytes(), image.read_bytes())
++        self.library(packed=False)
++        self.build()
++        self.assertEqual(self.shaders(), ['b-fixture'])
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/ios/tests/test_framework_link.py b/dm/ios/tests/test_framework_link.py
+new file mode 100644
+index 00000000..5c6d3d03
+--- /dev/null
++++ b/dm/ios/tests/test_framework_link.py
+@@ -0,0 +1,191 @@
++"""Route C M1 (docs/launcher-c-plan.md): xcodebuild links the game's modules into DmGame.framework, off a device.
++
++Builds the framework target of project-framework.yml from a synthetic Gen/ (two 64 KB stand-in modules: main and one NRO) and
++reads the linked dylib back with otool: the three section blocks of each module are in the framework (__TEXT,__dm<mod>x0,
++__DM<mod>W,__img, __TEXT,__dm<mod>x1), the NRO pieces with them (__TEXT,__dm_nro_x0, __DM_NRO_W,__img, __TEXT,__dm_nro_x1) and
++__DATA,__dm_nro_tab lists them; the install name is @rpath/DmGame.framework/DmGame; the framework carries its dm/ tables,
++profile.tsv and game.manifest.json at its root. The generated project also shows what the app does with it: an Embed Frameworks
++phase and LD_RUNPATH_SEARCH_PATHS @executable_path/Frameworks. No game files, shaders or signing are involved.
++
++Needs macos, XcodeGen and an iPhoneOS SDK; skipped otherwise (CI's tool tests run without a device but with both).
++"""
++import json
++import os
++from pathlib import Path
++import plistlib
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++
++REPO = Path(__file__).resolve().parents[3]
++GAME = '010015100B514000'
++HAS_TOOLS = (sys.platform == 'darwin' and shutil.which('xcodegen') and shutil.which('xcodebuild')
++             and subprocess.run(['xcrun', '--sdk', 'iphoneos', '--show-sdk-path'], capture_output=True).returncode == 0)
++
++
++def run(*command, cwd=None, env=None):
++    return subprocess.run([str(c) for c in command], cwd=cwd, env=env, capture_output=True, text=True)
++
++
++def fail_tail(result):
++    return '\n'.join((result.stdout + result.stderr).splitlines()[-40:])
++
++
++def sections(binary):
++    """(segment, section) pairs from otool -l: a section block names its segment first."""
++    out = run('otool', '-l', binary).stdout
++    pairs, segment = set(), None
++    for line in out.splitlines():
++        words = line.split()
++        if len(words) == 2 and words[0] == 'segname': segment = words[1]
++        elif len(words) == 2 and words[0] == 'sectname' and segment: pairs.add((segment, words[1]))
++    return pairs
++
++
++@unittest.skipUnless(HAS_TOOLS, 'needs macOS, XcodeGen and an iPhoneOS SDK')
++class FrameworkLinkTests(unittest.TestCase):
++    def test_the_framework_carries_the_module_sections_and_the_loader_tables(self):
++        root = Path(tempfile.mkdtemp()).resolve()
++        self.addCleanup(shutil.rmtree, root)
++        project, gen = root / 'project', root / 'project/Gen'
++        (gen / 'dm').mkdir(parents=True)
++        (gen / 'src').mkdir()
++        (gen / 'main').mkdir()
++        (gen / 'Assets.xcassets').mkdir()
++        (gen / 'Assets.xcassets/Contents.json').write_text(json.dumps({'info': {'author': 'xcode', 'version': 1}}))
++        (gen / 'src/fixture.c').write_text('/* stand-in: the app target is not built here */\n')
++        (gen / 'main/main.c').write_text('int dm_main(int argc, char **argv) { (void)argc; (void)argv; return 0; }\n')
++        for name in ('Sources', 'tools', 'framework'):
++            (project / name).symlink_to(REPO / 'dm/ios' / name, target_is_directory=True)
++        shutil.copyfile(REPO / 'dm/ios/project-framework.yml', project / 'project.yml')
++
++        # Two stand-in modules with the rewriter's four boundary keys; the NRO is listed in nro.tsv, so gen_embed.py packs it
++        patched = root / 'patched'
++        patched.mkdir()
++        for name in ('main', 'nrotest'):
++            (patched / f'{name}.patched.bin').write_bytes(bytes(0x10000))
++            (patched / f'{name}.fixups.tsv').write_text('# TEXT_END 0x4000\n# PATCH_OFF 0xc000\n# KEY_PAGE_OFF 0x8000\n# KEY_PAGE_SIZE 0x4000\n')
++        (patched / 'nro.tsv').write_text('nrotest\tfixture.nro\n')
++        flags = run(sys.executable, REPO / 'dm/ios/tools/gen_embed.py', patched, gen / 'embed.S', 'main', 'nrotest')
++        self.assertEqual(flags.returncode, 0, fail_tail(flags))
++        # The app target's config is not used by `xcodebuild -target DmGame`; it only has to exist (xcodegen's configFiles)
++        (gen / 'dm.xcconfig').write_text('HEADER_SEARCH_PATHS = $(inherited)\nOTHER_CFLAGS = $(inherited)\nDM_FRAMEWORKS =\nOTHER_LDFLAGS = $(inherited)\n')
++        (gen / 'framework.xcconfig').write_text(f'OTHER_LDFLAGS = $(inherited) {flags.stdout.strip()}\n')
++        (gen / 'framework/dm').mkdir(parents=True)
++        for name in ('main.fixups.tsv', 'nrotest.fixups.tsv', 'nro.tsv'):
++            shutil.copyfile(patched / name, gen / 'dm' / name)
++        (gen / 'dm/shader_map.tsv').write_text('key\tfixture\n')
++        for name in ('main.fixups.tsv', 'nrotest.fixups.tsv', 'nro.tsv', 'shader_map.tsv'):
++            shutil.copyfile(gen / 'dm' / name, gen / 'framework/dm' / name)
++        profile = run(sys.executable, REPO / 'dm/games/game.py', 'profile', GAME, gen / 'framework/profile.tsv')
++        self.assertEqual(profile.returncode, 0, fail_tail(profile))
++        chain = next(line.split('"')[1] for line in (REPO / 'dm/gfx/nvn/dmsh_chain.h').read_text().splitlines()
++                     if line.startswith('#define DMSH_CHAIN "'))
++        manifest = run(sys.executable, REPO / 'dm/ios/tools/gen_manifest.py', gen / 'framework/game.manifest.json', '--game', GAME,
++                       '--name', 'Fixture Game', '--display-version', '1.0', '--package-version', 'v0', '--modules', 'main',
++                       '--nro-table', patched / 'nro.tsv', '--chain', 'b-' + chain, '--romfs-marker', 'marker')
++        self.assertEqual(manifest.returncode, 0, fail_tail(manifest))
++
++        env = dict(os.environ, GAME=GAME, DM_GAME=GAME, DM_BUNDLE_ID='org.nxnative.fixture', DM_DISPLAY_NAME='Fixture Game',
++                   DM_APP_VERSION='1.0', DM_APP_CATEGORY='action', DM_TEAM_ID='', DM_SCHEME_NAME='DmIOS', DM_APPICON='',
++                   DM_SHOW_FPS='NO', DM_LANG='en-US')
++        generated = run('xcodegen', 'generate', cwd=project, env=env)
++        self.assertEqual(generated.returncode, 0, fail_tail(generated))
++        pbx = (project / 'DmIOS.xcodeproj/project.pbxproj').read_text()
++        self.assertIn('Embed Frameworks', pbx)                     # the app embeds the framework ...
++        self.assertIn('@executable_path/Frameworks', pbx)          # ... and can find it by that path
++        self.assertIn('LD_RUNPATH_SEARCH_PATHS', pbx)
++
++        derived = root / 'derived'
++        built = run('xcodebuild', '-project', project / 'DmIOS.xcodeproj', '-target', 'DmGame', '-configuration', 'Release',
++                    '-destination', 'generic/platform=iOS',
++                    f'SYMROOT={derived}/Build/Products', f'OBJROOT={derived}/Build/Intermediates.noindex',
++                    'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'CODE_SIGN_IDENTITY=', 'build', cwd=project, env=env)
++        self.assertEqual(built.returncode, 0, fail_tail(built))
++        framework = derived / 'Build/Products/Release-iphoneos/DmGame.framework'
++        binary = framework / 'DmGame'
++        self.assertTrue(binary.is_file(), f'no {binary}')
++        self.assertEqual(plistlib.loads((framework / 'Info.plist').read_bytes())['CFBundleExecutable'], 'DmGame')
++        for name in ('dm/shader_map.tsv', 'dm/nro.tsv', 'dm/main.fixups.tsv', 'profile.tsv', 'game.manifest.json'):
++            self.assertTrue((framework / name).is_file(), f'the framework is missing {name}')
++        self.assertEqual(json.loads((framework / 'game.manifest.json').read_text())['nro_count'], 1)
++
++        got = sections(binary)
++        for pair in [('__TEXT', '__dmmainx0'), ('__DMmainW', '__img'), ('__TEXT', '__dmmainx1'),
++                     ('__TEXT', '__dmnrotestx0'), ('__DMnrotestW', '__img'), ('__TEXT', '__dmnrotestx1'),
++                     ('__TEXT', '__dm_nro_x0'), ('__DM_NRO_W', '__img'), ('__TEXT', '__dm_nro_x1'),
++                     ('__DATA', '__dm_nro_tab')]:
++            self.assertIn(pair, got, f'{pair[0]},{pair[1]} is not a section of the framework')
++        self.assertIn('@rpath/DmGame.framework/DmGame', run('otool', '-D', binary).stdout)
++
++    def test_the_shell_framework_carries_its_own_host_and_the_module_sections(self):
++        root = Path(tempfile.mkdtemp()).resolve()
++        self.addCleanup(shutil.rmtree, root)
++        project, gen = root / 'project', root / 'project/Gen'
++        (gen / 'dm').mkdir(parents=True)
++        (gen / 'Assets.xcassets').mkdir()
++        (gen / 'Assets.xcassets/Contents.json').write_text(json.dumps({'info': {'author': 'xcode', 'version': 1}}))
++        for name in ('Sources', 'tools', 'framework', 'Shell'):
++            (project / name).symlink_to(REPO / 'dm/ios' / name, target_is_directory=True)
++        shutil.copyfile(REPO / 'dm/ios/project-framework.yml', project / 'project.yml')
++
++        patched = root / 'patched'
++        patched.mkdir()
++        for name in ('main', 'nrotest'):
++            (patched / f'{name}.patched.bin').write_bytes(bytes(0x10000))
++            (patched / f'{name}.fixups.tsv').write_text('# TEXT_END 0x4000\n# PATCH_OFF 0xc000\n# KEY_PAGE_OFF 0x8000\n# KEY_PAGE_SIZE 0x4000\n')
++        (patched / 'nro.tsv').write_text('nrotest\tfixture.nro\n')
++        flags = run(sys.executable, REPO / 'dm/ios/tools/gen_embed.py', patched, gen / 'embed.S', 'main', 'nrotest')
++        self.assertEqual(flags.returncode, 0, fail_tail(flags))
++
++        env = dict(os.environ, GAME=GAME, DM_GAME=GAME, DM_BUNDLE_ID='org.nxnative.fixture', DM_DISPLAY_NAME='Fixture Game',
++                   DM_APP_VERSION='1.0', DM_APP_CATEGORY='action', DM_TEAM_ID='', DM_SCHEME_NAME='DmIOS', DM_APPICON='',
++                   DM_SHOW_FPS='NO', DM_LANG='en-US')
++        build_cfg = run(sys.executable, REPO / 'dm/ios/tools/gen_build.py', REPO / 'dm/host', gen, env=env)
++        self.assertEqual(build_cfg.returncode, 0, fail_tail(build_cfg))
++        (gen / 'dm.xcconfig').write_text(build_cfg.stdout + f'OTHER_LDFLAGS = $(inherited) $(DM_FRAMEWORKS) {flags.stdout.strip()}\n')
++        (gen / 'framework.xcconfig').write_text(f'OTHER_LDFLAGS = $(inherited) {flags.stdout.strip()}\n')
++        (gen / 'framework/dm').mkdir(parents=True)
++        for name in ('main.fixups.tsv', 'nrotest.fixups.tsv', 'nro.tsv'):
++            shutil.copyfile(patched / name, gen / 'dm' / name)
++            shutil.copyfile(patched / name, gen / 'framework/dm' / name)
++        (gen / 'dm/shader_map.tsv').write_text('key\tfixture\n')
++        (gen / 'framework/dm/shader_map.tsv').write_text('key\tfixture\n')
++        profile = run(sys.executable, REPO / 'dm/games/game.py', 'profile', GAME, gen / 'framework/profile.tsv')
++        self.assertEqual(profile.returncode, 0, fail_tail(profile))
++        chain = next(line.split('"')[1] for line in (REPO / 'dm/gfx/nvn/dmsh_chain.h').read_text().splitlines()
++                     if line.startswith('#define DMSH_CHAIN "'))
++        fw_name = f'DmGame{GAME}'
++        manifest = run(sys.executable, REPO / 'dm/ios/tools/gen_manifest.py', gen / 'framework/game.manifest.json', '--game', GAME,
++                       '--name', 'Fixture Game', '--display-version', '1.0', '--package-version', 'v0', '--modules', 'main',
++                       '--nro-table', patched / 'nro.tsv', '--chain', 'b-' + chain, '--romfs-marker', 'marker',
++                       '--framework-name', fw_name, '--loader', 'FH')
++        self.assertEqual(manifest.returncode, 0, fail_tail(manifest))
++
++        generated = run('xcodegen', 'generate', cwd=project, env=env)
++        self.assertEqual(generated.returncode, 0, fail_tail(generated))
++        derived = root / 'derived'
++        built = run('xcodebuild', '-project', project / 'DmIOS.xcodeproj', '-target', 'DmShellGame', '-configuration', 'Release',
++                    '-sdk', 'iphoneos', f'PRODUCT_NAME={fw_name}', f'PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.fixture.game',
++                    f'SYMROOT={derived}/Build/Products', f'OBJROOT={derived}/Build/Intermediates.noindex',
++                    'CODE_SIGNING_ALLOWED=NO', 'CODE_SIGNING_REQUIRED=NO', 'CODE_SIGN_IDENTITY=', 'build', cwd=project, env=env)
++        self.assertEqual(built.returncode, 0, fail_tail(built))
++        framework = derived / f'Build/Products/Release-iphoneos/{fw_name}.framework'
++        binary = framework / fw_name
++        self.assertTrue(binary.is_file(), f'no {binary}')
++        self.assertEqual(json.loads((framework / 'game.manifest.json').read_text())['loader'], 'FH')
++        got = sections(binary)
++        for pair in [('__TEXT', '__dmmainx0'), ('__DMmainW', '__img'), ('__TEXT', '__dmmainx1'),
++                     ('__DATA', '__dm_nro_tab'), ('__DATA', 'swhle'), ('__DATA', 'swforce'), ('__DATA', 'swnvn')]:
++            self.assertIn(pair, got, f'{pair[0]},{pair[1]} is not a section of the shell framework')
++        exported = run('nm', '-gU', binary).stdout
++        for sym in ('_dmgame_image_marker', '_dm_glue_version', '_dm_glue_start_game', '_dm_glue_present_game', '_dm_glue_focus_event', '_dm_game_menu'):
++            self.assertIn(sym, exported, f'{sym} is not exported by the shell framework')
++        undef = run('nm', '-u', binary).stdout
++        self.assertNotIn('__mh_execute_header', undef, 'the framework must read its own image header (__dso_handle), not the executable\'s')
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/dm/ios/tests/test_xcode_workflow.py b/dm/ios/tests/test_xcode_workflow.py
+index 2d5b28c5..00633dcb 100644
+--- a/dm/ios/tests/test_xcode_workflow.py
++++ b/dm/ios/tests/test_xcode_workflow.py
+@@ -30,7 +30,12 @@ class XcodePipelineTests(unittest.TestCase):
+                 with self.subTest(graphics=graphics, derived=derived):
+                     self.prepare_fixture(graphics, derived)
+ 
+-    def prepare_fixture(self, graphics, derived):
++    def test_prepare_with_framework_asks_for_the_framework_project(self):
++        # --framework (route C, docs/launcher-c-plan.md M1): build_ipa.sh gets DM_FRAMEWORK=1 and copies
++        # project-framework.yml in as the project (test_framework_build.py checks that copy on the script itself)
++        self.prepare_fixture('nvn', False, framework=True)
++
++    def prepare_fixture(self, graphics, derived, framework=False):
+         with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+             root = Path(temporary).resolve()
+             (root / 'prod.keys').touch()
+@@ -82,7 +87,8 @@ class XcodePipelineTests(unittest.TestCase):
+             try:
+                 with redirect_stdout(output):
+                     code = build.cli([str(root), '-k', str(root / 'prod.keys'), '--prepare-xcode',
+-                                      '--language', 'ja', '--no-show-fps', '--no-motion', '--progress', 'json'])
++                                      '--language', 'ja', '--no-show-fps', '--no-motion', '--progress', 'json']
++                                     + (['--framework'] if framework else []))
+             finally:
+                 progress.close()
+             self.assertEqual(code, 0, output.getvalue())
+@@ -99,6 +105,7 @@ class XcodePipelineTests(unittest.TestCase):
+             self.assertEqual(environment['GFXAPI'], graphics)
+             self.assertEqual(environment['DM_BUNDLE_ID'], 'com.example.saved')
+             self.assertEqual(environment['DM_TEAM_ID'], 'ABCDEFGHIJ')
++            self.assertEqual(environment.get('DM_FRAMEWORK'), '1' if framework else None)
+             self.assertEqual(Path(environment['DM_XCODE_PROJECT_DIR']), root / f'{registered.id}_build/xcode')
+             register.assert_called_once()
+             self.assertEqual(mocks['derive_profile'].call_count, int(derived))
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index 9763c534..945bb609 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -8,6 +8,12 @@
+ #   DM_COPY_ROMFS=NO leaves the game files (RomFS) out of the IPA, as it does for the Xcode build phase: the package then stays small (a large game's full package can exceed what iOS extracts), and the app takes the files from Documents/romfs.img (scripts/push_romfs.sh); default: they are packed
+ #   DM_SHADER_FILES=1 packs an NVN game's shader library as its separate files, msl/b-<chain>/, not as the one file b-<chain>.img, for install tools that cannot copy a large file (AltServer; pack_ipa.py --shader-files); default: off
+ #   DM_ENTITLEMENTS=<plist> is the unsigned IPA's entitlements, signed ad-hoc into the executable (default: Increased Memory Limit; an empty string = none)
++#   DM_FRAMEWORK=1 (route C, docs/launcher-c-plan.md M1) compiles the game's modules into DmIOS.app/Frameworks/DmGame.framework instead of the executable
++#     (project-framework.yml): Gen/framework/ holds the framework's dm/ tables, profile.tsv and game.manifest.json; the framework is signed ad-hoc first
++#     (no entitlements: a dylib cannot hold them) and the app's executable second. Default 0: the build above, unchanged.
++#   DM_FRAMEWORK_ONLY=<folder> (route C's shell, docs/launcher-c-plan.md M2/M3) builds only this game's framework, unsigned, as
++#     <folder>/DmGame<title ID>.framework with its shader libraries (msl/), pipeline archive (pso/), launcher.json and icon inside, for
++#     build_shell.sh to embed in the shell app; no app, no IPA, no game files
+ #   AOC=add-on content directory (default $W/data/aoc; when it exists it goes to DmIOS.app/aoc/<index>/; an empty string = none), GFXAPI=nvn / vulkan (default: by the shader libraries in MSL_IOS)
+ #   The app name is the game name in the base NSP's control data ($W/data/v0/control.nacp, else the one next to the RomFS), the app version is the display version in the packed game's control data (the one next to the RomFS:
+ #   nx_extract saves the update's there when an update is packed, else the base game's), the bundle ID is org.nxnative.<base game title ID in lowercase> (DM_DISPLAY_NAME / DM_APP_VERSION / DM_BUNDLE_ID override them);
+@@ -34,6 +40,13 @@ PKG=$(gp package)
+ if [ -z "${ROMFS:-}" ] && [ -f "$W/data/$PKG/RomFS.img" ]; then ROMFS=$W/data/$PKG/RomFS.img; fi
+ PATCHED=${PATCHED:-$W/build/patched_$PKG}; ROMFS=${ROMFS:-$W/data/$PKG/RomFS}; MSL_IOS=${MSL_IOS:-$W/build/ios/dmsh_b}; AOC=${AOC-$W/data/aoc}
+ PREPARE_XCODE=NO; [ "${1:-}" != --prepare-xcode ] || PREPARE_XCODE=YES
++FRAMEWORK=${DM_FRAMEWORK:-0}   # 1: the game's modules live in DmGame.framework (route C); 0: in the executable, as always
++# Route C's shell (DM_FRAMEWORK_ONLY=<folder>): only this game's framework, self-contained, for build_shell.sh to embed (no app, no IPA)
++FRAMEWORK_ONLY=${DM_FRAMEWORK_ONLY:-}; FW_NAME=DmGame
++if [ -n "$FRAMEWORK_ONLY" ]; then
++  [ "$PREPARE_XCODE" != YES ] || die "DM_FRAMEWORK_ONLY builds the game framework for the shell; it cannot be combined with --prepare-xcode"
++  FRAMEWORK=1; FW_NAME=DmGame$(echo "$GAME" | tr 'a-z' 'A-Z')   # unique in the shell's Frameworks/, where several games sit side by side
++fi
+ OUT_IPA=${1:-$(dirname "$W")/$(gp ipa)}; O=$W/build/ios/pkg; DD=$O/dd
+ XCODE_DD=${DM_XCODE_DERIVED_DATA:-$W/build/ios/xcode-dd}
+ MARKER=$(gp romfs_marker)
+@@ -53,7 +66,10 @@ if [ "$PREPARE_XCODE" = YES ]; then
+   [ "$IOS" != "$IOS_SOURCE" ] || die "the per-game Xcode project must be outside dm/ios"
+   # Source links follow repository edits; generated files and build products belong to this game only. Linked again each time: a project prepared from another checkout (a removed worktree) follows this one
+   for item in Sources tools; do ln -sfn "$IOS_SOURCE/$item" "$IOS/$item" || die "link $item"; done
+-  cp "$IOS_SOURCE/project.yml" "$IOS/project.yml" || die "copy project template"
++  # Route C: the framework target's marker source lives in dm/ios/framework, and the template is project-framework.yml
++  [ "$FRAMEWORK" != 1 ] || ln -sfn "$IOS_SOURCE/framework" "$IOS/framework" || die "link framework"
++  PROJECT_TEMPLATE=project.yml; [ "$FRAMEWORK" != 1 ] || PROJECT_TEMPLATE=project-framework.yml
++  cp "$IOS_SOURCE/$PROJECT_TEMPLATE" "$IOS/project.yml" || die "copy project template"
+   cd "$IOS" || die "cd $IOS"
+   DM_SCHEME_NAME="$(echo "$DM_DISPLAY_NAME" | tr '/:' '__') ($GAME)"   # the scheme file is named after it
+ 
+@@ -179,6 +195,37 @@ if [ -f "$ICON" ]; then
+   echo "DM_APPICON = AppIcon" >> Gen/dm.xcconfig
+   t "app icon: $ICON"
+ else t "no app icon ($ICON not found): the home-screen icon stays blank"; fi
++# Route C (DM_FRAMEWORK=1): what project-framework.yml reads from Gen/framework.
++#   dm/                   the tables the loader reads from argv[1] and every table the shader map's directory holds (DM_NVN_SHMAP):
++#                         Gen/dm minus font/ (Arial Unicode, tens of MB; the app's dm/font serves DM_FONT_DIR) and the launcher's files
++#   profile.tsv           the runtime game profile (game.py profile): main.m sets DM_PROFILE to it before dm_profile() runs
++#   game.manifest.json    the game this framework carries (gen_manifest.py)
++#   Info.plist            written by xcodegen from project-framework.yml into this directory
++#   Gen/framework.xcconfig  the embedded modules' segment permissions (gen_embed.py's flags) and nothing else: the framework links no
++#                         host frameworks, and its ObjC side is one marker symbol (framework/DmGameMarker.m)
++if [ "$FRAMEWORK" = 1 ]; then
++  rm -rf Gen/framework && mkdir -p Gen/framework/dm || die "mkdir Gen/framework"
++  cp -R Gen/dm/. Gen/framework/dm/ || die "copy the framework tables"
++  rm -rf Gen/framework/dm/font
++  # Keep dm/env.txt with this game: the shell applies its build-time defaults after the player's environment files.
++  # The one-game app reads its launcher.json from the app's dm/; the shell reads each game's from its framework (manifest key launcher)
++  [ -n "$FRAMEWORK_ONLY" ] || rm -f Gen/framework/dm/launcher.json
++  python3 "$DM/games/game.py" profile "$GAME" Gen/framework/profile.tsv > /dev/null || die "game profile"
++  # The manifest names the game data this framework was built for: the RomFS image's identity (dm/host/romfs_identity.h), as the
++  # pack step's romfs.id does. That step's default is repeated here because the manifest is a build resource and has to exist now.
++  FW_COPY_ROMFS=${DM_COPY_ROMFS:-}
++  if [ -z "$FW_COPY_ROMFS" ] && [ "$PREPARE_XCODE" != YES ]; then [ -n "${DM_FULL_ROMFS:-}" ] && FW_COPY_ROMFS=YES || FW_COPY_ROMFS=NO; fi
++  ROMFS_ID=; if [ "$FW_COPY_ROMFS" = NO ] && [ -f "$ROMFS" ]; then
++    mkdir -p "$O" && ROMFS_ID=$(python3 -I "$DM/tools/romfs_image.py" --identity "$ROMFS" "$GAME" "$DM_APP_VERSION" "${PKG:-}") || die "identity of $ROMFS"
++  fi
++  NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
++  FW_LOADER=FR; [ -z "$FRAMEWORK_ONLY" ] || FW_LOADER=FH
++  python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
++    --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
++    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" --profile "$GD/game.tsv" > /dev/null || die "game manifest (gen_manifest.py)"
++  printf 'OTHER_LDFLAGS = $(inherited) %s\n' "$F" > Gen/framework.xcconfig || die "framework link flags"
++  t "framework: Gen/framework (modules $MODS, profile.tsv, game.manifest.json)"
++fi
+ # A prepared Xcode project is signed in Xcode, so it asks for the Increased Memory Limit capability the bigger games need (see the README); DM_ENTITLEMENTS=another plist, or empty for none.
+ # The unsigned IPA carries the same request in its executable's ad-hoc signature below; the install tool replaces that signature.
+ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
+@@ -190,7 +237,10 @@ if [ "$PREPARE_XCODE" = YES ] && [ -n "${DM_ENTITLEMENTS-default}" ]; then
+ fi
+ # DM_COPY_ROMFS=NO also for the prepared project: its Copy game resources phase (stage_resources.sh) then leaves the game files out and writes the image's identity; Gen/dm.xcconfig is made again by every run
+ [ "${DM_COPY_ROMFS:-YES}" != NO ] || [ "$PREPARE_XCODE" != YES ] || echo "DM_COPY_ROMFS = NO" >> Gen/dm.xcconfig
+-xcodegen generate -q > /dev/null || die "xcodegen"
++# The framework project is named explicitly. Everything else runs xcodegen exactly as before: a prepared project has its
++# template copied in as project.yml, and the in-place build uses dm/ios/project.yml (the default template is never edited)
++if [ "$PREPARE_XCODE" = YES ] || [ "$FRAMEWORK" != 1 ]; then xcodegen generate -q > /dev/null || die "xcodegen"
++else xcodegen generate -q --spec project-framework.yml > /dev/null || die "xcodegen"; fi
+ # DMCommit / DMChain: the checkout that built the app (+dirty with uncommitted changes to tracked files) and the shader chain it carries, which the host logs at start (main.c)
+ COMMIT=$(git -C "$DM" rev-parse --short=12 HEAD 2> /dev/null) && { [ -z "$(git -C "$DM" status --porcelain --untracked-files=no 2> /dev/null)" ] || COMMIT=$COMMIT+dirty
+   /usr/libexec/PlistBuddy -c "Add :DMCommit string $COMMIT" Gen/Info.plist > /dev/null || die "DMCommit"; t "source: $COMMIT"; }
+@@ -209,6 +259,40 @@ if [ "$PREPARE_XCODE" = YES ]; then
+   exit 0
+ fi
+ 
++# DM_FRAMEWORK_ONLY: the framework target alone, unsigned (build_shell.sh's project embeds it and Xcode signs it with the shell), then the
++# game's per-game resources into it, so one folder is one game: the shader libraries (msl/<MSLDIR> or msl/<MSLDIR>.img, msl/ the shell's DM_MSL_DIR), the pipeline
++# archive (pso/, DM_PSO_BUNDLE) and the icon the shell's library shows. The game files and add-on content stay out (data, Documents/games/<id>/)
++if [ -n "$FRAMEWORK_ONLY" ]; then
++  t "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"
++  mkdir -p "$O" "$FRAMEWORK_ONLY" || die "mkdir $FRAMEWORK_ONLY"
++  xcodebuild -project DmIOS.xcodeproj -target DmShellGame -configuration Release -sdk iphoneos \
++    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= PRODUCT_NAME="$FW_NAME" PRODUCT_BUNDLE_IDENTIFIER="$DM_BUNDLE_ID.game" \
++    DM_XCODE_OUTPUT_ROOT="$DD" SYMROOT="$DD/Build/Products" OBJROOT="$DD/Build/Intermediates.noindex" build > "$O/build-framework.log" 2>&1 \
++    || { grep -E 'error:' "$O/build-framework.log" | head -20; die "xcodebuild, log $O/build-framework.log"; }
++  BUILT=$DD/Build/Products/Release-iphoneos/$FW_NAME.framework
++  [ -f "$BUILT/$FW_NAME" ] || die "no built framework $BUILT"
++  OUTFW=$FRAMEWORK_ONLY/$FW_NAME.framework; mkdir -p "$OUTFW"
++  t "copying resources into $FW_NAME.framework"
++  rsync -a --delete --exclude /msl --exclude /pso --exclude /icon.png -- "$BUILT/" "$OUTFW/" || die "copy the framework to $OUTFW"
++  # An NVN game's libraries may be the one file b-<chain>.img (dm/tools/shader_lib.py): it goes in as msl/<MSLDIR>.img, where the host reads it (nvn_mtl.m), as stage_resources.sh copies it into an app
++  LIB=$(lib_path "$MSL_IOS/$MSLDIR") || die "shader libraries $MSL_IOS/$MSLDIR"
++  mkdir -p "$OUTFW/msl" || die "mkdir $OUTFW/msl"
++  if [ -f "$LIB" ]; then
++    rm -rf "$OUTFW/msl/$MSLDIR"
++    if [ -f "$OUTFW/msl/$MSLDIR.img" ]; then rsync -a -- "$LIB" "$OUTFW/msl/$MSLDIR.img"; else cp -cp -- "$LIB" "$OUTFW/msl/$MSLDIR.img"; fi || die "copy the shader libraries"
++  else
++    rm -f "$OUTFW/msl/$MSLDIR.img"
++    mkdir -p "$OUTFW/msl/$MSLDIR" && rsync -a --delete -- "$LIB/" "$OUTFW/msl/$MSLDIR/" || die "copy the shader libraries"
++  fi
++  for old in "$OUTFW/msl/"*; do case "$old" in "$OUTFW/msl/$MSLDIR"|"$OUTFW/msl/$MSLDIR.img") ;; *) rm -rf "$old";; esac; done
++  if [ -n "$PSO" ]; then mkdir -p "$OUTFW/pso" && rsync -a --delete -- "$PSO/" "$OUTFW/pso/" || die "copy the pipeline archive"; else rm -rf "$OUTFW/pso"; fi
++  if [ -f "$ICON" ]; then sips -s format png -z 512 512 "$ICON" --out "$OUTFW/icon.png" > /dev/null || die "sips: cannot convert the icon $ICON"; else rm -f "$OUTFW/icon.png"; fi
++  python3 -c 'import json, sys; m = json.load(open(sys.argv[1])); sys.exit(m["framework_executable"] != sys.argv[2])' "$OUTFW/game.manifest.json" "$FW_NAME" \
++    || die "$OUTFW/game.manifest.json does not name $FW_NAME"
++  t "done: $OUTFW ($(du -sh "$OUTFW" | cut -f1); build_shell.sh embeds it in the shell)"
++  exit 0
++fi
++
+ t "xcodebuild (Release, unsigned, iPhone + iPad)"
+ mkdir -p "$O"
+ xcodebuild -project DmIOS.xcodeproj -scheme DmIOS -configuration Release -destination 'generic/platform=iOS' -derivedDataPath "$DD" \
+@@ -224,6 +308,18 @@ APP=$DD/Build/Products/Release-iphoneos/DmIOS.app
+ # the app sets DM_AOC_DIR at launch, the host reports them as owned and mounts them from it) and the RomFS
+ rm -rf "$APP/msl" "$O/Payload"   # Payload/: what the copy-and-zip packing left behind, as was out.ipa (and its index) unless it is the IPA packed here, which a repeat pack reuses
+ [ "$O/out.ipa" -ef "$OUT_IPA" ] || rm -f "$O/out.ipa"; [ "$O/out.ipa.idx" -ef "$OUT_IPA.idx" ] || rm -f "$O/out.ipa.idx"
++# Route C: the framework is signed first, then the app's executable below, the order build_probe.sh uses for nested code. The
++# framework gets no entitlements: a dylib cannot hold them (the Increased Memory Limit request belongs to the app, below), and
++# the sideloader re-signs nested code. It must still be a valid signature: the packed framework is what the app dlopen()s.
++if [ "$FRAMEWORK" = 1 ]; then
++  FW=$APP/Frameworks/DmGame.framework
++  [ -d "$FW" ] || die "no $FW: project-framework.yml embeds the game framework"
++  xattr -cr "$FW" 2> /dev/null   # codesign refuses a bundle whose files carry resource forks, Finder information or quarantine attributes
++  codesign --force --sign - "$FW" || die "ad-hoc signature of the game framework"
++  [ -z "$(codesign -d --entitlements :- "$FW/DmGame" 2>/dev/null)" ] || die "the game framework's signature carries entitlements: a dylib cannot hold them"
++  codesign -vvv --verify --strict "$FW" > /dev/null 2>&1 || die "the game framework's signature does not verify"
++  t "game framework signed ad-hoc, no entitlements: $FW"
++fi
+ # The entitlements of an unsigned IPA: an unsigned build has no signature for a sideloader to read them from, so the Increased Memory Limit request would be lost (AltStore and others carry over
+ # the entitlements of the signature they replace; the Xcode project gets them through CODE_SIGN_ENTITLEMENTS, above). The executable gets an ad-hoc signature that carries them: the sideloader
+ # replaces the signature and keeps the entitlements. Only the executable is signed: the bundle's resources are packed from elsewhere and the signature is replaced anyway
+diff --git a/dm/ios/tools/compile_check.py b/dm/ios/tools/compile_check.py
+index 4925cc60..b832115e 100755
+--- a/dm/ios/tools/compile_check.py
++++ b/dm/ios/tools/compile_check.py
+@@ -4,7 +4,9 @@
+ The source list, header paths and -D flags come from the expanded compile commands of dm/host/Makefile, as gen_build.py takes them for the Xcode project:
+ the _mac sources stay out, main.c is compiled with -Dmain=dm_main, and dm/ios/Sources (Objective-C; Launcher.swift is not compiled) is added.
+ Each file is compiled to nothing (-c -o /dev/null), so the assembler sees entry.S and the embedded-segment files (Gen/embed.S) are not needed.
+-Usage: DM_GAME=<base game title ID> compile_check.py   (or GAME=)   Exit status 1 when any file fails."""
++Two passes: the default build, then the same sources with DM_FRAMEWORK_BUILD=1 (project-framework.yml: main.m's dlopen path and
++FrameworkBootstrap.m's real body), so a change to either build breaks here rather than in a device build.
++Usage: DM_GAME=<base game title ID> compile_check.py   (or GAME=)   Exit status 1 when any file fails in either pass."""
+ import concurrent.futures, os, shlex, subprocess, sys
+ repo = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..'))
+ host, ios = f'{repo}/dm/host', f'{repo}/dm/ios'
+@@ -29,14 +31,18 @@ srcs = [s for s in dict.fromkeys(srcs) if not os.path.splitext(s)[0].endswith('_
+ srcs += sorted(os.path.join(ios_src, f) for f in os.listdir(ios_src) if f.endswith(('.c', '.m')))
+ dirs = list(dict.fromkeys(os.path.dirname(s) for s in srcs))
+ flags = ['-arch', 'arm64', '-miphoneos-version-min=26.0', '-mcpu=apple-m1', '-fobjc-arc', '-O1', '-w'] + defs + [f'-I{d}' for d in incs + dirs]
+-def one(s):
+-    c = ['xcrun', '-sdk', 'iphoneos', 'clang'] + flags + (['-Dmain=dm_main'] if s == os.path.join(host, 'main.c') else []) + ['-c', s, '-o', '/dev/null']
++def one(s, extra=()):
++    c = ['xcrun', '-sdk', 'iphoneos', 'clang'] + flags + list(extra) + (['-Dmain=dm_main'] if s == os.path.join(host, 'main.c') else []) + ['-c', s, '-o', '/dev/null']
+     if s.endswith('.c'): c[4:4] = ['-std=gnu11']
+     p = subprocess.run(c, capture_output=True, text=True)
+     return s, p.returncode, p.stderr
+-bad = 0
+-with concurrent.futures.ThreadPoolExecutor(os.cpu_count()) as ex:
+-    for s, rc, err in ex.map(one, srcs):
+-        if rc: bad += 1; print(f'FAIL {os.path.relpath(s, repo)}\n{err}', file=sys.stderr)
+-print(f'iOS compile check: {len(srcs)} files, {bad} failed')
++def check(label, extra=()):
++    bad = 0
++    with concurrent.futures.ThreadPoolExecutor(os.cpu_count()) as ex:
++        for s, rc, err in ex.map(lambda s: one(s, extra), srcs):
++            if rc: bad += 1; print(f'FAIL {os.path.relpath(s, repo)}\n{err}', file=sys.stderr)
++    print(f'iOS compile check ({label}): {len(srcs)} files, {bad} failed')
++    return bad
++# The framework build defines its macro in project-framework.yml's OTHER_CFLAGS, make never sees it: pass it here
++bad = check('default') + check('DM_FRAMEWORK_BUILD=1', ['-DDM_FRAMEWORK_BUILD=1'])
+ sys.exit(1 if bad else 0)
+diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
+new file mode 100644
+index 00000000..963156fd
+--- /dev/null
++++ b/dm/ios/tools/gen_manifest.py
+@@ -0,0 +1,130 @@
++#!/usr/bin/env python3
++"""Write the game.manifest.json that travels inside a route C game framework (docs/launcher-c-plan.md, "Manifest").
++
++build_ipa.sh's DM_FRAMEWORK=1 mode calls this before xcodegen, so the file is a resource of the DmGame framework:
++<framework>/game.manifest.json. M1 builds one game per app and does not read it yet; M2's shell discovers the framework
++through it and M3 validates several (schema, title ID, chain against the shell's DMSH_CHAIN, CFBundleExecutable) and
++cross-checks the sections it names. Writing it now keeps the schema honest, and test_framework_build.py checks it.
++
++Usage:
++  gen_manifest.py <out.json> --game <title ID> --name <name> --display-version <v> --package-version <pkg>
++                  --modules "main sdk" [--nro-table <nro.tsv>] --chain b-<hex> --romfs-marker <path>
++                  [--romfs-identity "DMROMFSID1 ..."] [--min-os 26.0] [--profile <dm/games/<title ID>/game.tsv>]
++Exit status 1 on a value the schema cannot carry (a bad title ID, no module, a chain not written b-<hex>).
++"""
++import argparse
++import json
++import re
++import sys
++from pathlib import Path
++
++SCHEMA = 1
++# The M1 framework's fixed names, the same constants project-framework.yml and FrameworkBootstrap.h use
++FRAMEWORK = 'DmGame.framework'
++FRAMEWORK_EXECUTABLE = 'DmGame'
++IMAGE_MARKER = 'dmgame_image_marker'
++PROFILE = 'profile.tsv'          # the framework's root: main.m points DM_PROFILE at it
++SHADER_MAP = 'dm/shader_map.tsv'  # inside the framework: main.m points DM_NVN_SHMAP at it
++LAUNCHER = 'dm/launcher.json'     # the loader's tables and the launcher settings share the framework's dm/
++TITLE_ID = re.compile(r'^[0-9A-F]{16}$')
++CHAIN = re.compile(r'^b-[0-9A-Za-z._-]+$')
++
++
++def nro_count(table):
++    """Rows gen_embed.py embeds: everything but comments, blank lines and the 'refused' ones (an online SDK the host never
++    loads, dm/tools/nro_collect.py). The same filter gen_embed.py applies when it packs the NRO pieces."""
++    if table is None:
++        return 0
++    rows = (line.split('\t')[0] for line in Path(table).read_text(encoding='utf-8').splitlines())
++    return sum(1 for name in rows if name and not name.startswith('#') and name != 'refused')
++
++
++def console_of(profile):
++    """"switch2" for a Switch 2 game's profile, "switch1" for any other, None without a readable profile. No profile key says so yet:
++    every Switch 2 profile names it in its first line, "# Donkey Kong Bananza (Switch 2, update v458752)" (the launcher reads the
++    same line, GameFolder.profileIsSwitch2), so that line is the rule here too."""
++    if not profile:
++        return None
++    try:
++        with open(profile, encoding='utf-8', errors='replace') as f:
++            first = f.readline()
++    except OSError:
++        return None
++    return 'switch2' if first.startswith('#') and '(Switch 2' in first else 'switch1'
++
++
++def manifest(args):
++    """The schema's keys in its order; optional ones only when a value is given."""
++    title_id = args.game.upper()
++    modules = args.modules.split()
++    if not TITLE_ID.match(title_id):
++        raise SystemExit(f'[RED] gen_manifest: --game {args.game!r} is not a 16-digit hex title ID')
++    if not modules or any(not re.match(r'^[A-Za-z0-9]+$', m) for m in modules):
++        raise SystemExit(f'[RED] gen_manifest: --modules {args.modules!r} names no module or a module with an underscore '
++                         '(the loader\'s embedded section names cannot hold one)')
++    if not re.match(r'^[A-Za-z][A-Za-z0-9_]*$', args.framework_name):
++        raise SystemExit(f'[RED] gen_manifest: --framework-name {args.framework_name!r} is not a bundle executable name')
++    if not CHAIN.match(args.chain):
++        raise SystemExit(f'[RED] gen_manifest: --chain {args.chain!r} is not written b-<version> (dm/gfx/nvn/dmsh_chain.h)')
++    if args.romfs_identity and not args.romfs_identity.startswith('DMROMFSID1 '):
++        raise SystemExit('[RED] gen_manifest: --romfs-identity is not a romfs_image.py identity line (DMROMFSID1 ...)')
++    data = {
++        'schema': SCHEMA,
++        'title_id': title_id,
++        'name': args.name,
++        'display_version': args.display_version,
++        'package_version': args.package_version,
++        'modules': modules,
++        'nro_count': nro_count(args.nro_table),
++        'chain': args.chain,
++        'loader': args.loader,
++        'framework': args.framework_name + '.framework',
++        'framework_executable': args.framework_name,
++        'image_marker': IMAGE_MARKER,
++        'profile': PROFILE,
++        'shader_map': SHADER_MAP,
++        'launcher': LAUNCHER,
++        'romfs_marker': args.romfs_marker,
++        'romfs_identity': args.romfs_identity or '',
++        'min_os': args.min_os,
++    }
++    console = console_of(args.profile)
++    if console:
++        data['console'] = console   # the shell marks a Switch 2 game and warns about its memory (LNPANDY/NX2Apple#696)
++    if args.built_by:
++        data['built_by'] = args.built_by
++    return data
++
++
++def main(argv=None):
++    ap = argparse.ArgumentParser(description='Write a route C game framework\'s game.manifest.json.')
++    ap.add_argument('out', help='the file to write (<Gen>/framework/game.manifest.json)')
++    ap.add_argument('--game', required=True, help='the base game title ID (16 hex digits)')
++    ap.add_argument('--name', required=True, help='the game name (control.nacp, as build_ipa.sh reads it)')
++    ap.add_argument('--display-version', required=True, help='the packed version\'s display version')
++    ap.add_argument('--package-version', required=True, help='the packed package version (the profile\'s package key)')
++    ap.add_argument('--modules', required=True, help='the game\'s modules, space separated (the profile\'s modules)')
++    ap.add_argument('--nro-table', help='the rewriter\'s nro.tsv, for nro_count; without it the count is 0')
++    ap.add_argument('--chain', required=True, help='the shader chain version, b-<version> (dm/gfx/nvn/dmsh_chain.h)')
++    ap.add_argument('--romfs-marker', required=True, help='the profile\'s romfs_marker: a folder with it is this game\'s data')
++    ap.add_argument('--romfs-identity', default='', help='the RomFS image identity line build_ipa.sh writes (empty for a folder)')
++    ap.add_argument('--min-os', default='26.0', help='the minimum iOS version (project.yml\'s deployment target)')
++    ap.add_argument('--framework-name', default=FRAMEWORK_EXECUTABLE,
++                    help='the framework\'s product name: DmGame in the one-game app (M1), DmGame<title ID> in the shell, where several '
++                         'games\' frameworks sit side by side in Frameworks/')
++    ap.add_argument('--loader', default='FR', choices=('FR', 'FH'),
++                    help='FR: a module container whose host is the app (M1); FH: the framework carries its own host (the shell, #451)')
++    ap.add_argument('--profile', help='the game\'s dm/games/<title ID>/game.tsv: console in the manifest comes from its first line')
++    ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
++    args = ap.parse_args(argv)
++    data = manifest(args)
++    out = Path(args.out)
++    out.parent.mkdir(parents=True, exist_ok=True)
++    # Indented and in the schema's order, so a diff between two builds is one line per changed value
++    out.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
++    print(out)
++    return data
++
++
++if __name__ == '__main__':
++    main()
+diff --git a/dm/tools/tests/test_nsp_progress.py b/dm/tools/tests/test_nsp_progress.py
+index cd34db90..7a7fbfe9 100644
+--- a/dm/tools/tests/test_nsp_progress.py
++++ b/dm/tools/tests/test_nsp_progress.py
+@@ -236,5 +236,334 @@ class HumanModes(unittest.TestCase):
+             self.assertEqual('\r' in text, mode == 'bar')
+             self.assertEqual(ticker is None, mode == 'off')
+ 
++
++class ShellFrameworkProgress(unittest.TestCase):
++    """Progress of --shell-framework (stage 'game framework') and IpaWatch on directory or None targets."""
++
++    def setUp(self):
++        self.now, self.wall, self.out = 100.0, 1_700_000_000.0, io.StringIO()
++        self.prog = nsp.Progress('json')
++        for cm in (
++            contextlib.redirect_stdout(self.out),
++            mock.patch.object(nsp.time, 'monotonic', side_effect=lambda: self.now),
++            mock.patch.object(nsp.time, 'time', side_effect=lambda: self.wall),
++            mock.patch.object(nsp.threading, 'Thread'),
++            mock.patch.object(nsp, 'PROG', self.prog),
++        ):
++            cm.__enter__()
++            self.addCleanup(cm.__exit__, None, None, None)
++
++    def events(self, ev=None):
++        return [e for e in map(json.loads, self.out.getvalue().splitlines()) if ev in (None, e['ev'])]
++
++    def write_pso_script(self, pso_work, bases, computes=0, mtime=None):
++        pso_work.mkdir(parents=True, exist_ok=True)
++        render = [{'vertex_function_descriptor': f'fnd:v{i}', 'fragment_function_descriptor': f'fnd:f{i}'} for i in range(bases)]
++        desc = {'render_pipeline_descriptors': render}
++        if computes:
++            desc['compute_pipeline_descriptors'] = [{'compute_function_descriptor': f'fnd:c{i}'} for i in range(computes)]
++        js = pso_work / 'bases.mtl4-json'
++        js.write_text(json.dumps({'pipeline_descriptors': desc}))
++        if mtime is not None:
++            nsp.os.utime(js, (mtime, mtime))
++        return js
++
++    def mark_batch(self, batches_dir, name, arch, done, mtime=None):
++        gdir = batches_dir / name
++        gdir.mkdir(parents=True, exist_ok=True)
++        part = gdir / f'{arch}.mtl4a.partial'
++        dst = gdir / f'{arch}.mtl4a'
++        kf = gdir / f'key.{arch}'
++        if done:
++            part.unlink(missing_ok=True)
++            dst.write_bytes(b'archive')
++            kf.write_text('digest\n')
++            targets = (gdir, dst, kf)
++        else:
++            kf.unlink(missing_ok=True)
++            part.write_bytes(b'compiling')
++            targets = (gdir, part)
++        if mtime is not None:
++            for p in targets:
++                nsp.os.utime(p, (mtime, mtime))
++
++    def test_watch_directory_and_none_targets_are_safe(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            shell_dir = root / 'frameworks'
++            shell_dir.mkdir()
++            existing_fw = shell_dir / 'DmGame01007EF00011E000.framework'
++            existing_fw.mkdir()
++            missing_fw = shell_dir / 'DmGame0100000000010000.framework'
++            for target in (None, shell_dir, existing_fw, missing_fw):
++                with self.subTest(target=target):
++                    watch = nsp.IpaWatch(SCRIPT.parents[1], root / 'ipa', target)
++                    self.assertIsNone(watch.part)
++                    self.assertIsNone(watch.last)
++                    self.assertIsNone(watch.poll())
++                    watch.line('[12:00:00] pipeline archive for g18p (metal-tt)')
++                    self.assertIsNone(watch.poll())
++                    watch.line('[12:00:01] xcodebuild (Release, unsigned, the game framework DmGame01007EF00011E000 with its own host)')
++                    self.assertIsNone(watch.poll())
++                    watch.state = 'pack'
++                    self.assertIsNone(watch.poll())
++
++    def test_poll_pso_work_batches_and_stale_guard(self):
++        arch = 'applegpu_g18p'
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            ipa_work = root / 'ipa'
++            pso_work = ipa_work / 'build/ios/pso/work'
++            batches = pso_work / f'batches.{arch}'
++            stale = self.wall - 30.0
++            self.write_pso_script(pso_work, bases=2500, computes=20, mtime=stale)
++            self.mark_batch(batches, '00001', arch, done=True, mtime=stale)
++            self.mark_batch(batches, '00002', arch, done=True, mtime=stale)
++            nsp.os.utime(batches, (stale, stale))
++
++            watch = nsp.IpaWatch(SCRIPT.parents[1], ipa_work, root / 'DmGame01007EF00011E000.framework')
++            watch.line('[12:00:00] pipeline archive for g18p (metal-tt)')
++            self.assertIsNone(watch.poll())
++
++            # Batch 1 starts compiling now while batch 2 still holds files from an interrupted earlier run.
++            self.mark_batch(batches, '00001', arch, done=False, mtime=self.wall)
++            self.assertEqual(watch.poll(), {'done': 0, 'total': 5, 'unit': 'batches', 'note': ''})
++
++            # Batch 1 finishes and batch 2 starts compiling: only sequential base groups before the active one count.
++            self.mark_batch(batches, '00001', arch, done=True, mtime=self.wall)
++            self.mark_batch(batches, '00002', arch, done=False, mtime=self.wall)
++            self.assertEqual(watch.poll(), {'done': 1, 'total': 5, 'unit': 'batches', 'note': ''})
++
++            # All three render-base groups finish, and compute batch c00002 finishes before c00001.
++            self.mark_batch(batches, '00002', arch, done=True, mtime=self.wall)
++            self.mark_batch(batches, '00003', arch, done=True, mtime=self.wall)
++            self.mark_batch(batches, 'c00001', arch, done=False, mtime=self.wall)
++            self.mark_batch(batches, 'c00002', arch, done=True, mtime=self.wall)
++            self.assertEqual(watch.poll(), {'done': 4, 'total': 5, 'unit': 'batches', 'note': ''})
++
++            # Final compute batch finishes and metal-pack starts merging.
++            self.mark_batch(batches, 'c00001', arch, done=True, mtime=self.wall)
++            pack_log = pso_work / f'metal-pack.{arch}.log'
++            pack_log.write_text('')
++            nsp.os.utime(pack_log, (self.wall, self.wall))
++            self.assertEqual(watch.poll(), {'done': 5, 'total': 5, 'unit': 'batches', 'note': 'merging'})
++
++            # A small game that fits in one compiler run (total <= 1) uses no batch count.
++            sh_work = root / 'small'
++            self.write_pso_script(sh_work / 'build/ios/pso/work', bases=500, computes=0, mtime=self.wall)
++            small_watch = nsp.IpaWatch(SCRIPT.parents[1], sh_work, None)
++            small_watch.line('[12:00:00] pipeline archive for g18p (metal-tt)')
++            self.assertIsNone(small_watch.poll())
++
++    def test_framework_lines_and_json_progress_stream(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            repo = root / 'repo'
++            gen_src = repo / 'dm/ios/Gen/src'
++            gen_src.mkdir(parents=True)
++            for idx in range(3):
++                (gen_src / f'u{idx}.c').write_text('')
++            ipa_work = root / 'ipa'
++            pkg = ipa_work / 'build/ios/pkg'
++            pkg.mkdir(parents=True)
++            fw_dir = root / 'shell/DmGame01007EF00011E000.framework'
++
++            watch = nsp.IpaWatch(repo, ipa_work, fw_dir)
++            self.prog.plan(1)
++            self.prog.stage('game framework', poll=watch.poll, step='starting')
++            watch.line('[12:00:00] generate Gen/ (01007EF00011E000, modules: main sdk, graphics: nvn)')
++            watch.line('[12:00:01] pipeline archive for g18p (metal-tt)')
++            watch.line('[12:00:02] pso_offline: applegpu_g18p: metal-tt, 2100 bases, 32 compute pipelines (minutes) ...')
++            watch.line('[12:00:03] pso_offline: applegpu_g18p: batch 1/5: 1000 bases, compiling or checking cache')
++            self.now += 1.0
++            self.wall += 4.0
++            watch.line('[12:00:07] pso_offline: applegpu_g18p: batch 1/5: ready (reused)')
++            self.now += 1.0
++            self.wall += 4.0
++            watch.line('[12:00:11] pso_offline: applegpu_g18p: batch 2/5: ready (compiled)')
++            self.now += 1.0
++            self.wall += 4.0
++            watch.line('[12:00:15] pso_offline: applegpu_g18p: batch 3/5: ready (compiled)')
++            self.now += 1.0
++            self.wall += 4.0
++            # Out-of-order parallel compute completion: batch 5 finishes before batch 4 starts logging.
++            watch.line('[12:00:19] pso_offline: applegpu_g18p: batch 5/5: ready (compiled)')
++            self.now += 1.0
++            self.wall += 1.0
++            watch.line('[12:00:20] pso_offline: applegpu_g18p: batch 4/5: 16 compute pipelines, compiling or checking cache')
++            self.now += 1.0
++            self.wall += 2.0
++            watch.line('[12:00:22] pso_offline: applegpu_g18p: batch 4/5: ready (compiled)')
++            watch.line('[12:00:23] pso_offline: applegpu_g18p: merging 5 batches')
++            watch.line('[12:00:30] framework: Gen/framework (modules main sdk, profile.tsv, game.manifest.json)')
++            watch.line('[12:00:31] xcodebuild (Release, unsigned, the game framework DmGame01007EF00011E000 with its own host)')
++
++            flog = pkg / 'build-framework.log'
++            flog.write_bytes(b'CompileC a.o a.c\nCompileC b.o b.c\nSwiftCompile normal arm64 GameMenu.swift\nLd DmGame normal arm64\n')
++            nsp.os.utime(flog, (self.wall, self.wall))
++            polled = watch.poll()
++            self.assertEqual(polled, {'done': 2, 'note': 'linking'})
++            assert polled is not None
++            self.now += 1.0
++            self.prog.set(**polled)
++            flog.write_bytes(flog.read_bytes() + b'CompileC c.o c.c\n')
++            nsp.os.utime(flog, (self.wall, self.wall))
++            watch.line('[12:00:40] copying resources into DmGame01007EF00011E000.framework')
++            self.prog.end(fw_dir.name)
++
++            steps = [e['step'] for e in self.events('step')]
++            self.assertEqual(
++                steps,
++                [
++                    'generating sources',
++                    'pipeline archive (metal-tt)',
++                    'generating Xcode project',
++                    'xcodebuild',
++                    'copying resources',
++                ],
++            )
++            pso_prog = [e for e in self.events('progress') if e['step'] == 'pipeline archive (metal-tt)' and e['total'] == 5]
++            self.assertEqual([e['done'] for e in pso_prog], [0, 1, 2, 3, 4, 5, 5])
++            self.assertEqual(pso_prog[-1]['note'], 'merging')
++            self.assertEqual(pso_prog[-1]['unit'], 'batches')
++            self.assertEqual(pso_prog[-1]['frac'], 0.99)
++            self.assertIsNotNone(pso_prog[-1]['eta'])
++            xc_prog = [e for e in self.events('progress') if e['step'] == 'xcodebuild']
++            self.assertEqual((xc_prog[0]['done'], xc_prog[0]['total'], xc_prog[0]['unit'], xc_prog[0]['est']), (0, 12, 'files', True))
++            self.assertEqual((xc_prog[-1]['done'], xc_prog[-1]['note']), (3, 'compiling'))
++            end = self.events('stage_end')[-1]
++            self.assertEqual((end['name'], end['ok'], end['summary']), ('game framework', True, 'DmGame01007EF00011E000.framework'))
++
++    def test_main_shell_framework_wires_watch_to_run(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp).resolve()
++            dump_dir = root / 'dump'
++            (dump_dir / 'exefs').mkdir(parents=True)
++            (dump_dir / 'exefs/main').write_bytes(b'main')
++            (dump_dir / 'romfs').mkdir()
++            shell_out = root / 'shell_fw'
++            shell_out.mkdir()
++            tid = 0x01007EF00011E000
++            gid = f'{tid:016X}'
++            fake_g = mock.MagicMock()
++            fake_g.id = gid
++            fake_g.title_id = tid
++            fake_g.dir = root / 'profile'
++            fake_g.builds.return_value = {'v0': {'display': '1.0.0', 'main': 'aa' * 16}}
++            fake_g.words.side_effect = lambda k: ['v0'] if k == 'shader_versions' else ['main']
++            fake_g.get.side_effect = lambda k, d='': {'name': 'Test Game', 'ipa': 'Test.ipa', 'pso_mtl4': 'on'}.get(k, d)
++            fake_g.modules_in.return_value = ['main']
++            fake_g.table.side_effect = lambda n: root / 'profile' / n
++            (root / 'profile').mkdir()
++            (root / 'profile/shader_map.tsv').write_text('')
++
++            def fake_extract_dump(ex, ver, src, app):
++                vdir = ex / ver
++                (vdir / 'ExeFS').mkdir(parents=True, exist_ok=True)
++                (vdir / 'ExeFS/main').write_bytes(b'main')
++                (vdir / 'RomFS').mkdir(exist_ok=True)
++                return vdir
++
++            def fake_run(cmd, log, env=None, cwd=None, on_line=None, ok=(0,), fatal=True):
++                if len(cmd) >= 2 and str(cmd[1]).endswith('dm/ios/tools/build_ipa.sh'):
++                    self.assertIsNotNone(on_line)
++                    assert on_line is not None
++                    on_line('[12:00:00] generate Gen/ (01007EF00011E000, modules: main, graphics: nvn)')
++                    on_line('[12:00:01] pipeline archive for g18p (metal-tt)')
++                    on_line('[12:00:02] pso_offline: applegpu_g18p: batch 1/2: 1000 bases, compiling or checking cache')
++                    self.now += 1.0
++                    on_line('[12:00:05] pso_offline: applegpu_g18p: batch 1/2: ready (compiled)')
++                    self.now += 1.0
++                    on_line('[12:00:08] pso_offline: applegpu_g18p: batch 2/2: ready (compiled)')
++                    on_line('[12:00:09] pso_offline: applegpu_g18p: merging 2 batches')
++                    on_line('[12:00:10] framework: Gen/framework (modules main, profile.tsv, game.manifest.json)')
++                    on_line(f'[12:00:11] xcodebuild (Release, unsigned, the game framework DmGame{gid} with its own host)')
++                    on_line(f'[12:00:20] copying resources into DmGame{gid}.framework')
++                    fw = shell_out / f'DmGame{gid}.framework'
++                    fw.mkdir(parents=True, exist_ok=True)
++                    (fw / 'game.manifest.json').write_text('{"schema": 1}\n')
++                return 0
++
++            fake_pg = mock.MagicMock()
++            fake_pg.build_sources.return_value = {
++                'graphics': ('nvn', ''),
++                'glslc_capture': (False, ''),
++                'vk_capture': (False, ''),
++                'gl_capture': (False, ''),
++                'ue_decode': (False, ''),
++                'oodle_packs': (False, ''),
++                'ue_legacy': (False, ''),
++            }
++            fake_gamemod = mock.MagicMock()
++            fake_gamemod.by_title.return_value = fake_g
++
++            patches = (
++                mock.patch('builtins.input', side_effect=AssertionError('unexpected input prompt')),
++                mock.patch.dict(sys.modules, {'game': fake_gamemod, 'profile_guess': fake_pg}),
++                mock.patch.object(nsp, 'check_native_python'),
++                mock.patch.object(nsp, 'dump_folder', return_value=True),
++                mock.patch.object(nsp, 'scan_dump', return_value=(tid, {'base': dump_dir, 'updates': [], 'dlc': []})),
++                mock.patch.object(nsp, 'check_prereqs'),
++                mock.patch.object(nsp, 'free_gb', return_value=100.0),
++                mock.patch.object(nsp, 'extract_dump', side_effect=fake_extract_dump),
++                mock.patch.object(nsp, 'check_formats'),
++                mock.patch.object(nsp, 'check_versions_aarch64'),
++                mock.patch.object(nsp, 'build_mismatch', return_value=[]),
++                mock.patch.object(nsp, 'check_metal'),
++                mock.patch.object(nsp, 'extract_aoc', return_value=None),
++                mock.patch.object(nsp, 'rewrite', return_value=fake_g),
++                mock.patch.object(nsp, 'captured_nros', return_value=None),
++                mock.patch.object(nsp, 'chain_header'),
++                mock.patch.object(nsp, 'split_shaders', return_value='PK'),
++                mock.patch.object(nsp, 'build_shaders', return_value=root / 'ios_sh'),
++                mock.patch.object(nsp, 'uses_jit', return_value=False),
++                mock.patch.object(nsp, 'report_profile_status'),
++                mock.patch.object(nsp, 'run', side_effect=fake_run),
++            )
++            with contextlib.ExitStack() as stack:
++                for p in patches:
++                    stack.enter_context(p)
++                nsp.main(nsp.parse_args([str(dump_dir), '--shell-framework', str(shell_out), '--work-dir', str(root / 'work'), '--progress', 'json']))
++
++            stages = [e for e in self.events('stage') if e['name'] == 'game framework']
++            self.assertEqual(len(stages), 1)
++            self.assertEqual(stages[0]['step'], 'starting')
++            steps = [e['step'] for e in self.events('step') if e['name'] == 'game framework']
++            self.assertEqual(
++                steps,
++                [
++                    'generating sources',
++                    'pipeline archive (metal-tt)',
++                    'generating Xcode project',
++                    'xcodebuild',
++                    'copying resources',
++                ],
++            )
++            pso_counts = [(e['done'], e['total'], e['note']) for e in self.events('progress') if e['name'] == 'game framework' and e['step'] == 'pipeline archive (metal-tt)' and e['total'] == 2]
++            self.assertEqual(pso_counts, [(0, 2, ''), (1, 2, ''), (2, 2, ''), (2, 2, 'merging')])
++
++    def test_build_ipa_and_pso_sources_emit_watched_markers(self):
++        repo = SCRIPT.parents[1]
++        ipa_sh = (repo / 'dm/ios/tools/build_ipa.sh').read_text(encoding='utf-8')
++        pso_py = (repo / 'dm/gfx/tools/pso_offline.py').read_text(encoding='utf-8')
++        for marker in (
++            't "generate Gen/',
++            't "pipeline archive for $GPUS',
++            't "framework: Gen/framework ',
++            't "xcodebuild (Release, unsigned, the game framework $FW_NAME with its own host)"',
++            '> "$O/build-framework.log"',
++            't "copying resources into $FW_NAME.framework"',
++        ):
++            self.assertIn(marker, ipa_sh)
++        for marker in (
++            'pso_offline: {arch}: metal-tt, {len(bases)} bases, {len(computes)} compute pipelines',
++            'pso_offline: {arch}: batch {index}/{total}:',
++            'pso_offline: {arch}: batch {index}/{total}: ready (',
++            'pso_offline: {arch}: merging {total} batches',
++            'metal-pack.{arch}.log',
++        ):
++            self.assertIn(marker, pso_py)
++
++
+ if __name__ == '__main__':
+     unittest.main()
+diff --git a/scripts/build_ipa_from_nsp.py b/scripts/build_ipa_from_nsp.py
+index 3b73ebb0..2522d3be 100755
+--- a/scripts/build_ipa_from_nsp.py
++++ b/scripts/build_ipa_from_nsp.py
+@@ -616,6 +616,41 @@ def nxb_split(roms, mains, tmp, names, logs, g):
+ 
+ 
+ # ---- NSP identification ----
++def pfs0_names(path):   # NSP = PFS0: list the file names inside
++    with open(path, 'rb') as f:
++        h = f.read(16)
++        if h[:4] != b'PFS0': return []
++        if len(h) != 16: raise BuildError(f'truncated PFS0 header: {path.name}')
++        n, st = struct.unpack_from('<II', h, 4)
++        if n * 0x18 + st > os.fstat(f.fileno()).st_size - 16:
++            raise BuildError(f'truncated PFS0 file-name table: {path.name}')
++        ent, strs = f.read(n * 0x18), f.read(st)
++    names = []
++    for i in range(n):
++        o = struct.unpack_from('<I', ent, i * 0x18 + 0x10)[0]
++        if o >= len(strs): raise BuildError(f'PFS0 file-name offset outside the string table: {path.name}')
++        # Older NSZ writers omitted the final NUL: the string table itself still bounds the name.
++        end = strs.find(b'\0', o)
++        names.append(strs[o:end if end >= 0 else len(strs)].decode(errors='replace'))
++    return names
++
++
++def hfs0_names(f, off):   # an XCI's HFS0 partition at off: [(name, offset of its data from the file's start)]
++    f.seek(off); h = f.read(16)
++    if h[:4] != b'HFS0': return []
++    n, st = struct.unpack_from('<II', h, 4)
++    ent, strs = f.read(n * 0x40), f.read(st); data = off + 16 + n * 0x40 + st
++    return [(strs[no:strs.index(b'\0', no)].decode(errors='replace'), data + o) for o, no in (struct.unpack_from('<Q8xI', ent, i * 0x40) for i in range(n))]
++
++
++def package_names(path):   # the file names inside a package: an NSP's PFS0, or an XCI's secure partition (the NCAs nx_extract reads)
++    with open(path, 'rb') as f:
++        h = f.read(0x140)
++        if h[0x100:0x104] != b'HEAD': return pfs0_names(path)
++        secure = dict(hfs0_names(f, struct.unpack_from('<Q', h, 0x130)[0])).get('secure')
++        return [n for n, _ in hfs0_names(f, secure)] if secure else []
++
++
+ def is_package(path):   # what nx_extract's OpenNsp opens: an XCI / XCZ by the card header's magic at 0x100, else a PFS0 (NSP, NSZ)
+     with open(path, 'rb') as f: h = f.read(0x104)
+     return h[:4] == b'PFS0' or h[0x100:] == b'HEAD'
+@@ -2832,58 +2867,187 @@ def build_gl_shaders(py, repo, roots, sh, env, logs, g, reuse=True, mac=False, p
+ 
+ 
+ class IpaWatch:
+-    """Progress of build_ipa.sh, from its step lines ("[time] generate Gen/ …", "xcodebuild …", "pack IPA …", then pack_ipa.py's "pack: N entries, X bytes") and the files it writes:
+-    the CompileC lines in xcodebuild's build.log (one per source file: Gen/src, Gen/main/main.c, Gen/embed.S and the app's Sources), then the bytes of the archive pack_ipa.py is
+-    writing (<IPA>.partial, renamed at the end). Its two halves are the stages "app build" and "IPA pack" """
+-    XCODE = {'CompileC': 'compiling', 'Ld': 'linking', 'CpResource': 'copying resources', 'CompileAssetCatalogVariant': 'asset catalog', 'ProcessInfoPlistFile': 'Info.plist'}
+-
+-    def __init__(self, repo, w, out_ipa):
+-        self.ios, self.o, self.part = repo / 'dm/ios', w / 'build/ios/pkg', out_ipa.with_name(out_ipa.name + '.partial')
+-        self.last = out_ipa.stat().st_size if out_ipa.is_file() else None   # the last IPA's size: the expected size of the new archive
++    """Progress of build_ipa.sh, from its step lines ("[time] generate Gen/ …", "pipeline archive for …", "pso_offline: …",
++    "framework: Gen/framework …", "xcodebuild …", "copying resources into …", "pack IPA …", then pack_ipa.py's "pack: N entries, X bytes")
++    and the files it writes: pso_offline.py's batch folders under build/ios/pso/work, the CompileC lines in xcodebuild's build.log or
++    build-framework.log, then (for an IPA) the bytes of <IPA>.partial. Used by "game framework", "app build" and "IPA pack" """
++    XCODE = {'CompileC': 'compiling', 'SwiftCompile': 'compiling', 'Ld': 'linking', 'CpResource': 'copying resources', 'CompileAssetCatalogVariant': 'asset catalog', 'ProcessInfoPlistFile': 'Info.plist'}
++
++    def __init__(self, repo, w, out_ipa=None):
++        self.ios, self.o, self.pso = repo / 'dm/ios', w / 'build/ios/pkg', w / 'build/ios/pso/work'
++        ipa = Path(out_ipa) if out_ipa is not None else None
++        if ipa is not None and not ipa.is_dir() and ipa.suffix != '.framework':
++            self.part = ipa.with_name(ipa.name + '.partial')
++            self.last = ipa.stat().st_size if ipa.is_file() else None   # the last IPA's size: the expected size of the new archive
++        else:
++            self.part, self.last = None, None
++        self.xlog = self.o / 'build.log'
+         self.kept = 0
+-        self.state, self.t, self.off, self.compiled, self.what, self.total, self.most, self.lock = None, 0, 0, 0, '', None, 0, threading.Lock()
++        self.pso_archs, self.pso_arch, self.pso_done, self.pso_logged = [], '', set(), False
++        self.pso_js_key, self.pso_counts = ('', -1, -1), (0, 0)
++        self.state, self.t, self.off, self.compiled, self.what, self.total, self.most, self.lock = None, 0.0, 0, 0, '', None, 0, threading.Lock()
+ 
+     def line(self, line):   # a line of build_ipa.sh's output
+         s = re.sub(r'^\[[\d:]+\] ', '', line)
+         with self.lock:   # a poll sees a step change whole
+-            if s.startswith('generate Gen/'): self.state = 'gen'; PROG.set(step='generating sources')
+-            elif s.startswith('[RED] pipeline archive:'): say(s)   # the build goes on without one, and only this says so
+-            elif s.startswith('pipeline archive for'): PROG.set(step='pipeline archive (metal-tt)')
++            if s.startswith('generate Gen/'):
++                self.state = 'gen'
++                PROG.set(step='generating sources')
++            elif s.startswith('[RED] pipeline archive:'):
++                self.state = None
++                say(s)   # the build goes on without one, and only this says so
++            elif s.startswith('pipeline archive for'):
++                m = re.match(r'pipeline archive for (\S+)', s)
++                raw = m.group(1).split(',') if m else []
++                self.pso_archs = [x if x.startswith('applegpu_') else f'applegpu_{x}' for x in raw if x]
++                self.pso_arch = self.pso_archs[0] if len(self.pso_archs) == 1 else ''
++                self.pso_done, self.pso_logged = set(), False
++                self.state, self.t = 'pso', time.time()
++                PROG.set(step='pipeline archive (metal-tt)')
++            elif (m := re.match(r'pso_offline: (\S+): metal-tt, \d+ bases, \d+ compute pipelines', s)):
++                self.pso_arch = m.group(1)
++                self.pso_done, self.pso_logged = set(), False
++                self.state, self.t = 'pso', time.time()
++            elif (m := re.match(r'pso_offline: (\S+): batch (\d+)/(\d+): (.*)', s)):
++                arch, idx, tot, tail = m.group(1), int(m.group(2)), int(m.group(3)), m.group(4)
++                if arch != self.pso_arch:
++                    self.pso_arch, self.pso_done = arch, set()
++                if tail.startswith('ready'):
++                    self.pso_done.add(idx)
++                self.state, self.pso_logged = 'pso', True
++                PROG.set(done=len(self.pso_done), total=tot, unit='batches', note='')
++            elif (m := re.match(r'pso_offline: (\S+): merging (\d+) batches', s)):
++                tot = int(m.group(2))
++                self.state, self.pso_logged = 'pso', True
++                PROG.set(done=tot, total=tot, unit='batches', note='merging')
++            elif s.startswith('framework: Gen/framework'):
++                self.state = 'gen'
++                PROG.set(step='generating Xcode project')
+             elif s.startswith('xcodebuild'):
+-                units = len(os.listdir(self.ios / 'Gen/src')) + 2 + sum(1 for p in (self.ios / 'Sources').iterdir() if p.suffix in ('.c', '.m'))   # + Gen/main/main.c and Gen/embed.S
+-                self.state, self.t = 'xcode', time.time(); PROG.set(step='xcodebuild', done=0, total=units, unit='files', est=True)   # an incremental build compiles fewer
++                fw = 'the game framework' in s or self.part is None
++                self.xlog = self.o / ('build-framework.log' if fw else 'build.log')
++                self.off, self.compiled, self.what = 0, 0, ''
++                try:
++                    extra = 9 if fw else 2 + sum(1 for p in (self.ios / 'Sources').iterdir() if p.suffix in ('.c', '.m'))   # + Gen/main/main.c and Gen/embed.S
++                    units = len(os.listdir(self.ios / 'Gen/src')) + extra
++                except OSError:
++                    units = None
++                self.state, self.t = 'xcode', time.time()
++                if units is not None:
++                    PROG.set(step='xcodebuild', done=0, total=units, unit='files', est=True)   # an incremental build compiles fewer
++                else:
++                    PROG.set(step='xcodebuild', unit='files', est=True)
++            elif s.startswith('copying resources into '):
++                if self.state == 'xcode':
++                    r = self._poll()
++                    if r: PROG.set(**r)
++                self.state = 'copy'
++                PROG.set(step='copying resources')
++            elif s.startswith('done: ') and self.state == 'xcode':
++                r = self._poll()
++                if r: PROG.set(**r)
++                self.state = None
+             elif s.startswith('pack IPA'):
+-                try: self._poll()   # the rest of build.log (xcodebuild writes it in big blocks)
+-                except OSError: pass
++                self._poll()   # the rest of build.log (xcodebuild writes it in big blocks)
+                 PROG.end(f'{self.compiled:,} file{"" if self.compiled == 1 else "s"} compiled')
+-                self.state, self.total, self.most = 'list', None, 0; PROG.stage('IPA pack', poll=self.poll, step='listing the files')
++                self.state, self.total, self.most = 'list', None, 0
++                PROG.stage('IPA pack', poll=self.poll, step='listing the files')
+             elif self.state == 'list' and (m := re.match(r'pack: (\d+) entries, (\d+) bytes', s)):   # the files' bytes: the archive's size when nothing deflates, else the last IPA's size is closer
+-                self.state, self.total = 'keep', self.last or int(m.group(2)); PROG.set(step='packing', unit='B', note=f'{int(m.group(1)):,} entries')
++                self.state, self.total = 'keep', self.last or int(m.group(2))
++                PROG.set(step='packing', unit='B', note=f'{int(m.group(1)):,} entries')
+             elif self.state == 'keep' and (m := re.match(r'pack: keeping (\d+) bytes', s)):
+                 self.kept = int(m.group(1)); self.state = 'pack'; self.most = 0; self.total = max(0, self.total - self.kept)
+ 
+     def poll(self):   # from the poll thread
+         with self.lock: return self._poll()
+ 
++    def _poll_pso(self):
++        js = self.pso / 'bases.mtl4-json'
++        try: st = js.stat()
++        except OSError: return None
++        key = (str(js), st.st_size, st.st_mtime_ns)
++        if key != self.pso_js_key:
++            try: raw = js.read_bytes()
++            except OSError: return None
++            if not raw.rstrip().endswith(b'}'): return None
++            counts = (raw.count(b'"vertex_function_descriptor"'), raw.count(b'"compute_function_descriptor"'))
++            self.pso_js_key, self.pso_counts = key, counts
++        bases, computes = self.pso_counts
++        base_groups, compute_groups = (bases + 999) // 1000, (computes + 15) // 16
++        total = base_groups + compute_groups
++        if total <= 1: return None
++        candidates = [self.pso_arch] if self.pso_arch else (self.pso_archs or [p.name[8:] for p in sorted(self.pso.glob('batches.*')) if p.is_dir()])
++        arch, bdir = '', None
++        for cand in candidates:
++            d = self.pso / f'batches.{cand}'
++            if cand and d.is_dir():
++                arch, bdir = cand, d
++                break
++        if bdir is None: return None
++        pack_log = self.pso / f'metal-pack.{arch}.log'
++        newest = st.st_mtime
++        try: newest = max(newest, bdir.stat().st_mtime)
++        except OSError: return None
++        try: newest = max(newest, pack_log.stat().st_mtime)
++        except OSError: pass
++        for idx in range(1, base_groups + 1):
++            gdir = bdir / f'{idx:05d}'
++            for p in (gdir, gdir / f'{arch}.mtl4a.partial', gdir / f'{arch}.mtl4a', gdir / f'key.{arch}'):
++                try: newest = max(newest, p.stat().st_mtime)
++                except OSError: pass
++        for idx in range(1, compute_groups + 1):
++            gdir = bdir / f'c{idx:05d}'
++            for p in (gdir, gdir / f'{arch}.mtl4a.partial', gdir / f'{arch}.mtl4a', gdir / f'key.{arch}'):
++                try: newest = max(newest, p.stat().st_mtime)
++                except OSError: pass
++        if newest < self.t - 2: return None   # still files from an earlier build
++        def group_done(gdir):
++            if (gdir / f'{arch}.mtl4a.partial').exists() or not (gdir / f'key.{arch}').is_file(): return False
++            try: return (gdir / f'{arch}.mtl4a').stat().st_size > 0
++            except OSError: return False
++        done = 0
++        for idx in range(1, base_groups + 1):
++            if group_done(bdir / f'{idx:05d}'): done += 1
++            else: break   # render-base groups run sequentially: anything later is left from an interrupted run
++        if done == base_groups:
++            for idx in range(1, compute_groups + 1):
++                if group_done(bdir / f'c{idx:05d}'): done += 1
++        merging = False
++        if done == total:
++            try: merging = pack_log.stat().st_mtime >= self.t - 2
++            except OSError: merging = False
++        return {'done': done, 'total': total, 'unit': 'batches', 'note': 'merging' if merging else ''}
++
+     def _poll(self):
+         state = self.state
++        if state == 'pso':
++            return None if self.pso_logged else self._poll_pso()
+         if state == 'xcode':
+-            log = self.o / 'build.log'
+-            if log.stat().st_mtime < self.t - 1: return None   # still the last build's log
+-            if log.stat().st_size < self.off: self.off = self.compiled = 0
+-            with open(log, 'rb') as f: f.seek(self.off); chunk = f.read()
+-            chunk = chunk[:chunk.rfind(b'\n') + 1]; self.off += len(chunk)
++            log = self.xlog
++            try: st = log.stat()
++            except OSError: return None
++            if st.st_mtime < self.t - 1: return None   # still the last build's log
++            if st.st_size < self.off: self.off = self.compiled = 0
++            try:
++                with open(log, 'rb') as f:
++                    f.seek(self.off)
++                    chunk = f.read()
++            except OSError:
++                return None
++            chunk = chunk[:chunk.rfind(b'\n') + 1]
++            self.off += len(chunk)
+             for ln in chunk.split(b'\n'):
+                 w = ln.split(b' ', 1)[0].decode(errors='replace')
+                 if w == 'CompileC': self.compiled += 1
+                 self.what = self.XCODE.get(w, self.what)
+-            r = {'done': self.compiled, 'note': self.what}
+-        elif state == 'pack':
+-            try: self.most = max(self.most, self.part.stat().st_size - self.kept)   # never backwards: the archive is renamed at the end
++            return {'done': self.compiled, 'note': self.what}
++        if state == 'pack':
++            part = self.part
++            if part is None: return None
++            try: self.most = max(self.most, part.stat().st_size - self.kept)   # never backwards: the archive is renamed at the end
+             except OSError: pass
+-            r = {'done': self.most, 'total': self.total, 'est': True}
+-        else: return None
+-        return r
++            return {'done': self.most, 'total': self.total, 'est': True}
++        return None
+ 
+ 
+ def env_file_pairs(path):   # an environment file's switches (one KEY=VALUE per line, # starts a comment), read as the iOS app reads them (dm/ios/Sources/main.m)
+@@ -3237,6 +3401,10 @@ def parse_args(argv):
+     ap.add_argument('--shader-files', action=argparse.BooleanOptionalAction, help='an NVN game\'s shader library goes into the IPA as its separate files, not as one file, for install tools that cannot copy '
+                     'a large file (AltServer: 2 GiB; the game files then need --romfs separate too) (default: the SHADER_FILES setting, off)')
+     ap.add_argument('--prepare-xcode', action='store_true', help='prepare a per-game Xcode project and add it to the shared workspace instead of packing an IPA (requires keeping extracted files)')
++    ap.add_argument('--framework', action='store_true', help='the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework, which the app dlopens at launch (route C, docs/launcher-c-plan.md M1), instead of the executable; the IPA is otherwise the usual one')
++    ap.add_argument('--shell-framework', metavar='FOLDER', help='route C\'s shell (docs/launcher-c-plan.md M2): build only the game\'s framework, FOLDER/DmGame<title ID>.framework '
++                    '(its code, tables, settings list, shader libraries and icon), for dm/ios/tools/build_shell.sh to embed in the one app for all games; no IPA or Xcode project, '
++                    'the game files stay separate (implies --romfs separate and --keep-extracted)')
+     ap.add_argument('--platform', choices=('ios', 'mac', 'mac-app'), help='ios = the IPA (or the Xcode project); mac = for development: build only what running the game on this Mac needs (the Mac shaders and the Mac host, '
+                     'no iOS shaders, Xcode project or IPA), keep the extracted files and print the command that runs the game; mac-app = what mac builds, then a self-contained, double-clickable '
+                     'Mac app of the game (default: <game name>.app in the NSP folder, -o names another) (default: the PLATFORM setting, ios)')
+@@ -3389,6 +3557,11 @@ def main(args=None):
+     if args.mac_sign and not mac_pack: raise BuildError('--mac-sign signs the Mac app: it needs --platform mac-app')
+     if args.prebake and not mac_pack: raise BuildError('--prebake makes the Mac app\'s prewarm pipelines: it needs --platform mac-app')
+     if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
++    if mac and args.framework: raise BuildError(f'--framework builds the iPhone app\'s game framework: it cannot be combined with --platform {platform}')
++    shell_fw = Path(os.path.expanduser(args.shell_framework)).resolve() if args.shell_framework else None
++    if shell_fw and (mac or prepare_xcode or args.framework): raise BuildError('--shell-framework builds only the game framework for the shell: it cannot be combined with --platform mac / mac-app, --prepare-xcode or --framework')
++    if shell_fw and args.romfs == 'bundle': raise BuildError('--shell-framework keeps the game files separate (the shell takes them from Documents/games/<title ID>/): it cannot be combined with --romfs bundle')
++    if shell_fw: args.romfs = 'separate'; args.keep_extracted = True
+     if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
+     check_native_python()
+     keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
+@@ -3653,10 +3826,11 @@ def main(args=None):
+         rmtree(work / 'tmp'); return {'row': (PROGRAM_INDEX, g.id, patched, rfs.source(game), ios, gfx), 'ex': ex, 'keep': keep}
+     programs = other_programs(args, g)
+     if programs and romfs_mode == 'separate': raise BuildError('a game of several programs keeps its files in the app (ROMFS / --romfs bundle): Documents holds one RomFS image, one program\'s')
+-    if not prepare_xcode and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
+-    say('preparing the Xcode project' if prepare_xcode else f'building the IPA → {out_ipa}')
++    if not prepare_xcode and not shell_fw and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
++    say('preparing the Xcode project' if prepare_xcode else f'building the game framework for the shell → {shell_fw}' if shell_fw else f'building the IPA → {out_ipa}')
+     ipa_env = dict(env, GAME=g.id, W=str(work / 'ipa'), PATCHED=str(patched), ROMFS=str(rfs.source(game)), MSL_IOS=str(ios), GFXAPI=gfx, FONT_PY=py, DM_DISPLAY_NAME=app_name, DM_BUNDLE_ID=bundle_id, AOC=str(aoc or ''), DM_XCODE_DERIVED_DATA=str(work / 'xcode-derived-data'), DM_TEAM_ID=team_id, DM_LANG=lang, CONTROL=str(control))
+     if prepare_xcode: ipa_env['DM_XCODE_PROJECT_DIR'] = str(project.parent)
++    if args.framework: ipa_env['DM_FRAMEWORK'] = '1'; say('route C: the game\'s modules go into DmIOS.app/Frameworks/DmGame.framework (DM_FRAMEWORK=1)')
+     separate = romfs_mode == 'separate'
+     if separate: ipa_env['DM_COPY_ROMFS'] = 'NO'; say('game files: separate (DM_COPY_ROMFS=NO), left out of the app; the image stays at ' + str(rfs.source(game)))
+     if shader_files: ipa_env['DM_SHADER_FILES'] = '1'; say('shader library: its separate files (DM_SHADER_FILES=1), for install tools that cannot copy a large file')
+@@ -3677,6 +3851,19 @@ def main(args=None):
+         rows = [(0, g.id, patched, rfs.source(game), ios, gfx)] + [programs[n]['row'] for n in sorted(programs)]
+         tsv.write_text('# program\tprofile\trewritten modules\tRomFS\tiOS shaders\tgraphics API (build_ipa.sh PROGRAMS_TSV)\n' + ''.join('\t'.join(map(str, r)) + '\n' for r in rows))
+         say(f'one app holding programs {", ".join(str(r[0]) for r in rows)}')
++    if shell_fw:   # route C's shell: the framework alone, which build_shell.sh embeds, while the game files stay where they are for the copy to the device
++        ipa_env['DM_FRAMEWORK_ONLY'] = str(shell_fw)
++        fw = shell_fw / f'DmGame{g.id.upper()}.framework'
++        watch = IpaWatch(repo, work / 'ipa', fw)
++        PROG.stage('game framework', poll=watch.poll, step='starting')
++        run(['bash', repo / 'dm/ios/tools/build_ipa.sh'], logs / 'build_framework.log', env=ipa_env, on_line=watch.line)
++        if not (fw / 'game.manifest.json').is_file(): raise BuildError(f'no game framework at {fw}')
++        PROG.end(fw.name)
++        rmtree(work / 'tmp')
++        say(f'game framework: {fw}')
++        say(f'game files: {rfs.source(game)}')
++        report_profile_status(g, reg, pkg_ver, derived, provisional, 'shell framework', patched)
++        return
+     if prepare_xcode:
+         PROG.stage('prepare Xcode')
+         run(['bash', repo / 'dm/ios/tools/build_ipa.sh', '--prepare-xcode'], logs / 'prepare_xcode.log', env=ipa_env)

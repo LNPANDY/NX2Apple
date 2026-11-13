@@ -15,8 +15,25 @@ package struct TransferSource: Equatable {
     package init(titleID: String, name: String, archive: String) { self.titleID = titleID; self.name = name; self.archive = archive }
 }
 
+/// One game finished during a queued shared-app batch, waiting for the single final IPA export or device install.
+package struct DeferredShellGame: Equatable {
+    package var gameID: UUID?
+    package var framework: String
+    package var titleID: String
+    package var name: String
+    package var archive: String
+
+    package init(gameID: UUID? = nil, framework: String, titleID: String, name: String, archive: String) {
+        self.gameID = gameID
+        self.framework = framework
+        self.titleID = titleID
+        self.name = name
+        self.archive = archive
+    }
+}
+
 extension BuildStore {
-    // MARK: Export IPA without a build
+    // MARK: Export or install without a build
 
     /// The games whose frameworks the shared app holds and that are still on disk.
     package func builtShellGames() -> [ShellLibrary.Game] {
@@ -28,30 +45,64 @@ extension BuildStore {
     /// The IPA of the frameworks that are built can be made again: an IPA target, a built game, and nothing running.
     package var canExportBuiltGames: Bool { !running && exportsShell && !exportsOneGame && !builtShellGames().isEmpty }
 
+    /// The shared app can be signed and installed from the frameworks already built: direct install mode with device and team ready.
+    package var canInstallBuiltGames: Bool { !running && installsDirectly && !devices.exportIPA && !builtShellGames().isEmpty }
+
     /// "Export IPA": the shell's project with every built framework, unsigned, zipped. No game is built or packed again.
     package func exportBuiltGames() {
+        guard canExportBuiltGames else { return }
+        if askAboutStaleFrameworks(except: Set(), then: { [weak self] in self?.exportBuiltGamesAfterStaleCheck() }) {
+            return
+        }
+        exportBuiltGamesAfterStaleCheck()
+    }
+
+    private func exportBuiltGamesAfterStaleCheck() {
         guard canExportBuiltGames, let last = builtShellGames().last else { return }
         exportShell(framework: last.framework, titleID: last.titleID, name: last.name)
     }
 
-    // MARK: A batch of the queue packages the shared app once
-
-    /// A queued game was built and packed, its app is made when the batch ends.
-    func deferShellPackage(framework: String, titleID: String, name: String) {
-        deferredShell.append((framework, titleID, name))
-        finishInstall(nil, note: String(format: t("queue.packageLater"), name))
+    /// "Install built games": signs and installs the shared app from the frameworks already built, without rebuilding any game or
+    /// transferring `romfs.img` game data.
+    package func installBuiltGames() {
+        guard canInstallBuiltGames else { return }
+        if askAboutStaleFrameworks(except: Set(), then: { [weak self] in self?.installBuiltGamesAfterStaleCheck() }) {
+            return
+        }
+        installBuiltGamesAfterStaleCheck()
     }
 
-    /// The batch ended: the shared app is made once from the games that were built. A game that failed is not in it.
+    private func installBuiltGamesAfterStaleCheck() {
+        guard canInstallBuiltGames, let last = builtShellGames().last else { return }
+        installBuiltShell(framework: last.framework, titleID: last.titleID, name: last.name)
+    }
+
+    // MARK: A batch of the queue packages or installs the shared app once
+
+    /// A queued game was built and packed, its app is made or installed once when the batch ends.
+    func deferShellPackage(framework: String, titleID: String, name: String, archive: String = "") {
+        if deferredShell.isEmpty && !deferShellPackaging {
+            deferredExportsIPA = exportsShell
+        }
+        deferredShell.append(DeferredShellGame(gameID: activeQueuedGameID, framework: framework, titleID: titleID, name: name, archive: archive))
+        let noteKey = deferredExportsIPA ? "queue.packageLater" : "queue.installLater"
+        finishInstall(nil, note: String(format: t(noteKey), name))
+    }
+
+    /// The batch ended: the shared app is exported or signed and installed once from the games that were built. A game that failed is not in it.
     package func packageDeferred() {
         let games = deferredShell
         deferredShell = []
         guard let last = games.last, !running else { return }
-        var library = ShellLibrary.load(root: shellRoot)
-        for game in games.dropLast() { library.add(.init(titleID: game.titleID, name: game.name, framework: game.framework)) }
-        try? library.save(root: shellRoot)
-        exportShell(framework: last.framework, titleID: last.titleID, name: last.name,
-                    extraFrameworksToClean: games.dropLast().map(\.framework))
+        if deferredExportsIPA {
+            var library = ShellLibrary.load(root: shellRoot)
+            for game in games.dropLast() { library.add(.init(titleID: game.titleID, name: game.name, framework: game.framework)) }
+            try? library.save(root: shellRoot)
+            exportShell(framework: last.framework, titleID: last.titleID, name: last.name,
+                        extraFrameworksToClean: games.dropLast().map(\.framework))
+        } else {
+            installShellBatch(games)
+        }
     }
 
     // MARK: Send game data
@@ -61,9 +112,17 @@ extension BuildStore {
 
     /// "Send game data" for every game with packed data: one transfer each, for the chosen device. Nothing is built.
     package func sendAllGameData() {
+        sendSelectedGameData(titleIDs: Set(sharedAppDataSources().map { $0.titleID.uppercased() }))
+    }
+
+    /// Enqueues the checked games from `sharedAppDataSources()` onto `TransferQueueStore` in library order.
+    package func sendSelectedGameData(titleIDs: Set<String>) {
         guard canSendAllGameData, let transfers else { return }
+        let wanted = Set(titleIDs.map { $0.uppercased() })
+        let chosen = sharedAppDataSources().filter { wanted.contains($0.titleID.uppercased()) }
+        guard !chosen.isEmpty else { return }
         let device = devices.installDevice, name = devices.deviceName(device)
-        transfers.enqueue(sharedAppDataSources().map {
+        transfers.enqueue(chosen.map {
             TransferEntry(titleID: $0.titleID, name: $0.name, archive: $0.archive, deviceID: device, deviceName: name)
         })
     }

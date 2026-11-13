@@ -6,7 +6,6 @@ Subject: [PATCH] Keep shared phone connections alive and use host motion clock
 Upstream-Status: forwarded seedds/nxnative#2429
 Reason: Fix discarded motion timestamps and expose saved phone connection state
 Issue: LNPANDY/NX2Apple#1206
-
 ---
  dm/host/hle_dsu.c                             |  3 +-
  dm/mac/Launcher.swift                         |  5 ++-
@@ -33,10 +32,10 @@ index 8acdab9..f4344dc 100644
      (void)unused;uint64_t sent=0;
      while (atomic_load(&active)) {
 diff --git a/dm/mac/Launcher.swift b/dm/mac/Launcher.swift
-index c36b23b..5e280c8 100644
+index 1280f2a..467cbfd 100644
 --- a/dm/mac/Launcher.swift
 +++ b/dm/mac/Launcher.swift
-@@ -31,7 +31,10 @@ struct LauncherView: View {
+@@ -140,7 +140,10 @@ struct LauncherView: View {
              .padding([.horizontal, .top], 20)
              Form {
                  settingSections(basic: true)

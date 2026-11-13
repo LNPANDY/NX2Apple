@@ -365,7 +365,7 @@ import NXLauncher
                 if detailsOpen {
                     Text(failure.details).font(.mono(11)).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12).background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+                        .padding(12).background(LauncherPalette.well, in: RoundedRectangle(cornerRadius: 8))
                 }
             }
         }

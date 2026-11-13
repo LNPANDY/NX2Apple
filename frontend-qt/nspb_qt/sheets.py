@@ -1096,3 +1096,168 @@ class DefenderPromptDialog(QDialog):
     def _on_remove(self) -> None:
         self.choice = 'remove'
         self.accept()
+
+
+class DriveSelectDialog(QDialog):
+    """Multi-game checklist dialog for copying packed game data to an external drive (#1080)."""
+
+    def __init__(
+        self,
+        model: 'Model',
+        dest_root: str,
+        sources: list[tuple[str, str, str, int]],
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.m = model
+        self.dest_root = dest_root
+        self.sources = list(sources)
+        self.selected_ids: set[str] = {tid.upper() for tid, _name, _arch, _sz in self.sources}
+        self._switches: dict[str, LauncherSwitch] = {}
+
+        self.setWindowTitle(self.m.t('shell.selectGamesTitle'))
+        self.setMinimumSize(620, 440)
+        self.setStyleSheet(style.STYLESHEET)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(26, 24, 26, 20)
+        lay.setSpacing(14)
+
+        head = QHBoxLayout()
+        head_col = QVBoxLayout()
+        head_col.setSpacing(4)
+        title = QLabel(self.m.t('shell.selectGamesTitle'))
+        title.setStyleSheet('font-size: 22px; font-weight: 800;')
+        note = QLabel(self.m.t('shell.selectGamesDriveNote'))
+        note.setObjectName('muted')
+        note.setWordWrap(True)
+        head_col.addWidget(title)
+        head_col.addWidget(note)
+        head.addLayout(head_col, 1)
+
+        self.toggle_all_btn = QPushButton('')
+        self.toggle_all_btn.clicked.connect(self._on_toggle_all)
+        head.addWidget(self.toggle_all_btn)
+        lay.addLayout(head)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        body = QWidget()
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(0)
+
+        group = CardGroup()
+        for idx, (tid, name, _arch, total_bytes) in enumerate(self.sources):
+            if idx > 0:
+                group.add_divider()
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(18, 12, 18, 12)
+            rl.setSpacing(12)
+
+            sw = LauncherSwitch(checked=True)
+            sw.toggled.connect(lambda checked, key=tid.upper(): self._on_item_toggled(key, checked))
+            self._switches[tid.upper()] = sw
+            rl.addWidget(sw)
+
+            col = QVBoxLayout()
+            col.setSpacing(2)
+            g_lbl = QLabel(name)
+            g_lbl.setObjectName('rowTitle')
+            tid_lbl = QLabel(tid.upper())
+            tid_lbl.setObjectName('mono')
+            col.addWidget(g_lbl)
+            col.addWidget(tid_lbl)
+            rl.addLayout(col, 1)
+
+            sz_lbl = QLabel(lib.format_bytes(total_bytes))
+            sz_lbl.setObjectName('muted')
+            rl.addWidget(sz_lbl)
+            group.add_row(row)
+
+        body_lay.addWidget(group)
+        body_lay.addStretch(1)
+        scroll.setWidget(body)
+        lay.addWidget(scroll, 1)
+
+        self.space_lbl = QLabel('')
+        self.space_lbl.setWordWrap(True)
+        lay.addWidget(self.space_lbl)
+
+        foot = QHBoxLayout()
+        foot.addStretch(1)
+        self.cancel_btn = QPushButton(self.m.t('saves.cancel'))
+        self.cancel_btn.clicked.connect(self.reject)
+        foot.addWidget(self.cancel_btn)
+
+        self.confirm_btn = QPushButton(self.m.t('shell.copySelectedConfirm'))
+        self.confirm_btn.setObjectName('creamPill')
+        self.confirm_btn.clicked.connect(self.accept)
+        foot.addWidget(self.confirm_btn)
+        lay.addLayout(foot)
+
+        self._refresh_state()
+
+    def chosen_items(self) -> list[tuple[str, str]]:
+        return [
+            (tid.upper(), arch)
+            for tid, _name, arch, _sz in self.sources
+            if tid.upper() in self.selected_ids
+        ]
+
+    def _on_item_toggled(self, tid: str, checked: bool) -> None:
+        if checked:
+            self.selected_ids.add(tid)
+        else:
+            self.selected_ids.discard(tid)
+        self._refresh_state()
+
+    def _on_toggle_all(self) -> None:
+        select_all = len(self.selected_ids) < len(self.sources)
+        self.selected_ids = (
+            {tid.upper() for tid, _n, _a, _s in self.sources} if select_all else set()
+        )
+        for tid, sw in self._switches.items():
+            sw.blockSignals(True)
+            sw.setChecked(tid in self.selected_ids)
+            sw.blockSignals(False)
+            sw.update()
+        self._refresh_state()
+
+    def _refresh_state(self) -> None:
+        all_on = bool(self.sources) and len(self.selected_ids) == len(self.sources)
+        self.toggle_all_btn.setText(
+            self.m.t('shell.clearSelection' if all_on else 'shell.selectAll')
+        )
+        chosen = self.chosen_items()
+        if not chosen:
+            self.space_lbl.setText('')
+            self.confirm_btn.setEnabled(False)
+            return
+        needed, err = lib.DriveCopy.preflight_batch_copy(
+            chosen,
+            self.dest_root,
+            shell_root=self.m.shell_cache_path,
+            t_func=self.m.t,
+        )
+        if err is not None:
+            self.space_lbl.setStyleSheet(f'color: {style.DANGER}; font-size: 12.5px;')
+            self.space_lbl.setText(err)
+            self.confirm_btn.setEnabled(False)
+            return
+        free = lib.DriveCopy.free_space(self.dest_root)
+        fs_name = lib.DriveCopy.filesystem_type(self.dest_root).upper() or 'DISK'
+        self.space_lbl.setStyleSheet('')
+        self.space_lbl.setObjectName('muted')
+        self.space_lbl.setText(
+            self.m.t(
+                'shell.driveNote',
+                lib.format_bytes(needed),
+                lib.format_bytes(free),
+                fs_name,
+                self.m.t('ios.ui.gameData'),
+            )
+        )
+        self.confirm_btn.setEnabled(True)

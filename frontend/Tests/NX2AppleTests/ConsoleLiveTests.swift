@@ -282,23 +282,13 @@ import SwiftUI
         XCTAssertNil(driver.state.presentedSheet, "mapping, then the menu, close in turn")
     }
 
-    func testJoyconSplitExpandsPairedJoyConIntoTwoSidewaysPlayers() throws {
+    func testPairedJoyConRemainsSinglePairedControllerInList() throws {
         let pads = [ConsolePadSnapshot(id: "jc", name: "Joy-Con (L/R)", category: "Nintendo Switch Joy-Con (L/R)", playerIndex: 1, battery: 0.75, charging: true)]
-        let (driver, _, layout) = try makeDriver(pads: pads)
+        let (driver, _, _) = try makeDriver(pads: pads)
         XCTAssertEqual(driver.state.controllers.map(\.name), ["Joy-Con (L/R)"])
         XCTAssertEqual(driver.state.controllers.map(\.kind), [.paired])
-        driver.setJoyconSplit(true)
-        XCTAssertTrue(layout.joyconSplit)
-        XCTAssertTrue(driver.state.joyconSplit)
-        XCTAssertEqual(driver.state.controllers.map(\.id), ["jc.L", "jc.R"])
-        XCTAssertEqual(driver.state.controllers.map(\.name), ["Joy-Con (L)", "Joy-Con (R)"])
-        XCTAssertEqual(driver.state.controllers.map(\.kind), [.gamepad, .gamepad])
-        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
-        XCTAssertEqual(driver.state.controllers.map(\.batteryPercent), [75, 75])
-        driver.setJoyconSplit(false)
-        XCTAssertFalse(layout.joyconSplit)
-        XCTAssertEqual(driver.state.controllers.map(\.name), ["Joy-Con (L/R)"])
         XCTAssertEqual(driver.state.controllers.map(\.player), [1])
+        XCTAssertEqual(driver.state.controllers.map(\.batteryPercent), [75])
     }
 
     func testEnteringAndLeavingConsoleModeRestoresTheWindowInOrder() async throws {
@@ -861,10 +851,7 @@ import SwiftUI
         XCTAssertTrue(driver.state.controllers.isEmpty)
     }
 
-    /// Regression test (#740): a paired Joy-Con is a single GCController instance with one shared `playerIndex` property.
-    /// Writing `.R`'s assigned player back to that shared hardware slot used to overwrite `.L`'s playerIndex, causing P1 and P2
-    /// to ping-pong on every reread and spawning an exponential storm of reread Tasks.
-    func testSplitJoyConPairDoesNotPingPongSharedHardwarePlayerIndex() {
+    func testPairedJoyConDoesNotRepeatPlayerOutputAcrossRereads() {
         var hardwarePlayerIndex: Int? = 1
         var writes: [(String, Int)] = []
         let layout = ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests"))
@@ -877,21 +864,16 @@ import SwiftUI
             artwork: { _, _ in nil }, observeSystem: false,
             playerOutput: { id, player in
                 writes.append((id, player))
-                hardwarePlayerIndex = player   // shared GCController.playerIndex
+                hardwarePlayerIndex = player
             })
         XCTAssertEqual(driver.state.controllers.map(\.id), ["jc"])
         XCTAssertEqual(driver.state.controllers.map(\.player), [1])
+        let initialWrites = writes.count
 
-        driver.setJoyconSplit(true)
-        XCTAssertEqual(driver.state.controllers.map(\.id), ["jc.L", "jc.R"])
-        XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2])
-        let countAfterSplit = writes.count
-
-        // Subsequent rereads (e.g. from primeOutputs or battery KVO) must keep L=1, R=2 stable and emit no new hardware writes.
         for _ in 0..<5 {
             driver.refreshControllers(announce: false)
-            XCTAssertEqual(driver.state.controllers.map(\.player), [1, 2], "P1 and P2 must not ping-pong across rereads")
-            XCTAssertEqual(writes.count, countAfterSplit, "no new player output writes when nothing changed")
+            XCTAssertEqual(driver.state.controllers.map(\.player), [1])
+            XCTAssertEqual(writes.count, initialWrites, "no new player output writes when nothing changed")
         }
     }
 }

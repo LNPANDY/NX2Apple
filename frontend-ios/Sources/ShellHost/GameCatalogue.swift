@@ -38,15 +38,206 @@ public struct CatalogueEntry: Equatable, Sendable, Identifiable {
     /// The game's framework folder: inside `directory` for a `Games/<title ID>/` bundle, `directory` itself for an
     /// embedded `<Name>.framework`. Nil while the manifest could not be read.
     public var frameworkURL: URL?
+    /// Set when the unsigned shared IPA externalized this framework's `msl/` shader tree alongside game data (#947).
+    public var requiresExternalShaders: Bool = false
+}
+
+/// Marker written last inside `Documents/Frameworks/.staging-<ID>-<token>/.ready` once every file of a hot-pushed
+/// `DmGame<ID>.framework` has landed on the device. `GameCatalogue.promoteStagedFrameworks` leaves a staging folder
+/// untouched until `.ready` is valid and the staged framework's regular file count and byte total match.
+public struct HotFrameworkReady: Codable, Equatable, Sendable {
+    public static let fileName = ".ready"
+    public static let stagingPrefix = ".staging-"
+    public static let discardPrefix = ".discarded-"
+    public static let currentSchema = 1
+
+    public var schema: Int
+    public var titleID: String
+    public var files: Int
+    public var bytes: Int64
+
+    public init(schema: Int = Self.currentSchema, titleID: String, files: Int, bytes: Int64) {
+        self.schema = schema
+        self.titleID = titleID
+        self.files = files
+        self.bytes = bytes
+    }
 }
 
 /// Discovers games from a folder of bundles: `Games/<title ID>/` with `game.manifest.json`, `launcher.json`, the
 /// manifest's `<name>.framework` and optional `banner.<ext>` and `icon.<ext>` pictures, or, in the shell app, the
-/// embedded `<Name>.framework` folders that hold the manifest and everything else themselves. Pure reads, no state.
+/// embedded `<Name>.framework` folders that hold the manifest and everything else themselves. Pure reads, no state
+/// except atomic staging promotion inside `hotRoot` (`Documents/Frameworks`).
 public enum GameCatalogue {
     public static let imageExtensions = ["png", "jpg", "jpeg", "heic", "webp"]
 
-    public static func scan(root: URL, fileManager fm: FileManager = .default) -> [CatalogueEntry] {
+    /// Counts regular files and total bytes inside `framework` (skipping Finder `.DS_Store` and AppleDouble `._*` metadata),
+    /// returning nil on directory absence or integer overflow. Shared by staging verification and tests.
+    public static func frameworkFootprint(at framework: URL, fileManager fm: FileManager = .default) -> (files: Int, bytes: Int64)? {
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: framework.path, isDirectory: &isDir), isDir.boolValue,
+              let enumerator = fm.enumerator(atPath: framework.path) else { return nil }
+        var files = 0
+        var bytes: Int64 = 0
+        for case let rel as String in enumerator {
+            let name = (rel as NSString).lastPathComponent
+            if name == ".DS_Store" || name.hasPrefix("._") { continue }
+            let full = framework.appendingPathComponent(rel).path
+            guard let attrs = try? fm.attributesOfItem(atPath: full),
+                  let type = attrs[.type] as? FileAttributeType else { return nil }
+            if type == .typeDirectory { continue }
+            guard type == .typeRegular, let size = (attrs[.size] as? NSNumber)?.int64Value, size >= 0 else { return nil }
+            if Int64.max - bytes < size { return nil }
+            files += 1
+            bytes += size
+        }
+        return (files, bytes)
+    }
+
+    /// Promotes completed `.staging-*` framework folders inside `hotRoot` into `hotRoot/DmGame<ID>.framework` atomically.
+    /// Staging folders without `.ready` that are newer than `staleAge` stay untouched (a transfer may still be in flight).
+    public static func promoteStagedFrameworks(in hotRoot: URL, now: Date = Date(), staleAge: TimeInterval = 3600,
+                                               fileManager fm: FileManager = .default) {
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: hotRoot.path, isDirectory: &isDir), isDir.boolValue else { return }
+        let items = (try? fm.contentsOfDirectory(atPath: hotRoot.path)) ?? []
+        for item in items where item.hasPrefix(HotFrameworkReady.discardPrefix) {
+            try? fm.removeItem(at: hotRoot.appendingPathComponent(item))
+        }
+        let stagings = items.filter { $0.hasPrefix(HotFrameworkReady.stagingPrefix) }.map { name -> (url: URL, mtime: Date) in
+            let url = hotRoot.appendingPathComponent(name, isDirectory: true)
+            let mtime = ((try? fm.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date) ?? .distantPast
+            return (url, mtime)
+        }.sorted { ($0.mtime, $0.url.lastPathComponent) < ($1.mtime, $1.url.lastPathComponent) }
+
+        var promotedTitles = Set<String>()
+        var incompleteStagings: [(url: URL, mtime: Date, name: String)] = []
+
+        for staging in stagings {
+            let readyURL = staging.url.appendingPathComponent(HotFrameworkReady.fileName)
+            guard fm.fileExists(atPath: readyURL.path) else {
+                incompleteStagings.append((staging.url, staging.mtime, staging.url.lastPathComponent))
+                continue
+            }
+            guard let readyData = fm.contents(atPath: readyURL.path),
+                  let ready = try? JSONDecoder().decode(HotFrameworkReady.self, from: readyData),
+                  ready.schema == HotFrameworkReady.currentSchema,
+                  isTitleID(ready.titleID.uppercased()) else {
+                discardFolder(staging.url, in: hotRoot, fm: fm)
+                continue
+            }
+            let expectedName = "DmGame\(ready.titleID.uppercased()).framework"
+            let candidate = staging.url.appendingPathComponent(expectedName, isDirectory: true)
+            let stagedFW: URL
+            if fm.fileExists(atPath: candidate.path) {
+                stagedFW = candidate
+            } else if let fwName = ((try? fm.contentsOfDirectory(atPath: staging.url.path)) ?? []).first(where: { $0.hasSuffix(".framework") }) {
+                stagedFW = staging.url.appendingPathComponent(fwName, isDirectory: true)
+            } else {
+                discardFolder(staging.url, in: hotRoot, fm: fm)
+                continue
+            }
+            let entry = readFramework(at: stagedFW, fileManager: fm)
+            guard entry.problem == nil,
+                  let manifest = entry.manifest,
+                  manifest.titleID.caseInsensitiveCompare(ready.titleID) == .orderedSame,
+                  let footprint = frameworkFootprint(at: stagedFW, fileManager: fm),
+                  footprint.files == ready.files,
+                  footprint.bytes == ready.bytes else {
+                discardFolder(staging.url, in: hotRoot, fm: fm)
+                continue
+            }
+            let exeURL = stagedFW.appendingPathComponent(manifest.frameworkExecutable)
+            guard let exeAttrs = try? fm.attributesOfItem(atPath: exeURL.path),
+                  exeAttrs[.type] as? FileAttributeType == .typeRegular,
+                  let exeSize = (exeAttrs[.size] as? NSNumber)?.int64Value, exeSize > 0 else {
+                discardFolder(staging.url, in: hotRoot, fm: fm)
+                continue
+            }
+
+            let target = hotRoot.appendingPathComponent(stagedFW.lastPathComponent, isDirectory: true)
+            var backup: URL?
+            if fm.fileExists(atPath: target.path) {
+                let aside = hotRoot.appendingPathComponent(HotFrameworkReady.discardPrefix + UUID().uuidString, isDirectory: true)
+                do {
+                    try fm.moveItem(at: target, to: aside)
+                    backup = aside
+                } catch {
+                    if !fm.fileExists(atPath: target.path), fm.fileExists(atPath: aside.path) {
+                        try? fm.moveItem(at: aside, to: target)
+                    }
+                    continue
+                }
+            }
+            do {
+                try fm.moveItem(at: stagedFW, to: target)
+            } catch {
+                try? fm.removeItem(at: target)
+                if let backup { try? fm.moveItem(at: backup, to: target) }
+                continue
+            }
+            if let backup { try? fm.removeItem(at: backup) }
+            try? fm.removeItem(at: staging.url)
+            promotedTitles.insert(manifest.titleID.uppercased())
+        }
+
+        for item in incompleteStagings {
+            let expired = now.timeIntervalSince(item.mtime) >= staleAge
+            let superseded = promotedTitles.contains { item.name.uppercased().contains($0) }
+            if expired || superseded {
+                discardFolder(item.url, in: hotRoot, fm: fm)
+            }
+        }
+    }
+
+    @discardableResult
+    public static func discardFolder(_ folder: URL, in parent: URL? = nil, fm: FileManager = .default) -> Bool {
+        guard fm.fileExists(atPath: folder.path) else { return true }
+        let root = parent ?? folder.deletingLastPathComponent()
+        let aside = root.appendingPathComponent(HotFrameworkReady.discardPrefix + UUID().uuidString, isDirectory: true)
+        do {
+            try fm.moveItem(at: folder, to: aside)
+            try? fm.removeItem(at: aside)
+            return true
+        } catch {
+            try? fm.removeItem(at: folder)
+            return !fm.fileExists(atPath: folder.path)
+        }
+    }
+
+    public static func scan(root: URL, hotRoot: URL? = nil, fileManager fm: FileManager = .default) -> [CatalogueEntry] {
+        var entries = scanSingleRoot(root, fileManager: fm)
+        if let hotRoot {
+            promoteStagedFrameworks(in: hotRoot, fileManager: fm)
+            let hotEntries = scanSingleRoot(hotRoot, fileManager: fm).filter { $0.directory.pathExtension == "framework" }
+            for hot in hotEntries {
+                if let idx = entries.firstIndex(where: { $0.id.caseInsensitiveCompare(hot.id) == .orderedSame }) {
+                    let bundled = entries[idx]
+                    if hot.problem != nil {
+                        if bundled.problem == nil {
+                            discardFolder(hot.directory, in: hotRoot, fm: fm)
+                        } else {
+                            entries[idx] = hot
+                        }
+                        continue
+                    }
+                    if bundled.problem == nil,
+                       let bundledBuilt = bundled.manifest?.builtAt, !bundledBuilt.isEmpty,
+                       let hotBuilt = hot.manifest?.builtAt, !hotBuilt.isEmpty,
+                       bundledBuilt >= hotBuilt {
+                        discardFolder(hot.directory, in: hotRoot, fm: fm)
+                        continue
+                    }
+                    entries[idx] = hot
+                } else {
+                    entries.append(hot)
+                }
+            }
+        }
+        return entries.sorted { ($0.manifest?.name ?? "\u{10FFFF}\($0.id)").localizedCaseInsensitiveCompare($1.manifest?.name ?? "\u{10FFFF}\($1.id)") == .orderedAscending }
+    }
+
+    private static func scanSingleRoot(_ root: URL, fileManager fm: FileManager) -> [CatalogueEntry] {
         let names = ((try? fm.contentsOfDirectory(atPath: root.path)) ?? []).filter { !$0.hasPrefix(".") }.sorted()
         var entries: [CatalogueEntry] = []
         for name in names {
@@ -65,7 +256,7 @@ public enum GameCatalogue {
                 entries.append(read(directory: dir, fileManager: fm))
             }
         }
-        return entries.sorted { ($0.manifest?.name ?? "\u{10FFFF}\($0.id)").localizedCaseInsensitiveCompare($1.manifest?.name ?? "\u{10FFFF}\($1.id)") == .orderedAscending }
+        return entries
     }
 
     public static func read(directory dir: URL, fileManager fm: FileManager = .default) -> CatalogueEntry {
@@ -78,7 +269,9 @@ public enum GameCatalogue {
             }
             let manifest = try GameManifest.parse(data)
             entry.manifest = manifest
-            entry.frameworkURL = dir.appendingPathComponent(manifest.framework, isDirectory: true)
+            let fwURL = dir.appendingPathComponent(manifest.framework, isDirectory: true)
+            entry.frameworkURL = fwURL
+            entry.requiresExternalShaders = ExternalShaders.isRequired(in: fwURL, fileManager: fm)
             guard manifest.titleID == id else {
                 throw GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: hostText("The folder is named \(id) but the manifest says \(manifest.titleID)."))
             }
@@ -123,6 +316,7 @@ public enum GameCatalogue {
             entry.manifest = manifest
             entry.id = manifest.titleID
             entry.frameworkURL = fw
+            entry.requiresExternalShaders = ExternalShaders.isRequired(in: fw, fileManager: fm)
             guard manifest.framework == folder else {
                 throw GameProblem(cause: .filesDamaged, reason: hostText("Game files damaged"), detail: hostText("The folder is named \(folder) but the manifest says \(manifest.framework)."))
             }

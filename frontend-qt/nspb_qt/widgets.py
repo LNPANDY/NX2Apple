@@ -52,6 +52,54 @@ class StatusDot(QWidget):
         p.drawEllipse(QRectF(off, off, self._size, self._size))
 
 
+class ElidedLabel(QLabel):
+    """Single-line QLabel that shrinks cleanly and elides in the middle so trailing ETA stays visible."""
+
+    def __init__(
+        self,
+        text: str = '',
+        elide_mode: Qt.TextElideMode = Qt.ElideMiddle,
+        alignment: Qt.AlignmentFlag = Qt.AlignLeft | Qt.AlignVCenter,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(text, parent)
+        self._elide_mode = elide_mode
+        self.setAlignment(alignment)
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+    def minimumSizeHint(self) -> QSize:
+        return QSize(0, super().minimumSizeHint().height())
+
+    def displayed_text(self, width: int | None = None) -> str:
+        raw = self.text()
+        if not raw:
+            return ''
+        avail = max(0, self.contentsRect().width() if width is None else width)
+        return self.fontMetrics().elidedText(raw, self._elide_mode, avail)
+
+    def paintEvent(self, event) -> None:
+        QFrame.paintEvent(self, event)
+        raw = self.text()
+        if not raw:
+            return
+        rect = self.contentsRect()
+        if rect.width() <= 0:
+            return
+        elided = self.displayed_text(rect.width())
+        p = QPainter(self)
+        p.setFont(self.font())
+        self.style().drawItemText(
+            p,
+            rect,
+            int(self.alignment()),
+            self.palette(),
+            self.isEnabled(),
+            elided,
+            self.foregroundRole(),
+        )
+
+
 class LauncherSwitch(QWidget):
     """Pill toggle switch matching SwiftUI's LauncherSwitchStyle (40x24, cream track when on)."""
 

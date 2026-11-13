@@ -16,6 +16,8 @@ import NXCore
     /// The player stopped the running build: the queue waits and starts nothing until `resume`. It survives a restart.
     @Published package private(set) var paused: Bool
 
+    /// True once the player explicitly starts or resumes the queue, until the batch finishes, pauses, or is cancelled.
+    private var active = false
     private let file: URL?
     private let engineID: () -> String
     /// Starts the entry's build. nil: started. A string: why it cannot, which becomes the entry's reason.
@@ -33,12 +35,13 @@ import NXCore
         self.engineChangedReason = engineChangedReason
         let stored = file.map(BuildQueueFile.load) ?? (entries: [QueueEntry](), paused: false)
         var loaded = stored.entries
+        let wasRunning = loaded.contains { $0.status == .running }
         // A build that was running when the app quit goes first again. Its folder keeps the finished stages.
         for index in loaded.indices where loaded[index].status == .running { loaded[index].status = .queued }
         let waiting = loaded.contains { $0.status == .queued }
         entries = loaded
         paused = stored.paused && waiting
-        awaitingResume = !stored.paused && waiting
+        awaitingResume = !stored.paused && wasRunning
     }
 
     package var queued: [QueueEntry] { entries.filter { $0.status == .queued } }
@@ -48,27 +51,42 @@ import NXCore
 
     // MARK: Changing the queue
 
-    /// Adds entries. The results of the earlier batch go: the summary shows the last batch only.
+    /// Adds entries without starting an idle queue: the player reviews the queue and target settings, then starts it explicitly.
+    /// Entries added while a batch is already running join the active batch.
     package func enqueue(_ new: [QueueEntry]) {
         guard !new.isEmpty else { return }
-        entries.removeAll { $0.finished }
+        if running == nil, !paused, !awaitingResume {
+            entries.removeAll { $0.finished }
+        }
+        let currentBatch = running
         // A game that is already waiting is not queued twice.
         let waiting = Set(queued.map(\.titleID) + (running.map { [$0.titleID] } ?? []))
         var seen = waiting
         for var entry in new where !seen.contains(entry.titleID) {
             seen.insert(entry.titleID)
             entry.status = .queued; entry.reason = nil
+            if active, !paused, !awaitingResume, let currentBatch {
+                entry.target = currentBatch.target
+                entry.batch = currentBatch.batch
+                entry.packageAfter = currentBatch.packageAfter
+                entry.exportIPA = currentBatch.exportIPA
+                entry.destinationName = currentBatch.destinationName
+            }
             entries.append(entry)
         }
         persist()
-        processNext()
+        if active { processNext() }
     }
 
     package func remove(_ id: UUID) {
         guard let entry = entries.first(where: { $0.id == id }), entry.status != .running else { return }
         entries.removeAll { $0.id == id }
+        if !hasWaiting {
+            awaitingResume = false
+            paused = false
+            if running == nil { active = false }
+        }
         persist()
-        if !hasWaiting { awaitingResume = false; paused = false }
     }
 
     package func canMoveUp(_ id: UUID) -> Bool { queuedIndex(id).map { $0 > 0 } ?? false }
@@ -92,13 +110,36 @@ import NXCore
         entries.removeAll { $0.status == .queued }
         awaitingResume = false
         paused = false
+        if running == nil { active = false }
         persist()
     }
 
     // MARK: Running
 
-    /// The player confirmed the queue from before the restart.
+    /// Starts the waiting queue, optionally applying the player's current target and shared-app packaging choice to the queued batch.
+    package func start(target: String? = nil, packageAfter: Bool? = nil, exportIPA: Bool? = nil, destinationName: String? = nil) {
+        guard hasWaiting else { return }
+        if target != nil || packageAfter != nil || exportIPA != nil {
+            let existingDoneBatch = entries.last(where: { $0.status == .done })?.batch
+            let batch = existingDoneBatch ?? UUID()
+            for index in entries.indices where entries[index].status == .queued {
+                if let target { entries[index].target = target }
+                if let packageAfter { entries[index].packageAfter = packageAfter }
+                if let exportIPA { entries[index].exportIPA = exportIPA }
+                entries[index].destinationName = destinationName
+                entries[index].batch = batch
+            }
+        }
+        active = true
+        awaitingResume = false
+        paused = false
+        persist()
+        processNext()
+    }
+
+    /// The player confirmed the queue from before the restart, or resumed a paused queue.
     package func resume() {
+        active = true
         awaitingResume = false
         paused = false
         persist()
@@ -112,15 +153,19 @@ import NXCore
         entries[index].status = succeeded ? .done : .failed
         entries[index].reason = succeeded ? nil : reason
         let batch = entries[index].batch
-        if stopped && !succeeded && hasWaiting { paused = true }
+        if stopped && !succeeded && hasWaiting {
+            paused = true
+            active = false
+        }
         persist()
         if !entries.contains(where: { $0.batch == batch && ($0.status == .queued || $0.status == .running) }) { batchEnded(batch) }
         processNext()
+        if running == nil && !hasWaiting { active = false }
     }
 
     /// The next waiting entry starts when nothing runs. An entry that cannot start is skipped with its reason, and the next one tries.
     package func processNext() {
-        guard !awaitingResume, !paused, running == nil, !busy() else { return }
+        guard active, !awaitingResume, !paused, running == nil, !busy() else { return }
         while let index = entries.firstIndex(where: { $0.status == .queued }) {
             let entry = entries[index]
             if entry.engineID != engineID() {
@@ -136,6 +181,7 @@ import NXCore
             }
             return
         }
+        if running == nil && !hasWaiting { active = false }
     }
 
     private func skip(_ index: Int, _ reason: String) {

@@ -3329,6 +3329,70 @@
         }
       }
     },
+    "Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Datenordner dieses Spiels fehlen die Shader-Dateien (msl). Sende oder kopiere die Spieldaten erneut aus NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faltan los archivos de shaders (msl) de este juego en su carpeta de datos. Vuelve a enviar o copiar los datos del juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers de shaders (msl) de ce jeu sont absents de son dossier de données. Renvoyez ou recopiez les données du jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella cartella dati di questo gioco mancano i file shader (msl). Invia o copia di nuovo i dati di gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのデータフォルダにシェーダーファイル（msl）がありません。NX2Apple からゲームデータをもう一度送信またはコピーしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 데이터 폴더에 셰이더 파일(msl)이 없습니다. NX2Apple에서 게임 데이터를 다시 보내거나 복사하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos de shaders (msl) deste jogo estão faltando na pasta de dados. Envie ou copie os dados do jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shaderfilerna (msl) för det här spelet saknas i dess datamapp. Skicka eller kopiera speldatan igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该游戏的数据文件夹中缺少着色器文件（msl）。请从 NX2Apple 重新发送或复制游戏数据。"
+          }
+        }
+      }
+    },
     "Shell": {
       "localizations": {
         "de": {
@@ -4093,6 +4157,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "此 App 中缺少游戏代码。请重新构建并安装。"
+          }
+        }
+      }
+    },
+    "The game's framework executable could not be read. Install the game again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausführbare Datei des Spiel-Frameworks konnte nicht gelesen werden. Installiere das Spiel erneut über NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The game's framework executable could not be read. Install the game again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer el ejecutable del framework del juego. Vuelve a instalar el juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L'exécutable du framework du jeu n'a pas pu être lu. Réinstallez le jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere l'eseguibile del framework del gioco. Installa di nuovo il gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゲームのフレームワーク実行ファイルを読み取れませんでした。NX2Apple からもう一度インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "게임 프레임워크 실행 파일을 읽을 수 없습니다. NX2Apple에서 게임을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler o executável do framework do jogo. Instale o jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets ramverksfil kunde inte läsas. Installera spelet igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取此游戏的框架可执行文件。请在 NX2Apple 中重新安装该游戏。"
           }
         }
       }
@@ -4989,6 +5117,134 @@
           "stringUnit": {
             "state": "translated",
             "value": "此游戏的文件夹中没有 game.manifest.json。"
+          }
+        }
+      }
+    },
+    "This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Spiel-Framework in Documents/Frameworks ist nicht signiert. Installiere das Spiel erneut über NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's framework in Documents/Frameworks is unsigned. Install the game again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El framework de este juego en Documents/Frameworks no tiene firma. Vuelve a instalar el juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le framework de ce jeu dans Documents/Frameworks n'est pas signé. Réinstallez le jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il framework di questo gioco in Documents/Frameworks non è firmato. Installa di nuovo il gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documents/Frameworks 内のゲームフレームワークが未署名です。NX2Apple からもう一度インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documents/Frameworks에 있는 이 게임의 프레임워크가 서명되지 않았습니다. NX2Apple에서 게임을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O framework deste jogo em Documents/Frameworks não está assinado. Instale o jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets ramverk i Documents/Frameworks saknar signatur. Installera spelet igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Documents/Frameworks 中的游戏框架未签名。请在 NX2Apple 中重新安装该游戏。"
+          }
+        }
+      }
+    },
+    "This game's framework is signed for %@, while this app is signed for team %@. Install the game again from NX2Apple.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Spiel-Framework ist für %@ signiert, diese App jedoch für Team %@. Installiere das Spiel erneut über NX2Apple."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This game's framework is signed for %@, while this app is signed for team %@. Install the game again from NX2Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El framework de este juego está firmado para %@, mientras que esta app está firmada para el equipo %@. Vuelve a instalar el juego desde NX2Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le framework de ce jeu est signé pour %@, tandis que cette app est signée pour l'équipe %@. Réinstallez le jeu depuis NX2Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il framework di questo gioco è firmato per %@, mentre questa app è firmata per il team %@. Installa di nuovo il gioco da NX2Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このゲームのフレームワークは %@ で署名されていますが、このアプリはチーム %@ で署名されています。NX2Apple からもう一度インストールしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 게임의 프레임워크는 %@용으로 서명되었지만 이 앱은 팀 %@용으로 서명되었습니다. NX2Apple에서 게임을 다시 설치하세요."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O framework deste jogo está assinado para %@, enquanto este app está assinado para a equipe %@. Instale o jogo novamente pelo NX2Apple."
+          }
+        },
+        "sv": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spelets ramverk är signerat för %@, medan den här appen är signerad för team %@. Installera spelet igen från NX2Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此游戏框架使用 %@ 签名，而当前应用使用团队 %@ 签名。请在 NX2Apple 中重新安装该游戏。"
           }
         }
       }

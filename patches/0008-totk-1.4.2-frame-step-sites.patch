@@ -1,0 +1,122 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Fred Chu <iamfredchu@gmail.com>
+Date: Sat, 31 Oct 2026 20:59:10 +0800
+Subject: [PATCH] TOTK: frame step and render scale sites for 1.4.2
+
+Tears of the Kingdom 1.4.2 (main 5cb42b1c...) packs from a derived profile,
+so it had no frame step: the game kept its own present interval 2 while the
+host presented at the profile's 60 fps, and the game ran at double speed
+(LNPANDY/NX2Apple#303).
+
+The frame step, the two readers of the integer fps, the D-pad menu fade and
+the swapchain argument come from FPSLocker's config for this build
+(5CB42B1CF25469FB.yaml). The two render scale sites were found by 1.4.3's
+bytes: one match each, 0xc0 apart as on 1.4.3. By disassembly of 1.4.2's
+main, all 9 sites hold the original instructions the stubs assert, and every
+branch back lands on the next original instruction. The only difference is
+the D-pad fade, which reads the menu entry through x25 and writes s9 on
+1.4.2 (x24 and s10 on 1.4.3), so that stub now takes both registers from a
+per-build site table. 1.4.3's output is unchanged: the same 140 events on a
+recording context before and after.
+
+game.tsv gets a `build v655360 1.4.2` row, the game note an "Update 1.4.2"
+section, and docs/agents/game-patches.md is regenerated.
+
+Measured on an M1 Max, macOS 27.0.1, with 1.4.2's main rewritten by this
+change: DM_FPS_TARGET=60 holds 60.0 fps at 1.000 of real time from the
+title on, DM_FPS_TARGET=30 holds 30.0 fps at 1.000; two gameplay runs past
+the title (71 s and 115 s) held 1 vsync for every frame at 1.000 of real
+time. test_patches, test_docs and test_nsp_incremental pass.
+
+Upstream-Status: forwarded seedds/nxnative#793
+Reason: Tears of the Kingdom 1.4.2 ran at double speed without frame step sites
+Issue: LNPANDY/NX2Apple#303
+---
+ dm/games/0100F2C0115B6000/README.md  |  7 +++++++
+ dm/games/0100F2C0115B6000/game.tsv   |  2 ++
+ dm/games/0100F2C0115B6000/patches.py | 21 ++++++++++++++-------
+ 3 files changed, 23 insertions(+), 7 deletions(-)
+
+diff --git a/dm/games/0100F2C0115B6000/README.md b/dm/games/0100F2C0115B6000/README.md
+index 2510ec7f..e1f917f7 100644
+--- a/dm/games/0100F2C0115B6000/README.md
++++ b/dm/games/0100F2C0115B6000/README.md
+@@ -26,6 +26,13 @@ Render conditions, which the host evaluates for every game ([Conditional renderi
+ - **Resolved:** the yield back-off used to start after 200 µs, which caught the main thread waiting for its workers on the frame's critical path: frames ran past 33 ms and the game dropped itself to 20 fps (9 times in 300 s on the Mac; on the iPhone the threads also stayed on efficiency cores). From 2 ms on it never backs off ([development.md, Power](../../../docs/development.md#power)).
+ - The spin-wait rewrite finds 843 loops in `main`; 701 of them are one inlined atomic decrement (a compare-and-swap retried after another thread changed the count), which yields only on a second retry in a row.
+ 
++## Update 1.4.2
++
++- **Current:** 1.4.2 (v655360, main `5cb42b1c…`) has the same frame step and render scale stubs at its own sites (`FRAME_STEP` in `patches.py`). It is packed from a derived profile, as its shaders are not in this profile's tables. Without the stubs it ran at double speed at the default 60 fps: the host presented every vsync while the game still stepped 1/30 s per frame (`the game sets present interval 1 → 2`, 60.0 fps).
++- Sites: the frame step, the two fps readers, the D-pad fade and the swapchain argument from FPSLocker's config for this build (`5CB42B1CF25469FB.yaml`); the render scale sites by 1.4.3's bytes, one match each, `0xc0` apart as on 1.4.3. Every site's original instructions are 1.4.3's, except the D-pad fade, which reads the menu entry through x25 and writes s9 (x24 and s10 on 1.4.3). By disassembly, the registers each stub takes are dead there as on 1.4.3, and every branch back lands on the next original instruction. 1.4.3's stubs are unchanged: the same 140 events on a recording context.
++- Measured on the Mac (M1 Max, a Mac app from 1.4.2 with the rewritten `main`, the boot to the title, 130 s): at 60, `frame step cap 0 → 60 fps`, 60.0 fps once the title had loaded, game time 32.03 s in 32.03 s (1.000 of real time); while loading it held 2 or 3 vsyncs. At 30, 30.0 fps throughout, 60.00 s in 60.00 s. Not checked: gameplay past the title, the D-pad menu fade, render scales below 1.0, the iPhone.
++- The 1.4.2 `sdk` (`5cf080e8…`) is not 1.4.3's; it gets the node area cut of issue #70 ([Memory](#memory)) through the SDK-wide function match (`AddressRegionManager node area 1 GB → 62 MB`, matched at `0x145bfc` and `0x145c68`).
++
+ ## Memory
+ 
+ - **Current (issue #147): confirmed transient upload-memory bug on the Mac; iOS validation pending.** With update 1.4.3, the corrected issue #70 SDK module, shader chain `dec5ee141a9f` and 30 fps, walking from the Great Sky Island save produced 10.70 GiB peak footprint after about 474 s; a shorter repeat reached 12.81 GiB after about 150 s. Live staging peaked at 4.48 / 5.82 GiB and the open batch at 4.41 / 5.75 GiB, then memory fell back near 4 GiB. The shorter burst logged 3,084.2 MB of uploads in one frame. A temporary 50 ms sampler and the kernel footprint-peak ledger caught peaks missed by the periodic reports and the 8 GiB sampled watchdog. With [bounded batches and upload-completion retirement](../../../docs/reference/memory.md#upload-staging-grows-within-one-rendering-submission), the 220 s shortened route with deferred encoding enabled peaked at 4.24 GiB footprint and 216 MiB live staging, without GPU errors. A 520 s replay of the original input timings peaked at 4.23 GiB / 200 MiB, but landed differently and reached Game Over earlier, so it is not an equivalent traversal comparison. These local results do not establish the cause of the reporter's full-device reboot or rule out longer-term cache growth; the requested save/route, full logs and Jetsam/panic reports are still needed for that comparison.
+diff --git a/dm/games/0100F2C0115B6000/game.tsv b/dm/games/0100F2C0115B6000/game.tsv
+index 81c54eb9..742aba2e 100644
+--- a/dm/games/0100F2C0115B6000/game.tsv
++++ b/dm/games/0100F2C0115B6000/game.tsv
+@@ -16,7 +16,9 @@ app_category	public.app-category.adventure-games
+ pad_layout	full
+ 
+ # ---- Versions ----
++# 1.4.2 (v655360) has its own frame step sites in patches.py; it is packed from a profile derived from it (its own shaders: these tables were made from 1.4.3's files)
+ build	v720896	1.4.3	main=277178b7dba1b6d4949a84778d4abc58	subsdk0=f39f4c431234c72eb520cfdd1001bbcf	sdk=574284b40c06cf1821a44857939083be
++build	v655360	1.4.2	main=5cb42b1cf25469fb0635fd046453d843	subsdk0=3308c1d216f788397d1451c8345a16cd	sdk=5cf080e800530a7f25bd528ec875c27b
+ package	v720896
+ shader_versions	v720896
+ 
+diff --git a/dm/games/0100F2C0115B6000/patches.py b/dm/games/0100F2C0115B6000/patches.py
+index 520da739..53cc1fe1 100644
+--- a/dm/games/0100F2C0115B6000/patches.py
++++ b/dm/games/0100F2C0115B6000/patches.py
+@@ -8,9 +8,11 @@ from nso_asm import ADRP, B, NOP, STP_PRE
+ # sites) the same, which the consumers read. Until the host has decided a step (the first frames) the step is the measured frame time (timing frame +0xd8, 19.2 MHz
+ # ticks), clamped to [1 / cap, 1 / 15 s]; game time that ran ahead after a short frame (the "lead", at most 0.25 s; totk-mobile) is paid back by later frames. Prerendered movies hold 30 (the host's movie flag, state +4, hle_movie.c
+ # dm_movie_playing), the D-pad menu fade starts at full rate (FPSLocker's fix at main+0x1fbc80) and the swapchain argument at main+0xbe14a8 becomes 1 as in FPSLocker
+-def stub(ctx, step, read1, read2, fade, swap, view):
++def stub(ctx, step, read1, read2, fade, swap, view, fade_regs=(24, 10)):
+     """The frame step at the frame-step function (step), the two readers of the integer fps (read1, read2), the D-pad menu fade (fade), the swapchain argument (swap) and
+-    the view render size (view): each patched at its own offsets"""
++    the view render size (view): each patched at its own offsets. fade_regs: the menu entry's base register and the fade's destination, x24 and s10 on 1.4.3, x25 and s9 on 1.4.2"""
++    base, dst = fade_regs
++    fmadd = 0x1f080400 | dst   # fmadd s<dst>,s0,s8,s1
+     here, emit, fs_site, fs_put, FS_STATE_OFF = ctx.here, ctx.emit, ctx.site, ctx.put, ctx.state
+     # frame step (replaces ldrb w9,[x0,#0x58], the first instruction after the prologue)
+     fs_site(step + 0x18, '09604139')
+@@ -87,15 +89,15 @@ def stub(ctx, step, read1, read2, fade, swap, view):
+         fs_put(site, [B(site, start)], 'game step reads the float fps (original integer fps and scvtf when off)')
+         fs_put(cvt, [NOP], 'scvtf moved into the stub at the load')
+     # D-pad menu fade (w8 is overwritten right after the site)
+-    fs_site(fade + 0x130, '0820201e0a04081f')
++    fs_site(fade + 0x130, '0820201e' + struct.pack('<I', fmadd).hex())
+     start = here(); emit(ADRP(8, here(), FS_STATE_OFF))
+     for w in (0xb9400108, 0x340001a8,       # ldr w8,[x8]; cbz w8,off (+52)
+               0x1e202028, 0x54000101,       # fcmp s1,#0.0; b.ne go
+-              0x785fa308, 0x7100151f, 0x540000a1,   # ldurh w8,[x24,#-6]; cmp w8,#5; b.ne go
+-              0x785f8308, 0x7100151f, 0x54000041,   # ldurh w8,[x24,#-8]; cmp w8,#5; b.ne go
++              0x785fa008 | base << 5, 0x7100151f, 0x540000a1,   # ldurh w8,[x<base>,#-6]; cmp w8,#5; b.ne go
++              0x785f8008 | base << 5, 0x7100151f, 0x54000041,   # ldurh w8,[x<base>,#-8]; cmp w8,#5; b.ne go
+               0x1e2e1008,                   # fmov s8,#1.0
+-              0x1f08040a, 0x1e202008, 0x14000003,   # go: fmadd s10,s0,s8,s1; fcmp s0,#0.0; b end
+-              0x1e202008, 0x1f08040a):      # off: the original fcmp s0,#0.0; fmadd s10,s0,s8,s1
++              fmadd, 0x1e202008, 0x14000003,   # go: fmadd s<dst>,s0,s8,s1; fcmp s0,#0.0; b end
++              0x1e202008, fmadd):           # off: the original fcmp s0,#0.0; fmadd s<dst>,s0,s8,s1
+         emit(w)
+     emit(B(here(), fade + 0x138))
+     fs_put(fade + 0x130, [B(fade + 0x130, start), NOP], 'D-pad menu fade starts at full rate under fractional steps (FPSLocker)')
+@@ -143,6 +145,11 @@ def matched_frame_step(ctx):
+     if None in parts: return
+     stub(ctx, ctx.base, *parts)
+ 
++# Tears of the Kingdom 1.4.2 (main 5cb42b1c...) is packed from a derived profile and has no match rule of its own, so its functions are named by offset: the frame step, the fps readers, the
++# D-pad fade and the swapchain argument from FPSLocker's config for that build (5CB42B1CF25469FB.yaml), the render scale sites by 1.4.3's bytes (one match each, at the same distance apart);
++# every site's original instructions and the registers the stubs rely on checked by disassembly. Each value is the start of the function, which the stub offsets from (as in MATCH_FRAME_STEP)
++FRAME_STEP = {'5cb42b1cf25469fb0635fd046453d843': lambda ctx: stub(ctx, 0x2d4e50, 0x2d46fc, 0x37ea10, 0x387260, 0xbbf0b4, 0x102470, (25, 9))}   # 1.4.2
++
+ # Placed by the functions they patch, on any build that keeps all six (checked on 1.4.3, 2026-11-09: rewritten byte-identical to the build entry it had until then,
+ # FRAME_STEP of build 277178b7…, at main+0x2db174, +0x2daa20, +0x3e55e0, +0x1fbb50, +0xbe1304 and +0xd5c24)
+ MATCH_FRAME_STEP = {'main': [

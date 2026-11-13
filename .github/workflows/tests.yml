@@ -117,7 +117,7 @@ jobs:
               # ubuntu-latest by launcher-qt's test_localization_*.py and patch-queue's test_l10n_shell_catalogs.py / test_launcher_texts.py),
               # the synced engine (.upstream-ref, patches/, tools/engine.py, dm/, scripts/), and this file. A Windows-only (frontend-qt/) or
               # l10n-only change skips the xcode-27 runner.
-              if echo "$files" | grep -v '^frontend/l10n/' | grep -Eq '^(frontend/|dm/|scripts/|patches/|tools/engine\.py$|\.upstream-ref$|\.github/workflows/tests\.yml$)'; then
+              if echo "$files" | grep -v '^frontend/l10n/' | grep -Eq '^(frontend/|frontend-ios/Shell/|dm/|scripts/|patches/|tools/engine\.py$|\.upstream-ref$|\.github/workflows/tests\.yml$)'; then
                 launcher=true
               else
                 launcher=false
@@ -300,7 +300,7 @@ jobs:
       - name: Install the signing tool's package (tools/release_manifest.py)
         run: python -m pip install -r tools/requirements-release.txt
       - name: Patch, engine and release tool tests
-        run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py tools/tests/test_release_manifest.py tools/tests/test_release_notes.py tools/tests/test_app_version.py tools/tests/test_l10n_shell_catalogs.py tools/tests/test_launcher_texts.py
+        run: python -m unittest -v tools/tests/test_patches.py tools/tests/test_engine.py tools/tests/test_verify_env_switches.py tools/tests/test_release_manifest.py tools/tests/test_release_notes.py tools/tests/test_app_version.py tools/tests/test_l10n_shell_catalogs.py tools/tests/test_launcher_texts.py
       - name: Dry bump to seedds main (report only)
         run: python tools/engine.py bump --dry --to main || true
 
@@ -516,15 +516,18 @@ jobs:
       - name: The game framework links the module sections (route C M1)
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: python3 -m unittest -v dm/ios/tests/test_framework_link.py 2>&1 | tee logs/framework-link.log
-      # Route C M2: build_shell.sh generates and builds the shell (host, frontend-ios package, a synthetic framework embedded and not
-      # linked). make_ext_font.py needs fontTools, which only this step installs
+      # Route C M2: frontend-ios/Shell/build_shell.sh generates and builds the shell (frontend-ios package, SegSnap, a synthetic framework
+      # embedded and not linked). make_ext_font.py needs fontTools, which only this step installs
       - name: The shell app embeds a game framework and builds (route C M2)
+        working-directory: .
         env:
           DM_SHELL_PACKAGE: ${{ github.workspace }}/frontend-ios
+          DM_ENGINE_DIR: ${{ github.workspace }}/engine
         if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
         run: |
+          mkdir -p logs
           python3 -m pip install --user --break-system-packages fonttools > /dev/null
-          python3 -m unittest -v dm/ios/tests/test_shell_build.py 2>&1 | tee logs/shell-build.log
+          python3 -m unittest -v tools/tests/test_shell_build.py tools/tests/test_seg_snap.py 2>&1 | tee logs/shell-build.log
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:

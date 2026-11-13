@@ -6,7 +6,6 @@ Subject: [PATCH] Harden shared motion configuration and stable device identity
 Upstream-Status: forwarded seedds/nxnative#2429
 Reason: Validate saved motion devices and keep identities stable
 Issue: LNPANDY/NX2Apple#1206
-
 ---
  dm/mac/Motion/DSUConfiguration.swift          | 1 +
  dm/mac/Motion/MotionView.swift                | 3 ++-

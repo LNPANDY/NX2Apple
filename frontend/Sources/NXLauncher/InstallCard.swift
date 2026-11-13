@@ -9,6 +9,7 @@ package struct InstallCard: View {
     @ObservedObject var devices: DeviceStore
     @ObservedObject var build: BuildStore
     @EnvironmentObject var loc: Localizer
+    @State private var selectDeviceGamesOpen = false
 
     let showLocked: Bool
 
@@ -67,9 +68,35 @@ package struct InstallCard: View {
                         }
                     }
                 }
+                if !build.builtShellGames().isEmpty {
+                    CardDivider()
+                    CardRow(loc.t("shell.builtTitle"), detail: loc.t("shell.installBuiltNote")) {
+                        Button(loc.t("shell.installBuilt")) { build.installBuiltGames() }
+                            .buttonStyle(LauncherSecondaryButtonStyle())
+                            .disabled(!build.canInstallBuiltGames)
+                            .help(loc.t("shell.installBuiltNote"))
+                    }
+                    if !build.sharedAppDataSources().isEmpty {
+                        CardDivider()
+                        CardRow(loc.t("shell.step3Title"), detail: loc.t("shell.sendAllNote")) {
+                            Button(loc.t("shell.selectGamesButton")) { selectDeviceGamesOpen = true }
+                                .buttonStyle(LauncherSecondaryButtonStyle())
+                                .disabled(!build.canSendAllGameData)
+                                .help(loc.t("shell.selectGamesDeviceNote"))
+                            Button(loc.t("shell.sendAllButton")) { build.sendAllGameData() }
+                                .buttonStyle(LauncherSecondaryButtonStyle())
+                                .disabled(!build.canSendAllGameData)
+                                .help(loc.t("shell.sendAllNote"))
+                        }
+                    }
+                }
             }
         }
         .onAppear { if !devices.checked { _ = devices.refresh() } }
+        .sheet(isPresented: $selectDeviceGamesOpen) {
+            SendSelectedSheet(mode: .device, build: build) { selectDeviceGamesOpen = false }
+                .environmentObject(loc)
+        }
     }
 
     /// The other kind of IPA: the IPA of the last export is not the one this choice makes, so step 1 starts again.

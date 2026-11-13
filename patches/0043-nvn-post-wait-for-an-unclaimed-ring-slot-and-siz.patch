@@ -1,0 +1,142 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 12 Nov 2026 22:37:06 +0800
+Subject: [PATCH] nvn/post: wait for an unclaimed ring slot and size the ring
+
+ALLOC_SHARE lets up to ALLOC_MAX * ALLOC_SHARE (512) submissions stand in flight across the command allocator pool before mtl_sub_begin waits, while POST_RING held only 128 records. In Super Mario Party (010036B0034E4000, ~70-80 submissions per frame), less than two frames of feedback-queue scheduling delay wrapped the 128-entry ring and hit MDIE("post ring: the writes of fence <N> never ran") under g_post_mu while the feedback queue was already waiting on g_post_mu inside post_complete.
+
+Size POST_RING to 1024 (>= ALLOC_MAX * ALLOC_SHARE, matching GRING and SEG_CLK_N) and extract post_put so a ring wrap drops g_post_mu, waits on the older slot's fence (WS_POST), and completes any remaining CPU-side writes before reusing the slot.
+
+Upstream-Status: forwarded seedds/nxnative#2469
+Reason: Wait for an unclaimed post-ring slot outside g_post_mu and size POST_RING to 1024 so games with 70+ submissions per frame do not abort
+Issue: seedds/nxnative#2469
+---
+ dm/gfx/nvn/nvn_mtl.m          | 27 +++++++++++++++++++--------
+ dm/gfx/tests/t_perf_order.m   | 21 +++++++++++++++++++++
+ docs/reference/nvn-objects.md |  7 +++++++
+ 3 files changed, 47 insertions(+), 8 deletions(-)
+
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index b549f1af..49938ad8 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -256,9 +256,9 @@ static int gpu_lost_test(void) {
+ static pthread_mutex_t g_res_mu = PTHREAD_MUTEX_INITIALIZER;   // Dedicated lock for the residency set: res_add is called on paths that hold g_mu (arena_new), so it cannot share g_mu
+ // Wait ledger (DM_NVN_WAITS=1): every place a thread of the host or the game waits on the CPU for the GPU or for the encode thread, counted per frame (calls, calls that blocked,
+ // the time they blocked) and logged every 300 frames with the frame's GPU idle. The game's own SyncWait is split by how far its fence is behind the newest one (0: the last submission)
+-enum { WS_SYNC, WS_SYNC_NEWEST, WS_SYNC_POLL, WS_ACQ, WS_FINISH, WS_ALLOC, WS_VIS, WS_PG, WS_MDI, WS_READTEX, WS_T2T, WS_DIAG, WS_SNAP, WS_UPZERO, WS_UPALLOC, WS_DRAIN, WS_UBC, WS_OLDQ, WS_N };
++enum { WS_SYNC, WS_SYNC_NEWEST, WS_SYNC_POLL, WS_ACQ, WS_FINISH, WS_ALLOC, WS_VIS, WS_PG, WS_MDI, WS_READTEX, WS_T2T, WS_DIAG, WS_SNAP, WS_UPZERO, WS_UPALLOC, WS_DRAIN, WS_UBC, WS_OLDQ, WS_POST, WS_N };
+ static const char *const ws_name[WS_N] = {"SyncWait (game, older fence)", "SyncWait (game, newest fence)", "SyncWait polls", "SyncWait on an acquire sync", "QueueFinish", "allocator", "occlusion ring", "PASSGPU ring",
+-    "indirect-count multi-draw", "texture readback", "texture copy t2t", "diagnostics", "snapshot ring", "upload batches", "upload slot", "encode thread drain", "uniform copy worker", "old-queue command buffer"};
++    "indirect-count multi-draw", "texture readback", "texture copy t2t", "diagnostics", "snapshot ring", "upload batches", "upload slot", "encode thread drain", "uniform copy worker", "old-queue command buffer", "post ring"};
+ static _Atomic uint64_t g_ws_n[WS_N], g_ws_blk[WS_N], g_ws_ns[WS_N];
+ static int ws_on(void) { static int v = -1; if (v < 0) { const char *e = getenv("DM_NVN_WAITS"); v = e && atoi(e) > 0; } return v; }
+ static inline uint64_t ws_t0(void) { return clock_gettime_nsec_np(CLOCK_UPTIME_RAW); }
+@@ -2434,7 +2434,8 @@ int mtl_gpu_span(uint64_t f, uint64_t *t0, uint64_t *t1) {
+ // A submission's CPU-side writes at its end (events, samples-passed and counter reports): run once, by its feedback handler or, when a game's SyncWait wakes on the
+ // GPU's own signal of the fence first, by that waiter (DM_NVN_FAST_WAKE, on by default): the feedback handler comes 0.26 ms after the GPU end on an M2 Max
+ typedef struct { _Atomic uint64_t fence; _Atomic int claimed; int n; post_op *ops; seg_clk *sc; uint32_t seg_last; uint64_t t_commit; } post_rec;   // t_commit: guest ns when it was committed
+-#define POST_RING 128
++#define POST_RING 1024
++_Static_assert(POST_RING >= ALLOC_MAX * ALLOC_SHARE, "POST_RING must cover shared command allocators");
+ static post_rec g_postr[POST_RING];
+ static pthread_mutex_t g_post_mu = PTHREAD_MUTEX_INITIALIZER;
+ // A successful claim holds the lock until post_run finishes. Ownership alone
+@@ -2489,6 +2490,19 @@ static void post_complete(uint64_t fence, uint64_t c0, uint64_t c1) {
+     nvn_queue_gpu_progress();
+ }
+ static _Atomic int g_seg_inflight;   // main command buffers committed and not reported back yet (sub_cut)
++static void post_put(uint64_t fence, int n, post_op *ops, seg_clk *sc, uint32_t seg_last) {
++    post_rec *pr = &g_postr[fence % POST_RING];
++    pthread_mutex_lock(&g_post_mu);
++    while (!atomic_load(&pr->claimed) && atomic_load(&pr->fence)) {
++        uint64_t old = atomic_load(&pr->fence);
++        pthread_mutex_unlock(&g_post_mu);
++        if (!mtl_wait_at(old, UINT64_MAX, WS_POST)) MDIE("post ring: fence %llu did not complete", (unsigned long long)old);
++        if (post_claim(pr, old)) post_run(pr, 0, 0);
++        pthread_mutex_lock(&g_post_mu);
++    }
++    pr->n = n; pr->ops = ops; pr->sc = sc; pr->seg_last = seg_last; pr->t_commit = guest_ns(); atomic_store(&pr->claimed, 0); atomic_store(&pr->fence, fence);
++    pthread_mutex_unlock(&g_post_mu);
++}
+ static void rt_preserve_bound(void);
+ static void queue_program_preserve(void);
+ uint64_t mtl_sub_commit(void) {
+@@ -2509,7 +2523,7 @@ uint64_t mtl_sub_commit(void) {
+     gw_commit(fence); rc_commit(fence);
+     if (g_vis_ring_i >= 0) g_vis_ring[g_vis_ring_i].fence = fence;
+     // CPU-visible effects after completion: copy the op table into the callback
+-    int n = g_npost; post_op *ops = n ? malloc(n * sizeof *ops) : NULL; post_rec *pr = &g_postr[fence % POST_RING];
++    int n = g_npost; post_op *ops = n ? malloc(n * sizeof *ops) : NULL;
+     if (ws_on()) for (int i = 0; i < n; i++) { int k = g_post[i].kind == 2 ? (g_post[i].type == 0 || g_post[i].type == 0x10 ? 3 : 4) : g_post[i].kind == 3 ? (g_post[i].mode == VIS_REPORT ? 2 : 0) : 1; atomic_fetch_add(&g_ws_post[k], 1); }   // 1 event, 2 samples passed, 3 timestamp, 4 other counter
+     if (n) memcpy(ops, g_post, n * sizeof *ops);
+     NSArray<dispatch_block_t> *commit_blocks = [g_commit_blocks copy];
+@@ -2520,10 +2534,7 @@ uint64_t mtl_sub_commit(void) {
+     NSString *cctx = @(cctx_snap());
+     cbs_list *cbs = cbs_take(); cbs_fly_put(fence, cbs);
+     seg_clk *sc = g_sclk; uint32_t seg_last = g_seg; g_sclk = NULL;
+-    pthread_mutex_lock(&g_post_mu);
+-    if (!atomic_load(&pr->claimed) && pr->fence) MDIE("post ring: the writes of fence %llu never ran", (unsigned long long)pr->fence);
+-    pr->n = n; pr->ops = ops; pr->sc = sc; pr->seg_last = seg_last; pr->t_commit = guest_ns(); atomic_store(&pr->claimed, 0); atomic_store(&pr->fence, fence);
+-    pthread_mutex_unlock(&g_post_mu);
++    post_put(fence, n, ops, sc, seg_last);
+     int lost_test = gpu_lost_test();
+     [o addFeedbackHandler:^(id<MTL4CommitFeedback> cb) {
+         gpu_tag_done(gpu_f, cb.GPUStartTime, cb.GPUEndTime);
+diff --git a/dm/gfx/tests/t_perf_order.m b/dm/gfx/tests/t_perf_order.m
+index 536f7653..1a4445e9 100644
+--- a/dm/gfx/tests/t_perf_order.m
++++ b/dm/gfx/tests/t_perf_order.m
+@@ -268,6 +268,9 @@ static void wait_budgets(void) {
+ static void *early_waiter(void *arg) {
+     dispatch_semaphore_signal(waiter_started); post_early((uintptr_t)arg); dispatch_semaphore_signal(waiter_done); return NULL;
+ }
++static void *delayed_feedback(void *arg) {
++    dispatch_semaphore_signal(waiter_started); usleep(20000); post_complete((uintptr_t)arg,0,0); return NULL;
++}
+ static void posts(void) {
+     // Pause the real completion owner between claim and its first event write.
+     uint64_t f=g_fence+1; post_rec *r=&g_postr[f%POST_RING]; volatile uint32_t event=0;
+@@ -300,6 +303,24 @@ static void posts(void) {
+     CHECK("later completion applies earlier events in order",event==15 && g_done==f+2);
+     post_complete(f+1,0,0); post_complete(f+2,0,0);
+     CHECK("callbacks never repeat an event",event==15);
++
++    // An unclaimed slot at a ring wrap waits outside g_post_mu for the older fence to complete.
++    CHECK("post ring covers shared command allocators",POST_RING>=ALLOC_MAX*ALLOC_SHARE);
++    uint64_t old=f+3, next=old+POST_RING;
++    post_op *old_ops=calloc(1,sizeof *old_ops), *next_ops=calloc(1,sizeof *next_ops);
++    old_ops[0]=(post_op){.kind=1,.val=&event,.v=21};
++    next_ops[0]=(post_op){.kind=1,.val=&event,.mode=1,.v=8};
++    g_fence=next;
++    post_put(old,1,old_ops,NULL,0);
++    waiter_started=dispatch_semaphore_create(0);
++    pthread_create(&th,NULL,delayed_feedback,(void *)(uintptr_t)old);
++    dispatch_semaphore_wait(waiter_started,DISPATCH_TIME_FOREVER);
++    post_put(next,1,next_ops,NULL,0);
++    pthread_join(th,NULL);
++    CHECK("wrapped post_put waits for older slot's event",event==21 && g_done==old
++        && g_postr[next%POST_RING].fence==next && !g_postr[next%POST_RING].claimed);
++    post_complete(next,0,0);
++    CHECK("wrapped slot runs after older slot completes",event==29 && g_done==next && g_postr[next%POST_RING].claimed);
+ }
+ int main(int argc, char **argv) { @autoreleasepool {
+     if(argc==2 && !strcmp(argv[1],"--cpu")) {
+diff --git a/docs/reference/nvn-objects.md b/docs/reference/nvn-objects.md
+index c70f16b0..bcc486ad 100644
+--- a/docs/reference/nvn-objects.md
++++ b/docs/reference/nvn-objects.md
+@@ -464,6 +464,13 @@ Games read this count as a position in their own command memory and size their h
+ - **Budget regression:** the `--cpu` path also uses a synthetic event, clock and condition-wait deadline to exercise the actual `mtl_wait_at` function without a Metal device. Run with `DM_NVN_FAST_WAKE=0/1` and `DM_NVN_WAITS=0/1`; no gameplay or FPS improvement is inferred from these timeout cases.
+ - **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md): it reads 5 timestamp reports a frame right after the wait (its interval controller and dynamic resolution), which is why the waiter makes them itself. Wake after the GPU end 0.29 → 0.08 ms on an M2 Max, 0.147 ms on an iPhone 17 Pro Max.
+ 
++### Post-completion ring overrun when a frame has many submissions
++
++- **Symptom:** `[nvn-mtl] FATAL post ring: the writes of fence <N> never ran` (`mtl_sub_commit`), while the feedback queue is already inside `post_complete`.
++- **Cause:** `ALLOC_SHARE` lets up to `ALLOC_MAX * ALLOC_SHARE` (512) submissions stand in flight across the command allocator pool before `mtl_sub_begin` waits, while `POST_RING` held only 128 records. A game that makes 70–80 submissions a frame wraps the 128-entry ring after less than two frames of feedback-queue scheduling delay and aborts under `g_post_mu` instead of waiting for the older fence's writes to land.
++- **Fix:** size `POST_RING` to 1024 (`>= ALLOC_MAX * ALLOC_SHARE`) and make `post_put` drop `g_post_mu` and wait on the older slot's fence (`WS_POST`) when a slot is still unclaimed, completing its CPU-side writes before reusing the slot.
++- **Found on:** Super Mario Party (`010036B0034E4000`, Apple M1 Pro).
++
+ ### `nvnQueueFinish` waits for the GPU, not the display
+ 
+ - **Symptom:** loading screens many times slower on the iPhone than on the Mac (Three Houses' first loading screen 78 s on the iPhone, 5 s on the Mac).

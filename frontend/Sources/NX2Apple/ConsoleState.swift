@@ -248,7 +248,6 @@ struct ConsoleState {
     var controllers: [ConsoleController] = []
     var isPreview = false
     var padMerge = false
-    var joyconSplit = false
     var padLayout = ConsolePadLayout()
     /// The button whose choices the mapping sheet shows, nil for the list of buttons.
     var mappingRow: String?
@@ -496,7 +495,6 @@ struct ConsoleState {
     func disconnect(controllerID: String)
     func requestAssignment(controllerID: String)
     func setPadMerge(_ enabled: Bool)
-    func setJoyconSplit(_ enabled: Bool)
     func dismissToast()
     func requestPlayer(_ player: Int)
     func assignPlayer(controllerID: String, player: Int)
@@ -539,7 +537,6 @@ struct ConsoleState {
 }
 
 extension ConsoleDriver {
-    func setJoyconSplit(_ enabled: Bool) {}
     func setPadMode(_ mode: PadMode) {}
     func setPadSends(button: String, to output: String) {}
     func resetPadMapping() {}

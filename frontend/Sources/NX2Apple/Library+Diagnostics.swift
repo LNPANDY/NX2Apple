@@ -251,4 +251,32 @@ extension GameLibrary {
         guard !activeRoots.isEmpty else { return [] }
         return items.filter { activeRoots.contains(LibraryRoots.normalized($0.rootPath)) }
     }
+
+    /// True when the skipped-files banner is visible in this app session (restarts start fresh, and new skipped paths re-arm it).
+    var showsSkippedBanner: Bool {
+        !skippedItems.isEmpty && !Set(skippedItems.map(\.path)).isSubset(of: dismissedSkippedPaths)
+    }
+
+    func dismissSkippedBanner() {
+        guard !skippedItems.isEmpty else { return }
+        dismissedSkippedPaths = Set(skippedItems.map(\.path))
+    }
+
+    func resetSkippedBannerDismissal() {
+        if !dismissedSkippedPaths.isEmpty { dismissedSkippedPaths.removeAll() }
+    }
+
+    func rescan(repo: String = RepoLayout.find()) {
+        resetSkippedBannerDismissal()
+        discover(repo: repo)
+    }
+
+    func applySkippedItems(_ next: [SkippedLibraryItem]) {
+        skippedItems = next
+        if next.isEmpty {
+            if !dismissedSkippedPaths.isEmpty { dismissedSkippedPaths.removeAll() }
+        } else if !dismissedSkippedPaths.isEmpty, !Set(next.map(\.path)).isSubset(of: dismissedSkippedPaths) {
+            dismissedSkippedPaths.removeAll()
+        }
+    }
 }

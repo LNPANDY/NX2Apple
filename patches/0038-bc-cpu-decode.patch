@@ -1,0 +1,2489 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 12 Nov 2026 20:01:58 +0800
+Subject: [PATCH] gfx: decode BC1-BC7 textures on CPU for GPUs without hardware
+ BC support
+
+Upstream-Status: fork-only (declined seedds/nxnative#488)
+Reason: Support A15/A16 and older iOS GPUs without hardware BC texture compression including BC6H to RGB9E5
+Issue: LNPANDY/NX2Apple#180
+---
+ dm/games/010015100B514000/README.md      |    5 +
+ dm/games/0100F2C0115B6000/game.tsv       |    3 +
+ dm/games/game.py                         |    3 +
+ dm/games/settings.tsv                    |    1 +
+ dm/gfx/nvn/nvn_mtl.m                     |   80 +-
+ dm/gfx/tests/Makefile                    |    4 +
+ dm/gfx/tests/t_bc_cpu.m                  |   90 ++
+ dm/gfx/tex/README.md                     |    2 +-
+ dm/gfx/tex/nvn_bcdec.c                   |   88 ++
+ dm/gfx/tex/nvn_bcdec.h                   |   21 +
+ dm/gfx/tex/tests/.gitignore              |    1 +
+ dm/gfx/tex/tests/Makefile                |   16 +-
+ dm/gfx/tex/tests/t_bcdec.c               |  202 +++
+ dm/ios/Sources/main.m                    |    3 +-
+ dm/third_party/bcdec/LICENSE             |   52 +
+ dm/third_party/bcdec/README.md           |    2 +
+ dm/third_party/bcdec/bcdec.h             | 1512 ++++++++++++++++++++++
+ dm/tools/docs_patches.py                 |    2 +
+ dm/tools/tests/test_launcher_settings.py |    8 +
+ docs/reference/rendering.md              |    9 +
+ docs/settings.md                         |    9 +-
+ 21 files changed, 2090 insertions(+), 23 deletions(-)
+ create mode 100644 dm/gfx/tests/t_bc_cpu.m
+ create mode 100644 dm/gfx/tex/nvn_bcdec.c
+ create mode 100644 dm/gfx/tex/nvn_bcdec.h
+ create mode 100644 dm/gfx/tex/tests/t_bcdec.c
+ create mode 100644 dm/third_party/bcdec/LICENSE
+ create mode 100644 dm/third_party/bcdec/README.md
+ create mode 100644 dm/third_party/bcdec/bcdec.h
+
+diff --git a/dm/games/010015100B514000/README.md b/dm/games/010015100B514000/README.md
+index f9402d8f..3655f49c 100644
+--- a/dm/games/010015100B514000/README.md
++++ b/dm/games/010015100B514000/README.md
+@@ -101,6 +101,7 @@ Game-specific findings; the general host changes they led to are listed under [F
+ ## Found on this game
+ 
+ - **Joy-Cons as dual or single npads:** [Joy-Cons as dual or single npads](../../../docs/reference/services.md#joy-cons-as-dual-or-single-npads): choosing two players splits a Joy-Con 2 pair through the controller applet, one sideways Joy-Con each.
++- [CPU-decoded BC uploads and format views](../../../docs/reference/rendering.md#cpu-decoded-bc-uploads-and-format-views): A15 corruption and invalid format views with the compatibility option enabled.
+ - [Offline pipeline archive missing for the device GPU](../../../docs/reference/shaders.md#offline-pipeline-archive-missing-for-the-device-gpu): archive targets can follow profile metadata while iOS Metal 4 remains opt-in; [the probe above](#offline-pipeline-archive-probe) records the build evidence and open device checks.
+ General host changes first needed here; each applies to every game:
+ 
+@@ -124,3 +125,7 @@ General host changes first needed here; each applies to every game:
+ - dm/games/README.md says the heap check turns "Wonder's 1.44 GB" request into a 0xc0000000 alias region; 03 says it asks for 1.47 GB, and the profile's alias region is 0xB8000000.
+ - Several addresses in 02 and 03 (`main+0x1070910`, `main+0x107dbc0`, `main+0x4da5c`, `main+0xb8dec`, `main+0xcfd24`, `main+0x36ceff0`) do not name their build; the present-interval ones are from 1.2.1.
+ - 2 agl post-effect compute shaders do not translate.
++
++## A15 CPU BC compatibility investigation
++
++With the fork's CPU BC option enabled, an iPhone 13 Pro Max on iOS 27.0.1 showed striped rectangles in version 1.0.0 character selection, followed by an invalid decoded-texture view abort. The equivalent upload and view fix restored that screen in a historical local build. See [CPU-decoded BC uploads and format views](../../../docs/reference/rendering.md#cpu-decoded-bc-uploads-and-format-views) for the mechanism, regression coverage and limits. Current-pin verification is through synthetic GPU tests, not a new full-game phone run.
+diff --git a/dm/games/0100F2C0115B6000/game.tsv b/dm/games/0100F2C0115B6000/game.tsv
+index 742aba2e..7a9cbddc 100644
+--- a/dm/games/0100F2C0115B6000/game.tsv
++++ b/dm/games/0100F2C0115B6000/game.tsv
+@@ -41,6 +41,9 @@ app_pool	0xCD500000
+ # ---- Graphics ----
+ # Streamed textures are written by the CPU straight into pool memory (already in GPU layout) and published with nvnMemoryPoolFlushMappedRange (hle_nvn.c ft_add)
+ tex_flush_upload	on
++# BC textures on GPUs without BC support (A15/A16 and older): decode them on the CPU into
++# RGBA8 (nvn_bcdec.c). No effect on Macs and A19+ devices, which keep the GPU path.
++tex_bc_cpu	on
+ tex_dirty_upload	on
+ # 60 fps (30 on the Switch): the host decides each frame's step in whole vsyncs and holds the frame that long (rewriter stubs at FPSLocker's sites, patches.py FRAME_STEP);
+ # 30 when 60 does not hold, game time = real time. DM_FPS_TARGET=30 (Documents/env.txt on the iPhone) saves power, 0 = the game's own step. Until the host has decided a step
+diff --git a/dm/games/game.py b/dm/games/game.py
+index 51859031..eb917430 100644
+--- a/dm/games/game.py
++++ b/dm/games/game.py
+@@ -198,6 +198,8 @@ def header_one(g):
+     if tfu not in ('on', 'off'): sys.exit(f'{g.id}: tex_flush_upload must be on or off: {tfu}')
+     tdu = g.get('tex_dirty_upload', 'off')   # with tex_flush_upload: a registered texture the CPU writes after init without any flush is uploaded too (dirty pages, hle_nvn.c nvn_ft_written): on / off
+     if tdu not in ('on', 'off') or (tdu == 'on' and tfu != 'on'): sys.exit(f'{g.id}: tex_dirty_upload must be on or off, and needs tex_flush_upload on: {tdu}')
++    tbc = g.get('tex_bc_cpu', 'off')   # decode BC-compressed textures on the CPU when the GPU has no BC support (A15/A16 and older; nvn_mtl.m uses nvn_bcdec.c): on / off
++    if tbc not in ('on', 'off'): sys.exit(f'{g.id}: tex_bc_cpu must be on or off: {tbc}')
+     tds = g.get('tex_dyn_slots', 'off')   # shaders whose texture handle the translator could not trace to one slot: slot indices in c2, the bound slots in the fallback arrays (nvn_mtl.m): on / off
+     if tds not in ('on', 'off'): sys.exit(f'{g.id}: tex_dyn_slots must be on or off: {tds}')
+     vcr = g.get('vconv_range', 'off')   # vertex attributes converted on the CPU only over the vertices each draw reads (nvn_mtl.m vc_draw_range): on / off
+@@ -259,6 +261,7 @@ def header_one(g):
+          f'#define DM_GAME_TEX_FLUSH_UPLOAD {int(tfu == "on")}',
+          f'#define DM_GAME_SHADER_KEY_SKIP_OFF {sko:#x}', f'#define DM_GAME_SHADER_KEY_SKIP_LEN {skl:#x}',
+          f'#define DM_GAME_TEX_DIRTY_UPLOAD {int(tdu == "on")}',
++         f'#define DM_GAME_TEX_BC_CPU {int(tbc == "on")}',
+          f'#define DM_GAME_TEX_DYN_SLOTS {int(tds == "on")}',
+          f'#define DM_GAME_DRAW_BARRIERS_GAME {int(dbr == "game")}',
+          f'#define DM_GAME_UPSCALER_KEYS {q(",".join(ups))}', f'#define DM_GAME_UPSCALER_N {len(ups)}',
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index bed9160b..141b0d86 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -37,5 +37,6 @@ DM_PSO_MTL4	toggle	-	DM_GAME_PSO_MTL4|1	gfxapi:nvn	Performance	Metal 4 pipelines
+ DM_PSO_PREBUILD	toggle	-	1	gfxapi:nvn	Performance	Pipeline prebuild	The first start waits a few minutes for it, once.	needs=DM_PSO_MTL4=1
+ DM_NVN_ENC_THREAD	toggle	-	1|DM_GAME_ENC_THREAD	gfxapi:nvn	Performance	Encode thread
+ DM_NVN_PREFETCH	toggle	-	DM_GAME_NVN_PREFETCH|1	gfxapi:nvn	Performance	Shader prefetch	Loads each program's shader libraries in the background, whether a draw uses them or not.
++DM_BC6H_RGB9E5	toggle	-	0	DM_GAME_TEX_BC_CPU==1&platform:ios&gfxapi:nvn	Performance	Downsample HDR textures	Saves memory on devices without hardware BC textures, with slightly less precise HDR textures.
+ DM_FPS_HOLD	toggle	on/off	DM_GAME_FPS_HOLD	DM_GAME_FPS_TARGET!=0	Performance	Hold frames when late
+ DM_METAL_HUD	toggle	-	0	always	Performance	Performance HUD
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index e3c0d05a..54e41018 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -23,6 +23,7 @@
+ #include <mach/mach.h>
+ #include "nvn_obj.h"
+ #include "../tex/nvn_fmt_mtl.h"
++#include "../tex/nvn_bcdec.h"   // BC on the CPU for GPUs without BC support (profile tex_bc_cpu)
+ #include "../tex/nvn_deswizzle.h"
+ #include "../tex/nvn_deswizzle_gpu.h"
+ #include "nvn_builtin.h"
+@@ -95,6 +96,8 @@ static inline uint64_t tex_slot_h(const uint64_t *tex, const uint64_t *img, unsi
+ // The shaders the host writes itself (built-in kernels, clears, copies, index conversions, geometry packing, the present: dm/gfx/msl), compiled when the host is built and loaded by
+ // name (host_msl_lib), so none is compiled at run time. The diagnostic overrides (DM_NVN_HILITE, DM_NVN_MAGSCAN, DM_NVN_TEXDUMP) still compile theirs from source
+ static id<MTLLibrary> host_lib(const char *name, NSError **e) { return host_msl_lib(g_dev, nil, name, e); }
++static int g_bc_gpu = 1;   // the device advertises BC texture compression (set where the device is made)
++static int g_bc_cpu;       // decode BC on the CPU: no GPU support and the profile allows it
+ static NSMutableArray *g_l3_gpu_leaks;
+ static int g_nvn_deswz_gpu;
+ static id<MTLCommandQueue> g_q;
+@@ -687,6 +690,11 @@ void mtl_init(void) {
+     g_dev = MTLCreateSystemDefaultDevice();
+     if (!g_dev) MDIE("no Metal device");
+     if (!g_dev.hasUnifiedMemory) MDIE("needs a unified-memory device (zero-copy memory pools)");
++    g_bc_gpu = [g_dev supportsBCTextureCompression];
++    g_bc_cpu = !g_bc_gpu && dm_prof()->tex_bc_cpu;
++    if (g_bc_cpu) MLOG("BC textures: this GPU has no BC support, decoding them on the CPU (profile tex_bc_cpu)");
++    // DM_BC6H_RGB9E5=1: BC6H (HDR) textures decode into RGB9E5Float, 4 bytes per pixel instead of RGBA16Float's 8. Off unless asked: it costs a little precision and negative values.
++    { const char *e = getenv("DM_BC6H_RGB9E5"); nvn_bc_set_bc6h_rgb9e5(g_bc_cpu && e && !strcmp(e, "1")); if (nvn_bc_bc6h_rgb9e5()) MLOG("BC6H textures decode to RGB9E5 (DM_BC6H_RGB9E5=1): half the memory of RGBA16F"); }
+     g_q = [g_dev newCommandQueue];
+     // A device without Metal 4 (the paravirtualized GPU of a virtual Mac, such as GitHub's macos-26 runner: no residency set, no MTL4CommandQueue) cannot run the NVN layer. The GL and
+     // Vulkan layers draw on classic queues of their own and need only the device (mtl_device_classic): there the classic part starts and presents are dropped, which is all a
+@@ -717,8 +725,9 @@ void mtl_init(void) {
+         return;
+     }
+     // BC textures are created and uploaded as BC, with no decompression path (dm/gfx/tex/README.md); without BC the first one aborts in Metal's descriptor validation mid-game
+-    // (GitHub issue #704: an iPhone 15, A16). The iOS front end refuses such a device before the launcher (main.m); this stops every other route at the device, with the reason
+-    if (!g_dev.supportsBCTextureCompression) MDIE("the Metal device %s has no BC texture formats, which the games' textures use and the host does not decompress: an iPhone needs an A17 Pro or later, an iPad an M1 or later", g_dev.name.UTF8String);
++    // (GitHub issue #704: an iPhone 15, A16). The iOS front end refuses such a device before the launcher (main.m); this stops every other route at the device, with the reason.
++    // A profile with tex_bc_cpu decodes them on the CPU instead (g_bc_cpu, nvn_bcdec.c), so such a device goes on
++    if (!g_dev.supportsBCTextureCompression && !g_bc_cpu) MDIE("the Metal device %s has no BC texture formats, which the games' textures use and the host does not decompress: an iPhone needs an A17 Pro or later, an iPad an M1 or later", g_dev.name.UTF8String);
+     [g_q addResidencySet:g_res];
+     [g_q4 addResidencySet:g_res];
+     { void crash_set_wait_dump(void (*fn)(void)); void mtl_wait_state_dump(void); crash_set_wait_dump(mtl_wait_state_dump); }
+@@ -2815,9 +2824,22 @@ static int tex_atomic_alias(id<MTLTexture> base) {
+         || pf == MTLPixelFormatRG16Unorm || pf == MTLPixelFormatRG16Snorm || pf == MTLPixelFormatRG16Uint || pf == MTLPixelFormatRG16Sint || pf == MTLPixelFormatRG16Float || pf == MTLPixelFormatR32Float;
+     return bytes32 && (base.textureType == MTLTextureType2D || base.textureType == MTLTextureType2DArray) && base.sampleCount == 1 && base.storageMode == MTLStorageModePrivate && !base.buffer && !base.isSparse;
+ }
++// A view of CPU-decoded BC storage must name the decoded Metal format too.
++// Keep the NVN format's channel mapping, including RGB BC1's opaque alpha.
++static int tex_view_to_mtl(uint32_t format, uint32_t *pf, uint8_t swz[4]) {
++    int mapped = nvn_fmt_to_mtl(format, pf, swz);
++    uint32_t unpacked; int bpp;
++    if (g_bc_cpu && pf && nvn_bc_unpacked(format, &unpacked, &bpp)) *pf = unpacked;
++    return mapped;
++}
+ static MTLTextureDescriptor *tex_desc(const tex_t *t, int packaged) {
+     uint32_t pf = 0; uint8_t swz[4];
+-    if (!nvn_fmt_to_mtl(t->d.format, &pf, swz) || !pf) { RED_ONCE(0, "texture format %#x has no Metal equivalent (first case)", t->d.format); return nil; }
++    // A BC format on a GPU without BC support: create the texture in the uncompressed format the
++    // decoder produces, and let the upload path fill it through nvn_bc_decode (below). Without
++    // this the Metal format is a BC one the device cannot allocate, and every such texture is nil.
++    uint32_t bc_unpacked = 0; int bc_bpp = 0;
++    if (g_bc_cpu && nvn_bc_unpacked(t->d.format, &bc_unpacked, &bc_bpp)) pf = bc_unpacked;
++    if (!pf && (!nvn_fmt_to_mtl(t->d.format, &pf, swz) || !pf)) { RED_ONCE(0, "texture format %#x has no Metal equivalent (first case)", t->d.format); return nil; }
+     // Metal's limits: 16384 in 2D, 2048 in 3D, 2048 array layers; beyond them Metal aborts the process on an assertion, so they are caught here with a red line
+     if (t->d.width > 16384 || t->d.height > 16384 || t->d.depth > 2048) { RED_ONCE(71, "texture size exceeds Metal limits: %u×%u×%u levels %u format %#x target %d (first case ser=%llu)", t->d.width, t->d.height, t->d.depth, t->d.levels, t->d.format, t->d.target, (unsigned long long)t->serial); return nil; }
+     MTLTextureDescriptor *d = [MTLTextureDescriptor new];
+@@ -3283,8 +3305,10 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
+     if (!d) return nil;
+     d.usage |= keep & (MTLTextureUsageRenderTarget | MTLTextureUsagePixelFormatView);
+     int rb_shift = rb_packed_shift(t->d.format);   // the RGB565 family is repacked into Metal's order on the CPU (rb_packed_shift)
++    uint32_t bc_pf = 0; int bc_bpp = 0;
++    int bc_cpu = g_bc_cpu && nvn_bc_unpacked(t->d.format, &bc_pf, &bc_bpp);
+     int linear = (t->d.flags & (NVN_TEXTURE_FLAGS_LINEAR | NVN_TEXTURE_FLAGS_LINEAR_RENDER_TARGET)) != 0;   // linear storage no view could take (linear_fit): its rows are copied on the CPU
+-    int direct = !linear && !rb_shift && stamp && direct_upload_on() && g_nvn_deswz_gpu && !(t->pool && nvn_sparse_pool(t->pool)) && nvn_deswz_gpu_direct_supported(&t->d);
++    int direct = !bc_cpu && !linear && !rb_shift && stamp && direct_upload_on() && g_nvn_deswz_gpu && !(t->pool && nvn_sparse_pool(t->pool)) && nvn_deswz_gpu_direct_supported(&t->d);
+     if (direct) d.usage |= MTLTextureUsageShaderWrite | MTLTextureUsagePixelFormatView;
+     id<MTLTexture> mt = reuse && reuse.pixelFormat == d.pixelFormat && reuse.width == d.width && reuse.height == d.height && reuse.mipmapLevelCount == d.mipmapLevelCount && reuse.textureType == d.textureType
+                         && (reuse.usage & d.usage) == d.usage
+@@ -3318,11 +3342,11 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
+     void *mb; uint64_t mo;
+     // A texture in a large pool (BIG_MIN) or one that holds only textures is read through a buffer of its own, held by the upload batch: a one-time read must not leave that memory wired for good
+     id<MTLBuffer> upsrc = nil; unsigned src_batch = 0;   // the upload batch that holds upsrc (g_up_seq)
+-    if (!linear && !rb_shift && !sparse && g_nvn_deswz_gpu) { up_begin(); src_batch = g_up_seq; upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo); if (upsrc) mb = (__bridge void *)upsrc; }
++    if (!bc_cpu && !linear && !rb_shift && !sparse && g_nvn_deswz_gpu) { up_begin(); src_batch = g_up_seq; upsrc = up_big_src((uint64_t)t->mem, t->L.size, &mo); if (upsrc) mb = (__bridge void *)upsrc; }
+     t_tex_upload_lookup = 1;
+-    int use_gpu = !linear && !rb_shift && !sparse && g_nvn_deswz_gpu && (upsrc || mtl_addr((uint64_t)t->mem, t->L.size, &mb, &mo));   // a sparse pool's texture is gathered through its page table on the CPU
++    int use_gpu = !bc_cpu && !linear && !rb_shift && !sparse && g_nvn_deswz_gpu && (upsrc || mtl_addr((uint64_t)t->mem, t->L.size, &mb, &mo));   // a sparse pool's texture is gathered through its page table on the CPU
+     t_tex_upload_lookup = 0;
+-    if (g_nvn_deswz_gpu && !use_gpu && !sparse && !rb_shift && !linear) RED_ONCE(40, "swizzled texture storage is not in a memory pool; falling back to the CPU");
++    if (g_nvn_deswz_gpu && !use_gpu && !bc_cpu && !sparse && !rb_shift && !linear) RED_ONCE(40, "swizzled texture storage is not in a memory pool; falling back to the CPU");
+     if (use_gpu) {
+         // The GPU reads the memory pool at execution time, which is closer to a real Switch than a snapshot at CPU upload time; the dirty-page stamp is still taken before encoding, and later writes still trigger a re-upload.
+         up_begin();
+@@ -3376,16 +3400,43 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
+         if (!(part = malloc(t->L.size ? t->L.size : 1))) MDIE("sparse texture copy of %llu bytes failed", (unsigned long long)t->L.size);
+         nvn_sparse_copy(t->pool, part, (uint64_t)(uintptr_t)t->mem, t->L.size); src = part;
+     }
++    // A BC texture on a GPU without BC support: tex_desc made the Metal texture RGBA8 (or R8/RG8,
++    // RGBA16F for BC6H), so the staging slot is per-pixel, not per-block, and the deswizzled block
++    // data is expanded through nvn_bc_decode before the blit. bc_cpu stays 0 on GPUs with native BC support,
++    // where the compressed path below is used unchanged.
++    size_t total_bc = 0;
++    if (bc_cpu) {
++        total_bc = 0;
++        for (unsigned l = 0; l < d.mipmapLevelCount; l++) {
++            uint32_t w = MAX(t->d.width >> l, 1u), h = MAX(t->d.height >> l, 1u), z = t->d.target == 2 ? MAX(t->d.depth >> l, 1u) : 1;
++            unsigned n = layers; if (need) { n = 0; for (unsigned y = 0; y < layers; y++) n += need[l * layers + y]; }
++            total_bc += (size_t)w * h * z * n * (size_t)bc_bpp;
++        }
++    }
+     up_begin();
+-    id<MTLBuffer> stg = [g_dev newBufferWithLength:total ? total : 16 options:MTLResourceStorageModeShared];
++    id<MTLBuffer> stg = [g_dev newBufferWithLength:(bc_cpu ? total_bc : total) ? (bc_cpu ? total_bc : total) : 16 options:MTLResourceStorageModeShared];
+     res_add(stg); [g_up_keep addObject:stg];
+     size_t off = 0;
+     int zb = zblock_on() && t->d.format >= 0x79 && t->d.format <= 0x94; if (zb) { g_zb_ser = t->serial; g_zb_n = (int)MIN(d.mipmapLevelCount, 16u); memset(g_zb, 0, sizeof g_zb); memset(g_zb_tot, 0, sizeof g_zb_tot); }
++    // CPU-side scratch for the compressed block data when bc_cpu (one level-slice at a time)
++    uint8_t *bc_tmp = NULL; size_t bc_tmp_sz = 0;
+     for (unsigned l = 0; l < d.mipmapLevelCount; l++) {
+         uint32_t w = MAX(t->d.width >> l, 1u), h = MAX(t->d.height >> l, 1u), z = t->d.target == 2 ? MAX(t->d.depth >> l, 1u) : 1;
+         size_t pitch = (size_t)((w + bw - 1) / bw) * bpb, rows = (h + bh - 1) / bh;
+         for (unsigned y = 0; y < layers; y++) {
+             if (need && !need[l * layers + y]) { up_copy_add(prev, MTLSizeMake(w, h, z), mt, y, l); continue; }
++            if (bc_cpu) {
++                size_t bc_need = pitch * rows * z;
++                if (bc_need > bc_tmp_sz) { free(bc_tmp); bc_tmp = malloc(bc_need); bc_tmp_sz = bc_need; if (!bc_tmp) MDIE("BC decode scratch of %zu bytes failed", bc_need); }
++                if (nvn_deswizzle(&t->d, l, y, src, bc_tmp, pitch)) { RED_ONCE(9, "deswizzle failed format %#x target %d", t->d.format, t->d.target); break; }
++                size_t dst_pitch = (size_t)w * bc_bpp;
++                for (uint32_t zz = 0; zz < z; zz++)
++                    nvn_bc_decode(t->d.format, bc_tmp + (size_t)zz * pitch * rows, pitch, w, h,
++                                  (uint8_t *)stg.contents + off + (size_t)zz * dst_pitch * h, dst_pitch);
++                up_blit_add(stg, off, dst_pitch, dst_pitch * h, MTLSizeMake(w, h, z), mt, y, l);
++                off += dst_pitch * h * z;
++                continue;
++            }
+             if (linear) {   // one 2D level (linear_fit): rows of the storage's stride, the same pitch GetStorageSize counts
+                 size_t srow = tex_linear_row(t);
+                 if (l || y || z != 1 || srow < pitch || srow * rows > t->L.size) { RED_ONCE(153, "linear texture upload: %ux%u format %#x target %d levels %u is not one 2D level of rows (stride %zu)", t->d.width, t->d.height, t->d.format, t->d.target, t->d.levels, srow); break; }
+@@ -3399,6 +3450,7 @@ static void rb_swap_rows(uint8_t *p, size_t wb, size_t rows, size_t nz, size_t r
+             off += pitch * rows * z;
+         }
+     }
++    free(bc_tmp);
+     free(part); free(need);
+     up_flush();
+     return mt;
+@@ -5281,7 +5333,7 @@ static int bc_block_bytes(MTLPixelFormat f) {   // bytes per 4x4 block of a BC f
+ // The shadow's format: the view's, when the base is BC (or a depth format, above) and the view is an uncompressed colour format with one block's bytes per pixel
+ static int bcrt_view(id<MTLTexture> base, const view_t *v, int has_v, MTLPixelFormat *pf_out) {
+     uint32_t pf = 0; uint8_t swz[4]; int bw = 0, bh = 0, side = 0, bb = base ? shrt_block(base.pixelFormat, &side) : 0;
+-    if (!bb || !has_v || !v->set_format || !nvn_fmt_to_mtl(v->format, &pf, swz) || !pf || mtl_fmt_block((MTLPixelFormat)pf) || mtl_fmt_depth((MTLPixelFormat)pf)) return 0;
++    if (!bb || !has_v || !v->set_format || !tex_view_to_mtl(v->format, &pf, swz) || !pf || mtl_fmt_block((MTLPixelFormat)pf) || mtl_fmt_depth((MTLPixelFormat)pf)) return 0;
+     if (nvn_fmt_bpb(v->format, &bw, &bh) != bb || bw != 1 || bh != 1) return 0;
+     *pf_out = (MTLPixelFormat)pf; return 1;
+ }
+@@ -5335,7 +5387,7 @@ static MTLPixelFormat rt_view_fmt(id<MTLTexture> base, const view_t *v, int has_
+     }
+     if (!base || !has_v || !v->set_format) return base.pixelFormat;
+     uint32_t pf = 0; uint8_t swz[4];
+-    if (!nvn_fmt_to_mtl(v->format, &pf, swz) || !pf || pf == (uint32_t)base.pixelFormat) return base.pixelFormat;
++    if (!tex_view_to_mtl(v->format, &pf, swz) || !pf || pf == (uint32_t)base.pixelFormat) return base.pixelFormat;
+     if (tex_need_pfv(base.pixelFormat, (MTLPixelFormat)pf) && !(base.usage & MTLTextureUsagePixelFormatView)) return base.pixelFormat;
+     return (MTLPixelFormat)pf;
+ }
+@@ -5429,7 +5481,7 @@ static void attach(MTLRenderPassAttachmentDescriptor *a, const tex_t *t, const v
+             if (vw) { a.texture = vw; defer_obj_unref(vw); }
+             else { RED_ONCE(67, "cannot create the render target view: format %#x (base texture Metal format %lu)", v->format, (unsigned long)base.pixelFormat); rtv_note_bad_pair(base.pixelFormat, pf); }
+         } else { uint32_t want = 0; uint8_t swz[4];
+-            if (nvn_fmt_to_mtl(v->format, &want, swz) && want && want != (uint32_t)base.pixelFormat)
++            if (tex_view_to_mtl(v->format, &want, swz) && want && want != (uint32_t)base.pixelFormat)
+                 RED_ONCE(68, "render target view format %#x cannot be attached (base texture Metal format %lu was created without the format-view usage): drawing in the base format", v->format, (unsigned long)base.pixelFormat); }
+     }
+ }
+@@ -6697,7 +6749,7 @@ static void treg_pkg_stamp(treg_t *rp, id<MTLTexture> base) {
+ static int treg_swizzle(const treg_t *r, MTLPixelFormat base_pf, int in_place, uint8_t sw[4], uint32_t *view_pf) {
+     uint8_t fsw[4]; int need_sw = 0; *view_pf = 0;
+     sw[0] = MTLTextureSwizzleRed; sw[1] = MTLTextureSwizzleGreen; sw[2] = MTLTextureSwizzleBlue; sw[3] = MTLTextureSwizzleAlpha;
+-    if (!(r->has_v && r->v.set_format && nvn_fmt_to_mtl(r->v.format, view_pf, fsw) && *view_pf)) nvn_fmt_to_mtl(r->t.d.format, NULL, fsw);
++    if (!(r->has_v && r->v.set_format && tex_view_to_mtl(r->v.format, view_pf, fsw) && *view_pf)) nvn_fmt_to_mtl(r->t.d.format, NULL, fsw);
+     if (!in_place) for (int c = 0; c < 4; c++) if (fsw[c] >= MTLTextureSwizzleRed) fsw[c] = (uint8_t)(MTLTextureSwizzleRed + c);
+     // Metal cannot cast a depth texture to its single-channel colour equivalent. Use the same depth storage,
+     // but present (R, 0, 0, 1) to the NVN swizzle: a float shader reading Metal depth can see depth in G and B too.
+@@ -12984,7 +13036,7 @@ static int fz_p2_draw(NvProg *pr, const p_draw *dw, const p_draw_idx *di, uint8_
+                 // the proof would still hold, the sampling would be changed to read on-tile level 0 / the original format, and the picture would be wrong). The view's starting level / layer must be 0 and its format must equal the attachment's actual format, otherwise do not merge
+                 int tid_ = (int)(h & 0xfffff); void *tv_ = NULL; if (tid_) { os_unfair_lock_lock(&g_rmu); tex_fast_rid(tid_, &tv_); os_unfair_lock_unlock(&g_rmu); } __unsafe_unretained id<MTLTexture> tv = (__bridge id<MTLTexture>)tv_;   // under g_rmu: a lookup may sync the ID cache (ser_sync)
+                 uint32_t apf_ = tv.parentTexture ? (uint32_t)tv.parentTexture.pixelFormat : (uint32_t)tv.pixelFormat; uint8_t swz_[4];
+-                if (R.rt.has_cview[j] && R.rt.cview[j].set_format && !(nvn_fmt_to_mtl(R.rt.cview[j].format, &apf_, swz_) && apf_)) apf_ = 0;   // The attachment is attached through a format-changing view: take that format; if unrecognized, do not merge
++                if (R.rt.has_cview[j] && R.rt.cview[j].set_format && !(tex_view_to_mtl(R.rt.cview[j].format, &apf_, swz_) && apf_)) apf_ = 0;   // The attachment is attached through a format-changing view: take that format; if unrecognized, do not merge
+                 MTLPixelFormat apf = (MTLPixelFormat)apf_;   // a read of the tile takes no channel mapping either (alpha 1 of an RGBX attachment, tex_by_id), beyond filling missing channels (sw_tile)
+                 int tsw_id = tv && sw_tile(tv);
+                 if (!tv || (tv.parentTexture && (tv.parentRelativeLevel || tv.parentRelativeSlice)) || tv.pixelFormat != apf || !tsw_id) {
+@@ -15315,7 +15367,7 @@ static void clear_tex(const p_clear_tex *c) {
+         t = tex_upgrade(c->tex, t, MTLTextureUsageRenderTarget, t.pixelFormat);   // a clear of a texture made without render-target use (packaged): give it that use
+     if (c->has_view && c->view.set_format) {   // View with changed format: the clear value is interpreted in the view format (all 5 of the game's calls are the ui version with an integer view), and the clear is done on a view of the same format
+         uint32_t vpf = 0; uint8_t swz[4];
+-        if (!nvn_fmt_to_mtl(c->view.format, &vpf, swz) || !vpf) { RED_ONCE(42, "texture clear view format %#x has no equivalent", c->view.format); return; }
++        if (!tex_view_to_mtl(c->view.format, &vpf, swz) || !vpf) { RED_ONCE(42, "texture clear view format %#x has no equivalent", c->view.format); return; }
+         if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf) && !(t.usage & MTLTextureUsagePixelFormatView)) t = tex_upgrade_pfv(c->tex, t, (MTLPixelFormat)vpf);
+         if (tex_need_pfv(t.pixelFormat, (MTLPixelFormat)vpf)) {
+             id<MTLTexture> v = [t newTextureViewWithPixelFormat:(MTLPixelFormat)vpf];
+diff --git a/dm/gfx/tests/Makefile b/dm/gfx/tests/Makefile
+index 9f557c1d..80674c59 100644
+--- a/dm/gfx/tests/Makefile
++++ b/dm/gfx/tests/Makefile
+@@ -657,3 +657,7 @@ check_t_pool_standin: t_pool_standin
+ 	MTL_DEBUG_LAYER=1 DM_NVN_ENC_THREAD=0 ./t_pool_standin
+ 	MTL_DEBUG_LAYER=1 DM_NVN_ENC_THREAD=1 ./t_pool_standin
+ 	MTL_DEBUG_LAYER=1 DM_NVN_ENC_THREAD=0 DM_NVN_POOL_STANDIN=0 ./t_pool_standin
++
++t_bc_cpu: t_bc_cpu.m $(MTL_T_DEP)
++	clang $(CFLAGS) -fobjc-arc -o $@ t_bc_cpu.m $(MTL_T_SRC) $(FW)
++check_t_bc_cpu: RUN_ENV = MTL_DEBUG_LAYER=1
+diff --git a/dm/gfx/tests/t_bc_cpu.m b/dm/gfx/tests/t_bc_cpu.m
+new file mode 100644
+index 00000000..b395b557
+--- /dev/null
++++ b/dm/gfx/tests/t_bc_cpu.m
+@@ -0,0 +1,90 @@
++// Exercise the production upload and sampled-view paths with CPU BC decoding
++// forced on a BC-capable Mac GPU. No game assets or test-only production hooks.
++#include "../nvn/nvn_mtl.m"
++void *front_metal_layer(void) { return NULL; }
++module_t *module_of(const void *p) { (void)p; return NULL; }
++module_t *g_mod; int g_nmod;
++void svc_thread_dump(void) {}
++uint64_t now_ns(void) { return bp_now(); }
++static int checks, failed;
++#define CHECK(label,c) do { checks++; if (!(c)) { failed++; fprintf(stderr,"FAIL: %s\n",label); } } while (0)
++static void finish(void) {
++    CHECK("upload submission completes",mtl_wait(mtl_sub_commit(),5000000000ull));
++    CHECK("upload has no GPU error",!mtl_last_commit_error());
++}
++static void uploads(int format, int bpp, int direct) {
++    g_direct_upload_on=direct;
++    static uint64_t serial=990000;
++    tex_t t={.magic=MAGIC('T','E','X',0),.serial=serial++,.has_layout=1};
++    t.d=(nvn_texdesc){.target=4,.format=format,.width=7,.height=5,.depth=2,.levels=3,.samples=1};
++    nvn_tex_layout(&t.d,&t.L);
++    size_t poolsize=(t.L.size+4096+getpagesize()-1)&~(size_t)(getpagesize()-1);
++    void *mem=NULL; if(posix_memalign(&mem,getpagesize(),poolsize))abort(); memset(mem,0,poolsize);
++    pool_t pool={.magic=MAGIC('P','O','O','L'),.mem=mem,.size=poolsize,.flags=NVN_MEMORY_POOL_FLAGS_CPU_UNCACHED|NVN_MEMORY_POOL_FLAGS_GPU_CACHED};
++    t.pool=&pool; t.mem=(uint8_t*)mem+4096;
++    mtl_pool_add(mem,poolsize); nvn_dirty_add_range(mem,poolsize);
++    size_t bytes=0; for(unsigned l=0;l<3;l++)bytes+=(size_t)MAX(7u>>l,1u)*MAX(5u>>l,1u)*2*bpp;
++    uint8_t *expected=malloc(bytes);
++    id<MTLBuffer> readback=[g_dev newBufferWithLength:bytes+512 options:MTLResourceStorageModeShared];
++    for(unsigned round=0;round<2;round++) {
++        dm_guest_write_prepare(mem,poolsize); size_t off=0;
++        for(unsigned l=0;l<3;l++)for(unsigned a=0;a<2;a++) {
++            unsigned w=MAX(7u>>l,1u),h=MAX(5u>>l,1u),nb=((w+3)/4)*((h+3)/4);
++            unsigned bb=format==0x41||format==0x49?8:16;
++            uint8_t blocks[64]={0},pixel[4]={0};
++            for(unsigned i=0;i<nb;i++) {
++                uint8_t *b=blocks+i*bb;
++                if(format==0x41) { b[0]=round?0xe0:0; b[1]=round?7:0xf8; pixel[round?1:0]=255; pixel[3]=255; }
++                else { b[0]=(uint8_t)(200+round+a+l); pixel[0]=b[0]; if(format==0x4b){b[8]=100+round+a+l;pixel[1]=b[8];} }
++            }
++            CHECK("compressed blocks swizzle",!nvn_swizzle(&t.d,l,a,blocks,((w+3)/4)*bb,t.mem));
++            for(unsigned i=0;i<w*h;i++)memcpy(expected+off+(size_t)i*bpp,pixel,bpp);
++            off+=(size_t)w*h*bpp;
++        }
++        mtl_sub_begin(); id<MTLTexture> image=tex_mtl(&t); CHECK("decoded texture exists",image!=nil); finish();
++        if(!image)break;
++        CHECK("decoded mip count",image.mipmapLevelCount==3); CHECK("decoded array layers",image.arrayLength==2);
++        id<MTLCommandBuffer> cb=q_cb(); id<MTLBlitCommandEncoder> enc=[cb blitCommandEncoder]; off=0;
++        for(unsigned l=0;l<3;l++)for(unsigned a=0;a<2;a++) {
++            unsigned w=MAX(7u>>l,1u),h=MAX(5u>>l,1u);
++            [enc copyFromTexture:image sourceSlice:a sourceLevel:l sourceOrigin:MTLOriginMake(0,0,0) sourceSize:MTLSizeMake(w,h,1) toBuffer:readback destinationOffset:256+off destinationBytesPerRow:w*bpp destinationBytesPerImage:w*h*bpp];
++            off+=(size_t)w*h*bpp;
++        }
++        [enc endEncoding]; [cb commit]; [cb waitUntilCompleted];
++        CHECK("GPU readback completes",cb.status==MTLCommandBufferStatusCompleted);
++        CHECK("every decoded mip/layer pixel matches independent uniform-block reference",!memcmp((uint8_t*)readback.contents+256,expected,bytes));
++    }
++    mtl_tex_release(&t); mtl_drain(); mtl_alias_drop_pool(&pool); nvn_dirty_remove_range(mem); mtl_pool_del(mem); mtl_drain(); free(mem); free(expected);
++}
++static void views(void) {
++    for(unsigned f=0x41;f<=0x50;f++) {
++        uint32_t unpacked=0,native=0; int bpp=0; uint8_t sw[4];
++        CHECK("BC family has decoded format",nvn_bc_unpacked(f,&unpacked,&bpp));
++        CHECK("BC family has native format",nvn_fmt_to_mtl(f,&native,sw));
++        tex_t t={.magic=MAGIC('T','E','X',0),.serial=1000000+f};
++        t.d=(nvn_texdesc){.target=1,.format=f,.width=4,.height=4,.depth=1,.levels=1,.samples=1};
++        g_bc_cpu=0; CHECK("native BC descriptor unchanged",tex_desc(&t,0).pixelFormat==native);
++        g_bc_cpu=1; MTLTextureDescriptor *d=tex_desc(&t,0); d.storageMode=MTLStorageModeShared;
++        id<MTLTexture> base=[g_dev newTextureWithDescriptor:d]; CHECK("decoded base allocated",base!=nil); if(!base)continue;
++        CHECK("decoded base format",base.pixelFormat==unpacked); serial_put(t.serial,base);
++        view_t v={.set_format=1,.format=f}; mtl_reg_tex(200+f,&t,&v);
++        os_unfair_lock_lock(&g_rmu); id<MTLTexture> view=tex_by_id(200+f);
++        CHECK("sampled BC view exists",view!=nil); CHECK("sampled BC view uses decoded storage format",view.pixelFormat==unpacked);
++        CHECK("sampled BC view cache reused",tex_by_id(200+f)==view); os_unfair_lock_unlock(&g_rmu);
++        CHECK("render-target view uses decoded format",rt_view_fmt(base,&v,1)==unpacked);
++        MTLRenderPassDescriptor *rp=[MTLRenderPassDescriptor renderPassDescriptor];
++        attach(rp.colorAttachments[0],&t,&v,1);
++        CHECK("decoded attachment is retained",rp.colorAttachments[0].texture.pixelFormat==unpacked);
++        p_clear_tex clear={.tex=&t,.view=v,.has_view=1,.mask=15,.r={0,0,0,4,4,1}};
++        clear.c.f[0]=0.25f; clear.c.f[1]=0.5f; clear.c.f[2]=0.75f; clear.c.f[3]=1;
++        state_reset(); memset(&R,0,sizeof R); mtl_sub_begin(); clear_tex(&clear); finish();
++        mtl_drain();
++    }
++}
++int main(int argc,char **argv) { @autoreleasepool {
++    mtl_init(); g_bc_cpu=1;
++    CHECK("GPU deswizzle is enabled for the regression",g_nvn_deswz_gpu);
++    if(argc<2||strcmp(argv[1],"views"))for(int direct=0;direct<2;direct++){uploads(0x41,4,direct);uploads(0x49,1,direct);uploads(0x4b,2,direct);}
++    if(argc<2||strcmp(argv[1],"uploads"))views();
++    printf("t_bc_cpu: %d checks, %d failed\n",checks,failed); return failed!=0;
++}}
+diff --git a/dm/gfx/tex/README.md b/dm/gfx/tex/README.md
+index 1968759d..5ce86696 100644
+--- a/dm/gfx/tex/README.md
++++ b/dm/gfx/tex/README.md
+@@ -21,7 +21,7 @@ The offsets of each level and layer within the storage, and the block height and
+ 
+ ## BC textures
+ 
+-Only GPUs with BC compressed textures are supported (`supportsBCTextureCompression` of `MTLDevice`: Apple silicon Macs and the latest iPhones), so BC textures are created and uploaded as BC; there is no decompression path. A device without them is refused at start ([GPUs without BC textures](../../../docs/reference/rendering.md#gpus-without-bc-textures-are-refused-at-start)). A BC texture is never a render target and its raw blocks are not sampled through an uncompressed view (Metal has no such views; Breath of the Wild encodes one 32×32 BC4 texture on the GPU, GitHub issue #4).
++Only GPUs with BC compressed textures are supported (`supportsBCTextureCompression` of `MTLDevice`: Apple silicon Macs and the latest iPhones), so BC textures are created and uploaded as BC; there is no decompression path. A device without them is refused at start ([GPUs without BC textures](../../../docs/reference/rendering.md#gpus-without-bc-textures-are-refused-at-start)), unless the game's profile has `tex_bc_cpu on`: then `nvn_bcdec.c` decodes them on the CPU into uncompressed formats. A BC texture is never a render target and its raw blocks are not sampled through an uncompressed view (Metal has no such views; Breath of the Wild encodes one 32×32 BC4 texture on the GPU, GitHub issue #4).
+ 
+ ## Tests
+ 
+diff --git a/dm/gfx/tex/nvn_bcdec.c b/dm/gfx/tex/nvn_bcdec.c
+new file mode 100644
+index 00000000..00ebd5e5
+--- /dev/null
++++ b/dm/gfx/tex/nvn_bcdec.c
+@@ -0,0 +1,88 @@
++// 见 nvn_bcdec.h。解码用 bcdec（dm/third_party/bcdec，单头文件，MIT / 公有领域）。
++// See nvn_bcdec.h. Decoding uses bcdec (dm/third_party/bcdec, single header, MIT / public domain).
++#define BCDEC_IMPLEMENTATION
++#define BCDEC_BC4BC5_PRECISE   // BC4 / BC5 带有符号版本的接口 | interface with signed variants of BC4 / BC5
++#include "../../third_party/bcdec/bcdec.h"
++#include "nvn_bcdec.h"
++#include <math.h>
++#include <string.h>
++
++enum { R8Unorm = 10, R8Snorm = 12, RG8Unorm = 30, RG8Snorm = 32, RGBA8Unorm = 70, RGBA8Unorm_sRGB = 71, RGB9E5Float = 93, RGBA16Float = 115 };
++static int g_bc6h_rgb9e5;   // BC6H into RGB9E5Float, 4 bytes per pixel instead of 8 (nvn_bcdec.h)
++void nvn_bc_set_bc6h_rgb9e5(int on) { g_bc6h_rgb9e5 = on != 0; }
++int nvn_bc_bc6h_rgb9e5(void) { return g_bc6h_rgb9e5; }
++
++uint32_t nvn_rgb9e5_pack(float r, float g, float b) {   // the reference packing of EXT_texture_shared_exponent
++    const float max_value = 65408.0f;   // (511 / 512) * 2^15
++    float c[3] = {r, g, b};
++    for (int i = 0; i < 3; i++) c[i] = c[i] > 0 ? (c[i] < max_value ? c[i] : max_value) : 0;   // negative and NaN fail the test and become 0
++    float peak = fmaxf(c[0], fmaxf(c[1], c[2]));
++    int e = peak > 0 ? (int)fmaxf(-16.0f, floorf(log2f(peak))) + 16 : 0;
++    float denom = exp2f((float)(e - 24));
++    if ((int)floorf(peak / denom + 0.5f) == 512) { e++; denom *= 2; }
++    uint32_t m[3];
++    for (int i = 0; i < 3; i++) { float q = floorf(c[i] / denom + 0.5f); m[i] = q > 511 ? 511 : (uint32_t)q; }
++    return m[0] | (m[1] << 9) | (m[2] << 18) | ((uint32_t)e << 27);
++}
++
++static float half_to_float(uint16_t h) {
++    int s = (h >> 15) & 1, e = (h >> 10) & 31, m = h & 1023;
++    float v = e == 0 ? ldexpf((float)m, -24) : e == 31 ? (m ? NAN : INFINITY) : ldexpf((float)(m | 1024), e - 25);
++    return s ? -v : v;
++}
++// NVN：0x41 RGB_DXT1、0x42 RGBA_DXT1、0x43 DXT3、0x44 DXT5、0x45–0x48 同上 sRGB、0x49 / 0x4a BC4 无 / 有符号、0x4b / 0x4c BC5、0x4d / 0x4e BC7（sRGB）、0x4f / 0x50 BC6H 有 / 无符号
++// NVN: 0x41 RGB_DXT1, 0x42 RGBA_DXT1, 0x43 DXT3, 0x44 DXT5, 0x45–0x48 the same in sRGB, 0x49 / 0x4a BC4 unsigned / signed, 0x4b / 0x4c BC5, 0x4d / 0x4e BC7 (sRGB), 0x4f / 0x50 BC6H signed / unsigned
++int nvn_bc_unpacked(uint32_t f, uint32_t *pf, int *bpp) {
++    switch (f) {
++    case 0x41: case 0x42: case 0x43: case 0x44: case 0x4d: *pf = RGBA8Unorm; *bpp = 4; return 1;
++    case 0x45: case 0x46: case 0x47: case 0x48: case 0x4e: *pf = RGBA8Unorm_sRGB; *bpp = 4; return 1;
++    case 0x49: *pf = R8Unorm; *bpp = 1; return 1;
++    case 0x4a: *pf = R8Snorm; *bpp = 1; return 1;
++    case 0x4b: *pf = RG8Unorm; *bpp = 2; return 1;
++    case 0x4c: *pf = RG8Snorm; *bpp = 2; return 1;
++    case 0x4f: case 0x50: if (g_bc6h_rgb9e5) { *pf = RGB9E5Float; *bpp = 4; } else { *pf = RGBA16Float; *bpp = 8; } return 1;
++    default: return 0;
++    }
++}
++
++static void block(uint32_t f, const uint8_t *b, uint8_t *o, int op) {   // 一块 → 4×4 像素（o 每行 op 字节） | one block → 4×4 pixels (o has op bytes per row)
++    switch (f) {
++    case 0x41: case 0x42: case 0x45: case 0x46: bcdec_bc1(b, o, op); break;
++    case 0x43: case 0x47: bcdec_bc2(b, o, op); break;
++    case 0x44: case 0x48: bcdec_bc3(b, o, op); break;
++    case 0x49: bcdec_bc4(b, o, op, 0); break;
++    case 0x4a: bcdec_bc4(b, o, op, 1); break;
++    case 0x4b: bcdec_bc5(b, o, op, 0); break;
++    case 0x4c: bcdec_bc5(b, o, op, 1); break;
++    case 0x4d: case 0x4e: bcdec_bc7(b, o, op); break;
++    case 0x4f: case 0x50: {   // bcdec 出 RGB 半精度，补 alpha = 1.0 | bcdec outputs RGB half-float; add alpha = 1.0
++        uint16_t rgb[16 * 3]; bcdec_bc6h_half(b, rgb, 4 * 3, f == 0x4f);
++        if (g_bc6h_rgb9e5) {   // alpha is 1.0 in a sampled RGB9E5 texture
++            for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
++                const uint16_t *s = rgb + (y * 4 + x) * 3;
++                *((uint32_t *)(o + y * op) + x) = nvn_rgb9e5_pack(half_to_float(s[0]), half_to_float(s[1]), half_to_float(s[2]));
++            }
++            break;
++        }
++        for (int y = 0; y < 4; y++) for (int x = 0; x < 4; x++) {
++            uint16_t *d = (uint16_t *)(o + y * op) + x * 4; const uint16_t *s = rgb + (y * 4 + x) * 3;
++            d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 0x3c00;
++        }
++        break; }
++    }
++}
++
++int nvn_bc_decode(uint32_t f, const uint8_t *src, size_t pitch, uint32_t w, uint32_t h, uint8_t *dst, size_t dpitch) {
++    uint32_t pf; int bpp; if (!nvn_bc_unpacked(f, &pf, &bpp)) return -1;
++    int bb = (f == 0x41 || f == 0x42 || f == 0x45 || f == 0x46 || f == 0x49 || f == 0x4a) ? 8 : 16;   // 每块字节 | bytes per block
++    _Alignas(8) uint8_t tmp[4 * 4 * 8];
++    for (uint32_t by = 0; by * 4 < h; by++) for (uint32_t bx = 0; bx * 4 < w; bx++) {
++        const uint8_t *b = src + by * pitch + bx * bb;
++        uint32_t cw = w - bx * 4 < 4 ? w - bx * 4 : 4, ch = h - by * 4 < 4 ? h - by * 4 : 4;
++        uint8_t *o = dst + (size_t)by * 4 * dpitch + (size_t)bx * 4 * bpp;
++        if (cw == 4 && ch == 4) { block(f, b, o, (int)dpitch); continue; }
++        block(f, b, tmp, 4 * bpp);   // 边上不满 4×4 的块：先解到临时块再拷需要的部分 | blocks at the edge that are not a full 4×4: decode into a temporary block first, then copy the needed part
++        for (uint32_t y = 0; y < ch; y++) memcpy(o + y * dpitch, tmp + y * 4 * bpp, cw * bpp);
++    }
++    return 0;
++}
+diff --git a/dm/gfx/tex/nvn_bcdec.h b/dm/gfx/tex/nvn_bcdec.h
+new file mode 100644
+index 00000000..ac82a275
+--- /dev/null
++++ b/dm/gfx/tex/nvn_bcdec.h
+@@ -0,0 +1,21 @@
++// 不支持 BC 压缩格式的显卡（A15 / A16 等，苹果 GPU 族 Apple8 及以下）：BC 贴图在 CPU 上解压成不压缩格式。
++// 游戏贴图里的 BC3 由老机型补充包离线换成 ASTC（dm/tools/astc_pack.py）；剩下的 BC（精灵图里的 BC3、少量 BC1 / BC4 / BC5 / BC6H）走这里。
++// GPUs without BC compressed format support (A15 / A16 etc., Apple GPU family Apple8 and below): BC textures are decompressed on the CPU into uncompressed formats.
++// BC3 in game textures is converted offline to ASTC by the Legacy Device Pack (dm/tools/astc_pack.py); the remaining BC (BC3 in sprites, a few BC1 / BC4 / BC5 / BC6H) goes through here.
++#pragma once
++#include <stddef.h>
++#include <stdint.h>
++
++// NVN 格式是 BC → 返回 1，*mtl_pf = 解压后的 Metal 像素格式、*bpp = 解压后每像素字节；不是 BC 返回 0
++// NVN format is BC → returns 1, *mtl_pf = Metal pixel format after decompression, *bpp = bytes per pixel after decompression; returns 0 if not BC
++int nvn_bc_unpacked(uint32_t nvn_fmt, uint32_t *mtl_pf, int *bpp);
++// 解一片 w×h 像素：src 按块行排（每块行 pitch 字节），dst 每像素行 dpitch 字节。成功 0
++// Decode a w×h pixel region: src is laid out by block rows (pitch bytes per block row), dst has dpitch bytes per pixel row. Returns 0 on success
++int nvn_bc_decode(uint32_t nvn_fmt, const uint8_t *src, size_t pitch, uint32_t w, uint32_t h, uint8_t *dst, size_t dpitch);
++// BC6H 的 HDR 贴图：默认解成 RGBA16Float（每像素 8 字节）；打开后解成 RGB9E5Float（每像素 4 字节），内存减半，代价是：无符号 5 位指数 9 位尾数的共享指数，负值截为 0，精度略低。DM_BC6H_RGB9E5=1 打开。
++// BC6H (HDR) textures decode into RGBA16Float by default (8 bytes per pixel). Switched on they decode into RGB9E5Float (4 bytes per pixel), which halves their memory: the exponent is shared and unsigned,
++// so negative values become 0 and the mantissa is 9 bits. Set before the first texture is made (DM_BC6H_RGB9E5=1); it changes what nvn_bc_unpacked answers for 0x4f / 0x50.
++void nvn_bc_set_bc6h_rgb9e5(int on);
++int nvn_bc_bc6h_rgb9e5(void);
++// One RGB triple packed as RGB9E5 (the shared-exponent format of Metal's RGB9E5Float): negative, NaN and out-of-range inputs clamp.
++uint32_t nvn_rgb9e5_pack(float r, float g, float b);
+diff --git a/dm/gfx/tex/tests/.gitignore b/dm/gfx/tex/tests/.gitignore
+index ad72cd17..15d594ea 100644
+--- a/dm/gfx/tex/tests/.gitignore
++++ b/dm/gfx/tex/tests/.gitignore
+@@ -1,4 +1,5 @@
+ t_tex
++t_bcdec
+ t_fmt_mtl
+ *.dSYM
+ asan/
+diff --git a/dm/gfx/tex/tests/Makefile b/dm/gfx/tex/tests/Makefile
+index feed9f8e..af5f698f 100644
+--- a/dm/gfx/tex/tests/Makefile
++++ b/dm/gfx/tex/tests/Makefile
+@@ -6,24 +6,28 @@ O ?=
+ CLANG = clang $(SAN)
+ $(O)t_tex: t_tex.c ../nvn_deswizzle.c ../nvn_deswizzle.h ../../nvn/nvn_tex.c ../../nvn/nvn_tex.h
+ 	$(CLANG) $(CFLAGS) -o $@ t_tex.c ../nvn_deswizzle.c ../../nvn/nvn_tex.c -lm
++$(O)t_bcdec: t_bcdec.c ../nvn_bcdec.c ../nvn_bcdec.h ../../../third_party/bcdec/bcdec.h
++	$(CLANG) $(CFLAGS) -o $@ t_bcdec.c ../nvn_bcdec.c -lm
+ $(O)t_fmt_mtl: t_fmt_mtl.m ../nvn_fmt_mtl.c ../nvn_fmt_mtl.h
+ 	$(CLANG) $(CFLAGS) -fobjc-arc -o $@ t_fmt_mtl.m ../nvn_fmt_mtl.c -framework Metal -framework Foundation
+-run: t_tex t_fmt_mtl
+-	./t_fmt_mtl && ./t_tex
++run: t_tex t_bcdec t_fmt_mtl
++	./t_fmt_mtl && ./t_tex && ./t_bcdec
+ .PHONY: run
+-# ASan and UBSan (../../../sanitizers/sanitizers.mk): the CPU test t_tex, built into asan/ (t_fmt_mtl creates Metal textures and stays local)
++# ASan and UBSan (../../../sanitizers/sanitizers.mk): the CPU tests t_tex and t_bcdec, built into asan/ (t_fmt_mtl creates Metal textures and stays local)
+ include ../../../sanitizers/sanitizers.mk
+ .PHONY: asan
+ asan:
+ 	@$(call san_fresh,asan,$(ASAN_FLAGS))
+-	$(MAKE) O=asan/ SAN="$(ASAN_FLAGS)" asan/t_tex
++	$(MAKE) O=asan/ SAN="$(ASAN_FLAGS)" asan/t_tex asan/t_bcdec
+ 	$(ASAN_ENV) ./asan/t_tex
+-# Line coverage (../../../sanitizers/coverage.mk): t_tex built into cov/ with COV_FLAGS and run; writes cov/coverage.lcov
++	$(ASAN_ENV) ./asan/t_bcdec
++# Line coverage (../../../sanitizers/coverage.mk): t_tex and t_bcdec built into cov/ with COV_FLAGS and run, writing cov/coverage.lcov
+ include ../../../sanitizers/coverage.mk
+ .PHONY: coverage
+ coverage:
+ 	@$(call san_fresh,cov,$(COV_FLAGS))
+ 	rm -rf cov/prof
+-	$(MAKE) O=cov/ SAN="$(COV_FLAGS)" cov/t_tex
++	$(MAKE) O=cov/ SAN="$(COV_FLAGS)" cov/t_tex cov/t_bcdec
+ 	-LLVM_PROFILE_FILE="$(call cov_profile,cov)" ./cov/t_tex
++	-LLVM_PROFILE_FILE="$(call cov_profile,cov)" ./cov/t_bcdec
+ 	@$(call cov_export,cov)
+diff --git a/dm/gfx/tex/tests/t_bcdec.c b/dm/gfx/tex/tests/t_bcdec.c
+new file mode 100644
+index 00000000..5a406084
+--- /dev/null
++++ b/dm/gfx/tex/tests/t_bcdec.c
+@@ -0,0 +1,202 @@
++// BC decode correctness: decode a known block with bcdec through our glue, and compare against
++// bytes produced by an independent path (a second, hand-written DXT1 decoder in this file).
++// Formats with no independent reference here are checked structurally instead: every decoded
++// pixel must be opaque, the block must fit its 4x4 grid, and edge blocks must be trimmed.
++#include "../nvn_bcdec.h"
++#include <assert.h>
++#include <stdio.h>
++#include <string.h>
++
++static int failures;
++
++static void check(int cond, const char *what) {
++    if (!cond) { printf("FAIL: %s\n", what); failures++; }
++}
++
++// ---- reference DXT1 (BC1) decoder: the textbook algorithm, written independently of bcdec ----
++static void put565(unsigned char *o, unsigned v, int srgb) {
++    (void)srgb;
++    int r = (v >> 11) & 0x1f, g = (v >> 5) & 0x3f, b = v & 0x1f;
++    o[0] = (unsigned char)((r << 3) | (r >> 2));
++    o[1] = (unsigned char)((g << 2) | (g >> 4));
++    o[2] = (unsigned char)((b << 3) | (b >> 2));
++    o[3] = 255;
++}
++static void ref_bc1(const unsigned char *blk, unsigned char *out, int op) {
++    unsigned c0 = blk[0] | (blk[1] << 8), c1 = blk[2] | (blk[3] << 8);
++    unsigned char pal[4][4];
++    put565(pal[0], c0, 0);
++    put565(pal[1], c1, 0);
++    if (c0 > c1) {
++        for (int i = 0; i < 3; i++) {
++            // bcdec rounds; a truncating reference differs by one on every interpolated stop
++            pal[2][i] = (unsigned char)((2 * pal[0][i] + pal[1][i] + 1) / 3);
++            pal[3][i] = (unsigned char)((pal[0][i] + 2 * pal[1][i] + 1) / 3);
++        }
++        pal[2][3] = pal[3][3] = 255;
++    } else {
++        for (int i = 0; i < 3; i++) {
++            pal[2][i] = (unsigned char)((pal[0][i] + pal[1][i] + 1) / 2);
++            pal[3][i] = 0;
++        }
++        pal[2][3] = 255;
++        pal[3][3] = 255;   // RGB_DXT1: the fourth colour is black but opaque
++    }
++    unsigned idx = blk[4] | (blk[5] << 8) | (blk[6] << 16) | ((unsigned)blk[7] << 24);
++    for (int y = 0; y < 4; y++)
++        for (int x = 0; x < 4; x++) {
++            int p = (int)((idx >> (2 * (y * 4 + x))) & 3);
++            memcpy(out + y * op + x * 4, pal[p], 4);
++        }
++}
++
++static void test_bc1_matches_reference(void) {
++    // Two blocks: one with c0 > c1 (four-colour mode) and one with c0 <= c1 (three-colour).
++    unsigned char blocks[2][8] = {
++        { 0x00, 0xF8, 0xE0, 0x07, 0x1B, 0x36, 0x6C, 0xD8 },   // c0 = red-ish 0xF800, c1 = green-ish 0x07E0
++        { 0xE0, 0x07, 0x00, 0xF8, 0x55, 0xAA, 0x55, 0xAA },   // swapped: three-colour mode
++    };
++    for (int k = 0; k < 2; k++) {
++        unsigned char got[4 * 16], want[4 * 16];
++        int r = nvn_bc_decode(0x41, blocks[k], 8, 4, 4, got, 16);   // 0x41 = RGB_DXT1 (no alpha semantics)
++        check(r == 0, "bc1 decode returns 0");
++        ref_bc1(blocks[k], want, 16);
++        if (memcmp(got, want, sizeof want) != 0) {
++            char msg[96];
++            snprintf(msg, sizeof msg, "BC1 block %d matches the reference decoder", k);
++            check(0, msg);
++            for (int i = 0; i < 16; i++)
++                if (got[i] != want[i]) { printf("  byte %d: got %u want %u\n", i, got[i], want[i]); break; }
++        } else {
++            check(1, "");
++        }
++    }
++}
++
++static void test_formats_map(void) {
++    unsigned pf; int bpp;
++    struct { uint32_t fmt; unsigned pf; int bpp; } cases[] = {
++        { 0x41, 70, 4 }, { 0x42, 70, 4 }, { 0x43, 70, 4 }, { 0x44, 70, 4 }, { 0x4d, 70, 4 },
++        { 0x45, 71, 4 }, { 0x46, 71, 4 }, { 0x47, 71, 4 }, { 0x48, 71, 4 }, { 0x4e, 71, 4 },
++        { 0x49, 10, 1 }, { 0x4a, 12, 1 }, { 0x4b, 30, 2 }, { 0x4c, 32, 2 },
++        { 0x4f, 115, 8 }, { 0x50, 115, 8 },
++    };
++    for (unsigned i = 0; i < sizeof cases / sizeof cases[0]; i++) {
++        check(nvn_bc_unpacked(cases[i].fmt, &pf, &bpp) == 1, "format is recognised as BC");
++        check(pf == cases[i].pf && bpp == cases[i].bpp, "format maps to the expected pixel format");
++    }
++    check(nvn_bc_unpacked(0x25, &pf, &bpp) == 0, "a non-BC format is rejected");
++}
++
++static void test_edge_blocks_trimmed(void) {
++    // A 6x3 image: blocks at x=4 and y=0 are partial. Decoding must write only real pixels,
++    // and the sentinel after the last row must survive (nothing written past the height).
++    // 6 pixels wide = two 4-pixel blocks per block row, so the source needs two blocks and a
++    // pitch of 2 * 8 bytes. (Passing one block made the second one read past the array.)
++    unsigned char blk[2][8] = {
++        { 0x00, 0xF8, 0xE0, 0x07, 0x1B, 0x36, 0x6C, 0xD8 },
++        { 0xE0, 0x07, 0x1F, 0x00, 0x1B, 0x36, 0x6C, 0xD8 },
++    };
++    enum { W = 6, H = 3 };
++    unsigned char out[H * W * 4 + 64];
++    memset(out, 0xAB, sizeof out);
++    int r = nvn_bc_decode(0x41, (const unsigned char *)blk, 16, W, H, out, W * 4);
++    check(r == 0, "partial-block decode returns 0");
++    for (int y = 0; y < H; y++)
++        for (int x = 0; x < W; x++) {
++            const unsigned char *p = out + y * W * 4 + x * 4;
++            check(p[3] == 255, "RGB_DXT1 decodes every pixel opaque");
++        }
++    for (unsigned i = H * W * 4; i < sizeof out; i++)
++        if (out[i] != 0xAB) { check(0, "nothing is written past the last row"); break; }
++}
++
++static void test_bc4_single_channel(void) {
++    // BC4 stores one channel; the unpacked format is R8, so bytes 1..3 of each pixel stay as the
++    // caller left them (tex_mtl fills alpha itself). Check the red channel varies with the block.
++    unsigned char blk[8] = { 0xFF, 0x00, 0, 0, 0, 0, 0, 0 };   // endpoints 255 and 0
++    // BC4 decodes to R8: one byte per pixel, dpitch = 4 for a 4-pixel row.
++    unsigned char out[4 * 4];
++    memset(out, 0xCC, sizeof out);
++    int r = nvn_bc_decode(0x49, blk, 8, 4, 4, out, 4);   // 0x49 = BC4 unsigned
++    check(r == 0, "bc4 decode returns 0");
++    int uniform = 1;
++    for (int i = 0; i < 16; i++) if (out[i] != 255) uniform = 0;
++    check(uniform, "bc4 decodes the whole block to the endpoint value");
++    check(out[1 + 4] == 255, "bc4 writes every row (not just the first)");
++}
++
++
++// ---- BC6H into RGB9E5 (DM_BC6H_RGB9E5): the same block through both paths, and the packing against an independent decode ----
++#include <math.h>
++static float ref_half(unsigned short h) {   // textbook half to float
++    int s = h >> 15, e = (h >> 10) & 31, m = h & 1023;
++    float v = e == 0 ? m / 1024.0f / 16384.0f : (1 + m / 1024.0f) * powf(2, (float)(e - 15));
++    return s ? -v : v;
++}
++static float ref_rgb9e5(unsigned v, int ch) { return (float)((v >> (9 * ch)) & 511) * powf(2, (float)((int)(v >> 27) - 24)); }
++static void test_rgb9e5_pack(void) {
++    unsigned one = nvn_rgb9e5_pack(1, 1, 1);
++    check(ref_rgb9e5(one, 0) == 1 && ref_rgb9e5(one, 1) == 1 && ref_rgb9e5(one, 2) == 1, "1.0 round-trips");
++    unsigned v = nvn_rgb9e5_pack(0.5f, 0.25f, 4.0f);
++    check(fabsf(ref_rgb9e5(v, 0) - 0.5f) < 0.5f / 256 && fabsf(ref_rgb9e5(v, 1) - 0.25f) < 0.25f / 256 && fabsf(ref_rgb9e5(v, 2) - 4.0f) < 4.0f / 256, "values round-trip inside the 9-bit mantissa");
++    check(nvn_rgb9e5_pack(-1, NAN, 0) == 0, "negative, NaN and zero pack as zero");
++    unsigned big = nvn_rgb9e5_pack(1e9f, 0, 0);
++    check(ref_rgb9e5(big, 0) <= 65408.0f && ref_rgb9e5(big, 0) > 65000.0f, "out-of-range clamps to the largest value");
++}
++static void test_bc6h_rgb9e5_switch(void) {
++    unsigned pf; int bpp;
++    unsigned char blk[16] = { 0x03, 0x20, 0x40, 0x61, 0x82, 0xA3, 0xC4, 0xE5, 0x16, 0x27, 0x38, 0x49, 0x5A, 0x6B, 0x7C, 0x8D };
++    unsigned short half[16 * 4]; unsigned wide[16];
++    nvn_bc_set_bc6h_rgb9e5(0);
++    check(nvn_bc_unpacked(0x50, &pf, &bpp) == 1 && pf == 115 && bpp == 8, "off: RGBA16Float, 8 bytes per pixel (the tested default)");
++    check(nvn_bc_decode(0x50, blk, 16, 4, 4, (unsigned char *)half, 4 * 8) == 0, "RGBA16F decode");
++    nvn_bc_set_bc6h_rgb9e5(1);
++    check(nvn_bc_bc6h_rgb9e5() == 1, "the switch reads back");
++    check(nvn_bc_unpacked(0x50, &pf, &bpp) == 1 && pf == 93 && bpp == 4, "on: RGB9E5Float, 4 bytes per pixel");
++    check(nvn_bc_unpacked(0x4f, &pf, &bpp) == 1 && pf == 93 && bpp == 4, "signed BC6H too");
++    check(nvn_bc_unpacked(0x41, &pf, &bpp) == 1 && pf == 70 && bpp == 4, "other BC formats are untouched");
++    check(nvn_bc_decode(0x50, blk, 16, 4, 4, (unsigned char *)wide, 4 * 4) == 0, "RGB9E5 decode");
++    for (int i = 0; i < 16; i++) {
++        unsigned want = nvn_rgb9e5_pack(ref_half(half[i * 4]), ref_half(half[i * 4 + 1]), ref_half(half[i * 4 + 2]));
++        check(wide[i] == want, "each pixel is the RGBA16F pixel packed as RGB9E5");
++    }
++    unsigned char edge[3 * 3 * 4 + 16]; memset(edge, 0xAB, sizeof edge);
++    check(nvn_bc_decode(0x50, blk, 16, 3, 3, edge, 3 * 4) == 0, "an edge block");
++    for (unsigned i = 3 * 3 * 4; i < sizeof edge; i++) check(edge[i] == 0xAB, "nothing is written past the trimmed block");
++    nvn_bc_set_bc6h_rgb9e5(0);
++}
++
++__attribute__((noinline))
++static void decode_edge_with_odd_stack(int pad_byte, uint32_t fmt, const unsigned char *blk, int bpp) {
++    volatile char odd[3] = { (char)pad_byte, 1, 2 };
++    (void)odd;
++    _Alignas(8) unsigned char dst[3 * 3 * 8];
++    memset(dst, 0xCD, sizeof dst);
++    check(nvn_bc_decode(fmt, blk, fmt == 0x41 ? 8 : 16, 3, 3, dst, (size_t)(3 * bpp)) == 0, "edge decode stays aligned across stack layouts");
++}
++
++static void test_edge_tmp_alignment(void) {
++    unsigned char blk8[8] = { 0x00, 0xf8, 0xe0, 0x07, 0xaa, 0x55, 0x00, 0xff };
++    unsigned char blk16[16] = { 0x03, 0x20, 0x40, 0x61, 0x82, 0xA3, 0xC4, 0xE5, 0x16, 0x27, 0x38, 0x49, 0x5A, 0x6B, 0x7C, 0x8D };
++    nvn_bc_set_bc6h_rgb9e5(0);
++    decode_edge_with_odd_stack(7, 0x41, blk8, 4);
++    decode_edge_with_odd_stack(7, 0x4d, blk16, 4);
++    decode_edge_with_odd_stack(7, 0x50, blk16, 8);
++    nvn_bc_set_bc6h_rgb9e5(1);
++    decode_edge_with_odd_stack(7, 0x50, blk16, 4);
++    nvn_bc_set_bc6h_rgb9e5(0);
++}
++
++int main(void) {
++    test_bc1_matches_reference();
++    test_formats_map();
++    test_edge_blocks_trimmed();
++    test_bc4_single_channel();
++    test_rgb9e5_pack();
++    test_bc6h_rgb9e5_switch();
++    test_edge_tmp_alignment();
++    if (failures) { printf("%d check(s) failed\n", failures); return 1; }
++    printf("bc decode: BC1 matches an independent DXT1 decoder, format map, edge trimming, BC4 - all OK\n");
++    return 0;
++}
+diff --git a/dm/ios/Sources/main.m b/dm/ios/Sources/main.m
+index 0c948bfc..076d4efe 100644
+--- a/dm/ios/Sources/main.m
++++ b/dm/ios/Sources/main.m
+@@ -9,6 +9,7 @@
+ #include <sys/stat.h>
+ #include <unistd.h>
+ #include "hle_profile.h"   // the runtime game profile (DM_PROFILE): the RomFS marker path comes from it
++#include "game_profile.h"   // DM_GAME_TEX_BC_CPU: a game whose BC textures are decoded on the CPU runs on a GPU without BC
+ #include "front.h"
+ #include "romfs_image.h"
+ #include "DataBookmark.h"
+@@ -203,7 +204,7 @@ static void aoc_locate(void) {
+     static char msg[320]; static int done;
+     if (done++) return msg[0] ? msg : NULL;
+     id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();   // the system default device, the one the graphics layers take (mtl_init repeats this check for the other routes)
+-    if (gpu.supportsBCTextureCompression) return NULL;
++    if (gpu.supportsBCTextureCompression || DM_GAME_TEX_BC_CPU) return NULL;   // tex_bc_cpu: nvn_mtl.m decodes BC on the CPU (nvn_bcdec.c)
+     snprintf(msg, sizeof msg, "This device's GPU (%s) cannot read BC-compressed textures, which the games use. It needs an iPhone 15 Pro or newer (A17 Pro chip or later) or an iPad with an M1 chip or later.",
+              gpu ? gpu.name.UTF8String : "no Metal device");
+     fprintf(stderr, "[RED] boot: %s\n", msg);
+diff --git a/dm/third_party/bcdec/LICENSE b/dm/third_party/bcdec/LICENSE
+new file mode 100644
+index 00000000..78e53f19
+--- /dev/null
++++ b/dm/third_party/bcdec/LICENSE
+@@ -0,0 +1,52 @@
++This software is available under 2 licenses -- choose whichever you prefer.
++
++------------------------------------------------------------------------------
++ALTERNATIVE A - MIT License
++
++Copyright (c) 2022 Sergii Kudlai
++
++Permission is hereby granted, free of charge, to any person obtaining a copy of
++this software and associated documentation files (the "Software"), to deal in
++the Software without restriction, including without limitation the rights to
++use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
++of the Software, and to permit persons to whom the Software is furnished to do
++so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
++
++------------------------------------------------------------------------------
++ALTERNATIVE B - The Unlicense
++
++This is free and unencumbered software released into the public domain.
++
++Anyone is free to copy, modify, publish, use, compile, sell, or
++distribute this software, either in source code form or as a compiled
++binary, for any purpose, commercial or non-commercial, and by any
++means.
++
++In jurisdictions that recognize copyright laws, the author or authors
++of this software dedicate any and all copyright interest in the
++software to the public domain. We make this dedication for the benefit
++of the public at large and to the detriment of our heirs and
++successors. We intend this dedication to be an overt act of
++relinquishment in perpetuity of all present and future rights to this
++software under copyright law.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
++EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
++IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
++OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
++ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
++OTHER DEALINGS IN THE SOFTWARE.
++
++For more information, please refer to <https://unlicense.org>
+diff --git a/dm/third_party/bcdec/README.md b/dm/third_party/bcdec/README.md
+new file mode 100644
+index 00000000..baf2d240
+--- /dev/null
++++ b/dm/third_party/bcdec/README.md
+@@ -0,0 +1,2 @@
++来源：https://github.com/iOrange/bcdec 提交 80859ed（版本 0.985），未改动。许可见 LICENSE（MIT 或公有领域二选一）。
++用途：不支持 BC 压缩格式的显卡上，翻译层把 BC 贴图在 CPU 上解压（dm/gfx/tex/nvn_bcdec.c）。
+diff --git a/dm/third_party/bcdec/bcdec.h b/dm/third_party/bcdec/bcdec.h
+new file mode 100644
+index 00000000..553c3ec5
+--- /dev/null
++++ b/dm/third_party/bcdec/bcdec.h
+@@ -0,0 +1,1512 @@
++﻿/* bcdec.h - v0.985
++   provides functions to decompress blocks of BC compressed images
++   written by Sergii "iOrange" Kudlai in 2022
++
++   This library does not allocate memory and is trying to use as less stack as possible
++
++   This library was never optimized specifically for speed but for the overall size
++   it has zero external dependencies and is not using any runtime functions
++
++   This library was writtem by humans and will never contain any LLM-generated code
++
++   Supported BC formats:
++   BC1 (also known as DXT1) + it's "binary alpha" variant BC1A (DXT1A)
++   BC2 (also known as DXT3)
++   BC3 (also known as DXT5)
++   BC4 (also known as ATI1N)
++   BC5 (also known as ATI2N)
++   BC6H (HDR format)
++   BC7
++
++   BC1/BC2/BC3/BC7 are expected to decompress into 4*4 RGBA blocks 8bit per component (32bit pixel)
++   BC4/BC5 are expected to decompress into 4*4 R/RG blocks 8bit per component (8bit and 16bit pixel)
++   BC6H is expected to decompress into 4*4 RGB blocks of either 32bit float or 16bit "half" per
++   component (96bit or 48bit pixel)
++
++   For more info, issues and suggestions please visit https://github.com/iOrange/bcdec
++
++   Configuration:
++      #define BCDEC_BC4BC5_PRECISE:
++         enables more precise but slower BC4/BC5 decoding + signed/unsigned mode
++
++   CREDITS:
++      Aras Pranckevicius (@aras-p)      - BC1/BC3 decoders optimizations (up to 3x the speed)
++                                        - BC6H/BC7 bits pulling routines optimizations
++                                        - optimized BC6H by moving unquantize out of the loop
++                                        - Split BC6H decompression function into 'half' and
++                                          'float' variants
++
++      Michael Schmidt (@RunDevelopment) - Found better "magic" coefficients for integer interpolation
++                                          of reference colors in BC1 color block, that match with
++                                          the floating point interpolation. This also made it faster
++                                          than integer division by 3!
++
++   bugfixes:
++      @linkmauve
++      @wkjarosz
++
++   LICENSE: See end of file for license information.
++*/
++
++#ifndef BCDEC_HEADER_INCLUDED
++#define BCDEC_HEADER_INCLUDED
++
++#define BCDEC_VERSION_MAJOR 0
++#define BCDEC_VERSION_MINOR 985
++
++/* if BCDEC_STATIC causes problems, try defining BCDECDEF to 'inline' or 'static inline' */
++#ifndef BCDECDEF
++#ifdef BCDEC_STATIC
++#define BCDECDEF    static
++#else
++#ifdef __cplusplus
++#define BCDECDEF    extern "C"
++#else
++#define BCDECDEF    extern
++#endif
++#endif
++#endif
++
++/*  Used information sources:
++    https://docs.microsoft.com/en-us/windows/win32/direct3d10/d3d10-graphics-programming-guide-resources-block-compression
++    https://docs.microsoft.com/en-us/windows/win32/direct3d11/bc6h-format
++    https://docs.microsoft.com/en-us/windows/win32/direct3d11/bc7-format
++    https://docs.microsoft.com/en-us/windows/win32/direct3d11/bc7-format-mode-reference
++
++    ! WARNING ! Khronos's BPTC partitions tables contain mistakes, do not use them!
++    https://www.khronos.org/registry/DataFormat/specs/1.1/dataformat.1.1.html#BPTC
++
++    ! Use tables from here instead !
++    https://www.khronos.org/registry/OpenGL/extensions/ARB/ARB_texture_compression_bptc.txt
++
++    Leaving it here as it's a nice read
++    https://fgiesen.wordpress.com/2021/10/04/gpu-bcn-decoding/
++
++    Fast half to float function from here
++    https://gist.github.com/rygorous/2144712
++*/
++
++#define BCDEC_BC1_BLOCK_SIZE    8
++#define BCDEC_BC2_BLOCK_SIZE    16
++#define BCDEC_BC3_BLOCK_SIZE    16
++#define BCDEC_BC4_BLOCK_SIZE    8
++#define BCDEC_BC5_BLOCK_SIZE    16
++#define BCDEC_BC6H_BLOCK_SIZE   16
++#define BCDEC_BC7_BLOCK_SIZE    16
++
++#define BCDEC_BC1_COMPRESSED_SIZE(w, h)     ((((w)>>2)*((h)>>2))*BCDEC_BC1_BLOCK_SIZE)
++#define BCDEC_BC2_COMPRESSED_SIZE(w, h)     ((((w)>>2)*((h)>>2))*BCDEC_BC2_BLOCK_SIZE)
++#define BCDEC_BC3_COMPRESSED_SIZE(w, h)     ((((w)>>2)*((h)>>2))*BCDEC_BC3_BLOCK_SIZE)
++#define BCDEC_BC4_COMPRESSED_SIZE(w, h)     ((((w)>>2)*((h)>>2))*BCDEC_BC4_BLOCK_SIZE)
++#define BCDEC_BC5_COMPRESSED_SIZE(w, h)     ((((w)>>2)*((h)>>2))*BCDEC_BC5_BLOCK_SIZE)
++#define BCDEC_BC6H_COMPRESSED_SIZE(w, h)    ((((w)>>2)*((h)>>2))*BCDEC_BC6H_BLOCK_SIZE)
++#define BCDEC_BC7_COMPRESSED_SIZE(w, h)     ((((w)>>2)*((h)>>2))*BCDEC_BC7_BLOCK_SIZE)
++
++BCDECDEF void bcdec_bc1(const void* compressedBlock, void* decompressedBlock, int destinationPitch);
++BCDECDEF void bcdec_bc2(const void* compressedBlock, void* decompressedBlock, int destinationPitch);
++BCDECDEF void bcdec_bc3(const void* compressedBlock, void* decompressedBlock, int destinationPitch);
++#ifndef BCDEC_BC4BC5_PRECISE
++BCDECDEF void bcdec_bc4(const void* compressedBlock, void* decompressedBlock, int destinationPitch);
++BCDECDEF void bcdec_bc5(const void* compressedBlock, void* decompressedBlock, int destinationPitch);
++#else
++BCDECDEF void bcdec_bc4(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned);
++BCDECDEF void bcdec_bc5(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned);
++BCDECDEF void bcdec_bc4_float(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned);
++BCDECDEF void bcdec_bc5_float(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned);
++#endif
++BCDECDEF void bcdec_bc6h_float(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned);
++BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned);
++BCDECDEF void bcdec_bc7(const void* compressedBlock, void* decompressedBlock, int destinationPitch);
++
++#endif /* BCDEC_HEADER_INCLUDED */
++
++#ifdef BCDEC_IMPLEMENTATION
++
++static unsigned short bcdec__getu16le(const void* s) {
++    unsigned short l = (unsigned short)((const unsigned char*)s)[0];
++    unsigned short h = (unsigned short)((const unsigned char*)s)[1];
++    return l | (h << 8);
++}
++static unsigned int bcdec__getu32le(const void* s) {
++    unsigned int l = bcdec__getu16le(s);
++    unsigned int h = bcdec__getu16le((const unsigned char*)s + 2);
++    return l | (h << 16);
++}
++static unsigned long long bcdec__getu64le(const void* s) {
++    unsigned long long l = bcdec__getu32le(s);
++    unsigned long long h = bcdec__getu32le((const unsigned char*)s + 4);
++    return l | (h << 32);
++}
++
++static void bcdec__color_block(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int onlyOpaqueMode) {
++    unsigned short c0, c1;
++    unsigned int refColors[4]; /* 0xAABBGGRR */
++    unsigned char* dstColors;
++    unsigned int colorIndices;
++    int i, j, idx;
++    unsigned int r0, g0, b0, r1, g1, b1, r, g, b;
++
++    c0 = bcdec__getu16le(compressedBlock);
++    c1 = bcdec__getu16le((const unsigned char*)compressedBlock + 2);
++
++    /* Unpack 565 ref colors */
++    r0 = (c0 >> 11) & 0x1F;
++    g0 = (c0 >> 5)  & 0x3F;
++    b0 =  c0        & 0x1F;
++
++    r1 = (c1 >> 11) & 0x1F;
++    g1 = (c1 >> 5)  & 0x3F;
++    b1 =  c1        & 0x1F;
++
++    /* Expand 565 ref colors to 888 */
++    r = (r0 * 527 + 23) >> 6;
++    g = (g0 * 259 + 33) >> 6;
++    b = (b0 * 527 + 23) >> 6;
++    refColors[0] = 0xFF000000 | (b << 16) | (g << 8) | r;
++
++    r = (r1 * 527 + 23) >> 6;
++    g = (g1 * 259 + 33) >> 6;
++    b = (b1 * 527 + 23) >> 6;
++    refColors[1] = 0xFF000000 | (b << 16) | (g << 8) | r;
++
++    if (c0 > c1 || onlyOpaqueMode) {    /* Standard BC1 mode (also BC3 color block uses ONLY this mode) */
++        /* color_2 = 2/3*color_0 + 1/3*color_1
++           color_3 = 1/3*color_0 + 2/3*color_1 */
++        r = ((2 * r0 + r1) *  351 +   61) >>  7;
++        g = ((2 * g0 + g1) * 2763 + 1039) >> 11;
++        b = ((2 * b0 + b1) *  351 +   61) >>  7;
++        refColors[2] = 0xFF000000 | (b << 16) | (g << 8) | r;
++
++        r = ((r0 + r1 * 2) *  351 +   61) >>  7;
++        g = ((g0 + g1 * 2) * 2763 + 1039) >> 11;
++        b = ((b0 + b1 * 2) *  351 +   61) >>  7;
++        refColors[3] = 0xFF000000 | (b << 16) | (g << 8) | r;
++    } else {                            /* Quite rare BC1A mode */
++        /* color_2 = 1/2*color_0 + 1/2*color_1;
++           color_3 = 0;                         */
++        r = ((r0 + r1) * 1053 +  125) >>  8;
++        g = ((g0 + g1) * 4145 + 1019) >> 11;
++        b = ((b0 + b1) * 1053 +  125) >>  8;
++        refColors[2] = 0xFF000000 | (b << 16) | (g << 8) | r;
++
++        refColors[3] = 0x00000000;
++    }
++
++    colorIndices = bcdec__getu32le((const unsigned char*)compressedBlock + 4);
++
++    /* Fill out the decompressed color block */
++    dstColors = (unsigned char*)decompressedBlock;
++    for (i = 0; i < 4; ++i) {
++        for (j = 0; j < 4; ++j) {
++            idx = colorIndices & 0x03;
++            ((unsigned int*)dstColors)[j] = refColors[idx];
++            colorIndices >>= 2;
++        }
++
++        dstColors += destinationPitch;
++    }
++}
++
++static void bcdec__sharp_alpha_block(const void* compressedBlock, void* decompressedBlock, int destinationPitch) {
++    unsigned short alpha;
++    const unsigned char* alphaPtr;
++    unsigned char* decompressed;
++    int i, j;
++
++    alphaPtr = (const unsigned char*)compressedBlock;
++    decompressed = (unsigned char*)decompressedBlock;
++
++    for (i = 0; i < 4; ++i) {
++        alpha = bcdec__getu16le(alphaPtr);
++
++        for (j = 0; j < 4; ++j) {
++            decompressed[j * 4] = ((alpha >> (4 * j)) & 0x0F) * 17;
++        }
++
++        alphaPtr += 2;
++        decompressed += destinationPitch;
++    }
++}
++
++static void bcdec__smooth_alpha_block(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int pixelSize) {
++    unsigned char* decompressed;
++    unsigned char alpha[8];
++    int i, j;
++    unsigned long long block, indices;
++
++    block = bcdec__getu64le(compressedBlock);
++    decompressed = (unsigned char*)decompressedBlock;
++
++    alpha[0] = block & 0xFF;
++    alpha[1] = (block >> 8) & 0xFF;
++
++    if (alpha[0] > alpha[1]) {
++        /* 6 interpolated alpha values. */
++        alpha[2] = (6 * alpha[0] +     alpha[1]) / 7;   /* 6/7*alpha_0 + 1/7*alpha_1 */
++        alpha[3] = (5 * alpha[0] + 2 * alpha[1]) / 7;   /* 5/7*alpha_0 + 2/7*alpha_1 */
++        alpha[4] = (4 * alpha[0] + 3 * alpha[1]) / 7;   /* 4/7*alpha_0 + 3/7*alpha_1 */
++        alpha[5] = (3 * alpha[0] + 4 * alpha[1]) / 7;   /* 3/7*alpha_0 + 4/7*alpha_1 */
++        alpha[6] = (2 * alpha[0] + 5 * alpha[1]) / 7;   /* 2/7*alpha_0 + 5/7*alpha_1 */
++        alpha[7] = (    alpha[0] + 6 * alpha[1]) / 7;   /* 1/7*alpha_0 + 6/7*alpha_1 */
++    }
++    else {
++        /* 4 interpolated alpha values. */
++        alpha[2] = (4 * alpha[0] +     alpha[1]) / 5;   /* 4/5*alpha_0 + 1/5*alpha_1 */
++        alpha[3] = (3 * alpha[0] + 2 * alpha[1]) / 5;   /* 3/5*alpha_0 + 2/5*alpha_1 */
++        alpha[4] = (2 * alpha[0] + 3 * alpha[1]) / 5;   /* 2/5*alpha_0 + 3/5*alpha_1 */
++        alpha[5] = (    alpha[0] + 4 * alpha[1]) / 5;   /* 1/5*alpha_0 + 4/5*alpha_1 */
++        alpha[6] = 0x00;
++        alpha[7] = 0xFF;
++    }
++
++    indices = block >> 16;
++    for (i = 0; i < 4; ++i) {
++        for (j = 0; j < 4; ++j) {
++            decompressed[j * pixelSize] = alpha[indices & 0x07];
++            indices >>= 3;
++        }
++
++        decompressed += destinationPitch;
++    }
++}
++
++#ifdef BCDEC_BC4BC5_PRECISE
++static void bcdec__bc4_block(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int pixelSize, int isSigned) {
++    signed char* sblock;
++    unsigned char* ublock;
++    int alpha[8];
++    int i, j;
++    unsigned long long block, indices;
++
++    static int aWeights4[4] = { 13107, 26215, 39321, 52429 };
++    static int aWeights6[6] = { 9363, 18724, 28086, 37450, 46812, 56173 };
++
++    block = bcdec__getu64le(compressedBlock);
++
++    if (isSigned) {
++        alpha[0] = (char)(block & 0xFF);
++        alpha[1] = (char)((block >> 8) & 0xFF);
++        if (alpha[0] < -127) alpha[0] = -127;     /* -128 clamps to -127 */
++        if (alpha[1] < -127) alpha[1] = -127;     /* -128 clamps to -127 */
++    } else {
++        alpha[0] = block & 0xFF;
++        alpha[1] = (block >> 8) & 0xFF;
++    }
++
++    if (alpha[0] > alpha[1]) {
++        /* 6 interpolated alpha values. */
++        alpha[2] = (aWeights6[5] * alpha[0] + aWeights6[0] * alpha[1] + 32768) >> 16;   /* 6/7*alpha_0 + 1/7*alpha_1 */
++        alpha[3] = (aWeights6[4] * alpha[0] + aWeights6[1] * alpha[1] + 32768) >> 16;   /* 5/7*alpha_0 + 2/7*alpha_1 */
++        alpha[4] = (aWeights6[3] * alpha[0] + aWeights6[2] * alpha[1] + 32768) >> 16;   /* 4/7*alpha_0 + 3/7*alpha_1 */
++        alpha[5] = (aWeights6[2] * alpha[0] + aWeights6[3] * alpha[1] + 32768) >> 16;   /* 3/7*alpha_0 + 4/7*alpha_1 */
++        alpha[6] = (aWeights6[1] * alpha[0] + aWeights6[4] * alpha[1] + 32768) >> 16;   /* 2/7*alpha_0 + 5/7*alpha_1 */
++        alpha[7] = (aWeights6[0] * alpha[0] + aWeights6[5] * alpha[1] + 32768) >> 16;   /* 1/7*alpha_0 + 6/7*alpha_1 */
++    } else {
++        /* 4 interpolated alpha values. */
++        alpha[2] = (aWeights4[3] * alpha[0] + aWeights4[0] * alpha[1] + 32768) >> 16;   /* 4/5*alpha_0 + 1/5*alpha_1 */
++        alpha[3] = (aWeights4[2] * alpha[0] + aWeights4[1] * alpha[1] + 32768) >> 16;   /* 3/5*alpha_0 + 2/5*alpha_1 */
++        alpha[4] = (aWeights4[1] * alpha[0] + aWeights4[2] * alpha[1] + 32768) >> 16;   /* 2/5*alpha_0 + 3/5*alpha_1 */
++        alpha[5] = (aWeights4[0] * alpha[0] + aWeights4[3] * alpha[1] + 32768) >> 16;   /* 1/5*alpha_0 + 4/5*alpha_1 */
++        alpha[6] = isSigned ? -127 :   0;
++        alpha[7] = isSigned ?  127 : 255;
++    }
++
++    indices = block >> 16;
++    if (isSigned) {
++        sblock = (signed char*)decompressedBlock;
++        for (i = 0; i < 4; ++i) {
++            for (j = 0; j < 4; ++j) {
++                sblock[j * pixelSize] = (signed char)alpha[indices & 0x07];
++                indices >>= 3;
++            }
++            sblock += destinationPitch;
++        }
++    } else {
++        ublock = (unsigned char*)decompressedBlock;
++        for (i = 0; i < 4; ++i) {
++            for (j = 0; j < 4; ++j) {
++                ublock[j * pixelSize] = (unsigned char)alpha[indices & 0x07];
++                indices >>= 3;
++            }
++            ublock += destinationPitch;
++        }
++    }
++}
++
++static void bcdec__bc4_block_float(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int pixelSize, int isSigned) {
++    float* decompressed;
++    float alpha[8];
++    int i, j;
++    unsigned long long block, indices;
++
++    block = bcdec__getu64le(compressedBlock);
++    decompressed = (float*)decompressedBlock;
++
++    if (isSigned) {
++        alpha[0] = (float)((char)(block & 0xFF)) / 127.0f;
++        alpha[1] = (float)((char)((block >> 8) & 0xFF)) / 127.0f;
++        if (alpha[0] < -1.0f) alpha[0] = -1.0f;     /* -128 clamps to -127 */
++        if (alpha[1] < -1.0f) alpha[1] = -1.0f;     /* -128 clamps to -127 */
++    } else {
++        alpha[0] = (float)(block & 0xFF) / 255.0f;
++        alpha[1] = (float)((block >> 8) & 0xFF) / 255.0f;
++    }
++
++    if (alpha[0] > alpha[1]) {
++        /* 6 interpolated alpha values. */
++        alpha[2] = (6.0f * alpha[0] +        alpha[1]) / 7.0f;   /* 6/7*alpha_0 + 1/7*alpha_1 */
++        alpha[3] = (5.0f * alpha[0] + 2.0f * alpha[1]) / 7.0f;   /* 5/7*alpha_0 + 2/7*alpha_1 */
++        alpha[4] = (4.0f * alpha[0] + 3.0f * alpha[1]) / 7.0f;   /* 4/7*alpha_0 + 3/7*alpha_1 */
++        alpha[5] = (3.0f * alpha[0] + 4.0f * alpha[1]) / 7.0f;   /* 3/7*alpha_0 + 4/7*alpha_1 */
++        alpha[6] = (2.0f * alpha[0] + 5.0f * alpha[1]) / 7.0f;   /* 2/7*alpha_0 + 5/7*alpha_1 */
++        alpha[7] = (       alpha[0] + 6.0f * alpha[1]) / 7.0f;   /* 1/7*alpha_0 + 6/7*alpha_1 */
++    } else {
++        /* 4 interpolated alpha values. */
++        alpha[2] = (4.0f * alpha[0] +        alpha[1]) / 5.0f;   /* 4/5*alpha_0 + 1/5*alpha_1 */
++        alpha[3] = (3.0f * alpha[0] + 2.0f * alpha[1]) / 5.0f;   /* 3/5*alpha_0 + 2/5*alpha_1 */
++        alpha[4] = (2.0f * alpha[0] + 3.0f * alpha[1]) / 5.0f;   /* 2/5*alpha_0 + 3/5*alpha_1 */
++        alpha[5] = (       alpha[0] + 4.0f * alpha[1]) / 5.0f;   /* 1/5*alpha_0 + 4/5*alpha_1 */
++        alpha[6] = isSigned ? -1.0f : 0.0f;
++        alpha[7] = 1.0f;
++    }
++
++    indices = block >> 16;
++    for (i = 0; i < 4; ++i) {
++        for (j = 0; j < 4; ++j) {
++            decompressed[j * pixelSize] = alpha[indices & 0x07];
++            indices >>= 3;
++        }
++        decompressed += destinationPitch;
++    }
++}
++#endif /* BCDEC_BC4BC5_PRECISE */
++
++typedef struct bcdec__bitstream {
++    unsigned long long low;
++    unsigned long long high;
++} bcdec__bitstream_t;
++
++static int bcdec__bitstream_read_bits(bcdec__bitstream_t* bstream, int numBits) {
++    unsigned int mask = (1 << numBits) - 1;
++    /* Read the low N bits */
++    unsigned int bits = (bstream->low & mask);
++
++    bstream->low >>= numBits;
++    /* Put the low N bits of "high" into the high 64-N bits of "low". */
++    bstream->low |= (bstream->high & mask) << (sizeof(bstream->high) * 8 - numBits);
++    bstream->high >>= numBits;
++    
++    return bits;
++}
++
++static int bcdec__bitstream_read_bit(bcdec__bitstream_t* bstream) {
++    return bcdec__bitstream_read_bits(bstream, 1);
++}
++
++/*  reversed bits pulling, used in BC6H decoding
++    why ?? just why ??? */
++static int bcdec__bitstream_read_bits_r(bcdec__bitstream_t* bstream, int numBits) {
++    int bits = bcdec__bitstream_read_bits(bstream, numBits);
++    /* Reverse the bits. */
++    int result = 0;
++    while (numBits--) {
++        result <<= 1;
++        result |= (bits & 1);
++        bits >>= 1;
++    }
++    return result;
++}
++
++
++
++BCDECDEF void bcdec_bc1(const void* compressedBlock, void* decompressedBlock, int destinationPitch) {
++    bcdec__color_block(compressedBlock, decompressedBlock, destinationPitch, 0);
++}
++
++BCDECDEF void bcdec_bc2(const void* compressedBlock, void* decompressedBlock, int destinationPitch) {
++    bcdec__color_block(((char*)compressedBlock) + 8, decompressedBlock, destinationPitch, 1);
++    bcdec__sharp_alpha_block(compressedBlock, ((char*)decompressedBlock) + 3, destinationPitch);
++}
++
++BCDECDEF void bcdec_bc3(const void* compressedBlock, void* decompressedBlock, int destinationPitch) {
++    bcdec__color_block(((char*)compressedBlock) + 8, decompressedBlock, destinationPitch, 1);
++    bcdec__smooth_alpha_block(compressedBlock, ((char*)decompressedBlock) + 3, destinationPitch, 4);
++}
++
++#ifndef BCDEC_BC4BC5_PRECISE
++BCDECDEF void bcdec_bc4(const void* compressedBlock, void* decompressedBlock, int destinationPitch) {
++    bcdec__smooth_alpha_block(compressedBlock, decompressedBlock, destinationPitch, 1);
++#else
++BCDECDEF void bcdec_bc4(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned) {
++    bcdec__bc4_block(compressedBlock, decompressedBlock, destinationPitch, 1, isSigned);
++#endif
++}
++
++#ifndef BCDEC_BC4BC5_PRECISE
++BCDECDEF void bcdec_bc5(const void* compressedBlock, void* decompressedBlock, int destinationPitch) {
++    bcdec__smooth_alpha_block(compressedBlock, decompressedBlock, destinationPitch, 2);
++    bcdec__smooth_alpha_block(((char*)compressedBlock) + 8, ((char*)decompressedBlock) + 1, destinationPitch, 2);
++#else
++BCDECDEF void bcdec_bc5(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned) {
++    bcdec__bc4_block(compressedBlock, decompressedBlock, destinationPitch, 2, isSigned);
++    bcdec__bc4_block(((char*)compressedBlock) + 8, ((char*)decompressedBlock) + 1, destinationPitch, 2, isSigned);
++#endif
++}
++
++#ifdef BCDEC_BC4BC5_PRECISE
++BCDECDEF void bcdec_bc4_float(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned) {
++    bcdec__bc4_block_float(compressedBlock, decompressedBlock, destinationPitch, 1, isSigned);
++}
++
++BCDECDEF void bcdec_bc5_float(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned) {
++    bcdec__bc4_block_float(compressedBlock, decompressedBlock, destinationPitch, 2, isSigned);
++    bcdec__bc4_block_float(((char*)compressedBlock) + 8, ((float*)decompressedBlock) + 1, destinationPitch, 2, isSigned);
++}
++#endif /* BCDEC_BC4BC5_PRECISE */
++
++/* http://graphics.stanford.edu/~seander/bithacks.html#VariableSignExtend */
++static int bcdec__extend_sign(int val, int bits) {
++    return (val << (32 - bits)) >> (32 - bits);
++}
++
++static int bcdec__transform_inverse(int val, int a0, int bits, int isSigned) {
++    /* If the precision of A0 is "p" bits, then the transform algorithm is:
++       B0 = (B0 + A0) & ((1 << p) - 1) */
++    val = (val + a0) & ((1 << bits) - 1);
++    if (isSigned) {
++        val = bcdec__extend_sign(val, bits);
++    }
++    return val;
++}
++
++/* pretty much copy-paste from documentation */
++static int bcdec__unquantize(int val, int bits, int isSigned) {
++    int unq, s = 0;
++
++    if (!isSigned) {
++        if (bits >= 15) {
++            unq = val;
++        } else if (!val) {
++            unq = 0;
++        } else if (val == ((1 << bits) - 1)) {
++            unq = 0xFFFF;
++        } else {
++            unq = ((val << 16) + 0x8000) >> bits;
++        }
++    } else {
++        if (bits >= 16) {
++            unq = val;
++        } else {
++            if (val < 0) {
++                s = 1;
++                val = -val;
++            }
++
++            if (val == 0) {
++                unq = 0;
++            } else if (val >= ((1 << (bits - 1)) - 1)) {
++                unq = 0x7FFF;
++            } else {
++                unq = ((val << 15) + 0x4000) >> (bits - 1);
++            }
++
++            if (s) {
++                unq = -unq;
++            }
++        }
++    }
++    return unq;
++}
++
++static int bcdec__interpolate(int a, int b, int* weights, int index) {
++    return (a * (64 - weights[index]) + b * weights[index] + 32) >> 6;
++}
++
++static unsigned short bcdec__finish_unquantize(int val, int isSigned) {
++    int s;
++
++    if (!isSigned) {
++        return (unsigned short)((val * 31) >> 6);                   /* scale the magnitude by 31 / 64 */
++    } else {
++        val = (val < 0) ? -(((-val) * 31) >> 5) : (val * 31) >> 5;  /* scale the magnitude by 31 / 32 */
++        s = 0;
++        if (val < 0) {
++            s = 0x8000;
++            val = -val;
++        }
++        return (unsigned short)(s | val);
++    }
++}
++
++/* modified half_to_float_fast4 from https://gist.github.com/rygorous/2144712 */
++static float bcdec__half_to_float_quick(unsigned short half) {
++    typedef union {
++        unsigned int u;
++        float f;
++    } FP32;
++
++    static const FP32 magic = { 113 << 23 };
++    static const unsigned int shifted_exp = 0x7c00 << 13;   /* exponent mask after shift */
++    FP32 o;
++    unsigned int exp;
++
++    o.u = (half & 0x7fff) << 13;                            /* exponent/mantissa bits */
++    exp = shifted_exp & o.u;                                /* just the exponent */
++    o.u += (127 - 15) << 23;                                /* exponent adjust */
++
++    /* handle exponent special cases */
++    if (exp == shifted_exp) {                               /* Inf/NaN? */
++        o.u += (128 - 16) << 23;                            /* extra exp adjust */
++    } else if (exp == 0) {                                  /* Zero/Denormal? */
++        o.u += 1 << 23;                                     /* extra exp adjust */
++        o.f -= magic.f;                                     /* renormalize */
++    }
++
++    o.u |= (half & 0x8000) << 16;                           /* sign bit */
++    return o.f;
++}
++
++BCDECDEF void bcdec_bc6h_half(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned) {
++    static char actual_bits_count[4][14] = {
++        { 10, 7, 11, 11, 11, 9, 8, 8, 8, 6, 10, 11, 12, 16 },   /*  W */
++        {  5, 6,  5,  4,  4, 5, 6, 5, 5, 6, 10,  9,  8,  4 },   /* dR */
++        {  5, 6,  4,  5,  4, 5, 5, 6, 5, 6, 10,  9,  8,  4 },   /* dG */
++        {  5, 6,  4,  4,  5, 5, 5, 5, 6, 6, 10,  9,  8,  4 }    /* dB */
++    };
++
++    /* There are 32 possible partition sets for a two-region tile.
++       Each 4x4 block represents a single shape.
++       Here also every fix-up index has MSB bit set. */
++    static unsigned char partition_sets[32][4][4] = {
++        { {128, 0,   1, 1}, {0, 0, 1, 1}, {  0, 0, 1, 1}, {0, 0, 1, 129} },   /*  0 */
++        { {128, 0,   0, 1}, {0, 0, 0, 1}, {  0, 0, 0, 1}, {0, 0, 0, 129} },   /*  1 */
++        { {128, 1,   1, 1}, {0, 1, 1, 1}, {  0, 1, 1, 1}, {0, 1, 1, 129} },   /*  2 */
++        { {128, 0,   0, 1}, {0, 0, 1, 1}, {  0, 0, 1, 1}, {0, 1, 1, 129} },   /*  3 */
++        { {128, 0,   0, 0}, {0, 0, 0, 1}, {  0, 0, 0, 1}, {0, 0, 1, 129} },   /*  4 */
++        { {128, 0,   1, 1}, {0, 1, 1, 1}, {  0, 1, 1, 1}, {1, 1, 1, 129} },   /*  5 */
++        { {128, 0,   0, 1}, {0, 0, 1, 1}, {  0, 1, 1, 1}, {1, 1, 1, 129} },   /*  6 */
++        { {128, 0,   0, 0}, {0, 0, 0, 1}, {  0, 0, 1, 1}, {0, 1, 1, 129} },   /*  7 */
++        { {128, 0,   0, 0}, {0, 0, 0, 0}, {  0, 0, 0, 1}, {0, 0, 1, 129} },   /*  8 */
++        { {128, 0,   1, 1}, {0, 1, 1, 1}, {  1, 1, 1, 1}, {1, 1, 1, 129} },   /*  9 */
++        { {128, 0,   0, 0}, {0, 0, 0, 1}, {  0, 1, 1, 1}, {1, 1, 1, 129} },   /* 10 */
++        { {128, 0,   0, 0}, {0, 0, 0, 0}, {  0, 0, 0, 1}, {0, 1, 1, 129} },   /* 11 */
++        { {128, 0,   0, 1}, {0, 1, 1, 1}, {  1, 1, 1, 1}, {1, 1, 1, 129} },   /* 12 */
++        { {128, 0,   0, 0}, {0, 0, 0, 0}, {  1, 1, 1, 1}, {1, 1, 1, 129} },   /* 13 */
++        { {128, 0,   0, 0}, {1, 1, 1, 1}, {  1, 1, 1, 1}, {1, 1, 1, 129} },   /* 14 */
++        { {128, 0,   0, 0}, {0, 0, 0, 0}, {  0, 0, 0, 0}, {1, 1, 1, 129} },   /* 15 */
++        { {128, 0,   0, 0}, {1, 0, 0, 0}, {  1, 1, 1, 0}, {1, 1, 1, 129} },   /* 16 */
++        { {128, 1, 129, 1}, {0, 0, 0, 1}, {  0, 0, 0, 0}, {0, 0, 0,   0} },   /* 17 */
++        { {128, 0,   0, 0}, {0, 0, 0, 0}, {129, 0, 0, 0}, {1, 1, 1,   0} },   /* 18 */
++        { {128, 1, 129, 1}, {0, 0, 1, 1}, {  0, 0, 0, 1}, {0, 0, 0,   0} },   /* 19 */
++        { {128, 0, 129, 1}, {0, 0, 0, 1}, {  0, 0, 0, 0}, {0, 0, 0,   0} },   /* 20 */
++        { {128, 0,   0, 0}, {1, 0, 0, 0}, {129, 1, 0, 0}, {1, 1, 1,   0} },   /* 21 */
++        { {128, 0,   0, 0}, {0, 0, 0, 0}, {129, 0, 0, 0}, {1, 1, 0,   0} },   /* 22 */
++        { {128, 1,   1, 1}, {0, 0, 1, 1}, {  0, 0, 1, 1}, {0, 0, 0, 129} },   /* 23 */
++        { {128, 0, 129, 1}, {0, 0, 0, 1}, {  0, 0, 0, 1}, {0, 0, 0,   0} },   /* 24 */
++        { {128, 0,   0, 0}, {1, 0, 0, 0}, {129, 0, 0, 0}, {1, 1, 0,   0} },   /* 25 */
++        { {128, 1, 129, 0}, {0, 1, 1, 0}, {  0, 1, 1, 0}, {0, 1, 1,   0} },   /* 26 */
++        { {128, 0, 129, 1}, {0, 1, 1, 0}, {  0, 1, 1, 0}, {1, 1, 0,   0} },   /* 27 */
++        { {128, 0,   0, 1}, {0, 1, 1, 1}, {129, 1, 1, 0}, {1, 0, 0,   0} },   /* 28 */
++        { {128, 0,   0, 0}, {1, 1, 1, 1}, {129, 1, 1, 1}, {0, 0, 0,   0} },   /* 29 */
++        { {128, 1, 129, 1}, {0, 0, 0, 1}, {  1, 0, 0, 0}, {1, 1, 1,   0} },   /* 30 */
++        { {128, 0, 129, 1}, {1, 0, 0, 1}, {  1, 0, 0, 1}, {1, 1, 0,   0} }    /* 31 */
++    };
++
++    static int aWeight3[8] = { 0, 9, 18, 27, 37, 46, 55, 64 };
++    static int aWeight4[16] = { 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64 };
++
++    bcdec__bitstream_t bstream;
++    int mode, partition, numPartitions, i, j, partitionSet, indexBits, index, ep_i, actualBits0Mode;
++    int r[4], g[4], b[4];       /* wxyz */
++    unsigned short* decompressed;
++    int* weights;
++
++    decompressed = (unsigned short*)decompressedBlock;
++
++    bstream.low = bcdec__getu64le(compressedBlock);
++    bstream.high = bcdec__getu64le((const unsigned char*)compressedBlock + 8);
++
++    r[0] = r[1] = r[2] = r[3] = 0;
++    g[0] = g[1] = g[2] = g[3] = 0;
++    b[0] = b[1] = b[2] = b[3] = 0;
++
++    mode = bcdec__bitstream_read_bits(&bstream, 2);
++    if (mode > 1) {
++        mode |= (bcdec__bitstream_read_bits(&bstream, 3) << 2);
++    }
++
++    /* modes >= 11 (10 in my code) are using 0 one, others will read it from the bitstream */
++    partition = 0;
++
++    switch (mode) {
++        /* mode 1 */
++        case 0b00: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 75 bits (10.555, 10.555, 10.555) */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gy[4]   */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* by[4]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* bz[4]   */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* rw[9:0] */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* gw[9:0] */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* bw[9:0] */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* rx[4:0] */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gz[4]   */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* gx[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gz[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* bx[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 5);        /* ry[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 5);        /* rz[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 0;
++        } break;
++
++        /* mode 2 */
++        case 0b01: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 75 bits (7666, 7666, 7666) */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* gy[5]   */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gz[4]   */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* gz[5]   */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 7);        /* rw[6:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* by[4]   */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 7);        /* gw[6:0] */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* by[5]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gy[4]   */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 7);        /* bw[6:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* bz[5]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* bz[4]   */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 6);        /* rx[5:0] */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 6);        /* gx[5:0] */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gz[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 6);        /* bx[5:0] */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 6);        /* ry[5:0] */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 6);        /* rz[5:0] */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 1;
++        } break;
++
++        /* mode 3 */
++        case 0b00010: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 72 bits (11.555, 11.444, 11.444) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* rw[9:0] */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* gw[9:0] */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* bw[9:0] */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* rx[4:0] */
++            r[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* rw[10]  */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gx[3:0] */
++            g[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* gw[10]  */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gz[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 4);        /* bx[3:0] */
++            b[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* bw[10]  */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 5);        /* ry[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 5);        /* rz[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 2;
++        } break;
++
++        /* mode 4 */
++        case 0b00110: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 72 bits (11.444, 11.555, 11.444) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* rw[9:0] */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* gw[9:0] */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* bw[9:0] */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 4);        /* rx[3:0] */
++            r[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* rw[10]  */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gz[4]   */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* gx[4:0] */
++            g[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* gw[10]  */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gz[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 4);        /* bx[3:0] */
++            b[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* bw[10]  */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* ry[3:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* rz[3:0] */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gy[4]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 3;
++        } break;
++
++        /* mode 5 */
++        case 0b01010: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 72 bits (11.444, 11.444, 11.555) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* rw[9:0] */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* gw[9:0] */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* bw[9:0] */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 4);        /* rx[3:0] */
++            r[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* rw[10]  */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* by[4]   */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gx[3:0] */
++            g[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* gw[10]  */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gz[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* bx[4:0] */
++            b[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* bw[10]  */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* ry[3:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* rz[3:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* bz[4]   */ 
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 4;
++        } break;
++
++        /* mode 6 */
++        case 0b01110: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 72 bits (9555, 9555, 9555) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 9);        /* rw[8:0] */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* by[4]   */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 9);        /* gw[8:0] */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gy[4]   */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 9);        /* bw[8:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* bz[4]   */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* rx[4:0] */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gz[4]   */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* gx[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gx[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* bx[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 5);        /* ry[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 5);        /* rz[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 5;
++        } break;
++
++        /* mode 7 */
++        case 0b10010: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 72 bits (8666, 8555, 8555) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 8);        /* rw[7:0] */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gz[4]   */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* by[4]   */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 8);        /* gw[7:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gy[4]   */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 8);        /* bw[7:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* bz[4]   */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 6);        /* rx[5:0] */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* gx[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gz[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* bx[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 6);        /* ry[5:0] */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 6);        /* rz[5:0] */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 6;
++        } break;
++
++        /* mode 8 */
++        case 0b10110: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 72 bits (8555, 8666, 8555) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 8);        /* rw[7:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* by[4]   */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 8);        /* gw[7:0] */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* gy[5]   */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gy[4]   */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 8);        /* bw[7:0] */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* gz[5]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* bz[4]   */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* rx[4:0] */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gz[4]   */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 6);        /* gx[5:0] */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* zx[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* bx[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 5);        /* ry[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 5);        /* rz[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 7;
++        } break;
++
++        /* mode 9 */
++        case 0b11010: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 72 bits (8555, 8555, 8666) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 8);        /* rw[7:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* by[4]   */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 8);        /* gw[7:0] */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* by[5]   */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gy[4]   */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 8);        /* bw[7:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* bz[5]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* bz[4]   */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* bw[4:0] */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gz[4]   */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 5);        /* gx[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gz[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 6);        /* bx[5:0] */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 5);        /* ry[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 5);        /* rz[4:0] */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 8;
++        } break;
++
++        /* mode 10 */
++        case 0b11110: {
++            /* Partitition indices: 46 bits
++               Partition: 5 bits
++               Color Endpoints: 72 bits (6666, 6666, 6666) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 6);        /* rw[5:0] */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gz[4]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream);            /* bz[0]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 1;       /* bz[1]   */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* by[4]   */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 6);        /* gw[5:0] */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* gy[5]   */
++            b[2] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* by[5]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 2;       /* bz[2]   */
++            g[2] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* gy[4]   */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 6);        /* bw[5:0] */
++            g[3] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* gz[5]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 3;       /* bz[3]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 5;       /* bz[5]   */
++            b[3] |= bcdec__bitstream_read_bit(&bstream) << 4;       /* bz[4]   */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 6);        /* rx[5:0] */
++            g[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gy[3:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 6);        /* gx[5:0] */
++            g[3] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gz[3:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 6);        /* bx[5:0] */
++            b[2] |= bcdec__bitstream_read_bits(&bstream, 4);        /* by[3:0] */
++            r[2] |= bcdec__bitstream_read_bits(&bstream, 6);        /* ry[5:0] */
++            r[3] |= bcdec__bitstream_read_bits(&bstream, 6);        /* rz[5:0] */
++            partition = bcdec__bitstream_read_bits(&bstream, 5);    /* d[4:0]  */
++            mode = 9;
++        } break;
++
++        /* mode 11 */
++        case 0b00011: {
++            /* Partitition indices: 63 bits
++               Partition: 0 bits
++               Color Endpoints: 60 bits (10.10, 10.10, 10.10) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* rw[9:0] */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* gw[9:0] */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* bw[9:0] */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 10);       /* rx[9:0] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 10);       /* gx[9:0] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 10);       /* bx[9:0] */
++            mode = 10;
++        } break;
++
++        /* mode 12 */
++        case 0b00111: {
++            /* Partitition indices: 63 bits
++               Partition: 0 bits
++               Color Endpoints: 60 bits (11.9, 11.9, 11.9) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* rw[9:0] */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* gw[9:0] */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* bw[9:0] */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 9);        /* rx[8:0] */
++            r[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* rw[10]  */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 9);        /* gx[8:0] */
++            g[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* gw[10]  */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 9);        /* bx[8:0] */
++            b[0] |= bcdec__bitstream_read_bit(&bstream) << 10;      /* bw[10]  */
++            mode = 11;
++        } break;
++
++        /* mode 13 */
++        case 0b01011: {
++            /* Partitition indices: 63 bits
++               Partition: 0 bits
++               Color Endpoints: 60 bits (12.8, 12.8, 12.8) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* rw[9:0] */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* gw[9:0] */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* bw[9:0] */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 8);        /* rx[7:0] */
++            r[0] |= bcdec__bitstream_read_bits_r(&bstream, 2) << 10;/* rx[10:11] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 8);        /* gx[7:0] */
++            g[0] |= bcdec__bitstream_read_bits_r(&bstream, 2) << 10;/* gx[10:11] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 8);        /* bx[7:0] */
++            b[0] |= bcdec__bitstream_read_bits_r(&bstream, 2) << 10;/* bx[10:11] */
++            mode = 12;
++        } break;
++
++        /* mode 14 */
++        case 0b01111: {
++            /* Partitition indices: 63 bits
++               Partition: 0 bits
++               Color Endpoints: 60 bits (16.4, 16.4, 16.4) */
++            r[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* rw[9:0] */
++            g[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* gw[9:0] */
++            b[0] |= bcdec__bitstream_read_bits(&bstream, 10);       /* bw[9:0] */
++            r[1] |= bcdec__bitstream_read_bits(&bstream, 4);        /* rx[3:0] */
++            r[0] |= bcdec__bitstream_read_bits_r(&bstream, 6) << 10;/* rw[10:15] */
++            g[1] |= bcdec__bitstream_read_bits(&bstream, 4);        /* gx[3:0] */
++            g[0] |= bcdec__bitstream_read_bits_r(&bstream, 6) << 10;/* gw[10:15] */
++            b[1] |= bcdec__bitstream_read_bits(&bstream, 4);        /* bx[3:0] */
++            b[0] |= bcdec__bitstream_read_bits_r(&bstream, 6) << 10;/* bw[10:15] */
++            mode = 13;
++        } break;
++
++        default: {
++            /* Modes 10011, 10111, 11011, and 11111 (not shown) are reserved.
++               Do not use these in your encoder. If the hardware is passed blocks
++               with one of these modes specified, the resulting decompressed block
++               must contain all zeroes in all channels except for the alpha channel. */
++            for (i = 0; i < 4; ++i) {
++                for (j = 0; j < 4; ++j) {
++                    decompressed[j * 3 + 0] = 0;
++                    decompressed[j * 3 + 1] = 0;
++                    decompressed[j * 3 + 2] = 0;
++                }
++                decompressed += destinationPitch;
++            }
++
++            return;
++        }
++    }
++
++    numPartitions = (mode >= 10) ? 0 : 1;
++
++    actualBits0Mode = actual_bits_count[0][mode];
++    if (isSigned) {
++        r[0] = bcdec__extend_sign(r[0], actualBits0Mode);
++        g[0] = bcdec__extend_sign(g[0], actualBits0Mode);
++        b[0] = bcdec__extend_sign(b[0], actualBits0Mode);
++    }
++
++    /* Mode 11 (like Mode 10) does not use delta compression,
++       and instead stores both color endpoints explicitly.  */
++    if ((mode != 9 && mode != 10) || isSigned) {
++        for (i = 1; i < (numPartitions + 1) * 2; ++i) {
++            r[i] = bcdec__extend_sign(r[i], actual_bits_count[1][mode]);
++            g[i] = bcdec__extend_sign(g[i], actual_bits_count[2][mode]);
++            b[i] = bcdec__extend_sign(b[i], actual_bits_count[3][mode]);
++        }
++    }
++
++    if (mode != 9 && mode != 10) {
++        for (i = 1; i < (numPartitions + 1) * 2; ++i) {
++            r[i] = bcdec__transform_inverse(r[i], r[0], actualBits0Mode, isSigned);
++            g[i] = bcdec__transform_inverse(g[i], g[0], actualBits0Mode, isSigned);
++            b[i] = bcdec__transform_inverse(b[i], b[0], actualBits0Mode, isSigned);
++        }
++    }
++
++    for (i = 0; i < (numPartitions + 1) * 2; ++i) {
++        r[i] = bcdec__unquantize(r[i], actualBits0Mode, isSigned);
++        g[i] = bcdec__unquantize(g[i], actualBits0Mode, isSigned);
++        b[i] = bcdec__unquantize(b[i], actualBits0Mode, isSigned);
++    }
++
++    weights = (mode >= 10) ? aWeight4 : aWeight3;
++    for (i = 0; i < 4; ++i) {
++        for (j = 0; j < 4; ++j) {
++            partitionSet = (mode >= 10) ? ((i|j) ? 0 : 128) : partition_sets[partition][i][j];
++
++            indexBits = (mode >= 10) ? 4 : 3;
++            /* fix-up index is specified with one less bit */
++            /* The fix-up index for subset 0 is always index 0 */
++            if (partitionSet & 0x80) {
++                indexBits--;
++            }
++            partitionSet &= 0x01;
++
++            index = bcdec__bitstream_read_bits(&bstream, indexBits);
++
++            ep_i = partitionSet * 2;
++            decompressed[j * 3 + 0] = bcdec__finish_unquantize(
++                                            bcdec__interpolate(r[ep_i], r[ep_i+1], weights, index), isSigned);
++            decompressed[j * 3 + 1] = bcdec__finish_unquantize(
++                                            bcdec__interpolate(g[ep_i], g[ep_i+1], weights, index), isSigned);
++            decompressed[j * 3 + 2] = bcdec__finish_unquantize(
++                                            bcdec__interpolate(b[ep_i], b[ep_i+1], weights, index), isSigned);
++        }
++
++        decompressed += destinationPitch;
++    }
++}
++
++BCDECDEF void bcdec_bc6h_float(const void* compressedBlock, void* decompressedBlock, int destinationPitch, int isSigned) {
++    unsigned short block[16*3];
++    float* decompressed;
++    const unsigned short* b;
++    int i, j;
++
++    bcdec_bc6h_half(compressedBlock, block, 4*3, isSigned);
++    b = block;
++    decompressed = (float*)decompressedBlock;
++    for (i = 0; i < 4; ++i) {
++        for (j = 0; j < 4; ++j) {
++            decompressed[j * 3 + 0] = bcdec__half_to_float_quick(*b++);
++            decompressed[j * 3 + 1] = bcdec__half_to_float_quick(*b++);
++            decompressed[j * 3 + 2] = bcdec__half_to_float_quick(*b++);
++        }
++        decompressed += destinationPitch;
++    }
++}
++
++static void bcdec__swap_values(int* a, int* b) {
++    a[0] ^= b[0], b[0] ^= a[0], a[0] ^= b[0];
++}
++
++BCDECDEF void bcdec_bc7(const void* compressedBlock, void* decompressedBlock, int destinationPitch) {
++    static char actual_bits_count[2][8] = {
++        { 4, 6, 5, 7, 5, 7, 7, 5 },     /* RGBA  */
++        { 0, 0, 0, 0, 6, 8, 7, 5 },     /* Alpha */
++    };
++
++    /* There are 64 possible partition sets for a two-region tile.
++       Each 4x4 block represents a single shape.
++       Here also every fix-up index has MSB bit set. */
++    static unsigned char partition_sets[2][64][4][4] = {
++        {   /* Partition table for 2-subset BPTC */
++            { {128, 0,   1, 1}, {0, 0,   1, 1}, {  0, 0, 1, 1}, {0, 0, 1, 129} }, /*  0 */
++            { {128, 0,   0, 1}, {0, 0,   0, 1}, {  0, 0, 0, 1}, {0, 0, 0, 129} }, /*  1 */
++            { {128, 1,   1, 1}, {0, 1,   1, 1}, {  0, 1, 1, 1}, {0, 1, 1, 129} }, /*  2 */
++            { {128, 0,   0, 1}, {0, 0,   1, 1}, {  0, 0, 1, 1}, {0, 1, 1, 129} }, /*  3 */
++            { {128, 0,   0, 0}, {0, 0,   0, 1}, {  0, 0, 0, 1}, {0, 0, 1, 129} }, /*  4 */
++            { {128, 0,   1, 1}, {0, 1,   1, 1}, {  0, 1, 1, 1}, {1, 1, 1, 129} }, /*  5 */
++            { {128, 0,   0, 1}, {0, 0,   1, 1}, {  0, 1, 1, 1}, {1, 1, 1, 129} }, /*  6 */
++            { {128, 0,   0, 0}, {0, 0,   0, 1}, {  0, 0, 1, 1}, {0, 1, 1, 129} }, /*  7 */
++            { {128, 0,   0, 0}, {0, 0,   0, 0}, {  0, 0, 0, 1}, {0, 0, 1, 129} }, /*  8 */
++            { {128, 0,   1, 1}, {0, 1,   1, 1}, {  1, 1, 1, 1}, {1, 1, 1, 129} }, /*  9 */
++            { {128, 0,   0, 0}, {0, 0,   0, 1}, {  0, 1, 1, 1}, {1, 1, 1, 129} }, /* 10 */
++            { {128, 0,   0, 0}, {0, 0,   0, 0}, {  0, 0, 0, 1}, {0, 1, 1, 129} }, /* 11 */
++            { {128, 0,   0, 1}, {0, 1,   1, 1}, {  1, 1, 1, 1}, {1, 1, 1, 129} }, /* 12 */
++            { {128, 0,   0, 0}, {0, 0,   0, 0}, {  1, 1, 1, 1}, {1, 1, 1, 129} }, /* 13 */
++            { {128, 0,   0, 0}, {1, 1,   1, 1}, {  1, 1, 1, 1}, {1, 1, 1, 129} }, /* 14 */
++            { {128, 0,   0, 0}, {0, 0,   0, 0}, {  0, 0, 0, 0}, {1, 1, 1, 129} }, /* 15 */
++            { {128, 0,   0, 0}, {1, 0,   0, 0}, {  1, 1, 1, 0}, {1, 1, 1, 129} }, /* 16 */
++            { {128, 1, 129, 1}, {0, 0,   0, 1}, {  0, 0, 0, 0}, {0, 0, 0,   0} }, /* 17 */
++            { {128, 0,   0, 0}, {0, 0,   0, 0}, {129, 0, 0, 0}, {1, 1, 1,   0} }, /* 18 */
++            { {128, 1, 129, 1}, {0, 0,   1, 1}, {  0, 0, 0, 1}, {0, 0, 0,   0} }, /* 19 */
++            { {128, 0, 129, 1}, {0, 0,   0, 1}, {  0, 0, 0, 0}, {0, 0, 0,   0} }, /* 20 */
++            { {128, 0,   0, 0}, {1, 0,   0, 0}, {129, 1, 0, 0}, {1, 1, 1,   0} }, /* 21 */
++            { {128, 0,   0, 0}, {0, 0,   0, 0}, {129, 0, 0, 0}, {1, 1, 0,   0} }, /* 22 */
++            { {128, 1,   1, 1}, {0, 0,   1, 1}, {  0, 0, 1, 1}, {0, 0, 0, 129} }, /* 23 */
++            { {128, 0, 129, 1}, {0, 0,   0, 1}, {  0, 0, 0, 1}, {0, 0, 0,   0} }, /* 24 */
++            { {128, 0,   0, 0}, {1, 0,   0, 0}, {129, 0, 0, 0}, {1, 1, 0,   0} }, /* 25 */
++            { {128, 1, 129, 0}, {0, 1,   1, 0}, {  0, 1, 1, 0}, {0, 1, 1,   0} }, /* 26 */
++            { {128, 0, 129, 1}, {0, 1,   1, 0}, {  0, 1, 1, 0}, {1, 1, 0,   0} }, /* 27 */
++            { {128, 0,   0, 1}, {0, 1,   1, 1}, {129, 1, 1, 0}, {1, 0, 0,   0} }, /* 28 */
++            { {128, 0,   0, 0}, {1, 1,   1, 1}, {129, 1, 1, 1}, {0, 0, 0,   0} }, /* 29 */
++            { {128, 1, 129, 1}, {0, 0,   0, 1}, {  1, 0, 0, 0}, {1, 1, 1,   0} }, /* 30 */
++            { {128, 0, 129, 1}, {1, 0,   0, 1}, {  1, 0, 0, 1}, {1, 1, 0,   0} }, /* 31 */
++            { {128, 1,   0, 1}, {0, 1,   0, 1}, {  0, 1, 0, 1}, {0, 1, 0, 129} }, /* 32 */
++            { {128, 0,   0, 0}, {1, 1,   1, 1}, {  0, 0, 0, 0}, {1, 1, 1, 129} }, /* 33 */
++            { {128, 1,   0, 1}, {1, 0, 129, 0}, {  0, 1, 0, 1}, {1, 0, 1,   0} }, /* 34 */
++            { {128, 0,   1, 1}, {0, 0,   1, 1}, {129, 1, 0, 0}, {1, 1, 0,   0} }, /* 35 */
++            { {128, 0, 129, 1}, {1, 1,   0, 0}, {  0, 0, 1, 1}, {1, 1, 0,   0} }, /* 36 */
++            { {128, 1,   0, 1}, {0, 1,   0, 1}, {129, 0, 1, 0}, {1, 0, 1,   0} }, /* 37 */
++            { {128, 1,   1, 0}, {1, 0,   0, 1}, {  0, 1, 1, 0}, {1, 0, 0, 129} }, /* 38 */
++            { {128, 1,   0, 1}, {1, 0,   1, 0}, {  1, 0, 1, 0}, {0, 1, 0, 129} }, /* 39 */
++            { {128, 1, 129, 1}, {0, 0,   1, 1}, {  1, 1, 0, 0}, {1, 1, 1,   0} }, /* 40 */
++            { {128, 0,   0, 1}, {0, 0,   1, 1}, {129, 1, 0, 0}, {1, 0, 0,   0} }, /* 41 */
++            { {128, 0, 129, 1}, {0, 0,   1, 0}, {  0, 1, 0, 0}, {1, 1, 0,   0} }, /* 42 */
++            { {128, 0, 129, 1}, {1, 0,   1, 1}, {  1, 1, 0, 1}, {1, 1, 0,   0} }, /* 43 */
++            { {128, 1, 129, 0}, {1, 0,   0, 1}, {  1, 0, 0, 1}, {0, 1, 1,   0} }, /* 44 */
++            { {128, 0,   1, 1}, {1, 1,   0, 0}, {  1, 1, 0, 0}, {0, 0, 1, 129} }, /* 45 */
++            { {128, 1,   1, 0}, {0, 1,   1, 0}, {  1, 0, 0, 1}, {1, 0, 0, 129} }, /* 46 */
++            { {128, 0,   0, 0}, {0, 1, 129, 0}, {  0, 1, 1, 0}, {0, 0, 0,   0} }, /* 47 */
++            { {128, 1,   0, 0}, {1, 1, 129, 0}, {  0, 1, 0, 0}, {0, 0, 0,   0} }, /* 48 */
++            { {128, 0, 129, 0}, {0, 1,   1, 1}, {  0, 0, 1, 0}, {0, 0, 0,   0} }, /* 49 */
++            { {128, 0,   0, 0}, {0, 0, 129, 0}, {  0, 1, 1, 1}, {0, 0, 1,   0} }, /* 50 */
++            { {128, 0,   0, 0}, {0, 1,   0, 0}, {129, 1, 1, 0}, {0, 1, 0,   0} }, /* 51 */
++            { {128, 1,   1, 0}, {1, 1,   0, 0}, {  1, 0, 0, 1}, {0, 0, 1, 129} }, /* 52 */
++            { {128, 0,   1, 1}, {0, 1,   1, 0}, {  1, 1, 0, 0}, {1, 0, 0, 129} }, /* 53 */
++            { {128, 1, 129, 0}, {0, 0,   1, 1}, {  1, 0, 0, 1}, {1, 1, 0,   0} }, /* 54 */
++            { {128, 0, 129, 1}, {1, 0,   0, 1}, {  1, 1, 0, 0}, {0, 1, 1,   0} }, /* 55 */
++            { {128, 1,   1, 0}, {1, 1,   0, 0}, {  1, 1, 0, 0}, {1, 0, 0, 129} }, /* 56 */
++            { {128, 1,   1, 0}, {0, 0,   1, 1}, {  0, 0, 1, 1}, {1, 0, 0, 129} }, /* 57 */
++            { {128, 1,   1, 1}, {1, 1,   1, 0}, {  1, 0, 0, 0}, {0, 0, 0, 129} }, /* 58 */
++            { {128, 0,   0, 1}, {1, 0,   0, 0}, {  1, 1, 1, 0}, {0, 1, 1, 129} }, /* 59 */
++            { {128, 0,   0, 0}, {1, 1,   1, 1}, {  0, 0, 1, 1}, {0, 0, 1, 129} }, /* 60 */
++            { {128, 0, 129, 1}, {0, 0,   1, 1}, {  1, 1, 1, 1}, {0, 0, 0,   0} }, /* 61 */
++            { {128, 0, 129, 0}, {0, 0,   1, 0}, {  1, 1, 1, 0}, {1, 1, 1,   0} }, /* 62 */
++            { {128, 1,   0, 0}, {0, 1,   0, 0}, {  0, 1, 1, 1}, {0, 1, 1, 129} }  /* 63 */
++        },
++        {   /* Partition table for 3-subset BPTC */
++            { {128, 0, 1, 129}, {0,   0,   1, 1}, {  0,   2,   2, 1}, {  2,   2, 2, 130} }, /*  0 */
++            { {128, 0, 0, 129}, {0,   0,   1, 1}, {130,   2,   1, 1}, {  2,   2, 2,   1} }, /*  1 */
++            { {128, 0, 0,   0}, {2,   0,   0, 1}, {130,   2,   1, 1}, {  2,   2, 1, 129} }, /*  2 */
++            { {128, 2, 2, 130}, {0,   0,   2, 2}, {  0,   0,   1, 1}, {  0,   1, 1, 129} }, /*  3 */
++            { {128, 0, 0,   0}, {0,   0,   0, 0}, {129,   1,   2, 2}, {  1,   1, 2, 130} }, /*  4 */
++            { {128, 0, 1, 129}, {0,   0,   1, 1}, {  0,   0,   2, 2}, {  0,   0, 2, 130} }, /*  5 */
++            { {128, 0, 2, 130}, {0,   0,   2, 2}, {  1,   1,   1, 1}, {  1,   1, 1, 129} }, /*  6 */
++            { {128, 0, 1,   1}, {0,   0,   1, 1}, {130,   2,   1, 1}, {  2,   2, 1, 129} }, /*  7 */
++            { {128, 0, 0,   0}, {0,   0,   0, 0}, {129,   1,   1, 1}, {  2,   2, 2, 130} }, /*  8 */
++            { {128, 0, 0,   0}, {1,   1,   1, 1}, {129,   1,   1, 1}, {  2,   2, 2, 130} }, /*  9 */
++            { {128, 0, 0,   0}, {1,   1, 129, 1}, {  2,   2,   2, 2}, {  2,   2, 2, 130} }, /* 10 */
++            { {128, 0, 1,   2}, {0,   0, 129, 2}, {  0,   0,   1, 2}, {  0,   0, 1, 130} }, /* 11 */
++            { {128, 1, 1,   2}, {0,   1, 129, 2}, {  0,   1,   1, 2}, {  0,   1, 1, 130} }, /* 12 */
++            { {128, 1, 2,   2}, {0, 129,   2, 2}, {  0,   1,   2, 2}, {  0,   1, 2, 130} }, /* 13 */
++            { {128, 0, 1, 129}, {0,   1,   1, 2}, {  1,   1,   2, 2}, {  1,   2, 2, 130} }, /* 14 */
++            { {128, 0, 1, 129}, {2,   0,   0, 1}, {130,   2,   0, 0}, {  2,   2, 2,   0} }, /* 15 */
++            { {128, 0, 0, 129}, {0,   0,   1, 1}, {  0,   1,   1, 2}, {  1,   1, 2, 130} }, /* 16 */
++            { {128, 1, 1, 129}, {0,   0,   1, 1}, {130,   0,   0, 1}, {  2,   2, 0,   0} }, /* 17 */
++            { {128, 0, 0,   0}, {1,   1,   2, 2}, {129,   1,   2, 2}, {  1,   1, 2, 130} }, /* 18 */
++            { {128, 0, 2, 130}, {0,   0,   2, 2}, {  0,   0,   2, 2}, {  1,   1, 1, 129} }, /* 19 */
++            { {128, 1, 1, 129}, {0,   1,   1, 1}, {  0,   2,   2, 2}, {  0,   2, 2, 130} }, /* 20 */
++            { {128, 0, 0, 129}, {0,   0,   0, 1}, {130,   2,   2, 1}, {  2,   2, 2,   1} }, /* 21 */
++            { {128, 0, 0,   0}, {0,   0, 129, 1}, {  0,   1,   2, 2}, {  0,   1, 2, 130} }, /* 22 */
++            { {128, 0, 0,   0}, {1,   1,   0, 0}, {130,   2, 129, 0}, {  2,   2, 1,   0} }, /* 23 */
++            { {128, 1, 2, 130}, {0, 129,   2, 2}, {  0,   0,   1, 1}, {  0,   0, 0,   0} }, /* 24 */
++            { {128, 0, 1,   2}, {0,   0,   1, 2}, {129,   1,   2, 2}, {  2,   2, 2, 130} }, /* 25 */
++            { {128, 1, 1,   0}, {1,   2, 130, 1}, {129,   2,   2, 1}, {  0,   1, 1,   0} }, /* 26 */
++            { {128, 0, 0,   0}, {0,   1, 129, 0}, {  1,   2, 130, 1}, {  1,   2, 2,   1} }, /* 27 */
++            { {128, 0, 2,   2}, {1,   1,   0, 2}, {129,   1,   0, 2}, {  0,   0, 2, 130} }, /* 28 */
++            { {128, 1, 1,   0}, {0, 129,   1, 0}, {  2,   0,   0, 2}, {  2,   2, 2, 130} }, /* 29 */
++            { {128, 0, 1,   1}, {0,   1,   2, 2}, {  0,   1, 130, 2}, {  0,   0, 1, 129} }, /* 30 */
++            { {128, 0, 0,   0}, {2,   0,   0, 0}, {130,   2,   1, 1}, {  2,   2, 2, 129} }, /* 31 */
++            { {128, 0, 0,   0}, {0,   0,   0, 2}, {129,   1,   2, 2}, {  1,   2, 2, 130} }, /* 32 */
++            { {128, 2, 2, 130}, {0,   0,   2, 2}, {  0,   0,   1, 2}, {  0,   0, 1, 129} }, /* 33 */
++            { {128, 0, 1, 129}, {0,   0,   1, 2}, {  0,   0,   2, 2}, {  0,   2, 2, 130} }, /* 34 */
++            { {128, 1, 2,   0}, {0, 129,   2, 0}, {  0,   1, 130, 0}, {  0,   1, 2,   0} }, /* 35 */
++            { {128, 0, 0,   0}, {1,   1, 129, 1}, {  2,   2, 130, 2}, {  0,   0, 0,   0} }, /* 36 */
++            { {128, 1, 2,   0}, {1,   2,   0, 1}, {130,   0, 129, 2}, {  0,   1, 2,   0} }, /* 37 */
++            { {128, 1, 2,   0}, {2,   0,   1, 2}, {129, 130,   0, 1}, {  0,   1, 2,   0} }, /* 38 */
++            { {128, 0, 1,   1}, {2,   2,   0, 0}, {  1,   1, 130, 2}, {  0,   0, 1, 129} }, /* 39 */
++            { {128, 0, 1,   1}, {1,   1, 130, 2}, {  2,   2,   0, 0}, {  0,   0, 1, 129} }, /* 40 */
++            { {128, 1, 0, 129}, {0,   1,   0, 1}, {  2,   2,   2, 2}, {  2,   2, 2, 130} }, /* 41 */
++            { {128, 0, 0,   0}, {0,   0,   0, 0}, {130,   1,   2, 1}, {  2,   1, 2, 129} }, /* 42 */
++            { {128, 0, 2,   2}, {1, 129,   2, 2}, {  0,   0,   2, 2}, {  1,   1, 2, 130} }, /* 43 */
++            { {128, 0, 2, 130}, {0,   0,   1, 1}, {  0,   0,   2, 2}, {  0,   0, 1, 129} }, /* 44 */
++            { {128, 2, 2,   0}, {1,   2, 130, 1}, {  0,   2,   2, 0}, {  1,   2, 2, 129} }, /* 45 */
++            { {128, 1, 0,   1}, {2,   2, 130, 2}, {  2,   2,   2, 2}, {  0,   1, 0, 129} }, /* 46 */
++            { {128, 0, 0,   0}, {2,   1,   2, 1}, {130,   1,   2, 1}, {  2,   1, 2, 129} }, /* 47 */
++            { {128, 1, 0, 129}, {0,   1,   0, 1}, {  0,   1,   0, 1}, {  2,   2, 2, 130} }, /* 48 */
++            { {128, 2, 2, 130}, {0,   1,   1, 1}, {  0,   2,   2, 2}, {  0,   1, 1, 129} }, /* 49 */
++            { {128, 0, 0,   2}, {1, 129,   1, 2}, {  0,   0,   0, 2}, {  1,   1, 1, 130} }, /* 50 */
++            { {128, 0, 0,   0}, {2, 129,   1, 2}, {  2,   1,   1, 2}, {  2,   1, 1, 130} }, /* 51 */
++            { {128, 2, 2,   2}, {0, 129,   1, 1}, {  0,   1,   1, 1}, {  0,   2, 2, 130} }, /* 52 */
++            { {128, 0, 0,   2}, {1,   1,   1, 2}, {129,   1,   1, 2}, {  0,   0, 0, 130} }, /* 53 */
++            { {128, 1, 1,   0}, {0, 129,   1, 0}, {  0,   1,   1, 0}, {  2,   2, 2, 130} }, /* 54 */
++            { {128, 0, 0,   0}, {0,   0,   0, 0}, {  2,   1, 129, 2}, {  2,   1, 1, 130} }, /* 55 */
++            { {128, 1, 1,   0}, {0, 129,   1, 0}, {  2,   2,   2, 2}, {  2,   2, 2, 130} }, /* 56 */
++            { {128, 0, 2,   2}, {0,   0,   1, 1}, {  0,   0, 129, 1}, {  0,   0, 2, 130} }, /* 57 */
++            { {128, 0, 2,   2}, {1,   1,   2, 2}, {129,   1,   2, 2}, {  0,   0, 2, 130} }, /* 58 */
++            { {128, 0, 0,   0}, {0,   0,   0, 0}, {  0,   0,   0, 0}, {  2, 129, 1, 130} }, /* 59 */
++            { {128, 0, 0, 130}, {0,   0,   0, 1}, {  0,   0,   0, 2}, {  0,   0, 0, 129} }, /* 60 */
++            { {128, 2, 2,   2}, {1,   2,   2, 2}, {  0,   2,   2, 2}, {129,   2, 2, 130} }, /* 61 */
++            { {128, 1, 0, 129}, {2,   2,   2, 2}, {  2,   2,   2, 2}, {  2,   2, 2, 130} }, /* 62 */
++            { {128, 1, 1, 129}, {2,   0,   1, 1}, {130,   2,   0, 1}, {  2,   2, 2,   0} }  /* 63 */
++        }
++    };
++
++    static int aWeight2[] = { 0, 21, 43, 64 };
++    static int aWeight3[] = { 0, 9, 18, 27, 37, 46, 55, 64 };
++    static int aWeight4[] = { 0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64 };
++
++    static unsigned char sModeHasPBits = 0b11001011;
++
++    bcdec__bitstream_t bstream;
++    int mode, partition, numPartitions, numEndpoints, i, j, k, rotation, partitionSet;
++    int indexSelectionBit, indexBits, indexBits2, index, index2;
++    int endpoints[6][4];
++    char indices[4][4];
++    int r, g, b, a;
++    int* weights, * weights2;
++    unsigned char* decompressed;
++
++    decompressed = (unsigned char*)decompressedBlock;
++
++    bstream.low = bcdec__getu64le(compressedBlock);
++    bstream.high = bcdec__getu64le((const unsigned char*)compressedBlock + 8);
++
++    for (mode = 0; mode < 8 && (0 == bcdec__bitstream_read_bit(&bstream)); ++mode);
++
++    /* unexpected mode, clear the block (transparent black) */
++    if (mode >= 8) {
++        for (i = 0; i < 4; ++i) {
++            for (j = 0; j < 4; ++j) {
++                decompressed[j * 4 + 0] = 0;
++                decompressed[j * 4 + 1] = 0;
++                decompressed[j * 4 + 2] = 0;
++                decompressed[j * 4 + 3] = 0;
++            }
++            decompressed += destinationPitch;
++        }
++
++        return;
++    }
++
++    partition = 0;
++    numPartitions = 1;
++    rotation = 0;
++    indexSelectionBit = 0;
++
++    if (mode == 0 || mode == 1 || mode == 2 || mode == 3 || mode == 7) {
++        numPartitions = (mode == 0 || mode == 2) ? 3 : 2;
++        partition = bcdec__bitstream_read_bits(&bstream, (mode == 0) ? 4 : 6);
++    }
++
++    numEndpoints = numPartitions * 2;
++
++    if (mode == 4 || mode == 5) {
++        rotation = bcdec__bitstream_read_bits(&bstream, 2);
++
++        if (mode == 4) {
++            indexSelectionBit = bcdec__bitstream_read_bit(&bstream);
++        }
++    }
++
++    /* Extract endpoints */
++    /* RGB */
++    for (i = 0; i < 3; ++i) {
++        for (j = 0; j < numEndpoints; ++j) {
++            endpoints[j][i] = bcdec__bitstream_read_bits(&bstream, actual_bits_count[0][mode]);
++        }
++    }
++    /* Alpha (if any) */
++    if (actual_bits_count[1][mode] > 0) {
++        for (j = 0; j < numEndpoints; ++j) {
++            endpoints[j][3] = bcdec__bitstream_read_bits(&bstream, actual_bits_count[1][mode]);
++        }
++    }
++
++    /* Fully decode endpoints */
++    /* First handle modes that have P-bits */
++    if (mode == 0 || mode == 1 || mode == 3 || mode == 6 || mode == 7) {
++        for (i = 0; i < numEndpoints; ++i) {
++            /* component-wise left-shift */
++            for (j = 0; j < 4; ++j) {
++                endpoints[i][j] <<= 1;
++            }
++        }
++
++        /* if P-bit is shared */
++        if (mode == 1) {
++            i = bcdec__bitstream_read_bit(&bstream);
++            j = bcdec__bitstream_read_bit(&bstream);
++
++            /* rgb component-wise insert pbits */
++            for (k = 0; k < 3; ++k) {
++                endpoints[0][k] |= i;
++                endpoints[1][k] |= i;
++                endpoints[2][k] |= j;
++                endpoints[3][k] |= j;
++            }
++        } else if (sModeHasPBits & (1 << mode)) {
++            /* unique P-bit per endpoint */
++            for (i = 0; i < numEndpoints; ++i) {
++                j = bcdec__bitstream_read_bit(&bstream);
++                for (k = 0; k < 4; ++k) {
++                    endpoints[i][k] |= j;
++                }
++            }
++        }
++    }
++
++    for (i = 0; i < numEndpoints; ++i) {
++        /* get color components precision including pbit */
++        j = actual_bits_count[0][mode] + ((sModeHasPBits >> mode) & 1);
++
++        for (k = 0; k < 3; ++k) {
++            /* left shift endpoint components so that their MSB lies in bit 7 */
++            endpoints[i][k] = endpoints[i][k] << (8 - j);
++            /* Replicate each component's MSB into the LSBs revealed by the left-shift operation above */
++            endpoints[i][k] = endpoints[i][k] | (endpoints[i][k] >> j);
++        }
++
++        /* get alpha component precision including pbit */
++        j = actual_bits_count[1][mode] + ((sModeHasPBits >> mode) & 1);
++
++        /* left shift endpoint components so that their MSB lies in bit 7 */
++        endpoints[i][3] = endpoints[i][3] << (8 - j);
++        /* Replicate each component's MSB into the LSBs revealed by the left-shift operation above */
++        endpoints[i][3] = endpoints[i][3] | (endpoints[i][3] >> j);
++    }
++
++    /* If this mode does not explicitly define the alpha component */
++    /* set alpha equal to 1.0 */
++    if (!actual_bits_count[1][mode]) {
++        for (j = 0; j < numEndpoints; ++j) {
++            endpoints[j][3] = 0xFF;
++        }
++    }
++
++    /* Determine weights tables */
++    indexBits = (mode == 0 || mode == 1) ? 3 : ((mode == 6) ? 4 : 2);
++    indexBits2 = (mode == 4) ? 3 : ((mode == 5) ? 2 : 0);
++    weights = (indexBits == 2) ? aWeight2 : ((indexBits == 3) ? aWeight3 : aWeight4);
++    weights2 = (indexBits2 == 2) ? aWeight2 : aWeight3;
++
++    /* Quite inconvenient that indices aren't interleaved so we have to make 2 passes here */
++    /* Pass #1: collecting color indices */
++    for (i = 0; i < 4; ++i) {
++        for (j = 0; j < 4; ++j) {
++            partitionSet = (numPartitions == 1) ? ((i | j) ? 0 : 128) : partition_sets[numPartitions - 2][partition][i][j];
++
++            indexBits = (mode == 0 || mode == 1) ? 3 : ((mode == 6) ? 4 : 2);
++            /* fix-up index is specified with one less bit */
++            /* The fix-up index for subset 0 is always index 0 */
++            if (partitionSet & 0x80) {
++                indexBits--;
++            }
++
++            indices[i][j] = bcdec__bitstream_read_bits(&bstream, indexBits);
++        }
++    }
++
++    /* Pass #2: reading alpha indices (if any) and interpolating & rotating */
++    for (i = 0; i < 4; ++i) {
++        for (j = 0; j < 4; ++j) {
++            partitionSet = (numPartitions == 1) ? ((i|j) ? 0 : 128) : partition_sets[numPartitions - 2][partition][i][j];
++            partitionSet &= 0x03;
++
++            index = indices[i][j];
++
++            if (!indexBits2) {
++                r = bcdec__interpolate(endpoints[partitionSet * 2][0], endpoints[partitionSet * 2 + 1][0], weights, index);
++                g = bcdec__interpolate(endpoints[partitionSet * 2][1], endpoints[partitionSet * 2 + 1][1], weights, index);
++                b = bcdec__interpolate(endpoints[partitionSet * 2][2], endpoints[partitionSet * 2 + 1][2], weights, index);
++                a = bcdec__interpolate(endpoints[partitionSet * 2][3], endpoints[partitionSet * 2 + 1][3], weights, index);
++            } else {
++                index2 = bcdec__bitstream_read_bits(&bstream, (i|j) ? indexBits2 : (indexBits2 - 1));
++                /* The index value for interpolating color comes from the secondary index bits for the texel
++                   if the mode has an index selection bit and its value is one, and from the primary index bits otherwise.
++                   The alpha index comes from the secondary index bits if the block has a secondary index and
++                   the block either doesn’t have an index selection bit or that bit is zero, and from the primary index bits otherwise. */
++                if (!indexSelectionBit) {
++                    r = bcdec__interpolate(endpoints[partitionSet * 2][0], endpoints[partitionSet * 2 + 1][0],  weights,  index);
++                    g = bcdec__interpolate(endpoints[partitionSet * 2][1], endpoints[partitionSet * 2 + 1][1],  weights,  index);
++                    b = bcdec__interpolate(endpoints[partitionSet * 2][2], endpoints[partitionSet * 2 + 1][2],  weights,  index);
++                    a = bcdec__interpolate(endpoints[partitionSet * 2][3], endpoints[partitionSet * 2 + 1][3], weights2, index2);
++                } else {
++                    r = bcdec__interpolate(endpoints[partitionSet * 2][0], endpoints[partitionSet * 2 + 1][0], weights2, index2);
++                    g = bcdec__interpolate(endpoints[partitionSet * 2][1], endpoints[partitionSet * 2 + 1][1], weights2, index2);
++                    b = bcdec__interpolate(endpoints[partitionSet * 2][2], endpoints[partitionSet * 2 + 1][2], weights2, index2);
++                    a = bcdec__interpolate(endpoints[partitionSet * 2][3], endpoints[partitionSet * 2 + 1][3],  weights,  index);
++                }
++            }
++
++            switch (rotation) {
++                case 1: {   /* 01 – Block format is Scalar(R) Vector(AGB) - swap A and R */
++                    bcdec__swap_values(&a, &r);
++                } break;
++                case 2: {   /* 10 – Block format is Scalar(G) Vector(RAB) - swap A and G */
++                    bcdec__swap_values(&a, &g);
++                } break;
++                case 3: {   /* 11 - Block format is Scalar(B) Vector(RGA) - swap A and B */
++                    bcdec__swap_values(&a, &b);
++                } break;
++            }
++
++            decompressed[j * 4 + 0] = r;
++            decompressed[j * 4 + 1] = g;
++            decompressed[j * 4 + 2] = b;
++            decompressed[j * 4 + 3] = a;
++        }
++
++        decompressed += destinationPitch;
++    }
++}
++
++#endif /* BCDEC_IMPLEMENTATION */
++
++/* LICENSE:
++
++This software is available under 2 licenses -- choose whichever you prefer.
++
++------------------------------------------------------------------------------
++ALTERNATIVE A - MIT License
++
++Copyright (c) 2022 Sergii Kudlai
++
++Permission is hereby granted, free of charge, to any person obtaining a copy of
++this software and associated documentation files (the "Software"), to deal in
++the Software without restriction, including without limitation the rights to
++use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
++of the Software, and to permit persons to whom the Software is furnished to do
++so, subject to the following conditions:
++
++The above copyright notice and this permission notice shall be included in all
++copies or substantial portions of the Software.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
++AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
++SOFTWARE.
++
++------------------------------------------------------------------------------
++ALTERNATIVE B - The Unlicense
++
++This is free and unencumbered software released into the public domain.
++
++Anyone is free to copy, modify, publish, use, compile, sell, or
++distribute this software, either in source code form or as a compiled
++binary, for any purpose, commercial or non-commercial, and by any
++means.
++
++In jurisdictions that recognize copyright laws, the author or authors
++of this software dedicate any and all copyright interest in the
++software to the public domain. We make this dedication for the benefit
++of the public at large and to the detriment of our heirs and
++successors. We intend this dedication to be an overt act of
++relinquishment in perpetuity of all present and future rights to this
++software under copyright law.
++
++THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
++EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
++MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
++IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
++OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
++ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
++OTHER DEALINGS IN THE SOFTWARE.
++
++For more information, please refer to <https://unlicense.org>
++
++*/
+diff --git a/dm/tools/docs_patches.py b/dm/tools/docs_patches.py
+index f92c6048..c7e4850a 100644
+--- a/dm/tools/docs_patches.py
++++ b/dm/tools/docs_patches.py
+@@ -140,6 +140,8 @@ SWITCH_BINDING = [
+     ('jit_route', '', {'what': 'a route for the nn::jit capture', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': "the game's own menus, for the image an iPhone serves"}),
+     ('jit_out_code', '', {'what': 'where a nn::jit output lists the code it made', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': "the layout of the game's own output buffer, for the image an iPhone serves"}),
+     ('op_mode', '', {'what': 'the operation mode at start', 'now': 'game', 'goal': 'game', 'purpose': 'runtime', 'why': "the game's controls (handheld: the touch screen instead of a gyro pointer)"}),
++    ('tex_bc_cpu', '', {'what': 'BC1-7 textures decoded on the CPU where the Metal device has no BC support', 'now': 'game', 'goal': 'host', 'purpose': 'rendering',
++     'why': 'a device capability, not a game choice: the host could decode wherever supportsBCTextureCompression is false, for every game'}),
+ ]
+ 
+ 
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index de17ca7d..9a48a505 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -84,6 +84,14 @@ class LauncherSettingsTests(unittest.TestCase):
+         self.assertFalse({'DM_FPS_TARGET', 'DM_PRESENT_INTERVAL'} & set(wonder))
+ 
+ 
++    def test_hdr_texture_downsample_is_for_games_that_decode_bc_on_the_cpu_on_the_iphone(self):   # DM_BC6H_RGB9E5, #544
++        totk = build('0100F2C0115B6000', 'nvn')   # tex_bc_cpu on in its profile
++        s = totk['DM_BC6H_RGB9E5']
++        self.assertEqual((s['kind'], s['section'], s['default'], s['label']), ('toggle', 'Performance', '0', 'Downsample HDR textures'))   # off: the tested decode stays
++        self.assertNotIn('DM_BC6H_RGB9E5', build('0100F2C0115B6000', 'nvn', 'mac'))   # a Mac GPU has BC support
++        self.assertNotIn('DM_BC6H_RGB9E5', build(BOTW, 'nvn'))   # no tex_bc_cpu in its profile
++        self.assertNotIn('DM_BC6H_RGB9E5', build('0100F2C0115B6000', 'vulkan'))
++
+     def test_hold_frames_takes_on_and_off(self):   # the host reads DM_FPS_HOLD as on / off (hle_nvn.c), not 1 / 0
+         s = build(BOTW, 'nvn')['DM_FPS_HOLD']
+         self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
+diff --git a/docs/reference/rendering.md b/docs/reference/rendering.md
+index 69a507ce..9bf4a753 100644
+--- a/docs/reference/rendering.md
++++ b/docs/reference/rendering.md
+@@ -1862,3 +1862,12 @@ Digimon Story Cyber Sleuth: Complete Edition (Media.Vision's MVGL engine, SDK 6.
+ - **Fix:** the present reports the shape of the frame it draws ([the layer's](#a-crop-only-picks-texels-the-picture-has-the-layers-shape)) whenever its width / height changes (`nvn_mtl.m` `present_now` → `front.h` `front_picture_shape`; every graphics API presents there). The iOS front end lays the game's view out in that shape (`DmLayout.h` takes it as a parameter: the overlay, the split, Fill and the TV alike), so a 1.43:1 picture fills a 1.43:1 screen in Fit and touches are normalized on the picture as drawn; the Mac maps the mouse on the picture's own rectangle. A 16:9 game reports 16:9 and keeps its layout, and a size change of the same shape (1280x720 handheld, 1920x1080 docked) is not reported.
+ - **Check:** the [Duo harness](../../dm/ios/tests/duo/README.md) tests the taller picture in Fit, in Fill and on a wider screen, and the production root view following a reported shape and returning to 16:9. Not yet run on a device.
+ - **Found on:** [Breath of the Wild](../../dm/games/01007EF00011E000/README.md#screen-shape-dm_screen_aspect-current) and [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#screen-shape-dm_screen_aspect-current) with `DM_SCREEN_ASPECT=1.43`.
++
++### CPU-decoded BC uploads and format views
++
++- **Symptom:** with `tex_bc_cpu` enabled on an A15, Wonder's character-selection screen has striped rectangles and noise around otherwise readable characters. Metal can also abort when a BC view is requested on the decoded R8, RG8 or RGBA8 backing texture.
++- **Cause:** `tex_desc` allocates decoded storage, but the GPU deswizzle paths copy compressed blocks without decoding them. A view still resolves the original BC Metal format instead of the backing texture's decoded format.
++- **Fix:** CPU-decoded textures bypass both GPU upload paths and reach the existing CPU decoder. Sampled views, render-target views and clear views resolve BC formats through the same decoded-format helper while preserving the NVN channel mapping. Native BC-capable devices keep their existing path.
++- **Checked:** `make -C dm/gfx/tests GAME=010015100B514000 check_t_bc_cpu` forces the decoded path on a Mac GPU through the production implementation. It checks pooled uploads and reuploads, partial blocks, three mip levels, two array layers, both direct-upload settings, all sixteen BC format views, attachments and clears. Before the fix the upload and sampled-view cases abort under Metal validation. Historical iPhone 13 Pro Max / A15 evidence on iOS 27.0.1 shows Wonder 1.0.0 character selection before and after the equivalent fix. The current engine revision has not been installed on that phone.
++- **Limits:** this does not implement raw compressed-block views, GPU BC block encoding, or decoded-to-compressed readback. It keeps the existing compatibility opt-in and does not change the supported-device check.
++- **Found on:** [Super Mario Bros. Wonder](../../dm/games/010015100B514000/README.md).
+diff --git a/docs/settings.md b/docs/settings.md
+index 195b1189..44a6fe9e 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -5,7 +5,7 @@ The screen before the game starts shows the settings the game supports. A settin
+ - [Tested defaults](#tested-defaults)
+ - [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game's upscaler](#games-upscaler), [Game language](#game-language), [Picture](#picture), [Frame-rate counter](#frame-rate-counter)
+ - [Controls](#controls): [Touch feedback](#touch-feedback), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength), [Rumble cutoff](#rumble-cutoff), [Press a button to join](#press-a-button-to-join)
+-- [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
++- [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Downsample HDR textures](#downsample-hdr-textures), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
+ - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
+ - [In-game menu](#in-game-menu)
+ - [TV](#tv)
+@@ -197,6 +197,13 @@ When the game makes a program, the app loads its shader libraries in the backgro
+ - **When to change it:** off for a game that iOS ends after a few minutes of play. Each library is then loaded at its first draw, which costs a short stall there instead.
+ - **Tests:** off, Persona 5 Royal held 30 fps for 34 minutes on an iPhone 17 Pro (61,200 frames, no crash, 1,773 MiB), against 5 minutes 33 seconds with it on.
+ 
++### Downsample HDR textures
++
++On an iPhone or iPad whose GPU does not read block-compressed (BC) textures itself (before the A17 Pro and the M1), a game whose profile decodes BC textures on the CPU (`tex_bc_cpu`) expands each BC6H HDR texture into 16-bit floats, 8 bytes a pixel. A scene with many of them can pass the memory the system allows and end the app. This setting decodes them into the shared-exponent format RGB9E5 instead, 4 bytes a pixel, half the memory. It is off by default and the row is only shown for such games on such devices.
++
++- **Cost:** negative values (signed BC6H) become 0 and each colour keeps 9 bits of mantissa, so HDR gradients can show slight banding.
++- **When to change it:** turn it on only for a game that the system ends for lack of memory in scenes with many HDR textures.
++
+ ### Hold frames when late
+ 
+ For games whose frame rate the app controls ([Frame rate](#frame-rate)). With 60 fps chosen, each frame is meant to stay on screen for one refresh. When a frame comes late, the app can either slow the game down to 30 fps for a while, or keep 60 and show late frames as they come.

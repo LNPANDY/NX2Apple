@@ -92,9 +92,8 @@ class RequiredDylibSymbolsTest(unittest.TestCase):
         self.assertIn('_dmgame_image_marker', build_app.REQUIRED_DYLIB_SYMBOLS)
 
     def test_the_glue_symbols_the_shell_dlsyms_are_all_required(self) -> None:
-        shell_main = _engine_ios_dir() / 'Shell' / 'ShellMain.m'
-        if not shell_main.is_file():
-            self.skipTest('engine/ is missing: run python3 tools/engine.py sync')
+        shell_main = ROOT / 'frontend-ios' / 'Shell' / 'App' / 'ShellMain.m'
+        self.assertTrue(shell_main.is_file(), f'missing shell source: {shell_main}')
         text = shell_main.read_text(encoding='utf-8', errors='replace')
         for name in ('dm_glue_version', 'dm_glue_start_game', 'dm_glue_present_game',
                      'dm_glue_focus_event'):
@@ -256,6 +255,117 @@ class RevealIpaPathTest(unittest.TestCase):
                          os.path.normcase(str(se.ipa_path(self.shell))))
         self.assertEqual(os.path.normcase(lib.one_game_ipa_path(self.out, self.tid)),
                          os.path.normcase(str(self.one)))
+
+
+class ExternalMslAndBatchDriveCopyTest(unittest.TestCase):
+    """Oversized `msl/` externalization, zero-pollution transfer merge, stale detection, and batch preflight."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def test_externalize_large_shader_libs_leaves_mirror_untouched_and_merges_on_copy(self) -> None:
+        import json
+        from nspb_qt.win import shell_export as se
+
+        tid = '010063301BD50000'
+        shell_root = self.root / 'shell'
+        mirror_fw = se.mirrored_framework(shell_root, tid)
+        (mirror_fw / 'msl' / 'b-chain').mkdir(parents=True)
+        (mirror_fw / f'DmGame{tid}').write_bytes(b'macho')
+        (mirror_fw / 'game.manifest.json').write_text(
+            json.dumps({'loader': 'FH', 'chain': 'b-1111'}), encoding='utf-8'
+        )
+        shader_blob = b'S' * 128
+        (mirror_fw / 'msl' / 'b-chain' / 'shaders.img').write_bytes(shader_blob)
+
+        stage_dir = self.root / 'stage'
+        staged_fws, stripped = se._externalize_large_shader_libs(
+            [mirror_fw], stage_dir=stage_dir, threshold=32, log=lambda _s: None
+        )
+        self.assertEqual(stripped, {tid})
+        self.assertEqual(len(staged_fws), 1)
+        staged_fw = staged_fws[0]
+        self.assertNotEqual(staged_fw, mirror_fw)
+        self.assertFalse((staged_fw / 'msl').exists())
+        marker = json.loads((staged_fw / 'external-msl.json').read_text(encoding='utf-8'))
+        self.assertTrue(marker.get('external_msl'))
+        # Original mirror keeps its msl/ intact without duplication outside stage_dir.
+        self.assertEqual((mirror_fw / 'msl' / 'b-chain' / 'shaders.img').read_bytes(), shader_blob)
+
+        se.save_externalized_titles(stripped, shell_root)
+        self.assertEqual(se.externalized_titles(shell_root), {tid})
+
+        archive_dir = self.root / 'games' / tid
+        archive_dir.mkdir(parents=True)
+        (archive_dir / 'romfs.img').write_bytes(b'ROMFS')
+
+        sizes, origins = lib.DriveCopy.collect_transfer_files(
+            str(archive_dir), shell_root=str(shell_root), title_id=tid
+        )
+        self.assertIn('romfs.img', sizes)
+        self.assertIn('msl/b-chain/shaders.img', sizes)
+        self.assertEqual(origins['msl/b-chain/shaders.img'], str(mirror_fw / 'msl' / 'b-chain' / 'shaders.img'))
+        # The game's archive folder remains completely unpolluted.
+        self.assertFalse((archive_dir / 'msl').exists())
+
+        drive_dest = self.root / 'usb'
+        ok, out_dir = lib.DriveCopy.copy_to_folder(
+            str(archive_dir), str(drive_dest), tid, shell_root=str(shell_root)
+        )
+        self.assertTrue(ok, out_dir)
+        self.assertEqual((Path(out_dir) / 'romfs.img').read_bytes(), b'ROMFS')
+        self.assertEqual((Path(out_dir) / 'msl' / 'b-chain' / 'shaders.img').read_bytes(), shader_blob)
+
+    def test_find_stale_frameworks_and_batch_preflight(self) -> None:
+        import json
+        from unittest import mock
+        from nspb_qt.win import shell_export as se
+
+        repo = self.root / 'repo'
+        hdr = repo / 'dm' / 'gfx' / 'nvn' / 'dmsh_chain.h'
+        hdr.parent.mkdir(parents=True)
+        hdr.write_text('#define DMSH_CHAIN "b-newchain"\n', encoding='utf-8')
+
+        shell_root = self.root / 'shell'
+        tid_old = '0100000000000001'
+        tid_cur = '0100000000000002'
+        for tid, ch in ((tid_old, 'b-oldchain'), (tid_cur, 'b-newchain')):
+            fw = se.mirrored_framework(shell_root, tid)
+            fw.mkdir(parents=True)
+            (fw / 'game.manifest.json').write_text(json.dumps({'chain': ch}), encoding='utf-8')
+        slib = se.ShellLibrary(
+            games=[
+                se.ShellGame(title_id=tid_old, name='Old Game', framework=str(se.mirrored_framework(shell_root, tid_old))),
+                se.ShellGame(title_id=tid_cur, name='Current Game', framework=str(se.mirrored_framework(shell_root, tid_cur))),
+            ]
+        )
+        slib.save(shell_root)
+
+        stale = se.find_stale_frameworks(shell_root, repo)
+        self.assertEqual([g.title_id for g in stale], [tid_old])
+
+        arch1 = self.root / 'arch1'
+        arch2 = self.root / 'arch2'
+        arch1.mkdir()
+        arch2.mkdir()
+        (arch1 / 'romfs.img').write_bytes(b'A' * 100)
+        (arch2 / 'romfs.img').write_bytes(b'B' * 150)
+        dest = self.root / 'drive'
+        dest.mkdir()
+
+        needed, err = lib.DriveCopy.preflight_batch_copy(
+            [(tid_old, str(arch1)), (tid_cur, str(arch2))], str(dest)
+        )
+        self.assertEqual(needed, 250)
+        self.assertIsNone(err)
+
+        with mock.patch.object(lib.DriveCopy, 'free_space', return_value=200):
+            _needed, space_err = lib.DriveCopy.preflight_batch_copy(
+                [(tid_old, str(arch1)), (tid_cur, str(arch2))], str(dest)
+            )
+            self.assertIsNotNone(space_err)
 
 
 if __name__ == '__main__':

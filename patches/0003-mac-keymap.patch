@@ -1,0 +1,394 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: seedds <seedds@gmail.com>
+Date: Fri, 30 Oct 2026 16:13:09 +0800
+Subject: [PATCH] Mac front end: DM_KEYMAP and DM_PAD_MAP
+
+input_map.h parses the maps; front_mac.m applies them to keys and controller buttons.
+
+Upstream-Status: forwarded seedds/nxnative#386
+Reason: The launcher's Controls page: DM_KEYMAP and DM_PAD_MAP move buttons to other keys and controller buttons (open upstream, #386)
+Issue: LNPANDY/NX2Apple#386
+---
+ dm/host/front_mac.m                 | 56 ++++++++++----------
+ dm/host/input_map.h                 | 82 +++++++++++++++++++++++++++++
+ dm/host/tests/Makefile              |  8 ++-
+ dm/host/tests/t_input_map.c         | 43 +++++++++++++++
+ dm/host/tests/t_launcher_contract.c | 35 ++++++++++++
+ dm/tools/impact_map.tsv             |  1 +
+ docs/development.md                 |  2 +
+ 7 files changed, 199 insertions(+), 28 deletions(-)
+ create mode 100644 dm/host/input_map.h
+ create mode 100644 dm/host/tests/t_input_map.c
+ create mode 100644 dm/host/tests/t_launcher_contract.c
+
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index 278bf272..a2548d2d 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -5,7 +5,8 @@
+ // Cheats (hle_cheats.c): the Cheats menu's rows toggle, reload (⌘R) and open the cheats folder; its first item "Show Cheats
+ // Window" (⌘⇧C, or DM_CHEATS_WINDOW=1 at launch) opens a Cheats panel beside the game: sections, search, the master switch,
+ // safe mode, values, details and the import of cheat files (see the code below).
+-// Key map (Nintendo layout): WASD left stick, arrow keys D-pad (with Shift held: the right stick, for the camera), J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller.
++// Key map (Nintendo layout): WASD left stick, arrow keys D-pad (with Shift held: the right stick, for the camera), J=A K=B U=X I=Y, Q=L E=R, Z=ZL C=ZR, F=press left stick G=press right stick, Return=+ Tab=−, Space=shake the controller;
++// DM_KEYMAP moves a function to another key (the right stick too), DM_PAD_MAP changes what a controller's buttons send (input_map.h).
+ // Controllers: face buttons as on the iPhone, by position (right A, bottom B, top X, left Y) or on a Nintendo pad by its labels (pad_apple.h), shoulders L R, triggers ZL ZR, Menu + Options −, both sticks and their presses.
+ // Each controller is a player of its own (local co-op): the first one connected is player 1, together with the keyboard, the next player 2, and so on up to 8 (pad_slots.h);
+ // DM_PAD_MERGE=1 merges every controller into player 1 instead, DM_KBD_PLAYER=own makes the keyboard player 1 on its own, with the controllers from player 2 on.
+@@ -18,6 +19,7 @@
+ #include "front.h"
+ #include "hle.h"
+ #include "pad_slots.h"
++#include "input_map.h"
+ #include "haptics_apple.h"
+ #include "motion_apple.h"
+ #include "motion_pro_mac.h"
+@@ -37,8 +39,7 @@
+ 
+ static CAMetalLayer *g_layer;
+ static uint64_t g_btn;
+-static int g_w, g_a, g_s, g_d;
+-static int g_rl, g_ru, g_rr, g_rd;   // arrow keys pressed with Shift held: the right stick (each goes back up as it went down, whatever Shift does meanwhile)
++static int8_t g_shift_fn[IM_KEYS];   // a D-pad key pressed with Shift held: the right-stick function it holds until released, plus 1 (0: none)
+ static int g_input_on = 1;   // main thread: the game window is key, so its keyboard, mouse and controllers reach the game (input_release / input_resume)
+ 
+ void *front_metal_layer(void) { return (__bridge void *)g_layer; }
+@@ -141,20 +142,14 @@ static void cursor_hide_for_input(void) {
+     NSView *v = g_win.contentView;
+     if (NSPointInRect([v convertPoint:g_win.mouseLocationOutsideOfEventStream fromView:nil], v.bounds)) [NSCursor setHiddenUntilMouseMoves:YES];
+ }
++// Keyboard: each key holds one function of the key map (input_map.h; DM_KEYMAP changes it), the held functions make the buttons and both sticks
++static key_map g_keys;
++static uint32_t g_held_fn;   // bit f: a key holding function f is down
+ static void push(void) {
+-    int32_t lx = (g_d - g_a) * 32767, ly = (g_w - g_s) * 32767;
+-    int32_t rx = (g_rr - g_rl) * 32767, ry = (g_ru - g_rd) * 32767;
+-    dm_input_set(g_btn, lx, ly, rx, ry);
+-}
+-static int key_bit(unsigned short code) {
+-    switch (code) {
+-        case 38: return 0;  case 40: return 1;  case 32: return 2;  case 34: return 3;    // J K U I → A B X Y
+-        case 3: return 4;   case 5: return 5;                                            // F G → press stick
+-        case 12: return 6;  case 14: return 7;  case 6: return 8;   case 8: return 9;    // Q E Z C → L R ZL ZR
+-        case 36: return 10; case 48: return 11;                                          // Return Tab → + −
+-        case 123: return 12; case 126: return 13; case 124: return 14; case 125: return 15; // ← ↑ → ↓
+-    }
+-    return -1;
++    uint32_t h = g_held_fn;
++    #define D(f) ((int32_t)(h >> (f) & 1))
++    dm_input_set(g_btn, (D(IM_LRIGHT) - D(IM_LLEFT)) * 32767, (D(IM_LUP) - D(IM_LDOWN)) * 32767, (D(IM_RRIGHT) - D(IM_RLEFT)) * 32767, (D(IM_RUP) - D(IM_RDOWN)) * 32767);
++    #undef D
+ }
+ // fn held with a letter: the arrow and function keys carry the same modifier flag, so the key must be a letter for this to be a Globe shortcut
+ static int fn_shortcut(NSEvent *e) {
+@@ -170,15 +165,16 @@ static void on_key(NSEvent *e, int down) {
+         if (down && g_cp.phase == CP_OPEN) { if (c == 53 || c == 40) g_cp_cancel = 1; else if (c == 36 || c == 38) g_cp_confirm = 1; cp_poll(); }
+         return;
+     }
+-    switch (c) { case 13: g_w = down; break; case 0: g_a = down; break; case 1: g_s = down; break; case 2: g_d = down; break; }
+-    // An arrow key pressed with Shift held is the right stick until it is released; without Shift, the D-pad. The keyboard had no right stick: a 3D game's camera
++    int f = key_map_fn(&g_keys, c); if (f < 0) return;
++    // A D-pad key pressed with Shift held is the matching right-stick direction until it is released; without Shift, the D-pad. The keyboard had no right stick: a 3D game's camera
+     // could be turned only with a controller (Donkey Kong Bananza)
+-    int *rs = c == 123 ? &g_rl : c == 126 ? &g_ru : c == 124 ? &g_rr : c == 125 ? &g_rd : NULL;
+-    if (rs && (down ? (e.modifierFlags & NSEventModifierFlagShift) != 0 : *rs)) { *rs = down; push(); return; }
+-    int b = key_bit(c);
+-    uint64_t m = b >= 0 ? 1ull << b : c == 49 ? DM_BTN_SHAKE : 0;   // Space: shaken while held
+-    g_btn = down ? (g_btn | m) : (g_btn & ~m);
+-    if (down && (m || c == 13 || c == 0 || c == 1 || c == 2)) cursor_hide_for_input();   // a key the game takes (WASD: the left stick)
++    if (c < IM_KEYS) {
++        if (down && f >= 12 && f <= 15 && (e.modifierFlags & NSEventModifierFlagShift)) g_shift_fn[c] = (int8_t)((f == 12 ? IM_RLEFT : f == 13 ? IM_RUP : f == 14 ? IM_RRIGHT : IM_RDOWN) + 1);
++        if (g_shift_fn[c]) { int rf = g_shift_fn[c] - 1; g_held_fn = down ? (g_held_fn | 1u << rf) : (g_held_fn & ~(1u << rf)); if (!down) g_shift_fn[c] = 0; push(); return; }
++    }
++    g_held_fn = down ? (g_held_fn | 1u << f) : (g_held_fn & ~(1u << f));
++    g_btn = (g_held_fn & 0xffff) | (g_held_fn >> IM_SHAKE & 1 ? DM_BTN_SHAKE : 0);
++    if (down) cursor_hide_for_input();   // a key the game takes
+     push();
+ }
+ 
+@@ -190,9 +186,11 @@ static void on_key(NSEvent *e, int down) {
+ static pad_slots g_slots;
+ static GCController *g_held[DM_PLAYERS];   // the controller of each slot, kept alive while it holds it (the slot table keys on its pointer)
+ static int g_merge, g_kbd_own;
++static pad_map g_padmap;   // DM_PAD_MAP (input_map.h): what each button sends, applied to every controller
+ static int32_t pad_axis(float v) { return (int32_t)(fmaxf(-1.f, fminf(1.f, v)) * DM_STICK_MAX); }
+ // A controller's state for player p, GameController or raw HID: a pressed button or a stick past 15% hides the pointer (cursor_hide_for_input), a resting stick's drift does not
+ static void pad_set(int p, uint64_t m, int32_t lx, int32_t ly, int32_t rx, int32_t ry) {
++    m = pad_map_apply(&g_padmap, m);   // DM_PAD_MAP
+     const int32_t dead = DM_STICK_MAX * 15 / 100;
+     if (m || abs(lx) > dead || abs(ly) > dead || abs(rx) > dead || abs(ry) > dead) cursor_hide_for_input();
+     dm_pad_set_player(p, m, lx, ly, rx, ry);
+@@ -338,7 +336,7 @@ static void input_release(void) {
+     g_input_on = 0;
+     dm_motion_pro_active(0); hidpad_motion_clear();
+     dm_switch2_active(0);
+-    g_btn = 0; g_w = g_a = g_s = g_d = 0; g_rl = g_ru = g_rr = g_rd = 0; push();
++    g_btn = 0; g_held_fn = 0; memset(g_shift_fn, 0, sizeof g_shift_fn); push();
+     if (g_mouse_down) { g_mouse_down = 0; dm_touch_set(NULL, 0); }
+     pads_release();
+ }
+@@ -586,7 +584,7 @@ int front_ctrl_support(int min, int max) {
+     if (!g_layer) return -1;
+     dispatch_semaphore_t done = dispatch_semaphore_create(0);
+     dispatch_async(dispatch_get_main_queue(), ^{
+-        g_btn = 0; g_w = g_a = g_s = g_d = 0; g_rl = g_ru = g_rr = g_rd = 0; push();   // nothing the game held stays pressed while the prompt has the input
++        g_btn = 0; g_held_fn = 0; memset(g_shift_fn, 0, sizeof g_shift_fn); push();   // nothing the game held stays pressed while the prompt has the input
+         if (g_mouse_down) { g_mouse_down = 0; dm_touch_set(NULL, 0); }
+         pads_release();
+         int a, b; cp_buttons(&a, &b);
+@@ -598,6 +596,10 @@ int front_ctrl_support(int min, int max) {
+     return g_cp_ok;
+ }
+ static void pads_start(void) {
++    key_map_default(&g_keys); pad_map_default(&g_padmap);
++    const char *km = getenv("DM_KEYMAP"), *pm = getenv("DM_PAD_MAP");
++    if (km && *km) { int bad = key_map_parse(&g_keys, km); LOG("front end: keyboard map from DM_KEYMAP (%s)%s", km, bad ? ", malformed entries left out" : ""); }
++    if (pm && *pm) { int bad = pad_map_parse(&g_padmap, pm); LOG("front end: controller buttons from DM_PAD_MAP (%s)%s", pm, bad ? ", malformed entries left out" : ""); }
+     const char *e = getenv("DM_PAD_MERGE"); g_merge = e && atoi(e);
+     e = getenv("DM_KBD_PLAYER"); g_kbd_own = !g_merge && e && !strcmp(e, "own");
+     e = getenv("DM_PAD_PRESS_TO_JOIN"); g_press_to_join = !g_merge && e && atoi(e);
+@@ -1678,7 +1680,7 @@ int front_text_input(const char *title, const char *sub, const char *guide, cons
+     dispatch_sync(dispatch_get_main_queue(), ^{
+         // The box takes the keyboard and the mouse, so the game window never sees the key-up of the button or the touch-up of the click that opened it: nothing may stay pressed
+         // while it is up, or the game reads the stuck button / touch the moment the box closes (Stardew Valley's character creation re-opened the keyboard endlessly)
+-        g_btn = 0; g_w = g_a = g_s = g_d = 0; g_rl = g_ru = g_rr = g_rd = 0; push();
++        g_btn = 0; g_held_fn = 0; memset(g_shift_fn, 0, sizeof g_shift_fn); push();
+         dm_touch_set(NULL, 0);
+         int min_chars = g_swkbd_min_chars > 0 ? g_swkbd_min_chars : 0;
+         NSString *info = [NSString stringWithFormat:@"%s%s%s", sub ? sub : "", sub && *sub && guide && *guide ? "\n" : "", guide ? guide : ""];
+diff --git a/dm/host/input_map.h b/dm/host/input_map.h
+new file mode 100644
+index 00000000..56fa4993
+--- /dev/null
++++ b/dm/host/input_map.h
+@@ -0,0 +1,82 @@
++// The Mac front end's button assignments (front_mac.m; pure, so tests/t_input_map.c checks it without a keyboard or controller), named as DM_KEYS names them (hle_hid.c).
++// DM_KEYMAP=<name>=<key code>,… puts a function on another key: <key code> is the macOS virtual key code (NSEvent.keyCode, decimal), or "none" to leave the function on no key.
++// The names are the 16 buttons, the four directions of each stick (LUp … RRight) and Shake; the left stick is on W A S D, the right stick on no key, unless DM_KEYMAP says so.
++// One key holds one function: the last assignment of a key wins, and the function that held it before is left on no key, so "A=40,B=38" swaps A and B.
++// DM_PAD_MAP=<name>=<name>,… changes what a controller's buttons send: the button that sends <first> by default (by position, as the iPhone maps it) sends <second> instead,
++// "none" sends nothing; buttons not named stay as they are, so "A=B,B=A" swaps them. Only the 16 buttons take part (the sticks stay sticks).
++// A malformed entry is left out and named in the log; the rest of the list still applies.
++#pragma once
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <strings.h>
++#include "dm_input.h"
++
++enum { IM_BUTTONS = 16, IM_LUP = 16, IM_LDOWN, IM_LLEFT, IM_LRIGHT, IM_RUP, IM_RDOWN, IM_RLEFT, IM_RRIGHT, IM_SHAKE, IM_N };   // functions 0..15 are the DM_BTN_* bits
++#define IM_KEYS 128   // virtual key codes are below 128
++typedef struct { int8_t fn[IM_KEYS]; } key_map;   // the function each key code holds, -1 none
++typedef struct { int8_t to[IM_BUTTONS]; } pad_map;   // the button each default button sends, -1 none
++
++static const char *const im_names[IM_N] = {"A", "B", "X", "Y", "LS", "RS", "L", "R", "ZL", "ZR", "Plus", "Minus", "Left", "Up", "Right", "Down",
++                                           "LUp", "LDown", "LLeft", "LRight", "RUp", "RDown", "RLeft", "RRight", "Shake"};
++static int im_name(const char *s, size_t n) {
++    for (int f = 0; f < IM_N; f++) if (strlen(im_names[f]) == n && !strncasecmp(s, im_names[f], n)) return f;
++    return -1;
++}
++static void key_map_default(key_map *m) {
++    memset(m->fn, -1, sizeof m->fn);
++    static const struct { uint8_t code; int8_t fn; } d[] = {
++        {38, 0}, {40, 1}, {32, 2}, {34, 3},                    // J K U I → A B X Y
++        {3, 4}, {5, 5},                                        // F G → press stick
++        {12, 6}, {14, 7}, {6, 8}, {8, 9},                      // Q E Z C → L R ZL ZR
++        {36, 10}, {48, 11},                                    // Return Tab → + −
++        {123, 12}, {126, 13}, {124, 14}, {125, 15},            // ← ↑ → ↓
++        {13, IM_LUP}, {1, IM_LDOWN}, {0, IM_LLEFT}, {2, IM_LRIGHT},   // W S A D → left stick
++        {49, IM_SHAKE},                                        // Space: shaken while held
++    };
++    for (size_t i = 0; i < sizeof d / sizeof *d; i++) m->fn[d[i].code] = d[i].fn;
++}
++static void pad_map_default(pad_map *m) { for (int b = 0; b < IM_BUTTONS; b++) m->to[b] = (int8_t)b; }
++
++// Walks "<name>=<value>,…", calling one(name's function, value text, its length) for each entry; returns the number of malformed entries, each logged here
++static int im_parse(const char *spec, int max_fn, int (*one)(void *, int, const char *, size_t), void *ctx) {
++    int bad = 0;
++    for (const char *p = spec; p && *p; ) {
++        const char *end = strchr(p, ','); size_t n = end ? (size_t)(end - p) : strlen(p);
++        const char *eq = memchr(p, '=', n);
++        int f = eq ? im_name(p, (size_t)(eq - p)) : -1;
++        if (f < 0 || f >= max_fn || !one(ctx, f, eq + 1, n - (size_t)(eq + 1 - p))) {
++            fprintf(stderr, "[dm] [RED] input map: '%.*s' is not <name>=<value>, left out\n", (int)n, p);   // dm.h LOG's form (this header stays free of dm.h for the test)
++            bad++;
++        }
++        p = end ? end + 1 : NULL;
++    }
++    return bad;
++}
++static int im_key_one(void *ctx, int f, const char *v, size_t n) {
++    key_map *m = ctx; char buf[8];
++    if (n == 4 && !strncasecmp(v, "none", 4)) { for (int c = 0; c < IM_KEYS; c++) if (m->fn[c] == f) m->fn[c] = -1; return 1; }
++    if (!n || n >= sizeof buf || strspn(v, "0123456789") < n) return 0;
++    memcpy(buf, v, n); buf[n] = 0; int code = atoi(buf);
++    if (code >= IM_KEYS) return 0;
++    for (int c = 0; c < IM_KEYS; c++) if (m->fn[c] == f) m->fn[c] = -1;   // the function leaves its old key
++    m->fn[code] = (int8_t)f;   // the key's old function is left on no key
++    return 1;
++}
++static int im_pad_one(void *ctx, int f, const char *v, size_t n) {
++    pad_map *m = ctx;
++    if (n == 4 && !strncasecmp(v, "none", 4)) { m->to[f] = -1; return 1; }
++    int t = im_name(v, n); if (t < 0 || t >= IM_BUTTONS) return 0;
++    m->to[f] = (int8_t)t; return 1;
++}
++static int key_map_parse(key_map *m, const char *spec) { return im_parse(spec, IM_N, im_key_one, m); }
++static int pad_map_parse(pad_map *m, const char *spec) { return im_parse(spec, IM_BUTTONS, im_pad_one, m); }
++static int key_map_fn(const key_map *m, unsigned code) { return code < IM_KEYS ? m->fn[code] : -1; }
++// The buttons a controller sends for the buttons the default mapping read (DM_BTN_* bits); bits above the 16 buttons (DM_BTN_SHAKE) pass through
++static uint64_t pad_map_apply(const pad_map *m, uint64_t btn) {
++    uint64_t out = btn & ~0xffffull;
++    for (int b = 0; b < IM_BUTTONS; b++) if (btn >> b & 1 && m->to[b] >= 0) out |= 1ull << m->to[b];
++    return out;
++}
++static int pad_map_is_default(const pad_map *m) { for (int b = 0; b < IM_BUTTONS; b++) if (m->to[b] != b) return 0; return 1; }
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index 1c20254e..9c3970db 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
+ GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
+ $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
+ GAME_H = ../gen/$(GAME)/game_profile.h
+-run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_clockwait $(B)/t_pause $(B)/t_pause_stress $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_switch2
++run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_clockwait $(B)/t_pause $(B)/t_pause_stress $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_switch2 $(B)/t_input_map $(B)/t_launcher_contract
+ 	$(B)/t_language
+ 	$(B)/t_heap_size
+ 	$(B)/t_touch
+@@ -72,6 +72,8 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
+ 	$(B)/t_pad_hid_mac
+ 	$(B)/t_pad_pro
+ 	$(B)/t_switch2
++	$(B)/t_input_map
++	$(B)/t_launcher_contract
+ 	$(B)/t_haptics
+ 	$(B)/t_haptics_apple
+ 	TMPDIR="$(abspath $(B))" $(B)/t_cheats $(QUIET)
+@@ -247,6 +249,10 @@ $(B)/t_pad_hid_mac: t_pad_hid_mac.m ../pad_hid_mac.h ../pad_hid.h ../pad_pro.h .
+ 	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_pad_hid_mac.m -framework Foundation -framework GameController -framework IOKit
+ $(B)/t_motion_pro_mac: t_motion_pro_mac.m ../motion_pro_mac.h ../motion_pro.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -g -fobjc-arc -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_motion_pro_mac.m -framework Foundation -framework GameController -framework IOKit
++$(B)/t_input_map: t_input_map.c ../input_map.h ../dm_input.h | $(B)
++	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. -o $@ t_input_map.c
++$(B)/t_launcher_contract: t_launcher_contract.c ../input_map.h ../dm_input.h | $(B)
++	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. -o $@ t_launcher_contract.c
+ $(B)/t_hid: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c ../hle_bigstack.c
+ $(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../motion_fusion.h ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle_bigstack.c ../hle.h ../dm.h $(GAME_H) | $(B)
+diff --git a/dm/host/tests/t_input_map.c b/dm/host/tests/t_input_map.c
+new file mode 100644
+index 00000000..96736ad6
+--- /dev/null
++++ b/dm/host/tests/t_input_map.c
+@@ -0,0 +1,43 @@
++// The Mac front end's button assignments (input_map.h): the default key map, DM_KEYMAP moving and swapping functions, DM_PAD_MAP's swaps, and malformed entries left out
++#include "../input_map.h"
++
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s (line %d)\n", msg, __LINE__); } } while (0)
++
++int main(void) {
++    key_map k; key_map_default(&k);
++    CHECK(key_map_fn(&k, 38) == 0 && key_map_fn(&k, 40) == 1 && key_map_fn(&k, 32) == 2 && key_map_fn(&k, 34) == 3, "default: J K U I are A B X Y");
++    CHECK(key_map_fn(&k, 13) == IM_LUP && key_map_fn(&k, 0) == IM_LLEFT && key_map_fn(&k, 1) == IM_LDOWN && key_map_fn(&k, 2) == IM_LRIGHT, "default: W A S D are the left stick");
++    CHECK(key_map_fn(&k, 49) == IM_SHAKE && key_map_fn(&k, 36) == 10 && key_map_fn(&k, 125) == 15, "default: Space shakes, Return is +, down arrow is Down");
++    int right = 0; for (int c = 0; c < IM_KEYS; c++) if (k.fn[c] >= IM_RUP && k.fn[c] <= IM_RRIGHT) right++;
++    CHECK(right == 0, "default: the right stick is on no key");
++    CHECK(key_map_fn(&k, 200) == -1 && key_map_fn(&k, 50) == -1, "a key code past the table or without a function holds none");
++
++    CHECK(key_map_parse(&k, "A=40,B=38") == 0, "a swap parses");
++    CHECK(key_map_fn(&k, 40) == 0 && key_map_fn(&k, 38) == 1, "A=40,B=38 swaps A and B");
++    key_map_default(&k);
++    CHECK(key_map_parse(&k, "a=49") == 0 && key_map_fn(&k, 49) == 0 && key_map_fn(&k, 38) == -1, "names are case-insensitive; A leaves J, and Space leaves Shake");
++    int shake = 0; for (int c = 0; c < IM_KEYS; c++) if (k.fn[c] == IM_SHAKE) shake++;
++    CHECK(shake == 0, "the function a key held before is on no key");
++    CHECK(key_map_parse(&k, "RUp=126,RLeft=123,Up=none") == 0, "right stick on the arrows, Up on none");
++    CHECK(key_map_fn(&k, 126) == IM_RUP && key_map_fn(&k, 123) == IM_RLEFT, "the arrows hold the right stick");
++    int up = 0; for (int c = 0; c < IM_KEYS; c++) if (k.fn[c] == 13) up++;
++    CHECK(up == 0, "Up=none leaves Up on no key");
++    key_map_default(&k);
++    CHECK(key_map_parse(&k, "Q=1,ZL=abc,A=128,B=,=5,X=7") == 5, "five malformed entries are counted");
++    CHECK(key_map_fn(&k, 7) == 2 && key_map_fn(&k, 6) == 8 && key_map_fn(&k, 38) == 0, "the good entry applies, the malformed ones change nothing");
++    CHECK(key_map_parse(&k, "") == 0 && key_map_parse(&k, NULL) == 0 && key_map_parse(&k, "L=12,") == 0, "empty lists and a trailing comma are fine");
++
++    pad_map m; pad_map_default(&m);
++    CHECK(pad_map_is_default(&m) && pad_map_apply(&m, DM_BTN_A | DM_BTN_ZR | DM_BTN_SHAKE) == (DM_BTN_A | DM_BTN_ZR | DM_BTN_SHAKE), "default: every button sends itself, Shake passes");
++    CHECK(pad_map_parse(&m, "A=B,B=A") == 0 && !pad_map_is_default(&m), "a swap parses");
++    CHECK(pad_map_apply(&m, DM_BTN_A) == DM_BTN_B && pad_map_apply(&m, DM_BTN_B) == DM_BTN_A && pad_map_apply(&m, DM_BTN_A | DM_BTN_B) == (DM_BTN_A | DM_BTN_B), "A=B,B=A swaps them");
++    CHECK(pad_map_apply(&m, DM_BTN_X | DM_BTN_DOWN) == (DM_BTN_X | DM_BTN_DOWN), "buttons not named stay");
++    CHECK(pad_map_parse(&m, "ZL=L,minus=none") == 0, "two buttons on one, and none");
++    CHECK(pad_map_apply(&m, DM_BTN_ZL) == DM_BTN_L && pad_map_apply(&m, DM_BTN_L | DM_BTN_ZL) == DM_BTN_L && pad_map_apply(&m, DM_BTN_MINUS) == 0, "ZL sends L, Minus sends nothing");
++    pad_map_default(&m);
++    CHECK(pad_map_parse(&m, "A=LUp,LUp=A,Shake=B,Y=X") == 3 && m.to[3] == 2 && m.to[0] == 0, "sticks and Shake are no buttons here: left out; Y=X applies");
++
++    printf("input map: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/host/tests/t_launcher_contract.c b/dm/host/tests/t_launcher_contract.c
+new file mode 100644
+index 00000000..136b4035
+--- /dev/null
++++ b/dm/host/tests/t_launcher_contract.c
+@@ -0,0 +1,35 @@
++/* The write half is ControlLayout.environment in frontend/Sources/NSPortBuilder/Controls.swift;
++   the read half is input_map.h. The launcher sends exactly these strings, so this checks the
++   contract between the two: a rename on either side, or a change of syntax, fails here rather
++   than at a player's keyboard. */
++#include "../input_map.h"
++static int checks, fails;
++#define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s\n", msg); } } while (0)
++int main(void) {
++    key_map k; key_map_default(&k);
++    /* Settings: A moved onto K (40), B left on none — ControlsTests' first case */
++    CHECK(key_map_parse(&k, "A=40,B=none") == 0, "A=40,B=none parses");
++    CHECK(key_map_fn(&k, 40) == 0, "K now sends A");
++    int bfound = 0; for (int c = 0; c < IM_KEYS; c++) if (k.fn[c] == 1) bfound = 1;
++    CHECK(!bfound, "B is on no key");
++
++    pad_map m; pad_map_default(&m);
++    /* Settings: A and B swapped, Minus sends nothing */
++    CHECK(pad_map_parse(&m, "A=B,B=A,Minus=none") == 0, "A=B,B=A,Minus=none parses");
++    CHECK(pad_map_apply(&m, DM_BTN_A) == DM_BTN_B, "pad A sends B");
++    CHECK(pad_map_apply(&m, DM_BTN_B) == DM_BTN_A, "pad B sends A");
++    CHECK(pad_map_apply(&m, DM_BTN_MINUS) == 0, "Minus sends nothing");
++    CHECK(pad_map_apply(&m, DM_BTN_Y) == DM_BTN_Y, "untouched buttons stay");
++
++    /* the right stick on I, as the Controls sheet's own capture sets it */
++    key_map_default(&k);
++    CHECK(key_map_parse(&k, "RUp=34") == 0, "RUp=34 parses");
++    CHECK(key_map_fn(&k, 34) == IM_RUP, "I now sends RUp (and Y left I)");
++    int yfound = 0; for (int c = 0; c < IM_KEYS; c++) if (k.fn[c] == 3) yfound = 1;
++    CHECK(!yfound, "Y is on no key any more");
++    int rup = 0; for (int c = 0; c < IM_KEYS; c++) if (k.fn[c] == IM_RUP) rup = 1;
++    CHECK(rup, "RUp is on a key");
++
++    printf("launcher contract: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
+diff --git a/dm/tools/impact_map.tsv b/dm/tools/impact_map.tsv
+index 691cb6c6..3018bd40 100644
+--- a/dm/tools/impact_map.tsv
++++ b/dm/tools/impact_map.tsv
+@@ -140,6 +140,7 @@ dm/host/main.c	*:*	the host's start
+ dm/host/loader.c	*:*	module loading
+ dm/host/hle.c	hle:*	the HLE tables
+ dm/host/front_mac.m	present:*	the Mac front end
++dm/host/input_map.h	present:*	the Mac front end's key and controller button map
+ dm/host/dm_input.h	hle:*hid*	the shared input interface
+ dm/host/motion_apple.h	hle:*SixAxisSensor*	controller motion supplied by GameController
+ dm/host/pad_apple.h	hle:*hid*	controller face buttons from GameController
+diff --git a/docs/development.md b/docs/development.md
+index 44c96be8..bb69dff1 100644
+--- a/docs/development.md
++++ b/docs/development.md
+@@ -14,6 +14,8 @@ The README covers packing and playing. This page is for working on nxnative itse
+ | iOS app | One unsigned IPA for iPhone and iPad. The rewritten code is embedded in the executable; the shader libraries, the RomFS and the game icon are inside the app. A settings screen comes before the game (`Launcher.swift`, drawn from `dm/launcher.json`, which `dm/games/settings.py` writes from `dm/games/settings.tsv`); the host's loading starts at app launch meanwhile, and the frame rate and render scale go into the frame step state when the game starts (`loader.c` `dm_fps_state_apply`) |
+ | Known gaps | Conditional render is always drawn; [indirect-count multi-draws](reference/rendering.md#indirect-count-multi-draws) can wait for a GPU-written count when the records need conversion, cannot be GPU-masked, or exceed the mask table capacity; geometry shaders do not translate. TBDR optimizations are off by default (they don't understand bindless textures yet). No amiibo. On the Mac, Mario's menu and dialogue text render blank (fine on the iPhone) |
+ 
++On the Mac, `DM_KEYMAP=<name>=<key code>,…` puts a button, a stick direction (the right stick too, on no key by default) or `Shake` on another key, and `DM_PAD_MAP=<name>=<name>,…` changes what a controller's buttons send (`A=B,B=A` swaps them; `input_map.h`).
++
+ ## Cheats
+ 
+ How a Switch with Atmosphère runs cheats, and where this host differs, is in [Cheats on a Switch](reference/cheats.md).

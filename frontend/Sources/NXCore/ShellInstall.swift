@@ -2,7 +2,7 @@ import Foundation
 
 // Route C: one app on the iPhone or iPad that holds several games. The build script makes only each game's framework
 // (`--shell-framework`), and this file does the rest: the shell's library file (shell.json), the shell's Xcode project
-// (dm/ios/tools/build_shell.sh), signing, the install, and the game data. Everything pure (the file, the commands, the listing
+// (frontend-ios/Shell/build_shell.sh), signing, the install, and the game data. Everything pure (the file, the commands, the listing
 // parser, the diff) is a static function with its own tests. `ShellInstaller` strings them together, blocking, so the same code
 // runs under the build model (on a background queue) and from the terminal (`NSPortBuilder --install-shell`).
 
@@ -66,13 +66,13 @@ package enum ShellInstall {
 
     // ---- 4: the project ----
 
-    package static func projectCommand(repo: String) -> [String] {
-        ["/bin/bash", repo + "/dm/ios/tools/build_shell.sh", "--prepare-xcode"]
+    package static func projectCommand(package: String) -> [String] {
+        ["/bin/bash", package + "/Shell/build_shell.sh", "--prepare-xcode"]
     }
 
-    /// The `frontend-ios` Swift package the shell project links (build_shell.sh's DM_SHELL_PACKAGE). The script defaults to
-    /// `frontend-ios` beside `dm/`, which is the engine root, and an engine tree has none since #214. So: the release app's
-    /// Contents/Resources/frontend-ios, else the source checkout's `frontend-ios` (`repo`). nil when neither has a Package.swift.
+    /// The `frontend-ios` Swift package the shell project links (build_shell.sh's DM_SHELL_PACKAGE), which also holds
+    /// `Shell/build_shell.sh`, `Shell/project-shell.yml` and `Shell/App/`. In a release app this is Contents/Resources/frontend-ios,
+    /// else the source checkout's `frontend-ios` (`repo`). nil when neither has a Package.swift.
     package static func shellPackage(resources: String?, repo: String, fm: FileManager = .default) -> String? {
         ([resources, repo].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }
             .first { fm.fileExists(atPath: $0 + "/Package.swift") }
@@ -80,7 +80,8 @@ package enum ShellInstall {
 
     /// What build_shell.sh reads. `path` is the build's own tool PATH (xcodegen must be found on it).
     package static func projectEnvironment(root: String, frameworks: [String], bundleID: String, team: String, python: String,
-                                   path: String, home: String, user: String, tmp: String? = nil, package: String? = nil) -> [String: String] {
+                                   path: String, home: String, user: String, tmp: String? = nil, package: String? = nil,
+                                   engine: String? = nil) -> [String: String] {
         var env = ["SHELL_DIR": projectFolder(root: root),
                    "DM_SHELL_FRAMEWORKS": frameworks.joined(separator: "\n"),
                    "DM_BUNDLE_ID": bundleID,
@@ -90,6 +91,7 @@ package enum ShellInstall {
                    "PATH": path, "HOME": home, "USER": user, "LANG": "en_US.UTF-8"]
         if let tmp { env["TMPDIR"] = tmp }
         if let package { env["DM_SHELL_PACKAGE"] = package }
+        if let engine { env["DM_ENGINE_DIR"] = engine }
         return env
     }
 
@@ -202,6 +204,33 @@ package enum ShellInstall {
         return found
     }
 
+    /// Collects the game data files from `archive` and, when `includeExternalMSL` is true and the last exported shared IPA
+    /// externalized `titleID`'s shaders (#947), merges `<mirroredFramework>/msl/*` as `msl/*` without touching `archive` on disk.
+    package static func transferSources(
+        archive: String,
+        shellRoot: String? = nil,
+        titleID: String = "",
+        includeExternalMSL: Bool = false,
+        fm: FileManager = .default
+    ) -> (sizes: [String: Int64], origins: [String: String]) {
+        var sizes = localFiles(in: archive)
+        var origins = Dictionary(uniqueKeysWithValues: sizes.keys.map { ($0, archive + "/" + $0) })
+        let upper = titleID.uppercased()
+        guard includeExternalMSL, !upper.isEmpty, let root = shellRoot, !root.isEmpty,
+              ShellExport.externalizedTitles(root: root, fm: fm).contains(upper) else {
+            return (sizes, origins)
+        }
+        let fwPath = ShellLibrary.load(root: root).games.first { $0.titleID.uppercased() == upper }?.framework
+            ?? mirroredFramework(root: root, titleID: upper)
+        let mslDir = fwPath + "/msl"
+        for (subrel, sz) in localFiles(in: mslDir) {
+            let rel = "msl/" + subrel
+            sizes[rel] = sz
+            origins[rel] = mslDir + "/" + subrel
+        }
+        return (sizes, origins)
+    }
+
     /// The local files to copy: missing on the device, or of another size. Sorted, so the copies run in a stable order.
     /// The caller also checks the last RomFS transfer before treating a same-size device image as a match.
     package static func filesToCopy(local: [String: Int64], device: [String: Int64]) -> [String] {
@@ -312,6 +341,9 @@ package struct ShellInstaller {
     /// (`ShellDataParts`). A test makes them small.
     package var partSize: Int64 = ShellDataParts.partSize
     package var singleCopyLimit: Int64 = ShellDataParts.singleCopyLimit()
+    package var signingIdentity: (String, ProcessRunner) -> String? = ShellHotInstall.defaultSigningIdentity
+    package var codesignPath = "/usr/bin/codesign"
+    package var now: () -> Date = { Date() }
 
     package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {
         self.xcrun = xcrun; self.repo = repo; self.python = python; self.root = root; self.device = device; self.team = team
@@ -391,14 +423,28 @@ package struct ShellInstaller {
     }
 
     package func install(framework: String, titleID: String, name: String, archive: String) -> Outcome {
+        let signed = signAndInstallApp(framework: framework, titleID: titleID, name: name)
+        guard signed.outcome.ok else { return signed.outcome }
+        // 7: the game data, only what the device does not have yet
+        var result = copyGameData(titleID: titleID, archive: archive, app: signed.outcome.appPath,
+                                  bundleID: signed.outcome.bundleID, outcome: signed.outcome, appJoinsParts: true)
+        if result.ok, !signed.notes.isEmpty { result.message = ([result.message] + signed.notes).joined(separator: "\n") }
+        return result
+    }
+
+    /// Steps 3 to 6: prepare the shared app's library and project, sign it, and install the app bundle on the device.
+    func signAndInstallApp(framework: String, titleID: String, name: String) -> (outcome: Outcome, notes: [String]) {
         guard FileManager.default.fileExists(atPath: framework) else {
-            return missingFramework(framework, name: name)
+            return (missingFramework(framework, name: name), [])
+        }
+        if let hot = tryHotInstall(games: [HotGame(framework: framework, titleID: titleID, name: name, pickedArtwork: pickedArtwork)]) {
+            return hot
         }
         // A device this Mac never paired is found out now, not after the signing: nothing is built for it
-        if let refused = pairingRefusal() { return refused }
+        if let refused = pairingRefusal() { return (refused, []) }
         // 3 and 4: the library and the project
         let prepared = prepareShell(framework: framework, titleID: titleID, name: name)
-        guard var library = prepared.library, let env = prepared.env else { return prepared.failure! }
+        guard var library = prepared.library, let env = prepared.env else { return (prepared.failure!, []) }
         let projectName = t("shell.projectStage")
 
         // 5: sign and build, with one retry under this team's own identifier
@@ -424,7 +470,8 @@ package struct ShellInstaller {
         if built.status != 0, ShellInstall.memoryCapabilityMissing(built.output) {
             log("signing: the team's provisioning profile cannot carry the Increased Memory Limit capability; signing without it (a large game may run out of memory)\n")
             var plain = env; plain["DM_ENTITLEMENTS"] = ""
-            let again = run(ShellInstall.projectCommand(repo: repo), env: plain, label: projectName, step: { _ in nil })
+            let package = plain["DM_SHELL_PACKAGE"] ?? (repo + "/frontend-ios")
+            let again = run(ShellInstall.projectCommand(package: package), env: plain, label: projectName, step: { _ in nil })
             if again.status == 0 {
                 ShellInstall.refreshProjectLinks(root: root, resources: resources, repo: repo)
                 noMemoryCapability = true
@@ -441,7 +488,7 @@ package struct ShellInstaller {
                 var out = Outcome(ok: false, message: fmt("dev.signFailed", why), step: .sign, failure: .appIDLimit)
                 out.detail = BuildFailureClassifier.appIDLimitReset(in: built.output)
                     ?? AppSignature.oldestFreeAppIDExpiry(forTeam: team, lang: lang) ?? ""
-                return out
+                return (out, [])
             }
             // Xcode follows a destination failure with reasons other destinations are ineligible.
             // Those entries can contain "error:" even though they do not describe the requested device.
@@ -451,7 +498,7 @@ package struct ShellInstaller {
             let why = destinationUnavailable ? t("shell.destinationUnavailable") : built.lastError ?? fmt("msg.exitCode", built.status)
             end(Self.signStageID, signName, ok: false, detail: why)
             let message = destinationUnavailable ? t("shell.destinationUnavailableNext") : fmt("dev.signFailed", why)
-            return Outcome(ok: false, message: message, step: .sign)
+            return (Outcome(ok: false, message: message, step: .sign), [])
         }
         end(Self.signStageID, signName, ok: true)
         // The identifier that signed is the one the device's app gets: stored once the signing passed, also when the sign without the
@@ -464,7 +511,7 @@ package struct ShellInstaller {
         // 6: install over the existing app, which keeps its Documents
         let app = ShellInstall.appPath(root: root)
         guard FileManager.default.fileExists(atPath: app) else {
-            return Outcome(ok: false, message: fmt("dev.noProject", app), step: .install)
+            return (Outcome(ok: false, message: fmt("dev.noProject", app), step: .install), [])
         }
         let installName = fmt("dev.installStage", deviceName)
         begin(Self.installStageID, installName)
@@ -473,17 +520,14 @@ package struct ShellInstaller {
         if installed.status != 0 {
             let why = installed.lastError ?? fmt("msg.exitCode", installed.status)
             end(Self.installStageID, installName, ok: false, detail: why)
-            return Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install)
+            return (Outcome(ok: false, message: fmt("dev.installFailed", why), step: .install), [])
         }
         ShellLibrary.recordInstalled(root: root)
         end(Self.installStageID, installName, ok: true)
 
-        // 7: the game data, only what the device does not have yet
         var outcome = Outcome(ok: true, message: fmt("dev.installed", deviceName), appPath: app, bundleID: bundleID)
         outcome.noMemoryCapability = noMemoryCapability
-        var result = copyGameData(titleID: titleID, archive: archive, app: app, bundleID: bundleID, outcome: outcome, appJoinsParts: true)
-        if result.ok, !prepared.notes.isEmpty { result.message = ([result.message] + prepared.notes).joined(separator: "\n") }
-        return result
+        return (outcome, prepared.notes)
     }
 
     /// Step 7 on its own, for a Retry after a copy that failed midway: the listing, the diff and the copy, nothing else. The app
@@ -502,7 +546,7 @@ package struct ShellInstaller {
         return Outcome(ok: false, message: fmt("shell.notPaired", deviceName), failure: .devicePairing)
     }
 
-    private func connection() -> ShellInstall.Connection {
+    func connection() -> ShellInstall.Connection {
         ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20, runner: runner))
     }
 
@@ -510,7 +554,8 @@ package struct ShellInstaller {
     /// device joins parts (`ShellDataParts`): true for the shared app this launcher just built, nil to ask the app (its
     /// `shell-features.txt`). A file larger than one part goes as parts to an app that joins them; to any other app only a file
     /// devicectl cannot copy whole (`singleCopyLimit`) does, since the whole copy would stall anyway.
-    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome, appJoinsParts: Bool? = nil) -> Outcome {
+    func copyGameData(titleID: String, archive: String, app: String, bundleID: String, outcome start: Outcome,
+                      appJoinsParts: Bool? = nil, includeExternalMSL: Bool = false) -> Outcome {
         var outcome = start
         let checkName = fmt("shell.checkStage", deviceName)
         begin(Self.checkStageID, checkName)
@@ -520,7 +565,8 @@ package struct ShellInstaller {
         _ = run(ShellInstall.listCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID, json: listing),
                 env: nil, label: checkName, step: { _ in nil })
         let onDevice = ShellInstall.parseListing(FileManager.default.contents(atPath: listing))
-        let local = ShellInstall.localFiles(in: archive)
+        let transfer = ShellInstall.transferSources(archive: archive, shellRoot: root, titleID: titleID, includeExternalMSL: includeExternalMSL)
+        let local = transfer.sizes
         // The listing still catches missing and interrupted copies. Two releases can also have the same image size.
         let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)"
         let previous = defaults.string(forKey: receipt)
@@ -602,7 +648,7 @@ package struct ShellInstaller {
                              percent: copiedBytes > 0 && needed > 0 ? Double(copiedBytes) / Double(needed) * 100 : nil))
             // Once an overwrite begins, the old receipt cannot vouch for what a failed copy leaves behind.
             if item.file == "romfs.img", previous != nil { defaults.removeObject(forKey: receipt) }
-            var source = archive + "/" + item.file, destination = item.file, staged: String?
+            var source = transfer.origins[item.file] ?? (archive + "/" + item.file), destination = item.file, staged: String?
             if case .part(let file, let index, let count) = item {
                 // The part is cut into a file of its own, which devicectl reads whole, and removed after the copy
                 if file == "romfs.img", let identity { defaults.set(identity, forKey: partsReceipt) }
@@ -657,7 +703,7 @@ package struct ShellInstaller {
         return outcome
     }
 
-    private func copyPlan(files: Int, bytes: Int64, connection: ShellInstall.Connection) -> ShellCopyPlan {
+    func copyPlan(files: Int, bytes: Int64, connection: ShellInstall.Connection) -> ShellCopyPlan {
         let connectionText: String
         switch connection {
         case .network:

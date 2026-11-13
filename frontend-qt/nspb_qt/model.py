@@ -20,6 +20,7 @@ from PySide6.QtCore import QSettings, Q_ARG, QMetaObject, QObject, Qt, QThread, 
 
 from . import app_update
 from . import build_failure as bf
+from . import build_notes
 from . import engine
 from . import input_staging
 from . import inputs
@@ -2998,7 +2999,7 @@ class Model(QObject):
                         self._pso_native_progress = True
                         self._stop_pso_poll()
                     existing.percent = min(float(pct_m.group(1)), 100.0)
-                    after = rest[pct_m.end():].lstrip(' ·,:')
+                    after = build_notes.strip_not_cached(rest[pct_m.end():].lstrip(' ·,:'))
                     if after:
                         existing.detail = after
                 elif rest.endswith(' …'):
@@ -3013,7 +3014,7 @@ class Model(QObject):
                 elif ': ' in rest:
                     _head_part, hb_detail = rest.split(': ', 1)
                     if not (self._is_pso_stage_text(existing.name) and existing.percent > 0):
-                        existing.detail = hb_detail.strip()
+                        existing.detail = build_notes.strip_not_cached(hb_detail.strip())
             else:
                 for st in self.stages:
                     if st.state == 'running':
@@ -3024,9 +3025,10 @@ class Model(QObject):
                 if pct_m:
                     pct = min(float(pct_m.group(1)), 100.0)
                     clean_name = rest[:pct_m.start()].rstrip(' ·:')
-                    detail = rest[pct_m.end():].lstrip(' ·,:')
+                    detail = build_notes.strip_not_cached(rest[pct_m.end():].lstrip(' ·,:'))
                 elif ': ' in clean_name:
                     clean_name, detail = [p.strip() for p in clean_name.split(': ', 1)]
+                    detail = build_notes.strip_not_cached(detail)
                 self.stages.append(Stage(id=k, name=clean_name, state='running', detail=detail, percent=pct))
                 if self._is_pso_stage_text(clean_name):
                     if pct_m:
@@ -3192,6 +3194,8 @@ class Model(QObject):
         dest_root: str,
         title_id: str,
         *,
+        shell_root: str = '',
+        origins: dict[str, str] | None = None,
         progress_cb: Callable[[int, int], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> tuple[bool, bool, str]:
@@ -3201,7 +3205,15 @@ class Model(QObject):
         partially written `.part` file and newly created empty folders are removed before returning
         so an external drive never retains a truncated `romfs.img`.
         """
-        raw_files = lib.DriveCopy.collect_archive_files(archive_dir)
+        raw_files, auto_origins = lib.DriveCopy.collect_transfer_files(
+            archive_dir,
+            shell_root=shell_root,
+            title_id=title_id,
+            include_external_msl=bool(shell_root),
+        )
+        origins_map = dict(auto_origins)
+        if origins:
+            origins_map.update(origins)
         files = {
             rel: sz
             for rel, sz in raw_files.items()
@@ -3228,7 +3240,7 @@ class Model(QObject):
             dst_cand = os.path.abspath(os.path.join(dest_dir, *parts))
             if os.path.commonpath([dest_abs, dst_cand]) != dest_abs or dst_cand == dest_abs:
                 return False, False, f'Invalid archive entry path: {rel}'
-            src_cand = os.path.join(archive_dir, *parts)
+            src_cand = origins_map.get(rel) or os.path.join(archive_dir, *parts)
             if os.path.isfile(dst_cand):
                 try:
                     same = (
@@ -3302,7 +3314,7 @@ class Model(QObject):
                     _rollback_staging()
                     return False, True, ''
                 parts = rel.replace('\\', '/').split('/')
-                src = os.path.join(archive_dir, *parts)
+                src = origins_map.get(rel) or os.path.join(archive_dir, *parts)
                 dst = os.path.join(dest_dir, *parts)
                 if rel in reusable:
                     done += sz
@@ -3389,6 +3401,7 @@ class Model(QObject):
             arch,
             dest_root,
             tid,
+            shell_root=self.shell_cache_path,
             progress_cb=progress_cb,
             cancel_event=cancel_event,
         )
@@ -3396,17 +3409,152 @@ class Model(QObject):
             return False, self.t('msg.stopped')
         return ok, info
 
+    def shared_app_data_sources(self) -> list[tuple[str, str, str, int]]:
+        """Return `(title_id, name, archive_path, total_bytes)` for every game with packed data."""
+        seen: set[str] = set()
+        out: list[tuple[str, str, str, int]] = []
+        shell_root = self.shell_cache_path
+        for g in self.library.games:
+            tid = (g.title_id or '').strip().upper()
+            arch = (g.archive_path or '').strip()
+            if not tid or tid in seen or not arch or not os.path.isdir(arch):
+                continue
+            files, _origins = lib.DriveCopy.collect_transfer_files(
+                arch,
+                shell_root=shell_root,
+                title_id=tid,
+                include_external_msl=bool(shell_root),
+            )
+            clean_files = {
+                rel: sz for rel, sz in files.items() if not rel.lower().endswith(('.part', '.partial'))
+            }
+            if not clean_files:
+                continue
+            seen.add(tid)
+            out.append((tid, g.name or self._drive_game_name(tid), arch, sum(clean_files.values())))
+        curr_arch = self.effective_archive_path()
+        curr_tid = (self.packed_title_id or '').strip().upper()
+        if curr_tid and curr_tid not in seen and curr_arch and os.path.isdir(curr_arch):
+            files, _origins = lib.DriveCopy.collect_transfer_files(
+                curr_arch,
+                shell_root=shell_root,
+                title_id=curr_tid,
+                include_external_msl=bool(shell_root),
+            )
+            clean_files = {
+                rel: sz for rel, sz in files.items() if not rel.lower().endswith(('.part', '.partial'))
+            }
+            if clean_files:
+                out.append((curr_tid, self._drive_game_name(curr_tid), curr_arch, sum(clean_files.values())))
+        return out
+
+    def built_shell_games(self) -> list:
+        """Return built `ShellGame` entries in `shell.json` whose frameworks still exist on disk."""
+        from .win import shell_export as se
+
+        shell_lib = se.ShellLibrary.load(self.shell_cache_path)
+        shell_lib.drop_missing()
+        return shell_lib.games
+
+    def can_export_built_games(self) -> bool:
+        """True when shared-app IPA repacking can run without rebuilding any game."""
+        return (
+            not self.running
+            and self.target == 'ios'
+            and self.ipa_kind != 'oneGame'
+            and bool(self.repo_ok)
+            and bool(self.built_shell_games())
+        )
+
+    def stale_shell_frameworks(self) -> list:
+        """Return built shell games whose shader chain differs from the current engine."""
+        if not self.repo_ok:
+            return []
+        from .win import shell_export as se
+
+        return se.find_stale_frameworks(self.shell_cache_path, self.engine_path)
+
+    def repack_built_shell_ipa(self) -> tuple[bool, str]:
+        """Synchronously repack `<shell_cache>/export/NX2Apple.ipa` from already-built frameworks."""
+        from .win import shell_export as se
+
+        def on_stage(stage_name: str, state: str) -> None:
+            for st in self.stages:
+                if st.name == stage_name:
+                    st.state = state
+                    self.stagesChanged.emit()
+                    return
+            self.stages.append(Stage(name=stage_name, state=state))
+            self.stagesChanged.emit()
+
+        py = self.python_path or sys.executable
+        ok, out_ipa, msg, _notes = se.repack_built_shell(
+            root=self.shell_cache_path,
+            repo=self.engine_path,
+            python_exe=py,
+            banners_dir=self.artwork.banners_dir,
+            custom_artworks=dict(self.artwork.custom_paths),
+            t_func=self.t,
+            log=self.log,
+            stage_cb=on_stage,
+        )
+        if ok:
+            self.ipa_path = out_ipa
+            self._emit_library_changed()
+        return ok, msg
+
+    def start_repack_shell_ipa(self) -> bool:
+        """Repack the shared IPA on a background thread and report via `runningChanged` / `finished`."""
+        if not self.can_export_built_games():
+            return False
+        self._last_error = ''
+        self.failure = None
+        self.stages = []
+        self.stagesChanged.emit()
+        self.running = True
+        self.runningChanged.emit(True)
+
+        def worker() -> None:
+            try:
+                ok, msg = self.repack_built_shell_ipa()
+            except Exception as exc:  # noqa: BLE001
+                ok, msg = False, str(exc)
+            QMetaObject.invokeMethod(
+                self,
+                '_finish_repack_shell_ipa',
+                Qt.QueuedConnection,
+                Q_ARG(bool, ok),
+                Q_ARG(str, msg),
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+        return True
+
+    @Slot(bool, str)
+    def _finish_repack_shell_ipa(self, ok: bool, msg: str) -> None:
+        self.running = False
+        self.runningChanged.emit(False)
+        self.finished.emit(ok, msg)
+
     def start_drive_copy(self, dest_root: str, *, archive_dir: str = '') -> bool:
         """Start copying the packed game archive to `dest_root` on a background worker thread."""
         arch = archive_dir or self.effective_archive_path()
         if not arch or not dest_root or not os.path.isdir(arch):
             return False
+        return self.start_batch_drive_copy(dest_root, [(self.packed_title_id, arch)])
+
+    def start_batch_drive_copy(self, dest_root: str, items: list[tuple[str, str]]) -> bool:
+        """Copy one or more `(title_id, archive_dir)` items sequentially on a background worker thread."""
+        valid = [(tid.strip().upper(), arch) for tid, arch in items if tid.strip() and arch and os.path.isdir(arch)]
+        if not valid or not dest_root:
+            return False
         lock = getattr(self, '_drive_copy_lock', None)
         if lock is None:
             lock = threading.RLock()
             self._drive_copy_lock = lock
-        tid = self.packed_title_id
-        game_name = self._drive_game_name(tid)
+        first_tid, _first_arch = valid[0]
+        first_name = self._drive_game_name(first_tid)
+        shell_root = self.shell_cache_path
         with lock:
             if getattr(self, 'drive_copying', False):
                 return False
@@ -3418,8 +3566,8 @@ class Model(QObject):
             self.drive_copy_cancelling = False
             self.drive_copy_done = 0
             self.drive_copy_total = 0
-            self.drive_copy_game = game_name
-            self.drive_copy_tid = tid.upper()
+            self.drive_copy_game = first_name if len(valid) == 1 else f'1/{len(valid)} · {first_name}'
+            self.drive_copy_tid = first_tid
         try:
             self.driveCopyStateChanged.emit()
         except RuntimeError:
@@ -3428,7 +3576,7 @@ class Model(QObject):
         last_emit = [0.0]
         last_pct = [-1]
 
-        def on_progress(done: int, total: int) -> None:
+        def report_overall(done: int, total: int) -> None:
             pct = int(min(100, (done * 100) // total)) if total > 0 else 0
             now = time.monotonic()
             if done != 0 and done < total and pct == last_pct[0] and (now - last_emit[0]) < 0.05:
@@ -3447,18 +3595,66 @@ class Model(QObject):
 
         def worker() -> None:
             try:
-                ok, cancelled, info = self._copy_archive_files(
-                    arch,
-                    dest_root,
-                    tid,
-                    progress_cb=on_progress,
-                    cancel_event=cancel_ev,
-                )
+                if len(valid) > 1:
+                    _net_needed, batch_err = lib.DriveCopy.preflight_batch_copy(
+                        valid,
+                        dest_root,
+                        shell_root=shell_root,
+                        t_func=self.t,
+                    )
+                    if batch_err is not None:
+                        raise RuntimeError(batch_err)
+                per_item_totals: list[int] = []
+                for tid, arch in valid:
+                    raw_f, _orig = lib.DriveCopy.collect_transfer_files(
+                        arch,
+                        shell_root=shell_root,
+                        title_id=tid,
+                        include_external_msl=bool(shell_root),
+                    )
+                    clean_f = {
+                        rel: sz for rel, sz in raw_f.items() if not rel.lower().endswith(('.part', '.partial'))
+                    }
+                    per_item_totals.append(sum(clean_f.values()))
+                overall_total = sum(per_item_totals)
+                completed_bytes = 0
+                ok, cancelled, info = True, False, dest_root
+                for idx, (tid, arch) in enumerate(valid):
+                    if cancel_ev.is_set():
+                        ok, cancelled, info = False, True, ''
+                        break
+                    gname = self._drive_game_name(tid)
+                    with lock:
+                        if self._drive_copy_gen == gen and self.drive_copying:
+                            self.drive_copy_tid = tid
+                            self.drive_copy_game = (
+                                gname if len(valid) == 1 else f'{idx + 1}/{len(valid)} · {gname}'
+                            )
+                    base_done = completed_bytes
+
+                    def on_item_progress(item_done: int, _item_total: int, base: int = base_done) -> None:
+                        report_overall(min(overall_total, base + item_done), overall_total)
+
+                    ok, cancelled, info = self._copy_archive_files(
+                        arch,
+                        dest_root,
+                        tid,
+                        shell_root=shell_root,
+                        progress_cb=on_item_progress,
+                        cancel_event=cancel_ev,
+                    )
+                    if not ok:
+                        break
+                    completed_bytes = min(overall_total, base_done + per_item_totals[idx])
+                if ok and len(valid) > 1:
+                    info = dest_root
             except Exception as exc:  # noqa: BLE001
                 ok, cancelled, info = False, False, str(exc)
             with lock:
                 if self._drive_copy_gen != gen:
                     return
+                if len(valid) > 1:
+                    self.drive_copy_tid = '*'
                 self.drive_copying = False
                 self.drive_copy_cancelling = False
                 self._drive_copy_cancel = None

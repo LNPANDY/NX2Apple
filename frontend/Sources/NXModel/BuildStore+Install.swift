@@ -49,6 +49,7 @@ extension BuildStore {
         running = true
         finderShown = false
         if dataOnly { failure = nil; done = false; doneNote = "" }
+        shellBatchRetry = nil
         shellRetry = (framework, titleID, name, archive)
         let installer = makeInstaller()
         let target = devices
@@ -84,9 +85,113 @@ extension BuildStore {
         }
     }
 
+    /// Signs and installs the shared app from the frameworks already built, without rebuilding any game or copying `romfs.img` data.
+    package func installBuiltShell(framework: String, titleID: String, name: String) {
+        buildingGame = false
+        runningTarget = BuildTarget.ios
+        beginOperation(.installing, game: nil, titleID: nil, destination: .target)
+        stopping = false; stoppedByPlayer = false; installCancel.set(false); installPhaseActive = true
+        running = true; done = false; doneNote = ""; failure = nil; stages = []
+        finderShown = false
+        let installer = makeInstaller()
+        let device = devices.installDevice
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = installer.installBuilt(framework: framework, titleID: titleID, name: name)
+            hop {
+                self.installPhaseActive = false
+                if self.stopping {
+                    self.stopping = false; self.running = false
+                    self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
+                    return
+                }
+                guard result.ok else {
+                    self.finishInstall(result.message)
+                    if let kind = result.failure {
+                        let detail = (kind == .appIDLimit && !result.detail.isEmpty) ? result.detail : nil
+                        let f = BuildFailure(kind: kind, gameName: nil, detail: detail)
+                        self.failure = f
+                        if kind == .appIDLimit { self.doneNote = self.failureWhat(f) }
+                    } else if let step = result.step { self.noteInstallFailure(step, error: result.message) }
+                    return
+                }
+                self.installedOn = device
+                self.installedAppPath = result.appPath
+                self.onBuiltGamesInstalled(result.appPath, device)
+                self.finishInstall(nil, note: result.message)
+            }
+        }
+    }
+
+    /// Signs and installs the shared app once for all successful games of a queued batch, then transfers their missing game data.
+    package func installShellBatch(_ games: [DeferredShellGame], dataOnly: Bool = false) {
+        guard let last = games.last else { return }
+        buildingGame = false
+        runningTarget = BuildTarget.ios
+        beginOperation(dataOnly ? .sendingGameData : .installing, game: games.count == 1 ? last.name : nil,
+                       titleID: games.count == 1 ? last.titleID : nil, destination: .target)
+        stopping = false; installCancel.set(false); installPhaseActive = true
+        if dataOnly { stoppedByPlayer = false }
+        running = true; done = false; doneNote = ""; failure = nil
+        if dataOnly { stages = [] }
+        finderShown = false
+        shellBatchRetry = games
+        shellRetry = (last.framework, last.titleID, last.name, last.archive)
+        let batchGames = games.map {
+            ShellInstaller.BatchGame(framework: $0.framework, titleID: $0.titleID, name: $0.name, archive: $0.archive,
+                                     pickedArtwork: pickedArtworkForTitleID($0.titleID))
+        }
+        let installer = makeInstaller()
+        let root = installer.root
+        let target = devices
+        let device = devices.installDevice
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = dataOnly ? installer.installBatchData(batchGames) : installer.installBatch(batchGames)
+            if !dataOnly, result.ok {
+                let surviving = Set(ShellLibrary.load(root: root).games.map { $0.titleID.uppercased() })
+                for game in games where surviving.contains(game.titleID.uppercased()) {
+                    PostBuildCleanup.cleanBuiltFrameworkContainer(game.framework)
+                }
+            }
+            hop {
+                self.installPhaseActive = false
+                target.copyEnded()
+                if self.stopping {
+                    self.stopping = false; self.running = false
+                    self.resetProgress(); self.doneNote = self.t("msg.stopped"); self.cleanupStaging()
+                    return
+                }
+                guard result.ok else {
+                    if !result.appPath.isEmpty {
+                        self.installedOn = device
+                        self.installedAppPath = result.appPath
+                        self.onBatchShellInstalled(games, result.appPath, device)
+                    }
+                    self.finishInstall(result.message)
+                    if let kind = result.failure {
+                        let detail = (kind == .appIDLimit && !result.detail.isEmpty) ? result.detail : nil
+                        let f = BuildFailure(kind: kind, gameName: nil, detail: detail)
+                        self.failure = f
+                        if kind == .appIDLimit { self.doneNote = self.failureWhat(f) }
+                    } else if let step = result.step { self.noteInstallFailure(step, error: result.message) }
+                    return
+                }
+                self.shellBatchRetry = nil
+                self.installedOn = device
+                self.installedAppPath = result.appPath
+                self.onBatchShellInstalled(games, result.appPath, device)
+                self.finishInstall(nil, note: result.message)
+            }
+        }
+    }
+
     /// Retry after game data that went over in part: only the data step runs again (listing, diff, copy).
     package func retryShellData() {
-        guard !running, let r = shellRetry else { return }
+        guard !running else { return }
+        if let batch = shellBatchRetry, !batch.isEmpty {
+            installShellBatch(batch, dataOnly: true)
+            return
+        }
+        guard let r = shellRetry else { return }
         installShell(framework: r.framework, titleID: r.titleID, name: r.name, archive: r.archive, dataOnly: true)
     }
 
@@ -233,10 +338,16 @@ extension BuildStore {
         let engineRoot = EngineLayout.root(repoPath)
         let python = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
         let toolPath = BuildCommands.toolPath("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", python: python)
-        let package = ShellInstall.shellPackage(resources: resources, repo: repoPath)
+        guard let package = ShellInstall.shellPackage(resources: resources, repo: repoPath) else {
+            let looked = ([resources, repoPath].compactMap { $0 }.filter { !$0.isEmpty }).map { $0 + "/frontend-ios" }.joined(separator: ", ")
+            self.installPhaseActive = false
+            self.running = false
+            self.doneNote = String(format: self.t("shell.projectFailed"), "no frontend-ios Swift package (Package.swift) in " + looked)
+            then?(); return
+        }
         var env = ShellInstall.projectEnvironment(root: shell.root, frameworks: library.games.map(\.framework), bundleID: bundle,
                                                   team: team, python: python, path: toolPath, home: NSHomeDirectory(), user: NSUserName(),
-                                                  tmp: NSTemporaryDirectory(), package: package)
+                                                  tmp: NSTemporaryDirectory(), package: package, engine: engineRoot)
         env.merge(BundledTools.environment(for: python)) { $1 }
         let xcconfig = shell.root + "/project/Gen/dm.xcconfig"
         if (try? String(contentsOfFile: xcconfig, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true
@@ -244,7 +355,7 @@ extension BuildStore {
             env["DM_ENTITLEMENTS"] = ""
         }
         runTool(id: ShellInstaller.projectStageID, name: t("shell.projectStage"),
-                ShellInstall.projectCommand(repo: engineRoot), environment: env, step: { _ in nil }) { projectError in
+                ShellInstall.projectCommand(package: package), environment: env, step: { _ in nil }) { projectError in
             if let projectError, !projectError.isEmpty {
                 self.installPhaseActive = false
                 self.running = false

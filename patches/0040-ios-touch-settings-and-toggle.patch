@@ -1,0 +1,429 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 12 Nov 2026 20:01:59 +0800
+Subject: [PATCH] ios: support standalone touch settings, toggleable keys, and
+ localized menu labels
+
+Upstream-Status: pending [builds on touch layout patches]
+Reason: Expose touch size and stick settings, latching touch keys, and localized in-game menu labels
+Issue: LNPANDY/NX2Apple#1110
+---
+ dm/games/settings.tsv                         |  2 +
+ dm/ios/Sources/DmGameMenu.h                   |  3 ++
+ dm/ios/Sources/DmGamepad.m                    | 52 +++++++++++++++++--
+ dm/ios/Sources/DmPadGeometry.h                | 31 +++++++++++
+ dm/ios/Sources/GameMenu.swift                 | 46 ++++++++++++++--
+ .../tests/pad_geometry/pad_geometry_check.m   | 26 ++++++++++
+ dm/tools/tests/test_launcher_settings.py      |  9 +++-
+ docs/settings.md                              |  8 ++-
+ 8 files changed, 166 insertions(+), 11 deletions(-)
+
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index 141b0d86..89c69f17 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -26,6 +26,8 @@ DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		lev
+ DM_PICTURE_FIT	choice	fit=Fit,fill=Fill	fit	platform:ios	Game	Picture	Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
+ DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	platform:ios	Game	Frame-rate counter
+ DM_TOUCH_HAPTICS	toggle	-	1	platform:ios	Controls	Touch feedback
++DM_TOUCH_SIZE	choice	small=Small,medium=Medium,large=Large	medium	platform:ios	Controls	Size	The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.
++DM_TOUCH_STICK	choice	corner=Corner,higher=Higher,inward=Inward	corner	platform:ios	Controls	Left stick	Where the left stick of the on-screen controls sits.
+ DM_RUMBLE	toggle	-	1	always	Controls	Game rumble		level=basic
+ DM_RUMBLE_GAIN	range	0:3:0.1	1.0	always	Controls	Rumble strength		needs=DM_RUMBLE=1
+ DM_RUMBLE_MIN	range	0:0.9:0.05	0	always	Controls	Rumble cutoff
+diff --git a/dm/ios/Sources/DmGameMenu.h b/dm/ios/Sources/DmGameMenu.h
+index a7e9c692..8384701a 100644
+--- a/dm/ios/Sources/DmGameMenu.h
++++ b/dm/ios/Sources/DmGameMenu.h
+@@ -10,6 +10,9 @@ void *dm_game_menu(void);   // GameMenu.swift: a retained UIMenu, rebuilt each t
+ int dm_pad_layout(void);   // DmGamepad.m: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
+ bool dm_pad_layout_offered(int layout);   // Tap only in handheld mode
+ void dm_pad_layout_set(int layout);   // releases every touch first, and is saved for the next start
++bool dm_pad_toggle_offered(void);   // DmGamepad.m: Keys that toggle is in the menu (a game's own app; the shell sets them in its layout editor)
++bool dm_pad_toggles(int control);   // the key (DmPadGeometry.h's DM_PAD_C_*) toggles
++void dm_pad_toggle_set(int control, bool on);   // at once, and saved for the next start as DM_TOUCH_TOGGLE
+ void dm_gamepad_touch_feedback(bool on);   // DM_TOUCH_HAPTICS
+ bool dm_setting_live(const char *env, const char *value);
+ void *dm_quit_menu(void);   // front_ios.m: the menu's last item, Quit <game>, which opens the quit prompt (a retained UIMenu, shown inline)   // front_ios.m: value NULL asks whether the running game takes env at once; otherwise applies it
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index ae682c71..0daccbf8 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -12,6 +12,10 @@
+ //   Touch-down ownership (dm_pad_menu_takes and dm_pad_hit in DmPadGeometry.h): the menu button where it is nearer than a locked key (a view of its own, DmMenuButton), locked keys next (shoulders, − / +, L3 / R3), then whichever of the diamond, the D-pad and the left stick has the smallest distance / grab radius (the left stick's grab circle borders the D-pad),
+ //     then in 3D the right stick for a touch in the right third.
+ //   The player can move single controls in the shell's settings (DM_TOUCH_LAYOUT, one arrangement per layout): the geometry places each only where it fits and keeps the rest where they were.
++//   A key the player set to Toggle there (DM_TOUCH_TOGGLE, DmPadGeometry.h) turns on with one tap and off with the next, drawn pressed while on; the rest are held as before.
++//     Opening the in-game menu, a pose change, a connected controller and the controller prompt release it with every other key (reset).
++//     A game's own app has no layout editor: its in-game menu offers "Keys that toggle" (GameMenu.swift), applied at once and saved as launcher.DM_TOUCH_TOGGLE,
++//     which the next start reads when the environment has no DM_TOUCH_TOGGLE (the shell always passes the editor's).
+ //   Everything hugs the edges and corners to leave the picture room; controls sit over the picture, one CAShapeLayer each: a press only swaps the fill, a stick only moves its knob, nothing redraws the whole screen.
+ //   Where each control sits is DmPadGeometry.h (pure, tested on the Mac); the player picks the size there through DM_TOUCH_SIZE (small, medium, large; a size that does not fit the screen moves toward medium) and the left stick's place through DM_TOUCH_STICK (corner, higher, inward).
+ //   Touches no control takes (in 3D, those outside the right third) go to the game's touch screen when DmLayout assigns a local game viewport (pushGame; Super Mario Galaxy's pointer in handheld mode).
+@@ -23,6 +27,7 @@
+ #import <CoreMotion/CoreMotion.h>
+ #import <CoreText/CoreText.h>
+ #include <pthread.h>
++#include <dlfcn.h>
+ #include "dm.h"
+ #include "dm_input.h"
+ #include "front.h"
+@@ -127,6 +132,7 @@ static void phone_motion_start(UIView *body) {
+     K_RSWIPE = 1.0 / 3,                             // right stick area: this fraction of the screen width from the right edge (not in u)
+     K_MENU_IDLE = 3.0;                              // seconds a connected controller leaves the menu gear visible before fading it out
+ static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
++static NSString *const k_toggle_key = @"launcher.DM_TOUCH_TOGGLE";   // NSUserDefaults: the in-game menu's keys that toggle (DmPadGeometry.h's value)
+ static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
+ int dm_opmode(void);   // hle_oe.c: 0 = handheld
+ void front_ios_quit_poll(void);          // front_ios.m: a controller's buttons changed (the Home hold, A and B in the quit prompt)
+@@ -135,6 +141,9 @@ static void phone_motion_start(UIView *body) {
+ 
+ @interface DmGamepad : UIView
+ - (void)arrange:(DmLayout)layout;
++- (void)setToggleMask:(unsigned)mask;
++- (unsigned)toggleMask;
++- (void)setToggle:(int)control on:(BOOL)on;
+ - (BOOL)menuTakes:(CGPoint)p;
+ - (BOOL)webTouchActive;
+ - (BOOL)voiceOverRunning;
+@@ -164,6 +173,8 @@ @implementation DmGamepad {
+     UITouch *_stick[2]; CGPoint _stickNow[2];      // the touch holding each stick and where it is now (0 left, 1 right)
+     CGPoint _rCentre;                              // the right stick's centre: where its touch landed, dragged along past K_RSTICK_R
+     uint64_t _faceBits, _dpadBits, _btnBits;
++    uint64_t _toggle, _latched;                    // DM_TOUCH_TOGGLE's keys (1 << B_*), and the ones a tap turned on
++    unsigned _toggleControls;                      // the same keys as DmPadGeometry.h's controls (1 << DM_PAD_C_*)
+     NSMapTable<UITouch *, NSNumber *> *_faceOf;    // which keys each touch on the diamond currently holds
+     CAShapeLayer *_key[B_N]; CATextLayer *_label[B_N];   // one layer per key
+     CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
+@@ -197,6 +208,7 @@ @implementation DmGamepad {
+     t.string = s; t.alignmentMode = kCAAlignmentCenter; t.foregroundColor = k_text.CGColor;
+     [parent addSublayer:t]; return t;
+ }
++static int toggleKey(int c);
+ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   // keys shown only in the 3D layout
+ 
+ - (instancetype)initWithFrame:(CGRect)f {
+@@ -212,6 +224,11 @@ - (instancetype)initWithFrame:(CGRect)f {
+         if (!dm_pad_layout_parse(arrangement, &_arrangement)) LOG("front end: DM_TOUCH_LAYOUT ignored (not a layout the engine reads, %zu characters): every control keeps its place", strlen(arrangement));
+         else if (dm_pad_layout_count(&_arrangement)) LOG("front end: touch controls arranged by the player (DM_TOUCH_LAYOUT, %d moved over every layout)", dm_pad_layout_count(&_arrangement));
+         _opts.layout = &_arrangement;
++        const char *toggleEnv = getenv("DM_TOUCH_TOGGLE");
++        NSString *savedToggles = toggleEnv ? nil : [NSUserDefaults.standardUserDefaults stringForKey:k_toggle_key];   // the in-game menu's choice in a game's own app
++        unsigned toggles = dm_pad_toggle_parse(toggleEnv ? toggleEnv : savedToggles.UTF8String);
++        [self setToggleMask:toggles];
++        if (toggles) LOG("front end: touch keys that toggle (%s): %s", toggleEnv ? "DM_TOUCH_TOGGLE" : "in-game menu", toggleEnv ? toggleEnv : savedToggles.UTF8String);
+         [self registerForTraitChanges:@[UITraitDisplayScale.class] withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {
+             [(UIView *)environment setNeedsLayout];
+         }];
+@@ -285,6 +302,21 @@ - (void)opmodeChanged {   // docked: the Tap layout goes (the game reads no touc
+     if (!_tap || dm_opmode() == 0) return;
+     [self reset]; _tap = NO; _full = NO; [self applyLayout]; [self setNeedsLayout];
+ }
++- (void)setToggleMask:(unsigned)mask {   // DmPadGeometry.h's controls → the keys that toggle; a key that stops toggling is released
++    _toggleControls = mask; uint64_t keys = 0;
++    for (int c = 0; c < DM_PAD_C_N; c++) if (mask & (1u << c)) keys |= 1ull << toggleKey(c);
++    _toggle = keys; _latched &= keys;
++}
++- (unsigned)toggleMask { return _toggleControls; }
++- (void)setToggle:(int)control on:(BOOL)on {   // the in-game menu: at once, saved for the next start, and the same value the shell passes
++    if (control < 0 || control >= DM_PAD_C_N || !dm_pad_toggleable(control)) return;
++    unsigned mask = on ? _toggleControls | 1u << control : _toggleControls & ~(1u << control);
++    [self setToggleMask:mask]; [self recompute];
++    char value[128]; dm_pad_toggle_encode(mask, value, sizeof value);
++    if (*value) { [NSUserDefaults.standardUserDefaults setObject:@(value) forKey:k_toggle_key]; setenv("DM_TOUCH_TOGGLE", value, 1); }
++    else { [NSUserDefaults.standardUserDefaults removeObjectForKey:k_toggle_key]; unsetenv("DM_TOUCH_TOGGLE"); }
++    LOG("front end: touch keys that toggle set in the in-game menu: %s", *value ? value : "none");
++}
+ - (void)setTouchFeedback:(BOOL)on {
+     if (!on) { _touchFeedback = nil; return; }
+     if (!_touchFeedback) { _touchFeedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight]; [_touchFeedback prepare]; }
+@@ -340,6 +372,7 @@ static int lockedKey(int c) {   // DmPadGeometry.h's control → the key it pres
+     switch (c) { case DM_PAD_C_ZL: return B_ZL; case DM_PAD_C_L: return B_L; case DM_PAD_C_ZR: return B_ZR; case DM_PAD_C_R: return B_R;
+                  case DM_PAD_C_MINUS: return B_MINUS; case DM_PAD_C_PLUS: return B_PLUS; case DM_PAD_C_L3: return B_LS; default: return B_RS; }
+ }
++static int toggleKey(int c) { return c >= DM_PAD_C_A && c <= DM_PAD_C_Y ? B_A + (c - DM_PAD_C_A) : lockedKey(c); }   // DM_TOUCH_TOGGLE's control → its key
+ - (BOOL)menuTakes:(CGPoint)p {   // the menu button takes a touch in its hit circle unless a locked key's target is nearer (the drawn keys are hidden in Tap and with a controller)
+     if (dm_pad_menu_distance(self.geo, p) > 1) return NO;
+     if (_tap || _padOff || (_layout.separated && !CGRectContainsPoint(_layout.controls, p))) return YES;
+@@ -370,7 +403,7 @@ - (CGPoint)knobOffset:(int)i {   // knob offset from the stick centre (clamped t
+ // ---- Touch ----
+ - (void)recompute {
+     uint64_t face = 0; for (UITouch *t in _faceOf) face |= [_faceOf objectForKey:t].unsignedLongLongValue;
+-    uint64_t btn = 0, dpad = 0;
++    uint64_t btn = _latched, dpad = 0;   // a toggled key stays pressed with no finger on it
+     for (UITouch *t in _owner) { uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff);
+         if (c == C_BTN) btn |= 1ull << (v >> 8);
+         else if (c == C_DPAD) dpad |= [self dpadAt:[t locationInView:self]]; }
+@@ -441,11 +474,17 @@ - (void)touchesBegan:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+         CGPoint p = [t locationInView:self];
+         if (_layout.separated && !CGRectContainsPoint(_layout.controls, p)) { game |= [self gameBegin:t]; continue; }
+         DmPadHit hit = dm_pad_hit(self.geo, _full, _layout.separated, _tap, !_stick[0], p);   // the same geometry the controls are drawn with (the menu button took its own touches, menuTakes)
+-        if (hit.kind == DM_PAD_HIT_KEY) { [_owner setObject:@(C_BTN | (uint64_t)lockedKey(hit.key) << 8) forKey:t]; continue; }
++        if (hit.kind == DM_PAD_HIT_KEY) {
++            int key = lockedKey(hit.key);
++            if (_toggle & (1ull << key)) { _latched ^= 1ull << key; [_owner setObject:@(C_NONE) forKey:t]; }   // a toggled key: this tap flips it, the finger holds nothing
++            else [_owner setObject:@(C_BTN | (uint64_t)key << 8) forKey:t];
++            continue;
++        }
+         if (_tap) { game |= [self gameBegin:t]; continue; }
+         int kind = hit.kind == DM_PAD_HIT_FACE ? C_FACE : hit.kind == DM_PAD_HIT_DPAD ? C_DPAD : hit.kind == DM_PAD_HIT_STICK ? C_STICK : C_NONE, idx = 0;
+         if (kind == C_NONE && _full && !_stick[1] && [self inRightArea:p]) { kind = C_STICK; idx = 1; _rCentre = p; [self hideHint]; }   // the right stick: centred where the touch lands (the hint's job is done)
+-        if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
++        if (kind == C_FACE) { uint64_t keys = [self faceAt:p]; _latched ^= keys & _toggle;   // a toggled face key flips on touch-down, the held ones follow the finger
++            [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@(keys & ~_toggle) forKey:t]; }
+         else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
+         else if (kind == C_STICK) { [_owner setObject:@(C_STICK | (uint64_t)idx << 8) forKey:t]; _stick[idx] = t; _stickNow[idx] = p; }
+         else game |= [self gameBegin:t];
+@@ -457,7 +496,7 @@ - (void)touchesMoved:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e {
+     BOOL game = NO;
+     for (UITouch *t in ts) {
+         uint64_t v = [_owner objectForKey:t].unsignedLongLongValue; int c = (int)(v & 0xff); CGPoint p = [t locationInView:self];
+-        if (c == C_FACE) [_faceOf setObject:@([self faceAt:p]) forKey:t];
++        if (c == C_FACE) [_faceOf setObject:@([self faceAt:p] & ~_toggle) forKey:t];
+         else if (c == C_STICK) { _stickNow[v >> 8] = p;
+             if ((v >> 8) == 1) { CGFloat d = dist(p, _rCentre), R = [self stickR:1];   // the right stick's centre follows a finger past its radius, so turning back responds at once
+                 if (d > R) _rCentre = CGPointMake(p.x - (p.x - _rCentre.x) * R / d, p.y - (p.y - _rCentre.y) * R / d); } }
+@@ -478,7 +517,7 @@ - (void)endTouches:(NSSet<UITouch *> *)ts tapped:(BOOL)ended {
+ }
+ - (void)touchesEnded:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:YES]; }
+ - (void)touchesCancelled:(NSSet<UITouch *> *)ts withEvent:(UIEvent *)e { [self endTouches:ts tapped:NO]; }
+-- (void)reset { [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0] = _stick[1] = nil; for (int i = 0; i < 16; i++) _game[i] = nil; [self pushGame]; [self recompute]; }
++- (void)reset { _latched = 0; [_owner removeAllObjects]; [_faceOf removeAllObjects]; _stick[0] = _stick[1] = nil; for (int i = 0; i < 16; i++) _game[i] = nil; [self pushGame]; [self recompute]; }
+ 
+ // ---- Shapes ----
+ static CGPathRef circlePath(CGPoint c, CGFloat r) { return CGPathCreateWithEllipseInRect(CGRectMake(c.x - r, c.y - r, 2 * r, 2 * r), NULL); }
+@@ -834,6 +873,9 @@ int front_ctrl_support(int min, int max) {
+ int dm_pad_layout(void) { return g_view ? [g_view padLayout] : 0; }
+ bool dm_pad_layout_offered(int layout) { return layout == 0 || layout == 1 || (layout == 2 && dm_opmode() == 0); }
+ void dm_pad_layout_set(int layout) { [g_view setPadLayout:layout]; }
++bool dm_pad_toggle_offered(void) { return g_view && !dlsym(RTLD_DEFAULT, "dm_shell_return_to_library"); }   // a game's own app: the shell has its layout editor
++bool dm_pad_toggles(int control) { return g_view && ([g_view toggleMask] & (1u << control)); }
++void dm_pad_toggle_set(int control, bool on) { [g_view setToggle:control on:on]; }
+ void dm_gamepad_pads_read(void) {   // front_ios.m: the quit prompt closed, the game reads every controller as it is now (a button held through it counts again)
+     if (g_merge) { for (GCController *c in GCController.controllers) if (c.extendedGamepad) read_pad(c.extendedGamepad); }
+     else for (int p = 0; p < DM_PLAYERS; p++) if (g_held[p].extendedGamepad) read_pad(g_held[p].extendedGamepad);
+diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
+index d2efd777..8515ca00 100644
+--- a/dm/ios/Sources/DmPadGeometry.h
++++ b/dm/ios/Sources/DmPadGeometry.h
+@@ -277,6 +277,37 @@ static inline int dm_pad_layout_count(const DmPadLayout *l) {   // the moved con
+     return n;
+ }
+ 
++// ---- Keys that toggle (DM_TOUCH_TOGGLE) ----
++// The keys the player set to Toggle in the shell's layout editor, as dm_pad_control_names joined by commas, for example zl,zr,a. A tap
++// on such a key turns it on and the next tap turns it off, so a long hold (running, accelerating) needs no finger on the screen. Only
++// single keys toggle: the diamond as a whole, the left stick and the D-pad are skipped, so is an unknown name (a newer shell). Unset,
++// empty or a value longer than DM_PAD_LAYOUT_MAX: every key is held as before.
++static inline BOOL dm_pad_toggleable(int c) {
++    return (c >= DM_PAD_C_A && c <= DM_PAD_C_Y) || (c >= DM_PAD_C_ZL && c <= DM_PAD_C_PLUS);
++}
++static inline unsigned dm_pad_toggle_parse(const char *_Nullable v) {   // the controls (1 << DM_PAD_C_*) that toggle
++    if (!v || !*v || strnlen(v, DM_PAD_LAYOUT_MAX + 1) > DM_PAD_LAYOUT_MAX) return 0;
++    unsigned mask = 0;
++    for (const char *p = v; *p; ) {
++        const char *name = p;
++        while (*p && *p != ',') p++;
++        int c = dm_pad_name_index(name, (size_t)(p - name), dm_pad_control_names, DM_PAD_C_N);
++        if (c >= 0 && dm_pad_toggleable(c)) mask |= 1u << c;
++        if (*p == ',') p++;
++    }
++    return mask;
++}
++// The value for a mask, names in dm_pad_control_names' order joined by commas ("" for none): what the in-game menu saves.
++static inline void dm_pad_toggle_encode(unsigned mask, char *_Nonnull out, size_t size) {
++    size_t n = 0;
++    if (size) out[0] = 0;
++    for (int c = 0; c < DM_PAD_C_N; c++) if ((mask & (1u << c)) && dm_pad_toggleable(c)) {
++        int w = snprintf(out + n, size - n, "%s%s", n ? "," : "", dm_pad_control_names[c]);
++        if (w < 0 || (size_t)w >= size - n) { out[n] = 0; return; }
++        n += (size_t)w;
++    }
++}
++
+ // The drawn shapes (dm_pad_shapes ids) of a control.
+ static inline BOOL dm_pad_is_shape_of(int id, int c) {
+     switch (c) {
+diff --git a/dm/ios/Sources/GameMenu.swift b/dm/ios/Sources/GameMenu.swift
+index f91b0027..0ce14848 100644
+--- a/dm/ios/Sources/GameMenu.swift
++++ b/dm/ios/Sources/GameMenu.swift
+@@ -6,9 +6,30 @@ import UIKit
+ 
+ var gameMenuModel: LauncherModel?   // the settings screen's model (Launcher.swift); nil in an app without one: the menu has the layout only
+ 
++// The menu's own words in the player's language (LNPANDY/NX2Apple#1129): DM_GAME_MENU_TEXT, one per line in GameMenuText's order, passed by the
++// launcher as DM_HOME_QUIT_TEXT is for the quit prompt: the shell sets it at launch, and a game's own app gets it in its bundled dm/env.txt (the build's
++// --env-file), where the lines are joined by a backslash and n. A line that is missing or empty stays English.
++enum GameMenuText: Int, CaseIterable {
++    case moreSettings, controllerLayout, keysThatToggle, none
++    var english: String {
++        switch self {
++        case .moreSettings: return "More settings on the start screen"
++        case .controllerLayout: return "Controller layout"
++        case .keysThatToggle: return "Keys that toggle"
++        case .none: return "None"
++        }
++    }
++    static func line(_ t: GameMenuText, in text: String?) -> String {
++        let lines = (text ?? "").replacingOccurrences(of: "\\n", with: "\n").components(separatedBy: "\n")
++        let line = t.rawValue < lines.count ? lines[t.rawValue].trimmingCharacters(in: .whitespaces) : ""
++        return line.isEmpty ? t.english : line
++    }
++    var text: String { Self.line(self, in: getenv("DM_GAME_MENU_TEXT").map { String(cString: $0) }) }
++}
++
+ @_cdecl("dm_game_menu")
+ public func dmGameMenu() -> UnsafeMutableRawPointer {
+-    let title = gameMenuModel != nil ? "More settings on the start screen" : ""
++    let title = gameMenuModel != nil ? GameMenuText.moreSettings.text : ""
+     let menu = UIMenu(title: title, children: [UIDeferredMenuElement.uncached { done in done(gameMenuItems()) }])   // built each time it opens, so it shows the current choices
+     return Unmanaged.passRetained(menu).toOpaque()
+ }
+@@ -18,22 +39,39 @@ private func gameMenuItems() -> [UIMenuElement] {
+     let layouts = (0..<3).filter { dm_pad_layout_offered(Int32($0)) }.map { l in
+         UIAction(title: names[l], state: dm_pad_layout() == l ? .on : .off) { _ in dm_pad_layout_set(Int32(l)) }
+     }
+-    let layout = UIMenu(title: "Controller layout", options: .singleSelection, children: layouts)   // a choice's value shows in its submenu: a subtitle would make each row two lines
++    let layout = UIMenu(title: GameMenuText.controllerLayout.text, options: .singleSelection, children: layouts)   // a choice's value shows in its submenu: a subtitle would make each row two lines
++    let controls: [UIMenuElement] = dm_pad_toggle_offered() ? [layout, keysThatToggle()] : [layout]
+     var items: [UIMenuElement] = []
+     var placed = false
+     if let m = gameMenuModel {
+         for section in m.sections {
+-            var rows: [UIMenuElement] = section == "Controls" ? [layout] : []
++            var rows: [UIMenuElement] = section == "Controls" ? controls : []
+             if section == "Controls" { placed = true }
+             for s in m.rows(in: section) where (s.kind == "choice" || s.kind == "toggle") && dm_setting_live(s.env, nil) { rows.append(gameMenuRow(m, s)) }
+             if !rows.isEmpty { items.append(UIMenu(options: .displayInline, children: rows)) }
+         }
+     }
+-    if !placed { items.insert(UIMenu(options: .displayInline, children: [layout]), at: 0) }
++    if !placed { items.insert(UIMenu(options: .displayInline, children: controls), at: 0) }
+     items.append(Unmanaged<UIMenu>.fromOpaque(dm_quit_menu()).takeRetainedValue())   // Quit <game>, last and on its own: it opens the quit prompt (front_ios.m)
+     return items
+ }
+ 
++// Keys that toggle (LNPANDY/NX2Apple#658), in a game's own app: a tap turns a checked key on, the next tap off. Several can be checked, one per
++// pick, and a pick applies at once and is kept for the next start (DmGamepad.m). The shell sets the same keys in its touch layout editor.
++// The numbers are DmPadGeometry.h's DM_PAD_C_* of the single keys.
++private let toggleKeys: [(control: Int32, name: String)] = [(1, "A"), (2, "B"), (3, "X"), (4, "Y"), (8, "L"), (10, "R"), (7, "ZL"), (9, "ZR"),
++                                                            (11, "L3"), (12, "R3"), (13, "−"), (14, "+")]
++
++private func keysThatToggle() -> UIMenuElement {
++    let on = toggleKeys.filter { dm_pad_toggles($0.control) }.map(\.name)
++    let keys = toggleKeys.map { key in
++        UIAction(title: key.name, state: dm_pad_toggles(key.control) ? .on : .off) { _ in
++            dm_pad_toggle_set(key.control, !dm_pad_toggles(key.control))
++        }
++    }
++    return UIMenu(title: GameMenuText.keysThatToggle.text, subtitle: on.isEmpty ? GameMenuText.none.text : on.joined(separator: " "), children: keys)
++}
++
+ private func gameMenuRow(_ m: LauncherModel, _ s: Setting) -> UIMenuElement {
+     let now = m.values[s.env] ?? s.def, fixed = m.fixed.contains(s.env)
+     let attributes: UIMenuElement.Attributes = fixed ? .disabled : []
+diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+index b78567b7..5c31ffc0 100644
+--- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
++++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+@@ -33,6 +33,31 @@ static void check_fits(const Screen *s, BOOL full, const char *size, DmPadOption
+     }
+ }
+ 
++// ---- DM_TOUCH_TOGGLE ----
++
++// The keys that toggle: single keys by name, the diamond, the sticks, the D-pad and unknown names skipped.
++static void check_toggle_values(void) {
++    if (dm_pad_toggle_parse(NULL) || dm_pad_toggle_parse("")) FAIL("DM_TOUCH_TOGGLE unset or empty: every key is held");
++    unsigned m = dm_pad_toggle_parse("zl,zr,a");
++    if (m != (1u << DM_PAD_C_ZL | 1u << DM_PAD_C_ZR | 1u << DM_PAD_C_A)) FAIL("DM_TOUCH_TOGGLE zl,zr,a: read as %#x", m);
++    m = dm_pad_toggle_parse("face,stick,dpad,home,,b,");
++    if (m != 1u << DM_PAD_C_B) FAIL("DM_TOUCH_TOGGLE: the diamond, the stick, the D-pad or an unknown name is not skipped (%#x)", m);
++    m = dm_pad_toggle_parse("a,b,x,y,zl,l,zr,r,l3,r3,minus,plus");
++    for (int c = 0; c < DM_PAD_C_N; c++) if (!!(m & (1u << c)) != dm_pad_toggleable(c)) FAIL("DM_TOUCH_TOGGLE: %s", dm_pad_control_names[c]);
++    char longv[DM_PAD_LAYOUT_MAX + 8]; memset(longv, 'a', sizeof longv - 1); longv[sizeof longv - 1] = 0;
++    for (size_t i = 1; i < sizeof longv - 1; i += 2) longv[i] = ',';
++    if (dm_pad_toggle_parse(longv)) FAIL("DM_TOUCH_TOGGLE longer than the limit is not ignored");
++    // What the in-game menu saves reads back as the same keys, in the engine's order, and skips what cannot toggle.
++    char out[128];
++    dm_pad_toggle_encode(1u << DM_PAD_C_ZR | 1u << DM_PAD_C_A | 1u << DM_PAD_C_STICK, out, sizeof out);
++    if (strcmp(out, "a,zr")) FAIL("DM_TOUCH_TOGGLE encoded as '%s'", out);
++    dm_pad_toggle_encode(0, out, sizeof out);
++    if (*out) FAIL("DM_TOUCH_TOGGLE of no key is not empty");
++    unsigned all = 0; for (int c = 0; c < DM_PAD_C_N; c++) if (dm_pad_toggleable(c)) all |= 1u << c;
++    dm_pad_toggle_encode(all, out, sizeof out);
++    if (dm_pad_toggle_parse(out) != all) FAIL("DM_TOUCH_TOGGLE '%s' does not read back", out);
++}
++
+ // ---- DM_TOUCH_LAYOUT ----
+ 
+ static int g_arranged;
+@@ -354,6 +379,7 @@ int main(void) {
+             }
+ 
+     check_layout_values();
++    check_toggle_values();
+     check_arrangement(screens, nscreens);
+     check_duo_outer_custom_bounds();
+ 
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index 9a48a505..c796c51b 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -92,6 +92,13 @@ class LauncherSettingsTests(unittest.TestCase):
+         self.assertNotIn('DM_BC6H_RGB9E5', build(BOTW, 'nvn'))   # no tex_bc_cpu in its profile
+         self.assertNotIn('DM_BC6H_RGB9E5', build('0100F2C0115B6000', 'vulkan'))
+ 
++    def test_touch_controls_size_and_stick_are_rows_of_a_standalone_app(self):   # #991: the shell's two touch-control choices, in a game's own app
++        rows = build(BOTW, 'nvn')
++        size, stick = rows['DM_TOUCH_SIZE'], rows['DM_TOUCH_STICK']
++        self.assertEqual((size['section'], size['default'], size['options']), ('Controls', 'medium', [['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']]))
++        self.assertEqual((stick['section'], stick['default'], stick['options']), ('Controls', 'corner', [['corner', 'Corner'], ['higher', 'Higher'], ['inward', 'Inward']]))
++        self.assertFalse({'DM_TOUCH_SIZE', 'DM_TOUCH_STICK'} & set(build(BOTW, 'nvn', 'mac')))   # a Mac has no touch controls
++
+     def test_hold_frames_takes_on_and_off(self):   # the host reads DM_FPS_HOLD as on / off (hle_nvn.c), not 1 / 0
+         s = build(BOTW, 'nvn')['DM_FPS_HOLD']
+         self.assertEqual((s['on'], s['off'], s['default']), ('on', 'off', 'on'))
+@@ -101,7 +108,7 @@ class LauncherSettingsTests(unittest.TestCase):
+     def test_iphone_switches_only_on_the_iphone(self):   # the frame-rate counter and touch feedback are the iOS front end's (front_ios.m, DmGamepad.m)
+         ios, mac = build(BOTW, 'nvn'), build(BOTW, 'nvn', 'mac')
+         self.assertEqual(build(BOTW, 'nvn', 'ios').keys(), ios.keys())   # ios when unset
+-        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_PICTURE_FIT'})
++        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_PICTURE_FIT', 'DM_TOUCH_SIZE', 'DM_TOUCH_STICK'})
+         self.assertIn('DM_RUMBLE', mac); self.assertIn('DM_METAL_HUD', mac)
+         self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
+         s = mac['DM_FULLSCREEN']
+diff --git a/docs/settings.md b/docs/settings.md
+index 44a6fe9e..051bd255 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -4,7 +4,7 @@ The screen before the game starts shows the settings the game supports. A settin
+ 
+ - [Tested defaults](#tested-defaults)
+ - [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game's upscaler](#games-upscaler), [Game language](#game-language), [Picture](#picture), [Frame-rate counter](#frame-rate-counter)
+-- [Controls](#controls): [Touch feedback](#touch-feedback), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength), [Rumble cutoff](#rumble-cutoff), [Press a button to join](#press-a-button-to-join)
++- [Controls](#controls): [Touch feedback](#touch-feedback), [Touch controls size and left stick](#touch-controls-size-and-left-stick), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength), [Rumble cutoff](#rumble-cutoff), [Press a button to join](#press-a-button-to-join)
+ - [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Downsample HDR textures](#downsample-hdr-textures), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
+ - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
+ - [In-game menu](#in-game-menu)
+@@ -99,6 +99,10 @@ Shows the frames per second at the top left.
+ 
+ A light tap from the phone when you press an on-screen button.
+ 
++### Touch controls size and left stick
++
++**Size** (small, medium or large) sets the size of the on-screen controls, and **Left stick** (corner, higher or inward) where the left stick sits. They are the same two choices as in the shell's settings, for a game's own app. A size that does not fit the screen moves toward medium, and the player's arrangement of single controls in the shell (`DM_TOUCH_LAYOUT`) is not edited here. The controller layout (2D, 3D, Tap) stays in the in-game menu.
++
+ ### Game rumble
+ 
+ The game's vibration, on the phone or on a connected controller.
+@@ -291,6 +295,8 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+ | Picture shape | `DM_SCREEN_ASPECT` | `auto` the app window's own shape where it is taller than 16:9 (iPad 4:3, iPhone Duo 1.43:1), else 16:9 (iOS only); `1.43` the iPhone Duo's shape, `0` 16:9 |
+ | Frame-rate counter | `DM_SHOW_FPS` | `1`, `0` |
+ | Touch feedback | `DM_TOUCH_HAPTICS` | `1`, `0` |
++| Touch controls size | `DM_TOUCH_SIZE` | `small`, `medium`, `large` |
++| Left stick of the touch controls | `DM_TOUCH_STICK` | `corner`, `higher`, `inward` |
+ | Game rumble | `DM_RUMBLE` | `1`, `0` |
+ | Rumble strength | `DM_RUMBLE_GAIN` | `0` to `3` |
+ | Rumble cutoff | `DM_RUMBLE_MIN` | `0` to `0.9` |

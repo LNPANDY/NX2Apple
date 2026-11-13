@@ -673,6 +673,7 @@ class GameLibrary:
         self.file_path = self.state_dir / 'library.json'
         self.games: list[LibraryGame] = []
         self.skipped_files: list[SkippedFile] = []
+        self.dismissed_skipped_paths: set[str] = set()
         self.selected_id: str | None = None
         self.games_folder: str = ''
         self._extra_top: dict = {}
@@ -723,12 +724,33 @@ class GameLibrary:
         except OSError:
             pass
 
+    @property
+    def shows_skipped_banner(self) -> bool:
+        if not self.skipped_files:
+            return False
+        return not {item.path for item in self.skipped_files}.issubset(self.dismissed_skipped_paths)
+
+    def dismiss_skipped_banner(self) -> None:
+        if self.skipped_files:
+            self.dismissed_skipped_paths = {item.path for item in self.skipped_files}
+
+    def reset_skipped_banner_dismissal(self) -> None:
+        self.dismissed_skipped_paths.clear()
+
+    def _apply_skipped_files(self, items: list[SkippedFile]) -> None:
+        self.skipped_files = items
+        if not items:
+            self.dismissed_skipped_paths.clear()
+        elif self.dismissed_skipped_paths and not {item.path for item in items}.issubset(self.dismissed_skipped_paths):
+            self.dismissed_skipped_paths.clear()
+
     def set_games_folder(self, folder: str, repo_path: str = '', default_keys: str = '') -> None:
+        self.reset_skipped_banner_dismissal()
         self.games_folder = folder
         if folder and os.path.isdir(folder):
             self.rescan_games_folder(repo_path=repo_path, default_keys=default_keys)
         else:
-            self.skipped_files = []
+            self._apply_skipped_files([])
         self.save()
 
     def remove(self, title_id: str) -> None:
@@ -895,7 +917,7 @@ class GameLibrary:
     def rescan_games_folder(self, repo_path: str = '', default_keys: str = '') -> int:
         folder = self.games_folder
         if not folder or not os.path.isdir(folder):
-            self.skipped_files = []
+            self._apply_skipped_files([])
             return 0
         skipped: list[SkippedFile] = []
         discovered = self.discover_in_folder(
@@ -904,7 +926,7 @@ class GameLibrary:
             default_keys=default_keys,
             out_skipped=skipped,
         )
-        self.skipped_files = skipped
+        self._apply_skipped_files(skipped)
         count = 0
         for g in discovered:
             self.upsert(g)
@@ -1564,6 +1586,40 @@ class DriveCopy:
         return out
 
     @staticmethod
+    def collect_transfer_files(
+        archive_dir: str,
+        shell_root: str = '',
+        title_id: str = '',
+        *,
+        include_external_msl: bool = True,
+    ) -> tuple[dict[str, int], dict[str, str]]:
+        """Collect `(sizes, origins)` for `archive_dir`, merging externalized `msl/` from `shell_root`."""
+        sizes = DriveCopy.collect_archive_files(archive_dir)
+        origins: dict[str, str] = {}
+        tid = title_id.strip().upper()
+        if include_external_msl and shell_root and tid:
+            from .win import shell_export as se
+
+            if tid in se.externalized_titles(shell_root):
+                msl_dir = se.mirrored_framework(shell_root, tid) / 'msl'
+                if msl_dir.is_dir():
+                    for root_dir, _, fnames in os.walk(msl_dir):
+                        for fname in fnames:
+                            if fname.startswith('.'):
+                                continue
+                            full = os.path.join(root_dir, fname)
+                            sub_rel = os.path.relpath(full, msl_dir).replace('\\', '/')
+                            rel_key = f'msl/{sub_rel}'
+                            if rel_key in sizes:
+                                continue
+                            try:
+                                sizes[rel_key] = os.path.getsize(full)
+                                origins[rel_key] = full
+                            except OSError:
+                                pass
+        return sizes, origins
+
+    @staticmethod
     def _existing_probe(folder: str) -> str:
         probe = os.path.abspath(folder) if folder else '.'
         while probe and not os.path.exists(probe):
@@ -1714,15 +1770,22 @@ class DriveCopy:
         dest_root: str,
         title_id: str,
         progress_cb: Callable[[int, int], None] | None = None,
+        *,
+        shell_root: str = '',
     ) -> tuple[bool, str]:
-        files = DriveCopy.collect_archive_files(archive_dir)
+        files, origins = DriveCopy.collect_transfer_files(
+            archive_dir,
+            shell_root=shell_root,
+            title_id=title_id,
+            include_external_msl=bool(shell_root),
+        )
         if not files:
             return False, 'No game data files found'
         dest_dir = os.path.join(dest_root, title_id.upper())
         total = sum(files.values())
         reusable: set[str] = set()
         for rel, sz in sorted(files.items()):
-            src = os.path.join(archive_dir, rel)
+            src = origins.get(rel) or os.path.join(archive_dir, rel)
             dst = os.path.join(dest_dir, rel)
             if os.path.isfile(dst):
                 try:
@@ -1742,7 +1805,7 @@ class DriveCopy:
         partial = ''
         try:
             for rel, sz in sorted(files.items()):
-                src = os.path.join(archive_dir, rel)
+                src = origins.get(rel) or os.path.join(archive_dir, rel)
                 dst = os.path.join(dest_dir, rel)
                 if rel in reusable:
                     done += sz
@@ -1776,3 +1839,74 @@ class DriveCopy:
                 except OSError:
                     pass
             return False, str(e)
+
+    @staticmethod
+    def preflight_batch_copy(
+        items: list[tuple[str, str]],
+        dest_root: str,
+        *,
+        shell_root: str = '',
+        t_func: Callable[..., str] | None = None,
+    ) -> tuple[int, str | None]:
+        """Validate combined free space and FAT32 single-file limit across `(title_id, archive_dir)` items.
+
+        Returns `(total_net_needed_bytes, error_message_or_none)`.
+        """
+        if not items or not dest_root:
+            return 0, 'No game data files found'
+        is_fat32 = DriveCopy.is_fat32_filesystem(dest_root)
+        total_needed = 0
+        any_files = False
+        for tid, arch_dir in items:
+            raw_files, origins = DriveCopy.collect_transfer_files(
+                arch_dir,
+                shell_root=shell_root,
+                title_id=tid,
+                include_external_msl=bool(shell_root),
+            )
+            files = {
+                rel: sz
+                for rel, sz in raw_files.items()
+                if not rel.lower().endswith(('.part', '.partial'))
+            }
+            if not files:
+                continue
+            any_files = True
+            tid_clean = tid.strip().upper()
+            dest_dir = os.path.join(dest_root, tid_clean)
+            reusable: set[str] = set()
+            for rel, sz in files.items():
+                parts = rel.replace('\\', '/').split('/')
+                src_cand = origins.get(rel) or os.path.join(arch_dir, *parts)
+                dst_cand = os.path.join(dest_dir, *parts)
+                if os.path.isfile(dst_cand):
+                    try:
+                        same = (
+                            os.path.getsize(dst_cand) == sz
+                            and abs(os.path.getmtime(src_cand) - os.path.getmtime(dst_cand)) < 0.001
+                        )
+                        if same and sz <= 1024 * 1024:
+                            same = Path(src_cand).read_bytes() == Path(dst_cand).read_bytes()
+                        if same:
+                            reusable.add(rel)
+                    except OSError:
+                        pass
+            if is_fat32:
+                over_fat32 = [rel for rel, sz in files.items() if rel not in reusable and sz > DriveCopy.FAT32_LIMIT]
+                if over_fat32:
+                    if t_func is not None:
+                        return total_needed, t_func('shell.driveFat32')
+                    return (
+                        total_needed,
+                        'This drive is FAT32 and cannot hold files over 4 GB. Format it as exFAT or APFS, or choose another drive.',
+                    )
+            total_needed += DriveCopy.net_space_needed(files, dest_dir, reusable=reusable)
+
+        if not any_files:
+            return 0, 'No game data files found'
+        free = DriveCopy.free_space(dest_root)
+        if free > 0 and total_needed > free:
+            if t_func is not None:
+                return total_needed, t_func('shell.driveNoSpace', format_bytes(total_needed), format_bytes(free))
+            return total_needed, f'Not enough space ({format_bytes(total_needed)} needed, {format_bytes(free)} free)'
+        return total_needed, None

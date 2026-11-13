@@ -1143,6 +1143,9 @@ def build_env(base: dict[str, str] | None = None, python_exe: str | None = None)
     # so keep every core busy rather than the upstream default of 8 (capped at 61, CPython's
     # ProcessPoolExecutor _MAX_WINDOWS_WORKERS limit for WaitForMultipleObjects)
     env.setdefault('J', str(min(61, max(8, 2 * (os.cpu_count() or 4)))))
+    # dmsh_build.py spawns worker processes with multiprocessing.get_context('fork') when
+    # DMSH_PROCS != 0, which raises ValueError on Windows. 0 keeps its in-process thread pool.
+    env.setdefault('DMSH_PROCS', '0')
     return env
 
 

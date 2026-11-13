@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 12 Nov 2026 20:01:55 +0800
+Subject: [PATCH] mac: hide the mouse pointer when idle or starting from
+ console mode
+
+Upstream-Status: fork-only (declined seedds/nxnative#755, seedds/nxnative#839)
+Reason: Hide the mouse cursor over a running Mac game after idle timeout and when launched with the cursor hidden
+Issue: LNPANDY/NX2Apple#280
+---
+ dm/host/front_mac.m          | 29 ++++++++++++++++++++++++++++-
+ docs/reference/frame-rate.md |  8 ++++++++
+ 2 files changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/dm/host/front_mac.m b/dm/host/front_mac.m
+index f14b4963..41c13c66 100644
+--- a/dm/host/front_mac.m
++++ b/dm/host/front_mac.m
+@@ -1516,6 +1516,12 @@ void front_run(void (*guest)(void)) {
+     if (!getenv("DM_WINDOW")) { guest(); return; }
+     @autoreleasepool {
+         [NSApplication sharedApplication];
++        // DM_CURSOR_HIDDEN=1 (see the pointer below) hides it here, before the app takes the front: a hide after the window left the pointer up until it ran. The
++        // launcher's console also yields the front to the game rather than let LaunchServices activate it when it registers, which shows the pointer whatever the app
++        // hid (issue #380)
++        const char *ch = getenv("DM_CURSOR_HIDE"), *hs = getenv("DM_CURSOR_HIDDEN"); double idle = ch && *ch ? atof(ch) : 3.0;
++        int start_hidden = idle > 0 && hs && !strcmp(hs, "1");
++        if (start_hidden) [NSCursor hide];
+         [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+         NSRect r = NSMakeRect(0, 0, 1280, 720);
+         NSWindow *win = [[NSWindow alloc] initWithContentRect:r
+@@ -1550,7 +1556,9 @@ void front_run(void (*guest)(void)) {
+         [win makeKeyAndOrderFront:nil];
+         screen_refresh(win.screen ?: NSScreen.mainScreen);
+         g_win = win;
+-        [NSApp activateIgnoringOtherApps:YES];
++        // Activated once the run loop below runs, not here: an app that takes the front while its main thread is still busy with the setup below can show
++        // the pointer for a frame although it hid it (DM_CURSOR_HIDDEN, issue #380)
++        dispatch_async(dispatch_get_main_queue(), ^{ [NSApp activateIgnoringOtherApps:YES]; });
+         // A host another process starts (scripts/regress.py) is not activated (its focus state stays 2), so its window opened wherever it landed in the window order, and behind
+         // another app's window macOS fires its display link about once a second: Breath of the Wild stepped up to 3 vsyncs at boot and never came back (20 fps runs).
+         // DM_WINDOW_TOP=1 orders it in front without activation and keeps it above other apps' windows; the log names every change of the window's visibility either way
+@@ -1602,6 +1610,25 @@ void front_run(void (*guest)(void)) {
+                 (void)n; want = 0; entering = 0; g_fs_failed = nil; }];   // startup succeeded: later manual refusals have no startup request to retry
+             dispatch_async(dispatch_get_main_queue(), enter);
+         }
++        // The pointer hides after DM_CURSOR_HIDE seconds (3 by default, 0 keeps it) without movement over the game, and comes back with the next movement, click or scroll. macOS
++        // hides it only for a game that asks (a game window does not, and a pointer left over a fullscreen game stays on the picture); it is also shown whenever the window is
++        // not key or the pointer is outside the game view, so the title bar and other windows keep theirs
++        if (idle > 0) {
++            win.acceptsMouseMovedEvents = YES;
++            // DM_CURSOR_HIDDEN=1: the launcher's console had the pointer hidden when it started this game, so it starts hidden too (start_hidden, hidden at the top) and does
++            // not flash up until the first idle poll. The not-over rule below waits (armed) until the game window has been under the pointer once, as a new window is not key
++            // yet when the timer first runs
++            __block double last = CACurrentMediaTime(); __block int hidden = start_hidden, armed = start_hidden;
++            void (^show)(void) = ^{ if (hidden) { hidden = 0; [NSCursor unhide]; } };
++            [NSEvent addLocalMonitorForEventsMatchingMask:NSEventMaskMouseMoved | NSEventMaskLeftMouseDragged | NSEventMaskRightMouseDragged | NSEventMaskOtherMouseDragged |
++                NSEventMaskLeftMouseDown | NSEventMaskRightMouseDown | NSEventMaskOtherMouseDown | NSEventMaskScrollWheel handler:^NSEvent *(NSEvent *e) { last = CACurrentMediaTime(); show(); return e; }];
++            [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *t) {
++                (void)t; NSView *cv = win.contentView;
++                int over = win.isKeyWindow && NSApp.isActive && NSPointInRect([cv convertPoint:win.mouseLocationOutsideOfEventStream fromView:nil], cv.bounds);
++                if (over) armed = 0;
++                if (hidden && !over && !armed) show();
++                else if (!hidden && over && CACurrentMediaTime() - last >= idle) { hidden = 1; [NSCursor hide]; } }];
++        }
+         for (NSNotificationName nm in @[GCControllerDidConnectNotification, GCControllerDidDisconnectNotification])
+             [NSNotificationCenter.defaultCenter addObserverForName:nm object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
+                 GCController *c = n.object; int conn = n.name == GCControllerDidConnectNotification;
+diff --git a/docs/reference/frame-rate.md b/docs/reference/frame-rate.md
+index 69f0b169..c2c6e840 100644
+--- a/docs/reference/frame-rate.md
++++ b/docs/reference/frame-rate.md
+@@ -402,6 +402,14 @@ Frame pacing: the host's frame step, engine frame limiters, present intervals an
+ - **Check:** the reporter confirmed that the deferred request entered fullscreen on its first attempt and stayed there, without a refusal. A harness of the startup callbacks checks both readiness orders, bounded refusal recovery, and cancellation before startup or a queued retry, plus later manual failures after successful startup.
+ - **Not checked:** the revised lifecycle handling in a real game through the launcher's console mode; native refusal recovery (the reporter's deferred request succeeded without it).
+ 
++### The pointer stays on a Mac game
++
++- **Symptom:** the mouse pointer stayed on the picture of a Mac game, in a window and in fullscreen, until it was moved to a screen corner.
++- **Cause:** `front_run` never hid it. macOS hides the pointer only for an app that asks, and a game window is not one.
++- **Fix:** `front_mac.m` `front_run` hides it after `DM_CURSOR_HIDE` seconds (3 by default, `0` keeps it) without movement over the game view, and shows it on the next movement, click or scroll (a local event monitor and a 0.25 s timer). It is shown whenever the window is not key or the pointer is outside the game view, so the title bar and other windows keep theirs.
++- **Found on:** the NX2Apple launcher's issue #272, no game in particular.
++- **Not checked:** not yet run on a game here.
++
+ ### Frame latency 2 for the display link in fullscreen
+ 
+ - **Symptom:** on a ProMotion built-in screen, only in fullscreen, the frame step went 1 → 2 → 3 vsyncs on frames costing 0.1–0.6 vsyncs (`3 late frames; cost 0.32 vsyncs`) and the game presented 15 frames a second; a window, or the screen set to a fixed 60 Hz, did not do it. The `DM_NVN_TSV` rows show presents shown one 120 Hz refresh late (`@pres_at_ms` − `@link_target_ms` = 8.3 ms) with a skipped tick after each (`@link_gap_ms` 33 ms), and `@link_lead_ms` about 16 ms against about 50 ms in a window.

@@ -111,6 +111,8 @@ package enum LauncherPalette {
     }
     /// A field's inside (a log, a path): darker than the card in Dark, a quiet tint in Light.
     package static let well = dynamic(dark: NSColor.black.withAlphaComponent(0.22), light: NSColor.black.withAlphaComponent(0.05))
+    /// Floating popovers and menus (LauncherDropdown, ManageMenu): a deep shadow in Dark, a light elevation shadow in Light.
+    package static let dropdownShadow = dynamic(dark: black(0.5), light: black(0.12))
     package static let hairline = ink(0.10)
     package static let hover = ink(0.035)
     package static let pressed = ink(0.07)

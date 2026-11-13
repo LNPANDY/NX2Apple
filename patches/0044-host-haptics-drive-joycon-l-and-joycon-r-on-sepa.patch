@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Thu, 12 Nov 2026 22:42:24 +0800
+Subject: [PATCH] host/haptics: drive JoyCon (L) and JoyCon (R) on separate
+ channels
+
+GameController reports the per-half actuator localities of a combined Bluetooth Nintendo Switch Joy-Con (L/R) as "JoyCon (L)" and "JoyCon (R)" rather than GCHapticsLocalityLeftHandle and GCHapticsLocalityRightHandle. configure() checked only the handle localities and fell back to Default (one mixed channel), and on a server without advanced players c.merge would also collapse a two-channel route back to Default, shaking both Joy-Cons together even when hle_hid splits the pair into sideways JoyLeft and JoyRight npads.
+
+Create motor 0 on "JoyCon (L)" and motor 1 on "JoyCon (R)" when both localities are present without setting c.merge, and map single-side LeftHandle / RightHandle routes onto "JoyCon (L)" / "JoyCon (R)" when present.
+
+Upstream-Status: forwarded seedds/nxnative#2472
+Reason: Drive paired Bluetooth Joy-Con (L) and JoyCon (R) on separate channels without plain-player merge
+Issue: seedds/nxnative#2472
+---
+ dm/host/haptics_apple.m         | 39 ++++++++++++++++++------
+ dm/host/tests/t_haptics_apple.m | 53 +++++++++++++++++++++++++++++++++
+ docs/reference/services.md      |  7 +++++
+ 3 files changed, 90 insertions(+), 9 deletions(-)
+
+diff --git a/dm/host/haptics_apple.m b/dm/host/haptics_apple.m
+index 9f816866..203363eb 100644
+--- a/dm/host/haptics_apple.m
++++ b/dm/host/haptics_apple.m
+@@ -383,6 +383,9 @@ static void default_controller(int p, GCDeviceHaptics *h, NSTimeInterval retryAf
+     add_engine(p, -1, @"controller default", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:GCHapticsLocalityDefault]; });
+     channels[p].lastObject.retryAfter = retryAfter;
+ }
++static GCHapticsLocality const kJoyConLeftLocality = (GCHapticsLocality)@"JoyCon (L)";
++static GCHapticsLocality const kJoyConRightLocality = (GCHapticsLocality)@"JoyCon (R)";
++
+ static void configure(int p, GCController *controller, GCHapticsLocality locality) {
+     for (DmRumbleChannel *c in channels[p]) [c stop];
+     channels[p] = [NSMutableArray new];
+@@ -394,10 +397,25 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
+     if (controller) {
+         GCDeviceHaptics *h = controller.haptics;
+         NSSet *localities = h.supportedLocalities;
+-        if (locality && [localities containsObject:locality]) {
+-            NSString *label = [locality isEqualToString:GCHapticsLocalityLeftHandle] ? @"controller left handle" :
++        GCHapticsLocality singleLoc = nil;
++        NSString *singleLabel = nil;
++        if (locality) {
++            if ([localities containsObject:locality]) {
++                singleLoc = locality;
++                singleLabel = [locality isEqualToString:GCHapticsLocalityLeftHandle] ? @"controller left handle" :
+                               ([locality isEqualToString:GCHapticsLocalityRightHandle] ? @"controller right handle" : @"controller handle");
+-            add_engine(p, -1, label, ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:locality]; });
++            } else if ([locality isEqualToString:GCHapticsLocalityLeftHandle] && [localities containsObject:kJoyConLeftLocality]) {
++                singleLoc = kJoyConLeftLocality;
++                singleLabel = @"controller left Joy-Con";
++            } else if ([locality isEqualToString:GCHapticsLocalityRightHandle] && [localities containsObject:kJoyConRightLocality]) {
++                singleLoc = kJoyConRightLocality;
++                singleLabel = @"controller right Joy-Con";
++            }
++        }
++        BOOL handles = [localities containsObject:GCHapticsLocalityLeftHandle] && [localities containsObject:GCHapticsLocalityRightHandle];
++        BOOL joycons = !handles && [localities containsObject:kJoyConLeftLocality] && [localities containsObject:kJoyConRightLocality];
++        if (singleLoc) {
++            add_engine(p, -1, singleLabel, ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:singleLoc]; });
+             __weak NSArray *route = channels[p];
+             for (DmRumbleChannel *c in channels[p]) c.fallback = ^(NSTimeInterval retryAfter) {
+                 if (!route || channels[p] != route) return;
+@@ -407,9 +425,11 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
+                 dm_haptics_route(p, 1);
+                 fprintf(stderr, "haptics: player %d retrying with the default controller locality\n", p + 1);
+             };
+-        } else if ([localities containsObject:GCHapticsLocalityLeftHandle] && [localities containsObject:GCHapticsLocalityRightHandle]) {
+-            add_engine(p, 0, @"controller left handle", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:GCHapticsLocalityLeftHandle]; });
+-            add_engine(p, 1, @"controller right handle", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:GCHapticsLocalityRightHandle]; });
++        } else if (!locality && (handles || joycons)) {
++            GCHapticsLocality leftLoc = handles ? GCHapticsLocalityLeftHandle : kJoyConLeftLocality;
++            GCHapticsLocality rightLoc = handles ? GCHapticsLocalityRightHandle : kJoyConRightLocality;
++            add_engine(p, 0, handles ? @"controller left handle" : @"controller left Joy-Con", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:leftLoc]; });
++            add_engine(p, 1, handles ? @"controller right handle" : @"controller right Joy-Con", ^CHHapticEngine *(NSError **e) { (void)e; return [h createEngineWithLocality:rightLoc]; });
+             // Advertised handle localities can still fail to start. Fall back to the standard
+             // controller engine, once, rather than keeping two unusable helper connections.
+             __weak NSArray *route = channels[p];
+@@ -421,9 +441,10 @@ static void configure(int p, GCController *controller, GCHapticsLocality localit
+                 dm_haptics_route(p, 1);
+                 fprintf(stderr, "haptics: player %d retrying with the default controller locality\n", p + 1);
+             };
+-            // A server without advanced players gets one engine for both handles (see applyLevel), except for a DualSense: plain players on its
+-            // left and right handle engines are felt apart (PR #986: Bluetooth, macOS 26.7.1), so each handle keeps its engine and its own level
+-            if (![controller.productCategory isEqualToString:GCProductCategoryDualSense]) for (DmRumbleChannel *c in channels[p]) c.merge = ^{
++            // A server without advanced players gets one engine for both handles (see applyLevel), except for a DualSense or paired Joy-Cons:
++            // plain players on the DualSense's handle engines are felt apart (PR #986), and JoyCon (L) / JoyCon (R) are two separate Bluetooth
++            // controllers whose motors are routed per npad when split into JoyLeft and JoyRight
++            if (handles && ![controller.productCategory isEqualToString:GCProductCategoryDualSense]) for (DmRumbleChannel *c in channels[p]) c.merge = ^{
+                 if (!route || channels[p] != route) return;
+                 for (DmRumbleChannel *old in channels[p]) [old stop];
+                 channels[p] = [NSMutableArray new];
+diff --git a/dm/host/tests/t_haptics_apple.m b/dm/host/tests/t_haptics_apple.m
+index b2aed52b..9efa8f9c 100644
+--- a/dm/host/tests/t_haptics_apple.m
++++ b/dm/host/tests/t_haptics_apple.m
+@@ -466,6 +466,35 @@ int main(void) { @autoreleasepool {
+     assert(sense2.haptics.engines[0].plainPlayers == 0 && sense2.haptics.engines[1].plainPlayers == 0);
+     assert(fabsf(sense2.haptics.engines[1].testPlayer.levels.lastObject.floatValue - 0.4f) < 1e-6f);
+     send_pair(0, 0); drain();
++    // Paired Joy-Cons report "JoyCon (L)" and "JoyCon (R)" instead of handle localities, and keep both channels on plain players
++    GCHapticsLocality joyL = (GCHapticsLocality)@"JoyCon (L)", joyR = (GCHapticsLocality)@"JoyCon (R)";
++    NSSet *joyLocalities = [NSSet setWithObjects:GCHapticsLocalityAll, GCHapticsLocalityDefault, joyL, joyR, nil];
++    TestController *joy = [TestController new]; joy.haptics = [TestHaptics new]; joy.haptics.noAdvanced = YES;
++    joy.vendorName = @"Joy-Con (L/R)"; joy.productCategory = @"Nintendo Switch Joy-Con (L/R)";
++    joy.haptics.supportedLocalities = joyLocalities;
++    dm_haptics_apple_controller(0, (id)joy); drain();
++    assert(channels[0].count == 2 && !channels[0][0].simple && !channels[0][0].merge && !channels[0][1].merge);
++    send_pair(0.6, 0); drain();   // left Joy-Con alone (e.g. npad 0 in single Joy-Con mode): right engine is not even started
++    NSArray *joyLeftOnly = @[joyL, joyL];
++    assert(channels[0].count == 2 && channels[0][0].simple && !channels[0][1].simple && [joy.haptics.requestedLocalities isEqual:joyLeftOnly]);
++    assert(fabsf(joy.haptics.engines[1].testPlayer.levels.lastObject.floatValue - 0.6f) < 1e-6f);
++    send_pair(0, 0.4); drain();   // right Joy-Con alone (e.g. npad 1 in single Joy-Con mode): left silences, right starts its own plain player
++    NSArray *joyBoth = @[joyL, joyL, joyR, joyR];
++    assert(channels[0][1].simple && [joy.haptics.requestedLocalities isEqual:joyBoth]);
++    assert(joy.haptics.engines[1].testPlayer.levels.lastObject.floatValue == 0);
++    assert(fabsf(joy.haptics.engines[3].testPlayer.levels.lastObject.floatValue - 0.4f) < 1e-6f);
++    send_pair(0.3, 0.7); drain();
++    assert(fabsf(joy.haptics.engines[1].testPlayer.levels.lastObject.floatValue - 0.3f) < 1e-6f);
++    assert(fabsf(joy.haptics.engines[3].testPlayer.levels.lastObject.floatValue - 0.7f) < 1e-6f);
++    send_pair(0, 0); drain();
++    TestController *joyFail = [TestController new]; joyFail.haptics = [TestHaptics new];
++    joyFail.haptics.supportedLocalities = joyLocalities; joyFail.haptics.failureStage = 2;
++    dm_haptics_apple_controller(0, (id)joyFail); drain();
++    send_pair(0.3, 0.4); drain();
++    assert(joyFail.haptics.attempts == 1 && channels[0].count == 1);
++    expire_retries(); send_pair(0.3, 0.4); drain();
++    assert(joyFail.haptics.attempts == 2 && [joyFail.haptics.requestedLocalities.lastObject isEqual:GCHapticsLocalityDefault]);
++    send_pair(0, 0); drain();
+     dm_haptics_apple_controller(0, nil); drain();   // disconnect discards the controller factory and its old callbacks
+     assert(!(dm_haptics_available() & 1));
+     TestController *unsupported = [TestController new]; unsupported.haptics = [TestHaptics new];
+@@ -546,6 +575,30 @@ int main(void) { @autoreleasepool {
+     assert(jc.haptics.attempts == 2);
+     assert([jc.haptics.requestedLocalities[0] isEqual:GCHapticsLocalityLeftHandle]);
+     assert([jc.haptics.requestedLocalities[1] isEqual:GCHapticsLocalityRightHandle]);
++    // Split Joy-Con single-locality routing on a real paired Bluetooth Joy-Con ("JoyCon (L)" / "JoyCon (R)" without Handle localities),
++    // and fallback to Default when a standalone Joy-Con lists only {All, Default}
++    TestController *jcBt = [TestController new]; jcBt.haptics = [TestHaptics new]; jcBt.haptics.noAdvanced = YES;
++    jcBt.haptics.supportedLocalities = joyLocalities;
++    dm_haptics_apple_controller_locality(0, (id)jcBt, GCHapticsLocalityLeftHandle);
++    dm_haptics_apple_controller_locality(1, (id)jcBt, GCHapticsLocalityRightHandle);
++    drain();
++    assert(channels[0].count == 1 && channels[1].count == 1);
++    dm_haptics_send(ujc, 4); drain();
++    NSArray *jcBtExpected = @[joyL, joyL, joyR, joyR];
++    assert([jcBt.haptics.requestedLocalities isEqual:jcBtExpected]);
++    dm_vibration m0[2] = {ujc[0].value, ujc[1].value}, m1[2] = {ujc[2].value, ujc[3].value};
++    float wantP0 = dm_haptics_level(m0, 2, 1).intensity, wantP1 = dm_haptics_level(m1, 2, 1).intensity;
++    assert(fabsf(jcBt.haptics.engines[1].testPlayer.levels.lastObject.floatValue - wantP0) < 1e-6f);
++    assert(fabsf(jcBt.haptics.engines[3].testPlayer.levels.lastObject.floatValue - wantP1) < 1e-6f);
++    TestController *jcSingle = [TestController new]; jcSingle.haptics = [TestHaptics new];
++    jcSingle.haptics.supportedLocalities = [NSSet setWithObjects:GCHapticsLocalityAll, GCHapticsLocalityDefault, nil];
++    dm_haptics_apple_controller_locality(0, (id)jcSingle, GCHapticsLocalityLeftHandle); drain();
++    assert(channels[0].count == 1);
++    send_pair(0.5, 0); drain();
++    assert([jcSingle.haptics.requestedLocalities isEqual:@[GCHapticsLocalityDefault]]);
++    dm_haptics_apple_controller_locality(0, (id)jc, GCHapticsLocalityLeftHandle);
++    dm_haptics_apple_controller_locality(1, (id)jc, GCHapticsLocalityRightHandle);
++    drain();
+     // Switching a split locality to native Steam output invalidates its old
+     // route, and switching back stops native output before restoring locality.
+     __block unsigned nativeStops=0;
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index bfbd02bc..d533e13a 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -614,6 +614,13 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Low levels on rotating motors (open).** Controller motors and the Switch's resonant actuators disagree at low amplitudes, in two directions. The Xbox controller's motors showed nothing at intensity 0.05, a faint buzz from about 0.1 and a soft one at 0.3, so Breath of the Wild's charged attack (0.07 for about 3 s, `DM_RUMBLE_LOG=1`) was not felt even at `DM_RUMBLE_GAIN=2.5`. Mario Kart 8 Deluxe holds its low band at 0.1–0.4 all race long (about 30 changes a second, 0.84 peaks every few seconds): a texture on a Joy-Con, rumble that never lets up on a DualShock 4's motors. A floor with a square-root rise (0.15 + 0.85·√x) fixed the first and would make the second much worse, so the mapping stays linear. `DM_RUMBLE_MIN=0..0.9` (default 0) silences controller levels below it and stretches the rest over the full range, on every controller route; 0.45 leaves Mario Kart 8 Deluxe's crashes and drifts, as an emulator gives them on that controller. `t_haptics_apple` covers the cutoff.
+ - **Found on:** [The Legend of Zelda: Breath of the Wild](../../dm/games/01007EF00011E000/README.md) (1.9.0), on macOS 27.0.1 with an Xbox Wireless Controller over Bluetooth and an Xbox 360 USB receiver; [NieR:Automata The End of YoRHa Edition](../../dm/games/010056B015FE8000/README.md) (the Asian release, `0100B8E016F76000`) on an iPhone with a GameSir Super Nova in DualShock 4 mode, which plain players fixed; [Mario Kart 8 Deluxe](../../dm/games/0100152000022000/README.md) (4.0.1) on macOS 27.0.1 with a GameSir Cyclone; the same error in issue #219 (Sifu, provisional profile), controller unnamed.
+ 
++### Paired Joy-Cons rumble both halves on one channel
++
++- **Symptom:** a paired Bluetooth `Joy-Con (L/R)` rumbles both Joy-Cons together for every effect—including when a game splits the pair into sideways `JoyLeft` and `JoyRight` npads so player 1's rumble shakes player 2's Joy-Con too—and logs `localities All, Default, JoyCon (L), JoyCon (R), 1 channels`.
++- **Cause:** `GameController` reports the per-half actuator localities of a combined `Nintendo Switch Joy-Con (L/R)` as `"JoyCon (L)"` and `"JoyCon (R)"` rather than `GCHapticsLocalityLeftHandle` and `GCHapticsLocalityRightHandle`. `haptics_apple.m` checked only the handle localities and fell back to `Default` (one mixed channel), and on a server without advanced players `c.merge` would also collapse a two-channel route back to `Default`.
++- **Fix:** when `supportedLocalities` contains both `"JoyCon (L)"` and `"JoyCon (R)"`, `configure` creates motor 0 on `"JoyCon (L)"` (`controller left Joy-Con`) and motor 1 on `"JoyCon (R)"` (`controller right Joy-Con`) without setting `c.merge`, since the two halves are separate Bluetooth devices whose plain-player engines do not override each other. Single-side `LeftHandle` / `RightHandle` routes likewise map onto `"JoyCon (L)"` / `"JoyCon (R)"` when present. `t_haptics_apple` covers paired and single-side sends on plain players plus the startup fallback to `Default`.
++- **Found on:** Super Mario Party (`010036B0034E4000`, Apple M1 Pro).
++
+ ### A haptic engine that stops under a call raises, and ended the app
+ 
+ - **Symptom:** the app dies with `*** Terminating app due to uncaught exception 'com.apple.CoreHaptics', reason: '-[CHHapticEngine(CHHapticEngineInternal) checkEngineRunning:]: self.running'`, then `[dm] CRASH sig=6` in `__pthread_kill`; no `[RED] haptics` line comes first. Seen after about 85 s of a Mario Kart World race on an iPhone, a few seconds after the log's `oe focus state` changed twice (2, then 1).

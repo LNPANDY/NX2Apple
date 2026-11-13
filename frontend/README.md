@@ -81,7 +81,7 @@ there once at start (a rename on the same volume, shell.json's paths are rewritt
 it is the folder the launcher made, shell.json can be read and the new place is free. On any doubt
 the old folder stays where it is and keeps being used, and nothing is deleted. Uninstalling the
 launcher leaves this folder alone. The launcher
-generates the app's project with `dm/ios/tools/build_shell.sh --prepare-xcode`, signs it with
+generates the app's project with `frontend-ios/Shell/build_shell.sh --prepare-xcode`, signs it with
 `xcodebuild -allowProvisioningUpdates` and installs it over the one already there with
 `xcrun devicectl device install app`, which keeps the app's Documents. The game files are packed
 into `games/<title ID>/romfs.img`, with any DLC in `aoc/` beside it. They are compared with the
@@ -169,7 +169,7 @@ library manifest is stored at
 ## Launch options
 
 The button beside **Play** opens the game's launch options: the settings the iPhone
-launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/ab41d6a177819559c76d8e4381791550ababa097/docs/settings.md)), read
+launcher shows before a game starts ([docs/settings.md](https://github.com/seedds/nxnative/blob/0c078130f6db7d0d32c1dc28146feaf97713f008/docs/settings.md)), read
 from the list the engine packs into the Mac app (`Contents/Resources/dm/launcher.json`,
 written by `dm/games/settings.py` from `dm/games/settings.tsv`, and the engine change that
 packs it is [seedds/nxnative#352](https://github.com/seedds/nxnative/pull/352), so a

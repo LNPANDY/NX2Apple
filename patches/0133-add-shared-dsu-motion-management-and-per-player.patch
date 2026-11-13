@@ -1,18 +1,17 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Victor Wads <victor.laureano@gmail.com>
-Date: Thu, 12 Nov 2026 04:33:15 -0300
+Date: Fri, 13 Nov 2026 06:11:18 -0300
 Subject: [PATCH] Add shared DSU motion management and per-player guest routing
 
 Upstream-Status: forwarded seedds/nxnative#2429
 Reason: Provide shared phone motion management before upstream integration
 Issue: LNPANDY/NX2Apple#1206
-
 ---
  dm/host/dm_input.h                            |   1 +
  dm/host/dsu_motion.h                          |   4 +
  dm/host/dsu_protocol.h                        |  32 ++
  dm/host/hle_dsu.c                             |  82 ++++
- dm/host/hle_hid.c                             |   6 +
+ dm/host/hle_hid.c                             |   9 +
  dm/host/main.c                                |   3 +
  dm/mac/Launcher.swift                         |   3 +
  dm/mac/Motion/.gitignore                      |   2 +
@@ -30,7 +29,7 @@ Issue: LNPANDY/NX2Apple#1206
  dm/mac/Motion/Tests/MotionContractTests.swift |  24 ++
  dm/mac/launcher.c                             |   1 +
  dm/mac/pack_app.py                            |   7 +-
- 22 files changed, 1328 insertions(+), 3 deletions(-)
+ 22 files changed, 1331 insertions(+), 3 deletions(-)
  create mode 100644 dm/host/dsu_motion.h
  create mode 100644 dm/host/dsu_protocol.h
  create mode 100644 dm/host/hle_dsu.c
@@ -197,10 +196,10 @@ index 0000000..8acdab9
 +    launched=0;
 +}
 diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
-index d64f39f..b0add0c 100644
+index 6bb5ba9..75952c3 100644
 --- a/dm/host/hle_hid.c
 +++ b/dm/host/hle_hid.c
-@@ -719,6 +719,7 @@ static live_motion g_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHRE
+@@ -813,6 +813,7 @@ static live_motion g_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHRE
  static live_motion g_hid_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
  static live_motion g_joy_motion[DM_PLAYERS][2] = {[0 ... DM_PLAYERS - 1] = {[0 ... 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}}};   // each Joy-Con's own sensor (dm_motion_set_joy)
  static live_motion g_direct_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
@@ -208,8 +207,8 @@ index d64f39f..b0add0c 100644
  static live_motion g_phone_motion = {.mu = PTHREAD_MUTEX_INITIALIZER};
  static pthread_once_t g_motion_once = PTHREAD_ONCE_INIT;
  static motion_map g_motion_map; static float g_motion_gain = 0.5f; static int g_motion_off, g_motion_log, g_phone_mode;
-@@ -754,6 +755,9 @@ static void motion_set_to(live_motion *m, int p, const float acc[3], const float
-     m->last_ns = t; m->received_ns = now; m->count = 0;
+@@ -878,6 +879,9 @@ static void motion_set_to(live_motion *m, int p, const float acc[3], const float
+     if (m->count < LIVE_RING) m->count++; else m->head = (m->head + 1) % LIVE_RING;
      pthread_mutex_unlock(&m->mu);
  }
 +void dm_motion_set_dsu(int p, const float acc[3], const float rot[3], uint64_t t) {
@@ -218,24 +217,34 @@ index d64f39f..b0add0c 100644
  void dm_motion_set(int p, const float acc[3], const float rot[3]) { motion_set(p, acc, rot, 0, 0); }
  void dm_motion_set_switch(int p, const float acc[3], const float rot[3]) { motion_set(p, acc, rot, 1, 0); }
  void dm_motion_set_hid(int p, const float acc[3], const float rot[3], uint64_t t) { if (t) motion_set(p, acc, rot, 2, t); }
-@@ -807,6 +811,7 @@ enum { MOTION_NONE, MOTION_LIVE, MOTION_DIRECT };
- static int physical_motion(int p, uint64_t time, dm_motion *out) {
-     if (p < 0 || p >= DM_PLAYERS) return 0;
-     pthread_once(&g_motion_once, motion_env); if (g_motion_off) return 0;
-+    if (motion_copy(&g_dsu_motion[p], time, out)) return MOTION_LIVE;
-     if (!p && g_phone_mode > 0) return motion_copy(&g_phone_motion, time, out) != 0;
-     // Match the button path: a one-player game also accepts the other players' controllers.
-     uint32_t src = p ? 1u << p : 1u | merged_players(); uint64_t newest = 0; int selected = MOTION_NONE;
-@@ -824,6 +829,7 @@ static int physical_motion(int p, uint64_t time, dm_motion *out) {
+@@ -946,6 +950,7 @@ static uint64_t motion_copy(live_motion *m, motion_state *out) {   // a source's
+ static live_motion *motion_pick(int p, uint64_t upto_guest_ns, motion_state *out) {
+     if (p < 0 || p >= DM_PLAYERS) return NULL;
+     pthread_once(&g_motion_once, motion_env); if (g_motion_off) return NULL;
++    if (motion_copy(&g_dsu_motion[p], out)) return &g_dsu_motion[p];
+     if (!p && g_phone_mode > 0) return motion_copy(&g_phone_motion, out) ? &g_phone_motion : NULL;
+     // Match the button path: in a one-player game, a controller in another slot also drives player 1.
+     uint32_t src = p ? 1u << p : 1u | merged_players(); uint64_t newest = 0; live_motion *best = NULL;
+@@ -973,6 +978,8 @@ static int joy_own(int p, int side) {   // 1: its own stream is fresh, 0: it wen
  }
- // One Joy-Con's sensor: its own stream while fresh, else the pad's merged one (a controller that reports no per-Joy-Con motion)
- static int motion_joy(int p, int side, uint64_t time, dm_motion *out) {
-+    if (p >= 0 && p < DM_PLAYERS) { pthread_once(&g_motion_once, motion_env); if (!g_motion_off && motion_copy(&g_dsu_motion[p], time, out)) return MOTION_LIVE; }
-     if (p >= 0 && p < DM_PLAYERS && (side == 0 || side == 1)) { pthread_once(&g_motion_once, motion_env); if (!g_motion_off && motion_copy(&g_joy_motion[p][side], time, out)) return MOTION_LIVE; }
-     return physical_motion(p, time, out);
- }
+ static live_motion *motion_joy_pick(int p, int side, uint64_t upto_guest_ns, motion_state *out) {
+     if (p < 0 || p >= DM_PLAYERS || (side != 0 && side != 1)) return motion_pick(p, upto_guest_ns, out);
++    pthread_once(&g_motion_once, motion_env);
++    if (!g_motion_off && motion_copy(&g_dsu_motion[p], out)) return &g_dsu_motion[p];
+     int own = joy_own(p, side);
+     if (own > 0 && (!out || motion_copy(&g_joy_motion[p][side], out))) return &g_joy_motion[p][side];
+     return own == 0 ? NULL : motion_pick(p, upto_guest_ns, out);
+@@ -1127,6 +1134,8 @@ static pthread_once_t g_imu_once; static void imu_env_read(void);   // DM_IMU_DE
+ // often as device 1 with a right Joy-Con alone, so a flat device 0 would leave its racket still. A pair that lost a half: the missing half's handle lies flat, as its sensor is
+ // gone, rather than taking the other half's stream mid-game (a jump to another controller's frame)
+ static live_motion *six_stream(uint32_t h, npad_ref ref, int pl, uint64_t upto_guest_ns) {
++    pthread_once(&g_motion_once, motion_env);
++    if (!g_motion_off && pl >= 0 && pl < DM_PLAYERS && motion_copy(&g_dsu_motion[pl], NULL)) return &g_dsu_motion[pl];
+     int dev = (int)(h >> 16 & 1);
+     if (ref.kind >= KIND_DUAL) return motion_joy_pick(ref.pad, ref.kind == KIND_LEFT ? 0 : ref.kind == KIND_RIGHT ? 1 : dev, upto_guest_ns, NULL);
+     if (pl >= 0 && pl < DM_PLAYERS && kind_style(ref, h >> 8 & 0xff) == STYLE_JOYDUAL) {
 diff --git a/dm/host/main.c b/dm/host/main.c
-index 959430e..7a9fe78 100644
+index c2ad67c..49fc270 100644
 --- a/dm/host/main.c
 +++ b/dm/host/main.c
 @@ -1,6 +1,7 @@
@@ -256,18 +265,18 @@ index 959430e..7a9fe78 100644
      return 0;
  }
 diff --git a/dm/mac/Launcher.swift b/dm/mac/Launcher.swift
-index 4a96434..c36b23b 100644
+index a990d05..1280f2a 100644
 --- a/dm/mac/Launcher.swift
 +++ b/dm/mac/Launcher.swift
-@@ -14,6 +14,7 @@ struct LauncherView: View {
-     @ObservedObject var m: LauncherModel
-     let done: (Bool) -> Void
+@@ -123,6 +123,7 @@ struct LauncherView: View {
      let fit: (CGFloat) -> Void
-+    @State private var motionOpen = false
      @AppStorage("window.show") private var show = true
      @AppStorage("window.advanced") private var advanced = false
++    @State private var motionOpen = false
+     @State private var checking = false
+     @State private var check = 0   // which Play the running check is for: one the player went on from without it is dropped
  
-@@ -30,6 +31,7 @@ struct LauncherView: View {
+@@ -139,6 +140,7 @@ struct LauncherView: View {
              .padding([.horizontal, .top], 20)
              Form {
                  settingSections(basic: true)
@@ -275,14 +284,14 @@ index 4a96434..c36b23b 100644
                  CloudSavesSection()
                  Section {
                      DisclosureGroup("Advanced settings", isExpanded: $advanced) {}
-@@ -59,6 +61,7 @@ struct LauncherView: View {
+@@ -173,6 +175,7 @@ struct LauncherView: View {
              .padding(20)
          }
          .frame(minWidth: 520, idealWidth: 560)
 +        .sheet(isPresented:$motionOpen) { DSUMotionView().frame(width:1000,height:760) }
      }
  
-     @ViewBuilder private func settingSections(basic: Bool) -> some View {
+     /// Play, once the cloud's save is compared with this Mac's: a save that changed on both sides is the player's pick, not the newer file's (SaveCheck)
 diff --git a/dm/mac/Motion/.gitignore b/dm/mac/Motion/.gitignore
 new file mode 100644
 index 0000000..2d9f16e
@@ -1554,27 +1563,27 @@ index 0000000..483e3eb
 +    }
 +}
 diff --git a/dm/mac/launcher.c b/dm/mac/launcher.c
-index 945bbd5..dcd5eff 100644
+index 2a4b138..8b504c9 100644
 --- a/dm/mac/launcher.c
 +++ b/dm/mac/launcher.c
-@@ -354,6 +354,7 @@ int main(int argc, char **argv) {
+@@ -355,6 +355,7 @@ int main(int argc, char **argv) {
      int shown = window ? dm_mac_launcher() : 2;
      if (!shown) return 0;   // Quit: no game
      saved_choices(shown == 1);   // the window applied its settings; the controls are not among them
 +    { void dm_mac_motion_apply(void); dm_mac_motion_apply(); }
      cloud_saves_folder();
-     setenv("DM_ROOT", sup, 0); setenv("DM_ROMFS", romfs, 0); setenv("DM_SAVE", save, 0); setenv("DM_TEMP", temp, 0);
+     setenv("DM_ROOT", sup, 0); setenv("DM_ROMFS", romfs, 0); setenv("DM_TEMP", temp, 0);
      snprintf(p, sizeof p, "%s/msl", res); setenv("DM_MSL_DIR", p, 0);
 diff --git a/dm/mac/pack_app.py b/dm/mac/pack_app.py
-index 989a410..12ea495 100755
+index fbbd181..06be5dc 100755
 --- a/dm/mac/pack_app.py
 +++ b/dm/mac/pack_app.py
 @@ -90,7 +90,7 @@ def min_os(host):   # the host's deployment target (LC_BUILD_VERSION minos): the
  
  
- def swift_sources():   # the settings window, with the iOS launcher's model and rows
--    return [HERE / 'Launcher.swift', HERE.parent / 'ios/Sources/LauncherSettings.swift', HERE.parent / 'ios/Sources/LauncherRow.swift']
-+    return [p for p in sorted((HERE / 'Motion').glob('*.swift')) if p.name != 'Package.swift'] + [HERE / 'Launcher.swift', HERE.parent / 'ios/Sources/LauncherSettings.swift', HERE.parent / 'ios/Sources/LauncherRow.swift']
+ def swift_sources():   # the settings window, with the iOS launcher's model, rows and cloud-save report
+-    return [HERE / 'Launcher.swift', HERE.parent / 'ios/Sources/LauncherSettings.swift', HERE.parent / 'ios/Sources/LauncherRow.swift', HERE.parent / 'ios/Sources/SaveSyncReport.swift']
++    return [p for p in sorted((HERE / 'Motion').glob('*.swift')) if p.name != 'Package.swift'] + [HERE / 'Launcher.swift', HERE.parent / 'ios/Sources/LauncherSettings.swift', HERE.parent / 'ios/Sources/LauncherRow.swift', HERE.parent / 'ios/Sources/SaveSyncReport.swift']
  
  
  def build_launcher(out, minos, clang, swiftc, sdk):   # launcher.c's main and the host's cloud-save code (its send after the host exits), linked by swiftc with the settings window (no Swift main: -parse-as-library)

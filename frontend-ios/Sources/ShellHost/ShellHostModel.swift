@@ -8,8 +8,10 @@ import UIKit
 
 /// Where the host finds things. Everything the model touches outside itself is here, so tests point it at a temporary folder.
 public struct ShellHostConfig: Sendable {
-    /// `Games/`: one `<title ID>/` bundle folder per game.
+    /// `Games/`: one `<title ID>/` bundle folder per game, or `Bundle.main.privateFrameworksURL`.
     public var gamesRoot: URL
+    /// Optional writable `Documents/Frameworks/` directory where hot-pushed `DmGame<ID>.framework` bundles live.
+    public var hotFrameworksRoot: URL?
     /// The app's `Documents/games/`: `<title ID>/` holds a game's data, save, temp and log.txt (patch 0003's layout).
     public var appDataRoot: URL
     public var environment: HostEnvironment
@@ -25,13 +27,15 @@ public struct ShellHostConfig: Sendable {
     public var joinPartSize: Int64
     var onJoinProgress: (@Sendable (DataParts.Progress) -> Void)?
 
-    public init(gamesRoot: URL, appDataRoot: URL, environment: HostEnvironment = HostEnvironment(), updateURL: URL? = nil,
+    public init(gamesRoot: URL, appDataRoot: URL, hotFrameworksRoot: URL? = nil,
+                environment: HostEnvironment = HostEnvironment(), updateURL: URL? = nil,
                 defaults: @escaping @Sendable (String) -> UserDefaults = GameDefaults.suite(for:),
                 openURL: @escaping @MainActor @Sendable (URL) -> Void = ShellHostConfig.systemOpen,
                 now: @escaping @Sendable () -> Date = { Date() },
                 provisioningExpiration: @escaping @Sendable () -> Date? = { ProvisioningProfile.bundledExpiration() },
                 joinPartSize: Int64 = DataParts.partSize) {
         self.gamesRoot = gamesRoot
+        self.hotFrameworksRoot = hotFrameworksRoot
         self.appDataRoot = appDataRoot
         self.environment = environment
         self.updateURL = updateURL
@@ -53,6 +57,12 @@ public struct ShellHostConfig: Sendable {
     public static func defaultAppDataRoot() -> URL {
         (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
             .appendingPathComponent("games", isDirectory: true)
+    }
+
+    /// The app's writable `Documents/Frameworks/` directory for hot-pushed game frameworks.
+    public static func defaultHotFrameworksRoot() -> URL {
+        (FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first ?? FileManager.default.temporaryDirectory)
+            .appendingPathComponent("Frameworks", isDirectory: true)
     }
 }
 
@@ -115,6 +125,7 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var signingCheckTask: Task<Void, Never>?
     @ObservationIgnored private var signingWarningDismissed = false
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
+    @ObservationIgnored nonisolated(unsafe) private var foregroundObserver: (any NSObjectProtocol)?
 
     public init(config: ShellHostConfig, launcher: any GameLauncher = StubGameLauncher(), picker: any FolderPicker = NoFolderPicker(),
                 shellSettings: ShellSettingsStore = .current) {
@@ -160,9 +171,20 @@ public struct ShellHostConfig: Sendable {
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
         }
+        #if canImport(UIKit)
+        foregroundObserver = NotificationCenter.default.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.launchingGame else { return }
+                self.reload()
+            }
+        }
+        #endif
     }
 
-    deinit { defaultsObserver.map(NotificationCenter.default.removeObserver) }
+    deinit {
+        defaultsObserver.map(NotificationCenter.default.removeObserver)
+        foregroundObserver.map(NotificationCenter.default.removeObserver)
+    }
 
     /// Shell choices that change the displayed game defaults.
     private static func choices(of settings: ShellSettingsStore) -> [String] {
@@ -293,7 +315,7 @@ public struct ShellHostConfig: Sendable {
     /// a change to one game updates it in place.
     public func reload() {
         forgetCheckedRomfsImages()
-        let scanned = GameCatalogue.scan(root: config.gamesRoot).filter { !isDeleted($0) }
+        let scanned = GameCatalogue.scan(root: config.gamesRoot, hotRoot: config.hotFrameworksRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
             lastPlayed(e.id).map { (e.id, $0) } }))
@@ -431,6 +453,10 @@ public struct ShellHostConfig: Sendable {
             pickedDataNotes.removeValue(forKey: entry.id)
         }
         var state = GameStateResolver.state(for: entry, data: data, environment: config.environment)
+        let shadersSatisfied = ExternalShaders.isSatisfied(entry: entry, appFolder: appFolder(for: entry.id), dataURL: data.url)
+        if state == .playable && !shadersSatisfied {
+            state = .needsGameData
+        }
         if state == .needsGameData, let progress = joiningProgress[entry.id], progress.totalBytes > 0 {
             let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
             let rawPercent = Int((Double(clampedDone) / Double(progress.totalBytes) * 100.0).rounded(.down))
@@ -445,7 +471,7 @@ public struct ShellHostConfig: Sendable {
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
                             isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
-            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false))
+            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, shadersSatisfied: shadersSatisfied))
         }
         let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
         var cloud: String?
@@ -470,7 +496,7 @@ public struct ShellHostConfig: Sendable {
         let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
         return GameDetail(
             game: tile, sections: sections + padSections,
-            dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found),
+            dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found, shadersSatisfied: shadersSatisfied),
             cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings || !pad.entries.isEmpty,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell,
@@ -486,13 +512,16 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
-    private func dataNote(for id: String, data: DataResolution, found: Bool) -> String {
-        if found { return "" }
+    private func dataNote(for id: String, data: DataResolution, found: Bool, shadersSatisfied: Bool = true) -> String {
+        if found && shadersSatisfied { return "" }
         if let progress = joiningProgress[id], progress.totalBytes > 0 {
             let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
             let doneSize = Self.formatByteSize(clampedDone)
             let totalSize = Self.formatByteSize(progress.totalBytes)
             return hostText("Joining .nxpart split files in this app's folder (\(doneSize) of \(totalSize)).")
+        }
+        if found && !shadersSatisfied {
+            return hostText("Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple.")
         }
         if let customNote = pickedDataNotes[id], !customNote.isEmpty {
             return customNote
@@ -703,14 +732,28 @@ public struct ShellHostConfig: Sendable {
         if pendingCloudLaunch?.game.titleID == id {
             cancelCloudConflict()
         }
-        let failed = GameDeletion.delete(in: appFolder(for: id), saves: saves)
+        var failed = GameDeletion.delete(in: appFolder(for: id), saves: saves)
+        if let hotRoot = config.hotFrameworksRoot {
+            let entryParent = entry.directory.deletingLastPathComponent().standardizedFileURL
+            if entryParent == hotRoot.standardizedFileURL {
+                if !GameCatalogue.discardFolder(entry.directory, in: hotRoot) {
+                    failed.append(entry.directory)
+                }
+            }
+            let canonicalHot = hotRoot.appendingPathComponent("DmGame\(id.uppercased()).framework", isDirectory: true)
+            if FileManager.default.fileExists(atPath: canonicalHot.path),
+               !GameCatalogue.discardFolder(canonicalHot, in: hotRoot) {
+                failed.append(canonicalHot)
+            }
+        }
         dataStore(id).clear()
         cloudStore(id).clear()
         dataStores.removeValue(forKey: id)
         cloudStores.removeValue(forKey: id)
         let defaults = config.defaults(id)
         defaults.removeObject(forKey: LastPlayedStore.key)
-        defaults.set(GameDeletion.stamp(entry), forKey: GameDeletion.deletedKey)
+        let bundledAfterHotRemoval = GameCatalogue.scan(root: config.gamesRoot).first { $0.id.caseInsensitiveCompare(id) == .orderedSame }
+        defaults.set(GameDeletion.stamp(bundledAfterHotRemoval ?? entry), forKey: GameDeletion.deletedKey)
         reload()
         if !failed.isEmpty { notice = hostText("Some files of \(entry.title) could not be deleted.") }
     }
@@ -746,9 +789,11 @@ public struct ShellHostConfig: Sendable {
         defer { launchingGame = false }
         forgetCheckedRomfsImages()
         let resolved = await verifiedData(for: entry)
+        let gameAppFolder = appFolder(for: id)
         guard cloudCheckGeneration == checkGeneration,
-              self.entry(id)?.manifest == manifest, let dataURL = resolved.url,
-              let profile = profile(for: entry, data: resolved) else {
+              let latestEntry = self.entry(id), latestEntry.manifest == manifest, let dataURL = resolved.url,
+              ExternalShaders.isSatisfied(entry: latestEntry, appFolder: gameAppFolder, dataURL: dataURL),
+              let profile = profile(for: latestEntry, data: resolved) else {
             refresh(id)
             return
         }
@@ -757,7 +802,6 @@ public struct ShellHostConfig: Sendable {
         case .own(let url), .shell(let url): cloud = url
         case .off, .stale, .none: break
         }
-        let gameAppFolder = appFolder(for: id)
         var game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
             romfsURL: resolved.romfsURL, appFolder: gameAppFolder, environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)

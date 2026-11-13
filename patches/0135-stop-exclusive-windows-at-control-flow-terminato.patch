@@ -6,7 +6,6 @@ Subject: [PATCH] Stop exclusive windows at control-flow terminators
 Upstream-Status: pending
 Reason: Preserve verified Super Mario Party atomic-window rewrite fix
 Issue: LNPANDY/NX2Apple#1206
-
 ---
  dm/tools/patch_nso.py                         |  5 +++-
  .../test_exclusive_window_terminators.py      | 23 +++++++++++++++++++
@@ -14,10 +13,10 @@ Issue: LNPANDY/NX2Apple#1206
  create mode 100644 dm/tools/tests/test_exclusive_window_terminators.py
 
 diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
-index ceeef78..9ff1944 100644
+index 1cfbd5e..8a7050a 100644
 --- a/dm/tools/patch_nso.py
 +++ b/dm/tools/patch_nso.py
-@@ -512,7 +512,10 @@ def find_windows(insl):
+@@ -530,7 +530,10 @@ def find_windows(insl):
      for i, ins in enumerate(insl):
          if ins.mnemonic not in EXCL_LD: continue
          j = i

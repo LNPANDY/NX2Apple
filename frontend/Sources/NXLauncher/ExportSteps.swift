@@ -16,6 +16,7 @@ package struct ExportSteps: View {
     @ObservedObject var devices: DeviceStore
     @EnvironmentObject var loc: Localizer
     @State private var detailsOpen = false
+    @State private var selectSheetMode: SendSelectedSheet.Mode?
 
     package init(build: BuildStore, devices: DeviceStore) {
         self.build = build
@@ -39,14 +40,20 @@ package struct ExportSteps: View {
                  sub: exported ? String(format: loc.t(oneGame ? "shell.oneGameDone" : "shell.step1Done"), build.exportedIPAText)
                                : loc.t(oneGame ? "shell.oneGameSub" : "shell.step1Sub")) {
                 if exported {
-                    action(loc.t("shell.showInFinder")) { revealInFinder(build.exportedIPAPath) }
+                    HStack(spacing: ExportGrid.gap) {
+                        if !oneGame && build.canExportBuiltGames {
+                            action(loc.t("shell.exportBuilt"), enabled: true) { build.exportBuiltGames() }
+                                .help(loc.t("shell.exportBuiltNote"))
+                        }
+                        action(loc.t("shell.showInFinder")) { revealInFinder(build.exportedIPAPath) }
+                    }
                 } else {
                     HStack(spacing: ExportGrid.gap) {
                         if build.canExportBuiltGames {   // #994: the IPA of the frameworks already built, no game is built again
                             action(loc.t("shell.exportBuilt"), enabled: true) { build.exportBuiltGames() }
                                 .help(loc.t("shell.exportBuiltNote"))
                         }
-                        action(loc.t("shell.step1Button"), enabled: build.canBuild && !build.running) { build.startBuild() }
+                        action(loc.t("shell.step1Button"), enabled: build.canStartBuildOrQueue && !build.running) { build.startBuildOrQueue() }
                     }
                 }
             }
@@ -54,6 +61,10 @@ package struct ExportSteps: View {
             step(2, sentDone ? .done : exported ? .current : .upcoming, title: loc.t("shell.step2Title"),
                  sub: loc.t(oneGame ? "shell.oneGameStep2Sub" : "shell.step2Sub")) { EmptyView() }
             if !oneGame { CardDivider(); sendStep }
+        }
+        .sheet(item: $selectSheetMode) { mode in
+            SendSelectedSheet(mode: mode, build: build) { selectSheetMode = nil }
+                .environmentObject(loc)
         }
     }
 
@@ -128,7 +139,7 @@ package struct ExportSteps: View {
                 RefreshDevicesButton(devices: devices)
             }
             action(loc.t("shell.sendButton"), enabled: build.canSendToDevice) { build.sendGameData() }
-            action(loc.t("shell.sendAllButton"), enabled: build.canSendAllGameData) { build.sendAllGameData() }
+            action(loc.t("shell.selectGamesButton"), enabled: build.canSendAllGameData) { selectSheetMode = .device }
                 .help(loc.t("shell.sendAllNote"))
         }
     }
@@ -208,6 +219,10 @@ package struct ExportSteps: View {
                 action(loc.t("btn.stop"), accent: LauncherPalette.building) { build.stopDriveCopy() }
             } else {
                 action(loc.t("shell.driveCopy"), enabled: build.canCopyToDrive) { build.copyToDrive() }
+                if !build.sharedAppDataSources().isEmpty {
+                    action(loc.t("shell.selectGamesButton"), enabled: build.canSelectGamesForDrive) { selectSheetMode = .drive }
+                        .help(loc.t("shell.selectGamesDriveNote"))
+                }
             }
         }
     }
@@ -216,7 +231,8 @@ package struct ExportSteps: View {
 
     @ViewBuilder private var driveStatus: some View {
         if case .copying(let done, let total) = build.send {
-            progress(String(format: loc.t("shell.driveProgress"), gameName, ShellInstall.sizeText(done), ShellInstall.sizeText(total)), done: done, total: total)
+            let label = build.driveBatchLabel.isEmpty ? gameName : build.driveBatchLabel
+            progress(String(format: loc.t("shell.driveProgress"), label, ShellInstall.sizeText(done), ShellInstall.sizeText(total)), done: done, total: total)
         } else if case .copied(let folder) = build.send {
             note(.done, String(format: loc.t("shell.driveDone"), build.shortPath((folder as NSString).deletingLastPathComponent), gameDataRow))
         } else if case .failed(let text) = build.send {
@@ -339,7 +355,7 @@ struct FinderCopySteps: View {
             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("\(index + 1)").font(.manrope(11, .semibold)).monospacedDigit().foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18).background(Circle().fill(Color.white.opacity(0.08)))
+                        .frame(width: 18, height: 18).background(Circle().fill(LauncherPalette.ink(0.08)))
                     Text(line).font(.manrope(12.5)).foregroundStyle(.primary.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
                 }
             }

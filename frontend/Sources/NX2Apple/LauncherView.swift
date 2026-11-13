@@ -69,6 +69,7 @@ struct LauncherView: View {
     private let qaArtwork: ArtworkSlot?   // visual QA: the artwork panel open at launch, on this tab
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.colorScheme) var colorScheme
 
     init(stores: LauncherStores? = nil, library: GameLibrary? = nil, initialPage: LauncherPage = .library, settingsCategory: SettingsCategory = .general,
          activeBuildID: UUID? = nil, performStartupChecks: Bool = true, search: String? = nil, olderTools: Set<UUID> = [],
@@ -169,7 +170,6 @@ struct LauncherView: View {
             }
         }
         .onChange(of: consoleDriver.state.padMerge) { merged in if injectedDriver { controls.padMerge = merged } }
-        .onChange(of: consoleDriver.state.joyconSplit) { split in if injectedDriver { controls.joyconSplit = split } }
         .onChange(of: consolePrompt) { open in
             padFocus.scope = open ? "console.entry" : currentPadScope
             if open { padFocus.focused = "console.entry.enter" }
@@ -250,9 +250,9 @@ struct LauncherView: View {
                 library.games.filter { !$0.archivePath.isEmpty && FileManager.default.fileExists(atPath: $0.archivePath) }
                     .map { TransferSource(titleID: $0.titleID, name: $0.name, archive: $0.archivePath) }
             }
-            m.macBuildEnvironment = { [library] titleID in   // the engine takes it only for a game without an icon of its own (#784)
+            m.macFallbackIconArguments = { [library] titleID in   // the engine takes it only for a game without an icon of its own (#784)
                 let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("NX2Apple/fallback-icons", isDirectory: true)
-                return FallbackIcon.environment(titleID: titleID, banners: library.artworkDirectory, folder: support)
+                return FallbackIcon.arguments(titleID: titleID, banners: library.artworkDirectory, folder: support)
             }
             library.keysFile = { [m] in m.savedKeys }   // the scan reads renamed packages' title IDs with them (#1012)
             if performStartupChecks { library.discover(); fetchArtwork(); library.fillMissingTitleNames(); _ = stores.deviceStore.refresh(); checkTools() }
@@ -348,7 +348,7 @@ struct LauncherView: View {
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
-            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, exportsIPA: devices.exportIPA) { selectingGames = false }
+            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame) { selectingGames = false }
                 .environmentObject(loc)
         }
         .sheet(isPresented: Binding(get: { supportedGames != nil }, set: { if !$0 { supportedGames = nil } })) {
