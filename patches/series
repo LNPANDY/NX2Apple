@@ -49,3 +49,4 @@
 0137-keep-shared-phone-connections-alive-and-use-host.patch
 0138-read-shared-dsu-configuration-in-host-and-diagno.patch
 0139-expose-live-dsu-input-sources-rates-and-pressed.patch
+0140-expose-explicit-dsu-full-left-and-right-controll.patch
