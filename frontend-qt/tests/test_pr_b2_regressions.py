@@ -638,6 +638,34 @@ class WindowsEngineContractTests(unittest.TestCase):
 # =====================================================================
 
 class LibraryInputsAndModelTests(unittest.TestCase):
+    def test_a_build_again_does_not_count_the_game_files_it_extracted_before(self) -> None:
+        model_mod, _, restore = _load_model_with_qt_fallback()
+        try:
+            with tempfile.TemporaryDirectory() as folder:
+                root = Path(folder)
+                with mock.patch.object(model_mod.Model, 'check_deps', lambda self: None), \
+                     mock.patch.object(pu, 'find_python', return_value=(sys.executable, True, '3.12.0')), \
+                     mock.patch.object(pu, 'find_dotnet', return_value=('', False)), \
+                     mock.patch.object(lib, 'default_state_dir', lambda: root / 'state'):
+                    model = model_mod.Model()
+                base = root / 'Game [0100000000010000].nsp'
+                base.write_bytes(b'x' * 4096)
+                model.base_path = str(base)
+                with mock.patch.object(lib.DriveCopy, 'free_space', return_value=1024):
+                    self.assertTrue(model.prebuild_block_reason())
+                    version = root / f'{model.build_key}_build' / 'extract' / 'v0'
+                    (version / 'ExeFS').mkdir(parents=True)
+                    (version / 'ExeFS' / 'main').touch()
+                    (version / 'extract.key').write_text('fingerprint\n', encoding='utf-8')
+                    (version / 'RomFS.img').write_bytes(b'x' * 1024)
+                    self.assertTrue(model.prebuild_block_reason(), 'a small extraction leaves most of the game files to extract')
+                    (version / 'RomFS.img').write_bytes(b'x' * 8500)
+                    self.assertEqual(model.prebuild_block_reason(), '', 'a build again reuses what it extracted before')
+                    (version / 'extract.key').unlink()
+                    self.assertTrue(model.prebuild_block_reason(), 'an unfinished extraction (no extract.key) is not counted')
+        finally:
+            restore()
+
     def test_library_save_is_atomic_and_artwork_store_deduplicates_concurrent_index_fetch(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             state_dir = Path(td) / 'state'
