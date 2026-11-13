@@ -115,6 +115,8 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var startupJoinTask: Task<Void, Never>?
     @ObservationIgnored private var joinGeneration: UInt64 = 0
     @ObservationIgnored private var joiningProgress: [String: DataParts.Progress] = [:]
+    @ObservationIgnored private var looseClaimTask: Task<Void, Never>?
+    @ObservationIgnored private var looseClaimGeneration: UInt64 = 0
     @ObservationIgnored private var pickGeneration: [String: UInt64] = [:]
     @ObservationIgnored private var pickedDataNotes: [String: String] = [:]
     @ObservationIgnored private var cloudCheckGeneration: UInt64 = 0
@@ -151,12 +153,17 @@ public struct ShellHostConfig: Sendable {
             }
             progressHook?(progress)
         }
+        let gamesRoot = config.gamesRoot
+        let hotRoot = config.hotFrameworksRoot
         startupJoinTask = Task { [weak self] in
             let joined = await Task.detached(priority: .utility) { () -> Bool in
-                DataParts.writeFeatures(documents: dataRoot.deletingLastPathComponent())
+                let documents = dataRoot.deletingLastPathComponent()
+                DataParts.writeFeatures(documents: documents)
                 let joined = DataParts.joinAll(appDataRoot: dataRoot, partSize: partSize, onProgress: reportProgress)
+                let allEntries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot)
+                let claimed = LooseRomfsClaimer.claimAll(documents: documents, appDataRoot: dataRoot, entries: allEntries)
                 BackupExclusion.apply(appDataRoot: dataRoot)
-                return !joined.isEmpty
+                return !joined.isEmpty || !claimed.isEmpty
             }.value
             self?.finishJoinRun(joined: joined, generation: joinGen)
         }
@@ -167,7 +174,7 @@ public struct ShellHostConfig: Sendable {
             guard let self, !self.signingWarningDismissed else { return }
             self.signingWarning = ProvisioningProfile.warning(expiration: expiration, now: clock())
         }
-        reload()
+        reload(afterClaim: true)
         defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.defaultsDidChange() }
         }
@@ -212,6 +219,7 @@ public struct ShellHostConfig: Sendable {
 
     func waitForStartupTasks() async {
         await startupJoinTask?.value
+        await looseClaimTask?.value
         await signingCheckTask?.value
         await backupScanTask?.value
         for task in romfsChecks.values.compactMap(\.task) {
@@ -232,7 +240,7 @@ public struct ShellHostConfig: Sendable {
         let affected = Array(joiningProgress.keys)
         joiningProgress.removeAll()
         if joined {
-            reload()
+            reload(afterClaim: true)
         } else {
             for id in affected { refresh(id) }
         }
@@ -299,6 +307,8 @@ public struct ShellHostConfig: Sendable {
 
     /// For tests: returns when the shell scan and the pending RomFS identity checks are done.
     func waitForDataChecks() async {
+        await startupJoinTask?.value
+        await looseClaimTask?.value
         await shellScan?.value
         await signingCheckTask?.value
         await backupScanTask?.value
@@ -314,6 +324,10 @@ public struct ShellHostConfig: Sendable {
     /// Reads the games folder again and sorts the library (see `LibraryOrder`). Only this and the first load re-sort:
     /// a change to one game updates it in place.
     public func reload() {
+        reload(afterClaim: false)
+    }
+
+    private func reload(afterClaim: Bool) {
         forgetCheckedRomfsImages()
         let scanned = GameCatalogue.scan(root: config.gamesRoot, hotRoot: config.hotFrameworksRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
@@ -324,6 +338,36 @@ public struct ShellHostConfig: Sendable {
         details = built.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
         startShellScan(force: true)
         startBackupScan()
+        if !afterClaim && !launchingGame {
+            startLooseRomfsClaim()
+        }
+    }
+
+    private func startLooseRomfsClaim() {
+        looseClaimTask?.cancel()
+        looseClaimGeneration &+= 1
+        let generation = looseClaimGeneration
+        let gamesRoot = config.gamesRoot
+        let hotRoot = config.hotFrameworksRoot
+        let dataRoot = config.appDataRoot
+        let joinTask = startupJoinTask
+        looseClaimTask = Task { [weak self] in
+            await joinTask?.value
+            guard !Task.isCancelled else { return }
+            let didClaim = await Task.detached(priority: .utility) { () -> Bool in
+                let entries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot)
+                let claimed = LooseRomfsClaimer.claimAll(
+                    documents: dataRoot.deletingLastPathComponent(),
+                    appDataRoot: dataRoot,
+                    entries: entries
+                )
+                return !claimed.isEmpty
+            }.value
+            guard let self, !Task.isCancelled, self.looseClaimGeneration == generation, !self.launchingGame else { return }
+            if didClaim {
+                self.reload(afterClaim: true)
+            }
+        }
     }
 
     private func lastPlayed(_ id: String) -> Date? { LastPlayedStore(defaults: config.defaults(id)).date }
