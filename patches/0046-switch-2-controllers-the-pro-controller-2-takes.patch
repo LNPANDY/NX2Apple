@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jannisxiong <jannisxiong@tencent.com>
+Date: Fri, 13 Nov 2026 13:10:10 +0800
+Subject: [PATCH] Switch 2 controllers: the Pro Controller 2 takes the Joy-Con
+ 2 pair's axis map
+
+The Pro Controller 2 took the Pro Controller 1's map (s2_map_pro), which was never measured on it.
+Its raw frame is the pair's: x right, y toward the shoulder buttons, z out of the face. The old map
+turned every motion a quarter turn, so pitch read as roll and roll as pitch.
+
+Measured by gravity in three still poses and by four 90 degree tilts and a 360 degree turn. Each
+turn lands on its own channel with the pair's sign. The tilts integrate to 0.056..0.060 degrees per
+second per count, within 5 % of S2_GYRO_DPS, so the scale stays. Checked in play with
+DM_SW2_MAP=-1,-2,-3,4,5,6, the map this commit builds in.
+
+t_switch2 checks the three poses and the three turns: four of them fail with the old map.
+
+Upstream-Status: forwarded seedds/nxnative#2258 [its s2_map_pro change, measured here on its own]
+Reason: the Pro Controller 2's motion is turned a quarter turn until upstream builds in the pair's map
+Issue: seedds/nxnative#2245
+
+---
+ dm/host/switch2_proto.h   | 7 +++++--
+ dm/host/tests/t_switch2.c | 8 ++++++++
+ 2 files changed, 13 insertions(+), 2 deletions(-)
+
+diff --git a/dm/host/switch2_proto.h b/dm/host/switch2_proto.h
+index 846ec1c..c22753a 100644
+--- a/dm/host/switch2_proto.h
++++ b/dm/host/switch2_proto.h
+@@ -353,11 +353,14 @@ static inline const s2_dev *s2_pad_motion_dev(const s2_pad_state *p, int want_ri
+ // Measured on a right Joy-Con 2 held upright (stick on top, face toward the ceiling): raw x right, y forward, z up, and the gyro channels are right-handed rotations about the same
+ // axes (tilting the top away: gyro x -83 degrees; turning left: gyro z +115; leaning the right side down: gyro y +104). So the pair's map is the identity for rotation and
+ // the negated specific force for gravity. A Joy-Con held alone is turned a quarter turn about the up axis: the right one with its top to the player's left (the Pro Controller 1
+-// map of motion_pro.h), the left one with its top to the right. The Pro Controller 2's frame is not measured: it takes the Pro Controller 1's map.
++// map of motion_pro.h), the left one with its top to the right. The Pro Controller 2 reports in the pair's frame (raw x right, y toward the shoulder buttons, z out of the face),
++// unlike the Pro Controller 1. Measured by gravity in three still poses (flat, standing on its grips, right grip up), four 90 degree tilts and a 360 degree turn to the left: each
++// turn on its own channel with the pair's sign, and the tilts integrate to 0.056..0.060 degrees per second per count, so it keeps S2_GYRO_DPS. The Pro Controller 1's map it
++// took before turned every motion a quarter turn: pitch read as roll and roll as pitch.
+ static const int8_t s2_map_pair[6] = {-1, -2, -3, 4, 5, 6};
+ static const int8_t s2_map_right_alone[6] = {2, -1, -3, -5, 4, 6};
+ static const int8_t s2_map_left_alone[6] = {-2, 1, -3, 5, -4, 6};
+-static const int8_t s2_map_pro[6] = {2, -1, -3, -5, 4, 6};
++static const int8_t s2_map_pro[6] = {-1, -2, -3, 4, 5, 6};
+ static inline const int8_t *s2_pad_map(const s2_pad_state *p, const s2_dev *dev) {
+     if (p->pro.have) return s2_map_pro;
+     if (p->left.have && p->right.have) return s2_map_pair;
+diff --git a/dm/host/tests/t_switch2.c b/dm/host/tests/t_switch2.c
+index a4063ca..2deb60b 100644
+--- a/dm/host/tests/t_switch2.c
++++ b/dm/host/tests/t_switch2.c
+@@ -202,6 +202,14 @@ int main(void) {
+     pad.left.have = 1; CHECK(s2_pad_map(&pad, &pad.right) == s2_map_pair && s2_pad_map(&pad, &pad.left) == s2_map_pair);
+     pad.right.have = 0; CHECK(s2_pad_map(&pad, &pad.left) == s2_map_left_alone);
+     pad.pro.have = 1; CHECK(s2_pad_map(&pad, &pad.pro) == s2_map_pro);
++    // A Pro Controller 2, as measured: flat face up raw z +1 G; standing on its grips (shoulders up) raw y +1 G; right grip up raw x +1 G;
++    // standing it up is +gyro x, raising the right grip -gyro y, turning left +gyro z. In the Switch frame: gravity -z, -y, -x; rot +x, -y, +z
++    { int16_t f[6] = {-12, -40, 4178, 0, 0, 0}; s2_motion(f, s2_map_pro, NULL, S2_GYRO_RAD, acc, rot); CHECK(acc[2] < -0.95f && fabsf(acc[0]) < 0.05f && fabsf(acc[1]) < 0.05f); }
++    { int16_t f[6] = {10, 4125, 30, 0, 0, 0}; s2_motion(f, s2_map_pro, NULL, S2_GYRO_RAD, acc, rot); CHECK(acc[1] < -0.95f && fabsf(acc[0]) < 0.05f); }
++    { int16_t f[6] = {4099, 20, -15, 0, 0, 0}; s2_motion(f, s2_map_pro, NULL, S2_GYRO_RAD, acc, rot); CHECK(acc[0] < -0.95f && fabsf(acc[1]) < 0.05f); }
++    { int16_t f[6] = {0, 0, 4096, 1498, 0, 0}; s2_motion(f, s2_map_pro, NULL, S2_GYRO_RAD, acc, rot); CHECK(rot[0] > 0 && rot[1] == 0 && rot[2] == 0); }
++    { int16_t f[6] = {0, 0, 4096, 0, -1555, 0}; s2_motion(f, s2_map_pro, NULL, S2_GYRO_RAD, acc, rot); CHECK(rot[1] < 0 && rot[0] == 0 && rot[2] == 0); }
++    { int16_t f[6] = {0, 0, 4096, 0, 0, 5945}; s2_motion(f, s2_map_pro, NULL, S2_GYRO_RAD, acc, rot); CHECK(rot[2] > 0 && rot[0] == 0 && rot[1] == 0); }
+     // Rest offset: a second of nearly constant samples is learned, motion resets, a large offset is not rest
+     s2_rest rs; memset(&rs, 0, sizeof rs); int16_t q[6] = {0, 0, 4096, 18, -20, -4};
+     for (int i = 0; i < S2_REST_N - 1; i++) { q[3] = 18 + (i & 1); s2_rest_update(&rs, q); }
