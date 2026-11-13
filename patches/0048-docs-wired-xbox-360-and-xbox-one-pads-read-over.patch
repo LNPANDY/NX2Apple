@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Giulio Milani <giulio.milani99@gmail.com>
+Date: Thu, 12 Nov 2026 09:05:54 +0100
+Subject: [PATCH] Docs: wired Xbox 360 and Xbox One pads read over USB
+
+The two switches the pad reader reads, DM_XUSB and DM_XUSB_LOG, are in the switches table, which tests/test_env_switches.py checks against the code. The reference gets an entry in services.md (symptom, cause, fix, limits, found on), the symptom index is regenerated, and the playing page says what the log shows and what such a pad lacks.
+
+Upstream-Status: forwarded seedds/nxnative#2436
+Reason: the pad reader's switches and notes belong in the docs
+Issue: LNPANDY/NX2Apple#1197
+---
+ docs/playing.md            | 2 ++
+ docs/reference/services.md | 8 ++++++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/docs/playing.md b/docs/playing.md
+index cda416b..cf99533 100644
+--- a/docs/playing.md
++++ b/docs/playing.md
+@@ -46,6 +46,8 @@ A controller macOS pairs but Apple's controller support does not list, such as a
+ 
+ Two identical controllers that Apple's controller support lists as one, such as two Pro Controllers over USB, are each a player of their own: after 3 seconds the log says `GameController lists 1 of 2`, and each takes a player, by USB port. They have no vibration, player lights or Home button to quit. `DM_PAD_IDENTICAL=0` in `env.txt` turns this off.
+ 
++A wired Xbox 360 pad, or an Xbox One pad that is not Microsoft's (a Turtle Beach REACT-R, for example), has no driver on macOS and is not listed there at all: it is read directly over USB, takes a player as any other controller does, and the log says `xusb: Xbox 360 pad '<name>' is read directly over USB` or `xusb: Xbox One pad ...`. Only one app can read such a pad at a time, and it has no vibration, player light or Home button to quit. `DM_XUSB=0` in `env.txt` turns this off.
++
+ With [Press a button to join](settings.md#press-a-button-to-join) on in the settings (`DM_PAD_PRESS_TO_JOIN=1` in `env.txt`), on the Mac and on iOS, a controller becomes a player only when one of its buttons is pressed, as the lowest player free: the players choose their order and how many play, over Bluetooth or USB, identical pads included, and a controller connected while the game runs joins at its first press. The log says `press a button to play`, then `a button pressed: player N`. The press that joins also reaches the game. When a game asks for more players than it sees, a prompt over the game says how many are wanted and joined and waits for the others: a controller that presses a button (or connects, with the setting off) joins, A finishes once enough are in, and B or Escape closes it, as on a Switch.
+ 
+ To quit with a controller, hold its Home button (the logo button on an Xbox or PlayStation controller) for 2 seconds, then press A to quit or B to go back to the game. Quitting this way is the same as ⌘Q: progress the game has not saved is lost. If holding Home opens the Games app instead, macOS keeps the Home button for itself: its controller settings for the Home button decide whether apps may use it. `DM_HOME_QUIT=0` in `env.txt` turns the hold off. A short press of Home opens the Home menu over the paused game: up and down choose, A selects, B or Home goes back to the game. It has Resume and Quit (which asks first), and Back to console mode when the game was started from a launcher's console mode, which pauses the game in the background and shows the launcher. `DM_HOME_MENU=0` in `env.txt` turns the menu off.
+diff --git a/docs/reference/services.md b/docs/reference/services.md
+index d533e13..eee799e 100644
+--- a/docs/reference/services.md
++++ b/docs/reference/services.md
+@@ -483,6 +483,14 @@ Most service calls can be found before they crash, before the first boot or the
+ - **Limits:** such pads have no rumble or player lights, and Home does not quit from them. Another model's buttons follow 8BitDo's numbering unless `DM_HID_MAP` says otherwise; only Pro Controllers were run, before the mechanism was folded into `pad_hid_mac.h` ([PR #1595](https://github.com/seedds/nxnative/pull/1595)), and the folded version awaits a run with two Pro Controllers over USB.
+ - **Found on:** [Mario Kart World](../../dm/games/0400C3F00006E000/README.md) 1.8.0, two Pro Controllers over USB, 33 minutes of two-player split-screen races.
+ 
++### Wired Xbox 360 and Xbox One pads that macOS has no driver for
++
++- **Symptom:** a wired Xbox 360 pad, or an Xbox One pad that is not Microsoft's (a Turtle Beach REACT-R), is no player on a Mac: GameController does not list it and the log has no controller line for it.
++- **Cause:** macOS has no driver for either. The pad has no HID interface, so `pad_hid_mac.h` does not see it either. It is a vendor-specific USB device: `ff/ff/ff` with a `ff/5d/01` interface for an Xbox 360 pad, `ff/47/d0` with a control interface that has an interrupt IN and an interrupt OUT endpoint for an Xbox One pad (the Gaming Input Protocol, GIP).
++- **Fix:** `pad_xusb_mac.h` reads such a pad from the host's own process, with no driver, kernel extension or entitlement. It watches for both classes, opens only a device of that class, claims the controller interface, sends an Xbox One pad the power-on command `05 20 00 01 00` once and keeps one interrupt read pending on the main run loop. `pad_xusb.h` (pure, checked by `tests/t_pad_xusb.c`) turns a report into Switch buttons and sticks: the buttons by position, the dead zone of the other HID pads, a trigger past half is ZL / ZR. A GIP report is decoded into the same form as an Xbox 360 report. `controllers_mac.m` gives the pad a slot, the shared button map and focus, as for a generic HID pad (`xusbpad_attach`, `xusbpad_detach`, `xusbpad_read`).
++- **Limits:** a pad can be read by one process only, so a pad that macOS or another app already holds is skipped with a log line (a Microsoft Xbox One pad on USB is held by macOS and stays with GameController). Not read: the Xbox 360 wireless receiver, a pad that needs the Xbox One authentication handshake, rumble, the player light and the Guide button. `DM_XUSB=0` turns this off and `DM_XUSB_LOG=1` logs each report that changes.
++- **Found on:** [Mario Kart 8 Deluxe](../../dm/games/0100152000022000/README.md) 4.0.1 on macOS 27.2 (Apple M5): a PDP Xbox 360 pad (`0e6f:0301`), a Turtle Beach REACT-R (`10f5:7024`) and a Microsoft Xbox One pad were players 1, 2 and 3 over USB.
++
+ ### One Pro Controller read as two players
+ 
+ - **Symptom:** with one Pro Controller over Bluetooth, the log shows `GameController lists 1 of 2 pads of this model` twice for the same USB location, then players 1 and 2 for that pad; a one-player game opens the controller applet every few frames (`hid controller applet: 1 to 1 players wanted, 2 connected`, focus state 2 then 1, thousands of times). A game that suspends its music while an applet has focus plays none: sound effects and positional music still play, while area and cutscene music never start.

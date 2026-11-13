@@ -1,0 +1,303 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Giulio Milani <giulio.milani99@gmail.com>
+Date: Thu, 12 Nov 2026 00:29:31 +0100
+Subject: [PATCH] Mac: read wired Xbox One pads over USB too
+
+A Xbox One pad that is not one of Microsoft's, such as the Turtle Beach REACT-R (10f5:7024), has no driver on macOS either: GameController does not list it and it has no HID interface. It speaks the Gaming Input Protocol (GIP) over a vendor-specific ff/47/d0 device, and sends nothing until it is told to power on.
+
+The reader that already reads a wired Xbox 360 pad (pad_xusb_mac.h) now watches for both. For an Xbox One pad it claims the ff/47/d0 interface that has both an interrupt IN and an interrupt OUT endpoint (its audio interfaces have none), sends the usual power-on command 05 20 00 01 00 once, and reads the input reports (command 0x20: the buttons, two 10-bit triggers and four int16 sticks). pad_gip_parse turns a report into the same form as an Xbox 360 report, so the buttons by position, the dead zone and the trigger threshold are the same for both, and tests/t_pad_xusb.c checks it with reports captured from the pad.
+
+Checked on a Turtle Beach REACT-R next to a PDP Xbox 360 pad on macOS 27.2: both pads at once, every button, the D-pad, both triggers and both sticks to full deflection, and one pad unplugged while the other kept playing. Not read: a pad that needs the Xbox One authentication handshake, rumble, the player light, the Guide button.
+
+Upstream-Status: forwarded seedds/nxnative#2436
+Reason: Xbox One pads that macOS has no driver for, such as a Turtle Beach, could not be a player
+Issue: LNPANDY/NX2Apple#1197
+---
+ dm/host/pad_xusb.h         | 24 ++++++++++
+ dm/host/pad_xusb_mac.h     | 97 +++++++++++++++++++++++---------------
+ dm/host/tests/t_pad_xusb.c | 57 ++++++++++++++++++++--
+ 3 files changed, 138 insertions(+), 40 deletions(-)
+
+diff --git a/dm/host/pad_xusb.h b/dm/host/pad_xusb.h
+index a849888..97fe48a 100644
+--- a/dm/host/pad_xusb.h
++++ b/dm/host/pad_xusb.h
+@@ -53,3 +53,27 @@ static void pad_xusb_sticks(const pad_xusb *s, int32_t o[4]) {   // lx, ly, rx,
+ // opened, so a hub, a disk or a keyboard is never touched
+ static int pad_xusb_device_ok(int dev_class, int dev_subclass, int dev_protocol) { return dev_class == 0xff && dev_subclass == 0xff && dev_protocol == 0xff; }
+ static int pad_xusb_interface_ok(int cls, int sub, int pro) { return cls == 0xff && sub == 0x5d && pro == 0x01; }
++
++// Xbox One pads over USB (GIP, the Gaming Input Protocol), read by the same reader: a vendor-specific device of class ff/47/d0 whose control interface (ff/47/d0 with an interrupt IN and an
++// interrupt OUT endpoint) must first be sent the power-on command, after which it sends input reports. An input report is command 0x20, a flags byte, a sequence number and the payload
++// length, then 14 bytes or more: byte 0 holds Menu (bit 2), View (3), A (4), B (5), X (6), Y (7); byte 1 the D-pad (bits 0..3: up, down, left, right), LB (4), RB (5) and the stick clicks (6, 7);
++// the triggers are two little-endian 10-bit values (0..1023) and the sticks four int16 with up positive: left X, left Y, right X, right Y. A report is decoded into the XUSB form above, so
++// the buttons, the dead zone and the trigger threshold are the same for both. Other commands (the announce, the status message, the Guide button's 0x07) are not input and are skipped.
++// Checked on a Turtle Beach REACT-R (10f5:7024), which sends 36-byte input reports with 32 bytes of payload and needs no acknowledgement.
++#define GIP_HEADER_LEN 4
++#define GIP_INPUT_MIN 18   // the header and the 14 bytes of an input payload
++static const uint8_t pad_gip_power_on[5] = { 0x05, 0x20, 0x00, 0x01, 0x00 };   // command 0x05 (power), flags 0x20 (internal), sequence 0, length 1, payload 0 (on)
++
++static int pad_gip_parse(const uint8_t *r, size_t n, pad_xusb *s) {
++    if (n < GIP_INPUT_MIN || r[0] != 0x20 || r[3] < 14 || n < (size_t)GIP_HEADER_LEN + r[3]) return 0;
++    const uint8_t *p = r + GIP_HEADER_LEN;
++    s->b1 = (uint8_t)((p[0] & 0x04 ? 0x10 : 0) | (p[0] & 0x08 ? 0x20 : 0) | (p[1] & 0x0f) | (p[1] & 0x40) | (p[1] & 0x80));   // Menu is Start, View is Back
++    s->b2 = (uint8_t)((p[1] & 0x10 ? 0x01 : 0) | (p[1] & 0x20 ? 0x02 : 0) | (p[0] & 0xf0));                                       // LB, RB, then A, B, X, Y in the XUSB positions
++    int lt = (p[2] | p[3] << 8) & 0x3ff, rt = (p[4] | p[5] << 8) & 0x3ff;
++    s->lt = (uint8_t)(lt >> 2); s->rt = (uint8_t)(rt >> 2);
++    s->lx = (int16_t)(p[6] | p[7] << 8); s->ly = (int16_t)(p[8] | p[9] << 8);
++    s->rx = (int16_t)(p[10] | p[11] << 8); s->ry = (int16_t)(p[12] | p[13] << 8);
++    return 1;
++}
++static int pad_gip_device_ok(int dev_class, int dev_subclass, int dev_protocol) { return dev_class == 0xff && dev_subclass == 0x47 && dev_protocol == 0xd0; }
++static int pad_gip_interface_ok(int cls, int sub, int pro) { return cls == 0xff && sub == 0x47 && pro == 0xd0; }
+diff --git a/dm/host/pad_xusb_mac.h b/dm/host/pad_xusb_mac.h
+index e653155..e0aee6a 100644
+--- a/dm/host/pad_xusb_mac.h
++++ b/dm/host/pad_xusb_mac.h
+@@ -1,10 +1,11 @@
+-// Mac: wired Xbox 360 (XUSB) pads that macOS has no driver for, read directly over USB from the host's own process, with no driver, no kernel extension and no entitlement
+-// (pad_xusb.h decodes the report). GameController lists only the pads Apple supports and a XUSB pad has no HID interface, so neither GameController nor pad_hid_mac.h sees it.
++// Mac: wired Xbox 360 (XUSB) and Xbox One (GIP) pads that macOS has no driver for, read directly over USB from the host's own process, with no driver, no kernel extension and no
++// entitlement (pad_xusb.h decodes the reports). GameController lists only the pads Apple supports and these pads have no HID interface, so neither GameController nor pad_hid_mac.h sees them.
+ // controllers_mac.m owns slots, mappings and focus (xusbpad_attach / xusbpad_detach / xusbpad_read), as for a generic HID pad.
+-// Only a device whose class is vendor-specific at the device level (ff/ff/ff) is opened, and then only to claim its XUSB interface (ff/5d/01); a hub, a disk or a keyboard is never
+-// touched. A pad that connects without an active configuration (the ones macOS leaves unconfigured) is given its first one. The pad is read with one pending interrupt read on the
+-// main run loop, so a USB device that another process has claimed is skipped with a log line and the pad can be read by one process only.
+-// Not read: the Xbox 360 wireless receiver (another protocol), the Xbox One pads (ff/47/d0, another protocol), rumble and the player light, the Guide button.
++// Only a device whose class is vendor-specific at the device level is opened (ff/ff/ff for an Xbox 360 pad, ff/47/d0 for an Xbox One pad), and then only to claim its controller interface
++// (ff/5d/01, or the ff/47/d0 interface that has an interrupt IN and an interrupt OUT endpoint); a hub, a disk or a keyboard is never touched. A pad that connects without an active
++// configuration (the ones macOS leaves unconfigured) is given its first one. An Xbox One pad is sent the power-on command once, as every driver does. The pad is read with one pending interrupt
++// read on the main run loop, so a USB device that another process has claimed is skipped with a log line and a pad can be read by one process only.
++// Not read: the Xbox 360 wireless receiver (another protocol), a pad that needs the Xbox One authentication handshake, rumble, the player light, the Guide button.
+ // DM_XUSB=0 turns this off, DM_XUSB_LOG=1 logs every report that changes.
+ #pragma once
+ #import <CoreFoundation/CoreFoundation.h>
+@@ -19,7 +20,7 @@
+ 
+ typedef struct xusb_pad {
+     IOUSBDeviceInterface942 **dev; IOUSBInterfaceInterface942 **intf; CFRunLoopSourceRef src;
+-    UInt8 pipe; UInt32 maxp; uint8_t report[64];
++    UInt8 pipe, outpipe; UInt32 maxp; uint8_t report[64]; int gip;   // gip: an Xbox One pad (the power-on command, the GIP report layout), else an Xbox 360 pad
+     pad_xusb st; char name[64]; int vid, pid; uint64_t entry; io_object_t interest; struct xusb_pad *next;
+ } xusb_pad;
+ 
+@@ -58,7 +59,7 @@ static void xusb_done(void *ref, IOReturn result, void *arg0) {
+     xusb_pad *d = ref; UInt32 n = (UInt32)(uintptr_t)arg0;
+     if (result != kIOReturnSuccess) { xusb_drop(d); return; }   // an unplugged pad completes its pending read with an error
+     pad_xusb s;
+-    if (pad_xusb_parse(d->report, n, &s)) {
++    if (d->gip ? pad_gip_parse(d->report, n, &s) : pad_xusb_parse(d->report, n, &s)) {
+         if (g_xusb_log && memcmp(&s, &d->st, sizeof s)) fprintf(stderr, "xusb: %04x:%04x b1 %02x b2 %02x lt %u rt %u l(%d,%d) r(%d,%d)\n", d->vid, d->pid, s.b1, s.b2, s.lt, s.rt, s.lx, s.ly, s.rx, s.ry);
+         d->st = s; xusbpad_read(d);
+     }
+@@ -74,13 +75,33 @@ static void xusb_interest(void *ref, io_service_t svc, natural_t msg, void *arg)
+     if (msg == kIOMessageServiceIsTerminated) xusb_drop((xusb_pad *)ref);
+ }
+ 
+-// One USB device the registry reports: a pad's USB device is opened only after its class says it may hold one, and kept only when it has the XUSB interface
+-static void xusb_open(io_service_t svc) {
++// The interface of an open device that is the pad's controller interface: the class says so, and it has an interrupt IN endpoint (an Xbox One pad's audio interfaces have none at their
++// first setting) and, for an Xbox One pad, an interrupt OUT endpoint too, to send the power-on command to. On success it is open and its pipes are set; otherwise it is left closed.
++static int xusb_claim(xusb_pad *d, IOUSBInterfaceInterface942 **c, int cls, int sub, int pro) {
++    if (!(d->gip ? pad_gip_interface_ok(cls, sub, pro) : pad_xusb_interface_ok(cls, sub, pro))) return 0;
++    if ((*c)->USBInterfaceOpen(c) != kIOReturnSuccess) {
++        fprintf(stderr, "xusb: '%s' (%04x:%04x): the controller interface is in use by another process\n", d->name, d->vid, d->pid);
++        return 0;
++    }
++    UInt8 neps = 0, in = 0, out = 0; UInt16 mp = 0; (*c)->GetNumEndpoints(c, &neps);
++    for (UInt8 p = 1; p <= neps; p++) {
++        UInt8 dir, num, tt, iv; UInt16 m;
++        if ((*c)->GetPipeProperties(c, p, &dir, &num, &tt, &m, &iv) != kIOReturnSuccess || tt != kUSBInterrupt) continue;
++        if (dir == kUSBIn && !in) { in = p; mp = m; } else if (dir == kUSBOut && !out) out = p;
++    }
++    if (!in || (d->gip && !out)) { (*c)->USBInterfaceClose(c); return 0; }
++    d->pipe = in; d->outpipe = out; d->maxp = mp;
++    return 1;
++}
++
++// One USB device the registry reports: a pad's USB device is opened only after its class says it may hold one of this protocol, and kept only when it has the controller interface
++static void xusb_open(io_service_t svc, int gip) {
+     uint64_t entry = 0; IORegistryEntryGetRegistryEntryID(svc, &entry);
+     for (xusb_pad *p = g_xusb_pads; p; p = p->next) if (p->entry == entry) return;
+-    if (!pad_xusb_device_ok(xusb_prop_int(svc, CFSTR("bDeviceClass"), -1), xusb_prop_int(svc, CFSTR("bDeviceSubClass"), -1), xusb_prop_int(svc, CFSTR("bDeviceProtocol"), -1))) return;
++    int dc = xusb_prop_int(svc, CFSTR("bDeviceClass"), -1), ds = xusb_prop_int(svc, CFSTR("bDeviceSubClass"), -1), dp = xusb_prop_int(svc, CFSTR("bDeviceProtocol"), -1);
++    if (!(gip ? pad_gip_device_ok(dc, ds, dp) : pad_xusb_device_ok(dc, ds, dp))) return;
+     xusb_pad *d = calloc(1, sizeof *d); if (!d) return;
+-    d->entry = entry; d->vid = xusb_prop_int(svc, CFSTR("idVendor"), 0); d->pid = xusb_prop_int(svc, CFSTR("idProduct"), 0);
++    d->gip = gip; d->entry = entry; d->vid = xusb_prop_int(svc, CFSTR("idVendor"), 0); d->pid = xusb_prop_int(svc, CFSTR("idProduct"), 0);
+     xusb_prop_str(svc, CFSTR("USB Product Name"), d->name, sizeof d->name);
+     if (!d->name[0]) snprintf(d->name, sizeof d->name, "USB pad %04x:%04x", d->vid, d->pid);
+     IOCFPlugInInterface **plug = NULL; SInt32 score;
+@@ -104,37 +125,46 @@ static void xusb_open(io_service_t svc) {
+                 (*ip)->QueryInterface(ip, CFUUIDGetUUIDBytes(kIOUSBInterfaceInterfaceID942), (LPVOID *)&c); (*ip)->Release(ip);
+                 UInt8 cls = 0, sub = 0, pro = 0;
+                 if (c) { (*c)->GetInterfaceClass(c, &cls); (*c)->GetInterfaceSubClass(c, &sub); (*c)->GetInterfaceProtocol(c, &pro); }
+-                if (c && pad_xusb_interface_ok(cls, sub, pro)) d->intf = c; else if (c) (*c)->Release(c);
++                if (c && xusb_claim(d, c, cls, sub, pro)) d->intf = c; else if (c) (*c)->Release(c);
+             }
+             IOObjectRelease(isvc);
+         }
+         IOObjectRelease(ifs);
+     }
+-    if (!d->intf) { if (g_xusb_log) fprintf(stderr, "xusb: '%s' (%04x:%04x) has no XUSB interface\n", d->name, d->vid, d->pid); (*d->dev)->USBDeviceClose(d->dev); (*d->dev)->Release(d->dev); free(d); return; }   // a vendor-specific device that is no XUSB pad: left as it was found
+-    if ((*d->intf)->USBInterfaceOpen(d->intf) != kIOReturnSuccess) {
+-        fprintf(stderr, "xusb: '%s' (%04x:%04x): the XUSB interface is in use by another process\n", d->name, d->vid, d->pid);
+-        (*d->intf)->Release(d->intf); (*d->dev)->USBDeviceClose(d->dev); (*d->dev)->Release(d->dev); free(d); return;
+-    }
+-    UInt8 neps = 0; (*d->intf)->GetNumEndpoints(d->intf, &neps);
+-    for (UInt8 p = 1; p <= neps && !d->pipe; p++) {
+-        UInt8 dir, num, tt, iv; UInt16 mp;
+-        if ((*d->intf)->GetPipeProperties(d->intf, p, &dir, &num, &tt, &mp, &iv) == kIOReturnSuccess && dir == kUSBIn && tt == kUSBInterrupt) { d->pipe = p; d->maxp = mp; }
+-    }
+-    if (!d->pipe || (*d->intf)->CreateInterfaceAsyncEventSource(d->intf, &d->src) != kIOReturnSuccess || !d->src) {
+-        fprintf(stderr, "[RED] xusb: '%s' (%04x:%04x) has no interrupt IN pipe to read\n", d->name, d->vid, d->pid);
++    if (!d->intf) { if (g_xusb_log) fprintf(stderr, "xusb: '%s' (%04x:%04x) has no usable controller interface\n", d->name, d->vid, d->pid); (*d->dev)->USBDeviceClose(d->dev); (*d->dev)->Release(d->dev); free(d); return; }   // a vendor-specific device that is no pad of this protocol: left as it was found
++    if ((*d->intf)->CreateInterfaceAsyncEventSource(d->intf, &d->src) != kIOReturnSuccess || !d->src) {
++        fprintf(stderr, "[RED] xusb: '%s' (%04x:%04x) has no run loop source to read with\n", d->name, d->vid, d->pid);
+         (*d->intf)->USBInterfaceClose(d->intf); (*d->intf)->Release(d->intf); (*d->dev)->USBDeviceClose(d->dev); (*d->dev)->Release(d->dev); free(d); return;
+     }
+     CFRunLoopAddSource(CFRunLoopGetMain(), d->src, kCFRunLoopCommonModes);
+     d->next = g_xusb_pads; g_xusb_pads = d;
+     IOServiceAddInterestNotification(g_xusb_port, svc, kIOGeneralInterest, xusb_interest, d, &d->interest);
+-    fprintf(stderr, "xusb: pad '%s' (%04x:%04x) is read directly over USB\n", d->name, d->vid, d->pid);
++    fprintf(stderr, "xusb: %s pad '%s' (%04x:%04x) is read directly over USB\n", gip ? "Xbox One" : "Xbox 360", d->name, d->vid, d->pid);
++    if (gip) {   // an Xbox One pad sends nothing until it is told to power on
++        uint8_t on[sizeof pad_gip_power_on]; memcpy(on, pad_gip_power_on, sizeof on);
++        IOReturn w = (*d->intf)->WritePipe(d->intf, d->outpipe, on, sizeof on);
++        if (w != kIOReturnSuccess) fprintf(stderr, "[RED] xusb: '%s': the power-on command failed (0x%x)\n", d->name, w);
++    }
+     xusbpad_attach(d);
+     xusb_arm(d);
+ }
+ 
+ static void xusb_matched(void *ref, io_iterator_t it) {
+-    (void)ref; io_service_t svc;
+-    while ((svc = IOIteratorNext(it))) { if (g_xusb_log) fprintf(stderr, "xusb: USB device %llx matched\n", ({ uint64_t id = 0; IORegistryEntryGetRegistryEntryID(svc, &id); id; })); xusb_open(svc); IOObjectRelease(svc); }
++    int gip = (int)(intptr_t)ref; io_service_t svc;
++    while ((svc = IOIteratorNext(it))) { if (g_xusb_log) fprintf(stderr, "xusb: USB device %llx matched\n", ({ uint64_t id = 0; IORegistryEntryGetRegistryEntryID(svc, &id); id; })); xusb_open(svc, gip); IOObjectRelease(svc); }
++}
++
++// One watch per protocol. The registry matches the device's class too, so a hub or a disk never reaches xusb_open. Properties to match go under IOPropertyMatch
++static void xusb_watch(int gip) {
++    CFMutableDictionaryRef m = IOServiceMatching("IOUSBHostDevice"); if (!m) return;
++    int cls = 0xff, sub = gip ? 0x47 : 0xff, pro = gip ? 0xd0 : 0xff;
++    CFNumberRef nc = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &cls), ns = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &sub), np = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &pro);
++    CFMutableDictionaryRef props = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++    CFDictionarySetValue(props, CFSTR("bDeviceClass"), nc); CFDictionarySetValue(props, CFSTR("bDeviceSubClass"), ns); CFDictionarySetValue(props, CFSTR("bDeviceProtocol"), np);
++    CFDictionarySetValue(m, CFSTR(kIOPropertyMatchKey), props); CFRelease(props); CFRelease(nc); CFRelease(ns); CFRelease(np);
++    io_iterator_t it = 0;   // the matching dictionary is consumed
++    if (IOServiceAddMatchingNotification(g_xusb_port, kIOFirstMatchNotification, m, xusb_matched, (void *)(intptr_t)gip, &it) != KERN_SUCCESS) return;
++    xusb_matched((void *)(intptr_t)gip, it);   // the pads already connected; a notification's iterator is armed once it is drained
+ }
+ 
+ static void xusb_start(void) {
+@@ -142,13 +172,6 @@ static void xusb_start(void) {
+     e = getenv("DM_XUSB_LOG"); g_xusb_log = e && atoi(e);
+     g_xusb_port = IONotificationPortCreate(kIOMainPortDefault); if (!g_xusb_port) return;
+     CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(g_xusb_port), kCFRunLoopCommonModes);
+-    CFMutableDictionaryRef m = IOServiceMatching("IOUSBHostDevice"); if (!m) return;
+-    // The registry matches the device's class too, so a hub or a disk never reaches xusb_open
+-    int v = 0xff; CFNumberRef n = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &v);
+-    CFMutableDictionaryRef props = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+-    CFDictionarySetValue(props, CFSTR("bDeviceClass"), n); CFDictionarySetValue(props, CFSTR("bDeviceSubClass"), n); CFDictionarySetValue(props, CFSTR("bDeviceProtocol"), n);
+-    CFDictionarySetValue(m, CFSTR(kIOPropertyMatchKey), props); CFRelease(props); CFRelease(n);
+-    io_iterator_t it = 0;   // the matching dictionary is consumed
+-    if (IOServiceAddMatchingNotification(g_xusb_port, kIOFirstMatchNotification, m, xusb_matched, NULL, &it) != KERN_SUCCESS) return;
+-    xusb_matched(NULL, it);   // the pads already connected; a notification's iterator is armed once it is drained
++    xusb_watch(0);
++    xusb_watch(1);
+ }
+diff --git a/dm/host/tests/t_pad_xusb.c b/dm/host/tests/t_pad_xusb.c
+index 7295754..a02cb2e 100644
+--- a/dm/host/tests/t_pad_xusb.c
++++ b/dm/host/tests/t_pad_xusb.c
+@@ -13,7 +13,7 @@ static void report(uint8_t r[XUSB_REPORT_LEN], int b1, int b2, int lt, int rt, i
+ }
+ 
+ static void test_parse(void) {
+-    uint8_t r[XUSB_REPORT_LEN]; pad_xusb s;
++    uint8_t r[XUSB_REPORT_LEN]; pad_xusb s = {0};
+     report(r, 0, 0, 0, 0, 0, 0, 0, 0);
+     CHECK(pad_xusb_parse(r, sizeof r, &s));
+     CHECK(!pad_xusb_parse(r, XUSB_REPORT_LEN - 1, &s));   // a short report
+@@ -29,7 +29,7 @@ static void test_parse(void) {
+ }
+ 
+ static void test_buttons(void) {
+-    uint8_t r[XUSB_REPORT_LEN]; pad_xusb s;
++    uint8_t r[XUSB_REPORT_LEN]; pad_xusb s = {0};
+     static const struct { int b1, b2; uint64_t want; } t[] = {
+         {0x01, 0, DM_BTN_UP}, {0x02, 0, DM_BTN_DOWN}, {0x04, 0, DM_BTN_LEFT}, {0x08, 0, DM_BTN_RIGHT}, {0x05, 0, DM_BTN_UP | DM_BTN_LEFT},
+         {0x10, 0, DM_BTN_PLUS}, {0x20, 0, DM_BTN_MINUS}, {0x40, 0, DM_BTN_LS}, {0x80, 0, DM_BTN_RS},
+@@ -50,7 +50,7 @@ static void test_buttons(void) {
+ }
+ 
+ static void test_sticks(void) {
+-    uint8_t r[XUSB_REPORT_LEN]; pad_xusb s; int32_t o[4];
++    uint8_t r[XUSB_REPORT_LEN]; pad_xusb s = {0}; int32_t o[4];
+     report(r, 0, 0, 0, 0, 32767, 0, -32768, 0);
+     CHECK(pad_xusb_parse(r, sizeof r, &s)); pad_xusb_sticks(&s, o);
+     CHECK(o[0] == DM_STICK_MAX && o[1] == 0 && o[2] == -DM_STICK_MAX && o[3] == 0);   // full deflection reaches the Switch's range on both sides
+@@ -75,11 +75,62 @@ static void test_filters(void) {
+     CHECK(!pad_xusb_interface_ok(0xff, 0x47, 0xd0));
+ }
+ 
++// Xbox One (GIP) reports, as a Turtle Beach REACT-R (10f5:7024) sent them on macOS: 36 bytes, command 0x20, the payload from byte 4
++static int gip(const char *hex, pad_xusb *s) {
++    uint8_t r[64]; size_t n = 0;
++    for (const char *h = hex; h[0] && h[1]; h += 3) { unsigned v; sscanf(h, "%2x", &v); r[n++] = (uint8_t)v; if (!h[2]) break; }
++    return pad_gip_parse(r, n, s);
++}
++static void test_gip(void) {
++    pad_xusb s = {0};
++    static const char tail[] = " 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00";
++    char b[256];
++#define REP(fmt) (snprintf(b, sizeof b, "20 00 07 20 " fmt "%s", tail), gip(b, &s))
++    CHECK(REP("00 08 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_RIGHT);   // D-pad right
++    CHECK(REP("10 01 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == (DM_BTN_B | DM_BTN_UP));   // A (bottom) is the Switch's B
++    CHECK(REP("20 00 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_A);   // B (right) is the Switch's A
++    CHECK(REP("40 00 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_Y);   // X (left)
++    CHECK(REP("80 00 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_X);   // Y (top)
++    CHECK(REP("08 00 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_MINUS);   // View
++    CHECK(REP("04 00 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_PLUS);    // Menu
++    CHECK(REP("00 10 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_L);
++    CHECK(REP("00 20 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_R);
++    CHECK(REP("00 40 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_LS);
++    CHECK(REP("00 80 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_RS);
++    CHECK(REP("00 01 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_UP);
++    CHECK(REP("00 02 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_DOWN);
++    CHECK(REP("00 04 00 00 00 00 e4 05 00 00 52 fe") && pad_xusb_buttons(&s) == DM_BTN_LEFT);
++    CHECK(REP("50 00 00 00 00 00 e4 05 00 00 e1 fe") && pad_xusb_buttons(&s) == (DM_BTN_Y | DM_BTN_B));   // X and A together
++    // The 10-bit triggers: 0x03ff is full, half is 0x0200, a little is below the press threshold
++    CHECK(REP("00 00 ff 03 00 00 e4 05 4f 08 00 00") && s.lt == 255 && s.rt == 0 && pad_xusb_buttons(&s) == DM_BTN_ZL);
++    CHECK(REP("00 00 00 00 ff 03 e4 05 00 00 00 00") && s.lt == 0 && s.rt == 255 && pad_xusb_buttons(&s) == DM_BTN_ZR);
++    CHECK(REP("00 00 00 02 00 02 e4 05 00 00 00 00") && s.lt == 128 && s.rt == 128 && pad_xusb_buttons(&s) == (DM_BTN_ZL | DM_BTN_ZR));
++    CHECK(REP("00 00 3c 00 cc 00 e4 05 00 00 00 00") && !(pad_xusb_buttons(&s) & (DM_BTN_ZL | DM_BTN_ZR)));
++    // Sticks: this pad rests off centre (left X 1508, right X -430) and the dead zone takes it in; a long push on left Y is up
++    int32_t o[4];
++    CHECK(REP("00 00 00 00 00 00 e4 05 00 00 52 fe") && s.lx == 1508 && s.rx == -430 && s.ly == 0 && s.ry == 0);
++    pad_xusb_sticks(&s, o); CHECK(o[0] == 0 && o[1] == 0 && o[2] == 0 && o[3] == 0);
++    CHECK(REP("00 00 00 00 00 00 e4 05 ff 7f 00 00") && s.ly == 32767);
++    pad_xusb_sticks(&s, o); CHECK(o[1] == DM_STICK_MAX);
++    CHECK(REP("00 00 00 00 00 00 00 80 00 80 00 00") && s.lx == -32768 && s.ly == -32768);
++    pad_xusb_sticks(&s, o); CHECK(o[0] < 0 && o[1] < 0);
++#undef REP
++    // What is not input: the announce and the status message, a short report, and a payload shorter than it declares
++    CHECK(!gip("03 20 01 04 80 00 00 00", &s));
++    CHECK(!gip("20 00 01 20 00 08", &s));
++    CHECK(!gip("20 00 01 20 00 08 00 00 00 00 e4 05 00 00 52 fe 00 00", &s));   // length byte 0x20 but 18 bytes arrived
++    CHECK(!gip("02 20 01 08 00 00 00 00 00 00 00 00", &s));
++    CHECK(pad_gip_power_on[0] == 0x05 && pad_gip_power_on[1] == 0x20 && pad_gip_power_on[3] == 0x01 && sizeof pad_gip_power_on == 5);
++    CHECK(pad_gip_device_ok(0xff, 0x47, 0xd0) && !pad_gip_device_ok(0xff, 0xff, 0xff) && !pad_xusb_device_ok(0xff, 0x47, 0xd0));   // each reader opens only its own devices
++    CHECK(pad_gip_interface_ok(0xff, 0x47, 0xd0) && !pad_gip_interface_ok(0xff, 0x5d, 0x01) && !pad_xusb_interface_ok(0xff, 0x47, 0xd0));
++}
++
+ int main(void) {
+     test_parse();
+     test_buttons();
+     test_sticks();
+     test_filters();
++    test_gip();
+     printf("t_pad_xusb: %d checks, %d failed\n", checks, fails);
+     return fails != 0;
+ }
