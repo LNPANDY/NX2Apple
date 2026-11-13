@@ -1,0 +1,606 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 06:27:44 -0300
+Subject: [PATCH] Read shared DSU configuration in host and diagnose phone
+ inputs in mapping
+
+Upstream-Status: forwarded seedds/nxnative#2429
+Reason: Read shared DSU JSON in host and expose live inputs inside controller mapping
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/Makefile                              |   2 +-
+ dm/host/controllers_mac.m                     | 106 +++++++++++++++++-
+ dm/host/dm_input.h                            |   1 +
+ dm/host/dsu_motion.h                          |   2 +
+ dm/host/dsu_protocol.h                        |   7 +-
+ dm/host/hle_dsu.c                             |  29 ++++-
+ dm/host/hle_hid.c                             |  12 ++
+ dm/host/tests/Makefile                        |   9 +-
+ dm/host/tests/t_controllers_mac.m             |  22 ++++
+ dm/host/tests/t_dsu.c                         |  24 ++++
+ dm/host/tests/t_dsu_network.c                 |  41 +++++++
+ dm/host/tests/t_hid.c                         |  10 ++
+ dm/mac/Motion/ConnectionStatus.swift          |   1 +
+ dm/mac/Motion/DSUConfiguration.swift          |   2 +
+ dm/mac/Motion/DSUMotionTranslations.json      |   5 +
+ dm/mac/Motion/MotionView.swift                |   2 +
+ dm/mac/Motion/Store.swift                     |   4 +-
+ dm/mac/Motion/Tests/MotionContractTests.swift |   3 +
+ 18 files changed, 272 insertions(+), 10 deletions(-)
+ create mode 100644 dm/host/tests/t_dsu.c
+ create mode 100644 dm/host/tests/t_dsu_network.c
+
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index b1ef48b..f4e8e24 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -82,7 +82,7 @@ endif
+ .PHONY: FORCE
+ FORCE:
+ # Makefile: a change to CFLAGS (or the compile line) rebuilds the host
+-dmhost: Makefile $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_joycon.h pad_joycon_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
++dmhost: Makefile $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h dsu_motion.h dsu_protocol.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_joycon.h pad_joycon_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
+ 	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreBluetooth -framework IOBluetooth -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
+ clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
+ 	rm -rf gen dmhost dmhost_* *.dSYM
+diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
+index 68784a4..5b321f9 100644
+--- a/dm/host/controllers_mac.m
++++ b/dm/host/controllers_mac.m
+@@ -1122,8 +1122,73 @@ static void steam_removed(void *context, IOReturn result, void *sender, IOHIDDev
+              @"Menu / Start", @"View / Select", @"D-pad left", @"D-pad up", @"D-pad right", @"D-pad down",
+              @"L4 / Paddle 1", @"R4 / Paddle 2", @"L5 / Paddle 3", @"R5 / Paddle 4", @"Left pad click", @"Right pad click", @"Guide / Home", @"Quick Access / Share"];
+ }
++#include "dsu_motion.h"
++#include <arpa/inet.h>
++
++// The host reads the same per-user document as NXMotion, not launcher memory.
++static BOOL dsu_integer(id value, double low, double high) {
++    if(![value isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)value)==CFBooleanGetTypeID())return NO;
++    double n=[value doubleValue];return isfinite(n) && n==floor(n) && n>=low && n<=high;
++}
++static BOOL dsu_boolean(id value) {
++    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value)==CFBooleanGetTypeID();
++}
++static BOOL dsu_apply_configuration(NSData *data) {
++    @autoreleasepool {
++        NSError *error=nil;id root=data.length<=65536 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
++        if(![root isKindOfClass:NSDictionary.class] || !dsu_integer(root[@"version"],1,1) || ![root[@"devices"] isKindOfClass:NSArray.class]) { LOG("[RED] DSU: invalid shared JSON configuration");return NO; }
++        NSArray *devices=root[@"devices"];if(devices.count>32)return NO;
++        NSMutableDictionary *values=[NSMutableDictionary dictionary];
++        for(id d in devices) {
++            if(![d isKindOfClass:NSDictionary.class] || !dsu_boolean(d[@"enabled"]))return NO;
++            if(!dsu_integer(d[@"player"],1,8) || !dsu_integer(d[@"port"],1,65535) || !dsu_integer(d[@"slot"],0,3))return NO;
++            if(d[@"buttons"] && !dsu_boolean(d[@"buttons"]))return NO;
++            NSInteger player=[d[@"player"] integerValue];id host=d[@"host"],axes=d[@"axes"],bias=d[@"bias"];
++            if(player<1 || player>8 || ![host isKindOfClass:NSString.class] || ![axes isKindOfClass:NSArray.class] || [axes count]!=3 || ![bias isKindOfClass:NSArray.class] || [bias count]!=3)return NO;
++            long port=[d[@"port"] longValue],slot=[d[@"slot"] longValue];
++            if(port<1 || port>65535 || slot<0 || slot>3)return NO;
++            struct in_addr address;if(inet_pton(AF_INET,[host UTF8String],&address)!=1)return NO;
++            NSMutableSet *seen=[NSMutableSet set];
++            for(int i=0;i<3;i++){
++                if(!dsu_integer(axes[i],-3,3) || ![bias[i] isKindOfClass:NSNumber.class] || CFGetTypeID((__bridge CFTypeRef)bias[i])==CFBooleanGetTypeID())return NO;
++                double a=[axes[i] doubleValue],b=[bias[i] doubleValue];
++                if(a!=floor(a) || a==0 || a < -3 || a>3 || !isfinite(b) || fabs(b)>10000)return NO;
++                [seen addObject:@(fabs(a))];
++            }
++            if(seen.count!=3)return NO;
++            if(![d[@"enabled"] boolValue])continue;
++            NSString *key=[NSString stringWithFormat:@"DM_DSU_%ld",(long)player];if(values[key])return NO;
++            NSString *buttonKey=[NSString stringWithFormat:@"DM_DSU_BUTTONS_%ld",(long)player];
++            values[buttonKey]=[d[@"buttons"] boolValue] ? @"1":@"0";
++            values[key]=[NSString stringWithFormat:@"%@,%ld,%ld,%@,%@,%@,%@,%@,%@",host,(long)[d[@"port"] integerValue],(long)[d[@"slot"] integerValue],axes[0],axes[1],axes[2],bias[0],bias[1],bias[2]];
++        }
++        // JSON is authoritative for the reload action. Explicit environment-only
++        // configurations remain available when there is no shared document.
++        for(int player=1;player<=8;player++){
++            NSString *key=[NSString stringWithFormat:@"DM_DSU_%d",player];unsetenv(key.UTF8String);
++            key=[NSString stringWithFormat:@"DM_DSU_BUTTONS_%d",player];unsetenv(key.UTF8String);
++        }
++        for(NSString *key in values)setenv(key.UTF8String,[values[key] UTF8String],1);
++        LOG("DSU: host loaded shared per-user JSON (%lu enabled players)",(unsigned long)values.count/2);
++        return YES;
++    }
++}
++void dm_dsu_load_configuration(void) {
++    @autoreleasepool {
++        NSString *path=[NSHomeDirectory() stringByAppendingPathComponent:@"Library/Application Support/nxnative/motion/dsu-v1.json"];
++        NSDictionary *attributes=[[NSFileManager defaultManager] attributesOfItemAtPath:path error:nil];
++        if(!attributes)return; // No shared document: preserve explicit environment configuration.
++        if([attributes fileSize]>65536) { LOG("[RED] DSU: shared configuration exceeds size limit");return; }
++        NSData *data=[NSData dataWithContentsOfFile:path];
++        if(!data || !dsu_apply_configuration(data))LOG("[RED] DSU: invalid shared JSON configuration, previous configuration retained");
++    }
++}
++
++
+ @interface DMControllerPanel : NSObject
+ @property NSPanel *panel;
++@property NSTextView *phoneStatus;
++@property NSTimer *phoneTimer;
+ @property NSPopUpButton *devices;
+ @property NSMutableArray<NSPopUpButton *> *buttons;
+ @property NSArray<DMController *> *choices;
+@@ -1143,9 +1208,13 @@ - (void)show:(id)sender {
+     controller_reload_maps();
+     for(DMController *d in g_devices) controller_publish(d);
+     if (!self.panel) {
+-        self.panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0,0,520,770) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
++        self.panel = [[NSPanel alloc] initWithContentRect:NSMakeRect(0,0,1100,770) styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
+         self.panel.title = @"Controller Mapping"; self.panel.releasedWhenClosed = NO;
+         NSView *v = self.panel.contentView;
++        NSScrollView *phoneScroll=[[NSScrollView alloc] initWithFrame:NSMakeRect(535,60,545,690)];phoneScroll.hasVerticalScroller=YES;
++        self.phoneStatus=[[NSTextView alloc] initWithFrame:phoneScroll.bounds];self.phoneStatus.editable=NO;self.phoneStatus.font=[NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];phoneScroll.documentView=self.phoneStatus;[v addSubview:phoneScroll];
++        NSButton *reload=[NSButton buttonWithTitle:@"Reload saved phone configuration" target:self action:@selector(reloadPhones:)];reload.frame=NSMakeRect(535,20,545,30);[v addSubview:reload];
++        self.phoneTimer=[NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(refreshPhones:) userInfo:nil repeats:YES];
+         self.devices = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(20,720,480,30)];
+         self.devices.target=self; self.devices.action=@selector(selectDevice:); [v addSubview:self.devices];
+         self.note=[NSTextField wrappingLabelWithString:@""];
+@@ -1208,6 +1277,11 @@ - (void)refresh {
+         [self.buttons[i] selectItemAtIndex:n==63 ? 17 : n+1]; self.buttons[i].enabled=self.selected && (i>=IM_BUTTONS || !g_map_fixed);
+     }
+ }
++- (void)reloadPhones:(id)sender { (void)sender;dm_dsu_stop();dm_dsu_start();[self refreshPhones:nil]; }
++- (void)refreshPhones:(id)sender {
++    (void)sender;char report[4096];dm_dsu_report(report,sizeof report);
++    self.phoneStatus.string=[NSString stringWithFormat:@"PHONE CONTROLLERS · GAME HOST\n\nShared configuration:\n~/Library/Application Support/nxnative/motion/dsu-v1.json\n\n%s\nThese counters come from the game receiver, not Setup.\n",report];
++}
+ - (void)selectDevice:(id)sender { (void)sender; NSInteger n=self.devices.indexOfSelectedItem; if(n>=0 && n<(NSInteger)self.choices.count) self.selected=self.choices[n]; [self refresh]; }
+ - (void)apply:(BOOL)saved {
+     if (!saved) {
+@@ -1246,12 +1320,40 @@ - (void)importPrevious:(id)sender {
+     [self apply:ok];
+ }
+ @end
++#include "dsu_motion.h"
++@interface DMPhoneMotionDiagnostics : NSObject
++@property NSWindow *window;
++@property NSTextView *text;
++@property NSTimer *timer;
++@end
++@implementation DMPhoneMotionDiagnostics
++- (void)refresh:(id)sender {
++    (void)sender;char report[4096];dm_dsu_report(report,sizeof report);
++    self.text.string=[NSString stringWithFormat:@"GAME HOST · live DSU diagnostics\n\n%s\nThis reads the receiver running inside the game, not the launcher preview.\nGreen in Setup alone does not prove delivery here.\nConfiguration is loaded before Play. Reopen the game after changing endpoints.\nXbox buttons and phone motion must use the same player.\n",report];
++}
++- (void)show:(id)sender {
++    (void)sender;
++    if(!self.window) {
++        self.window=[[NSWindow alloc] initWithContentRect:NSMakeRect(0,0,720,370) styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskResizable backing:NSBackingStoreBuffered defer:NO];
++        self.window.title=@"Phone Motion · Game Host";self.window.releasedWhenClosed=NO;
++        NSScrollView *scroll=[[NSScrollView alloc] initWithFrame:self.window.contentView.bounds];scroll.autoresizingMask=NSViewWidthSizable|NSViewHeightSizable;scroll.hasVerticalScroller=YES;
++        self.text=[[NSTextView alloc] initWithFrame:scroll.bounds];self.text.editable=NO;self.text.font=[NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];scroll.documentView=self.text;self.window.contentView=scroll;
++        [self.window center];
++        self.timer=[NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(refresh:) userInfo:nil repeats:YES];
++    }
++    [self refresh:nil];[self.window makeKeyAndOrderFront:nil];
++}
++@end
++static DMPhoneMotionDiagnostics *g_phoneDiagnostics;
+ static void controller_panel_refresh(void) { [g_panel refresh]; }
+ NSMenu *front_controllers_menu(void) {
+     if (!g_panel) g_panel=[DMControllerPanel new];
+     NSMenu *menu=[[NSMenu alloc] initWithTitle:@"Controllers"];
+     NSMenuItem *item=[menu addItemWithTitle:@"Button Mapping…" action:@selector(show:) keyEquivalent:@""];
+-    item.target=g_panel; return menu;
++    item.target=g_panel;
++    if(!g_phoneDiagnostics)g_phoneDiagnostics=[DMPhoneMotionDiagnostics new];
++    NSMenuItem *phone=[menu addItemWithTitle:@"Phone Motion Diagnostics…" action:@selector(show:) keyEquivalent:@""];phone.target=g_phoneDiagnostics;
++    return menu;
+ }
+ void front_controllers_start(void) {
+     g_devices=[NSMutableArray array]; g_maps=[NSMutableDictionary dictionary];
+diff --git a/dm/host/dm_input.h b/dm/host/dm_input.h
+index a2c252e..f562acd 100644
+--- a/dm/host/dm_input.h
++++ b/dm/host/dm_input.h
+@@ -25,6 +25,7 @@ uint64_t dm_cheats_keys(void);
+ // dm_pad_players has its bit set; a player whose npad the game does not support (SetSupportedNpadIdType) feeds player 1 instead, so a one-player game sees every controller
+ #define DM_PLAYERS 8   // npads No1..No8; player 1 is the Handheld npad in handheld mode (DM_OPMODE=0)
+ void dm_pad_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);
++void dm_dsu_input(int player,uint64_t buttons,int32_t lx,int32_t ly,int32_t rx,int32_t ry,uint64_t sample_ns);
+ void dm_pad_set_player(int player, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);   // player 0..DM_PLAYERS-1 (player 1..8)
+ void dm_pad_players(uint32_t mask);   // bit p: player p + 1 has a controller; player 1 always counts as connected (the keyboard, the touch gamepad, DM_KEYS)
+ int dm_players_reported(void);   // the players the game sees: player 1 and each player whose npad it supports, a split pair of Joy-Cons as two (hle_hid.c), as the controller applet counts them (ctrl_prompt.h). Any thread
+diff --git a/dm/host/dsu_motion.h b/dm/host/dsu_motion.h
+index 9d82a8d..3c242cc 100644
+--- a/dm/host/dsu_motion.h
++++ b/dm/host/dsu_motion.h
+@@ -1,4 +1,6 @@
+ // Optional DSU client lifecycle. Configuration is explicit and local to this run.
+ #pragma once
++#include <stddef.h>
++void dm_dsu_report(char *out, size_t size);
+ void dm_dsu_start(void);
+ void dm_dsu_stop(void);
+diff --git a/dm/host/dsu_protocol.h b/dm/host/dsu_protocol.h
+index 71eb6a9..5bd82dc 100644
+--- a/dm/host/dsu_protocol.h
++++ b/dm/host/dsu_protocol.h
+@@ -12,13 +12,18 @@ static uint32_t dsu_crc(const uint8_t *p, size_t n) {
+     for (size_t i=0;i<n;i++) { c ^= i>=8 && i<12 ? 0 : p[i]; for (int j=0;j<8;j++) c=(c>>1)^((0u-(c&1))&0xedb88320u); }
+     return ~c;
+ }
+-typedef struct { uint32_t server, sequence; uint64_t timestamp_us; uint8_t slot; float acceleration[3], degrees[3]; } dsu_sample;
++typedef struct { uint32_t server, sequence; uint64_t timestamp_us; uint8_t slot; uint16_t buttons; int16_t sticks[4]; float acceleration[3], degrees[3]; } dsu_sample;
+ static int dsu_decode(const uint8_t *p, size_t n, dsu_sample *s) {
+     if (n<100 || memcmp(p,"DSUS",4) || p[4]!=0xe9 || p[5]!=3) return 0;
+     size_t size=16+(size_t)p[6]+((size_t)p[7]<<8);
+     if (size<100 || size>n || dsu_u32(p+16)!=0x100002 || dsu_crc(p,size)!=dsu_u32(p+8) || p[20]>3 || p[21]!=2 || p[31]!=1) return 0;
+     memset(s,0,sizeof *s);s->server=dsu_u32(p+12);s->sequence=dsu_u32(p+32);s->slot=p[20];s->timestamp_us=dsu_u64(p+68);
+     if (!s->timestamp_us) return 0;
++    // DSU uses DualShock positions: east/south/north/west -> Switch A/B/X/Y.
++    static const uint8_t first[8]={11,4,5,10,13,14,15,12};
++    static const uint8_t second[8]={9,8,7,6,2,0,1,3};
++    for(int bit=0;bit<8;bit++) { if(p[36]>>bit&1)s->buttons|=(uint16_t)(1u<<first[bit]);if(p[37]>>bit&1)s->buttons|=(uint16_t)(1u<<second[bit]); }
++    for(int a=0;a<4;a++){ int v=(int)p[40+a]-128;s->sticks[a]=(int16_t)(v<0?v*256:v*32767/127); }
+     for (int i=0;i<3;i++) {
+         uint32_t a=dsu_u32(p+76+i*4),g=dsu_u32(p+88+i*4);memcpy(&s->acceleration[i],&a,4);memcpy(&s->degrees[i],&g,4);
+         if (!isfinite(s->acceleration[i]) || !isfinite(s->degrees[i]) || fabsf(s->acceleration[i])>100 || fabsf(s->degrees[i])>100000) return 0;
+diff --git a/dm/host/hle_dsu.c b/dm/host/hle_dsu.c
+index f4344dc..09e76d5 100644
+--- a/dm/host/hle_dsu.c
++++ b/dm/host/hle_dsu.c
+@@ -15,12 +15,24 @@
+ #include <stdlib.h>
+ #include <unistd.h>
+ #include <time.h>
+-static struct { int fd,slot,axes[3],have,det; float bias[3]; uint32_t server,sequence; uint64_t timestamp,arrival,local; } peers[DM_PLAYERS];
++static struct { int fd,slot,axes[3],have,det,buttons; float bias[3]; uint32_t server,sequence; uint64_t timestamp,arrival,local; } peers[DM_PLAYERS];
+ static pthread_t worker;
+ static _Atomic int active;
+ static int launched;
+ static uint32_t client_id;
+-// Use the same clock domain as motion_set_to freshness checks.
++static pthread_mutex_t report_mu=PTHREAD_MUTEX_INITIALIZER;
++static struct { int configured,slot,port; char host[64]; uint64_t packets,last; float gyro[3]; } report[DM_PLAYERS];
++void dm_dsu_report(char *out,size_t size) {
++    size_t used=0;uint64_t now=now_ns();pthread_mutex_lock(&report_mu);
++    if(size) out[0]=0;
++    for(int i=0;i<DM_PLAYERS && used<size;i++) {
++        int n=snprintf(out+used,size-used,"Player %d: %s\nEndpoint %s:%d | slot %d\n%llu valid packets | gyro %+.3f %+.3f %+.3f rad/s\n\n",i+1,!report[i].configured ? "not configured" : !report[i].last ? "waiting for phone" : now-report[i].last>300000000ull ? "signal stale" : "receiving in GAME HOST",report[i].host,report[i].port,report[i].slot,(unsigned long long)report[i].packets,report[i].gyro[0],report[i].gyro[1],report[i].gyro[2]);
++        if(n<0)break;used+=(size_t)n<size-used ? (size_t)n:size-used;
++    }
++    pthread_mutex_unlock(&report_mu);
++}
++// Match motion_set_to: macOS CLOCK_MONOTONIC and mach_absolute_time are
++// distinct clock domains. Using the former makes fresh packets appear stale.
+ static uint64_t dsu_now(void) { return now_ns(); }
+ static void *dsu_run(void *unused) {
+     (void)unused;uint64_t sent=0;
+@@ -47,6 +59,8 @@ static void *dsu_run(void *unused) {
+             peers[i].have=1;peers[i].server=s.server;peers[i].sequence=s.sequence;peers[i].timestamp=s.timestamp_us;peers[i].arrival=now;
+             float acc[3],rot[3];
+             for (int a=0;a<3;a++) { int k=abs(peers[i].axes[a])-1;float sign=peers[i].axes[a]<0 ? -1:1;acc[a]=s.acceleration[k]*sign*peers[i].det;rot[a]=(s.degrees[k]-peers[i].bias[k])*sign*(float)(3.141592653589793/180.0); }
++            pthread_mutex_lock(&report_mu);report[i].packets++;report[i].last=now;memcpy(report[i].gyro,rot,sizeof rot);pthread_mutex_unlock(&report_mu);
++            if(peers[i].buttons)dm_dsu_input(i,s.buttons,s.sticks[0],s.sticks[1],s.sticks[2],s.sticks[3],now);
+             dm_motion_set_dsu(i,acc,rot,peers[i].local);
+         }
+     }
+@@ -54,6 +68,12 @@ static void *dsu_run(void *unused) {
+ }
+ void dm_dsu_start(void) {
+     if (launched) return;
++#ifdef __APPLE__
++    extern void dm_dsu_load_configuration(void) __attribute__((weak_import));
++    if(dm_dsu_load_configuration)dm_dsu_load_configuration();
++#endif
++    memset(peers,0,sizeof peers);
++    pthread_mutex_lock(&report_mu);memset(report,0,sizeof report);pthread_mutex_unlock(&report_mu);
+     for (int i=0;i<DM_PLAYERS;i++) peers[i].fd=-1;
+     int count=0;
+     for (int i=0;i<DM_PLAYERS;i++) {
+@@ -64,10 +84,12 @@ void dm_dsu_start(void) {
+         if (inet_pton(AF_INET,host,&addr.sin_addr)!=1) { LOG("[RED] DSU player %d: numeric IPv4 required",i+1);continue; }
+         int fd=socket(AF_INET,SOCK_DGRAM,0);if (fd<0) continue;
+         if (connect(fd,(struct sockaddr *)&addr,sizeof addr)) { close(fd);continue; }
++        snprintf(key,sizeof key,"DM_DSU_BUTTONS_%d",i+1);peers[i].buttons=getenv(key)&&atoi(getenv(key));
+         peers[i].fd=fd;peers[i].slot=slot;peers[i].axes[0]=x;peers[i].axes[1]=y;peers[i].axes[2]=z;peers[i].bias[0]=bx;peers[i].bias[1]=by;peers[i].bias[2]=bz;
+         int a=abs(x)-1,b=abs(y)-1,c=abs(z)-1;int inversions=(a>b)+(a>c)+(b>c);
+         peers[i].det=((inversions%2) ? -1:1)*(x<0?-1:1)*(y<0?-1:1)*(z<0?-1:1);count++;
+-        LOG("DSU player %d: configured slot %d (motion only, physical buttons unchanged)",i+1,slot);
++        pthread_mutex_lock(&report_mu);report[i].configured=1;report[i].slot=slot;report[i].port=port;snprintf(report[i].host,sizeof report[i].host,"%s",host);pthread_mutex_unlock(&report_mu);
++        LOG("DSU player %d: configured slot %d (%s, physical buttons unchanged)",i+1,slot,peers[i].buttons ? "motion and buttons" : "motion only");
+     }
+     if (!count) return;
+     client_id=arc4random();
+@@ -79,5 +101,6 @@ void dm_dsu_stop(void) {
+     if (!launched) return;
+     atomic_store(&active,0);pthread_join(worker,NULL);
+     for(int i=0;i<DM_PLAYERS;i++) if(peers[i].fd>=0) { close(peers[i].fd);peers[i].fd=-1; }
++    for(int i=0;i<DM_PLAYERS;i++)dm_dsu_input(i,0,0,0,0,0,0);
+     launched=0;
+ }
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index 2e67c84..089de92 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -38,6 +38,12 @@ _Static_assert(sizeof(NpadState) == 0x28, "NpadState");
+ // their own path because a connected controller publishes its whole state on every change (a DualShock 4's sticks change all the time), which overwrote them on the shared one;
+ // the separate paths also keep scripted input out of DM_REC, which records the physical ones (rec_read)
+ static _Atomic uint64_t g_btn, g_axes, g_latch, g_sc_btn, g_sc_axes, g_sc_latch, g_pad_btn[DM_PLAYERS], g_pad_axes[DM_PLAYERS], g_pad_latch[DM_PLAYERS];
++static _Atomic uint64_t g_dsu_btn[DM_PLAYERS],g_dsu_axes[DM_PLAYERS],g_dsu_latch[DM_PLAYERS],g_dsu_input_time[DM_PLAYERS];
++void dm_dsu_input(int p,uint64_t buttons,int32_t lx,int32_t ly,int32_t rx,int32_t ry,uint64_t t) {
++    if(p<0 || p>=DM_PLAYERS)return;
++    uint64_t old=atomic_exchange(&g_dsu_btn[p],buttons);atomic_fetch_or(&g_dsu_latch[p],buttons&~old);
++    atomic_store(&g_dsu_axes[p],(uint64_t)(uint16_t)lx | (uint64_t)(uint16_t)ly<<16 | (uint64_t)(uint16_t)rx<<32 | (uint64_t)(uint16_t)ry<<48);atomic_store(&g_dsu_input_time[p],t);
++}
+ static _Atomic uint64_t g_peek_latch;   // presses since the last dm_input_peek (the applet's reader)
+ static _Atomic int g_hold;              // an applet holds the input (dm_input_hold)
+ static _Atomic int64_t g_sampling = 1 << 16;   // starts high so the history entries below the newest keep positive sampling numbers
+@@ -607,6 +613,12 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+         uint64_t k = atomic_load(&g_axes); for (int i = 0; i < 4; i++) a[i] = ax(k, i);
+     }
+     for (int p = 0; p < DM_PLAYERS; p++) if (src >> p & 1) {
++        uint64_t received=atomic_load(&g_dsu_input_time[p]),host_now=now_ns();
++        uint64_t phone_edges=atomic_exchange(&g_dsu_latch[p],0);
++        if(received && host_now>=received && host_now-received<=300000000ull) {
++            b|=atomic_load(&g_dsu_btn[p])|phone_edges;uint64_t phone_axes=atomic_load(&g_dsu_axes[p]);
++            for(int i=0;i<4;i++)a[i]=pick(a[i],ax(phone_axes,i));
++        }
+         b |= atomic_load(&g_pad_btn[p]) | atomic_exchange(&g_pad_latch[p], 0);
+         uint64_t v = atomic_load(&g_pad_axes[p]); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(v, i));
+     }
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index d273e97..fbea5d9 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -12,7 +12,9 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
+ GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
+ $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
+ GAME_H = ../gen/$(GAME)/game_profile.h
+-run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_clockwait $(B)/t_pause $(B)/t_pause_stress $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_switch2 $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
++run: $(B)/t_dsu $(B)/t_dsu_network $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_clockwait $(B)/t_pause $(B)/t_pause_stress $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_switch2 $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
++	$(B)/t_dsu
++	$(B)/t_dsu_network
+ 	$(B)/t_language
+ 	$(B)/t_heap_size
+ 	$(B)/t_touch
+@@ -231,6 +233,11 @@ nfc: $(B)/t_nfc
+ 	$(B)/t_nfc
+ $(B)/t_language: t_language.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -Wno-frame-address -fsanitize=address,undefined -I.. $(GINC) -o $@ t_language.c ../hle_profile.c
++$(B)/t_dsu: t_dsu.c ../dsu_protocol.h | $(B)
++	$(CLANG) -Wall -Wextra -o $@ $<
++$(B)/t_dsu_network: t_dsu_network.c ../hle_dsu.c ../dsu_protocol.h $(GAME_H) | $(B)
++	$(CLANG) $(GINC) -Wno-unused-function -pthread -o $@ $<
++
+ $(B)/t_motion: t_motion.c ../motion_fusion.h | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -Wno-unused-function -o $@ t_motion.c -lm
+ run: $(B)/t_motion_apple
+diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
+index 9619d97..50ef23c 100644
+--- a/dm/host/tests/t_controllers_mac.m
++++ b/dm/host/tests/t_controllers_mac.m
+@@ -1193,7 +1193,29 @@ static void test_hid_same_device_twice(void) {
+     native_devices=nil; controllers_reconcile(@[]); hid_fixture_finish();
+     puts("HID device reported under two references is one pad, and one Pro Controller is not twins: OK");
+ }
++void dm_dsu_start(void) {}
++void dm_dsu_stop(void) {}
++void dm_dsu_report(char *out,size_t size) { if(size)out[0]=0; }
++static void test_dsu_configuration(void) {
++    NSDictionary *device=@{@"enabled":@YES,@"player":@1,@"port":@26760,@"slot":@0,@"host":@"127.0.0.1",@"axes":@[@1,@2,@3],@"bias":@[@0,@0,@0],@"buttons":@YES};
++    NSData *(^encode)(id)=^NSData *(id d) { return [NSJSONSerialization dataWithJSONObject:@{@"version":@1,@"devices":@[d]} options:0 error:nil]; };
++    assert(dsu_apply_configuration(encode(device)));
++    assert(!strcmp(getenv("DM_DSU_BUTTONS_1"),"1"));
++    NSString *saved=@(getenv("DM_DSU_1"));
++    for(NSString *field in @[@"player",@"port",@"slot",@"enabled",@"buttons",@"host",@"axes",@"bias"]) {
++        NSMutableDictionary *bad=[device mutableCopy];bad[field]=NSNull.null;
++        assert(!dsu_apply_configuration(encode(bad)));
++        assert([saved isEqualToString:@(getenv("DM_DSU_1"))]);
++    }
++    NSMutableDictionary *bad=[device mutableCopy];bad[@"player"]=@1.5;assert(!dsu_apply_configuration(encode(bad)));
++    bad[@"player"]=@YES;assert(!dsu_apply_configuration(encode(bad)));
++    NSData *duplicate=[NSJSONSerialization dataWithJSONObject:@{@"version":@1,@"devices":@[device,device]} options:0 error:nil];
++    assert(!dsu_apply_configuration(duplicate));
++    assert(dsu_apply_configuration([@"{\"version\":1,\"devices\":[]}" dataUsingEncoding:NSUTF8StringEncoding]));
++    assert(!getenv("DM_DSU_1") && !getenv("DM_DSU_BUTTONS_1"));
++}
+ int main(int argc, char **argv) {
++    test_dsu_configuration();
+     @autoreleasepool {
+         g_devices = [NSMutableArray array]; g_maps = [NSMutableDictionary dictionary];
+         pad_map_default(&g_button_map);
+diff --git a/dm/host/tests/t_dsu.c b/dm/host/tests/t_dsu.c
+new file mode 100644
+index 0000000..b044002
+--- /dev/null
++++ b/dm/host/tests/t_dsu.c
+@@ -0,0 +1,24 @@
++#include "../dsu_protocol.h"
++#include <assert.h>
++#include <stdio.h>
++int main(void) {
++    uint8_t p[100]={0},req[28];dsu_sample s;
++    dsu_request(req,123,1);assert(!memcmp(req,"DSUC",4));assert(req[20]==1 && req[21]==1);assert(dsu_crc(req,28)==dsu_u32(req+8));
++    memcpy(p,"DSUS",4);p[4]=0xe9;p[5]=3;p[6]=84;dsu_put(p+16,0x100002);p[20]=1;p[21]=2;p[31]=1;dsu_put(p+68,1000);dsu_put(p+8,dsu_crc(p,100));
++    assert(dsu_decode(p,100,&s) && s.slot==1 && s.timestamp_us==1000);
++    p[36]=0x20;p[37]=0x20;p[40]=255;p[41]=128;p[42]=0;p[43]=128;dsu_put(p+8,dsu_crc(p,100));
++    assert(dsu_decode(p,100,&s) && (s.buttons&((1u<<14)|(1u<<0)))==((1u<<14)|(1u<<0)));
++    assert(s.sticks[0]==32767 && s.sticks[1]==0 && s.sticks[2]==-32768);
++    // Independent wire fixture: Share,L3,R3,Options,Up,Right,Down,Left,
++    // R2,L2,R1,L1,Triangle,Circle,Cross,Square -> Switch bit indices.
++    static const uint8_t expected[16]={11,4,5,10,13,14,15,12,9,8,7,6,2,0,1,3};
++    for(int bit=0;bit<16;bit++) {
++        p[36]=bit<8 ? (uint8_t)(1u<<bit) : 0;
++        p[37]=bit>=8 ? (uint8_t)(1u<<(bit-8)) : 0;
++        dsu_put(p+8,dsu_crc(p,100));
++        assert(dsu_decode(p,100,&s) && s.buttons==(1u<<expected[bit]));
++    }
++    assert(!dsu_decode(p,99,&s));p[90]^=1;assert(!dsu_decode(p,100,&s));p[90]^=1;
++    dsu_put(p+88,0x7fc00000);dsu_put(p+8,dsu_crc(p,100));assert(!dsu_decode(p,100,&s));
++    puts("DSU protocol: valid request, reply, length, CRC and finite-value checks passed");
++}
+diff --git a/dm/host/tests/t_dsu_network.c b/dm/host/tests/t_dsu_network.c
+new file mode 100644
+index 0000000..c3615af
+--- /dev/null
++++ b/dm/host/tests/t_dsu_network.c
+@@ -0,0 +1,41 @@
++// Loopback server proves real subscription, decoding, motion callback and shutdown.
++#include "../hle_dsu.c"
++#include <assert.h>
++void dm_dsu_load_configuration(void) {}
++static _Atomic int input_callbacks;
++void dm_dsu_input(int p,uint64_t b,int32_t lx,int32_t ly,int32_t rx,int32_t ry,uint64_t t) { (void)lx;(void)ly;(void)rx;(void)ry;assert(p>=0 && p<DM_PLAYERS);if(t) { assert(getenv("DM_DSU_BUTTONS_1") && b==DM_BTN_A);atomic_fetch_add(&input_callbacks,1); } }
++static _Atomic int callbacks;
++// Deliberately offset the host clock: the receiver must use it, not another epoch.
++uint64_t now_ns(void) { struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000000000ull+t.tv_nsec+7000000000ull; }
++void dm_motion_set_dsu(int p,const float a[3],const float r[3],uint64_t t) { assert(p==0 && t>0);uint64_t now=now_ns();assert(t<=now && now-t<300000000ull);assert(fabsf(a[2]+1)<0.001f);assert(fabsf(r[0]-1.5707963f)<0.001f);atomic_fetch_add(&callbacks,1); }
++int main(void) {
++    int server=socket(AF_INET,SOCK_DGRAM,0);assert(server>=0);
++    struct sockaddr_in addr={0};addr.sin_family=AF_INET;addr.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
++    assert(!bind(server,(struct sockaddr*)&addr,sizeof addr));socklen_t len=sizeof addr;assert(!getsockname(server,(struct sockaddr*)&addr,&len));
++    char config[128];snprintf(config,sizeof config,"127.0.0.1,%u,1,1,2,3,0,0,0",ntohs(addr.sin_port));setenv("DM_DSU_1",config,1);dm_dsu_start();
++    struct pollfd fd={server,POLLIN,0};assert(poll(&fd,1,2000)>0);
++    uint8_t req[64];struct sockaddr_in client;socklen_t cl=sizeof client;assert(recvfrom(server,req,sizeof req,0,(struct sockaddr*)&client,&cl)==28);assert(!memcmp(req,"DSUC",4) && req[21]==1);
++    uint8_t packet[100]={0};memcpy(packet,"DSUS",4);packet[4]=0xe9;packet[5]=3;packet[6]=84;dsu_put(packet+16,0x100002);packet[20]=1;packet[21]=2;packet[31]=1;dsu_put(packet+32,1);dsu_put(packet+68,1000000);
++    float g=-1,r=90;memcpy(packet+84,&g,4);memcpy(packet+88,&r,4);dsu_put(packet+8,dsu_crc(packet,100));assert(sendto(server,packet,100,0,(struct sockaddr*)&client,cl)==100);
++    for(int i=0;i<100 && !atomic_load(&callbacks);i++) { struct timespec pause={0,10000000};nanosleep(&pause,NULL); }
++    assert(atomic_load(&callbacks)==1);
++    // Replayed sequence and timestamp must not produce another sensor callback.
++    assert(sendto(server,packet,100,0,(struct sockaddr*)&client,cl)==100);
++    dsu_put(packet+32,2);dsu_put(packet+8,dsu_crc(packet,100));
++    assert(sendto(server,packet,100,0,(struct sockaddr*)&client,cl)==100);
++    // An ordered sample with fresh device time is accepted.
++    dsu_put(packet+32,3);dsu_put(packet+68,1010000);dsu_put(packet+8,dsu_crc(packet,100));
++    assert(sendto(server,packet,100,0,(struct sockaddr*)&client,cl)==100);
++    for(int i=0;i<100 && atomic_load(&callbacks)<2;i++) { struct timespec pause={0,10000000};nanosleep(&pause,NULL); }
++    assert(atomic_load(&callbacks)==2 && !atomic_load(&input_callbacks));dm_dsu_stop();
++    setenv("DM_DSU_BUTTONS_1","1",1);dm_dsu_start();
++    assert(poll(&fd,1,2000)>0);cl=sizeof client;
++    assert(recvfrom(server,req,sizeof req,0,(struct sockaddr*)&client,&cl)==28);
++    packet[37]=0x20;dsu_put(packet+8,dsu_crc(packet,100));
++    assert(sendto(server,packet,100,0,(struct sockaddr*)&client,cl)==100);
++    for(int i=0;i<100 && !atomic_load(&input_callbacks);i++) { struct timespec pause={0,10000000};nanosleep(&pause,NULL); }
++    assert(atomic_load(&input_callbacks)==1);
++    char status[2048];dm_dsu_report(status,sizeof status);
++    assert(strstr(status,"1 valid packets") && strstr(status,"127.0.0.1") && strstr(status,"receiving in GAME HOST"));
++    dm_dsu_stop();close(server);puts("DSU loopback subscription, replay rejection and radian conversion passed");
++}
+diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
+index 97034f9..2891229 100644
+--- a/dm/host/tests/t_hid.c
++++ b/dm/host/tests/t_hid.c
+@@ -1751,6 +1751,16 @@ static void t_applet_input(void) {
+ }
+ 
+ int main(void) {
++    NpadState phone_state;
++    dm_pad_set_player(0,DM_BTN_B,0,0,0,0);
++    dm_dsu_input(0,DM_BTN_A,12000,0,0,0,motion_now);
++    fill(&phone_state,0,STYLE_FULLKEY);
++    CHECK((phone_state.buttons&(DM_BTN_A|DM_BTN_B))==(DM_BTN_A|DM_BTN_B),"phone and physical buttons merge independently");
++    motion_now+=300000001ull;fill(&phone_state,0,STYLE_FULLKEY);
++    CHECK(!(phone_state.buttons&DM_BTN_A) && (phone_state.buttons&DM_BTN_B),"stale phone releases without clearing physical controller");
++    dm_pad_set_player(0,0,0,0,0,0);
++    dm_dsu_input(0,0,0,0,0,0,0);
++
+     uint32_t console=0xffffffff;h_hid_ConsoleInit();h_hid_ConsoleHandle(&console);
+     CHECK(console==0x13,"legacy console motion handle is not a controller sensor");
+     h_hid_ConsoleStart(&console);h_hid_ConsoleStop(&console);
+diff --git a/dm/mac/Motion/ConnectionStatus.swift b/dm/mac/Motion/ConnectionStatus.swift
+index b1d56a7..c2ba917 100644
+--- a/dm/mac/Motion/ConnectionStatus.swift
++++ b/dm/mac/Motion/ConnectionStatus.swift
+@@ -27,6 +27,7 @@ private struct PhoneMotionConnectionRow: View {
+                 Text(sensor.name); Spacer(); Text(L("Player")+" "+String(sensor.player)).foregroundStyle(.secondary)
+             }
+             LocalizedText(state).font(.caption).foregroundStyle(.secondary)
++            Toggle(L("Use phone buttons and sticks"),isOn:$sensor.buttons).toggleStyle(.switch).controlSize(.small)
+             Text(String(format:"X %+.2f   Y %+.2f   Z %+.2f · %d samples",sensor.gyro.x,sensor.gyro.y,sensor.gyro.z,sensor.samples))
+                 .font(.system(.caption2,design:.monospaced)).foregroundStyle(.tertiary).monospacedDigit()
+         }.accessibilityElement(children:.combine)
+diff --git a/dm/mac/Motion/DSUConfiguration.swift b/dm/mac/Motion/DSUConfiguration.swift
+index e9967a3..3643563 100644
+--- a/dm/mac/Motion/DSUConfiguration.swift
++++ b/dm/mac/Motion/DSUConfiguration.swift
+@@ -12,6 +12,7 @@ struct DSUDevice: Codable, Equatable, Identifiable {
+     var axes: [Int]
+     var bias: [Double]
+     var enabled: Bool
++    var buttons: Bool? = nil
+     var calibrated: Bool? = nil
+     var displayAxes: [Int]? = nil
+     var valid: Bool {
+@@ -48,6 +49,7 @@ struct DSUConfiguration: Codable, Equatable {
+             let key="DM_DSU_"+String(device.player)
+             guard result[key]==nil else { throw Failure.duplicatePlayer }
+             result[key]=value
++            result["DM_DSU_BUTTONS_"+String(device.player)]=(device.buttons ?? false) ? "1":"0"
+         }
+         return result
+     }
+diff --git a/dm/mac/Motion/DSUMotionTranslations.json b/dm/mac/Motion/DSUMotionTranslations.json
+index 3a14457..eda1a3a 100644
+--- a/dm/mac/Motion/DSUMotionTranslations.json
++++ b/dm/mac/Motion/DSUMotionTranslations.json
+@@ -383,5 +383,10 @@
+     "pt-BR": "Recebendo movimento · precisa calibrar",
+     "es": "Recibiendo movimiento · requiere calibración",
+     "zh-Hant": "正在接收動作 · 需要校正"
++  },
++  "Use phone buttons and sticks": {
++    "pt-BR": "Usar botões e analógicos do celular",
++    "es": "Usar botones y palancas del teléfono",
++    "zh-Hant": "使用手機按鈕與搖桿"
+   }
+ }
+diff --git a/dm/mac/Motion/MotionView.swift b/dm/mac/Motion/MotionView.swift
+index cca0d0b..0d162bb 100644
+--- a/dm/mac/Motion/MotionView.swift
++++ b/dm/mac/Motion/MotionView.swift
+@@ -9,6 +9,7 @@ import simd
+     var onEdit: (() -> Void)?
+     @Published var axes = AxisMap() { didSet { orientation = Orientation(); onEdit?() } }
+     @Published var name = "Phone" { didSet { onEdit?() } }
++    @Published var buttons = false { didSet { onEdit?() } }
+     @Published var player = 1 { didSet { onEdit?() } }
+     @Published var host = "192.168.1.100" { didSet { onEdit?() } }
+     @Published var port = "26760" { didSet { onEdit?() } }
+@@ -213,6 +214,7 @@ struct SensorCard: View {
+                 TextField(L("Port"),text:$sensor.port).frame(width:75)
+                 Picker(L("DSU slot"),selection:$sensor.slot) { LocalizedText("Auto").tag(-1); ForEach(0..<4) { LocalizedText("\($0)").tag($0) } }.frame(width:125)
+             }.disabled(sensor.running)
++            Toggle(L("Use phone buttons and sticks"),isOn:$sensor.buttons)
+             HStack {
+                 Button(L(sensor.running ? "Disconnect":"Connect")) { if sensor.running { sensor.disconnect() } else { sensor.connect() } }
+                 Button(L("Calibrate…")) { showCalibration = true }.disabled(!sensor.confirmed)
+diff --git a/dm/mac/Motion/Store.swift b/dm/mac/Motion/Store.swift
+index 546b58d..8e1b55a 100644
+--- a/dm/mac/Motion/Store.swift
++++ b/dm/mac/Motion/Store.swift
+@@ -12,7 +12,7 @@ import Combine
+         do {
+             let config=try DSUConfiguration.load(from:url)
+             for d in config.devices {
+-                let s=Sensor(id:d.id);s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
++                let s=Sensor(id:d.id);s.buttons=d.buttons ?? false;s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
+                 // Switch x/right,y/forward,z/up -> preview x/right,y/up,z/back.
+                 s.axes=AxisMap(x:d.axes[0],y:d.axes[2],z:-d.axes[1]);s.gyroBias=SIMD3(d.bias[0],d.bias[1],d.bias[2]);s.calibrated=d.calibrated ?? d.enabled
+                 if let axes=d.displayAxes,axes.count==3 { s.axes=AxisMap(x:axes[0],y:axes[1],z:axes[2]) }
+@@ -29,7 +29,7 @@ import Combine
+         for s in sensors {
+             let slot=s.slot<0 ? (s.detectedSlot ?? 0) : s.slot
+             guard let port=Int(s.port) else { throw DSUConfiguration.Failure.invalid }
+-            devices.append(DSUDevice(id:s.id,name:s.name,player:s.player,host:s.host,port:port,slot:slot,axes:[s.axes.x,-s.axes.z,s.axes.y],bias:[s.gyroBias.x,s.gyroBias.y,s.gyroBias.z],enabled:s.calibrated,calibrated:s.calibrated,displayAxes:[s.axes.x,s.axes.y,s.axes.z]))
++            devices.append(DSUDevice(id:s.id,name:s.name,player:s.player,host:s.host,port:port,slot:slot,axes:[s.axes.x,-s.axes.z,s.axes.y],bias:[s.gyroBias.x,s.gyroBias.y,s.gyroBias.z],enabled:s.calibrated,buttons:s.buttons,calibrated:s.calibrated,displayAxes:[s.axes.x,s.axes.y,s.axes.z]))
+         }
+         let config=DSUConfiguration(devices:devices);_ = try config.environment();return config
+     }
+diff --git a/dm/mac/Motion/Tests/MotionContractTests.swift b/dm/mac/Motion/Tests/MotionContractTests.swift
+index 797a7bd..9bc6614 100644
+--- a/dm/mac/Motion/Tests/MotionContractTests.swift
++++ b/dm/mac/Motion/Tests/MotionContractTests.swift
+@@ -16,6 +16,9 @@ final class MotionContractTests:XCTestCase {
+         XCTAssertEqual(restored.sensors.first?.id,phone.id)
+         XCTAssertEqual(restored.sensors.first?.axes,phone.axes)
+         XCTAssertEqual(restored.sensors.first?.gyroBias,phone.gyroBias)
++        XCTAssertEqual(try saved.environment()["DM_DSU_BUTTONS_1"],"0")
++        phone.buttons=true
++        XCTAssertEqual(try DSUConfiguration.load(from:url).environment()["DM_DSU_BUTTONS_1"],"1")
+     }
+     @MainActor func testDetectedSlotIsUsedForGameEnvironment() throws {
+         let dir=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

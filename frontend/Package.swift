@@ -7,11 +7,12 @@ import PackageDescription
 let package = Package(
     name: "NX2Apple",
     platforms: [.macOS(.v13)],
+    dependencies: [.package(name: "NXMotion", path: "../engine/dm/mac/Motion")],
     targets: [
         .target(name: "NXCore", path: "Sources/NXCore"),
         .target(name: "NXModel", dependencies: ["NXCore"], path: "Sources/NXModel"),
         .target(name: "NXLauncher", dependencies: ["NXModel", "NXCore"], path: "Sources/NXLauncher"),
-        .executableTarget(name: "NX2Apple", dependencies: ["NXLauncher", "NXModel", "NXCore"], path: "Sources/NX2Apple"),
+        .executableTarget(name: "NX2Apple", dependencies: ["NXLauncher", "NXModel", "NXCore", .product(name:"NXMotion",package:"NXMotion")], path: "Sources/NX2Apple"),
         // Tests of the pure logic: they link NXCore only, so they run without SwiftUI.
         .testTarget(name: "NXCoreTests", dependencies: ["NXCore"]),
         // Tests of the stores: they link NXModel and NXCore, never SwiftUI.

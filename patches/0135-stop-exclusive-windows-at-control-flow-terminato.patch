@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 03:19:40 -0300
+Subject: [PATCH] Stop exclusive windows at control-flow terminators
+
+Upstream-Status: pending
+Reason: Preserve verified Super Mario Party atomic-window rewrite fix
+Issue: LNPANDY/NX2Apple#1206
+---
+ dm/tools/patch_nso.py                         |  5 +++-
+ .../test_exclusive_window_terminators.py      | 23 +++++++++++++++++++
+ 2 files changed, 27 insertions(+), 1 deletion(-)
+ create mode 100644 dm/tools/tests/test_exclusive_window_terminators.py
+
+diff --git a/dm/tools/patch_nso.py b/dm/tools/patch_nso.py
+index 1cfbd5e..8a7050a 100644
+--- a/dm/tools/patch_nso.py
++++ b/dm/tools/patch_nso.py
+@@ -530,7 +530,10 @@ def find_windows(insl):
+     for i, ins in enumerate(insl):
+         if ins.mnemonic not in EXCL_LD: continue
+         j = i
+-        while j < len(insl) and insl[j].mnemonic not in EXCL_ST: j += 1
++        # Out-of-line retry loads branch to an earlier store, not the next
++        # unrelated store after an unconditional transfer or CLREX.
++        while j < len(insl) and insl[j].mnemonic not in EXCL_ST + ('b', 'bl', 'br', 'blr', 'ret', 'clrex'): j += 1
++        if j < len(insl) and insl[j].mnemonic not in EXCL_ST: continue
+         if j >= len(insl) or j - i >= 16: continue
+         # Another exclusive load before the store: this one has no store of its own (a retry block, see retry_block); spanning both would merge two sequences
+         # (Tears of the Kingdom main+0x5a4674: ldxr w18; cmp; b.eq <stxr of 0x5a427c>; ...; 0x5a469c: ldxr w13; and; stxr; cbnz, a loop other code branches to)
+diff --git a/dm/tools/tests/test_exclusive_window_terminators.py b/dm/tools/tests/test_exclusive_window_terminators.py
+new file mode 100644
+index 0000000..ce343c4
+--- /dev/null
++++ b/dm/tools/tests/test_exclusive_window_terminators.py
+@@ -0,0 +1,23 @@
++"""Linear exclusive windows cannot cross unrelated control-flow blocks."""
++import ast
++from pathlib import Path
++from types import SimpleNamespace
++import unittest
++
++class ExclusiveTerminators(unittest.TestCase):
++    def test_window_boundaries(self):
++        source=Path(__file__).resolve().parents[1]/'patch_nso.py'
++        tree=ast.parse(source.read_text())
++        node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='find_windows')
++        scope={'EXCL_LD':('ldxr','ldaxr'),'EXCL_ST':('stxr','stlxr'),'has18':lambda x:True}
++        exec(compile(ast.Module(body=[node],type_ignores=[]),str(source),'exec'),scope)
++        def instructions(*names):
++            return [SimpleNamespace(mnemonic=n,address=i*4) for i,n in enumerate(names)]
++        for terminator in ('b','bl','br','blr','ret','clrex'):
++            with self.subTest(terminator=terminator):
++                self.assertEqual(scope['find_windows'](instructions('ldaxr','cmp','b.eq',terminator,'str','stlxr')),[])
++        ordinary=instructions('ldaxr','cmp','b.ne','stlxr','cbnz')
++        self.assertEqual(scope['find_windows'](ordinary),[ordinary])
++
++if __name__=='__main__':
++    unittest.main()

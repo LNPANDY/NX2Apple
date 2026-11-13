@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 07:53:25 -0300
+Subject: [PATCH] Test every horizontal rail source and menu combination
+
+Upstream-Status: pending
+Reason: Verify all horizontal rail-source combinations and distinguish applied input from raw receiver data
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/tests/t_hid.c                         | 5 +++++
+ dm/mac/Motion/Tests/MotionContractTests.swift | 8 ++++++++
+ 2 files changed, 13 insertions(+)
+
+diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
+index 31ee4a7..7007787 100644
+--- a/dm/host/tests/t_hid.c
++++ b/dm/host/tests/t_hid.c
+@@ -1924,6 +1924,11 @@ int main(void) {
+         dm_dsu_configure(0,DM_DSU_LEFT,1);
+         dm_dsu_input(0,DM_BTN_DOWN,10000,20000,0,0,motion_now);fill(&s,0,STYLE_FULLKEY);
+         CHECK((s.buttons&DM_BTN_A) && !(s.buttons&DM_BTN_DOWN) && s.lx==-20000 && s.ly==10000,"Left full-pad fallback rotates source and maps Down to A");
++        dm_dsu_input(0,DM_BTN_PLUS|DM_BTN_MINUS|DM_BTN_LSL|DM_BTN_LSR,0,0,0,0,motion_now);fill(&s,0,STYLE_FULLKEY);
++        CHECK((s.buttons&(DM_BTN_PLUS|DM_BTN_MINUS|DM_BTN_L|DM_BTN_R))==(DM_BTN_PLUS|DM_BTN_MINUS|DM_BTN_L|DM_BTN_R),"horizontal fallback preserves both menu keys and both rails");
++        dm_dsu_configure(0,DM_DSU_RIGHT,1);
++        dm_dsu_input(0,DM_BTN_PLUS|DM_BTN_MINUS|DM_BTN_RSL|DM_BTN_RSR,0,0,0,0,motion_now);fill(&s,0,STYLE_FULLKEY);
++        CHECK((s.buttons&(DM_BTN_PLUS|DM_BTN_MINUS|DM_BTN_L|DM_BTN_R))==(DM_BTN_PLUS|DM_BTN_MINUS|DM_BTN_L|DM_BTN_R),"right fallback preserves both menu keys and both rails");
+         dm_dsu_configure(0,DM_DSU_FULL,0);
+     }
+     { // The actual SDK six-axis read must expose remote motion, not only receiver counters.
+diff --git a/dm/mac/Motion/Tests/MotionContractTests.swift b/dm/mac/Motion/Tests/MotionContractTests.swift
+index 1e8b1ee..11407ee 100644
+--- a/dm/mac/Motion/Tests/MotionContractTests.swift
++++ b/dm/mac/Motion/Tests/MotionContractTests.swift
+@@ -8,6 +8,14 @@ final class MotionContractTests:XCTestCase {
+         XCTAssertNotEqual(rails.buttons & (1 << 6),0)
+         XCTAssertNotEqual(rails.buttons & (1 << 7),0)
+         for role in [DSURole.left,.right] {
++            let shoulders = role == .left ? [(6,8),(8,9)] : [(7,8),(9,9)]
++            for (source,target) in shoulders {
++                XCTAssertEqual(DSU.Inputs(buttons:1 << source).horizontalPreview(role:role).buttons,1 << target)
++            }
++            for sl in 0..<16 { for sr in 0..<16 {
++                let preview=DSU.Inputs(buttons:(1 << sl)|(1 << sr)).horizontalPreview(role:role,railSL:sl,railSR:sr)
++                XCTAssertEqual(preview.buttons & ((1 << 6)|(1 << 7)),(1 << 6)|(1 << 7))
++            } }
+             let menu=DSU.Inputs(buttons:(1 << 10)|(1 << 11)).horizontalPreview(role:role)
+             XCTAssertEqual(menu.buttons & ((1 << 10)|(1 << 11)),(1 << 10)|(1 << 11))
+         }

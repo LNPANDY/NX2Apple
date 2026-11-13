@@ -2,11 +2,13 @@ import SwiftUI
 import NXCore
 import NXLauncher
 import NXModel
+import NXMotion
 
 // The Settings page: a selector for General, Library, Controls and Tools, then the cards of the one chosen. The page owns what only the app can give the cards: the switches kept in the app's
 // defaults (the console prompt, build notifications, return after play, the check of a new app's first start), the library and the Copy diagnostics report.
 
 struct SettingsPage: View {
+    @State private var phoneMotionOpen = false
     let build: BuildStore   // whether a build runs turns off the update and pull buttons
     let updates: AppUpdateStore
     let repo: RepoStore
@@ -89,6 +91,14 @@ struct SettingsPage: View {
         ControlsCard(controlChanges: controlChanges, padMerge: padMerge, consolePrompt: $consolePromptOn,
                      startInConsole: $startInConsole, onOpenControls: onOpenControls, onOpenControllers: onOpenControllers,
                      onOpenHomeSettings: HomeButtonSettings.available ? { HomeButtonSettings.open() } : nil)   // HomeButtonSettings.swift (#336)
+        if #available(macOS 14.0, *) {
+            CardGroup(loc.t("motion.title")) {
+                PhoneMotionConnections()
+                CardRow(loc.t("motion.devices"),detail:loc.t("motion.note")) {
+                    Button(loc.t("motion.open")) { phoneMotionOpen=true }
+                }
+            }.sheet(isPresented:$phoneMotionOpen) { DSUMotionView().frame(width:1000,height:760) }
+        }
         if let sticks { StickDeadzoneCard(store: sticks) }
     }
 

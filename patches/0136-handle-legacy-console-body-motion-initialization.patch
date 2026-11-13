@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 06:11:47 -0300
+Subject: [PATCH] Handle legacy console-body motion initialization on Mac
+
+Upstream-Status: pending
+Reason: Preserve Super Mario Party SDK console sensor boot compatibility
+Issue: LNPANDY/NX2Apple#1206
+---
+ dm/host/hle_hid.c     | 7 +++++++
+ dm/host/tests/t_hid.c | 3 +++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index 75952c3..2e67c84 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -1797,6 +1797,13 @@ HLE_FORCE("_ZN2nn3hid16GetGestureStatesEPNS0_12GestureStateEi", "gesture states,
+ HLE_FORCE("_ZN2nn3hid17StopSixAxisSensorERKNS0_19SixAxisSensorHandleE", "six-axis sensor; always sampling on the host", void, h_hid_SixStop, const uint32_t *h) { (void)h; }
+ HLE_FORCE("_ZN2nn3hid21GetSixAxisSensorStateEPNS0_18SixAxisSensorStateERKNS0_19SixAxisSensorHandleE", "six-axis sensor current state", void, h_hid_SixState, SixAxisState *s, const uint32_t *h) { six_states(s, 1, *h); }
+ HLE_FORCE("_ZN2nn3hid21IsSixAxisSensorAtRestERKNS0_19SixAxisSensorHandleE", "physical motion or the simulated shake determines rest", unsigned, h_hid_SixRest, const uint32_t *h) { return six_rest(*h); }
++// Legacy console-body sensor is separate from controller motion. The Mac has no
++// corresponding physical sensor. SDK 5 uses canonical type 0x13, index zero.
++HLE_FORCE("_ZN2nn3hid30InitializeConsoleSixAxisSensorEv", "legacy console motion initialization: no physical sensor", void, h_hid_ConsoleInit, void) {}
++HLE_FORCE("_ZN2nn3hid22GetSixAxisSensorHandleEPNS0_26ConsoleSixAxisSensorHandleE", "legacy console sensor handle", void, h_hid_ConsoleHandle, uint32_t *out) { *out=0x13; }
++HLE_FORCE("_ZN2nn3hid18StartSixAxisSensorERKNS0_26ConsoleSixAxisSensorHandleE", "legacy console sensor start: no samples", void, h_hid_ConsoleStart, const uint32_t *h) { (void)h; }
++HLE_FORCE("_ZN2nn3hid17StopSixAxisSensorERKNS0_26ConsoleSixAxisSensorHandleE", "legacy console sensor stop", void, h_hid_ConsoleStop, const uint32_t *h) { (void)h; }
++
+ // The console's own six-axis sensor (SevenSixAxisSensor, the body's orientation in handheld mode; The Legend of Zelda: Breath of the Wild): takes a work buffer and is switched through the hid service. The host provides none: switching succeeds, 0 states
+ HLE_FORCE("_ZN2nn3hid28InitializeSevenSixAxisSensorEPvm", "console six-axis sensor initialization; not provided by the host", Result, h_hid_SevenInit, void *buf, size_t n) { (void)buf; (void)n; return RES_OK; }
+ HLE_FORCE("_ZN2nn3hid26FinalizeSevenSixAxisSensorEv", "console six-axis sensor", Result, h_hid_SevenFini, void) { return RES_OK; }
+diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
+index 41c7b01..97034f9 100644
+--- a/dm/host/tests/t_hid.c
++++ b/dm/host/tests/t_hid.c
+@@ -1751,6 +1751,9 @@ static void t_applet_input(void) {
+ }
+ 
+ int main(void) {
++    uint32_t console=0xffffffff;h_hid_ConsoleInit();h_hid_ConsoleHandle(&console);
++    CHECK(console==0x13,"legacy console motion handle is not a controller sensor");
++    h_hid_ConsoleStart(&console);h_hid_ConsoleStop(&console);
+     CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");
+     setenv("DM_IMU_DELAY", "0", 1);   // the tests of the live history read it at the present; t_live_delay checks the playout delay
+     // The plumbing tests (streams, interpolation, dither, pairs) were written with the samples negated: they keep that (DM_IMU_*_SIGN=-1); t_npad_imu_samples and

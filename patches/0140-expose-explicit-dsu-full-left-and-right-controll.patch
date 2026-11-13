@@ -1,0 +1,476 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 06:51:37 -0300
+Subject: [PATCH] Expose explicit DSU full left and right controller roles
+
+Upstream-Status: forwarded seedds/nxnative#2429
+Reason: Explicitly identify DSU virtual controller halves without inferring from protocol slot or capability model
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/controllers_mac.m                     |  6 +-
+ dm/host/dm_input.h                            |  2 +
+ dm/host/hle_dsu.c                             |  8 ++-
+ dm/host/hle_hid.c                             | 60 ++++++++++++++-----
+ dm/host/tests/t_controllers_mac.m             |  6 ++
+ dm/host/tests/t_dsu_network.c                 |  1 +
+ dm/host/tests/t_hid.c                         | 31 ++++++++++
+ dm/mac/Motion/ConnectionStatus.swift          | 10 ++++
+ dm/mac/Motion/DSUConfiguration.swift          |  7 +++
+ dm/mac/Motion/MotionView.swift                |  2 +
+ dm/mac/Motion/Store.swift                     |  4 +-
+ dm/mac/Motion/Tests/MotionContractTests.swift | 17 ++++++
+ 12 files changed, 134 insertions(+), 20 deletions(-)
+
+diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
+index e86945c..b434538 100644
+--- a/dm/host/controllers_mac.m
++++ b/dm/host/controllers_mac.m
+@@ -1143,6 +1143,8 @@ static BOOL dsu_apply_configuration(NSData *data) {
+             if(![d isKindOfClass:NSDictionary.class] || !dsu_boolean(d[@"enabled"]))return NO;
+             if(!dsu_integer(d[@"player"],1,8) || !dsu_integer(d[@"port"],1,65535) || !dsu_integer(d[@"slot"],0,3))return NO;
+             if(d[@"buttons"] && !dsu_boolean(d[@"buttons"]))return NO;
++            id role=d[@"role"];
++            if(role && role!=NSNull.null && ![@[@"full",@"left",@"right"] containsObject:role])return NO;
+             NSInteger player=[d[@"player"] integerValue];id host=d[@"host"],axes=d[@"axes"],bias=d[@"bias"];
+             if(player<1 || player>8 || ![host isKindOfClass:NSString.class] || ![axes isKindOfClass:NSArray.class] || [axes count]!=3 || ![bias isKindOfClass:NSArray.class] || [bias count]!=3)return NO;
+             long port=[d[@"port"] longValue],slot=[d[@"slot"] longValue];
+@@ -1159,6 +1161,7 @@ static BOOL dsu_apply_configuration(NSData *data) {
+             if(![d[@"enabled"] boolValue])continue;
+             NSString *key=[NSString stringWithFormat:@"DM_DSU_%ld",(long)player];if(values[key])return NO;
+             NSString *buttonKey=[NSString stringWithFormat:@"DM_DSU_BUTTONS_%ld",(long)player];
++            values[[NSString stringWithFormat:@"DM_DSU_ROLE_%ld",(long)player]]=(role && role!=NSNull.null) ? role:@"full";
+             values[buttonKey]=[d[@"buttons"] boolValue] ? @"1":@"0";
+             values[key]=[NSString stringWithFormat:@"%@,%ld,%ld,%@,%@,%@,%@,%@,%@",host,(long)[d[@"port"] integerValue],(long)[d[@"slot"] integerValue],axes[0],axes[1],axes[2],bias[0],bias[1],bias[2]];
+         }
+@@ -1167,9 +1170,10 @@ static BOOL dsu_apply_configuration(NSData *data) {
+         for(int player=1;player<=8;player++){
+             NSString *key=[NSString stringWithFormat:@"DM_DSU_%d",player];unsetenv(key.UTF8String);
+             key=[NSString stringWithFormat:@"DM_DSU_BUTTONS_%d",player];unsetenv(key.UTF8String);
++            key=[NSString stringWithFormat:@"DM_DSU_ROLE_%d",player];unsetenv(key.UTF8String);
+         }
+         for(NSString *key in values)setenv(key.UTF8String,[values[key] UTF8String],1);
+-        LOG("DSU: host loaded shared per-user JSON (%lu enabled players)",(unsigned long)values.count/2);
++        LOG("DSU: host loaded shared per-user JSON (%lu enabled players)",(unsigned long)values.count/3);
+         return YES;
+     }
+ }
+diff --git a/dm/host/dm_input.h b/dm/host/dm_input.h
+index f562acd..d8aca0f 100644
+--- a/dm/host/dm_input.h
++++ b/dm/host/dm_input.h
+@@ -25,6 +25,8 @@ uint64_t dm_cheats_keys(void);
+ // dm_pad_players has its bit set; a player whose npad the game does not support (SetSupportedNpadIdType) feeds player 1 instead, so a one-player game sees every controller
+ #define DM_PLAYERS 8   // npads No1..No8; player 1 is the Handheld npad in handheld mode (DM_OPMODE=0)
+ void dm_pad_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);
++enum { DM_DSU_FULL, DM_DSU_LEFT, DM_DSU_RIGHT };
++void dm_dsu_configure(int player, int role, int buttons_enabled); // independent source; never writes physical Joy-Con state
+ void dm_dsu_input(int player,uint64_t buttons,int32_t lx,int32_t ly,int32_t rx,int32_t ry,uint64_t sample_ns);
+ void dm_pad_set_player(int player, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);   // player 0..DM_PLAYERS-1 (player 1..8)
+ void dm_pad_players(uint32_t mask);   // bit p: player p + 1 has a controller; player 1 always counts as connected (the keyboard, the touch gamepad, DM_KEYS)
+diff --git a/dm/host/hle_dsu.c b/dm/host/hle_dsu.c
+index 9917865..6885493 100644
+--- a/dm/host/hle_dsu.c
++++ b/dm/host/hle_dsu.c
+@@ -15,7 +15,7 @@
+ #include <stdlib.h>
+ #include <unistd.h>
+ #include <time.h>
+-static struct { int fd,slot,axes[3],have,det,buttons; float bias[3]; uint32_t server,sequence; uint64_t timestamp,arrival,local; } peers[DM_PLAYERS];
++static struct { int fd,slot,axes[3],have,det,buttons,role; float bias[3]; uint32_t server,sequence; uint64_t timestamp,arrival,local; } peers[DM_PLAYERS];
+ static pthread_t worker;
+ static _Atomic int active;
+ static int launched;
+@@ -112,6 +112,10 @@ void dm_dsu_start(void) {
+         int fd=socket(AF_INET,SOCK_DGRAM,0);if (fd<0) continue;
+         if (connect(fd,(struct sockaddr *)&addr,sizeof addr)) { close(fd);continue; }
+         snprintf(key,sizeof key,"DM_DSU_BUTTONS_%d",i+1);peers[i].buttons=getenv(key)&&atoi(getenv(key));
++        snprintf(key,sizeof key,"DM_DSU_ROLE_%d",i+1);const char *role=getenv(key);
++        if(role && strcmp(role,"full") && strcmp(role,"left") && strcmp(role,"right")) { LOG("[RED] DSU player %d: invalid role",i+1);close(fd);continue; }
++        peers[i].role=role && !strcmp(role,"left") ? DM_DSU_LEFT : role && !strcmp(role,"right") ? DM_DSU_RIGHT : DM_DSU_FULL;
++        dm_dsu_configure(i,peers[i].role,peers[i].buttons);
+         peers[i].fd=fd;peers[i].slot=slot;peers[i].axes[0]=x;peers[i].axes[1]=y;peers[i].axes[2]=z;peers[i].bias[0]=bx;peers[i].bias[1]=by;peers[i].bias[2]=bz;
+         int a=abs(x)-1,b=abs(y)-1,c=abs(z)-1;int inversions=(a>b)+(a>c)+(b>c);
+         peers[i].det=((inversions%2) ? -1:1)*(x<0?-1:1)*(y<0?-1:1)*(z<0?-1:1);count++;
+@@ -128,6 +132,6 @@ void dm_dsu_stop(void) {
+     if (!launched) return;
+     atomic_store(&active,0);pthread_join(worker,NULL);
+     for(int i=0;i<DM_PLAYERS;i++) if(peers[i].fd>=0) { close(peers[i].fd);peers[i].fd=-1; }
+-    for(int i=0;i<DM_PLAYERS;i++)dm_dsu_input(i,0,0,0,0,0,0);
++    for(int i=0;i<DM_PLAYERS;i++)dm_dsu_configure(i,DM_DSU_FULL,0);
+     launched=0;
+ }
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index 089de92..e97ab01 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -38,9 +38,16 @@ _Static_assert(sizeof(NpadState) == 0x28, "NpadState");
+ // their own path because a connected controller publishes its whole state on every change (a DualShock 4's sticks change all the time), which overwrote them on the shared one;
+ // the separate paths also keep scripted input out of DM_REC, which records the physical ones (rec_read)
+ static _Atomic uint64_t g_btn, g_axes, g_latch, g_sc_btn, g_sc_axes, g_sc_latch, g_pad_btn[DM_PLAYERS], g_pad_axes[DM_PLAYERS], g_pad_latch[DM_PLAYERS];
++static _Atomic int g_dsu_role[DM_PLAYERS], g_dsu_enabled[DM_PLAYERS];
++static uint32_t dsu_sides(int p) { return atomic_load(&g_dsu_enabled[p]) ? (atomic_load(&g_dsu_role[p]) == DM_DSU_LEFT ? 1u : atomic_load(&g_dsu_role[p]) == DM_DSU_RIGHT ? 2u : 0u) : 0u; }
++static uint32_t dsu_players(void) { uint32_t m=0; for(int p=0;p<DM_PLAYERS;p++) if(atomic_load(&g_dsu_enabled[p]))m|=1u<<p;return m; }
+ static _Atomic uint64_t g_dsu_btn[DM_PLAYERS],g_dsu_axes[DM_PLAYERS],g_dsu_latch[DM_PLAYERS],g_dsu_input_time[DM_PLAYERS];
+ void dm_dsu_input(int p,uint64_t buttons,int32_t lx,int32_t ly,int32_t rx,int32_t ry,uint64_t t) {
+     if(p<0 || p>=DM_PLAYERS)return;
++    // Native upright halves: no sideways rotation, remapping or synthetic SL/SR.
++    int role=atomic_load(&g_dsu_role[p]);
++    if(role==DM_DSU_LEFT) { buttons &= DM_BTN_LEFT|DM_BTN_UP|DM_BTN_RIGHT|DM_BTN_DOWN|DM_BTN_L|DM_BTN_ZL|DM_BTN_MINUS|DM_BTN_LS;rx=ry=0; }
++    if(role==DM_DSU_RIGHT) { buttons &= DM_BTN_A|DM_BTN_B|DM_BTN_X|DM_BTN_Y|DM_BTN_R|DM_BTN_ZR|DM_BTN_PLUS|DM_BTN_RS;lx=ly=0; }
+     uint64_t old=atomic_exchange(&g_dsu_btn[p],buttons);atomic_fetch_or(&g_dsu_latch[p],buttons&~old);
+     atomic_store(&g_dsu_axes[p],(uint64_t)(uint16_t)lx | (uint64_t)(uint16_t)ly<<16 | (uint64_t)(uint16_t)rx<<32 | (uint64_t)(uint16_t)ry<<48);atomic_store(&g_dsu_input_time[p],t);
+ }
+@@ -320,16 +327,16 @@ static _Atomic uint32_t g_players = 1, g_ids_supported = 0x3ff;
+ // applet leaves no more controllers connected than the game takes; here such a player is not reported, as one on an npad the game does not support
+ static _Atomic uint32_t g_benched, g_bench_one;
+ static uint32_t id_bit(uint32_t id) { return id < DM_PLAYERS ? 1u << id : id == NPAD_HANDHELD ? 1u << 8 : id == 0x10 ? 1u << 9 : 0; }
+-static int reported(int p) { return p == 0 || (atomic_load(&g_players) >> p & 1 && atomic_load(&g_ids_supported) & id_bit((uint32_t)p) && !(atomic_load(&g_benched) >> p & 1)); }
++static int reported(int p) { return p == 0 || ((atomic_load(&g_players) | dsu_players()) >> p & 1 && atomic_load(&g_ids_supported) & id_bit((uint32_t)p) && !(atomic_load(&g_benched) >> p & 1)); }
+ // Players with a controller that the game does not see: their npad is not supported, or the controller applet left them out. A one-player game (no npad past No1 supported, or
+ // an applet opened for one player) gets them as player 1, so any controller plays it; in a game for fewer players than are connected (a fifth controller in a four-player game)
+ // they are not used, as on the Switch, where the system does not connect them
+ static uint32_t unsupported_players(void) {
+-    uint32_t m = 0; for (int p = 1; p < DM_PLAYERS; p++) if (atomic_load(&g_players) >> p & 1 && !reported(p)) m |= 1u << p;
++    uint32_t m = 0; for (int p = 1; p < DM_PLAYERS; p++) if ((atomic_load(&g_players) | dsu_players()) >> p & 1 && !reported(p)) m |= 1u << p;
+     return m;
+ }
+ static int one_player(void) { return !(atomic_load(&g_ids_supported) & ((1u << DM_PLAYERS) - 2)); }
+-static uint32_t merged_players(void) { return one_player() ? unsupported_players() : atomic_load(&g_bench_one) ? atomic_load(&g_benched) & atomic_load(&g_players) : 0; }
++static uint32_t merged_players(void) { return one_player() ? unsupported_players() : atomic_load(&g_bench_one) ? atomic_load(&g_benched) & (atomic_load(&g_players) | dsu_players()) : 0; }
+ static int player_of(uint32_t id) {   // the reported player on npad id; -1 when none
+     if (id == connected_id()) return 0;
+     return id > 0 && id < DM_PLAYERS && reported((int)id) ? (int)id : -1;
+@@ -341,6 +348,7 @@ static int player_of(uint32_t id) {   // the reported player on npad id; -1 when
+ enum { KIND_NONE = 0, KIND_PAD, KIND_DUAL, KIND_LEFT, KIND_RIGHT };
+ typedef struct { int pad, kind; } npad_ref;
+ static _Atomic uint32_t g_joy_sides[DM_PLAYERS];
++static uint32_t joy_sides(int p) { return atomic_load(&g_joy_sides[p]) | dsu_sides(p); }
+ static _Atomic uint32_t g_joy_two[DM_PLAYERS];   // the pad's Joy-Cons are Joy-Con 2s (DM_JOY_2)
+ static _Atomic uint32_t g_joy_paired[DM_PLAYERS];   // the pad has held both Joy-Cons since it last held none (six_stream: a half it lost lies flat)
+ static _Atomic uint32_t g_joy_reported[DM_PLAYERS];   // bit side: that Joy-Con has reported its own motion since it was attached (joy_own)
+@@ -350,11 +358,11 @@ static _Atomic uint32_t g_single_keep[DM_PLAYERS];   // 1: the left Joy-Con stay
+ static _Atomic uint32_t g_styles_supported = 0xffffffffu;   // SetSupportedNpadStyleSet; read by the input threads too (npad_resolve, pad_style)
+ // The styles the game supports for pad p's Joy-Cons: a Joy-Con 2 style counts as its plain one
+ static uint32_t joy_supported(int p) { uint32_t s = atomic_load(&g_styles_supported); if (p >= 0 && p < DM_PLAYERS && atomic_load(&g_joy_two[p])) s |= (s >> 10 & (STYLE_JOYDUAL | STYLE_JOYLEFT | STYLE_JOYRIGHT)); return s; }
+-static int joy_active(int p) { return p >= 0 && p < DM_PLAYERS && atomic_load(&g_joy_sides[p]) && !(p == 0 && dm_opmode() == 0); }
+-static int joy_split(int p) { return atomic_load(&g_joy_sides[p]) == 3 && (atomic_load(&g_single_mask) >> p & 1) && (joy_supported(p) & (STYLE_JOYLEFT | STYLE_JOYRIGHT)) == (STYLE_JOYLEFT | STYLE_JOYRIGHT); }
++static int joy_active(int p) { return p >= 0 && p < DM_PLAYERS && joy_sides(p) && !(p == 0 && dm_opmode() == 0); }
++static int joy_split(int p) { return joy_sides(p) == 3 && (atomic_load(&g_single_mask) >> p & 1) && (joy_supported(p) & (STYLE_JOYLEFT | STYLE_JOYRIGHT)) == (STYLE_JOYLEFT | STYLE_JOYRIGHT); }
+ // The npad the other Joy-Con of pad p takes when the pair is split: the lowest supported npad No2..No8 that has no player of its own and is not another split's; -1 for none
+ static int split_target(int p) {
+-    uint32_t taken = atomic_load(&g_players) | 1u; int mine = -1;
++    uint32_t taken = (atomic_load(&g_players) | dsu_players()) | 1u; int mine = -1;
+     for (int q = 0; q <= p && q < DM_PLAYERS; q++) if (joy_active(q) && joy_split(q)) {
+         int t = -1; for (int i = 1; i < DM_PLAYERS; i++) if (!(taken >> i & 1) && (atomic_load(&g_ids_supported) & id_bit((uint32_t)i))) { t = i; break; }
+         if (t >= 0) taken |= 1u << t;
+@@ -368,7 +376,7 @@ static npad_ref npad_resolve(uint32_t id) {
+     if (pl >= 0) {
+         r.pad = pl; r.kind = KIND_PAD;
+         if (joy_active(pl)) {
+-            uint32_t s = atomic_load(&g_joy_sides[pl]);
++            uint32_t s = joy_sides(pl);
+             if (s == 3) r.kind = joy_split(pl) ? (atomic_load(&g_single_keep[pl]) == 2 ? KIND_RIGHT : KIND_LEFT) : (joy_supported(pl) & STYLE_JOYDUAL ? KIND_DUAL : KIND_PAD);
+             else r.kind = s == 1 ? KIND_LEFT : KIND_RIGHT;
+             if (r.kind == KIND_LEFT && !(joy_supported(pl) & STYLE_JOYLEFT)) r.kind = KIND_PAD;
+@@ -428,6 +436,13 @@ static void styles_sync(void) {
+ // and Joy-Cons held as devices stop or start being npads of their own (joy_active). Hades II, sent to Handheld by the controller applet in handheld mode, kept reading that
+ // npad, empty once docked, and took no input again (GitHub issue #2143)
+ void dm_hid_opmode_changed(void) { styles_sync(); }
++void dm_dsu_configure(int p, int role, int enabled) {
++    if(p<0 || p>=DM_PLAYERS || role<DM_DSU_FULL || role>DM_DSU_RIGHT)return;
++    atomic_store(&g_dsu_enabled[p],0);
++    dm_dsu_input(p,0,0,0,0,0,0);atomic_store(&g_dsu_latch[p],0);
++    atomic_store(&g_dsu_role[p],role);atomic_store(&g_dsu_enabled[p],!!enabled);
++    styles_sync();
++}
+ // Joy-Cons as devices (dm_input.h): which a pad holds, then each one's buttons and stick. The style events tell the game that its npads changed
+ void dm_joy_attach(int p, uint32_t sides) {
+     if (p < 0 || p >= DM_PLAYERS) return;
+@@ -593,6 +608,20 @@ static void fill_joy(NpadState *s, npad_ref r) {
+         b |= atomic_load(&g_joy_btn[r.pad][side]) | atomic_exchange(&g_joy_latch[r.pad][side], 0);
+         uint64_t v = atomic_load(&g_joy_axes[r.pad][side]); a[2 * side] = ax(v, 0); a[2 * side + 1] = ax(v, 1);
+     }
++    uint64_t received=atomic_load(&g_dsu_input_time[r.pad]),now=now_ns();
++    uint64_t edges=atomic_exchange(&g_dsu_latch[r.pad],0);
++    if(received && now>=received && now-received<=300000000ull) {
++        uint64_t v=atomic_load(&g_dsu_axes[r.pad]);
++        int role=atomic_load(&g_dsu_role[r.pad]);
++        // Only the selected half contributes when a physical pair is split.
++        if(role==DM_DSU_FULL || (role==DM_DSU_LEFT ? left : right)) {
++            b|=atomic_load(&g_dsu_btn[r.pad])|edges;
++            for(int side=0;side<2;side++) if(side==0 ? left : right) {
++                int32_t x=ax(v,side*2),y=ax(v,side*2+1);stick_deadzone_apply(&x,&y,stick_dz(side));
++                a[side*2]=pick(a[side*2],x);a[side*2+1]=pick(a[side*2+1],y);
++            }
++        }
++    }
+     s->lx = a[0]; s->ly = a[1]; s->rx = a[2]; s->ry = a[3];
+     s->buttons = (b & 0x0f00ffffull) | stick_dirs(a);
+     s->attributes = ATTR_CONNECTED | (left ? ATTR_LEFT_CONN : 0) | (right ? ATTR_RIGHT_CONN : 0);
+@@ -762,7 +791,7 @@ static Result ctrl_support(int32_t *info, const int8_t *arg) {
+         if (atomic_load(&g_benched) >> p & 1) { atomic_fetch_and(&g_benched, ~(1u << p)); count = dm_players_reported(); }
+     // Too few players, but a pair of Joy-Cons is two when each is held sideways (single assignment): the applet splits the pair, as the player does on a Switch, to reach the minimum
+     for (int p = 0; arg && count < arg[0] && p < DM_PLAYERS; p++)
+-        if (reported(p) && joy_active(p) && atomic_load(&g_joy_sides[p]) == 3 && !(atomic_load(&g_single_mask) >> p & 1)) {
++        if (reported(p) && joy_active(p) && joy_sides(p) == 3 && !(atomic_load(&g_single_mask) >> p & 1)) {
+             joy_assign((uint32_t)p, 1, 0);
+             if (joy_split(p) && split_target(p) >= 0) count++; else joy_assign((uint32_t)p, 0, 0);
+         }
+@@ -959,10 +988,10 @@ static uint64_t motion_copy(live_motion *m, motion_state *out) {   // a source's
+ }
+ // The live stream behind player p (its controller's GameController stream, else its HID / direct one; in a one-player game the freshest of every merged player's; player 1 the phone as
+ // DM_PHONE_MOTION says), with a copy of its state when out is given; NULL while none is fresh
+-static live_motion *motion_pick(int p, uint64_t upto_guest_ns, motion_state *out) {
++static live_motion *motion_pick_source(int p, uint64_t upto_guest_ns, motion_state *out, int dsu) {
+     if (p < 0 || p >= DM_PLAYERS) return NULL;
+     pthread_once(&g_motion_once, motion_env); if (g_motion_off) return NULL;
+-    if (motion_copy(&g_dsu_motion[p], out)) return &g_dsu_motion[p];
++    if (dsu && motion_copy(&g_dsu_motion[p], out)) return &g_dsu_motion[p];
+     if (!p && g_phone_mode > 0) return motion_copy(&g_phone_motion, out) ? &g_phone_motion : NULL;
+     // Match the button path: in a one-player game, a controller in another slot also drives player 1.
+     uint32_t src = p ? 1u << p : 1u | merged_players(); uint64_t newest = 0; live_motion *best = NULL;
+@@ -979,6 +1008,8 @@ static live_motion *motion_pick(int p, uint64_t upto_guest_ns, motion_state *out
+     if (best && out && !motion_copy(best, out)) best = NULL;   // gone stale since: none
+     return best;
+ }
++static live_motion *motion_pick(int p, uint64_t t, motion_state *out) { return motion_pick_source(p,t,out,1); }
++static int dsu_motion_side(int p,int side) { int r=atomic_load(&g_dsu_role[p]);return r==DM_DSU_FULL || r==(side ? DM_DSU_RIGHT : DM_DSU_LEFT); }
+ static int motion_live(int p, motion_state *out) { return motion_pick(p, guest_ns(), out) != NULL; }
+ // One Joy-Con's sensor: its own stream while fresh; NULL (the host's flat sensor) once it has reported its own motion and is still attached but its stream went quiet (a
+ // Joy-Con 2 skipping reports, for any length of time), as the pad's merged stream holds the controller in another frame (a sideways Joy-Con's, a quarter turn away); else
+@@ -986,15 +1017,15 @@ static int motion_live(int p, motion_state *out) { return motion_pick(p, guest_n
+ static int joy_own(int p, int side) {   // 1: its own stream is fresh, 0: it went quiet, -1: none
+     pthread_once(&g_motion_once, motion_env); if (g_motion_off) return -1;
+     if (motion_copy(&g_joy_motion[p][side], NULL)) return 1;
+-    return atomic_load(&g_joy_reported[p]) >> side & atomic_load(&g_joy_sides[p]) >> side & 1 ? 0 : -1;
++    return atomic_load(&g_joy_reported[p]) >> side & joy_sides(p) >> side & 1 ? 0 : -1;
+ }
+ static live_motion *motion_joy_pick(int p, int side, uint64_t upto_guest_ns, motion_state *out) {
+     if (p < 0 || p >= DM_PLAYERS || (side != 0 && side != 1)) return motion_pick(p, upto_guest_ns, out);
+     pthread_once(&g_motion_once, motion_env);
+-    if (!g_motion_off && motion_copy(&g_dsu_motion[p], out)) return &g_dsu_motion[p];
++    if (!g_motion_off && dsu_motion_side(p,side) && motion_copy(&g_dsu_motion[p], out)) return &g_dsu_motion[p];
+     int own = joy_own(p, side);
+     if (own > 0 && (!out || motion_copy(&g_joy_motion[p][side], out))) return &g_joy_motion[p][side];
+-    return own == 0 ? NULL : motion_pick(p, upto_guest_ns, out);
++    return own == 0 ? NULL : motion_pick_source(p, upto_guest_ns, out, dsu_motion_side(p,side));
+ }
+ // A stream's history from guest time `from` on, copied under its lock while the stream is still fresh (the input thread holds that lock only to add a sample): the newest samples
+ // back to the first at or before `from` (one before the window, for interpolating its start), oldest first, their times turned into guest ns with the guest clock's lag now;
+@@ -1147,14 +1178,13 @@ static pthread_once_t g_imu_once; static void imu_env_read(void);   // DM_IMU_DE
+ // gone, rather than taking the other half's stream mid-game (a jump to another controller's frame)
+ static live_motion *six_stream(uint32_t h, npad_ref ref, int pl, uint64_t upto_guest_ns) {
+     pthread_once(&g_motion_once, motion_env);
+-    if (!g_motion_off && pl >= 0 && pl < DM_PLAYERS && motion_copy(&g_dsu_motion[pl], NULL)) return &g_dsu_motion[pl];
+     int dev = (int)(h >> 16 & 1);
+     if (ref.kind >= KIND_DUAL) return motion_joy_pick(ref.pad, ref.kind == KIND_LEFT ? 0 : ref.kind == KIND_RIGHT ? 1 : dev, upto_guest_ns, NULL);
+     if (pl >= 0 && pl < DM_PLAYERS && kind_style(ref, h >> 8 & 0xff) == STYLE_JOYDUAL) {
+         uint32_t src = 1u << pl | (pl ? 0 : merged_players());
+         pthread_once(&g_motion_once, motion_env); if (g_motion_off) return NULL;
+         for (int q = 0; q < DM_PLAYERS; q++) if (src >> q & 1 && joy_active(q)) {
+-            uint32_t sides = atomic_load(&g_joy_sides[q]); int side = sides == 3 ? dev : sides == 2;
++            uint32_t sides = joy_sides(q); int side = sides == 3 ? dev : sides == 2;
+             if (sides != 3 && side != dev && atomic_load(&g_joy_paired[q])) return NULL;
+             int own = joy_own(q, side);
+             if (own > 0) return &g_joy_motion[q][side];
+diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
+index d2fdc3f..a196990 100644
+--- a/dm/host/tests/t_controllers_mac.m
++++ b/dm/host/tests/t_controllers_mac.m
+@@ -1219,6 +1219,12 @@ static void test_dsu_configuration(void) {
+     NSData *(^encode)(id)=^NSData *(id d) { return [NSJSONSerialization dataWithJSONObject:@{@"version":@1,@"devices":@[d]} options:0 error:nil]; };
+     assert(dsu_apply_configuration(encode(device)));
+     assert(!strcmp(getenv("DM_DSU_BUTTONS_1"),"1"));
++    assert(!strcmp(getenv("DM_DSU_ROLE_1"),"full")); // legacy document
++    for(NSString *role in @[@"full",@"left",@"right"]) {
++        NSMutableDictionary *d=[device mutableCopy];d[@"role"]=role;assert(dsu_apply_configuration(encode(d)));
++        assert(!strcmp(getenv("DM_DSU_ROLE_1"),role.UTF8String));
++    }
++    NSMutableDictionary *invalidRole=[device mutableCopy];invalidRole[@"role"]=@"slot0";assert(!dsu_apply_configuration(encode(invalidRole)));
+     NSString *saved=@(getenv("DM_DSU_1"));
+     for(NSString *field in @[@"player",@"port",@"slot",@"enabled",@"buttons",@"host",@"axes",@"bias"]) {
+         NSMutableDictionary *bad=[device mutableCopy];bad[field]=NSNull.null;
+diff --git a/dm/host/tests/t_dsu_network.c b/dm/host/tests/t_dsu_network.c
+index 32a42c9..12a2a5b 100644
+--- a/dm/host/tests/t_dsu_network.c
++++ b/dm/host/tests/t_dsu_network.c
+@@ -2,6 +2,7 @@
+ #include "../hle_dsu.c"
+ #include <assert.h>
+ void dm_dsu_load_configuration(void) {}
++void dm_dsu_configure(int p,int role,int enabled) { assert(p>=0 && p<DM_PLAYERS);assert(role>=DM_DSU_FULL && role<=DM_DSU_RIGHT);(void)enabled; }
+ static _Atomic int input_callbacks;
+ void dm_dsu_input(int p,uint64_t b,int32_t lx,int32_t ly,int32_t rx,int32_t ry,uint64_t t) { (void)lx;(void)ly;(void)rx;(void)ry;assert(p>=0 && p<DM_PLAYERS);if(t) { assert(getenv("DM_DSU_BUTTONS_1") && b==DM_BTN_A);atomic_fetch_add(&input_callbacks,1); } }
+ static _Atomic int callbacks;
+diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
+index 2891229..69184bf 100644
+--- a/dm/host/tests/t_hid.c
++++ b/dm/host/tests/t_hid.c
+@@ -1890,6 +1890,37 @@ int main(void) {
+         CHECK(pad_slot_take_lowest(&f, &o[DM_PLAYERS], "pad") == -1, "press: none left when every player is held");
+         CHECK(pad_slot_take_lowest(&f, NULL, "pad") == -1, "press: no owner, no slot");
+     }
++    { // Explicit DSU roles; physical sources remain independently owned.
++        g_mode=1;atomic_store(&g_styles_supported,0xffffffffu);atomic_store(&g_ids_supported,0x3ff);atomic_store(&g_benched,0);
++        dm_pad_players(1);dm_joy_attach(0,0);atomic_store(&g_single_mask,0);
++        dm_pad_set(DM_BTN_X,25000,0,0,0);
++        dm_dsu_configure(0,DM_DSU_LEFT,0);
++        CHECK(style_of(0)==STYLE_FULLKEY,"sensor-only Left role does not turn Xbox into Joy-Con");
++        dm_dsu_configure(0,DM_DSU_FULL,1);dm_dsu_input(0,0xffff,10000,11000,12000,13000,motion_now);
++        NpadState s;fill(&s,0,STYLE_FULLKEY);
++        CHECK((s.buttons&0xffff)==0xffff && s.lx==25000 && s.rx==12000,"Full keeps all buttons/sticks and physical stronger axis");
++        for(int role=DM_DSU_LEFT;role<=DM_DSU_RIGHT;role++) {
++            int right=role==DM_DSU_RIGHT;dm_dsu_configure(0,role,1);
++            CHECK(style_of(0)==(right ? STYLE_JOYRIGHT:STYLE_JOYLEFT),"explicit half selects native Joy-Con style");
++            dm_dsu_input(0,0xffff,20000,21000,22000,23000,motion_now);
++            fill(&s,0,right ? STYLE_JOYRIGHT:STYLE_JOYLEFT);
++            uint64_t mask=right ? 0x6af:0xf950;
++            CHECK((s.buttons&0xffff)==mask,"half selects only native side button bits, no fake rail buttons");
++            CHECK(right ? (s.lx==0 && s.ly==0 && s.rx>0 && s.ry>0):(s.lx>0 && s.ly>0 && s.rx==0 && s.ry==0),"half uses only its native stick fields");
++            motion_now+=300000001;fill(&s,0,right ? STYLE_JOYRIGHT:STYLE_JOYLEFT);
++            CHECK(!s.buttons && !s.lx && !s.rx,"stale half releases DSU input");
++        }
++        dm_joy_attach(0,1);dm_joy_set(0,0,DM_BTN_UP,28000,0);
++        dm_dsu_configure(0,DM_DSU_LEFT,1);dm_dsu_input(0,DM_BTN_DOWN,16000,0,0,0,motion_now);
++        fill(&s,0,STYLE_JOYLEFT);
++        CHECK((s.buttons&(DM_BTN_UP|DM_BTN_DOWN))==(DM_BTN_UP|DM_BTN_DOWN) && s.lx==28000,"physical Joy-Con and DSU buttons OR, strongest axis wins");
++        dm_dsu_configure(0,DM_DSU_FULL,0);fill(&s,0,STYLE_JOYLEFT);
++        CHECK((s.buttons&DM_BTN_UP) && !(s.buttons&DM_BTN_DOWN) && s.lx==28000,"DSU detach does not clear physical Joy-Con state");
++        dm_dsu_configure(1,DM_DSU_RIGHT,1);
++        CHECK(reported(1) && style_of(1)==STYLE_JOYRIGHT,"DSU-only player has independent availability");
++        dm_dsu_configure(1,DM_DSU_FULL,0);CHECK(!reported(1),"DSU detach restores physical player mask");
++        dm_joy_attach(0,0);dm_pad_set(0,0,0,0,0);
++    }
+     t_applet_input();
+     printf("hid players: %d checks, %d failed\n", checks, fails);
+     return fails != 0;
+diff --git a/dm/mac/Motion/ConnectionStatus.swift b/dm/mac/Motion/ConnectionStatus.swift
+index 1a46a93..70abe0c 100644
+--- a/dm/mac/Motion/ConnectionStatus.swift
++++ b/dm/mac/Motion/ConnectionStatus.swift
+@@ -1,5 +1,14 @@
+ import SwiftUI
+ 
++struct PhoneRolePicker: View {
++    @ObservedObject var sensor: Sensor
++    var body: some View {
++        Picker("Controller role",selection:$sensor.role) {
++            ForEach(DSURole.allCases,id: \.self) { role in Text(role.title).tag(role) }
++        }.help("Explicit role, not DSU slot or model. Left uses D-pad and L stick; Right uses face buttons and R stick. No rail buttons are synthesized. Motion-only does not change controller style.")
++    }
++}
++
+ struct PhoneInputState: View {
+     @ObservedObject var sensor: Sensor
+     var body: some View {
+@@ -40,6 +49,7 @@ private struct PhoneMotionConnectionRow: View {
+             }
+             LocalizedText(state).font(.caption).foregroundStyle(.secondary)
+             Toggle(L("Use phone buttons and sticks"),isOn:$sensor.buttons).toggleStyle(.switch).controlSize(.small)
++            PhoneRolePicker(sensor:sensor)
+             PhoneInputState(sensor:sensor)
+             Text(String(format:"X %+.2f   Y %+.2f   Z %+.2f · %d samples",sensor.gyro.x,sensor.gyro.y,sensor.gyro.z,sensor.samples))
+                 .font(.system(.caption2,design:.monospaced)).foregroundStyle(.tertiary).monospacedDigit()
+diff --git a/dm/mac/Motion/DSUConfiguration.swift b/dm/mac/Motion/DSUConfiguration.swift
+index 3643563..d91dc16 100644
+--- a/dm/mac/Motion/DSUConfiguration.swift
++++ b/dm/mac/Motion/DSUConfiguration.swift
+@@ -1,6 +1,11 @@
+ // Shared, per-user motion configuration. Never embed LAN endpoints in game bundles.
+ import Foundation
+ 
++enum DSURole: String, Codable, CaseIterable {
++    case full, left, right
++    var title: String { switch self { case .full: return "Full controller"; case .left: return "Joy-Con Left"; case .right: return "Joy-Con Right" } }
++}
++
+ struct DSUDevice: Codable, Equatable, Identifiable {
+     var id: UUID
+     var name: String
+@@ -12,6 +17,7 @@ struct DSUDevice: Codable, Equatable, Identifiable {
+     var axes: [Int]
+     var bias: [Double]
+     var enabled: Bool
++    var role: DSURole? = nil // Missing in v1 documents means full; never inferred from slot/model.
+     var buttons: Bool? = nil
+     var calibrated: Bool? = nil
+     var displayAxes: [Int]? = nil
+@@ -49,6 +55,7 @@ struct DSUConfiguration: Codable, Equatable {
+             let key="DM_DSU_"+String(device.player)
+             guard result[key]==nil else { throw Failure.duplicatePlayer }
+             result[key]=value
++            result["DM_DSU_ROLE_"+String(device.player)]=(device.role ?? .full).rawValue
+             result["DM_DSU_BUTTONS_"+String(device.player)]=(device.buttons ?? false) ? "1":"0"
+         }
+         return result
+diff --git a/dm/mac/Motion/MotionView.swift b/dm/mac/Motion/MotionView.swift
+index 2e1f269..0c0047e 100644
+--- a/dm/mac/Motion/MotionView.swift
++++ b/dm/mac/Motion/MotionView.swift
+@@ -9,6 +9,7 @@ import simd
+     var onEdit: (() -> Void)?
+     @Published var axes = AxisMap() { didSet { orientation = Orientation(); onEdit?() } }
+     @Published var name = "Phone" { didSet { onEdit?() } }
++    @Published var role: DSURole = .full { didSet { onEdit?() } }
+     @Published var buttons = false { didSet { onEdit?() } }
+     @Published var player = 1 { didSet { onEdit?() } }
+     @Published var host = "192.168.1.100" { didSet { onEdit?() } }
+@@ -240,6 +241,7 @@ struct SensorCard: View {
+                 TextField(L("Port"),text:$sensor.port).frame(width:75)
+                 Picker(L("DSU slot"),selection:$sensor.slot) { LocalizedText("Auto").tag(-1); ForEach(0..<4) { LocalizedText("\($0)").tag($0) } }.frame(width:125)
+             }.disabled(sensor.running)
++            PhoneRolePicker(sensor:sensor)
+             Toggle(L("Use phone buttons and sticks"),isOn:$sensor.buttons)
+             HStack {
+                 Button(L(sensor.running ? "Disconnect":"Connect")) { if sensor.running { sensor.disconnect() } else { sensor.connect() } }
+diff --git a/dm/mac/Motion/Store.swift b/dm/mac/Motion/Store.swift
+index 8e1b55a..d9f66a0 100644
+--- a/dm/mac/Motion/Store.swift
++++ b/dm/mac/Motion/Store.swift
+@@ -12,7 +12,7 @@ import Combine
+         do {
+             let config=try DSUConfiguration.load(from:url)
+             for d in config.devices {
+-                let s=Sensor(id:d.id);s.buttons=d.buttons ?? false;s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
++                let s=Sensor(id:d.id);s.role=d.role ?? .full;s.buttons=d.buttons ?? false;s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
+                 // Switch x/right,y/forward,z/up -> preview x/right,y/up,z/back.
+                 s.axes=AxisMap(x:d.axes[0],y:d.axes[2],z:-d.axes[1]);s.gyroBias=SIMD3(d.bias[0],d.bias[1],d.bias[2]);s.calibrated=d.calibrated ?? d.enabled
+                 if let axes=d.displayAxes,axes.count==3 { s.axes=AxisMap(x:axes[0],y:axes[1],z:axes[2]) }
+@@ -29,7 +29,7 @@ import Combine
+         for s in sensors {
+             let slot=s.slot<0 ? (s.detectedSlot ?? 0) : s.slot
+             guard let port=Int(s.port) else { throw DSUConfiguration.Failure.invalid }
+-            devices.append(DSUDevice(id:s.id,name:s.name,player:s.player,host:s.host,port:port,slot:slot,axes:[s.axes.x,-s.axes.z,s.axes.y],bias:[s.gyroBias.x,s.gyroBias.y,s.gyroBias.z],enabled:s.calibrated,buttons:s.buttons,calibrated:s.calibrated,displayAxes:[s.axes.x,s.axes.y,s.axes.z]))
++            devices.append(DSUDevice(id:s.id,name:s.name,player:s.player,host:s.host,port:port,slot:slot,axes:[s.axes.x,-s.axes.z,s.axes.y],bias:[s.gyroBias.x,s.gyroBias.y,s.gyroBias.z],enabled:s.calibrated,role:s.role,buttons:s.buttons,calibrated:s.calibrated,displayAxes:[s.axes.x,s.axes.y,s.axes.z]))
+         }
+         let config=DSUConfiguration(devices:devices);_ = try config.environment();return config
+     }
+diff --git a/dm/mac/Motion/Tests/MotionContractTests.swift b/dm/mac/Motion/Tests/MotionContractTests.swift
+index ee6869b..232188c 100644
+--- a/dm/mac/Motion/Tests/MotionContractTests.swift
++++ b/dm/mac/Motion/Tests/MotionContractTests.swift
+@@ -86,6 +86,23 @@ final class MotionContractTests:XCTestCase {
+         sensor.disconnect()
+         XCTAssertEqual(sensor.inputs,DSU.Inputs())
+     }
++    @MainActor func testRolesAndLegacyDefault() throws {
++        let dir=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
++        defer { try? FileManager.default.removeItem(at:dir) }
++        let url=dir.appendingPathComponent("dsu.json"),store=SensorStore(url:url)
++        store.add();let phone=try XCTUnwrap(store.sensors.first)
++        phone.host="127.0.0.1";phone.calibrated=true
++        for role in DSURole.allCases {
++            phone.role=role
++            XCTAssertEqual(try DSUConfiguration.load(from:url).devices.first?.role,role)
++            XCTAssertEqual(SensorStore(url:url).sensors.first?.role,role)
++            XCTAssertEqual(try store.configuration().environment()["DM_DSU_ROLE_1"],role.rawValue)
++        }
++        var legacy=try store.configuration();legacy.devices[0].role=nil
++        try legacy.save(to:url)
++        XCTAssertEqual(SensorStore(url:url).sensors.first?.role,.full)
++        XCTAssertEqual(try legacy.environment()["DM_DSU_ROLE_1"],"full")
++    }
+     func testInvalidDisabledRecordRejected() throws {
+         var d=DSUDevice(id:UUID(),name:"Bad",player:1,host:"127.0.0.1",port:26760,slot:1,axes:[1,2,3],bias:[0,0,0],enabled:false)
+         d.displayAxes=[Int.min,2,3]

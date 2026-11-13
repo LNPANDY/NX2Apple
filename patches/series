@@ -1,4 +1,3 @@
-# Applied in this order onto the commit in ../.upstream-ref with git am -3. See README.md.
 0001-ios-game-data-folder.patch
 0002-ios-slim-ipa.patch
 0003-mac-keymap.patch
@@ -43,3 +42,21 @@
 0043-nvn-post-wait-for-an-unclaimed-ring-slot-and-siz.patch
 0044-host-haptics-drive-joycon-l-and-joycon-r-on-sepa.patch
 0045-nvn-inherit-aliased-virtual-pool-flags-and-bound.patch
+0133-add-shared-dsu-motion-management-and-per-player.patch
+0134-harden-shared-motion-configuration-and-stable-de.patch
+0135-stop-exclusive-windows-at-control-flow-terminato.patch
+0136-handle-legacy-console-body-motion-initialization.patch
+0137-keep-shared-phone-connections-alive-and-use-host.patch
+0138-read-shared-dsu-configuration-in-host-and-diagno.patch
+0139-expose-live-dsu-input-sources-rates-and-pressed.patch
+0140-expose-explicit-dsu-full-left-and-right-controll.patch
+0141-preserve-horizontal-menu-and-rail-inputs-and-exp.patch
+0142-keep-plus-and-minus-distinct-in-horizontal-fallb.patch
+0143-test-every-horizontal-rail-source-and-menu-combi.patch
+0144-show-applied-dsu-rail-buttons-separately-from-ra.patch
+0145-verify-dsu-motion-reaches-sdk-sensors-for-every.patch
+0146-avoid-duplicate-menu-actions-when-those-sources.patch
+0147-serialize-explicit-rail-sources-correctly-and-te.patch
+0148-log-first-game-sdk-consumption-of-dsu-motion-his.patch
+0149-synchronize-shared-phone-configuration-and-rejec.patch
+0150-make-setup-axis-selections-match-game-configurat.patch
