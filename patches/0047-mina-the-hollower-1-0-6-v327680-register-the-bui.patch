@@ -1,0 +1,140 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: XeresRazor <shinohara@gmail.com>
+Date: Fri, 13 Nov 2026 15:00:31 -0500
+Subject: [PATCH] Mina the Hollower 1.0.6 (v327680): register the build and its
+ arena cuts
+
+Update 1.0.6's main (e86ae07b...) has the same two TLSF arenas as 1.0.5's,
+"Default Mem" and "Render Mem", 0x20 further on (main+0x6d8cc and +0x6dc2c).
+Without registering it, the engine's own cuts do not reach it and a build for an
+iPhone-sized alias region stops at the address region check.
+
+- game.tsv: a build row for v327680 (1.0.6, main e86ae07b..., the same sdk)
+- patches.py: the same two cuts as 1.0.5 (1 GB and 256 MB), so the region check
+  gives the same stdalloc_cap (0xa4000000) and the profile keeps it
+- the game note and the games table say both updates are registered
+
+1.0.6 has 90 of its 110 shader keys different from 1.0.5's, so the profile's
+tables (made from 1.0.5) do not hold them: a 1.0.6 build is packed from a
+derived profile with its own tables, as designed. Registering both versions'
+tables needs both updates in one folder (shader_versions).
+
+Checked on the Mac from a folder with only 1.0.6: the region check passes with
+1.0.5's numbers, and a 120 s headless run on the 4.375 GB alias region with the
+Mac shader libraries gave no [RED] line and 6,900 frames at 60 fps. Play past the
+title is not covered.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: Mina the Hollower 1.0.6: register the build and its arena cuts, which the 1.0.5-keyed profile of seedds/nxnative#1021 does not reach
+Issue: LNPANDY/NX2Apple#1273
+
+---
+ dm/games/0100DCD01F306000/README.md  | 10 +++++++---
+ dm/games/0100DCD01F306000/game.tsv   |  3 ++-
+ dm/games/0100DCD01F306000/patches.py | 10 ++++++++--
+ dm/games/README.md                   |  2 +-
+ 4 files changed, 18 insertions(+), 7 deletions(-)
+
+diff --git a/dm/games/0100DCD01F306000/README.md b/dm/games/0100DCD01F306000/README.md
+index dd97e48..ff72dd5 100644
+--- a/dm/games/0100DCD01F306000/README.md
++++ b/dm/games/0100DCD01F306000/README.md
+@@ -1,6 +1,6 @@
+ # Mina the Hollower (`0100DCD01F306000`)
+ 
+-Update 1.0.5 (v262144), SDK 21.4.3, Yacht Club Games' own engine on NVN. Modules `main` and `sdk`. Everything in the RomFS is a `.yc` file in Yacht Club's YCD archive format, uncompressed; the 114 shaders (110 keys) are in `shaders.pak.yc`. Only this update is registered in the profile.
++Update 1.0.5 (v262144), SDK 21.4.3, Yacht Club Games' own engine on NVN. Modules `main` and `sdk`. Everything in the RomFS is a `.yc` file in Yacht Club's YCD archive format, uncompressed; the 114 shaders (110 keys) are in `shaders.pak.yc`. Updates 1.0.5 (v262144) and 1.0.6 (v327680) are registered, each by its `main` build ID. The profile's shader tables, prewarm list and measurements are 1.0.5's (`package v262144`): a 1.0.6 build derives its own tables, see [Shaders](#shaders).
+ 
+ On the Mac (2026-11-03, Apple silicon, the iPhone's memory layout): boot, the intro, profile and name entry, the opening story and the opening on the boat at 60 fps (frame time p95 17.2 ms), with movement, attacks, the pause menu and its inventory; the profile saves and a later start loads it back into play. No `[RED]` line in the runs. On the iPhone: an iPhone 16 Pro Max plays it at a steady 60 fps (the user's report, 2026-11-03).
+ 
+@@ -15,6 +15,7 @@ On the Mac (2026-11-03, Apple silicon, the iPhone's memory layout): boot, the in
+ | 5 GB block, 4.375 GB alias region | `game.tsv` | the NPDM declares 32 MB of system resource (virtual address memory) and `main` sets no heap: the provisional layout |
+ | `depth_mode zero` | `game.tsv` | the game calls `nvnDeviceSetDepthMode` with near = 0 at boot |
+ | `build v262144` | `game.tsv` | the update NSP's CNMT version (`nx_extract <keys> --contents`); the NSP's file name has no `[v…]` tag, so the NSP script takes the single untagged update for this registered version |
++| `build v327680` | `game.tsv` | 1.0.6, whose NSP name carries `[v327680]`: its `main` (`e86ae07b…`) has the arena cuts in [`patches.py`](patches.py) 0x20 further on than 1.0.5's (the same two instructions) |
+ 
+ ## Files
+ 
+@@ -25,6 +26,7 @@ On the Mac (2026-11-03, Apple silicon, the iPhone's memory layout): boot, the in
+ ## Shaders
+ 
+ - **Current:** each `.bin` is `{u32 control length, u32 code length, control section, code area}`, one stage compiled offline; the SPH stage of every one matches its file name. The engine combines vertex and pixel shaders per draw, so they are paired as single-stage programs (the pixel-input cover of `separable_pairs`, 17 pairs). All 110 translate for the Mac.
++- **1.0.6 has other shaders.** 20 of its 110 keys are 1.0.5's and 90 are not (the same 94 + 20 files, recompiled), so the profile's tables, made from 1.0.5, do not hold 1.0.6's. A 1.0.6 build finds no v262144 in the folder and is packed from a profile derived from this one, with its own tables, the arena cuts and the memory keys (`derive_profile`); its prewarm list is not the profile's. Registering 1.0.6's tables as well needs both updates in one folder (`shader_versions v262144 v327680`).
+ - The prewarm list ([`pso_manifest.tsv`](pso_manifest.tsv)) was recorded from a new save over the route above: 110 shaders and 17 render pipelines. The game loads every shader at boot.
+ 
+ ## Memory
+@@ -34,14 +36,16 @@ Measured with a 64 GB alias region (`DM_ALIAS_SIZE`, the region table from `DM_R
+ | Region | Reserved | Mapped | Who |
+ |---|---|---|---|
+ | StandardAllocator | 16 GB | 1.28 GB | `nninitStartup`, returning to `main+0x875c5c` |
+-| TLSF arena "Default Mem" | 4 GB | 320 MB | `main+0x6d8ac` |
+-| TLSF arena "Render Mem" | 4 GB | 16 MB | `main+0x6dc0c` |
++| TLSF arena "Default Mem" | 4 GB | 320 MB | `main+0x6d8ac` (1.0.6: `+0x6d8cc`) |
++| TLSF arena "Render Mem" | 4 GB | 16 MB | `main+0x6dc0c` (1.0.6: `+0x6dc2c`) |
+ | twelve 16 MB arenas, one of 64 MB | 0.24 GB | small | the engine's other arenas (`main+0x108a10`, `+0x108c20`) |
+ 
+ - **Resolved: the 1 GB node area.** The SDK-wide node area rule did not match this `sdk` build (`cb82ed52…`): its AddressRegionManager constructor (`sdk+0x14fbe0`, 276 bytes, the cuts at +0x10 and +0x7c) has the SDK 22.2.0 implementation's size and cut offsets but another fingerprint by its callees. With the fingerprint added to that rule, the StandardAllocator region starts at alias +0.06 GB instead of +1.00 GB. Region placement aligns only to 2 MB, as SDK 20, so no alignment cut is needed ([The SDK's address-region node area](../../../docs/reference/memory.md#the-sdks-address-region-node-area)).
+ - **Workaround: the TLSF arenas.** The engine's startup (`main+0x6d850`, from `nnMain`) initializes two TLSF arenas through `main+0xdec90` → `main+0xdda90`, `init(arena, size, 16 MB, 32 MB)`. The init rounds the size up to its page, derives the first-level bin count from it and reserves the whole size with `nn::os::AllocateAddressRegion` (`main+0x1089b0`), committing pages as the arena grows. Each asks for 4 GB, which an iPhone's 4.375 GB alias region cannot hold beside the StandardAllocator. The cuts in `patches.py` give them 1 GB and 256 MB, about 3 and 16 times what they map on the route. What the game does when an arena is full is not known: open.
+ - **iPhone layout checked on the Mac:** the StandardAllocator gets 2.56 GB (`stdalloc_cap`, maps 1.25 GB), the arenas 1 GB at alias +2.88 GB and 256 MB at +3.89 GB; the regions reach alias +4.14 GB of 4.375 GB. Resident memory is about 1.7 GB with 674 MB of Metal allocations.
+ 
++- **1.0.6 on the same layout (2026-11-13, Mac, Apple silicon):** from a folder with only 1.0.6, the region check reports what 1.0.5's did (StandardAllocator 2.56 GB at alias +0.06 GB with 1.25 GB mapped, the arenas 1 GB at +2.88 GB and 256 MB at +3.89 GB, reach +4.14 GB of 4.375 GB), and a 120 s headless run on the 4.375 GB alias region with the Mac shader libraries gave no `[RED]` line and 6,900 frames at 60 fps (frame time p95 16.77 ms), 1.51 GB of the alias region mapped. Play past the title is not covered by that run.
++
+ ## Playing on the Mac
+ 
+ `scripts/build_ipa_from_nsp.py <NSP folder> --platform mac` prints the run command. On a new save, the intro can be skipped with +, the profile's name is confirmed on Done (the D-pad: Down four times, Right, A), and A through the opening story leads to the boat.
+diff --git a/dm/games/0100DCD01F306000/game.tsv b/dm/games/0100DCD01F306000/game.tsv
+index cc5bd4f..3f2d081 100644
+--- a/dm/games/0100DCD01F306000/game.tsv
++++ b/dm/games/0100DCD01F306000/game.tsv
+@@ -11,8 +11,9 @@ ipa	MinaTheHollower.ipa
+ app_category	public.app-category.adventure-games
+ 
+ # ---- Versions ----
+-# The update NSP's CNMT names v262144 (nx_extract --contents); its file name has no [v...] tag
++# The 1.0.5 update NSP's CNMT names v262144 (nx_extract --contents); its file name has no [v...] tag. 1.0.6's is tagged [v327680]
+ build	v262144	1.0.5	main=2bc484524f0c86bc7c2228d6fbfb0817	sdk=cb82ed52216313df5626154efb64d45f
++build	v327680	1.0.6	main=e86ae07bdfec77ee10d50d2163d0ff2e	sdk=cb82ed52216313df5626154efb64d45f
+ package	v262144
+ shader_versions	v262144
+ 
+diff --git a/dm/games/0100DCD01F306000/patches.py b/dm/games/0100DCD01F306000/patches.py
+index 7103498..a55ce91 100644
+--- a/dm/games/0100DCD01F306000/patches.py
++++ b/dm/games/0100DCD01F306000/patches.py
+@@ -10,13 +10,19 @@ CUTS = {
+         (0x6d8ac, '2100c0d2', '0100a8d2', 'TLSF arena "Default Mem" size mov x1,#0x100000000 → mov x1,#0x40000000 (4 GB → 1 GB)'),
+         (0x6dc0c, '2100c0d2', '0100a2d2', 'TLSF arena "Render Mem" size mov x1,#0x100000000 → mov x1,#0x10000000 (4 GB → 256 MB)'),
+     ],
++    # 1.0.6 (v327680) main: the same two arenas and the same two instructions, 0x20 further on ("Default Mem" at main+0x6d8cc, "Render Mem" at main+0x6dc2c, the init called through
++    # main+0xdecf0 → main+0xddaf0). The sizes, the reason and the cuts are 1.0.5's: with 1 GB and 256 MB the region check gives the same stdalloc_cap (0xa4000000)
++    'e86ae07bdfec77ee10d50d2163d0ff2e': [
++        (0x6d8cc, '2100c0d2', '0100a8d2', 'TLSF arena "Default Mem" size mov x1,#0x100000000 → mov x1,#0x40000000 (4 GB → 1 GB)'),
++        (0x6dc2c, '2100c0d2', '0100a2d2', 'TLSF arena "Render Mem" size mov x1,#0x100000000 → mov x1,#0x10000000 (4 GB → 256 MB)'),
++    ],
+ }
+ 
+ # How general each patch is and could be (dm/tools/docs_patches.py "Binding", listed in docs/agents/game-patches.md): what, its binding now, the loosest it could have (goal),
+ # purpose, why; blocked or kept: why the gap stays open (cannot close yet, or left open on purpose); checked: what was checked on game files (else a judgement)
+ BINDING = [
+     {'what': 'TLSF arenas "Default Mem" and "Render Mem": 4 GB → 1 GB and 256 MB', 'now': 'build', 'goal': 'game', 'purpose': 'address space',
+-     'checked': 'the arena init and both call sites disassembled on 1.0.5, 2026-11-03',
++     'checked': 'the arena init and both call sites disassembled on 1.0.5, 2026-11-03, and on 1.0.6 (the same code 0x20 further on), 2026-11-13',
+      'why': "the sizes are immediates in the engine's startup; a function-matched rule could carry them over the game's updates",
+-     'blocked': 'only one build of the game (1.0.5) on hand to check a fingerprint against'},
++     'blocked': 'no function-matched rule yet: 1.0.5 and 1.0.6 are each registered by build ID, and only one of the two mains is on hand to fingerprint at a time'},
+ ]
+diff --git a/dm/games/README.md b/dm/games/README.md
+index 16b67b2..6eb92b2 100644
+--- a/dm/games/README.md
++++ b/dm/games/README.md
+@@ -124,7 +124,7 @@ One row per profile; the notes are each profile's `README.md`.
+ | [Metroid Dread](010093801237C000/README.md) | `010093801237C000` | 2.1.0 | 11.4.3 | MercurySteam's engine | NVN |
+ | [Metroid Prime 4: Beyond](010019A01E2F2000/README.md) | `010019A01E2F2000` | 1.1.0 | 19.3.15 | Retro Studios' engine | NVN |
+ | [Metroid Prime Remastered](010012101468C000/README.md) | `010012101468C000` | 1.0.0 (base) | 12.3.1 | Retro Studios' engine | NVN |
+-| [Mina the Hollower](0100DCD01F306000/README.md) | `0100DCD01F306000` | 1.0.5 | 21.4.3 | Yacht Club Games' own engine | NVN |
++| [Mina the Hollower](0100DCD01F306000/README.md) | `0100DCD01F306000` | 1.0.5 (and 1.0.6) | 21.4.3 | Yacht Club Games' own engine | NVN |
+ | [Minecraft Dungeons II](0100A7C01B792000/README.md) | `0100A7C01B792000` | 1.1.3.0 | 20.5.15 | Unreal Engine 5, Wwise, Havok | NVN |
+ | [Monster Hunter Rise](0100B04011742000/README.md) | `0100B04011742000` | 16.0.2 | 11.4.3 | Capcom's RE Engine | NVN |
+ | [Monster Train 2](010051701FB46000/README.md) | `010051701FB46000` | 1.1.1 | 18.3.5 | Unity 2022.3.54f1 IL2CPP | NVN |
