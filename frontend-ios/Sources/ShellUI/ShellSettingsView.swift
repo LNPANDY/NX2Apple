@@ -50,6 +50,7 @@ struct ShellSettingsView: View {
     var store: ShellSettingsStore = .current
     var actions: ShellActions
     var onClose: () -> Void
+    var signingTeamID: String? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.shellFocus) private var focus
     /// Counts the changes in the defaults, so the rows read the store again.
@@ -110,6 +111,29 @@ struct ShellSettingsView: View {
                     }
                 } footer: {
                     Text(ShellStrings.text("Games without a folder of their own save here. Choose the same iCloud Drive folder you use on your Mac."))
+                }
+
+                Section {
+                    Button(action: actions.onImportSigningIdentity) {
+                        HStack {
+                            Label(ShellStrings.text("Signing identity"), systemImage: "signature")
+                            Spacer(minLength: 12)
+                            if let signingTeamID, !signingTeamID.isEmpty {
+                                Text(verbatim: signingTeamID)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1).truncationMode(.middle)
+                                    .layoutPriority(-1)
+                                    .accessibilityIdentifier("shellSettings.signing.team")
+                            }
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                                .fixedSize()
+                                .accessibilityHidden(true)
+                        }
+                    }
+                    .accessibilityIdentifier("shellSettings.signing")
+                    .shellTarget("shs.signing", action: actions.onImportSigningIdentity)
                 }
 
                 Section {

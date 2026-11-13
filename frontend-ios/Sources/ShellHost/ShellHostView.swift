@@ -14,12 +14,18 @@ public struct ShellHostView: View {
         self.initialDetailOpen = initialDetailOpen
     }
 
+    private var libraryInputEnabled: Bool {
+        !model.launchingGame && !model.resigningGame && !model.importingSigningIdentity && model.log == nil && model.notice == nil
+    }
+
     public var body: some View {
         LibraryView(games: model.details, controllers: model.controllers, actions: model.actions, input: model.input,
                     initialSelection: initialSelection, initialDetailOpen: initialDetailOpen, globalPadMap: model.globalPadMap,
                     padMerge: model.padMerge, padSnapshot: model.padSnapshot,
                     signingWarning: model.signingWarning,
-                    onDismissSigningWarning: { model.dismissSigningWarning() })
+                    onDismissSigningWarning: { model.dismissSigningWarning() }, signingTeamID: model.signingTeamID, inputEnabled: libraryInputEnabled,
+                    signingIdentityPresented: $model.importingSigningIdentity,
+                    signingIdentityContent: AnyView(ShellSigningIdentityView()))
             .disabled(model.launchingGame)
             .overlay {
                 if model.launchingGame {
@@ -44,15 +50,16 @@ public struct ShellHostView: View {
                 .presentationBackground(ShellPalette.background)
             }
             .sheet(item: $model.log) { LogView(log: $0) }
-            .alert(Text(verbatim: hostText("Shell")), isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
-                Button(hostText("OK")) { model.notice = nil }
+            .alert(Text(verbatim: model.noticeTitle ?? hostText("Shell")), isPresented: Binding(
+                get: { model.notice != nil }, set: { if !$0 { model.notice = nil; model.noticeTitle = nil } })) {
+                Button(hostText("OK")) { model.notice = nil; model.noticeTitle = nil }
             } message: { Text(model.notice ?? "") }
             .onAppear { model.startControllers() }
             .onDisappear { model.stopControllers() }
     }
 }
 
-/// A game's log, read-only.
+/// Read-only, selectable game logs and operation diagnostics.
 struct LogView: View {
     let log: LogPresentation
     @Environment(\.dismiss) private var dismiss
@@ -76,6 +83,7 @@ struct LogView: View {
             #endif
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button(hostText("Done")) { dismiss() }.accessibilityIdentifier("log.close") } }
         }
+        .tint(ShellPalette.cream)
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("log.sheet")
     }

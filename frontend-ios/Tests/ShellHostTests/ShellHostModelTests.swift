@@ -36,6 +36,18 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         try detail(model, game).sections.flatMap(\.rows).first { $0.id == setting }?.value
     }
 
+    @Test func settingsActionOpensAndCanDismissTheSigningImporter() throws {
+        let box = try Sandbox()
+        let model = ShellHostModel(config: box.config(), shellSettings: shellSettings())
+        #expect(!model.importingSigningIdentity)
+        model.actions.onImportSigningIdentity()
+        #expect(model.importingSigningIdentity)
+        model.importingSigningIdentity = false
+        #expect(!model.importingSigningIdentity)
+        model.actions.onImportSigningIdentity()
+        #expect(model.importingSigningIdentity)
+    }
+
     @Test func theTouchSizeReachesEveryGameAsDMTouchSize() async throws {
         let box = try Sandbox()
         try box.giveAppData()

@@ -153,10 +153,14 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
     public var cloudCanUseShell: Bool
     /// Readable timestamp label of the newest backup in `<appFolder>/save-backups/`, or nil when none exists.
     public var latestSaveBackup: String?
+    /// The host permits re-signing this imported game. Bundled games never expose the action.
+    public var canResign: Bool
+    /// Earlier expiration of the game signing certificate and app provisioning profile, only when both are known.
+    public var signingExpiration: Date?
     public init(game: GameTile, sections: [SettingSection] = [], dataSource: String = "", dataNote: String = "",
                 cloudSaves: String? = nil, cloudNote: String = "", dlc: String = "", hasModifiedSettings: Bool = false,
                 dataFromShell: Bool = false, cloudFromShell: Bool = false, cloudCanUseShell: Bool = false,
-                latestSaveBackup: String? = nil) {
+                latestSaveBackup: String? = nil, canResign: Bool = false, signingExpiration: Date? = nil) {
         self.game = game
         self.sections = sections
         self.dataSource = dataSource
@@ -169,6 +173,8 @@ public struct GameDetail: Identifiable, Equatable, Sendable {
         self.cloudFromShell = cloudFromShell
         self.cloudCanUseShell = cloudCanUseShell
         self.latestSaveBackup = latestSaveBackup
+        self.canResign = canResign
+        self.signingExpiration = signingExpiration
     }
 }
 
@@ -283,6 +289,8 @@ public struct ShellActions {
     public var onBack: () -> Void
     public var onPickShellData: () -> Void
     public var onPickShellCloud: () -> Void
+    /// Opens the device-local P12 and provisioning-profile importer.
+    public var onImportSigningIdentity: () -> Void
     public var onUseShellCloud: (String) -> Void
     public var onClearShellData: () -> Void
     public var onClearShellCloud: () -> Void
@@ -296,6 +304,10 @@ public struct ShellActions {
     public var onRestoreSaveBackup: (String) -> Void
     /// Deletes the game's data on this device and takes it off the list. `saves`: its saves go too.
     public var onDeleteGame: (_ gameID: String, _ saves: Bool) -> Void
+    /// Performs signing while Settings shows progress. The host defers result presentation.
+    public var onResignGame: (String) async -> Void
+    /// Presents the prepared signing outcome after Settings has finished closing.
+    public var onShowSigningResult: () -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
                 onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
                 onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
@@ -305,11 +317,14 @@ public struct ShellActions {
                 onPickShellData: @escaping () -> Void = {}, onPickShellCloud: @escaping () -> Void = {},
                 onUseShellCloud: @escaping (String) -> Void = { _ in }, onClearShellData: @escaping () -> Void = {},
                 onClearShellCloud: @escaping () -> Void = {},
+                onImportSigningIdentity: @escaping () -> Void = {},
                 onGlobalPadMapChange: @escaping (String, String) -> Void = { _, _ in },
                 onGlobalPadMapReset: @escaping () -> Void = {}, onButtonTest: @escaping (Bool) -> Void = { _ in },
                 onPadMergeChange: @escaping (Bool) -> Void = { _ in },
                 onRestoreSaveBackup: @escaping (String) -> Void = { _ in },
-                onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in }) {
+                onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in },
+                onResignGame: @escaping (String) async -> Void = { _ in },
+                onShowSigningResult: @escaping () -> Void = {}) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -326,11 +341,14 @@ public struct ShellActions {
         self.onUseShellCloud = onUseShellCloud
         self.onClearShellData = onClearShellData
         self.onClearShellCloud = onClearShellCloud
+        self.onImportSigningIdentity = onImportSigningIdentity
         self.onGlobalPadMapChange = onGlobalPadMapChange
         self.onGlobalPadMapReset = onGlobalPadMapReset
         self.onButtonTest = onButtonTest
         self.onPadMergeChange = onPadMergeChange
         self.onRestoreSaveBackup = onRestoreSaveBackup
         self.onDeleteGame = onDeleteGame
+        self.onResignGame = onResignGame
+        self.onShowSigningResult = onShowSigningResult
     }
 }

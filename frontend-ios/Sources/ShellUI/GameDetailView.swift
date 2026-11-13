@@ -11,9 +11,11 @@ public struct GameDetailView: View {
     public var showsHeader: Bool
     /// The parent Form owns scrolling, section backgrounds and separators.
     public var nativeSections: Bool
+    @Environment(\.shellIgnoresPress) private var ignoresPress
     @Environment(\.shellAskDelete) private var askDelete
     @Environment(\.shellAskRestoreBackup) private var askRestoreBackup
     @State private var localRestoreBackup = false
+    @State private var resigning = false
     public init(detail: GameDetail, actions: ShellActions = ShellActions(), showsPrimaryAction: Bool = true, showsHeader: Bool = true, nativeSections: Bool = false) {
         self.detail = detail
         self.actions = actions
@@ -103,11 +105,18 @@ public struct GameDetailView: View {
                 }
             }
         }
-        if !detail.game.version.isEmpty {
+        if !detail.game.version.isEmpty || detail.canResign {
             if nativeSections {
-                Section { versionRow }
+                Section {
+                    versionAndExpirationRows
+                } footer: {
+                    if detail.canResign { signingExpirationFootnote }
+                }
             } else {
-                versionRow
+                VStack(alignment: .leading, spacing: 10) {
+                    versionAndExpirationRows
+                    if detail.canResign { signingExpirationFootnote }
+                }
             }
         }
         VStack(alignment: .leading, spacing: 10) {
@@ -117,6 +126,16 @@ public struct GameDetailView: View {
                 .shellTarget("set.reset", enabled: detail.hasModifiedSettings) { actions.onResetDefaults(detail.id) }
             Text(ShellStrings.text("Brings back the settings this game was tested with."))
                 .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+        }
+        if detail.canResign {
+            VStack(alignment: .leading, spacing: 10) {
+                GameSettingsGlassButton(title: ShellStrings.text("Re-sign game"), loading: resigning, action: resignGame)
+                    .disabled(resigning)
+                    .accessibilityIdentifier("set.resign")
+                    .shellTarget("set.resign", enabled: !resigning, action: resignGame)
+                Text(ShellStrings.text("Re-signs this game with your saved signing identity."))
+                    .shellText(12.5).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
         if let askDelete {
             // Last and apart from the rest: the one action here that removes something. It only asks, the question names what goes.
@@ -128,6 +147,41 @@ public struct GameDetailView: View {
                     .shellText(12.5).foregroundStyle(.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private func resignGame() {
+        guard !ignoresPress(), !resigning else { return }
+        resigning = true
+        Task {
+            await actions.onResignGame(detail.id)
+            resigning = false
+        }
+    }
+
+    static func signingExpirationValue(expiration: Date?, now: Date) -> String {
+        guard let expiration else {
+            return ShellStrings.text("Unavailable")
+        }
+        let remaining = expiration.timeIntervalSince(now)
+        guard remaining > 0 else { return ShellStrings.text("Expired") }
+        let days = Int(ceil(remaining / 86_400))
+        return ShellStrings.text("\(days) days")
+    }
+
+    @ViewBuilder private var versionAndExpirationRows: some View {
+        if !detail.game.version.isEmpty { versionRow }
+        if detail.canResign {
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                LabeledContent(ShellStrings.text("Expires in"),
+                               value: Self.signingExpirationValue(expiration: detail.signingExpiration, now: context.date))
+                    .accessibilityIdentifier("detail.signingExpiration")
+            }
+        }
+    }
+
+    private var signingExpirationFootnote: some View {
+        Text(ShellStrings.text("Based on this app's provisioning profile and the game's signing certificate."))
+            .shellText(12.5).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
 
     private var versionRow: some View {
@@ -204,10 +258,17 @@ struct SettingsGroup<Content: View>: View {
 private struct GameSettingsGlassButton: View {
     let title: String
     var destructive = false
+    var loading = false
     let action: () -> Void
     var body: some View {
         Button(role: destructive ? .destructive : nil, action: action) {
-            Text(title).frame(maxWidth: .infinity)
+            HStack(spacing: 8) {
+                if loading {
+                    ProgressView().controlSize(.small)
+                        .accessibilityIdentifier("set.resign.progress")
+                }
+                Text(title)
+            }.frame(maxWidth: .infinity)
         }
         .buttonStyle(.glass)
         .controlSize(.large)

@@ -29,6 +29,15 @@ public struct LaunchableGame: Equatable, Sendable {
 /// shell shows.
 public protocol GameLauncher: Sendable {
     @MainActor func launch(_ game: LaunchableGame) async throws
+    /// Call immediately before native loading; preparation failures must leave it untouched.
+    @MainActor func launch(_ game: LaunchableGame, willLoad: () -> Void) async throws
+}
+
+extension GameLauncher {
+    @MainActor public func launch(_ game: LaunchableGame, willLoad: () -> Void) async throws {
+        willLoad()
+        try await launch(game)
+    }
 }
 
 public enum GameLaunchError: LocalizedError, Equatable, Sendable {

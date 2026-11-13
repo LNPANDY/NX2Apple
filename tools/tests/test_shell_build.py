@@ -141,6 +141,8 @@ class ShellMainProvidesWhatFrontIosTakes(unittest.TestCase):
         self.assertEqual(missing, [], 'ShellGlue.m does not define what front_ios.m and ShellMain.m take')
         self.assertIn('dm_glue_version =', glue)
         shell_main = (ROOT / 'frontend-ios/Shell/App/ShellMain.m').read_text()
+        self.assertIn('fsig.fs_file_start = (off_t)slice_off;', shell_main)
+        self.assertIn('fsig.fs_blob_start = (void *)(uintptr_t)sig_off;', shell_main)
         self.assertRegex(shell_main, r'\bdm_shell_return_to_library\s*\(void\)')
         self.assertIn('dm_shell_return_to_library', front)
         self.assertIn('dm_host_teardown_for_shell', front)
