@@ -3,6 +3,8 @@ import Foundation
 package struct Stage: Identifiable {
     package let id: Int          // k, the stage number in the script's own plan
     package var name: String
+    package var nameKey: String? = nil
+    package var nameArgument: String? = nil
     package var state: StepState = .running
     package var detail: String = ""
     package var isScanningLastShaderFiles = false
@@ -12,9 +14,21 @@ package struct Stage: Identifiable {
     package var etaAt: Date? = nil
 
     package init(id: Int, name: String, state: StepState = .running, detail: String = "", percent: Double? = nil,
-                 started: Date? = nil, eta: Double? = nil, etaAt: Date? = nil) {
+                 started: Date? = nil, eta: Double? = nil, etaAt: Date? = nil, nameKey: String? = nil, nameArgument: String? = nil) {
         self.id = id; self.name = name; self.state = state; self.detail = detail; self.percent = percent
-        self.started = started; self.eta = eta; self.etaAt = etaAt
+        self.started = started; self.eta = eta; self.etaAt = etaAt; self.nameKey = nameKey; self.nameArgument = nameArgument
+    }
+
+    /// The name in the launcher's current language, worked out each time the row is drawn so a language change
+    /// reaches stages that already started: an app stage from its key, a script stage from its English name.
+    package func displayName(_ t: (String) -> String) -> String {
+        Self.displayName(name: name, nameKey: nameKey, nameArgument: nameArgument, t)
+    }
+
+    package static func displayName(name: String, nameKey: String?, nameArgument: String?, _ t: (String) -> String) -> String {
+        guard let nameKey else { return localizedName(name, t) }
+        let format = t(nameKey)
+        return nameArgument.map { String(format: format, $0) } ?? format
     }
 
     /// A stage's name in the launcher's language. The script names its stages in English (PROG.stage in
@@ -30,6 +44,9 @@ package struct Stage: Identifiable {
         // A game folder packs each version into an image ("pack v458752", pack_dump.py), a NUP unpacks it ("unpack v196608", pack_nup.py)
         if name.hasPrefix("pack "), let f = known("stage.pack") { return String(format: f, String(name.dropFirst("pack ".count))) }
         if name.hasPrefix("unpack "), let f = known("stage.unpack") { return String(format: f, String(name.dropFirst("unpack ".count))) }
+        if name.hasPrefix("check "), name.hasSuffix(" files"), let f = known("stage.check") {
+            return String(format: f, String(name.dropFirst("check ".count).dropLast(" files".count)))
+        }
         if name.hasSuffix(" shader capture"), let f = known("stage.capture") { return String(format: f, String(name.dropLast(" shader capture".count))) }
         return name
     }

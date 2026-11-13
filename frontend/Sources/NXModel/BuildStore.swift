@@ -574,7 +574,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             stopPSOPoll()
         }
         if let i = stages.firstIndex(where: { $0.id == s.k }) {
-            if !s.name.isEmpty { stages[i].name = Stage.localizedName(s.name, t) }
+            if !s.name.isEmpty { stages[i].name = s.name }
             if s.state != .pending { stages[i].state = s.state }
             let keepPSOPoll = (s.state == .running && s.percent == nil && psoStageID == s.k && !psoNativeProgress && stages[i].percent != nil)
             if !keepPSOPoll {
@@ -582,7 +582,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
                 stages[i].percent = s.percent
             }
         } else if s.state != .pending {
-            stages.append(Stage(id: s.k, name: Stage.localizedName(s.name, t), state: s.state, detail: s.detail, percent: s.percent, started: Date()))
+            stages.append(Stage(id: s.k, name: s.name, state: s.state, detail: s.detail, percent: s.percent, started: Date()))
             stages.sort { $0.id < $1.id }
         }
         refreshOverallProgress(parsedTotal: s.n)
@@ -604,7 +604,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             if let i = stages.firstIndex(where: { $0.id == k }) {
                 update(&stages[i])
             } else {
-                var s = Stage(id: k, name: Stage.localizedName(e["name"] as? String ?? "", t))
+                var s = Stage(id: k, name: e["name"] as? String ?? "")
                 update(&s)
                 stages.append(s)
                 stages.sort { $0.id < $1.id }
@@ -616,7 +616,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
             let n = (e["n"] as? NSNumber)?.intValue ?? 0
             append("[\(k)/\(n)] \(name)" + (step.isEmpty ? "" : " · \(step)") + " …\n")
             stage {
-                $0.name = Stage.localizedName(name, t)
+                $0.name = name
                 $0.state = .running
                 $0.started = Date()
                 $0.detail = step
