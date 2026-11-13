@@ -1346,6 +1346,21 @@ class LibraryAndSpaceTests(unittest.TestCase):
                 self.assertEqual(derived_g.builds()['v0']['display'], '1.0.0')
 
 
+class DiagnosticsReportTests(unittest.TestCase):
+    def test_each_dependency_row_names_its_dependency(self) -> None:
+        """Copy diagnostics named no dependency: model.Dep has an id and no name, so every row read `- : [OK] ...` (#1183)."""
+        from types import SimpleNamespace
+        # model.Dep's fields (it imports PySide6): an id, no name, `ok` from its state
+        deps = [
+            SimpleNamespace(id='python', title_key='dep.python', ok=True, required=True, detail='C:/py/python.exe'),
+            SimpleNamespace(id='dotnet', title_key='dep.dotnet', ok=False, required=True, detail=''),
+        ]
+        report = feat.Diagnostics.format_report(app_version='1.0', repo_path='', deps=deps, last_log='')
+        self.assertIn('- python: [OK] ', report)
+        self.assertIn('- dotnet: [MISSING]', report)
+        self.assertNotIn('\n- : ', report)
+
+
 class ParityWindowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
