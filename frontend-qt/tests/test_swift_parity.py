@@ -4,10 +4,10 @@ BuildFolder (FreeSpace), GameDeletion, DriveCopy, Diagnostics, and the 3-page UI
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import struct
 import sys
-import importlib.util
 import tempfile
 import unittest
 import zipfile
