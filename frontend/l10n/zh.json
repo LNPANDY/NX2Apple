@@ -1984,6 +1984,8 @@
   "settings.cat.general": "常规",
   "settings.cat.library": "游戏库",
   "settings.cat.tools": "工具",
+  "settings.display": "显示器",
+  "settings.display.launcher": "与启动器相同",
   "settings.general": "常规",
   "settings.heading": "设置",
   "settings.language": "界面语言",

@@ -1983,6 +1983,8 @@
   "settings.cat.general": "一般",
   "settings.cat.library": "ライブラリ",
   "settings.cat.tools": "ツール",
+  "settings.display": "ディスプレイ",
+  "settings.display.launcher": "ランチャーと同じ",
   "settings.general": "一般",
   "settings.heading": "設定",
   "settings.language": "言語",
