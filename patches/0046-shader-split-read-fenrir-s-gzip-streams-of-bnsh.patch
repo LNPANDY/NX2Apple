@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: XeresRazor <shinohara@gmail.com>
+Date: Fri, 13 Nov 2026 16:43:45 -0500
+Subject: [PATCH] shader_split: read Fenrir's gzip streams of BNSH files
+ (Valkyria Chronicles 4)
+
+Valkyria Chronicles 4's shaders are gzip streams of BNSH files, every stream with
+the same ten header bytes (1f8b08 00 00000000 00 0b): 6,712 in the HSPK package
+FENRIR_SHADER_NEW_NX64_.HSG (a CRI CPK entry) and 158 in main (its built-in
+fen_prim_* shaders). No reader decompressed them, so the split found 0 shaders
+and the build stopped with "the shader split found no shaders in main or the
+RomFS".
+
+gzip_bnsh_shaders takes a stream only with that exact header, complete and with
+BNSH inside, and bounds the decoded bytes of all of them to NEST times the
+file's. scan_blob calls it for an HSPK file, main() for each version's main.
+Each BNSH holds one stage, so the shaders are single-stage programs.
+
+The split gives 6,870 keys (RomFS 6,712, main 158), identical to the 6,870
+programs the game creates in its first 60 seconds (a temporary host change dumped
+the image behind every nvnProgramSetShaders). 16 other games' main have no stream
+with that header, so their tables do not change. A Mac build passes all steps and
+the game reaches its opening scenes and first map screen at about 30 fps.
+
+test_gzip_bnsh.py builds synthetic packages (no game files). The format and the
+check are in docs/reference/shaders.md and docs/agents/01-extract.md.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+Upstream-Status: pending
+Reason: Valkyria Chronicles 4's shaders are gzip streams of BNSH files that no shader_split reader decompressed: the split found 0 shaders and the build stopped
+Issue: LNPANDY/NX2Apple#1279
+
+---
+ dm/gfx/tools/shader_split.py     | 28 ++++++++++++-
+ dm/tools/tests/test_gzip_bnsh.py | 72 ++++++++++++++++++++++++++++++++
+ docs/agents/01-extract.md        |  1 +
+ docs/reference/shaders.md        | 10 +++++
+ 4 files changed, 110 insertions(+), 1 deletion(-)
+ create mode 100644 dm/tools/tests/test_gzip_bnsh.py
+
+diff --git a/dm/gfx/tools/shader_split.py b/dm/gfx/tools/shader_split.py
+index c3ab570..ea342dd 100644
+--- a/dm/gfx/tools/shader_split.py
++++ b/dm/gfx/tools/shader_split.py
+@@ -23,6 +23,7 @@
+ #   · SDF (Capcom's RE Engine, Monster Hunter Rise): shader definitions inside the PAK archives (KPKA, entries zstd / deflate compressed), only the newest copy of each path, see kpka_jobs and sdf_shaders
+ #   · Trinity packs (Game Freak, Pokémon Legends: Z-A): BNSH inside the files of arc/data.trpfs (Oodle Mermaid, decoded by the game's own decoder in the Mac host), see trpfs_jobs and trinity_shaders
+ #   · SPK (Capcom's MT Framework, The Great Ace Attorney Chronicles): the shader package inside an ARC archive (zlib entries), code area + control section per shader, see mtarc_members and mtspk_shaders
++#   · Fenrir (Sega, Valkyria Chronicles 4): gzip streams of BNSH files, 6,712 in the HSPK package FENRIR_SHADER_NEW_NX64_.HSG (a CRI CPK entry) and 158 in main, see gzip_bnsh_shaders
+ #   · BEA (NintendoWare Bezel Engine archives, Big Brain Academy: Brain vs. Brain): BNSH in the .bfsha entries of the archives (zstd entries), see bea_members
+ #   · MGFX (MonoGame effects, Celeste, Bastion): the effects in its XNB files and SpriteBatch's in main, each shader a control section and a code area (version 5: a whole GLSLC output), see mgfx_effect
+ #   · dvdbnd (FromSoftware, Dark Souls Remastered): GLSLC outputs in the BND3 archives (DCX zlib entries) of the .bdt files, indexed by the .bhd5 beside each, see bhd5_entries and bdt_shaders
+@@ -2997,8 +2998,32 @@ NEST = 16   # archives in archives scan_blob opens (SARC, PlatinumGames' DAT): r
+             # each counted by what it takes up in its archive, and left[1], what its Yaz0 members expand to. Counting a Yaz0 member by what it expands to in the first budget paid twice
+             # for the same bytes, once for the member and once for its members (GitHub issue #640: Mario Kart 8 Deluxe's UI/<lang>/race.sarc, 204 KB, holds one layout archive
+             # that expands 9 times, which then added up to 18 times the file)
++GZ_BNSH = bytes.fromhex('1f8b080000000000000b')   # the header of Fenrir's gzip streams (Valkyria Chronicles 4): no flags, no time, OS 11 (NTFS); all 6,870 of them have exactly these ten bytes
++GZ_IN, GZ_OUT = 1 << 18, 1 << 24   # the most compressed bytes and decoded bytes of one stream (the game's are at most 4,259 and 10,512): a longer one is not a shader file
++HSPK = b'HSPK'
++def gzip_bnsh_shaders(d, label, out):
++    """Gzip streams that each hold one BNSH file, back to back in a Fenrir shader package ('HSPK', FENRIR_SHADER_NEW_NX64_.HSG in Valkyria Chronicles 4's FEN_0000.CPK: 6,714 streams, 6,712 BNSH of one stage
++    each, 45.6 MB decoded) and in the game's own main (158 more, its built-in fen_prim_* shaders, as 4 KB-aligned arrays in its data). The game inflates them with the SDK's zlib at start-up and hands the BNSH
++    to nn::gfx. A stream counts only with the exact header above, complete (no truncated or damaged stream) and BNSH inside, so a gzip stream of anything else, or a magic in code, is skipped; the decoded
++    bytes of all together may not pass NEST times the file's. Each BNSH holds one stage, so the shaders are single-stage programs (separable_pairs)"""
++    budget = NEST * len(d); mv = memoryview(d); i = d.find(GZ_BNSH); skip = 0
++    while i >= 0:
++        if i >= skip:
++            z = zlib.decompressobj(31)
++            try: data = z.decompress(mv[i:i + GZ_IN], GZ_OUT)
++            except zlib.error: data = b''
++            if z.eof and data[:8] == b'BNSH\0\0\0\0':
++                budget -= len(data)
++                if budget < 0: red(f'{label}: the gzip streams expand to more than {NEST} times the file')
++                skip = i + min(GZ_IN, len(d) - i) - len(z.unused_data)
++                scan_blob(data, f'{label}#GZ@{i:#x}', out, 1)
++        i = d.find(GZ_BNSH, i + 1)
++
+ def scan_blob(d, label, out, depth=0, left=None):
+     if depth > NEST: red(f'{label}: archives nested more than {NEST} deep')
++    if d[:4] == HSPK:   # a Fenrir shader package: gzip streams of BNSH files (gzip_bnsh_shaders)
++        gzip_bnsh_shaders(d, label, out)
++        return
+     if d[:8] == SUMO_MUX:
+         members = list(sumo_members(d, label))
+         if left is None: left = [NEST * sum(len(member) for _, member in members)] * 2   # as with Yaz0, count decoded bytes, not compressed bytes
+@@ -3070,7 +3095,7 @@ def pixel_input_cover(shaders):
+         k = min(ins, key=lambda k: (-len(ins[k] & left), k)); cover.append(k); left -= ins[k]
+     return cover
+ 
+-SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@', '#D3@', '#SHAD@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
++SINGLE_STAGE = ('#GLSLC@', '#VIPER', '#UE', '#MTSPK@', '#MGFX@', '#NLG', '#PGSO', '#RAW@', '#TFXO@', '#NEEDLE@', '#GZ@', '#SNOWDROP@', '#PHYRE@', '#SUMO@', '#NVNSH@', '#D3@', '#SHAD@')   # sources whose every shader is a program of one stage: GLSLC outputs, Unreal's shader records, MT Framework's shader package (BNSH variations, Unity programs, MSHD and SDF pair theirs);
+ # Unreal Engine 3's shader caches (ue3_shaders, '#UE3@'); MonoGame's effects, whose passes may name no vertex shader and keep the one bound (Celeste: 10 of its 13 effects draw through SpriteBatch's vertex shader, which is in main); Next Level Games'
+ # archives (Luigi's Mansion 3 makes 5,317 programs of one stage each at boot); PlatinumGames' shader objects (Bayonetta 3: one stage each, pg_shader); control sections loose in main
+ # (Advance Wars 1+2: Re-Boot Camp's Bink shaders, raw_shaders), which no file pairs; YEBIS's effect file (tfxo_shaders); and Sumo's Ninty_NX descriptors and NVNsh records, one stage
+@@ -3411,6 +3436,7 @@ def main():
+             except ValueError: common = None   # not a Unity game
+         found = []; scan_blob(img, 'main' + ('@' + tag if tag else ''), found)
+         found += glslc_shaders(img, 'main' + ('@' + tag if tag else ''), need=False)
++        gzip_bnsh_shaders(img, 'main' + ('@' + tag if tag else ''), found)   # Fenrir's built-in shaders, gzip streams in main (Valkyria Chronicles 4: 158 fen_prim_* shaders)
+         found += tfxo_streams(img, 'main' + ('@' + tag if tag else ''))   # YEBIS's effect file, a zlib stream in main (Pokémon Sword)
+         found += retro_main_forms(img, 'main' + ('@' + tag if tag else ''))   # Retro's startup material archive, LZSS in main (Donkey Kong Country: Tropical Freeze)
+         if RGXD in img: found += rgxd_shaders(img, 'main' + ('@' + tag if tag else ''))   # RAGE's built-in effects (Red Dead Redemption: 20 in main's data, 168 shaders that shaders.rpf lacks)
+diff --git a/dm/tools/tests/test_gzip_bnsh.py b/dm/tools/tests/test_gzip_bnsh.py
+new file mode 100644
+index 0000000..770fb66
+--- /dev/null
++++ b/dm/tools/tests/test_gzip_bnsh.py
+@@ -0,0 +1,72 @@
++"""shader_split.gzip_bnsh_shaders: Fenrir's gzip streams of BNSH files (Valkyria Chronicles 4: 6,712 in the HSPK package FENRIR_SHADER_NEW_NX64_.HSG, 158 in main). Synthetic packages and
++images, no game files needed. A stream counts only with the game's exact gzip header, complete, and BNSH inside."""
++import struct
++import sys
++import unittest
++import zlib
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/tools/fuzz'))
++import fuzz_shader_split as fz   # its BNSH builder and shader_split with a profile
++ss = fz.ss
++
++HEADER = bytes.fromhex('1f8b080000000000000b')   # no flags, no time, OS 11: the ten bytes of all 6,870 of the game's streams
++
++
++def gz(data, header=HEADER):
++    c = zlib.compressobj(9, zlib.DEFLATED, -15); body = c.compress(data) + c.flush()
++    return header + body + struct.pack('<II', zlib.crc32(data), len(data))
++
++
++def package(*streams, pad=0x400):
++    """a Fenrir package: the 'HSPK' header, then the streams back to back (padded: the synthetic BNSH is mostly zeros and compresses far more than the game's, 2.7 times, which a short file would show as expansion)"""
++    return b'HSPK' + bytes(0x1c) + b''.join(s + bytes(pad) for s in streams)
++
++
++def scan(d, label='/FENRIR.HSG'):
++    out = []; ss.scan_blob(d, label, out)
++    return out
++
++
++class GzipBnsh(unittest.TestCase):
++    def test_package_gives_every_stream(self):
++        out = scan(package(gz(fz.bnsh()), gz(fz.bnsh()), gz(fz.bnsh())))
++        self.assertEqual(len(out), 6)   # a vertex and a pixel stage in each synthetic BNSH
++        self.assertTrue(all('#GZ@' in w and '#BNSH@' in w for w, *_ in out))
++        self.assertEqual(len({w for w, *_ in out}), 3)   # each stream is its own source (where it sits), shared by its two stages
++
++    def test_main_image_between_code_and_data(self):
++        img = bytes(0x2000) + b'\x1f\x8b\x08\0\0\0\0\0\0\x0b' + bytes(0x100) + package(gz(fz.bnsh()))[0x20:] + bytes(0x1000)   # a magic in code, then a stream
++        out = []; ss.gzip_bnsh_shaders(img, 'main', out)
++        self.assertEqual(len(out), 2)
++        self.assertTrue(all(w.startswith('main#GZ@') for w, *_ in out))
++
++    def test_other_gzip_streams_are_left_alone(self):
++        b = fz.bnsh()
++        other = gz(b'not a shader file' * 40)                                   # the right header, other content
++        header = gz(b, header=bytes.fromhex('1f8b0800000000000203'))             # BNSH, another header (another tool's)
++        truncated = gz(b)[:-20]                                                  # damaged: no end of stream
++        self.assertEqual(scan(package(other, header, truncated)), [])
++
++    def test_undamaged_streams_after_a_damaged_one_are_read(self):
++        out = scan(package(gz(fz.bnsh())[:-20], gz(fz.bnsh())))
++        self.assertEqual(len(out), 2)
++
++    def test_expansion_is_bounded(self):
++        # members of 1 MB of zeros after a BNSH magic compress to about 1 KB: together they pass NEST times a file of a few KB
++        bomb = gz(b'BNSH\0\0\0\0' + bytes(1 << 20))
++        d = package(*[bomb] * 8)
++        with self.assertRaises(SystemExit) as e: ss.gzip_bnsh_shaders(d, '/b.hsg', [])
++        self.assertIn('expand to more than', str(e.exception))
++
++    def test_a_stream_that_does_not_end_within_the_limit_is_not_read(self):
++        big = gz(b'BNSH\0\0\0\0' + bytes(ss.GZ_OUT + 1))
++        self.assertEqual(scan(package(big)), [])
++
++    def test_sources_are_single_stage_programs(self):
++        self.assertIn('#GZ@', ss.SINGLE_STAGE)
++
++
++if __name__ == '__main__':
++    unittest.main()
+diff --git a/docs/agents/01-extract.md b/docs/agents/01-extract.md
+index 06373c5..78f7db1 100644
+--- a/docs/agents/01-extract.md
++++ b/docs/agents/01-extract.md
+@@ -71,6 +71,7 @@ A top-level folder of `$W` untouched for 14 days, with 100 files or more, become
+ - Unreal Engine 5.6.1 (FINAL FANTASY RESONANCE, Square Enix: `SDK MW+EpicGames+UnrealEngine-5_6_1` in `main`) keeps everything in one IoStore container, `FFRS/Content/Paks/FFRS-Switch.utoc` / `.ucas` (6 GB, 63,910 chunks, Oodle in 64 KB blocks, not encrypted), beside `FFRS-Switch.pak` (2.9 GB, 2,363 files: configs, fonts, sound banks; version 11, index not encrypted, Oodle), a `global.utoc` holding only the script objects, and the RomFS's `Manifest_UFSFiles_Switch.txt`, which lists every file the engine sees, the shader archives among them. The pak has no shader code archive: the cooker converted both libraries into the container (EIoChunkType 8 `ShaderCodeLibrary`, one chunk each, the tables; type 9 `ShaderCode`, one chunk per shader group). A TOC (version 8) is a 144-byte header, the chunk IDs (12 bytes: hash, index, type), offsets and lengths (5 + 5 bytes big-endian), perfect hash seeds, the compression blocks (5-byte offset, 3-byte stored and raw sizes, method) and the method names; a library chunk's ID is CityHash64 of `<library>-<format>` lowercased in UTF-16 (`global-sf_glsl_switch-sp_glsl_switch`). Its tables and each group are Oodle-compressed, two layers, so `uepak.py` (`Toc`, `io_archive`) reads them through the game's own decoder in the Mac host's tool mode (`OodleHost`, `DM_OODLE_SERVE`; served before the SDK starts, no boot) and writes each library as a version 2 archive with every shader decoded: 3,542 + 70,702 shaders, 707 MB, in about 40 s. The pak stores block size 0 for a file of one block (`Pak.entry`).
+ - Unreal Engine 4.18 (DRAGON QUEST XI S, Square Enix) writes legacy paks, version 4: `JackGame/Content/Paks/pakchunk0-Switch.pak` (6.6 GB, 264,844 files) and `pakchunk1-Switch.pak` (7.2 GB, 147,824 files), and the update adds `*_0_P.pak` patch paks, which the engine mounts over the others (a path in a `_P` pak wins). The footer is the last 0x2d bytes (encrypted index flag, magic, version, index offset and size, SHA-1) and the index is not encrypted: the mount point, the file count, then each file's name and its FPakEntry (offset, stored and raw size, compression flags, SHA-1, the blocks' start and end, which are file offsets before version 5, the encrypted flag and the block size, 64 KB). The compression flags are no standard value: 3, which is LZ5 2.0 (LZ5 v2, later renamed Lizard; `main` exports `LZ5_*`, `LZ5_versionNumber` = 20001, and `FCompression::UncompressMemory` calls `LZ5_decompress_safe` for flags 3, `main+0x16f5c70`). Every block starts with its level, 0x2d = 45 (LIZv1 with Huffman). The repository has no LZ5 decoder: the game's own runs in the Mac host's tool mode (`hle_oodle.c`), which `uepak.py` (`Pak.read` with a decode function) and the shader split use. It takes 512 KB of work memory from the game's `malloc` on every call, so the host serves it only after `nninitStartup`. Scanning both paks (13.8 GB) with 8 workers takes 28 s.
+ - Capcom's MT Framework (The Great Ace Attorney Chronicles) keeps everything under `nativeNXx64/`: 447 ARC archives (`*.arc`, 17,910 files) beside loose `.tex` textures, Opus / ADPCM sound and H.264 `.mp4` movies. This game's ARC format is `ARC\0`, u16 version 7, u16 file count, then one 0x90-byte entry per file: the path (128 bytes, `\`-separated, no extension), u32 type hash, u32 stored length, u32 length in the low 29 bits (flags above), u32 offset. Each file is one zlib stream (stored when the two lengths are equal), and its first bytes name the format (`TEX\0`, `MOD\0`, `MRL\0`, `GMD\0`, `SDL\0`, `SPK\0` the shader package, …). `shader_split.py` also reads the [shorter ARC entries and reversed SPK layout](../reference/shaders.md#spk-shader-package-in-an-mt-framework-arc) used by Ultra Street Fighter II.
++- Sega's Fenrir engine (Valkyria Chronicles 4, SDK 4.5.0) keeps its RomFS in four CRI CPKs (`FEN_0000.CPK`, 10.7 GB, CRILAYLA entries, `.htx` textures 9 GB decoded, `.mlx`, `.sdp`, `.usm`, `.awb`). Its shaders are gzip streams of BNSH: 6,712 in `FENRIR_SHADER_NEW_NX64_.HSG` (an `HSPK` package, 17 MB) and 158 in `main`. `gzip_bnsh_shaders` reads both ([shaders](../reference/shaders.md#gzip-streams-of-bnsh-files-in-a-fenrir-package-and-in-main)).
+ - NintendoWare Bezel Engine (Big Brain Academy: Brain vs. Brain) keeps nearly everything in Bezel Engine archives: 603 `.bea` files (`Archive/<Permanent|Temporary>~<name>.nx[.<language>].bea`, plus the engine's own `System.nx.bea` at the RomFS root), 7,665 files in all, 2.6 GB unpacked from 0.38 GB. A `.bea` is a NintendoWare binary file with magic `SCNE` (version 0x10100, BOM `FF FE`): +0x20 u64 entry count, +0x28 u64 offset of an array of u64 entry offsets, +0x30 the name dictionary (`_DIC`), +0x40 the archive name. Each entry is a 0x30-byte `ASST` record: +0x10 u16 kind (2; 258 for the one sound project), u16 alignment shift, +0x14 u32 stored length, +0x18 u32 length, +0x20 u64 data offset, +0x28 u64 name offset (u16 length, then the path). Every entry is one zstd frame, even the two whose stored length equals their length. Inside: layouts (`.lyt`, SARCs with their own `__ArchiveShader.bnsh`), BNTX textures, `.bfsha` shader archives, models (`.fmdb`), MSBT text and fonts; the sound is loose `stream/*.bfstm` and the movies loose `movie/Movie/*.mp4` (H.264). `shader_split.py` reads the archives itself (`bea_members`).
+ - Game Freak's engine before Trinity (Pokémon Sword 1.3.2, SDK 7.3.2) keeps its models, textures, effects and maps in 7,699 GFPAK archives under `bin/archive` (7.9 GB of the 12.1 GB RomFS), beside loose message tables, battle data, Wwise banks and BNSH files. A GFPAK is `GFLXPACK`, u32 version 0x1000, u32 0, u32 file count, u32 folder count, u64 offset of the file table, u64 offset of the file hashes (FNV-1a 64 of each path; no names are stored), u64 offset of the folder table pointers; the file table holds 0x18 bytes per file {u16 level, u16 compression, u32 length, u32 stored length, u32 0, u64 data offset}, compression 0 stored, 1 zlib, 2 LZ4 (one block), 3 Oodle Kraken (pkNX). All 201,635 entries of Sword's are LZ4, so the split needs no Oodle (`shader_split.py` `gfpak_members`). Pokémon Legends: Arceus's 678 GFPAKs are Oodle Kraken in every entry, which the split decodes with the game's own decoder ([Oodle entries of GFPAK archives](../reference/shaders.md#oodle-entries-of-gfpak-archives)). Inside: BNTX textures, BNSH shader archives, models (`.gfbmdl`) and animations.
+ - Game Freak's Trinity engine (Pokémon Legends: Z-A) keeps almost everything in one archive, `arc/data.trpfs` (4.4 GB, 13,181 packs, 238,546 files, 17.7 GB unpacked), indexed by `arc/data.trpfd`; both are FlatBuffers. The descriptor's root table holds the file hashes (u64, sorted), the pack names (`arc/<the first file's path without its slashes>.trpak`), one info table per file (its pack index) and one per pack (size, file count). The file system starts with `ONEPACK\0` and the u64 offset of its own root table: the pack name hashes and the pack offsets. The name hash is not a plain FNV-1a 64 of the descriptor's name, so a pack is named through its first file's hash. A pack is a table of file hashes and file tables `{1 compression i8, 2 level u8, 3 length u64, 4 data}`; compression 3 is Oodle (every file but 15,528 small stored ones), and every Oodle stream is Mermaid (header `8C 0A`, `CC 0A` for an uncompressed chunk). Oodle is linked into `main` and there is no Mermaid decoder with a licence fit for this repository, so the shader split runs the game's own `OodleLZ_Decompress` in the Mac host's tool mode (`dm/host/hle_oodle.c`, `DM_OODLE_SERVE=1`: requests on stdin, answers on stdout). The host finds it in `main` by the one function that references its name string (as for Unreal's archives), and calls it as the game does (`main+0x1a9b7bc` on 2.0.2: fuzz safe, no CRC check, thread phase 3). The shader split's full scan (every file decoded, 17.7 GB) takes 5 minutes with 12 workers on a 12-core Apple M6.
+diff --git a/docs/reference/shaders.md b/docs/reference/shaders.md
+index 0d802fc..45da6b8 100644
+--- a/docs/reference/shaders.md
++++ b/docs/reference/shaders.md
+@@ -299,6 +299,16 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
+ - **Note:** in Ace Attorney, `CustomShaderPackage.mfx` (`MFX\0`, the effect descriptions) holds no shader code, and neither `main` nor any other ARC entry does.
+ - **Found on:** [The Great Ace Attorney Chronicles](../../dm/games/010036E00FB20000/README.md) (Capcom's MT Framework): all 460 build, with Mario's binding layout; every binding decodes.
+ 
++### Gzip streams of BNSH files in a Fenrir package and in main
++
++- **Symptom:** `[RED] the shader split found no shaders in main or the RomFS` on a RomFS of four CRI CPKs (`FEN_0000.CPK`, 10.7 GB, 27,458 files) and a `main` with no shader container, no GLSLC output and no control-section magic. The game imports `glslcCompile` and never calls it (its GLSLC imports are unbound).
++- **How it is stored:** two places, both gzip streams of one BNSH file each, every stream with the same ten header bytes `1f 8b 08 00 00 00 00 00 00 0b` (no flags, no time, OS 11). 6,712 are in `FENRIR_SHADER_NEW_NX64_.HSG` (17 MB, stored in the CPK), a package that starts `HSPK` (then a `KSPK` table of 135 programs by name and hash, `EOFC`, a `KSPP` package and its relocation tables). 158 more, the built-in `fen_prim_*` shaders (58 names in `main`), lie in `main`'s data as 4 KB-aligned arrays. Each BNSH holds one stage: 3,435 vertex and 3,435 pixel shaders in all, at most 4,259 bytes stored and 10,512 decoded.
++- **Why nothing found them:** the BNSH are inside compressed streams, so the scan for BNSH, GLSLC and control-section magics saw none. Where the game decodes them: its start-up inflates them with the SDK's zlib (`nnutilZlib_inflate`, window bits 31) into 4 KB-aligned buffers, then `main+0x59b28c` checks the `BNSH` magic and hands them to `nn::gfx` (`ShaderImpl::Initialize`, `main+0x64c640`, which calls `nvnProgramSetShaders` six stages at a time).
++- **Fix:** `shader_split.py` `gzip_bnsh_shaders` takes a stream only with that exact header, complete and with `BNSH` inside, and bounds the decoded bytes of all of them to `NEST` times the file's. `scan_blob` calls it for an `HSPK` file, `main()` for each version's main. The shaders are single-stage programs (`SINGLE_STAGE`, `#GZ@`). `dm/tools/tests/test_gzip_bnsh.py` has synthetic packages.
++- **Checked:** the split gives 6,870 keys (RomFS 6,712, main 158), **identical to the 6,870 programs the game creates in its first 60 seconds** (a temporary host change dumped the image behind every `nvnProgramSetShaders`), including the 33 it draws with at its start. 16 other games' `main` (Breath of the Wild, Metroid Dread, Mina the Hollower, Advance Wars 1+2 among them) have no stream with that header, so their tables do not change.
++- **Not checked:** the translation of the 6,870 shaders and a run of the game with them. The check boots with no shader libraries.
++- **Found on:** Valkyria Chronicles 4 (`01005C600AC68000`, 1.0.0, SDK 4.5.0), no registered profile yet.
++
+ ### PKZ version 1 archives
+ 
+ - **Symptom:** `[RED] ... PKZ version 0x10000: only 0x20000 is known` stops the shader split.
