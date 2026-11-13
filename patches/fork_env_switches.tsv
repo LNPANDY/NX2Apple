@@ -34,3 +34,5 @@ DM_TOUCH_SIZE	player	iOS touch-control size: small, medium (default) or large. C
 DM_TOUCH_STICK	player	iOS left touch-stick position: corner (default), higher or inward
 DM_TOUCH_TOGGLE	player	iOS touch keys set to Toggle in the shell's touch layout editor, as control names joined by commas (for example `zl,zr,a`): a tap turns the key on, the next tap off. Also set by the in-game menu of a game's own app (the Touch keys that toggle row), which has no layout editor. Unset, every key is held
 DM_UI_HOLD	test	When set, keeps the controller mapping test window open for 60 seconds after its UI screenshot for manual inspection
+DM_XUSB	switch	`0` stops reading wired Xbox 360 and Xbox One pads over USB, which macOS has no driver for and GameController does not list (`pad_xusb_mac.h`); Mac only
+DM_XUSB_LOG	diagnostic	`1` logs each report of such a pad that changes (`pad_xusb_mac.h`); Mac only

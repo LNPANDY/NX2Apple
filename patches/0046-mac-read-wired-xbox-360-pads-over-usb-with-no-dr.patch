@@ -1,0 +1,462 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Giulio Milani <giulio.milani99@gmail.com>
+Date: Thu, 12 Nov 2026 00:14:43 +0100
+Subject: [PATCH] Mac: read wired Xbox 360 pads over USB, with no driver
+
+macOS has no driver for the Xbox 360 pad, so GameController never lists it, and it has no HID interface, so pad_hid_mac.h never sees it. A wired pad was not a player at all.
+
+pad_xusb_mac.h claims the pad's XUSB interface (ff/5d/01) on a device of class ff/ff/ff from the host's own process, reads its 20-byte input report with one pending interrupt read on the main run loop, and hands it to controllers_mac.m the way a generic HID pad is handed over: its own slot, the shared button map, focus and unplugging. No kernel extension, DriverKit extension or entitlement is needed. Only a vendor-specific device is opened, so a hub, a disk or a keyboard is never touched. pad_xusb.h decodes the report (buttons by position, the shared round dead zone, a trigger past half is ZL / ZR) and is checked without a pad by tests/t_pad_xusb.c.
+
+Checked on a PDP 0e6f:0301 on macOS 27.2: every button, the D-pad, both triggers and both sticks to full deflection, the rest drift absorbed, and the pad unplugged while read. Not read: the wireless receiver and the Xbox One pads (ff/47/d0, another protocol), rumble, the player light, the Guide button.
+
+Upstream-Status: forwarded seedds/nxnative#2436
+Reason: wired Xbox 360 pads have no macOS driver, so two-player games could not use a second pad
+Issue: LNPANDY/NX2Apple#1197
+---
+ dm/host/Makefile           |   2 +-
+ dm/host/controllers_mac.m  |  28 +++++++
+ dm/host/pad_xusb.h         |  55 +++++++++++++
+ dm/host/pad_xusb_mac.h     | 154 +++++++++++++++++++++++++++++++++++++
+ dm/host/tests/Makefile     |   7 +-
+ dm/host/tests/t_pad_xusb.c |  85 ++++++++++++++++++++
+ 6 files changed, 328 insertions(+), 3 deletions(-)
+ create mode 100644 dm/host/pad_xusb.h
+ create mode 100644 dm/host/pad_xusb_mac.h
+ create mode 100644 dm/host/tests/t_pad_xusb.c
+
+diff --git a/dm/host/Makefile b/dm/host/Makefile
+index b1ef48b..7ca877d 100644
+--- a/dm/host/Makefile
++++ b/dm/host/Makefile
+@@ -82,7 +82,7 @@ endif
+ .PHONY: FORCE
+ FORCE:
+ # Makefile: a change to CFLAGS (or the compile line) rebuilds the host
+-dmhost: Makefile $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_joycon.h pad_joycon_mac.h pad_apple.h pad_hid.h pad_hid_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
++dmhost: Makefile $(SRC) $(GFX) ../third_party/stb_vorbis/stb_vorbis.c dm.h hle.h romfs_image.h save_sync.h dm_input.h input_map.h input_preferences_mac.h pad_slots.h pad_map.h pad_motion.h steam_input.h controllers_mac.h hle_haptics.h haptics_apple.h pad_switch2_apple.h switch2_proto.h motion_fusion.h motion_apple.h motion_pro.h motion_pro_mac.h pad_joycon.h pad_joycon_mac.h pad_apple.h pad_hid.h pad_hid_mac.h pad_xusb.h pad_xusb_mac.h home_quit.h home_quit_mac.h ctrl_prompt.h front.h $(GFX_H) $(GAME_H) $(GAME_STAMP) $(VPX_LIB) $(DAV1D_LIB) $(MSL_H)
+ 	clang $(CFLAGS) -I../gfx/nvn/include -I$(dir $(MSL_H)) -I../third_party/vulkan-headers/include -I$(dir $(GAME_H)) -I$(VPX) -I$(DAV1D)/include -I../third_party/stb_vorbis -fobjc-arc -o $@ $(SRC) $(GFX) $(VPX_LIB) $(DAV1D_LIB) -framework Cocoa -framework WebKit -framework UserNotifications -framework QuartzCore -framework Metal -framework MetalFX -framework GameController -framework CoreBluetooth -framework IOBluetooth -framework CoreHaptics -framework IOKit -framework AudioToolbox -framework VideoToolbox -framework CoreMedia -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers
+ clean:   # the host and everything make generates for it (gen/: the profile headers, the game stamp and the libvpx and dav1d builds; dmhost_* and *.dSYM beside them, as in .gitignore)
+ 	rm -rf gen dmhost dmhost_* *.dSYM
+diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
+index 68784a4..a6a76a0 100644
+--- a/dm/host/controllers_mac.m
++++ b/dm/host/controllers_mac.m
+@@ -14,6 +14,7 @@
+ #include "steam_input.h"
+ #include "pad_motion.h"
+ #include "pad_hid_mac.h"
++#include "pad_xusb_mac.h"
+ #include "pad_joycon_mac.h"
+ #include "pad_switch2_apple.h"
+ #include "home_quit.h"
+@@ -29,6 +30,7 @@ @interface DMController : NSObject {
+     IOHIDDeviceRef device; // Triton only: proprietary output and feature reports
+     joycon_pad *joycon; // borrowed until joycon_detach, with an independent player slot
+     hid_pad *generic; // borrowed until hidpad_detach; never a Triton output route
++    xusb_pad *xusb; // borrowed until xusbpad_detach: a wired Xbox 360 pad read over USB (pad_xusb_mac.h)
+     s2_pad *s2; // borrowed until s2pad_detach: a Switch 2 controller over Bluetooth LE (pad_switch2_apple.h)
+     unsigned char report[512];
+     BOOL feature_warning, rumble_warning, gyro_enabled, connected;
+@@ -442,6 +444,7 @@ static void controller_update_focus(void) {
+         for(DMController *d in g_devices) if(d->slot>=0) {
+             if(d.controller) { controller_attach_motion(d); controller_read_gc(d,[d.controller.input capture]); }
+             else if(d->generic) hidpad_read(d->generic);
++            else if(d->xusb) xusbpad_read(d->xusb);
+             else if(d->joycon) joycon_read(d->joycon);
+             else if(d->s2) s2pad_read(d->s2);
+             else if(d->device) controller_publish(d);
+@@ -471,6 +474,7 @@ void front_controllers_applet_buttons(int *a, int *b) {
+             uint64_t m=d->generic->twin && hidpad_is_pro(d->generic) ? d->generic->pro_m : pad_hid_buttons(&d->generic->st);
+             *a|=!!(m & DM_BTN_A); *b|=!!(m & DM_BTN_B);
+         }
++        else if(d->xusb) { uint64_t m=pad_xusb_buttons(&d->xusb->st); *a|=!!(m & DM_BTN_A); *b|=!!(m & DM_BTN_B); }
+     }
+ }
+ // Connected controllers that are no player yet
+@@ -559,6 +563,29 @@ static void hidpad_detach(hid_pad *hid) {
+     controller_disconnect(d); d->generic=NULL; [g_devices removeObject:d];
+     controller_panel_refresh();
+ }
++// A wired Xbox 360 pad read over USB (pad_xusb_mac.h) joins the same registry, slot table and button map as a generic HID pad: its report is decoded already into Switch buttons
++static DMController *controller_for_xusb(xusb_pad *x) {
++    for(DMController *d in g_devices) if(d->xusb==x) return d;
++    return nil;
++}
++static void xusbpad_read(xusb_pad *x) {
++    DMController *d=controller_for_xusb(x); if(!d) return;
++    int32_t s[4]; pad_xusb_sticks(&x->st,s);
++    uint64_t buttons=pad_xusb_buttons(&x->st);
++    d->input=(steam_state){.buttons=buttons,.lx=s[0],.ly=s[1],.rx=s[2],.ry=s[3]};
++    if(d->slot<0 && g_press_to_join && !buttons) return;
++    controller_connect(d); controller_publish(d);
++}
++static void xusbpad_attach(xusb_pad *x) {
++    DMController *d=[DMController new]; d->xusb=x;
++    d.name=@(x->name); d.model=[@"USB / " stringByAppendingString:d.name];
++    controller_load_map(d); [g_devices addObject:d]; xusbpad_read(x);
++}
++static void xusbpad_detach(xusb_pad *x) {
++    DMController *d=controller_for_xusb(x); if(!d) return;
++    controller_disconnect(d); d->xusb=NULL; [g_devices removeObject:d];
++    controller_panel_refresh();
++}
+ static int32_t controller_axis(float v) { return (int32_t)(fmaxf(-1, fminf(1, v)) * DM_STICK_MAX); }
+ // Main's split Joy-Con decoder keeps each half sideways, with the shared
+ // registry owning its slot, mappings and focus gate alongside Steam and GC.
+@@ -1289,6 +1316,7 @@ void front_controllers_start(void) {
+     joycon_start();
+     controllers_changed(nil);
+     hidpad_start();
++    xusb_start();
+     static const dm_switch2_front s2front={s2pad_attach,s2pad_detach,s2pad_read,s2pad_player,s2pad_blocked};
+     dm_switch2_start(&s2front);
+     dm_motion_pro_start(controller_pro_changed);
+diff --git a/dm/host/pad_xusb.h b/dm/host/pad_xusb.h
+new file mode 100644
+index 0000000..a849888
+--- /dev/null
++++ b/dm/host/pad_xusb.h
+@@ -0,0 +1,55 @@
++// Xbox 360 (XUSB) pads over USB, read by pad_xusb_mac.h: one 20-byte input report turned into Switch buttons and sticks. Pure, so tests/t_pad_xusb.c checks it without a pad.
++// Report: byte 0 is 0x00 (input), byte 1 its length 0x14; byte 2 holds the D-pad (bits 0..3: up, down, left, right), Start (4), Back (5) and the stick clicks (6, 7); byte 3 holds
++// LB (0), RB (1), Guide (2), A (4), B (5), X (6), Y (7); bytes 4 and 5 are the left and right triggers (0..255); bytes 6..13 are the left X and Y and the right X and Y, each a
++// little-endian int16 with up positive. Other reports (a 3-byte state message at connect, 0x01 0x03 ...) are not input and are skipped.
++// Buttons by position, as front_mac.m maps GameController (right A, bottom B, top X, left Y): Xbox B is the Switch's A, Xbox A its B, Xbox Y its X and Xbox X its Y.
++#pragma once
++#include <stddef.h>
++#include <stdint.h>
++#include "pad_hid.h"   // pad_hid_stick: the round dead zone shared with the other HID pads
++
++#define XUSB_REPORT_LEN 20
++#define XUSB_TRIGGER_PRESS 128   // a trigger past half presses ZL / ZR, as pad_hid_buttons does for a HID trigger
++
++typedef struct { uint8_t b1, b2, lt, rt; int16_t lx, ly, rx, ry; } pad_xusb;
++
++// 1 when r is an input report and s was filled, 0 for anything else (a short report, a state message)
++static int pad_xusb_parse(const uint8_t *r, size_t n, pad_xusb *s) {
++    if (n < XUSB_REPORT_LEN || r[0] != 0x00 || r[1] != 0x14) return 0;
++    s->b1 = r[2]; s->b2 = r[3]; s->lt = r[4]; s->rt = r[5];
++    s->lx = (int16_t)(r[6] | r[7] << 8); s->ly = (int16_t)(r[8] | r[9] << 8);
++    s->rx = (int16_t)(r[10] | r[11] << 8); s->ry = (int16_t)(r[12] | r[13] << 8);
++    return 1;
++}
++
++static uint64_t pad_xusb_buttons(const pad_xusb *s) {
++    uint64_t m = 0;
++    if (s->b1 & 0x01) m |= DM_BTN_UP;
++    if (s->b1 & 0x02) m |= DM_BTN_DOWN;
++    if (s->b1 & 0x04) m |= DM_BTN_LEFT;
++    if (s->b1 & 0x08) m |= DM_BTN_RIGHT;
++    if (s->b1 & 0x10) m |= DM_BTN_PLUS;
++    if (s->b1 & 0x20) m |= DM_BTN_MINUS;
++    if (s->b1 & 0x40) m |= DM_BTN_LS;
++    if (s->b1 & 0x80) m |= DM_BTN_RS;
++    if (s->b2 & 0x01) m |= DM_BTN_L;
++    if (s->b2 & 0x02) m |= DM_BTN_R;
++    if (s->b2 & 0x10) m |= DM_BTN_B;
++    if (s->b2 & 0x20) m |= DM_BTN_A;
++    if (s->b2 & 0x40) m |= DM_BTN_Y;
++    if (s->b2 & 0x80) m |= DM_BTN_X;
++    if (s->lt >= XUSB_TRIGGER_PRESS) m |= DM_BTN_ZL;
++    if (s->rt >= XUSB_TRIGGER_PRESS) m |= DM_BTN_ZR;
++    return m;
++}
++
++static float pad_xusb_norm(int16_t v) { return v < 0 ? v / 32768.0f : v / 32767.0f; }
++static void pad_xusb_sticks(const pad_xusb *s, int32_t o[4]) {   // lx, ly, rx, ry; both pads and the Switch have up positive
++    pad_hid_stick(pad_xusb_norm(s->lx), pad_xusb_norm(s->ly), &o[0], &o[1]);
++    pad_hid_stick(pad_xusb_norm(s->rx), pad_xusb_norm(s->ry), &o[2], &o[3]);
++}
++
++// Whether a USB device may hold an XUSB interface: the vendor-specific class at the device level (Microsoft's pads, the receiver and most third-party pads). Only such a device is
++// opened, so a hub, a disk or a keyboard is never touched
++static int pad_xusb_device_ok(int dev_class, int dev_subclass, int dev_protocol) { return dev_class == 0xff && dev_subclass == 0xff && dev_protocol == 0xff; }
++static int pad_xusb_interface_ok(int cls, int sub, int pro) { return cls == 0xff && sub == 0x5d && pro == 0x01; }
+diff --git a/dm/host/pad_xusb_mac.h b/dm/host/pad_xusb_mac.h
+new file mode 100644
+index 0000000..e653155
+--- /dev/null
++++ b/dm/host/pad_xusb_mac.h
+@@ -0,0 +1,154 @@
++// Mac: wired Xbox 360 (XUSB) pads that macOS has no driver for, read directly over USB from the host's own process, with no driver, no kernel extension and no entitlement
++// (pad_xusb.h decodes the report). GameController lists only the pads Apple supports and a XUSB pad has no HID interface, so neither GameController nor pad_hid_mac.h sees it.
++// controllers_mac.m owns slots, mappings and focus (xusbpad_attach / xusbpad_detach / xusbpad_read), as for a generic HID pad.
++// Only a device whose class is vendor-specific at the device level (ff/ff/ff) is opened, and then only to claim its XUSB interface (ff/5d/01); a hub, a disk or a keyboard is never
++// touched. A pad that connects without an active configuration (the ones macOS leaves unconfigured) is given its first one. The pad is read with one pending interrupt read on the
++// main run loop, so a USB device that another process has claimed is skipped with a log line and the pad can be read by one process only.
++// Not read: the Xbox 360 wireless receiver (another protocol), the Xbox One pads (ff/47/d0, another protocol), rumble and the player light, the Guide button.
++// DM_XUSB=0 turns this off, DM_XUSB_LOG=1 logs every report that changes.
++#pragma once
++#import <CoreFoundation/CoreFoundation.h>
++#import <IOKit/IOKitLib.h>
++#import <IOKit/IOCFPlugIn.h>
++#import <IOKit/IOMessage.h>
++#import <IOKit/usb/IOUSBLib.h>
++#include "pad_xusb.h"
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++typedef struct xusb_pad {
++    IOUSBDeviceInterface942 **dev; IOUSBInterfaceInterface942 **intf; CFRunLoopSourceRef src;
++    UInt8 pipe; UInt32 maxp; uint8_t report[64];
++    pad_xusb st; char name[64]; int vid, pid; uint64_t entry; io_object_t interest; struct xusb_pad *next;
++} xusb_pad;
++
++static xusb_pad *g_xusb_pads;
++static IONotificationPortRef g_xusb_port;
++static int g_xusb_log;
++static void xusbpad_attach(xusb_pad *d);
++static void xusbpad_detach(xusb_pad *d);
++static void xusbpad_read(xusb_pad *d);
++
++static int xusb_prop_int(io_service_t s, CFStringRef key, int fallback) {
++    CFTypeRef v = IORegistryEntryCreateCFProperty(s, key, kCFAllocatorDefault, 0); int n = fallback;
++    if (v) { if (CFGetTypeID(v) == CFNumberGetTypeID()) CFNumberGetValue((CFNumberRef)v, kCFNumberIntType, &n); CFRelease(v); }
++    return n;
++}
++static void xusb_prop_str(io_service_t s, CFStringRef key, char *out, size_t n) {
++    CFTypeRef v = IORegistryEntryCreateCFProperty(s, key, kCFAllocatorDefault, 0);
++    if (v) { if (CFGetTypeID(v) == CFStringGetTypeID()) CFStringGetCString((CFStringRef)v, out, (CFIndex)n, kCFStringEncodingUTF8); CFRelease(v); }
++}
++
++// A pad gone (unplugged, or a read that failed): the controller leaves its slot first, then the USB objects are released. The run loop source goes first, so no completion of
++// the aborted read can reach a pad that is being freed.
++static void xusb_drop(xusb_pad *d) {
++    xusbpad_detach(d);
++    for (xusb_pad **p = &g_xusb_pads; *p; p = &(*p)->next) if (*p == d) { *p = d->next; break; }
++    if (d->src) CFRunLoopRemoveSource(CFRunLoopGetMain(), d->src, kCFRunLoopCommonModes);
++    if (d->intf) { (*d->intf)->AbortPipe(d->intf, d->pipe); (*d->intf)->USBInterfaceClose(d->intf); (*d->intf)->Release(d->intf); }
++    if (d->dev) { (*d->dev)->USBDeviceClose(d->dev); (*d->dev)->Release(d->dev); }
++    if (d->interest) IOObjectRelease(d->interest);
++    fprintf(stderr, "xusb: pad '%s' (%04x:%04x) gone\n", d->name, d->vid, d->pid);
++    free(d);
++}
++
++static void xusb_arm(xusb_pad *d);
++static void xusb_done(void *ref, IOReturn result, void *arg0) {
++    xusb_pad *d = ref; UInt32 n = (UInt32)(uintptr_t)arg0;
++    if (result != kIOReturnSuccess) { xusb_drop(d); return; }   // an unplugged pad completes its pending read with an error
++    pad_xusb s;
++    if (pad_xusb_parse(d->report, n, &s)) {
++        if (g_xusb_log && memcmp(&s, &d->st, sizeof s)) fprintf(stderr, "xusb: %04x:%04x b1 %02x b2 %02x lt %u rt %u l(%d,%d) r(%d,%d)\n", d->vid, d->pid, s.b1, s.b2, s.lt, s.rt, s.lx, s.ly, s.rx, s.ry);
++        d->st = s; xusbpad_read(d);
++    }
++    xusb_arm(d);
++}
++static void xusb_arm(xusb_pad *d) {
++    IOReturn r = (*d->intf)->ReadPipeAsync(d->intf, d->pipe, d->report, d->maxp < sizeof d->report ? d->maxp : sizeof d->report, xusb_done, d);
++    if (r != kIOReturnSuccess) { fprintf(stderr, "[RED] xusb: cannot read '%s' (0x%x)\n", d->name, r); xusb_drop(d); }
++}
++
++static void xusb_interest(void *ref, io_service_t svc, natural_t msg, void *arg) {
++    (void)svc; (void)arg;
++    if (msg == kIOMessageServiceIsTerminated) xusb_drop((xusb_pad *)ref);
++}
++
++// One USB device the registry reports: a pad's USB device is opened only after its class says it may hold one, and kept only when it has the XUSB interface
++static void xusb_open(io_service_t svc) {
++    uint64_t entry = 0; IORegistryEntryGetRegistryEntryID(svc, &entry);
++    for (xusb_pad *p = g_xusb_pads; p; p = p->next) if (p->entry == entry) return;
++    if (!pad_xusb_device_ok(xusb_prop_int(svc, CFSTR("bDeviceClass"), -1), xusb_prop_int(svc, CFSTR("bDeviceSubClass"), -1), xusb_prop_int(svc, CFSTR("bDeviceProtocol"), -1))) return;
++    xusb_pad *d = calloc(1, sizeof *d); if (!d) return;
++    d->entry = entry; d->vid = xusb_prop_int(svc, CFSTR("idVendor"), 0); d->pid = xusb_prop_int(svc, CFSTR("idProduct"), 0);
++    xusb_prop_str(svc, CFSTR("USB Product Name"), d->name, sizeof d->name);
++    if (!d->name[0]) snprintf(d->name, sizeof d->name, "USB pad %04x:%04x", d->vid, d->pid);
++    IOCFPlugInInterface **plug = NULL; SInt32 score;
++    kern_return_t kr = IOCreatePlugInInterfaceForService(svc, kIOUSBDeviceUserClientTypeID, kIOCFPlugInInterfaceID, &plug, &score);
++    if (kr != KERN_SUCCESS || !plug) { fprintf(stderr, "xusb: '%s' (%04x:%04x): no USB plug-in (0x%x)\n", d->name, d->vid, d->pid, kr); free(d); return; }
++    (*plug)->QueryInterface(plug, CFUUIDGetUUIDBytes(kIOUSBDeviceInterfaceID942), (LPVOID *)&d->dev); (*plug)->Release(plug);
++    if (!d->dev) { fprintf(stderr, "xusb: '%s' (%04x:%04x): no USB device interface\n", d->name, d->vid, d->pid); free(d); return; }
++    IOReturn r = (*d->dev)->USBDeviceOpen(d->dev);
++    if (r != kIOReturnSuccess) { fprintf(stderr, "xusb: '%s' (%04x:%04x) cannot be opened (0x%x): another process may hold it\n", d->name, d->vid, d->pid, r); (*d->dev)->Release(d->dev); free(d); return; }
++    UInt8 cfg = 0; (*d->dev)->GetConfiguration(d->dev, &cfg);
++    if (!cfg) {
++        IOUSBConfigurationDescriptorPtr cd = NULL;
++        if ((*d->dev)->GetConfigurationDescriptorPtr(d->dev, 0, &cd) == kIOReturnSuccess && cd) (*d->dev)->SetConfiguration(d->dev, cd->bConfigurationValue);
++    }
++    IOUSBFindInterfaceRequest req = { kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare };
++    io_iterator_t ifs = 0; io_service_t isvc;
++    if ((*d->dev)->CreateInterfaceIterator(d->dev, &req, &ifs) == kIOReturnSuccess) {
++        while (!d->intf && (isvc = IOIteratorNext(ifs))) {
++            IOCFPlugInInterface **ip = NULL; IOUSBInterfaceInterface942 **c = NULL;
++            if (IOCreatePlugInInterfaceForService(isvc, kIOUSBInterfaceUserClientTypeID, kIOCFPlugInInterfaceID, &ip, &score) == KERN_SUCCESS && ip) {
++                (*ip)->QueryInterface(ip, CFUUIDGetUUIDBytes(kIOUSBInterfaceInterfaceID942), (LPVOID *)&c); (*ip)->Release(ip);
++                UInt8 cls = 0, sub = 0, pro = 0;
++                if (c) { (*c)->GetInterfaceClass(c, &cls); (*c)->GetInterfaceSubClass(c, &sub); (*c)->GetInterfaceProtocol(c, &pro); }
++                if (c && pad_xusb_interface_ok(cls, sub, pro)) d->intf = c; else if (c) (*c)->Release(c);
++            }
++            IOObjectRelease(isvc);
++        }
++        IOObjectRelease(ifs);
++    }
++    if (!d->intf) { if (g_xusb_log) fprintf(stderr, "xusb: '%s' (%04x:%04x) has no XUSB interface\n", d->name, d->vid, d->pid); (*d->dev)->USBDeviceClose(d->dev); (*d->dev)->Release(d->dev); free(d); return; }   // a vendor-specific device that is no XUSB pad: left as it was found
++    if ((*d->intf)->USBInterfaceOpen(d->intf) != kIOReturnSuccess) {
++        fprintf(stderr, "xusb: '%s' (%04x:%04x): the XUSB interface is in use by another process\n", d->name, d->vid, d->pid);
++        (*d->intf)->Release(d->intf); (*d->dev)->USBDeviceClose(d->dev); (*d->dev)->Release(d->dev); free(d); return;
++    }
++    UInt8 neps = 0; (*d->intf)->GetNumEndpoints(d->intf, &neps);
++    for (UInt8 p = 1; p <= neps && !d->pipe; p++) {
++        UInt8 dir, num, tt, iv; UInt16 mp;
++        if ((*d->intf)->GetPipeProperties(d->intf, p, &dir, &num, &tt, &mp, &iv) == kIOReturnSuccess && dir == kUSBIn && tt == kUSBInterrupt) { d->pipe = p; d->maxp = mp; }
++    }
++    if (!d->pipe || (*d->intf)->CreateInterfaceAsyncEventSource(d->intf, &d->src) != kIOReturnSuccess || !d->src) {
++        fprintf(stderr, "[RED] xusb: '%s' (%04x:%04x) has no interrupt IN pipe to read\n", d->name, d->vid, d->pid);
++        (*d->intf)->USBInterfaceClose(d->intf); (*d->intf)->Release(d->intf); (*d->dev)->USBDeviceClose(d->dev); (*d->dev)->Release(d->dev); free(d); return;
++    }
++    CFRunLoopAddSource(CFRunLoopGetMain(), d->src, kCFRunLoopCommonModes);
++    d->next = g_xusb_pads; g_xusb_pads = d;
++    IOServiceAddInterestNotification(g_xusb_port, svc, kIOGeneralInterest, xusb_interest, d, &d->interest);
++    fprintf(stderr, "xusb: pad '%s' (%04x:%04x) is read directly over USB\n", d->name, d->vid, d->pid);
++    xusbpad_attach(d);
++    xusb_arm(d);
++}
++
++static void xusb_matched(void *ref, io_iterator_t it) {
++    (void)ref; io_service_t svc;
++    while ((svc = IOIteratorNext(it))) { if (g_xusb_log) fprintf(stderr, "xusb: USB device %llx matched\n", ({ uint64_t id = 0; IORegistryEntryGetRegistryEntryID(svc, &id); id; })); xusb_open(svc); IOObjectRelease(svc); }
++}
++
++static void xusb_start(void) {
++    const char *e = getenv("DM_XUSB"); if (e && !atoi(e)) return;
++    e = getenv("DM_XUSB_LOG"); g_xusb_log = e && atoi(e);
++    g_xusb_port = IONotificationPortCreate(kIOMainPortDefault); if (!g_xusb_port) return;
++    CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(g_xusb_port), kCFRunLoopCommonModes);
++    CFMutableDictionaryRef m = IOServiceMatching("IOUSBHostDevice"); if (!m) return;
++    // The registry matches the device's class too, so a hub or a disk never reaches xusb_open
++    int v = 0xff; CFNumberRef n = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &v);
++    CFMutableDictionaryRef props = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
++    CFDictionarySetValue(props, CFSTR("bDeviceClass"), n); CFDictionarySetValue(props, CFSTR("bDeviceSubClass"), n); CFDictionarySetValue(props, CFSTR("bDeviceProtocol"), n);
++    CFDictionarySetValue(m, CFSTR(kIOPropertyMatchKey), props); CFRelease(props); CFRelease(n);
++    io_iterator_t it = 0;   // the matching dictionary is consumed
++    if (IOServiceAddMatchingNotification(g_xusb_port, kIOFirstMatchNotification, m, xusb_matched, NULL, &it) != KERN_SUCCESS) return;
++    xusb_matched(NULL, it);   // the pads already connected; a notification's iterator is armed once it is drained
++}
+diff --git a/dm/host/tests/Makefile b/dm/host/tests/Makefile
+index d273e97..fcccb90 100644
+--- a/dm/host/tests/Makefile
++++ b/dm/host/tests/Makefile
+@@ -12,7 +12,7 @@ QUIET = $(if $(findstring -fsanitize,$(SAN)),,2>/dev/null)
+ GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
+ $(B)/t_fs $(B)/t_fs_case $(B)/t_fs_commit_list $(B)/t_fs_commit_list_tsan: ../romfs_image.h
+ GAME_H = ../gen/$(GAME)/game_profile.h
+-run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_clockwait $(B)/t_pause $(B)/t_pause_stress $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_switch2 $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
++run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_output_stream $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pollwait $(B)/t_clockwait $(B)/t_pause $(B)/t_pause_stress $(B)/t_pctl $(B)/t_sf $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_cheats $(B)/t_pad_hid $(B)/t_pad_xusb $(B)/t_switch2 $(B)/t_input_map $(B)/t_launcher_contract $(B)/t_profile_runtime
+ 	$(B)/t_language
+ 	$(B)/t_heap_size
+ 	$(B)/t_touch
+@@ -71,6 +71,7 @@ run: $(B)/t_net_eventfd $(B)/t_language $(B)/t_motion $(B)/t_heap_size $(B)/t_to
+ 	TMPDIR="$(abspath $(B))" $(B)/t_hid
+ 	$(B)/t_pad_hid
+ 	$(B)/t_pad_hid_mac
++	$(B)/t_pad_xusb
+ 	$(B)/t_pad_pro
+ 	$(B)/t_switch2
+ 	$(B)/t_input_map
+@@ -408,6 +409,8 @@ tsan-threads-run: $(addprefix $(B)/,$(TSAN_T))
+ 	DM_QOS_MAP=1 $(B)/t_notify_sched --all-peers
+ $(B)/t_pad_hid: t_pad_hid.c ../pad_hid.h ../pad_joycon.h ../motion_pro.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_pad_hid.c
++$(B)/t_pad_xusb: t_pad_xusb.c ../pad_xusb.h ../pad_hid.h ../dm_input.h | $(B)
++	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_pad_xusb.c
+ run: $(B)/t_pad_pro
+ $(B)/t_pad_pro: t_pad_pro.c ../pad_pro.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -g -Wall -Werror -Wno-unused-function -fsanitize=address,undefined -I.. -o $@ t_pad_pro.c
+@@ -437,5 +440,5 @@ $(B)/t_pad_motion: t_pad_motion.c ../pad_motion.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -o $@ t_pad_motion.c
+ $(B)/t_pad_map: t_pad_map.c ../pad_map.h ../steam_input.h ../dm_input.h | $(B)
+ 	$(CLANG) -O1 -Wall -Werror -o $@ t_pad_map.c
+-$(B)/t_controllers_mac: t_controllers_mac.m ../home_quit.h ../pad_hid.h ../pad_hid_mac.h ../pad_apple.h ../input_map.h ../input_preferences_mac.h ../controllers_mac.m ../controllers_mac.h ../pad_joycon.h ../pad_joycon_mac.h ../pad_map.h ../pad_motion.h ../steam_input.h ../pad_slots.h ../front.h ../dm_input.h ../haptics_apple.h ../hle_haptics.h ../dm.h ../motion_apple.h ../motion_pro_mac.h ../motion_pro.h $(GAME_H) | $(B)
++$(B)/t_controllers_mac: t_controllers_mac.m ../home_quit.h ../pad_hid.h ../pad_hid_mac.h ../pad_xusb.h ../pad_xusb_mac.h ../pad_apple.h ../input_map.h ../input_preferences_mac.h ../controllers_mac.m ../controllers_mac.h ../pad_joycon.h ../pad_joycon_mac.h ../pad_map.h ../pad_motion.h ../steam_input.h ../pad_slots.h ../front.h ../dm_input.h ../haptics_apple.h ../hle_haptics.h ../dm.h ../motion_apple.h ../motion_pro_mac.h ../motion_pro.h $(GAME_H) | $(B)
+ 	$(CLANG) $(GINC) -O1 -fobjc-arc -Wall -Werror -Wno-unused-function -o $@ t_controllers_mac.m -framework Cocoa -framework GameController -framework IOKit
+diff --git a/dm/host/tests/t_pad_xusb.c b/dm/host/tests/t_pad_xusb.c
+new file mode 100644
+index 0000000..7295754
+--- /dev/null
++++ b/dm/host/tests/t_pad_xusb.c
+@@ -0,0 +1,85 @@
++// Xbox 360 (XUSB) pads over USB (pad_xusb.h): the input report layout, the buttons by position, the trigger threshold, the stick dead zone and the device filters
++#include <stdio.h>
++#include <string.h>
++#include "../pad_xusb.h"
++
++static int checks, fails;
++#define CHECK(c) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); } } while (0)
++
++static void put16(uint8_t *p, int v) { p[0] = (uint8_t)(v & 0xff); p[1] = (uint8_t)((v >> 8) & 0xff); }
++static void report(uint8_t r[XUSB_REPORT_LEN], int b1, int b2, int lt, int rt, int lx, int ly, int rx, int ry) {
++    memset(r, 0, XUSB_REPORT_LEN); r[1] = 0x14; r[2] = (uint8_t)b1; r[3] = (uint8_t)b2; r[4] = (uint8_t)lt; r[5] = (uint8_t)rt;
++    put16(r + 6, lx); put16(r + 8, ly); put16(r + 10, rx); put16(r + 12, ry);
++}
++
++static void test_parse(void) {
++    uint8_t r[XUSB_REPORT_LEN]; pad_xusb s;
++    report(r, 0, 0, 0, 0, 0, 0, 0, 0);
++    CHECK(pad_xusb_parse(r, sizeof r, &s));
++    CHECK(!pad_xusb_parse(r, XUSB_REPORT_LEN - 1, &s));   // a short report
++    const uint8_t state[3] = {0x01, 0x03, 0x00};
++    CHECK(!pad_xusb_parse(state, sizeof state, &s));      // the state messages a pad sends at connect (0x01 0x03, 0x02 0x03, 0x03 0x03) are not input
++    r[0] = 0x01; CHECK(!pad_xusb_parse(r, sizeof r, &s)); r[0] = 0x00;
++    r[1] = 0x13; CHECK(!pad_xusb_parse(r, sizeof r, &s)); r[1] = 0x14;
++    // A pad at rest, as an 0e6f:0301 PDP reported it on macOS: both sticks a little off centre, nothing pressed
++    report(r, 0, 0, 0, 0, 102, -443, -86, -145);
++    CHECK(pad_xusb_parse(r, sizeof r, &s) && s.lx == 102 && s.ly == -443 && s.rx == -86 && s.ry == -145);
++    int32_t o[4]; pad_xusb_sticks(&s, o);
++    CHECK(o[0] == 0 && o[1] == 0 && o[2] == 0 && o[3] == 0 && pad_xusb_buttons(&s) == 0);   // the dead zone absorbs the rest offsets
++}
++
++static void test_buttons(void) {
++    uint8_t r[XUSB_REPORT_LEN]; pad_xusb s;
++    static const struct { int b1, b2; uint64_t want; } t[] = {
++        {0x01, 0, DM_BTN_UP}, {0x02, 0, DM_BTN_DOWN}, {0x04, 0, DM_BTN_LEFT}, {0x08, 0, DM_BTN_RIGHT}, {0x05, 0, DM_BTN_UP | DM_BTN_LEFT},
++        {0x10, 0, DM_BTN_PLUS}, {0x20, 0, DM_BTN_MINUS}, {0x40, 0, DM_BTN_LS}, {0x80, 0, DM_BTN_RS},
++        {0, 0x01, DM_BTN_L}, {0, 0x02, DM_BTN_R},
++        {0, 0x10, DM_BTN_B}, {0, 0x20, DM_BTN_A}, {0, 0x40, DM_BTN_Y}, {0, 0x80, DM_BTN_X},   // by position: Xbox A (bottom) is the Switch's B, Xbox B (right) its A
++        {0, 0x04, 0},                                                                       // Guide has no Switch button
++    };
++    for (size_t i = 0; i < sizeof t / sizeof *t; i++) {
++        report(r, t[i].b1, t[i].b2, 0, 0, 0, 0, 0, 0);
++        CHECK(pad_xusb_parse(r, sizeof r, &s) && pad_xusb_buttons(&s) == t[i].want);
++    }
++    report(r, 0, 0, XUSB_TRIGGER_PRESS - 1, XUSB_TRIGGER_PRESS - 1, 0, 0, 0, 0);
++    CHECK(pad_xusb_parse(r, sizeof r, &s) && !(pad_xusb_buttons(&s) & (DM_BTN_ZL | DM_BTN_ZR)));
++    report(r, 0, 0, 255, 0, 0, 0, 0, 0);
++    CHECK(pad_xusb_parse(r, sizeof r, &s) && pad_xusb_buttons(&s) == DM_BTN_ZL);
++    report(r, 0, 0, 0, XUSB_TRIGGER_PRESS, 0, 0, 0, 0);
++    CHECK(pad_xusb_parse(r, sizeof r, &s) && pad_xusb_buttons(&s) == DM_BTN_ZR);
++}
++
++static void test_sticks(void) {
++    uint8_t r[XUSB_REPORT_LEN]; pad_xusb s; int32_t o[4];
++    report(r, 0, 0, 0, 0, 32767, 0, -32768, 0);
++    CHECK(pad_xusb_parse(r, sizeof r, &s)); pad_xusb_sticks(&s, o);
++    CHECK(o[0] == DM_STICK_MAX && o[1] == 0 && o[2] == -DM_STICK_MAX && o[3] == 0);   // full deflection reaches the Switch's range on both sides
++    report(r, 0, 0, 0, 0, 0, 32767, 0, -32768);
++    CHECK(pad_xusb_parse(r, sizeof r, &s)); pad_xusb_sticks(&s, o);
++    CHECK(o[0] == 0 && o[1] == DM_STICK_MAX && o[2] == 0 && o[3] == -DM_STICK_MAX);   // up is positive on the pad and on the Switch
++    report(r, 0, 0, 0, 0, 16384, 0, 0, 0);
++    CHECK(pad_xusb_parse(r, sizeof r, &s)); pad_xusb_sticks(&s, o);
++    CHECK(o[0] > 0 && o[0] < DM_STICK_MAX / 2 + 100);   // half deflection scales back past the dead zone, below half
++    report(r, 0, 0, 0, 0, -29954, 307, 0, 0);
++    CHECK(pad_xusb_parse(r, sizeof r, &s)); pad_xusb_sticks(&s, o);
++    CHECK(o[0] < -DM_STICK_MAX * 8 / 10 && o[1] > 0 && o[1] < DM_STICK_MAX / 20);   // a left push seen on a PDP: the dead zone is round, so a small y stays small, not zero
++}
++
++static void test_filters(void) {
++    CHECK(pad_xusb_device_ok(0xff, 0xff, 0xff));      // a PDP "Gamepad for Xbox 360" (0e6f:0301)
++    CHECK(!pad_xusb_device_ok(0xff, 0x47, 0xd0));     // a Turtle Beach REACT-R (10f5:7024) speaks the Xbox One protocol (ff/47/d0): not this reader's
++    CHECK(!pad_xusb_device_ok(0x09, 0x00, 0x01));     // a hub
++    CHECK(!pad_xusb_device_ok(0x00, 0x00, 0x00));     // a composite device, a keyboard or a disk
++    CHECK(pad_xusb_interface_ok(0xff, 0x5d, 0x01));   // the XUSB controller interface
++    CHECK(!pad_xusb_interface_ok(0xff, 0x5d, 0x02));  // the same class's audio interface
++    CHECK(!pad_xusb_interface_ok(0xff, 0x47, 0xd0));
++}
++
++int main(void) {
++    test_parse();
++    test_buttons();
++    test_sticks();
++    test_filters();
++    printf("t_pad_xusb: %d checks, %d failed\n", checks, fails);
++    return fails != 0;
++}
