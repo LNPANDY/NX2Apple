@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Haseenesss <Haseenesss@gmail.com>
+Date: Fri, 13 Nov 2026 19:12:35 +0900
+Subject: [PATCH] host/input: box DM_GAME_ID for the Mac preferences domain
+
+input_preferences_domain() joined @"org.nxnative." and DM_GAME_ID as two
+string literals. A multi-program profile (Super Mario 3D All-Stars,
+010049900F546000) defines DM_GAME_ID as (dm_game_cur()->id), a runtime
+const char *, so front_mac.m and controllers_mac.m failed to compile
+and the Mac host could not be built. The ID is now boxed at run time,
+as front_mac.m already does with @(DM_GAME_ID). seedds/nxnative#221's
+branch has the same line since; patch 0017 was adapted before it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+Upstream-Status: forwarded seedds/nxnative#221 (the fix is on that pull request's branch; patch 0017 predates it)
+Reason: a multi-program game's Mac host does not compile: patch 0017 joins a runtime DM_GAME_ID as a string literal
+Issue: LNPANDY/NX2Apple#1145
+
+---
+ dm/host/input_preferences_mac.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dm/host/input_preferences_mac.h b/dm/host/input_preferences_mac.h
+index b3a2dee..bedb78a 100644
+--- a/dm/host/input_preferences_mac.h
++++ b/dm/host/input_preferences_mac.h
+@@ -5,7 +5,7 @@
+ #include "game_profile.h"
+ #include "input_map.h"
+ static NSString *input_preferences_domain(void) {
+-    return NSBundle.mainBundle.bundleIdentifier ?: [@"org.nxnative." DM_GAME_ID lowercaseString];
++    return NSBundle.mainBundle.bundleIdentifier ?: [[@"org.nxnative." stringByAppendingString:@(DM_GAME_ID)] lowercaseString];
+ }
+ static BOOL input_preferences_enabled(void) {
+     const char *off=getenv("DM_SAVED_CHOICES"); return !off || strcmp(off,"0");
