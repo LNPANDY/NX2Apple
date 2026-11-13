@@ -33,9 +33,10 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
     }
 
     private func items(_ game: LibraryGame, running: Bool = false, older: Bool = false, active: UUID? = nil, folder: Bool = false, log: Bool = false,
-                       launching: Bool = false, buildFiles: String? = nil, actions: ManageActions = ManageActions()) -> [ManageItem] {
+                       launching: Bool = false, buildFiles: String? = nil, canRefreshFramework: Bool = false, actions: ManageActions = ManageActions()) -> [ManageItem] {
         ManageItem.list(game: game, labels: { L10n.string($0, .en) }, running: running, olderTools: older, activeBuildID: active,
-                        hasBuildFolder: folder, buildFilesTitle: buildFiles, hasLog: log, deviceName: "iPad mini", launching: launching, actions: actions)
+                        hasBuildFolder: folder, buildFilesTitle: buildFiles, hasLog: log, deviceName: "iPad mini", launching: launching,
+                        canRefreshFramework: canRefreshFramework, actions: actions)
     }
 
     /// #232: Remove build files, with the size, only for a game with a build folder, never while that game builds.
@@ -170,6 +171,9 @@ final class ManageMenuTests: IsolatedDefaultsTestCase {
         let game = try readyGame()
         XCTAssertEqual(ManagePad.firstFocus(items(game)), "manage.rebuild")
         XCTAssertEqual(ManagePad.firstFocus(items(LibraryGame(titleID: titleID, name: "Hades"))), "manage.options", "Build again is off: the next row is Launch options, which every game has")
+        let refreshable = items(LibraryGame(titleID: titleID, name: "Hades"), canRefreshFramework: true)
+        XCTAssertEqual(refreshable.first { $0.id == "rebuild" }?.enabled, true)
+        XCTAssertEqual(ManagePad.firstFocus(refreshable), "manage.rebuild")
         XCTAssertNil(ManagePad.firstFocus([]))
     }
 

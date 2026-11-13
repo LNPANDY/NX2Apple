@@ -29,14 +29,17 @@ package struct QueueEntry: Codable, Identifiable, Equatable, Sendable {
     package var reason: String?
     /// The name of the device or the folder it goes to, as chosen when it was added, nil for "This Mac" or an unsigned IPA.
     package var destinationName: String?
+    /// Existing iOS archive directory (`<out>/games/<titleID>`), used to refresh a framework when the original packages are gone.
+    package var archivePath: String?
 
     package init(id: UUID = UUID(), gameID: UUID? = nil, titleID: String, name: String, target: String, inputs: [String: [String]],
                  gameFolder: String? = nil, outputDirectory: String, engineID: String, batch: UUID = UUID(), packageAfter: Bool = false,
-                 exportIPA: Bool? = nil, status: Status = .queued, reason: String? = nil, destinationName: String? = nil) {
+                 exportIPA: Bool? = nil, status: Status = .queued, reason: String? = nil, destinationName: String? = nil,
+                 archivePath: String? = nil) {
         self.id = id; self.gameID = gameID; self.titleID = titleID; self.name = name; self.target = target; self.inputs = inputs
         self.gameFolder = gameFolder; self.outputDirectory = outputDirectory; self.engineID = engineID; self.batch = batch
         self.packageAfter = packageAfter; self.exportIPA = exportIPA; self.status = status; self.reason = reason
-        self.destinationName = destinationName
+        self.destinationName = destinationName; self.archivePath = archivePath
     }
 
     package var finished: Bool { status == .done || status == .failed || status == .skipped }

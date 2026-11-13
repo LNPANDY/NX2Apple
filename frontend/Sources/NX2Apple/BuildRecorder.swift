@@ -58,7 +58,9 @@ import NXLauncher
     /// `running` as it is about to change (a Published sink runs before the store holds the new value).
     private func runningChanged(_ running: Bool) {
         if !running { DockProgress.update(nil) }
-        if running && build.buildingGame && activeBuildID == nil { activeBuildID = library.rememberInputs(build) }
+        if running && build.buildingGame && activeBuildID == nil {
+            activeBuildID = build.activeQueuedGameID ?? build.refreshCandidate?.gameID ?? library.rememberInputs(build)
+        }
         if running && build.buildingGame && activeBuildID != nil {   // the tools this build runs: a pull waits for the build (RepoStore.pull, autoPull)
             buildCommit = ""
             let dir = repoPath()

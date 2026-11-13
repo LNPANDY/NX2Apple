@@ -32,6 +32,7 @@ extension BuildStore {
     /// Unknown or unreadable containers (`cannotCheck`) return `nil` so non-blocking cases proceed normally.
     package func keyPreflightProblem() -> String? {
         guard gameFolder == nil else { return nil }
+        if !inputsReady && canRefreshCurrentIOSFramework { return nil }
         let files = [basePath, updatePath] + dlcPaths
         guard !keysPath.isEmpty, !basePath.isEmpty else { return nil }
         return preflightKeyProblem(keysPath, files)
@@ -43,7 +44,9 @@ extension BuildStore {
         let folder = outDir.isEmpty ? inputFolder : outDir
         let inputPaths = [basePath, updatePath] + dlcPaths
         if !folder.isEmpty, let free = spaceAvailable(folder) {
-            let needed = BuildSpace.estimatedNeeded(for: inputPaths)
+            let needed = (!inputsReady && canRefreshCurrentIOSFramework)
+                ? Int64(256_000_000)
+                : BuildSpace.estimatedNeeded(for: inputPaths)
             let space = BuildSpace(needed: needed, available: free)
             if space.isShort {
                 return String(

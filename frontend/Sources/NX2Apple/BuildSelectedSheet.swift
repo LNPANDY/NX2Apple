@@ -14,11 +14,14 @@ struct BuildSelectedSheet: View {
     var target: String = BuildTarget.mac
     /// Whether the Build page currently builds into the shared app (either direct install or shared IPA export).
     var packagesSharedApp: Bool = false
+    var canRefresh: (LibraryGame) -> Bool = { _ in false }
     let close: () -> Void
     @EnvironmentObject var loc: Localizer
     @State private var checked: Set<UUID> = []
 
-    private var candidates: [LibraryGame] { library.games.filter { $0.inputs[GameLibrary.folderInput] != nil || !($0.inputs["base"] ?? []).isEmpty } }
+    private var candidates: [LibraryGame] {
+        library.games.filter { $0.inputs[GameLibrary.folderInput] != nil || !($0.inputs["base"] ?? []).isEmpty || canRefresh($0) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -69,9 +72,13 @@ struct BuildSelectedSheet: View {
 
     private func add() {
         let batch = UUID()
-        queue.enqueue(candidates.filter { checked.contains($0.id) }.map {
-            QueueEntry(game: $0, engineID: engineID, target: target, batch: batch,
-                       packageAfter: packagesSharedApp && target != BuildTarget.mac)
+        let fm = FileManager.default
+        queue.enqueue(candidates.filter { checked.contains($0.id) }.map { game in
+            let hasDiskSource = (game.inputs[GameLibrary.folderInput] ?? []).contains(where: { fm.fileExists(atPath: $0) })
+                || (game.inputs["base"] ?? []).contains(where: { fm.fileExists(atPath: $0) })
+            let entryTarget = (!hasDiskSource && canRefresh(game)) ? BuildTarget.ios : target
+            return QueueEntry(game: game, engineID: engineID, target: entryTarget, batch: batch,
+                              packageAfter: packagesSharedApp && entryTarget != BuildTarget.mac)
         })
         close()
     }
@@ -84,6 +91,7 @@ extension QueueEntry {
     init(game: LibraryGame, engineID: String, target: String? = nil, batch: UUID = UUID(), packageAfter: Bool = false) {
         self.init(gameID: game.id, titleID: game.titleID, name: game.name, target: target ?? game.lastTarget,
                   inputs: game.inputs.filter { $0.key != GameLibrary.folderInput }, gameFolder: game.inputs[GameLibrary.folderInput]?.first,
-                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter)
+                  outputDirectory: game.outputDirectory, engineID: engineID, batch: batch, packageAfter: packageAfter,
+                  archivePath: game.archivePath.isEmpty ? nil : game.archivePath)
     }
 }

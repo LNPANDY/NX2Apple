@@ -14,6 +14,10 @@ extension BuildStore {
     }
 
     func runBuild() {
+        runBuild(allowFrameworkRefresh: true)
+    }
+
+    func runBuild(allowFrameworkRefresh: Bool) {
         guard !running else { return }
         guard prepareBuildPreflight() else { return }
         // The shared app needs a device this Mac knows. Found out here, before an hour of building, not after it.
@@ -26,6 +30,25 @@ extension BuildStore {
         let skipStale = skipStaleCheckForQueuedEntry
         skipStaleCheckForQueuedEntry = false
         if target != BuildTarget.mac, !exportsOneGame, !skipStale, askAboutStaleFrameworks() { return }   // StaleFrameworksPrompt.swift (#449)
+        if allowFrameworkRefresh, let refreshStatus = shouldPreferFrameworkRefresh() {
+            switch refreshStatus {
+            case .ready(let plan):
+                if let message = spaceProblem() { doneNote = message; done = false; return }
+                runFrameworkRefresh(plan: plan)
+                return
+            case .shadersStale:
+                done = false
+                running = true
+                buildingGame = true
+                runningTarget = BuildTarget.ios
+                beginOperation(.building, game: refreshCandidate?.name ?? gameName,
+                               titleID: refreshCandidate?.titleID ?? gameTitleID, destination: .target)
+                fail(t("msg.refreshShadersStale"))
+                return
+            case .unavailable:
+                break
+            }
+        }
         if let message = spaceProblem() { doneNote = message; done = false; return }
         stopping = false; stoppedByPlayer = false; archiveGeneration &+= 1
         buildingGame = true; runningTarget = target

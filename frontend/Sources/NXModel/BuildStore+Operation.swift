@@ -46,7 +46,7 @@ extension BuildStore {
         if hasQueuedBuilds {
             return repo.isRepo && deps.allPresent && !queueNeedsDevice
         }
-        return canBuild && keyProblem == nil
+        return canBuild && (keyProblem == nil || canRefreshCurrentIOSFramework)
     }
 
     /// Starts the staged build queue with the player's chosen target and install/export mode, or starts a single-game build when no
@@ -111,6 +111,15 @@ extension BuildStore {
         deferShellPackaging = entry.packageAfter && entry.target != BuildTarget.mac && !exportsOneGame
         if deferShellPackaging { deferredExportsIPA = entry.exportIPA ?? exportsShell }
         skipStaleCheckForQueuedEntry = true
+        refreshCandidate = RefreshCandidate(
+            gameID: entry.gameID,
+            titleID: entry.titleID,
+            name: entry.name,
+            archivePath: entry.archivePath ?? "",
+            recordedBase: entry.inputs["base"]?.first ?? "",
+            recordedUpdate: entry.inputs["update"]?.first ?? "",
+            recordedDLC: entry.inputs["dlc"] ?? []
+        )
         selectedTitleID = nil
         done = false; doneNote = ""; stages = []
         runBuild()
@@ -119,6 +128,7 @@ extension BuildStore {
         queuedExportOneGame = nil
         skipStaleCheckForQueuedEntry = false
         activeQueuedGameID = nil
+        refreshCandidate = nil
         return doneNote.isEmpty ? t("queue.cannotStart") : doneNote
     }
 

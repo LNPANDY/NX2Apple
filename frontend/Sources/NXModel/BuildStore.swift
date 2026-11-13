@@ -108,6 +108,8 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
     /// The program the player chose for this build, including its device checks and retries.
     var selectedTitleID: String?
+    /// Library game context enabling package-free iOS framework refresh when cached build artifacts remain.
+    @Published package var refreshCandidate: RefreshCandidate?
     /// The game folder the rows came from (BuildStore+GameFolder.swift), nil for packages.
     @Published package var gameFolder: GameFolder.Contents? {
         didSet {
@@ -375,9 +377,9 @@ func hop(_ body: @escaping @MainActor () -> Void) {
         if let i = slots.firstIndex(where: { $0.id == id }) { body(&slots[i]) }
     }
 
-    /// A build may start: the repository is usable, the base game and the keys are there (a game folder needs no keys), the tools
+    /// A build may start: the repository is usable, inputs or cached refresh artifacts are present, the tools
     /// are all present and none runs.
-    package var canBuild: Bool { repo.isRepo && inputsReady && deps.allPresent && !running }
+    package var canBuild: Bool { repo.isRepo && (inputsReady || canRefreshCurrentIOSFramework) && deps.allPresent && !running }
 
     /// A line for the build card's note, from a store that has no card of its own (the dependency store's failed install).
     package func note(_ text: String) { doneNote = text }

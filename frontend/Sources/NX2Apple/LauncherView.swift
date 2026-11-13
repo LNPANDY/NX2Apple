@@ -348,7 +348,7 @@ struct LauncherView: View {
         .deleteGameSheet($deleting, shellRoot: m.shellCachePath, library: library, loc: loc, pad: padFocus, scope: { currentPadScope })
         .libraryDiagnosticsWiring(library: library, repo: repo, engine: engine, verified: verifiedProfiles, skippedOpen: $skippedItemsOpen, pad: padFocus, scope: { currentPadScope }, openKeysSettings: openKeysSettingsFromDiagnostics)
         .sheet(isPresented: $selectingGames) {
-            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame) { selectingGames = false }
+            BuildSelectedSheet(library: library, queue: stores.queue, engineID: engine.selection.engineID, target: m.target, packagesSharedApp: !m.exportsOneGame, canRefresh: canRefreshIOSFramework) { selectingGames = false }
                 .environmentObject(loc)
         }
         .sheet(isPresented: Binding(get: { supportedGames != nil }, set: { if !$0 { supportedGames = nil } })) {
@@ -625,6 +625,7 @@ struct LauncherView: View {
     func newBuild() {
         guard !m.running else { page = .builds; return }
         m.leaveGameFolder()
+        m.refreshCandidate = nil
         for index in m.slots.indices { m.slots[index].paths = []; m.slots[index].problem = "" }
         m.gameDir = ""; m.done = false; m.doneNote = ""; m.macAppPath = ""; m.stages = []
         if m.outDir.isEmpty && !library.folder.isEmpty { m.outDir = library.folder }
@@ -645,10 +646,16 @@ struct LauncherView: View {
             // scan, or from the last build. Falling back to the base's folder would put the update and DLC out of reach.
             m.gameDir = game.sourceFolder.isEmpty ? (m.basePath as NSString).deletingLastPathComponent : game.sourceFolder
         }
+        m.refreshCandidate = RefreshCandidate(
+            gameID: game.id, titleID: game.titleID, name: game.name, archivePath: game.archivePath,
+            recordedBase: game.inputs["base"]?.first ?? "",
+            recordedUpdate: game.inputs["update"]?.first ?? "",
+            recordedDLC: game.inputs["dlc"] ?? []
+        )
         m.macAppPath = game.appPath
         m.outDir = game.outputDirectory
         m.done = false; m.doneNote = ""; m.stages = []
-        m.target = game.lastTarget
+        m.target = (!hasSourceInputsOnDisk(game) && canRefreshIOSFramework(game)) ? BuildTarget.ios : game.lastTarget
         page = .builds
     }
 
@@ -735,6 +742,7 @@ struct LauncherView: View {
                         buildFilesTitle: BuildFiles.menuTitle(stores.buildFiles, game: game.id, t: loc.t),
                         hasLog: GameLog.latest(titleID: game.titleID, appPath: game.appPath) != nil,
                         deviceName: devices.deviceName(game.installedDevice), launching: launching,
+                        canRefreshFramework: canRefreshIOSFramework(game),
                         actions: ManageActions(
                             rebuild: { configureBuild(game) }, openOnDevice: { openOnDevice(game) }, options: { optionsFor = game.id }, saves: { savesFor = game.id }, cheats: { cheatsFor = game.id },
                             changeArtwork: { openArtwork(game) }, rename: { renaming = game },

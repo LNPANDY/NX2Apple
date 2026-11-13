@@ -34,9 +34,9 @@ struct ManageItem: Identifiable {
     /// Build again is off while a build runs or with no recorded inputs, Remove while this game is the one building.
     static func list(game: LibraryGame, labels t: (String) -> String, running: Bool, olderTools: Bool, activeBuildID: UUID?,
                      hasBuildFolder: Bool, buildFilesTitle: String? = nil, hasLog: Bool = false, deviceName: String, launching: Bool = false,
-                     actions a: ManageActions) -> [ManageItem] {
+                     canRefreshFramework: Bool = false, actions a: ManageActions) -> [ManageItem] {
         var items = [ManageItem(id: "rebuild", symbol: "arrow.clockwise", title: t(olderTools ? "library.rebuild" : "library.buildAgain"),
-                                enabled: !running && !game.inputs["base", default: []].isEmpty, run: a.rebuild)]
+                                enabled: !running && (!game.inputs["base", default: []].isEmpty || canRefreshFramework), run: a.rebuild)]
         if game.isReady {
             if game.onDevice {
                 items.append(.init(id: "device", symbol: "iphone", title: String(format: t("dev.open"), deviceName),

@@ -67,12 +67,14 @@ package struct ActionCard: View {
             }
         } else if build.gameFolderRefused {
             Text(loc.t("status.fixFolder")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
-        } else if !build.inputsReady {
+        } else if !build.inputsReady && !build.canRefreshCurrentIOSFramework {
             Text(loc.t("status.needInputs")).font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText)
-        } else if let keyProblem = build.keyProblem, !keyProblem.isEmpty {
+        } else if let keyProblem = build.keyProblem, !keyProblem.isEmpty, !build.canRefreshCurrentIOSFramework {
             Text(keyProblem).font(.manrope(13)).foregroundStyle(LauncherPalette.building).lineLimit(3)
         } else {
-            Text(String(format: loc.t("status.output"), build.shortPath(build.outDir.isEmpty ? build.inputFolder : build.outDir)))
+            let refreshDir = (build.refreshCandidate?.archivePath as NSString?)?.deletingLastPathComponent ?? ""
+            let displayDir = !build.outDir.isEmpty ? build.outDir : (!build.inputFolder.isEmpty ? build.inputFolder : refreshDir)
+            Text(String(format: loc.t("status.output"), build.shortPath(displayDir)))
                 .font(.manrope(13)).foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.head)
         }
     }

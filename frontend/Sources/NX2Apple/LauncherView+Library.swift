@@ -128,7 +128,8 @@ extension LauncherView {
                     } else {
                         status(game, prominent: true)
                     }
-                    if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
+                    if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id)
+                        && (!game.inputs["base", default: []].isEmpty || canRefreshIOSFramework(game)) {
                         // Never started by itself: the player adds the game, or every game built with older tools, to the build queue (#944)
                         heroRebuildButton(loc.t("library.rebuildShort"), id: "hero.rebuild", games: [game], frosted: lightHero)
                         let others = olderToolsGames
@@ -356,9 +357,35 @@ extension LauncherView {
         .transition(.opacity)
     }
 
+    /// Whether an already-built iOS game can refresh its framework from cached ExeFS, shaders, and `romfs.img`.
+    func canRefreshIOSFramework(_ game: LibraryGame) -> Bool {
+        guard !stores.repo.path.isEmpty,
+              (!game.iosAppPath.isEmpty || !game.archivePath.isEmpty || game.lastTarget == BuildTarget.ios) else { return false }
+        var workDirs = BuildFolder.candidates(for: game)
+        if !game.archivePath.isEmpty {
+            let parent = (game.archivePath as NSString).deletingLastPathComponent
+            if (parent as NSString).lastPathComponent.lowercased() == "games" {
+                let root = (parent as NSString).deletingLastPathComponent
+                if !root.isEmpty { workDirs.append(root + "/" + game.titleID + "_build") }
+            }
+        }
+        let romfs = FrameworkRefresh.romfsCandidates(
+            archivePath: game.archivePath, outDir: game.outputDirectory,
+            inputFolder: game.sourceFolder, titleID: game.titleID, workDirs: workDirs
+        )
+        return FrameworkRefresh.canAttempt(workDirs: workDirs, romfsCandidates: romfs, repo: stores.repo.path, titleID: game.titleID)
+    }
+
+    /// True when at least one source package or game folder path recorded for `game` still exists on disk.
+    func hasSourceInputsOnDisk(_ game: LibraryGame) -> Bool {
+        let fm = FileManager.default
+        return (game.inputs[GameLibrary.folderInput] ?? []).contains(where: { fm.fileExists(atPath: $0) })
+            || (game.inputs["base"] ?? []).contains(where: { fm.fileExists(atPath: $0) })
+    }
+
     /// The games built with older tools that can be built again from the files the library holds.
     var olderToolsGames: [LibraryGame] {
-        library.games.filter { toolsAge.older.contains($0.id) && !$0.inputs["base", default: []].isEmpty }
+        library.games.filter { toolsAge.older.contains($0.id) && (!$0.inputs["base", default: []].isEmpty || canRefreshIOSFramework($0)) }
     }
 
     /// An outlined pill that adds games to the build queue: one game, or all that were built with older tools. It starts nothing itself.
@@ -367,8 +394,9 @@ extension LauncherView {
             guard !m.running else { return }
             let batch = UUID()
             stores.queue.enqueue(games.map {
-                QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID, target: m.target, batch: batch,
-                           packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame)
+                let entryTarget = (!hasSourceInputsOnDisk($0) && canRefreshIOSFramework($0)) ? BuildTarget.ios : m.target
+                return QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID, target: entryTarget, batch: batch,
+                                  packageAfter: entryTarget != BuildTarget.mac && !m.exportsOneGame)
             })
             page = .builds
         }
