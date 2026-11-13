@@ -367,6 +367,74 @@ class ExternalMslAndBatchDriveCopyTest(unittest.TestCase):
             )
             self.assertIsNotNone(space_err)
 
+    def test_export_and_install_built_counts_format_across_languages(self) -> None:
+        from nspb_qt import l10n
+        from nspb_qt.i18n import Lang
+
+        for language in l10n.LANGUAGES:
+            lang = Lang(language.code)
+            for key in ('shell.exportBuilt', 'shell.installBuilt'):
+                label = l10n.t(key, lang, 3)
+                self.assertIn('3', label, f'{language.code} {key}: {label!r}')
+                self.assertNotIn('%d', label, f'{language.code} {key}: {label!r}')
+                self.assertNotIn(';', label, f'{language.code} {key}: {label!r}')
+
+        self.assertEqual(l10n.t('shell.exportBuilt', Lang('en'), 2), 'Export IPA (2)')
+        self.assertEqual(l10n.t('shell.exportBuilt', Lang('zh'), 2), '导出 IPA (2)')
+        self.assertEqual(l10n.t('shell.exportBuilt', Lang('ja'), 2), 'IPA を書き出し (2)')
+
+        try:
+            import os
+            from unittest import mock
+            os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+            from PySide6.QtCore import QEvent, QSettings
+            from PySide6.QtWidgets import QApplication
+            from nspb_qt import model as model_mod, ui as ui_mod
+        except ImportError:
+            from test_post_build_cleanup import _import_model_with_stub
+
+            model_mod, cleanup = _import_model_with_stub()
+            try:
+                fake = type('Stub', (), {
+                    't': lambda _s, k, *a: l10n.t(k, Lang('en'), *a),
+                    'built_shell_games': lambda _s: ['a', 'b'],
+                })()
+                self.assertEqual(model_mod.Model.export_built_label(fake), 'Export IPA (2)')
+            finally:
+                cleanup()
+            return
+
+        app = QApplication.instance() or QApplication([])
+        with mock.patch.object(lib, 'default_state_dir', return_value=self.root / 'state'), \
+             mock.patch.object(
+                 model_mod,
+                 'QSettings',
+                 side_effect=lambda *a, **kw: QSettings(str(self.root / 'settings.ini'), QSettings.IniFormat),
+             ), \
+             mock.patch.object(model_mod.Model, 'check_deps', lambda _self: None):
+            m = model_mod.Model()
+            m.ipa_kind = 'shared'
+            m.target = 'ios'
+            m.built_shell_games = lambda: [
+                {'title_id': '0100000000000001', 'name': 'One', 'framework': str(self.root / 'a.framework')},
+                {'title_id': '0100000000000002', 'name': 'Two', 'framework': str(self.root / 'b.framework')},
+            ]
+            m.can_export_built_games = lambda: True
+            win = ui_mod.MainWindow(m)
+            win._init_timer.stop()
+            try:
+                for code, expected in (('en', 'Export IPA (2)'), ('zh', '导出 IPA (2)'), ('ja', 'IPA を書き出し (2)')):
+                    m.set_lang(Lang(code))
+                    win._refresh_install_card()
+                    app.processEvents()
+                    self.assertEqual(win.step1_repack_btn.text(), expected)
+            finally:
+                win.close()
+                win.deleteLater()
+                m.deleteLater()
+                app.sendPostedEvents(None, QEvent.DeferredDelete)
+                app.processEvents()
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -35,22 +35,24 @@ package struct ExportSteps: View {
     private var oneGame: Bool { devices.exportOneGame }
 
     package var body: some View {
+        let canExportBuilt = !oneGame && !build.running && build.exportsShell && !build.exportsOneGame
+        let exportBuiltCount = canExportBuilt ? build.builtShellGames().count : 0
         VStack(spacing: 0) {
             step(1, exported ? .done : .current, title: loc.t("shell.step1Title"),
                  sub: exported ? String(format: loc.t(oneGame ? "shell.oneGameDone" : "shell.step1Done"), build.exportedIPAText)
                                : loc.t(oneGame ? "shell.oneGameSub" : "shell.step1Sub")) {
                 if exported {
                     HStack(spacing: ExportGrid.gap) {
-                        if !oneGame && build.canExportBuiltGames {
-                            action(loc.t("shell.exportBuilt"), enabled: true) { build.exportBuiltGames() }
+                        if exportBuiltCount > 0 {
+                            action(String(format: loc.t("shell.exportBuilt"), exportBuiltCount), enabled: true) { build.exportBuiltGames() }
                                 .help(loc.t("shell.exportBuiltNote"))
                         }
                         action(loc.t("shell.showInFinder")) { revealInFinder(build.exportedIPAPath) }
                     }
                 } else {
                     HStack(spacing: ExportGrid.gap) {
-                        if build.canExportBuiltGames {   // #994: the IPA of the frameworks already built, no game is built again
-                            action(loc.t("shell.exportBuilt"), enabled: true) { build.exportBuiltGames() }
+                        if exportBuiltCount > 0 {   // #994: the IPA of the frameworks already built, no game is built again
+                            action(String(format: loc.t("shell.exportBuilt"), exportBuiltCount), enabled: true) { build.exportBuiltGames() }
                                 .help(loc.t("shell.exportBuiltNote"))
                         }
                         action(loc.t("shell.step1Button"), enabled: build.canStartBuildOrQueue && !build.running) { build.startBuildOrQueue() }

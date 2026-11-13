@@ -3456,6 +3456,12 @@ class Model(QObject):
         shell_lib.drop_missing()
         return shell_lib.games
 
+    def export_built_label(self, count: int | None = None) -> str:
+        """Return the localized Export IPA button label carrying the count of built shell games."""
+        if count is None:
+            count = len(self.built_shell_games())
+        return self.t('shell.exportBuilt', count)
+
     def can_export_built_games(self) -> bool:
         """True when shared-app IPA repacking can run without rebuilding any game."""
         return (

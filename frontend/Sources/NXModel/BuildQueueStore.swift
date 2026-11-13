@@ -48,6 +48,7 @@ import NXCore
     package var running: QueueEntry? { entries.first { $0.status == .running } }
     package var isEmpty: Bool { entries.isEmpty }
     package var hasWaiting: Bool { !queued.isEmpty }
+    package var hasFinished: Bool { entries.contains(where: \.finished) }
 
     // MARK: Changing the queue
 
@@ -114,6 +115,49 @@ import NXCore
         persist()
     }
 
+    /// Removes every completed, failed, skipped or stopped history entry while preserving the running and waiting entries.
+    package func clearFinished() {
+        entries.removeAll { $0.finished }
+        if !hasWaiting {
+            awaitingResume = false
+            paused = false
+            if running == nil { active = false }
+        }
+        persist()
+    }
+
+    /// Re-queues a failed, skipped or stopped entry at the end with the current engine identity.
+    package func retry(_ id: UUID) {
+        guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+        let existing = entries[index]
+        guard existing.finished, existing.status != .done else { return }
+        entries.remove(at: index)
+        let alreadyActive = queued.contains { $0.titleID == existing.titleID } || running?.titleID == existing.titleID
+        if alreadyActive {
+            if !hasWaiting {
+                awaitingResume = false
+                paused = false
+                if running == nil { active = false }
+            }
+            persist()
+            return
+        }
+        var requeued = existing
+        requeued.status = .queued
+        requeued.reason = nil
+        requeued.engineID = engineID()
+        if active, !paused, !awaitingResume, let currentBatch = running {
+            requeued.target = currentBatch.target
+            requeued.batch = currentBatch.batch
+            requeued.packageAfter = currentBatch.packageAfter
+            requeued.exportIPA = currentBatch.exportIPA
+            requeued.destinationName = currentBatch.destinationName
+        }
+        entries.append(requeued)
+        persist()
+        if active { processNext() }
+    }
+
     // MARK: Running
 
     /// Starts the waiting queue, optionally applying the player's current target and shared-app packaging choice to the queued batch.
@@ -150,8 +194,16 @@ import NXCore
     /// build and pauses the queue, so the next game does not start by itself.
     package func buildEnded(succeeded: Bool, reason: String? = nil, stopped: Bool = false) {
         guard let index = entries.firstIndex(where: { $0.status == .running }) else { return }
-        entries[index].status = succeeded ? .done : .failed
-        entries[index].reason = succeeded ? nil : reason
+        if succeeded {
+            entries[index].status = .done
+            entries[index].reason = nil
+        } else if stopped {
+            entries[index].status = .stopped
+            entries[index].reason = nil
+        } else {
+            entries[index].status = .failed
+            entries[index].reason = reason
+        }
         let batch = entries[index].batch
         if stopped && !succeeded && hasWaiting {
             paused = true

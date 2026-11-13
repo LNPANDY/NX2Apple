@@ -1201,7 +1201,9 @@ class MainWindow(QMainWindow):
         s1_col.addWidget(self.step1_sub)
         rs1_lay.addLayout(s1_col, 1)
 
-        self.step1_repack_btn = QPushButton(self.m.t('shell.exportBuilt'))
+        self.step1_repack_btn = QPushButton(
+            self.m.export_built_label(0) if hasattr(self.m, 'export_built_label') else self.m.t('shell.exportBuilt', 0)
+        )
         self.step1_repack_btn.setToolTip(self.m.t('shell.exportBuiltNote'))
         self.step1_repack_btn.clicked.connect(self._repack_built_shell_ipa)
         self.step1_repack_btn.hide()
@@ -1341,17 +1343,23 @@ class MainWindow(QMainWindow):
         self.step1_sub.setText(self.m.t('shell.oneGameSub' if one else 'shell.step1Sub'))
         ipa_p = self._effective_ipa_path()
         has_ipa = bool(ipa_p and os.path.exists(ipa_p))
-        has_built_shell = (
-            not one
-            and hasattr(self.m, 'built_shell_games')
-            and bool(self.m.built_shell_games())
+        built_games = (
+            self.m.built_shell_games()
+            if not one and hasattr(self.m, 'built_shell_games')
+            else []
         )
+        built_count = len(built_games)
+        has_built_shell = built_count > 0
         can_repack = (
             not one
             and hasattr(self.m, 'can_export_built_games')
             and bool(self.m.can_export_built_games())
         )
-        self.step1_repack_btn.setText(self.m.t('shell.exportBuilt'))
+        self.step1_repack_btn.setText(
+            self.m.export_built_label(built_count)
+            if hasattr(self.m, 'export_built_label')
+            else self.m.t('shell.exportBuilt', built_count)
+        )
         self.step1_repack_btn.setToolTip(self.m.t('shell.exportBuiltNote'))
         self.step1_repack_btn.setVisible(has_built_shell)
         self.step1_repack_btn.setEnabled(can_repack)
