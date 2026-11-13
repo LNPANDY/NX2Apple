@@ -1504,9 +1504,10 @@ class GameDeletionPlan:
     title_id: str
     items: list[GameDeletionItem]
     saves: GameDeletionItem | None = None
+    shell_root: str | None = None
 
     @staticmethod
-    def plan(game: LibraryGame, measure: bool = True) -> GameDeletionPlan:
+    def plan(game: LibraryGame, measure: bool = True, shell_root: str = '') -> GameDeletionPlan:
         items: list[GameDeletionItem] = []
         if game.has_app:
             items.append(GameDeletionItem('macApp', [game.app_path]))
@@ -1514,6 +1515,14 @@ class GameDeletionPlan:
             items.append(GameDeletionItem('ipa', [game.ipa_path]))
         if game.has_archive and os.path.basename(game.archive_path.rstrip('/\\')).upper() == game.title_id.upper():
             items.append(GameDeletionItem('archive', [game.archive_path]))
+
+        shared_root = None
+        if shell_root:
+            from .win.shell_export import ShellLibrary, mirrored_framework
+            if any(entry.title_id == game.title_id for entry in ShellLibrary.load(shell_root).games):
+                shared_root = shell_root
+                mirror = str(mirrored_framework(shell_root, game.title_id))
+                items.append(GameDeletionItem('shellFramework', [mirror] if os.path.exists(mirror) else []))
 
         bf = BuildFolder.location(game)
         if bf:
@@ -1539,7 +1548,7 @@ class GameDeletionPlan:
             if saves_item:
                 saves_item.bytes = sum(BuildFolder.size(p) for p in saves_item.paths)
 
-        return GameDeletionPlan(title_id=game.title_id, items=items, saves=saves_item)
+        return GameDeletionPlan(title_id=game.title_id, items=items, saves=saves_item, shell_root=shared_root)
 
     def run(self, delete_saves: bool = False) -> list[str]:
         failed: list[str] = []
@@ -1557,6 +1566,14 @@ class GameDeletionPlan:
                         os.remove(p)
                 except OSError:
                     failed.append(p)
+        if self.shell_root:
+            from .win.shell_export import ShellLibrary
+            shell = ShellLibrary.load(self.shell_root)
+            shell.games = [entry for entry in shell.games if entry.title_id != self.title_id]
+            try:
+                shell.save(self.shell_root)
+            except OSError:
+                failed.append(str(ShellLibrary.state_file(self.shell_root)))
         return failed
 
 

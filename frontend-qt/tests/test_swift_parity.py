@@ -1103,6 +1103,48 @@ class LibraryAndSpaceTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tmp.cleanup()
 
+    def test_delete_game_removes_only_its_shared_framework_and_shell_entry(self) -> None:
+        from nspb_qt.win.shell_export import ShellGame, ShellLibrary
+
+        title_id = '010082A0205AE000'
+        other_id = '0100000000010000'
+        shell_root = self.dir / 'shell'
+        frameworks = shell_root / 'frameworks'
+        game_framework = frameworks / f'DmGame{title_id}.framework'
+        other_framework = frameworks / f'DmGame{other_id}.framework'
+        for framework in (game_framework, other_framework):
+            framework.mkdir(parents=True)
+            (framework / 'DmGame').write_bytes(b'framework')
+        shell = ShellLibrary(games=[
+            ShellGame(title_id, 'Deleted', str(game_framework)),
+            ShellGame(other_id, 'Kept', str(other_framework)),
+        ])
+        shell.save(shell_root)
+        shared_ipa = shell_root / 'export' / 'NX2Apple.ipa'
+        shared_ipa.parent.mkdir()
+        shared_ipa.write_bytes(b'previous export')
+        source = self.dir / 'original.nsp'
+        source.write_bytes(b'source')
+        game = lib.LibraryGame(title_id, 'Deleted', ipa_path=str(shared_ipa), inputs={'base': [str(source)]})
+
+        plan = lib.GameDeletionPlan.plan(game, shell_root=str(shell_root))
+        self.assertEqual([(item.kind, item.paths) for item in plan.items],
+                         [('shellFramework', [str(game_framework)])])
+        self.assertEqual(plan.run(), [])
+        self.assertFalse(game_framework.exists())
+        self.assertTrue(other_framework.is_dir())
+        self.assertEqual([item.title_id for item in ShellLibrary.load(shell_root).games], [other_id])
+        self.assertTrue(shared_ipa.exists())
+        self.assertTrue(source.exists())
+
+        self.assertEqual(lib.GameDeletionPlan.plan(game, shell_root=str(shell_root)).items, [])
+        shell.add(ShellGame(title_id, 'Deleted', str(game_framework)))
+        shell.save(shell_root)
+        missing = lib.GameDeletionPlan.plan(game, shell_root=str(shell_root))
+        self.assertEqual([(item.kind, item.paths) for item in missing.items], [('shellFramework', [])])
+        self.assertEqual(missing.run(), [])
+        self.assertEqual([item.title_id for item in ShellLibrary.load(shell_root).games], [other_id])
+
     def test_discover_games_and_free_space(self) -> None:
         games_dir = self.dir / 'games_root'
         sub = games_dir / 'Celeste'
@@ -1385,6 +1427,25 @@ class ParityWindowTests(unittest.TestCase):
         m.deleteLater()
         self.app.sendPostedEvents(None, QEvent.DeferredDelete)
         self.app.processEvents()
+
+    def test_delete_dialog_describes_shared_app_install(self) -> None:
+        from PySide6.QtWidgets import QLabel
+        from nspb_qt.model import Model
+        from nspb_qt.sheets import DeleteGameDialog
+        from nspb_qt.win.shell_export import ShellGame, ShellLibrary
+
+        model = Model()
+        shell_root = Path(self._state_tmp.name) / 'shell'
+        model.settings.setValue('shellRoot', str(shell_root))
+        title_id = '010082A0205AE000'
+        mirror = shell_root / 'frameworks' / f'DmGame{title_id}.framework'
+        ShellLibrary(games=[ShellGame(title_id, 'Deleted', str(mirror))]).save(shell_root)
+        dialog = DeleteGameDialog(model, lib.LibraryGame(title_id, 'Deleted'))
+        self.addCleanup(self._delete, model, dialog)
+
+        self.assertEqual([item.kind for item in dialog.plan.items], ['shellFramework'])
+        labels = [label.text() for label in dialog.findChildren(QLabel)]
+        self.assertIn(model.t('delete.part.shellFrameworkNote'), labels)
 
     def test_three_page_navigation_and_controls(self) -> None:
         from unittest import mock
