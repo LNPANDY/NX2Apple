@@ -20,7 +20,8 @@ public struct ShellHostView: View {
                     padMerge: model.padMerge, padSnapshot: model.padSnapshot,
                     signingWarning: model.signingWarning,
                     onDismissSigningWarning: { model.dismissSigningWarning() },
-                    canOpenHomeButtonSettings: model.canOpenHomeButtonSettings)
+                    canOpenHomeButtonSettings: model.canOpenHomeButtonSettings,
+                    navigation: model.navigation)
             .disabled(model.launchingGame)
             .overlay {
                 if model.launchingGame {

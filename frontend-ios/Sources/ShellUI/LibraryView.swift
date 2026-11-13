@@ -44,8 +44,10 @@ public struct LibraryView: View {
     public var onDismissSigningWarning: () -> Void
     public var actions: ShellActions
     public var input: ShellInputLog
+    public var navigation: ShellNavigationRequest?
     /// The sequence of the last input event acted on.
     @State var inputSeen: Int
+    @State var navigationSeen = 0
     @State var selectedID: String?
     @State var settingsOpen: Bool
     /// The settings pane has finished sliding in: its focus ring shows only then, not ahead of it where it will stop.
@@ -96,7 +98,8 @@ public struct LibraryView: View {
                 globalPadMap: PadMap = PadMap(), padMerge: Bool = false, padSnapshot: PadSnapshot? = nil,
                 signingWarning: SigningWarning? = nil, onDismissSigningWarning: @escaping () -> Void = {},
                 initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false,
-                canOpenHomeButtonSettings: Bool = false) {
+                canOpenHomeButtonSettings: Bool = false,
+                navigation: ShellNavigationRequest? = nil) {
         ShellPalette.configureNativeAppearance()
         self.games = games
         self.controllers = controllers
@@ -110,6 +113,7 @@ public struct LibraryView: View {
         _buttonTestOpen = State(initialValue: initialButtonTestOpen)
         self.actions = actions
         self.input = input
+        self.navigation = navigation
         _inputSeen = State(initialValue: input.last)
         let first = initialSelection ?? games.first?.id
         _selectedID = State(initialValue: first)
@@ -255,6 +259,13 @@ public struct LibraryView: View {
         }
         .onChange(of: games.map(\.id)) { _, ids in
             if !ids.contains(selectedID ?? "") { selectedID = ids.first; settingsOpen = false }
+            if let navigation, navigation.sequence != navigationSeen { applyNavigation(navigation) }
+        }
+        .onAppear {
+            if let navigation { applyNavigation(navigation) }
+        }
+        .onChange(of: navigation) { _, request in
+            if let request { applyNavigation(request) }
         }
     }
 

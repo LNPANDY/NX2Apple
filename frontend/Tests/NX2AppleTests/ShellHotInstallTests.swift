@@ -46,7 +46,7 @@ import XCTest
         open(STATE + '/calls.txt', 'a').write(' '.join(a) + '\\n')
         def val(flag): return a[a.index(flag) + 1] if flag in a else None
         if a[0] == 'xcodebuild':
-            bundle = [x.split('=', 1)[1] for x in a if x.startswith('PRODUCT_BUNDLE_IDENTIFIER=')][0]
+            bundle = [x.split('=', 1)[1] for x in a if x.startswith('DM_APP_BUNDLE_ID=')][0]
             app = val('-derivedDataPath') + '/Build/Products/Release-iphoneos/DmShell.app'
             os.makedirs(app + '/Frameworks', exist_ok=True)
             open(app + '/bundle.txt', 'w').write(bundle)

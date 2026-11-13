@@ -18,14 +18,26 @@
 		4749F987D74B27CAA0E02480 /* ShellDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 59E0A7AE45425C5BA9689FE4 /* ShellDemoApp.swift */; };
 		47DB35565D19F0ACFF1E2F7E /* ShellHost in Frameworks */ = {isa = PBXBuildFile; productRef = D80A22588F977AEE019B7CFE /* ShellHost */; };
 		876E4B3FCD4C78C4085BCE30 /* ShellControllers in Frameworks */ = {isa = PBXBuildFile; productRef = D58DB30045BDC25980479EF9 /* ShellControllers */; };
+		8AA94630782D2855FDDCB548 /* ShellDemoWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 70E85FC3416F00D9DC68A4E2 /* ShellDemoWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		8FCFCE96E6254BB51476ECD5 /* ShellWidget in Frameworks */ = {isa = PBXBuildFile; productRef = 7828A29C093DD0A3F58BCF99 /* ShellWidget */; };
+		B573475AF5C7BA669F102948 /* WidgetMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ED5D1772473FA9EF4373D0D /* WidgetMain.swift */; };
 		C12D9CC70DEF69CCB48F44E7 /* Games in Resources */ = {isa = PBXBuildFile; fileRef = 3FAC070A229B08BED4005826 /* Games */; };
 		DF097C40B129901722DD4DF3 /* ShellDemoUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 916109EC3198FC9C0E9D655B /* ShellDemoUITests.swift */; };
+		E1AADB7DA8626CFBB71DFA92 /* ShellUI in Frameworks */ = {isa = PBXBuildFile; productRef = CFF359AE41686F4D80469B2F /* ShellUI */; };
 		E71FEFEAE303CA4343BBDE2E /* SampleData.swift in Sources */ = {isa = PBXBuildFile; fileRef = CBE23919FFDC3D06EF0D3065 /* SampleData.swift */; };
 		F15D381F62331B5172AD6D22 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = D1591481D38DDC20A1A9B215 /* Localizable.xcstrings */; };
+		F4DB9B141CCE5F4C330E375B /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 3CE64B0D7896AC226767C389 /* Localizable.xcstrings */; };
 		FAE394E91FBBBC0FD28A1C39 /* HostDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B516EC05EC6F1241E8281A82 /* HostDemo.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		6801751CECA9025088B130DD /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D41A7603C6BA5BB604CCFDE4 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D4F822CD2A91781674BA967F;
+			remoteInfo = ShellDemoWidget;
+		};
 		A478FB37CABC371EA8134656 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = D41A7603C6BA5BB604CCFDE4 /* Project object */;
@@ -35,11 +47,28 @@
 		};
 /* End PBXContainerItemProxy section */
 
+/* Begin PBXCopyFilesBuildPhase section */
+		BFF08FB8C5CB579770279F3F /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				8AA94630782D2855FDDCB548 /* ShellDemoWidget.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		3CE64B0D7896AC226767C389 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		3FAC070A229B08BED4005826 /* Games */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Games; path = ../Tests/ShellHostTests/Fixtures/Games; sourceTree = SOURCE_ROOT; };
 		59E0A7AE45425C5BA9689FE4 /* ShellDemoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellDemoApp.swift; sourceTree = "<group>"; };
+		70E85FC3416F00D9DC68A4E2 /* ShellDemoWidget.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = ShellDemoWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		80B29691CA12A696245D564A /* AppIcon.icon */ = {isa = PBXFileReference; lastKnownFileType = wrapper.icon; path = AppIcon.icon; sourceTree = "<group>"; };
 		8694319745E3759D50772855 /* ShellCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellCaptureTests.swift; sourceTree = "<group>"; };
+		8ED5D1772473FA9EF4373D0D /* WidgetMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetMain.swift; sourceTree = "<group>"; };
 		916109EC3198FC9C0E9D655B /* ShellDemoUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellDemoUITests.swift; sourceTree = "<group>"; };
 		B1D199F3FD9C677BD245559E /* ShellDemoApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = ShellDemoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B516EC05EC6F1241E8281A82 /* HostDemo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostDemo.swift; sourceTree = "<group>"; };
@@ -62,6 +91,15 @@
 				44E0EBFDB9557A0C8BB741BE /* ShellUI in Frameworks */,
 				876E4B3FCD4C78C4085BCE30 /* ShellControllers in Frameworks */,
 				47DB35565D19F0ACFF1E2F7E /* ShellHost in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		C86B0F98D659C056E3158F42 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E1AADB7DA8626CFBB71DFA92 /* ShellUI in Frameworks */,
+				8FCFCE96E6254BB51476ECD5 /* ShellWidget in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -98,6 +136,14 @@
 			path = ..;
 			sourceTree = "<group>";
 		};
+		893207D2BF1FD53E0EBE73AA /* Widget */ = {
+			isa = PBXGroup;
+			children = (
+				8ED5D1772473FA9EF4373D0D /* WidgetMain.swift */,
+			);
+			path = Widget;
+			sourceTree = "<group>";
+		};
 		B149173B288581EEEA22408A /* UITests */ = {
 			isa = PBXGroup;
 			children = (
@@ -115,8 +161,18 @@
 			children = (
 				B1D199F3FD9C677BD245559E /* ShellDemoApp.app */,
 				CEB77983EFFD9EA46FE3DFDF /* ShellDemoUITests.xctest */,
+				70E85FC3416F00D9DC68A4E2 /* ShellDemoWidget.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		C0599246BC3AF7C1AC8989C3 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				3CE64B0D7896AC226767C389 /* Localizable.xcstrings */,
+			);
+			name = Resources;
+			path = ../Sources/ShellUI/Resources;
 			sourceTree = "<group>";
 		};
 		DAD47348DC7356A3CEDE7BE1 /* Resources */ = {
@@ -135,8 +191,10 @@
 				C3B39C7F7FBAF097366F0B69 /* ReviewCatalog */,
 				85D1F85CF9A0EBBD520F89DC /* frontend-ios */,
 				2152F5714F5AA74B9FBBB0F0 /* Packages */,
+				C0599246BC3AF7C1AC8989C3 /* Resources */,
 				5928E24F76B598AD8FD0D1AB /* ShellDemo */,
 				B149173B288581EEEA22408A /* UITests */,
+				893207D2BF1FD53E0EBE73AA /* Widget */,
 				BCC2A2B39C0D1F8C141AEED5 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -151,10 +209,12 @@
 				536BC63D68A4CE4BF976542B /* Sources */,
 				935E6F65D1EC83E09A8C1441 /* Resources */,
 				1BD5DBF0EF5C005698AA1F08 /* Frameworks */,
+				BFF08FB8C5CB579770279F3F /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				FC906BA5FD9A0941D66C8269 /* PBXTargetDependency */,
 			);
 			name = ShellDemoApp;
 			packageProductDependencies = (
@@ -183,6 +243,27 @@
 			productName = ShellDemoUITests;
 			productReference = CEB77983EFFD9EA46FE3DFDF /* ShellDemoUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		D4F822CD2A91781674BA967F /* ShellDemoWidget */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D754FCBC13FBCFEBAE6B7D5B /* Build configuration list for PBXNativeTarget "ShellDemoWidget" */;
+			buildPhases = (
+				AC868228580438CB0AB6CF50 /* Sources */,
+				B102A963873DC4B439DA483A /* Resources */,
+				C86B0F98D659C056E3158F42 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ShellDemoWidget;
+			packageProductDependencies = (
+				CFF359AE41686F4D80469B2F /* ShellUI */,
+				7828A29C093DD0A3F58BCF99 /* ShellWidget */,
+			);
+			productName = ShellDemoWidget;
+			productReference = 70E85FC3416F00D9DC68A4E2 /* ShellDemoWidget.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -216,6 +297,7 @@
 			projectRoot = "";
 			targets = (
 				85AF0342F954D1F33C949240 /* ShellDemoApp */,
+				D4F822CD2A91781674BA967F /* ShellDemoWidget */,
 				BBE3C0425143E6EB56C6DE55 /* ShellDemoUITests */,
 			);
 		};
@@ -231,6 +313,14 @@
 				F15D381F62331B5172AD6D22 /* Localizable.xcstrings in Resources */,
 				04DDB120651415BA54DE685E /* ReviewCatalog in Resources */,
 				428AC87D2C2B85E2830198F8 /* catalog.json in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B102A963873DC4B439DA483A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F4DB9B141CCE5F4C330E375B /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -259,6 +349,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AC868228580438CB0AB6CF50 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B573475AF5C7BA669F102948 /* WidgetMain.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -266,6 +364,11 @@
 			isa = PBXTargetDependency;
 			target = 85AF0342F954D1F33C949240 /* ShellDemoApp */;
 			targetProxy = A478FB37CABC371EA8134656 /* PBXContainerItemProxy */;
+		};
+		FC906BA5FD9A0941D66C8269 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D4F822CD2A91781674BA967F /* ShellDemoWidget */;
+			targetProxy = 6801751CECA9025088B130DD /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -306,6 +409,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGNING_ALLOWED = NO;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -324,6 +428,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -369,6 +474,22 @@
 			};
 			name = Release;
 		};
+		1FA2EDEAA137BAD3DC7F1725 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = Gen/WidgetInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.shellui.ShellDemoApp.widget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		4B96CA7B30D2B36B6369F0DE /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -381,6 +502,22 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = dev.shellui.ShellDemoApp;
 				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		969B88ADF522FFB69EFB63AD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				INFOPLIST_FILE = Gen/WidgetInfo.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.shellui.ShellDemoApp.widget;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -421,6 +558,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGNING_ALLOWED = NO;
 				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
@@ -445,6 +583,7 @@
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -505,6 +644,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
 		};
+		D754FCBC13FBCFEBAE6B7D5B /* Build configuration list for PBXNativeTarget "ShellDemoWidget" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1FA2EDEAA137BAD3DC7F1725 /* Debug */,
+				969B88ADF522FFB69EFB63AD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -515,7 +663,15 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		7828A29C093DD0A3F58BCF99 /* ShellWidget */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ShellWidget;
+		};
 		7F6858A53523100F9E10590E /* ShellUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ShellUI;
+		};
+		CFF359AE41686F4D80469B2F /* ShellUI */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ShellUI;
 		};

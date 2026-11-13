@@ -56,6 +56,11 @@ extension ShellInstall {
     /// Whether `<root>/project/DmShell.xcodeproj` embeds a different set of frameworks than `games` (for example after a game was
     /// deleted or its stale framework was removed), or references a framework folder that is no longer on disk.
     package static func projectNeedsUpdate(root: String, games: [ShellLibrary.Game], fm: FileManager = .default) -> Bool {
+        let pbxPath = projectFolder(root: root) + "/" + projectName + "/project.pbxproj"
+        if let pbx = try? String(contentsOfFile: pbxPath, encoding: .utf8),
+           pbx.contains("PBXNativeTarget"), !pbx.contains("DM_APP_BUNDLE_ID") {
+            return true
+        }
         let expected = games.map(\.framework)
         if let text = try? String(contentsOfFile: projectFrameworksFile(root: root), encoding: .utf8) {
             let recorded = text.split(whereSeparator: \.isNewline).compactMap { line -> String? in
@@ -66,7 +71,6 @@ extension ShellInstall {
             }
             return recorded != expected || recorded.contains { !fm.fileExists(atPath: $0) }
         }
-        let pbxPath = projectFolder(root: root) + "/" + projectName + "/project.pbxproj"
         guard let pbx = try? String(contentsOfFile: pbxPath, encoding: .utf8),
               let re = try? NSRegularExpression(pattern: #"DmGame[0-9A-Fa-f]+\.framework"#) else { return false }
         let matches = re.matches(in: pbx, range: NSRange(pbx.startIndex..., in: pbx))

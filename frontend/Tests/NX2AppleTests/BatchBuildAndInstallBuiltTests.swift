@@ -84,7 +84,7 @@ import XCTest
             if os.path.exists(STATE + '/fail-xcodebuild'):
                 print('error: Signing failed while offline.', flush=True)
                 sys.exit(65)
-            bundle = [x.split('=', 1)[1] for x in a if x.startswith('PRODUCT_BUNDLE_IDENTIFIER=')][0]
+            bundle = [x.split('=', 1)[1] for x in a if x.startswith('DM_APP_BUNDLE_ID=')][0]
             app = val('-derivedDataPath') + '/Build/Products/Release-iphoneos/DmShell.app'
             os.makedirs(app + '/Frameworks', exist_ok=True)
             fwlist = os.path.dirname(val('-project')) + '/frameworks.txt'

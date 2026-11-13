@@ -39,7 +39,7 @@ import NXModel
         let build = ShellInstall.exportBuildCommand(xcrun: "/x", root: root, bundleID: "org.nxnative.shell")
         XCTAssertEqual(build, ["/x", "xcodebuild", "-project", root + "/project/DmShell.xcodeproj", "-scheme", "DmShell", "-configuration", "Release",
                                "-destination", "generic/platform=iOS", "-derivedDataPath", root + "/export/derived-data",
-                               "PRODUCT_BUNDLE_IDENTIFIER=org.nxnative.shell", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO",
+                               "DM_APP_BUNDLE_ID=org.nxnative.shell", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO",
                                "CODE_SIGN_IDENTITY=", "build"])
         // no team, no device, no provisioning
         XCTAssertFalse(build.contains { $0.hasPrefix("DEVELOPMENT_TEAM") || $0 == "-allowProvisioningUpdates" || $0.hasPrefix("id=") })
