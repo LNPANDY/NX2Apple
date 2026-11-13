@@ -43,7 +43,9 @@ extension BuildStore {
         let folder = outDir.isEmpty ? inputFolder : outDir
         let inputPaths = [basePath, updatePath] + dlcPaths
         if !folder.isEmpty, let free = spaceAvailable(folder) {
-            let needed = BuildSpace.estimatedNeeded(for: inputPaths)
+            // A build again into the same folder keeps the game files it extracted before
+            let reused = BuildSpace.finishedExtraction(in: folder + "/" + buildKey + "_build")
+            let needed = max(0, BuildSpace.estimatedNeeded(for: inputPaths) - reused)
             let space = BuildSpace(needed: needed, available: free)
             if space.isShort {
                 return String(

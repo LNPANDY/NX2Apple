@@ -2435,10 +2435,12 @@ class Model(QObject):
 
         if total_in >= 0x400:
             factor = 3.5 if has_compressed else 2.2
-            needed = int(total_in * factor)
             probe_dir = self.out_dir or (
                 self.game_folder.folder if self.game_folder is not None else str(Path(self.base_path).parent)
             )
+            # A build again into the same folder keeps the game files it extracted before
+            reused = lib.BuildFolder.finished_extraction(str(Path(probe_dir, f'{self.build_key}_build')))
+            needed = max(0, int(total_in * factor) - reused)
             free = lib.DriveCopy.free_space(probe_dir)
             if free > 0 and free < needed:
                 return self.t('status.lowDiskSpace', lib.format_bytes(needed), lib.format_bytes(free))
