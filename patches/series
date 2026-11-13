@@ -54,3 +54,4 @@
 0142-keep-plus-and-minus-distinct-in-horizontal-fallb.patch
 0143-test-every-horizontal-rail-source-and-menu-combi.patch
 0144-show-applied-dsu-rail-buttons-separately-from-ra.patch
+0145-verify-dsu-motion-reaches-sdk-sensors-for-every.patch

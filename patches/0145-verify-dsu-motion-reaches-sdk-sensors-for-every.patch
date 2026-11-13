@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 08:03:04 -0300
+Subject: [PATCH] Verify DSU motion reaches SDK sensors for every controller
+ role
+
+Upstream-Status: pending
+Reason: Verify full left and right controller sensor reads consume DSU motion inside game SDK
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/tests/t_hid.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
+index 7007787..1f06e23 100644
+--- a/dm/host/tests/t_hid.c
++++ b/dm/host/tests/t_hid.c
+@@ -1942,6 +1942,16 @@ int main(void) {
+         for(int i=0;i<10;i++){motion_now+=5000000;guest_now=motion_now;dm_motion_set_dsu(0,gravity,rotation,motion_now);}
+         CHECK(h_hid_SixStates(&sample,1,&h)==1 && sample.gyro[2]>.20f,"DSU steering: SDK game read exposes remote angular velocity");
+         CHECK(sample.angle[2]>.001f,"DSU steering: SDK game read integrates wheel angle");
++        uint64_t read_count;float read_gyro[3];dm_dsu_game_reads(0,&read_count,read_gyro);
++        CHECK(read_count>0 && read_gyro[2]>.20f,"DSU diagnosis counts real SDK history consumption");
++        for(int role=DM_DSU_LEFT;role<=DM_DSU_RIGHT;role++){
++            atomic_store(&g_styles_supported,0xffffffffu);dm_dsu_configure(0,role,1);
++            uint32_t style=role==DM_DSU_LEFT?STYLE_JOYLEFT:STYLE_JOYRIGHT;
++            CHECK(h_hid_SixHandles(&h,1,&id,style)==1,"DSU single half exposes native six-axis handle");
++            motion_now+=5000000;guest_now=motion_now;dm_motion_set_dsu(0,gravity,rotation,motion_now);
++            CHECK(h_hid_SixStates(&sample,1,&h)==1 && sample.gyro[2]>.20f,"DSU single half SDK read receives angular velocity");
++        }
++        dm_dsu_configure(0,DM_DSU_FULL,0);
+         motion_now+=MOTION_STALE_NS+1;guest_now=motion_now;
+     }
+     t_applet_input();
