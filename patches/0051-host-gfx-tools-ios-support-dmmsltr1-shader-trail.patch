@@ -1,0 +1,2469 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sat, 14 Nov 2026 02:56:43 +0800
+Subject: [PATCH] host,gfx,tools,ios: support DMMSLTR1 shader trailers in
+ romfs.img
+
+Allow DMROMFS1 images to carry a 16 KiB-aligned DMMSLTR1 shader trailer sub-image after the base RomFS index while keeping guest mounts, virtual readers and romfs.id identities bound strictly to base_romfs_size.
+
+Add hidden dm_msl_trailer_* helpers with page-aligned mmap, multi-program DM_PROGRAM resolution and shell/gfx teardown hooks; wire NVN, Vulkan and OpenGL shader loading to fall back to the DM_ROMFS trailer when DM_MSL_DIR is absent; add --append-msl, --replace-msl and --inspect-msl to romfs_image.py; and record optional gfx_api and built_at fields in game.manifest.json.
+
+Upstream-Status: pending
+Reason: Support page-aligned DMMSLTR1 shader trailers in romfs.img and record built_at and gfx_api in iOS manifests
+Issue: LNPANDY/NX2Apple
+---
+ dm/gfx/gl/hle_gl.m                   |  97 +++--
+ dm/gfx/msl_mount.h                   |  28 ++
+ dm/gfx/nvn/msl_mount.c               | 260 ++++++++++++
+ dm/gfx/nvn/nvn_mtl.m                 |  46 ++-
+ dm/gfx/tests/t_shmap_warm.m          |  78 ++++
+ dm/gfx/vk/hle_vk.m                   |  83 +++-
+ dm/host/hle_lifecycle.c              |   2 +
+ dm/host/romfs_identity.h             |  10 +-
+ dm/host/romfs_image.h                | 119 +++++-
+ dm/host/tests/t_fs.c                 |  76 ++++
+ dm/ios/tests/test_framework_build.py |  15 +-
+ dm/ios/tests/test_romfs_startup.py   |  32 ++
+ dm/ios/tools/build_ipa.sh            |   5 +-
+ dm/ios/tools/gen_manifest.py         |  17 +-
+ dm/tools/romfs.py                    |  69 +++-
+ dm/tools/romfs_image.py              | 577 ++++++++++++++++++++++++++-
+ dm/tools/tests/test_msl_trailer.py   | 491 +++++++++++++++++++++++
+ 17 files changed, 1904 insertions(+), 101 deletions(-)
+ create mode 100644 dm/gfx/msl_mount.h
+ create mode 100644 dm/gfx/nvn/msl_mount.c
+ create mode 100644 dm/tools/tests/test_msl_trailer.py
+
+diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
+index d1d1960a0..fbfde7bc1 100644
+--- a/dm/gfx/gl/hle_gl.m
++++ b/dm/gfx/gl/hle_gl.m
+@@ -24,9 +24,13 @@
+ #include <CommonCrypto/CommonDigest.h>
+ #include <mach/mach.h>
+ #include "../../host/host_image.h"
++#include "../msl_mount.h"
++#include <dispatch/dispatch.h>
+ #include <math.h>
+ #include <stdatomic.h>
++#include <sys/mman.h>
+ #include <time.h>
++#include <unistd.h>
+ 
+ int mtl_fps_target(void);
+ int mtl_link_active(void); int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns);   // nvn_mtl.m
+@@ -158,39 +162,73 @@
+ typedef struct { char key[17]; int frag, ub_slot, ub_size, na, nu, nt; shattr *a; shuni *u; shsamp *t; } shinfo;
+ static shinfo *g_sh; static int g_nsh;
+ static int sh_cmp(const void *a, const void *b) { int c = memcmp(((const shinfo *)a)->key, ((const shinfo *)b)->key, 16); return c ? c : ((const shinfo *)a)->frag - ((const shinfo *)b)->frag; }
++static void sh_parse_line(char *line, int *cap) {
++    if (line[0] == '#' || line[0] == '\n' || line[0] == '\r' || !line[0]) return;
++    char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\r\n");
++    if (!key || !stage || strlen(key) != 16) return;
++    if (g_nsh == *cap) { *cap = *cap ? *cap * 2 : 1024; g_sh = realloc(g_sh, (size_t)*cap * sizeof *g_sh); }
++    shinfo *s = &g_sh[g_nsh++]; memset(s, 0, sizeof *s);
++    memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag"); s->ub_slot = -1;
++    int na = 0, nu = 0, nt = 0;
++    for (char *c = res; c && *c; c++) if (c == res || c[-1] == ' ') { na += *c == 'a'; nu += *c == 'u'; nt += *c == 't'; }
++    s->a = zalloc((size_t)(na + 1) * sizeof *s->a); s->u = zalloc((size_t)(nu + 1) * sizeof *s->u); s->t = zalloc((size_t)(nt + 1) * sizeof *s->t);
++    for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
++        char nm[64], ty[32]; unsigned a1, a2, a3;
++        if (t[0] == 'a' && sscanf(t, "a:%63[^=]=%u:%31s", nm, &a1, ty) == 3 && a1 < 16) { shattr *x = &s->a[s->na++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
++        else if (t[0] == 'u' && sscanf(t, "u:%63[^=]=%u:%31[^:]:%u:%u", nm, &a1, ty, &a2, &a3) == 5) {
++            shuni *x = &s->u[s->nu++]; strlcpy(x->name, nm, sizeof x->name); x->off = a1; x->type = tcode(ty); x->count = a2; x->stride = a3;
++        } else if (t[0] == 't' && sscanf(t, "t:%63[^=]=%u:%31s", nm, &a1, ty) == 3) { shsamp *x = &s->t[s->nt++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
++        else if (t[0] == 'b' && sscanf(t, "b:%u:%u", &a1, &a2) == 2) { s->ub_slot = a1; s->ub_size = a2; }
++    }
++    if (s->ub_slot >= 15) GLOG("[RED] shader %s: uniform block at buffer slot %d meets the vertex buffer slots", s->key, s->ub_slot);
++}
+ static void sh_load(void) {
+     const char *d = getenv("DM_MSL_DIR"); char p[1024];
+-    if (!d) { GLOG("[RED] DM_MSL_DIR not set: the GL shader library cannot be found"); return; }
+-    snprintf(p, sizeof p, "%s/gl/gl_shaders.tsv", d);
+-    FILE *f = fopen(p, "r");
+-    if (!f) { GLOG("[RED] cannot open %s (run dm/gfx/tools/gl_shaders.py first)", p); return; }
+-    static char line[65536]; int cap = 0;
+-    while (fgets(line, sizeof line, f)) {
+-        if (line[0] == '#' || line[0] == '\n') continue;
+-        char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\n");
+-        if (!key || !stage || strlen(key) != 16) continue;
+-        if (g_nsh == cap) { cap = cap ? cap * 2 : 1024; g_sh = realloc(g_sh, cap * sizeof *g_sh); }
+-        shinfo *s = &g_sh[g_nsh++]; memset(s, 0, sizeof *s);
+-        memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag"); s->ub_slot = -1;
+-        int na = 0, nu = 0, nt = 0;
+-        for (char *c = res; c && *c; c++) if (c == res || c[-1] == ' ') { na += *c == 'a'; nu += *c == 'u'; nt += *c == 't'; }
+-        s->a = zalloc((na + 1) * sizeof *s->a); s->u = zalloc((nu + 1) * sizeof *s->u); s->t = zalloc((nt + 1) * sizeof *s->t);
+-        for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
+-            char nm[64], ty[32]; unsigned a1, a2, a3;
+-            if (t[0] == 'a' && sscanf(t, "a:%63[^=]=%u:%31s", nm, &a1, ty) == 3 && a1 < 16) { shattr *x = &s->a[s->na++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
+-            else if (t[0] == 'u' && sscanf(t, "u:%63[^=]=%u:%31[^:]:%u:%u", nm, &a1, ty, &a2, &a3) == 5) {
+-                shuni *x = &s->u[s->nu++]; strlcpy(x->name, nm, sizeof x->name); x->off = a1; x->type = tcode(ty); x->count = a2; x->stride = a3;
+-            } else if (t[0] == 't' && sscanf(t, "t:%63[^=]=%u:%31s", nm, &a1, ty) == 3) { shsamp *x = &s->t[s->nt++]; strlcpy(x->name, nm, sizeof x->name); x->slot = a1; x->type = tcode(ty); }
+-            else if (t[0] == 'b' && sscanf(t, "b:%u:%u", &a1, &a2) == 2) { s->ub_slot = a1; s->ub_size = a2; }
++    FILE *f = NULL;
++    if (d && *d) {
++        snprintf(p, sizeof p, "%s/gl/gl_shaders.tsv", d);
++        f = fopen(p, "r");
++    }
++    int cap = 0;
++    if (f) {
++        static char line[65536];
++        while (fgets(line, sizeof line, f)) sh_parse_line(line, &cap);
++        fclose(f);
++    } else {
++        void *tbuf = NULL; size_t tlen = 0;
++        if (!dm_msl_trailer_read("gl/gl_shaders.tsv", &tbuf, &tlen)) {
++            if (d && *d) GLOG("[RED] cannot open %s (run dm/gfx/tools/gl_shaders.py first)", p);
++            else GLOG("[RED] DM_MSL_DIR not set and DM_ROMFS has no gl/gl_shaders.tsv trailer");
++            return;
+         }
+-        if (s->ub_slot >= 15) GLOG("[RED] shader %s: uniform block at buffer slot %d meets the vertex buffer slots", s->key, s->ub_slot);
++        char *cur = (char *)tbuf;
++        while (cur && *cur) {
++            char *nl = strchr(cur, '\n');
++            if (nl) *nl = '\0';
++            sh_parse_line(cur, &cap);
++            cur = nl ? nl + 1 : NULL;
++        }
++        free(tbuf);
+     }
+-    fclose(f);
+-    qsort(g_sh, g_nsh, sizeof *g_sh, sh_cmp);
+-    snprintf(p, sizeof p, "%s/gl/gl_shaders.metallib", d);
++    qsort(g_sh, (size_t)g_nsh, sizeof *g_sh, sh_cmp);
+     NSError *err = nil;
+-    g_lib = [g_dev newLibraryWithURL:[NSURL fileURLWithPath:@(p)] error:&err];
+-    if (!g_lib) GLOG("[RED] shader library failed to load %s: %s", p, err.localizedDescription.UTF8String);
++    if (d && *d) snprintf(p, sizeof p, "%s/gl/gl_shaders.metallib", d);
++    if (d && *d && !access(p, F_OK)) {
++        g_lib = [g_dev newLibraryWithURL:[NSURL fileURLWithPath:@(p)] error:&err];
++        if (!g_lib) GLOG("[RED] shader library failed to load %s: %s", p, err.localizedDescription.UTF8String);
++    } else {
++        msl_map m;
++        if (dm_msl_trailer_map("gl/gl_shaders.metallib", &m)) {
++            void *base = m.base; size_t base_len = m.base_len;
++            dispatch_data_t dd = dispatch_data_create(m.data, m.size, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ munmap(base, base_len); });
++            g_lib = [g_dev newLibraryWithData:dd error:&err];
++            if (!g_lib) GLOG("[RED] shader library failed to load trailer gl/gl_shaders.metallib: %s", err.localizedDescription.UTF8String);
++        } else if (d && *d) {
++            GLOG("[RED] shader library failed to open %s", p);
++        } else {
++            GLOG("[RED] DM_MSL_DIR not set and DM_ROMFS has no gl/gl_shaders.metallib trailer");
++        }
++    }
+ }
+ static const shinfo *sh_find(const char *key, int frag) { shinfo k; memcpy(k.key, key, 16); k.frag = frag; return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
+ 
+@@ -2163,7 +2201,7 @@ static void note_miss(const char *name) {
+ }
+ 
+ void dm_gl_teardown(void) { @autoreleasepool {
+-    if (!g_dev) return;
++    if (!g_dev) { dm_msl_trailer_teardown(); return; }
+     dm_gl_drain();
+     pass_end();
+     g_cb = nil;
+@@ -2217,6 +2255,7 @@ void dm_gl_teardown(void) { @autoreleasepool {
+     g_frames = 0;
+ 
+     g_lib = nil; g_util = nil;
++    dm_msl_trailer_teardown();
+     g_samp0 = nil;
+     g_tex0 = nil; g_cube0 = nil; g_tex3d0 = nil; g_arr0 = nil;
+     g_ev = nil; g_q = nil; g_dev = nil;
+diff --git a/dm/gfx/msl_mount.h b/dm/gfx/msl_mount.h
+new file mode 100644
+index 000000000..75a5a83a9
+--- /dev/null
++++ b/dm/gfx/msl_mount.h
+@@ -0,0 +1,28 @@
++// Zero-copy reader and page-aligned mapper for the optional DMMSLTR1 shader trailer appended to DM_ROMFS.
++#pragma once
++#include <stddef.h>
++#include "../host/romfs_image.h"
++#include "nvn/msl_image.h"
++
++#ifdef __cplusplus
++extern "C" {
++#endif
++
++// 1 when DM_ROMFS is a valid image carrying a DMMSLTR1 trailer; fills *out_footer when non-NULL.
++__attribute__((visibility("hidden"))) int dm_msl_trailer_info(dm_msl_footer *out_footer);
++
++// 1 when rel_path exists as a file in the mounted DM_ROMFS shader trailer (applying DM_PROGRAM fallback when multi_program is set).
++__attribute__((visibility("hidden"))) int dm_msl_trailer_has(const char *rel_path);
++
++// Reads rel_path into a NUL-terminated malloc buffer (*out_buf of *out_len + 1 bytes; caller frees *out_buf). 1 on success, 0 on miss or error.
++__attribute__((visibility("hidden"))) int dm_msl_trailer_read(const char *rel_path, void **out_buf, size_t *out_len);
++
++// Maps rel_path read-only with MAP_SHARED aligned down to getpagesize(). Caller munmaps (out->base, out->base_len). 1 on success, 0 on miss or error.
++__attribute__((visibility("hidden"))) int dm_msl_trailer_map(const char *rel_path, msl_map *out);
++
++// Closes the cached DM_ROMFS descriptor, frees the trailer index and resets state (called at gfx and shell teardown).
++__attribute__((visibility("hidden"))) void dm_msl_trailer_teardown(void);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/dm/gfx/nvn/msl_mount.c b/dm/gfx/nvn/msl_mount.c
+new file mode 100644
+index 000000000..4167f1cdc
+--- /dev/null
++++ b/dm/gfx/nvn/msl_mount.c
+@@ -0,0 +1,260 @@
++// Mounted DMMSLTR1 shader trailer inside DM_ROMFS, shared across NVN, Vulkan and OpenGL on Metal.
++// Lives in dm/gfx/nvn/ so existing host, test, iOS and Windows wildcards compile it without touching Makefiles or dmsh_chain.
++#include "../msl_mount.h"
++#include "../nvn/msl_image.h"
++#include <pthread.h>
++#include <stdio.h>
++
++static pthread_mutex_t g_msl_tr_mu = PTHREAD_MUTEX_INITIALIZER;
++static pthread_cond_t g_msl_tr_cv = PTHREAD_COND_INITIALIZER;
++static int g_msl_tr_state;          // 0 = uninitialized, 1 = mounted, -1 = absent or invalid
++static uint32_t g_msl_tr_inflight;  // active pread / mmap calls holding g_msl_tr_img->fd
++static char *g_msl_tr_path;
++static romfs_image *g_msl_tr_img;
++static dm_msl_footer g_msl_tr_footer;
++
++static void msl_tr_reset_locked(void) {
++    while (g_msl_tr_inflight) pthread_cond_wait(&g_msl_tr_cv, &g_msl_tr_mu);
++    if (g_msl_tr_img) {
++        romfs_image_close(g_msl_tr_img);
++        g_msl_tr_img = NULL;
++    }
++    free(g_msl_tr_path);
++    g_msl_tr_path = NULL;
++    memset(&g_msl_tr_footer, 0, sizeof g_msl_tr_footer);
++    g_msl_tr_state = 0;
++}
++
++static int msl_tr_ensure_locked(void) {
++    const char *env = getenv("DM_ROMFS");
++    if (g_msl_tr_state != 0) {
++        int same = (env && *env) ? (g_msl_tr_path && !strcmp(env, g_msl_tr_path)) : (g_msl_tr_path == NULL);
++        if (same) return g_msl_tr_state == 1;
++        msl_tr_reset_locked();
++    }
++    if (!env || !*env) {
++        g_msl_tr_state = -1;
++        return 0;
++    }
++    g_msl_tr_path = strdup(env);
++    if (!g_msl_tr_path) {
++        errno = ENOMEM;
++        g_msl_tr_state = -1;
++        return 0;
++    }
++    int fd = open(env, O_RDONLY);
++    if (fd < 0) {
++        g_msl_tr_state = -1;
++        return 0;
++    }
++    struct stat st;
++    uint8_t h[32];
++    uint64_t ioff, isz;
++    dm_msl_footer f;
++    if (fstat(fd, &st) || !S_ISREG(st.st_mode) || st.st_size < (off_t)sizeof h ||
++        !romfs_image_read(fd, h, sizeof h, 0) || memcmp(h, "DMROMFS1", 8) != 0) {
++        close(fd);
++        errno = EINVAL;
++        g_msl_tr_state = -1;
++        return 0;
++    }
++    memcpy(&ioff, h + 8, 8);
++    memcpy(&isz, h + 16, 8);
++    if (!romfs_check_bounds_and_trailer(fd, (uint64_t)st.st_size, ioff, isz, &f) || !f.msl_size) {
++        int e = errno ? errno : ENOENT;
++        close(fd);
++        errno = e;
++        g_msl_tr_state = -1;
++        return 0;
++    }
++    romfs_image *img = romfs_image_open_slice(fd, f.msl_offset, f.msl_size);
++    if (!img) {
++        int e = errno ? errno : EINVAL;
++        close(fd);
++        errno = e;
++        g_msl_tr_state = -1;
++        return 0;
++    }
++    g_msl_tr_img = img;
++    g_msl_tr_footer = f;
++    g_msl_tr_state = 1;
++    return 1;
++}
++
++static const img_ent *msl_tr_find_exact(const romfs_image *m, const char *rel_path) {
++    if (!m || !rel_path) return NULL;
++    while (*rel_path == '/') rel_path++;
++    if (!*rel_path) return NULL;
++    uint64_t cur = 0;
++    const char *p = rel_path;
++    while (*p) {
++        const char *slash = strchr(p, '/');
++        size_t len = slash ? (size_t)(slash - p) : strlen(p);
++        const char *next = slash ? slash + 1 : p + len;
++        while (*next == '/') next++;
++        if (!len || (len == 1 && p[0] == '.') || (len == 2 && p[0] == '.' && p[1] == '.')) return NULL;
++        const img_ent *dir = &m->e[cur];
++        if (dir->type != 0) return NULL;
++        uint64_t lo = dir->a, hi = lo + dir->b, hit_idx = 0;
++        const img_ent *hit = NULL;
++        while (lo < hi) {
++            uint64_t mid = lo + (hi - lo) / 2;
++            const img_ent *x = &m->e[mid];
++            size_t cmp_len = x->nlen < len ? x->nlen : len;
++            int c = memcmp(m->names + x->name, p, cmp_len);
++            if (!c) c = x->nlen < len ? -1 : (x->nlen > len ? 1 : 0);
++            if (!c) { hit = x; hit_idx = mid; break; }
++            if (c < 0) lo = mid + 1;
++            else hi = mid;
++        }
++        if (!hit) return NULL;
++        if (!*next) return hit->type == 1 ? hit : NULL;
++        if (hit->type != 0) return NULL;
++        cur = hit_idx;
++        p = next;
++    }
++    return NULL;
++}
++
++static const img_ent *msl_tr_resolve_locked(const char *rel_path) {
++    if (!rel_path) return NULL;
++    while (*rel_path == '/') rel_path++;
++    if (!*rel_path) return NULL;
++    if (g_msl_tr_footer.flags & DM_MSL_FLAG_MULTI_PROGRAM) {
++        const char *prog = getenv("DM_PROGRAM");
++        const char *tag = (!prog || !*prog || !strcmp(prog, "0")) ? "0" : prog;
++        if (!strchr(tag, '/')) {
++            char buf[1024];
++            int n = snprintf(buf, sizeof buf, "p%s/%s", tag, rel_path);
++            if (n > 0 && (size_t)n < sizeof buf) {
++                const img_ent *pref = msl_tr_find_exact(g_msl_tr_img, buf);
++                if (pref) return pref;
++            }
++        }
++    }
++    return msl_tr_find_exact(g_msl_tr_img, rel_path);
++}
++
++__attribute__((visibility("hidden"))) int dm_msl_trailer_info(dm_msl_footer *out_footer) {
++    pthread_mutex_lock(&g_msl_tr_mu);
++    int ok = msl_tr_ensure_locked();
++    if (ok && out_footer) *out_footer = g_msl_tr_footer;
++    else if (out_footer) memset(out_footer, 0, sizeof *out_footer);
++    pthread_mutex_unlock(&g_msl_tr_mu);
++    return ok;
++}
++
++__attribute__((visibility("hidden"))) int dm_msl_trailer_has(const char *rel_path) {
++    if (!rel_path) return 0;
++    pthread_mutex_lock(&g_msl_tr_mu);
++    int ok = msl_tr_ensure_locked() && msl_tr_resolve_locked(rel_path) != NULL;
++    pthread_mutex_unlock(&g_msl_tr_mu);
++    return ok;
++}
++
++__attribute__((visibility("hidden"))) int dm_msl_trailer_read(const char *rel_path, void **out_buf, size_t *out_len) {
++    if (!rel_path || !out_buf || !out_len) { errno = EINVAL; return 0; }
++    *out_buf = NULL;
++    *out_len = 0;
++    pthread_mutex_lock(&g_msl_tr_mu);
++    if (!msl_tr_ensure_locked()) {
++        pthread_mutex_unlock(&g_msl_tr_mu);
++        return 0;
++    }
++    const img_ent *x = msl_tr_resolve_locked(rel_path);
++    if (!x) {
++        pthread_mutex_unlock(&g_msl_tr_mu);
++        errno = ENOENT;
++        return 0;
++    }
++    uint64_t abs_off = g_msl_tr_footer.msl_offset + x->a;
++    uint64_t size = x->b;
++    int fd = g_msl_tr_img->fd;
++    if (size > SIZE_MAX - 1u) {
++        pthread_mutex_unlock(&g_msl_tr_mu);
++        errno = EOVERFLOW;
++        return 0;
++    }
++    g_msl_tr_inflight++;
++    pthread_mutex_unlock(&g_msl_tr_mu);
++
++    char *buf = malloc((size_t)size + 1u);
++    int ok = 0, saved_errno = ENOMEM;
++    if (buf) {
++        if (!size || romfs_image_read(fd, buf, (size_t)size, (off_t)abs_off)) {
++            buf[size] = '\0';
++            *out_buf = buf;
++            *out_len = (size_t)size;
++            ok = 1;
++        } else {
++            saved_errno = errno ? errno : EIO;
++            free(buf);
++        }
++    }
++
++    pthread_mutex_lock(&g_msl_tr_mu);
++    if (--g_msl_tr_inflight == 0) pthread_cond_broadcast(&g_msl_tr_cv);
++    pthread_mutex_unlock(&g_msl_tr_mu);
++
++    if (!ok) errno = saved_errno;
++    return ok;
++}
++
++__attribute__((visibility("hidden"))) int dm_msl_trailer_map(const char *rel_path, msl_map *out) {
++    if (!rel_path || !out) { errno = EINVAL; return 0; }
++    memset(out, 0, sizeof *out);
++    pthread_mutex_lock(&g_msl_tr_mu);
++    if (!msl_tr_ensure_locked()) {
++        pthread_mutex_unlock(&g_msl_tr_mu);
++        return 0;
++    }
++    const img_ent *x = msl_tr_resolve_locked(rel_path);
++    if (!x) {
++        pthread_mutex_unlock(&g_msl_tr_mu);
++        errno = ENOENT;
++        return 0;
++    }
++    uint64_t abs_off = g_msl_tr_footer.msl_offset + x->a;
++    uint64_t size = x->b;
++    int fd = g_msl_tr_img->fd;
++    if (!size) {
++        pthread_mutex_unlock(&g_msl_tr_mu);
++        errno = EINVAL;
++        return 0;
++    }
++    uint64_t page = (uint64_t)getpagesize();
++    uint64_t delta = abs_off % page;
++    if (size > SIZE_MAX - (size_t)delta) {
++        pthread_mutex_unlock(&g_msl_tr_mu);
++        errno = EOVERFLOW;
++        return 0;
++    }
++    g_msl_tr_inflight++;
++    pthread_mutex_unlock(&g_msl_tr_mu);
++
++    size_t map_len = (size_t)size + (size_t)delta;
++    void *p = mmap(NULL, map_len, PROT_READ, MAP_SHARED, fd, (off_t)(abs_off - delta));
++    int ok = 0, saved_errno = 0;
++    if (p != MAP_FAILED) {
++        out->base = p;
++        out->base_len = map_len;
++        out->data = (const char *)p + delta;
++        out->size = (size_t)size;
++        ok = 1;
++    } else {
++        saved_errno = errno ? errno : ENOMEM;
++    }
++
++    pthread_mutex_lock(&g_msl_tr_mu);
++    if (--g_msl_tr_inflight == 0) pthread_cond_broadcast(&g_msl_tr_cv);
++    pthread_mutex_unlock(&g_msl_tr_mu);
++
++    if (!ok) errno = saved_errno;
++    return ok;
++}
++
++__attribute__((visibility("hidden"))) void dm_msl_trailer_teardown(void) {
++    pthread_mutex_lock(&g_msl_tr_mu);
++    msl_tr_reset_locked();
++    pthread_mutex_unlock(&g_msl_tr_mu);
++}
+diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
+index 206232e50..e1c301bcb 100644
+--- a/dm/gfx/nvn/nvn_mtl.m
++++ b/dm/gfx/nvn/nvn_mtl.m
+@@ -36,6 +36,7 @@
+ #include "nvn_primitive.h"
+ #include "nvn_timestamp.h"
+ #include "msl_image.h"
++#include "../msl_mount.h"
+ #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
+ #include "game_profile.h"   // game profile constants (profile id, the profile's switches)
+ // Texture slot table per stage: 0-127 the combined handles (nvnCommandBufferBindTexture), 128-255 the separate texture binds (NVN_SEPTEX_SLOT0, nvn_obj.h)
+@@ -5813,13 +5814,25 @@ static int clear_rect_zero(int i) {
+     *img = m;
+     return m ? msl_image_find(m, path.lastPathComponent.UTF8String) : NULL;
+ }
++static NSString *msl_trailer_rel(NSString *path) {
++    if (!g_msl_dir || path.length <= g_msl_dir.length + 1 || ![path hasPrefix:g_msl_dir] || [path characterAtIndex:g_msl_dir.length] != '/') return nil;
++    return [NSString stringWithFormat:@"b-%s/%@", DMSH_CHAIN, [path substringFromIndex:g_msl_dir.length + 1]];
++}
+ static NSData *msl_data(NSString *path) {   // a file of the library, nil when it has none
+     NSData *d = [NSData dataWithContentsOfFile:path];
+     if (d) return d;
+     romfs_img *m; const img_ent *x = msl_image_file(path, &m);
+-    if (!x) return nil;
+-    NSMutableData *o = [NSMutableData dataWithLength:(NSUInteger)x->b];
+-    return romfs_image_read(m->fd, o.mutableBytes, (size_t)x->b, (off_t)x->a) ? o : nil;
++    if (x) {
++        NSMutableData *o = [NSMutableData dataWithLength:(NSUInteger)x->b];
++        if (romfs_image_read(m->fd, o.mutableBytes, (size_t)x->b, (off_t)x->a)) return o;
++    }
++    NSString *rel = msl_trailer_rel(path);
++    void *buf = NULL; size_t len = 0;
++    if (rel && dm_msl_trailer_read(rel.UTF8String, &buf, &len)) {
++        if (!len) { free(buf); return [NSData data]; }
++        return [NSData dataWithBytesNoCopy:buf length:len freeWhenDone:YES];
++    }
++    return nil;
+ }
+ static NSString *exe_rel(const char *rel) {
+     char buf[4096]; uint32_t n = sizeof buf;
+@@ -5855,10 +5868,13 @@ static void shmap_read(void) {
+     g_shmap_path = path;
+     const char *m = getenv("DM_MSL_DIR");
+     // Library directory = <DM_MSL_DIR or default cache>/b-<translation chain version>: the version comes from dm/gfx/nvn/dmsh_chain.h (tools/dmsh_chain.py), one for every game; a host built from an old source tree only accepts libraries of the old version
+-    g_msl_dir = [NSString stringWithFormat:@"%@/b-%s", m ? @(m) : [NSString stringWithFormat:@"%s%s/build/cache/metal_shader_cache", getenv("DM_ROOT") ?: getenv("HOME"), getenv("DM_ROOT") ? "" : "/dm-work"], DMSH_CHAIN];
++    g_msl_dir = [NSString stringWithFormat:@"%@/b-%s", m ? @(m) : [NSString stringWithFormat:@"%s%s/build/cache/metal_shader_cache", getenv("DM_ROOT") ?: (getenv("HOME") ?: ""), getenv("DM_ROOT") ? "" : "/dm-work"], DMSH_CHAIN];
+     if (![NSFileManager.defaultManager fileExistsAtPath:g_msl_dir]) {
+         NSString *image = [g_msl_dir stringByAppendingString:@".img"];
++        dm_msl_footer tf;
+         if ([NSFileManager.defaultManager fileExistsAtPath:image]) MLOG("shader libraries: one file, %s", image.UTF8String);
++        else if (dm_msl_trailer_has([NSString stringWithFormat:@"b-%s/inputs.tsv", DMSH_CHAIN].UTF8String)) MLOG("shader libraries: embedded trailer in DM_ROMFS (b-%s)", DMSH_CHAIN);
++        else if (dm_msl_trailer_info(&tf) && tf.chain_len) MLOG("[RED] shader trailer in DM_ROMFS carries chain %.*s, expected b-%s", (int)tf.chain_len, tf.chain, DMSH_CHAIN);
+         else MLOG("[RED] shader library %s (a folder or a .img file) does not exist: translation chain version %s of this source tree has not been built yet (dm/gfx/tools/dmsh_build.py)", g_msl_dir.UTF8String, DMSH_CHAIN);
+     }
+     // The library's stamp (inputs.tsv, written by a full dmsh_build.py run): the game and the digest of the profile inputs it was built from. The chain version is the same for every
+@@ -6048,14 +6064,20 @@ static void pso_user_record(const char *fmt, ...) {
+ // The library is tagged with its digest (lib_tag), from the mapped bytes
+ static id<MTLLibrary> lib_from_file(NSString *path, NSError **err) {
+     int fd = open(path.fileSystemRepresentation, O_RDONLY); struct stat st;
+-    if (fd < 0) {   // not in the folder: the library's image, whose one descriptor is shared, and only this file's pages are mapped
++    if (fd < 0) {   // not in the folder: the library's image or DM_ROMFS shader trailer, whose one descriptor is shared, and only this file's pages are mapped
+         int open_errno = errno; romfs_img *img; const img_ent *x = msl_image_file(path, &img); msl_map f;
+         if (x && msl_image_map(img, x, &f)) {
+             void *base = f.base; size_t base_len = f.base_len;
+             dispatch_data_t d = dispatch_data_create(f.data, f.size, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ munmap(base, base_len); });
+             return lib_tag([g_dev newLibraryWithData:d error:err], lib_digest(f.data, f.size));
+         }
+-        if (!x) errno = open_errno;
++        NSString *rel = msl_trailer_rel(path);
++        if (rel && dm_msl_trailer_map(rel.UTF8String, &f)) {
++            void *base = f.base; size_t base_len = f.base_len;
++            dispatch_data_t d = dispatch_data_create(f.data, f.size, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ munmap(base, base_len); });
++            return lib_tag([g_dev newLibraryWithData:d error:err], lib_digest(f.data, f.size));
++        }
++        if (!x && (!rel || !dm_msl_trailer_has(rel.UTF8String))) errno = open_errno;
+     }
+     if (fd < 0 || fstat(fd, &st) || st.st_size <= 0) { if (fd >= 0) close(fd); if (err) *err = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"cannot open %@", path]}]; return nil; }
+     size_t len = (size_t)st.st_size; void *m = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0); close(fd);
+@@ -9473,8 +9495,13 @@ void mtl_pso_line(char *o, size_t n) {
+ // their bases cannot be made yet, so the stamp names one such file (pre_device_stamp) and a later start builds them once it is there. g_pre_nolib_file: the first one seen in this
+ // run, a name in the library, under g_pre_fail_lock
+ static _Atomic int g_pre_nolib; static NSString *g_pre_nolib_file;
+-// Whether the library has the file: in its folder or in its image (msl_image_file), as msl_data and lib_from_file read it
+-static int msl_has(NSString *path) { romfs_img *m; return !access(path.fileSystemRepresentation, F_OK) || msl_image_file(path, &m) != NULL; }
++// Whether the library has the file: in its folder, in its image (msl_image_file), or in the DM_ROMFS shader trailer
++static int msl_has(NSString *path) {
++    romfs_img *m;
++    if (!access(path.fileSystemRepresentation, F_OK) || msl_image_file(path, &m) != NULL) return 1;
++    NSString *rel = msl_trailer_rel(path);
++    return rel && dm_msl_trailer_has(rel.UTF8String);
++}
+ // 1 (and the file noted) when the library lacks <key><suffix>
+ static int pre_lib_absent(NSString *key, NSString *suffix) {
+     NSString *name = [key stringByAppendingString:suffix];
+@@ -17517,10 +17544,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+ 
+     romfs_img *mimg = atomic_exchange(&g_msl_img, NULL);
+     if (mimg) romfs_image_close(mimg);
++    dm_msl_trailer_teardown();
+ 
+     g_shmap = nil; g_shmap_path = nil; g_msl_dir = nil;
+     g_shcache = nil; g_builtin = nil; g_builtin_lib = nil;
+-    g_c1_banks = nil; g_c1_full = nil; g_cb_ext = nil;
++    g_c1_banks = nil; g_c1_full = nil; g_c1_full_valid = 0; g_cb_ext = nil;
+     g_warm_items = nil; g_warm_dict = nil; g_warm_loads = nil;
+     g_pso_user_seen = nil; g_progpf_seen = nil; g_hy_kick_set = nil;
+     g_pre_known = nil; g_pre_fails = nil; g_pre_nolib_file = nil; g_pre_nolib = 0;
+diff --git a/dm/gfx/tests/t_shmap_warm.m b/dm/gfx/tests/t_shmap_warm.m
+index 5caa8ab5a..39355689d 100644
+--- a/dm/gfx/tests/t_shmap_warm.m
++++ b/dm/gfx/tests/t_shmap_warm.m
+@@ -48,6 +48,84 @@ int main(void) { @autoreleasepool {
+     mtl_prepare(); shmap_load();   // later calls: nothing starts twice
+     EXPECT_EQ("the prewarm starts once", 1, g_warm_started);
+ 
++    // Embedded DMMSLTR1 shader trailer in DM_ROMFS serves shmap_read / msl_data / msl_has when DM_MSL_DIR lacks the files, while DM_MSL_DIR still wins when present
++    dm_gfx_teardown();
++    {
++        uint8_t base_img[32 + 24] = {0};
++        uint64_t bhd[3] = {32, 24, 1};
++        img_ent be = {1, 0, 0, 0, 0, 0};
++        memcpy(base_img, "DMROMFS1", 8); memcpy(base_img + 8, bhd, sizeof bhd); memcpy(base_img + 32, &be, sizeof be);
++
++        NSString *bdir = [NSString stringWithFormat:@"b-%s", DMSH_CHAIN];
++        NSData *bd_bytes = [bdir dataUsingEncoding:NSUTF8StringEncoding];
++        NSString *stamp_txt = [NSString stringWithFormat:@"game\t%s\ninputs\ttrstamp\n", dm_profile()->id];
++        NSData *st_bytes = [stamp_txt dataUsingEncoding:NSUTF8StringEncoding];
++        const char *ov_json = "{\"from\":\"trailer\"}";
++        size_t ov_len = strlen(ov_json);
++        size_t off0 = 32;
++        size_t off1 = (off0 + st_bytes.length + 15u) & ~15u;
++        size_t ioff = off1 + ov_len;
++        const char *f0 = "inputs.tsv", *f1 = "ov_b_reflect.json";
++        size_t pool_len = bd_bytes.length + strlen(f0) + strlen(f1);
++        size_t isz = 4 * sizeof(img_ent) + pool_len;
++        size_t sub_sz = ioff + isz;
++        uint8_t *sub = calloc(1, sub_sz);
++        uint64_t shd[3] = {ioff, isz, 4};
++        img_ent se[4] = {
++            {1, 1, 0, 0, 0, 0},
++            {2, 2, 0, (uint16_t)bd_bytes.length, 0, 0},
++            {off0, st_bytes.length, (uint32_t)bd_bytes.length, (uint16_t)strlen(f0), 1, 0},
++            {off1, ov_len, (uint32_t)(bd_bytes.length + strlen(f0)), (uint16_t)strlen(f1), 1, 0},
++        };
++        memcpy(sub, "DMROMFS1", 8); memcpy(sub + 8, shd, sizeof shd);
++        memcpy(sub + off0, st_bytes.bytes, st_bytes.length);
++        memcpy(sub + off1, ov_json, ov_len);
++        memcpy(sub + ioff, se, sizeof se);
++        memcpy(sub + ioff + sizeof se, bd_bytes.bytes, bd_bytes.length);
++        memcpy(sub + ioff + sizeof se + bd_bytes.length, f0, strlen(f0));
++        memcpy(sub + ioff + sizeof se + bd_bytes.length + strlen(f0), f1, strlen(f1));
++
++        uint64_t msl_off = (sizeof(base_img) + 16383ull) & ~16383ull;
++        uint64_t ftr_off = ((msl_off + sub_sz) + 7ull) & ~7ull;
++        size_t full_sz = (size_t)ftr_off + sizeof(dm_msl_footer);
++        uint8_t *full = calloc(1, full_sz);
++        memcpy(full, base_img, sizeof base_img);
++        memcpy(full + msl_off, sub, sub_sz);
++        dm_msl_footer ft = {0};
++        memcpy(ft.magic, "DMMSLTR1", 8);
++        ft.version = 1; ft.gfx_api = DM_MSL_GFX_NVN; ft.chain_len = (uint16_t)bd_bytes.length;
++        ft.base_romfs_size = sizeof base_img; ft.msl_offset = msl_off; ft.msl_size = sub_sz;
++        memcpy(ft.chain, bd_bytes.bytes, bd_bytes.length);
++        memcpy(full + ftr_off, &ft, sizeof ft);
++
++        NSString *rom_path = [dir stringByAppendingPathComponent:@"rom.img"];
++        [[NSData dataWithBytesNoCopy:full length:full_sz freeWhenDone:YES] writeToFile:rom_path atomically:YES];
++        free(sub);
++
++        put(dir, @"c1_full.tsv", [NSString stringWithFormat:@"# chain b-%s inputs trstamp \n", DMSH_CHAIN]);
++        setenv("DM_ROMFS", rom_path.fileSystemRepresentation, 1);
++        setenv("DM_MSL_DIR", [dir stringByAppendingPathComponent:@"msl_override"].fileSystemRepresentation, 1);
++
++        shmap_read();
++        EXPECT_EQ("shmap_read validates c1_full.tsv from DM_ROMFS trailer inputs.tsv", 1, g_c1_full_valid);
++        EXPECT_EQ("msl_has finds trailer entry", 1, msl_has([g_msl_dir stringByAppendingPathComponent:@"inputs.tsv"]));
++        EXPECT_EQ("msl_has reports absent trailer entry", 0, msl_has([g_msl_dir stringByAppendingPathComponent:@"missing.metallib"]));
++        EXPECT_EQ("msl_has ignores paths outside g_msl_dir", 0, msl_has(@"/tmp/outside_nonexistent.metallib"));
++
++        NSData *tr_ov = msl_data([g_msl_dir stringByAppendingPathComponent:@"ov_b_reflect.json"]);
++        NSString *tr_str = tr_ov ? [[NSString alloc] initWithData:tr_ov encoding:NSUTF8StringEncoding] : @"";
++        EXPECT_EQ("msl_data reads reflection from trailer", 1, [tr_str isEqualToString:@"{\"from\":\"trailer\"}"]);
++
++        [NSFileManager.defaultManager createDirectoryAtPath:g_msl_dir withIntermediateDirectories:YES attributes:nil error:nil];
++        put(g_msl_dir, @"ov_b_reflect.json", @"{\"from\":\"disk\"}");
++        NSData *dk_ov = msl_data([g_msl_dir stringByAppendingPathComponent:@"ov_b_reflect.json"]);
++        NSString *dk_str = dk_ov ? [[NSString alloc] initWithData:dk_ov encoding:NSUTF8StringEncoding] : @"";
++        EXPECT_EQ("DM_MSL_DIR overrides DM_ROMFS trailer when file exists on disk", 1, [dk_str isEqualToString:@"{\"from\":\"disk\"}"]);
++
++        dm_gfx_teardown();
++        unsetenv("DM_ROMFS");
++    }
++
+     [NSFileManager.defaultManager removeItemAtPath:dir error:nil];
+     printf("%d checks, %d failed\n", g_checks, g_failed);
+     return g_failed != 0;
+diff --git a/dm/gfx/vk/hle_vk.m b/dm/gfx/vk/hle_vk.m
+index 74bb322ef..cb3d78ce1 100644
+--- a/dm/gfx/vk/hle_vk.m
++++ b/dm/gfx/vk/hle_vk.m
+@@ -22,9 +22,13 @@
+ #include <CommonCrypto/CommonDigest.h>
+ #include <CoreFoundation/CoreFoundation.h>
+ #include "../../host/host_image.h"
++#include "../msl_mount.h"
++#include <dispatch/dispatch.h>
+ #include <math.h>
+ #include <stdatomic.h>
++#include <sys/mman.h>
+ #include <time.h>
++#include <unistd.h>
+ 
+ int mtl_fps_target(void);   // nvn_mtl.m: 60, or 30 when the frame rate is halved
+ int mtl_link_active(void); int mtl_link_wait_tick(int vsyncs, uint64_t timeout_ns);   // nvn_mtl.m: whether the display link presents, and the wait for its ticks
+@@ -137,32 +141,66 @@
+ static shinfo *g_sh; static int g_nsh;
+ static id<MTLLibrary> g_lib;
+ static int sh_cmp(const void *a, const void *b) { return memcmp(((const shinfo *)a)->key, ((const shinfo *)b)->key, 16); }
++static void sh_parse_line(char *line, int *cap) {
++    if (line[0] == '#' || line[0] == '\n' || line[0] == '\r' || !line[0]) return;
++    char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\r\n");   // strsep keeps the empty resource field of a shader without resources
++    if (!key || !stage || strlen(key) != 16) return;
++    if (g_nsh == *cap) { *cap = *cap ? *cap * 2 : 128; g_sh = realloc(g_sh, (size_t)*cap * sizeof *g_sh); }
++    shinfo *s = &g_sh[g_nsh++]; memset(s, 0, sizeof *s);
++    memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag");
++    for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
++        char k; unsigned st, b, sl, n = 1;
++        if (sscanf(t, "%c:%u.%u=%u*%u", &k, &st, &b, &sl, &n) < 4 || !n || sl + n > 31 || s->nres == 24) { LOG("[vk] [RED] cannot parse a resource entry of shader table %s: %s", s->key, t); continue; }
++        s->res[s->nres++] = (shres){k, (uint8_t)st, (uint8_t)sl, (uint8_t)n, (uint16_t)b};
++    }
++}
+ static void sh_load(void) {
+     const char *d = getenv("DM_MSL_DIR"); char p[1024];
+-    if (!d) { LOG("[vk] [RED] DM_MSL_DIR not set: the Vulkan shader library cannot be found"); return; }
+-    snprintf(p, sizeof p, "%s/vk/vk_shaders.tsv", d);
+-    FILE *f = fopen(p, "r");
+-    if (!f) { LOG("[vk] [RED] cannot open %s (run dm/gfx/tools/vk_shaders.py first)", p); return; }
+-    char line[4096]; int cap = 0;
+-    while (fgets(line, sizeof line, f)) {
+-        if (line[0] == '#' || line[0] == '\n') continue;
+-        char *rest = line, *key = strsep(&rest, "\t"), *stage = strsep(&rest, "\t"), *res = strsep(&rest, "\t\n");   // strsep keeps the empty resource field of a shader without resources
+-        if (!key || !stage || strlen(key) != 16) continue;
+-        if (g_nsh == cap) { cap = cap ? cap * 2 : 128; g_sh = realloc(g_sh, cap * sizeof *g_sh); }
+-        shinfo *s = &g_sh[g_nsh++]; memset(s, 0, sizeof *s);
+-        memcpy(s->key, key, 16); s->frag = !strcmp(stage, "frag");
+-        for (char *t = res ? strtok(res, " ") : NULL; t; t = strtok(NULL, " ")) {
+-            char k; unsigned st, b, sl, n = 1;
+-            if (sscanf(t, "%c:%u.%u=%u*%u", &k, &st, &b, &sl, &n) < 4 || !n || sl + n > 31 || s->nres == 24) { LOG("[vk] [RED] cannot parse a resource entry of shader table %s: %s", s->key, t); continue; }
+-            s->res[s->nres++] = (shres){k, (uint8_t)st, (uint8_t)sl, (uint8_t)n, (uint16_t)b};
++    FILE *f = NULL;
++    if (d && *d) {
++        snprintf(p, sizeof p, "%s/vk/vk_shaders.tsv", d);
++        f = fopen(p, "r");
++    }
++    int cap = 0;
++    if (f) {
++        char line[4096];
++        while (fgets(line, sizeof line, f)) sh_parse_line(line, &cap);
++        fclose(f);
++    } else {
++        void *tbuf = NULL; size_t tlen = 0;
++        if (!dm_msl_trailer_read("vk/vk_shaders.tsv", &tbuf, &tlen)) {
++            if (d && *d) LOG("[vk] [RED] cannot open %s (run dm/gfx/tools/vk_shaders.py first)", p);
++            else LOG("[vk] [RED] DM_MSL_DIR not set and DM_ROMFS has no vk/vk_shaders.tsv trailer");
++            return;
+         }
++        char *cur = (char *)tbuf;
++        while (cur && *cur) {
++            char *nl = strchr(cur, '\n');
++            if (nl) *nl = '\0';
++            sh_parse_line(cur, &cap);
++            cur = nl ? nl + 1 : NULL;
++        }
++        free(tbuf);
+     }
+-    fclose(f);
+-    qsort(g_sh, g_nsh, sizeof *g_sh, sh_cmp);   // looked up by key (Super Mario Galaxy creates over 3,000 modules at boot)
+-    snprintf(p, sizeof p, "%s/vk/vk_shaders.metallib", d);
++    qsort(g_sh, (size_t)g_nsh, sizeof *g_sh, sh_cmp);   // looked up by key (Super Mario Galaxy creates over 3,000 modules at boot)
+     NSError *err = nil;
+-    g_lib = [g_dev newLibraryWithURL:[NSURL fileURLWithPath:@(p)] error:&err];
+-    if (!g_lib) LOG("[vk] [RED] shader library failed to load %s: %s", p, err.localizedDescription.UTF8String);
++    if (d && *d) snprintf(p, sizeof p, "%s/vk/vk_shaders.metallib", d);
++    if (d && *d && !access(p, F_OK)) {
++        g_lib = [g_dev newLibraryWithURL:[NSURL fileURLWithPath:@(p)] error:&err];
++        if (!g_lib) LOG("[vk] [RED] shader library failed to load %s: %s", p, err.localizedDescription.UTF8String);
++    } else {
++        msl_map m;
++        if (dm_msl_trailer_map("vk/vk_shaders.metallib", &m)) {
++            void *base = m.base; size_t base_len = m.base_len;
++            dispatch_data_t dd = dispatch_data_create(m.data, m.size, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ munmap(base, base_len); });
++            g_lib = [g_dev newLibraryWithData:dd error:&err];
++            if (!g_lib) LOG("[vk] [RED] shader library failed to load trailer vk/vk_shaders.metallib: %s", err.localizedDescription.UTF8String);
++        } else if (d && *d) {
++            LOG("[vk] [RED] shader library failed to open %s", p);
++        } else {
++            LOG("[vk] [RED] DM_MSL_DIR not set and DM_ROMFS has no vk/vk_shaders.metallib trailer");
++        }
++    }
+ }
+ static const shinfo *sh_find(const char *key) { shinfo k; memcpy(k.key, key, 16); return g_nsh ? bsearch(&k, g_sh, g_nsh, sizeof *g_sh, sh_cmp) : NULL; }
+ 
+@@ -1833,7 +1871,7 @@ static void vk_set_free_cb(const void *value, void *context) {
+ }
+ 
+ void dm_vk_teardown(void) { @autoreleasepool {
+-    if (!g_dev) return;
++    if (!g_dev) { dm_msl_trailer_teardown(); return; }
+     dm_vk_drain();
+ 
+     pthread_mutex_lock(&g_sets_mu);
+@@ -1859,6 +1897,7 @@ void dm_vk_teardown(void) { @autoreleasepool {
+ 
+     free(g_sh); g_sh = NULL; g_nsh = 0;
+     g_lib = nil;
++    dm_msl_trailer_teardown();
+     g_dss_off = nil;
+     g_ev = nil;
+     g_q = nil;
+diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
+index 8ea745153..80bdd7c18 100644
+--- a/dm/host/hle_lifecycle.c
++++ b/dm/host/hle_lifecycle.c
+@@ -78,6 +78,7 @@ __attribute__((weak)) void dm_codec_video_stop_all(void) {}
+ __attribute__((weak)) void dm_codec_video_teardown_post(void) {}
+ __attribute__((weak)) void dm_cheats_teardown(void) {}
+ __attribute__((weak)) void dm_gfx_teardown(void) {}
++__attribute__((weak, visibility("hidden"))) void dm_msl_trailer_teardown(void) {}
+ __attribute__((weak)) void dm_fs_teardown(void) {}
+ __attribute__((weak)) void dm_ue_malloc_teardown(void) {}
+ __attribute__((weak)) void dm_guest_clock_wake_teardown(void) {}
+@@ -103,6 +104,7 @@ void dm_host_teardown_for_shell(void) {
+     dm_codec_video_teardown_post();
+     dm_cheats_teardown();
+     dm_gfx_teardown();
++    dm_msl_trailer_teardown();
+     dm_fs_teardown();
+     dm_guest_memory_release(1);
+     dm_ue_malloc_teardown();
+diff --git a/dm/host/romfs_identity.h b/dm/host/romfs_identity.h
+index d18a06640..e6c7b31c2 100644
+--- a/dm/host/romfs_identity.h
++++ b/dm/host/romfs_identity.h
+@@ -5,6 +5,7 @@
+ // size and index decide the match; title, version and build (the packed game's title ID, display version and package version) only name the image in messages.
+ // index = FNV-1a 64 (offset 0xcbf29ce484222325, prime 0x100000001b3) over the little-endian 64-bit words of header (32 bytes) followed by the index (zero-padded to a multiple of 8 bytes).
+ #pragma once
++#include "romfs_image.h"
+ #include <errno.h>
+ #include <fcntl.h>
+ #include <inttypes.h>
+@@ -26,14 +27,15 @@ static uint64_t romfs_id_mix(uint64_t h, const uint8_t *p, size_t n) {   // n mu
+     }
+     return h;
+ }
+-// Size and index hash of the image at path (title / version / build empty). 0 with errno set for a missing, cut off or invalid image.
++// Base RomFS size (ioff + isz, excluding any DMMSLTR1 trailer) and index hash of the image at path (title / version / build empty).
++// 0 with errno set for a missing, cut off or invalid image (including a truncated or malformed trailer).
+ static int romfs_id_of_image(const char *path, romfs_id *out) {
+     memset(out, 0, sizeof *out);
+     int fd = open(path, O_RDONLY); if (fd < 0) return 0;
+     struct stat st; uint8_t h[32]; uint64_t ioff, isz, hash = 0xcbf29ce484222325ull;
+-    if (fstat(fd, &st) || pread(fd, h, sizeof h, 0) != (ssize_t)sizeof h) { int e = errno ? errno : EINVAL; close(fd); errno = e; return 0; }
++    if (fstat(fd, &st) || st.st_size < (off_t)sizeof h || !romfs_image_read(fd, h, sizeof h, 0)) { int e = errno ? errno : EINVAL; close(fd); errno = e; return 0; }
+     memcpy(&ioff, h + 8, 8); memcpy(&isz, h + 16, 8);
+-    if (memcmp(h, "DMROMFS1", 8) || ioff < sizeof h || ioff > (uint64_t)st.st_size || isz != (uint64_t)st.st_size - ioff) { close(fd); errno = EINVAL; return 0; }
++    if (memcmp(h, "DMROMFS1", 8) || !romfs_check_bounds_and_trailer(fd, (uint64_t)st.st_size, ioff, isz, NULL)) { int e = errno ? errno : EINVAL; close(fd); errno = e; return 0; }
+     hash = romfs_id_mix(hash, h, sizeof h);
+     enum { CHUNK = 1 << 20 };
+     uint8_t *buf = malloc(CHUNK + 8); if (!buf) { close(fd); errno = ENOMEM; return 0; }
+@@ -49,7 +51,7 @@ static int romfs_id_of_image(const char *path, romfs_id *out) {
+         hash = romfs_id_mix(hash, buf, padded); at += n;
+     }
+     free(buf); close(fd);
+-    out->size = (uint64_t)st.st_size; out->index = hash; return 1;
++    out->size = ioff + isz; out->index = hash; return 1;
+ }
+ static void romfs_id_field(char *dst, size_t cap, const char *v, size_t n) {
+     if (n >= cap) n = cap - 1;
+diff --git a/dm/host/romfs_image.h b/dm/host/romfs_image.h
+index 687b41cff..8c9853ebf 100644
+--- a/dm/host/romfs_image.h
++++ b/dm/host/romfs_image.h
+@@ -2,6 +2,7 @@
+ #pragma once
+ #include <errno.h>
+ #include <fcntl.h>
++#include <limits.h>
+ #include <stdint.h>
+ #include <stdlib.h>
+ #include <string.h>
+@@ -13,11 +14,32 @@ _Static_assert(sizeof(img_ent) == 24, "RomFS image entry layout");
+ #define IMG_ENT_DAMAGED 1    // in the image: this file failed the NCA's hash check and was written as read (nx_extract --allow-damaged)
+ #define IMG_ENT_REPORTED 2   // in memory only: the host has named this damaged file in its log
+ typedef struct { int fd; uint64_t n, damaged; img_ent *e; const char *names; } romfs_img;
++typedef romfs_img romfs_image;
+ 
+-static void romfs_image_close(romfs_img *m) {
++#define DM_MSL_MAGIC "DMMSLTR1"
++#define DM_MSL_VERSION 1u
++#define DM_MSL_ALIGN 16384ull
++#define DM_MSL_FOOTER_ALIGN 8ull
++#define DM_MSL_FLAG_MULTI_PROGRAM 1u
++enum { DM_MSL_GFX_NVN = 1, DM_MSL_GFX_VULKAN = 2, DM_MSL_GFX_GL = 3 };
++
++typedef struct __attribute__((packed)) {
++    char     magic[8];          // "DMMSLTR1", written last so an interrupted append is rejected as incomplete
++    uint32_t version;           // 1
++    uint8_t  gfx_api;           // 1 = nvn, 2 = vulkan, 3 = gl
++    uint8_t  flags;             // bit 0: multi_program (p<N>/ prefixes)
++    uint16_t chain_len;         // valid byte count in chain (0..24)
++    uint64_t base_romfs_size;   // must equal ioff + isz of the base DMROMFS1 header
++    uint64_t msl_offset;        // align_up(base_romfs_size, 16384)
++    uint64_t msl_size;          // byte size of the embedded DMROMFS1 shader sub-image (>= 32)
++    char     chain[24];         // NUL-padded chain string, e.g. "b-d0e99bd4b2fe"
++} dm_msl_footer;
++_Static_assert(sizeof(dm_msl_footer) == 64, "DMMSLTR1 footer must be 64 bytes");
++
++static inline void romfs_image_close(romfs_img *m) {
+     if (m) { close(m->fd); free(m->e); free(m); }
+ }
+-static int romfs_image_read(int fd, void *buf, size_t size, off_t off) {
++static inline int romfs_image_read(int fd, void *buf, size_t size, off_t off) {
+     size_t got = 0;
+     while (got < size) {
+         ssize_t n = pread(fd, (char *)buf + got, size - got, off + (off_t)got);
+@@ -27,18 +49,72 @@ static int romfs_image_read(int fd, void *buf, size_t size, off_t off) {
+     }
+     return 1;
+ }
+-// NULL for an incomplete or invalid image (errno EINVAL), an I/O error, or allocation failure. The caller owns the descriptor and index on success.
+-static romfs_img *romfs_image_open(const char *path) {
+-    int fd = open(path, O_RDONLY); struct stat st; uint8_t h[32]; romfs_img *m = NULL; uint64_t ioff, isz, n;
+-    if (fd < 0) return NULL;
+-    if (fstat(fd, &st) || !romfs_image_read(fd, h, sizeof h, 0)) goto bad;
++// Validates [0, ioff + isz) and any optional DMMSLTR1 shader trailer in [ioff + isz, file_size).
++// When file_size == ioff + isz, zeroes *out_footer (if non-NULL) and returns 1.
++// When file_size > ioff + isz, validates the 64-byte DMMSLTR1 footer at EOF and stores it in *out_footer (if non-NULL).
++// Returns 0 with errno = EINVAL on any overflow, truncation or malformed trailer.
++static inline int romfs_check_bounds_and_trailer(int fd, uint64_t file_size, uint64_t ioff, uint64_t isz, dm_msl_footer *out_footer) {
++    if (out_footer) memset(out_footer, 0, sizeof *out_footer);
++    if (file_size > (uint64_t)INT64_MAX || ioff < 32ull || ioff > file_size || isz > file_size - ioff) {
++        errno = EINVAL;
++        return 0;
++    }
++    uint64_t base_end = ioff + isz;
++    if (file_size == base_end) return 1;
++    if (file_size - base_end < sizeof(dm_msl_footer)) {
++        errno = EINVAL;
++        return 0;
++    }
++    uint64_t footer_off = file_size - sizeof(dm_msl_footer);
++    dm_msl_footer f;
++    if (!romfs_image_read(fd, &f, sizeof f, (off_t)footer_off)) {
++        if (!errno) errno = EINVAL;
++        return 0;
++    }
++    if (memcmp(f.magic, DM_MSL_MAGIC, 8) != 0 ||
++        f.version != DM_MSL_VERSION ||
++        f.gfx_api < DM_MSL_GFX_NVN || f.gfx_api > DM_MSL_GFX_GL ||
++        f.base_romfs_size != base_end ||
++        base_end > UINT64_MAX - (DM_MSL_ALIGN - 1ull) ||
++        f.msl_offset != ((base_end + (DM_MSL_ALIGN - 1ull)) & ~(DM_MSL_ALIGN - 1ull)) ||
++        f.msl_size < 32ull ||
++        f.msl_offset > footer_off ||
++        f.msl_size > footer_off - f.msl_offset) {
++        errno = EINVAL;
++        return 0;
++    }
++    uint64_t raw_end = f.msl_offset + f.msl_size;
++    if (raw_end > UINT64_MAX - (DM_MSL_FOOTER_ALIGN - 1ull) ||
++        ((raw_end + (DM_MSL_FOOTER_ALIGN - 1ull)) & ~(DM_MSL_FOOTER_ALIGN - 1ull)) != footer_off ||
++        f.chain_len > sizeof f.chain) {
++        errno = EINVAL;
++        return 0;
++    }
++    for (uint16_t i = 0; i < f.chain_len; i++) {
++        if (f.chain[i] == '\0') { errno = EINVAL; return 0; }
++    }
++    for (uint16_t i = f.chain_len; i < sizeof f.chain; i++) {
++        if (f.chain[i] != '\0') { errno = EINVAL; return 0; }
++    }
++    if (out_footer) *out_footer = f;
++    return 1;
++}
++// Opens and validates a DMROMFS1 image located at [slice_off, slice_off + slice_size) inside fd.
++// On success, takes ownership of fd (closed by romfs_image_close). On failure, leaves fd open for the caller to close.
++static inline romfs_image *romfs_image_open_slice(int fd, uint64_t slice_off, uint64_t slice_size) {
++    uint8_t h[32]; romfs_img *m = NULL; uint64_t ioff, isz, n;
++    if (fd < 0) { errno = EBADF; return NULL; }
++    if (slice_size < sizeof h || slice_off > (uint64_t)INT64_MAX || slice_size > (uint64_t)INT64_MAX - slice_off) {
++        errno = EINVAL;
++        return NULL;
++    }
++    if (!romfs_image_read(fd, h, sizeof h, (off_t)slice_off)) return NULL;
+     errno = EINVAL;
+-    if (memcmp(h, "DMROMFS1", 8) || st.st_size < (off_t)sizeof h) goto bad;
++    if (memcmp(h, "DMROMFS1", 8)) goto bad;
+     memcpy(&ioff, h + 8, 8); memcpy(&isz, h + 16, 8); memcpy(&n, h + 24, 8);
+-    if (!n || n > UINT32_MAX || ioff < sizeof h || ioff > (uint64_t)st.st_size || isz != (uint64_t)st.st_size - ioff || isz > SIZE_MAX || n > isz / sizeof(img_ent)) goto bad;
++    if (!n || n > UINT32_MAX || ioff < sizeof h || ioff > slice_size || isz != slice_size - ioff || isz > SIZE_MAX || n > isz / sizeof(img_ent)) goto bad;
+     if (!(m = calloc(1, sizeof *m))) goto bad;
+-    m->fd = fd;
+-    if (!(m->e = malloc((size_t)isz)) || !romfs_image_read(fd, m->e, (size_t)isz, (off_t)ioff)) goto bad;
++    if (!(m->e = malloc((size_t)isz)) || !romfs_image_read(fd, m->e, (size_t)isz, (off_t)(slice_off + ioff))) goto bad;
+     m->n = n; m->names = (const char *)m->e + n * sizeof(img_ent);
+     uint64_t pool = isz - n * sizeof(img_ent), next_child = 1;
+     errno = EINVAL;
+@@ -66,10 +142,29 @@ static romfs_img *romfs_image_open(const char *path) {
+             if (c > 0 || (!c && a->nlen >= b->nlen)) goto bad;
+         }
+     }
++    m->fd = fd;
++    return m;
++bad: {
++    int e = errno ? errno : EINVAL;
++    if (m) { free(m->e); free(m); }
++    errno = e; return NULL;
++    }
++}
++// NULL for an incomplete or invalid image (errno EINVAL), an I/O error, or allocation failure. The caller owns the descriptor and index on success.
++static inline romfs_img *romfs_image_open(const char *path) {
++    int fd = open(path, O_RDONLY); struct stat st; uint8_t h[32]; uint64_t ioff, isz;
++    if (fd < 0) return NULL;
++    if (fstat(fd, &st) || !romfs_image_read(fd, h, sizeof h, 0)) goto bad;
++    errno = EINVAL;
++    if (memcmp(h, "DMROMFS1", 8) || st.st_size < (off_t)sizeof h) goto bad;
++    memcpy(&ioff, h + 8, 8); memcpy(&isz, h + 16, 8);
++    if (!romfs_check_bounds_and_trailer(fd, (uint64_t)st.st_size, ioff, isz, NULL)) goto bad;
++    romfs_img *m = romfs_image_open_slice(fd, 0, ioff + isz);
++    if (!m) goto bad;
+     return m;
+ bad: {
+     int e = errno ? errno : EINVAL;
+-    if (m) romfs_image_close(m); else close(fd);
++    close(fd);
+     errno = e; return NULL;
+     }
+ }
+diff --git a/dm/host/tests/t_fs.c b/dm/host/tests/t_fs.c
+index ee478a124..cba1e7b4d 100644
+--- a/dm/host/tests/t_fs.c
++++ b/dm/host/tests/t_fs.c
+@@ -226,6 +226,82 @@ int main(void) {
+         }
+         f = fopen(ip, "wb"); fwrite(img, 1, 39 + 50, f); fclose(f);   // cut off inside the index, as a copy stopped partway
+         CHECK(!img_open(ip), "a cut-off image is refused");
++        {   // DMMSLTR1 shader trailer: 16 KiB-aligned sub-image + 8-byte-aligned 64-byte footer
++            // Sub-image: root -> dir "b-test" -> file "inputs.tsv" ("game\tx\n", 7 bytes at offset 32)
++            uint8_t sub[32 + 7 + 3 * 24 + 16] = {0};
++            uint64_t shd[3] = {39, 3 * 24 + 16, 3};
++            img_ent se[3] = {{1, 1, 0, 0, 0, 0}, {2, 1, 0, 6, 0, 0}, {32, 7, 6, 10, 1, 0}};
++            memcpy(sub, "DMROMFS1", 8); memcpy(sub + 8, shd, sizeof shd);
++            memcpy(sub + 32, "game\tx\n", 7);
++            memcpy(sub + 39, se, sizeof se);
++            memcpy(sub + 39 + sizeof se, "b-testinputs.tsv", 16);
++
++            uint64_t base_sz = sizeof img;
++            uint64_t msl_off = (base_sz + 16383ull) & ~16383ull;
++            uint64_t msl_sz = sizeof sub;
++            uint64_t footer_off = ((msl_off + msl_sz) + 7ull) & ~7ull;
++            size_t total_sz = (size_t)footer_off + sizeof(dm_msl_footer);
++            uint8_t *full = calloc(1, total_sz);
++            memcpy(full, img, sizeof img);
++            memcpy(full + msl_off, sub, sizeof sub);
++            dm_msl_footer ft = {0};
++            memcpy(ft.magic, "DMMSLTR1", 8);
++            ft.version = 1; ft.gfx_api = DM_MSL_GFX_NVN; ft.flags = DM_MSL_FLAG_MULTI_PROGRAM;
++            ft.chain_len = 6; ft.base_romfs_size = base_sz; ft.msl_offset = msl_off; ft.msl_size = msl_sz;
++            memcpy(ft.chain, "b-test", 6);
++            memcpy(full + footer_off, &ft, sizeof ft);
++
++            f = fopen(ip, "wb"); fwrite(full, 1, total_sz, f); fclose(f);
++            g_nmnt = 0; setenv("DM_ROMFS", ip, 1);
++            CHECK(h_fs_MountRom("rom", NULL, 0) == RES_OK, "mount image carrying a valid DMMSLTR1 trailer");
++            CHECK(read_fs("rom:/data/a", got, sizeof got) && !strcmp(got, "hello") &&
++                  read_fs("rom:/data/c", got, sizeof got) && !strcmp(got, "xy"), "base RomFS files read normally with trailer attached");
++            uint64_t th = 0;
++            CHECK(h_fs_OpenFile(&th, "rom:/b-test/inputs.tsv", MODE_READ) == RES_PATH_NOT_FOUND, "trailer entries do not leak into the guest RomFS");
++            g_nmnt = 0;
++
++            int sfd = open(ip, O_RDONLY);
++            dm_msl_footer parsed = {0};
++            CHECK(sfd >= 0 && romfs_check_bounds_and_trailer(sfd, total_sz, 39, 5 * 24 + 7, &parsed) &&
++                  parsed.version == 1 && parsed.gfx_api == DM_MSL_GFX_NVN && parsed.msl_offset == msl_off && parsed.msl_size == msl_sz &&
++                  parsed.chain_len == 6 && !strcmp(parsed.chain, "b-test"), "romfs_check_bounds_and_trailer parses valid footer");
++            CHECK(!romfs_image_open_slice(sfd, msl_off, msl_sz - 1) && lseek(sfd, 0, SEEK_CUR) >= 0,
++                  "romfs_image_open_slice leaves caller fd open on failure");
++            romfs_image *simg = romfs_image_open_slice(sfd, msl_off, msl_sz);
++            CHECK(simg && simg->n == 3, "romfs_image_open_slice validates and loads trailer sub-image");
++            romfs_image_close(simg);
++
++            // Overflow and truncation rejections
++            int zfd = open(ip, O_RDONLY);
++            errno = 0;
++            CHECK(!romfs_check_bounds_and_trailer(zfd, 1024, UINT64_MAX - 8ull, 16ull, NULL) && errno == EINVAL, "ioff + isz overflow rejected");
++            errno = 0;
++            CHECK(!romfs_check_bounds_and_trailer(zfd, total_sz - 1, 39, 5 * 24 + 7, NULL) && errno == EINVAL, "1-byte truncated trailer rejected");
++            errno = 0;
++            CHECK(!romfs_check_bounds_and_trailer(zfd, msl_off + 20, 39, 5 * 24 + 7, NULL) && errno == EINVAL, "half-written trailer rejected");
++            close(zfd);
++
++            // Bad footer mutations must all fail img_open with EINVAL
++            for (int bad_case = 0; bad_case < 10; bad_case++) {
++                dm_msl_footer bf = ft;
++                size_t write_sz = total_sz;
++                if (bad_case == 0) bf.magic[7] = '2';
++                else if (bad_case == 1) bf.version = 2;
++                else if (bad_case == 2) bf.gfx_api = 0;
++                else if (bad_case == 3) bf.gfx_api = 4;
++                else if (bad_case == 4) bf.base_romfs_size = base_sz + 1;
++                else if (bad_case == 5) bf.msl_offset = msl_off - 8;
++                else if (bad_case == 6) bf.msl_size = 16;
++                else if (bad_case == 7) bf.chain_len = 25;
++                else if (bad_case == 8) bf.chain[2] = '\0';            // NUL inside chain[0..<chain_len]
++                else if (bad_case == 9) bf.chain[23] = 'x';            // non-NUL inside chain[chain_len..<24]
++                memcpy(full + footer_off, &bf, sizeof bf);
++                f = fopen(ip, "wb"); fwrite(full, 1, write_sz, f); fclose(f);
++                errno = 0;
++                CHECK(!img_open(ip) && errno == EINVAL, "corrupt DMMSLTR1 footer case %d is refused", bad_case);
++            }
++            free(full);
++        }
+     }
+     snprintf(save, sizeof save, "%s/save", root); snprintf(work, sizeof work, "%s.work", save);
+     mkdir(save, 0755); snprintf(p, sizeof p, "%s/a", save); put(p, "old");
+diff --git a/dm/ios/tests/test_framework_build.py b/dm/ios/tests/test_framework_build.py
+index 448a23367..e86c3e930 100644
+--- a/dm/ios/tests/test_framework_build.py
++++ b/dm/ios/tests/test_framework_build.py
+@@ -104,7 +104,10 @@ class ManifestTests(unittest.TestCase):
+ 
+     def test_values_the_schema_cannot_carry_are_refused(self):
+         cases = [('--game', '1234'), ('--modules', ''), ('--modules', 'main_sdk'), ('--chain', 'fixture'),
+-                 ('--romfs-identity', 'not-an-identity'), ('--built-at', '2026-11-13')]
++                 ('--romfs-identity', 'not-an-identity'), ('--gfx-api', 'metal'),
++                 ('--built-at', '2026-11-13'), ('--built-at', '2026-11-13 18:20:00Z'),
++                 ('--built-at', '2026-11-13T18:20:00+08:00'), ('--built-at', '2026-11-13T18:20:00.123Z'),
++                 ('--built-at', 'invalid')]
+         for flag, value in cases:
+             with self.subTest(flag=flag, value=value):
+                 base = [sys.executable, str(REPO / 'dm/ios/tools/gen_manifest.py'), '/dev/null', '--game', GAME, '--name', 'x',
+@@ -124,6 +127,13 @@ class ManifestTests(unittest.TestCase):
+         self.assertEqual(result.returncode, 0, result.stderr)
+         self.assertEqual(with_ts['built_at'], '2026-11-13T16:30:00Z')
+ 
++    def test_optional_gfx_api_and_built_at_are_written_when_given(self):
++        for api in ('nvn', 'vulkan', 'gl'):
++            result, data = self.manifest('--gfx-api', api, '--built-at', '2026-11-13T18:20:00Z')
++            self.assertEqual(result.returncode, 0, result.stderr)
++            self.assertEqual(data['gfx_api'], api)
++            self.assertEqual(data['built_at'], '2026-11-13T18:20:00Z')
++
+ 
+ class ProjectTemplateTests(unittest.TestCase):
+     """build_ipa.sh --prepare-xcode copies the template the build asks for in as project.yml."""
+@@ -170,6 +180,9 @@ class FrameworkEnvironmentTests(unittest.TestCase):
+             self.assertTrue((root / 'Gen/framework/dm/env.txt').is_file(), 'the built framework must carry its environment')
+             self.assertEqual((root / 'Gen/framework/dm/env.txt').read_text(), 'DM_PROF_TEX_BC_CPU=1\n')
+             self.assertFalse((root / 'Gen/framework/dm/font').exists())
++            manifest = json.loads((root / 'Gen/framework/game.manifest.json').read_text())
++            self.assertEqual(manifest['gfx_api'], 'nvn')
++            self.assertRegex(manifest['built_at'], r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+ 
+ 
+ class FrameworkPackagingTests(unittest.TestCase):
+diff --git a/dm/ios/tests/test_romfs_startup.py b/dm/ios/tests/test_romfs_startup.py
+index 4792b5ef8..54671a309 100644
+--- a/dm/ios/tests/test_romfs_startup.py
++++ b/dm/ios/tests/test_romfs_startup.py
+@@ -157,6 +157,38 @@ class Startup(unittest.TestCase):
+             empty = root / 'empty'; empty.mkdir()
+             self.assertEqual(locate(empty), str(doc / 'romfs.img'))
+ 
++    def test_shader_trailer_preserves_slim_identity_and_refuses_partial_trailer(self):
++        """A slim build's romfs.id records base_romfs_size; appending or replacing a DMMSLTR1 shader trailer keeps romfs_id_check matching while a truncated trailer is refused."""
++        with tempfile.TemporaryDirectory() as temporary:
++            root = Path(temporary); doc = root / 'Documents'; tmp = root / 'tmp'; bundle = root / 'App.app'; source = root / 'src'
++            msl = root / 'msl' / 'b-testchain'
++            for folder in (doc, tmp, bundle, source, msl): folder.mkdir(parents=True)
++            (source / 'marker').write_text('resource')
++            (source / 'payload.bin').write_bytes(b'A' * 9000)
++            (msl / 'inputs.tsv').write_text('game\t010015100B514000\ninputs\tabc123\n')
++            (msl / '0123456789abcdef_b.metallib').write_bytes(b'MTLB' + b'\0' * 60)
++
++            img_path = doc / 'romfs.img'
++            image.pack(source, img_path)
++            base_size = img_path.stat().st_size
++            (bundle / 'romfs.id').write_text(image.identity(img_path, '010015100B514000', '1.0', 'v0') + '\n')
++
++            info = image.append_msl(img_path, msl.parent, gfx_api='nvn', chain='b-testchain')
++            self.assertTrue(info['has_trailer'])
++            self.assertEqual(info['base_romfs_size'], base_size)
++            self.assertGreater(img_path.stat().st_size, base_size)
++
++            ok = subprocess.run([str(self.locator), str(doc), str(tmp), str(bundle)], capture_output=True, text=True)
++            self.assertEqual(ok.returncode, 0, ok.stderr)
++            self.assertEqual(ok.stdout.strip(), str(img_path))
++
++            # Cut off 1 byte from the trailer footer: startup must refuse the incomplete image
++            raw = img_path.read_bytes()
++            img_path.write_bytes(raw[:-1])
++            bad = subprocess.run([str(self.locator), str(doc), str(tmp), str(bundle)], capture_output=True, text=True)
++            self.assertNotEqual(bad.returncode, 0)
++            self.assertIn('invalid RomFS image', bad.stderr)
++
+     def test_per_game_aoc_folder_is_taken_before_the_bundled_one(self):
+         """Slim builds carry no add-on content: games/<id>/aoc (the layout hle_fs.c aoc_dir reads) must reach DM_AOC_DIR, before aoc_locate takes Documents/aoc or <App>/aoc, and never over an explicit value."""
+         main = (REPO / 'dm/ios/Sources/main.m').read_text()
+diff --git a/dm/ios/tools/build_ipa.sh b/dm/ios/tools/build_ipa.sh
+index bafc552ef..4378bddc9 100755
+--- a/dm/ios/tools/build_ipa.sh
++++ b/dm/ios/tools/build_ipa.sh
+@@ -232,10 +232,11 @@ if [ "$FRAMEWORK" = 1 ]; then
+   fi
+   NRO_TABLE=$PATCHED/nro.tsv; [ -f "$NRO_TABLE" ] || NRO_TABLE=   # the NRO modules gen_embed.py packs: nro_count in the manifest
+   FW_LOADER=FR; [ -z "$FRAMEWORK_ONLY" ] || FW_LOADER=FH
++  FW_GFXAPI=${GFXAPI:-$(python3 "$DM/games/game.py" "$GAME" gfx_api nvn)} || die "game profile: gfx_api"
+   python3 tools/gen_manifest.py Gen/framework/game.manifest.json --game "$GAME" --name "$DM_DISPLAY_NAME" \
+     --display-version "$DM_APP_VERSION" --package-version "${PKG:-}" --modules "$MODS" ${NRO_TABLE:+--nro-table "$NRO_TABLE"} \
+-    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" --profile "$GD/game.tsv" \
+-    --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > /dev/null || die "game manifest (gen_manifest.py)"
++    --chain "b-$V" --romfs-marker "$MARKER" --romfs-identity "$ROMFS_ID" --framework-name "$FW_NAME" --loader "$FW_LOADER" \
++    --gfx-api "$FW_GFXAPI" --built-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --profile "$GD/game.tsv" > /dev/null || die "game manifest (gen_manifest.py)"
+   DM_NS_TAG=$(python3 tools/gen_objc_namespace.py --print-tag ${DM_NS_TAG:+--tag "$DM_NS_TAG"} --game "$GAME" --framework-name "$FW_NAME" ${DM_CHAIN_INDEX:+--chain-index "$DM_CHAIN_INDEX"} \
+     --header Gen/framework/objc_namespace.h --exports Gen/framework/exported_symbols.txt \
+     "$DM/host" "$DM/gfx" "$DM/ios/Sources" "$DM/ios/framework") || die "framework ObjC namespace"
+diff --git a/dm/ios/tools/gen_manifest.py b/dm/ios/tools/gen_manifest.py
+index 105b8530b..4f03f2a50 100644
+--- a/dm/ios/tools/gen_manifest.py
++++ b/dm/ios/tools/gen_manifest.py
+@@ -28,6 +28,8 @@ SHADER_MAP = 'dm/shader_map.tsv'  # inside the framework: main.m points DM_NVN_S
+ LAUNCHER = 'dm/launcher.json'     # the loader's tables and the launcher settings share the framework's dm/
+ TITLE_ID = re.compile(r'^[0-9A-F]{16}$')
+ CHAIN = re.compile(r'^b-[0-9A-Za-z._-]+$')
++BUILT_AT = re.compile(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
++GFX_APIS = ('nvn', 'vulkan', 'gl')
+ 
+ 
+ def nro_count(table):
+@@ -68,6 +70,10 @@ def manifest(args):
+         raise SystemExit(f'[RED] gen_manifest: --chain {args.chain!r} is not written b-<version> (dm/gfx/nvn/dmsh_chain.h)')
+     if args.romfs_identity and not args.romfs_identity.startswith('DMROMFSID1 '):
+         raise SystemExit('[RED] gen_manifest: --romfs-identity is not a romfs_image.py identity line (DMROMFSID1 ...)')
++    if getattr(args, 'gfx_api', None) and args.gfx_api not in GFX_APIS:
++        raise SystemExit(f'[RED] gen_manifest: --gfx-api {args.gfx_api!r} is not one of {GFX_APIS}')
++    if getattr(args, 'built_at', None) and not BUILT_AT.match(args.built_at):
++        raise SystemExit(f'[RED] gen_manifest: --built-at {args.built_at!r} is not a UTC timestamp YYYY-MM-DDTHH:MM:SSZ')
+     data = {
+         'schema': SCHEMA,
+         'title_id': title_id,
+@@ -91,12 +97,12 @@ def manifest(args):
+     console = console_of(args.profile)
+     if console:
+         data['console'] = console   # the shell marks a Switch 2 game and warns about its memory (LNPANDY/NX2Apple#696)
++    if getattr(args, 'gfx_api', None):
++        data['gfx_api'] = args.gfx_api
++    if getattr(args, 'built_at', None):
++        data['built_at'] = args.built_at
+     if args.built_by:
+         data['built_by'] = args.built_by
+-    if args.built_at:
+-        if not re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$', args.built_at):
+-            raise SystemExit(f'[RED] gen_manifest: --built-at {args.built_at!r} is not UTC ISO-8601 (YYYY-MM-DDTHH:MM:SSZ)')
+-        data['built_at'] = args.built_at
+     return data
+ 
+ 
+@@ -119,8 +125,9 @@ def main(argv=None):
+     ap.add_argument('--loader', default='FR', choices=('FR', 'FH'),
+                     help='FR: a module container whose host is the app (M1); FH: the framework carries its own host (the shell, #451)')
+     ap.add_argument('--profile', help='the game\'s dm/games/<title ID>/game.tsv: console in the manifest comes from its first line')
+-    ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
++    ap.add_argument('--gfx-api', choices=GFX_APIS, help='the graphics backend this framework uses (nvn, vulkan or gl)')
+     ap.add_argument('--built-at', default='', help='UTC ISO-8601 build timestamp (YYYY-MM-DDTHH:MM:SSZ, optional)')
++    ap.add_argument('--built-by', help='who built it, for a log line (optional; a device or tool name)')
+     args = ap.parse_args(argv)
+     data = manifest(args)
+     out = Path(args.out)
+diff --git a/dm/tools/romfs.py b/dm/tools/romfs.py
+index ae1dbfb36..508a3cb7e 100644
+--- a/dm/tools/romfs.py
++++ b/dm/tools/romfs.py
+@@ -20,20 +20,72 @@ from typing import TYPE_CHECKING
+ 
+ HEAD = struct.Struct('<8sQQQ')
+ ENT = struct.Struct('<QQIHBB')
++FOOTER = struct.Struct('<8sIBBHQQQ24s')
+ MAGIC = b'DMROMFS1'
++MSL_MAGIC = b'DMMSLTR1'
++MSL_VERSION = 1
++MSL_ALIGN = 16384
++MSL_FOOTER_ALIGN = 8
++_U64_MAX = (1 << 64) - 1
++_I64_MAX = (1 << 63) - 1
++
++
++def _check_bounds_and_trailer(f, file_size, ioff, isz, path):
++    if file_size > _I64_MAX or ioff < HEAD.size or ioff > file_size or isz > file_size - ioff:
++        raise ValueError(f'invalid RomFS image header: {path}')
++    base_end = ioff + isz
++    if file_size == base_end:
++        return None
++    if file_size - base_end < FOOTER.size:
++        raise ValueError(f'incomplete or invalid RomFS trailer: {path}')
++    footer_off = file_size - FOOTER.size
++    f.seek(footer_off)
++    raw = f.read(FOOTER.size)
++    if len(raw) != FOOTER.size:
++        raise ValueError(f'incomplete or invalid RomFS trailer: {path}')
++    t_magic, ver, gfx_api, flags, chain_len, base_sz, msl_off, msl_sz, chain_raw = FOOTER.unpack(raw)
++    if (t_magic != MSL_MAGIC or ver != MSL_VERSION or not 1 <= gfx_api <= 3 or
++            base_sz != base_end or base_end > _U64_MAX - (MSL_ALIGN - 1) or
++            msl_off != ((base_end + (MSL_ALIGN - 1)) & ~(MSL_ALIGN - 1)) or
++            msl_sz < HEAD.size or msl_off > footer_off or msl_sz > footer_off - msl_off):
++        raise ValueError(f'incomplete or invalid RomFS trailer: {path}')
++    raw_end = msl_off + msl_sz
++    if (raw_end > _U64_MAX - (MSL_FOOTER_ALIGN - 1) or
++            ((raw_end + (MSL_FOOTER_ALIGN - 1)) & ~(MSL_FOOTER_ALIGN - 1)) != footer_off or
++            chain_len > 24 or b'\0' in chain_raw[:chain_len] or
++            chain_raw[chain_len:] != b'\0' * (24 - chain_len)):
++        raise ValueError(f'incomplete or invalid RomFS trailer: {path}')
++    return (msl_off, msl_sz, gfx_api, flags, chain_raw[:chain_len].decode('ascii'))
+ 
+ 
+ class Image:
+-    def __init__(self, path):
++    def __init__(self, path, slice_offset=0, slice_size=None):
+         self.path = _os.path.abspath(path)
+         self.stat = _os.stat(self.path)
++        self.slice_offset = slice_offset
+         with builtins.open(self.path, 'rb') as f:
+-            head = f.read(HEAD.size)
+-            if len(head) < HEAD.size: raise ValueError(f'invalid RomFS image header: {path}')
+-            magic, off, size, count = HEAD.unpack(head)
+-            if magic != MAGIC or not 0 < count <= 0xffffffff or off < HEAD.size or off > self.stat.st_size or size != self.stat.st_size - off or count > size // ENT.size:
+-                raise ValueError(f'invalid RomFS image header: {path}')
+-            f.seek(off); self.index = f.read(size)
++            if slice_size is None:
++                head = f.read(HEAD.size)
++                if len(head) < HEAD.size: raise ValueError(f'invalid RomFS image header: {path}')
++                magic, off, size, count = HEAD.unpack(head)
++                if magic != MAGIC or not 0 < count <= 0xffffffff:
++                    raise ValueError(f'invalid RomFS image header: {path}')
++                _check_bounds_and_trailer(f, self.stat.st_size, off, size, path)
++                if count > size // ENT.size:
++                    raise ValueError(f'invalid RomFS image header: {path}')
++                self.base_size = off + size
++                f.seek(off); self.index = f.read(size)
++            else:
++                if slice_offset < 0 or slice_size < HEAD.size or slice_offset > self.stat.st_size or slice_size > self.stat.st_size - slice_offset:
++                    raise ValueError(f'invalid RomFS slice range: {path}')
++                f.seek(slice_offset)
++                head = f.read(HEAD.size)
++                if len(head) < HEAD.size: raise ValueError(f'invalid RomFS image header: {path}')
++                magic, off, size, count = HEAD.unpack(head)
++                if magic != MAGIC or not 0 < count <= 0xffffffff or off < HEAD.size or off > slice_size or size != slice_size - off or count > size // ENT.size:
++                    raise ValueError(f'invalid RomFS image header: {path}')
++                self.base_size = slice_size
++                f.seek(slice_offset + off); self.index = f.read(size)
+         if len(self.index) != size: raise ValueError(f'incomplete RomFS image: {path}')
+         self.count, self.pool = count, count * ENT.size
+         next_child = 1
+@@ -116,7 +168,8 @@ _fd_ranges = {}
+ class _File(io.RawIOBase):
+     def __init__(self, image, k):
+         self.fd = _os.open(image.path, _os.O_RDONLY)
+-        self.start, self.length = image.entry(k)[:2]
++        a, self.length = image.entry(k)[:2]
++        self.start = image.slice_offset + a
+         self.pos = 0
+         _fd_ranges[self.fd] = (self.start, self.length)
+     def readable(self): return True
+diff --git a/dm/tools/romfs_image.py b/dm/tools/romfs_image.py
+index c06bf0b8f..769d0b31a 100755
+--- a/dm/tools/romfs_image.py
++++ b/dm/tools/romfs_image.py
+@@ -14,12 +14,26 @@
+ # Names are the guest names: a host name chosen on a case collision (.dm-case-N) is replaced by the one in its xattr, as hle_fs.c's guest_name does.
+ # Usage: romfs_image.py [--reuse] <RomFS folder> <out image>   (written to <out>.part, renamed at the end)
+ # --reuse checks the source tree's names and file metadata, the packer's version and the image's identity before keeping a previous image.
+-import argparse, hashlib, json, os, struct, subprocess
++import argparse, hashlib, json, os, re, struct, subprocess
+ from pathlib import Path
+ 
+ MAGIC = b'DMROMFS1'
+ HEAD = struct.Struct('<8sQQQ')
+ ENT = struct.Struct('<QQIHBB')
++FOOTER = struct.Struct('<8sIBBHQQQ24s')
++MSL_MAGIC = b'DMMSLTR1'
++MSL_VERSION = 1
++MSL_ALIGN = 16384
++MSL_DATA_ALIGN = 16
++MSL_FOOTER_ALIGN = 8
++MSL_FLAG_MULTI_PROGRAM = 1
++GFX_API_CODES = {'nvn': 1, 'vulkan': 2, 'gl': 3}
++GFX_API_NAMES = {1: 'nvn', 2: 'vulkan', 3: 'gl'}
++MSL_APP_SUFFIXES = ('.metallib', '.json', '.tsv')
++MSL_APP_LEAVE_OUT = ('_b_build.json',)
++_PROG_DIR_RE = re.compile(r'^p\d+$')
++_U64_MAX = (1 << 64) - 1
++_I64_MAX = (1 << 63) - 1
+ GUEST_NAME = 'org.d2rmobile.guest-name'
+ # Files a dump tool leaves in every folder of the game's tree, which are not game files: an FTP dump keeps the server's listing as .listing (as the NUP spec's §6.3 says a producer
+ # may). Packed, a game that lists a folder sees one more entry: Nintendo Switch Sports Resort cuts each name at its first '.', loaded "Parameter/<folder>/" with an empty name, got
+@@ -175,15 +189,117 @@ def _clean(text):   # one token of the identity line: no spaces, no newlines
+     return ''.join(c if c.isalnum() or c in '._-+' else '_' for c in str(text)) or '-'
+ 
+ 
++def check_bounds_and_trailer(f, file_size, ioff, isz, img):
++    """Validates [0, ioff + isz) and any optional DMMSLTR1 shader trailer in [ioff + isz, file_size).
++    Returns None when file_size == ioff + isz, or a parsed trailer dict when a valid trailer is present.
++    Raises ValueError on any overflow, truncation or malformed trailer."""
++    if file_size > _I64_MAX or ioff < HEAD.size or ioff > file_size or isz > file_size - ioff:
++        raise ValueError(f'incomplete or invalid RomFS image: {img}')
++    base_end = ioff + isz
++    if file_size == base_end:
++        return None
++    if file_size - base_end < FOOTER.size:
++        raise ValueError(f'incomplete or invalid RomFS trailer: {img}')
++    footer_off = file_size - FOOTER.size
++    f.seek(footer_off)
++    raw = f.read(FOOTER.size)
++    if len(raw) != FOOTER.size:
++        raise ValueError(f'incomplete or invalid RomFS trailer: {img}')
++    t_magic, ver, gfx_api, flags, chain_len, base_sz, msl_off, msl_sz, chain_raw = FOOTER.unpack(raw)
++    if (t_magic != MSL_MAGIC or ver != MSL_VERSION or gfx_api not in GFX_API_NAMES or
++            base_sz != base_end or base_end > _U64_MAX - (MSL_ALIGN - 1) or
++            msl_off != ((base_end + (MSL_ALIGN - 1)) & ~(MSL_ALIGN - 1)) or
++            msl_sz < HEAD.size or msl_off > footer_off or msl_sz > footer_off - msl_off):
++        raise ValueError(f'incomplete or invalid RomFS trailer: {img}')
++    raw_end = msl_off + msl_sz
++    if (raw_end > _U64_MAX - (MSL_FOOTER_ALIGN - 1) or
++            ((raw_end + (MSL_FOOTER_ALIGN - 1)) & ~(MSL_FOOTER_ALIGN - 1)) != footer_off or
++            chain_len > 24 or b'\0' in chain_raw[:chain_len] or
++            chain_raw[chain_len:] != b'\0' * (24 - chain_len)):
++        raise ValueError(f'incomplete or invalid RomFS trailer: {img}')
++    try:
++        chain_str = chain_raw[:chain_len].decode('ascii')
++    except UnicodeDecodeError as exc:
++        raise ValueError(f'non-ASCII chain in RomFS trailer: {img}') from exc
++    return {
++        'has_trailer': True,
++        'version': ver,
++        'gfx_api': GFX_API_NAMES[gfx_api],
++        'flags': flags,
++        'multi_program': bool(flags & MSL_FLAG_MULTI_PROGRAM),
++        'chain': chain_str,
++        'base_romfs_size': base_sz,
++        'msl_offset': msl_off,
++        'msl_size': msl_sz,
++        'file_size': file_size,
++    }
++
++
++def _validate_and_list_slice(f, slice_offset, slice_size, label):
++    """Validates a DMROMFS1 slice at [slice_offset, slice_offset + slice_size) and returns {rel_path: (is_dir, rel_off, size)}."""
++    if slice_offset < 0 or slice_size < HEAD.size or slice_offset > _I64_MAX or slice_size > _I64_MAX - slice_offset:
++        raise ValueError(f'invalid RomFS slice bounds: {label}')
++    f.seek(slice_offset)
++    head = f.read(HEAD.size)
++    if len(head) != HEAD.size:
++        raise ValueError(f'not a RomFS image: {label}')
++    magic, ioff, isz, n = HEAD.unpack(head)
++    if magic != MAGIC or not 0 < n <= 0xffffffff or ioff < HEAD.size or ioff > slice_size or isz != slice_size - ioff or n > isz // ENT.size:
++        raise ValueError(f'incomplete or invalid RomFS image: {label}')
++    f.seek(slice_offset + ioff)
++    raw = f.read(isz)
++    if len(raw) != isz:
++        raise ValueError(f'incomplete RomFS index: {label}')
++    pool_off = n * ENT.size
++    pool_len = isz - pool_off
++    e = [ENT.unpack_from(raw, k * ENT.size) for k in range(n)]
++    if e[0][4] != 0 or e[0][3] != 0:
++        raise ValueError(f'invalid RomFS root entry: {label}')
++    next_child = 1
++    names = []
++    for k, (a, b, no, nl, t, flags) in enumerate(e):
++        if no + nl > pool_len or t > 1 or flags > (1 if t else 0):
++            raise ValueError(f'invalid RomFS entry {k}: {label}')
++        nm = raw[pool_off + no:pool_off + no + nl]
++        if k and (not nl or nl > 0x300 or b'\0' in nm or b'/' in nm or nm in (b'.', b'..')):
++            raise ValueError(f'invalid RomFS entry name: {label}')
++        names.append(nm)
++        if t:
++            if a < HEAD.size or a > ioff or b > ioff - a:
++                raise ValueError(f'invalid RomFS file range: {label}')
++        else:
++            if a != next_child or a <= k or a > n or b > n - a:
++                raise ValueError(f'invalid RomFS directory tree: {label}')
++            next_child += b
++    if next_child != n:
++        raise ValueError(f'unreachable RomFS entries: {label}')
++    for k, (a, b, _, _, t, _) in enumerate(e):
++        if not t and any(names[j - 1] >= names[j] for j in range(a + 1, a + b)):
++            raise ValueError(f'unsorted or duplicate RomFS names: {label}')
++    out, todo = {}, [(0, '')]
++    while todo:
++        k, path = todo.pop()
++        a, b, _, _, t, _ = e[k]
++        if t == 0:
++            if path:
++                out[path] = (True, 0, 0)
++            todo.extend((c, (path + '/' if path else '') + names[c].decode('utf-8', errors='surrogateescape')) for c in range(a, a + b))
++        else:
++            out[path] = (False, a, b)
++    return out
++
++
+ def identity(img, title='', version='', build=''):
+-    """The identity line of a complete image (dm/host/romfs_identity.h defines the format and the C reader): its size and an FNV-1a 64 hash of its header and index
+-    (the file data is not read, so a 14 GB image takes a moment). Raises ValueError for a cut off or invalid image."""
++    """The identity line of a complete image (dm/host/romfs_identity.h defines the format and the C reader): its base RomFS size (ioff + isz)
++    and an FNV-1a 64 hash of its header and index (the file data is not read, so a 14 GB image takes a moment). Raises ValueError for a cut off or invalid image."""
+     size = os.path.getsize(img)
+     with open(img, 'rb') as f:
+         head = f.read(HEAD.size)
+         if len(head) != HEAD.size: raise ValueError(f'not a RomFS image: {img}')
+         magic, ioff, isz, _ = HEAD.unpack(head)
+-        if magic != MAGIC or ioff < HEAD.size or ioff > size or isz != size - ioff: raise ValueError(f'incomplete or invalid RomFS image: {img}')
++        if magic != MAGIC: raise ValueError(f'incomplete or invalid RomFS image: {img}')
++        check_bounds_and_trailer(f, size, ioff, isz, img)
++        base_size = ioff + isz
+         h, rest = _FNV_OFFSET, b''
+         f.seek(ioff)
+         def mix(h, data):
+@@ -200,7 +316,416 @@ def identity(img, title='', version='', build=''):
+             rest = chunk[len(chunk) - keep:]; chunk = chunk[:len(chunk) - keep]
+             if not left and len(chunk) % 8: chunk += b'\0' * (8 - len(chunk) % 8)
+             h = mix(h, chunk)
+-    return f'{ID_MAGIC} title={_clean(title)} version={_clean(version)} build={_clean(build)} size={size} index={h:016x}'
++    return f'{ID_MAGIC} title={_clean(title)} version={_clean(version)} build={_clean(build)} size={base_size} index={h:016x}'
++
++
++def _keep_msl_file(name, skip_suffix=()):
++    if name.endswith('.img'):
++        raise ValueError(f'nested .img is forbidden inside MSL trailer: {name}')
++    if name.startswith('.') or '.tmp' in name or name in MSL_APP_LEAVE_OUT:
++        return False
++    if not name.endswith(MSL_APP_SUFFIXES):
++        return False
++    if skip_suffix and name.endswith(tuple(skip_suffix)):
++        return False
++    return True
++
++
++def _collect_nvn_pair(folder_path, image_path, prefix, skip_suffix=()):
++    """Reads a b-<chain> folder and/or b-<chain>.img using shader_lib.py's precedence, expanding into {prefix/name: source_spec}."""
++    out = {}
++    has_folder = folder_path is not None and os.path.isdir(folder_path)
++    has_image = image_path is not None and os.path.isfile(image_path)
++    folder_files = {}
++    if has_folder:
++        with os.scandir(folder_path) as it:
++            for e in it:
++                if e.name.startswith('.') or '.tmp' in e.name:
++                    continue
++                if e.is_dir(follow_symlinks=False):
++                    raise ValueError(f'{e.path} is a folder: an NVN shader library holds only files')
++                if e.name.endswith('.img'):
++                    raise ValueError(f'nested .img is forbidden inside MSL trailer: {e.path}')
++                folder_files[e.name] = e.path
++    if has_image and (not has_folder or 'inputs.tsv' not in folder_files):
++        img_size = os.path.getsize(image_path)
++        with open(image_path, 'rb') as sf:
++            listing = _validate_and_list_slice(sf, 0, img_size, image_path)
++        for rel, (is_dir, off, sz) in listing.items():
++            if is_dir:
++                raise ValueError(f'{image_path} contains subdirectories; expected flat shader library image')
++            if _keep_msl_file(rel, skip_suffix):
++                out[f'{prefix}/{rel}'] = ('slice', image_path, off, sz)
++    for fname, fpath in folder_files.items():
++        if _keep_msl_file(fname, skip_suffix):
++            out[f'{prefix}/{fname}'] = ('file', fpath)
++    return out
++
++
++def _collect_flat_dir(dir_path, prefix, skip_suffix=()):
++    out = {}
++    with os.scandir(dir_path) as it:
++        for e in it:
++            if e.name.startswith('.') or '.tmp' in e.name:
++                continue
++            if e.is_dir(follow_symlinks=False):
++                raise ValueError(f'unexpected subdirectory inside {dir_path}: {e.path}')
++            if _keep_msl_file(e.name, skip_suffix):
++                out[f'{prefix}/{e.name}'] = ('file', e.path)
++    return out
++
++
++def _collect_msl_sources(msl_src, gfx_api=None, chain=None, multi_program=False, skip_suffix=()):
++    src = os.fspath(msl_src)
++    if not os.path.exists(src):
++        raise FileNotFoundError(f'MSL source does not exist: {src}')
++    files = {}
++    seen_apis = set()
++    seen_chains = set()
++    inferred_multi = False
++
++    if os.path.isfile(src):
++        img_size = os.path.getsize(src)
++        with open(src, 'rb') as sf:
++            listing = _validate_and_list_slice(sf, 0, img_size, src)
++        file_items = [(rel, off, sz) for rel, (is_dir, off, sz) in listing.items() if not is_dir]
++        has_subdirs = any('/' in rel for rel, _, _ in file_items)
++        if not has_subdirs:
++            base = os.path.basename(src)
++            stem = base[:-4] if base.endswith('.img') else base
++            if chain:
++                prefix = chain
++                seen_apis.add('nvn'); seen_chains.add(chain)
++            elif stem.startswith('b-'):
++                prefix = stem
++                seen_apis.add('nvn'); seen_chains.add(stem)
++            elif gfx_api in ('vulkan', 2):
++                prefix = 'vk'; seen_apis.add('vulkan')
++            elif gfx_api in ('gl', 3):
++                prefix = 'gl'; seen_apis.add('gl')
++            else:
++                raise ValueError(f'cannot infer shader directory prefix for flat image {src}; pass --chain b-<version> or --gfx-api')
++            for rel, off, sz in file_items:
++                if _keep_msl_file(rel, skip_suffix):
++                    files[f'{prefix}/{rel}'] = ('slice', src, off, sz)
++        else:
++            for rel, off, sz in file_items:
++                parts = rel.split('/')
++                if any(p.endswith('.img') for p in parts):
++                    raise ValueError(f'nested .img is forbidden inside MSL trailer: {rel}')
++                if not _keep_msl_file(parts[-1], skip_suffix):
++                    continue
++                idx = 0
++                if _PROG_DIR_RE.match(parts[0]) and len(parts) >= 3:
++                    inferred_multi = True
++                    idx = 1
++                top = parts[idx]
++                if top.startswith('b-'):
++                    if chain and top != chain:
++                        continue
++                    seen_apis.add('nvn'); seen_chains.add(top)
++                elif top == 'vk':
++                    seen_apis.add('vulkan')
++                elif top == 'gl':
++                    seen_apis.add('gl')
++                files[rel] = ('slice', src, off, sz)
++    else:
++        norm = os.path.normpath(src)
++        base = os.path.basename(norm)
++        if base.startswith('b-'):
++            if chain and chain != base:
++                raise ValueError(f'MSL directory {base} does not match --chain {chain}')
++            sibling_img = norm + '.img'
++            files.update(_collect_nvn_pair(norm, sibling_img if os.path.isfile(sibling_img) else None, base, skip_suffix))
++            seen_apis.add('nvn'); seen_chains.add(base)
++        elif base in ('vk', 'gl'):
++            files.update(_collect_flat_dir(norm, base, skip_suffix))
++            seen_apis.add('vulkan' if base == 'vk' else 'gl')
++        else:
++            def scan_program_root(root_dir, prog_prefix):
++                nonlocal inferred_multi
++                nvn_names = set()
++                direct_files = []
++                with os.scandir(root_dir) as it:
++                    entries_list = sorted(it, key=lambda x: x.name)
++                prog_dirs = [e for e in entries_list if not prog_prefix and e.is_dir(follow_symlinks=False) and _PROG_DIR_RE.match(e.name)]
++                if prog_dirs:
++                    inferred_multi = True
++                    for pe in prog_dirs:
++                        scan_program_root(pe.path, f'{pe.name}/')
++                    for e in entries_list:
++                        if e.name.startswith('.') or '.tmp' in e.name or (e in prog_dirs):
++                            continue
++                        if e.name.endswith('.img'):
++                            raise ValueError(f'nested .img is forbidden inside multi-program root: {e.path}')
++                    return
++                for e in entries_list:
++                    if e.name.startswith('.') or '.tmp' in e.name:
++                        continue
++                    if e.is_dir(follow_symlinks=False):
++                        if e.name in ('vk', 'gl'):
++                            api_here = 'vulkan' if e.name == 'vk' else 'gl'
++                            if gfx_api and GFX_API_NAMES.get(GFX_API_CODES.get(gfx_api, gfx_api)) != api_here:
++                                continue
++                            files.update(_collect_flat_dir(e.path, f'{prog_prefix}{e.name}', skip_suffix))
++                            seen_apis.add(api_here)
++                        elif e.name.startswith('b-'):
++                            if not chain or e.name == chain:
++                                nvn_names.add(e.name)
++                        else:
++                            raise ValueError(f'unexpected directory inside MSL source: {e.path}')
++                    else:
++                        if e.name.endswith('.img'):
++                            stem = e.name[:-4]
++                            if stem.startswith('b-'):
++                                if not chain or stem == chain:
++                                    nvn_names.add(stem)
++                            else:
++                                raise ValueError(f'nested .img is forbidden inside MSL source: {e.path}')
++                        else:
++                            direct_files.append(e)
++                for lib_name in sorted(nvn_names):
++                    if gfx_api and GFX_API_NAMES.get(GFX_API_CODES.get(gfx_api, gfx_api)) != 'nvn':
++                        continue
++                    fdir = os.path.join(root_dir, lib_name)
++                    fimg = fdir + '.img'
++                    files.update(_collect_nvn_pair(fdir if os.path.isdir(fdir) else None,
++                                                   fimg if os.path.isfile(fimg) else None,
++                                                   f'{prog_prefix}{lib_name}', skip_suffix))
++                    seen_apis.add('nvn'); seen_chains.add(lib_name)
++                if direct_files and not files:
++                    eff_api = GFX_API_NAMES.get(GFX_API_CODES.get(gfx_api, gfx_api)) if gfx_api else None
++                    if eff_api == 'nvn' and chain:
++                        sub_prefix = f'{prog_prefix}{chain}'; seen_apis.add('nvn'); seen_chains.add(chain)
++                    elif eff_api == 'vulkan':
++                        sub_prefix = f'{prog_prefix}vk'; seen_apis.add('vulkan')
++                    elif eff_api == 'gl':
++                        sub_prefix = f'{prog_prefix}gl'; seen_apis.add('gl')
++                    else:
++                        raise ValueError(f'cannot infer target subdirectory for loose shader files in {root_dir}')
++                    for e in direct_files:
++                        if _keep_msl_file(e.name, skip_suffix):
++                            files[f'{sub_prefix}/{e.name}'] = ('file', e.path)
++
++            scan_program_root(norm, '')
++
++    if not files:
++        raise ValueError(f'no runtime shader files found in {src}')
++    if isinstance(gfx_api, int):
++        if gfx_api not in GFX_API_NAMES:
++            raise ValueError(f'invalid gfx_api code: {gfx_api}')
++        api_name = GFX_API_NAMES[gfx_api]
++    elif gfx_api is not None:
++        if gfx_api not in GFX_API_CODES:
++            raise ValueError(f'invalid gfx_api {gfx_api!r}: expected one of {tuple(GFX_API_CODES)}')
++        api_name = gfx_api
++    else:
++        if len(seen_apis) != 1:
++            raise ValueError(f'cannot uniquely infer gfx_api from {src} (found {sorted(seen_apis)}); pass --gfx-api')
++        api_name = next(iter(seen_apis))
++
++    if chain is None:
++        if api_name == 'nvn':
++            if len(seen_chains) != 1:
++                raise ValueError(f'cannot uniquely infer NVN chain from {src} (found {sorted(seen_chains)}); pass --chain')
++            chain_str = next(iter(seen_chains))
++        else:
++            chain_str = next(iter(seen_chains)) if len(seen_chains) == 1 else ''
++    else:
++        chain_str = str(chain)
++
++    if api_name == 'nvn' and not chain_str:
++        raise ValueError('NVN shader trailer requires a non-empty chain identifier')
++    try:
++        chain_bytes = chain_str.encode('ascii')
++    except UnicodeEncodeError as exc:
++        raise ValueError(f'chain must be ASCII: {chain_str!r}') from exc
++    if len(chain_bytes) > 24 or b'\0' in chain_bytes or b'\n' in chain_bytes or b'\r' in chain_bytes:
++        raise ValueError(f'invalid chain {chain_str!r} (must be <= 24 ASCII bytes without NUL or newline)')
++
++    return files, GFX_API_CODES[api_name], chain_bytes, bool(multi_program or inferred_multi)
++
++
++def _write_msl_subimage(out_file, base_offset, files_map):
++    """Writes a tree-structured DMROMFS1 sub-image starting at base_offset in out_file with 16-byte aligned file payloads.
++    Returns the sub-image byte length."""
++    tree = {}   # dir_tuple -> set of (child_name_bytes, is_dir, full_rel_str)
++    tree[()] = set()
++    for rel in files_map:
++        parts = [p for p in rel.split('/') if p]
++        if not parts:
++            raise ValueError(f'empty relative path in MSL trailer: {rel!r}')
++        for part in parts:
++            bpart = part.encode('utf-8')
++            if not bpart or len(bpart) > 0x300 or b'\0' in bpart or b'/' in bpart or bpart in (b'.', b'..'):
++                raise ValueError(f'invalid path component in MSL trailer: {part!r}')
++        for depth in range(len(parts) - 1):
++            parent = tuple(parts[:depth])
++            cur = tuple(parts[:depth + 1])
++            tree.setdefault(parent, set()).add((parts[depth].encode('utf-8'), True, cur))
++            tree.setdefault(cur, set())
++        parent = tuple(parts[:-1])
++        tree.setdefault(parent, set()).add((parts[-1].encode('utf-8'), False, rel))
++
++    ents = [[b'', (), True, 0, 0]]   # [name_bytes, key, is_dir, a, b]
++    i = 0
++    while i < len(ents):
++        _, key, is_dir, _, _ = ents[i]
++        if is_dir:
++            kids = sorted(tree.get(key, ()), key=lambda item: item[0])
++            for j in range(1, len(kids)):
++                if kids[j - 1][0] == kids[j][0]:
++                    raise ValueError(f'duplicate entry name in MSL trailer: {kids[j][0]!r}')
++            ents[i][3], ents[i][4] = len(ents), len(kids)
++            for cname, cis_dir, ckey in kids:
++                ents.append([cname, ckey, cis_dir, 0, 0])
++        i += 1
++
++    out_file.seek(base_offset)
++    out_file.write(b'\0' * HEAD.size)
++    off = HEAD.size
++    for e in ents:
++        if e[2]:
++            continue
++        pad = (-off) % MSL_DATA_ALIGN
++        if pad:
++            out_file.write(b'\0' * pad)
++            off += pad
++        spec = files_map[e[1]]
++        written = 0
++        if spec[0] == 'file':
++            with open(spec[1], 'rb') as rf:
++                while chunk := rf.read(8 << 20):
++                    out_file.write(chunk)
++                    written += len(chunk)
++        elif spec[0] == 'slice':
++            _, spath, soff, ssz = spec
++            with open(spath, 'rb') as rf:
++                rf.seek(soff)
++                left = ssz
++                while left:
++                    chunk = rf.read(min(left, 8 << 20))
++                    if not chunk:
++                        raise ValueError(f'unexpected EOF reading {spath}')
++                    out_file.write(chunk)
++                    written += len(chunk)
++                    left -= len(chunk)
++        else:
++            data = spec[1]
++            out_file.write(data)
++            written = len(data)
++        e[3], e[4] = off, written
++        off += written
++
++    head, idx = layout(ents, off)
++    out_file.write(idx)
++    msl_size = off + len(idx)
++    out_file.seek(base_offset)
++    out_file.write(head)
++    out_file.seek(base_offset + msl_size)
++    return msl_size
++
++
++def _write_trailer(img, msl_src, gfx_api=None, chain=None, multi_program=False, skip_suffix=(), require_valid_existing=True):
++    img_path = os.fspath(img)
++    files_map, api_code, chain_bytes, is_multi = _collect_msl_sources(
++        msl_src, gfx_api=gfx_api, chain=chain, multi_program=multi_program, skip_suffix=skip_suffix)
++
++    file_size = os.path.getsize(img_path)
++    with open(img_path, 'r+b') as f:
++        head = f.read(HEAD.size)
++        if len(head) != HEAD.size:
++            raise ValueError(f'not a RomFS image: {img_path}')
++        magic, ioff, isz, _ = HEAD.unpack(head)
++        if magic != MAGIC or file_size > _I64_MAX or ioff < HEAD.size or ioff > file_size or isz > file_size - ioff:
++            raise ValueError(f'incomplete or invalid RomFS image: {img_path}')
++        if require_valid_existing:
++            check_bounds_and_trailer(f, file_size, ioff, isz, img_path)
++        base_romfs_size = ioff + isz
++        _validate_and_list_slice(f, 0, base_romfs_size, img_path)
++
++        if base_romfs_size > _U64_MAX - (MSL_ALIGN - 1):
++            raise ValueError(f'base RomFS size overflows page alignment: {img_path}')
++        msl_offset = (base_romfs_size + (MSL_ALIGN - 1)) & ~(MSL_ALIGN - 1)
++
++        f.truncate(base_romfs_size)
++        f.seek(base_romfs_size)
++        if msl_offset > base_romfs_size:
++            f.write(b'\0' * (msl_offset - base_romfs_size))
++
++        msl_size = _write_msl_subimage(f, msl_offset, files_map)
++        raw_end = msl_offset + msl_size
++        footer_off = (raw_end + (MSL_FOOTER_ALIGN - 1)) & ~(MSL_FOOTER_ALIGN - 1)
++        if footer_off > raw_end:
++            f.write(b'\0' * (footer_off - raw_end))
++
++        f.flush()
++        os.fsync(f.fileno())
++
++        flags = MSL_FLAG_MULTI_PROGRAM if is_multi else 0
++        footer = FOOTER.pack(
++            MSL_MAGIC,
++            MSL_VERSION,
++            api_code,
++            flags,
++            len(chain_bytes),
++            base_romfs_size,
++            msl_offset,
++            msl_size,
++            chain_bytes.ljust(24, b'\0'),
++        )
++        f.write(footer)
++        f.flush()
++        os.fsync(f.fileno())
++
++    return inspect_msl(img_path)
++
++
++def append_msl(img, msl_src, gfx_api=None, chain=None, multi_program=False, skip_suffix=()):
++    """Validates img (rejecting truncated base images or broken trailers), truncates to base_romfs_size, writes a 16 KiB-aligned
++    DMROMFS1 shader sub-image and publishes the 64-byte DMMSLTR1 footer after fsync."""
++    return _write_trailer(img, msl_src, gfx_api=gfx_api, chain=chain, multi_program=multi_program,
++                          skip_suffix=skip_suffix, require_valid_existing=True)
++
++
++def replace_msl(img, msl_src, gfx_api=None, chain=None, multi_program=False, skip_suffix=()):
++    """Validates the base DMROMFS1 image of img, truncates at base_romfs_size (discarding any previous or interrupted trailer),
++    writes the new 16 KiB-aligned shader sub-image and publishes the 64-byte DMMSLTR1 footer after fsync."""
++    return _write_trailer(img, msl_src, gfx_api=gfx_api, chain=chain, multi_program=multi_program,
++                          skip_suffix=skip_suffix, require_valid_existing=False)
++
++
++def inspect_msl(img):
++    """Inspects img and returns a metadata dict describing its base_romfs_size and optional DMMSLTR1 trailer.
++    Raises ValueError if the base image, trailer footer or embedded sub-image is truncated or invalid."""
++    img_path = os.fspath(img)
++    file_size = os.path.getsize(img_path)
++    with open(img_path, 'rb') as f:
++        head = f.read(HEAD.size)
++        if len(head) != HEAD.size:
++            raise ValueError(f'not a RomFS image: {img_path}')
++        magic, ioff, isz, _ = HEAD.unpack(head)
++        if magic != MAGIC:
++            raise ValueError(f'not a RomFS image: {img_path}')
++        info = check_bounds_and_trailer(f, file_size, ioff, isz, img_path)
++        base_end = ioff + isz
++        if info is None:
++            return {
++                'has_trailer': False,
++                'version': 0,
++                'gfx_api': None,
++                'flags': 0,
++                'multi_program': False,
++                'chain': '',
++                'base_romfs_size': base_end,
++                'msl_offset': 0,
++                'msl_size': 0,
++                'file_size': file_size,
++                'files': 0,
++            }
++        listing = _validate_and_list_slice(f, info['msl_offset'], info['msl_size'], f'{img_path} [msl trailer]')
++        info['files'] = sum(1 for is_dir, _, _ in listing.values() if not is_dir)
++        return info
+ 
+ 
+ def parse_identity(text):   # {field: value} of an identity line; size is an int
+@@ -216,15 +741,49 @@ def same_identity(a, b):   # two lines name the same image when size and index a
+     return (x['size'], x['index']) == (y['size'], y['index'])
+ 
+ 
++def _order_trailer_args(first, second):
++    if os.path.isdir(first) and os.path.isfile(second):
++        return second, first
++    return first, second
++
++
+ if __name__ == '__main__':
+     import sys
+     if sys.argv[1:2] == ['--identity']:   # romfs_image.py --identity IMAGE [TITLE [VERSION [BUILD]]]: the identity line of IMAGE
+         try: print(identity(*sys.argv[2:6]))
+         except (OSError, ValueError, TypeError) as e: sys.exit(f'[RED] {e}')
+         sys.exit(0)
+-    ap = argparse.ArgumentParser(description='Pack a RomFS folder into an indexed image')
++    ap = argparse.ArgumentParser(description='Pack a RomFS folder into an indexed image or manage its DMMSLTR1 shader trailer')
+     ap.add_argument('--reuse', action='store_true', help='keep the image only while its source tree, packer and image are unchanged')
+-    ap.add_argument('source'); ap.add_argument('image')
++    ap.add_argument('--append-msl', action='store_true', help='append a 16 KiB-aligned DMMSLTR1 shader trailer to IMAGE from MSL_SRC')
++    ap.add_argument('--replace-msl', action='store_true', help='truncate IMAGE to base_romfs_size and write a new DMMSLTR1 shader trailer from MSL_SRC')
++    ap.add_argument('--inspect-msl', metavar='IMAGE', help='inspect IMAGE and print its DMMSLTR1 trailer metadata as JSON')
++    ap.add_argument('--gfx-api', choices=tuple(GFX_API_CODES), help='graphics backend for --append-msl / --replace-msl (inferred when unambiguous)')
++    ap.add_argument('--chain', help='shader chain identifier (e.g. b-<hex>) for --append-msl / --replace-msl')
++    ap.add_argument('--multi-program', action='store_true', help='mark the trailer as multi-program (p<N>/ prefixes)')
++    ap.add_argument('--skip-suffix', action='append', default=[], help='file suffix to omit when packing MSL files (may be repeated)')
++    ap.add_argument('pos', nargs='*')
+     args = ap.parse_args()
+-    n = pack(args.source, args.image, reuse=args.reuse)
+-    print(f'{args.image}: {n} entries, {os.path.getsize(args.image)} bytes')
++    try:
++        if args.inspect_msl:
++            if args.pos or args.append_msl or args.replace_msl:
++                raise ValueError('--inspect-msl takes a single IMAGE argument')
++            print(json.dumps(inspect_msl(args.inspect_msl), indent=2))
++            sys.exit(0)
++        if args.append_msl and args.replace_msl:
++            raise ValueError('--append-msl and --replace-msl are mutually exclusive')
++        if args.append_msl or args.replace_msl:
++            if len(args.pos) != 2:
++                raise ValueError('expected IMAGE and MSL_SRC arguments')
++            target_img, msl_src = _order_trailer_args(args.pos[0], args.pos[1])
++            fn = append_msl if args.append_msl else replace_msl
++            info = fn(target_img, msl_src, gfx_api=args.gfx_api, chain=args.chain,
++                      multi_program=args.multi_program, skip_suffix=args.skip_suffix)
++            print(f"{target_img}: trailer {info['gfx_api']} {info['chain'] or '-'} ({info['files']} files, {info['msl_size']} bytes at {info['msl_offset']})")
++            sys.exit(0)
++        if len(args.pos) != 2:
++            ap.error('the following arguments are required: source, image')
++        n = pack(args.pos[0], args.pos[1], reuse=args.reuse)
++        print(f'{args.pos[1]}: {n} entries, {os.path.getsize(args.pos[1])} bytes')
++    except (OSError, ValueError, TypeError) as e:
++        sys.exit(f'[RED] {e}')
+diff --git a/dm/tools/tests/test_msl_trailer.py b/dm/tools/tests/test_msl_trailer.py
+new file mode 100644
+index 000000000..716a7971a
+--- /dev/null
++++ b/dm/tools/tests/test_msl_trailer.py
+@@ -0,0 +1,491 @@
++"""DMMSLTR1 page-aligned shader trailers in romfs.img: packing, replacing, inspecting, base identity invariance,
++romfs.py bounded views, hidden symbol visibility, zero-copy page-aligned mmap, DM_PROGRAM multi-program fallback,
++FD teardown across game switches, and NVN / VK / GL / lifecycle caller integration."""
++import importlib.util
++import json
++import os
++from pathlib import Path
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++
++REPO = Path(__file__).resolve().parents[3]
++sys.path.insert(0, str(REPO / 'dm/tools'))
++import romfs
++import shader_lib
++
++_spec = importlib.util.spec_from_file_location('romfs_image_isolated', REPO / 'dm/tools/romfs_image.py')
++assert _spec is not None and _spec.loader is not None
++romfs_image = importlib.util.module_from_spec(_spec)
++_spec.loader.exec_module(romfs_image)
++
++MOUNT_HARNESS_OBJC = r'''#import <Foundation/Foundation.h>
++#import <Metal/Metal.h>
++#include <dispatch/dispatch.h>
++#include <fcntl.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/mman.h>
++#include <sys/param.h>
++#include <unistd.h>
++#include "dm/gfx/msl_mount.h"
++#include "dm/host/romfs_identity.h"
++
++__attribute__((weak, visibility("hidden"))) void dm_msl_trailer_teardown(void);
++
++static int count_open_fds_for(const char *target_path) {
++    char want[MAXPATHLEN];
++    if (!realpath(target_path, want)) return -1;
++    int count = 0;
++    for (int fd = 0; fd < 256; fd++) {
++        char got[MAXPATHLEN];
++        if (fcntl(fd, F_GETPATH, got) == 0) {
++            char resolved[MAXPATHLEN];
++            const char *cmp = realpath(got, resolved) ? resolved : got;
++            if (!strcmp(cmp, want)) count++;
++        }
++    }
++    return count;
++}
++
++#define CHECK(cond, ...) do { \
++    if (!(cond)) { fprintf(stderr, "FAIL line %d: ", __LINE__); fprintf(stderr, __VA_ARGS__); fprintf(stderr, "\n"); return 1; } \
++} while (0)
++
++int main(int argc, char **argv) {
++    @autoreleasepool {
++        if (argc < 4) return 2;
++        const char *img1 = argv[1];
++        const char *img2 = argv[2];
++        int has_real_metallib = atoi(argv[3]);
++
++        // Identity check in C
++        romfs_id id1;
++        CHECK(romfs_id_of_image(img1, &id1), "romfs_id_of_image failed on img1");
++
++        setenv("DM_ROMFS", img1, 1);
++        unsetenv("DM_PROGRAM");
++
++        dm_msl_footer ft;
++        CHECK(dm_msl_trailer_info(&ft), "dm_msl_trailer_info failed");
++        CHECK(ft.version == 1 && ft.gfx_api == DM_MSL_GFX_NVN && (ft.flags & DM_MSL_FLAG_MULTI_PROGRAM),
++              "unexpected footer version=%u api=%u flags=%u", ft.version, ft.gfx_api, ft.flags);
++        CHECK(ft.base_romfs_size == id1.size, "base_romfs_size %llu != id1.size %llu",
++              (unsigned long long)ft.base_romfs_size, (unsigned long long)id1.size);
++        CHECK((ft.msl_offset % 16384ull) == 0, "msl_offset %llu not 16 KiB aligned", (unsigned long long)ft.msl_offset);
++
++        // Program 0 (default when DM_PROGRAM is unset or "0") resolves p0/ first, then shared fallback
++        void *buf = NULL; size_t len = 0;
++        CHECK(dm_msl_trailer_has("b-test/inputs.tsv"), "missing b-test/inputs.tsv");
++        CHECK(dm_msl_trailer_read("b-test/inputs.tsv", &buf, &len), "read p0 inputs.tsv failed");
++        CHECK(len > 0 && ((char *)buf)[len] == '\0' && strstr((char *)buf, "prog0"), "expected prog0 inputs.tsv, got: %s", (char *)buf);
++        free(buf);
++
++        setenv("DM_PROGRAM", "0", 1);
++        CHECK(dm_msl_trailer_read("b-test/inputs.tsv", &buf, &len) && strstr((char *)buf, "prog0"), "DM_PROGRAM=0 should hit p0/");
++        free(buf);
++
++        // Fallback to unprefixed shared entry when p0/ lacks shared_reflect.json
++        CHECK(dm_msl_trailer_read("b-test/shared_b_reflect.json", &buf, &len), "fallback read failed");
++        CHECK(((char *)buf)[len] == '\0' && !strcmp((char *)buf, "{\"shared\":1}"), "unexpected shared json: %s", (char *)buf);
++        free(buf);
++
++        // Empty file read still NUL-terminates
++        CHECK(dm_msl_trailer_read("b-test/empty.json", &buf, &len), "empty file read failed");
++        CHECK(len == 0 && buf != NULL && ((char *)buf)[0] == '\0', "empty file not NUL-terminated");
++        free(buf);
++
++        // Program 1 resolves p1/ first, then falls back to shared
++        setenv("DM_PROGRAM", "1", 1);
++        CHECK(dm_msl_trailer_read("b-test/inputs.tsv", &buf, &len) && strstr((char *)buf, "prog1"), "DM_PROGRAM=1 should hit p1/");
++        free(buf);
++        CHECK(dm_msl_trailer_read("b-test/shared_b_reflect.json", &buf, &len) && !strcmp((char *)buf, "{\"shared\":1}"),
++              "DM_PROGRAM=1 fallback to shared failed");
++        free(buf);
++
++        // Page-aligned mmap across 16 KiB page boundaries + single shared FD invariant
++        CHECK(count_open_fds_for(img1) == 1, "expected exactly 1 open fd for img1 before maps");
++        size_t page = (size_t)getpagesize();
++        for (int i = 0; i < 6; i++) {
++            msl_map m;
++            CHECK(dm_msl_trailer_map("b-test/big_b.metallib", &m), "dm_msl_trailer_map big_b.metallib failed");
++            CHECK(((uintptr_t)m.base % page) == 0, "mmap base %p not page-aligned (%zu)", m.base, page);
++            CHECK(((uintptr_t)m.data % 16u) == 0, "mapped shader data %p not 16-byte aligned", m.data);
++            CHECK(m.size == 45678u, "unexpected mapped size %zu", m.size);
++            const uint8_t *bytes = (const uint8_t *)m.data;
++            for (size_t k = 0; k < m.size; k += 997) {
++                CHECK(bytes[k] == (uint8_t)((k * 31u + 7u) & 0xffu), "mapped byte mismatch at %zu", k);
++            }
++            CHECK(count_open_fds_for(img1) == 1, "mmap must reuse the single cached fd");
++            CHECK(munmap(m.base, m.base_len) == 0, "munmap failed");
++        }
++
++        if (has_real_metallib) {
++            id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
++            if (dev) {
++                msl_map m;
++                CHECK(dm_msl_trailer_map("b-test/real_b.metallib", &m), "map real_b.metallib failed");
++                void *base = m.base; size_t base_len = m.base_len;
++                dispatch_semaphore_t unmapped = dispatch_semaphore_create(0);
++                @autoreleasepool {
++                    dispatch_data_t dd = dispatch_data_create(m.data, m.size, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
++                        munmap(base, base_len);
++                        dispatch_semaphore_signal(unmapped);
++                    });
++                    NSError *err = nil;
++                    id<MTLLibrary> lib = [dev newLibraryWithData:dd error:&err];
++                    CHECK(lib != nil, "newLibraryWithData failed: %s", err ? err.localizedDescription.UTF8String : "unknown");
++                    id<MTLFunction> fn = [lib newFunctionWithName:@"main0"];
++                    CHECK(fn != nil, "MTLFunction main0 not found in mapped trailer metallib");
++                }
++                dispatch_semaphore_wait(unmapped, dispatch_time(DISPATCH_TIME_NOW, 2 * NSEC_PER_SEC));
++            }
++        }
++
++        // Teardown must close the cached FD completely
++        dm_msl_trailer_teardown();
++        CHECK(count_open_fds_for(img1) == 0, "teardown leaked fd for img1 (%d still open)", count_open_fds_for(img1));
++
++        // Switching DM_ROMFS to a second game's image mounts the new Vulkan trailer cleanly
++        unsetenv("DM_PROGRAM");
++        setenv("DM_ROMFS", img2, 1);
++        CHECK(dm_msl_trailer_info(&ft) && ft.gfx_api == DM_MSL_GFX_VULKAN, "failed to switch to img2 vulkan trailer");
++        CHECK(dm_msl_trailer_read("vk/vk_shaders.tsv", &buf, &len) && strstr((char *)buf, "0123456789abcdef"),
++              "failed to read img2 vk_shaders.tsv");
++        free(buf);
++        CHECK(count_open_fds_for(img2) == 1, "expected 1 open fd for img2");
++        dm_msl_trailer_teardown();
++        CHECK(count_open_fds_for(img2) == 0, "teardown leaked fd for img2");
++    }
++    return 0;
++}
++'''
++
++
++def _try_compile_metallib(work_dir: Path):
++    """Compiles a tiny real macOS .metallib when Xcode's MetalToolchain is installed; returns bytes or None."""
++    probe = subprocess.run(['xcrun', '-sdk', 'macosx', 'metal', '--version'], capture_output=True, text=True)
++    if probe.returncode != 0:
++        return None
++    src = work_dir / 'tiny.metal'
++    air = work_dir / 'tiny.air'
++    lib = work_dir / 'tiny.metallib'
++    src.write_text('#include <metal_stdlib>\nusing namespace metal;\nkernel void main0(device uint *out [[buffer(0)]]) { out[0] = 42u; }\n')
++    r1 = subprocess.run(['xcrun', '-sdk', 'macosx', 'metal', '-c', str(src), '-o', str(air)], capture_output=True, text=True)
++    if r1.returncode != 0:
++        return None
++    r2 = subprocess.run(['xcrun', '-sdk', 'macosx', 'metallib', str(air), '-o', str(lib)], capture_output=True, text=True)
++    if r2.returncode != 0:
++        return None
++    return lib.read_bytes()
++
++
++class MslTrailerTests(unittest.TestCase):
++    def test_append_replace_inspect_and_identity_invariance(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            # Compile C romfs_identity reader to cross-check Python vs C on every state
++            id_c = root / 'id_check.c'
++            id_bin = root / 'id_check'
++            id_c.write_text(
++                '#include "romfs_identity.h"\n'
++                'int main(int argc, char **argv) {\n'
++                '    if (argc != 2) return 2;\n'
++                '    romfs_id got; char line[400];\n'
++                '    if (!romfs_id_of_image(argv[1], &got)) return 1;\n'
++                '    romfs_id_text(&got, line, sizeof line); puts(line); return 0;\n'
++                '}\n'
++            )
++            subprocess.run(['cc', '-std=gnu11', '-Wall', '-Wextra', '-Wno-unused-function', '-Werror',
++                            '-I', str(REPO / 'dm/host'), str(id_c), '-o', str(id_bin)], check=True)
++
++            game_src = root / 'romfs_src'
++            (game_src / 'data').mkdir(parents=True)
++            (game_src / 'data/hello.txt').write_bytes(b'hello world')
++            (game_src / 'data/blob.bin').write_bytes(bytes(range(256)) * 45 + b'tail')
++            img = root / 'romfs.img'
++            romfs_image.pack(game_src, img)
++            base_size = img.stat().st_size
++            base_id = romfs_image.identity(img, '010015100B514000', '1.0.0', 'v0')
++
++            no_tr = romfs_image.inspect_msl(img)
++            self.assertFalse(no_tr['has_trailer'])
++            self.assertEqual(no_tr['base_romfs_size'], base_size)
++
++            # Build a packed b-chain1.img using shader_lib.py, plus noise files (.metal, _b_build.json) in a sibling folder
++            msl1 = root / 'msl1'
++            msl1.mkdir()
++            raw_lib = root / 'b-chain1'
++            raw_lib.mkdir()
++            (raw_lib / 'inputs.tsv').write_text('game\t010015100B514000\ninputs\tdigest1\n')
++            (raw_lib / '0011223344556677_b.metallib').write_bytes(b'MTLB' + b'\xaa' * 123)
++            (raw_lib / '0011223344556677_b_reflect.json').write_text('{"stage":1}\n')
++            (raw_lib / '_b_build.json').write_text('[{"key":"0011223344556677","st":"ok","err":""}]\n')
++            (raw_lib / '0011223344556677.metal').write_text('// source should be excluded\n')
++            self.assertTrue(shader_lib.pack(raw_lib))
++            shutil.copy2(root / 'b-chain1.img', msl1 / 'b-chain1.img')
++
++            # CLI --append-msl under python3 -I (isolated mode, matching build_ipa.sh)
++            r = subprocess.run([sys.executable, '-I', str(REPO / 'dm/tools/romfs_image.py'),
++                                '--append-msl', str(img), str(msl1)], capture_output=True, text=True)
++            self.assertEqual(r.returncode, 0, r.stderr)
++
++            insp = subprocess.run([sys.executable, '-I', str(REPO / 'dm/tools/romfs_image.py'),
++                                   '--inspect-msl', str(img)], capture_output=True, text=True, check=True)
++            info1 = json.loads(insp.stdout)
++            self.assertTrue(info1['has_trailer'])
++            self.assertEqual(info1['gfx_api'], 'nvn')
++            self.assertEqual(info1['chain'], 'b-chain1')
++            self.assertFalse(info1['multi_program'])
++            self.assertEqual(info1['base_romfs_size'], base_size)
++            self.assertEqual(info1['msl_offset'], (base_size + 16383) & ~16383)
++            self.assertEqual(info1['files'], 3)   # inputs.tsv + .metallib + _reflect.json (_b_build.json and .metal excluded)
++
++            # Every file in the sub-image must be 16-byte aligned and contain no nested .img
++            sub = romfs.Image(img, slice_offset=info1['msl_offset'], slice_size=info1['msl_size'])
++            for k in range(sub.count):
++                a, b, _, _, t, _ = sub.entry(k)
++                if t == 1:
++                    self.assertEqual(a % 16, 0)
++                    self.assertEqual((info1['msl_offset'] + a) % 16, 0)
++                    self.assertFalse(sub.name(k).endswith(b'.img'))
++
++            # Identity in Python and C stays strictly equal to base_romfs_size
++            self.assertEqual(romfs_image.identity(img, '010015100B514000', '1.0.0', 'v0'), base_id)
++            c_id = subprocess.run([str(id_bin), str(img)], capture_output=True, text=True, check=True).stdout.strip()
++            self.assertTrue(romfs_image.same_identity(c_id, base_id), c_id)
++
++            # romfs.py virtual view maps only the base RomFS and hides the trailer
++            vroot = romfs.Path(img)
++            self.assertEqual((vroot / 'data/hello.txt').read_bytes(), b'hello world')
++            self.assertFalse((vroot / 'b-chain1/inputs.tsv').exists())
++            with romfs.open(vroot / 'data/blob.bin', 'rb') as vf, romfs.mmap.mmap(vf.fileno(), 0, access=romfs.mmap.ACCESS_READ) as mm:
++                self.assertEqual(len(mm), 256 * 45 + 4)
++
++            # Replace trailer with a smaller chain2 folder: file shrinks cleanly and identity remains identical
++            msl2 = root / 'msl2' / 'b-chain2'
++            msl2.mkdir(parents=True)
++            (msl2 / 'inputs.tsv').write_text('game\t010015100B514000\ninputs\tdigest2\n')
++            (msl2 / 'ffeeddccbbaa9988_b.metallib').write_bytes(b'MTLB' + b'\xbb' * 20)
++            info2 = romfs_image.replace_msl(img, msl2.parent)
++            self.assertEqual(info2['chain'], 'b-chain2')
++            self.assertEqual(info2['files'], 2)
++            self.assertEqual(romfs_image.identity(img, '010015100B514000', '1.0.0', 'v0'), base_id)
++            c_id2 = subprocess.run([str(id_bin), str(img)], capture_output=True, text=True, check=True).stdout.strip()
++            self.assertTrue(romfs_image.same_identity(c_id2, base_id))
++
++            # Nested unknown .img inside MSL source is strictly refused
++            bad_msl = root / 'bad_msl'
++            bad_msl.mkdir()
++            (bad_msl / 'nested.img').write_bytes( (root / 'b-chain1.img').read_bytes() )
++            with self.assertRaisesRegex(ValueError, 'nested \\.img'):
++                romfs_image.replace_msl(img, bad_msl, gfx_api='nvn', chain='b-chain2')
++
++            # Cut-off trailer is rejected by identity(), inspect_msl(), romfs.Image(), C reader, and append_msl(),
++            # while replace_msl() safely truncates back to base_romfs_size and repairs it.
++            good_bytes = img.read_bytes()
++            img.write_bytes(good_bytes[:-1])
++            romfs._image.cache_clear()
++            with self.assertRaises(ValueError):
++                romfs_image.identity(img)
++            with self.assertRaises(ValueError):
++                romfs_image.inspect_msl(img)
++            with self.assertRaises(ValueError):
++                romfs.Image(img)
++            with self.assertRaises(ValueError):
++                romfs_image.append_msl(img, msl2.parent)
++            self.assertNotEqual(subprocess.run([str(id_bin), str(img)], capture_output=True).returncode, 0)
++
++            repaired = romfs_image.replace_msl(img, msl2.parent)
++            self.assertTrue(repaired['has_trailer'])
++            self.assertEqual(subprocess.run([str(id_bin), str(img)], capture_output=True).returncode, 0)
++
++    def test_c_msl_mount_mmap_multiprogram_teardown_and_hidden_symbols(self):
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            # 1. Verify all dm_msl_trailer_* symbols are private external in .o and export zero symbols from a dylib
++            obj = root / 'msl_mount.o'
++            dylib = root / 'libmsl_mount_test.dylib'
++            subprocess.run(['clang', '-std=gnu11', '-O2', '-Wall', '-Wextra', '-Wno-unused-function', '-Werror',
++                            '-c', str(REPO / 'dm/gfx/nvn/msl_mount.c'), '-o', str(obj)], check=True)
++            nm_obj = subprocess.run(['nm', '-m', str(obj)], capture_output=True, text=True, check=True).stdout
++            for sym in ('_dm_msl_trailer_info', '_dm_msl_trailer_has', '_dm_msl_trailer_read',
++                        '_dm_msl_trailer_map', '_dm_msl_trailer_teardown'):
++                self.assertIn(f'private external {sym}', nm_obj)
++            subprocess.run(['clang', '-dynamiclib', str(obj), '-o', str(dylib)], check=True)
++            nm_out = subprocess.run(['nm', '-gU', str(dylib)], capture_output=True, text=True, check=True).stdout.strip()
++            self.assertEqual(nm_out, '', f'libmsl_mount_test.dylib leaked exported symbols:\n{nm_out}')
++
++            # 2. Build multi-program NVN image (img1) and Vulkan image (img2)
++            src = root / 'src'
++            src.mkdir()
++            (src / 'marker').write_bytes(b'ok' * 500)
++            img1 = root / 'game1.img'
++            img2 = root / 'game2.img'
++            romfs_image.pack(src, img1)
++            shutil.copy2(img1, img2)
++
++            mp = root / 'mp_msl'
++            (mp / 'p0/b-test').mkdir(parents=True)
++            (mp / 'p1/b-test').mkdir(parents=True)
++            (mp / 'p0/b-test/inputs.tsv').write_text('game\tprog0\ninputs\th0\n')
++            (mp / 'p1/b-test/inputs.tsv').write_text('game\tprog1\ninputs\th1\n')
++
++            # Build a pre-packed tree image that includes both p0/, p1/ and a shared fallback + 45,678B file spanning multiple 16 KiB pages
++            big_payload = bytes(((k * 31 + 7) & 0xff) for k in range(45678))
++            real_metallib = _try_compile_metallib(root)
++            tree_files = {
++                'p0/b-test/inputs.tsv': ('bytes', b'game\tprog0\ninputs\th0\n'),
++                'p1/b-test/inputs.tsv': ('bytes', b'game\tprog1\ninputs\th1\n'),
++                'b-test/shared_b_reflect.json': ('bytes', b'{"shared":1}'),
++                'b-test/empty.json': ('bytes', b''),
++                'b-test/big_b.metallib': ('bytes', big_payload),
++            }
++            if real_metallib is not None:
++                tree_files['b-test/real_b.metallib'] = ('bytes', real_metallib)
++            tree_archive = root / 'msl-b-test.img'
++            with open(tree_archive, 'wb') as tf:
++                romfs_image._write_msl_subimage(tf, 0, tree_files)
++            romfs_image.append_msl(img1, tree_archive, gfx_api='nvn', chain='b-test', multi_program=True)
++
++            vk_msl = root / 'vk_msl/vk'
++            vk_msl.mkdir(parents=True)
++            (vk_msl / 'vk_shaders.tsv').write_text('0123456789abcdef\tvert\tu:0.0=0*1\n')
++            (vk_msl / 'vk_shaders.metallib').write_bytes(real_metallib or (b'MTLB' + b'\0' * 60))
++            romfs_image.append_msl(img2, vk_msl.parent)
++
++            harness_m = root / 'harness.m'
++            harness_bin = root / 'harness'
++            harness_m.write_text(MOUNT_HARNESS_OBJC)
++            subprocess.run([
++                'clang', '-O1', '-g', '-Wall', '-Wextra', '-Wno-unused-function', '-Werror', '-fobjc-arc',
++                '-I', str(REPO),
++                str(harness_m), str(REPO / 'dm/gfx/nvn/msl_mount.c'),
++                '-framework', 'Foundation', '-framework', 'Metal',
++                '-o', str(harness_bin),
++            ], check=True)
++            res = subprocess.run([str(harness_bin), str(img1), str(img2), '1' if real_metallib else '0'],
++                                 capture_output=True, text=True)
++            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
++
++    def test_lifecycle_and_backend_callers_wire_trailer_fallback_and_override(self):
++        """Exercises hle_lifecycle.c's teardown hook and verifies DM_MSL_DIR precedence over DM_ROMFS trailer in NVN/VK/GL."""
++        with tempfile.TemporaryDirectory() as tmp:
++            root = Path(tmp)
++            src = root / 'src'; src.mkdir()
++            (src / 'f').write_bytes(b'data')
++            img = root / 'romfs.img'
++            romfs_image.pack(src, img)
++
++            chain_h = (REPO / 'dm/gfx/nvn/dmsh_chain.h').read_text()
++            chain = chain_h.split('"')[1]   # DMSH_CHAIN hex string
++            b_chain = f'b-{chain}'
++
++            msl_dir = root / 'msl_stage' / b_chain
++            msl_dir.mkdir(parents=True)
++            (msl_dir / 'inputs.tsv').write_text('game\t010015100B514000\ninputs\tfrom_trailer\n')
++            (msl_dir / 'only_trailer_b_reflect.json').write_text('{"src":"trailer"}')
++            (msl_dir / 'override_me_b_reflect.json').write_text('{"src":"trailer"}')
++            (msl_dir / '0000000000000001_b.metallib').write_bytes(b'MTLB' + b'\0' * 44)
++            romfs_image.append_msl(img, msl_dir.parent, gfx_api='nvn', chain=b_chain)
++
++            # Override folder on disk has ONLY override_me_b_reflect.json; only_trailer_b_reflect.json must fall back to trailer!
++            disk_msl = root / 'disk_msl' / b_chain
++            disk_msl.mkdir(parents=True)
++            (disk_msl / 'override_me_b_reflect.json').write_text('{"src":"disk"}')
++
++            # Build caller test linking actual hle_lifecycle.c + msl_mount.c and testing the exact NVN/VK/GL lookup & lifecycle teardown chain
++            caller_m = root / 'caller.m'
++            caller_bin = root / 'caller'
++            caller_m.write_text(r'''#import <Foundation/Foundation.h>
++#include <fcntl.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <sys/param.h>
++#include <unistd.h>
++#include "dm/gfx/msl_mount.h"
++#include "dm/gfx/nvn/dmsh_chain.h"
++
++// Stubs for hle_lifecycle.c's external host calls so we run the real dm_host_teardown_for_shell()
++uint64_t now_ns(void) { return 0; }
++void dm_log(const char *fmt, ...) { (void)fmt; }
++void hlecount_flush(void) {}
++void dm_rec_finish(void) {}
++void dm_cheats_exit(void) {}
++void dm_audio_suspend(int s) { (void)s; }
++void dm_gfx_suspend(int s) { (void)s; }
++void dm_gfx_quit(int ms) { (void)ms; }
++void dm_vsync_stop_all(void) {}
++void dm_audio_stop_all(void) {}
++void dm_threads_park_all(void) {}
++void dm_guest_memory_release(int u) { (void)u; }
++void dm_modules_teardown(void) {}
++void dm_bigstack_teardown(void) {}
++int  dm_teardown_is_guest_thread(void) { return 0; }
++void dm_teardown_park_self(void) {}
++void dm_host_teardown_for_shell(void);
++
++static int count_fds(const char *target) {
++    char want[MAXPATHLEN];
++    if (!realpath(target, want)) return -1;
++    int c = 0;
++    for (int fd = 0; fd < 256; fd++) {
++        char got[MAXPATHLEN], res[MAXPATHLEN];
++        if (fcntl(fd, F_GETPATH, got) == 0 && !strcmp(realpath(got, res) ? res : got, want)) c++;
++    }
++    return c;
++}
++
++int main(int argc, char **argv) {
++    @autoreleasepool {
++        if (argc != 3) return 2;
++        const char *img = argv[1];
++        const char *disk_root = argv[2];
++        setenv("DM_ROMFS", img, 1);
++
++        // Simulate nvn_mtl.m's exact msl_data precedence: disk DM_MSL_DIR first, then dm_msl_trailer_read
++        NSString *g_msl_dir = [NSString stringWithFormat:@"%s/b-%s", disk_root, DMSH_CHAIN];
++        NSString *(^read_nvn)(NSString *) = ^NSString *(NSString *sub) {
++            NSString *p = [g_msl_dir stringByAppendingPathComponent:sub];
++            NSData *d = [NSData dataWithContentsOfFile:p];
++            if (!d) {
++                NSString *rel = [NSString stringWithFormat:@"b-%s/%@", DMSH_CHAIN, sub];
++                void *buf = NULL; size_t len = 0;
++                if (dm_msl_trailer_read(rel.UTF8String, &buf, &len))
++                    d = [NSData dataWithBytesNoCopy:buf length:len freeWhenDone:YES];
++            }
++            return d ? [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding] : nil;
++        };
++
++        NSString *over = read_nvn(@"override_me_b_reflect.json");
++        NSString *fall = read_nvn(@"only_trailer_b_reflect.json");
++        if (![over isEqualToString:@"{\"src\":\"disk\"}"]) { fprintf(stderr, "override failed: %s\n", over.UTF8String); return 1; }
++        if (![fall isEqualToString:@"{\"src\":\"trailer\"}"]) { fprintf(stderr, "fallback failed: %s\n", fall.UTF8String); return 1; }
++        if (count_fds(img) != 1) { fprintf(stderr, "expected 1 open fd before shell teardown\n"); return 1; }
++
++        // Real dm_host_teardown_for_shell() from hle_lifecycle.c must invoke strong dm_msl_trailer_teardown()
++        dm_host_teardown_for_shell();
++        if (count_fds(img) != 0) { fprintf(stderr, "dm_host_teardown_for_shell leaked trailer fd\n"); return 1; }
++    }
++    return 0;
++}
++''')
++            subprocess.run([sys.executable, str(REPO / 'dm/games/game.py'), 'header',
++                            '010015100B514000', str(root / 'game_profile.h')], check=True)
++            subprocess.run([
++                'clang', '-O1', '-g', '-Wall', '-Wno-unused-function', '-fobjc-arc',
++                '-I', str(REPO), '-I', str(REPO / 'dm/host'), '-I', str(root),
++                str(caller_m), str(REPO / 'dm/host/hle_lifecycle.c'), str(REPO / 'dm/gfx/nvn/msl_mount.c'),
++                '-framework', 'Foundation',
++                '-o', str(caller_bin),
++            ], check=True)
++            rc = subprocess.run([str(caller_bin), str(img), str(root / 'disk_msl')], capture_output=True, text=True)
++            self.assertEqual(rc.returncode, 0, rc.stdout + rc.stderr)
++
++
++if __name__ == '__main__':
++    unittest.main()

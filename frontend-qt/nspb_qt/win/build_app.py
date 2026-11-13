@@ -1126,6 +1126,8 @@ def main(argv: list[str] | None = None) -> int:
             fw_name=fw_name,
             patched=patched,
             gd=gd,
+            gfx_api=gfx,
+            built_at=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         )
         py(*manifest_args)
 
@@ -1302,6 +1304,8 @@ def build_manifest_args(
     fw_name: str,
     patched: Path,
     gd: Path,
+    gfx_api: str = '',
+    built_at: str = '',
 ) -> list[Path | str]:
     """Build argument vector for `dm/ios/tools/gen_manifest.py`, forwarding `--profile` when present."""
     args: list[Path | str] = [
@@ -1318,6 +1322,10 @@ def build_manifest_args(
         '--framework-name', fw_name,
         '--loader', 'FH',
     ]
+    if gfx_api:
+        args += ['--gfx-api', gfx_api]
+    if built_at:
+        args += ['--built-at', built_at]
     if (patched / 'nro.tsv').is_file():
         args += ['--nro-table', patched / 'nro.tsv']
     if (gd / 'game.tsv').is_file():

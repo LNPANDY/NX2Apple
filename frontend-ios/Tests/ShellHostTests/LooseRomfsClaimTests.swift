@@ -180,4 +180,32 @@ import ShellUI
         #expect(claimed.isEmpty)
         #expect(FileManager.default.fileExists(atPath: loose.path))
     }
+
+    @Test func claimsLooseNamedImageWithValidTrailerAndMarksGamePlayable() async throws {
+        let box = try Sandbox()
+        try installOrbitIdentity(in: box)
+        let documents = box.appData.deletingLastPathComponent()
+
+        let base = ShellDataFolderTests.dmromfs(ShellDataFolderTests.indexA)
+        let withTrailer = ShellDataFolderTests.dmromfsWithTrailer(base, mslPayload: [UInt8](repeating: 0x4e, count: 60), chain: "b-3f9a2c")
+        let damagedTrailer = Data(withTrailer.dropLast(4))
+
+        let badLoose = documents.appendingPathComponent("损坏尾段.img")
+        let goodLoose = documents.appendingPathComponent("星露谷物语.img")
+        try writeImage(damagedTrailer, to: badLoose)
+        try writeImage(withTrailer, to: goodLoose)
+
+        let model = await MainActor.run { ShellHostModel(config: box.config()) }
+        await model.waitForStartupTasks()
+        await model.waitForDataChecks()
+
+        let dest = box.appData.appendingPathComponent("\(Fixtures.orbit)/romfs.img")
+        #expect(FileManager.default.fileExists(atPath: badLoose.path))
+        #expect(!FileManager.default.fileExists(atPath: goodLoose.path))
+        #expect(try Data(contentsOf: dest) == withTrailer)
+        let state = await MainActor.run {
+            model.details.first(where: { $0.id == Fixtures.orbit })?.game.state
+        }
+        #expect(state == .playable)
+    }
 }
