@@ -1,0 +1,75 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: David Nicolas <352909663+528z4b2kgc-ux@users.noreply.github.com>
+Date: Fri, 13 Nov 2026 08:55:32 -0500
+Subject: [PATCH] ios: touch layout keeps moves that only work together
+
+Moved controls were placed one at a time against where the others still were,
+so a swap (the left stick and the A B X Y diamond trading places) left both at
+their built-in places. dm_pad_arrange now tries every moved control of a round
+together first and keeps that when all of them fit; otherwise it places them
+one at a time as before. check_swap covers it on iPhone Duo's screens.
+
+Upstream-Status: pending [builds on 0020-ios-touch-controls-layout]
+Reason: A swap of two touch controls (stick and A B X Y) was rejected: keep moves that only work together
+Issue: none (fix without an issue)
+
+---
+ dm/ios/Sources/DmPadGeometry.h                 | 10 ++++++++++
+ dm/ios/tests/pad_geometry/pad_geometry_check.m | 16 ++++++++++++++++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/dm/ios/Sources/DmPadGeometry.h b/dm/ios/Sources/DmPadGeometry.h
+index 8515ca0..8bae326 100644
+--- a/dm/ios/Sources/DmPadGeometry.h
++++ b/dm/ios/Sources/DmPadGeometry.h
+@@ -384,6 +384,16 @@ static inline void dm_pad_arrange(DmPadGeo *g, BOOL full, BOOL separated, const
+     for (int c = 0; c < DM_PAD_C_N; c++) if (dm_pad_control_drawn(c, full) && (layout->dx[set][c] || layout->dy[set][c])) want |= 1u << c;
+     for (int round = 0; round < 2; round++) {
+         unsigned todo = want & (round ? keys : ~keys);
++        if (todo) {   // all of them at once first: a swap, or moves that only work together, would otherwise leave each control waiting for the other
++            DmPadGeo t = *g; BOOL all = YES;
++            for (int c = 0; c < DM_PAD_C_N; c++) if (todo & (1u << c)) {
++                dm_pad_move(&t, c, layout->dx[set][c] * step, layout->dy[set][c] * step);
++                CGPoint d = dm_pad_clamp(&t, full, c);
++                dm_pad_move(&t, c, d.x, d.y);
++            }
++            for (int c = 0; c < DM_PAD_C_N && all; c++) if ((todo & (1u << c)) && !dm_pad_control_fits(&t, full, c)) all = NO;
++            if (all) { *g = t; g->moved |= todo; if (todo & keys) g->faceSplit = YES; todo = 0; }
++        }
+         for (BOOL progress = YES; todo && progress; ) {
+             progress = NO;
+             for (int c = 0; c < DM_PAD_C_N; c++) if (todo & (1u << c)) {
+diff --git a/dm/ios/tests/pad_geometry/pad_geometry_check.m b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+index 5c31ffc..a14ee97 100644
+--- a/dm/ios/tests/pad_geometry/pad_geometry_check.m
++++ b/dm/ios/tests/pad_geometry/pad_geometry_check.m
+@@ -275,6 +275,21 @@ static void check_duo_outer_custom_bounds(void) {
+         FAIL("Duo outer: full bounds allowed a moved shoulder to overlap another");
+ }
+ 
++// Moves that only work together: the left stick and the A B X Y diamond trading places on iPhone Duo's screens, which the
++// one-control-at-a-time placement refused (each waited for the other's place, so both kept their built-in place).
++static void check_swap(void) {
++    struct { CGRect b; UIEdgeInsets in; const char *name; } s[] = {{CGRectMake(0, 0, 678, 457), {0, 47, 21, 47}, "Duo outer"}, {CGRectMake(0, 0, 951, 669), {0, 0, 20, 0}, "Duo inner"}};
++    for (int i = 0; i < 2; i++) {
++        DmLayout L = dm_layout(s[i].b, s[i].in, NO, CGRectNull, DM_PICTURE_16_9);
++        DmPadGeo g0 = dm_pad_geo(s[i].b, s[i].in, L, NO, (DmPadOptions){.scale = 1});
++        CGFloat step = g0.faceR / 2; DmPadLayout m; memset(&m, 0, sizeof m);
++        m.dx[0][DM_PAD_C_FACE] = (signed char)lround((g0.stick.x - g0.face.x) / step);
++        m.dx[0][DM_PAD_C_STICK] = (signed char)lround((g0.face.x - g0.stick.x) / step);
++        DmPadGeo g = dm_pad_geo(s[i].b, s[i].in, L, NO, (DmPadOptions){.scale = 1, .layout = &m});
++        if (g.dropped || fabs(g.stick.x - g0.face.x) > step || fabs(g.face.x - g0.stick.x) > step) FAIL("swap: %s: stick and diamond did not trade places (dropped 0x%x)", s[i].name, g.dropped);
++    }
++}
++
+ int main(void) {
+     const Screen screens[] = {
+         // iPhone landscape (the phone's only orientation): the Dynamic Island or notch on one side, the home indicator at the bottom.
+@@ -382,6 +397,7 @@ int main(void) {
+     check_toggle_values();
+     check_arrangement(screens, nscreens);
+     check_duo_outer_custom_bounds();
++    check_swap();
+ 
+     if (!g_fail) printf("ok: %d screens, %d arrangements\n", nscreens, g_arranged);
+     return g_fail > 100 ? 100 : g_fail;

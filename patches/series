@@ -57,3 +57,4 @@
 0059-gfx-keep-argument-block-and-ub-padded-arena-gpu.patch
 0060-host-games-support-full-screen-and-wide-aspect-r.patch
 0061-build-seed-infer-and-self-heal-gl-and-vulkan-gfx.patch
+0062-ios-touch-layout-keeps-moves-that-only-work-toge.patch
