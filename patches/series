@@ -95,3 +95,4 @@
 0134-harden-shared-motion-configuration-and-stable-de.patch
 0135-stop-exclusive-windows-at-control-flow-terminato.patch
 0136-handle-legacy-console-body-motion-initialization.patch
+0137-keep-shared-phone-connections-alive-and-use-host.patch

@@ -1,0 +1,209 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 05:50:25 -0300
+Subject: [PATCH] Keep shared phone connections alive and use host motion clock
+
+Upstream-Status: forwarded seedds/nxnative#2429
+Reason: Fix discarded motion timestamps and expose saved phone connection state
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/hle_dsu.c                             |  3 +-
+ dm/mac/Launcher.swift                         |  5 ++-
+ dm/mac/Motion/ConnectionStatus.swift          | 34 ++++++++++++++++++
+ dm/mac/Motion/DSUMotionTranslations.json      | 35 +++++++++++++++++++
+ dm/mac/Motion/MotionView.swift                | 11 +++---
+ dm/mac/Motion/Store.swift                     |  1 +
+ dm/mac/Motion/Tests/MotionContractTests.swift | 10 ++++++
+ 7 files changed, 93 insertions(+), 6 deletions(-)
+ create mode 100644 dm/mac/Motion/ConnectionStatus.swift
+
+diff --git a/dm/host/hle_dsu.c b/dm/host/hle_dsu.c
+index 8acdab9..f4344dc 100644
+--- a/dm/host/hle_dsu.c
++++ b/dm/host/hle_dsu.c
+@@ -20,7 +20,8 @@ static pthread_t worker;
+ static _Atomic int active;
+ static int launched;
+ static uint32_t client_id;
+-static uint64_t dsu_now(void) { struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return (uint64_t)t.tv_sec*1000000000ull+t.tv_nsec; }
++// Use the same clock domain as motion_set_to freshness checks.
++static uint64_t dsu_now(void) { return now_ns(); }
+ static void *dsu_run(void *unused) {
+     (void)unused;uint64_t sent=0;
+     while (atomic_load(&active)) {
+diff --git a/dm/mac/Launcher.swift b/dm/mac/Launcher.swift
+index c36b23b..5e280c8 100644
+--- a/dm/mac/Launcher.swift
++++ b/dm/mac/Launcher.swift
+@@ -31,7 +31,10 @@ struct LauncherView: View {
+             .padding([.horizontal, .top], 20)
+             Form {
+                 settingSections(basic: true)
+-                Section("Controls") { Button("Phone motion…") { motionOpen=true } }
++                Section("Phone motion") {
++                    PhoneMotionConnections()
++                    Button("Phone Motion Setup…") { motionOpen=true }
++                }
+                 CloudSavesSection()
+                 Section {
+                     DisclosureGroup("Advanced settings", isExpanded: $advanced) {}
+diff --git a/dm/mac/Motion/ConnectionStatus.swift b/dm/mac/Motion/ConnectionStatus.swift
+new file mode 100644
+index 0000000..b1d56a7
+--- /dev/null
++++ b/dm/mac/Motion/ConnectionStatus.swift
+@@ -0,0 +1,34 @@
++import SwiftUI
++
++/// Pre-play monitoring uses saved endpoints only. Discovery belongs to Setup.
++@available(macOS 14.0, *)
++public struct PhoneMotionConnections: View {
++    @ObservedObject private var store = SensorStore.shared
++    public init() {}
++    public var body: some View {
++        Group {
++            if store.sensors.isEmpty { LocalizedText("No saved phone controllers. Open Phone Motion Setup to add one.").foregroundStyle(.secondary) }
++            ForEach(store.sensors) { sensor in PhoneMotionConnectionRow(sensor:sensor) }
++            if let error=store.error { Text(error).foregroundStyle(.red) }
++        }.onAppear { store.connectSavedOnce() }
++    }
++}
++@available(macOS 14.0, *)
++private struct PhoneMotionConnectionRow: View {
++    @ObservedObject var sensor:Sensor
++    var state:String {
++        if !sensor.confirmed { return sensor.running ? "Connecting — no recent samples" : "Disconnected" }
++        return sensor.calibrated ? "Receiving motion · ready" : "Receiving motion · calibration required"
++    }
++    var body: some View {
++        VStack(alignment:.leading,spacing:4) {
++            HStack {
++                Circle().fill(sensor.confirmed ? Color.green : Color.red).frame(width:8,height:8).accessibilityLabel(L(state))
++                Text(sensor.name); Spacer(); Text(L("Player")+" "+String(sensor.player)).foregroundStyle(.secondary)
++            }
++            LocalizedText(state).font(.caption).foregroundStyle(.secondary)
++            Text(String(format:"X %+.2f   Y %+.2f   Z %+.2f · %d samples",sensor.gyro.x,sensor.gyro.y,sensor.gyro.z,sensor.samples))
++                .font(.system(.caption2,design:.monospaced)).foregroundStyle(.tertiary).monospacedDigit()
++        }.accessibilityElement(children:.combine)
++    }
++}
+diff --git a/dm/mac/Motion/DSUMotionTranslations.json b/dm/mac/Motion/DSUMotionTranslations.json
+index e0f91ab..3a14457 100644
+--- a/dm/mac/Motion/DSUMotionTranslations.json
++++ b/dm/mac/Motion/DSUMotionTranslations.json
+@@ -348,5 +348,40 @@
+     "pt-BR": "Fique parado e escolha a posição atual. Os eixos e a compensação do giroscópio serão mantidos.",
+     "es": "Mantén inmóvil y elige la postura actual. Se mantienen los ejes y la compensación del giroscopio.",
+     "zh-Hant": "保持靜止，然後選擇目前姿勢。軸向設定與陀螺儀偏差補償保持不變。"
++  },
++  "Phone Motion Setup": {
++    "pt-BR": "Configurar movimento do celular",
++    "es": "Configurar movimiento del teléfono",
++    "zh-Hant": "手機動作設定"
++  },
++  "Done": {
++    "pt-BR": "Concluir",
++    "es": "Listo",
++    "zh-Hant": "完成"
++  },
++  "Changes saved automatically. Close this window, check the connection indicators, then Play.": {
++    "pt-BR": "Alterações salvas automaticamente. Feche esta janela, confira os indicadores e depois jogue.",
++    "es": "Cambios guardados automáticamente. Cierra esta ventana, comprueba los indicadores y juega.",
++    "zh-Hant": "變更會自動儲存。關閉視窗，確認連線指示後開始遊戲。"
++  },
++  "No saved phone controllers. Open Phone Motion Setup to add one.": {
++    "pt-BR": "Nenhum celular salvo. Abra a configuração de movimento para adicionar um.",
++    "es": "No hay teléfonos guardados. Abre la configuración para añadir uno.",
++    "zh-Hant": "尚未儲存手機控制器。請開啟手機動作設定來新增。"
++  },
++  "Connecting — no recent samples": {
++    "pt-BR": "Conectando — sem amostras recentes",
++    "es": "Conectando — sin muestras recientes",
++    "zh-Hant": "連線中 — 尚無近期樣本"
++  },
++  "Receiving motion · ready": {
++    "pt-BR": "Recebendo movimento · pronto",
++    "es": "Recibiendo movimiento · listo",
++    "zh-Hant": "正在接收動作 · 已就緒"
++  },
++  "Receiving motion · calibration required": {
++    "pt-BR": "Recebendo movimento · precisa calibrar",
++    "es": "Recibiendo movimiento · requiere calibración",
++    "zh-Hant": "正在接收動作 · 需要校正"
+   }
+ }
+diff --git a/dm/mac/Motion/MotionView.swift b/dm/mac/Motion/MotionView.swift
+index c2c37fb..cca0d0b 100644
+--- a/dm/mac/Motion/MotionView.swift
++++ b/dm/mac/Motion/MotionView.swift
+@@ -109,7 +109,7 @@ import simd
+                 if let data, let s = DSU.decode(data), self.slot < 0 || Int(s.slot) == self.slot {
+                     if self.slot < 0 {
+                         if self.detectedSlot == nil || Date().timeIntervalSince(self.lastSeen) > 3 {
+-                            self.detectedSlot = Int(s.slot); self.previous = nil; self.orientation.resetClock()
++                            self.detectedSlot = Int(s.slot); self.previous = nil; self.orientation.resetClock(); self.onEdit?()
+                         }
+                         // Lock to one live stream: never mix the orientations of different slots.
+                         if self.detectedSlot != Int(s.slot) { self.receive(c); return }
+@@ -249,21 +249,24 @@ struct SensorCard: View {
+ @available(macOS 14.0, *)
+ public struct DSUMotionView:View {
+     public init() {}
+-    @StateObject private var store = SensorStore()
++    @ObservedObject private var store = SensorStore.shared
++    @Environment(\.dismiss) private var dismiss
+     @ObservedObject private var language = AppLanguage.shared
+     @StateObject private var discovery = Discovery()
+     public var body:some View {
+         VStack(alignment:.leading,spacing:14) {
+-            HStack { VStack(alignment:.leading) { LocalizedText("DSU Motion Lab").font(.largeTitle.bold()); LocalizedText("Phone motion over Cemuhook UDP · local network only").foregroundStyle(.secondary) }; Spacer(); Button(L("Add connection")) { store.add() } }
++            HStack { VStack(alignment:.leading) { LocalizedText("Phone Motion Setup").font(.largeTitle.bold()); LocalizedText("Phone motion over Cemuhook UDP · local network only").foregroundStyle(.secondary) }; Spacer(); Button(L("Add connection")) { store.add() } }
+             Picker(L("Language"),selection:$language.code) { LocalizedText("Português").tag("pt-BR"); LocalizedText("English").tag("en"); LocalizedText("Español").tag("es"); LocalizedText("繁體中文").tag("zh-Hant") }.frame(width:260)
+             HStack { Toggle(L("Automatic discovery"),isOn:$discovery.enabled).onChange(of:discovery.enabled) { _,on in if on { discovery.start() } else { discovery.stop() } }; TextField(L("UDP port"),text:$discovery.port).frame(width:85).disabled(discovery.enabled); LocalizedText(discovery.status).font(.caption) }
+             LocalizedText("Open DSUController on your phone. Enter its IP, port and slot. Use Calibrate for three guided movements. Hold the phone horizontally like a controller. Orientation integrates the gyroscope and may drift.").font(.callout).foregroundStyle(.secondary)
+             if let error=store.error { LocalizedText(error).foregroundStyle(.red) }
++            else { LocalizedText("Changes saved automatically. Close this window, check the connection indicators, then Play.").font(.caption).foregroundStyle(.secondary) }
+             ScrollView { LazyVGrid(columns:[GridItem(.adaptive(minimum:420),spacing:16)],spacing:16) {
+                 ForEach(Array(store.sensors.enumerated()),id: \.element.id) { i,s in SensorCard(sensor:s,index:i+1) { s.disconnect(); store.remove(s) } }
+             } }
++            HStack { Spacer(); Button(L("Done")) { store.save(); if store.error == nil { discovery.stop(); dismiss() } }.keyboardShortcut(.defaultAction) }
+         }.padding(22).frame(minWidth:520,minHeight:580).background(Color(nsColor:.windowBackgroundColor))
+         .onAppear { store.connectSavedOnce();discovery.found = { host,slot in store.discovered(host:host,port:discovery.port,slot:slot) } }
+-        .onDisappear { discovery.stop();store.sensors.forEach { $0.disconnect() } }
++        .onDisappear { discovery.stop() }
+     }
+ }
+diff --git a/dm/mac/Motion/Store.swift b/dm/mac/Motion/Store.swift
+index e883ac8..546b58d 100644
+--- a/dm/mac/Motion/Store.swift
++++ b/dm/mac/Motion/Store.swift
+@@ -2,6 +2,7 @@ import Foundation
+ import Combine
+ 
+ @MainActor final class SensorStore:ObservableObject {
++    static let shared = SensorStore()
+     @Published var sensors:[Sensor]=[]
+     @Published var error: String?
+     private var startupConnected=false
+diff --git a/dm/mac/Motion/Tests/MotionContractTests.swift b/dm/mac/Motion/Tests/MotionContractTests.swift
+index 5d98efb..797a7bd 100644
+--- a/dm/mac/Motion/Tests/MotionContractTests.swift
++++ b/dm/mac/Motion/Tests/MotionContractTests.swift
+@@ -17,6 +17,16 @@ final class MotionContractTests:XCTestCase {
+         XCTAssertEqual(restored.sensors.first?.axes,phone.axes)
+         XCTAssertEqual(restored.sensors.first?.gyroBias,phone.gyroBias)
+     }
++    @MainActor func testDetectedSlotIsUsedForGameEnvironment() throws {
++        let dir=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
++        defer { try? FileManager.default.removeItem(at:dir) }
++        let store=SensorStore(url:dir.appendingPathComponent("dsu.json"));store.add()
++        let sensor=try XCTUnwrap(store.sensors.first)
++        sensor.host="127.0.0.1";sensor.slot = -1;sensor.detectedSlot=2;sensor.calibrated=true;sensor.onEdit?()
++        let saved=try DSUConfiguration.load(from:dir.appendingPathComponent("dsu.json"))
++        XCTAssertEqual(saved.devices.first?.slot,2)
++        XCTAssertNotNil(try saved.environment()["DM_DSU_1"])
++    }
+     func testInvalidDisabledRecordRejected() throws {
+         var d=DSUDevice(id:UUID(),name:"Bad",player:1,host:"127.0.0.1",port:26760,slot:1,axes:[1,2,3],bias:[0,0,0],enabled:false)
+         d.displayAxes=[Int.min,2,3]

@@ -89,6 +89,7 @@ struct SettingsPage: View {
                      onOpenHomeSettings: HomeButtonSettings.available ? { HomeButtonSettings.open() } : nil)   // HomeButtonSettings.swift (#336)
         if #available(macOS 14.0, *) {
             CardGroup(loc.t("motion.title")) {
+                PhoneMotionConnections()
                 CardRow(loc.t("motion.devices"),detail:loc.t("motion.note")) {
                     Button(loc.t("motion.open")) { phoneMotionOpen=true }
                 }
