@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 15:21:42 -0300
+Subject: [PATCH] Log first game SDK consumption of DSU motion history
+
+Upstream-Status: pending
+Reason: Distinguish packet receipt from real game SDK motion consumption in runtime logs
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/hle_hid.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index 3b02ce2..e9f8488 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -1239,8 +1239,10 @@ static unsigned six_source(uint32_t h, uint64_t from, live_hist *src, int *shake
+     uint64_t lag; live_ring_copy(m, from > LIVE_DELAY_MAX_NS ? from - LIVE_DELAY_MAX_NS : 0, src->r, &src->n, &lag);
+     if (!src->n) return 0;
+     for(int player=0;player<DM_PLAYERS;player++)if(m==&g_dsu_motion[player]) {
+-        pthread_mutex_lock(&g_dsu_read_mu);atomic_fetch_add(&g_dsu_reads[player],1);
+-        memcpy(g_dsu_read_gyro[player],src->r[src->n-1].gyro,3*sizeof(float));pthread_mutex_unlock(&g_dsu_read_mu);
++        pthread_mutex_lock(&g_dsu_read_mu);uint64_t reads=atomic_fetch_add(&g_dsu_reads[player],1)+1;
++        memcpy(g_dsu_read_gyro[player],src->r[src->n-1].gyro,3*sizeof(float));
++        if(reads==1 || (g_motion_log && reads%200==0))LOG("DSU player %d: game SDK consumed sensor history #%llu, gyro %+.3f %+.3f %+.3f rev/s",player+1,(unsigned long long)reads,g_dsu_read_gyro[player][0],g_dsu_read_gyro[player][1],g_dsu_read_gyro[player][2]);
++        pthread_mutex_unlock(&g_dsu_read_mu);
+     }
+     int64_t cfg = atomic_load(&g_live_delay_cfg[w == &g_hwm_imu]);
+     uint64_t d = 0;
