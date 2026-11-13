@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import struct
 import sys
+import importlib.util
 import tempfile
 import unittest
 import zipfile
@@ -1137,6 +1138,68 @@ class LibraryAndSpaceTests(unittest.TestCase):
         self.assertEqual(freed, 4096)
         self.assertEqual(failed, [])
         self.assertTrue((bf / 'run' / 'save.dat').is_file())
+
+    def test_game_deletion_trashes_selected_paths_and_removes_empty_build_folder(self) -> None:
+        import shutil
+
+        build = self.dir / 'game_build'
+        build.mkdir()
+        cache = build / 'cache'
+        cache.mkdir()
+        (cache / 'data').write_bytes(b'cache')
+        saves = build / 'run'
+        saves.mkdir()
+        (saves / 'save').write_bytes(b'save')
+        archive = self.dir / 'game.nsp'
+        archive.write_bytes(b'archive')
+        plan = lib.GameDeletionPlan('game', [
+            lib.GameDeletionItem('archive', [str(archive)]),
+            lib.GameDeletionItem('buildFolder', [str(cache)]),
+        ], lib.GameDeletionItem('saves', [str(saves)]))
+        trashed: list[str] = []
+
+        def trash(path: str) -> bool:
+            trashed.append(path)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            return True
+
+        self.assertEqual(plan.run(trash=trash), [])
+        self.assertEqual(trashed, [str(archive), str(cache)])
+        self.assertTrue((saves / 'save').exists())
+        self.assertTrue(build.exists())
+        self.assertEqual(plan.run(delete_saves=True, trash=trash), [])
+        self.assertEqual(trashed[-1], str(saves))
+        self.assertFalse(build.exists())
+
+    def test_game_deletion_reports_trash_failure_without_removing_path(self) -> None:
+        build = self.dir / 'game_build'
+        build.mkdir()
+        failed_path = build / 'cache'
+        failed_path.write_bytes(b'keep')
+        plan = lib.GameDeletionPlan('game', [lib.GameDeletionItem('buildFolder', [str(failed_path)])])
+
+        def unavailable(path: str) -> bool:
+            raise OSError(path)
+
+        self.assertEqual(plan.run(trash=lambda path: False), [str(failed_path)])
+        self.assertEqual(plan.run(trash=unavailable), [str(failed_path)])
+        self.assertTrue(failed_path.exists())
+        self.assertTrue(build.exists())
+
+    @unittest.skipUnless(importlib.util.find_spec('PySide6'), 'PySide6 is not installed')
+    def test_game_deletion_uses_the_system_trash_by_default(self) -> None:
+        from unittest import mock
+
+        kept = self.dir / 'kept.nsp'
+        kept.write_bytes(b'keep')
+        plan = lib.GameDeletionPlan('game', [lib.GameDeletionItem('archive', [str(kept)])])
+        with mock.patch('PySide6.QtCore.QFile.moveToTrash', return_value=False) as move:
+            self.assertEqual(plan.run(), [str(kept)])
+        move.assert_called_once_with(str(kept))
+        self.assertTrue(kept.exists())
 
     def test_switch2_fallback_banners(self) -> None:
         import json
