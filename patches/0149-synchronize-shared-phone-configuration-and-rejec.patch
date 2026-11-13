@@ -1,0 +1,169 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 17:29:55 -0300
+Subject: [PATCH] Synchronize shared phone configuration and reject stale
+ application writes
+
+Upstream-Status: pending
+Reason: Keep phone configuration synchronized across game launchers and prevent stale snapshots overwriting newer settings
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/mac/Motion/DSUConfiguration.swift          | 12 ++++-
+ dm/mac/Motion/Store.swift                     | 46 ++++++++++++++++++-
+ dm/mac/Motion/Tests/MotionContractTests.swift | 30 ++++++++++++
+ 3 files changed, 84 insertions(+), 4 deletions(-)
+
+diff --git a/dm/mac/Motion/DSUConfiguration.swift b/dm/mac/Motion/DSUConfiguration.swift
+index ea85021..e2da124 100644
+--- a/dm/mac/Motion/DSUConfiguration.swift
++++ b/dm/mac/Motion/DSUConfiguration.swift
+@@ -1,5 +1,6 @@
+ // Shared, per-user motion configuration. Never embed LAN endpoints in game bundles.
+ import Foundation
++import Darwin
+ 
+ enum DSURole: String, Codable, CaseIterable {
+     case full, left, right
+@@ -71,12 +72,19 @@ struct DSUConfiguration: Codable, Equatable {
+         let config=try JSONDecoder().decode(Self.self,from:Data(contentsOf:url))
+         _ = try config.environment();return config
+     }
+-    func save(to url:URL = userURL) throws {
++    func save(to url:URL = userURL, expected:DSUConfiguration? = nil) throws {
+         _ = try environment()
+         try FileManager.default.createDirectory(at:url.deletingLastPathComponent(),withIntermediateDirectories:true)
++        let lockPath=url.appendingPathExtension("lock").path
++        let fd=open(lockPath,O_CREAT|O_RDWR,0o600)
++        guard fd>=0 else { throw Failure.invalid }
++        defer { close(fd) }
++        guard flock(fd,LOCK_EX)==0 else { throw Failure.invalid }
++        defer { flock(fd,LOCK_UN) }
++        if let expected,try Self.load(from:url) != expected { throw Failure.conflict }
+         let data=try JSONEncoder().encode(self)
+         try data.write(to:url,options:.atomic)
+         try FileManager.default.setAttributes([.posixPermissions:0o600],ofItemAtPath:url.path)
+     }
+-    enum Failure: Error { case invalid,duplicatePlayer }
++    enum Failure: Error { case invalid,duplicatePlayer,conflict }
+ }
+diff --git a/dm/mac/Motion/Store.swift b/dm/mac/Motion/Store.swift
+index 6429448..f8c105d 100644
+--- a/dm/mac/Motion/Store.swift
++++ b/dm/mac/Motion/Store.swift
+@@ -7,10 +7,13 @@ import Combine
+     @Published var error: String?
+     private var startupConnected=false
+     private let url:URL
++    private var baseline=DSUConfiguration()
++    private var watcher:Timer?
+     init(url:URL = DSUConfiguration.userURL) {
+         self.url=url
+         do {
+             let config=try DSUConfiguration.load(from:url)
++            baseline=config
+             for d in config.devices {
+                 let s=Sensor(id:d.id);s.railSL=d.railSL ?? -1;s.railSR=d.railSR ?? -1;s.role=d.role ?? .full;s.buttons=d.buttons ?? false;s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
+                 // Switch x/right,y/forward,z/up -> preview x/right,y/up,z/back.
+@@ -19,11 +22,42 @@ import Combine
+                 sensors.append(s);observe(s)
+             }
+         } catch { self.error=String(describing:error) }
++        watcher=Timer.scheduledTimer(withTimeInterval:1,repeats:true) { [weak self] _ in
++            Task { @MainActor [weak self] in self?.reloadShared() }
++        }
++    }
++    deinit { watcher?.invalidate() }
++
++    func reloadShared() {
++        guard !sensors.contains(where: { $0.calibrating }) else { return }
++        do {
++            let latest=try DSUConfiguration.load(from:url)
++            guard latest != baseline else { return }
++            apply(latest);error=nil
++        } catch { self.error="Cannot reload shared configuration: " + String(describing:error) }
++    }
++    private func apply(_ config:DSUConfiguration) {
++        let previous=Dictionary(uniqueKeysWithValues:baseline.devices.map { ($0.id,$0) })
++        let existing=Dictionary(uniqueKeysWithValues:sensors.map { ($0.id,$0) })
++        for s in sensors where !config.devices.contains(where: { $0.id==s.id }) { s.disconnect();s.onEdit=nil }
++        sensors=config.devices.map { d in
++            if let s=existing[d.id],previous[d.id]==d { return s }
++            let s=existing[d.id] ?? Sensor(id:d.id)
++            let reconnect=s.running || startupConnected
++            s.onEdit=nil;s.disconnect()
++            s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
++            s.role=d.role ?? .full;s.buttons=d.buttons ?? false;s.railSL=d.railSL ?? -1;s.railSR=d.railSR ?? -1
++            s.axes=AxisMap(x:d.axes[0],y:d.axes[2],z:-d.axes[1])
++            if let a=d.displayAxes { s.axes=AxisMap(x:a[0],y:a[1],z:a[2]) }
++            s.gyroBias=SIMD3(d.bias[0],d.bias[1],d.bias[2]);s.calibrated=d.calibrated ?? d.enabled
++            observe(s);if reconnect { s.connect() };return s
++        }
++        baseline=config
+     }
+     func observe(_ s:Sensor) { s.onEdit = { [weak self] in self?.save() } }
+     func add() { let s=Sensor();s.player=(1...8).first { p in !sensors.contains { $0.player==p } } ?? 1;s.name="Phone " + String(s.player);sensors.append(s);observe(s);save() }
+     func remove(_ s:Sensor) { s.disconnect();sensors.removeAll { $0.id==s.id };save() }
+-    func connectSavedOnce() { guard !startupConnected else { return };startupConnected=true;for s in sensors { s.connect() } }
++    func connectSavedOnce() { reloadShared();guard !startupConnected else { return };startupConnected=true;for s in sensors { s.connect() } }
+     func configuration() throws -> DSUConfiguration {
+         var devices:[DSUDevice]=[]
+         for s in sensors {
+@@ -34,7 +68,15 @@ import Combine
+         let config=DSUConfiguration(devices:devices);_ = try config.environment();return config
+     }
+     func save() {
+-        do { try configuration().save(to:url);error=nil } catch { self.error="Cannot save motion configuration: " + String(describing:error) }
++        do {
++            let next=try configuration()
++            try next.save(to:url,expected:baseline)
++            baseline=next;error=nil
++        } catch DSUConfiguration.Failure.conflict {
++            // Never overwrite another app with this process's stale snapshot.
++            if let latest=try? DSUConfiguration.load(from:url) { apply(latest) }
++            error="Configuration changed in another app. Latest settings loaded. Please repeat your edit."
++        } catch { self.error="Cannot save motion configuration: " + String(describing:error) }
+     }
+     func discovered(host:String,port:String,slot:Int) {
+         if let existing=sensors.first(where: { $0.host==host && $0.port==port && ($0.slot==slot || $0.slot == -1) }) { if !existing.running { existing.connect() };return }
+diff --git a/dm/mac/Motion/Tests/MotionContractTests.swift b/dm/mac/Motion/Tests/MotionContractTests.swift
+index 8f063c8..6c7e232 100644
+--- a/dm/mac/Motion/Tests/MotionContractTests.swift
++++ b/dm/mac/Motion/Tests/MotionContractTests.swift
+@@ -1,6 +1,36 @@
+ import XCTest
+ @testable import NXMotion
+ final class MotionContractTests:XCTestCase {
++    @MainActor func testTwoAppsShareChangesAndRejectStaleWrites() throws {
++        let dir=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
++        defer { try? FileManager.default.removeItem(at:dir) }
++        let url=dir.appendingPathComponent("dsu.json")
++        let first=SensorStore(url:url);first.add()
++        let second=SensorStore(url:url)
++        let a=try XCTUnwrap(first.sensors.first),b=try XCTUnwrap(second.sensors.first)
++        a.name="Newest shared name"
++        b.name="Stale overwrite"
++        XCTAssertEqual(try DSUConfiguration.load(from:url).devices.first?.name,"Newest shared name")
++        XCTAssertNotNil(second.error)
++        XCTAssertEqual(second.sensors.first?.name,"Newest shared name")
++        a.role = .left
++        second.reloadShared()
++        XCTAssertEqual(second.sensors.first?.role,.left)
++        XCTAssertTrue(second.sensors.first === b)
++        first.remove(a);second.reloadShared()
++        XCTAssertTrue(second.sensors.isEmpty)
++    }
++    func testCompareAndSaveRejectsConcurrentSnapshot() throws {
++        let dir=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
++        defer { try? FileManager.default.removeItem(at:dir) }
++        let url=dir.appendingPathComponent("dsu.json"),empty=DSUConfiguration()
++        var changed=empty
++        changed.devices=[DSUDevice(id:UUID(),name:"Saved elsewhere",player:1,host:"127.0.0.1",port:26760,slot:0,axes:[1,2,3],bias:[0,0,0],enabled:false)]
++        try changed.save(to:url,expected:empty)
++        XCTAssertThrowsError(try empty.save(to:url,expected:empty))
++        XCTAssertEqual(try DSUConfiguration.load(from:url),changed)
++    }
++
+     func testHorizontalHalfPreview() {
+         XCTAssertEqual(DSU.Inputs(buttons:1 << 11).horizontalPreview(role:.left).buttons,1 << 11)
+         XCTAssertEqual(DSU.Inputs(buttons:1 << 10).horizontalPreview(role:.right).buttons,1 << 10)
