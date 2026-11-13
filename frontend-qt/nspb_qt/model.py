@@ -377,6 +377,44 @@ class Model(QObject):
         except OSError:
             return self.shell_cache_path == self.default_shell_cache_path()
 
+    @property
+    def shell_cache_history(self) -> list[str]:
+        """Cache folders this app used before, newest first, that still exist."""
+        raw = self.settings.value('shellRootHistory', defaultValue='', type=str)
+        if not raw:
+            return []
+        try:
+            items = json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(items, list):
+            return []
+        here = self.shell_cache_path
+        out: list[str] = []
+        for item in items:
+            if not isinstance(item, str) or not item.strip():
+                continue
+            p = item.strip()
+            if p == here or p in out or not Path(p).is_dir():
+                continue
+            out.append(p)
+        return out[:8]
+
+    def _remember_shell_cache(self, path: str) -> None:
+        """Keep a note of the folder a move left behind, so its games can be found again."""
+        if not path:
+            return
+        raw = self.settings.value('shellRootHistory', defaultValue='', type=str)
+        try:
+            items = json.loads(raw) if raw else []
+        except (TypeError, ValueError):
+            items = []
+        if not isinstance(items, list):
+            items = []
+        kept = [p for p in items if isinstance(p, str) and p.strip() and p != path]
+        kept.insert(0, path)
+        self.settings.setValue('shellRootHistory', json.dumps(kept[:8]))
+
     def move_shell_cache(self, target_dir: str, *, exact_dest: bool = False) -> tuple[bool, str]:
         if self.running:
             return False, self.t('shellCache.busy')
@@ -394,13 +432,16 @@ class Model(QObject):
             return False, self.t('shellCache.problem.same')
         if src_res in dst_res.parents:
             return False, self.t('shellCache.problem.inside')
+        carried: list[str] = []
         try:
             if src.exists():
                 if dst.exists() and any(dst.iterdir()):
                     return False, self.t('shellCache.problem.taken')
                 dst.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copytree(src, dst, dirs_exist_ok=True)
-                shutil.rmtree(src, ignore_errors=True)
+                # The copy is the cache now, but the old folder stays: its frameworks are the
+                # only ones some registered games still have, and deleting it lost them for good.
+                carried = self._merge_shell_registries(dst, src)
             else:
                 dst.mkdir(parents=True, exist_ok=True)
         except OSError as e:
@@ -410,8 +451,12 @@ class Model(QObject):
             self.settings.setValue('shellRoot', '')
         else:
             self.settings.setValue('shellRoot', str(dst))
+        self._remember_shell_cache(str(src))
         self.repoChanged.emit()
-        return True, self.t('shellCache.moved', str(dst))
+        note = self.t('shellCache.movedKept', str(dst), str(src))
+        if carried:
+            note = note + '\n' + self.t('shellCache.carried', ', '.join(carried))
+        return True, note
 
     def reset_shell_cache_default(self) -> tuple[bool, str]:
         return self.move_shell_cache(self.default_shell_cache_path(), exact_dest=True)
@@ -900,6 +945,154 @@ class Model(QObject):
     # ---- repository download and updates (the SwiftUI app has these; parity matters) ----
 
     REPO_URL = 'https://github.com/LNPANDY/NX2Apple.git'
+
+    @staticmethod
+    def _recorded_shell_ids(root: Path) -> set[str]:
+        """The title IDs the `shell.json` of `root` already lists, before `load` adds anything."""
+        from .win import shell_export as se
+
+        try:
+            data = json.loads(se.ShellLibrary.state_file(root).read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            return set()
+        if not isinstance(data, dict):
+            return set()
+        ids: set[str] = set()
+        for item in data.get('games') or []:
+            if not isinstance(item, dict):
+                continue
+            tid = str(item.get('titleID') or item.get('title_id') or '').strip().upper()
+            if tid:
+                ids.add(tid)
+        return ids
+
+    @staticmethod
+    def _merge_shell_registries(dst: Path, src: Path) -> list[str]:
+        """Take the games registered in `src` that `dst` does not know about.
+
+        `src` is the folder the cache came from. Its `shell.json` is the only record of the games
+        built into it, so it must be read before the copy can be trusted to behave like it.
+        """
+        from .win import shell_export as se
+
+        recorded = Model._recorded_shell_ids(dst)
+        try:
+            into = se.ShellLibrary.load(dst)
+            other = se.ShellLibrary.load(src)
+        except Exception:
+            return []
+        here = {g.title_id for g in into.games}
+        # `load` already registers whole frameworks it finds in `dst`, which is how a cache folder
+        # whose `shell.json` lagged behind the copy gets its games back. Those are new entries too,
+        # so they count as carried even though no line of `src` had to move.
+        adopted = [g for g in into.games if g.title_id not in recorded]
+        carried: list[str] = []
+        for g in other.games:
+            if g.title_id in here:
+                continue
+            mirror = se.mirrored_framework(dst, g.title_id)
+            if mirror.is_dir():
+                g.framework = str(mirror)
+            into.games.append(g)
+            here.add(g.title_id)
+            carried.append(f'{g.title_id} ({g.name or g.title_id})')
+        for tid_game in adopted:
+            if not any(line.startswith(tid_game.title_id) for line in carried):
+                carried.append(f'{tid_game.title_id} ({tid_game.name or tid_game.title_id})')
+        if carried:
+            try:
+                into.save(dst)
+            except OSError:
+                return []
+        return carried
+
+    def _shell_framework_search_dirs(self, work: str = '') -> list[str]:
+        """Folders a registered game's framework may still be in, for recovery without a rebuild."""
+        roots: list[str] = []
+        for raw in (self.shell_cache_path, self.library.games_folder):
+            if raw:
+                roots.append(str(raw))
+                try:
+                    roots.append(str(Path(raw).parent))
+                except OSError:
+                    pass
+        for g in self.library.games:
+            for raw in (g.output_dir, g.archive_path):
+                if not raw:
+                    continue
+                try:
+                    p = Path(raw)
+                except (TypeError, ValueError):
+                    continue
+                roots.append(str(p))
+                for up in (p.parent, p.parent.parent):
+                    roots.append(str(up))
+        if work:
+            try:
+                roots.append(str(Path(work)))
+                roots.append(str(Path(work).parent))
+            except OSError:
+                pass
+
+        out: list[str] = []
+        seen: set[str] = set()
+
+        def add(p: Path) -> None:
+            try:
+                key = str(p.resolve()).lower()
+            except OSError:
+                key = str(p).lower()
+            if key in seen or not p.is_dir():
+                return
+            seen.add(key)
+            out.append(str(p))
+
+        for raw in roots:
+            try:
+                root = Path(raw)
+            except (TypeError, ValueError):
+                continue
+            for name in ('', 'frameworks', 'shell-framework', os.path.join('shell-framework', 'frameworks')):
+                add(root / name if name else root)
+            for temp_name in ('Temp', 'temp', 'tmp'):
+                temp = root / temp_name
+                if not temp.is_dir():
+                    continue
+                try:
+                    entries = list(temp.iterdir())
+                except OSError:
+                    continue
+                for entry in entries:
+                    if not entry.is_dir():
+                        continue
+                    low = entry.name.lower()
+                    if not low.startswith('shell'):
+                        continue
+                    add(entry)
+                    add(entry / 'frameworks')
+            try:
+                entries = list(root.iterdir())
+            except OSError:
+                continue
+            for entry in entries:
+                if not entry.is_dir():
+                    continue
+                low = entry.name.lower()
+                if low.startswith('shell-backup') or low.startswith('shell.bak'):
+                    add(entry)
+                    add(entry / 'frameworks')
+                elif low.endswith('_build') or low.endswith('-build'):
+                    add(entry / 'shell-framework')
+                    add(entry / 'shell-framework' / 'frameworks')
+                elif low in ('frameworks', 'template'):
+                    add(entry)
+        for hist in self.shell_cache_history:
+            try:
+                add(Path(hist))
+                add(Path(hist) / 'frameworks')
+            except OSError:
+                pass
+        return out
 
     def git_binary(self) -> str | None:
         """The git to use: on Windows the app's own PortableGit first (it may have downloaded
@@ -3497,6 +3690,7 @@ class Model(QObject):
             t_func=self.t,
             log=self.log,
             stage_cb=on_stage,
+            extra_dirs=self._shell_framework_search_dirs(),
         )
         if ok:
             self.ipa_path = out_ipa
@@ -3825,6 +4019,7 @@ class Model(QObject):
             t_func=self.t,
             log=self.log,
             stage_cb=on_stage,
+            extra_dirs=self._shell_framework_search_dirs(work),
         )
         if ok:
             self.ipa_path = out_ipa
