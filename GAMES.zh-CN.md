@@ -10,7 +10,7 @@
 |---|---|---|---|
 | Donkey Kong Bananza | `040074A01BF12000` | 在 Mac 上可玩（更新 v458752），测试到第一关开头 | 通过启动器构建，并在 Mac、iPhone 和 iPad 上玩过，Mac 和 iPhone 上没有发现问题，iPad 上基本没有问题。此前用命令行构建后，在 iPhone 17 Pro Max（iOS 27.0.1）上玩过一次（#445） |
 | Splatoon Raiders | `0400380020056000` | 在 Mac 上可玩（更新 v65536）。没有构建过 IPA：它的内存布局目前超出 iOS 的限制 | 没有试过 |
-| Fire Emblem Fortune's Weave | `04007EF01F8AE000` | 在 Mac 上可玩（v131072），60 fps。没有构建过 IPA | 没有试过 |
+| Fire Emblem Fortune's Weave | `04007EF01F8AE000` | 在 Mac 上可玩（v131072），60 fps。没有构建过 IPA | 已在 iPhone 18 Pro Max 上验证可玩（v131072，单游戏 App 配合 increased-memory-limit，#1143），稳定锁 60 fps。CPU 仅 1.51 W，常驻内存 2.1 GB，0 掉帧 |
 | Pokémon Pokopia | `0400A3A01EE4C000` | 在 Mac 上可玩（更新 v655360）。没有构建过 IPA | 没有试过 |
 | Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | 在 Mac 上能玩到第一片原野（更新 v196608），从 NUP 构建。没有构建过 IPA | 没有试过 |
 | Mario Kart World | `0400C3F00006E000` | 在 Mac 上能玩到比赛（v0），60 fps。没有构建过 IPA | 没有试过 |
@@ -174,7 +174,7 @@ shader 表、每个游戏各自的开关。本 fork 在此基础上加了 RomFS 
 | Splatoon Raiders（Switch 2） | `0400380020056000` | v65536 | 有 profile，未在手机上验证 |
 | 塞尔达无双 封印战记（Switch 2） | `04003F40232DE000` | v196608 | 有 profile，未在手机上验证 |
 | 咚奇刚 蕉力全开（Switch 2） | `040074A01BF12000` | v458752 | **本 fork 已验证** —— 构建、安装、在 iPhone 上运行 |
-| Fire Emblem Fortune's Weave（Switch 2） | `04007EF01F8AE000` | v131072 | 有 profile，未在手机上验证 |
+| Fire Emblem Fortune's Weave（Switch 2） | `04007EF01F8AE000` | v131072 | **已在 iPhone 验证** —— iPhone 18 Pro Max 60 fps 可玩（#1143） |
 | Pokémon Pokopia（Switch 2） | `0400A3A01EE4C000` | v655360 | 有 profile，未在手机上验证 |
 | 马力欧卡丁车世界（Switch 2） | `0400C3F00006E000` | 无（v0） | 有 profile，未在手机上验证 |
 | Mario Tennis Fever（Switch 2） | `0400D4201C6EA000` | v327680 | 有 profile，未在手机上验证 |

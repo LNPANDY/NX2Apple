@@ -12,7 +12,7 @@ Screenshot accompagnati da una nota quando un gioco presenta indicazioni specifi
 <tr>
 <td align="center" valign="top" width="33%"><img src="https://raw.githubusercontent.com/seedds/nxnative/0c078130f6db7d0d32c1dc28146feaf97713f008/docs/images/donkey-kong-bananza.jpg" width="256" alt="Donkey Kong Bananza"><br><small><b><a href="https://github.com/seedds/nxnative/blob/0c078130f6db7d0d32c1dc28146feaf97713f008/dm/games/040074A01BF12000/README.md">Donkey Kong Bananza</a></b><br>Switch 2, solo Mac, da una dump</small></td>
 <td align="center" valign="top" width="33%"><img src="https://raw.githubusercontent.com/seedds/nxnative/0c078130f6db7d0d32c1dc28146feaf97713f008/docs/images/splatoon-raiders.jpg" width="256" alt="Splatoon Raiders"><br><small><b><a href="https://github.com/seedds/nxnative/blob/0c078130f6db7d0d32c1dc28146feaf97713f008/dm/games/0400380020056000/README.md">Splatoon Raiders</a></b><br>Switch 2, solo Mac, da una dump</small></td>
-<td align="center" valign="top" width="33%"><img src="https://raw.githubusercontent.com/seedds/nxnative/0c078130f6db7d0d32c1dc28146feaf97713f008/docs/images/fire-emblem-fortunes-weave.jpg" width="256" alt="Fire Emblem Fortune's Weave"><br><small><b><a href="https://github.com/seedds/nxnative/blob/0c078130f6db7d0d32c1dc28146feaf97713f008/dm/games/04007EF01F8AE000/README.md">Fire Emblem Fortune's Weave</a></b><br>Switch 2, solo Mac, da una dump</small></td>
+<td align="center" valign="top" width="33%"><img src="https://raw.githubusercontent.com/seedds/nxnative/0c078130f6db7d0d32c1dc28146feaf97713f008/docs/images/fire-emblem-fortunes-weave.jpg" width="256" alt="Fire Emblem Fortune's Weave"><br><small><b><a href="https://github.com/seedds/nxnative/blob/0c078130f6db7d0d32c1dc28146feaf97713f008/dm/games/04007EF01F8AE000/README.md">Fire Emblem Fortune's Weave</a></b><br>Switch 2, Mac e iPhone (60 fps), da una dump, fino a 120 fps</small></td>
 </tr>
 <tr>
 <td align="center" valign="top" width="33%"><img src="https://raw.githubusercontent.com/seedds/nxnative/0c078130f6db7d0d32c1dc28146feaf97713f008/docs/images/mario-kart-8-deluxe.jpg" width="256" alt="Mario Kart 8 Deluxe"><br><small><b><a href="https://github.com/seedds/nxnative/blob/0c078130f6db7d0d32c1dc28146feaf97713f008/dm/games/0100152000022000/README.md">Mario Kart 8 Deluxe</a></b><br>niente Mii</small></td>
@@ -229,7 +229,7 @@ Il motore esegue i giochi Switch 2 come profili normali, senza un'opzione Switch
 |---|---|---|---|
 | Donkey Kong Bananza | `040074A01BF12000` | Gira sul Mac (aggiornamento v458752), provato fino all'inizio del primo livello | Compilato e giocato con il launcher su un Mac, un iPhone e un iPad, senza problemi su Mac e iPhone e quasi nessuno su iPad. Prima era stato giocato una volta su un iPhone 17 Pro Max con iOS 27.0.1, compilato da riga di comando (#445) |
 | Splatoon Raiders | `0400380020056000` | Gira sul Mac (aggiornamento v65536). Nessuna IPA: la sua memoria supera per ora il limite di iOS | Non provato |
-| Fire Emblem Fortune's Weave | `04007EF01F8AE000` | Gira sul Mac (v131072), 60 fps. Nessuna IPA | Non provato |
+| Fire Emblem Fortune's Weave | `04007EF01F8AE000` | Gira sul Mac (v131072), 60 fps. Nessuna IPA | Verificato su iPhone 18 Pro Max a 60 fps (v131072, app singola con increased-memory-limit, #1143). CPU 1,51 W, 2,1 GB di memoria residente, 0 frame persi |
 | Pokémon Pokopia | `0400A3A01EE4C000` | Gira sul Mac (aggiornamento v655360). Nessuna IPA | Non provato |
 | Hyrule Warriors: Age of Imprisonment | `04003F40232DE000` | Arriva al primo campo sul Mac (aggiornamento v196608), da un NUP. Nessuna IPA | Non provato |
 | Mario Kart World | `0400C3F00006E000` | Arriva a una gara sul Mac (v0), 60 fps. Nessuna IPA | Non provato |
@@ -385,7 +385,7 @@ l'aggiornamento si sovrappone ad essa). "Nessuno (v0)" significa che è sufficie
 | Splatoon Raiders (Switch 2) | `0400380020056000` | v65536 | Profilo presente, non verificato su telefono |
 | Hyrule Warriors: Age of Imprisonment (Switch 2) | `04003F40232DE000` | v196608 | Profilo presente, non verificato su telefono |
 | Donkey Kong Bananza (Switch 2) | `040074A01BF12000` | v458752 | **Verificato qui** — compila, si installa e gira su un iPhone |
-| Fire Emblem Fortune's Weave (Switch 2) | `04007EF01F8AE000` | v131072 | Profilo presente, non verificato su telefono |
+| Fire Emblem Fortune's Weave (Switch 2) | `04007EF01F8AE000` | v131072 | **Verificato** — gira su iPhone 18 Pro Max a 60 fps (#1143) |
 | Pokémon Pokopia (Switch 2) | `0400A3A01EE4C000` | v655360 | Profilo presente, non verificato su telefono |
 | Mario Kart World (Switch 2) | `0400C3F00006E000` | Nessuno (v0) | Profilo presente, non verificato su telefono |
 | Mario Tennis Fever (Switch 2) | `0400D4201C6EA000` | v327680 | Profilo presente, non verificato su telefono |
