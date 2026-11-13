@@ -5,6 +5,9 @@ import ShellUI
 #if canImport(UIKit)
 import UIKit
 #endif
+#if os(iOS)
+import GameController
+#endif
 
 /// Where the host finds things. Everything the model touches outside itself is here, so tests point it at a temporary folder.
 public struct ShellHostConfig: Sendable {
@@ -615,7 +618,8 @@ public struct ShellHostConfig: Sendable {
             onButtonTest: { [weak self] open in self?.buttonTest(open) },
             onPadMergeChange: { [weak self] on in self?.setPadMerge(on) },
             onRestoreSaveBackup: { [weak self] id in self?.restoreLatestSaveBackup(id) },
-            onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) })
+            onDeleteGame: { [weak self] id, saves in self?.deleteGame(id, saves: saves) },
+            onOpenHomeButtonSettings: { [weak self] in self?.openHomeButtonSettings() })
     }
 
     public func change(_ id: String, setting: String, value: String) {
@@ -1003,6 +1007,9 @@ public struct ShellHostConfig: Sendable {
     /// The right-stick hint's words: a few, no semicolon, short enough for the right third of a small phone.
     static var touchHint: String { hostText("Right stick: drag here") }
 
+    /// Shown once below the gear button when a physical controller is connected, fading with the button.
+    static var padQuitHint: String { hostText("Hold {-} and {+} to quit") }
+
     /// DM_HOME_QUIT_TEXT: the game's quit prompt in the player's language, one text per line in the engine's order (home_quit.h): the hold
     /// indicator, the title with the game's name, the note, Quit and Cancel. The engine draws it when Quit is picked in the in-game menu (the gear)
     /// or Home is held. The menu item reads the title without its question mark.
@@ -1026,6 +1033,8 @@ public struct ShellHostConfig: Sendable {
         for (key, value) in shellSettings.gameDefaults where env[key] == nil { env[key] = value }
         // The words the engine shows once per launch where the 3D layout's undrawn right stick is (patch 0067), in the player's language.
         env["DM_TOUCH_HINT"] = Self.touchHint
+        // Shown once below the gear button while a physical controller is connected, in the player's language.
+        env["DM_PAD_QUIT_HINT"] = Self.padQuitHint
         // The quit prompt's words (patch 0068), as the Mac launcher passes them for its Home button prompt.
         env["DM_HOME_QUIT_TEXT"] = Self.quitPromptText(gameName: entry(id)?.title ?? id)
         // The in-game menu's own words (patch 0124), as the Mac's build bakes them into a game's own app.
@@ -1065,6 +1074,32 @@ public struct ShellHostConfig: Sendable {
     }
 
     public func stopControllers() { adapter.stop() }
+
+    /// True on iOS 27+ when a controller is connected and Home Button Override has not yet been deferred to the app.
+    public var canOpenHomeButtonSettings: Bool {
+        #if os(iOS)
+        if #available(iOS 27.0, *), !controllers.isEmpty,
+           let status = try? GCControllerHomeButtonSettingsManager().controllerHomeButtonInAppAction {
+            return status.action != .defer && status.action != .unavailable
+        }
+        #endif
+        return false
+    }
+
+    /// Opens the system Game Controller Home Button Override screen (or falls back to app settings).
+    public func openHomeButtonSettings() {
+        #if os(iOS)
+        if #available(iOS 27.0, *) {
+            do {
+                try GCControllerHomeButtonSettingsManager().openControllerHomeButtonSettings(for: .customizeInAppAction)
+                return
+            } catch {}
+        }
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            config.openURL(url)
+        }
+        #endif
+    }
 
     /// The button test opened or closed: the adapter reports every controller state in between.
     public func buttonTest(_ open: Bool) {

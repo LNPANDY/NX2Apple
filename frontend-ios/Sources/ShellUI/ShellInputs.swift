@@ -296,6 +296,8 @@ public struct ShellActions {
     public var onRestoreSaveBackup: (String) -> Void
     /// Deletes the game's data on this device and takes it off the list. `saves`: its saves go too.
     public var onDeleteGame: (_ gameID: String, _ saves: Bool) -> Void
+    /// Opens the system Game Controller settings (or fallback app settings) to configure Home Button Override.
+    public var onOpenHomeButtonSettings: () -> Void
     public init(onSelect: @escaping (String) -> Void = { _ in }, onPlay: @escaping (String) -> Void = { _ in },
                 onChange: @escaping (String, String, String) -> Void = { _, _, _ in },
                 onPickGameData: @escaping (String) -> Void = { _ in }, onUseAppData: @escaping (String) -> Void = { _ in },
@@ -309,7 +311,8 @@ public struct ShellActions {
                 onGlobalPadMapReset: @escaping () -> Void = {}, onButtonTest: @escaping (Bool) -> Void = { _ in },
                 onPadMergeChange: @escaping (Bool) -> Void = { _ in },
                 onRestoreSaveBackup: @escaping (String) -> Void = { _ in },
-                onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in }) {
+                onDeleteGame: @escaping (String, Bool) -> Void = { _, _ in },
+                onOpenHomeButtonSettings: @escaping () -> Void = {}) {
         self.onSelect = onSelect
         self.onPlay = onPlay
         self.onChange = onChange
@@ -332,5 +335,6 @@ public struct ShellActions {
         self.onPadMergeChange = onPadMergeChange
         self.onRestoreSaveBackup = onRestoreSaveBackup
         self.onDeleteGame = onDeleteGame
+        self.onOpenHomeButtonSettings = onOpenHomeButtonSettings
     }
 }

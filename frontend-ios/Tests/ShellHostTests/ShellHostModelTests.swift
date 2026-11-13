@@ -74,6 +74,8 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         await model.playNow(Fixtures.orbit)
         let hint = try #require(launcher.launched.last?.environment["DM_TOUCH_HINT"])
         #expect(hint == ShellHostModel.touchHint && !hint.isEmpty)
+        let padQuit = try #require(launcher.launched.last?.environment["DM_PAD_QUIT_HINT"])
+        #expect(padQuit == ShellHostModel.padQuitHint && padQuit.contains("{-}") && padQuit.contains("{+}"))
     }
 
     /// The quit prompt's words reach the engine with the game's name in the title, five lines in home_quit.h's order (patch 0068): the
@@ -134,6 +136,23 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
             let strings = try JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any]
             guard let hint = strings?["ios.host.touchHint"] as? String else { continue }
             #expect(hint.count <= 30 && !hint.contains(";") && !hint.contains("；") && !hint.contains("\n"), "\(file.lastPathComponent): \(hint)")
+        }
+    }
+
+    /// Every language's controller quit hint carries both {-} and {+} keycap placeholders, no semicolons/line breaks, and compact text width.
+    @Test func thePadQuitHintHasKeycapPlaceholdersInEveryLanguage() throws {
+        let l10n = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().appendingPathComponent("frontend/l10n")
+        let files = try FileManager.default.contentsOfDirectory(at: l10n, includingPropertiesForKeys: nil)
+            .filter { $0.pathExtension == "json" }
+        #expect(files.count >= 10, "Expected at least 10 l10n files, found \(files.count)")
+        for file in files {
+            let strings = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+            let hint = try #require(strings["ios.host.padQuitHint"] as? String, "\(file.lastPathComponent) lacks ios.host.padQuitHint")
+            #expect(hint.contains("{-}") && hint.contains("{+}"), "\(file.lastPathComponent): \(hint)")
+            #expect(!hint.contains(";") && !hint.contains("；") && !hint.contains("\n"), "\(file.lastPathComponent): \(hint)")
+            let plain = hint.replacingOccurrences(of: "{-}", with: "").replacingOccurrences(of: "{+}", with: "")
+            #expect(plain.count <= 42, "\(file.lastPathComponent) too long (\(plain.count)): \(hint)")
         }
     }
 

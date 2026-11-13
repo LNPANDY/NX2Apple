@@ -40,6 +40,7 @@ public struct LibraryView: View {
     /// The controller's state while the button test is open, from the host.
     public let padSnapshot: PadSnapshot?
     public let signingWarning: SigningWarning?
+    public let canOpenHomeButtonSettings: Bool
     public var onDismissSigningWarning: () -> Void
     public var actions: ShellActions
     public var input: ShellInputLog
@@ -94,7 +95,8 @@ public struct LibraryView: View {
                 initialControllersOpen: Bool = false, initialShellSettingsOpen: Bool = false, initialFocusVisible: Bool = false,
                 globalPadMap: PadMap = PadMap(), padMerge: Bool = false, padSnapshot: PadSnapshot? = nil,
                 signingWarning: SigningWarning? = nil, onDismissSigningWarning: @escaping () -> Void = {},
-                initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false) {
+                initialPadMapping: String? = nil, initialButtonTestOpen: Bool = false,
+                canOpenHomeButtonSettings: Bool = false) {
         ShellPalette.configureNativeAppearance()
         self.games = games
         self.controllers = controllers
@@ -102,6 +104,7 @@ public struct LibraryView: View {
         self.padMerge = padMerge
         self.padSnapshot = padSnapshot
         self.signingWarning = signingWarning
+        self.canOpenHomeButtonSettings = canOpenHomeButtonSettings
         self.onDismissSigningWarning = onDismissSigningWarning
         _padMapping = State(initialValue: initialPadMapping.map { PadMappingState(gameID: $0) })
         _buttonTestOpen = State(initialValue: initialButtonTestOpen)
@@ -369,7 +372,9 @@ public struct LibraryView: View {
                 }
                 if retention.draws(.controllers, open: controllersOpen) {
                     ControllersView(controllers: controllers, onBack: back, padMap: globalPadMap,
-                                    padMerge: padMerge, onPadMergeChange: menuActions.onPadMergeChange)
+                                    padMerge: padMerge, onPadMergeChange: menuActions.onPadMergeChange,
+                                    canOpenHomeButtonSettings: canOpenHomeButtonSettings,
+                                    onOpenHomeButtonSettings: menuActions.onOpenHomeButtonSettings)
                         .background(ShellPalette.background)
                         .accessibilityHidden(choice != nil || padMapping != nil || buttonTestOpen || retention.isLeaving(.controllers, open: controllersOpen))
                         .allowsHitTesting(!retention.isLeaving(.controllers, open: controllersOpen))

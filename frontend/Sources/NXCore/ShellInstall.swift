@@ -343,6 +343,8 @@ package struct ShellInstaller {
     package var singleCopyLimit: Int64 = ShellDataParts.singleCopyLimit()
     package var signingIdentity: (String, ProcessRunner) -> String? = ShellHotInstall.defaultSigningIdentity
     package var codesignPath = "/usr/bin/codesign"
+    /// Disabled by default until iOS allows executing newly copied unsigned/personal-team frameworks without errno 85; opt in with `NX_EXPERIMENTAL_HOT_INSTALL=1`.
+    package var allowHotInstall = ProcessInfo.processInfo.environment["NX_EXPERIMENTAL_HOT_INSTALL"] == "1"
     package var now: () -> Date = { Date() }
 
     package init(xcrun: String = "/usr/bin/xcrun", repo: String, python: String, root: String, device: String, team: String) {

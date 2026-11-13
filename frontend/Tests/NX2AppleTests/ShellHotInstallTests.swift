@@ -196,6 +196,7 @@ import XCTest
         inst.resources = nil
         inst.defaults = testDefaults
         inst.now = { fixedNow }
+        inst.allowHotInstall = true
         // Real ad-hoc signing (`-`) exercises actual `/usr/bin/codesign` sealing `_CodeSignature/CodeResources` on macOS.
         inst.signingIdentity = { _, _ in "-" }
 
@@ -263,6 +264,7 @@ import XCTest
         inst.resources = nil
         inst.defaults = testDefaults
         inst.now = { fixedNow }
+        inst.allowHotInstall = true
         inst.signingIdentity = { _, _ in "-" }
 
         XCTAssertTrue(inst.install(framework: fw1, titleID: firstID, name: "Game One", archive: arch1).ok)
@@ -311,5 +313,34 @@ import XCTest
         let recovered = inst.installBuilt(framework: fw2, titleID: secondID, name: "Game Two")
         XCTAssertTrue(recovered.ok, recovered.message)
         XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1, "failed hot push must automatically recover via xcodebuild")
+    }
+
+    func testHotInstallIsDisabledByDefaultAndFallsBackToXcodebuild() throws {
+        let xcrun = try makeXcrun()
+        let repo = try makeRepo()
+        let root = path("shell-root")
+        let fixedNow = Date(timeIntervalSince1970: 1_800_000_000)
+        let nowEpoch = Int64(fixedNow.timeIntervalSince1970)
+
+        let fw1 = try makeSignableFramework(id: firstID, name: "First Game")
+        let fw2 = try makeSignableFramework(id: secondID, name: "Second Game")
+        let arch1 = path("archives", firstID)
+        try write(arch1 + "/romfs.img", "romfs-one")
+
+        var inst = ShellInstaller(xcrun: xcrun, repo: repo, python: "/usr/bin/python3", root: root, device: device, team: team)
+        inst.resources = nil
+        inst.defaults = testDefaults
+        inst.now = { fixedNow }
+        inst.signingIdentity = { _, _ in "-" }
+        XCTAssertFalse(inst.allowHotInstall)
+
+        XCTAssertTrue(inst.install(framework: fw1, titleID: firstID, name: "First Game", archive: arch1).ok)
+        try writeDeviceBeacon(teamID: team, expiresIn: 5 * 86400, nowEpoch: nowEpoch)
+        try "".write(toFile: state + "/calls.txt", atomically: true, encoding: .utf8)
+
+        let out = inst.installBuilt(framework: fw2, titleID: secondID, name: "Second Game")
+        XCTAssertTrue(out.ok, out.message)
+        XCTAssertEqual(calls.filter { $0.hasPrefix("xcodebuild") }.count, 1, "default disabled hot install must run full xcodebuild")
+        XCTAssertEqual(calls.filter { $0.hasPrefix("devicectl device install app") }.count, 1)
     }
 }

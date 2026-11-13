@@ -34,6 +34,7 @@ extension LibraryView {
         a.onPadMergeChange = { if !echo() { o.onPadMergeChange($0) } }
         a.onRestoreSaveBackup = { if !echo() { o.onRestoreSaveBackup($0) } }
         a.onDeleteGame = { if !echo() { o.onDeleteGame($0, $1) } }
+        a.onOpenHomeButtonSettings = { if !echo() { o.onOpenHomeButtonSettings() } }
         return a
     }
     /// An action that did not come from a controller or key came from touch: hints and focus ring step back. False when

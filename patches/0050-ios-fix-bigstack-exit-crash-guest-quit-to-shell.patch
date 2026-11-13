@@ -1,0 +1,951 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sat, 14 Nov 2026 03:46:00 +0800
+Subject: [PATCH] ios: fix bigstack exit crash, guest quit to shell, and - + +
+ hold
+
+Also wake and drain AudRen's PCM output thread before dm_threads_park_all and move dm_audio_stop_all after thread parking so dispatch_release(rel_sem) never traps with SIGTRAP on shell exit.
+
+Upstream-Status: pending
+Reason: Fix SIGSEGV in bs_free on active bigstack, SIGTRAP in AudRen/AudioOut shell teardown, route guest exit back to shell, reset GL state on teardown, and add - + + 2s hold to quit
+Issue: LNPANDY/NX2Apple (v1.5.0 local)
+---
+ dm/gfx/gl/hle_gl.m              |  62 +++++++++++-----
+ dm/host/dm.h                    |   7 +-
+ dm/host/hle_audio.c             |  14 +++-
+ dm/host/hle_audren.c            |  39 ++++++++--
+ dm/host/hle_bigstack.c          |  52 +++++++++++++-
+ dm/host/hle_lifecycle.c         |  34 ++++++++-
+ dm/host/hle_svc.c               |  15 ++++
+ dm/host/hle_thread.c            |  10 +++
+ dm/host/home_quit.h             |   5 ++
+ dm/host/tests/t_audio_spsc.c    |  43 +++++++++++
+ dm/host/tests/t_audren_layout.c |   1 +
+ dm/host/tests/t_audren_work.c   |   1 +
+ dm/host/tests/t_bigstack.c      |  29 ++++++++
+ dm/host/tests/t_home_quit.c     |   9 +++
+ dm/ios/Sources/DmGamepad.m      | 122 +++++++++++++++++++++++++++++++-
+ dm/ios/Sources/front_ios.m      |  18 ++++-
+ dm/ios/framework/ShellGlue.m    |   4 ++
+ 17 files changed, 435 insertions(+), 30 deletions(-)
+
+diff --git a/dm/gfx/gl/hle_gl.m b/dm/gfx/gl/hle_gl.m
+index d85e3451..d1d1960a 100644
+--- a/dm/gfx/gl/hle_gl.m
++++ b/dm/gfx/gl/hle_gl.m
+@@ -222,7 +222,12 @@ static void dev_init_once(void) {
+         GLOG("Metal device %s; %d shader table entries", g_dev.name.UTF8String, g_nsh);
+     }
+ }
+-static void dev_init(void) { static pthread_once_t once = PTHREAD_ONCE_INIT; pthread_once(&once, dev_init_once); }
++static pthread_mutex_t g_dev_mu = PTHREAD_MUTEX_INITIALIZER;
++static void dev_init(void) {
++    pthread_mutex_lock(&g_dev_mu);
++    if (!g_dev) dev_init_once();
++    pthread_mutex_unlock(&g_dev_mu);
++}
+ 
+ // ---------- Command buffers ----------
+ // Transient memory (converted indices, staging for blits, large uniform blocks): bump allocation in 4 MB shared buffers, each reused once the command buffer that last used it completed
+@@ -1384,7 +1389,15 @@ static void cap_set(GLenum cap, int on) {
+     }
+     if (!timeout_ns) return GL_TIMEOUT_EXPIRED;
+     uint64_t ms = timeout_ns / 1000000;
+-    return [g_ev waitUntilSignaledValue:s->serial timeoutMS:ms ? ms : 1] ? GL_CONDITION_SATISFIED : GL_TIMEOUT_EXPIRED;
++    if (!ms) ms = 1;
++    for (;;) {
++        dm_teardown_check_current_thread();
++        uint64_t step = ms > 10 ? 10 : ms;
++        if ([g_ev waitUntilSignaledValue:s->serial timeoutMS:step]) return GL_CONDITION_SATISFIED;
++        if (dm_teardown_is_parking()) dm_teardown_check_current_thread();
++        if (ms <= step) return GL_TIMEOUT_EXPIRED;
++        ms -= step;
++    }
+ }
+ GL(glGenVertexArrays, void, GLsizei n, GLuint *out) { for (GLsizei i = 0; i < n; i++) out[i] = name_new((void ***)&g_vaos, &g_nvaos, &g_capvaos, sizeof(vao_t)); }
+ GL(glDeleteVertexArrays, void, GLsizei n, const GLuint *v) { for (GLsizei i = 0; i < n; i++) if (v[i] && v[i] < g_nvaos && g_vaos[v[i]]) { free(g_vaos[v[i]]); g_vaos[v[i]] = NULL; if (S.vao == v[i]) S.vao = 0; } }
+@@ -2059,37 +2072,47 @@ static void frame_end(void) {
+     return (EGLSurface)(uintptr_t)3;
+ }
+ EGL(eglDestroySurface, EGLBoolean, EGLDisplay d, EGLSurface s) { (void)d; (void)s; return EGL_TRUE; }
++static pthread_t g_mc_th;
++static int g_mc_known, g_mc_sized;
++
+ EGL(eglMakeCurrent, EGLBoolean, EGLDisplay d, EGLSurface dr, EGLSurface rd, EGLContext c) {
+     (void)d; (void)rd;
+-    static pthread_t th; static int known, sized;
+-    if (c && dr) { pthread_t me = pthread_self(); if (!known || !pthread_equal(th, me)) { th = me; known = 1; OLOG("context current on a new thread"); } }
++    if (c && dr) { pthread_t me = pthread_self(); if (!g_mc_known || !pthread_equal(g_mc_th, me)) { g_mc_th = me; g_mc_known = 1; OLOG("context current on a new thread"); } }
+     // a context's viewport and scissor box start as its first drawable's size (LÖVE reads them back at start)
+-    if (c && dr && !sized && g_win.made) { sized = 1; if (!S.vp[2] && !S.vp[3]) { S.vp[2] = S.sc[2] = g_win.w; S.vp[3] = S.sc[3] = g_win.h; } }
++    if (c && dr && !g_mc_sized && g_win.made) { g_mc_sized = 1; if (!S.vp[2] && !S.vp[3]) { S.vp[2] = S.sc[2] = g_win.w; S.vp[3] = S.sc[3] = g_win.h; } }
+     return EGL_TRUE;
+ }
+ EGL(eglSwapInterval, EGLBoolean, EGLDisplay d, EGLint n) { (void)d; if (n != S.swap_interval) { GLOG("swap interval %d", n); S.swap_interval = n; } return EGL_TRUE; }
+ static uint64_t g_next_swap;   // pacing without the display link: the earliest time of the next swap
+ EGL(eglSwapBuffers, EGLBoolean, EGLDisplay d, EGLSurface s) {
+     (void)d; (void)s;
++    dm_teardown_check_current_thread();
+     dm_gfx_enter();
++    int vs = 1;
++    int next_k = 0;
+     @autoreleasepool {
+         if (!g_win.made) { int w, h; dm_vi_layer_size(&w, &h); win_make(w > 0 ? w : 1280, h > 0 ? h : 720); }
+         if (g_pend_clear.bits) clears_flush();
+         uint64_t v = cb_commit();
+-        int vs = S.swap_interval < 1 ? 1 : S.swap_interval > 4 ? 4 : S.swap_interval;
++        vs = S.swap_interval < 1 ? 1 : S.swap_interval > 4 ? 4 : S.swap_interval;
+         int k = g_win.cur;
+         g_win.ticket[k] = mtl_present_ext(g_win.serial[k], vs / 60.0, (__bridge void *)g_ev, v, NULL);
+-        g_win.cur = (k + 1) % NWIN;
+-        if (g_win.ticket[g_win.cur]) mtl_present_wait(g_win.ticket[g_win.cur]);   // its previous present has been shown, so drawing into it again is safe
+-        // Paced by the display link when it runs, as the Vulkan layer's acquire: the swap interval in vsyncs
+-        uint64_t period = 1000000000ull * vs / 60, now = now_ns();
+-        if (S.swap_interval > 0 && mtl_link_active() && mtl_link_wait_tick(vs, 2 * period)) g_next_swap = now_ns() + period;
+-        else if (S.swap_interval > 0) {
+-            if (g_next_swap > now) { uint64_t w = g_next_swap - now; struct timespec ts = {(time_t)(w / 1000000000ull), (long)(w % 1000000000ull)}; nanosleep(&ts, NULL); }
+-            now = now_ns(); g_next_swap = g_next_swap && now < g_next_swap + period ? g_next_swap + period : now + period;
+-        }
++        next_k = (k + 1) % NWIN;
++        g_win.cur = next_k;
+     }
++    // Release the graphics suspend gate right after GPU commit/present so blocking waits never stall dm_gfx_suspend(1).
+     dm_gfx_leave();
++    dm_teardown_check_current_thread();
++    if (g_win.ticket[next_k]) mtl_present_wait(g_win.ticket[next_k]);   // its previous present has been shown, so drawing into it again is safe
++    dm_teardown_check_current_thread();
++    // Paced by the display link when it runs, as the Vulkan layer's acquire: the swap interval in vsyncs
++    uint64_t period = 1000000000ull * vs / 60, now = now_ns();
++    if (S.swap_interval > 0 && mtl_link_active() && mtl_link_wait_tick(vs, 2 * period)) g_next_swap = now_ns() + period;
++    else if (S.swap_interval > 0) {
++        if (g_next_swap > now) { uint64_t w = g_next_swap - now; struct timespec ts = {(time_t)(w / 1000000000ull), (long)(w % 1000000000ull)}; nanosleep(&ts, NULL); }
++        now = now_ns(); g_next_swap = g_next_swap && now < g_next_swap + period ? g_next_swap + period : now + period;
++    }
++    dm_teardown_check_current_thread();
+     frame_end();
+     return EGL_TRUE;
+ }
+@@ -2181,11 +2204,18 @@ void dm_gl_teardown(void) { @autoreleasepool {
+     g_nclr_cache = 0;
+ 
+     for (int i = 0; i < NWIN; i++) { g_win.col[i] = nil; g_win.serial[i] = g_win.ticket[i] = 0; }
+-    g_win.ds = nil; g_win.made = 0;
++    g_win.ds = nil; g_win.made = 0; g_win.cur = 0; g_win.w = 0; g_win.h = 0;
+ 
+     for (int i = 0; i < g_nsh; i++) { free(g_sh[i].a); free(g_sh[i].u); free(g_sh[i].t); }
+     free(g_sh); g_sh = NULL; g_nsh = 0;
+ 
++    memset(&P, 0, sizeof P);
++    memset(&g_pend_clear, 0, sizeof g_pend_clear);
++    memset(&g_mc_th, 0, sizeof g_mc_th);
++    g_mc_known = g_mc_sized = 0;
++    g_next_swap = 0;
++    g_frames = 0;
++
+     g_lib = nil; g_util = nil;
+     g_samp0 = nil;
+     g_tex0 = nil; g_cube0 = nil; g_tex3d0 = nil; g_arr0 = nil;
+diff --git a/dm/host/dm.h b/dm/host/dm.h
+index e15607f2..036f3b3f 100644
+--- a/dm/host/dm.h
++++ b/dm/host/dm.h
+@@ -229,5 +229,10 @@ void dm_gfx_shot_at(long k, const char *path);
+ void dm_shot_written(const char *path, int ok);   // The graphics side finished writing a screenshot to disk (diag.c: DM_TICK_HOLD=E:SHOT unfreezes on this)
+ void dm_host_shutdown_then(const char *why, void (*then)(void *), void *arg);   // The same, then(arg) in place of the last _exit(0) (oe::ExecuteProgram: execve of the next program)
+ void dm_host_shutdown(const char *why);   // Graceful exit (crash.c): stop background threads and audio, drain graphics, then _exit(0); used by SIGTERM and the iOS App termination callback   // graphics side: screenshot of the k-th frame after the current presented frame (nvn_mtl.m)
+-int dm_teardown_is_parking(void);
++void dm_host_set_shell_quit(void (*fn)(const char *));
++int  dm_host_has_shell_quit(void);
++void dm_bigstack_teardown(void);
++int  dm_teardown_is_parking(void);
+ void dm_teardown_check_current_thread(void);
++int  dm_teardown_is_guest_thread(void);
++void dm_teardown_park_self(void);
+diff --git a/dm/host/hle_audio.c b/dm/host/hle_audio.c
+index a4c301c8..e527cbb2 100644
+--- a/dm/host/hle_audio.c
++++ b/dm/host/hle_audio.c
+@@ -43,6 +43,7 @@ typedef struct {
+     _Atomic uint64_t cb_n;             // device callbacks of this output (the watchdog's evidence that the device still plays it)
+     uint64_t wd_n, wd_t;               // watchdog: callback count last seen and when it last moved (under g_aos_lock)
+     int stalled, retry_ms; uint64_t retry_at;   // the device stopped calling back (or would not start): the silent sink stands in and the watchdog retries the AudioUnit at retry_at, backing off
++    const void *guest_key;             // key in objmap (guest AudioOut* or dm_pcmout_open's key), cleared on close / stop_all
+ } aout;
+ 
+ // Registry of open outputs: suspended / resumed all at once by the front-end lifecycle (going to background).
+@@ -434,6 +435,7 @@ static Result au_open_at(void *g, void *ev, const char *name, const uint8_t *par
+     // The helper finishes (and is joined) before lifecycle/watchdog readers can find this output.
+     // Keep construction outside g_aos_lock: joining the helper can yield the guest core.
+     if (use_au) au_open(a);
++    a->guest_key = g;
+     objmap_put(g, a);
+     pthread_mutex_lock(&g_aos_lock);
+     int slot = -1; for (int i = 0; i < AOMAX; i++) if (!g_aos[i]) { slot = i; break; }
+@@ -502,9 +504,12 @@ static void au_stop_at(void *g, void *lr) {   // lr NULL: the stop inside Close,
+ }
+ HLE_FORCE_BIG("_ZN2nn5audio12StopAudioOutEPNS0_8AudioOutE", "stop playback", void, h_au_Stop, void *g) { au_stop_at(g, dm_bigstack_caller(__builtin_return_address(0))); }
+ static void au_close(void *g, void *lr) {
+-    au_note(ao(g), "Close", lr);
++    aout *a = objmap_get(g);
++    if (!a) return;
++    au_note(a, "Close", lr);
+     au_stop_at(g, NULL);
+-    aout *a = objmap_del(g);
++    objmap_del(g);
++    a->guest_key = NULL;
+     atomic_store_explicit(&a->notify_run, 0, memory_order_release);
+     dispatch_semaphore_signal(a->notify_sem);
+     pthread_join(a->notify_th, NULL);
+@@ -761,6 +766,10 @@ void *dm_pcmout_open(int ch) {
+ }
+ // Wait until the output releases a block, at most ms milliseconds (spurious returns are fine: the caller checks dm_pcmout_released again)
+ void dm_pcmout_wait(void *k, int ms) { dispatch_semaphore_wait(ao(k)->rel_sem, dispatch_time(DISPATCH_TIME_NOW, (int64_t)ms * 1000000)); }
++void dm_pcmout_wake(void *k) {
++    aout *a = k ? objmap_get(k) : NULL;
++    if (a && a->rel_sem) dispatch_semaphore_signal(a->rel_sem);
++}
+ void dm_pcmout_start(void *k) { au_start_at(k, NULL); }
+ void dm_pcmout_close(void *k) { au_close(k, NULL); free(k); }   // stop, take it out of the registry (frees its AOMAX slot), free it and its key
+ int dm_pcmout_append(void *k, void *b) { return (int)h_au_Append(k, b); }
+@@ -816,6 +825,7 @@ void dm_audio_stop_all(void) {
+     if (join_wd) pthread_join(wd_th, NULL);
+     for (int i = 0; i < AOMAX; i++) if (stopped[i]) {
+         aout *a = stopped[i];
++        if (a->guest_key) { objmap_del(a->guest_key); a->guest_key = NULL; }
+         atomic_store_explicit(&a->notify_run, 0, memory_order_release);
+         dispatch_semaphore_signal(a->notify_sem);
+         pthread_join(a->notify_th, NULL);
+diff --git a/dm/host/hle_audren.c b/dm/host/hle_audren.c
+index e5d06cbf..6cad0d93 100644
+--- a/dm/host/hle_audren.c
++++ b/dm/host/hle_audren.c
+@@ -27,6 +27,7 @@ void dm_pcmout_start(void *k);
+ int dm_pcmout_append(void *k, void *b);
+ void *dm_pcmout_released(void *k);
+ void dm_pcmout_wait(void *k, int ms);
++void dm_pcmout_wake(void *k);
+ 
+ // P_SIZE: bytes of the game's AudioRendererParameter copied before the two fields are changed. SDK 16's struct is 0x38 bytes; SDK 8's (Link's Awakening) has one more word,
+ // its revision at +0x38: copying only 0x38 left the revision uninitialized and the SDK rejected it (CheckValidRevision, Result 0x499). The SDK reads only its own size of the copy
+@@ -94,6 +95,7 @@ typedef struct {
+     uint8_t *sys;                            // its AudioRenderSystem, from its first render or update (ar_of_sys)
+     _Atomic int open;
+     void *render_tt;                         // the render thread (ThreadType from dm_guest_thread_spawn): Close joins it before the SDK tears the renderer down
++    void *pcmout; int render_active;         // host PCM output key and active flag (under cq_mu) for host-thread teardown sync
+     int16_t frame[FRAME_MAX * 2]; int frame_n;   // the latest frame (stereo int16)
+     _Atomic uint64_t frames, nonsilent, updates, renders, catchups;
+     uint64_t last_r; int updated;            // the render count at the last update, once there was one
+@@ -128,12 +130,17 @@ static void render_main(void *arg) {
+     void *out = dm_pcmout_open(2);
+     gbuf *free_list[NBUF]; int nfree = NBUF;
+     for (int i = 0; i < NBUF; i++) { a->bufs[i] = (gbuf){a->pcm[i], sizeof a->pcm[i], 0}; free_list[i] = &a->bufs[i]; }
+-    dm_pcmout_start(out);
++    pthread_mutex_lock(&a->cq_mu);
++    a->pcmout = out;
++    int start_ok = atomic_load(&a->open);
++    pthread_mutex_unlock(&a->cq_mu);
++    if (start_ok) dm_pcmout_start(out);
+     LOG("audren: render thread %d started (%d buffers in flight, paced by the output)", ar_index(a), NBUF);
+     while (atomic_load(&a->open)) {
+         while (!nfree) {   // wait for the output to hand a block back (silent sink / sound card, one every 5 ms); it signals each release, so the thread sleeps until then (it used to poll every 1 ms)
+             gbuf *b = dm_pcmout_released(out);
+             if (b) { free_list[nfree++] = b; break; }
++            if (!atomic_load(&a->open)) break;
+             dm_pcmout_wait(out, 10);
+             if (!atomic_load(&a->open)) break;
+         }
+@@ -148,8 +155,14 @@ static void render_main(void *arg) {
+         b->size = (uint64_t)n * 4;
+         if (!dm_pcmout_append(out, b)) free_list[nfree++] = b;
+     }
++    pthread_mutex_lock(&a->cq_mu);
++    a->pcmout = NULL;
++    pthread_mutex_unlock(&a->cq_mu);
+     dm_pcmout_close(out);   // the output would otherwise keep its sound card callback or silent sink running and hold one of the AudioOut slots after the renderer closes
+-    cq_popped(a);   // an update waiting for queue space (catch-up pacing) sees open cleared
++    pthread_mutex_lock(&a->cq_mu);
++    a->render_active = 0;
++    pthread_cond_broadcast(&a->cq_cv);   // an update waiting for queue space (catch-up pacing) or dm_audren_stop_all sees open / render_active cleared
++    pthread_mutex_unlock(&a->cq_mu);
+ }
+ 
+ // Both OpenAudioRenderer forms: CPU rendering + manual execution, then the host's render thread. With the event the game waits on it, which each render signals; without it the
+@@ -234,12 +247,13 @@ static Result ar_open(void **handle, void *ev, const uint8_t *param, void *work,
+     if (a) {   // the slot's old contents are of a closed renderer, whose thread has ended; memset leaves no lock held
+         memset(a, 0, sizeof *a);
+         pthread_mutex_init(&a->cq_mu, NULL); pthread_cond_init(&a->cq_cv, NULL);
+-        a->handle[0] = handle[0]; a->handle[1] = handle[1]; atomic_store(&a->open, 1);
++        a->handle[0] = handle[0]; a->handle[1] = handle[1]; a->render_active = 1; atomic_store(&a->open, 1);
+     }
+     pthread_mutex_unlock(&g_ar_mu);
+     LOG("audren: renderer %d opened from %s+%#llx", a ? ar_index(a) : -1, m ? m->name : "host", m ? (unsigned long long)((uint8_t *)ra - m->base) : 0ULL);
+     if (!a) { LOG("[RED] audren: more than %d renderers: this one is not rendered", AR_MAX); return r; }
+     a->render_tt = dm_guest_thread_spawn(render_main, a, 9, 0x10000);
++    if (!a->render_tt) { pthread_mutex_lock(&a->cq_mu); a->render_active = 0; pthread_mutex_unlock(&a->cq_mu); }
+     return r;
+ }
+ HLE_FORCE("_ZN2nn5audio17OpenAudioRendererEPNS0_19AudioRendererHandleEPNS_2os11SystemEventERKNS0_22AudioRendererParameterEPvm", "open the renderer (with event): CPU rendering + manual execution, the host starts a render thread",
+@@ -252,7 +266,14 @@ HLE_FORCE("_ZN2nn5audio18CloseAudioRendererENS0_19AudioRendererHandleE", "close
+     // A fixed 20 ms sleep used to stand in for this, and a renderer reopened inside that window ran a second thread over the first one's blocks
+     ar_t *a = NULL;
+     for (int i = 0; i < AR_MAX && !a; i++) if (g_ar[i].handle[0] == obj) a = &g_ar[i];
+-    if (a && a->render_tt) { atomic_store(&a->open, 0); dm_guest_thread_join(a->render_tt); a->render_tt = NULL; }
++    if (a && a->render_tt) {
++        atomic_store(&a->open, 0);
++        pthread_mutex_lock(&a->cq_mu);
++        if (a->pcmout) dm_pcmout_wake(a->pcmout);
++        pthread_mutex_unlock(&a->cq_mu);
++        dm_guest_thread_join(a->render_tt);
++        a->render_tt = NULL;
++    }
+     void *owned = objmap_del(obj), *sev = rev_find(obj);
+     orig(obj, state);
+     free(owned);
+@@ -627,7 +648,13 @@ void dm_audren_stop_all(void) {
+         atomic_store(&g_ar[i].open, 0);
+         if (g_ar[i].handle[0]) {
+             pthread_mutex_lock(&g_ar[i].cq_mu);
++            if (g_ar[i].pcmout) dm_pcmout_wake(g_ar[i].pcmout);
+             pthread_cond_broadcast(&g_ar[i].cq_cv);
++            struct timespec dl;
++            clock_gettime(CLOCK_REALTIME, &dl);
++            dl.tv_nsec += 250 * 1000000L;
++            if (dl.tv_nsec >= 1000000000L) { dl.tv_sec++; dl.tv_nsec -= 1000000000L; }
++            while (g_ar[i].render_active && !pthread_cond_timedwait(&g_ar[i].cq_cv, &g_ar[i].cq_mu, &dl)) {}
+             pthread_mutex_unlock(&g_ar[i].cq_mu);
+         }
+     }
+@@ -635,6 +662,10 @@ void dm_audren_stop_all(void) {
+ void dm_audren_teardown_post(void) {
+     for (int i = 0; i < AR_MAX; i++) {
+         if (g_ar[i].handle[0]) {
++            if (g_ar[i].pcmout) { free(g_ar[i].pcmout); g_ar[i].pcmout = NULL; }
++            g_ar[i].render_active = 0;
++            void *sev = rev_find(g_ar[i].handle[0]);
++            if (sev) rev_set(sev, NULL);
+             void *owned = objmap_del(g_ar[i].handle[0]);
+             free(owned);
+             free(g_ar[i].render_tt);
+diff --git a/dm/host/hle_bigstack.c b/dm/host/hle_bigstack.c
+index 37bf094e..0e47f319 100644
+--- a/dm/host/hle_bigstack.c
++++ b/dm/host/hle_bigstack.c
+@@ -23,7 +23,57 @@ int dm_guest_as_contains(uintptr_t a);   // hle_svc.c
+ #define BS_GUARD 16384u
+ static pthread_key_t g_bs_key __attribute__((section("__DATA,__dm_keep")));
+ static pthread_once_t g_bs_once __attribute__((section("__DATA,__dm_keep"))) = PTHREAD_ONCE_INIT;
+-static void bs_free(void *top) { if (top) munmap((uint8_t *)top - BS_SIZE - BS_GUARD, BS_SIZE + BS_GUARD); }
++typedef struct bs_retired { void *base; struct bs_retired *next; } bs_retired_t;
++static pthread_mutex_t g_bs_mu __attribute__((section("__DATA,__dm_keep"))) = PTHREAD_MUTEX_INITIALIZER;
++static bs_retired_t *g_bs_retired __attribute__((section("__DATA,__dm_keep")));
++
++// Drain deferred bigstacks once we are no longer executing inside them.
++static void bs_drain_retired(void) {
++    uintptr_t sp = (uintptr_t)__builtin_frame_address(0);
++    bs_retired_t *ready = NULL;
++    pthread_mutex_lock(&g_bs_mu);
++    bs_retired_t **pp = &g_bs_retired;
++    while (*pp) {
++        bs_retired_t *n = *pp;
++        uintptr_t base = (uintptr_t)n->base;
++        if (sp >= base && sp < base + BS_SIZE + BS_GUARD) {
++            pp = &n->next;
++            continue;
++        }
++        *pp = n->next;
++        n->next = ready;
++        ready = n;
++    }
++    pthread_mutex_unlock(&g_bs_mu);
++    while (ready) {
++        bs_retired_t *next = ready->next;
++        munmap(ready->base, BS_SIZE + BS_GUARD);
++        free(ready);
++        ready = next;
++    }
++}
++
++static void bs_free(void *top) {
++    if (!top) return;
++    uint8_t *base = (uint8_t *)top - BS_SIZE - BS_GUARD;
++    uintptr_t sp = (uintptr_t)__builtin_frame_address(0);
++    // Defer unmapping if pthread_exit runs the TLS destructor on the bigstack itself.
++    if (sp >= (uintptr_t)base && sp < (uintptr_t)top) {
++        bs_retired_t *n = malloc(sizeof(*n));
++        if (n) {
++            n->base = base;
++            pthread_mutex_lock(&g_bs_mu);
++            n->next = g_bs_retired;
++            g_bs_retired = n;
++            pthread_mutex_unlock(&g_bs_mu);
++        }
++        return;
++    }
++    munmap(base, BS_SIZE + BS_GUARD);
++    bs_drain_retired();
++}
++
++void dm_bigstack_teardown(void) { bs_drain_retired(); }
+ static void bs_init(void) { if (pthread_key_create(&g_bs_key, bs_free)) die("big stack pthread_key_create"); }
+ 
+ // sp inside the guest address block -> the top of this thread's host stack (16-byte aligned); otherwise 0 (no switch)
+diff --git a/dm/host/hle_lifecycle.c b/dm/host/hle_lifecycle.c
+index 0655d1c4..8ea74515 100644
+--- a/dm/host/hle_lifecycle.c
++++ b/dm/host/hle_lifecycle.c
+@@ -5,9 +5,38 @@
+ #include <dispatch/dispatch.h>
+ #include <stdatomic.h>
+ #include <signal.h>
++#include <string.h>
+ #include <unistd.h>
+ void hlecount_flush(void); void dm_rec_finish(void);
++static void (*g_shell_quit_fn)(const char *);
++void dm_host_set_shell_quit(void (*fn)(const char *)) { g_shell_quit_fn = fn; }
++int dm_host_has_shell_quit(void) { return g_shell_quit_fn != NULL; }
++
++typedef struct { const char *why; void (*then)(void *); void *arg; } dm_shutdown_bounce_t;
++static void *dm_shutdown_bounce_main(void *p) {
++    dm_shutdown_bounce_t *b = p;
++    const char *why = b->why; void (*then)(void *) = b->then; void *arg = b->arg;
++    free(b);
++    dm_host_shutdown_then(why, then, arg);
++    return NULL;
++}
++
+ void dm_host_shutdown_then(const char *why, void (*then)(void *), void *arg) {
++    if (!then && g_shell_quit_fn && (!why || strcmp(why, "SIGTERM") != 0)) {
++        g_shell_quit_fn(why ? why : "shutdown");
++        if (dm_teardown_is_guest_thread()) dm_teardown_park_self();
++        return;
++    }
++    if (dm_teardown_is_guest_thread()) {
++        dm_shutdown_bounce_t *b = malloc(sizeof(*b));
++        pthread_t th;
++        if (b && (b->why = why, b->then = then, b->arg = arg, pthread_create(&th, NULL, dm_shutdown_bounce_main, b) == 0)) {
++            pthread_detach(th);
++            dm_teardown_park_self();
++            return;
++        }
++        free(b);
++    }
+     static _Atomic int once; if (atomic_exchange(&once, 1)) return;
+     uint64_t t0 = now_ns(); LOG("received %s: graceful exit", why);
+     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500 * NSEC_PER_MSEC), dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
+@@ -32,6 +61,7 @@ void dm_term_install(void) {
+     dispatch_resume(g_term_src);
+ }
+ void dm_vsync_stop_all(void);
++void dm_audio_suspend(int on);
+ void dm_audio_stop_all(void);
+ void dm_threads_park_all(void);
+ void dm_guest_memory_release(int unmap_as);
+@@ -55,8 +85,8 @@ void dm_host_teardown_for_shell(void) {
+     if (g_term_src) { dispatch_source_cancel(g_term_src); g_term_src = NULL; }
+     dm_cheats_exit();
+     dm_vsync_stop_all();
++    dm_audio_suspend(1);
+     dm_audren_stop_all();
+-    dm_audio_stop_all();
+     dm_movie_stop_all();
+     dm_codec_video_stop_all();
+     dm_save_sync_stop();
+@@ -64,6 +94,8 @@ void dm_host_teardown_for_shell(void) {
+     dm_guest_clock_wake_teardown();
+     dm_gfx_suspend(1);
+     dm_threads_park_all();
++    dm_bigstack_teardown();
++    dm_audio_stop_all();
+     dm_haptics_apple_teardown();
+     dm_switch2_teardown();
+     dm_audren_teardown_post();
+diff --git a/dm/host/hle_svc.c b/dm/host/hle_svc.c
+index 5346111b..ca2e0b9b 100644
+--- a/dm/host/hle_svc.c
++++ b/dm/host/hle_svc.c
+@@ -874,12 +874,22 @@ static void *regions_thread(void *arg) {
+ }
+ 
+ int svc_thread(int num, uint64_t *regs);   // hle_thread.c: thread and synchronization kind
++// Weak fallbacks allow single-file SVC unit tests (t_heap_size, t_svc_memory, t_layout_runtime) to link without hle_lifecycle.c / hle_thread.c.
++__attribute__((weak)) void dm_host_shutdown(const char *why) { (void)why; _exit(0); }
++__attribute__((weak)) int dm_host_has_shell_quit(void) { return 0; }
++__attribute__((weak)) void dm_teardown_park_self(void) { _exit(0); }
+ 
+ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+     { void hlecount_svc(int); hlecount_svc(num); }   // DM_HLECOUNT: svc counts by number
+     mem_init();
+     if (svc_thread(num, regs)) return regs[0];
+     switch (num) {
++    case 0x07: {  // ExitProcess(): terminate current process (returns to shell when hosted)
++        LOG("svcExitProcess");
++        dm_host_shutdown("svcExitProcess");
++        dm_teardown_park_self();
++        return 0;
++    }
+     case 0x01: {  // SetHeapSize(out_addr*, size)  → x1 = heap base
+         size_t size = regs[1];
+         // Larger than the heap region: ResultOutOfMemory (0xD001), as Horizon's KPageTable::SetHeapSize returns. nn::os::SetMemoryHeapSize turns only that, 103 and LimitReached into
+@@ -1096,6 +1106,11 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
+         LOG("Break#%d reason=%#llx Result=%#x svc at %s+%#llx", ++nb, regs[0], res, mm ? mm->name : "?", orig_addr);
+         dm_backtrace(regs[29]);
+         if (regs[0] & 0x80000000ull) return 0;   // notification only, can continue
++        if (dm_host_has_shell_quit()) {
++            dm_host_shutdown("svcBreak");
++            dm_teardown_park_self();
++            return 0;
++        }
+         _exit(42);
+     }
+     case 0x1E: guest_clock_read_wait(); regs[0] = 0; regs[1] = guest_ticks(); return 0;   // GetSystemTick
+diff --git a/dm/host/hle_thread.c b/dm/host/hle_thread.c
+index 207fa0ce..5366d2c1 100644
+--- a/dm/host/hle_thread.c
++++ b/dm/host/hle_thread.c
+@@ -268,6 +268,16 @@ void dm_teardown_check_current_thread(void) {
+     pthread_mutex_lock(&G);
+     teardown_exit_locked(t);
+ }
++int dm_teardown_is_guest_thread(void) {
++    return pthread_getspecific(g_keythr) != NULL;
++}
++void dm_teardown_park_self(void) {
++    while (pthread_getspecific(g_keythr)) {
++        dm_teardown_check_current_thread();
++        struct timespec ts = { 0, 1000000 };
++        nanosleep(&ts, NULL);
++    }
++}
+ static thr_t *pick(int kind, uint64_t a) {
+     thr_t *b = NULL;
+     for (thr_t *t = g_wait; t; t = t->next) {
+diff --git a/dm/host/home_quit.h b/dm/host/home_quit.h
+index 8acb4a5b..d807b94f 100644
+--- a/dm/host/home_quit.h
++++ b/dm/host/home_quit.h
+@@ -147,6 +147,11 @@ static inline void hq_text_line(const char *text, int i, const char *def, char *
+     memcpy(out, s, n); out[n] = 0;
+ }
+ 
++// Holding either the controller's Home button or both - and + (View and Menu) together opens the quit prompt.
++static inline int hq_pad_home(int home, int minus, int plus) {
++    return home != 0 || (minus != 0 && plus != 0);
++}
++
+ // GameController's Home button setting for apps (GCControllerHomeButtonSettingInAppAction, macOS 27) as the word the log line names it by:
+ // "system" (the system keeps Home whatever the app asks), "app" (the app decides), "off" (the system does nothing with Home in apps),
+ // "unavailable" (could not be read)
+diff --git a/dm/host/tests/t_audio_spsc.c b/dm/host/tests/t_audio_spsc.c
+index 197b724c..310b02dc 100644
+--- a/dm/host/tests/t_audio_spsc.c
++++ b/dm/host/tests/t_audio_spsc.c
+@@ -117,8 +117,51 @@ static int stop_pending(void) {
+     printf("Stop releases partial/pending buffers in order, signals and preserves pre-start buffers: %s\n",failed?"FAIL":"PASS");
+     atomic_store(&g_sig,0); return failed;
+ }
++
++typedef struct {
++    void *out;
++    _Atomic int entered;
++    _Atomic int stop;
++    _Atomic int closed;
++} pcmout_wait_ctx;
++
++static void *pcmout_wait_worker(void *p) {
++    pcmout_wait_ctx *c = p;
++    atomic_store(&c->entered, 1);
++    while (!atomic_load(&c->stop)) dm_pcmout_wait(c->out, 5000);
++    dm_pcmout_close(c->out);
++    atomic_store(&c->closed, 1);
++    return NULL;
++}
++
++static int pcmout_teardown_while_waiting(void) {
++    pcmout_wait_ctx c = { .out = dm_pcmout_open(2) };
++    if (!c.out) return 1;
++    pthread_t th;
++    if (pthread_create(&th, NULL, pcmout_wait_worker, &c)) return 1;
++    while (!atomic_load(&c.entered)) sched_yield();
++    usleep(20000);
++    uint64_t t0 = now_ns();
++    atomic_store(&c.stop, 1);
++    dm_pcmout_wake(c.out);
++    pthread_join(th, NULL);
++    uint64_t elapsed_ms = (now_ns() - t0) / 1000000ull;
++    dm_audio_stop_all();
++    g_suspended = 0;
++
++    // Also verify idempotency if dm_audio_stop_all ran first before a concurrent dm_pcmout_close.
++    void *out2 = dm_pcmout_open(2);
++    if (!out2) return 1;
++    dm_audio_stop_all();
++    dm_pcmout_close(out2);
++    g_suspended = 0;
++    int failed = !atomic_load(&c.closed) || elapsed_ms >= 500;
++    printf("pcmout wake + teardown while waiting (%llu ms): %s\n", (unsigned long long)elapsed_ms, failed ? "FAIL" : "PASS");
++    return failed;
++}
+ int main(void) {
+     if (stop_pending()) return 1;
++    if (pcmout_teardown_while_waiting()) return 1;
+     char out[64], ev[64]; uint8_t prm[16];
+     test_ctx t = {0};
+     t.bufs = calloc(NBUF, sizeof *t.bufs); t.data = calloc(NBUF, sizeof *t.data); t.sizes = calloc(NBUF, sizeof *t.sizes); t.scratch = malloc(512);
+diff --git a/dm/host/tests/t_audren_layout.c b/dm/host/tests/t_audren_layout.c
+index a291697c..d145486e 100644
+--- a/dm/host/tests/t_audren_layout.c
++++ b/dm/host/tests/t_audren_layout.c
+@@ -37,6 +37,7 @@ int dm_pcmout_append(void *k, void *b) {
+ }
+ void *dm_pcmout_released(void *k) { (void)k; return NULL; }
+ void dm_pcmout_wait(void *k, int ms) { (void)k; (void)ms; }
++void dm_pcmout_wake(void *k) { (void)k; }
+ void hle_bind_system_event(void *ev, int ac) { (void)ev; (void)ac; }
+ uint32_t hle_dup_readable_handle(uint32_t h) { return h; }
+ 
+diff --git a/dm/host/tests/t_audren_work.c b/dm/host/tests/t_audren_work.c
+index 59858c17..82c67429 100644
+--- a/dm/host/tests/t_audren_work.c
++++ b/dm/host/tests/t_audren_work.c
+@@ -101,6 +101,7 @@ void dm_pcmout_start(void *k) { (void)k; }
+ int dm_pcmout_append(void *k, void *b) { (void)k; (void)b; return 0; }
+ void *dm_pcmout_released(void *k) { (void)k; return NULL; }
+ void dm_pcmout_wait(void *k, int ms) { (void)k; (void)ms; }
++void dm_pcmout_wake(void *k) { (void)k; }
+ void hle_bind_system_event(void *ev, int ac) {
+     if (ev == notify_event) { assert(ac == 0); notify_binds++; return; }
+     assert(ev == sdk_event && ac == 1 && event_destroys == 2 * event_binds + 1);   // after the open destroys the SDK's local event (each earlier Close destroyed one more)
+diff --git a/dm/host/tests/t_bigstack.c b/dm/host/tests/t_bigstack.c
+index cb0017c5..d4b43d3a 100644
+--- a/dm/host/tests/t_bigstack.c
++++ b/dm/host/tests/t_bigstack.c
+@@ -1,6 +1,7 @@
+ // Big-stack entry (hle_bigstack.c, hle.h HLE_FORCE_BIG): a take-over called on a small guest stack runs on the thread's host stack with its register arguments intact, and dm_bigstack_caller
+ // gives back the game's call site both after a switch and straight through off the guest block (the audio Start / Stop / Close log it, PR #721)
+ #include "../hle.h"
++#include <pthread.h>
+ #include <stdio.h>
+ #include <string.h>
+ #include <sys/mman.h>
+@@ -27,6 +28,13 @@ HLE_FORCE("_ZN4test4logsEm", "unit test", uint64_t, logs, uint64_t a) {
+     return a + 1;
+ }
+ 
++HLE_FORCE_BIG("_ZN4test10exit_on_bsEm", "unit test", uint64_t, exit_on_bs, uint64_t unused) {
++    (void)unused;
++    // Call pthread_exit while executing directly inside the thread's bigstack.
++    pthread_exit((void *)(uintptr_t)99);
++    return 0;
++}
++
+ // call_on(a, b, d, top, fn): calls fn(a, b, d) with sp = top (0: on this stack); _call_on_site is the return address the call leaves, the "game's call site"
+ uint64_t call_on(uint64_t a, uint64_t b, double d, uintptr_t top, const void *fn);
+ extern const char call_on_site[];
+@@ -37,6 +45,18 @@ __asm__(".text\n.p2align 2\n.globl _call_on\n_call_on:\n"
+         ".globl _call_on_site\n_call_on_site:\n"
+         "    mov sp, x29\n    ldp x29, x30, [sp], #16\n    ret\n");
+ 
++static void *exit_worker(void *p) {
++    (void)p;
++    call_on(0, 0, 0.0, g_hi, exit_on_bs_bs);
++    return NULL;
++}
++
++static void *plain_worker(void *p) {
++    (void)p;
++    call_on(1, 2, 0.0, g_hi, probe_bs);
++    return (void *)(uintptr_t)77;
++}
++
+ static int checks, fails;
+ #define CHECK(c, msg) do { checks++; if (!(c)) { fails++; fprintf(stderr, "FAIL: %s\n", msg); } } while (0)
+ 
+@@ -74,6 +94,15 @@ int main(void) {
+     CHECK(g_fp && dm_guest_as_contains(g_fp), "the logging take-over itself ran on the guest stack");
+     CHECK(!strcmp(got, "[dm] big-stack test line 41 from a guest stack 2.50\n"), "the log line written from 1 KB of guest stack");
+ 
++    // Teardown exiting a thread from inside its own bigstack must defer munmap instead of SIGSEGVing.
++    pthread_t th1, th2; void *ret1 = NULL, *ret2 = NULL;
++    CHECK(pthread_create(&th1, NULL, exit_worker, NULL) == 0, "spawn bigstack-exit thread");
++    CHECK(pthread_join(th1, &ret1) == 0 && (uintptr_t)ret1 == 99, "pthread_exit inside bigstack did not crash");
++    // A subsequent normal thread exit off bigstack plus teardown cleanly drains deferred stacks.
++    CHECK(pthread_create(&th2, NULL, plain_worker, NULL) == 0, "spawn normal thread after bigstack exit");
++    CHECK(pthread_join(th2, &ret2) == 0 && (uintptr_t)ret2 == 77, "normal thread after bigstack exit succeeded");
++    dm_bigstack_teardown();
++
+     printf("big-stack entry: %d/%d checks %s\n", checks - fails, checks, fails ? "✗" : "✓");
+     return fails != 0;
+ }
+diff --git a/dm/host/tests/t_home_quit.c b/dm/host/tests/t_home_quit.c
+index 94ef558d..19a387f4 100644
+--- a/dm/host/tests/t_home_quit.c
++++ b/dm/host/tests/t_home_quit.c
+@@ -191,6 +191,15 @@ int main(void) {
+     CHECK(!strcmp(hq_in_app_name(0), "system") && !strcmp(hq_in_app_name(1), "app") && !strcmp(hq_in_app_name(-1), "unavailable"), "the setting's words");
+     CHECK(!strcmp(hq_in_app_name(0x7fffffffffffffffL), "off"), "disabled is off");
+ 
++    // - + + (View + Menu) chord acts identically to Home when both are held together.
++    CHECK(!hq_pad_home(0, 0, 0) && !hq_pad_home(0, 1, 0) && !hq_pad_home(0, 0, 1), "single minus or plus alone does not trigger quit");
++    CHECK(hq_pad_home(1, 0, 0) && hq_pad_home(0, 1, 1) && hq_pad_home(1, 1, 0), "Home or minus+plus chord triggers quit");
++    q = (home_quit){0};
++    CHECK(hq_step(&q, 1.0, hq_pad_home(0, 1, 1), 0, 0) == HQ_HOLDING, "- + + held: hold starts");
++    CHECK(hq_step(&q, 2.9, hq_pad_home(0, 1, 1), 0, 0) == HQ_HOLDING, "- + + held 1.9 s: still holding");
++    CHECK(hq_step(&q, 3.0, hq_pad_home(0, 1, 1), 0, 0) == HQ_PROMPT, "- + + held 2.0 s: prompt opens");
++    CHECK(hq_step(&q, 3.2, hq_pad_home(0, 0, 0), 1, 0) == HQ_QUIT, "A confirms quit after - + + prompt");
++
+     printf("t_home_quit: %d checks, %d failed\n", checks, fails);
+     return fails != 0;
+ }
+diff --git a/dm/ios/Sources/DmGamepad.m b/dm/ios/Sources/DmGamepad.m
+index 508eef08..9db80b15 100644
+--- a/dm/ios/Sources/DmGamepad.m
++++ b/dm/ios/Sources/DmGamepad.m
+@@ -180,6 +180,8 @@ @implementation DmGamepad {
+     CAShapeLayer *_ring, *_knob;                   // the left stick (the right one is not drawn)
+     CALayer *_hint; CATextLayer *_hintText; NSString *_hintWords;   // the 3D layout's right-stick hint: words only, once per launch (see "The right-stick hint")
+     DmMenuButton *_menu;                           // opens the in-game menu (GameMenu.swift)
++    UIView *_padHint; CAShapeLayer *_padHintBg;    // controller quit hint below _menu: shown once per launch with keycap pills, fades with _menu
++    NSString *_padHintWords; BOOL _padHintShown;
+     unsigned _menuGen;                             // generation counter for the controller-idle menu fade timer
+     BOOL _menuOpen;                                // the in-game menu is currently presented
+     UIImpactFeedbackGenerator *_touchFeedback;       // one short feedback per touch-control press edge
+@@ -262,6 +264,14 @@ - (instancetype)initWithFrame:(CGRect)f {
+         __weak DmGamepad *weakSelf = self;
+         [_menu addAction:[UIAction actionWithHandler:^(UIAction *a) { (void)a; [weakSelf reset]; }] forControlEvents:UIControlEventMenuActionTriggered];   // the menu opens: release every key and touch first
+         [self addSubview:_menu];
++        const char *padQuit = getenv("DM_PAD_QUIT_HINT");   // the shell passes the player's language with {-} and {+}; empty turns it off
++        _padHintWords = padQuit ? [NSString stringWithUTF8String:padQuit] : @"Hold {-} and {+} to quit";
++        _padHint = [UIView new]; _padHint.userInteractionEnabled = NO; _padHint.hidden = YES; _padHint.alpha = 0;
++        _padHintBg = [CAShapeLayer layer];
++        _padHintBg.fillColor = k_idle.CGColor; _padHintBg.strokeColor = k_line.CGColor; _padHintBg.lineWidth = 1.5;
++        _padHintBg.shadowColor = UIColor.blackColor.CGColor; _padHintBg.shadowOpacity = 0.2; _padHintBg.shadowRadius = 3; _padHintBg.shadowOffset = CGSizeMake(0, 1);
++        [_padHint.layer addSublayer:_padHintBg];
++        [self addSubview:_padHint];
+         const char *hint = getenv("DM_TOUCH_HINT");   // the shell passes the player's language; empty turns the hint off
+         _hintWords = hint ? [NSString stringWithUTF8String:hint] : @"Right stick: drag here";
+         _hint = [CALayer layer]; _hint.backgroundColor = [UIColor colorWithWhite:0 alpha:0.5].CGColor; _hint.opacity = 0; _hint.hidden = YES;
+@@ -583,6 +593,8 @@ - (void)layoutSubviews {
+     in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);
+     [CATransaction commit];
+     [self placeHint];
++    if (!_padHint.hidden) [self placePadHint];
++    else if (_padOff && !_layout.onTV && !_menuOpen && ![self voiceOverRunning] && !_padHintShown && _padHintWords.length && !CGRectIsEmpty(self.bounds)) [self wakeMenu];
+     [self refresh];
+ }
+ 
+@@ -672,7 +684,7 @@ static void read_pad(GCExtendedGamepad *g) {
+     dm_pad_set_player(p, m, axis(g.leftThumbstick.xAxis.value), axis(g.leftThumbstick.yAxis.value), axis(g.rightThumbstick.xAxis.value), axis(g.rightThumbstick.yAxis.value));
+ }
+ // Home and Capture: without this iOS takes them as system gestures (Home opens the Games overlay, Capture a screenshot); the app gives them no function
+-static void pad_keep_system_buttons(GCController *c) {   // Home held for 2 s opens the quit prompt (front_ios.m): iOS 27 respects the claim when the Home button setting for apps lets the app decide
++static void pad_keep_system_buttons(GCController *c) {   // Home (or holding both - + + / View + Menu for 2 s) opens the quit prompt (front_ios.m): iOS 27 respects Home claims when the Home button setting for apps lets the app decide
+     for (NSString *b in @[GCInputButtonHome, GCInputButtonShare]) c.physicalInputProfile.buttons[b].preferredSystemGestureState = GCSystemGestureStateDisabled;
+     c.extendedGamepad.buttonHome.pressedChangedHandler = ^(GCControllerButtonInput *b, float v, BOOL down) { (void)b; (void)v; (void)down; front_ios_quit_poll(); };
+ }
+@@ -732,23 +744,126 @@ static BOOL pads_slotted(GCController *gone) {
+     dispatch_async(dispatch_get_main_queue(), ^{ cp_poll(); });   // a controller came or went while the controller applet's prompt is up
+     return waiting || pad_slot_mask(&g_slots) != 0;   // a controller waiting for its first press hides the touch gamepad too
+ }
++- (void)hidePadHintNow {
++    [_padHint.layer removeAllAnimations];
++    _padHint.alpha = 0; _padHint.hidden = YES;
++}
++- (void)placePadHint {
++    if (CGRectIsEmpty(self.bounds) || !_padHintWords.length) return;
++    NSMutableArray<NSString *> *parts = [NSMutableArray array];
++    NSMutableArray<NSNumber *> *isCap = [NSMutableArray array];
++    NSCharacterSet *ws = NSCharacterSet.whitespaceAndNewlineCharacterSet;
++    NSUInteger pos = 0, len = _padHintWords.length;
++    while (pos < len) {
++        NSRange rMinus = [_padHintWords rangeOfString:@"{-}" options:0 range:NSMakeRange(pos, len - pos)];
++        NSRange rPlus = [_padHintWords rangeOfString:@"{+}" options:0 range:NSMakeRange(pos, len - pos)];
++        NSRange next = (rMinus.location <= rPlus.location) ? rMinus : rPlus;
++        if (next.location == NSNotFound) {
++            NSString *tail = [[_padHintWords substringFromIndex:pos] stringByTrimmingCharactersInSet:ws];
++            if (tail.length) { [parts addObject:tail]; [isCap addObject:@NO]; }
++            break;
++        }
++        if (next.location > pos) {
++            NSString *seg = [[_padHintWords substringWithRange:NSMakeRange(pos, next.location - pos)] stringByTrimmingCharactersInSet:ws];
++            if (seg.length) { [parts addObject:seg]; [isCap addObject:@NO]; }
++        }
++        [parts addObject:(next.location == rMinus.location ? @"−" : @"+")];
++        [isCap addObject:@YES];
++        pos = NSMaxRange(next);
++    }
++    if (!parts.count) return;
++
++    CGFloat u = self.u;
++    CGFloat minX = self.safeAreaInsets.left + 8.0, maxX = self.bounds.size.width - self.safeAreaInsets.right - 8.0;
++    CGFloat availW = MAX(maxX - minX, 120.0);
++    CGFloat fs = fmin(fmax(12.5 * u, 11.0), 16.0);
++    CGFloat su = 1.0, h = 0, padX = 0, gap = 0, capW = 0, capH = 0, boxW = 0;
++    UIFont *textFont = nil;
++    NSMutableArray<NSNumber *> *widths = [NSMutableArray arrayWithCapacity:parts.count];
++    for (int pass = 0; pass < 2; pass++) {
++        su = fs / 12.5;
++        h = round(28.0 * su); padX = round(12.0 * su); gap = round(4.5 * su);
++        capW = round(22.0 * su); capH = round(17.0 * su);
++        textFont = [UIFont systemFontOfSize:fs weight:UIFontWeightSemibold];
++        [widths removeAllObjects];
++        CGFloat contentW = 0;
++        for (NSUInteger i = 0; i < parts.count; i++) {
++            CGFloat w = isCap[i].boolValue ? capW : ceil([parts[i] sizeWithAttributes:@{NSFontAttributeName: textFont}].width);
++            [widths addObject:@(w)];
++            contentW += w + (i > 0 ? gap : 0);
++        }
++        boxW = contentW + 2.0 * padX;
++        if (boxW <= availW || pass == 1) break;
++        fs = fmax(floor(fs * availW / boxW * 2.0) / 2.0, 9.5);
++    }
++
++    [[_padHint.subviews copy] makeObjectsPerformSelector:@selector(removeFromSuperview)];
++    for (CALayer *sub in [_padHint.layer.sublayers copy]) if (sub != _padHintBg) [sub removeFromSuperlayer];
++
++    CGFloat mr = self.geo->swapR; CGPoint mc = self.menuCenter;
++    CGFloat x = round(mc.x - boxW / 2.0);
++    if (x < minX) x = minX;
++    if (x + boxW > maxX) x = MAX(minX, maxX - boxW);
++    CGFloat y = round(mc.y + mr + 7.0 * u);
++
++    [CATransaction begin]; [CATransaction setDisableActions:YES];
++    _padHint.frame = CGRectMake(x, y, boxW, h);
++    _padHintBg.frame = _padHint.bounds;
++    setPath(_padHintBg, CGPathCreateWithRoundedRect(_padHint.bounds, h / 2.0, h / 2.0, NULL));
++
++    UIFont *capFont = [UIFont systemFontOfSize:fs weight:UIFontWeightBold];
++    UIColor *capFill = [UIColor colorWithWhite:1 alpha:0.12], *capStroke = [UIColor colorWithWhite:1 alpha:0.42];
++    CGFloat cx = padX;
++    for (NSUInteger i = 0; i < parts.count; i++) {
++        CGFloat w = widths[i].doubleValue;
++        if (isCap[i].boolValue) {
++            CGRect cr = CGRectMake(cx, round((h - capH) / 2.0), capW, capH);
++            CAShapeLayer *cap = [CAShapeLayer layer];
++            cap.fillColor = capFill.CGColor; cap.strokeColor = capStroke.CGColor; cap.lineWidth = 1.0;
++            CGPathRef cp = CGPathCreateWithRoundedRect(cr, capH / 2.0, capH / 2.0, NULL);
++            cap.path = cp; CGPathRelease(cp);
++            [_padHint.layer addSublayer:cap];
++            UILabel *kl = [[UILabel alloc] initWithFrame:cr];
++            kl.font = capFont; kl.textColor = k_text; kl.textAlignment = NSTextAlignmentCenter; kl.text = parts[i];
++            [_padHint addSubview:kl];
++        } else {
++            UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(cx, 0, w, h)];
++            lbl.font = textFont; lbl.textColor = k_text; lbl.text = parts[i];
++            [_padHint addSubview:lbl];
++        }
++        cx += w + gap;
++    }
++    [CATransaction commit];
++}
+ - (void)wakeMenu {
+     unsigned gen = ++_menuGen;
+     [_menu.layer removeAllAnimations];
+     _menu.hidden = NO; _menu.alpha = 1;
+-    if (!_padOff || _layout.onTV || _menuOpen || [self voiceOverRunning]) return;
++    if (!_padOff || _layout.onTV || _menuOpen || [self voiceOverRunning]) { [self hidePadHintNow]; return; }
++    if (!_padHintShown && _padHintWords.length && !CGRectIsEmpty(self.bounds)) {
++        _padHintShown = YES;
++        [self placePadHint];
++        [_padHint.layer removeAllAnimations];
++        _padHint.hidden = NO; _padHint.alpha = 1;
++        LOG("front end: controller quit hint shown");
++    }
+     __weak DmGamepad *weak = self;
+     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(K_MENU_IDLE * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+         DmGamepad *s = weak;
+         if (!s || s->_menuGen != gen || !s->_padOff || s->_layout.onTV || s->_menuOpen || [s voiceOverRunning]) return;
+         if ([s reduceMotionEnabled]) {
+             s->_menu.alpha = 0; s->_menu.hidden = YES;
++            [s hidePadHintNow];
+             return;
+         }
+         [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionBeginFromCurrentState | UIViewAnimationOptionAllowUserInteraction animations:^{
+             s->_menu.alpha = 0;
++            if (!s->_padHint.hidden) s->_padHint.alpha = 0;
+         } completion:^(BOOL finished) {
+-            if (finished && s->_menuGen == gen && s->_padOff && !s->_layout.onTV && !s->_menuOpen && ![s voiceOverRunning]) s->_menu.hidden = YES;
++            if (finished && s->_menuGen == gen && s->_padOff && !s->_layout.onTV && !s->_menuOpen && ![s voiceOverRunning]) {
++                s->_menu.hidden = YES;
++                s->_padHint.hidden = YES;
++            }
+         }];
+     });
+ }
+@@ -761,6 +876,7 @@ - (void)updateControlVisibility {
+     if (_padOff && _layout.onTV) {
+         ++_menuGen; [_menu.layer removeAllAnimations];
+         _menu.alpha = 1; _menu.hidden = YES;
++        [self hidePadHintNow];
+     } else {
+         [self wakeMenu];
+     }
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index b504c96c..06b2f534 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -573,6 +573,7 @@ static void save_sync_background(void) {
+ }
+ 
+ static _Atomic int g_quitting;
++static _Atomic uint64_t g_quit_epoch __attribute__((section("__DATA,__dm_keep")));
+ void front_ios_focus_event(int ev) {
+     if (!g_layer || atomic_load(&g_quitting)) return;
+     switch (ev) {
+@@ -589,7 +590,7 @@ void front_ios_focus_event(int ev) {
+ 
+ // ---- Quit to the launcher (LNPANDY/NX2Apple#421) ----
+ // Two ways open the quit prompt (quit_prompt.h) over the game: Quit at the end of the in-game menu (the gear at the top centre, GameMenu.swift, which stays while
+-// a controller hides the other touch controls), and holding a controller's Home button for 2 seconds (home_quit.h, as on the Mac; the indicator at the top fills
++// a controller hides the other touch controls), and holding a controller's Home button or both - + + (View + Menu) for 2 seconds (home_quit.h, as on the Mac; the indicator at the top fills
+ // while it is held). A tap on Quit or A quits, a tap on Cancel or outside the card, B or a new press of Home closes it. While it is open the game is told it lost
+ // the focus, as the Switch's HOME menu does, and gets no touch or controller input.
+ // Quitting ends the process: one game runs per process (dm_profile() and the host's early loading run once, the shell's ShellMain.m), so the engine cannot hand
+@@ -644,7 +645,7 @@ static void quit_buttons(int *home, int *a, int *b, GCController *__strong *hold
+     *home = *a = *b = 0;
+     for (GCController *c in GCController.controllers) {
+         GCExtendedGamepad *g = c.extendedGamepad; if (!g) continue;
+-        if (g.buttonHome.isPressed) { *home = 1; if (!*holder) *holder = c; }
++        if (hq_pad_home(g.buttonHome.isPressed, g.buttonOptions.isPressed, g.buttonMenu.isPressed)) { *home = 1; if (!*holder) *holder = c; }
+         *a |= g.buttonA.isPressed; *b |= g.buttonB.isPressed;
+     }
+ }
+@@ -710,9 +711,22 @@ static void front_ios_teardown(void) {
+         g_root = nil;
+     }
+     g_layer = nil;
++    atomic_fetch_add(&g_quit_epoch, 1);
+     atomic_store(&g_quitting, 0);
+ }
+ // The prompt's quit: the cloud saves go out (as when the app goes to the background), then in the shell the host tears down its threads, GPU resources and 5 GB address space and returns the window to the library, or in a single-game app the host ends as on a SIGTERM. Off the main queue: both wait
++static void quit_now(void);
++
++// Return to the shell cleanly when a hosted game exits on its own (dm_main return, svcExitProcess, svcBreak).
++void dm_shell_quit_from_guest(const char *why) {
++    if (atomic_load(&g_quitting) || !g_layer) return;
++    uint64_t epoch = atomic_load(&g_quit_epoch);
++    LOG("front end: guest exit triggers shell return (%s)", why ? why : "unknown");
++    dispatch_async(dispatch_get_main_queue(), ^{
++        if (atomic_load(&g_quit_epoch) == epoch && g_layer) quit_now();
++    });
++}
++
+ static void quit_now(void) {
+     if (atomic_exchange(&g_quitting, 1)) return;
+     dm_shell_return_fn shell_return = (dm_shell_return_fn)dlsym(RTLD_DEFAULT, "dm_shell_return_to_library");
+diff --git a/dm/ios/framework/ShellGlue.m b/dm/ios/framework/ShellGlue.m
+index e1c50745..37c7befa 100644
+--- a/dm/ios/framework/ShellGlue.m
++++ b/dm/ios/framework/ShellGlue.m
+@@ -57,8 +57,12 @@ void dm_glue_focus_event(int ev) {
+ static void *boot_thread(void *p) {
+     (void)p;
+     void crash_thread_init(void); crash_thread_init();   // crash printing must work on the host thread too (freed on pthread_exit)
++    void dm_host_set_shell_quit(void (*fn)(const char *));
++    void dm_shell_quit_from_guest(const char *why);
++    dm_host_set_shell_quit(dm_shell_quit_from_guest);
+     int rc = dm_main(g_argc, g_argv);
+     fprintf(stderr, "boot: dm_main returned %d\n", rc);
++    dm_shell_quit_from_guest("dm_main returned");
+     return NULL;
+ }
+ void front_ios_boot(void) {   // front_ios.m, once the game view exists

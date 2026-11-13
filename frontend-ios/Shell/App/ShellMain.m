@@ -25,6 +25,7 @@
 #include "SegSnap.h"
 #include "ShellEngine.h"
 #include "ShellGlue.h"
+#include "ShellSnap.h"
 #import "DmShell-Swift.h"
 
 _Static_assert(DM_SHELL_GLUE_VERSION == DM_GLUE_VERSION, "DM_SHELL_GLUE_VERSION must match DM_GLUE_VERSION");
@@ -33,7 +34,7 @@ extern char **environ;
 
 typedef struct {
     const void *fbase;
-    char marker[64];
+    char game_key[128];
     char exe_path[1024];
     time_t mtime;
     DmSegSnap seg[2];
@@ -72,7 +73,7 @@ static void clear_game_env(void) {
     for (int i = 0; i < count; i++) unsetenv(names[i]);
 }
 
-static void save_framework_data(const void *fbase, const char *marker, const char *executable, time_t mtime) {
+static void save_framework_data(const void *fbase, const char *game_key, const char *executable, time_t mtime) {
     if (!fbase) return;
     for (int i = 0; i < g_nfw_snaps; i++) if (g_fw_snaps[i].fbase == fbase) return;
     if (g_nfw_snaps >= 64) return;
@@ -80,7 +81,7 @@ static void save_framework_data(const void *fbase, const char *marker, const cha
     DmFwSnap *s = &g_fw_snaps[g_nfw_snaps++];
     memset(s, 0, sizeof *s);
     s->fbase = fbase;
-    if (marker) strlcpy(s->marker, marker, sizeof s->marker);
+    if (game_key) strlcpy(s->game_key, game_key, sizeof s->game_key);
     if (executable) strlcpy(s->exe_path, executable, sizeof s->exe_path);
     s->mtime = mtime;
     dm_seg_snap_save(mh, "__DATA", &s->seg[0]);
@@ -257,16 +258,19 @@ static const char *register_external_signature(const char *executable) {
 #endif
 
 const char *dm_shell_start_game(const char *const *keys, const char *const *values, int n, const char *const *argv, int argc,
-                                const char *executable, const char *marker, const char *log_path, const char *cwd) {
+                                const char *executable, const char *marker, const char *log_path, const char *cwd,
+                                const char *game_id) {
     static char err[512];
     if (g_boot_ok) return "A game is already running.";
     if (argc < 2 || !executable || !marker) return "The game's start arguments are incomplete.";
+    char game_key[128];
+    dm_snap_key(game_id, executable, game_key, sizeof game_key);
     struct stat exe_st;
     memset(&exe_st, 0, sizeof exe_st);
     if (stat(executable, &exe_st) == 0) {
         for (int i = 0; i < g_nfw_snaps; i++) {
-            if (strcmp(g_fw_snaps[i].marker, marker) == 0 &&
-                (strcmp(g_fw_snaps[i].exe_path, executable) != 0 || g_fw_snaps[i].mtime != exe_st.st_mtime)) {
+            if (dm_snap_conflicts(g_fw_snaps[i].game_key, g_fw_snaps[i].exe_path, g_fw_snaps[i].mtime,
+                                  game_key, executable, exe_st.st_mtime)) {
                 return "This game was updated while the app was open. Close and reopen the app to load the new build.";
             }
         }
@@ -314,7 +318,7 @@ const char *dm_shell_start_game(const char *const *keys, const char *const *valu
         return err;
     }
     fprintf(stderr, "boot: game framework %s (handle %p, image base %p, glue v%d)\n", executable, h, info.dli_fbase, *ver);
-    save_framework_data(info.dli_fbase, marker, executable, exe_st.st_mtime);
+    save_framework_data(info.dli_fbase, game_key, executable, exe_st.st_mtime);
     const char *why = start(argv, argc, info.dli_fbase);
     if (why) {
         snprintf(err, sizeof err, "%s", why);
