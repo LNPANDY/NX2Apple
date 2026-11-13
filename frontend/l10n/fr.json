@@ -2142,6 +2142,7 @@
   "stage.build_id_lookup": "Recherche du build ID",
   "stage.build_nx_extract": "Compilation de nx_extract",
   "stage.capture": "Capture des shaders %@",
+  "stage.check": "Vérification des fichiers de %@",
   "stage.decompress_nsz": "Décompression NSZ",
   "stage.extract": "Extraction de %@",
   "stage.extract_dlc": "Extraction des DLC",

@@ -2142,6 +2142,7 @@
   "stage.build_id_lookup": "查找构建 ID",
   "stage.build_nx_extract": "构建 nx_extract",
   "stage.capture": "%@ 着色器捕获",
+  "stage.check": "检查 %@ 文件",
   "stage.decompress_nsz": "解压 NSZ",
   "stage.extract": "提取 %@",
   "stage.extract_dlc": "提取 DLC",

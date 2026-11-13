@@ -46,7 +46,7 @@ extension BuildStore {
             guard let v = RomFSArchive.extractedVersion(in: extract) else {
                 hop {
                     guard let self, self.archiveGeneration == generation else { return }
-                    self.stages.append(Stage(id: idx, name: self.t("prog.archiveShort"), state: .failed, detail: self.t("prog.noRomfs")))
+                    self.stages.append(Stage(id: idx, name: self.t("prog.archiveShort"), state: .failed, detail: self.t("prog.noRomfs"), nameKey: "prog.archiveShort"))
                     self.doneNote = String(format: self.t("msg.archiveSkipped"), extract)
                     self.running = false
                     self.cleanupStaging()
@@ -71,7 +71,7 @@ extension BuildStore {
                     }
                     self.archivePath = dest
                     self.stages.append(Stage(id: idx, name: self.t("prog.archive"), state: .done,
-                                             detail: String(format: self.t("prog.archiveReused"), reused)))
+                                             detail: String(format: self.t("prog.archiveReused"), reused), nameKey: "prog.archive"))
                     self.say(String(format: self.t("msg.archiveReused"), dest))
                     if aocCount > 0 { self.say(String(format: self.t("msg.aocCopied"), aocCount)) }
                     then(dest)
@@ -149,7 +149,7 @@ extension BuildStore {
             stages[i].state = state
             stages[i].detail = detail
         } else {
-            stages.append(Stage(id: id, name: t("prog.archive"), state: state, detail: detail))
+            stages.append(Stage(id: id, name: t("prog.archive"), state: state, detail: detail, nameKey: "prog.archive"))
         }
     }
 

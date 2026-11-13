@@ -110,7 +110,8 @@ extension LiveConsoleDriver {
 
     static func builds(running: Bool, stopping: Bool, title: String, stages: [Stage], queue: [QueueEntry]) -> ConsoleBuilds {
         ConsoleBuilds(running: running, stopping: stopping, title: title,
-                      stages: running ? stages.map { ConsoleBuilds.StageRow(id: $0.id, name: $0.name, state: $0.state, progress: $0.percent.map { min(max($0 / 100, 0), 1) }) } : [],
+                      stages: running ? stages.map { ConsoleBuilds.StageRow(id: $0.id, name: $0.name, nameKey: $0.nameKey, nameArgument: $0.nameArgument,
+                                                                            state: $0.state, progress: $0.percent.map { min(max($0 / 100, 0), 1) }) } : [],
                       queue: queue.filter { $0.status == .queued || $0.status == .running }
                           .map { ConsoleBuilds.QueueRow(id: $0.id, name: $0.name, statusKey: "queue.status." + $0.status.rawValue) })
     }

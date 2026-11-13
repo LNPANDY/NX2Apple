@@ -2141,6 +2141,7 @@
   "stage.build_id_lookup": "ビルド ID の検索",
   "stage.build_nx_extract": "nx_extract のビルド",
   "stage.capture": "%@ シェーダーのキャプチャ",
+  "stage.check": "%@ のファイルを確認",
   "stage.decompress_nsz": "NSZ の展開",
   "stage.extract": "%@ の抽出",
   "stage.extract_dlc": "DLC の抽出",

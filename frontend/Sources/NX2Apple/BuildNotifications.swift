@@ -47,10 +47,11 @@ enum BuildNotice {
     }
 
     /// What a failed build said last: its message, else the step that failed with its detail.
-    static func failureReason(note: String, stages: [Stage]) -> String {
+    static func failureReason(note: String, stages: [Stage], t: (String) -> String = { $0 }) -> String {
         if !note.isEmpty { return note }
         guard let s = stages.last(where: { $0.state == .failed }) else { return "" }
-        return s.detail.isEmpty ? s.name : s.name + " · " + s.detail
+        let name = s.displayName(t)
+        return s.detail.isEmpty ? name : name + " · " + s.detail
     }
 }
 
@@ -85,7 +86,7 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     let outcome: BuildNotice.Outcome = stopped ? .stopped
-                        : done ? .finished : .failed(reason: BuildNotice.failureReason(note: m.doneNote, stages: m.stages))
+                        : done ? .finished : .failed(reason: BuildNotice.failureReason(note: m.doneNote, stages: m.stages, t: m.t))
                     guard BuildNotice.shouldNotify(outcome, enabled: BuildNotice.enabled, appActive: NSApp.isActive, hasBundleID: true) else { return }
                     self.post(outcome, m: m, library: library)
                 }

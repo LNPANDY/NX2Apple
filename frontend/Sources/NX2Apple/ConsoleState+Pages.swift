@@ -95,6 +95,8 @@ struct ConsoleBuilds: Equatable {
     struct StageRow: Equatable, Identifiable {
         var id: Int
         var name: String
+        var nameKey: String? = nil
+        var nameArgument: String? = nil
         var state: StepState
         /// The share of this stage, 0 to 1, when the stage reports one.
         var progress: Double?

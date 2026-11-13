@@ -2143,6 +2143,7 @@
   "stage.build_id_lookup": "Build-ID suchen",
   "stage.build_nx_extract": "nx_extract bauen",
   "stage.capture": "%@-Shader-Erfassung",
+  "stage.check": "%@-Dateien prüfen",
   "stage.decompress_nsz": "NSZ entpacken",
   "stage.extract": "%@ extrahieren",
   "stage.extract_dlc": "DLC extrahieren",

@@ -327,7 +327,7 @@ extension BuildStore {
         operation?.kind = .verifyingFirstStart
         let id = (stages.map(\.id).max() ?? 0) + 1
         let started = Date()
-        stages.append(Stage(id: id, name: Stage.localizedName("preflight", t), state: .running, started: started))
+        stages.append(Stage(id: id, name: "preflight", state: .running, started: started))
         say(t("msg.preflight"))
         let error: Error?
         if let run = runPreflight {
