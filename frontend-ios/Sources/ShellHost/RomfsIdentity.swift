@@ -3,7 +3,7 @@ import Foundation
 /// The identity of a RomFS image (DMROMFS1): its size and a hash of its header and index, never of the file data. The
 /// same computation as `romfs_id_of_image` in `dm/host/romfs_identity.h`, so it matches the `romfs_identity` line the
 /// game's manifest carries (`DMROMFSID1 title=… version=… build=… size=<bytes> index=<16 hex digits>`).
-struct RomfsIdentity: Equatable, Sendable {
+struct RomfsIdentity: Equatable, Hashable, Sendable {
     var size: UInt64
     var index: UInt64
 
