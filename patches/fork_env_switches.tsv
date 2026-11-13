@@ -1,4 +1,5 @@
 name	class	meaning
+DM_DSU_RAIL_1	player	`=<SL source bit>,<SR source bit>` maps decoded DSU button indices 0..15 to a selected Joy-Con rail. -1 leaves a rail unassigned. DM_DSU_RAIL_2 through DM_DSU_RAIL_8 configure other players. Only explicit left/right roles apply this mapping
 DM_DSU_ROLE_1	player	`full`, `left` or `right` selects the explicit virtual controller role for player 1 when DSU buttons are enabled. DM_DSU_ROLE_2 through DM_DSU_ROLE_8 select other players. Sensors-only mode leaves physical controller style unchanged
 DM_DSU_BUTTONS_1	player	`=1` enables DSU phone buttons and sticks for player 1, separately merged with physical controllers. Off by default. DM_DSU_BUTTONS_2 through DM_DSU_BUTTONS_8 select the other players. The shared per-user JSON stores the choice
 DM_DSU_1	player	`=<IPv4>,<port>,<slot>,<signed x>,<signed y>,<signed z>,<bias x>,<bias y>,<bias z>` assigns DSU motion to player 1. DM_DSU_2 through DM_DSU_8 use the same format for other players. Shared Phone Motion Setup writes these from the per-user JSON at launch, without embedding endpoints in game bundles

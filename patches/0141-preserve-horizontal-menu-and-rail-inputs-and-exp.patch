@@ -1,0 +1,414 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Victor Wads <victor.laureano@gmail.com>
+Date: Fri, 13 Nov 2026 07:42:23 -0300
+Subject: [PATCH] Preserve horizontal menu and rail inputs and expose game
+ motion consumption
+
+Upstream-Status: pending
+Reason: Preserve horizontal menu and explicit rail-source inputs and report game SDK consumption
+Issue: LNPANDY/NX2Apple#1206
+
+---
+ dm/host/controllers_mac.m                     |  6 +++
+ dm/host/dm_input.h                            |  1 +
+ dm/host/dsu_protocol.h                        |  9 +++++
+ dm/host/hle_dsu.c                             |  7 +++-
+ dm/host/hle_hid.c                             | 37 +++++++++++++++++--
+ dm/host/tests/t_controllers_mac.m             |  1 +
+ dm/host/tests/t_dsu.c                         |  5 +++
+ dm/host/tests/t_hid.c                         | 20 +++++++++-
+ dm/mac/Motion/ConnectionStatus.swift          |  9 ++++-
+ dm/mac/Motion/DSUConfiguration.swift          |  4 ++
+ dm/mac/Motion/MotionView.swift                |  4 +-
+ dm/mac/Motion/Protocol.swift                  | 16 ++++++++
+ dm/mac/Motion/Store.swift                     |  4 +-
+ dm/mac/Motion/Tests/MotionContractTests.swift | 16 ++++++++
+ 14 files changed, 128 insertions(+), 11 deletions(-)
+
+diff --git a/dm/host/controllers_mac.m b/dm/host/controllers_mac.m
+index b434538..9c7c1d0 100644
+--- a/dm/host/controllers_mac.m
++++ b/dm/host/controllers_mac.m
+@@ -1162,6 +1162,8 @@ static BOOL dsu_apply_configuration(NSData *data) {
+             NSString *key=[NSString stringWithFormat:@"DM_DSU_%ld",(long)player];if(values[key])return NO;
+             NSString *buttonKey=[NSString stringWithFormat:@"DM_DSU_BUTTONS_%ld",(long)player];
+             values[[NSString stringWithFormat:@"DM_DSU_ROLE_%ld",(long)player]]=(role && role!=NSNull.null) ? role:@"full";
++            for(NSString *railKey in @[@"railSL",@"railSR"]) { id v=d[railKey];if(v && v!=NSNull.null && (![v isKindOfClass:NSNumber.class] || [v doubleValue]!=[v intValue] || [v intValue]<-1 || [v intValue]>15))return NO; }
++            values[[NSString stringWithFormat:@"DM_DSU_RAIL_%ld",(long)player]]=[NSString stringWithFormat:@"%d,%d",d[@"railSL"] && d[@"railSL"]!=NSNull.null ? [d[@"railSL"] intValue]:-1,d[@"railSR"] && d[@"railSR"]!=NSNull.null ? [d[@"railSR"] intValue]:-1];
+             values[buttonKey]=[d[@"buttons"] boolValue] ? @"1":@"0";
+             values[key]=[NSString stringWithFormat:@"%@,%ld,%ld,%@,%@,%@,%@,%@,%@",host,(long)[d[@"port"] integerValue],(long)[d[@"slot"] integerValue],axes[0],axes[1],axes[2],bias[0],bias[1],bias[2]];
+         }
+@@ -1171,6 +1173,7 @@ static BOOL dsu_apply_configuration(NSData *data) {
+             NSString *key=[NSString stringWithFormat:@"DM_DSU_%d",player];unsetenv(key.UTF8String);
+             key=[NSString stringWithFormat:@"DM_DSU_BUTTONS_%d",player];unsetenv(key.UTF8String);
+             key=[NSString stringWithFormat:@"DM_DSU_ROLE_%d",player];unsetenv(key.UTF8String);
++            key=[NSString stringWithFormat:@"DM_DSU_RAIL_%d",player];unsetenv(key.UTF8String);
+         }
+         for(NSString *key in values)setenv(key.UTF8String,[values[key] UTF8String],1);
+         LOG("DSU: host loaded shared per-user JSON (%lu enabled players)",(unsigned long)values.count/3);
+@@ -1199,6 +1202,9 @@ void dm_dsu_load_configuration(void) {
+     for(int i=0;i<16;i++) [text appendFormat:@"%@ %@%@",s->buttons&(1u<<i) ? @"●" : @"○",names[i],i%4==3 ? @"\n" : @"  "];
+     [text appendFormat:@"\nSTICKS (received, signed 16-bit)\nLeft  X %+6d  Y %+6d\nRight X %+6d  Y %+6d\n",s->sticks[0],s->sticks[1],s->sticks[2],s->sticks[3]];
+     if(!s->connected) [text appendString:@"Not live: values above are not current input.\n"];
++    uint64_t reads;float guestGyro[3];dm_dsu_game_reads(player-1,&reads,guestGyro);
++    [text appendFormat:@"Game SDK motion reads: %llu · last gyro %+.3f %+.3f %+.3f rev/s\n",(unsigned long long)reads,guestGyro[0],guestGyro[1],guestGyro[2]];
++    if(!reads)[text appendString:@"No DSU motion history consumed by the game yet. Check player/style and in-game motion setting.\n"];
+     if(!s->buttons_enabled) [text appendString:@"Buttons/sticks are preview only; guest button input is disabled.\n"];
+     return text;
+ }
+diff --git a/dm/host/dm_input.h b/dm/host/dm_input.h
+index d8aca0f..7303dba 100644
+--- a/dm/host/dm_input.h
++++ b/dm/host/dm_input.h
+@@ -27,6 +27,7 @@ uint64_t dm_cheats_keys(void);
+ void dm_pad_set(uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);
+ enum { DM_DSU_FULL, DM_DSU_LEFT, DM_DSU_RIGHT };
+ void dm_dsu_configure(int player, int role, int buttons_enabled); // independent source; never writes physical Joy-Con state
++void dm_dsu_game_reads(int player,uint64_t *reads,float gyro[3]);
+ void dm_dsu_input(int player,uint64_t buttons,int32_t lx,int32_t ly,int32_t rx,int32_t ry,uint64_t sample_ns);
+ void dm_pad_set_player(int player, uint64_t buttons, int32_t lx, int32_t ly, int32_t rx, int32_t ry);   // player 0..DM_PLAYERS-1 (player 1..8)
+ void dm_pad_players(uint32_t mask);   // bit p: player p + 1 has a controller; player 1 always counts as connected (the keyboard, the touch gamepad, DM_KEYS)
+diff --git a/dm/host/dsu_protocol.h b/dm/host/dsu_protocol.h
+index d0991f4..35d69f9 100644
+--- a/dm/host/dsu_protocol.h
++++ b/dm/host/dsu_protocol.h
+@@ -4,6 +4,15 @@
+ #include <stddef.h>
+ #include <string.h>
+ #include <math.h>
++// Explicit sources are decoded Switch bits, not extra fields on the DSU wire.
++static uint64_t dsu_rails(uint16_t raw,int role,int sl,int sr) {
++    uint64_t buttons=raw;if(role!=1 && role!=2)return buttons;
++    int shift=role==1?24:26;
++    uint64_t remove=0,add=0;
++    if(sl>=0 && sl<16 && (raw&(1u<<sl))){remove|=1ull<<sl;add|=1ull<<shift;}
++    if(sr>=0 && sr<16 && (raw&(1u<<sr))){remove|=1ull<<sr;add|=1ull<<(shift+1);}
++    return (buttons&~remove)|add;
++}
+ static uint32_t dsu_u32(const uint8_t *p) { return (uint32_t)p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24; }
+ static uint64_t dsu_u64(const uint8_t *p) { return dsu_u32(p) | (uint64_t)dsu_u32(p+4)<<32; }
+ static void dsu_put(uint8_t *p, uint32_t v) { for (int i=0;i<4;i++) p[i]=(uint8_t)(v>>(i*8)); }
+diff --git a/dm/host/hle_dsu.c b/dm/host/hle_dsu.c
+index 6885493..09c2a06 100644
+--- a/dm/host/hle_dsu.c
++++ b/dm/host/hle_dsu.c
+@@ -15,7 +15,7 @@
+ #include <stdlib.h>
+ #include <unistd.h>
+ #include <time.h>
+-static struct { int fd,slot,axes[3],have,det,buttons,role; float bias[3]; uint32_t server,sequence; uint64_t timestamp,arrival,local; } peers[DM_PLAYERS];
++static struct { int fd,slot,axes[3],have,det,buttons,role,railSL,railSR; float bias[3]; uint32_t server,sequence; uint64_t timestamp,arrival,local; } peers[DM_PLAYERS];
+ static pthread_t worker;
+ static _Atomic int active;
+ static int launched;
+@@ -87,7 +87,8 @@ static void *dsu_run(void *unused) {
+             float acc[3],rot[3];
+             for (int a=0;a<3;a++) { int k=abs(peers[i].axes[a])-1;float sign=peers[i].axes[a]<0 ? -1:1;acc[a]=s.acceleration[k]*sign*peers[i].det;rot[a]=(s.degrees[k]-peers[i].bias[k])*sign*(float)(3.141592653589793/180.0); }
+             dsu_report_sample(i,&s,rot,now);
+-            if(peers[i].buttons)dm_dsu_input(i,s.buttons,s.sticks[0],s.sticks[1],s.sticks[2],s.sticks[3],now);
++            uint64_t buttons=dsu_rails(s.buttons,peers[i].role,peers[i].railSL,peers[i].railSR);
++            if(peers[i].buttons)dm_dsu_input(i,buttons,s.sticks[0],s.sticks[1],s.sticks[2],s.sticks[3],now);
+             dm_motion_set_dsu(i,acc,rot,peers[i].local);
+         }
+     }
+@@ -115,6 +116,8 @@ void dm_dsu_start(void) {
+         snprintf(key,sizeof key,"DM_DSU_ROLE_%d",i+1);const char *role=getenv(key);
+         if(role && strcmp(role,"full") && strcmp(role,"left") && strcmp(role,"right")) { LOG("[RED] DSU player %d: invalid role",i+1);close(fd);continue; }
+         peers[i].role=role && !strcmp(role,"left") ? DM_DSU_LEFT : role && !strcmp(role,"right") ? DM_DSU_RIGHT : DM_DSU_FULL;
++        peers[i].railSL=peers[i].railSR=-1;snprintf(key,sizeof key,"DM_DSU_RAIL_%d",i+1);
++        const char *rails=getenv(key);if(rails && (sscanf(rails,"%d,%d%c",&peers[i].railSL,&peers[i].railSR,&extra)!=2 || peers[i].railSL < -1 || peers[i].railSL>15 || peers[i].railSR < -1 || peers[i].railSR>15)){close(fd);continue;}
+         dm_dsu_configure(i,peers[i].role,peers[i].buttons);
+         peers[i].fd=fd;peers[i].slot=slot;peers[i].axes[0]=x;peers[i].axes[1]=y;peers[i].axes[2]=z;peers[i].bias[0]=bx;peers[i].bias[1]=by;peers[i].bias[2]=bz;
+         int a=abs(x)-1,b=abs(y)-1,c=abs(z)-1;int inversions=(a>b)+(a>c)+(b>c);
+diff --git a/dm/host/hle_hid.c b/dm/host/hle_hid.c
+index e97ab01..40a03fc 100644
+--- a/dm/host/hle_hid.c
++++ b/dm/host/hle_hid.c
+@@ -46,8 +46,8 @@ void dm_dsu_input(int p,uint64_t buttons,int32_t lx,int32_t ly,int32_t rx,int32_
+     if(p<0 || p>=DM_PLAYERS)return;
+     // Native upright halves: no sideways rotation, remapping or synthetic SL/SR.
+     int role=atomic_load(&g_dsu_role[p]);
+-    if(role==DM_DSU_LEFT) { buttons &= DM_BTN_LEFT|DM_BTN_UP|DM_BTN_RIGHT|DM_BTN_DOWN|DM_BTN_L|DM_BTN_ZL|DM_BTN_MINUS|DM_BTN_LS;rx=ry=0; }
+-    if(role==DM_DSU_RIGHT) { buttons &= DM_BTN_A|DM_BTN_B|DM_BTN_X|DM_BTN_Y|DM_BTN_R|DM_BTN_ZR|DM_BTN_PLUS|DM_BTN_RS;lx=ly=0; }
++    if(role==DM_DSU_LEFT) { buttons &= DM_BTN_LSL|DM_BTN_LSR|DM_BTN_LEFT|DM_BTN_UP|DM_BTN_RIGHT|DM_BTN_DOWN|DM_BTN_L|DM_BTN_ZL|DM_BTN_PLUS|DM_BTN_MINUS|DM_BTN_LS;rx=ry=0; }
++    if(role==DM_DSU_RIGHT) { buttons &= DM_BTN_RSL|DM_BTN_RSR|DM_BTN_A|DM_BTN_B|DM_BTN_X|DM_BTN_Y|DM_BTN_R|DM_BTN_ZR|DM_BTN_PLUS|DM_BTN_MINUS|DM_BTN_RS;lx=ly=0; }
+     uint64_t old=atomic_exchange(&g_dsu_btn[p],buttons);atomic_fetch_or(&g_dsu_latch[p],buttons&~old);
+     atomic_store(&g_dsu_axes[p],(uint64_t)(uint16_t)lx | (uint64_t)(uint16_t)ly<<16 | (uint64_t)(uint16_t)rx<<32 | (uint64_t)(uint16_t)ry<<48);atomic_store(&g_dsu_input_time[p],t);
+ }
+@@ -645,8 +645,26 @@ static void fill(NpadState *s, uint32_t id, uint32_t style) {
+         uint64_t received=atomic_load(&g_dsu_input_time[p]),host_now=now_ns();
+         uint64_t phone_edges=atomic_exchange(&g_dsu_latch[p],0);
+         if(received && host_now>=received && host_now-received<=300000000ull) {
+-            b|=atomic_load(&g_dsu_btn[p])|phone_edges;uint64_t phone_axes=atomic_load(&g_dsu_axes[p]);
+-            for(int i=0;i<4;i++)a[i]=pick(a[i],ax(phone_axes,i));
++            uint64_t phone_buttons=atomic_load(&g_dsu_btn[p])|phone_edges;uint64_t phone_axes=atomic_load(&g_dsu_axes[p]);
++            int role=atomic_load(&g_dsu_role[p]);
++            if(role!=DM_DSU_FULL) {
++                // The game rejected JoyLeft/JoyRight and reads a full-pad fallback.
++                // Convert only this source, as the native sideways decoder does.
++                static const int left_from[]={15,12,14,13,11,4,6,8};
++                static const int right_from[]={2,0,3,1,10,5,7,9};
++                static const int target[]={0,1,2,3,10,4,8,9};
++                const int *from=role==DM_DSU_LEFT?left_from:right_from;uint64_t mapped=phone_buttons&(DM_BTN_PLUS|DM_BTN_MINUS);
++                for(int k=0;k<8;k++)if(phone_buttons&(1ull<<from[k]))mapped|=1ull<<target[k];
++                int rail=role==DM_DSU_LEFT?24:26;
++                if(phone_buttons&(1ull<<rail))mapped|=DM_BTN_L;
++                if(phone_buttons&(1ull<<(rail+1)))mapped|=DM_BTN_R;
++                phone_buttons=mapped;int side=role==DM_DSU_RIGHT;
++                int32_t x=ax(phone_axes,side*2),y=ax(phone_axes,side*2+1);
++                int32_t nx=side?y:-y,ny=side?-x:x;
++                if(nx>DM_STICK_MAX)nx=DM_STICK_MAX;if(ny>DM_STICK_MAX)ny=DM_STICK_MAX;
++                phone_axes=pack(nx,ny,0,0);
++            }
++            b|=phone_buttons;for(int i=0;i<4;i++)a[i]=pick(a[i],ax(phone_axes,i));
+         }
+         b |= atomic_load(&g_pad_btn[p]) | atomic_exchange(&g_pad_latch[p], 0);
+         uint64_t v = atomic_load(&g_pad_axes[p]); for (int i = 0; i < 4; i++) a[i] = pick(a[i], ax(v, i));
+@@ -854,6 +872,13 @@ static live_motion g_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHRE
+ static live_motion g_hid_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
+ static live_motion g_joy_motion[DM_PLAYERS][2] = {[0 ... DM_PLAYERS - 1] = {[0 ... 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}}};   // each Joy-Con's own sensor (dm_motion_set_joy)
+ static live_motion g_direct_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
++static _Atomic uint64_t g_dsu_reads[DM_PLAYERS];
++static pthread_mutex_t g_dsu_read_mu=PTHREAD_MUTEX_INITIALIZER;
++static float g_dsu_read_gyro[DM_PLAYERS][3];
++void dm_dsu_game_reads(int player,uint64_t *reads,float gyro[3]) {
++    *reads=0;memset(gyro,0,3*sizeof(float));if(player<0||player>=DM_PLAYERS)return;
++    pthread_mutex_lock(&g_dsu_read_mu);*reads=atomic_load(&g_dsu_reads[player]);memcpy(gyro,g_dsu_read_gyro[player],3*sizeof(float));pthread_mutex_unlock(&g_dsu_read_mu);
++}
+ static live_motion g_dsu_motion[DM_PLAYERS] = {[0 ... DM_PLAYERS - 1] = {.mu = PTHREAD_MUTEX_INITIALIZER}};
+ static live_motion g_phone_motion = {.mu = PTHREAD_MUTEX_INITIALIZER};
+ static pthread_once_t g_motion_once = PTHREAD_ONCE_INIT;
+@@ -1207,6 +1232,10 @@ static unsigned six_source(uint32_t h, uint64_t from, live_hist *src, int *shake
+     pthread_once(&g_imu_once, imu_env_read);
+     uint64_t lag; live_ring_copy(m, from > LIVE_DELAY_MAX_NS ? from - LIVE_DELAY_MAX_NS : 0, src->r, &src->n, &lag);
+     if (!src->n) return 0;
++    for(int player=0;player<DM_PLAYERS;player++)if(m==&g_dsu_motion[player]) {
++        pthread_mutex_lock(&g_dsu_read_mu);atomic_fetch_add(&g_dsu_reads[player],1);
++        memcpy(g_dsu_read_gyro[player],src->r[src->n-1].gyro,3*sizeof(float));pthread_mutex_unlock(&g_dsu_read_mu);
++    }
+     int64_t cfg = atomic_load(&g_live_delay_cfg[w == &g_hwm_imu]);
+     uint64_t d = 0;
+     if (guest_clock_pinned()) answer_delay(w, h, 0, 0);   // none, and the first answer after takes its target at once (nothing to slew from)
+diff --git a/dm/host/tests/t_controllers_mac.m b/dm/host/tests/t_controllers_mac.m
+index a196990..6383a28 100644
+--- a/dm/host/tests/t_controllers_mac.m
++++ b/dm/host/tests/t_controllers_mac.m
+@@ -1213,6 +1213,7 @@ static void test_dsu_preview(void) {
+ }
+ void dm_dsu_start(void) {}
+ void dm_dsu_stop(void) {}
++void dm_dsu_game_reads(int player,uint64_t *reads,float gyro[3]) { (void)player;*reads=0;memset(gyro,0,3*sizeof(float)); }
+ void dm_dsu_report(char *out,size_t size) { if(size)out[0]=0; }
+ static void test_dsu_configuration(void) {
+     NSDictionary *device=@{@"enabled":@YES,@"player":@1,@"port":@26760,@"slot":@0,@"host":@"127.0.0.1",@"axes":@[@1,@2,@3],@"bias":@[@0,@0,@0],@"buttons":@YES};
+diff --git a/dm/host/tests/t_dsu.c b/dm/host/tests/t_dsu.c
+index f2eabc9..b8b9e31 100644
+--- a/dm/host/tests/t_dsu.c
++++ b/dm/host/tests/t_dsu.c
+@@ -2,6 +2,11 @@
+ #include <assert.h>
+ #include <stdio.h>
+ int main(void) {
++    for(int role=1;role<=2;role++)for(int sl=0;sl<16;sl++)for(int sr=0;sr<16;sr++){
++        uint16_t raw=(1u<<sl)|(1u<<sr);uint64_t got=dsu_rails(raw,role,sl,sr);int shift=role==1?24:26;
++        assert(got==((1ull<<shift)|(1ull<<(shift+1))));
++        assert(dsu_rails(raw,0,sl,sr)==raw);
++    }
+     uint8_t p[100]={0},req[28];dsu_sample s;
+     dsu_request(req,123,1);assert(!memcmp(req,"DSUC",4));assert(req[20]==1 && req[21]==1);assert(dsu_crc(req,28)==dsu_u32(req+8));
+     memcpy(p,"DSUS",4);p[4]=0xe9;p[5]=3;p[6]=84;dsu_put(p+16,0x100002);p[20]=1;p[21]=2;p[31]=1;dsu_put(p+68,1000);dsu_put(p+8,dsu_crc(p,100));
+diff --git a/dm/host/tests/t_hid.c b/dm/host/tests/t_hid.c
+index 69184bf..31ee4a7 100644
+--- a/dm/host/tests/t_hid.c
++++ b/dm/host/tests/t_hid.c
+@@ -1904,7 +1904,7 @@ int main(void) {
+             CHECK(style_of(0)==(right ? STYLE_JOYRIGHT:STYLE_JOYLEFT),"explicit half selects native Joy-Con style");
+             dm_dsu_input(0,0xffff,20000,21000,22000,23000,motion_now);
+             fill(&s,0,right ? STYLE_JOYRIGHT:STYLE_JOYLEFT);
+-            uint64_t mask=right ? 0x6af:0xf950;
++            uint64_t mask=right ? 0xeaf:0xfd50;
+             CHECK((s.buttons&0xffff)==mask,"half selects only native side button bits, no fake rail buttons");
+             CHECK(right ? (s.lx==0 && s.ly==0 && s.rx>0 && s.ry>0):(s.lx>0 && s.ly>0 && s.rx==0 && s.ry==0),"half uses only its native stick fields");
+             motion_now+=300000001;fill(&s,0,right ? STYLE_JOYRIGHT:STYLE_JOYLEFT);
+@@ -1920,6 +1920,24 @@ int main(void) {
+         CHECK(reported(1) && style_of(1)==STYLE_JOYRIGHT,"DSU-only player has independent availability");
+         dm_dsu_configure(1,DM_DSU_FULL,0);CHECK(!reported(1),"DSU detach restores physical player mask");
+         dm_joy_attach(0,0);dm_pad_set(0,0,0,0,0);
++        atomic_store(&g_styles_supported,STYLE_FULLKEY);
++        dm_dsu_configure(0,DM_DSU_LEFT,1);
++        dm_dsu_input(0,DM_BTN_DOWN,10000,20000,0,0,motion_now);fill(&s,0,STYLE_FULLKEY);
++        CHECK((s.buttons&DM_BTN_A) && !(s.buttons&DM_BTN_DOWN) && s.lx==-20000 && s.ly==10000,"Left full-pad fallback rotates source and maps Down to A");
++        dm_dsu_configure(0,DM_DSU_FULL,0);
++    }
++    { // The actual SDK six-axis read must expose remote motion, not only receiver counters.
++        g_mode=1;atomic_store(&g_styles_supported,STYLE_FULLKEY);dm_joy_attach(0,0);
++        dm_dsu_configure(0,DM_DSU_FULL,0);
++        uint32_t id=0,h=0;SixAxisState sample;
++        CHECK(h_hid_SixHandles(&h,1,&id,STYLE_FULLKEY)==1,"DSU steering: full controller sensor handle exists");
++        motion_now+=1000000000ull;guest_now=motion_now;
++        float gravity[3]={0,0,-1},rotation[3]={0,0,1.5707963f};
++        dm_motion_set_dsu(0,gravity,rotation,motion_now);
++        for(int i=0;i<10;i++){motion_now+=5000000;guest_now=motion_now;dm_motion_set_dsu(0,gravity,rotation,motion_now);}
++        CHECK(h_hid_SixStates(&sample,1,&h)==1 && sample.gyro[2]>.20f,"DSU steering: SDK game read exposes remote angular velocity");
++        CHECK(sample.angle[2]>.001f,"DSU steering: SDK game read integrates wheel angle");
++        motion_now+=MOTION_STALE_NS+1;guest_now=motion_now;
+     }
+     t_applet_input();
+     printf("hid players: %d checks, %d failed\n", checks, fails);
+diff --git a/dm/mac/Motion/ConnectionStatus.swift b/dm/mac/Motion/ConnectionStatus.swift
+index 70abe0c..f04d42f 100644
+--- a/dm/mac/Motion/ConnectionStatus.swift
++++ b/dm/mac/Motion/ConnectionStatus.swift
+@@ -3,9 +3,16 @@ import SwiftUI
+ struct PhoneRolePicker: View {
+     @ObservedObject var sensor: Sensor
+     var body: some View {
++        VStack(alignment:.leading) {
+         Picker("Controller role",selection:$sensor.role) {
+             ForEach(DSURole.allCases,id: \.self) { role in Text(role.title).tag(role) }
+         }.help("Explicit role, not DSU slot or model. Left uses D-pad and L stick; Right uses face buttons and R stick. No rail buttons are synthesized. Motion-only does not change controller style.")
++        if sensor.role != .full {
++            Picker("SL source",selection:$sensor.railSL) { Text("Not assigned").tag(-1);ForEach(DSU.Inputs.buttonNames,id: \.0) { Text($0.1).tag($0.0) } }
++            Picker("SR source",selection:$sensor.railSR) { Text("Not assigned").tag(-1);ForEach(DSU.Inputs.buttonNames,id: \.0) { Text($0.1).tag($0.0) } }
++            Text("Choose the received button shown when pressing SL or SR on the phone.").font(.caption)
++        }
++        }
+     }
+ }
+ 
+@@ -13,7 +20,7 @@ struct PhoneInputState: View {
+     @ObservedObject var sensor: Sensor
+     var body: some View {
+         VStack(alignment:.leading,spacing:2) {
+-            Text(sensor.confirmed ? "Buttons: " + sensor.inputs.pressedNames : "Buttons: — (no live input)")
++            Text(sensor.confirmed ? "Buttons: " + sensor.inputs.horizontalPreview(role:sensor.role,railSL:sensor.railSL,railSR:sensor.railSR).pressedNames : "Buttons: — (no live input)")
+             Text(String(format:"Sticks (X,Y): L (%+d,%+d)  R (%+d,%+d)",sensor.inputs.leftStick.x,sensor.inputs.leftStick.y,sensor.inputs.rightStick.x,sensor.inputs.rightStick.y))
+             Text("Centered at 0 · range −128…127 · Y up positive. DSU model does not identify left/right controller role.")
+                 .foregroundStyle(.secondary)
+diff --git a/dm/mac/Motion/DSUConfiguration.swift b/dm/mac/Motion/DSUConfiguration.swift
+index d91dc16..5286762 100644
+--- a/dm/mac/Motion/DSUConfiguration.swift
++++ b/dm/mac/Motion/DSUConfiguration.swift
+@@ -18,6 +18,8 @@ struct DSUDevice: Codable, Equatable, Identifiable {
+     var bias: [Double]
+     var enabled: Bool
+     var role: DSURole? = nil // Missing in v1 documents means full; never inferred from slot/model.
++    var railSL: Int? = nil
++    var railSR: Int? = nil
+     var buttons: Bool? = nil
+     var calibrated: Bool? = nil
+     var displayAxes: [Int]? = nil
+@@ -26,6 +28,7 @@ struct DSUDevice: Codable, Equatable, Identifiable {
+         return octets.count==4 && octets.allSatisfy { part in
+             !part.isEmpty && part.allSatisfy { $0.isASCII && $0.isNumber } && UInt8(part) != nil
+         } && (1...8).contains(player) && (1...65535).contains(port) && (0...3).contains(slot)
++            && [railSL ?? -1,railSR ?? -1].allSatisfy { (-1...15).contains($0) }
+             && axes.count==3 && axes.allSatisfy { (-3...3).contains($0) && $0 != 0 }
+             && Set(axes.map { abs($0) })==Set([1,2,3])
+             && (displayAxes == nil || (displayAxes!.count==3 && displayAxes!.allSatisfy { (-3...3).contains($0) && $0 != 0 } && Set(displayAxes!.map { abs($0) })==Set([1,2,3])))
+@@ -55,6 +58,7 @@ struct DSUConfiguration: Codable, Equatable {
+             let key="DM_DSU_"+String(device.player)
+             guard result[key]==nil else { throw Failure.duplicatePlayer }
+             result[key]=value
++            result["DM_DSU_RAIL_"+String(device.player)]="(device.railSL ?? -1),(device.railSR ?? -1)"
+             result["DM_DSU_ROLE_"+String(device.player)]=(device.role ?? .full).rawValue
+             result["DM_DSU_BUTTONS_"+String(device.player)]=(device.buttons ?? false) ? "1":"0"
+         }
+diff --git a/dm/mac/Motion/MotionView.swift b/dm/mac/Motion/MotionView.swift
+index 0c0047e..10d8d1e 100644
+--- a/dm/mac/Motion/MotionView.swift
++++ b/dm/mac/Motion/MotionView.swift
+@@ -10,6 +10,8 @@ import simd
+     @Published var axes = AxisMap() { didSet { orientation = Orientation(); onEdit?() } }
+     @Published var name = "Phone" { didSet { onEdit?() } }
+     @Published var role: DSURole = .full { didSet { onEdit?() } }
++    @Published var railSL = -1 { didSet { onEdit?() } }
++    @Published var railSR = -1 { didSet { onEdit?() } }
+     @Published var buttons = false { didSet { onEdit?() } }
+     @Published var player = 1 { didSet { onEdit?() } }
+     @Published var host = "192.168.1.100" { didSet { onEdit?() } }
+@@ -257,7 +259,7 @@ struct SensorCard: View {
+                 if !sensor.axes.valid { LocalizedText("Choose three different input axes.").foregroundStyle(.red) }
+                 Button(L("Swap X / Y")) { let a=sensor.axes; sensor.axes=AxisMap(x:a.y,y:a.x,z:a.z) }
+             }
+-            MotionBox(rotation:sensor.displayRotation,inputs:sensor.inputs).frame(height:210).clipShape(RoundedRectangle(cornerRadius:12))
++            MotionBox(rotation:sensor.displayRotation,inputs:sensor.inputs.horizontalPreview(role:sensor.role,railSL:sensor.railSL,railSR:sensor.railSR)).frame(height:210).clipShape(RoundedRectangle(cornerRadius:12))
+             PhoneInputState(sensor:sensor)
+             LocalizedText("Buttons face you · white shoulder edge = top · two grips = bottom").font(.caption)
+             HStack { Circle().fill(sensor.confirmed ? Color.green : (sensor.running ? Color.orange : Color.red)).frame(width:10,height:10); LocalizedText(sensor.status).fontWeight(.semibold) }
+diff --git a/dm/mac/Motion/Protocol.swift b/dm/mac/Motion/Protocol.swift
+index c93741a..e789ca3 100644
+--- a/dm/mac/Motion/Protocol.swift
++++ b/dm/mac/Motion/Protocol.swift
+@@ -62,6 +62,22 @@ enum DSU {
+         static let buttonNames = [(0,"A"),(1,"B"),(2,"X"),(3,"Y"),(4,"L-stick"),(5,"R-stick"),
+                                   (6,"L"),(7,"R"),(8,"ZL"),(9,"ZR"),(10,"+"),(11,"−"),
+                                   (12,"Left"),(13,"Up"),(14,"Right"),(15,"Down")]
++        /// Full-pad preview of a single horizontal half, matching pad_joycon.h.
++        /// Native JoyLeft/JoyRight reports remain upright for the game SDK.
++        func horizontalPreview(role: DSURole, railSL: Int = -1, railSR: Int = -1) -> Inputs {
++            guard role != .full else { return self }
++            let pairs: [(Int,Int)] = role == .left ? [(15,0),(12,1),(14,2),(13,3),(11,10),(4,4),(6,8),(8,9)] : [(2,0),(0,1),(3,2),(1,3),(10,10),(5,4),(7,8),(9,9)]
++            var result=Inputs(buttons: buttons & ((1 << 10) | (1 << 11)))
++            for (source,target) in pairs where buttons & (1 << source) != 0 { result.buttons |= 1 << target }
++            // Remove selected sources before adding outputs: SR mapped from L must
++            // not erase SL mapped to L in the same packet.
++            for (source,target) in pairs where source==railSL || source==railSR { result.buttons &= ~(1 << target) }
++            if (0...15).contains(railSL),buttons & (1 << railSL) != 0 { result.buttons |= 1 << 6 }
++            if (0...15).contains(railSR),buttons & (1 << railSR) != 0 { result.buttons |= 1 << 7 }
++            let stick = role == .left ? leftStick : rightStick
++            result.leftStick = role == .left ? SIMD2(-stick.y,stick.x) : SIMD2(stick.y,-stick.x)
++            return result
++        }
+         var pressedNames: String {
+             let names = Self.buttonNames.filter { buttons & (UInt32(1) << $0.0) != 0 }.map { $0.1 }
+             return names.isEmpty ? "None" : names.joined(separator:" · ")
+diff --git a/dm/mac/Motion/Store.swift b/dm/mac/Motion/Store.swift
+index d9f66a0..6429448 100644
+--- a/dm/mac/Motion/Store.swift
++++ b/dm/mac/Motion/Store.swift
+@@ -12,7 +12,7 @@ import Combine
+         do {
+             let config=try DSUConfiguration.load(from:url)
+             for d in config.devices {
+-                let s=Sensor(id:d.id);s.role=d.role ?? .full;s.buttons=d.buttons ?? false;s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
++                let s=Sensor(id:d.id);s.railSL=d.railSL ?? -1;s.railSR=d.railSR ?? -1;s.role=d.role ?? .full;s.buttons=d.buttons ?? false;s.name=d.name;s.player=d.player;s.host=d.host;s.port=String(d.port);s.slot=d.slot
+                 // Switch x/right,y/forward,z/up -> preview x/right,y/up,z/back.
+                 s.axes=AxisMap(x:d.axes[0],y:d.axes[2],z:-d.axes[1]);s.gyroBias=SIMD3(d.bias[0],d.bias[1],d.bias[2]);s.calibrated=d.calibrated ?? d.enabled
+                 if let axes=d.displayAxes,axes.count==3 { s.axes=AxisMap(x:axes[0],y:axes[1],z:axes[2]) }
+@@ -29,7 +29,7 @@ import Combine
+         for s in sensors {
+             let slot=s.slot<0 ? (s.detectedSlot ?? 0) : s.slot
+             guard let port=Int(s.port) else { throw DSUConfiguration.Failure.invalid }
+-            devices.append(DSUDevice(id:s.id,name:s.name,player:s.player,host:s.host,port:port,slot:slot,axes:[s.axes.x,-s.axes.z,s.axes.y],bias:[s.gyroBias.x,s.gyroBias.y,s.gyroBias.z],enabled:s.calibrated,role:s.role,buttons:s.buttons,calibrated:s.calibrated,displayAxes:[s.axes.x,s.axes.y,s.axes.z]))
++            devices.append(DSUDevice(id:s.id,name:s.name,player:s.player,host:s.host,port:port,slot:slot,axes:[s.axes.x,-s.axes.z,s.axes.y],bias:[s.gyroBias.x,s.gyroBias.y,s.gyroBias.z],enabled:s.calibrated,role:s.role,railSL:s.railSL,railSR:s.railSR,buttons:s.buttons,calibrated:s.calibrated,displayAxes:[s.axes.x,s.axes.y,s.axes.z]))
+         }
+         let config=DSUConfiguration(devices:devices);_ = try config.environment();return config
+     }
+diff --git a/dm/mac/Motion/Tests/MotionContractTests.swift b/dm/mac/Motion/Tests/MotionContractTests.swift
+index 232188c..c9e0837 100644
+--- a/dm/mac/Motion/Tests/MotionContractTests.swift
++++ b/dm/mac/Motion/Tests/MotionContractTests.swift
+@@ -1,6 +1,22 @@
+ import XCTest
+ @testable import NXMotion
+ final class MotionContractTests:XCTestCase {
++    func testHorizontalHalfPreview() {
++        let rails=DSU.Inputs(buttons:(1 << 7)|(1 << 9)).horizontalPreview(role:.left,railSL:7,railSR:9)
++        XCTAssertNotEqual(rails.buttons & (1 << 6),0)
++        XCTAssertNotEqual(rails.buttons & (1 << 7),0)
++        for role in [DSURole.left,.right] {
++            let menu=DSU.Inputs(buttons:(1 << 10)|(1 << 11)).horizontalPreview(role:role)
++            XCTAssertEqual(menu.buttons & ((1 << 10)|(1 << 11)),(1 << 10)|(1 << 11))
++        }
++        for (source,target) in [(15,0),(12,1),(14,2),(13,3)] {
++            XCTAssertEqual(DSU.Inputs(buttons:1 << source).horizontalPreview(role:.left).buttons,1 << target)
++        }
++        let input=DSU.Inputs(leftStick:SIMD2(50,20),rightStick:SIMD2(30,10))
++        XCTAssertEqual(input.horizontalPreview(role:.left).leftStick,SIMD2(-20,50))
++        XCTAssertEqual(input.horizontalPreview(role:.right).leftStick,SIMD2(10,-30))
++        XCTAssertEqual(input.horizontalPreview(role:.full),input)
++    }
+     @MainActor func testSharedPersistenceAndCoordinates() throws {
+         let dir=FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+         defer { try? FileManager.default.removeItem(at:dir) }
