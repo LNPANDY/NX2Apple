@@ -1326,6 +1326,14 @@ class Model(QObject):
         if cb is not None:
             cb(ok, cancelled, msg)
 
+    def _defender_failure_message(self, res: object) -> str:
+        err_code = getattr(res, 'error_code', '')
+        if err_code == 'service_inactive':
+            return self.t('defender.msg.inactive')
+        if err_code == 'tamper_blocked':
+            return self.t('defender.msg.tamperBlocked')
+        return self.t('defender.msg.failed', getattr(res, 'error', ''))
+
     def apply_defender_exclusions(
         self,
         *,
@@ -1367,7 +1375,7 @@ class Model(QObject):
                     msg = self.t('defender.msg.cancelled')
                 else:
                     self.defender_status_ok = False
-                    msg = self.t('defender.msg.failed', res.error)
+                    msg = self._defender_failure_message(res)
                 self.defender_status_msg = msg
             self.log(msg + '\n')
             self._emit_repo_changed()
@@ -1430,7 +1438,7 @@ class Model(QObject):
                     msg = self.t('defender.msg.cancelled')
                 else:
                     self.defender_status_ok = False
-                    msg = self.t('defender.msg.failed', res.error)
+                    msg = self._defender_failure_message(res)
                 self.defender_status_msg = msg
             self.log(msg + '\n')
             self._emit_repo_changed()

@@ -6440,20 +6440,28 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
                     outer_b64 = cmd[cmd.index('-EncodedCommand') + 1]
                     outer_ps = base64.b64decode(outer_b64).decode('utf-16-le')
                     self.assertIn('-Verb RunAs', outer_ps)
-                    m_inner = re.search(r"'-EncodedCommand',\s*'([A-Za-z0-9+/=]+)'", outer_ps)
-                    self.assertIsNotNone(m_inner)
-                    inner_ps = base64.b64decode(m_inner.group(1)).decode('utf-16-le')
-                    self.assertIn('Add-MpPreference -ExclusionPath', inner_ps)
-                    self.assertIn('Add-MpPreference -ExclusionProcess', inner_ps)
+                    m_arg = re.search(r'\$argList\s*=\s*@\(([^)]+)\)', outer_ps)
+                    self.assertIsNotNone(m_arg)
+                    self.assertLess(len(m_arg.group(1)), 512, 'elevated RunAs arguments must stay compact')
+                    m_ps1 = re.search(r"'-File',\s*'([^']+(?:''[^']+)*\.ps1)'", outer_ps)
+                    self.assertIsNotNone(m_ps1, f'expected -File *.ps1 in outer script, got:\n{outer_ps}')
+                    ps1_path = Path(m_ps1.group(1).replace("''", "'"))
+                    raw_ps1 = ps1_path.read_bytes()
+                    self.assertTrue(raw_ps1.startswith(b'\xef\xbb\xbf'), 'elevated .ps1 must include UTF-8 BOM')
+                    inner_ps = raw_ps1.decode('utf-8-sig')
                     m_path = re.search(r"\$payloadPath = '([^']+(?:''[^']+)*)'", inner_ps)
                     self.assertIsNotNone(m_path)
                     payload_path = Path(m_path.group(1).replace("''", "'"))
-                    payload = json.loads(payload_path.read_text(encoding='utf-8'))
+                    raw_payload = payload_path.read_text(encoding='utf-8')
+                    self.assertTrue(raw_payload.isascii(), 'payload.json should use ASCII \\u escapes')
+                    payload = json.loads(raw_payload)
                     return outer_ps, inner_ps, payload
 
                 # Case A: UAC cancelled by user (exit code 1223) -> cancelled=True, state NOT saved
                 def runner_uac_cancelled(cmd, **_kw):
-                    _outer, _inner, payload = extract_payload(cmd)
+                    _outer, inner_ps, payload = extract_payload(cmd)
+                    self.assertIn('Add-MpPreference -ExclusionPath', inner_ps)
+                    self.assertIn('Add-MpPreference -ExclusionProcess', inner_ps)
                     self.assertIn(d._norm_win_path(tricky_dir), payload['paths'])
                     return subprocess.CompletedProcess(cmd, d.ERROR_CANCELLED, '', '')
 
@@ -6514,16 +6522,9 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
 
                 # E1: Partial removal failure retains remaining_paths in defender_exclusions.json
                 def runner_remove_partial(cmd, **_kw):
-                    outer_b64 = cmd[cmd.index('-EncodedCommand') + 1]
-                    outer_ps = base64.b64decode(outer_b64).decode('utf-16-le')
-                    m_inner = re.search(r"'-EncodedCommand',\s*'([A-Za-z0-9+/=]+)'", outer_ps)
-                    self.assertIsNotNone(m_inner)
-                    inner_ps = base64.b64decode(m_inner.group(1)).decode('utf-16-le')
+                    _outer, inner_ps, payload = extract_payload(cmd)
                     self.assertIn('$batchSize = 20', inner_ps)
                     self.assertIn('Get-MpPreference', inner_ps)
-                    m_path = re.search(r"\$payloadPath = '([^']+(?:''[^']+)*)'", inner_ps)
-                    payload_path = Path(m_path.group(1).replace("''", "'"))
-                    payload = json.loads(payload_path.read_text(encoding='utf-8'))
                     self.assertGreaterEqual(len(payload['paths']), 46)
                     Path(payload['result_path']).write_text(
                         json.dumps({
@@ -6542,16 +6543,9 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
 
                 # E2: Full removal deletes defender_exclusions.json
                 def runner_remove_ok(cmd, **_kw):
-                    outer_b64 = cmd[cmd.index('-EncodedCommand') + 1]
-                    outer_ps = base64.b64decode(outer_b64).decode('utf-16-le')
-                    m_inner = re.search(r"'-EncodedCommand',\s*'([A-Za-z0-9+/=]+)'", outer_ps)
-                    self.assertIsNotNone(m_inner)
-                    inner_ps = base64.b64decode(m_inner.group(1)).decode('utf-16-le')
+                    _outer, inner_ps, payload = extract_payload(cmd)
                     self.assertIn('Remove-MpPreference -ExclusionPath', inner_ps)
                     self.assertIn('Remove-MpPreference -ExclusionProcess', inner_ps)
-                    m_path = re.search(r"\$payloadPath = '([^']+(?:''[^']+)*)'", inner_ps)
-                    payload_path = Path(m_path.group(1).replace("''", "'"))
-                    payload = json.loads(payload_path.read_text(encoding='utf-8'))
                     Path(payload['result_path']).write_text(
                         json.dumps({'ok': True, 'error': '', 'remaining_paths': [], 'remaining_processes': []}),
                         encoding='utf-8',
@@ -6564,12 +6558,143 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
                 st_removed, _, _ = d.exclusions_status(games_folder=tricky_dir)
                 self.assertEqual(st_removed, 'needed')
 
+    def test_defender_clixml_progress_stripping_win11_early_exit_and_tamper_codes(self) -> None:
+        import base64
+        import re
+        import threading
+        import time
+        d = self.defender
+
+        progress_xml = (
+            '#< CLIXML\n'
+            '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+            '<Obj S="progress" RefId="0"><TN RefId="0">'
+            '<T>System.Management.Automation.PSCustomObject</T><T>System.Object</T></TN>'
+            '<MS><I64 N="SourceId">1</I64><PR N="Record">'
+            '<AV>\ufffd\ufffd\ufffd\ufffd\ufffd</AV><AI>0</AI><Nil /><PI>-1</PI><PC>-1</PC>'
+            '<T>Completed</T><SR>-1</SR><SD> </SD></PR></MS></Obj></Objs>'
+        )
+        self.assertEqual(d.sanitize_powershell_output(progress_xml), '')
+
+        mixed_xml = (
+            progress_xml
+            + '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
+            + '<S S="Error">Add-MpPreference : &lt;Tamper blocked&gt;_x000D__x000A_</S>'
+            + '</Objs>'
+        )
+        self.assertEqual(
+            d.sanitize_powershell_output(mixed_xml),
+            'Add-MpPreference : <Tamper blocked>',
+        )
+
+        # Localized Windows console codepage bytes must decode cleanly instead of mojibake
+        self.assertEqual(d._decode_console_bytes('正在准备'.encode('gbk')), '正在准备')
+
+        # Generated scripts must record started.json inside try/catch and guard HideExclusionsFromLocalAdmins
+        elev_script = d.build_inner_elevation_script(r'C:\Users\Test\payload.json')
+        self.assertIn("$ProgressPreference = 'SilentlyContinue'", elev_script)
+        self.assertIn('Write-AtomicJson $startedPath @{ pid = $PID }', elev_script)
+        self.assertIn('HideExclusionsFromLocalAdmins', elev_script)
+        self.assertIn('Get-DefenderFailureCode', elev_script)
+        self.assertLess(
+            elev_script.index('try {'),
+            elev_script.index('ReadAllText($payloadPath'),
+            'reading payload.json must sit inside top-level try/catch',
+        )
+
+        # Progress-only CLIXML bytes on stderr without result.json must never leak XML into user-facing error
+        with tempfile.TemporaryDirectory() as td:
+            fake_tools = Path(td) / 'NS Port Builder' / 'tools'
+            fake_tools.mkdir(parents=True)
+            with mock.patch.object(tc, 'tools_dir', return_value=fake_tools):
+                folders, procs = d.collect_exclusions(games_folder=r'D:\Games')
+
+                def runner_progress_only(cmd, **_kw):
+                    return subprocess.CompletedProcess(cmd, 1, b'', progress_xml.encode('gbk', errors='replace'))
+
+                res = d.apply_exclusions(folders, procs, runner=runner_progress_only)
+                self.assertFalse(res.ok)
+                self.assertNotIn('CLIXML', res.error)
+                self.assertNotIn('<Obj', res.error)
+                self.assertIn('without writing result.json', res.error)
+
+                def runner_clixml_real_error(cmd, **_kw):
+                    return subprocess.CompletedProcess(cmd, 1, b'', mixed_xml.encode('utf-8'))
+
+                res_real = d.apply_exclusions(folders, procs, runner=runner_clixml_real_error)
+                self.assertFalse(res_real.ok)
+                self.assertIn('<Tamper blocked>', res_real.error)
+
+                # Native result_path error_code must flow through DefenderResult
+                def runner_tamper_code(cmd, **_kw):
+                    outer_b64 = cmd[cmd.index('-EncodedCommand') + 1]
+                    outer_ps = base64.b64decode(outer_b64).decode('utf-16-le')
+                    m_ps1 = re.search(r"'-File',\s*'([^']+(?:''[^']+)*\.ps1)'", outer_ps)
+                    inner_ps = Path(m_ps1.group(1).replace("''", "'")).read_text(encoding='utf-8-sig')
+                    m_path = re.search(r"\$payloadPath = '([^']+(?:''[^']+)*)'", inner_ps)
+                    payload = json.loads(Path(m_path.group(1).replace("''", "'")).read_text(encoding='utf-8'))
+                    Path(payload['result_path']).write_text(
+                        json.dumps({'ok': False, 'error': 'blocked', 'error_code': 'tamper_blocked'}),
+                        encoding='utf-8',
+                    )
+                    return subprocess.CompletedProcess(cmd, 1, b'', b'')
+
+                res_tamper = d.apply_exclusions(folders, procs, runner=runner_tamper_code)
+                self.assertFalse(res_tamper.ok)
+                self.assertEqual(res_tamper.error_code, 'tamper_blocked')
+
+        # Win11 Windows Terminal delegation: initial broker exits at t=0, elevated script writes result.json later
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td)
+            res_f = work / 'result.json'
+            start_f = work / 'started.json'
+
+            def delayed_elevated():
+                time.sleep(0.06)
+                start_f.write_text(json.dumps({'pid': 424242}), encoding='utf-8')
+                time.sleep(0.08)
+                res_f.write_text(json.dumps({'ok': True, 'error': ''}), encoding='utf-8')
+
+            th = threading.Thread(target=delayed_elevated, daemon=True)
+            th.start()
+            got_res = d._wait_for_elevated_result(
+                res_f,
+                start_f,
+                initial_done_fn=lambda: True,
+                pid_alive_fn=lambda pid: pid == 424242,
+                timeout_sec=3.0,
+                early_start_grace_sec=1.0,
+                poll_interval_sec=0.01,
+            )
+            th.join(timeout=1.0)
+            self.assertTrue(got_res)
+            self.assertTrue(res_f.is_file())
+
+            # Dead inner pid without result.json must stop early instead of waiting for full timeout
+            work2 = Path(td) / 'dead'
+            work2.mkdir()
+            res_f2 = work2 / 'result.json'
+            start_f2 = work2 / 'started.json'
+            start_f2.write_text(json.dumps({'pid': 999999}), encoding='utf-8')
+            t0 = time.monotonic()
+            got_res2 = d._wait_for_elevated_result(
+                res_f2,
+                start_f2,
+                initial_done_fn=lambda: True,
+                pid_alive_fn=lambda _pid: False,
+                timeout_sec=5.0,
+                early_start_grace_sec=1.0,
+                poll_interval_sec=0.01,
+            )
+            self.assertFalse(got_res2)
+            self.assertLess(time.monotonic() - t0, 1.0)
+
     def test_model_defender_generation_guard_and_all_seven_languages(self) -> None:
         import ast
         from nspb_qt.i18n import Lang
         from nspb_qt.l10n import t as l10n_t
 
-        # 1. Verify all 27 defender.* keys exist, contain no semicolons, and format cleanly across all 10 languages
+        # 1. Verify all 29 defender.* keys exist, contain no semicolons, and format cleanly across all 10 languages
         self.assertGreaterEqual(len(Lang.all()), 10)
         defender_keys = (
             'defender.addBtn',
@@ -6577,7 +6702,9 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
             'defender.msg.added',
             'defender.msg.cancelled',
             'defender.msg.failed',
+            'defender.msg.inactive',
             'defender.msg.removed',
+            'defender.msg.tamperBlocked',
             'defender.msg.waiting',
             'defender.note',
             'defender.prompt.addAndBuild',
@@ -6611,6 +6738,7 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
                 self.assertTrue(val and val != key, f'missing translation for {key} in {lg.code}')
                 self.assertNotIn('%@', val, f'unformatted placeholder in {key} ({lg.code}): {val}')
                 self.assertNotIn(';', val, f'semicolon forbidden in UI string {key} ({lg.code}): {val}')
+                self.assertNotIn('；', val, f'fullwidth semicolon forbidden in UI string {key} ({lg.code}): {val}')
 
         # 2. Verify Model.apply_defender_exclusions and remove_defender_exclusions generation guard
         src = (QT / 'nspb_qt' / 'model.py').read_text(encoding='utf-8')
@@ -6618,6 +6746,7 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
         cls_node = next(n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == 'Model')
         wanted = {
             '_current_build_dirs',
+            '_defender_failure_message',
             'defender_info',
             'should_prompt_defender_before_build',
             'apply_defender_exclusions',
@@ -6662,6 +6791,7 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
 
         class _Harness:
             _current_build_dirs = ns['_current_build_dirs']
+            _defender_failure_message = ns['_defender_failure_message']
             defender_info = ns['defender_info']
             should_prompt_defender_before_build = ns['should_prompt_defender_before_build']
             apply_defender_exclusions = ns['apply_defender_exclusions']
@@ -6767,6 +6897,29 @@ class WindowsDefenderExclusionsTest(unittest.TestCase):
                 self.assertEqual(h.defender_status_msg, h.t('defender.msg.removed'))
                 self.assertFalse(h.settings_value('defenderPromptDismissed', False))
                 self.assertEqual(rem_calls, [(True, False)])
+
+                # Structured failure codes map cleanly to localized user guidance on both apply & remove
+                h.apply_defender_exclusions()
+                w_tamper = pending_workers.pop(0)
+                with mock.patch.object(
+                    self.defender,
+                    'apply_exclusions',
+                    return_value=self.defender.DefenderResult(ok=False, error='blocked', error_code='tamper_blocked'),
+                ):
+                    w_tamper()
+                self.assertFalse(h.defender_status_ok)
+                self.assertEqual(h.defender_status_msg, h.t('defender.msg.tamperBlocked'))
+
+                h.remove_defender_exclusions()
+                w_inact = pending_workers.pop(0)
+                with mock.patch.object(
+                    self.defender,
+                    'remove_exclusions',
+                    return_value=self.defender.DefenderResult(ok=False, error='stopped', error_code='service_inactive'),
+                ):
+                    w_inact()
+                self.assertFalse(h.defender_status_ok)
+                self.assertEqual(h.defender_status_msg, h.t('defender.msg.inactive'))
 
 
 class WindowsEngineBumpFollowUpTest(unittest.TestCase):
