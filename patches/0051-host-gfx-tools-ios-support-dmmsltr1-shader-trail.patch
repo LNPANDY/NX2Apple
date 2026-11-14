@@ -472,7 +472,7 @@ index 0000000..4167f1c
 +    pthread_mutex_unlock(&g_msl_tr_mu);
 +}
 diff --git a/dm/gfx/nvn/nvn_mtl.m b/dm/gfx/nvn/nvn_mtl.m
-index 592b6d6..7292e8b 100644
+index b4ba610..e07ce05 100644
 --- a/dm/gfx/nvn/nvn_mtl.m
 +++ b/dm/gfx/nvn/nvn_mtl.m
 @@ -37,6 +37,7 @@
@@ -483,7 +483,7 @@ index 592b6d6..7292e8b 100644
  #include "dmsh_chain.h"   // DMSH_CHAIN: the translation chain version of the B shader library expected by this source tree, one for every game (beside this file, tools/dmsh_chain.py --header)
  #include "game_profile.h"   // game profile constants (profile id, the profile's switches)
  // Texture slot table per stage: 0-127 the combined handles (nvnCommandBufferBindTexture), 128-255 the separate texture binds (NVN_SEPTEX_SLOT0, nvn_obj.h)
-@@ -6121,13 +6122,25 @@ static int clear_rect_zero(int i) {
+@@ -6122,13 +6123,25 @@ static int clear_rect_zero(int i) {
      *img = m;
      return m ? msl_image_find(m, path.lastPathComponent.UTF8String) : NULL;
  }
@@ -512,7 +512,7 @@ index 592b6d6..7292e8b 100644
  }
  static NSString *exe_rel(const char *rel) {
      char buf[4096]; uint32_t n = sizeof buf;
-@@ -6163,10 +6176,13 @@ static void shmap_read(void) {
+@@ -6164,10 +6177,13 @@ static void shmap_read(void) {
      g_shmap_path = path;
      const char *m = getenv("DM_MSL_DIR");
      // Library directory = <DM_MSL_DIR or default cache>/b-<translation chain version>: the version comes from dm/gfx/nvn/dmsh_chain.h (tools/dmsh_chain.py), one for every game; a host built from an old source tree only accepts libraries of the old version
@@ -527,7 +527,7 @@ index 592b6d6..7292e8b 100644
          else MLOG("[RED] shader library %s (a folder or a .img file) does not exist: translation chain version %s of this source tree has not been built yet (dm/gfx/tools/dmsh_build.py)", g_msl_dir.UTF8String, DMSH_CHAIN);
      }
      // The library's stamp (inputs.tsv, written by a full dmsh_build.py run): the game and the digest of the profile inputs it was built from. The chain version is the same for every
-@@ -6357,14 +6373,20 @@ static void pso_user_record(const char *fmt, ...) {
+@@ -6358,14 +6374,20 @@ static void pso_user_record(const char *fmt, ...) {
  // The library is tagged with its digest (lib_tag), from the mapped bytes
  static id<MTLLibrary> lib_from_file(NSString *path, NSError **err) {
      int fd = open(path.fileSystemRepresentation, O_RDONLY); struct stat st;
@@ -550,7 +550,7 @@ index 592b6d6..7292e8b 100644
      }
      if (fd < 0 || fstat(fd, &st) || st.st_size <= 0) { if (fd >= 0) close(fd); if (err) *err = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSLocalizedDescriptionKey: [NSString stringWithFormat:@"cannot open %@", path]}]; return nil; }
      size_t len = (size_t)st.st_size; void *m = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0); close(fd);
-@@ -10071,8 +10093,13 @@ void mtl_pso_line(char *o, size_t n) {
+@@ -10072,8 +10094,13 @@ void mtl_pso_line(char *o, size_t n) {
  // their bases cannot be made yet, so the stamp names one such file (pre_device_stamp) and a later start builds them once it is there. g_pre_nolib_file: the first one seen in this
  // run, a name in the library, under g_pre_fail_lock
  static _Atomic int g_pre_nolib; static NSString *g_pre_nolib_file;
@@ -566,7 +566,7 @@ index 592b6d6..7292e8b 100644
  // 1 (and the file noted) when the library lacks <key><suffix>
  static int pre_lib_absent(NSString *key, NSString *suffix) {
      NSString *name = [key stringByAppendingString:suffix];
-@@ -18624,10 +18651,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
+@@ -18643,10 +18670,11 @@ void dm_gfx_teardown(void) { @autoreleasepool {
  
      romfs_img *mimg = atomic_exchange(&g_msl_img, NULL);
      if (mimg) romfs_image_close(mimg);
