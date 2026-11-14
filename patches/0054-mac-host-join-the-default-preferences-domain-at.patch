@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: gxt43 <72811640+gxt43@users.noreply.github.com>
+Date: Sat, 14 Nov 2026 10:54:03 -0500
+Subject: [PATCH] Mac host: join the default preferences domain at run time,
+ for multi-program games
+
+Symptom: the Mac host of LUNAR Remastered Collection (a launcher and two game programs, packed
+as one app with the profile key programs) does not compile: front_mac.m and controllers_mac.m
+stop in input_preferences_mac.h with "called object type 'NSString *' is not a function or
+function pointer".
+
+Cause: input_preferences_mac.h built the fallback preferences domain by joining two literals at
+compile time, [@"org.nxnative." DM_GAME_ID lowercaseString]. That works when DM_GAME_ID is a
+string literal, as in a one-program game's game_profile.h. For a game of several programs,
+game.py header_multi defines it as (dm_game_cur()->id), a C string read at run time, and the
+juxtaposition no longer parses.
+
+Fix: join the strings at run time, [[@"org.nxnative." stringByAppendingString:@(DM_GAME_ID)]
+lowercaseString], as front_mac.m already boxes DM_GAME_ID with @(...). The domain is the same
+string for a one-program game.
+
+Checked: with this change Lunar's Mac app builds and runs the launcher and both game programs
+(M3 Max); the domain string of a one-program game is unchanged (the same characters, joined at
+run time).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01JhC6PmqAEWZuUNEEEgBm91
+
+Upstream-Status: pending (a fix to patch 0017's input_preferences_mac.h, forwarded as seedds/nxnative#221: it belongs in that pull request)
+Reason: patch 0017's input_preferences_mac.h does not compile for a game of several programs (LUNAR Remastered Collection), where DM_GAME_ID is read at run time
+Issue: LNPANDY/NX2Apple#1224
+
+---
+ dm/host/input_preferences_mac.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/dm/host/input_preferences_mac.h b/dm/host/input_preferences_mac.h
+index b3a2dee..bedb78a 100644
+--- a/dm/host/input_preferences_mac.h
++++ b/dm/host/input_preferences_mac.h
+@@ -5,7 +5,7 @@
+ #include "game_profile.h"
+ #include "input_map.h"
+ static NSString *input_preferences_domain(void) {
+-    return NSBundle.mainBundle.bundleIdentifier ?: [@"org.nxnative." DM_GAME_ID lowercaseString];
++    return NSBundle.mainBundle.bundleIdentifier ?: [[@"org.nxnative." stringByAppendingString:@(DM_GAME_ID)] lowercaseString];
+ }
+ static BOOL input_preferences_enabled(void) {
+     const char *off=getenv("DM_SAVED_CHOICES"); return !off || strcmp(off,"0");

@@ -49,3 +49,4 @@
 0051-host-gfx-tools-ios-support-dmmsltr1-shader-trail.patch
 0052-ios-strip-msl-from-framework-only-builds-and-wri.patch
 0053-build-add-persistent-build-seeds-and-fast-refres.patch
+0054-mac-host-join-the-default-preferences-domain-at.patch
