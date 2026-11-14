@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import threading
+import weakref
 from pathlib import Path
 
 from PySide6.QtCore import QPoint, QTimer, QUrl, Qt
@@ -10,6 +13,7 @@ from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent, QFont, 
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -34,6 +38,7 @@ from . import features as feat
 from . import inputs
 from . import library as lib
 from . import platform_util as pu
+from . import refresh_flow as rf
 from . import style
 from .app_update import APP_VERSION
 from .build_notes import TEXT, TITLE, stale_reason
@@ -138,6 +143,34 @@ class TopBarFrame(QFrame):
         super().mouseDoubleClickEvent(event)
 
 
+def _notify_win_queue_changed(win_ref: weakref.ReferenceType[MainWindow]) -> None:
+    w = win_ref()
+    if w is not None and not getattr(w, '_window_closed', False):
+        try:
+            w._on_refresh_queue_changed()
+        except RuntimeError:
+            pass
+
+
+def _cleanup_destroyed_window(
+    win_ref: weakref.ReferenceType[MainWindow],
+    bridge_ref: weakref.ReferenceType[rf._MainThreadBridge],
+    queue_ref: weakref.ReferenceType[rf.RefreshQueueManager],
+) -> None:
+    w = win_ref()
+    if w is not None:
+        w._window_closed = True
+        w._img_probing = False
+        w._assess_gen += 1
+        w._img_probe_gen += 1
+    b = bridge_ref()
+    if b is not None:
+        b.mark_dead()
+    q = queue_ref()
+    if q is not None:
+        q.unbind()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, model: Model) -> None:
         super().__init__()
@@ -174,6 +207,23 @@ class MainWindow(QMainWindow):
         self._dep_row_widgets: dict[str, dict] = {}
         self._onboarding_checked = False
         self._onboarding_dialog: OnboardingDialog | None = None
+        self._window_closed = False
+        self._assess_gen = 0
+        self._assess_sig: tuple | None = None
+        self._assessments: dict[str, rf.GameRefreshAssessment] = {}
+        self._img_probe_gen = 0
+        self._img_probing = False
+        self._assess_bridge = rf._MainThreadBridge(self)
+        win_ref = weakref.ref(self)
+        self.refresh_queue = rf.RefreshQueueManager(
+            self.m,
+            on_state_changed=lambda: _notify_win_queue_changed(win_ref),
+        )
+        bridge_ref = weakref.ref(self._assess_bridge)
+        queue_ref = weakref.ref(self.refresh_queue)
+        self.destroyed.connect(
+            lambda *_args: _cleanup_destroyed_window(win_ref, bridge_ref, queue_ref)
+        )
 
         root = QWidget()
         root.setObjectName('root')
@@ -490,6 +540,8 @@ class MainWindow(QMainWindow):
         self.hero = HeroBannerWidget()
         self.hero.primaryClicked.connect(self._on_hero_primary)
         self.hero.manageClicked.connect(self._show_manage_menu)
+        self.hero.refreshClicked.connect(self._on_hero_refresh_clicked)
+        self.hero.batchRefreshClicked.connect(self._on_hero_batch_refresh_clicked)
         pcol.addWidget(self.hero, 1)
 
         # Collection section below Hero
@@ -669,10 +721,21 @@ class MainWindow(QMainWindow):
             self.m.library.select(sel.title_id)
 
         if sel:
-            if self.m.running and self.m.build_key.upper() == sel.title_id.upper():
+            is_sel_building = bool(self.m.running and self.m.build_key.upper() == sel.title_id.upper())
+            if is_sel_building:
                 st_text = self.m.t('library.building')
                 st_color = style.AMBER
                 p_label = self.m.t('library.viewBuild')
+                p_en = True
+            elif sel.has_app and sel.is_ready_for_ios:
+                st_text = self.m.t('library.readyMacAndIOS')
+                st_color = style.GREEN
+                p_label = self.m.t('library.play' if not pu.IS_WIN else 'install.reveal')
+                p_en = True
+            elif sel.has_app:
+                st_text = self.m.t('library.ready')
+                st_color = style.GREEN
+                p_label = self.m.t('library.play' if not pu.IS_WIN else 'install.reveal')
                 p_en = True
             elif sel.is_ready_for_ios:
                 st_text = self.m.t('library.readyIOS')
@@ -686,12 +749,19 @@ class MainWindow(QMainWindow):
                 p_en = not self.m.running
 
             sub_parts = [sel.title_id]
-            if sel.has_ipa:
+            if sel.has_app:
+                sub_parts.append(sel.app_path)
+            elif sel.has_ipa:
                 sub_parts.append(sel.ipa_path)
             elif sel.has_ios_app:
                 sub_parts.append(sel.ios_app_path)
             elif sel.inputs.get('base'):
                 sub_parts.append(sel.inputs['base'][0])
+
+            badge_txt, ref_lbl, batch_lbl, ref_note, ref_en = self._compute_hero_refresh_strings(
+                sel,
+                is_building=is_sel_building,
+            )
 
             art = self.m.artwork.image_path(sel.title_id, self.m.engine_path)
             self.hero.set_data(
@@ -706,7 +776,15 @@ class MainWindow(QMainWindow):
                 image_path=art,
                 is_switch2=sel.is_switch2(self.m.engine_path),
                 switch2_label=self.m.t('switch2.badge'),
+                update_badge_text=badge_txt,
+                refresh_label=ref_lbl,
+                batch_refresh_label=batch_lbl,
+                refresh_note=ref_note,
+                refresh_enabled=ref_en,
+                batch_refresh_enabled=True,
             )
+
+        self._schedule_refresh_assessments()
 
         # Rebuild horizontal strip
         while self.coll_strip_layout.count():
@@ -766,12 +844,323 @@ class MainWindow(QMainWindow):
         if self.m.running and self.m.build_key.upper() == g.title_id.upper():
             self._switch_page('builds')
             return
-        rev = g.primary_reveal_path
+        if g.has_app and not pu.IS_WIN:
+            try:
+                subprocess.Popen(['open', g.app_path])
+            except OSError:
+                pu.reveal(g.app_path)
+            return
+        rev = g.primary_reveal_path or (g.app_path if g.has_app else '')
         if rev:
             pu.reveal(rev)
         else:
             self.m.load_game_from_library(g)
             self._switch_page('builds')
+
+    def _compute_hero_refresh_strings(
+        self,
+        sel: lib.LibraryGame,
+        *,
+        is_building: bool,
+    ) -> tuple[str, str, str, str, bool]:
+        refreshable_games = [
+            g for g in self.m.library.games
+            if (a := self._assessments.get(g.title_id.upper())) is not None and not a.is_up_to_date
+        ]
+        sel_a = self._assessments.get(sel.title_id.upper())
+        if is_building:
+            other_cnt = sum(1 for g in refreshable_games if g.title_id.upper() != sel.title_id.upper())
+            batch_lbl = self.m.t('library.refresh.batchOthersBtn', other_cnt) if other_cnt > 0 else ''
+            return ('', '', batch_lbl, '', True)
+
+        if sel_a is None or sel_a.is_up_to_date:
+            other_cnt = len(refreshable_games)
+            batch_lbl = self.m.t('library.refresh.batchOthersBtn', other_cnt) if other_cnt > 0 else ''
+            return ('', '', batch_lbl, '', True)
+
+        if sel_a.state in ('specific_fast', 'specific_full'):
+            badge_txt = self.m.t('library.refresh.badgeVersion', sel_a.version_label)
+        else:
+            badge_txt = self.m.t('library.refresh.badgeGeneral')
+
+        if sel_a.state == 'specific_fast':
+            ref_lbl = self.m.t('library.refresh.fastBtn')
+            ref_note = self.m.t('library.refresh.noteSpecificFast', sel.name or sel.title_id, sel_a.version_label)
+        elif sel_a.state == 'specific_full':
+            ref_lbl = self.m.t('library.refresh.rebuildBtn')
+            ref_note = self.m.t('library.refresh.noteSpecificFull')
+        else:
+            ref_lbl = self.m.t('library.refresh.fastSyncBtn' if sel_a.can_fast_any else 'library.refresh.syncBtn')
+            ref_note = self.m.t('library.refresh.noteGeneral')
+
+        batch_lbl = self.m.t('library.refresh.batchBtn', len(refreshable_games)) if len(refreshable_games) > 1 else ''
+        ref_en = bool(sel_a.can_fast_any or sel_a.needs_img_guide_ios or not sel_a.missing_original_package)
+        return (badge_txt, ref_lbl, batch_lbl, ref_note, ref_en)
+
+    def _schedule_refresh_assessments(self) -> None:
+        if self._window_closed:
+            return
+        built_games = [g for g in self.m.library.games if g.has_any_build]
+        eng_path = self.m.engine_path
+        if not built_games or not eng_path or not os.path.isdir(eng_path):
+            self._assess_sig = None
+            if self._assessments:
+                self._assessments = {}
+            return
+
+        sig = (
+            eng_path,
+            self.m.shell_cache_path,
+            self.m.out_dir,
+            self.m.keys_path,
+            tuple(
+                (
+                    g.title_id,
+                    g.name,
+                    g.app_path,
+                    g.ipa_path,
+                    g.archive_path,
+                    g.ios_app_path,
+                    g.output_dir,
+                    g.built_chain_tag,
+                    g.last_built_at,
+                )
+                for g in built_games
+            ),
+        )
+        if sig == self._assess_sig:
+            return
+        self._assess_sig = sig
+        self._assess_gen += 1
+        gen = self._assess_gen
+        bridge = self._assess_bridge
+        shell_cache = self.m.shell_cache_path
+        def_out = self.m.out_dir
+        def_keys = self.m.keys_path
+        snapshot = list(built_games)
+
+        def worker() -> None:
+            computed: dict[str, rf.GameRefreshAssessment] = {}
+            for g in snapshot:
+                if self._window_closed or gen != self._assess_gen or bridge.is_dead:
+                    return
+                try:
+                    computed[g.title_id.upper()] = rf.assess_library_game(
+                        g,
+                        engine_path=eng_path,
+                        shell_cache_path=shell_cache,
+                        default_out_dir=def_out,
+                        default_keys_path=def_keys,
+                    )
+                except Exception:
+                    continue
+
+            if self._window_closed or gen != self._assess_gen or bridge.is_dead:
+                return
+
+            def apply() -> None:
+                if self._window_closed or gen != self._assess_gen or bridge.is_dead:
+                    return
+                try:
+                    self._assessments = computed
+                    sel = self.m.library.selected
+                    if sel is not None:
+                        is_bld = bool(self.m.running and self.m.build_key.upper() == sel.title_id.upper())
+                        badge_txt, ref_lbl, batch_lbl, ref_note, ref_en = self._compute_hero_refresh_strings(
+                            sel,
+                            is_building=is_bld,
+                        )
+                        self.hero.update_badge.setText(badge_txt)
+                        self.hero.update_badge.setVisible(bool(badge_txt))
+                        self.hero.refresh_btn.setText(ref_lbl)
+                        self.hero.refresh_btn.setEnabled(ref_en)
+                        self.hero.refresh_btn.setVisible(bool(ref_lbl))
+                        self.hero.batch_refresh_btn.setText(batch_lbl)
+                        self.hero.batch_refresh_btn.setVisible(bool(batch_lbl))
+                        self.hero.refresh_note_lbl.setText(ref_note)
+                        self.hero.refresh_note_lbl.setVisible(bool(ref_note))
+                except RuntimeError:
+                    return
+
+            try:
+                bridge.safe_emit(apply)
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _build_queue_items_for_game(
+        self,
+        game: lib.LibraryGame,
+        assessment: rf.GameRefreshAssessment,
+        *,
+        external_img_path: str | None = None,
+        force_full_ios: bool = False,
+    ) -> list[rf.RefreshQueueItem]:
+        out_d = rf._resolve_game_out_dir(game, self.m.out_dir)
+        base_in = (game.inputs.get('base') or [''])[0]
+        upd_in = (game.inputs.get('update') or [''])[0]
+        dlc_in = tuple(game.inputs.get('dlc') or ())
+        keys_in = (game.inputs.get('keys') or [''])[0] or self.m.keys_path
+
+        items: list[rf.RefreshQueueItem] = []
+        if game.has_app:
+            can_fast_m = assessment.can_fast_mac
+            if can_fast_m or not assessment.missing_original_package:
+                items.append(rf.RefreshQueueItem(
+                    title_id=game.title_id,
+                    target='mac-app',
+                    fast_refresh=can_fast_m,
+                    game_name=game.name,
+                    out_dir=out_d,
+                    existing_app_path=game.app_path,
+                    base_path=base_in,
+                    update_path=upd_in,
+                    dlc_paths=dlc_in,
+                    keys_path=keys_in,
+                ))
+        if game.is_ready_for_ios:
+            can_fast_i = False if force_full_ios else (assessment.can_fast_ios or bool(external_img_path))
+            if can_fast_i or not assessment.missing_original_package:
+                items.append(rf.RefreshQueueItem(
+                    title_id=game.title_id,
+                    target='ios',
+                    fast_refresh=can_fast_i,
+                    game_name=game.name,
+                    out_dir=out_d,
+                    external_img_path=external_img_path,
+                    base_path=base_in,
+                    update_path=upd_in,
+                    dlc_paths=dlc_in,
+                    keys_path=keys_in,
+                ))
+        return items
+
+    def _enqueue_and_open_builds(self, items: list[rf.RefreshQueueItem]) -> None:
+        if not items:
+            return
+        self._failed = False
+        self._stale_shaders_shown = False
+        self.footer.setText('')
+        self.refresh_queue.enqueue_many(items)
+        self._switch_page('builds')
+        self.refresh_queue.start_if_idle()
+
+    def _on_hero_refresh_clicked(self) -> None:
+        if self.m.running:
+            self._switch_page('builds')
+            return
+        if self._img_probing:
+            return
+        sel = self.m.library.selected
+        if sel is None:
+            return
+        assessment = self._assessments.get(sel.title_id.upper())
+        if assessment is None or assessment.is_up_to_date:
+            return
+
+        if sel.is_ready_for_ios and assessment.needs_img_guide_ios:
+            drive_dir = self._drive_folder
+            if drive_dir and os.path.isdir(drive_dir):
+                self._img_probing = True
+                self._img_probe_gen += 1
+                gen = self._img_probe_gen
+                bridge = self._assess_bridge
+                self.hero.refresh_btn.setEnabled(False)
+                tid = sel.title_id.upper()
+                exp_id = assessment.expected_romfs_identity
+
+                def probe_worker() -> None:
+                    hit = rf.scan_drive_for_matching_img(drive_dir, tid, exp_id)
+                    if self._window_closed or bridge.is_dead:
+                        return
+
+                    def apply_probe() -> None:
+                        if gen == self._img_probe_gen:
+                            self._img_probing = False
+                        if self._window_closed or gen != self._img_probe_gen or bridge.is_dead:
+                            return
+                        try:
+                            cur_sel = self.m.library.selected
+                            if cur_sel is not None and cur_sel.title_id.upper() == tid:
+                                self.hero.refresh_btn.setEnabled(True)
+                            if self.m.running or cur_sel is None or cur_sel.title_id.upper() != tid:
+                                return
+                            if hit:
+                                q_items = self._build_queue_items_for_game(cur_sel, assessment, external_img_path=hit)
+                                self._enqueue_and_open_builds(q_items)
+                            else:
+                                self._open_missing_img_dialog(cur_sel, assessment)
+                        except RuntimeError:
+                            return
+
+                    try:
+                        bridge.safe_emit(apply_probe)
+                    except RuntimeError:
+                        pass
+
+                threading.Thread(target=probe_worker, daemon=True).start()
+                return
+
+            self._open_missing_img_dialog(sel, assessment)
+            return
+
+        q_items = self._build_queue_items_for_game(sel, assessment)
+        self._enqueue_and_open_builds(q_items)
+
+    def _open_missing_img_dialog(
+        self,
+        game: lib.LibraryGame,
+        assessment: rf.GameRefreshAssessment,
+    ) -> None:
+        dlg = rf.MissingImgGuideDialog(
+            self.m,
+            game,
+            assessment,
+            drive_folder=self._drive_folder,
+            parent=self,
+        )
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dlg.chosen_action == 'fast_with_img' and dlg.selected_img_path:
+            q_items = self._build_queue_items_for_game(
+                game,
+                assessment,
+                external_img_path=dlg.selected_img_path,
+            )
+            self._enqueue_and_open_builds(q_items)
+        elif dlg.chosen_action == 'full_rebuild':
+            q_items = self._build_queue_items_for_game(
+                game,
+                assessment,
+                force_full_ios=True,
+            )
+            self._enqueue_and_open_builds(q_items)
+
+    def _on_hero_batch_refresh_clicked(self) -> None:
+        entries: list[rf.BatchRefreshEntry] = []
+        for g in self.m.library.games:
+            a = self._assessments.get(g.title_id.upper())
+            if a is not None and not a.is_up_to_date:
+                entries.append(rf.BatchRefreshEntry(
+                    game=g,
+                    assessment=a,
+                    out_dir=rf._resolve_game_out_dir(g, self.m.out_dir),
+                ))
+        dlg = rf.BatchRefreshDialog(self.m, entries, parent=self)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        chosen = dlg.chosen_items()
+        if chosen:
+            self._enqueue_and_open_builds(chosen)
+
+    def _on_refresh_queue_changed(self) -> None:
+        self._refresh_activity_bar()
+
+    def _cancel_active_and_queued_builds(self) -> None:
+        self.refresh_queue.cancel_all()
+        if self.m.running:
+            self.m.cancel_build()
 
     def _show_manage_menu(self, anchor: QWidget) -> None:
         g = self.m.library.selected
@@ -1461,6 +1850,7 @@ class MainWindow(QMainWindow):
         d = QFileDialog.getExistingDirectory(self, self.m.t('shell.driveChoose'), self._drive_folder or str(Path.home()))
         if d:
             self._drive_folder = d
+            self.m.drive_folder = d
             self._drive_status = None
             self.drive_path_lbl.setText(d)
             self._refresh_install_card()
@@ -1477,6 +1867,7 @@ class MainWindow(QMainWindow):
             if not d:
                 return
             self._drive_folder = d
+            self.m.drive_folder = d
             self.drive_path_lbl.setText(d)
         self._drive_status = None
         if hasattr(self.m, 'start_drive_copy'):
@@ -1523,6 +1914,7 @@ class MainWindow(QMainWindow):
             if not d:
                 return
             self._drive_folder = d
+            self.m.drive_folder = d
             self.drive_path_lbl.setText(d)
         dlg = DriveSelectDialog(self.m, self._drive_folder, sources, parent=self)
         if dlg.exec() != DriveSelectDialog.Accepted:
@@ -2199,7 +2591,7 @@ class MainWindow(QMainWindow):
 
         self.act_stop_btn = QPushButton(self.m.t('btn.stop'))
         self.act_stop_btn.setObjectName('danger')
-        self.act_stop_btn.clicked.connect(self.m.cancel_build)
+        self.act_stop_btn.clicked.connect(self._cancel_active_and_queued_builds)
         self.act_stop_btn.hide()
         row.addWidget(self.act_stop_btn)
 
@@ -3044,7 +3436,7 @@ class MainWindow(QMainWindow):
     def _build_clicked(self, *, title_id: str | None = None, skip_defender_prompt: bool = False) -> None:
         if self.m.running:
             if title_id is None:
-                self.m.cancel_build()
+                self._cancel_active_and_queued_builds()
             return
         should_prompt_fn = getattr(self.m, 'should_prompt_defender_before_build', None)
         if not skip_defender_prompt and callable(should_prompt_fn) and should_prompt_fn(title_id=title_id):
@@ -3070,6 +3462,15 @@ class MainWindow(QMainWindow):
         self.m.start_build(title_id=title_id)
 
     # ================================================================ Full-Window Drag & Drop
+
+    def closeEvent(self, event) -> None:
+        self._window_closed = True
+        self._img_probing = False
+        self._assess_gen += 1
+        self._img_probe_gen += 1
+        if hasattr(self, '_assess_bridge'):
+            self._assess_bridge.mark_dead()
+        super().closeEvent(event)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

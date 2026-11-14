@@ -8,22 +8,25 @@ extension BuildStore {
         fastRefreshTitleID = nil
         fastRefreshBaseDir = nil
         fastRefreshGameName = nil
+        fastRefreshExternalImgPath = nil
     }
 
-    /// Starts a fast refresh build (PR #3) from a build seed without requiring NSPs or keys.
+    /// Starts a fast refresh build from a build seed without requiring NSPs or keys.
     package func startFastRefresh(
         titleID: String,
         target: Int,
         outDir: String? = nil,
         gameName: String? = nil,
-        existingMacAppPath: String? = nil
+        existingMacAppPath: String? = nil,
+        externalImgPath: String? = nil
     ) {
         startFastRefresh(
             titleID: titleID,
             targetName: target == 0 ? BuildTarget.mac : BuildTarget.ios,
             outDir: outDir,
             gameName: gameName,
-            existingMacAppPath: existingMacAppPath
+            existingMacAppPath: existingMacAppPath,
+            externalImgPath: externalImgPath
         )
     }
 
@@ -39,7 +42,8 @@ extension BuildStore {
             target: target,
             outDir: nil,
             gameName: gameName,
-            existingMacAppPath: existingMacAppPath
+            existingMacAppPath: existingMacAppPath,
+            externalImgPath: nil
         )
     }
 
@@ -55,7 +59,8 @@ extension BuildStore {
             targetName: targetName,
             outDir: nil,
             gameName: gameName,
-            existingMacAppPath: existingMacAppPath
+            existingMacAppPath: existingMacAppPath,
+            externalImgPath: nil
         )
     }
 
@@ -65,7 +70,8 @@ extension BuildStore {
         targetName: String,
         outDir: String? = nil,
         gameName: String? = nil,
-        existingMacAppPath: String? = nil
+        existingMacAppPath: String? = nil,
+        externalImgPath: String? = nil
     ) {
         guard !running else { return }
         let tid = titleID.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
@@ -82,6 +88,10 @@ extension BuildStore {
 
         let py = deps.pythonPath.isEmpty ? Toolchain.findPython().path : deps.pythonPath
         let seedRoot = BuildSeedCache.defaultRoot(home: self.home)
+        let trimmedExternalImg = externalImgPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let validExternalImg: String? = (!trimmedExternalImg.isEmpty && FileManager.default.fileExists(atPath: trimmedExternalImg))
+            ? trimmedExternalImg
+            : nil
 
         let resolvedOutDir: String = {
             if let explicit = outDir, !explicit.isEmpty { return explicit }
@@ -101,39 +111,12 @@ extension BuildStore {
         try? FileManager.default.createDirectory(atPath: resolvedOutDir, withIntermediateDirectories: true)
         let workDir = resolvedOutDir + "/" + tid + "_build"
 
-        // If seed is missing or incomplete, attempt automatic adoption from legacy workDir if present
-        let inspection = BuildSeedCache.inspect(titleID: tid, seedRoot: seedRoot, repoPath: repo.path)
-        if !inspection.isUsable {
-            let engine = EngineLayout.root(repo.path)
-            let adoptTool = engine + "/" + RepoLayout.buildSeedTool
-            if FileManager.default.fileExists(atPath: adoptTool) && FileManager.default.fileExists(atPath: workDir) {
-                var adoptArgs = [adoptTool, "adopt", "--seed-cache-dir", seedRoot, "--title-id", tid, "--work-dir", workDir]
-                if let app = existingMacAppPath, FileManager.default.fileExists(atPath: app) {
-                    adoptArgs += ["--app-path", app]
-                }
-                let candidates = BuildSeedCache.prefillCandidates(
-                    titleID: tid,
-                    outDir: resolvedOutDir,
-                    gameName: gameName,
-                    macAppPath: existingMacAppPath,
-                    workDir: workDir
-                )
-                let imgCandidate = candidates.first { $0.hasSuffix(".img") && !$0.contains(".app") }
-                    ?? (resolvedOutDir + "/games/" + tid + "/romfs.img")
-                if FileManager.default.fileExists(atPath: imgCandidate) {
-                    adoptArgs += ["--img-path", imgCandidate]
-                }
-                let env = ["PATH": BuildCommands.toolPath(python: py), "HOME": self.home]
-                    .merging(BundledTools.environment(for: py)) { $1 }
-                _ = runner.runCaptured([py] + adoptArgs, env: env) { _ in }
-            }
-        }
-
-        // Configure store state for fast refresh
+        // Configure store state for fast refresh (external image path is set after device verification succeeds)
         fastRefreshActive = true
         fastRefreshTitleID = tid
         fastRefreshBaseDir = resolvedOutDir
         fastRefreshGameName = (gameName?.isEmpty == false) ? gameName : nil
+        fastRefreshExternalImgPath = nil
         self.target = BuildTarget.normalized(targetName)
         runningTarget = self.target
 
@@ -147,7 +130,14 @@ extension BuildStore {
                 return
             }
             verifyShellDevice { [weak self] in
-                self?.startFastRefresh(titleID: tid, targetName: targetName, outDir: outDir, gameName: gameName, existingMacAppPath: existingMacAppPath)
+                self?.startFastRefresh(
+                    titleID: tid,
+                    targetName: targetName,
+                    outDir: outDir,
+                    gameName: gameName,
+                    existingMacAppPath: existingMacAppPath,
+                    externalImgPath: externalImgPath
+                )
             }
             return
         }
@@ -228,6 +218,9 @@ extension BuildStore {
             for img in RomFSArchive.reusableImages(root: resolvedOutDir, key: tid) {
                 addRomfs(img)
             }
+            if let extImg = validExternalImg {
+                addRomfs(extImg)
+            }
             for img in romfsCandidates {
                 args += ["--romfs-from", img]
             }
@@ -241,18 +234,165 @@ extension BuildStore {
             args += ShellInstall.buildArguments(workDir: workDir, team: exportsShell ? "" : devices.signingTeam)
         }
 
-        // Prefill candidates for Path B or Mac/iOS image
-        let candidates = BuildSeedCache.prefillCandidates(
-            titleID: tid,
-            outDir: resolvedOutDir,
-            gameName: gameName,
-            macAppPath: existingMacAppPath ?? macAppPath,
-            workDir: workDir
-        )
-        for cand in candidates {
-            args += ["--prefill-msl", cand]
+        let repoPath = repo.path
+        let prefillMacAppPath = existingMacAppPath ?? macAppPath
+        let initialInspection = BuildSeedCache.inspect(titleID: tid, seedRoot: seedRoot, repoPath: repoPath)
+        let adoptTool = engine + "/" + RepoLayout.buildSeedTool
+        let needsAdopt = !initialInspection.isUsable
+            && FileManager.default.fileExists(atPath: adoptTool)
+            && FileManager.default.fileExists(atPath: workDir)
+
+        let syncCandidates = needsAdopt
+            ? []
+            : BuildSeedCache.prefillCandidates(
+                titleID: tid,
+                outDir: resolvedOutDir,
+                gameName: gameName,
+                macAppPath: prefillMacAppPath,
+                workDir: workDir
+            )
+        let driveFolder = devices.driveFolder
+        let needsDriveScan = !isMac
+            && validExternalImg == nil
+            && syncCandidates.isEmpty
+            && initialInspection.path == .pathB
+            && !driveFolder.isEmpty
+
+        if needsAdopt || needsDriveScan {
+            let runner = self.runner
+            let adoptEnv = ["PATH": BuildCommands.toolPath(python: py), "HOME": self.home]
+                .merging(BundledTools.environment(for: py)) { $1 }
+            let prepGeneration = archiveGeneration
+            let immutableBaseArgs = args
+            let immutableEnvURL = tempEnvURL
+            effectiveWorkDir = workDir
+            installPhaseActive = true
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                var inspection = initialInspection
+                if needsAdopt {
+                    var adoptArgs = [adoptTool, "adopt", "--seed-cache-dir", seedRoot, "--title-id", tid, "--work-dir", workDir]
+                    if let app = existingMacAppPath, FileManager.default.fileExists(atPath: app) {
+                        adoptArgs += ["--app-path", app]
+                    }
+                    let adoptCandidates = BuildSeedCache.prefillCandidates(
+                        titleID: tid,
+                        outDir: resolvedOutDir,
+                        gameName: gameName,
+                        macAppPath: existingMacAppPath,
+                        workDir: workDir
+                    )
+                    let imgCandidate = adoptCandidates.first { $0.hasSuffix(".img") && !$0.contains(".app") }
+                        ?? validExternalImg
+                        ?? (resolvedOutDir + "/games/" + tid + "/romfs.img")
+                    if FileManager.default.fileExists(atPath: imgCandidate) {
+                        adoptArgs += ["--img-path", imgCandidate]
+                    }
+                    _ = runner.runCaptured([py] + adoptArgs, env: adoptEnv) { _ in }
+                    inspection = BuildSeedCache.inspect(titleID: tid, seedRoot: seedRoot, repoPath: repoPath)
+                }
+
+                let finalCandidates = needsAdopt
+                    ? BuildSeedCache.prefillCandidates(
+                        titleID: tid,
+                        outDir: resolvedOutDir,
+                        gameName: gameName,
+                        macAppPath: prefillMacAppPath,
+                        workDir: workDir
+                    )
+                    : syncCandidates
+
+                var matchedDriveImg: String?
+                if !isMac,
+                   validExternalImg == nil,
+                   finalCandidates.isEmpty,
+                   inspection.path == .pathB,
+                   !driveFolder.isEmpty {
+                    matchedDriveImg = RomfsImageIdentity.scanExternalDriveForMatchingImage(
+                        driveFolder: driveFolder,
+                        titleID: tid,
+                        expectedIdentity: inspection.record?.romfsIdentity
+                    )
+                }
+
+                hop {
+                    guard let self else {
+                        if let immutableEnvURL { try? FileManager.default.removeItem(at: immutableEnvURL) }
+                        return
+                    }
+                    guard self.archiveGeneration == prepGeneration else {
+                        if let immutableEnvURL { try? FileManager.default.removeItem(at: immutableEnvURL) }
+                        return
+                    }
+                    self.installPhaseActive = false
+                    if self.stopping {
+                        if let immutableEnvURL { try? FileManager.default.removeItem(at: immutableEnvURL) }
+                        self.clearFastRefreshContext()
+                        self.stopping = false
+                        self.running = false
+                        self.resetProgress()
+                        self.doneNote = self.t("msg.stopped")
+                        self.cleanupStaging()
+                        return
+                    }
+                    var launchArgs = immutableBaseArgs
+                    for cand in finalCandidates {
+                        launchArgs += ["--prefill-msl", cand]
+                    }
+                    if !isMac {
+                        if let extImg = validExternalImg {
+                            self.fastRefreshExternalImgPath = extImg
+                            if !finalCandidates.contains(extImg) {
+                                launchArgs += ["--prefill-msl", extImg]
+                            }
+                        } else if let driveImg = matchedDriveImg {
+                            self.fastRefreshExternalImgPath = driveImg
+                            if !finalCandidates.contains(driveImg) {
+                                launchArgs += ["--prefill-msl", driveImg]
+                            }
+                            self.say(String(format: self.t("imgGuide.driveReused"), (driveImg as NSString).lastPathComponent))
+                        }
+                    }
+                    self.launchFastRefreshProcess(
+                        py: py,
+                        args: launchArgs,
+                        engine: engine,
+                        workDir: workDir,
+                        macOutput: macOutput,
+                        tempEnvURL: immutableEnvURL
+                    )
+                }
+            }
+            return
         }
 
+        for cand in syncCandidates {
+            args += ["--prefill-msl", cand]
+        }
+        if !isMac, let extImg = validExternalImg {
+            fastRefreshExternalImgPath = extImg
+            if !syncCandidates.contains(extImg) {
+                args += ["--prefill-msl", extImg]
+            }
+        }
+
+        launchFastRefreshProcess(
+            py: py,
+            args: args,
+            engine: engine,
+            workDir: workDir,
+            macOutput: macOutput,
+            tempEnvURL: tempEnvURL
+        )
+    }
+
+    private func launchFastRefreshProcess(
+        py: String,
+        args: [String],
+        engine: String,
+        workDir: String,
+        macOutput: MacAppOutput?,
+        tempEnvURL: URL?
+    ) {
         effectiveWorkDir = workDir
         say(String(format: t("msg.running"), py) + " " + args.joined(separator: " "))
         lastBuildCommand = [py] + args

@@ -10,7 +10,10 @@ package struct FilePick: Equatable {
     package var prompt: String?
 
     package init(allowsMultiple: Bool, fileTypes: [String], message: String? = nil, prompt: String? = nil) {
-        self.allowsMultiple = allowsMultiple; self.fileTypes = fileTypes; self.message = message; self.prompt = prompt
+        self.allowsMultiple = allowsMultiple
+        self.fileTypes = fileTypes
+        self.message = message
+        self.prompt = prompt
     }
 }
 
@@ -160,7 +163,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var peakOverallProgress: Double = 0
     @Published package var macAppPath = ""   // --platform mac-app: the .app this build produced
     package var oneGameIPAPath = ""   // the IPA a one-game export writes (#540), empty for any other build
-    /// BuildTarget.ios = the game's framework in the one shared app on an iPhone or iPad; BuildTarget.mac = a double-clickable
+    /// BuildTarget.ios = the game's framework in the one shared app on an iPhone or iPad, BuildTarget.mac = a double-clickable
     /// Mac app (upstream's --platform mac-app). A Mac app is a different output of the same pipeline, not a
     /// different pipeline: same extraction, rewrite and shaders, then dm/mac/pack_app.py.
     @Published package var target: String {
@@ -236,6 +239,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package var fastRefreshTitleID: String? = nil
     package var fastRefreshGameName: String? = nil
     package var fastRefreshBaseDir: String? = nil
+    package var fastRefreshExternalImgPath: String? = nil
 
     /// Output folder for the current operation: respects fastRefreshBaseDir during fast refresh,
     /// falling back to outDir or inputFolder for standard builds.
@@ -397,13 +401,27 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     // MARK: Ending a build
 
-    package func fail(_ why: String) { archiveGeneration &+= 1; stopPSOPoll(); running = false; doneNote = why; say("✗ " + why); cleanupStaging() }
+    package func fail(_ why: String) {
+        archiveGeneration &+= 1
+        fastRefreshExternalImgPath = nil
+        stopPSOPoll()
+        running = false
+        doneNote = why
+        say("✗ " + why)
+        cleanupStaging()
+    }
 
     package func stop() {
         if running { stoppedByPlayer = true }
-        if case .moving = shellMove { stopShellMove(); return }
+        if case .moving = shellMove {
+            stopShellMove()
+            return
+        }
         if stopPendingInstallOrCopy() { return }
-        if let endPreflight { endPreflight(MacPreflight.Failure.stopped); return }   // the app is built: Stop ends the check only
+        if let endPreflight {
+            endPreflight(MacPreflight.Failure.stopped)
+            return
+        }
         guard running, !stopping, let proc, proc.isRunning else { return }
         archiveGeneration &+= 1
         stopping = true
@@ -418,9 +436,20 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     }
 
     /// A stopped build leaves no half-finished stages behind: the progress starts empty again.
-    package func resetProgress() { archiveGeneration &+= 1; stopPSOPoll(); stages = []; log.clear() }
+    package func resetProgress() {
+        archiveGeneration &+= 1
+        fastRefreshExternalImgPath = nil
+        stopPSOPoll()
+        stages = []
+        log.clear()
+    }
 
-    package func markAllDone() { stopPSOPoll(); for i in stages.indices where stages[i].state != .failed { stages[i].state = .done } }
+    package func markAllDone() {
+        stopPSOPoll()
+        for i in stages.indices where stages[i].state != .failed {
+            stages[i].state = .done
+        }
+    }
 
     func startPSOPoll(stageID: Int, step: String) {
         psoPollTask?.cancel()
@@ -509,7 +538,7 @@ func hop(_ body: @escaping @MainActor () -> Void) {
 
     /// Split into lines (the pipe delivers arbitrary chunks) and turn the script's progress into the stage list.
     /// `--progress json` writes one event per line (stage, step, progress with done / total / frac / eta, stage_end,
-    /// say), a count change at most every half second; anything else on the pipe (a tool's traceback) is log text.
+    /// say), a count change at most every half second, and anything else on the pipe (a tool's traceback) is log text.
     /// The older `--progress lines` form is still understood:
     ///   [12:00:01] [2/7] extract v720896 …
     ///   [12:00:20] ✓ [2/7] extract v720896 (0:19): 30,000 files, 3.4 GB
@@ -572,8 +601,14 @@ func hop(_ body: @escaping @MainActor () -> Void) {
     package func handleEvent(_ kind: String, _ e: [String: Any]) {
         let k = (e["k"] as? NSNumber)?.intValue ?? 0
         func stage(_ update: (inout Stage) -> Void) {
-            if let i = stages.firstIndex(where: { $0.id == k }) { update(&stages[i]) }
-            else { var s = Stage(id: k, name: Stage.localizedName(e["name"] as? String ?? "", t)); update(&s); stages.append(s); stages.sort { $0.id < $1.id } }
+            if let i = stages.firstIndex(where: { $0.id == k }) {
+                update(&stages[i])
+            } else {
+                var s = Stage(id: k, name: Stage.localizedName(e["name"] as? String ?? "", t))
+                update(&s)
+                stages.append(s)
+                stages.sort { $0.id < $1.id }
+            }
         }
         switch kind {
         case "stage":

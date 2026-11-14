@@ -163,6 +163,11 @@ extension LauncherView {
     }
 
     func checkTools() {
-        toolsAge.check(games: library.games, repo: stores.repo.path)
+        toolsAge.check(
+            games: library.games,
+            repo: stores.repo.path,
+            libraryFolder: library.folder,
+            seedRoot: BuildSeedCache.defaultRoot(home: stores.build.home)
+        )
     }
 }
