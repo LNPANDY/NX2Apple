@@ -391,15 +391,21 @@ class ExternalMslAndBatchDriveCopyTest(unittest.TestCase):
             from PySide6.QtWidgets import QApplication
             from nspb_qt import model as model_mod, ui as ui_mod
         except ImportError:
-            from test_post_build_cleanup import _import_model_with_stub
+            from test_post_build_cleanup import _load_model_with_qt_fallback
 
-            model_mod, cleanup = _import_model_with_stub()
+            model_mod, cleanup = _load_model_with_qt_fallback()
             try:
-                fake = type('Stub', (), {
-                    't': lambda _s, k, *a: l10n.t(k, Lang('en'), *a),
-                    'built_shell_games': lambda _s: ['a', 'b'],
-                })()
-                self.assertEqual(model_mod.Model.export_built_label(fake), 'Export IPA (2)')
+                for code, expected2, expected5 in (
+                    ('en', 'Export IPA (2)', 'Export IPA (5)'),
+                    ('zh', '导出 IPA (2)', '导出 IPA (5)'),
+                    ('ja', 'IPA を書き出し (2)', 'IPA を書き出し (5)'),
+                ):
+                    fake = type('Stub', (), {
+                        't': lambda _s, k, *a, _c=code: l10n.t(k, Lang(_c), *a),
+                        'built_shell_games': lambda _s: ['a', 'b'],
+                    })()
+                    self.assertEqual(model_mod.Model.export_built_label(fake), expected2)
+                    self.assertEqual(model_mod.Model.export_built_label(fake, 5), expected5)
             finally:
                 cleanup()
             return

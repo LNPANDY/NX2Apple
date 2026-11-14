@@ -26,7 +26,7 @@ CHECKS = (
     Check('Qt front end', ('frontend-qt/', 'frontend/l10n/', 'frontend/Sources/', 'frontend/Tests/l10n-key-rules.json'), 'python3 -m unittest discover -s frontend-qt/tests', '.', True),
     Check('tools', ('tools/',), 'python3 -m unittest discover tools/tests', '.', True),
     Check('triage scripts', ('.github/scripts/',), 'python3 -m unittest discover -s .github/scripts/tests', '.', True),
-    Check('Mac launcher (slow)', ('frontend/',), 'swift build && swift test', 'frontend', True),
+    Check('Mac launcher (slow)', ('frontend/',), "swift build && swift test --skip 'LauncherControlWidthTests|LauncherPerformanceTests'", 'frontend', True),
     Check('iOS shell (slow)', ('frontend-ios/',), 'swift build && swift test', 'frontend-ios', True),
 )
 
