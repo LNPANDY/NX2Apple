@@ -906,7 +906,7 @@ if os.name == 'nt' and not os.environ.get('NSPB_SHIM_OFF'):
         if base in ('nx_extract', 'nx_extract.exe'):
             # The extractor driver.build_nx_extract / find_nx_extract return is a .NET apphost,
             # and Windows 11 build 22000's incomplete user-mode CET makes every CET-marked
-            # apphost fail fast: "Your Windows doesn't fully support CET", exit 6. The SDK's
+            # apphost fail fast: "Your Windows doesn't fully support CET", exit 0x80131506. The SDK's
             # csc.exe dies that way (toolchain.csc_tool_args routes the build around it), and so
             # does the built nx_extract.exe -- measured: the apphost prints that fatal error,
             # `dotnet nx_extract.dll --help` prints its usage. Same program, unmarked host, as

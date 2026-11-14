@@ -1832,13 +1832,13 @@ class DotnetTest(unittest.TestCase):
             self.assertFalse((Path(td) / 'tools' / 'csc-wrap').exists())
 
     def test_csc_args_route_through_dotnet_when_cet_blocks_the_apphost(self) -> None:
-        """Windows 11 build 22000: csc.exe exits 6 with the CET message, so publish died in
+        """Windows 11 build 22000: csc.exe exits 0x80131506 with the CET message, so publish died in
         Microsoft.CSharp.Core.targets and tool_lock reported "the translator does not run"."""
         with tempfile.TemporaryDirectory() as td:
             root, bincore = self._fake_sdk(td)
             tools = Path(td) / 'tools'
             cet = subprocess.CompletedProcess(
-                [], 6, '', "Fatal error.\nYour Windows doesn't fully support CET.")
+                [], 0x80131506, '', "Fatal error.\nYour Windows doesn't fully support CET.")
             with mock.patch.object(tc, 'dotnet_dir', return_value=root), \
                     mock.patch.object(tc, 'dotnet_sdks', return_value=['10.0.403']), \
                     mock.patch.object(tc, 'tools_dir', return_value=tools), \
@@ -1885,7 +1885,7 @@ class DotnetTest(unittest.TestCase):
         """One `csc.exe -?` per compiler, not one per publish: the answer is keyed on its stamp."""
         with tempfile.TemporaryDirectory() as td:
             root, _ = self._fake_sdk(td)
-            cet = subprocess.CompletedProcess([], 6, '', "Your Windows doesn't fully support CET.")
+            cet = subprocess.CompletedProcess([], 0x80131506, '', "Your Windows doesn't fully support CET.")
             with mock.patch.object(tc, 'dotnet_dir', return_value=root), \
                     mock.patch.object(tc, 'dotnet_sdks', return_value=['10.0.403']), \
                     mock.patch.object(tc, 'tools_dir', return_value=Path(td) / 'tools'), \

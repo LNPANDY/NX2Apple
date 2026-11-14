@@ -614,13 +614,13 @@ def csc_tool_args() -> list[str]:
     """MSBuild arguments that run Roslyn as `dotnet csc.dll`, or [] when the SDK's own compiler works.
 
     Windows 11 build 22000 has incomplete user-mode CET, and .NET 10's coreclr fails fast in every
-    apphost it marks CET-compatible: "Your Windows doesn't fully support CET", exit 6. The SDK's
+    apphost it marks CET-compatible: "Your Windows doesn't fully support CET", exit 0x80131506. The SDK's
     `csc.exe` is such an apphost, so `dotnet publish` / `dotnet build` die in
     Microsoft.CSharp.Core.targets before compiling one file — which is how the shader translator's
     on-demand publish (shim.py `_dmsh_xlate_dll`) failed, and `tool_lock.check_tools()` then
     reported "the translator does not run" and stopped the whole shader build. The `dotnet` host
     is not marked, and `dotnet csc.dll` is the same compiler: measured on SDK 10.0.403,
-    `csc.exe -?` exits 6 with that message while `dotnet csc.dll -?` exits 0 and prints its version.
+    `csc.exe -?` exits 0x80131506 with that message while `dotnet csc.dll -?` exits 0 and prints its version.
 
     CscToolExe / CscToolPath are MSBuild's own knobs (Microsoft.CSharp.Core.targets), so neither
     the SDK nor the engine is modified; UseSharedCompilation=false keeps MSBuild off
