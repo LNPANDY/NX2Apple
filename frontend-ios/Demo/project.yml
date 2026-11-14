@@ -9,6 +9,8 @@ packages:
 settings:
   base:
     SWIFT_VERSION: '6.0'
+    MARKETING_VERSION: '1.0'
+    CURRENT_PROJECT_VERSION: '1'
     CODE_SIGNING_ALLOWED: NO
     GENERATE_INFOPLIST_FILE: YES
     TARGETED_DEVICE_FAMILY: '1,2'
@@ -39,6 +41,9 @@ targets:
       path: Gen/Info.plist
       properties:
         CFBundleLocalizations: [en, de, es, fr, it, ja, ko, pt-BR, sv, zh-Hans]   # every file of frontend/l10n (tools/l10n_shell_catalogs.py), so iOS offers them to the package bundles
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.nx2apple.shell.url
+            CFBundleURLSchemes: [nx2apple]
     dependencies:
       - package: ShellUI
         product: ShellUI
@@ -46,6 +51,28 @@ targets:
         product: ShellControllers
       - package: ShellUI
         product: ShellHost
+      - target: ShellDemoWidget
+  ShellDemoWidget:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Widget
+      - ../Sources/ShellUI/Resources/Localizable.xcstrings
+    info:
+      path: Gen/WidgetInfo.plist
+      properties:
+        CFBundleDisplayName: Shell Demo
+        CFBundleLocalizations: [en, de, es, fr, it, ja, ko, pt-BR, sv, zh-Hans]
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.shellui.ShellDemoApp.widget
+      SKIP_INSTALL: YES
+    dependencies:
+      - package: ShellUI
+        product: ShellUI
+      - package: ShellUI
+        product: ShellWidget
   ShellDemoUITests:
     type: bundle.ui-testing
     platform: iOS

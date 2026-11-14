@@ -366,6 +366,13 @@ static UIInterfaceOrientationMask shell_orientations(UITraitCollection *traits) 
     g_library_vc = [ShellLibrary makeController];
     self.window.rootViewController = g_library_vc;
     [self.window makeKeyAndVisible];
+    UIOpenURLContext *ctx = o.URLContexts.anyObject;
+    if (ctx.URL && !g_boot_ok) [ShellLibrary openURL:ctx.URL];
+}
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)URLContexts {
+    (void)scene;
+    UIOpenURLContext *ctx = URLContexts.anyObject;
+    if (ctx.URL && !g_boot_ok) [ShellLibrary openURL:ctx.URL];
 }
 // Forwarded to the running game framework's front_ios.m once a game has started
 - (void)sceneWillResignActive:(UIScene *)s { (void)s; if (g_focus) g_focus(0); }

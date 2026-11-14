@@ -88,6 +88,8 @@ public struct ShellHostConfig: Sendable {
     public private(set) var padMerge = false
     /// The last controller state, sent only while the button test is open.
     public private(set) var padSnapshot: PadSnapshot?
+    /// Latest deep-link navigation request for `LibraryView`.
+    public private(set) var navigation: ShellNavigationRequest?
 
     private struct PendingCloudLaunch {
         var generation: UInt64
@@ -126,6 +128,9 @@ public struct ShellHostConfig: Sendable {
     @ObservationIgnored private var latestBackups: [String: String] = [:]
     @ObservationIgnored private var signingCheckTask: Task<Void, Never>?
     @ObservationIgnored private var signingWarningDismissed = false
+    @ObservationIgnored private var navigationSequence = 0
+    @ObservationIgnored private var lastWidgetGames: [WidgetSnapshotPayload.GameRecord]?
+    @ObservationIgnored private var lastWidgetCounts: (Int, Int)?
     @ObservationIgnored nonisolated(unsafe) private var defaultsObserver: (any NSObjectProtocol)?
     @ObservationIgnored nonisolated(unsafe) private var foregroundObserver: (any NSObjectProtocol)?
 
@@ -336,6 +341,7 @@ public struct ShellHostConfig: Sendable {
         let position = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
         entries = scanned.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
         details = built.sorted { position[$0.id] ?? 0 < position[$1.id] ?? 0 }
+        publishWidgetSnapshot()
         startShellScan(force: true)
         startBackupScan()
         if !afterClaim && !launchingGame {
@@ -375,6 +381,23 @@ public struct ShellHostConfig: Sendable {
     private func refresh(_ id: String) {
         guard let e = entries.firstIndex(where: { $0.id == id }), let d = details.firstIndex(where: { $0.id == id }) else { return }
         details[d] = detail(for: entries[e])
+        publishWidgetSnapshot()
+    }
+
+    private func publishWidgetSnapshot() {
+        let playedMap = Dictionary(uniqueKeysWithValues: entries.compactMap { entry in
+            lastPlayed(entry.id).map { (entry.id, $0) }
+        })
+        let order = LibraryOrder.ids(of: details.map(\.game), lastPlayed: playedMap)
+        let rank = Dictionary(uniqueKeysWithValues: order.enumerated().map { ($1, $0) })
+        let orderedDetails = details.sorted { (rank[$0.id] ?? 0) < (rank[$1.id] ?? 0) }
+        let payload = WidgetSnapshotStore.makePayload(details: orderedDetails, lastPlayed: playedMap, now: config.now())
+        if lastWidgetGames == payload.games, let counts = lastWidgetCounts, counts == (payload.readyCount, payload.totalCount) {
+            return
+        }
+        lastWidgetGames = payload.games
+        lastWidgetCounts = (payload.readyCount, payload.totalCount)
+        WidgetSnapshotStore.save(payload, directory: config.appDataRoot.deletingLastPathComponent())
     }
 
     private func entry(_ id: String) -> CatalogueEntry? { entries.first { $0.id == id } }
@@ -816,6 +839,28 @@ public struct ShellHostConfig: Sendable {
     public func appUpdate() {
         guard let url = config.updateURL else { notice = hostText("No update address is set up for this app."); return }
         config.openURL(url)
+    }
+
+    /// Opens a `nx2apple://` widget or system deep link. Returns false when the URL is not a shell route.
+    @discardableResult
+    public func open(_ url: URL) -> Bool {
+        guard let link = ShellDeepLink(url: url) else { return false }
+        navigationSequence &+= 1
+        navigation = ShellNavigationRequest(sequence: navigationSequence, link: link)
+        if case .play(let requestedID) = link {
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if self.details.first(where: { $0.id.caseInsensitiveCompare(requestedID) == .orderedSame })?.game.state != .playable {
+                    await self.waitForStartupTasks()
+                }
+                guard let target = self.details.first(where: { $0.id.caseInsensitiveCompare(requestedID) == .orderedSame }),
+                      target.game.state == .playable else {
+                    return
+                }
+                await self.playNow(target.id)
+            }
+        }
+        return true
     }
 
     public func play(_ id: String) {

@@ -291,4 +291,45 @@ extension LibraryView {
         if settingsOpen { return "set.back" }
         return selected.map { "lib.tile.\($0.id)" } ?? "lib.controllers"
     }
+
+    func applyNavigation(_ request: ShellNavigationRequest) {
+        guard request.sequence != navigationSeen else { return }
+        navigationSeen = request.sequence
+        helpGameID = nil
+        restoreBackupGameID = nil
+        deleteGameID = nil
+        choice = nil
+        padMapping = nil
+        if buttonTestOpen { closeButtonTest() }
+        touchLayout = nil
+        switch request.link {
+        case .library:
+            controllersOpen = false
+            shellSettingsOpen = false
+            settingsOpen = false
+        case .controllers:
+            shellSettingsOpen = false
+            settingsOpen = false
+            controllersOpen = true
+            focus.id = "ctl.close"
+        case .game(let id), .play(let id):
+            controllersOpen = false
+            shellSettingsOpen = false
+            settingsOpen = false
+            if let match = games.first(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) {
+                selectedID = match.id
+                actions.onSelect(match.id)
+                focus.id = "lib.tile.\(match.id)"
+            }
+        case .settings(let id):
+            controllersOpen = false
+            shellSettingsOpen = false
+            if let match = games.first(where: { $0.id.caseInsensitiveCompare(id) == .orderedSame }) {
+                selectedID = match.id
+                actions.onSelect(match.id)
+                settingsOpen = true
+                focus.id = "set.back"
+            }
+        }
+    }
 }

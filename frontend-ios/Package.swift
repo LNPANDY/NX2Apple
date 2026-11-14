@@ -10,12 +10,15 @@ let package = Package(
         .library(name: "ShellControllers", targets: ["ShellControllers"]),
         // The host layer behind the views: catalogue, settings, game data, cloud saves, log and the launcher seam.
         .library(name: "ShellHost", targets: ["ShellHost"]),
+        // Home Screen, iPad Pro Extra Large, StandBy, and Lock Screen WidgetKit definitions.
+        .library(name: "ShellWidget", targets: ["ShellWidget"]),
         .executable(name: "ShellDemo", targets: ["ShellDemo"])
     ],
     targets: [
         .target(name: "ShellUI", resources: [.process("Resources")]),
         .target(name: "ShellControllers", dependencies: ["ShellUI"]),
         .target(name: "ShellHost", dependencies: ["ShellUI", "ShellControllers"], resources: [.process("Resources")]),
+        .target(name: "ShellWidget", dependencies: ["ShellUI"]),
         .executableTarget(name: "ShellDemo", dependencies: ["ShellUI", "ShellControllers", "ShellHost"], resources: [.process("Resources")]),
         .testTarget(name: "ShellUITests", dependencies: ["ShellUI"]),
         .testTarget(name: "ShellHostTests", dependencies: ["ShellHost", "ShellUI", "ShellControllers"], resources: [.copy("Fixtures")]),

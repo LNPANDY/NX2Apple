@@ -54,6 +54,18 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
 
 /// The library's root controller, for ShellMain.m's scene delegate.
 @objc(ShellLibrary) final class ShellLibrary: NSObject {
+    @MainActor private static weak var currentModel: ShellHostModel?
+    @MainActor private static var pendingURL: URL?
+
+    @MainActor @objc static func openURL(_ url: URL) {
+        fputs("shell: openURL \(url.absoluteString)\n", stderr)
+        if let model = currentModel {
+            _ = model.open(url)
+        } else {
+            pendingURL = url
+        }
+    }
+
     @MainActor @objc static func makeController() -> UIViewController {
         let info = Bundle.main.infoDictionary ?? [:]
         // The shader chain the host was compiled with (build_shell.sh writes DMChain): a framework built for another one needs an app update
@@ -69,6 +81,7 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
                                      environment: HostEnvironment(chain: chain),
                                      updateURL: URL(string: "https://github.com/LNPANDY/NX2Apple/releases"))
         let model = ShellHostModel(config: config, launcher: EngineGameLauncher(), picker: DocumentFolderPicker())
+        currentModel = model
         model.startControllers()
         for entry in model.entries {
             fputs("shell: game \(entry.id) \(entry.title) at \(entry.frameworkURL?.lastPathComponent ?? "-")\(entry.problem.map { ", broken: \($0.reason), \($0.detail)" } ?? "")\n", stderr)
@@ -79,6 +92,9 @@ private func withCStrings<R>(_ strings: [String], _ body: (UnsafePointer<UnsafeP
             let state = model.details.first { $0.id == id }.map { "\($0.game.state)" } ?? "not in the library"
             fputs("shell: DM_SHELL_PLAY=\(id) (\(state))\n", stderr)
             DispatchQueue.main.async { model.play(id) }
+        } else if let url = pendingURL {
+            pendingURL = nil
+            _ = model.open(url)
         }
         let host = UIHostingController(rootView: ShellHostView(model: model))
         host.view.backgroundColor = .black

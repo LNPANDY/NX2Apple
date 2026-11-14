@@ -25,6 +25,7 @@ struct DemoScreen: View {
     @State private var games = SampleData.games
     @State private var notice: String?
     @State private var input = ShellInputLog()
+    @State private var navigation: ShellNavigationRequest?
     @State private var unfolded = ProcessInfo.processInfo.arguments.contains("--unfolded")
     /// Real controllers, through the reusable adapter in ShellControllers.
     @State private var gamepads = GamepadAdapter()
@@ -90,6 +91,13 @@ struct DemoScreen: View {
             gamepads.start()
         }
         .onDisappear { gamepads.stop() }
+        .onOpenURL { url in
+            guard let link = ShellDeepLink(url: url) else { return }
+            navigation = ShellNavigationRequest(sequence: (navigation?.sequence ?? 0) + 1, link: link)
+            if case .play = link {
+                notice = demoText("Play requested. The demo does not launch games.")
+            }
+        }
     }
 
     private var shell: some View {
@@ -104,7 +112,8 @@ struct DemoScreen: View {
                     padSnapshot: padSnapshot ?? (scenario == "controllers-test"
                         ? PadSnapshot(name: "Demo", pressed: [.a, .leftBumper, .up], leftStick: CGPoint(x: 0.6, y: 0.5), rightTrigger: 0.7) : nil),
                     initialPadMapping: scenario == "controllers-mapping" ? ControllersView.mappingID : nil,
-                    initialButtonTestOpen: scenario == "controllers-test")
+                    initialButtonTestOpen: scenario == "controllers-test",
+                    navigation: navigation)
     }
 
     /// A stand-in for the foldable while no Simulator runtime for it is installed: the same running shell in a frame

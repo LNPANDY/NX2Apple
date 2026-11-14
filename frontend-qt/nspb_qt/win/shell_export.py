@@ -497,6 +497,14 @@ def _update_shell_plist(staged_app: Path, bundle_id: str, repo: Path) -> None:
     info['DMForkPatches'] = _dm_fork_patches(repo)
     with open(plist_p, 'wb') as f:
         plistlib.dump(info, f, fmt=plistlib.FMT_XML, sort_keys=True)
+    widget_plist_p = staged_app / 'PlugIns' / 'DmShellWidget.appex' / 'Info.plist'
+    if widget_plist_p.is_file():
+        with open(widget_plist_p, 'rb') as f:
+            winfo = plistlib.load(f)
+        winfo['CFBundleIdentifier'] = f'{bundle_id}.widget'
+        winfo.setdefault('CFBundleDisplayName', info.get('CFBundleDisplayName', 'NX2Apple'))
+        with open(widget_plist_p, 'wb') as f:
+            plistlib.dump(winfo, f, fmt=plistlib.FMT_XML, sort_keys=True)
 
 
 def _resolve_python_exe(python_exe: str = '') -> str:
@@ -773,6 +781,8 @@ def _stage_and_pack_shell_ipa(
         pack_py = repo_p / 'dm' / 'ios' / 'tools' / 'pack_ipa.py'
         maps: list[str] = []
         executables = [f'Payload/{APP_NAME}/{SCHEME}']
+        if (staged_app / 'PlugIns' / 'DmShellWidget.appex' / 'DmShellWidget').is_file():
+            executables.append(f'Payload/{APP_NAME}/PlugIns/DmShellWidget.appex/DmShellWidget')
         for fw_path in effective_fw_paths:
             fw_name = fw_path.name
             fw_exe = fw_path.stem

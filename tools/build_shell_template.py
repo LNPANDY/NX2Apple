@@ -64,12 +64,17 @@ def build_template(out_app: Path, engine: Path | None = None) -> Path:
         s.mkdir(parents=True)
         dd.mkdir(parents=True)
         os.symlink(shell_root / 'App', s / 'Shell')
+        os.symlink(shell_root / 'Widget', s / 'ShellWidget')
         gen = s / 'Gen'
         (gen / 'dm' / 'font').mkdir(parents=True)
         (gen / 'dm.xcconfig').write_text('', encoding='utf-8')
         (gen / 'Assets.xcassets').mkdir(parents=True)
         (gen / 'Assets.xcassets' / 'Contents.json').write_text(
             '{"info":{"author":"xcode","version":1}}\n', encoding='utf-8'
+        )
+        shutil.copyfile(
+            pkg_dir / 'Sources' / 'ShellUI' / 'Resources' / 'Localizable.xcstrings',
+            gen / 'Localizable.xcstrings',
         )
         # Drop `# @FRAMEWORKS@`: the Windows shell exporter embeds each game's framework into
         # `DmShell.app/Frameworks/` when packing `NX2Apple.ipa`.
@@ -126,6 +131,7 @@ def build_template(out_app: Path, engine: Path | None = None) -> Path:
         # Remove bundle-level signature folders or leftover Frameworks; keep only the executable's
         # LC_CODE_SIGNATURE so Windows `macho_sign.sign` can stamp the entitlements in place.
         shutil.rmtree(built / '_CodeSignature', ignore_errors=True)
+        shutil.rmtree(built / 'PlugIns' / 'DmShellWidget.appex' / '_CodeSignature', ignore_errors=True)
         shutil.rmtree(built / 'Frameworks', ignore_errors=True)
         (built / 'embedded.mobileprovision').unlink(missing_ok=True)
 
