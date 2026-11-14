@@ -28,7 +28,8 @@ extension LiveConsoleDriver {
     func refreshDesktop() {
         var prefs = state.prefs
         prefs.values = [.startInConsole: ConsolePrompt.startInConsole, .promptOnController: ConsolePrompt.enabled,
-                        .returnAfterPlay: ReturnAfterPlay.enabled, .onlyBuilt: LibraryFilter.load() == .built]
+                        .returnAfterPlay: ReturnAfterPlay.enabled, .noticeSounds: NoticeSounds.enabled,
+                        .onlyBuilt: LibraryFilter.load() == .built]
         if let updates = appUpdates {
             prefs.appVersion = updates.version
             prefs.update = Self.update(updates, buildRunning: builds?.running == true)
@@ -160,6 +161,7 @@ extension LiveConsoleDriver {
         case .startInConsole: defaults.set(on, forKey: ConsolePrompt.startKey)
         case .promptOnController: defaults.set(on, forKey: ConsolePrompt.defaultsKey)
         case .returnAfterPlay: defaults.set(on, forKey: ReturnAfterPlay.defaultsKey)
+        case .noticeSounds: defaults.set(on, forKey: NoticeSounds.defaultsKey)
         case .onlyBuilt: (on ? LibraryFilter.built : .owned).save()
         }
         refreshDesktop()

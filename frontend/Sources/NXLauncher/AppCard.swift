@@ -11,6 +11,7 @@ package struct AppCard: View {
     let buildRunning: Bool
     let notify: Binding<Bool>
     let notifyAvailable: Bool   // false without an app bundle, e.g. under swift run
+    let noticeSounds: Binding<Bool>
     let returnAfterPlay: Binding<Bool>
     let preflightAfterBuild: Binding<Bool>
     let onRunSetup: (() -> Void)?   // the guided first-run setup, again (nil where there is none)
@@ -21,13 +22,14 @@ package struct AppCard: View {
 
     package enum Part { case general, updates, maintenance }
 
-    package init(updates: AppUpdateStore, buildRunning: Bool, notify: Binding<Bool>, notifyAvailable: Bool, returnAfterPlay: Binding<Bool>,
+    package init(updates: AppUpdateStore, buildRunning: Bool, notify: Binding<Bool>, notifyAvailable: Bool, noticeSounds: Binding<Bool>, returnAfterPlay: Binding<Bool>,
                  preflightAfterBuild: Binding<Bool>, onRunSetup: (() -> Void)?, uninstallPlan: @escaping () -> Uninstall.Plan, part: Part = .general) {
         self.part = part
         self.updates = updates
         self.buildRunning = buildRunning
         self.notify = notify
         self.notifyAvailable = notifyAvailable
+        self.noticeSounds = noticeSounds
         self.returnAfterPlay = returnAfterPlay
         self.preflightAfterBuild = preflightAfterBuild
         self.onRunSetup = onRunSetup
@@ -81,6 +83,11 @@ package struct AppCard: View {
             CardRow(loc.t("settings.notify"), detail: loc.t(notifyAvailable ? "settings.notifyNote" : "settings.notifyUnbundled")) {
                 Toggle(loc.t("settings.notify"), isOn: notify).toggleStyle(LauncherSwitchStyle()).labelsHidden().disabled(!notifyAvailable)
                     .padTarget("set.notify", scope: "main") { notify.wrappedValue.toggle() }
+            }
+            CardDivider()
+            CardRow(loc.t("settings.noticeSounds"), detail: loc.t("settings.noticeSoundsNote")) {
+                Toggle(loc.t("settings.noticeSounds"), isOn: noticeSounds).toggleStyle(LauncherSwitchStyle()).labelsHidden()
+                    .padTarget("set.noticeSounds", scope: "main") { noticeSounds.wrappedValue.toggle() }
             }
             CardDivider()
             // The launcher back in front when a game it started quits (ReturnAfterPlay.swift)

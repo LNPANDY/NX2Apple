@@ -24,6 +24,15 @@ import XCTest
         XCTAssertEqual(forward, 0)
     }
 
+    func testTracksWhetherALaunchedGameIsRunningForNoticeSounds() {
+        let watcher = GameReturnWatcher(observesSystem: false)
+        XCTAssertFalse(watcher.isGameRunning)
+        watcher.didStart(pid: 4242)
+        XCTAssertTrue(watcher.isGameRunning)
+        watcher.quit(pid: 4242, enabled: false)
+        XCTAssertFalse(watcher.isGameRunning)
+    }
+
     func testSwitchedOffStillRunsTheBookkeeping() {
         let watcher = GameReturnWatcher(observesSystem: false)
         var forward = 0, quit = 0

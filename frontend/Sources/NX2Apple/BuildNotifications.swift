@@ -11,8 +11,7 @@ import UserNotifications
 // log open (failed).
 //
 // UNUserNotificationCenter needs an app bundle: an unbundled `swift run` has no bundle identifier and
-// UNUserNotificationCenter.current() raises an exception there. So without a bundle identifier there are
-// no notifications at all (and Settings says so); they work in the packaged NX2Apple.app.
+// UNUserNotificationCenter.current() raises an exception there. Sounds still work without a bundle.
 
 /// The decisions and the text, kept apart from the notification center so they can be tested.
 enum BuildNotice {
@@ -52,6 +51,15 @@ enum BuildNotice {
         guard let s = stages.last(where: { $0.state == .failed }) else { return "" }
         return s.detail.isEmpty ? s.name : s.name + " · " + s.detail
     }
+
+    static func content(title: String, body: String, outcome: Outcome, gameID: UUID?) -> UNMutableNotificationContent {
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.userInfo = ["page": outcome == .finished ? LauncherPage.library.rawValue : LauncherPage.builds.rawValue,
+                            "game": gameID?.uuidString ?? ""]
+        return content
+    }
 }
 
 /// Watches the build model, posts the notification and turns a click on it into where the app should show.
@@ -71,10 +79,10 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
     private var watching: AnyCancellable?
 
     /// Follows the model's builds: asks for permission when one starts, notifies when it ends. Only from the real
-    /// app's window (not previews or tests), and only with a bundle identifier (see the top of this file).
+    /// app's window (not previews or tests). System notifications need a bundle identifier (see above).
     @MainActor func watch(_ m: BuildStore, library: GameLibrary) {
-        guard watching == nil, BuildNotice.hasBundleID else { return }
-        UNUserNotificationCenter.current().delegate = self
+        guard watching == nil else { return }
+        if BuildNotice.hasBundleID { UNUserNotificationCenter.current().delegate = self }
         watching = m.$done.removeDuplicates().dropFirst().sink { [weak self, weak m, weak library] done in MainActor.assumeIsolated {
             guard let self, let m, let library else { return }
             if m.running || !m.buildingGame { return }   // a reset between builds: done flips false while nothing has ended yet
@@ -86,7 +94,12 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
                 MainActor.assumeIsolated {
                     let outcome: BuildNotice.Outcome = stopped ? .stopped
                         : done ? .finished : .failed(reason: BuildNotice.failureReason(note: m.doneNote, stages: m.stages))
-                    guard BuildNotice.shouldNotify(outcome, enabled: BuildNotice.enabled, appActive: NSApp.isActive, hasBundleID: true) else { return }
+                    switch outcome {
+                    case .finished: NoticeSounds.play(.buildFinished)
+                    case .failed: NoticeSounds.play(.buildFailed)
+                    case .stopped: break
+                    }
+                    guard BuildNotice.shouldNotify(outcome, enabled: BuildNotice.enabled, appActive: NSApp.isActive, hasBundleID: BuildNotice.hasBundleID) else { return }
                     self.post(outcome, m: m, library: library)
                 }
             }
@@ -98,12 +111,7 @@ final class BuildNotifier: NSObject, ObservableObject, UNUserNotificationCenterD
         let game = library.games.first { $0.titleID == titleID }
         let name = game?.name ?? GameLibrary.title(for: m.gameFolder?.folder ?? m.basePath, repo: m.repo.path, titleID: titleID)
         let text = BuildNotice.text(outcome, game: name, target: m.runningTarget, device: m.installedOn.isEmpty ? nil : m.devices.deviceName(m.installedOn), m.t)
-        let content = UNMutableNotificationContent()
-        content.title = text.title
-        content.body = text.body
-        content.sound = .default
-        content.userInfo = ["page": outcome == .finished ? LauncherPage.library.rawValue : LauncherPage.builds.rawValue,
-                            "game": game?.id.uuidString ?? ""]
+        let content = BuildNotice.content(title: text.title, body: text.body, outcome: outcome, gameID: game?.id)
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "build-" + UUID().uuidString, content: content, trigger: nil))
     }
 
