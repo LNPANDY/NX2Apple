@@ -19,11 +19,11 @@ on:
 permissions:
   contents: read
 
-# A newer run for the same pull request replaces the older one, which is cancelled, and the newer one reports. Every push to main, every tag and
-# every manual run keeps its own group (run_id), so none of them is ever cancelled.
+# A newer run for the same pull request replaces the older one, which is cancelled, and the newer one reports. Pushes to refs/heads/main share
+# <workflow>-main so superseded main runs cancel in progress. Release tags (v*) and workflow_dispatch keep their own run_id with cancel-in-progress: false.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main') || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 env:
   GAME: 010015100B514000   # Super Mario Bros. Wonder: the profile the host and gfx tests are built for (any profile does; the tests are about code, not the game)
