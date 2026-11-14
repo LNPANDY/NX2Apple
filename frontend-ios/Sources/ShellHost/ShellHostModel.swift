@@ -848,7 +848,9 @@ public struct ShellHostConfig: Sendable {
         }
         var game = LaunchableGame(
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
-            romfsURL: resolved.romfsURL, appFolder: gameAppFolder, environment: launchEnvironment(profile: profile, id: id), cloudSavesURL: cloud)
+            romfsURL: resolved.romfsURL, appFolder: gameAppFolder, environment: launchEnvironment(profile: profile, id: id),
+            cloudSavesURL: cloud, shellEnvironment: shellSettings.gameDefaults,
+            shellFallbackKeys: launchShellFallbackKeys(profile: profile, id: id))
 
         if let cloudFolder = cloud {
             let report = await Task.detached(priority: .userInitiated) {
@@ -1034,6 +1036,16 @@ public struct ShellHostConfig: Sendable {
                                             game: GamePadMapStore(defaults: config.defaults(id)).entries).envValue
         }
         return env
+    }
+
+    func launchShellFallbackKeys(profile: LauncherProfile, id: String) -> Set<String> {
+        let store = GameSettingsStore(profile: profile, defaults: config.defaults(id), shell: shellSettings.gameDefaults)
+        var keys = Set(profile.settings.filter { store.isFromShell($0) }.map(\.env))
+        let profileEnvs = Set(profile.settings.map(\.env))
+        for key in shellSettings.gameDefaults.keys where !profileEnvs.contains(key) {
+            keys.insert(key)
+        }
+        return keys
     }
 
     // MARK: Controllers

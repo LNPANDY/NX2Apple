@@ -5,6 +5,7 @@ import SwiftUI
 enum ShellSettingsRows {
     static let gameID = "shell"
     static let hud = "shell.hud"
+    static let audioMix = "shell.audioMix"
     static let touchSize = "shell.touchSize"
     static let touchStick = "shell.touchStick"
     static let targetPrefix = "shs.row."
@@ -12,6 +13,12 @@ enum ShellSettingsRows {
     static func hudRow(_ store: ShellSettingsStore) -> SettingRow {
         SettingRow(id: hud, label: ShellStrings.text("Performance overlay"), note: ShellStrings.text("Used by games that have no choice of their own."),
                    kind: .toggle(on: "1", off: "0"), value: store.performanceHUD == true ? "1" : "0")
+    }
+
+    static func audioMixRow(_ store: ShellSettingsStore) -> SettingRow {
+        SettingRow(id: audioMix, label: ShellStrings.text("Play with other audio"),
+                   note: ShellStrings.text("Allow other apps to keep playing audio alongside games."),
+                   kind: .toggle(on: "1", off: "0"), value: store.audioMix ? "1" : "0")
     }
 
     /// The shell-wide default size for touch controls. The preview above the row shows it.
@@ -37,6 +44,7 @@ enum ShellSettingsRows {
     static func apply(_ id: String, value: String, to store: ShellSettingsStore) {
         switch id {
         case hud: store.storePerformanceHUD(value == "1")
+        case audioMix: store.storeAudioMix(value == "1")
         case touchSize: store.storeTouchSize(value)
         case touchStick: store.storeTouchStick(value)
         default: break
@@ -115,6 +123,26 @@ struct ShellSettingsView: View {
                 Section {
                     TouchArrangeRow(arranged: !store.touchLayout.isEmpty || store.touchLayout.hasToggles,
                                     toggled: TouchLayout.Control.allCases.filter { store.touchLayout.toggles($0) }.map(\.title))
+                }
+
+                Section {
+                    Toggle(isOn: Binding(get: { store.audioMix }, set: { on in
+                        store.storeAudioMix(on)
+                        revision += 1
+                    })) {
+                        Label(ShellStrings.text("Play with other audio"), systemImage: "speaker.wave.2")
+                            .labelStyle(SettingsRowLabelStyle())
+                    }
+                    .toggleStyle(NativeCreamToggleStyle())
+                    .accessibilityIdentifier("setting.shell.audioMix")
+                    .shellTarget("shs.row.\(ShellSettingsRows.audioMix)") {
+                        store.storeAudioMix(!store.audioMix)
+                        revision += 1
+                    }
+                } header: {
+                    Text(ShellStrings.text("Sound"))
+                } footer: {
+                    Text(ShellStrings.text("Allow other apps to keep playing audio alongside games."))
                 }
 
                 Section {

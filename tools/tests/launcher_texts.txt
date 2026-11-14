@@ -46,12 +46,14 @@ Match screen
 Medium
 Metal 4 pipelines
 MetalFX
+Mix with other audio
 Performance
 Performance HUD
 Picture
 Picture shape
 Pipeline prebuild
 Plays Joy-Con 2 and Pro Controller 2 over Bluetooth: hold Sync on one during the game to pair it. macOS asks once for Bluetooth access.
+Plays game audio alongside other apps instead of stopping them.
 Portuguese
 Press a button to join
 Render scale

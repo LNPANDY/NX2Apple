@@ -24,7 +24,7 @@ public struct EngineLaunchPlan: Equatable, Sendable {
     /// (#557), read from `game.appFolder` when it is nil. A key in the game's file wins over the shared file, and the launch
     /// environment (the player's settings, the paths above) wins over both. The game's own `mods/` folder sets
     /// `DM_ROMFS_OVERLAY` (`GameMods`) when the game's env file does not, and it wins over the shared file. The order is: launch
-    /// environment, game env.txt, game mods folder, shared env.txt, framework dm/env.txt.
+    /// environment, game env.txt, shell defaults, game mods folder, shared env.txt, framework dm/env.txt.
     /// The framework file carries build-time defaults such as CPU BC decoding for older GPUs (#719). Automatic `DM_PSO_BUNDLE`
     /// discovery is a fallback after all env files, so an explicit archive path or `off` can override it.
     public static func make(game: LaunchableGame, appResources: URL, documents: URL, envFileText: String?, gameEnvFileText: String? = nil,
@@ -65,7 +65,7 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         if let cloud = game.cloudSavesURL { env["DM_SAVE_SYNC"] = cloud.path }
         // The shell already showed its own settings, the per-game launcher screen stays out of the way.
         env["DM_LAUNCHER"] = "0"
-        for (key, value) in game.environment { env[key] = value }
+        for (key, value) in game.environment where !game.shellFallbackKeys.contains(key) { env[key] = value }
 
         var fromFile: [String] = []
         let ownText = gameEnvFileText ?? fm.contents(atPath: gdir.appendingPathComponent("env.txt").path).flatMap { String(data: $0, encoding: .utf8) }
@@ -76,6 +76,10 @@ public struct EngineLaunchPlan: Equatable, Sendable {
             }
         }
         apply(ownText)
+        for key in game.shellFallbackKeys where env[key] == nil {
+            if let value = game.environment[key] { env[key] = value }
+        }
+        for (key, value) in game.shellEnvironment where env[key] == nil { env[key] = value }
         if env["DM_ROMFS_OVERLAY"] == nil,
            let overlay = GameMods.overlay(in: gdir.appendingPathComponent("mods", isDirectory: true), titleID: game.titleID, fm) {
             env["DM_ROMFS_OVERLAY"] = overlay

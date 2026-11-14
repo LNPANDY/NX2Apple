@@ -256,4 +256,36 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: rig.gdir.path + "/cheats"))
         try plan.createFolders()
     }
+
+    @Test func audioMixPrecedenceIsGameThenShellThenBuiltIn() throws {
+        // Built-in default is off (DM_AUDIO_MIX unset) when neither game nor shell sets it.
+        let builtIn = try Rig()
+        #expect(builtIn.plan().environment["DM_AUDIO_MIX"] == nil)
+
+        // Shell default turns DM_AUDIO_MIX on when the game leaves it unset, and beats shared env.txt.
+        var shellOnly = try Rig()
+        shellOnly.game.shellEnvironment = ["DM_AUDIO_MIX": "1"]
+        #expect(shellOnly.plan().environment["DM_AUDIO_MIX"] == "1")
+        #expect(shellOnly.plan(envFile: "DM_AUDIO_MIX=0\n").environment["DM_AUDIO_MIX"] == "1")
+
+        // Game env.txt "0" overrides shell "1" via both shellEnvironment and shellFallbackKeys.
+        try shellOnly.box.write("DM_AUDIO_MIX=0\n", to: shellOnly.gdir.appendingPathComponent("env.txt"))
+        #expect(shellOnly.plan().environment["DM_AUDIO_MIX"] == "0")
+
+        var fallbackGame = try Rig(environment: ["DM_AUDIO_MIX": "1"])
+        fallbackGame.game.shellFallbackKeys = ["DM_AUDIO_MIX"]
+        try fallbackGame.box.write("DM_AUDIO_MIX=0\n", to: fallbackGame.gdir.appendingPathComponent("env.txt"))
+        #expect(fallbackGame.plan().environment["DM_AUDIO_MIX"] == "0")
+
+        // Game env.txt "1" overrides shell off.
+        let gameOn = try Rig()
+        try gameOn.box.write("DM_AUDIO_MIX=1\n", to: gameOn.gdir.appendingPathComponent("env.txt"))
+        #expect(gameOn.plan().environment["DM_AUDIO_MIX"] == "1")
+
+        // Explicit per-game choice in game.environment wins over game env.txt and shell default.
+        var explicitGame = try Rig(environment: ["DM_AUDIO_MIX": "0"])
+        explicitGame.game.shellEnvironment = ["DM_AUDIO_MIX": "1"]
+        try explicitGame.box.write("DM_AUDIO_MIX=1\n", to: explicitGame.gdir.appendingPathComponent("env.txt"))
+        #expect(explicitGame.plan().environment["DM_AUDIO_MIX"] == "0")
+    }
 }
