@@ -13,12 +13,18 @@ native Windows UAC prompt.
 from __future__ import annotations
 
 import base64
+import ctypes
+import html
 import json
+import locale
 import ntpath
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -45,8 +51,14 @@ COMPILER_PROCESS_NAMES: tuple[str, ...] = (
     'zstd.exe',
 )
 
-#: Windows error code returned when the user clicks "No" / Cancel on the UAC prompt.
+#: Windows error codes and process constants.
 ERROR_CANCELLED = 1223
+ERROR_ACCESS_DENIED = 5
+STILL_ACTIVE = 259
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+SEE_MASK_NOCLOSEPROCESS = 0x00000040
+SW_HIDE = 0
+WAIT_TIMEOUT = 0x00000102
 
 #: Safety quotas and WMI batching limits to prevent state bloat, WMI buffer overflow, or UI hangs.
 MAX_RECORDED_PATHS = 256
@@ -65,6 +77,7 @@ class DefenderResult:
     remaining_paths: list[str] = field(default_factory=list)
     remaining_processes: list[str] = field(default_factory=list)
     error: str = ''
+    error_code: str = ''
 
 
 def app_data_root() -> Path:
@@ -531,25 +544,148 @@ def exclusions_status(
     return 'partial', folders, procs
 
 
+_CLIXML_ERROR_RE = re.compile(r'<S\s+S=["\'][Ee]rror["\']>(.*?)</S>', re.DOTALL)
+_CLIXML_HEX_ESCAPE_RE = re.compile(r'_x([0-9A-Fa-f]{4})_')
+_CLIXML_OBJS_RE = re.compile(r'<Objs\b.*?(?:</Objs>|$)', re.DOTALL)
+
+
+def _decode_console_bytes(data: bytes | str | None) -> str:
+    """Decode PowerShell console bytes while tolerating localized ANSI/OEM codepages on Windows."""
+    if data is None:
+        return ''
+    if isinstance(data, str):
+        return data
+    if not data:
+        return ''
+    candidates: list[str] = ['utf-8']
+    pref = locale.getpreferredencoding(False)
+    if pref:
+        candidates.append(pref)
+    if os.name == 'nt':
+        candidates.append('mbcs')
+    candidates.append('gbk')
+    seen: set[str] = set()
+    for enc in candidates:
+        key = enc.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            return data.decode(enc)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return data.decode('utf-8', errors='replace')
+
+
+def _decode_clixml_escapes(text: str) -> str:
+    unescaped = html.unescape(text)
+    return _CLIXML_HEX_ESCAPE_RE.sub(
+        lambda m: '' if int(m.group(1), 16) == 0 else chr(int(m.group(1), 16)),
+        unescaped,
+    )
+
+
+def sanitize_powershell_output(raw: str) -> str:
+    """Strip PowerShell `#< CLIXML` progress telemetry and extract real error lines if present."""
+    if not raw:
+        return ''
+    if '#< CLIXML' not in raw and '<Objs' not in raw:
+        return raw.strip()
+
+    lines: list[str] = []
+    seen: set[str] = set()
+
+    plain = _CLIXML_OBJS_RE.sub('', raw).replace('#< CLIXML', '')
+    for line in plain.replace('\r\n', '\n').replace('\r', '\n').splitlines():
+        s = line.strip()
+        if s and s not in seen:
+            seen.add(s)
+            lines.append(s)
+
+    for m in _CLIXML_ERROR_RE.finditer(raw):
+        err_text = _decode_clixml_escapes(m.group(1)).replace('\r\n', '\n').replace('\r', '\n')
+        for line in err_text.splitlines():
+            s = line.strip()
+            if s and s not in seen:
+                seen.add(s)
+                lines.append(s)
+
+    return '\n'.join(lines).strip()
+
+
 def encode_powershell_command(script: str) -> str:
     """Encode a PowerShell script as UTF-16LE Base64 for `-EncodedCommand`."""
     return base64.b64encode(script.encode('utf-16-le')).decode('ascii')
 
 
+def _build_inner_ps_preamble(payload_json_path: str) -> str:
+    """Return shared PowerShell helpers so elevation and removal write results atomically."""
+    escaped_payload = str(payload_json_path).replace("'", "''")
+    return (
+        "$ProgressPreference = 'SilentlyContinue'\n"
+        "$ErrorActionPreference = 'Stop'\n"
+        f"$payloadPath = '{escaped_payload}'\n"
+        "$workDir = [System.IO.Path]::GetDirectoryName($payloadPath)\n"
+        "$resultPath = [System.IO.Path]::Combine($workDir, 'result.json')\n"
+        "$startedPath = [System.IO.Path]::Combine($workDir, 'started.json')\n"
+        f"$batchSize = {WMI_BATCH_SIZE}\n"
+        "function Write-AtomicJson([string]$targetPath, [hashtable]$obj) {\n"
+        "    $json = $obj | ConvertTo-Json -Compress\n"
+        "    $tmpPath = \"$targetPath.tmp-$PID\"\n"
+        "    $enc = New-Object System.Text.UTF8Encoding($false)\n"
+        "    [System.IO.File]::WriteAllText($tmpPath, $json, $enc)\n"
+        "    try {\n"
+        "        if (Test-Path -LiteralPath $payloadPath) {\n"
+        "            $ownerSid = [System.IO.File]::GetAccessControl($payloadPath).GetOwner([System.Security.Principal.SecurityIdentifier])\n"
+        "            if ($null -ne $ownerSid) {\n"
+        "                $dacl = [System.IO.File]::GetAccessControl($tmpPath, [System.Security.AccessControl.AccessControlSections]::Access)\n"
+        "                $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(\n"
+        "                    $ownerSid,\n"
+        "                    [System.Security.AccessControl.FileSystemRights]::FullControl,\n"
+        "                    [System.Security.AccessControl.AccessControlType]::Allow\n"
+        "                )\n"
+        "                $dacl.AddAccessRule($rule)\n"
+        "                [System.IO.File]::SetAccessControl($tmpPath, $dacl)\n"
+        "            }\n"
+        "        }\n"
+        "    } catch {}\n"
+        "    Move-Item -LiteralPath $tmpPath -Destination $targetPath -Force\n"
+        "}\n"
+        "function Get-DefenderFailureCode([string]$msg) {\n"
+        "    $svc = try { Get-Service -Name 'WinDefend' -ErrorAction SilentlyContinue } catch { $null }\n"
+        "    if ($null -ne $svc -and $svc.Status.ToString() -ne 'Running') {\n"
+        "        return 'service_inactive'\n"
+        "    }\n"
+        "    $st = try { Get-MpComputerStatus -ErrorAction SilentlyContinue } catch { $null }\n"
+        "    if ($null -ne $st -and $st.AMServiceEnabled -eq $false) {\n"
+        "        return 'service_inactive'\n"
+        "    }\n"
+        "    if ($msg -match '0x800106ba|0x80070422|0x80070424|0x80041002|0x8004100e|0x80041010|MSFT_MpPreference|WinDefend') {\n"
+        "        return 'service_inactive'\n"
+        "    }\n"
+        "    if (($null -ne $st -and $st.IsTamperProtected -eq $true -and $msg -match '0x80070005|Access is denied|denied|拒绝访问|tamper|policy') -or ($msg -match 'Tamper Protection|篡改防护')) {\n"
+        "        return 'tamper_blocked'\n"
+        "    }\n"
+        "    return ''\n"
+        "}\n"
+    )
+
+
 def build_inner_elevation_script(payload_json_path: str) -> str:
     """Build the elevated PowerShell script that reads `payload_json_path` and calls `Add-MpPreference`.
 
-    All folder paths and process names are read from the UTF-8 JSON file on disk rather than
+    All folder paths and process names are read from the ASCII-escaped JSON file on disk rather than
     interpolated into the command line, preventing any quoting, codepage, or command-length overflow.
     Submits in bounded batches (`WMI_BATCH_SIZE = 20`) to avoid WMI marshaling buffer limits.
     """
-    escaped_payload = str(payload_json_path).replace("'", "''")
-    return (
-        "$ErrorActionPreference = 'Stop'\n"
-        f"$payloadPath = '{escaped_payload}'\n"
-        f"$batchSize = {WMI_BATCH_SIZE}\n"
-        "$cfg = Get-Content -LiteralPath $payloadPath -Raw -Encoding UTF8 | ConvertFrom-Json\n"
+    return _build_inner_ps_preamble(payload_json_path) + (
         "try {\n"
+        "    Write-AtomicJson $startedPath @{ pid = $PID }\n"
+        "    $rawPayload = [System.IO.File]::ReadAllText($payloadPath, [System.Text.Encoding]::UTF8)\n"
+        "    $cfg = $rawPayload | ConvertFrom-Json\n"
+        "    if ($null -ne $cfg -and $cfg.result_path) {\n"
+        "        $resultPath = [string]$cfg.result_path\n"
+        "    }\n"
         "    $paths = @($cfg.paths | Where-Object { $_ -ne $null -and $_ -ne '' })\n"
         "    $procs = @($cfg.processes | Where-Object { $_ -ne $null -and $_ -ne '' })\n"
         "    for ($i = 0; $i -lt $paths.Count; $i += $batchSize) {\n"
@@ -562,13 +698,50 @@ def build_inner_elevation_script(payload_json_path: str) -> str:
         "        $batch = [string[]]@($procs[$i..$end])\n"
         "        Add-MpPreference -ExclusionProcess $batch -ErrorAction Stop\n"
         "    }\n"
-        "    @{ ok = $true; error = '' } | ConvertTo-Json -Compress | "
-        "Set-Content -LiteralPath $cfg.result_path -Encoding UTF8\n"
+        "    $mpAfter = try { Get-MpPreference -ErrorAction SilentlyContinue } catch { $null }\n"
+        "    if ($paths.Count -gt 0 -and $null -ne $mpAfter -and $mpAfter.HideExclusionsFromLocalAdmins -ne $true) {\n"
+        "        $afterP = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)\n"
+        "        if ($null -ne $mpAfter.ExclusionPath) {\n"
+        "            foreach ($x in $mpAfter.ExclusionPath) {\n"
+        "                if ($x) { [void]$afterP.Add(([string]$x).Replace('/', '\\').TrimEnd('\\')) }\n"
+        "            }\n"
+        "        }\n"
+        "        $missingPath = $false\n"
+        "        foreach ($p in $paths) {\n"
+        "            $norm = ([string]$p).Replace('/', '\\').TrimEnd('\\')\n"
+        "            if (-not $norm) { continue }\n"
+        "            $covered = $afterP.Contains($norm)\n"
+        "            if (-not $covered) {\n"
+        "                foreach ($ex in $afterP) {\n"
+        "                    if ($ex -and $norm.StartsWith($ex + '\\', [System.StringComparison]::OrdinalIgnoreCase)) {\n"
+        "                        $covered = $true\n"
+        "                        break\n"
+        "                    }\n"
+        "                }\n"
+        "            }\n"
+        "            if (-not $covered) {\n"
+        "                $missingPath = $true\n"
+        "                break\n"
+        "            }\n"
+        "        }\n"
+        "        if ($missingPath) {\n"
+        "            $st = try { Get-MpComputerStatus -ErrorAction SilentlyContinue } catch { $null }\n"
+        "            $code = if ($null -ne $st -and $st.AMServiceEnabled -eq $false) { 'service_inactive' } else { 'tamper_blocked' }\n"
+        "            $errMsg = if ($code -eq 'service_inactive') {\n"
+        "                'Microsoft Defender Antivirus service is not active'\n"
+        "            } else {\n"
+        "                'Windows Security Tamper Protection or policy blocked adding exclusions'\n"
+        "            }\n"
+        "            Write-AtomicJson $resultPath @{ ok = $false; error = $errMsg; error_code = $code }\n"
+        "            exit 1\n"
+        "        }\n"
+        "    }\n"
+        "    Write-AtomicJson $resultPath @{ ok = $true; error = ''; error_code = '' }\n"
         "    exit 0\n"
         "} catch {\n"
         "    $msg = if ($_.Exception) { $_.Exception.Message } else { $_.ToString() }\n"
-        "    @{ ok = $false; error = $msg } | ConvertTo-Json -Compress | "
-        "Set-Content -LiteralPath $cfg.result_path -Encoding UTF8\n"
+        "    $errCode = Get-DefenderFailureCode $msg\n"
+        "    Write-AtomicJson $resultPath @{ ok = $false; error = $msg; error_code = $errCode }\n"
         "    exit 1\n"
         "}\n"
     )
@@ -583,20 +756,21 @@ def build_inner_removal_script(payload_json_path: str) -> str:
       falls back to per-item removal within a failed chunk so one missing/blocked entry never aborts
       the rest of the cleanup.
     """
-    escaped_payload = str(payload_json_path).replace("'", "''")
-    return (
-        "$ErrorActionPreference = 'Stop'\n"
-        f"$payloadPath = '{escaped_payload}'\n"
-        f"$batchSize = {WMI_BATCH_SIZE}\n"
-        "$cfg = Get-Content -LiteralPath $payloadPath -Raw -Encoding UTF8 | ConvertFrom-Json\n"
+    return _build_inner_ps_preamble(payload_json_path) + (
         "try {\n"
+        "    Write-AtomicJson $startedPath @{ pid = $PID }\n"
+        "    $rawPayload = [System.IO.File]::ReadAllText($payloadPath, [System.Text.Encoding]::UTF8)\n"
+        "    $cfg = $rawPayload | ConvertFrom-Json\n"
+        "    if ($null -ne $cfg -and $cfg.result_path) {\n"
+        "        $resultPath = [string]$cfg.result_path\n"
+        "    }\n"
         "    $paths = @($cfg.paths | Where-Object { $_ -ne $null -and $_ -ne '' })\n"
         "    $procs = @($cfg.processes | Where-Object { $_ -ne $null -and $_ -ne '' })\n"
         "    $mp = try { Get-MpPreference -ErrorAction SilentlyContinue } catch { $null }\n"
         "    if ($null -ne $mp -and $null -ne $mp.ExclusionPath) {\n"
         "        $curP = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)\n"
-        "        foreach ($x in $mp.ExclusionPath) { if ($x) { [void]$curP.Add($x.TrimEnd('\\')) } }\n"
-        "        $paths = @($paths | Where-Object { $curP.Contains($_.TrimEnd('\\')) })\n"
+        "        foreach ($x in $mp.ExclusionPath) { if ($x) { [void]$curP.Add(([string]$x).Replace('/', '\\').TrimEnd('\\')) } }\n"
+        "        $paths = @($paths | Where-Object { $curP.Contains(([string]$_).Replace('/', '\\').TrimEnd('\\')) })\n"
         "    }\n"
         "    if ($null -ne $mp -and $null -ne $mp.ExclusionProcess) {\n"
         "        $curPr = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)\n"
@@ -634,8 +808,8 @@ def build_inner_removal_script(payload_json_path: str) -> str:
         "    if ($null -ne $mpAfter) {\n"
         "        if ($null -ne $mpAfter.ExclusionPath) {\n"
         "            $afterP = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)\n"
-        "            foreach ($x in $mpAfter.ExclusionPath) { if ($x) { [void]$afterP.Add($x.TrimEnd('\\')) } }\n"
-        "            $remPaths = @($cfg.paths | Where-Object { $_ -and $afterP.Contains($_.TrimEnd('\\')) })\n"
+        "            foreach ($x in $mpAfter.ExclusionPath) { if ($x) { [void]$afterP.Add(([string]$x).Replace('/', '\\').TrimEnd('\\')) } }\n"
+        "            $remPaths = @($cfg.paths | Where-Object { $_ -and $afterP.Contains(([string]$_).Replace('/', '\\').TrimEnd('\\')) })\n"
         "        }\n"
         "        if ($null -ne $mpAfter.ExclusionProcess) {\n"
         "            $afterPr = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)\n"
@@ -644,28 +818,68 @@ def build_inner_removal_script(payload_json_path: str) -> str:
         "        }\n"
         "    }\n"
         "    $okFlag = ($remPaths.Count -eq 0 -and $remProcs.Count -eq 0 -and $lastErr -eq '')\n"
-        "    @{ ok = $okFlag; error = $lastErr; remaining_paths = $remPaths; remaining_processes = $remProcs } | "
-        "ConvertTo-Json -Compress | Set-Content -LiteralPath $cfg.result_path -Encoding UTF8\n"
+        "    $errCode = if ($okFlag) { '' } else { Get-DefenderFailureCode $lastErr }\n"
+        "    Write-AtomicJson $resultPath @{ ok = $okFlag; error = $lastErr; error_code = $errCode; remaining_paths = @($remPaths); remaining_processes = @($remProcs) }\n"
         "    if ($okFlag) { exit 0 } else { exit 1 }\n"
         "} catch {\n"
         "    $msg = if ($_.Exception) { $_.Exception.Message } else { $_.ToString() }\n"
-        "    @{ ok = $false; error = $msg } | ConvertTo-Json -Compress | "
-        "Set-Content -LiteralPath $cfg.result_path -Encoding UTF8\n"
+        "    $errCode = Get-DefenderFailureCode $msg\n"
+        "    Write-AtomicJson $resultPath @{ ok = $false; error = $msg; error_code = $errCode; remaining_paths = @(); remaining_processes = @() }\n"
         "    exit 1\n"
         "}\n"
     )
 
 
-def build_outer_launcher_script(inner_encoded_command: str) -> str:
+def build_outer_launcher_script(script_or_encoded: str) -> str:
     """Build the non-elevated PowerShell wrapper that triggers the Windows UAC `RunAs` prompt."""
-    safe_b64 = str(inner_encoded_command).replace("'", '')
+    target = str(script_or_encoded).strip()
+    is_ps1_file = target.lower().endswith('.ps1')
+    if is_ps1_file:
+        safe_ps1 = target.replace("'", "''")
+        arg_expr = (
+            "$argList = @('-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', "
+            f"'-ExecutionPolicy', 'Bypass', '-File', '{safe_ps1}')\n"
+        )
+        wait_block = (
+            "    $workDir = [System.IO.Path]::GetDirectoryName('" + safe_ps1 + "')\n"
+            "    $resultFile = [System.IO.Path]::Combine($workDir, 'result.json')\n"
+            "    $startedFile = [System.IO.Path]::Combine($workDir, 'started.json')\n"
+            "    $deadline = [DateTime]::UtcNow.AddSeconds(15)\n"
+            "    while (-not (Test-Path -LiteralPath $resultFile) -and [DateTime]::UtcNow -lt $deadline) {\n"
+            "        if (Test-Path -LiteralPath $startedFile) {\n"
+            "            $st = try { [System.IO.File]::ReadAllText($startedFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json } catch { $null }\n"
+            "            if ($null -ne $st -and $st.pid) {\n"
+            "                $alive = Get-Process -Id ([int]$st.pid) -ErrorAction SilentlyContinue\n"
+            "                if ($null -eq $alive) { break }\n"
+            "                $deadline = [DateTime]::UtcNow.AddSeconds(15)\n"
+            "            }\n"
+            "        }\n"
+            "        Start-Sleep -Milliseconds 50\n"
+            "    }\n"
+            "    if (Test-Path -LiteralPath $resultFile) {\n"
+            "        $resObj = try { [System.IO.File]::ReadAllText($resultFile, [System.Text.Encoding]::UTF8) | ConvertFrom-Json } catch { $null }\n"
+            "        if ($null -ne $resObj -and $resObj.ok -eq $true) { exit 0 }\n"
+            "        exit 1\n"
+            "    }\n"
+        )
+    else:
+        safe_b64 = target.replace("'", '')
+        arg_expr = (
+            "$argList = @('-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', "
+            f"'-ExecutionPolicy', 'Bypass', '-EncodedCommand', '{safe_b64}')\n"
+        )
+        wait_block = ''
+
     return (
+        "$ProgressPreference = 'SilentlyContinue'\n"
         "$ErrorActionPreference = 'Stop'\n"
         "try {\n"
-        "    $argList = @('-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', "
-        f"'-ExecutionPolicy', 'Bypass', '-EncodedCommand', '{safe_b64}')\n"
-        "    $p = Start-Process -FilePath 'powershell.exe' -Verb RunAs -WindowStyle Hidden "
+        "    $psExe = Join-Path $env:SystemRoot 'System32\\WindowsPowerShell\\v1.0\\powershell.exe'\n"
+        "    if (-not (Test-Path -LiteralPath $psExe)) { $psExe = 'powershell.exe' }\n"
+        f"    {arg_expr}"
+        "    $p = Start-Process -FilePath $psExe -Verb RunAs -WindowStyle Hidden "
         "-Wait -PassThru -ArgumentList $argList\n"
+        f"{wait_block}"
         "    if ($null -eq $p) { exit 1 }\n"
         "    exit $p.ExitCode\n"
         "} catch {\n"
@@ -681,6 +895,261 @@ def build_outer_launcher_script(inner_encoded_command: str) -> str:
     )
 
 
+def _wait_for_elevated_result(
+    result_file: Path,
+    started_file: Path,
+    *,
+    initial_done_fn,
+    pid_alive_fn,
+    timeout_sec: float = POWERSHELL_TIMEOUT_SEC,
+    early_start_grace_sec: float = 5.0,
+    poll_interval_sec: float = 0.05,
+) -> bool:
+    """Wait for `result_file` even when the initial launcher handle returns early under Windows Terminal."""
+    deadline = time.monotonic() + float(timeout_sec)
+    initial_done_at: float | None = None
+    inner_pid: int | None = None
+
+    while True:
+        if result_file.is_file():
+            return True
+
+        if inner_pid is None and started_file.is_file():
+            st_obj, _ = _read_json_with_retry(started_file, attempts=2, delay_sec=0.02)
+            if isinstance(st_obj, dict) and st_obj.get('pid'):
+                try:
+                    inner_pid = int(st_obj['pid'])
+                except (ValueError, TypeError):
+                    pass
+
+        now = time.monotonic()
+        if initial_done_fn():
+            if initial_done_at is None:
+                initial_done_at = now
+            if inner_pid is not None:
+                if not pid_alive_fn(inner_pid):
+                    time.sleep(min(poll_interval_sec, 0.1))
+                    return result_file.is_file()
+            elif (now - initial_done_at) >= early_start_grace_sec:
+                return result_file.is_file()
+
+        if now >= deadline:
+            raise subprocess.TimeoutExpired('powershell.exe', timeout_sec)
+
+        time.sleep(min(poll_interval_sec, max(0.005, deadline - now)))
+
+
+def _win32_is_pid_alive(pid: int) -> bool:
+    """Best-effort Win32 check whether `pid` is still running."""
+    if pid <= 0:
+        return False
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+    try:
+        code = wintypes.DWORD(0)
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _launch_elevated_win32(
+    script_file: Path,
+    work_td: str,
+    result_file: Path,
+    started_file: Path,
+    timeout_sec: float = POWERSHELL_TIMEOUT_SEC,
+) -> tuple[int, str]:
+    """Elevate `powershell.exe -File <script_file>` directly via Win32 `ShellExecuteExW`."""
+    from ctypes import wintypes
+
+    class SHELLEXECUTEINFOW(ctypes.Structure):
+        _fields_ = [
+            ('cbSize', wintypes.DWORD),
+            ('fMask', wintypes.ULONG),
+            ('hwnd', wintypes.HWND),
+            ('lpVerb', wintypes.LPCWSTR),
+            ('lpFile', wintypes.LPCWSTR),
+            ('lpParameters', wintypes.LPCWSTR),
+            ('lpDirectory', wintypes.LPCWSTR),
+            ('nShow', ctypes.c_int),
+            ('hInstApp', wintypes.HINSTANCE),
+            ('lpIDList', wintypes.LPVOID),
+            ('lpClass', wintypes.LPCWSTR),
+            ('hkeyClass', wintypes.HKEY),
+            ('dwHotKey', wintypes.DWORD),
+            ('hIconOrMonitor', wintypes.HANDLE),
+            ('hProcess', wintypes.HANDLE),
+        ]
+
+    sys_root = os.environ.get('SystemRoot') or os.environ.get('WINDIR') or r'C:\Windows'
+    ps_candidate = Path(sys_root) / 'System32' / 'WindowsPowerShell' / 'v1.0' / 'powershell.exe'
+    ps_exe = str(ps_candidate) if ps_candidate.is_file() else 'powershell.exe'
+    params = (
+        f'-NoProfile -NonInteractive -WindowStyle Hidden '
+        f'-ExecutionPolicy Bypass -File "{script_file}"'
+    )
+
+    shell32 = ctypes.WinDLL('shell32', use_last_error=True)
+    shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(SHELLEXECUTEINFOW)]
+    shell32.ShellExecuteExW.restype = wintypes.BOOL
+
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    parent_dir = str(Path(work_td).parent)
+
+    sei = SHELLEXECUTEINFOW()
+    sei.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS
+    sei.lpVerb = 'runas'
+    sei.lpFile = ps_exe
+    sei.lpParameters = params
+    sei.lpDirectory = parent_dir if os.path.isdir(parent_dir) else None
+    sei.nShow = SW_HIDE
+
+    if not shell32.ShellExecuteExW(ctypes.byref(sei)):
+        err = ctypes.get_last_error()
+        if err == ERROR_CANCELLED:
+            return ERROR_CANCELLED, ''
+        return 1, f'ShellExecuteExW failed with Win32 error {err}'
+
+    h_proc = sei.hProcess
+    if not h_proc:
+        _wait_for_elevated_result(
+            result_file,
+            started_file,
+            initial_done_fn=lambda: True,
+            pid_alive_fn=_win32_is_pid_alive,
+            timeout_sec=timeout_sec,
+        )
+        return 0, ''
+
+    try:
+        _wait_for_elevated_result(
+            result_file,
+            started_file,
+            initial_done_fn=lambda: kernel32.WaitForSingleObject(h_proc, 0) != WAIT_TIMEOUT,
+            pid_alive_fn=_win32_is_pid_alive,
+            timeout_sec=timeout_sec,
+        )
+        # Wait briefly after result.json appears so elevated powershell.exe releases script/dir handles cleanly
+        kernel32.WaitForSingleObject(h_proc, 1000)
+        code = wintypes.DWORD(0)
+        if kernel32.GetExitCodeProcess(h_proc, ctypes.byref(code)):
+            return int(code.value), ''
+        return 0, ''
+    finally:
+        kernel32.CloseHandle(h_proc)
+
+
+def _string_list_field(res_obj: object, key: str) -> list[str]:
+    if not isinstance(res_obj, dict):
+        return []
+    raw = res_obj.get(key)
+    if isinstance(raw, list):
+        return [str(x) for x in raw if x]
+    if isinstance(raw, str) and raw.strip():
+        return [raw.strip()]
+    return []
+
+
+def _retry_remove(remove_fn, path_obj: Path, attempts: int = 5, delay_sec: float = 0.05) -> None:
+    """Retry single-file unlink or empty-dir rmdir briefly when Windows releases child handles."""
+    for i in range(attempts):
+        try:
+            remove_fn(path_obj)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            if i + 1 < attempts:
+                time.sleep(delay_sec)
+
+
+def _create_ipc_dir_under(parent: Path, prefix: str) -> str:
+    """Create a unique subdirectory via `os.mkdir` so Windows inherits the caller's parent DACL."""
+    parent.mkdir(parents=True, exist_ok=True)
+    for _ in range(16):
+        cand = parent / f'{prefix}{uuid.uuid4().hex[:12]}'
+        try:
+            os.mkdir(cand)
+            return str(cand)
+        except FileExistsError:
+            continue
+    raise OSError(f'failed to create unique directory under {parent}')
+
+
+def _create_ipc_work_dir(base_dir: Path) -> str:
+    """Create the Defender elevation IPC directory without `tempfile.mkdtemp`'s 0o700 OWNER RIGHTS ACL."""
+    try:
+        return _create_ipc_dir_under(base_dir, 'defender-')
+    except OSError:
+        return _create_ipc_dir_under(Path(tempfile.gettempdir()), 'nspb-defender-')
+
+
+def _read_json_with_retry(
+    path_obj: Path,
+    *,
+    attempts: int = 8,
+    delay_sec: float = 0.05,
+) -> tuple[dict | None, str]:
+    """Read and decode a JSON dict with short retries for Move-Item / AV filter handle transient locks."""
+    last_err = ''
+    for i in range(max(1, attempts)):
+        try:
+            data = json.loads(path_obj.read_text(encoding='utf-8-sig'))
+            if isinstance(data, dict):
+                return data, ''
+            last_err = f'TypeError: expected JSON object, got {type(data).__name__}'
+        except (OSError, ValueError) as e:
+            last_err = f'{type(e).__name__}: {e}'
+        if i + 1 < attempts:
+            time.sleep(delay_sec)
+    return None, last_err
+
+
+def _cleanup_work_dir(work_td: str, *known_files: Path) -> None:
+    work_path = Path(work_td)
+    for f in known_files:
+        if f.exists():
+            _retry_remove(Path.unlink, f)
+    try:
+        for extra in work_path.glob('*.tmp-*'):
+            _retry_remove(Path.unlink, extra)
+    except OSError:
+        pass
+    _retry_remove(os.rmdir, work_path)
+    if work_path.name.startswith(('defender-', 'nspb-defender-')):
+        prefix = 'defender-' if work_path.name.startswith('defender-') else 'nspb-defender-'
+        try:
+            for stale in work_path.parent.glob(f'{prefix}*'):
+                if stale != work_path and stale.is_dir():
+                    try:
+                        os.rmdir(stale)
+                    except OSError:
+                        pass
+        except OSError:
+            pass
+
+
 def _run_elevated_payload(
     clean_paths: list[str],
     clean_procs: list[str],
@@ -689,13 +1158,11 @@ def _run_elevated_payload(
     runner=subprocess.run,
 ) -> DefenderResult:
     base_dir = app_data_root()
-    try:
-        base_dir.mkdir(parents=True, exist_ok=True)
-        work_td = tempfile.mkdtemp(prefix='defender-', dir=str(base_dir))
-    except OSError:
-        work_td = tempfile.mkdtemp(prefix='nspb-defender-')
+    work_td = _create_ipc_work_dir(base_dir)
 
     payload_file = Path(work_td) / 'payload.json'
+    script_file = Path(work_td) / 'elevate.ps1'
+    started_file = Path(work_td) / 'started.json'
     result_file = Path(work_td) / 'result.json'
     try:
         payload = {
@@ -703,48 +1170,52 @@ def _run_elevated_payload(
             'processes': clean_procs,
             'result_path': str(result_file),
         }
-        payload_file.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+        payload_file.write_text(json.dumps(payload, ensure_ascii=True), encoding='utf-8')
         inner_script = inner_script_builder(str(payload_file))
-        inner_b64 = encode_powershell_command(inner_script)
-        outer_script = build_outer_launcher_script(inner_b64)
-        outer_b64 = encode_powershell_command(outer_script)
+        script_file.write_text(inner_script, encoding='utf-8-sig')
 
-        kwargs: dict = {'timeout': POWERSHELL_TIMEOUT_SEC}
-        if os.name == 'nt':
-            kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
-
-        cmd = [
-            'powershell.exe',
-            '-NoProfile',
-            '-NonInteractive',
-            '-WindowStyle',
-            'Hidden',
-            '-ExecutionPolicy',
-            'Bypass',
-            '-EncodedCommand',
-            outer_b64,
-        ]
-        try:
-            proc = runner(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                **kwargs,
+        used_native_win32 = False
+        if os.name == 'nt' and runner is subprocess.run:
+            used_native_win32 = True
+            returncode, raw_err = _launch_elevated_win32(
+                script_file,
+                work_td,
+                result_file,
+                started_file,
+                POWERSHELL_TIMEOUT_SEC,
             )
-        except TypeError:
-            kwargs.pop('timeout', None)
-            proc = runner(
-                cmd,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                **kwargs,
-            )
+            clean_stderr = sanitize_powershell_output(raw_err)
+        else:
+            outer_script = build_outer_launcher_script(str(script_file))
+            outer_b64 = encode_powershell_command(outer_script)
 
-        if proc.returncode == ERROR_CANCELLED:
+            kwargs: dict = {'timeout': POWERSHELL_TIMEOUT_SEC}
+            if os.name == 'nt':
+                kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0x08000000)
+
+            cmd = [
+                'powershell.exe',
+                '-NoProfile',
+                '-NonInteractive',
+                '-WindowStyle',
+                'Hidden',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-EncodedCommand',
+                outer_b64,
+            ]
+            try:
+                proc = runner(cmd, capture_output=True, **kwargs)
+            except TypeError:
+                kwargs.pop('timeout', None)
+                proc = runner(cmd, capture_output=True, **kwargs)
+
+            returncode = proc.returncode
+            raw_stderr = _decode_console_bytes(getattr(proc, 'stderr', None))
+            raw_stdout = _decode_console_bytes(getattr(proc, 'stdout', None))
+            clean_stderr = sanitize_powershell_output(raw_stderr) or sanitize_powershell_output(raw_stdout)
+
+        if returncode == ERROR_CANCELLED:
             return DefenderResult(
                 ok=False,
                 cancelled=True,
@@ -753,21 +1224,12 @@ def _run_elevated_payload(
             )
 
         if result_file.is_file():
-            try:
-                res_obj = json.loads(result_file.read_text(encoding='utf-8-sig'))
-            except (OSError, ValueError):
-                res_obj = {}
-            rem_paths = (
-                [str(x) for x in res_obj.get('remaining_paths', ()) if x]
-                if isinstance(res_obj, dict) and isinstance(res_obj.get('remaining_paths'), list)
-                else []
-            )
-            rem_procs = (
-                [str(x) for x in res_obj.get('remaining_processes', ()) if x]
-                if isinstance(res_obj, dict) and isinstance(res_obj.get('remaining_processes'), list)
-                else []
-            )
-            if isinstance(res_obj, dict) and res_obj.get('ok') is True and proc.returncode == 0:
+            res_obj_opt, read_err = _read_json_with_retry(result_file)
+            res_obj = res_obj_opt if isinstance(res_obj_opt, dict) else {}
+            rem_paths = _string_list_field(res_obj, 'remaining_paths')
+            rem_procs = _string_list_field(res_obj, 'remaining_processes')
+            error_code = str(res_obj.get('error_code') or '').strip() if isinstance(res_obj, dict) else ''
+            if isinstance(res_obj, dict) and res_obj.get('ok') is True and (used_native_win32 or returncode == 0):
                 return DefenderResult(
                     ok=True,
                     added_paths=clean_paths,
@@ -776,22 +1238,22 @@ def _run_elevated_payload(
                     remaining_processes=rem_procs,
                 )
             err_msg = str(res_obj.get('error') or '').strip() if isinstance(res_obj, dict) else ''
-            stderr = (proc.stderr or proc.stdout or '').strip()
+            read_fail_note = f'failed to read result.json ({read_err})' if read_err else ''
             return DefenderResult(
                 ok=False,
                 added_paths=clean_paths,
                 added_processes=clean_procs,
                 remaining_paths=rem_paths,
                 remaining_processes=rem_procs,
-                error=err_msg or stderr or f'exit code {proc.returncode}',
+                error=err_msg or clean_stderr or read_fail_note or f'exit code {returncode}',
+                error_code=error_code,
             )
 
-        stderr = (proc.stderr or proc.stdout or '').strip()
         return DefenderResult(
             ok=False,
             added_paths=clean_paths,
             added_processes=clean_procs,
-            error=stderr or f'elevated PowerShell exited with code {proc.returncode} without writing result.json',
+            error=clean_stderr or f'elevated PowerShell exited with code {returncode} without writing result.json',
         )
     except subprocess.TimeoutExpired:
         return DefenderResult(
@@ -808,16 +1270,7 @@ def _run_elevated_payload(
             error=str(e),
         )
     finally:
-        for f in (payload_file, result_file):
-            try:
-                if f.exists():
-                    f.unlink()
-            except OSError:
-                pass
-        try:
-            os.rmdir(work_td)
-        except OSError:
-            pass
+        _cleanup_work_dir(work_td, payload_file, script_file, started_file, result_file)
 
 
 def apply_exclusions(
