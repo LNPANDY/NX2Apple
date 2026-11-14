@@ -833,6 +833,8 @@ import SwiftUI
                                        controls: ControlLayout(defaults: TestDefaults.make("ConsoleLiveTests")),
                                        repo: { "" }, lang: { .en }, labels: { $0 }, pads: { list }, artwork: { _, _ in nil }, observeSystem: false,
                                        playerOutput: { writes.append(($0, $1)) })
+        var sounds: [NoticeSounds.Event] = []
+        driver.playNoticeSound = { event, _ in sounds.append(event) }
         list = [ConsolePadSnapshot(id: "pad", name: "DUALSHOCK 4 Wireless Controller", category: "DualShock 4", playerIndex: nil)]
         XCTAssertTrue(driver.handleConnection(id: "pad", name: "DUALSHOCK 4 Wireless Controller", connected: true), "the first connect counts")
         let toast = driver.state.toast
@@ -843,12 +845,15 @@ import SwiftUI
         XCTAssertEqual(driver.state.controllers.map(\.id), ["pad"], "one entry")
         XCTAssertEqual(driver.state.controllers.map(\.player), [1], "assigned once")
         XCTAssertEqual(writes.count, 1, "one light and player write")
+        XCTAssertEqual(sounds.count, 1)
+        XCTAssertEqual(sounds.first, .controllerConnected)
         list = []
         XCTAssertTrue(driver.handleConnection(id: "pad", name: "DUALSHOCK 4 Wireless Controller", connected: false))
         let gone = driver.state.toast
         XCTAssertFalse(driver.handleConnection(id: "pad", name: "DUALSHOCK 4 Wireless Controller", connected: false))
         XCTAssertEqual(driver.state.toast, gone, "no second disconnect toast")
         XCTAssertTrue(driver.state.controllers.isEmpty)
+        XCTAssertEqual(sounds, [.controllerConnected, .controllerDisconnected])
     }
 
     func testPairedJoyConDoesNotRepeatPlayerOutputAcrossRereads() {

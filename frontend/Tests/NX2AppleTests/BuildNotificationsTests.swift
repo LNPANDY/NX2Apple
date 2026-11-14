@@ -26,6 +26,38 @@ import NXModel
         XCTAssertFalse(BuildNotice.enabled)
     }
 
+    func testNotificationDoesNotAddASecondSystemSound() {
+        for outcome in [BuildNotice.Outcome.finished, .failed(reason: "error")] {
+            let content = BuildNotice.content(title: "Build", body: "Done", outcome: outcome, gameID: nil)
+            XCTAssertNil(content.sound)
+        }
+    }
+
+    func testSoundsAreOnByDefaultAndDistinctForEveryOutcome() {
+        let saved = UserDefaults.standard.object(forKey: NoticeSounds.defaultsKey)
+        defer { UserDefaults.standard.set(saved, forKey: NoticeSounds.defaultsKey) }
+        UserDefaults.standard.removeObject(forKey: NoticeSounds.defaultsKey)
+        XCTAssertTrue(NoticeSounds.enabled)
+        let events: [NoticeSounds.Event] = [.buildFinished, .buildFailed, .controllerConnected, .controllerDisconnected]
+        let names = events.compactMap { NoticeSounds.name(for: $0, enabled: true, gameRunning: false) }
+        XCTAssertEqual(Set(names).count, 4)
+        XCTAssertEqual(names.count, 4)
+        for event in events {
+            XCTAssertNil(NoticeSounds.name(for: event, enabled: false, gameRunning: false))
+            XCTAssertNil(NoticeSounds.name(for: event, enabled: true, gameRunning: true))
+        }
+        UserDefaults.standard.set(false, forKey: NoticeSounds.defaultsKey)
+        XCTAssertFalse(NoticeSounds.enabled)
+    }
+
+    func testSoundSettingIsTranslatedInEveryLanguage() {
+        for lang in Lang.all {
+            for key in ["settings.noticeSounds", "settings.noticeSoundsNote"] {
+                XCTAssertNotEqual(L10n.string(key, lang), key)
+            }
+        }
+    }
+
     func testTheTextNamesTheGameAndTheTarget() {
         let mac = BuildNotice.text(.finished, game: "Metroid Dread", target: "mac-app", device: nil, en)
         XCTAssertEqual(mac.title, "Metroid Dread is built")
