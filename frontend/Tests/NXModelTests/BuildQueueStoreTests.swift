@@ -269,5 +269,142 @@ import NXCore
         XCTAssertEqual(e.inputSummary { $0 }, "data.base, data.update, 2 × data.dlc")
         e.gameFolder = "/folder"
         XCTAssertEqual(e.inputSummary { $0 }, "queue.inputFolder")
+
+        var fastEntry = entry("F")
+        fastEntry.fastRefresh = true
+        XCTAssertEqual(fastEntry.inputSummary { $0 }, "queue.fastRefreshSummary")
+    }
+
+    func testDeduplicationByTitleAndTargetAllowsMacAndIOSCoexistence() {
+        let q = store()
+        let batch = UUID()
+        let macA = QueueEntry(
+            titleID: "0100152000022000",
+            name: "Game A",
+            target: BuildTarget.mac,
+            inputs: [:],
+            outputDirectory: "/out",
+            engineID: "release-1",
+            batch: batch,
+            packageAfter: false,
+            fastRefresh: true,
+            locksTarget: true
+        )
+        let iosA = QueueEntry(
+            titleID: "0100152000022000",
+            name: "Game A",
+            target: BuildTarget.ios,
+            inputs: [:],
+            outputDirectory: "/out",
+            engineID: "release-1",
+            batch: batch,
+            packageAfter: true,
+            fastRefresh: true,
+            locksTarget: true
+        )
+        let duplicateMacA = QueueEntry(
+            titleID: "0100152000022000",
+            name: "Game A",
+            target: BuildTarget.mac,
+            inputs: [:],
+            outputDirectory: "/out",
+            engineID: "release-1",
+            batch: batch,
+            packageAfter: false,
+            fastRefresh: false,
+            locksTarget: true
+        )
+
+        q.enqueue([macA, iosA, duplicateMacA])
+        XCTAssertEqual(q.entries.count, 2)
+        XCTAssertEqual(q.entries.map(\.target), [BuildTarget.mac, BuildTarget.ios])
+    }
+
+    func testLockedTargetMixedBatchPreservesTargetsAndPackagesOnlyIOSOnce() {
+        var startedTargets: [(String, String, Bool)] = []
+        var packagedEntries: [[QueueEntry]] = []
+        let q = BuildQueueStore(
+            file: file,
+            engineID: { [unowned self] in engine },
+            busy: { [unowned self] in busy },
+            start: { [unowned self] item in
+                startedTargets.append((item.titleID, item.target, item.fastRefresh))
+                busy = true
+                return nil
+            },
+            packageBatch: { entries in
+                packagedEntries.append(entries)
+            },
+            engineChangedReason: { "engine changed" }
+        )
+
+        let batch = UUID()
+        let macFast = QueueEntry(
+            titleID: "A",
+            name: "Game A",
+            target: BuildTarget.mac,
+            inputs: [:],
+            outputDirectory: "/out",
+            engineID: "release-1",
+            batch: batch,
+            packageAfter: false,
+            fastRefresh: true,
+            locksTarget: true
+        )
+        let iosFast = QueueEntry(
+            titleID: "A",
+            name: "Game A",
+            target: BuildTarget.ios,
+            inputs: [:],
+            outputDirectory: "/out",
+            engineID: "release-1",
+            batch: batch,
+            packageAfter: true,
+            fastRefresh: true,
+            locksTarget: true,
+            externalImgPath: "/Volumes/USB/A.img"
+        )
+        let iosFull = QueueEntry(
+            titleID: "B",
+            name: "Game B",
+            target: BuildTarget.ios,
+            inputs: ["base": ["/g/b.nsp"]],
+            outputDirectory: "/out",
+            engineID: "release-1",
+            batch: batch,
+            packageAfter: true,
+            fastRefresh: false,
+            locksTarget: true
+        )
+
+        q.enqueue([macFast, iosFast, iosFull])
+        q.start(target: BuildTarget.mac, packageAfter: false)
+
+        XCTAssertEqual(startedTargets.count, 1)
+        XCTAssertEqual(startedTargets[0].0, "A")
+        XCTAssertEqual(startedTargets[0].1, BuildTarget.mac)
+        XCTAssertTrue(startedTargets[0].2)
+
+        busy = false
+        q.buildEnded(succeeded: true)
+        XCTAssertEqual(startedTargets.count, 2)
+        XCTAssertEqual(startedTargets[1].0, "A")
+        XCTAssertEqual(startedTargets[1].1, BuildTarget.ios)
+        XCTAssertTrue(startedTargets[1].2)
+        XCTAssertTrue(packagedEntries.isEmpty)
+
+        busy = false
+        q.buildEnded(succeeded: true)
+        XCTAssertEqual(startedTargets.count, 3)
+        XCTAssertEqual(startedTargets[2].0, "B")
+        XCTAssertEqual(startedTargets[2].1, BuildTarget.ios)
+        XCTAssertFalse(startedTargets[2].2)
+        XCTAssertTrue(packagedEntries.isEmpty)
+
+        busy = false
+        q.buildEnded(succeeded: true)
+        XCTAssertEqual(packagedEntries.count, 1)
+        XCTAssertEqual(packagedEntries[0].map(\.titleID), ["A", "B"])
+        XCTAssertTrue(packagedEntries[0].allSatisfy { $0.target == BuildTarget.ios })
     }
 }

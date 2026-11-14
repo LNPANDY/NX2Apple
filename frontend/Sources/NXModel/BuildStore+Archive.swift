@@ -15,7 +15,7 @@ extension BuildStore {
         var multiProgram: Bool
     }
 
-    private struct TrailerInjectionError: Error, Sendable {
+    struct TrailerInjectionError: Error, Sendable {
         var status: Int32
         var message: String
     }
@@ -78,7 +78,8 @@ extension BuildStore {
     /// `then` continues the build with the archive's folder (installing on a device or exporting the shared app).
     /// `titleID` names the game's title ID (the framework's title ID), falling back to the build key when omitted.
     package func packArchive(workDir: String, titleID: String? = nil, then: @escaping (String) -> Void) {
-        buildingGame = true; runningTarget = BuildTarget.ios
+        buildingGame = true
+        runningTarget = BuildTarget.ios
         if operation == nil { beginOperation(.building, game: gameName, titleID: titleID, destination: .target) }
         running = true
         archiveGeneration &+= 1
@@ -91,6 +92,8 @@ extension BuildStore {
         let repoPath = repo.path
         let pythonPath = deps.pythonPath
         let runner = self.runner
+        let externalImg = fastRefreshExternalImgPath
+        fastRefreshExternalImgPath = nil
         let idx = 1000
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
@@ -145,6 +148,14 @@ extension BuildStore {
                         then(dest)
                     }
                 } else {
+                    var extNotes: [String] = []
+                    if isIOSBuild, let externalImg, !externalImg.isEmpty {
+                        Self.updateExternalImageTrailerInPlace(
+                            imgPath: externalImg, workDir: workDir, tid: tid,
+                            repoPath: repoPath, pythonPath: pythonPath, runner: runner, fm: fm,
+                            onNote: { extNotes.append($0) }
+                        )
+                    }
                     PostBuildCleanup.cleanWorkDirectory(workDir, removeExtractedRomFS: false, removeShellFramework: false)
                     hop {
                         guard let self, self.archiveGeneration == generation else { return }
@@ -152,6 +163,7 @@ extension BuildStore {
                             self.finishStoppedArchive()
                             return
                         }
+                        for note in extNotes where !note.isEmpty { self.say(note) }
                         self.say(String(format: self.t("msg.archiveSkipped"), extract))
                         self.upsertArchiveStage(id: idx, state: .done, detail: self.t("prog.noRomfs"))
                         self.archivePath = ""
@@ -619,7 +631,7 @@ extension BuildStore {
         return nil
     }
 
-    private nonisolated static func injectIOSShaderTrailerIfNeeded(
+    nonisolated static func injectIOSShaderTrailerIfNeeded(
         targetImg: String,
         workDir: String,
         tid: String,

@@ -31,6 +31,8 @@ final class GermanLocalizationTests: IsolatedDefaultsTestCase {
         "ios.host.ok", "ios.host.shellName", "ios.host.padController", "ios.ui.padController", "ios.ui.padMinus", "ios.ui.padPlus", "ios.ui.version", "ios.ui.gameVersionLabel",
         // Console mode's game page and Builds page (#816): Builds, Build, Cheats, Version and Status read the same in German.
         "console.builds", "console.tab.build", "console.tab.cheats", "console.gamePage.version", "console.gamePage.status",
+        // Brand and device names on the batch refresh badge and platform tags.
+        "batchRefresh.versionBadge", "batchRefresh.platformIOS", "batchRefresh.platformMac",
     ]
 
     func testGermanIsNotLeftInEnglish() {

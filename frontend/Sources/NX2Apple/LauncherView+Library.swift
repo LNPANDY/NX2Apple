@@ -24,7 +24,10 @@ extension LauncherView {
                                 .scaleEffect(scale, anchor: .topLeading)
                                 .frame(width: geometry.size.width, height: full.height * scale, alignment: .topLeading)
                                 .opacity(dimmed(.hero))
-                                .onAppear { closedHeroHeight = full.height; artworkHeroAspect = full.width / full.height }
+                                .onAppear {
+                                    closedHeroHeight = full.height
+                                    artworkHeroAspect = full.width / full.height
+                                }
                                 .onChange(of: full) { size in
                                     if !editing { closedHeroHeight = size.height }
                                     artworkHeroAspect = size.width / size.height
@@ -39,6 +42,9 @@ extension LauncherView {
                 }
                 .onPreferenceChange(CollectionHeightKey.self) { h in if h > 0, abs(h - collectionHeight) > 0.5 { collectionHeight = h } }
                 .animation(.easeOut(duration: 0.18), value: artworkSlot)
+                .onChange(of: library.selectedID) { _ in toolsAge.cancelSingleRefreshProbe() }
+                .onChange(of: m.running) { running in if running { toolsAge.cancelSingleRefreshProbe() } }
+                .onDisappear { toolsAge.cancelSingleRefreshProbe() }
             }
         }
     }
@@ -115,28 +121,7 @@ extension LauncherView {
                 LinearGradient(colors: [.black.opacity(0.24), .clear], startPoint: .leading, endPoint: .trailing)
             }
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    if lightHero {
-                        status(game, prominent: true)
-                            .padding(.horizontal, 11).padding(.vertical, 5)
-                            .background {
-                                Capsule().fill(.ultraThinMaterial)
-                                    .overlay(Capsule().fill(Color.white.opacity(0.76)))
-                            }
-                            .overlay(Capsule().strokeBorder(Color.black.opacity(0.10)))
-                            .shadow(color: .black.opacity(0.06), radius: 4, y: 1)
-                    } else {
-                        status(game, prominent: true)
-                    }
-                    if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
-                        // Never started by itself: the player adds the game, or every game built with older tools, to the build queue (#944)
-                        heroRebuildButton(loc.t("library.rebuildShort"), id: "hero.rebuild", games: [game], frosted: lightHero)
-                        let others = olderToolsGames
-                        if others.count > 1 {
-                            heroRebuildButton(String(format: loc.t("library.rebuildAll"), others.count), id: "hero.rebuildAll", games: others, frosted: lightHero)
-                        }
-                    }
-                }
+                heroStatusHeader(game, lightHero: lightHero)
                 Text(game.displayName(loc.lang)).font(.manrope(min(68, width * 0.052), .heavy))
                     .tracking(-1.6).lineLimit(2)
                     .shadow(color: lightHero ? .white.opacity(0.55) : .black.opacity(0.25), radius: 12)
@@ -168,14 +153,14 @@ extension LauncherView {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                if toolsAge.older.contains(game.id) && !(m.running && activeBuildID == game.id) {
-                    Text(loc.t("library.olderToolsSafeNote"))
+                if !(m.running && activeBuildID == game.id), let refreshNote = heroRefreshNote(for: game) {
+                    Text(refreshNote)
                         .font(.manrope(12.5))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 if game.switch2EditionContentFound, !GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {
-                    Text(loc.t("library.switch2Content")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)   // #1057
+                    Text(loc.t("library.switch2Content")).font(.manrope(12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if verifiedProfiles.isUnverified(game) {
                     HStack(spacing: 7) {
@@ -218,6 +203,138 @@ extension LauncherView {
             .padding(.horizontal, 34).padding(.bottom, 34)
         }
         .frame(width: width, height: height).clipped()
+    }
+
+    /// Adaptive status and refresh pill header at the top of the hero banner.
+    @ViewBuilder private func heroStatusHeader(_ game: LibraryGame, lightHero: Bool) -> some View {
+        let isBuildingThis = m.running && activeBuildID == game.id
+        let hasActions = !isBuildingThis && heroShowsAnyRefreshPill(game)
+        if hasActions {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 10) {
+                    heroStatusBadge(game, lightHero: lightHero)
+                    heroRefreshPills(game, lightHero: lightHero)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    heroStatusBadge(game, lightHero: lightHero)
+                    HStack(spacing: 10) {
+                        heroRefreshPills(game, lightHero: lightHero)
+                    }
+                }
+            }
+        } else {
+            heroStatusBadge(game, lightHero: lightHero)
+        }
+    }
+
+    @ViewBuilder private func heroStatusBadge(_ game: LibraryGame, lightHero: Bool) -> some View {
+        if lightHero {
+            status(game, prominent: true)
+                .padding(.horizontal, 11).padding(.vertical, 5)
+                .background {
+                    Capsule().fill(.ultraThinMaterial)
+                        .overlay(Capsule().fill(Color.white.opacity(0.76)))
+                }
+                .overlay(Capsule().strokeBorder(Color.black.opacity(0.10)))
+                .shadow(color: .black.opacity(0.06), radius: 4, y: 1)
+        } else {
+            status(game, prominent: true)
+        }
+    }
+
+    private func heroShowsAnyRefreshPill(_ game: LibraryGame) -> Bool {
+        if gameNeedsRefresh(game) { return true }
+        return refreshableGames.contains { $0.id != game.id }
+    }
+
+    @ViewBuilder private func heroRefreshPills(_ game: LibraryGame, lightHero: Bool) -> some View {
+        let assessment = toolsAge.assessments[game.id]
+        if gameNeedsRefresh(game) {
+            let primarySpec = heroPrimaryRefreshSpec(assessment: assessment)
+            heroActionPill(
+                title: primarySpec.title,
+                symbol: primarySpec.symbol,
+                id: "hero.rebuild",
+                frosted: lightHero
+            ) {
+                triggerSingleRefresh(game)
+            }
+            if assessment != nil {
+                let total = refreshableGames.count
+                if total > 1 {
+                    heroActionPill(
+                        title: String(format: loc.t("library.refresh.batchBtn"), total),
+                        symbol: "square.stack.3d.up",
+                        id: "hero.rebuildAll",
+                        frosted: lightHero
+                    ) {
+                        openBatchRefresh()
+                    }
+                }
+            } else {
+                let legacyCount = olderToolsGames.count
+                if legacyCount > 1 {
+                    heroActionPill(
+                        title: String(format: loc.t("library.rebuildAll"), legacyCount),
+                        symbol: "arrow.clockwise",
+                        id: "hero.rebuildAll",
+                        frosted: lightHero
+                    ) {
+                        openBatchRefresh()
+                    }
+                }
+            }
+        } else {
+            let otherCount = refreshableGames.filter { $0.id != game.id }.count
+            if otherCount > 0 {
+                heroActionPill(
+                    title: String(format: loc.t("library.refresh.batchOthersBtn"), otherCount),
+                    symbol: "square.stack.3d.up",
+                    id: "hero.rebuildAll",
+                    frosted: lightHero
+                ) {
+                    openBatchRefresh()
+                }
+            }
+        }
+    }
+
+    private func heroPrimaryRefreshSpec(assessment: GameRefreshAssessment?) -> (title: String, symbol: String) {
+        guard let assessment else {
+            return (loc.t("library.rebuildShort"), "arrow.clockwise")
+        }
+        switch assessment.heroState {
+        case .specificFast:
+            return (loc.t("library.refresh.fastBtn"), "bolt.fill")
+        case .specificFull:
+            return (loc.t("library.refresh.rebuildBtn"), "arrow.clockwise")
+        case .generalSync(let fast):
+            if fast {
+                return (loc.t("library.refresh.fastSyncBtn"), "bolt.fill")
+            }
+            return (loc.t("library.refresh.syncBtn"), "arrow.clockwise")
+        case .upToDate:
+            return (loc.t("library.rebuildShort"), "arrow.clockwise")
+        }
+    }
+
+    private func heroRefreshNote(for game: LibraryGame) -> String? {
+        if let assessment = toolsAge.assessments[game.id] {
+            switch assessment.heroState {
+            case .specificFast(let version):
+                return String(format: loc.t("library.refresh.noteSpecificFast"), game.displayName(loc.lang), version)
+            case .specificFull:
+                return loc.t("library.refresh.noteSpecificFull")
+            case .generalSync:
+                return loc.t("library.refresh.noteGeneral")
+            case .upToDate:
+                return nil
+            }
+        }
+        if toolsAge.older.contains(game.id) {
+            return loc.t("library.olderToolsSafeNote")
+        }
+        return nil
     }
 
     /// The way to the Supported games sheet in the collection's header, before Sort: the list is about the library, not about one game.
@@ -281,7 +398,7 @@ extension LauncherView {
                 Text(loc.t("library.noResults")).foregroundStyle(.secondary).padding(.vertical, 28)
             } else {
                 ScrollViewReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
+                    ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: 14) {
                             ForEach(games) { game in
                                 let _ = LauncherWork.count(.card)
@@ -320,21 +437,21 @@ extension LauncherView {
                         .background(EnclosingScrollView(row: row))
                     }
                     .padding(.horizontal, -Self.ringRoom).padding(.vertical, -Self.ringRoom)
-                    .onChange(of: padFocus.focused) { id in   // the focused card scrolls into the row's view
+                    .onChange(of: padFocus.focused) { id in
                         guard let id, id.hasPrefix("card.") else { return }
                         withAnimation(.easeInOut(duration: 0.25)) { proxy.scrollTo(id, anchor: .center) }
                     }
                 }
-                    .overlay(alignment: .topLeading) {
-                        if row.canBack {
-                            pager("chevron.left", height: cardWidth / 1.8) { row.page(-1, step: step) }.offset(x: -22)
-                        }
+                .overlay(alignment: .topLeading) {
+                    if row.canBack {
+                        pager("chevron.left", height: cardWidth / 1.8) { row.page(-1, step: step) }.offset(x: -22)
                     }
-                    .overlay(alignment: .topTrailing) {
-                        if row.canForward {
-                            pager("chevron.right", height: cardWidth / 1.8) { row.page(1, step: step) }.offset(x: 22)
-                        }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if row.canForward {
+                        pager("chevron.right", height: cardWidth / 1.8) { row.page(1, step: step) }.offset(x: 22)
                     }
+                }
             }
         }
         .padding(.horizontal, 34).padding(.top, 8).padding(.bottom, 22)
@@ -361,20 +478,36 @@ extension LauncherView {
         library.games.filter { toolsAge.older.contains($0.id) && !$0.inputs["base", default: []].isEmpty }
     }
 
-    /// An outlined pill that adds games to the build queue: one game, or all that were built with older tools. It starts nothing itself.
-    func heroRebuildButton(_ title: String, id: String, games: [LibraryGame], frosted: Bool = false) -> some View {
-        let add = {
-            guard !m.running else { return }
-            let batch = UUID()
-            stores.queue.enqueue(games.map {
-                QueueEntry(game: $0, engineID: stores.engineSync.selection.engineID, target: m.target, batch: batch,
-                           packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame)
-            })
-            page = .builds
+    /// Whether a game has a pending engine or profile refresh.
+    func gameNeedsRefresh(_ game: LibraryGame) -> Bool {
+        if let assessment = toolsAge.assessments[game.id] {
+            return assessment.heroState != .upToDate
         }
-        return Button(action: add) {
-            Label(title, systemImage: "arrow.clockwise")
+        return toolsAge.older.contains(game.id)
+    }
+
+    /// All built games in the library that currently have a pending refresh.
+    var refreshableGames: [LibraryGame] {
+        library.games.filter { item in
+            if let assessment = toolsAge.assessments[item.id] {
+                return assessment.heroState != .upToDate
+            }
+            return toolsAge.older.contains(item.id)
+                && (item.isReady || item.hasIOSBuild || !item.inputs["base", default: []].isEmpty || item.inputs[GameLibrary.folderInput] != nil)
+        }
+    }
+
+    /// Outlined capsule button in the hero's top status row for single-game or batch refresh.
+    func heroActionPill(title: String, symbol: String, id: String, frosted: Bool = false, action: @escaping () -> Void) -> some View {
+        let isProbing = toolsAge.singleRefreshProbingGameID != nil
+        let perform = {
+            guard !m.running, !isProbing else { return }
+            action()
+        }
+        return Button(action: perform) {
+            Label(title, systemImage: symbol)
                 .font(.manrope(12, .semibold)).foregroundStyle(LauncherPalette.cream)
+                .lineLimit(1)
                 .padding(.horizontal, 10).padding(.vertical, 4)
                 .background {
                     if frosted {
@@ -385,30 +518,146 @@ extension LauncherView {
                 .overlay(Capsule().strokeBorder(LauncherPalette.cream.opacity(frosted ? 0.25 : 0.35)))
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil).disabled(m.running || games.isEmpty)
+        .buttonStyle(.plain).launcherHover(enabled: artworkEditor == nil && !isProbing).disabled(m.running || isProbing)
         .help(loc.t("library.olderToolsHelp"))
-        .padTarget(id, scope: "main", radius: 12, activate: add)
+        .padTarget(id, scope: "main", radius: 12, activate: perform)
+    }
+
+    private func openBatchRefresh() {
+        toolsAge.cancelSingleRefreshProbe()
+        batchRefreshOpen = true
+    }
+
+    func triggerSingleRefresh(_ game: LibraryGame) {
+        guard !stores.build.running else {
+            page = .builds
+            return
+        }
+        guard toolsAge.singleRefreshProbingGameID == nil else { return }
+        let assessment = toolsAge.assessments[game.id]
+        if game.hasIOSBuild, let assessment, assessment.needsMissingImgGuideIOS {
+            let driveFolder = devices.driveFolder
+            if !driveFolder.isEmpty {
+                toolsAge.singleRefreshProbeGeneration &+= 1
+                let probeGen = toolsAge.singleRefreshProbeGeneration
+                let selectedSnapshot = library.selectedID
+                let heroSnapshot = heroGame?.id
+                toolsAge.singleRefreshProbingGameID = game.id
+                let tid = game.titleID
+                let expected = assessment.expectedRomfsIdentity
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let foundImg = RomfsImageIdentity.scanExternalDriveForMatchingImage(
+                        driveFolder: driveFolder,
+                        titleID: tid,
+                        expectedIdentity: expected
+                    )
+                    DispatchQueue.main.async {
+                        guard probeGen == toolsAge.singleRefreshProbeGeneration else { return }
+                        toolsAge.singleRefreshProbingGameID = nil
+                        guard !stores.build.running,
+                              page == .library,
+                              library.selectedID == selectedSnapshot,
+                              heroGame?.id == heroSnapshot,
+                              library.games.contains(where: { $0.id == game.id }),
+                              missingImgGuideFor == nil,
+                              !batchRefreshOpen else { return }
+                        if let foundImg {
+                            enqueueSingleGameRefresh(game, assessment: assessment, externalIOSImgPath: foundImg)
+                        } else {
+                            missingImgGuideFor = MissingImgGuideContext(game: game, assessment: assessment)
+                        }
+                    }
+                }
+            } else {
+                missingImgGuideFor = MissingImgGuideContext(game: game, assessment: assessment)
+            }
+            return
+        }
+        enqueueSingleGameRefresh(game, assessment: assessment, externalIOSImgPath: nil)
+    }
+
+    func enqueueSingleGameRefresh(_ game: LibraryGame, assessment: GameRefreshAssessment?, externalIOSImgPath: String?) {
+        let batch = UUID()
+        var entries: [QueueEntry] = []
+        let hasMac = game.isReady
+        let hasIOS = game.hasIOSBuild
+
+        if hasMac {
+            let fastMac = assessment?.canFastRefreshMac ?? false
+            if fastMac || assessment?.missingOriginalPackage != true {
+                entries.append(RefreshQueueBuilder.makeEntry(
+                    game: game,
+                    target: BuildTarget.mac,
+                    fastRefresh: fastMac,
+                    externalImgPath: nil,
+                    batch: batch,
+                    stores: stores,
+                    libraryFolder: library.folder
+                ))
+            }
+        }
+
+        if hasIOS {
+            let fastIOS = (assessment?.canFastRefreshIOS ?? false) || externalIOSImgPath != nil
+            if fastIOS || assessment?.missingOriginalPackage != true {
+                entries.append(RefreshQueueBuilder.makeEntry(
+                    game: game,
+                    target: BuildTarget.ios,
+                    fastRefresh: fastIOS,
+                    externalImgPath: externalIOSImgPath,
+                    batch: batch,
+                    stores: stores,
+                    libraryFolder: library.folder
+                ))
+            }
+        }
+
+        if !hasMac && !hasIOS {
+            if !game.inputs["base", default: []].isEmpty || game.inputs[GameLibrary.folderInput] != nil {
+                entries.append(QueueEntry(
+                    game: game,
+                    engineID: stores.engineSync.selection.engineID,
+                    target: m.target,
+                    batch: batch,
+                    packageAfter: m.target != BuildTarget.mac && !m.exportsOneGame
+                ))
+            }
+        }
+
+        let ordered = RefreshQueueBuilder.orderedEntries(entries)
+        guard !ordered.isEmpty else {
+            configureBuild(game)
+            return
+        }
+        stores.queue.enqueue(ordered)
+        page = .builds
+        if !m.running && m.canStartBuildOrQueue {
+            m.startBuildOrQueue()
+        }
     }
 
     func status(_ game: LibraryGame, prominent: Bool = false) -> some View {
         let building = m.running && activeBuildID == game.id
         let color = building ? LauncherPalette.building : ((game.isReady || game.hasIOSBuild) ? LauncherPalette.ready : LauncherPalette.unbuilt)
-        let key = building ? "library.building" : (game.isReady ? "library.ready" : (game.hasIOSBuild ? (game.isOlderIOSBuild ? "library.olderIOS" : "library.readyIOS") : "library.notBuilt"))
+        let key: String
+        if building {
+            key = "library.building"
+        } else if game.isReady && game.hasIOSBuild {
+            key = "library.readyMacAndIOS"
+        } else if game.isReady {
+            key = "library.ready"
+        } else if game.hasIOSBuild {
+            key = game.onDevice ? "library.readyOnIOS" : (game.isOlderIOSBuild ? "library.olderIOS" : "library.readyIOS")
+        } else {
+            key = "library.notBuilt"
+        }
         return HStack(spacing: 7) {
             Circle().fill(color).frame(width: prominent ? 9 : 7, height: prominent ? 9 : 7)
             Text(prominent ? loc.t(key).uppercased() : loc.t(key))
                 .font(prominent ? .manrope(12, .bold) : .manrope(13, .medium))
-                .tracking(prominent ? 1.3 : 0)   // the eyebrow: the same face, in tracked capitals
+                .tracking(prominent ? 1.3 : 0)
                 .foregroundStyle(color)
-            if prominent && game.isReady && game.hasIOSBuild {
-                Text(loc.t(game.isOlderIOSBuild ? "library.olderIOS" : "library.readyIOS"))
-                    .font(.manrope(11, .semibold))
-                    .foregroundStyle(LauncherPalette.ready)
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(LauncherPalette.ink(0.06), in: Capsule())
-                    .overlay(Capsule().strokeBorder(LauncherPalette.ready.opacity(0.35)))
-            }
-            if GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {   // #445
+            if GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {
                 Text(loc.t("switch2.badge"))
                     .font(.manrope(prominent ? 11 : 10.5, .bold)).foregroundStyle(LauncherPalette.notice)
                     .padding(.horizontal, 7).padding(.vertical, 2)
@@ -425,12 +674,54 @@ extension LauncherView {
                     .overlay(Capsule().strokeBorder(LauncherPalette.ink(0.18)))
                     .help(loc.t("macLibVerify.note"))
             }
-            if !building && toolsAge.older.contains(game.id) {   // a quiet note beside the status, not a warning
-                Text("· " + loc.t(prominent ? "library.olderTools" : "library.olderToolsShort"))
-                    .font(.manrope(prominent ? 13 : 12)).foregroundStyle(.secondary).lineLimit(1)
-                    .help(loc.t("library.olderToolsHelp"))
+            if !building {
+                statusRefreshSuffix(game, prominent: prominent)
             }
         }
         .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private func statusRefreshSuffix(_ game: LibraryGame, prominent: Bool) -> some View {
+        if prominent {
+            if let assessment = toolsAge.assessments[game.id] {
+                switch assessment.heroState {
+                case .specificFast(let version), .specificFull(let version):
+                    Text("· " + String(format: loc.t("library.refresh.badgeVersion"), version))
+                        .font(.manrope(13, .semibold))
+                        .foregroundStyle(LauncherPalette.notice)
+                        .lineLimit(1)
+                        .help(loc.t("library.olderToolsHelp"))
+                case .generalSync:
+                    Text("· " + loc.t("library.refresh.badgeGeneral"))
+                        .font(.manrope(13))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .help(loc.t("library.olderToolsHelp"))
+                case .upToDate:
+                    if toolsAge.older.contains(game.id) {
+                        Text("· " + loc.t("library.olderTools"))
+                            .font(.manrope(13))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .help(loc.t("library.olderToolsHelp"))
+                    }
+                }
+            } else if toolsAge.older.contains(game.id) {
+                Text("· " + loc.t("library.olderTools"))
+                    .font(.manrope(13))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(loc.t("library.olderToolsHelp"))
+            }
+        } else {
+            let needsBadge = toolsAge.assessments[game.id].map { $0.heroState != .upToDate } ?? toolsAge.older.contains(game.id)
+            if needsBadge {
+                Text("· " + loc.t("library.olderToolsShort"))
+                    .font(.manrope(12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(loc.t("library.olderToolsHelp"))
+            }
+        }
     }
 }
