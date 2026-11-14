@@ -1,0 +1,154 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: sendme365 <sendme365@msn.com>
+Date: Sat, 14 Nov 2026 08:27:17 +0800
+Subject: [PATCH] Xuan Yuan Sword: Mists Beyond the Mountains
+ (010037C01B982000)
+
+4.0.6 (v65536), SDK 15, DOMO's in-house engine on a self-hosted
+SDL-switch 2.24.0. SDL's opengles2 driver builds the context (the GLES
+entry points of the previous commit), the game compiles its GLSL
+through it at run time, and the video module (subsdk4) draws its
+playback with NVN from two GLSLC run-time binaries, captured into
+shader_map.tsv: without it the first movie aborts the process.
+Plays on the Mac; not checked on the iPhone.
+
+Upstream-Status: forwarded seedds/nxnative#2619
+Reason: the game's profile; upstream has it on the same branch as the GLES entry points it needs
+Issue: LNPANDY/NX2Apple#1284
+
+---
+ dm/games/010037C01B982000/README.md           | 21 +++++++++++
+ dm/games/010037C01B982000/bf_want.tsv         |  1 +
+ dm/games/010037C01B982000/game.tsv            | 35 +++++++++++++++++++
+ dm/games/010037C01B982000/pso_manifest.tsv    |  2 ++
+ dm/games/010037C01B982000/shader_facts.tsv    |  1 +
+ dm/games/010037C01B982000/shader_map.tsv      |  5 +++
+ .../shader_map.tsv.conflicts.tsv              |  2 ++
+ dm/games/010037C01B982000/shader_pairs.tsv    |  2 ++
+ 8 files changed, 69 insertions(+)
+ create mode 100644 dm/games/010037C01B982000/README.md
+ create mode 100644 dm/games/010037C01B982000/bf_want.tsv
+ create mode 100644 dm/games/010037C01B982000/game.tsv
+ create mode 100644 dm/games/010037C01B982000/pso_manifest.tsv
+ create mode 100644 dm/games/010037C01B982000/shader_facts.tsv
+ create mode 100644 dm/games/010037C01B982000/shader_map.tsv
+ create mode 100644 dm/games/010037C01B982000/shader_map.tsv.conflicts.tsv
+ create mode 100644 dm/games/010037C01B982000/shader_pairs.tsv
+
+diff --git a/dm/games/010037C01B982000/README.md b/dm/games/010037C01B982000/README.md
+new file mode 100644
+index 0000000..a97c3fb
+--- /dev/null
++++ b/dm/games/010037C01B982000/README.md
+@@ -0,0 +1,21 @@
++# Xuan Yuan Sword: Mists Beyond the Mountains (`010037C01B982000`)
++
++4.0.6 (v65536), SDK 15. DOMO's in-house engine on a self-hosted SDL: `main` ships SDL-switch 2.24.0, whose opengles2 render driver builds the GL context, and compiles its GLSL through it at run time; the opening movie (and the video module's playback) draws with NVN, compiled from GLSLC run-time output. Modules `main`, `subsdk2` (SDL + the game's own `glslcCompile`), `subsdk3`, `subsdk4` (the video module, `nvnBootstrapLoader`) and `sdk` (its exports are `main`'s build, `8618895246…`, the same hash as `subsdk2`). Not checked on the iPhone.
++
++## What it needs
++
++| Setting | Where | Why |
++|---|---|---|
++| The GLES entry points (`eglBindAPI(0x30a0)` accepted, `OPENGL_ES_BIT` in `RENDERABLE_TYPE`/`CONFORMANT`, `OpenGL_ES` in `CLIENT_APIS`, the API named in `GL_VERSION`, a `glShaderBinary` entry point) | `dm/gfx/gl/hle_gl.m`, [seedds/nxnative#2619](https://github.com/seedds/nxnative/pull/2619) | SDL's opengles2 driver matches on those answers and loads `glShaderBinary` through `eglGetProcAddress` at renderer creation: without them `SDL_CreateRenderer` fails ("Couldn't find matching render driver") and the game crashes on the NULL renderer. The game compiles from source; `glShaderBinary` is never called |
++
++The profile started from the NSP script's provisional profile; the memory, module and shader-split values are its survey's.
++
++## Rendering
++
++- The game's GLSL lives as plain source in `main` (it names `E:/Work/swd3/swd3_repack/SS_SDK/SDL-switch-2.24.0/src/render/opengles2/SDL_render_gles2.c` and compiles with `glShaderSource`/`glCompileShader`): the host captures the sources at run time (`DM_GL_CAPTURE`) and `gl_shaders.py` turns them into the Metal libraries. 8 shaders (4 vertex, 4 pixel) cover boot to the first scene.
++- The movie path is NVN: `subsdk4` compiles two GLSLC binaries at run time (captured with `DM_GLSLC_CAPTURE`, split into `shader_map.tsv`). Without `shader_map.tsv` the first movie aborts the process (`sig=6` in the video module).
++
++## Input, language
++
++- The default pad layout works (SDL's GameController mapping in `subsdk2`).
++- `DM_LANG=zh-Hans` selects the game's Chinese; English is the default (`Game Language:english` in the log).
+diff --git a/dm/games/010037C01B982000/bf_want.tsv b/dm/games/010037C01B982000/bf_want.tsv
+new file mode 100644
+index 0000000..54caeb8
+--- /dev/null
++++ b/dm/games/010037C01B982000/bf_want.tsv
+@@ -0,0 +1 @@
++# generated
+diff --git a/dm/games/010037C01B982000/game.tsv b/dm/games/010037C01B982000/game.tsv
+new file mode 100644
+index 0000000..923cf04
+--- /dev/null
++++ b/dm/games/010037C01B982000/game.tsv
+@@ -0,0 +1,35 @@
++# Xuan Yuan Sword: Mists Beyond the Mountains (DOMO's in-house engine on a self-hosted SDL-switch 2.24.0, SDK 15), 4.0.6.
++# Started from the NSP script's provisional profile; see README.md for what the game needs
++
++# ---- Identity ----
++title_id	010037C01B982000
++program_id	010037C01B982000
++
++# ---- App ----
++name	Xuan Yuan Sword: Mists Beyond the Mountains
++ipa	XuanYuanSwordMistsBeyondTheMountains.ipa
++app_category	public.app-category.games
++
++# ---- Versions ----
++build	v65536	4.0.6	main=fa12e800fe5d549b0898bedddd950659	subsdk2=8618895246b420329b77746b960a66ab	subsdk3=368f01d5cb42f06cd125dc739d036719	subsdk4=1e3f59ac437a9dd4725b5107916ada7e	sdk=8618895246b420329b77746b960a66ab
++package	v65536
++shader_versions	v65536
++
++# ---- Files ----
++# not loaded, main takes nothing from them the host does not supply: subsdk0 (NintendoSDK_OpenGL), subsdk1 (NintendoSDK_Vulkan)
++modules	main subsdk2 subsdk3 subsdk4 sdk
++romfs_marker	Mods/tsw_2x.ssmod
++zip_store	.ani:.mp4:.otf:.png:.ssmod:.ttf:.metallib
++
++# ---- Memory ----
++# main never sets a heap (its memory is its own bss): a 256 MB heap region
++mem_reserve	0x40000000
++mem_alias	0x10000000
++mem_stack	0x10000000
++app_pool	0xCD500000
++# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon (Big Brain Academy: Brain vs. Brain sets a heap only then)
++sys_resource	0x0
++
++# ---- Shader split ----
++shader_groups	/Music/=music /Video/=video /Resource/=resource /Mods/=mods /en/=en /zh-Hant/=zhhant /ja/=ja /zh-Hans/=zhhans
++shader_note	Xuan Yuan Sword: Mists Beyond the Mountains shaders
+diff --git a/dm/games/010037C01B982000/pso_manifest.tsv b/dm/games/010037C01B982000/pso_manifest.tsv
+new file mode 100644
+index 0000000..0ca5ca6
+--- /dev/null
++++ b/dm/games/010037C01B982000/pso_manifest.tsv
+@@ -0,0 +1,2 @@
++# Prewarm seed list (shipped in the app, next to shader_map.tsv). Rows: S<TAB>shader key<TAB>stage / R<TAB>render pipeline key (pso_skey hex) / C<TAB>compute shader key / M<TAB>task shader key or -<TAB>native task / mesh pipeline key (pso_skey hex: the mesh shader in the vertex place).
++# Provisional profile: empty until recorded on the Mac (DM_PSO_MANIFEST=off DM_PSO_RECORD).
+diff --git a/dm/games/010037C01B982000/shader_facts.tsv b/dm/games/010037C01B982000/shader_facts.tsv
+new file mode 100644
+index 0000000..3cd03f6
+--- /dev/null
++++ b/dm/games/010037C01B982000/shader_facts.tsv
+@@ -0,0 +1 @@
++# Answer table for translation queries (generated by dm/gfx/tools/shader_split.py, do not edit): key <TAB> fact JSON. No PC shader pairing supplied: only the thread group / shared memory of compute shaders (taken from the control section); other queries get the translator defaults
+diff --git a/dm/games/010037C01B982000/shader_map.tsv b/dm/games/010037C01B982000/shader_map.tsv
+new file mode 100644
+index 0000000..fc4f952
+--- /dev/null
++++ b/dm/games/010037C01B982000/shader_map.tsv
+@@ -0,0 +1,5 @@
++# kind: evidence  Xuan Yuan Sword: Mists Beyond the Mountains shaders (GLSLC in RomFS + main) → control section + code area keys (dm/gfx/tools/shader_split.py)
++# column 5 records where each key first appears; no PC shader pairing supplied
++package	index	stage	dm_ctl_sha16	source
++ps_other.bin	0	pixel	8ee2d23081fb9530	/glslc_capture/2b5e7fb3ca9de30e.glslc#GLSLC@0x0
++vs_other.bin	0	vertex	d3ff93e32f2f20dc	/glslc_capture/5dedcf511b5e4b27.glslc#GLSLC@0x0
+diff --git a/dm/games/010037C01B982000/shader_map.tsv.conflicts.tsv b/dm/games/010037C01B982000/shader_map.tsv.conflicts.tsv
+new file mode 100644
+index 0000000..35c1b4d
+--- /dev/null
++++ b/dm/games/010037C01B982000/shader_map.tsv.conflicts.tsv
+@@ -0,0 +1,2 @@
++# kind: evidence  control-section key conflict rulings: empty
++dm_ctl_sha16	chosen_pc	class	candidates	records
+diff --git a/dm/games/010037C01B982000/shader_pairs.tsv b/dm/games/010037C01B982000/shader_pairs.tsv
+new file mode 100644
+index 0000000..3020707
+--- /dev/null
++++ b/dm/games/010037C01B982000/shader_pairs.tsv
+@@ -0,0 +1,2 @@
++# kind: evidence  vertex / pixel shader pairs within BNSH variations (generated by dm/gfx/tools/shader_split.py, do not edit): vertex key <TAB> pixel key
++d3ff93e32f2f20dc	8ee2d23081fb9530
