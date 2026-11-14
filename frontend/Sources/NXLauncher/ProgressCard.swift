@@ -108,7 +108,7 @@ package struct ProgressCard: View {
                     HStack(spacing: 12) {
                         if s.state == .running { ProgressView().controlSize(.small).frame(width: 14) }
                         else { Circle().fill(s.state.color).frame(width: 7, height: 7).frame(width: 14) }
-                        Text(s.name).font(.manrope(14)).lineLimit(1).layoutPriority(2)
+                        Text(s.displayName(loc.t)).font(.manrope(14)).lineLimit(1).layoutPriority(2)
                         Spacer(minLength: 12)
                         if s.state == .running {
                             TimelineView(.periodic(from: Date(), by: 1)) { context in

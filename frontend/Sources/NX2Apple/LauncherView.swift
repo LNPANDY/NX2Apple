@@ -539,7 +539,7 @@ struct LauncherView: View {
                         TimelineView(.periodic(from: Date(), by: 1)) { context in   // the clock ticks while a count may stand still
                             let badge = m.currentStagePosition.map { "[\($0.current)/\($0.total)]" } ?? ""
                             Text(stage
-                                    .map { [badge.isEmpty ? $0.name : "\(badge) \($0.name)", $0.detail, $0.clock(at: context.date, left: loc.t("prog.etaEstimate"))].filter { !$0.isEmpty }.joined(separator: " · ") }
+                                    .map { [badge.isEmpty ? $0.displayName(loc.t) : "\(badge) \($0.displayName(loc.t))", $0.detail, $0.clock(at: context.date, left: loc.t("prog.etaEstimate"))].filter { !$0.isEmpty }.joined(separator: " · ") }
                                  ?? loc.t("library.preparing"))
                                 .font(.manrope(13)).monospacedDigit().foregroundStyle(LauncherPalette.secondaryText).lineLimit(1).truncationMode(.middle)
                         }

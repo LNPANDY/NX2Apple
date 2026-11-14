@@ -2146,6 +2146,7 @@
   "stage.build_id_lookup": "build ID lookup",
   "stage.build_nx_extract": "build nx_extract",
   "stage.capture": "%@ shader capture",
+  "stage.check": "check %@ files",
   "stage.decompress_nsz": "decompress NSZ",
   "stage.extract": "extract %@",
   "stage.extract_dlc": "extract DLC",

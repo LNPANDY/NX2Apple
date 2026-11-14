@@ -86,7 +86,8 @@ import NXLauncher
             HStack(spacing: 12) {
                 Image(systemName: symbol).font(.system(size: compact ? 15 : 18, weight: .semibold)).foregroundStyle(color).frame(width: 24)
                     .accessibilityHidden(true)
-                Text(stage.name).font(.manrope(compact ? 15 : 18, stage.state == .running ? .semibold : .regular))
+                Text(Stage.displayName(name: stage.name, nameKey: stage.nameKey, nameArgument: stage.nameArgument, t))
+                    .font(.manrope(compact ? 15 : 18, stage.state == .running ? .semibold : .regular))
                     .foregroundStyle(stage.state == .pending ? LauncherPalette.secondaryText : .white)
                 Spacer(minLength: 8)
                 if let progress = stage.progress, stage.state == .running {

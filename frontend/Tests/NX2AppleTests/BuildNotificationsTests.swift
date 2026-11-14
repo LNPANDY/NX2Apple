@@ -46,6 +46,10 @@ import NXModel
         XCTAssertEqual(BuildNotice.failureReason(note: "", stages: [Stage(id: 1, name: "Survey", state: .done), stage]), "Extract · exit code 3")
         XCTAssertEqual(BuildNotice.failureReason(note: "Build failed: no Program NCA", stages: [stage]), "Build failed: no Program NCA")
         XCTAssertEqual(BuildNotice.failureReason(note: "", stages: []), "")
+        // A script stage keeps its English name; the notice names it in the launcher's language (#1115)
+        var check = Stage(id: 4, name: "check v655360 files")
+        check.state = .failed
+        XCTAssertEqual(BuildNotice.failureReason(note: "", stages: [check]) { L10n.string($0, .zh) }, "检查 v655360 文件")
     }
 
     // MARK: Visual QA (matched by --filter testRenderLauncherForVisualQA)

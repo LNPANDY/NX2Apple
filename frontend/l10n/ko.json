@@ -2147,6 +2147,7 @@
   "stage.build_id_lookup": "빌드 ID 조회",
   "stage.build_nx_extract": "nx_extract 빌드",
   "stage.capture": "%@ 셰이더 캡처",
+  "stage.check": "%@ 파일 확인",
   "stage.decompress_nsz": "NSZ 압축 해제",
   "stage.extract": "%@ 추출",
   "stage.extract_dlc": "DLC 추출",

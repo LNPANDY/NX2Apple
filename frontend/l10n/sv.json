@@ -2147,6 +2147,7 @@
   "stage.build_id_lookup": "Söker bygg-ID",
   "stage.build_nx_extract": "Bygg nx_extract",
   "stage.capture": "Insamling av %@-shaders",
+  "stage.check": "Kontrollera %@-filer",
   "stage.decompress_nsz": "Packa upp NSZ",
   "stage.extract": "Extrahera %@",
   "stage.extract_dlc": "Extrahera DLC",
