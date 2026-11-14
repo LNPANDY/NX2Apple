@@ -25,6 +25,7 @@ from typing import Callable
 
 from . import inputs as _inputs
 from . import platform_util as pu
+from . import post_build_cleanup as pbc
 
 
 def default_state_dir() -> Path:
@@ -134,6 +135,181 @@ def format_bytes(size: int) -> str:
 def shell_ipa_path(shell_cache: str) -> str:
     """The shared app's one output: `<shell cache>/export/NX2Apple.ipa` (shell_export.ipa_path)."""
     return os.path.join(shell_cache, 'export', 'NX2Apple.ipa')
+
+
+def exported_ipa_path(shell_cache: str) -> str:
+    """Return `<shell cache>/export/NX2Apple.ipa` when it exists as a regular file, else `''`."""
+    if not shell_cache:
+        return ''
+    cand = shell_ipa_path(shell_cache)
+    return cand if (os.path.isfile(cand) and not os.path.islink(cand)) else ''
+
+
+def _framework_is_complete(fw_dir: str, title_id: str) -> bool:
+    if not fw_dir or not os.path.isdir(fw_dir) or os.path.islink(fw_dir):
+        return False
+    manifest_p = os.path.join(fw_dir, 'game.manifest.json')
+    if not os.path.isfile(manifest_p):
+        return False
+    try:
+        with open(manifest_p, encoding='utf-8') as f:
+            data = json.load(f)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return False
+    if not isinstance(data, dict):
+        return False
+    exe = str(data.get('framework_executable') or '').strip() or f'DmGame{title_id.upper()}'
+    return os.path.isfile(os.path.join(fw_dir, exe))
+
+
+def installed_games_receipt(shell_cache: str) -> set[str]:
+    """Return uppercased TitleIDs recorded in `.installed-games.json` that remain in `shell.json`."""
+    if not shell_cache:
+        return set()
+    state_p = os.path.join(shell_cache, 'shell.json')
+    if not os.path.isfile(state_p):
+        return set()
+    try:
+        with open(state_p, encoding='utf-8') as f:
+            state = json.load(f)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return set()
+    raw_games = state.get('games', []) if isinstance(state, dict) else []
+    current_ids = {
+        str(item.get('titleID') or '').strip().upper()
+        for item in raw_games
+        if isinstance(item, dict) and str(item.get('titleID') or '').strip()
+    }
+    if not current_ids:
+        return set()
+    for receipt_p in (
+        os.path.join(shell_cache, 'derived-data', '.installed-games.json'),
+        os.path.join(shell_cache, '.installed-games.json'),
+    ):
+        if not os.path.isfile(receipt_p):
+            continue
+        try:
+            with open(receipt_p, encoding='utf-8') as f:
+                arr = json.load(f)
+            if isinstance(arr, list):
+                recorded = {str(x).strip().upper() for x in arr if str(x).strip()}
+                return recorded & current_ids
+        except (OSError, ValueError, UnicodeDecodeError):
+            continue
+    return set()
+
+
+def _shell_built_games_info(shell_cache: str) -> dict[str, dict[str, object]]:
+    """Inspect `<shell_cache>/shell.json`, `frameworks/DmGame*.framework`, `export/NX2Apple.ipa`, and receipt."""
+    out: dict[str, dict[str, object]] = {}
+    if not shell_cache or not os.path.isdir(shell_cache):
+        return out
+    exp_ipa = exported_ipa_path(shell_cache)
+    receipt_ids = installed_games_receipt(shell_cache)
+    fw_mirror_dir = os.path.join(shell_cache, 'frameworks')
+    in_shell_json: set[str] = set()
+
+    state_p = os.path.join(shell_cache, 'shell.json')
+    if os.path.isfile(state_p):
+        try:
+            with open(state_p, encoding='utf-8') as f:
+                state = json.load(f)
+        except (OSError, ValueError, UnicodeDecodeError):
+            state = {}
+        for entry in (state.get('games', []) if isinstance(state, dict) else []):
+            if not isinstance(entry, dict):
+                continue
+            tid = str(entry.get('titleID') or '').strip().upper()
+            if not tid:
+                continue
+            name = str(entry.get('name') or '').strip()
+            rec_fw = str(entry.get('framework') or '').strip()
+            mirror_fw = os.path.join(fw_mirror_dir, f'DmGame{tid}.framework')
+            valid_fw = ''
+            if _framework_is_complete(mirror_fw, tid):
+                valid_fw = mirror_fw
+            elif _framework_is_complete(rec_fw, tid):
+                valid_fw = rec_fw
+            if valid_fw:
+                in_shell_json.add(tid)
+                out[tid] = {
+                    'name': name,
+                    'framework_path': valid_fw,
+                    'exported_ipa_path': exp_ipa,
+                    'installed': tid in receipt_ids,
+                }
+
+    if os.path.isdir(fw_mirror_dir):
+        try:
+            fw_entries = sorted(os.listdir(fw_mirror_dir))
+        except OSError:
+            fw_entries = []
+        for fn in fw_entries:
+            if not (fn.startswith('DmGame') and fn.endswith('.framework') and len(fn) > len('DmGame.framework')):
+                continue
+            tid = fn[len('DmGame'):-len('.framework')].upper()
+            if tid in out:
+                continue
+            fw_full = os.path.join(fw_mirror_dir, fn)
+            if not _framework_is_complete(fw_full, tid):
+                continue
+            gname = ''
+            try:
+                with open(os.path.join(fw_full, 'game.manifest.json'), encoding='utf-8') as f:
+                    mdata = json.load(f)
+                if isinstance(mdata, dict):
+                    gname = str(mdata.get('name') or '').strip()
+            except (OSError, ValueError, UnicodeDecodeError):
+                pass
+            out[tid] = {
+                'name': gname,
+                'framework_path': fw_full,
+                'exported_ipa_path': exp_ipa if tid in in_shell_json else '',
+                'installed': tid in receipt_ids,
+            }
+    return out
+
+
+def find_game_archive_dir(root_dir: str, title_id: str, game_name: str = '') -> str:
+    """Locate `<root_dir>/games/<FolderName>` or legacy `<root_dir>/games/<TID>` for `title_id`."""
+    tid = (title_id or '').strip().upper()
+    if not root_dir or not tid:
+        return ''
+    games_dir = os.path.join(root_dir, 'games')
+    if not os.path.isdir(games_dir):
+        return ''
+
+    def _has_archive_payload(d: str) -> bool:
+        return (
+            pbc.primary_romfs_image(d) is not None
+            or os.path.isdir(os.path.join(d, 'aoc'))
+            or os.path.isdir(os.path.join(d, 'romfs'))
+        )
+
+    if game_name:
+        expected_sub = pbc.archive_directory_name(game_name, tid, games_dir)
+        cand_named = os.path.join(games_dir, expected_sub)
+        if os.path.isdir(cand_named):
+            claimed = pbc.folder_claimed_title_id(cand_named)
+            if (claimed == tid or (not claimed and _has_archive_payload(cand_named))):
+                return cand_named
+
+    try:
+        subs = sorted(os.listdir(games_dir))
+    except OSError:
+        subs = []
+    for sub in subs:
+        if sub.startswith('.') or sub.upper() == tid:
+            continue
+        sub_full = os.path.join(games_dir, sub)
+        if os.path.isdir(sub_full) and not os.path.islink(sub_full):
+            if pbc.folder_claimed_title_id(sub_full) == tid:
+                return sub_full
+
+    legacy = os.path.join(games_dir, tid)
+    if os.path.isdir(legacy):
+        return legacy
+    return ''
 
 
 def one_game_ipa_path(out_dir: str, build_key: str) -> str:
@@ -564,6 +740,20 @@ class LibraryGame:
         return self.has_app or self.has_ipa or self.has_ios_app or self.has_archive
 
     @property
+    def is_ready_for_ios(self) -> bool:
+        return self.has_ipa or self.has_ios_app or self.has_archive
+
+    @property
+    def primary_reveal_path(self) -> str:
+        if self.has_ipa:
+            return self.ipa_path
+        if self.has_archive:
+            return self.archive_path
+        if self.has_ios_app:
+            return self.ios_app_path
+        return ''
+
+    @property
     def has_inputs(self) -> bool:
         base = (self.inputs.get('base') or [''])[0]
         if not base or not os.path.exists(base):
@@ -691,24 +881,81 @@ class GameLibrary:
         self.selected_id = title_id.upper() if title_id else None
 
     def load(self) -> None:
-        if not self.file_path.is_file():
-            return
-        try:
-            raw = json.loads(self.file_path.read_text(encoding='utf-8'))
-            if isinstance(raw, list):
-                self.games = [LibraryGame.from_dict(x) for x in raw if isinstance(x, dict)]
-            elif isinstance(raw, dict):
-                self.games = [LibraryGame.from_dict(x) for x in raw.get('games', []) if isinstance(x, dict)]
-                self.games_folder = str(raw.get('gamesFolder') or raw.get('folder') or '')
-                self.selected_id = raw.get('selectedID')
-                self._extra_top = {
-                    k: v for k, v in raw.items()
-                    if k not in ('games', 'gamesFolder', 'selectedID')
-                }
-            if self.games and not self.selected_id:
-                self.selected_id = self.games[0].title_id
-        except Exception:
-            pass
+        if self.file_path.is_file():
+            try:
+                raw = json.loads(self.file_path.read_text(encoding='utf-8'))
+                if isinstance(raw, list):
+                    self.games = [LibraryGame.from_dict(x) for x in raw if isinstance(x, dict)]
+                elif isinstance(raw, dict):
+                    self.games = [LibraryGame.from_dict(x) for x in raw.get('games', []) if isinstance(x, dict)]
+                    self.games_folder = str(raw.get('gamesFolder') or raw.get('folder') or '')
+                    self.selected_id = raw.get('selectedID')
+                    self._extra_top = {
+                        k: v for k, v in raw.items()
+                        if k not in ('games', 'gamesFolder', 'selectedID')
+                    }
+            except Exception:
+                pass
+        self.sync_ios_shell_state()
+        if self.games and not self.selected_id:
+            self.selected_id = self.games[0].title_id
+
+    def sync_ios_shell_state(self, shell_root: str = '', *, persist: bool = False) -> bool:
+        """Reconcile iOS build/IPA/install status from `<shell_root>` even when `derived-data` is absent."""
+        root = shell_root or str(self.state_dir / 'shell')
+        shell_info = _shell_built_games_info(root)
+        if not shell_info:
+            return False
+        changed = False
+        seen_tids: set[str] = set()
+        for g in self.games:
+            tid = (g.title_id or '').strip().upper()
+            seen_tids.add(tid)
+            info = shell_info.get(tid)
+            if info is None:
+                continue
+            fw_path = str(info.get('framework_path') or '')
+            exp_ipa = str(info.get('exported_ipa_path') or '')
+            in_receipt = bool(info.get('installed'))
+            info_name = str(info.get('name') or '').strip()
+            if info_name and (not g.name or g.name.upper() == tid):
+                g.name = info_name
+                changed = True
+            if not g.has_ios_app and fw_path:
+                g.ios_app_path = fw_path
+                changed = True
+            if not g.has_ipa and exp_ipa:
+                g.ipa_path = exp_ipa
+                changed = True
+            if in_receipt and not g.installed_device:
+                g.installed_device = 'iPhone'
+                changed = True
+
+        for tid, info in shell_info.items():
+            if tid in seen_tids:
+                continue
+            fw_path = str(info.get('framework_path') or '')
+            exp_ipa = str(info.get('exported_ipa_path') or '')
+            in_receipt = bool(info.get('installed'))
+            info_name = str(info.get('name') or '').strip() or tid
+            arch_dir = find_game_archive_dir(self.games_folder, tid, info_name) if self.games_folder else ''
+            self.games.append(
+                LibraryGame(
+                    title_id=tid,
+                    name=info_name,
+                    ipa_path=exp_ipa,
+                    archive_path=arch_dir,
+                    ios_app_path=fw_path,
+                    installed_device='iPhone' if in_receipt else '',
+                )
+            )
+            changed = True
+
+        if self.games and not self.selected_id:
+            self.selected_id = self.games[0].title_id
+        if changed and persist:
+            self.save()
+        return changed
 
     def save(self) -> None:
         try:
@@ -834,7 +1081,7 @@ class GameLibrary:
 
         out = output_dir or os.path.dirname(base_path)
         ipa_candidate = os.path.join(out, f'{tid if title_id else name}.ipa')
-        archive_candidate = os.path.join(out, 'games', tid)
+        archive_candidate = find_game_archive_dir(out, tid, name)
         game = LibraryGame(
             title_id=tid,
             name=name,
@@ -859,6 +1106,7 @@ class GameLibrary:
         title_id: str | None = None,
         name: str = '',
         keys_path: str = '',
+        shell_root: str = '',
     ) -> LibraryGame | None:
         inputs_dict = dict(inputs or {})
         if keys_path and 'keys' not in inputs_dict:
@@ -871,9 +1119,13 @@ class GameLibrary:
         elif title_id:
             tid = title_id.strip()
         if not tid and archive_path:
-            bn = os.path.basename(archive_path.rstrip('/\\'))
-            if re.fullmatch(r'[0-9A-Fa-f]{16}', bn):
-                tid = bn.upper()
+            claimed = pbc.folder_claimed_title_id(archive_path)
+            if claimed and re.fullmatch(r'[0-9A-Fa-f]{16}', claimed):
+                tid = claimed.upper()
+            else:
+                bn = os.path.basename(archive_path.rstrip('/\\'))
+                if re.fullmatch(r'[0-9A-Fa-f]{16}', bn):
+                    tid = bn.upper()
         keys_hint = keys_path or (inputs_dict.get('keys') or [''])[0]
         if not tid and base_path:
             if GameFolder.is_candidate(base_path):
@@ -900,11 +1152,25 @@ class GameLibrary:
             else:
                 resolved_name = tid
 
+        resolved_ipa = ipa_path if (ipa_path and os.path.isfile(ipa_path)) else ''
+        resolved_ios_app = ''
+        resolved_installed = ''
+        s_root = shell_root or str(self.state_dir / 'shell')
+        shell_info = _shell_built_games_info(s_root).get(tid.upper())
+        if shell_info is not None:
+            resolved_ios_app = str(shell_info.get('framework_path') or '')
+            if not resolved_ipa:
+                resolved_ipa = str(shell_info.get('exported_ipa_path') or '')
+            if shell_info.get('installed'):
+                resolved_installed = 'iPhone'
+
         game = LibraryGame(
             title_id=tid,
             name=resolved_name,
-            ipa_path=ipa_path if (ipa_path and os.path.isfile(ipa_path)) else '',
+            ipa_path=resolved_ipa,
             archive_path=archive_path if (archive_path and os.path.isdir(archive_path)) else '',
+            ios_app_path=resolved_ios_app,
+            installed_device=resolved_installed,
             output_dir=output_dir,
             inputs=inputs_dict,
             last_built_at=time.time(),
@@ -914,7 +1180,7 @@ class GameLibrary:
         self.save()
         return g
 
-    def rescan_games_folder(self, repo_path: str = '', default_keys: str = '') -> int:
+    def rescan_games_folder(self, repo_path: str = '', default_keys: str = '', shell_root: str = '') -> int:
         folder = self.games_folder
         if not folder or not os.path.isdir(folder):
             self._apply_skipped_files([])
@@ -931,6 +1197,7 @@ class GameLibrary:
         for g in discovered:
             self.upsert(g)
             count += 1
+        self.sync_ios_shell_state(shell_root=shell_root)
         self.save()
         return count
 
@@ -1003,10 +1270,17 @@ class GameLibrary:
                         continue
                     if entry == 'games':
                         try:
-                            for sub in os.listdir(full):
+                            for sub in sorted(os.listdir(full)):
+                                if sub.startswith('.'):
+                                    continue
                                 sub_full = os.path.join(full, sub)
-                                if len(sub) == 16 and os.path.isdir(sub_full):
-                                    archives[sub.upper()] = sub_full
+                                if not os.path.isdir(sub_full) or os.path.islink(sub_full):
+                                    continue
+                                claimed = pbc.folder_claimed_title_id(sub_full)
+                                if claimed and len(claimed) == 16:
+                                    # Prefer named `<SafeName>` archive directories over legacy `<TID>` ones
+                                    if claimed not in archives or sub.upper() != claimed:
+                                        archives[claimed] = sub_full
                         except OSError:
                             pass
                         continue
@@ -1053,9 +1327,7 @@ class GameLibrary:
                     ipa = cand
             arch = archives.get(tid, '')
             if not arch:
-                cand_arch = os.path.join(base_dir, 'games', tid)
-                if os.path.isdir(cand_arch):
-                    arch = cand_arch
+                arch = find_game_archive_dir(base_dir, tid, gname)
             results.append(
                 LibraryGame(
                     title_id=tid,
@@ -1508,12 +1780,28 @@ class GameDeletionPlan:
     @staticmethod
     def plan(game: LibraryGame, measure: bool = True) -> GameDeletionPlan:
         items: list[GameDeletionItem] = []
+        tid_up = (game.title_id or '').strip().upper()
         if game.has_app:
             items.append(GameDeletionItem('macApp', [game.app_path]))
         if game.has_ipa and os.path.basename(game.ipa_path).lower() != 'nx2apple.ipa':
             items.append(GameDeletionItem('ipa', [game.ipa_path]))
-        if game.has_archive and os.path.basename(game.archive_path.rstrip('/\\')).upper() == game.title_id.upper():
-            items.append(GameDeletionItem('archive', [game.archive_path]))
+        if game.has_ios_app:
+            ios_bn = os.path.basename(game.ios_app_path.rstrip('/\\'))
+            if ios_bn.lower() == f'dmgame{tid_up.lower()}.framework':
+                items.append(GameDeletionItem('shellFramework', [game.ios_app_path]))
+            elif ios_bn.lower() != 'dmshell.app':
+                items.append(GameDeletionItem('iosApp', [game.ios_app_path]))
+        if game.has_archive:
+            arch_clean = game.archive_path.rstrip('/\\')
+            arch_bn = os.path.basename(arch_clean)
+            arch_parent_bn = os.path.basename(os.path.dirname(arch_clean))
+            claimed = pbc.folder_claimed_title_id(arch_clean)
+            if (
+                arch_bn.upper() == tid_up
+                or (claimed and claimed == tid_up)
+                or (arch_parent_bn == 'games' and not claimed and pbc.primary_romfs_image(arch_clean) is not None)
+            ):
+                items.append(GameDeletionItem('archive', [game.archive_path]))
 
         bf = BuildFolder.location(game)
         if bf:
@@ -1564,6 +1852,161 @@ class GameDeletionPlan:
 # DriveCopy (mirrors DriveCopy.swift)
 # ---------------------------------------------------------------------------
 
+_ROMFS_MAGIC = b'DMROMFS1'
+_ROMFS_HEAD = struct.Struct('<8sQQQ')
+_TRAILER_MAGIC = b'DMMSLTR1'
+_TRAILER_FOOT = struct.Struct('<8sIBBHQQQ24s')
+_TRAILER_SIZE = 64
+_TRAILER_PAGE = 16384
+_INT64_MAX = (1 << 63) - 1
+_UINT64_MAX = (1 << 64) - 1
+_ARCHIVE_SKIP_SUFFIXES = ('.id', '.formats', '.inputs.json', '.part', '.partial')
+
+
+def _is_ignored_archive_entry(rel_posix: str) -> bool:
+    parts = rel_posix.split('/')
+    if any(not seg or seg.startswith('.') for seg in parts):
+        return True
+    leaf_low = parts[-1].lower()
+    if leaf_low.endswith(_ARCHIVE_SKIP_SUFFIXES) or '.nxpart' in leaf_low:
+        return True
+    return False
+
+
+def _read_romfs_header_info(f, file_size: int) -> tuple[bytes, int, int, int] | None:
+    """Validate 32B `DMROMFS1` header on `f` and return `(raw32, ioff, isz, base_romfs_size)`."""
+    if file_size < _ROMFS_HEAD.size or file_size > _INT64_MAX:
+        return None
+    f.seek(0)
+    raw = f.read(_ROMFS_HEAD.size)
+    if len(raw) != _ROMFS_HEAD.size:
+        return None
+    magic, ioff, isz, _n = _ROMFS_HEAD.unpack(raw)
+    if magic != _ROMFS_MAGIC:
+        return None
+    if ioff < _ROMFS_HEAD.size or ioff > file_size:
+        return None
+    if isz == 0 or isz > file_size - ioff:
+        return None
+    return raw, ioff, isz, ioff + isz
+
+
+def _has_valid_msl_trailer_handle(f, file_size: int, base_romfs_size: int) -> bool:
+    """Verify the 64B `DMMSLTR1` footer at EOF with subtraction-guarded bounds."""
+    if file_size <= base_romfs_size or file_size - base_romfs_size < _TRAILER_SIZE:
+        return False
+    if base_romfs_size > _UINT64_MAX - (_TRAILER_PAGE - 1):
+        return False
+    expected_msl_off = (base_romfs_size + (_TRAILER_PAGE - 1)) & ~(_TRAILER_PAGE - 1)
+    footer_pos = file_size - _TRAILER_SIZE
+    f.seek(footer_pos)
+    foot = f.read(_TRAILER_SIZE)
+    if len(foot) != _TRAILER_SIZE:
+        return False
+    (
+        t_magic,
+        ver,
+        gfx_api,
+        _flags,
+        chain_len,
+        f_base,
+        msl_off,
+        msl_sz,
+        chain_raw,
+    ) = _TRAILER_FOOT.unpack(foot)
+    if t_magic != _TRAILER_MAGIC or ver != 1:
+        return False
+    if gfx_api not in (1, 2, 3) or chain_len > 24:
+        return False
+    if any(b == 0 or b >= 0x80 for b in chain_raw[:chain_len]):
+        return False
+    if any(b != 0 for b in chain_raw[chain_len:]):
+        return False
+    if f_base != base_romfs_size or msl_off != expected_msl_off or msl_sz < 32:
+        return False
+    if msl_off > footer_pos or msl_sz > footer_pos - msl_off:
+        return False
+    raw_end = msl_off + msl_sz
+    if raw_end > _UINT64_MAX - 7:
+        return False
+    return ((raw_end + 7) & ~7) == footer_pos
+
+
+def _streams_equal_range(
+    fa,
+    fb,
+    offset: int,
+    length: int,
+    chunk_size: int = 4 * 1024 * 1024,
+) -> bool:
+    if length <= 0:
+        return True
+    fa.seek(offset)
+    fb.seek(offset)
+    rem = length
+    while rem > 0:
+        step = min(chunk_size, rem)
+        ba = fa.read(step)
+        bb = fb.read(step)
+        if len(ba) != step or ba != bb:
+            return False
+        rem -= step
+    return True
+
+
+def _infer_transfer_game_name(archive_dir: str, title_id: str, shell_root: str = '') -> str:
+    tid = (title_id or '').strip().upper()
+    if archive_dir:
+        arch_clean = archive_dir.rstrip('/\\')
+        arch_bn = os.path.basename(arch_clean)
+        arch_parent = os.path.basename(os.path.dirname(arch_clean))
+        if (
+            arch_parent == 'games'
+            and arch_bn
+            and arch_bn.lower() != 'romfs'
+            and not re.fullmatch(r'[0-9A-Fa-f]{16}', arch_bn)
+        ):
+            # Strip a trailing ` (<TID>)` disambiguation suffix if present so target root computes fresh collision
+            suffix = f' ({tid})'
+            if tid and arch_bn.upper().endswith(suffix):
+                return arch_bn[:-len(suffix)].rstrip()
+            return arch_bn
+    if shell_root and tid:
+        info = _shell_built_games_info(shell_root).get(tid)
+        if info and info.get('name'):
+            return str(info['name'])
+    return ''
+
+
+@dataclass
+class DriveTransferPlan:
+    dest_dir: str
+    folder_name: str
+    files: dict[str, int]
+    origins: dict[str, str]
+    reusable: set[str]
+    partial_bases: dict[str, int]
+    existing_sizes: dict[str, int]
+    legacy_upgrade: tuple[str, str] | None = None
+
+    @property
+    def bytes_to_copy(self) -> int:
+        return DriveCopy.bytes_to_copy(
+            self.files,
+            reusable=self.reusable,
+            partial_bases=self.partial_bases,
+        )
+
+    @property
+    def net_space_needed(self) -> int:
+        return DriveCopy.net_space_needed(
+            self.files,
+            self.dest_dir,
+            reusable=self.reusable,
+            existing_sizes=self.existing_sizes,
+        )
+
+
 class DriveCopy:
     FAT32_LIMIT = 4_294_967_295
     _FAT32_FS_NAMES = frozenset({'fat32', 'vfat', 'msdos', 'fat', 'fat16', 'fat12'})
@@ -1573,14 +2016,18 @@ class DriveCopy:
         out: dict[str, int] = {}
         if not archive_dir or not os.path.isdir(archive_dir):
             return out
-        for root, _, files in os.walk(archive_dir):
+        for root, dirs, files in os.walk(archive_dir):
+            dirs[:] = [d for d in dirs if not d.startswith('.')]
             for f in files:
                 if f.startswith('.'):
                     continue
                 full = os.path.join(root, f)
                 rel = os.path.relpath(full, archive_dir).replace('\\', '/')
+                if _is_ignored_archive_entry(rel):
+                    continue
                 try:
-                    out[rel] = os.path.getsize(full)
+                    if os.path.isfile(full):
+                        out[rel] = os.path.getsize(full)
                 except OSError:
                     pass
         return out
@@ -1591,33 +2038,360 @@ class DriveCopy:
         shell_root: str = '',
         title_id: str = '',
         *,
-        include_external_msl: bool = True,
+        dest_folder_name: str = '',
+        include_external_msl: bool = False,
     ) -> tuple[dict[str, int], dict[str, str]]:
-        """Collect `(sizes, origins)` for `archive_dir`, merging externalized `msl/` from `shell_root`."""
+        """Collect `(sizes, origins)` for `archive_dir` without merging framework `msl/` trees.
+
+        When `dest_folder_name` is supplied, maps the archive's primary `.img` to
+        `<dest_folder_name>.img` in `sizes` and points `origins[<dest_folder_name>.img]` at the
+        local source image.
+        """
+        _ = (shell_root, title_id, include_external_msl)
         sizes = DriveCopy.collect_archive_files(archive_dir)
         origins: dict[str, str] = {}
-        tid = title_id.strip().upper()
-        if include_external_msl and shell_root and tid:
-            from .win import shell_export as se
-
-            if tid in se.externalized_titles(shell_root):
-                msl_dir = se.mirrored_framework(shell_root, tid) / 'msl'
-                if msl_dir.is_dir():
-                    for root_dir, _, fnames in os.walk(msl_dir):
-                        for fname in fnames:
-                            if fname.startswith('.'):
-                                continue
-                            full = os.path.join(root_dir, fname)
-                            sub_rel = os.path.relpath(full, msl_dir).replace('\\', '/')
-                            rel_key = f'msl/{sub_rel}'
-                            if rel_key in sizes:
-                                continue
-                            try:
-                                sizes[rel_key] = os.path.getsize(full)
-                                origins[rel_key] = full
-                            except OSError:
-                                pass
+        if dest_folder_name and archive_dir:
+            primary = pbc.primary_romfs_image(archive_dir)
+            if primary is not None:
+                orig_key = primary.name
+                want_key = f'{dest_folder_name}.img'
+                if orig_key in sizes:
+                    sz = sizes.pop(orig_key)
+                else:
+                    try:
+                        sz = os.path.getsize(primary)
+                    except OSError:
+                        sz = -1
+                if sz >= 0:
+                    sizes[want_key] = sz
+                    origins[want_key] = str(primary)
         return sizes, origins
+
+    @staticmethod
+    def destination_dir(dest_root: str, title_id: str, game_name: str = '') -> str:
+        tid = (title_id or '').strip().upper()
+        folder_name = pbc.archive_directory_name(game_name or tid, tid, dest_root)
+        return os.path.join(dest_root, folder_name)
+
+    @staticmethod
+    def _inspect_romfs_match(src_path: str, dst_path: str) -> tuple[str, int]:
+        """Compare `src_path` and `dst_path` `DMROMFS1` headers and `[ioff .. ioff+isz]` indices.
+
+        Returns:
+          - `('identical', base_romfs_size)` when base RomFS AND any trailer bytes match 100%,
+          - `('partial', base_romfs_size)` when base RomFS matches and `dst_size >= base_romfs_size`
+            so only the trailer region needs to be written/truncated,
+          - `('none', 0)` otherwise.
+        """
+        if not src_path or not dst_path:
+            return ('none', 0)
+        try:
+            if not (os.path.isfile(src_path) and os.path.isfile(dst_path)):
+                return ('none', 0)
+            if os.path.islink(dst_path):
+                return ('none', 0)
+            src_size = os.path.getsize(src_path)
+            dst_size = os.path.getsize(dst_path)
+            with open(src_path, 'rb') as f_src, open(dst_path, 'rb') as f_dst:
+                src_hdr = _read_romfs_header_info(f_src, src_size)
+                dst_hdr = _read_romfs_header_info(f_dst, dst_size)
+                if src_hdr is None or dst_hdr is None:
+                    return ('none', 0)
+                src_raw32, ioff, isz, base_size = src_hdr
+                dst_raw32, _d_ioff, _d_isz, dst_base_size = dst_hdr
+                if src_raw32[:16] != dst_raw32[:16] or src_raw32 != dst_raw32 or base_size != dst_base_size:
+                    return ('none', 0)
+                if dst_size < base_size:
+                    return ('none', 0)
+                if src_size > base_size and not _has_valid_msl_trailer_handle(f_src, src_size, base_size):
+                    return ('none', 0)
+                if not _streams_equal_range(f_src, f_dst, ioff, isz):
+                    return ('none', 0)
+                if src_size == dst_size:
+                    if src_size == base_size:
+                        return ('identical', base_size)
+                    if _streams_equal_range(f_src, f_dst, base_size, src_size - base_size):
+                        return ('identical', base_size)
+                return ('partial', base_size)
+        except OSError:
+            return ('none', 0)
+
+    @staticmethod
+    def _can_partial_trailer_overwrite(src_path: str, dst_path: str) -> int | None:
+        """Return `base_romfs_size` when `dst_path` shares the exact `DMROMFS1` header & index with `src_path`."""
+        kind, base_size = DriveCopy._inspect_romfs_match(src_path, dst_path)
+        if kind in ('partial', 'identical'):
+            return base_size
+        return None
+
+    @staticmethod
+    def _same_volume(path_a: str, path_b: str) -> bool:
+        probe_a = DriveCopy._existing_probe(path_a)
+        probe_b = DriveCopy._existing_probe(path_b)
+        try:
+            st_a = os.stat(probe_a)
+            st_b = os.stat(probe_b)
+            if st_a.st_dev and st_b.st_dev:
+                return st_a.st_dev == st_b.st_dev
+        except OSError:
+            pass
+        drv_a = os.path.splitdrive(os.path.abspath(probe_a))[0].upper()
+        drv_b = os.path.splitdrive(os.path.abspath(probe_b))[0].upper()
+        return drv_a == drv_b
+
+    @staticmethod
+    def plan_transfer(
+        archive_dir: str,
+        dest_root: str,
+        title_id: str,
+        *,
+        game_name: str = '',
+        shell_root: str = '',
+        origins: dict[str, str] | None = None,
+    ) -> DriveTransferPlan:
+        tid = (title_id or '').strip().upper()
+        effective_name = (game_name or '').strip() or _infer_transfer_game_name(archive_dir, tid, shell_root)
+        folder_name = pbc.archive_directory_name(effective_name or tid, tid, dest_root)
+        dest_dir = os.path.join(dest_root, folder_name)
+
+        raw_files, auto_origins = DriveCopy.collect_transfer_files(
+            archive_dir,
+            shell_root=shell_root,
+            title_id=tid,
+            dest_folder_name=folder_name,
+        )
+        origins_map = dict(auto_origins)
+        if origins:
+            origins_map.update(origins)
+        files = {
+            rel: sz
+            for rel, sz in raw_files.items()
+            if not rel.lower().endswith(('.part', '.partial'))
+        }
+
+        primary_key = f'{folder_name}.img'
+        legacy_upgrade: tuple[str, str] | None = None
+        if tid and primary_key in files:
+            dst_primary = os.path.join(dest_dir, primary_key)
+            if not os.path.isfile(dst_primary):
+                legacy_dir = os.path.join(dest_root, tid)
+                if os.path.isdir(legacy_dir) and DriveCopy._same_volume(legacy_dir, dest_root):
+                    leg_img_p = pbc.primary_romfs_image(legacy_dir)
+                    if leg_img_p is not None:
+                        src_primary = origins_map.get(primary_key) or os.path.join(archive_dir, primary_key)
+                        if DriveCopy._can_partial_trailer_overwrite(src_primary, str(leg_img_p)) is not None:
+                            legacy_upgrade = (legacy_dir, str(leg_img_p))
+
+        reusable: set[str] = set()
+        partial_bases: dict[str, int] = {}
+        existing_sizes: dict[str, int] = {}
+
+        for rel, sz in sorted(files.items()):
+            parts = rel.replace('\\', '/').split('/')
+            src_cand = origins_map.get(rel) or os.path.join(archive_dir, *parts)
+            dst_cand = os.path.join(dest_dir, *parts)
+            compare_dst = dst_cand
+            if not os.path.isfile(compare_dst) and legacy_upgrade is not None:
+                leg_dir, leg_img = legacy_upgrade
+                if rel == primary_key:
+                    compare_dst = leg_img
+                else:
+                    leg_sub = os.path.join(leg_dir, *parts)
+                    if os.path.isfile(leg_sub):
+                        compare_dst = leg_sub
+
+            if os.path.isfile(compare_dst) and not os.path.islink(compare_dst):
+                try:
+                    old_sz = os.path.getsize(compare_dst)
+                except OSError:
+                    old_sz = 0
+                existing_sizes[rel] = old_sz
+                if rel.lower().endswith('.img'):
+                    match_kind, base_sz = DriveCopy._inspect_romfs_match(src_cand, compare_dst)
+                    if match_kind == 'identical':
+                        reusable.add(rel)
+                        continue
+                    if match_kind == 'partial':
+                        partial_bases[rel] = base_sz
+                        continue
+                try:
+                    same = (
+                        old_sz == sz
+                        and abs(os.path.getmtime(src_cand) - os.path.getmtime(compare_dst)) < 0.001
+                    )
+                    if same and sz <= 1024 * 1024:
+                        same = Path(src_cand).read_bytes() == Path(compare_dst).read_bytes()
+                    if same:
+                        reusable.add(rel)
+                except OSError:
+                    pass
+
+        return DriveTransferPlan(
+            dest_dir=dest_dir,
+            folder_name=folder_name,
+            files=files,
+            origins=origins_map,
+            reusable=reusable,
+            partial_bases=partial_bases,
+            existing_sizes=existing_sizes,
+            legacy_upgrade=legacy_upgrade,
+        )
+
+    @staticmethod
+    def upgrade_legacy_folder_if_needed(plan: DriveTransferPlan, title_id: str) -> None:
+        """Perform same-volume instant rename of legacy `<folder>/<TitleID>/romfs.img` before trailer update."""
+        if plan.legacy_upgrade is None:
+            return
+        legacy_dir, legacy_img = plan.legacy_upgrade
+        dest_dir = plan.dest_dir
+        dest_img = os.path.join(dest_dir, f'{plan.folder_name}.img')
+        if os.path.exists(dest_img):
+            return
+        same_dir = os.path.normcase(os.path.abspath(legacy_dir)) == os.path.normcase(os.path.abspath(dest_dir))
+        try:
+            if not same_dir and not os.path.exists(dest_dir):
+                os.makedirs(os.path.dirname(dest_dir), exist_ok=True)
+                os.replace(legacy_dir, dest_dir)
+                moved_img = os.path.join(dest_dir, os.path.basename(legacy_img))
+                if os.path.isfile(moved_img) and not pbc._same_location(Path(moved_img), Path(dest_img)):
+                    os.replace(moved_img, dest_img)
+            else:
+                os.makedirs(dest_dir, exist_ok=True)
+                if os.path.isfile(legacy_img) and not pbc._same_location(Path(legacy_img), Path(dest_img)):
+                    os.replace(legacy_img, dest_img)
+                if not same_dir and os.path.isdir(legacy_dir):
+                    leg_aoc = os.path.join(legacy_dir, 'aoc')
+                    dst_aoc = os.path.join(dest_dir, 'aoc')
+                    if os.path.isdir(leg_aoc) and not os.path.exists(dst_aoc):
+                        os.replace(leg_aoc, dst_aoc)
+                    try:
+                        rem = [x for x in os.listdir(legacy_dir) if not x.startswith('.')]
+                        if not rem:
+                            shutil.rmtree(legacy_dir, ignore_errors=True)
+                    except OSError:
+                        pass
+            if title_id:
+                pbc.write_title_id_marker(dest_dir, title_id)
+        except OSError:
+            # If cross-mount or locked, fall back cleanly to full `.part` staging copy
+            plan.partial_bases.pop(f'{plan.folder_name}.img', None)
+            plan.reusable.discard(f'{plan.folder_name}.img')
+
+    @staticmethod
+    def partial_overwrite_trailer(
+        src_path: str,
+        dst_path: str,
+        base_romfs_size: int,
+        *,
+        chunk_size: int = 4 * 1024 * 1024,
+        on_chunk: Callable[[int], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[bool, bool]:
+        """Update only `[base_romfs_size .. new_size]` in place on `dst_path`.
+
+        Writes `[base_romfs_size .. new_size - 64]` + `flush/fsync`, then writes the final 64B
+        `DMMSLTR1` footer + `ftruncate` if smaller + `flush/fsync`. If cancelled, truncated, or
+        interrupted before the new footer commits, restores `dst_path` to `base_romfs_size` via
+        `truncate` + `flush/fsync` so the base RomFS image is never left with a broken tail.
+        """
+        src_size = os.path.getsize(src_path)
+        old_dst_size = os.path.getsize(dst_path)
+        if src_size < base_romfs_size:
+            return False, False
+        if src_size > base_romfs_size and (src_size - base_romfs_size) < _TRAILER_SIZE:
+            return False, False
+
+        if src_size > base_romfs_size:
+            with open(src_path, 'rb') as fin_chk:
+                fin_chk.seek(src_size - _TRAILER_SIZE)
+                pre_footer = fin_chk.read(_TRAILER_SIZE)
+            if len(pre_footer) != _TRAILER_SIZE or pre_footer[:8] != _TRAILER_MAGIC:
+                return False, False
+
+        pbc.ensure_unshared_file(dst_path)
+        try:
+            if not os.access(dst_path, os.W_OK):
+                os.chmod(dst_path, 0o666)
+        except OSError:
+            pass
+
+        if src_size == base_romfs_size:
+            if cancel_event is not None and cancel_event.is_set():
+                return False, True
+            if old_dst_size > base_romfs_size:
+                with open(dst_path, 'r+b') as fout:
+                    fout.truncate(base_romfs_size)
+                    fout.flush()
+                    os.fsync(fout.fileno())
+            return True, False
+
+        payload_end = src_size - _TRAILER_SIZE
+        with open(src_path, 'rb') as fin, open(dst_path, 'r+b') as fout:
+            committed = False
+
+            def _restore_base_image() -> None:
+                try:
+                    fout.seek(base_romfs_size)
+                    fout.truncate(base_romfs_size)
+                    fout.flush()
+                    os.fsync(fout.fileno())
+                except OSError:
+                    pass
+
+            try:
+                # Invalidate any prior footer first so a mid-write abort cannot leave a stale matching footer
+                if old_dst_size >= base_romfs_size + _TRAILER_SIZE:
+                    fout.seek(old_dst_size - _TRAILER_SIZE)
+                    if fout.read(8) == _TRAILER_MAGIC:
+                        fout.seek(old_dst_size - _TRAILER_SIZE)
+                        fout.write(b'\x00' * 8)
+                        fout.flush()
+
+                fin.seek(base_romfs_size)
+                fout.seek(base_romfs_size)
+                pos = base_romfs_size
+                while pos < payload_end:
+                    if cancel_event is not None and cancel_event.is_set():
+                        return False, True
+                    step = min(chunk_size, payload_end - pos)
+                    buf = fin.read(step)
+                    if not buf:
+                        return False, False
+                    fout.write(buf)
+                    pos += len(buf)
+                    if on_chunk is not None:
+                        on_chunk(len(buf))
+
+                fout.flush()
+                os.fsync(fout.fileno())
+
+                if cancel_event is not None and cancel_event.is_set():
+                    return False, True
+
+                fin.seek(payload_end)
+                footer = fin.read(_TRAILER_SIZE)
+                if len(footer) != _TRAILER_SIZE or footer[:8] != _TRAILER_MAGIC:
+                    return False, False
+
+                fout.seek(payload_end)
+                fout.write(footer)
+                if old_dst_size > src_size:
+                    fout.truncate(src_size)
+                fout.flush()
+                os.fsync(fout.fileno())
+                committed = True
+            finally:
+                if not committed:
+                    _restore_base_image()
+
+            if on_chunk is not None:
+                on_chunk(_TRAILER_SIZE)
+
+        try:
+            shutil.copystat(src_path, dst_path)
+        except OSError:
+            pass
+        return True, False
 
     @staticmethod
     def _existing_probe(folder: str) -> str:
@@ -1716,25 +2490,48 @@ class DriveCopy:
         return DriveCopy.filesystem_type(folder).lower() in DriveCopy._FAT32_FS_NAMES
 
     @staticmethod
+    def bytes_to_copy(
+        files: dict[str, int],
+        *,
+        reusable: set[str] | None = None,
+        partial_bases: dict[str, int] | None = None,
+    ) -> int:
+        skip = reusable or set()
+        bases = partial_bases or {}
+        total = 0
+        for rel, sz in files.items():
+            if rel in skip:
+                continue
+            if rel in bases:
+                total += max(0, sz - bases[rel])
+            else:
+                total += sz
+        return total
+
+    @staticmethod
     def net_space_needed(
         files: dict[str, int],
         dest_dir: str,
         *,
         reusable: set[str] | None = None,
+        existing_sizes: dict[str, int] | None = None,
     ) -> int:
         skip = reusable or set()
         needed = 0
         for rel, sz in files.items():
             if rel in skip:
                 continue
-            parts = rel.replace('\\', '/').split('/')
-            dst = os.path.join(dest_dir, *parts)
-            old_sz = 0
-            try:
-                if os.path.isfile(dst) and not os.path.islink(dst):
-                    old_sz = os.path.getsize(dst)
-            except OSError:
+            if existing_sizes is not None and rel in existing_sizes:
+                old_sz = existing_sizes[rel]
+            else:
+                parts = rel.replace('\\', '/').split('/')
+                dst = os.path.join(dest_dir, *parts)
                 old_sz = 0
+                try:
+                    if os.path.isfile(dst) and not os.path.islink(dst):
+                        old_sz = os.path.getsize(dst)
+                except OSError:
+                    old_sz = 0
             if sz > old_sz:
                 needed += sz - old_sz
         return needed
@@ -1745,7 +2542,10 @@ class DriveCopy:
         dest_root: str,
         title_id: str,
         *,
+        game_name: str = '',
+        dest_dir: str = '',
         reusable: set[str] | None = None,
+        existing_sizes: dict[str, int] | None = None,
         t_func: Callable[..., str] | None = None,
     ) -> str | None:
         skip = reusable or set()
@@ -1755,8 +2555,13 @@ class DriveCopy:
                 return t_func('shell.driveFat32')
             return 'This drive is FAT32 and cannot hold files over 4 GB. Format it as exFAT or APFS, or choose another drive.'
 
-        dest_dir = os.path.join(dest_root, title_id.upper())
-        needed = DriveCopy.net_space_needed(files, dest_dir, reusable=skip)
+        target_dir = dest_dir or DriveCopy.destination_dir(dest_root, title_id, game_name)
+        needed = DriveCopy.net_space_needed(
+            files,
+            target_dir,
+            reusable=skip,
+            existing_sizes=existing_sizes,
+        )
         free = DriveCopy.free_space(dest_root)
         if free > 0 and needed > free:
             if t_func is not None:
@@ -1771,47 +2576,65 @@ class DriveCopy:
         title_id: str,
         progress_cb: Callable[[int, int], None] | None = None,
         *,
+        game_name: str = '',
         shell_root: str = '',
     ) -> tuple[bool, str]:
-        files, origins = DriveCopy.collect_transfer_files(
+        plan = DriveCopy.plan_transfer(
             archive_dir,
+            dest_root,
+            title_id,
+            game_name=game_name,
             shell_root=shell_root,
-            title_id=title_id,
-            include_external_msl=bool(shell_root),
         )
-        if not files:
+        if not plan.files:
             return False, 'No game data files found'
-        dest_dir = os.path.join(dest_root, title_id.upper())
-        total = sum(files.values())
-        reusable: set[str] = set()
-        for rel, sz in sorted(files.items()):
-            src = origins.get(rel) or os.path.join(archive_dir, rel)
-            dst = os.path.join(dest_dir, rel)
-            if os.path.isfile(dst):
-                try:
-                    same = os.path.getsize(dst) == sz and abs(os.path.getmtime(src) - os.path.getmtime(dst)) < 0.001
-                    if same and sz <= 1024 * 1024:
-                        same = Path(src).read_bytes() == Path(dst).read_bytes()
-                    if same:
-                        reusable.add(rel)
-                except OSError:
-                    pass
-        err = DriveCopy.preflight_copy(files, dest_root, title_id, reusable=reusable)
+        err = DriveCopy.preflight_copy(
+            plan.files,
+            dest_root,
+            title_id,
+            game_name=game_name,
+            dest_dir=plan.dest_dir,
+            reusable=plan.reusable,
+            existing_sizes=plan.existing_sizes,
+        )
         if err is not None:
             return False, err
+
+        DriveCopy.upgrade_legacy_folder_if_needed(plan, title_id)
+        dest_dir = plan.dest_dir
+        total = plan.bytes_to_copy
         done = 0
         if progress_cb:
             progress_cb(0, total)
         partial = ''
         try:
-            for rel, sz in sorted(files.items()):
-                src = origins.get(rel) or os.path.join(archive_dir, rel)
-                dst = os.path.join(dest_dir, rel)
-                if rel in reusable:
-                    done += sz
-                    if progress_cb:
-                        progress_cb(done, total)
+            os.makedirs(dest_dir, exist_ok=True)
+            if title_id:
+                pbc.write_title_id_marker(dest_dir, title_id)
+            for rel, sz in sorted(plan.files.items()):
+                parts = rel.replace('\\', '/').split('/')
+                src = plan.origins.get(rel) or os.path.join(archive_dir, *parts)
+                dst = os.path.join(dest_dir, *parts)
+                if rel in plan.reusable:
                     continue
+                if rel in plan.partial_bases and os.path.isfile(dst):
+                    base_sz = plan.partial_bases[rel]
+
+                    def _advance(n_bytes: int) -> None:
+                        nonlocal done
+                        done += n_bytes
+                        if progress_cb:
+                            progress_cb(done, total)
+
+                    ok_part, _canc = DriveCopy.partial_overwrite_trailer(
+                        src,
+                        dst,
+                        base_sz,
+                        on_chunk=_advance,
+                    )
+                    if ok_part:
+                        continue
+
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 partial = dst + '.partial'
                 with open(src, 'rb') as fin, open(partial, 'wb') as fout:
@@ -1823,6 +2646,11 @@ class DriveCopy:
                         done += len(buf)
                         if progress_cb:
                             progress_cb(done, total)
+                    fout.flush()
+                    try:
+                        os.fsync(fout.fileno())
+                    except OSError:
+                        pass
                 if os.path.exists(dst):
                     os.remove(dst)
                 os.replace(partial, dst)
@@ -1831,6 +2659,8 @@ class DriveCopy:
                     shutil.copystat(src, dst)
                 except OSError:
                     pass
+            if progress_cb:
+                progress_cb(total, total)
             return True, dest_dir
         except OSError as e:
             if partial and os.path.exists(partial):
@@ -1846,6 +2676,7 @@ class DriveCopy:
         dest_root: str,
         *,
         shell_root: str = '',
+        game_names: dict[str, str] | None = None,
         t_func: Callable[..., str] | None = None,
     ) -> tuple[int, str | None]:
         """Validate combined free space and FAT32 single-file limit across `(title_id, archive_dir)` items.
@@ -1857,42 +2688,25 @@ class DriveCopy:
         is_fat32 = DriveCopy.is_fat32_filesystem(dest_root)
         total_needed = 0
         any_files = False
+        names_map = game_names or {}
         for tid, arch_dir in items:
-            raw_files, origins = DriveCopy.collect_transfer_files(
+            tid_clean = tid.strip().upper()
+            gname = names_map.get(tid_clean, '')
+            plan = DriveCopy.plan_transfer(
                 arch_dir,
+                dest_root,
+                tid_clean,
+                game_name=gname,
                 shell_root=shell_root,
-                title_id=tid,
-                include_external_msl=bool(shell_root),
             )
-            files = {
-                rel: sz
-                for rel, sz in raw_files.items()
-                if not rel.lower().endswith(('.part', '.partial'))
-            }
-            if not files:
+            if not plan.files:
                 continue
             any_files = True
-            tid_clean = tid.strip().upper()
-            dest_dir = os.path.join(dest_root, tid_clean)
-            reusable: set[str] = set()
-            for rel, sz in files.items():
-                parts = rel.replace('\\', '/').split('/')
-                src_cand = origins.get(rel) or os.path.join(arch_dir, *parts)
-                dst_cand = os.path.join(dest_dir, *parts)
-                if os.path.isfile(dst_cand):
-                    try:
-                        same = (
-                            os.path.getsize(dst_cand) == sz
-                            and abs(os.path.getmtime(src_cand) - os.path.getmtime(dst_cand)) < 0.001
-                        )
-                        if same and sz <= 1024 * 1024:
-                            same = Path(src_cand).read_bytes() == Path(dst_cand).read_bytes()
-                        if same:
-                            reusable.add(rel)
-                    except OSError:
-                        pass
             if is_fat32:
-                over_fat32 = [rel for rel, sz in files.items() if rel not in reusable and sz > DriveCopy.FAT32_LIMIT]
+                over_fat32 = [
+                    rel for rel, sz in plan.files.items()
+                    if rel not in plan.reusable and sz > DriveCopy.FAT32_LIMIT
+                ]
                 if over_fat32:
                     if t_func is not None:
                         return total_needed, t_func('shell.driveFat32')
@@ -1900,7 +2714,7 @@ class DriveCopy:
                         total_needed,
                         'This drive is FAT32 and cannot hold files over 4 GB. Format it as exFAT or APFS, or choose another drive.',
                     )
-            total_needed += DriveCopy.net_space_needed(files, dest_dir, reusable=reusable)
+            total_needed += plan.net_space_needed
 
         if not any_files:
             return 0, 'No game data files found'

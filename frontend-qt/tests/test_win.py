@@ -3889,8 +3889,12 @@ class WindowsBuildFixesTest(unittest.TestCase):
             def __init__(self, *_a, **_kw) -> None:
                 self._d: dict[str, object] = {}
 
-            def value(self, k: str, default: object = '') -> object:
-                return self._d.get(k, default)
+            def value(self, k: str, default: object = '', *, defaultValue: object = None, type: object = None) -> object:
+                fallback = defaultValue if defaultValue is not None else default
+                val = self._d.get(k, fallback)
+                if type is str and val is not None:
+                    return str(val)
+                return val
 
             def setValue(self, k: str, v: object) -> None:
                 self._d[k] = v
@@ -4035,10 +4039,10 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 m.base_path = str(root / f'Game [{tid}][v0].nsp')
                 self.assertEqual(m.pack_archive(title_id=tid), (True, ''))
 
-                dest = out / 'games' / tid
+                dest = out / 'games' / 'Super Mario Bros. Wonder'
                 self.assertEqual(Path(m.archive_path), dest)
-                self.assertEqual((dest / 'romfs.img').read_bytes(), img_new)
-                self.assertEqual((dest / 'romfs.img.id').read_bytes(), id_bytes)
+                self.assertEqual((dest / 'Super Mario Bros. Wonder.img').read_bytes(), img_new)
+                self.assertEqual((dest / 'Super Mario Bros. Wonder.img.id').read_bytes(), id_bytes)
                 self.assertFalse((v0 / 'RomFS.img').exists())
                 self.assertFalse((v65536 / 'RomFS.img').exists())
                 self.assertFalse((v131072 / 'RomFS.img').exists())
@@ -4052,10 +4056,10 @@ class WindowsBuildFixesTest(unittest.TestCase):
                 )
                 self.assertEqual(lang_row['note'], '')
 
-                # When the extracted image has no .id file on a subsequent archive, any stale romfs.img.id is removed
+                # When the extracted image has no .id file on a subsequent archive, any stale .img.id is removed
                 (v131072 / 'RomFS.img').write_bytes(img_new)
                 self.assertEqual(m.pack_archive(title_id=tid), (True, ''))
-                self.assertFalse((dest / 'romfs.img.id').exists())
+                self.assertFalse((dest / 'Super Mario Bros. Wonder.img.id').exists())
 
     def test_romfs_languages_handles_mals_corrupted_headers_and_cache_invalidation(self) -> None:
         import struct
@@ -7260,10 +7264,17 @@ class RomfsTrailerAndManifestArgsTests(unittest.TestCase):
             built_val = captured_manifest_cmd[captured_manifest_cmd.index('--built-at') + 1]
             self.assertEqual(built_val, '2026-11-13T18:16:06Z')
             self.assertRegex(built_val, r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
-            # PR 1 keeps existing msl packing intact inside DmGame<ID>.framework/msl
-            self.assertTrue(
-                (fw_out / 'DmGame0100000000010000.framework' / 'msl' / 'vk' / 'vk_shaders.metallib').is_file()
+            # PR 2 strips msl/ from DmGame<ID>.framework and emits .msl-cache/<ID>.json metadata instead
+            self.assertFalse(
+                (fw_out / 'DmGame0100000000010000.framework' / 'msl').exists()
             )
+            msl_cache_file = fw_out / '.msl-cache' / '0100000000010000.json'
+            self.assertTrue(msl_cache_file.is_file(), 'missing .msl-cache/0100000000010000.json')
+            msl_cache = json.loads(msl_cache_file.read_text(encoding='utf-8'))
+            self.assertEqual(msl_cache.get('schema'), 1)
+            self.assertEqual(msl_cache.get('gfx_api'), 'vulkan')
+            self.assertEqual(Path(msl_cache.get('msl_root', '')), w / 'build' / 'ios' / 'dmsh_b')
+            self.assertEqual(Path(msl_cache.get('lib_path', '')), w / 'build' / 'ios' / 'dmsh_b' / 'vk')
 
 
 if __name__ == '__main__':

@@ -17,8 +17,6 @@ extension ShellInstall {
     package static func exportAppPath(root: String) -> String { exportDerivedData(root: root) + "/Build/Products/Release-iphoneos/" + appName }
     /// The folder the app is copied into as `Payload/<app>.app` before it is zipped.
     package static func exportStage(root: String) -> String { exportFolder(root: root) + "/stage" }
-    /// Records the title IDs whose large `msl/` trees were stripped from the last exported `NX2Apple.ipa` (#947).
-    package static func externalMSLLedger(root: String) -> String { exportFolder(root: root) + "/external-msl.json" }
 
     /// The shell project (prepared by the install's own script call) built for iOS with signing off, as build_shell.sh --build does.
     /// `bundleID` is the one shell.json holds, so the IPA keeps the identifier of the install.
@@ -207,29 +205,29 @@ extension ShellInstaller {
 
     /// Stage and zip Payload/<app>.app. Signing can add _CodeSignature/ and CodeResources, so reserve two ZIP32 entries.
     func packExport(app: URL, library: ShellLibrary, notes: [String] = [], entryLimit: Int = ShellExport.entryLimit,
-                    hardLimit: Int = ShellExport.entryLimit,
-                    externalMSLThreshold: Int64 = ShellExport.externalMSLThreshold) -> Outcome {
+                    hardLimit: Int = ShellExport.entryLimit) -> Outcome {
         let fm = FileManager.default
         let packName = t("shell.exportPackStage")
         begin(Self.exportPackStageID, packName)
         let stage = ShellInstall.exportStage(root: root), ipa = ShellInstall.ipaPath(root: root)
         let stagedApp = URL(fileURLWithPath: stage + "/Payload/" + ShellInstall.appName)
-        let externalizedTitles: Set<String>
         do {
             try? fm.removeItem(atPath: stage)
             try? fm.removeItem(atPath: ipa)
             try fm.createDirectory(atPath: stage + "/Payload", withIntermediateDirectories: true)
             try fm.copyItem(at: app, to: stagedApp)
-            let names = library.games.map { URL(fileURLWithPath: $0.framework).lastPathComponent }
-            externalizedTitles = try ShellExport.externalizeLargeShaderLibraries(
-                in: stagedApp,
-                frameworkNames: names,
-                threshold: externalMSLThreshold,
-                fm: fm
-            )
             let payload = stagedApp.deletingLastPathComponent()
             if try ShellExport.exceedsEntryLimit(in: payload, limit: entryLimit) {
-                try packShaderLibraries(in: stagedApp, games: library.games, label: packName)
+                let frameworks = library.games.map { URL(fileURLWithPath: $0.framework).lastPathComponent }
+                try ShellExport.packShaderLibraries(
+                    in: stagedApp,
+                    frameworkNames: frameworks,
+                    runArchive: { cmd in
+                        let r = run(cmd, env: nil, label: packName, step: { _ in nil })
+                        return (r.status, r.output, r.lastError)
+                    },
+                    exitCodeMessage: { code in fmt("msg.exitCode", code) }
+                )
                 if try ShellExport.exceedsEntryLimit(in: payload, limit: hardLimit) {
                     throw ShellExport.entryLimitExceededError(limit: hardLimit)
                 }
@@ -239,7 +237,7 @@ extension ShellInstaller {
             end(Self.exportPackStageID, packName, ok: false, detail: error.localizedDescription)
             return Outcome(ok: false, message: fmt("shell.exportFailed", error.localizedDescription))
         }
-        // Signing the executable also seals its bundle resources. Sign the staged app after packing the shaders.
+        // Signing the executable also seals its bundle resources. Sign the staged app before zipping.
         // Failure only costs the Increased Memory Limit request, so it does not stop the export.
         let entitlements = ShellInstall.entitlementsPath(root: root)
         if fm.fileExists(atPath: entitlements) {
@@ -257,26 +255,11 @@ extension ShellInstaller {
             end(Self.exportPackStageID, packName, ok: false, detail: why)
             return Outcome(ok: false, message: fmt("shell.exportFailed", why))
         }
-        ShellExport.saveExternalizedTitles(externalizedTitles, root: root, fm: fm)
+        try? fm.removeItem(atPath: ShellInstall.exportFolder(root: root) + "/external-msl.json")
         end(Self.exportPackStageID, packName, ok: true)
         var outcome = Outcome(ok: true, message: ([fmt("shell.exportDone", ipa)] + notes).joined(separator: "\n"), bundleID: library.bundleID)
         outcome.ipaPath = ipa
         return outcome
-    }
-
-    /// Keep a large IPA within the sideloader's 16-bit entry count. Only the games in the shell library
-    /// know how to unpack an archive. Leave other frameworks' resources in their original layout.
-    private func packShaderLibraries(in stagedApp: URL, games: [ShellLibrary.Game], label: String) throws {
-        let names = games.map { URL(fileURLWithPath: $0.framework).lastPathComponent }
-        try ShellExport.packShaderLibraries(
-            in: stagedApp,
-            frameworkNames: names,
-            runArchive: { command in
-                let result = run(command, env: nil, label: label, step: { _ in nil })
-                return (result.status, result.output, result.lastError)
-            },
-            exitCodeMessage: { fmt("msg.exitCode", $0) }
-        )
     }
 
     /// The game data into the shared app that is installed already and signed by another tool (LNPANDY/NX2Apple#416). The app is found
@@ -312,8 +295,7 @@ extension ShellInstaller {
             chosen = first.bundle; name = first.name
         }
         var outcome = copyGameData(titleID: titleID, archive: archive, app: "", bundleID: chosen!,
-                                   outcome: Outcome(ok: true, message: "", bundleID: chosen!),
-                                   includeExternalMSL: true)
+                                   outcome: Outcome(ok: true, message: "", bundleID: chosen!))
         outcome.appName = name
         if outcome.ok, !outcome.copySkipped {
             outcome.message = t("shell.sendDone")
@@ -332,88 +314,6 @@ extension ShellInstaller {
 package enum ShellExport {
     /// Signing can add `_CodeSignature/` and `CodeResources`, so reserve two entries below the 16-bit ZIP32 ceiling.
     package static let entryLimit = Int(UInt16.max) - 2
-    /// Frameworks whose `msl/` exceeds 64 MiB keep their shaders outside the unsigned shared IPA so multi-game IPAs stay well
-    /// below SideStore / AltStore's 4 GB ceiling (#947); the shaders travel with the game data instead.
-    package static let externalMSLThreshold: Int64 = 64 * 1024 * 1024
-    package static let externalMSLMarker = "external-msl.json"
-
-    package static func directoryStats(at url: URL, fm: FileManager = .default) -> (files: Int, bytes: Int64) {
-        var isDir: ObjCBool = false
-        guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue,
-              let walk = fm.enumerator(atPath: url.path) else { return (0, 0) }
-        var files = 0
-        var bytes: Int64 = 0
-        for case let rel as String in walk {
-            if rel.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { continue }
-            let full = url.appendingPathComponent(rel).path
-            var subDir: ObjCBool = false
-            guard fm.fileExists(atPath: full, isDirectory: &subDir), !subDir.boolValue,
-                  let sz = ((try? fm.attributesOfItem(atPath: full))?[.size] as? NSNumber)?.int64Value, sz >= 0 else { continue }
-            files += 1
-            let (sum, overflow) = bytes.addingReportingOverflow(sz)
-            bytes = overflow ? Int64.max : sum
-        }
-        return (files, bytes)
-    }
-
-    /// Strips `msl/` directories larger than `threshold` from `stagedApp/Frameworks/<name>` and leaves `external-msl.json`
-    /// in their place so `ShellHost` requires external shader data before launching. The original `<shellRoot>/frameworks`
-    /// mirrors remain untouched on disk. Returns the uppercased title IDs whose shaders were externalized.
-    package static func externalizeLargeShaderLibraries(
-        in stagedApp: URL,
-        frameworkNames: [String],
-        threshold: Int64 = externalMSLThreshold,
-        fm: FileManager = .default
-    ) throws -> Set<String> {
-        guard threshold >= 0 else { return [] }
-        let frameworks = stagedApp.appendingPathComponent("Frameworks", isDirectory: true)
-        var seen = Set<String>()
-        var externalized = Set<String>()
-        for name in frameworkNames where seen.insert(name).inserted {
-            let framework = frameworks.appendingPathComponent(name, isDirectory: true)
-            let marker = framework.appendingPathComponent(externalMSLMarker)
-            let shaders = framework.appendingPathComponent("msl", isDirectory: true)
-            let stats = directoryStats(at: shaders, fm: fm)
-            let tid = ShellInstall.titleID(ofFramework: name).uppercased()
-            guard stats.files > 0, stats.bytes > threshold, !tid.isEmpty else {
-                try? fm.removeItem(at: marker)
-                continue
-            }
-            for item in (try? fm.contentsOfDirectory(at: framework, includingPropertiesForKeys: nil)) ?? [] where item.pathExtension == "aar" {
-                let stem = item.deletingPathExtension().lastPathComponent
-                if stem.hasPrefix("msl-"), UUID(uuidString: String(stem.dropFirst(4))) != nil {
-                    try? fm.removeItem(at: item)
-                }
-            }
-            try fm.removeItem(at: shaders)
-            let payload: [String: Any] = ["schema": 1, "files": stats.files, "bytes": stats.bytes]
-            let data = try JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys])
-            try data.write(to: marker, options: .atomic)
-            externalized.insert(tid)
-        }
-        return externalized
-    }
-
-    package static func saveExternalizedTitles(_ titles: Set<String>, root: String, fm: FileManager = .default) {
-        let ledger = URL(fileURLWithPath: ShellInstall.externalMSLLedger(root: root))
-        if titles.isEmpty {
-            try? fm.removeItem(at: ledger)
-            return
-        }
-        try? fm.createDirectory(at: ledger.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let payload: [String: Any] = ["schema": 1, "titles": titles.map { $0.uppercased() }.sorted()]
-        if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) {
-            try? data.write(to: ledger, options: .atomic)
-        }
-    }
-
-    package static func externalizedTitles(root: String, fm: FileManager = .default) -> Set<String> {
-        guard !root.isEmpty,
-              let data = fm.contents(atPath: ShellInstall.externalMSLLedger(root: root)),
-              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let list = obj["titles"] as? [String] else { return [] }
-        return Set(list.map { $0.uppercased() })
-    }
 
     package static func exceedsEntryLimit(in payload: URL, limit: Int = entryLimit) throws -> Bool {
         var failure: Error?
@@ -435,7 +335,7 @@ package enum ShellExport {
         ])
     }
 
-    /// Names the embedded `DmGame<titleID>.framework` bundles whose `msl/` trees `ShellHost` knows how to unpack from `.aar`.
+    /// Names the embedded `DmGame<titleID>.framework` bundles inside `stagedApp`.
     package static func gameFrameworkNames(forApp appPath: String, stagedApp: URL, fm: FileManager = .default) -> [String] {
         var seen = Set<String>()
         var names: [String] = []
@@ -457,7 +357,8 @@ package enum ShellExport {
         return names
     }
 
-    /// Packs loose `msl/` directories inside the named game frameworks into `msl-<UUID>.aar` archives so the IPA stays within ZIP32 limits.
+    /// Packs legacy loose `<framework>/msl/` trees into `msl-<UUID>.aar` when an already-built app exceeds the ZIP32 entry limit.
+    /// Stripped frameworks without `msl/` are skipped at zero cost.
     package static func packShaderLibraries(
         in stagedApp: URL,
         frameworkNames: [String],
@@ -465,26 +366,31 @@ package enum ShellExport {
         exitCodeMessage: (Int32) -> String
     ) throws {
         let fm = FileManager.default
-        let frameworks = stagedApp.appendingPathComponent("Frameworks")
-        var packed = Set<String>()
-        for name in frameworkNames where packed.insert(name).inserted {
-            let framework = frameworks.appendingPathComponent(name)
-            let shaders = framework.appendingPathComponent("msl")
-            var directory: ObjCBool = false
-            guard fm.fileExists(atPath: shaders.path, isDirectory: &directory), directory.boolValue else { continue }
-            for old in try fm.contentsOfDirectory(at: framework, includingPropertiesForKeys: nil) where old.pathExtension == "aar" {
+        let frameworksDir = stagedApp.appendingPathComponent("Frameworks")
+        var packedSet = Set<String>()
+        for frameworkName in frameworkNames where packedSet.insert(frameworkName).inserted {
+            let fwURL = frameworksDir.appendingPathComponent(frameworkName)
+            let mslURL = fwURL.appendingPathComponent("msl")
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: mslURL.path, isDirectory: &isDir), isDir.boolValue else { continue }
+            for old in (try? fm.contentsOfDirectory(at: fwURL, includingPropertiesForKeys: nil)) ?? []
+                where old.pathExtension == "aar" {
                 let stem = old.deletingPathExtension().lastPathComponent
                 if stem.hasPrefix("msl-"), UUID(uuidString: String(stem.dropFirst(4))) != nil {
                     try fm.removeItem(at: old)
                 }
             }
-            let archive = framework.appendingPathComponent("msl-\(UUID().uuidString).aar")
-            let result = runArchive(["/usr/bin/aa", "archive", "-d", shaders.path, "-o", archive.path, "-a", "lzfse"])
-            guard result.status == 0, fm.fileExists(atPath: archive.path) else {
-                let reason = result.lastError ?? ShellInstall.scriptFailure(result.output) ?? exitCodeMessage(result.status)
-                throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: reason])
+            let archiveURL = fwURL.appendingPathComponent("msl-\(UUID().uuidString.lowercased()).aar")
+            let packed = runArchive(["/usr/bin/aa", "archive", "-d", mslURL.path, "-o", archiveURL.path, "-a", "lzfse"])
+            guard packed.status == 0, fm.fileExists(atPath: archiveURL.path) else {
+                try? fm.removeItem(at: archiveURL)
+                let detail = packed.lastError
+                    ?? ShellInstall.scriptFailure(packed.output)
+                    ?? packed.output.trimmingCharacters(in: .whitespacesAndNewlines)
+                let why = detail.isEmpty ? exitCodeMessage(packed.status) : detail
+                throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: why])
             }
-            try fm.removeItem(at: shaders)
+            try fm.removeItem(at: mslURL)
         }
     }
 }

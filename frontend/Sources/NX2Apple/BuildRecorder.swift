@@ -87,9 +87,33 @@ import NXLauncher
         if build.runningTarget == BuildTarget.mac {
             library.recordCompletedApp(path: build.macAppPath, commit: buildCommit, for: id)
         } else if !build.installedAppPath.isEmpty {
-            library.recordCompletedIOS(archive: build.archivePath, app: build.installedAppPath, device: build.installedOn, commit: buildCommit, for: id)
+            library.recordCompletedIOS(archive: build.archivePath, app: build.installedAppPath, device: build.installedOn, commit: buildCommit, ipa: build.exportedIPAPath, for: id)
+            if !build.exportedIPAPath.isEmpty, var game = library.games.first(where: { $0.id == id }) {
+                if (build.exportedIPAPath as NSString).lastPathComponent.lowercased() != "nx2apple.ipa" {
+                    game.ipaPath = build.exportedIPAPath
+                } else {
+                    game.shellIPAExists = true
+                }
+                library.upsert(game)
+            }
+        } else if !build.exportedIPAPath.isEmpty, var game = library.games.first(where: { $0.id == id }) {
+            if (build.exportedIPAPath as NSString).lastPathComponent.lowercased() != "nx2apple.ipa" {
+                game.ipaPath = build.exportedIPAPath
+            } else {
+                game.shellIPAExists = true
+            }
+            if !build.archivePath.isEmpty {
+                if RomFSArchive.primaryImagePath(in: build.archivePath) != nil || FileManager.default.fileExists(atPath: build.archivePath) {
+                    game.archivePath = build.archivePath
+                }
+            }
+            game.lastTarget = BuildTarget.ios
+            if !buildCommit.isEmpty { game.toolsCommit = buildCommit }
+            library.upsert(game)
         } else if !build.archivePath.isEmpty, var game = library.games.first(where: { $0.id == id }) {
-            game.archivePath = build.archivePath
+            if RomFSArchive.primaryImagePath(in: build.archivePath) != nil || FileManager.default.fileExists(atPath: build.archivePath) {
+                game.archivePath = build.archivePath
+            }
             game.lastTarget = BuildTarget.ios
             if !buildCommit.isEmpty { game.toolsCommit = buildCommit }
             library.upsert(game)

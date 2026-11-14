@@ -242,4 +242,45 @@ import Testing
         #expect(orbitEntry.directory.standardizedFileURL == hotOrbit.standardizedFileURL)
         #expect(fm.fileExists(atPath: hotOrbit.path))
     }
+
+    @Test func promoteStagedFrameworksRescuesBackupMslOnlyOnMatchingChain() throws {
+        let box = try FrameworkBox()
+        let fm = FileManager.default
+        let hotRoot = box.documents.appendingPathComponent("Frameworks", isDirectory: true)
+        let dataRoot = box.documents.appendingPathComponent("games", isDirectory: true)
+        let chain = "b-3f9a2c"
+
+        // Matching chain: old hot framework holds loose msl/, staged hot framework stripped msl/.
+        let installedFW = try writeFramework(in: hotRoot, titleID: Fixtures.orbit, name: "Orbit Old", builtAt: "2026-11-10T10:00:00Z")
+        let oldShader = installedFW.appendingPathComponent("msl/\(chain)/cached.metallib")
+        try box.write("rescued-shader", to: oldShader)
+
+        let stagingMatch = hotRoot.appendingPathComponent(".staging-\(Fixtures.orbit)-match", isDirectory: true)
+        let stagedMatchFW = try writeFramework(in: stagingMatch, titleID: Fixtures.orbit, name: "Orbit New", builtAt: "2026-11-11T10:00:00Z")
+        let footMatch = try #require(GameCatalogue.frameworkFootprint(at: stagedMatchFW))
+        try JSONEncoder().encode(HotFrameworkReady(titleID: Fixtures.orbit, files: footMatch.files, bytes: footMatch.bytes))
+            .write(to: stagingMatch.appendingPathComponent(".ready"))
+
+        GameCatalogue.promoteStagedFrameworks(in: hotRoot, gameDataRoot: dataRoot)
+        let rescuedShader = dataRoot.appendingPathComponent("\(Fixtures.orbit)/msl/\(chain)/cached.metallib")
+        #expect(try String(contentsOf: rescuedShader, encoding: .utf8) == "rescued-shader")
+        #expect(!fm.fileExists(atPath: stagingMatch.path))
+        #expect(!fm.fileExists(atPath: installedFW.appendingPathComponent("msl").path))
+
+        // Different chain: old backup/msl belongs to a mismatched chain and must not be rescued into gameDataRoot.
+        let stagingMismatch = hotRoot.appendingPathComponent(".staging-\(Fixtures.orbit)-mismatch", isDirectory: true)
+        let stagedMismatchFW = try writeFramework(in: stagingMismatch, titleID: Fixtures.orbit, name: "Orbit Chain2", builtAt: "2026-11-12T10:00:00Z")
+        let mismatchManifestURL = stagedMismatchFW.appendingPathComponent("game.manifest.json")
+        let mismatchManifest = try String(contentsOf: mismatchManifestURL, encoding: .utf8)
+            .replacingOccurrences(of: chain, with: "b-other9")
+        try Data(mismatchManifest.utf8).write(to: mismatchManifestURL)
+        try box.write("old-chain-shader", to: installedFW.appendingPathComponent("msl/\(chain)/stale.metallib"))
+        let footMismatch = try #require(GameCatalogue.frameworkFootprint(at: stagedMismatchFW))
+        try JSONEncoder().encode(HotFrameworkReady(titleID: Fixtures.orbit, files: footMismatch.files, bytes: footMismatch.bytes))
+            .write(to: stagingMismatch.appendingPathComponent(".ready"))
+
+        GameCatalogue.promoteStagedFrameworks(in: hotRoot, gameDataRoot: dataRoot)
+        let unexpectedStale = dataRoot.appendingPathComponent("\(Fixtures.orbit)/msl/\(chain)/stale.metallib")
+        #expect(!fm.fileExists(atPath: unexpectedStale.path))
+    }
 }

@@ -294,8 +294,10 @@ import XCTest
 
         let libA = try XCTUnwrap(library.games.first { $0.titleID == idA })
         let libB = try XCTUnwrap(library.games.first { $0.titleID == idB })
-        XCTAssertEqual(libA.archivePath, "\(outDir)/games/\(idA)")
-        XCTAssertEqual(libB.archivePath, "\(outDir)/games/\(idB)")
+        XCTAssertEqual(libA.archivePath, "\(outDir)/games/Hades")
+        XCTAssertEqual(libB.archivePath, "\(outDir)/games/BotW")
+        XCTAssertTrue(fm.fileExists(atPath: "\(outDir)/games/Hades/Hades.img"))
+        XCTAssertTrue(fm.fileExists(atPath: "\(outDir)/games/BotW/BotW.img"))
         XCTAssertEqual(libA.iosAppPath, appPath)
         XCTAssertEqual(libB.iosAppPath, appPath)
         XCTAssertEqual(libA.installedDevice, deviceID)

@@ -75,4 +75,16 @@ import XCTest
         frameRate.tap()
         XCTAssertEqual(frameRate.value as? String, "1")
     }
+
+    func testStrippedFrameworkWithoutShadersShowsUpdateDataAction() {
+        XCUIDevice.shared.orientation = .portrait
+        app.launchArguments = ["--host", "--select", "0100000000010000", "--omit-msl", "0100000000010000"]
+        app.launch()
+        XCTAssertTrue(app.buttons["tile.0100000000010000"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["hero.title"].label, "Orbit Fixture")
+        let action = app.buttons["state.action"]
+        XCTAssertTrue(action.waitForExistence(timeout: 5))
+        XCTAssertTrue(action.label.hasPrefix("Update game data"))
+        XCTAssertFalse(app.buttons["settings.open"].exists)
+    }
 }

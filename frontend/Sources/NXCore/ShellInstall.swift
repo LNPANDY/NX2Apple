@@ -189,13 +189,14 @@ package enum ShellInstall {
         return found
     }
 
-    /// The archive folder's files (relative path → size), without dot files (.packstamp) and without folders.
-    package static func localFiles(in archive: String) -> [String: Int64] {
-        let fm = FileManager.default
+    /// The archive folder's files (relative path → size), without dot files (.titleid, .packstamp), sidecars (.img.id), or folders.
+    package static func localFiles(in archive: String, fm: FileManager = .default) -> [String: Int64] {
         var found: [String: Int64] = [:]
         guard let enumerator = fm.enumerator(atPath: archive) else { return found }   // a folder that is not there holds nothing
         for case let path as String in enumerator {
             if path.split(separator: "/").contains(where: { $0.hasPrefix(".") }) { continue }
+            let lower = path.lowercased()
+            if lower.hasSuffix(".img.id") || lower.hasSuffix(".img.inputs.json") || lower.hasSuffix(".img.formats") { continue }
             var isDirectory: ObjCBool = false
             guard fm.fileExists(atPath: archive + "/" + path, isDirectory: &isDirectory), !isDirectory.boolValue,
                   let size = (try? fm.attributesOfItem(atPath: archive + "/" + path))?[.size] as? NSNumber else { continue }
@@ -204,8 +205,7 @@ package enum ShellInstall {
         return found
     }
 
-    /// Collects the game data files from `archive` and, when `includeExternalMSL` is true and the last exported shared IPA
-    /// externalized `titleID`'s shaders (#947), merges `<mirroredFramework>/msl/*` as `msl/*` without touching `archive` on disk.
+    /// Collects the game data files from `archive` (primary `<GameName>.img` or `romfs.img` plus `aoc/**`), filtering hidden dot-files.
     package static func transferSources(
         archive: String,
         shellRoot: String? = nil,
@@ -213,21 +213,8 @@ package enum ShellInstall {
         includeExternalMSL: Bool = false,
         fm: FileManager = .default
     ) -> (sizes: [String: Int64], origins: [String: String]) {
-        var sizes = localFiles(in: archive)
-        var origins = Dictionary(uniqueKeysWithValues: sizes.keys.map { ($0, archive + "/" + $0) })
-        let upper = titleID.uppercased()
-        guard includeExternalMSL, !upper.isEmpty, let root = shellRoot, !root.isEmpty,
-              ShellExport.externalizedTitles(root: root, fm: fm).contains(upper) else {
-            return (sizes, origins)
-        }
-        let fwPath = ShellLibrary.load(root: root).games.first { $0.titleID.uppercased() == upper }?.framework
-            ?? mirroredFramework(root: root, titleID: upper)
-        let mslDir = fwPath + "/msl"
-        for (subrel, sz) in localFiles(in: mslDir) {
-            let rel = "msl/" + subrel
-            sizes[rel] = sz
-            origins[rel] = mslDir + "/" + subrel
-        }
+        let sizes = localFiles(in: archive, fm: fm)
+        let origins = Dictionary(uniqueKeysWithValues: sizes.keys.map { ($0, archive + "/" + $0) })
         return (sizes, origins)
     }
 
@@ -552,6 +539,61 @@ package struct ShellInstaller {
         ShellInstall.connection(of: device, in: DeviceTools.devices(xcrun: xcrun, timeout: 20, runner: runner))
     }
 
+    struct PreparedDeviceDiff {
+        var local: [String: Int64]
+        var origins: [String: String]
+        var comparable: [String: Int64]
+        var primaryImage: String?
+        var receipt: String
+        var partsReceipt: String
+        var previous: String?
+        var identity: String?
+    }
+
+    /// Normalizes the primary `<GameName>.img` or `romfs.img` onto canonical `"romfs.img"` inside the device sandbox so `devicectl`
+    /// overwrites legacy copies in place, drops stale receipts, and evaluates partial transfers safely.
+    func prepareDeviceDiff(titleID: String, archive: String, bundleID: String, onDevice: [String: Int64]) -> PreparedDeviceDiff {
+        let transfer = ShellInstall.transferSources(archive: archive, shellRoot: root, titleID: titleID)
+        var local = transfer.sizes, origins = transfer.origins
+        let primaryImage: String?
+        if let srcPrimary = RomFSArchive.primaryImageName(inFiles: local.keys, folderName: (archive as NSString).lastPathComponent),
+           let primarySize = local[srcPrimary] {
+            let srcPath = origins[srcPrimary] ?? (archive + "/" + srcPrimary)
+            for key in local.keys where !key.contains("/") && !key.contains("\\") {
+                let lower = key.lowercased()
+                if lower.hasSuffix(".img") && !lower.contains(".nxpart") {
+                    local.removeValue(forKey: key); origins.removeValue(forKey: key)
+                }
+            }
+            local["romfs.img"] = primarySize; origins["romfs.img"] = srcPath
+            primaryImage = "romfs.img"
+        } else { primaryImage = nil }
+        let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)", partsReceipt = receipt + "/parts"
+        let previous = defaults.string(forKey: receipt)
+        let identity: String? = primaryImage.flatMap { key in
+            guard let srcPath = origins[key], let base = imageIdentity(archive: archive, titleID: titleID) else { return nil }
+            return DriveCopy.trailerFingerprint(atPath: srcPath).map { base + " " + $0 } ?? base
+        }
+        var comparable = onDevice
+        let hasStaleParts = onDevice.keys.contains { key in
+            guard !key.contains("/"), let range = key.lowercased().range(of: ".img.nxpart.") else { return false }
+            let base = String(key[..<range.lowerBound]) + ".img"
+            return base != primaryImage && ShellDataParts.isPart(key, of: base)
+        }
+        if hasStaleParts, defaults.string(forKey: partsReceipt) != identity { defaults.removeObject(forKey: partsReceipt) }
+        if identity != previous {
+            if let primaryImage {
+                comparable.removeValue(forKey: primaryImage)
+                if identity == nil || defaults.string(forKey: partsReceipt) != identity {
+                    comparable = comparable.filter { !ShellDataParts.isPart($0.key, of: primaryImage) }
+                    defaults.removeObject(forKey: partsReceipt)
+                }
+            } else { defaults.removeObject(forKey: partsReceipt) }
+        }
+        return PreparedDeviceDiff(local: local, origins: origins, comparable: comparable, primaryImage: primaryImage,
+                                  receipt: receipt, partsReceipt: partsReceipt, previous: previous, identity: identity)
+    }
+
     /// The game data the device lacks, into the app's `Documents/games/<title ID>/`. `appJoinsParts` says whether the app on the
     /// device joins parts (`ShellDataParts`): true for the shared app this launcher just built, nil to ask the app (its
     /// `shell-features.txt`). A file larger than one part goes as parts to an app that joins them; to any other app only a file
@@ -567,22 +609,9 @@ package struct ShellInstaller {
         _ = run(ShellInstall.listCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: titleID, json: listing),
                 env: nil, label: checkName, step: { _ in nil })
         let onDevice = ShellInstall.parseListing(FileManager.default.contents(atPath: listing))
-        let transfer = ShellInstall.transferSources(archive: archive, shellRoot: root, titleID: titleID, includeExternalMSL: includeExternalMSL)
-        let local = transfer.sizes
-        // The listing still catches missing and interrupted copies. Two releases can also have the same image size.
-        let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(titleID)"
-        let previous = defaults.string(forKey: receipt)
-        let identity = local["romfs.img"] == nil ? nil : imageIdentity(archive: archive, titleID: titleID)
-        // The image's parts on the device count only when they are parts of this image: a send of it that stopped halfway records
-        // the image it was sending (`partsReceipt`), and its parts then need not go again.
-        let partsReceipt = receipt + "/parts"
-        var comparable = onDevice
-        if identity != previous {
-            comparable.removeValue(forKey: "romfs.img")
-            if identity == nil || defaults.string(forKey: partsReceipt) != identity {
-                comparable = comparable.filter { !ShellDataParts.isPart($0.key, of: "romfs.img") }
-            }
-        }
+        let diff = prepareDeviceDiff(titleID: titleID, archive: archive, bundleID: bundleID, onDevice: onDevice)
+        let local = diff.local, comparable = diff.comparable, primaryImage = diff.primaryImage
+        let receipt = diff.receipt, partsReceipt = diff.partsReceipt, previous = diff.previous, identity = diff.identity
         var splitAbove = partSize
         if local.values.contains(where: { $0 > partSize }), !(appJoinsParts ?? appSaysItJoinsParts(bundleID: bundleID, label: checkName)) {
             splitAbove = max(partSize, singleCopyLimit)
@@ -649,11 +678,11 @@ package struct ShellInstaller {
             stage(ShellStage(id: Self.copyStageID, name: copyName, state: .running, detail: "\(i + 1)/\(missing.count)",
                              percent: copiedBytes > 0 && needed > 0 ? Double(copiedBytes) / Double(needed) * 100 : nil))
             // Once an overwrite begins, the old receipt cannot vouch for what a failed copy leaves behind.
-            if item.file == "romfs.img", previous != nil { defaults.removeObject(forKey: receipt) }
-            var source = transfer.origins[item.file] ?? (archive + "/" + item.file), destination = item.file, staged: String?
+            if let primaryImage, item.file == primaryImage, previous != nil { defaults.removeObject(forKey: receipt) }
+            var source = diff.origins[item.file] ?? (archive + "/" + item.file), destination = item.file, staged: String?
             if case .part(let file, let index, let count) = item {
                 // The part is cut into a file of its own, which devicectl reads whole, and removed after the copy
-                if file == "romfs.img", let identity { defaults.set(identity, forKey: partsReceipt) }
+                if file == primaryImage, let identity { defaults.set(identity, forKey: partsReceipt) }
                 let path = NSTemporaryDirectory() + "nspb-part-\(UUID().uuidString.prefix(8))"
                 do {
                     try ShellDataParts.writePart(source: source, index: index, size: local[file] ?? 0, partSize: partSize, to: path)
@@ -696,7 +725,7 @@ package struct ShellInstaller {
             outcome.copied = i + 1
             copiedBytes += itemBytes
         }
-        if let identity, missing.contains(where: { $0.file == "romfs.img" }) {
+        if let primaryImage, let identity, missing.contains(where: { $0.file == primaryImage }) {
             defaults.set(identity, forKey: receipt)
             defaults.removeObject(forKey: partsReceipt)
         }

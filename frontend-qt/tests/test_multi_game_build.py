@@ -130,8 +130,8 @@ class MultiGameBuild(unittest.TestCase):
                 self.assertEqual(cmd[cmd.index('-o') + 1], str(self.root / f'{SECOND}.ipa'))
                 self.assertEqual(self.m.library.selected_id, SECOND)
                 if ipa_kind == 'shared':
-                    self.assertEqual(Path(self.m.archive_path), self.root / 'games' / SECOND)
-                    self.assertEqual(Path(self.m.archive_path, 'romfs.img').read_bytes(), b'fixture')
+                    self.assertEqual(Path(self.m.archive_path), self.root / 'games' / 'Cartridge')
+                    self.assertEqual(Path(self.m.archive_path, 'Cartridge.img').read_bytes(), b'fixture')
                 self.m.load_game_from_library(self.m.library.selected)
                 self.run_process(DIAGNOSTIC)
                 self.assertEqual(self.m.selectable_titles, (FIRST, SECOND))

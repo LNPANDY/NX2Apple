@@ -400,6 +400,14 @@ extension LauncherView {
                 .font(prominent ? .manrope(12, .bold) : .manrope(13, .medium))
                 .tracking(prominent ? 1.3 : 0)   // the eyebrow: the same face, in tracked capitals
                 .foregroundStyle(color)
+            if prominent && game.isReady && game.hasIOSBuild {
+                Text(loc.t(game.isOlderIOSBuild ? "library.olderIOS" : "library.readyIOS"))
+                    .font(.manrope(11, .semibold))
+                    .foregroundStyle(LauncherPalette.ready)
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .background(LauncherPalette.ink(0.06), in: Capsule())
+                    .overlay(Capsule().strokeBorder(LauncherPalette.ready.opacity(0.35)))
+            }
             if GameFolder.profileIsSwitch2(game.titleID, engineRoot: EngineLayout.root(m.repo.path)) {   // #445
                 Text(loc.t("switch2.badge"))
                     .font(.manrope(prominent ? 11 : 10.5, .bold)).foregroundStyle(LauncherPalette.notice)

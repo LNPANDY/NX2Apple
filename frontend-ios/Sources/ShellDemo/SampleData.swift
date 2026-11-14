@@ -14,7 +14,11 @@ func demoText(_ key: String.LocalizationValue) -> String {
     static var games: [GameDetail] {
         let tiles = RealArt.tiles()
         return tiles.map { tile in
-            GameDetail(game: tile, sections: [
+            let hasNoData: Bool = switch tile.state {
+            case .needsGameData, .needsDataUpdate: true
+            default: false
+            }
+            return GameDetail(game: tile, sections: [
                 SettingSection(id: "game", title: demoText("Game"), rows: [
                     SettingRow(id: "DM_OPERATION_MODE", label: demoText("Play mode"), note: demoText("The game's display and performance profile."), kind: .choice([SettingOption("handheld", demoText("Handheld")), SettingOption("docked", demoText("Docked"))]), value: "handheld"),
                     SettingRow(id: "DM_PRESENT_UPSCALE", label: demoText("Upscaling"), note: demoText("Uses more GPU time and can increase heat."), kind: .choice([SettingOption("off", "Standard"), SettingOption("metalfx", "MetalFX")]), value: "off"),
@@ -29,7 +33,7 @@ func demoText(_ key: String.LocalizationValue) -> String {
                     SettingRow(id: "DM_RENDER_SCALE", label: demoText("Render scale"), note: demoText("Scale the game's 3D resolution."), kind: .range(min: 0.5, max: 1.5, step: 0.05, unit: "×"), value: "1"),
                     SettingRow(id: "DM_FPS_TARGET", label: demoText("Frame rate"), kind: .choice([SettingOption("30", demoText("30 fps")), SettingOption("60", demoText("60 fps"))]), value: "60")
                 ])
-            ], dataSource: tile.state == .needsGameData ? "" : demoText("This app's folder"), dataNote: demoText("Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."),
+            ], dataSource: hasNoData ? "" : demoText("This app's folder"), dataNote: demoText("Choose a RomFS folder or romfs.img on this device, an external drive, or iCloud Drive."),
                        cloudSaves: tile.id == "orbit" ? demoText("iCloud Drive / Game Saves") : nil,
                        dlc: tile.id == "orbit" ? demoText("2 additional content packs") : demoText("No additional content"), hasModifiedSettings: true,
                        cloudFromShell: tile.id == "orbit")

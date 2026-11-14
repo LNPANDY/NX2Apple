@@ -163,7 +163,7 @@ public struct ShellHostConfig: Sendable {
                 let documents = dataRoot.deletingLastPathComponent()
                 DataParts.writeFeatures(documents: documents)
                 let joined = DataParts.joinAll(appDataRoot: dataRoot, partSize: partSize, onProgress: reportProgress)
-                let allEntries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot)
+                let allEntries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot, gameDataRoot: dataRoot)
                 let claimed = LooseRomfsClaimer.claimAll(documents: documents, appDataRoot: dataRoot, entries: allEntries)
                 BackupExclusion.apply(appDataRoot: dataRoot)
                 return !joined.isEmpty || !claimed.isEmpty
@@ -334,7 +334,10 @@ public struct ShellHostConfig: Sendable {
 
     private func reload(afterClaim: Bool) {
         forgetCheckedRomfsImages()
-        let scanned = GameCatalogue.scan(root: config.gamesRoot, hotRoot: config.hotFrameworksRoot).filter { !isDeleted($0) }
+        if let hotRoot = config.hotFrameworksRoot {
+            GameCatalogue.promoteStagedFrameworks(in: hotRoot, gameDataRoot: config.appDataRoot)
+        }
+        let scanned = GameCatalogue.scan(root: config.gamesRoot, hotRoot: config.hotFrameworksRoot, gameDataRoot: config.appDataRoot).filter { !isDeleted($0) }
         let built = scanned.map(detail(for:))
         let order = LibraryOrder.ids(of: built.map(\.game), lastPlayed: Dictionary(uniqueKeysWithValues: scanned.compactMap { e in
             lastPlayed(e.id).map { (e.id, $0) } }))
@@ -360,7 +363,7 @@ public struct ShellHostConfig: Sendable {
             await joinTask?.value
             guard !Task.isCancelled else { return }
             let didClaim = await Task.detached(priority: .utility) { () -> Bool in
-                let entries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot)
+                let entries = GameCatalogue.scan(root: gamesRoot, hotRoot: hotRoot, gameDataRoot: dataRoot)
                 let claimed = LooseRomfsClaimer.claimAll(
                     documents: dataRoot.deletingLastPathComponent(),
                     appDataRoot: dataRoot,
@@ -502,11 +505,18 @@ public struct ShellHostConfig: Sendable {
             pickedDataNotes.removeValue(forKey: entry.id)
         }
         var state = GameStateResolver.state(for: entry, data: data, environment: config.environment)
-        let shadersSatisfied = ExternalShaders.isSatisfied(entry: entry, appFolder: appFolder(for: entry.id), dataURL: data.url)
-        if state == .playable && !shadersSatisfied {
-            state = .needsGameData
+        let readiness = ShaderResources.readiness(entry: entry, appFolder: appFolder(for: entry.id), dataURL: data.url, romfsURL: data.romfsURL)
+        if data.found && state == .playable {
+            switch readiness {
+            case .ready:
+                break
+            case .staleTrailer:
+                state = .needsDataUpdate(staleChain: true)
+            case .missing:
+                state = .needsDataUpdate(staleChain: false)
+            }
         }
-        if state == .needsGameData, let progress = joiningProgress[entry.id], progress.totalBytes > 0 {
+        if Self.isMissingOrNeedsUpdate(state), let progress = joiningProgress[entry.id], progress.totalBytes > 0 {
             let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
             let rawPercent = Int((Double(clampedDone) / Double(progress.totalBytes) * 100.0).rounded(.down))
             let percent = min(99, max(0, rawPercent))
@@ -520,7 +530,7 @@ public struct ShellHostConfig: Sendable {
                             recentlyPlayed: played.map { ShellFormat.played($0, now: config.now()) }, version: entry.manifest?.displayVersion ?? "",
                             isSwitch2: entry.manifest?.console == "switch2")
         guard let profile = profile(for: entry, data: data) else {
-            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, shadersSatisfied: shadersSatisfied))
+            return GameDetail(game: tile, dataNote: dataNote(for: entry.id, data: data, found: false, readiness: readiness))
         }
         let store = GameSettingsStore(profile: profile, defaults: config.defaults(entry.id), shell: shellSettings.gameDefaults)
         var cloud: String?
@@ -545,7 +555,7 @@ public struct ShellHostConfig: Sendable {
         let padSections = profile.settings.contains { $0.env == "DM_PAD_MAP" } ? [] : [pad.section()]
         return GameDetail(
             game: tile, sections: sections + padSections,
-            dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found, shadersSatisfied: shadersSatisfied),
+            dataSource: dataSource(data), dataNote: dataNote(for: entry.id, data: data, found: data.found, readiness: readiness),
             cloudSaves: cloud, cloudNote: cloudNote, dlc: dlc(data), hasModifiedSettings: store.hasModifiedSettings || !pad.entries.isEmpty,
             dataFromShell: data.source == .shell, cloudFromShell: cloudFromShell,
             cloudCanUseShell: shellFolder && !cloudFromShell,
@@ -561,16 +571,36 @@ public struct ShellHostConfig: Sendable {
         }
     }
 
-    private func dataNote(for id: String, data: DataResolution, found: Bool, shadersSatisfied: Bool = true) -> String {
-        if found && shadersSatisfied { return "" }
+    private func dataNote(for id: String, data: DataResolution, found: Bool, readiness: ShaderReadiness) -> String {
+        if found {
+            switch readiness {
+            case .ready:
+                return ""
+            case .staleTrailer(let imgChain, let expChain):
+                if !imgChain.isEmpty && !expChain.isEmpty {
+                    return hostText("Shader files in this game data (\(imgChain)) do not match this app's version (\(expChain)). Send or copy updated game data from NX2Apple.")
+                } else {
+                    return hostText("Shader files in this game data do not match this app's version. Send or copy updated game data from NX2Apple.")
+                }
+            case .missing(let hadUnjoinedParts):
+                if let progress = joiningProgress[id], progress.totalBytes > 0 {
+                    let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
+                    let doneSize = Self.formatByteSize(clampedDone)
+                    let totalSize = Self.formatByteSize(progress.totalBytes)
+                    return hostText("Joining .nxpart split files in this app's folder (\(doneSize) of \(totalSize)).")
+                }
+                if hadUnjoinedParts {
+                    return hostText("Shader files (msl) for this game are incomplete or still transferring. Wait for transfer to complete or send the game data again from NX2Apple.")
+                } else {
+                    return hostText("Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple.")
+                }
+            }
+        }
         if let progress = joiningProgress[id], progress.totalBytes > 0 {
             let clampedDone = min(max(0, progress.doneBytes), progress.totalBytes)
             let doneSize = Self.formatByteSize(clampedDone)
             let totalSize = Self.formatByteSize(progress.totalBytes)
             return hostText("Joining .nxpart split files in this app's folder (\(doneSize) of \(totalSize)).")
-        }
-        if found && !shadersSatisfied {
-            return hostText("Shader files (msl) for this game are missing from its data folder. Send or copy the game data again from NX2Apple.")
         }
         if let customNote = pickedDataNotes[id], !customNote.isEmpty {
             return customNote
@@ -579,6 +609,13 @@ public struct ShellHostConfig: Sendable {
             return hostText("The location you picked before is no longer readable (the app was signed differently). Please choose it again.")
         }
         return hostText("Choose the folder holding romfs.img (or the game's title ID folder) on this device, an external drive, or iCloud Drive.")
+    }
+
+    private static func isMissingOrNeedsUpdate(_ state: GameState) -> Bool {
+        switch state {
+        case .needsGameData, .needsDataUpdate: true
+        default: false
+        }
     }
 
     private func dlc(_ data: DataResolution) -> String {
@@ -688,7 +725,7 @@ public struct ShellHostConfig: Sendable {
                     refresh(id)
                 }
                 notice = message
-            } else if let game = details.first(where: { $0.id == id })?.game, game.state == .needsGameData {
+            } else if let game = details.first(where: { $0.id == id })?.game, Self.isMissingOrNeedsUpdate(game.state) {
                 notice = hostText("No game data for \(game.title) was found in that folder.")
             }
         }
@@ -699,7 +736,7 @@ public struct ShellHostConfig: Sendable {
         pickedDataNotes.removeValue(forKey: id)
         dataStore(id).clear()
         refresh(id)
-        if details.first(where: { $0.id == id })?.game.state == .needsGameData {
+        if let game = details.first(where: { $0.id == id })?.game, Self.isMissingOrNeedsUpdate(game.state) {
             notice = hostText("This app's folder has no data for this game yet. Copy it to games/\(id) in this app's folder in Files.")
         }
     }
@@ -841,8 +878,12 @@ public struct ShellHostConfig: Sendable {
         let resolved = await verifiedData(for: entry)
         let gameAppFolder = appFolder(for: id)
         guard cloudCheckGeneration == checkGeneration,
-              let latestEntry = self.entry(id), latestEntry.manifest == manifest, let dataURL = resolved.url,
-              ExternalShaders.isSatisfied(entry: latestEntry, appFolder: gameAppFolder, dataURL: dataURL),
+              let latestEntry = self.entry(id), latestEntry.manifest == manifest, let dataURL = resolved.url else {
+            refresh(id)
+            return
+        }
+        let readiness = ShaderResources.readiness(entry: latestEntry, appFolder: gameAppFolder, dataURL: dataURL, romfsURL: resolved.romfsURL)
+        guard case .ready(let shaderSource) = readiness,
               let profile = profile(for: latestEntry, data: resolved) else {
             refresh(id)
             return
@@ -856,7 +897,11 @@ public struct ShellHostConfig: Sendable {
             titleID: id, name: entry.title, manifest: manifest, directory: entry.directory, frameworkURL: framework, dataURL: dataURL,
             romfsURL: resolved.romfsURL, appFolder: gameAppFolder, environment: launchEnvironment(profile: profile, id: id),
             cloudSavesURL: cloud, shellEnvironment: shellSettings.gameDefaults,
-            shellFallbackKeys: launchShellFallbackKeys(profile: profile, id: id))
+            shellFallbackKeys: launchShellFallbackKeys(profile: profile, id: id),
+            fallbackBundledFrameworkURL: latestEntry.fallbackBundledFrameworkURL)
+        if case .trailer = shaderSource {
+            game.usesEmbeddedShaderTrailer = true
+        }
 
         if let cloudFolder = cloud {
             let report = await Task.detached(priority: .userInitiated) {

@@ -674,7 +674,7 @@ class MainWindow(QMainWindow):
                 st_color = style.AMBER
                 p_label = self.m.t('library.viewBuild')
                 p_en = True
-            elif sel.has_ipa or sel.has_archive:
+            elif sel.is_ready_for_ios:
                 st_text = self.m.t('library.readyIOS')
                 st_color = style.GREEN
                 p_label = self.m.t('install.reveal')
@@ -688,6 +688,8 @@ class MainWindow(QMainWindow):
             sub_parts = [sel.title_id]
             if sel.has_ipa:
                 sub_parts.append(sel.ipa_path)
+            elif sel.has_ios_app:
+                sub_parts.append(sel.ios_app_path)
             elif sel.inputs.get('base'):
                 sub_parts.append(sel.inputs['base'][0])
 
@@ -764,10 +766,9 @@ class MainWindow(QMainWindow):
         if self.m.running and self.m.build_key.upper() == g.title_id.upper():
             self._switch_page('builds')
             return
-        if g.has_ipa:
-            pu.reveal(g.ipa_path)
-        elif g.has_archive:
-            pu.reveal(g.archive_path)
+        rev = g.primary_reveal_path
+        if rev:
+            pu.reveal(rev)
         else:
             self.m.load_game_from_library(g)
             self._switch_page('builds')
@@ -797,7 +798,7 @@ class MainWindow(QMainWindow):
             act_reset_art = menu.addAction(self.m.t('library.resetArtwork'))
             act_reset_art.triggered.connect(lambda: (self.m.artwork.clear_custom(g.title_id), self._refresh_library()))
 
-        target_reveal = g.ipa_path if g.has_ipa else (g.archive_path if g.has_archive else ((g.inputs.get('base') or [''])[0]))
+        target_reveal = g.primary_reveal_path or ((g.inputs.get('base') or [''])[0])
         if target_reveal and os.path.exists(target_reveal):
             act_reveal = menu.addAction(self.m.t('install.reveal'))
             act_reveal.triggered.connect(lambda: pu.reveal(target_reveal))

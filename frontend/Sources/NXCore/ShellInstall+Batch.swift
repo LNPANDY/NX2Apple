@@ -21,7 +21,7 @@ extension ShellInstaller {
     }
 
     /// Signs and installs the shared app from the frameworks already built in `shell.json`, without rebuilding any game or
-    /// transferring `romfs.img` game data.
+    /// transferring archive game data.
     package func installBuilt(framework: String, titleID: String, name: String) -> Outcome {
         func withNotes(_ result: (outcome: Outcome, notes: [String])) -> Outcome {
             var outcome = result.outcome
@@ -126,13 +126,9 @@ extension ShellInstaller {
 
     private struct PendingGameCopy {
         var game: BatchGame
-        var local: [String: Int64]
+        var diff: PreparedDeviceDiff
         var missing: [ShellDataParts.Item]
         var needed: Int64
-        var receipt: String
-        var partsReceipt: String
-        var previous: String?
-        var identity: String?
     }
 
     private func copyBatchGameData(_ games: [BatchGame], app: String, bundleID: String, start: Outcome) -> Outcome {
@@ -151,32 +147,20 @@ extension ShellInstaller {
             _ = run(ShellInstall.listCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: game.titleID, json: listing),
                     env: nil, label: checkName, step: { _ in nil })
             let onDevice = ShellInstall.parseListing(FileManager.default.contents(atPath: listing))
-            let local = ShellInstall.localFiles(in: game.archive)
-            let receipt = "shellCopiedRomFS/\(device)/\(bundleID)/\(game.titleID)"
-            let previous = defaults.string(forKey: receipt)
-            let identity = local["romfs.img"] == nil ? nil : imageIdentity(archive: game.archive, titleID: game.titleID)
-            let partsReceipt = receipt + "/parts"
-            var comparable = onDevice
-            if identity != previous {
-                allCurrent = false
-                comparable.removeValue(forKey: "romfs.img")
-                if identity == nil || defaults.string(forKey: partsReceipt) != identity {
-                    comparable = comparable.filter { !ShellDataParts.isPart($0.key, of: "romfs.img") }
-                }
-            } else if identity == nil {
+            let diff = prepareDeviceDiff(titleID: game.titleID, archive: game.archive, bundleID: bundleID, onDevice: onDevice)
+            if diff.identity != diff.previous || diff.identity == nil {
                 allCurrent = false
             }
-            let missing = ShellDataParts.toCopy(local: local, device: comparable, splitAbove: partSize, partSize: partSize)
+            let missing = ShellDataParts.toCopy(local: diff.local, device: diff.comparable, splitAbove: partSize, partSize: partSize)
             guard !missing.isEmpty else { continue }
             let needed = missing.reduce(Int64(0)) { sum, item in
-                let b = ShellDataParts.bytes(of: item, local: local, partSize: partSize)
+                let b = ShellDataParts.bytes(of: item, local: diff.local, partSize: partSize)
                 return Int64.max - sum < b ? Int64.max : sum + b
             }
             totalNeeded = Int64.max - totalNeeded < needed ? Int64.max : totalNeeded + needed
             totalFiles += Set(missing.map(\.file)).count
-            if let identity, let previous, identity != previous { anyVersionChanged = true }
-            pending.append(PendingGameCopy(game: game, local: local, missing: missing, needed: needed,
-                                           receipt: receipt, partsReceipt: partsReceipt, previous: previous, identity: identity))
+            if let identity = diff.identity, let previous = diff.previous, identity != previous { anyVersionChanged = true }
+            pending.append(PendingGameCopy(game: game, diff: diff, missing: missing, needed: needed))
         }
         end(Self.checkStageID, checkName, ok: true)
 
@@ -243,13 +227,17 @@ extension ShellInstaller {
                 let itemDetail = "\(copiedItems + 1)/\(totalItems)"
                 stage(ShellStage(id: Self.copyStageID, name: copyName, state: .running, detail: itemDetail,
                                  percent: copiedBytes > 0 && totalNeeded > 0 ? Double(copiedBytes) / Double(totalNeeded) * 100 : nil))
-                if item.file == "romfs.img", entry.previous != nil { defaults.removeObject(forKey: entry.receipt) }
-                var source = entry.game.archive + "/" + item.file, destination = item.file, staged: String?
+                if let primaryImage = entry.diff.primaryImage, item.file == primaryImage, entry.diff.previous != nil {
+                    defaults.removeObject(forKey: entry.diff.receipt)
+                }
+                var source = entry.diff.origins[item.file] ?? (entry.game.archive + "/" + item.file), destination = item.file, staged: String?
                 if case .part(let file, let index, let count) = item {
-                    if file == "romfs.img", let identity = entry.identity { defaults.set(identity, forKey: entry.partsReceipt) }
+                    if file == entry.diff.primaryImage, let identity = entry.diff.identity {
+                        defaults.set(identity, forKey: entry.diff.partsReceipt)
+                    }
                     let path = NSTemporaryDirectory() + "nspb-part-\(UUID().uuidString.prefix(8))"
                     do {
-                        try ShellDataParts.writePart(source: source, index: index, size: entry.local[file] ?? 0, partSize: partSize, to: path)
+                        try ShellDataParts.writePart(source: source, index: index, size: entry.diff.local[file] ?? 0, partSize: partSize, to: path)
                     } catch {
                         try? FileManager.default.removeItem(atPath: path)
                         let why = error.localizedDescription
@@ -262,7 +250,7 @@ extension ShellInstaller {
                     staged = path; source = path; destination = ShellDataParts.name(of: file, index: index, count: count)
                 }
                 let finishedBytes = copiedBytes
-                let itemBytes = ShellDataParts.bytes(of: item, local: entry.local, partSize: partSize)
+                let itemBytes = ShellDataParts.bytes(of: item, local: entry.diff.local, partSize: partSize)
                 let r = run(ShellInstall.copyCommand(xcrun: xcrun, device: device, bundleID: bundleID, titleID: entry.game.titleID,
                                                      source: source, relativePath: destination),
                             env: nil, label: copyName, stageID: Self.copyStageID) { line in
@@ -287,9 +275,10 @@ extension ShellInstaller {
                 outcome.copied = copiedItems
                 copiedBytes += itemBytes
             }
-            if let identity = entry.identity, entry.missing.contains(where: { $0.file == "romfs.img" }) {
-                defaults.set(identity, forKey: entry.receipt)
-                defaults.removeObject(forKey: entry.partsReceipt)
+            if let primaryImage = entry.diff.primaryImage, let identity = entry.diff.identity,
+               entry.missing.contains(where: { $0.file == primaryImage }) {
+                defaults.set(identity, forKey: entry.diff.receipt)
+                defaults.removeObject(forKey: entry.diff.partsReceipt)
             }
         }
         copyProgress(totalNeeded, totalNeeded)

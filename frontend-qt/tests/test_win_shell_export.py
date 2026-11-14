@@ -258,15 +258,16 @@ class RevealIpaPathTest(unittest.TestCase):
 
 
 class ExternalMslAndBatchDriveCopyTest(unittest.TestCase):
-    """Oversized `msl/` externalization, zero-pollution transfer merge, stale detection, and batch preflight."""
+    """Stripped framework packing without `external-msl.json`, named DriveCopy without `msl/` merge, stale detection, and batch preflight."""
 
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
 
-    def test_externalize_large_shader_libs_leaves_mirror_untouched_and_merges_on_copy(self) -> None:
+    def test_stripped_framework_and_named_drive_copy_skip_external_msl_merge(self) -> None:
         import json
+        from nspb_qt import post_build_cleanup as pbc
         from nspb_qt.win import shell_export as se
 
         tid = '010063301BD50000'
@@ -275,48 +276,32 @@ class ExternalMslAndBatchDriveCopyTest(unittest.TestCase):
         (mirror_fw / 'msl' / 'b-chain').mkdir(parents=True)
         (mirror_fw / f'DmGame{tid}').write_bytes(b'macho')
         (mirror_fw / 'game.manifest.json').write_text(
-            json.dumps({'loader': 'FH', 'chain': 'b-1111'}), encoding='utf-8'
+            json.dumps({'loader': 'FH', 'name': 'Test Title', 'chain': 'b-1111'}), encoding='utf-8'
         )
         shader_blob = b'S' * 128
         (mirror_fw / 'msl' / 'b-chain' / 'shaders.img').write_bytes(shader_blob)
 
-        stage_dir = self.root / 'stage'
-        staged_fws, stripped = se._externalize_large_shader_libs(
-            [mirror_fw], stage_dir=stage_dir, threshold=32, log=lambda _s: None
-        )
-        self.assertEqual(stripped, {tid})
-        self.assertEqual(len(staged_fws), 1)
-        staged_fw = staged_fws[0]
-        self.assertNotEqual(staged_fw, mirror_fw)
-        self.assertFalse((staged_fw / 'msl').exists())
-        marker = json.loads((staged_fw / 'external-msl.json').read_text(encoding='utf-8'))
-        self.assertTrue(marker.get('external_msl'))
-        # Original mirror keeps its msl/ intact without duplication outside stage_dir.
-        self.assertEqual((mirror_fw / 'msl' / 'b-chain' / 'shaders.img').read_bytes(), shader_blob)
-
-        se.save_externalized_titles(stripped, shell_root)
-        self.assertEqual(se.externalized_titles(shell_root), {tid})
-
-        archive_dir = self.root / 'games' / tid
+        archive_dir = self.root / 'games' / 'Test Title'
         archive_dir.mkdir(parents=True)
-        (archive_dir / 'romfs.img').write_bytes(b'ROMFS')
+        (archive_dir / 'Test Title.img').write_bytes(b'ROMFS')
+        pbc.write_title_id_marker(archive_dir, tid)
 
         sizes, origins = lib.DriveCopy.collect_transfer_files(
-            str(archive_dir), shell_root=str(shell_root), title_id=tid
+            str(archive_dir), shell_root=str(shell_root), title_id=tid, dest_folder_name='Test Title'
         )
-        self.assertIn('romfs.img', sizes)
-        self.assertIn('msl/b-chain/shaders.img', sizes)
-        self.assertEqual(origins['msl/b-chain/shaders.img'], str(mirror_fw / 'msl' / 'b-chain' / 'shaders.img'))
-        # The game's archive folder remains completely unpolluted.
-        self.assertFalse((archive_dir / 'msl').exists())
+        self.assertIn('Test Title.img', sizes)
+        self.assertEqual(origins.get('Test Title.img'), str(archive_dir / 'Test Title.img'))
+        self.assertFalse(any(k.startswith('msl/') for k in sizes))
 
         drive_dest = self.root / 'usb'
         ok, out_dir = lib.DriveCopy.copy_to_folder(
-            str(archive_dir), str(drive_dest), tid, shell_root=str(shell_root)
+            str(archive_dir), str(drive_dest), tid, game_name='Test Title', shell_root=str(shell_root)
         )
         self.assertTrue(ok, out_dir)
-        self.assertEqual((Path(out_dir) / 'romfs.img').read_bytes(), b'ROMFS')
-        self.assertEqual((Path(out_dir) / 'msl' / 'b-chain' / 'shaders.img').read_bytes(), shader_blob)
+        self.assertEqual(Path(out_dir), drive_dest / 'Test Title')
+        self.assertEqual((Path(out_dir) / 'Test Title.img').read_bytes(), b'ROMFS')
+        self.assertEqual(pbc.read_title_id_marker(out_dir), tid)
+        self.assertFalse((Path(out_dir) / 'msl').exists())
 
     def test_find_stale_frameworks_and_batch_preflight(self) -> None:
         import json
@@ -440,6 +425,110 @@ class ExternalMslAndBatchDriveCopyTest(unittest.TestCase):
                 m.deleteLater()
                 app.sendPostedEvents(None, QEvent.DeferredDelete)
                 app.processEvents()
+    def test_partial_overwrite_trailer_interrupt_truncates_to_base_size(self) -> None:
+        import struct
+        import threading
+
+        def _make_base(size: int = 64) -> bytes:
+            ioff = 48
+            isz = max(16, size - ioff)
+            return b'DMROMFS1' + struct.pack('<QQQ', ioff, isz, 0) + (b'\x11' * 16) + (b'\x33' * isz)
+
+        def _with_trailer(base: bytes, payload: bytes, chain: str) -> bytes:
+            base_sz = len(base)
+            msl_off = (base_sz + 16383) & ~16383
+            out = bytearray(base) + bytearray(msl_off - base_sz) + bytearray(payload)
+            aligned_end = (len(out) + 7) & ~7
+            out.extend(bytearray(aligned_end - len(out)))
+            ch_b = chain.encode('utf-8')[:24]
+            footer = bytearray(64)
+            footer[0:8] = b'DMMSLTR1'
+            struct.pack_into('<IBBHQQQ', footer, 8, 1, 1, 0, len(ch_b), base_sz, msl_off, len(payload))
+            footer[40:40 + len(ch_b)] = ch_b
+            return bytes(out + footer)
+
+        base = _make_base()
+        src_bytes = _with_trailer(base, b'\x55' * 8192, 'b-cur999')
+        old_bytes = _with_trailer(base, b'\x22' * 128, 'b-old999')
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            src = root / 'src.img'
+            dst = root / 'dst.img'
+            peer = root / 'peer.img'
+            src.write_bytes(src_bytes)
+            dst.write_bytes(old_bytes)
+            os.link(dst, peer)
+            self.assertGreater(os.stat(dst).st_nlink, 1)
+
+            cancel = threading.Event()
+            done, aborted = lib.DriveCopy.partial_overwrite_trailer(
+                str(src), str(dst), len(base), chunk_size=4096, cancel_event=cancel,
+                on_chunk=lambda _written: cancel.set(),
+            )
+            self.assertFalse(done)
+            self.assertTrue(aborted)
+            self.assertEqual(os.stat(dst).st_nlink, 1)
+            self.assertEqual(peer.read_bytes(), old_bytes)
+            self.assertEqual(dst.read_bytes(), base)
+
+            ok, aborted2 = lib.DriveCopy.partial_overwrite_trailer(
+                str(src), str(dst), len(base), chunk_size=4096,
+            )
+            self.assertTrue(ok)
+            self.assertFalse(aborted2)
+            self.assertEqual(dst.read_bytes(), src_bytes)
+
+    def test_locate_ios_msl_source_reads_cache_chain_and_fallbacks(self) -> None:
+        cleanup = None
+        try:
+            from nspb_qt.model import Model
+        except ImportError:
+            if str(HERE) not in sys.path:
+                sys.path.insert(0, str(HERE))
+            from test_post_build_cleanup import _load_model_with_qt_fallback
+            model_mod, cleanup = _load_model_with_qt_fallback()
+            Model = model_mod.Model
+
+        try:
+            tid = '010015100B514000'
+            with tempfile.TemporaryDirectory() as tmp:
+                work = Path(tmp) / 'work'
+                cache_dir = work / 'shell-framework' / '.msl-cache'
+                cache_dir.mkdir(parents=True)
+                shader_src = work / 'shader' / 'ios' / 'b-abc123'
+                shader_src.mkdir(parents=True)
+                (cache_dir / f'{tid}.json').write_text(
+                    f'{{"schema": 1, "title_id": "{tid}", "gfx_api": "nvn", "chain": "b-abc123", '
+                    f'"lib_path": "{shader_src}", "msl_root": "{shader_src.parent}", "multi_program": false}}',
+                    encoding='utf-8',
+                )
+                found = Model._locate_ios_msl_source(str(work), tid)
+                self.assertEqual(found, (str(shader_src), 'nvn', 'b-abc123', False))
+
+                # Fallback without .msl-cache: vk / gl / b-* under shader/ios, then build/ios/dmsh_b
+                (cache_dir / f'{tid}.json').unlink()
+                self.assertEqual(Model._locate_ios_msl_source(str(work), tid), (str(shader_src), 'nvn', 'b-abc123', False))
+
+                vk_dir = work / 'shader' / 'ios' / 'vk'
+                vk_dir.mkdir()
+                (shader_src / 'dummy.metallib').write_text('x', encoding='utf-8')
+                self.assertEqual(Model._locate_ios_msl_source(str(work), tid), (str(shader_src), 'nvn', 'b-abc123', False))
+
+                # When only vk exists under shader/ios, returns vulkan fallback
+                for p in shader_src.iterdir():
+                    p.unlink()
+                shader_src.rmdir()
+                self.assertEqual(Model._locate_ios_msl_source(str(work), tid), (str(vk_dir), 'vulkan', None, False))
+
+                vk_dir.rmdir()
+                dmsh_b = work / 'build' / 'ios' / 'dmsh_b'
+                dmsh_b.mkdir(parents=True)
+                (dmsh_b / 'out.metallib').write_text('m', encoding='utf-8')
+                self.assertEqual(Model._locate_ios_msl_source(str(work), tid), (str(dmsh_b), 'nvn', None, False))
+        finally:
+            if cleanup is not None:
+                cleanup()
 
 
 if __name__ == '__main__':

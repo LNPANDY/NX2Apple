@@ -45,18 +45,75 @@ public struct EngineLaunchPlan: Equatable, Sendable {
         env["DM_SAVE"] = save.path
         env["DM_TEMP"] = temp.path
         env["DM_NVN_SHMAP"] = fw.appendingPathComponent(manifest.shaderMap).path
+        func isUsableOverrideDirectory(_ url: URL) -> Bool {
+            guard ExternalShaders.isUsableOverride(at: url, fileManager: fm) else { return false }
+            // An empty folder is accepted as a player test override (EngineLaunchPlanTests:58).
+            let entries = (try? fm.contentsOfDirectory(atPath: url.path))?
+                .filter { !ExternalShaders.isIncompleteEntry($0) && !$0.hasPrefix(".") } ?? []
+            if entries.isEmpty { return true }
+            // If the folder is non-empty, ensure it matches the game's expected chain or graphics API.
+            let expectedChain = manifest.chain
+            let explicitAPI = manifest.gfxAPI.flatMap { $0.isEmpty ? nil : $0 }
+            let expectedAPI: String?
+            if let explicitAPI {
+                expectedAPI = explicitAPI
+            } else if expectedChain.hasPrefix("b-") {
+                expectedAPI = "nvn"
+            } else {
+                expectedAPI = nil
+            }
+            func matchesChainOrAPI(in root: URL) -> Bool {
+                switch expectedAPI {
+                case "vulkan":
+                    return ExternalShaders.hasCompleteTree(at: root.appendingPathComponent("vk", isDirectory: true), fileManager: fm)
+                case "gl":
+                    return ExternalShaders.hasCompleteTree(at: root.appendingPathComponent("gl", isDirectory: true), fileManager: fm)
+                default:
+                    if !expectedChain.isEmpty {
+                        let chainDir = root.appendingPathComponent(expectedChain, isDirectory: true)
+                        let chainImg = root.appendingPathComponent(expectedChain + ".img")
+                        if ExternalShaders.hasCompleteTree(at: chainDir, fileManager: fm) || fm.fileExists(atPath: chainImg.path) {
+                            return true
+                        }
+                        if explicitAPI == nil {
+                            if ExternalShaders.hasCompleteTree(at: root.appendingPathComponent("vk", isDirectory: true), fileManager: fm)
+                                || ExternalShaders.hasCompleteTree(at: root.appendingPathComponent("gl", isDirectory: true), fileManager: fm) {
+                                return true
+                            }
+                        }
+                        return false
+                    }
+                    return true
+                }
+            }
+            if matchesChainOrAPI(in: url) { return true }
+            for name in entries where name.count >= 2 && name.hasPrefix("p") && name.dropFirst().allSatisfy({ $0.isASCII && $0.isNumber }) {
+                let progRoot = url.appendingPathComponent(name, isDirectory: true)
+                if matchesChainOrAPI(in: progRoot) { return true }
+            }
+            return false
+        }
+
         let ownMSL = gdir.appendingPathComponent("msl", isDirectory: true)
         let dataMSL = game.dataURL.appendingPathComponent("msl", isDirectory: true)
-        let bundledMSL = game.shaderResourcesURL ?? fw.appendingPathComponent("msl", isDirectory: true)
-        let resolvedMSL: URL
-        if ExternalShaders.isUsableOverride(at: ownMSL, fileManager: fm) {
+        let fwMSL = fw.appendingPathComponent("msl", isDirectory: true)
+        let resolvedMSL: URL?
+        if game.usesEmbeddedShaderTrailer {
+            resolvedMSL = nil
+        } else if isUsableOverrideDirectory(ownMSL) {
             resolvedMSL = ownMSL
-        } else if ExternalShaders.isUsableOverride(at: dataMSL, fileManager: fm) {
+        } else if isUsableOverrideDirectory(dataMSL) {
             resolvedMSL = dataMSL
+        } else if let shaderURL = game.shaderResourcesURL {
+            resolvedMSL = shaderURL
+        } else if isDirectory(fwMSL) {
+            resolvedMSL = fwMSL
         } else {
-            resolvedMSL = bundledMSL
+            resolvedMSL = fwMSL
         }
-        env["DM_MSL_DIR"] = resolvedMSL.path
+        if let resolvedMSL {
+            env["DM_MSL_DIR"] = resolvedMSL.path
+        }
         let ownPSO = gdir.appendingPathComponent("pso", isDirectory: true), fwPSO = fw.appendingPathComponent("pso", isDirectory: true)
         let dataAOC = game.dataURL.appendingPathComponent("aoc", isDirectory: true), ownAOC = gdir.appendingPathComponent("aoc", isDirectory: true)
         if isDirectory(dataAOC) { env["DM_AOC_DIR"] = dataAOC.path } else if isDirectory(ownAOC) { env["DM_AOC_DIR"] = ownAOC.path }

@@ -25,11 +25,23 @@ struct HostDemoScreen: View {
         try? fm.createDirectory(at: appData, withIntermediateDirectories: true)
         let entries = GameCatalogue.scan(root: gamesRoot)
         for entry in entries { UserDefaults().removePersistentDomain(forName: Self.suite + entry.id) }
+        let omitMSL: String? = args.firstIndex(of: "--omit-msl")
+            .flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
         for entry in entries where entry.problem == nil && entry.id != "0100000000080000" {
             guard let marker = entry.manifest?.romfsMarker else { continue }
-            let file = appData.appendingPathComponent(entry.id).appendingPathComponent("romfs", isDirectory: true).appendingPathComponent(marker)
+            let gameDir = appData.appendingPathComponent(entry.id, isDirectory: true)
+            let file = gameDir.appendingPathComponent("romfs", isDirectory: true).appendingPathComponent(marker)
             try? fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             fm.createFile(atPath: file.path, contents: Data())
+            if entry.id != omitMSL {
+                let rawChain = entry.manifest?.chain ?? ""
+                let chain = rawChain.isEmpty ? "b-3f9a2c" : rawChain
+                let mslFile = gameDir.appendingPathComponent("msl", isDirectory: true)
+                    .appendingPathComponent(chain, isDirectory: true)
+                    .appendingPathComponent("fixture.metallib")
+                try? fm.createDirectory(at: mslFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? Data("fixture".utf8).write(to: mslFile)
+            }
         }
         let suite = Self.suite
         let config = ShellHostConfig(gamesRoot: gamesRoot, appDataRoot: appData,

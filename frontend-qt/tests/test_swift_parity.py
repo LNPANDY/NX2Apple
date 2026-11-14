@@ -491,12 +491,12 @@ class SharedShellParityTests(unittest.TestCase):
             self.assertTrue(ext_font_calls, '_prepare_fonts must invoke make_ext_font.py')
             self.assertEqual(Path(ext_font_calls[0][3]), letter_font)
 
-            # Verify both games' archives exist side-by-side under <shared_out>/games/<TID> without overwriting each other
-            arch1 = shared_out / 'games' / tid1
-            arch2 = shared_out / 'games' / tid2
-            self.assertEqual((arch1 / 'romfs.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
+            # Verify both games' archives exist side-by-side under <shared_out>/games/<SafeName> without overwriting each other
+            arch1 = shared_out / 'games' / 'Super Mario Bros. Wonder'
+            arch2 = shared_out / 'games' / 'Breath of the Wild'
+            self.assertEqual((arch1 / 'Super Mario Bros. Wonder.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
             self.assertEqual((arch1 / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_ONE_1111')
-            self.assertEqual((arch2 / 'romfs.img').read_bytes(), b'ROMFS_GAME_TWO_2222')
+            self.assertEqual((arch2 / 'Breath of the Wild.img').read_bytes(), b'ROMFS_GAME_TWO_2222')
             self.assertEqual((arch2 / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_TWO_2222')
 
             # Verify library recorded both games under their verified 16-hex Title IDs
@@ -517,8 +517,8 @@ class SharedShellParityTests(unittest.TestCase):
             self.assertEqual(m.packed_title_id, tid1)
             ok_d1, dest_d1 = m.copy_archive_to_drive(str(drive_dir))
             self.assertTrue(ok_d1, dest_d1)
-            self.assertEqual((drive_dir / tid1 / 'romfs.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
-            self.assertEqual((drive_dir / tid1 / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_ONE_1111')
+            self.assertEqual((drive_dir / 'Super Mario Bros. Wonder' / 'Super Mario Bros. Wonder.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
+            self.assertEqual((drive_dir / 'Super Mario Bros. Wonder' / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_ONE_1111')
 
             # Reopen the SECOND game entry and send its game data to the same staging drive folder
             m.load_game_from_library(g2)
@@ -526,10 +526,10 @@ class SharedShellParityTests(unittest.TestCase):
             self.assertEqual(m.packed_title_id, tid2)
             ok_d2, dest_d2 = m.copy_archive_to_drive(str(drive_dir))
             self.assertTrue(ok_d2, dest_d2)
-            self.assertEqual((drive_dir / tid2 / 'romfs.img').read_bytes(), b'ROMFS_GAME_TWO_2222')
-            self.assertEqual((drive_dir / tid2 / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_TWO_2222')
+            self.assertEqual((drive_dir / 'Breath of the Wild' / 'Breath of the Wild.img').read_bytes(), b'ROMFS_GAME_TWO_2222')
+            self.assertEqual((drive_dir / 'Breath of the Wild' / 'aoc' / '0.img').read_bytes(), b'AOC_GAME_TWO_2222')
             # First game's staged data is still untouched
-            self.assertEqual((drive_dir / tid1 / 'romfs.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
+            self.assertEqual((drive_dir / 'Super Mario Bros. Wonder' / 'Super Mario Bros. Wonder.img').read_bytes(), b'ROMFS_GAME_ONE_1111')
 
             # 4. Verify export/NX2Apple.ipa contains both frameworks and no .tmp or .idx sidecars leaked in export/
             expected_ipa = shell_root / 'export' / 'NX2Apple.ipa'
@@ -1345,6 +1345,33 @@ class LibraryAndSpaceTests(unittest.TestCase):
                 self.assertIn('v0', derived_g.builds())
                 self.assertEqual(derived_g.builds()['v0']['display'], '1.0.0')
 
+    def test_framework_only_game_reports_ready_for_ios_and_primary_reveal(self) -> None:
+        import json
+
+        tid = '0100535012974000'
+        state_dir = self.dir / 'fw_only_state'
+        shell_dir = self.dir / 'fw_only_shell'
+        fw_dir = shell_dir / 'frameworks' / f'DmGame{tid}.framework'
+        fw_dir.mkdir(parents=True, exist_ok=True)
+        (fw_dir / 'game.manifest.json').write_text(
+            json.dumps({'title_id': tid, 'framework_executable': f'DmGame{tid}'}),
+            encoding='utf-8',
+        )
+        (fw_dir / f'DmGame{tid}').write_bytes(b'bin')
+        (shell_dir / 'shell.json').write_text(
+            json.dumps({'games': [{'titleID': tid, 'name': 'Orbit Fixture', 'framework': str(fw_dir)}]}),
+            encoding='utf-8',
+        )
+
+        gl = lib.GameLibrary(state_dir=state_dir)
+        self.assertTrue(gl.sync_ios_shell_state(str(shell_dir)))
+        g = next(item for item in gl.games if item.title_id == tid)
+        self.assertFalse(g.has_ipa)
+        self.assertFalse(g.has_archive)
+        self.assertTrue(g.has_ios_app)
+        self.assertTrue(g.is_ready_for_ios)
+        self.assertEqual(g.primary_reveal_path, str(fw_dir))
+
 
 class ParityWindowTests(unittest.TestCase):
     @classmethod
@@ -1916,12 +1943,12 @@ class ParityWindowTests(unittest.TestCase):
             m.load_game_from_library(g1_item)
             w._copy_archive_to_drive()
             wait_drive_copy()
-            self.assertEqual((drive_ui / tid1 / 'romfs.img').read_bytes(), b'DMROMFS1_game1')
+            self.assertEqual((drive_ui / 'Super Mario Bros. Wonder' / 'Super Mario Bros. Wonder.img').read_bytes(), b'DMROMFS1_game1')
             m.load_game_from_library(g2_item)
             w._copy_archive_to_drive()
             wait_drive_copy()
-            self.assertEqual((drive_ui / tid2 / 'romfs.img').read_bytes(), b'DMROMFS1_game2')
-            self.assertEqual((drive_ui / tid1 / 'romfs.img').read_bytes(), b'DMROMFS1_game1')
+            self.assertEqual((drive_ui / 'Breath of the Wild' / 'Breath of the Wild.img').read_bytes(), b'DMROMFS1_game2')
+            self.assertEqual((drive_ui / 'Super Mario Bros. Wonder' / 'Super Mario Bros. Wonder.img').read_bytes(), b'DMROMFS1_game1')
 
             with zipfile.ZipFile(ipa2) as zf:
                 names = set(zf.namelist())
@@ -2515,6 +2542,50 @@ class ParityWindowTests(unittest.TestCase):
                             break
                         time.sleep(0.01)
                 self.assertEqual(w.defender_badge_lbl.text(), m.t('defender.status.ready'))
+
+    def test_framework_only_hero_shows_ready_for_ios_and_reveals_framework(self) -> None:
+        import json
+        from unittest import mock
+        from nspb_qt import library as lib_mod, platform_util as pu
+        from nspb_qt.model import Model
+        from nspb_qt.ui import MainWindow
+
+        tid = '0100535012974000'
+        state_dir = Path(self._state_tmp.name) / 'state'
+        shell_dir = state_dir / 'shell'
+        fw_dir = shell_dir / 'frameworks' / f'DmGame{tid}.framework'
+        fw_dir.mkdir(parents=True, exist_ok=True)
+        (fw_dir / 'game.manifest.json').write_text(
+            json.dumps({'title_id': tid, 'framework_executable': f'DmGame{tid}'}),
+            encoding='utf-8',
+        )
+        (fw_dir / f'DmGame{tid}').write_bytes(b'bin')
+        (shell_dir / 'shell.json').write_text(
+            json.dumps({'games': [{'titleID': tid, 'name': 'Orbit Fixture', 'framework': str(fw_dir)}]}),
+            encoding='utf-8',
+        )
+
+        with mock.patch.object(lib_mod.ArtworkStore, 'request_banner_async'):
+            m = Model()
+            m.settings.setValue('shellRoot', str(shell_dir))
+            w = MainWindow(m)
+            w._init_timer.stop()
+            self.addCleanup(self._delete, m, w)
+            w.resize(1080, 760)
+            w.show()
+            w._switch_page('library')
+            self.app.processEvents()
+
+            revealed: list[str] = []
+            with mock.patch.object(pu, 'reveal', side_effect=revealed.append):
+                for code in ('en', 'zh'):
+                    m.set_lang(Lang(code))
+                    self.app.processEvents()
+                    self.assertEqual(w.hero.status_lbl.text(), m.t('library.readyIOS').upper())
+                    self.assertEqual(w.hero.primary_btn.text(), m.t('install.reveal'))
+                    w.hero.primary_btn.click()
+                    self.app.processEvents()
+            self.assertEqual(revealed, [str(fw_dir), str(fw_dir)])
 
 
 if __name__ == '__main__':
