@@ -22,6 +22,10 @@ public struct LaunchableGame: Equatable, Sendable {
     public var environment: [String: String]
     /// The picked cloud-save folder, when cloud saves are on.
     public var cloudSavesURL: URL?
+    /// Shell-level fallback defaults applied after per-game `env.txt` and before the shared `env.txt`.
+    public var shellEnvironment: [String: String] = [:]
+    /// Keys in `environment` that came only from shell defaults because the game made no choice of its own.
+    var shellFallbackKeys: Set<String> = []
 }
 
 /// The seam between the shell and the engine. The shell calls `launch` when the player presses Play on a playable game.

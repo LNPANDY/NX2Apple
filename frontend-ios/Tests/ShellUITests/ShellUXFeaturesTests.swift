@@ -34,6 +34,28 @@ import Testing
         #expect(store.gameDefaults["DM_PAD_MERGE"] == nil)
     }
 
+    @Test func audioMixPersistsInShellSettingsStoreAndProducesDMAudioMix() {
+        let suite = "shellui.audiomix.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { UserDefaults().removePersistentDomain(forName: suite) }
+
+        let store = ShellSettingsStore(defaults: defaults)
+        #expect(!store.audioMix)
+        #expect(store.gameDefaults["DM_AUDIO_MIX"] == nil)
+        #expect(ShellSettingsRows.audioMixRow(store).value == "0")
+
+        ShellSettingsRows.apply(ShellSettingsRows.audioMix, value: "1", to: store)
+        #expect(store.audioMix)
+        #expect(store.gameDefaults["DM_AUDIO_MIX"] == "1")
+        #expect(ShellSettingsRows.audioMixRow(store).value == "1")
+        #expect(ShellSettingsStore(defaults: defaults).audioMix)
+
+        ShellSettingsRows.apply(ShellSettingsRows.audioMix, value: "0", to: store)
+        #expect(!store.audioMix)
+        #expect(store.gameDefaults["DM_AUDIO_MIX"] == nil)
+        #expect(defaults.object(forKey: ShellSettingsStore.audioMixKey) == nil)
+    }
+
     @Test func cloudConflictAndRestoreBackupLayersIsolateControllerFocus() {
         #expect(!LibraryView.optionsOpensShellSettings(under: .restoreBackup))
         #expect(!LibraryView.optionsOpensShellSettings(under: .cloudConflict))

@@ -1,0 +1,424 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: LNPANDY <lnp-andy@hotmail.com>
+Date: Sat, 14 Nov 2026 16:03:06 +0800
+Subject: [PATCH] ios/audio: add DM_AUDIO_MIX audio session mixing option
+
+Keep AVAudioSessionCategoryPlayback ignoring the silent switch unchanged and pass AVAudioSessionCategoryOptionMixWithOthers only when DM_AUDIO_MIX is truthy, explicitly clearing options to 0 when off for shared-shell isolation.
+
+Upstream-Status: pending
+Reason: Let iOS players mix game audio with other apps using AVAudioSessionCategoryOptionMixWithOthers while keeping playback active on silent
+Issue: LNPANDY/NX2Apple#1269
+
+---
+ dm/games/settings.tsv                      |   1 +
+ dm/ios/Sources/audio_session_policy.h      |  41 ++++++++
+ dm/ios/Sources/front_ios.m                 |  17 +++-
+ dm/ios/tests/duo/Sources/DuoRuntimeStubs.m |   2 +
+ dm/ios/tests/duo/Tests/DuoHarnessTests.m   |  41 +++++++-
+ dm/ios/tests/test_audio_session_policy.py  | 108 +++++++++++++++++++++
+ dm/tools/tests/test_launcher_settings.py   |   6 +-
+ dm/tools/tests/test_player_env.py          |   2 +-
+ docs/settings.md                           |  11 ++-
+ 9 files changed, 220 insertions(+), 9 deletions(-)
+ create mode 100644 dm/ios/Sources/audio_session_policy.h
+ create mode 100644 dm/ios/tests/test_audio_session_policy.py
+
+diff --git a/dm/games/settings.tsv b/dm/games/settings.tsv
+index 89c69f17e..1b139d4ce 100644
+--- a/dm/games/settings.tsv
++++ b/dm/games/settings.tsv
+@@ -25,6 +25,7 @@ DM_LANG	choice	languages	build:DM_LANG	languages>1	Game	Game language		level=bas
+ DM_FULLSCREEN	choice	0=Window,1=Fullscreen	0	platform:mac	Game	Display mode		level=basic
+ DM_PICTURE_FIT	choice	fit=Fit,fill=Fill	fit	platform:ios	Game	Picture	Fill crops the game's 16:9 picture to cover the screen. Health bars, subtitles or maps near the edges can be cut off. A full-screen picture without cropping needs a patch for each game.
+ DM_SHOW_FPS	toggle	-	build:DM_SHOW_FPS	platform:ios	Game	Frame-rate counter
++DM_AUDIO_MIX	toggle	-	0	platform:ios	Game	Mix with other audio	Plays game audio alongside other apps instead of stopping them.
+ DM_TOUCH_HAPTICS	toggle	-	1	platform:ios	Controls	Touch feedback
+ DM_TOUCH_SIZE	choice	small=Small,medium=Medium,large=Large	medium	platform:ios	Controls	Size	The size of the on-screen controls. Controls move toward medium when a size does not fit the screen.
+ DM_TOUCH_STICK	choice	corner=Corner,higher=Higher,inward=Inward	corner	platform:ios	Controls	Left stick	Where the left stick of the on-screen controls sits.
+diff --git a/dm/ios/Sources/audio_session_policy.h b/dm/ios/Sources/audio_session_policy.h
+new file mode 100644
+index 000000000..90bbb287c
+--- /dev/null
++++ b/dm/ios/Sources/audio_session_policy.h
+@@ -0,0 +1,41 @@
++// Audio session policy for DM_AUDIO_MIX (LNPANDY/NX2Apple#1269):
++// Keep AVAudioSessionCategoryPlayback ignoring the hardware silent switch unchanged,
++// and opt into mixing with other apps only when DM_AUDIO_MIX is truthy.
++#pragma once
++#include <stdbool.h>
++#include <stdlib.h>
++
++static inline bool dm_audio_mix_enabled(const char *value) {
++    return value && atoi(value) != 0;
++}
++
++static inline bool dm_audio_mix_from_env(void) {
++    return dm_audio_mix_enabled(getenv("DM_AUDIO_MIX"));
++}
++
++static inline const char *dm_audio_mix_env_value(const char *value) {
++    return dm_audio_mix_enabled(value) ? "1" : "0";
++}
++
++static inline unsigned long dm_audio_session_category_options(const char *value, unsigned long mix_option_mask) {
++    return dm_audio_mix_enabled(value) ? mix_option_mask : 0UL;
++}
++
++#if defined(__OBJC__) && defined(__APPLE__)
++#include <TargetConditionals.h>
++#if TARGET_OS_IPHONE
++#import <AVFAudio/AVFAudio.h>
++
++static inline AVAudioSessionCategoryOptions dm_audio_session_options(const char *value) {
++    return (AVAudioSessionCategoryOptions)dm_audio_session_category_options(value, (unsigned long)AVAudioSessionCategoryOptionMixWithOthers);
++}
++
++static inline AVAudioSessionCategoryOptions dm_audio_session_options_from_env(void) {
++    return dm_audio_session_options(getenv("DM_AUDIO_MIX"));
++}
++
++static inline BOOL dm_audio_session_apply(AVAudioSession *session, const char *mix_value, NSError **out_error) {
++    return [session setCategory:AVAudioSessionCategoryPlayback withOptions:dm_audio_session_options(mix_value) error:out_error];
++}
++#endif
++#endif
+diff --git a/dm/ios/Sources/front_ios.m b/dm/ios/Sources/front_ios.m
+index b504c96c5..5ba4484d4 100644
+--- a/dm/ios/Sources/front_ios.m
++++ b/dm/ios/Sources/front_ios.m
+@@ -19,6 +19,7 @@
+ #import <GameController/GameController.h>
+ #import "CloudSaves.h"
+ #import "quit_prompt.h"
++#import "audio_session_policy.h"
+ 
+ void dm_gamepad_active(void);
+ void dm_gamepad_pads_read(void);
+@@ -30,6 +31,7 @@
+ 
+ void front_ios_boot(void);
+ int front_ios_boot_ok(void);
++void front_ios_audio_session(void);
+ const char *front_ios_boot_message(void);   // main.m: why a build that keeps the game files off the IPA found none usable (NULL = the generic hint)
+ const char *front_ios_device_check(void);   // main.m: why this device cannot run the games (its GPU has no BC textures; NULL = supported); makes the first Metal device
+ bool dm_show_launcher(void *view_controller, void (*done)(void));   // Launcher.swift: false = no launcher (no dm/launcher.json, or DM_LAUNCHER=0)
+@@ -318,6 +320,14 @@ bool dm_setting_live(const char *env, const char *value) {
+     if (!strcmp(env, "DM_SHOW_FPS")) { if (value) [g_root showFPS:atoi(value) != 0]; return true; }
+     if (!strcmp(env, "DM_TOUCH_HAPTICS")) { if (value) dm_gamepad_touch_feedback(atoi(value) != 0); return true; }
+     if (!strcmp(env, "DM_RUMBLE")) { if (value) { dm_haptics_set_enabled(atoi(value) != 0); LOG("front end: game rumble %s (in-game menu)", atoi(value) ? "on" : "off"); } return true; }
++    if (!strcmp(env, "DM_AUDIO_MIX")) {
++        if (value) {
++            setenv("DM_AUDIO_MIX", dm_audio_mix_env_value(value), 1);
++            front_ios_audio_session();
++            LOG("front end: audio mix %s (in-game menu)", dm_audio_mix_from_env() ? "on" : "off");
++        }
++        return true;
++    }
+     return false;
+ }
+ @implementation DmTVSceneDelegate
+@@ -523,17 +533,18 @@ void front_save_failed(int err) {
+ 
+ // Audio session: the frames RemoteIO asks for in each callback follow the I/O buffer duration, about 21 ms by default on iOS (1024 frames at 48 kHz). The game keeps only 4 blocks × 5 ms = 20 ms in flight,
+ // so every callback came up 1.3 ms short and was zero-filled, about 47 gaps per second (crackling; reproducible on the Mac by forcing 1024-frame callbacks: 1999 underruns in 2000 callbacks). Ask for 5 ms and the system picks the nearest it supports;
+-// the category is Playback, as a game's or media app's: the ring / silent switch does not mute it (the default SoloAmbient follows the switch, which silenced the game whenever the phone was on silent) and it still interrupts other apps' audio.
++// the category is Playback, as a game's or media app's: the ring / silent switch does not mute it (the default SoloAmbient follows the switch, which silenced the game whenever the phone was on silent) and it interrupts other apps' audio unless DM_AUDIO_MIX=1 opts into AVAudioSessionCategoryOptionMixWithOthers (cleared explicitly to 0 when off so a shared shell keeps each game's setting isolated).
+ // Set once at boot and again on return to the foreground (the system may reset it after an interruption)
+ static int g_session_off;   // the last activation failed (another app or a call still held the session): tried again when the app becomes active
+ void front_ios_audio_session(void) {
+     AVAudioSession *s = AVAudioSession.sharedInstance; NSError *e = nil;
+-    if (![s setCategory:AVAudioSessionCategoryPlayback error:&e]) LOG("[RED] audio session category could not be set: %s", e.localizedDescription.UTF8String);
++    const char *mix_env = getenv("DM_AUDIO_MIX");
++    if (!dm_audio_session_apply(s, mix_env, &e)) LOG("[RED] audio session category could not be set: %s", e.localizedDescription.UTF8String);
+     [s setPreferredSampleRate:48000 error:nil];
+     if (![s setPreferredIOBufferDuration:0.005 error:&e]) LOG("[RED] audio session I/O buffer duration could not be set: %s", e.localizedDescription.UTF8String);
+     g_session_off = ![s setActive:YES error:&e];
+     if (g_session_off) LOG("[RED] audio session activation failed: %s", e.localizedDescription.UTF8String);
+-    LOG("audio session: sample rate %.0f Hz, I/O buffer %.2f ms (asked for 5 ms)", s.sampleRate, s.IOBufferDuration * 1000);
++    LOG("audio session: sample rate %.0f Hz, I/O buffer %.2f ms (asked for 5 ms), mix %s", s.sampleRate, s.IOBufferDuration * 1000, dm_audio_mix_enabled(mix_env) ? "on" : "off");
+ }
+ 
+ // Real audio output is suspended (the silent sink paces the game) while the app is in the background or another audio session has interrupted ours (Siri, an alarm, a call).
+diff --git a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+index 87b3b1041..643c8b50a 100644
+--- a/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
++++ b/dm/ios/tests/duo/Sources/DuoRuntimeStubs.m
+@@ -107,6 +107,8 @@ void dm_haptics_apple_init(void) {}
+ void dm_haptics_apple_controller_locality(int player, GCController *controller, GCHapticsLocality locality) { (void)player; (void)controller; (void)locality; }
+ 
+ int front_web_touch(void) { return 0; }   // no offline web page above the synthetic game
++void front_web_close(void) {}
++void dm_host_teardown_for_shell(void) {}
+ int dm_locate_game_data(void) { return 1; }
+ const struct dm_profile *dm_profile(void) {
+     static const struct dm_profile profile = {.name = "DuoHarness", .pad_layout = DM_GAME_PAD_LAYOUT};
+diff --git a/dm/ios/tests/duo/Tests/DuoHarnessTests.m b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+index 7570ca076..0c965c746 100644
+--- a/dm/ios/tests/duo/Tests/DuoHarnessTests.m
++++ b/dm/ios/tests/duo/Tests/DuoHarnessTests.m
+@@ -1,4 +1,5 @@
+ #import <XCTest/XCTest.h>
++#import <AVFAudio/AVFAudio.h>
+ #import <GameController/GameController.h>
+ #import <QuartzCore/CAMetalLayer.h>
+ #import <objc/runtime.h>
+@@ -11,11 +12,13 @@
+ #endif
+ #import "DmLayout.h"
+ #import "DmGameMenu.h"
++#import "audio_session_policy.h"
+ #import "DuoHarnessRuntime.h"
+ #include "dm_input.h"
+ #include <math.h>
+ #include <stdio.h>
+ void front_picture_shape(int w, int h);   // front_ios.m (dm/host/front.h)
++void front_ios_audio_session(void);   // front_ios.m
+ 
+ static NSArray<GCController *> *gDuoHarnessControllers;
+ static BOOL gDuoHarnessControllerSwizzleInstalled;
+@@ -732,7 +735,7 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
+     [root.view layoutIfNeeded];
+     UIView *game = [root valueForKey:@"game"];
+     XCTAssertTrue(dm_setting_live("DM_PICTURE_FIT", NULL) && dm_setting_live("DM_OPMODE", NULL) && dm_setting_live("DM_RUMBLE", NULL)
+-                  && dm_setting_live("DM_SHOW_FPS", NULL) && dm_setting_live("DM_TOUCH_HAPTICS", NULL));
++                  && dm_setting_live("DM_SHOW_FPS", NULL) && dm_setting_live("DM_TOUCH_HAPTICS", NULL) && dm_setting_live("DM_AUDIO_MIX", NULL));
+     XCTAssertFalse(dm_setting_live("DM_LANG", NULL), @"A setting the game reads once at start is not offered");
+     XCTAssertFalse(dm_setting_live("DM_FPS_TARGET", NULL));
+ 
+@@ -754,6 +757,42 @@ - (void)testInGameMenuSettingsTakeEffectAtOnce {
+     dm_setting_live("DM_SHOW_FPS", "0"); XCTAssertTrue(fps.hidden);
+ }
+ 
++- (void)testAudioMixSettingUpdatesAudioSessionAndClearsOption {
++    UIViewController *root = [self harnessRootViewController];
++    XCTAssertNotNil(root);
++    [root.view layoutIfNeeded];
++
++    const char *prev = getenv("DM_AUDIO_MIX");
++    NSString *saved = prev ? @(prev) : nil;
++    @try {
++        unsetenv("DM_AUDIO_MIX");
++        front_ios_audio_session();
++        AVAudioSession *session = AVAudioSession.sharedInstance;
++        XCTAssertEqualObjects(session.category, AVAudioSessionCategoryPlayback);
++        XCTAssertEqual(session.categoryOptions & AVAudioSessionCategoryOptionMixWithOthers, (AVAudioSessionCategoryOptions)0);
++
++        XCTAssertTrue(dm_setting_live("DM_AUDIO_MIX", "1"));
++        XCTAssertTrue(dm_audio_mix_from_env());
++        XCTAssertEqualObjects(session.category, AVAudioSessionCategoryPlayback);
++        XCTAssertNotEqual(session.categoryOptions & AVAudioSessionCategoryOptionMixWithOthers, (AVAudioSessionCategoryOptions)0);
++
++        // Switching back to 0 must explicitly clear AVAudioSessionCategoryOptionMixWithOthers in the shared session
++        XCTAssertTrue(dm_setting_live("DM_AUDIO_MIX", "0"));
++        XCTAssertFalse(dm_audio_mix_from_env());
++        XCTAssertEqualObjects(session.category, AVAudioSessionCategoryPlayback);
++        XCTAssertEqual(session.categoryOptions & AVAudioSessionCategoryOptionMixWithOthers, (AVAudioSessionCategoryOptions)0);
++
++        XCTAssertTrue(dm_setting_live("DM_AUDIO_MIX", "2"));
++        XCTAssertNotEqual(session.categoryOptions & AVAudioSessionCategoryOptionMixWithOthers, (AVAudioSessionCategoryOptions)0);
++        XCTAssertTrue(dm_setting_live("DM_AUDIO_MIX", ""));
++        XCTAssertEqual(session.categoryOptions & AVAudioSessionCategoryOptionMixWithOthers, (AVAudioSessionCategoryOptions)0);
++    } @finally {
++        if (saved) setenv("DM_AUDIO_MIX", saved.UTF8String, 1);
++        else unsetenv("DM_AUDIO_MIX");
++        front_ios_audio_session();
++    }
++}
++
+ - (void)testGameViewDrawableHonoursAPixelCap {
+     UIViewController *root = [self harnessRootViewController];
+     [root.view layoutIfNeeded];
+diff --git a/dm/ios/tests/test_audio_session_policy.py b/dm/ios/tests/test_audio_session_policy.py
+new file mode 100644
+index 000000000..270855c9a
+--- /dev/null
++++ b/dm/ios/tests/test_audio_session_policy.py
+@@ -0,0 +1,108 @@
++"""Regression tests for DM_AUDIO_MIX policy helpers in dm/ios/Sources/audio_session_policy.h."""
++import shutil
++import subprocess
++import sys
++import tempfile
++import unittest
++from pathlib import Path
++
++IOS_SOURCES = Path(__file__).resolve().parents[1] / "Sources"
++
++
++@unittest.skipUnless(shutil.which("cc") or shutil.which("clang"), "needs a C compiler")
++class AudioSessionPolicyTests(unittest.TestCase):
++    def test_c_policy_values_env_and_option_clearing(self):
++        compiler = shutil.which("clang") or shutil.which("cc")
++        source = r'''
++#include <assert.h>
++#include <stdlib.h>
++#include <string.h>
++#include "audio_session_policy.h"
++
++int main(void) {
++    assert(!dm_audio_mix_enabled(NULL));
++    assert(!dm_audio_mix_enabled(""));
++    assert(!dm_audio_mix_enabled("0"));
++    assert(!dm_audio_mix_enabled("00"));
++    assert(!dm_audio_mix_enabled("off"));
++    assert(dm_audio_mix_enabled("1"));
++    assert(dm_audio_mix_enabled("2"));
++    assert(dm_audio_mix_enabled("-1"));
++
++    assert(strcmp(dm_audio_mix_env_value(NULL), "0") == 0);
++    assert(strcmp(dm_audio_mix_env_value("0"), "0") == 0);
++    assert(strcmp(dm_audio_mix_env_value("1"), "1") == 0);
++    assert(strcmp(dm_audio_mix_env_value("2"), "1") == 0);
++
++    const unsigned long mix_bit = 0x1UL;
++    assert(dm_audio_session_category_options("1", mix_bit) == mix_bit);
++    assert(dm_audio_session_category_options("0", mix_bit) == 0UL);
++    assert(dm_audio_session_category_options(NULL, mix_bit) == 0UL);
++
++    unsetenv("DM_AUDIO_MIX");
++    assert(!dm_audio_mix_from_env());
++    assert(dm_audio_session_category_options(getenv("DM_AUDIO_MIX"), mix_bit) == 0UL);
++
++    setenv("DM_AUDIO_MIX", "1", 1);
++    assert(dm_audio_mix_from_env());
++    assert(dm_audio_session_category_options(getenv("DM_AUDIO_MIX"), mix_bit) == mix_bit);
++
++    setenv("DM_AUDIO_MIX", "0", 1);
++    assert(!dm_audio_mix_from_env());
++    assert(dm_audio_session_category_options(getenv("DM_AUDIO_MIX"), mix_bit) == 0UL);
++    return 0;
++}
++'''
++        with tempfile.TemporaryDirectory() as tmp:
++            c_path = Path(tmp) / "test_policy.c"
++            exe = Path(tmp) / "test_policy"
++            c_path.write_text(source)
++            subprocess.run(
++                [compiler, "-Wall", "-Werror", "-I", str(IOS_SOURCES), str(c_path), "-o", str(exe)],
++                check=True,
++            )
++            subprocess.run([str(exe)], check=True)
++
++    @unittest.skipUnless(sys.platform == "darwin" and shutil.which("xcrun"), "needs macOS Xcode toolchain")
++    def test_ios_objc_helpers_typecheck_against_avfaudio(self):
++        sdk = subprocess.run(
++            ["xcrun", "--sdk", "iphonesimulator", "--show-sdk-path"],
++            capture_output=True,
++            text=True,
++        )
++        if sdk.returncode != 0 or not sdk.stdout.strip():
++            self.skipTest("iphonesimulator SDK not installed")
++        sdk_path = sdk.stdout.strip()
++        source = r'''
++#import <AVFAudio/AVFAudio.h>
++#include "audio_session_policy.h"
++
++BOOL exercise_audio_policy(AVAudioSession *session, NSError **error) {
++    AVAudioSessionCategoryOptions opts_on = dm_audio_session_options("1");
++    AVAudioSessionCategoryOptions opts_off = dm_audio_session_options("0");
++    AVAudioSessionCategoryOptions opts_env = dm_audio_session_options_from_env();
++    (void)opts_env;
++    if ((opts_on & AVAudioSessionCategoryOptionMixWithOthers) == 0) return NO;
++    if (opts_off != 0) return NO;
++    return dm_audio_session_apply(session, getenv("DM_AUDIO_MIX"), error);
++}
++'''
++        with tempfile.TemporaryDirectory() as tmp:
++            m_path = Path(tmp) / "test_objc_policy.m"
++            obj_path = Path(tmp) / "test_objc_policy.o"
++            m_path.write_text(source)
++            subprocess.run(
++                [
++                    "xcrun", "--sdk", "iphonesimulator", "clang",
++                    "-target", "arm64-apple-ios17.0-simulator",
++                    "-isysroot", sdk_path,
++                    "-fobjc-arc", "-Wall", "-Werror", "-c",
++                    "-I", str(IOS_SOURCES),
++                    str(m_path), "-o", str(obj_path),
++                ],
++                check=True,
++            )
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/dm/tools/tests/test_launcher_settings.py b/dm/tools/tests/test_launcher_settings.py
+index c796c51b4..03d7a4bdf 100644
+--- a/dm/tools/tests/test_launcher_settings.py
++++ b/dm/tools/tests/test_launcher_settings.py
+@@ -108,7 +108,11 @@ class LauncherSettingsTests(unittest.TestCase):
+     def test_iphone_switches_only_on_the_iphone(self):   # the frame-rate counter and touch feedback are the iOS front end's (front_ios.m, DmGamepad.m)
+         ios, mac = build(BOTW, 'nvn'), build(BOTW, 'nvn', 'mac')
+         self.assertEqual(build(BOTW, 'nvn', 'ios').keys(), ios.keys())   # ios when unset
+-        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_TOUCH_HAPTICS', 'DM_PICTURE_FIT', 'DM_TOUCH_SIZE', 'DM_TOUCH_STICK'})
++        self.assertEqual(set(ios) - set(mac), {'DM_SHOW_FPS', 'DM_AUDIO_MIX', 'DM_TOUCH_HAPTICS', 'DM_PICTURE_FIT', 'DM_TOUCH_SIZE', 'DM_TOUCH_STICK'})
++        mix = ios['DM_AUDIO_MIX']
++        self.assertEqual((mix['kind'], mix['default'], mix['section'], mix['on'], mix['off'], mix['label']),
++                         ('toggle', '0', 'Game', '1', '0', 'Mix with other audio'))
++        self.assertNotIn(';', mix.get('note', ''))
+         self.assertIn('DM_RUMBLE', mac); self.assertIn('DM_METAL_HUD', mac)
+         self.assertEqual(set(mac) - set(ios), {'DM_FULLSCREEN', 'DM_SW2'})   # the Mac window's Display mode (front_mac.m reads 1 or 0); Switch 2 controllers (pad_switch2_apple.m, wired on the Mac only)
+         s = mac['DM_FULLSCREEN']
+diff --git a/dm/tools/tests/test_player_env.py b/dm/tools/tests/test_player_env.py
+index a62565e42..f0b35cac8 100644
+--- a/dm/tools/tests/test_player_env.py
++++ b/dm/tools/tests/test_player_env.py
+@@ -15,7 +15,7 @@ int main(void) {
+  const char *drop[]={"DM_NVN_CPUPROF","DM_NVN_TSV","DM_NVN_PASSDUMP_ALL",
+    "DM_NVN_GEOMETRY_PACK","DM_NVN_SHMAP","DM_NVN_ZBLOCK","DM_NVN_ENC_THREAD_PROBE","DM_CTL",
+    "DM_TEST_UP_LOST","MTL_DEBUG_LAYER","MTL_SHADER_VALIDATION","DM_MSL_DIR"};
+- const char *keep[]={"DM_SHOW_FPS","DM_METAL_HUD","MTL_HUD_ENABLED",
++ const char *keep[]={"DM_SHOW_FPS","DM_AUDIO_MIX","DM_METAL_HUD","MTL_HUD_ENABLED",
+    "DM_FPS_TARGET","DM_DYNAMIC_RESOLUTION","DM_OPMODE","DM_RENDER_SCALE","DM_LANG","DM_RT",
+    "DM_TOUCH_HAPTICS","DM_RUMBLE","DM_SAVE","DM_ROMFS","DM_NVN_ENC_THREAD"};
+  for(unsigned i=0;i<sizeof drop/sizeof *drop;i++)assert(dm_player_diagnostic_key(drop[i]));
+diff --git a/docs/settings.md b/docs/settings.md
+index 051bd255f..5af76cf9a 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -3,7 +3,7 @@
+ The screen before the game starts shows the settings the game supports. A setting that only matters while another is on appears under it and disappears when that one is turned off. Tap **Play** to start; the app remembers your choices for the next start. All settings are on one scrollable screen, under **Game**, **Controls** and **Performance**. Tap a menu or move a slider there; no settings page needs opening. **Upscaling** is in **Game**, beside **Console mode**. A Mac app shows the same settings in a [window of its own](#the-mac-settings-window).
+ 
+ - [Tested defaults](#tested-defaults)
+-- [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game's upscaler](#games-upscaler), [Game language](#game-language), [Picture](#picture), [Frame-rate counter](#frame-rate-counter)
++- [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game's upscaler](#games-upscaler), [Game language](#game-language), [Picture](#picture), [Frame-rate counter](#frame-rate-counter), [Mix with other audio](#mix-with-other-audio)
+ - [Controls](#controls): [Touch feedback](#touch-feedback), [Touch controls size and left stick](#touch-controls-size-and-left-stick), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength), [Rumble cutoff](#rumble-cutoff), [Press a button to join](#press-a-button-to-join)
+ - [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Shader prefetch](#shader-prefetch), [Downsample HDR textures](#downsample-hdr-textures), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
+ - [The Mac settings window](#the-mac-settings-window): [Display mode](#display-mode)
+@@ -93,6 +93,10 @@ Games whose profile supports it (Breath of the Wild, Animal Crossing: New Horizo
+ 
+ Shows the frames per second at the top left.
+ 
++### Mix with other audio
++
++Off by default: the game pauses audio from other apps such as music or podcasts. Turn it on to keep other apps playing alongside the game. Either way, game audio still plays when the silent switch is on.
++
+ ## Controls
+ 
+ ### Touch feedback
+@@ -240,7 +244,7 @@ Sets every setting back to the game's tested default; **Play** then forgets your
+ 
+ ## The Mac settings window
+ 
+-A Mac app ([A Mac app](development.md#a-mac-app)) shows its settings in a window before the game starts. They are the same settings as on the iPhone, with the same defaults. The window shows the most used ones first: **Frame rate**, **Render scale**, **Console mode**, **Game language**, **Display mode** and **Game rumble**, when the game has them. **Render scale** shows the picture's size in pixels beside the percentage for the chosen **Console mode**, when the game's profile has it (Breath of the Wild: 1600 × 900 docked, 1280 × 720 handheld at 100 %). The others are under **Advanced settings**, in the usual sections, with **Reset to tested defaults**. The window remembers whether Advanced settings is open. **Frame-rate counter** and **Touch feedback** are only on the iPhone.
++A Mac app ([A Mac app](development.md#a-mac-app)) shows its settings in a window before the game starts. They are the same settings as on the iPhone, with the same defaults. The window shows the most used ones first: **Frame rate**, **Render scale**, **Console mode**, **Game language**, **Display mode** and **Game rumble**, when the game has them. **Render scale** shows the picture's size in pixels beside the percentage for the chosen **Console mode**, when the game's profile has it (Breath of the Wild: 1600 × 900 docked, 1280 × 720 handheld at 100 %). The others are under **Advanced settings**, in the usual sections, with **Reset to tested defaults**. The window remembers whether Advanced settings is open. **Frame-rate counter**, **Mix with other audio** and **Touch feedback** are only on the iPhone.
+ 
+ Click **Play** (or press Return) to start the game. **Quit**, ⌘Q or closing the window ends the app without the game. The app remembers your choices for that game, and a game started without the window, from a front end or with the window turned off, uses them too ([Saved choices](frontends.md#saved-choices)). A setting fixed by an `env.txt` or by the program that started the app is shown greyed out.
+ 
+@@ -270,7 +274,7 @@ iCloud Drive takes a moment to carry a file from one device to the other. Quit t
+ 
+ ## In-game menu
+ 
+-On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. With a physical controller connected on the device screen, the gear fades out after 3 idle seconds and returns for 3 seconds when you touch the screen. It holds **Console mode**, **Picture** and the **Frame-rate counter**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
++On the iPhone and iPad the gear at the top centre of the touch controls opens a menu while the game runs. With a physical controller connected on the device screen, the gear fades out after 3 idle seconds and returns for 3 seconds when you touch the screen. It holds **Console mode**, **Picture**, the **Frame-rate counter** and **Mix with other audio**, then **Controller layout** (**2D**, **3D**, and **Tap**, no controls and every touch to the game, in handheld mode), **Touch feedback** and **Game rumble**: the settings that take effect at once. A choice opens to show its options, the current one ticked. The menu's text keeps one size whatever the system text size, so it stays short over the game. A change is remembered as on the settings screen, which shows it at the next start; a setting `Documents/env.txt` fixes is shown, not changed. The other settings need the game to start again, so they are only on the settings screen: close the app fully and open it again.
+ 
+ Console mode changes as on a Switch put in or taken out of its dock. While a TV shows the game it stays **Docked**, and the mode you pick applies when the TV is disconnected. **Docked** removes the Tap layout, as a docked Switch reads no touch screen.
+ 
+@@ -294,6 +298,7 @@ A line like `DM_PRESENT_SNAP=0` in `Documents/env.txt` (in the Files app, under
+ | Picture (iPhone and iPad) | `DM_PICTURE_FIT` | `fit` 16:9 with black bars, `fill` covers the screen, cropped |
+ | Picture shape | `DM_SCREEN_ASPECT` | `auto` the app window's own shape where it is taller than 16:9 (iPad 4:3, iPhone Duo 1.43:1), else 16:9 (iOS only); `1.43` the iPhone Duo's shape, `0` 16:9 |
+ | Frame-rate counter | `DM_SHOW_FPS` | `1`, `0` |
++| Mix with other audio | `DM_AUDIO_MIX` | `1`, `0` |
+ | Touch feedback | `DM_TOUCH_HAPTICS` | `1`, `0` |
+ | Touch controls size | `DM_TOUCH_SIZE` | `small`, `medium`, `large` |
+ | Left stick of the touch controls | `DM_TOUCH_STICK` | `corner`, `higher`, `inward` |

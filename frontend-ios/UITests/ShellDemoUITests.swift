@@ -442,6 +442,30 @@ import XCTest
         XCTAssertTrue(app.buttons["touchLayout.options"].waitForExistence(timeout: 5))
     }
 
+    func testAudioMixSwitchTogglesAndPersistsInSettings() {
+        XCUIDevice.shared.orientation = .portrait
+        launch("shell-settings")
+        let audioMix = app.switches["setting.shell.audioMix"].firstMatch
+        reveal(audioMix)
+        XCTAssertTrue(audioMix.waitForExistence(timeout: 5))
+        if (audioMix.value as? String) == "1" {
+            audioMix.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+            XCTAssertEqual(audioMix.value as? String, "0")
+        }
+        XCTAssertEqual(audioMix.value as? String, "0")
+        audioMix.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(audioMix.value as? String, "1")
+
+        app.terminate()
+        launch("shell-settings")
+        let reopened = app.switches["setting.shell.audioMix"].firstMatch
+        reveal(reopened)
+        XCTAssertTrue(reopened.waitForExistence(timeout: 5))
+        XCTAssertEqual(reopened.value as? String, "1")
+        reopened.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+        XCTAssertEqual(reopened.value as? String, "0")
+    }
+
     // Run on a standard iPhone: editing follows gameplay's landscape-only policy.
     func testPhoneEditorOpensLandscapeAndRestoresPortraitBrowsing() {
         XCUIDevice.shared.orientation = .portrait

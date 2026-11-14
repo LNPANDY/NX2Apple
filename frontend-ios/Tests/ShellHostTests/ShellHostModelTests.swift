@@ -410,6 +410,40 @@ final class Clock: @unchecked Sendable { var date: Date; init(_ d: Date) { date 
         #expect(launcher.launched.last?.environment["DM_METAL_HUD"] == "0")
     }
 
+    @Test func audioMixFollowsGameOverShellOverBuiltIn() async throws {
+        let box = try Sandbox()
+        try box.giveAppData()
+        let shell = shellSettings()
+        let launcher = RecordingLauncher()
+        let model = ShellHostModel(config: box.config(), launcher: launcher, shellSettings: shell)
+
+        // Built-in default stays off when both game and shell leave DM_AUDIO_MIX unset.
+        await model.playNow(Fixtures.orbit)
+        let offGame = try #require(launcher.launched.last)
+        #expect(offGame.environment["DM_AUDIO_MIX"] == nil)
+        #expect(EngineLaunchPlan.make(game: offGame, appResources: box.root, documents: box.root, envFileText: nil).environment["DM_AUDIO_MIX"] == nil)
+
+        // Shell setting applies DM_AUDIO_MIX=1 when game env leaves it alone.
+        shell.storeAudioMix(true)
+        await model.playNow(Fixtures.orbit)
+        let shellOnGame = try #require(launcher.launched.last)
+        #expect(shellOnGame.environment["DM_AUDIO_MIX"] == "1")
+        #expect(EngineLaunchPlan.make(game: shellOnGame, appResources: box.root, documents: box.root, envFileText: nil).environment["DM_AUDIO_MIX"] == "1")
+
+        // Game env.txt "0" overrides shell "1".
+        try FileManager.default.createDirectory(at: shellOnGame.appFolder, withIntermediateDirectories: true)
+        try "DM_AUDIO_MIX=0\n".write(to: shellOnGame.appFolder.appendingPathComponent("env.txt"), atomically: true, encoding: .utf8)
+        #expect(EngineLaunchPlan.make(game: shellOnGame, appResources: box.root, documents: box.root, envFileText: nil).environment["DM_AUDIO_MIX"] == "0")
+
+        // Game env.txt "1" overrides shell off.
+        shell.storeAudioMix(false)
+        await model.playNow(Fixtures.orbit)
+        let shellOffGame = try #require(launcher.launched.last)
+        #expect(shellOffGame.environment["DM_AUDIO_MIX"] == nil)
+        try "DM_AUDIO_MIX=1\n".write(to: shellOffGame.appFolder.appendingPathComponent("env.txt"), atomically: true, encoding: .utf8)
+        #expect(EngineLaunchPlan.make(game: shellOffGame, appResources: box.root, documents: box.root, envFileText: nil).environment["DM_AUDIO_MIX"] == "1")
+    }
+
     @Test func aChangedShellOverlayChoiceUpdatesTheDetails() throws {
         let box = try Sandbox()
         try giveOrbitAnOverlayRow(box)
